@@ -1,0 +1,30 @@
+# Build
+/build/
+
+# Node
+node_modules/
+.yarn/*
+.pnp.*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# Development
+_test/
+/.swc/
+/.vscode-server/
+/.vscode/
+/coverage/
+/ssl/
+/volumes/
+/.env*
+/compose*.yml
+/next-env.d.ts
+debug.log
+
+#### OS
+Thumbs.db
+.DS_Store
+._.DS_Store
