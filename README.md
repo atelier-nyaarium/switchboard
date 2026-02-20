@@ -24,7 +24,7 @@ The router listens on port 5678 and uses the external network `agent-team-bridge
 
 ## Setup
 
-**1. Append to Devcontainer Dockerfile:**
+**1. Append to the Devcontainer's Dockerfile:**
 
 ```dockerfile
 # Agent Team Bridge
@@ -33,7 +33,7 @@ RUN git clone --depth 1 https://github.com/atelier-nyaarium/agent-team-bridge.gi
     && cd /agent-team-bridge/mcp && npm i --silent
 ```
 
-**2. Start Devcontainer, then run:**
+**2. Build and start the Devcontainer, then run:**
 
 ```bash
 /agent-team-bridge/install.sh
