@@ -1,8 +1,7 @@
-version: "3.8"
-
 services:
   router:
-    build: ./
+    build: ./router
+    hostname: agent-team-bridge
     container_name: agent-team-bridge
     ports:
       - "5678:5678"
@@ -15,4 +14,4 @@ services:
 networks:
   agent-team-bridge-network:
     name: agent-team-bridge
-    driver: bridge
+    external: true

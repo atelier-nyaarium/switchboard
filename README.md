@@ -8,6 +8,16 @@ Teams register with a central router over WebSocket. Any agent can call `bridge_
 
 See `skill-bridge.md` for the full tool reference and response format.
 
+## Starting the router
+
+From the repo root:
+
+```bash
+docker compose up -d
+```
+
+The router listens on port 5678 and uses the external network `agent-team-bridge`.
+
 ## Setup
 
 **1. Append to Devcontainer Dockerfile:**
