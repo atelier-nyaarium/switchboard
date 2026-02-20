@@ -110,7 +110,7 @@ fi
 
 echo "── .claude/skills/bridge.md"
 
-mkdir -p .claude/skills
+mkdir -p .claude/skills/agent-team-bridge
 cp "${BRIDGE_ROOT}/mcp/skill-bridge.md" .claude/skills/agent-team-bridge/SKILL.md
 echo "   Copied skill template"
 
