@@ -99,6 +99,22 @@ wss.on("connection", (ws) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /pending — list pending callbacks (for debugging)
+// ---------------------------------------------------------------------------
+app.get("/pending", (_req, res) => {
+	const list = [];
+	for (const [id, entry] of pendingCallbacks) {
+		list.push({
+			callback_id: id,
+			from: entry.from,
+			to: entry.to,
+			subject: entry.subject || "(no subject)",
+		});
+	}
+	res.json(list);
+});
+
+// ---------------------------------------------------------------------------
 // GET /teams — discovery endpoint
 // ---------------------------------------------------------------------------
 app.get("/teams", (_req, res) => {
@@ -155,7 +171,7 @@ app.post("/send", async (req, res) => {
 				});
 			}, RESPONSE_TIMEOUT_MS);
 
-			pendingCallbacks.set(callbackId, { resolve, timer });
+			pendingCallbacks.set(callbackId, { resolve, timer, from, to, subject });
 		});
 
 		// Push message down the target's WebSocket
