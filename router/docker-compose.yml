@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  router:
+    build: ./
+    container_name: agent-team-bridge
+    ports:
+      - "5678:5678"
+    environment:
+      - PORT=5678
+      - RESPONSE_TIMEOUT_MS=600000
+    networks:
+      - bridge-network
+
+networks:
+  bridge-network:
+    name: agent-team-bridge
+    driver: bridge
