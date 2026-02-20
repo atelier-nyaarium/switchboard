@@ -70,7 +70,27 @@ const pendingCallbacks = new Map(); // callback_id → { resolve, timer }
 const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 
+// Heartbeat — ping all clients every 30s. Any socket that doesn't pong back
+// within the interval is terminated, triggering the normal close handler and
+// removing the team from the registry.
+const HEARTBEAT_INTERVAL_MS = 30000;
+setInterval(() => {
+	for (const ws of wss.clients) {
+		if (!ws.isAlive) {
+			ws.terminate();
+			return;
+		}
+		ws.isAlive = false;
+		ws.ping();
+	}
+}, HEARTBEAT_INTERVAL_MS);
+
 wss.on("connection", (ws) => {
+	ws.isAlive = true;
+	ws.on("pong", () => {
+		ws.isAlive = true;
+	});
+
 	let teamName = null;
 
 	ws.on("message", (raw) => {
