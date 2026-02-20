@@ -1,7 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { spawn } from "child_process";
+import { spawn, execSync } from "child_process";
 import crypto from "crypto";
+import os from "os";
 import WebSocket from "ws";
 import { z } from "zod";
 
@@ -40,6 +41,32 @@ async function runAgent(command, args, input) {
 		env.PATH = [env.PATH, extra].filter(Boolean).join(process.platform === "win32" ? ";" : ":");
 	}
 
+	let whichCmd = "(not run)";
+	try {
+		whichCmd =
+			process.platform === "win32"
+				? execSync("where claude 2>nul", { encoding: "utf8", env, timeout: 2000 }).trim() || "(not found)"
+				: execSync("which claude 2>/dev/null || echo '(not found)'", { encoding: "utf8", env, timeout: 2000 }).trim();
+	} catch (_) {
+		whichCmd = "(which failed)";
+	}
+
+	let process_owner = process.env.USER ?? process.env.LOGNAME ?? "?";
+	let process_uid;
+	try {
+		const ui = os.userInfo();
+		process_owner = ui.username ?? process_owner;
+		process_uid = ui.uid;
+	} catch (_) {}
+	await logIngest("agent_env_diagnostic", {
+		process_owner,
+		process_uid,
+		cwd: process.cwd(),
+		home: env.HOME ?? env.USERPROFILE ?? "(unset)",
+		PATH: (env.PATH || "").slice(0, 500),
+		which_claude: whichCmd,
+		cmd: command,
+	});
 	await logIngest("spawn attempt", {
 		HOME: process.env.HOME ?? undefined,
 		PATH_prefix: (env.PATH || "").slice(0, 200),
@@ -71,10 +98,17 @@ async function runAgent(command, args, input) {
 			proc.stdin.end();
 		}
 
-		proc.on("close", (code) => {
+		proc.on("close", async (code) => {
 			if (code === 0) {
 				resolve(stdout.trim());
 			} else {
+				// #region agent log
+				await logIngest("agent_exit_nonzero", {
+					code,
+					stderr: stderr.slice(-1000),
+					stdout_tail: stdout.trim().slice(-500),
+				});
+				// #endregion
 				reject(new Error(`Agent exited ${code}: ${stderr.trim()}`));
 			}
 		});
@@ -295,11 +329,17 @@ let routerWs = null;
 
 function connectToRouter() {
 	const wsUrl = ROUTER_URL.replace(/^http/, "ws");
+	// #region agent log
+	logIngest("ws_connect_attempt", { url: wsUrl, team: TEAM_NAME }).catch(() => {});
+	// #endregion
 	routerWs = new WebSocket(wsUrl);
 
 	routerWs.on("open", () => {
 		console.error(`[bridge-mcp] connected to router`);
 		routerWs.send(JSON.stringify({ type: "register", team: TEAM_NAME }));
+		// #region agent log
+		logIngest("ws_registered", { team: TEAM_NAME }).catch(() => {});
+		// #endregion
 	});
 
 	routerWs.on("message", (raw) => {
@@ -318,11 +358,17 @@ function connectToRouter() {
 	});
 
 	routerWs.on("close", () => {
+		// #region agent log
+		logIngest("ws_close", { team: TEAM_NAME }).catch(() => {});
+		// #endregion
 		console.error(`[bridge-mcp] disconnected, reconnecting in 2s...`);
 		setTimeout(connectToRouter, 2000);
 	});
 
 	routerWs.on("error", (err) => {
+		// #region agent log
+		logIngest("ws_error", { message: err.message, team: TEAM_NAME }).catch(() => {});
+		// #endregion
 		console.error(`[bridge-mcp] ws error: ${err.message}`);
 	});
 }
