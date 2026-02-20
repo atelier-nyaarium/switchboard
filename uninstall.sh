@@ -22,8 +22,8 @@ log "── Removing Agent Team Bridge configuration..."
 # ═════════════════════════════════════════════════════════════════════════════
 
 if [[ -f ".mcp.json" ]]; then
-    if jq -e '.mcpServers.bridge.env._marker // empty | test("agent-team-bridge:")' .mcp.json &>/dev/null; then
-        jq 'del(.mcpServers.bridge)' .mcp.json > .mcp.json.tmp
+    if jq -e '.mcpServers["agent-team-bridge"].env._marker // empty | test("agent-team-bridge:")' .mcp.json &>/dev/null; then
+        jq 'del(.mcpServers["agent-team-bridge"])' .mcp.json > .mcp.json.tmp
         mv .mcp.json.tmp .mcp.json
 
         # If mcpServers is now empty, remove the file
@@ -31,7 +31,7 @@ if [[ -f ".mcp.json" ]]; then
             rm .mcp.json
             log "   .mcp.json removed (was empty)"
         else
-            log "   .mcp.json — removed bridge entry"
+            log "   .mcp.json — removed agent-team-bridge entry"
         fi
     fi
 fi

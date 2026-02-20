@@ -5,7 +5,7 @@ description: Cross-team communication for agent teams. Use when another team's w
 
 # Agent Team Bridge
 
-You have access to cross-team communication tools via the `bridge` MCP server.
+You have access to cross-team communication tools via the `agent-team-bridge` MCP server.
 Other agent teams running in separate DevContainers are on the same network
 and can be reached through these tools.
 

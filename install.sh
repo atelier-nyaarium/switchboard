@@ -96,11 +96,11 @@ MCPJSON
 )
 
 if [[ -f ".mcp.json" ]]; then
-    jq --argjson bridge "$BRIDGE_MCP_ENTRY" '.mcpServers.bridge = $bridge' .mcp.json > .mcp.json.tmp
+    jq --argjson entry "$BRIDGE_MCP_ENTRY" '.mcpServers["agent-team-bridge"] = $entry' .mcp.json > .mcp.json.tmp
     mv .mcp.json.tmp .mcp.json
     echo "   Updated existing .mcp.json"
 else
-    jq -n --argjson bridge "$BRIDGE_MCP_ENTRY" '{ mcpServers: { bridge: $bridge } }' > .mcp.json
+    jq -n --argjson entry "$BRIDGE_MCP_ENTRY" '{ mcpServers: { "agent-team-bridge": $entry } }' > .mcp.json
     echo "   Created .mcp.json"
 fi
 

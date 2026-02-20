@@ -304,7 +304,7 @@ async function routerGet(path) {
 // MCP Tools — exposed to the main agent session via stdio
 // ---------------------------------------------------------------------------
 const server = new McpServer({
-	name: "bridge",
+	name: "agent-team-bridge",
 	version: "0.2.0",
 });
 
