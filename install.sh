@@ -139,23 +139,22 @@ else
     else
         echo "   Detected service: ${SERVICE_NAME}"
 
-        # Top-level external network definition
+        # Network: auto-created on first compose up
         yq -Y -i "
-            .networks.\"bridge-net\".external = true |
-            .networks.\"bridge-net\".name = \"${NETWORK_NAME}\" |
-            .networks.\"bridge-net\".\"x-marker\" = \"${BRIDGE_MARKER}\"
+            .networks.\"agent-team-bridge-network\".name = \"${NETWORK_NAME}\" |
+            .networks.\"agent-team-bridge-network\".\"x-marker\" = \"${BRIDGE_MARKER}\"
         " "$COMPOSE_FILE"
 
         # Add to service's network list
         HAS_NETWORKS=$(yq -r ".services.\"${SERVICE_NAME}\".networks" "$COMPOSE_FILE" 2>/dev/null)
 
         if [[ "$HAS_NETWORKS" == "null" ]]; then
-            yq -Y -i ".services.\"${SERVICE_NAME}\".networks = [\"bridge-net\"]" "$COMPOSE_FILE"
+            yq -Y -i ".services.\"${SERVICE_NAME}\".networks = [\"agent-team-bridge-network\"]" "$COMPOSE_FILE"
         else
-            yq -Y -i ".services.\"${SERVICE_NAME}\".networks += [\"bridge-net\"]" "$COMPOSE_FILE"
+            yq -Y -i ".services.\"${SERVICE_NAME}\".networks += [\"agent-team-bridge-network\"]" "$COMPOSE_FILE"
         fi
 
-        echo "   Added bridge-net to ${COMPOSE_FILE}"
+        echo "   Added agent-team-bridge-network to ${COMPOSE_FILE}"
     fi
 fi
 
@@ -165,6 +164,6 @@ echo ""
 echo "✓ Installed for ${TEAM_NAME}"
 echo ""
 echo "  Next steps:"
-echo "  1. docker network create ${NETWORK_NAME}    (if not already created)"
-echo "  2. Start bridge router                       (see bridge repo docker-compose.yml)"
-echo "  3. Rebuild your DevContainer"
+echo "  1. Double check your .devcontainer/compose.yml file. `yq` unfortunately does't preserve comments."
+echo "  2. Rebuild your Devcontainer."
+echo "  3. If you already haven't, start the team bridge router."

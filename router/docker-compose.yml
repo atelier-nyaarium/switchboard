@@ -10,9 +10,9 @@ services:
       - PORT=5678
       - RESPONSE_TIMEOUT_MS=600000
     networks:
-      - bridge-network
+      - agent-team-bridge-network
 
 networks:
-  bridge-network:
+  agent-team-bridge-network:
     name: agent-team-bridge
     driver: bridge

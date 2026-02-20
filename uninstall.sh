@@ -48,7 +48,7 @@ fi
 rmdir .claude/skills 2>/dev/null || true
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 3. .devcontainer/compose.yml — remove bridge-net network
+# 3. .devcontainer/compose.yml — remove agent-team-bridge-network
 # ═════════════════════════════════════════════════════════════════════════════
 
 COMPOSE_FILE=""
@@ -60,14 +60,14 @@ for candidate in ".devcontainer/compose.yml" ".devcontainer/compose.yaml" ".devc
 done
 
 if [[ -n "$COMPOSE_FILE" ]] && command -v yq &>/dev/null; then
-    if yq -e '.networks."bridge-net"."x-marker" // "" | test("agent-team-bridge:")' "$COMPOSE_FILE" &>/dev/null; then
+    if yq -e '.networks."agent-team-bridge-network"."x-marker" // "" | test("agent-team-bridge:")' "$COMPOSE_FILE" &>/dev/null; then
 
-        # Remove bridge-net from all services' network lists
+        # Remove agent-team-bridge-network from all services' network lists
         SERVICES=$(yq -r '.services | keys | .[]' "$COMPOSE_FILE" 2>/dev/null)
         for svc in $SERVICES; do
             yq -Y -i "
                 .services.\"${svc}\".networks = (
-                    .services.\"${svc}\".networks // [] | map(select(. != \"bridge-net\"))
+                    .services.\"${svc}\".networks // [] | map(select(. != \"agent-team-bridge-network\"))
                 ) |
                 if .services.\"${svc}\".networks | length == 0
                 then del(.services.\"${svc}\".networks)
@@ -75,13 +75,14 @@ if [[ -n "$COMPOSE_FILE" ]] && command -v yq &>/dev/null; then
             " "$COMPOSE_FILE"
         done
 
-        # Remove top-level bridge-net
-        yq -Y -i 'del(.networks."bridge-net")' "$COMPOSE_FILE"
+        # Remove top-level agent-team-bridge-network
+        yq -Y -i 'del(.networks."agent-team-bridge-network")' "$COMPOSE_FILE"
         yq -Y -i 'if .networks | length == 0 then del(.networks) else . end' "$COMPOSE_FILE"
 
-        log "   ${COMPOSE_FILE} — removed bridge-net"
+        log "   ${COMPOSE_FILE} — removed agent-team-bridge-network"
     fi
 fi
 
 log ""
 log "✓ Agent Team Bridge configuration removed."
+log "Double check your .devcontainer/compose.yml file. `yq` unfortunately does't preserve comments."
