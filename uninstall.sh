@@ -65,7 +65,7 @@ if [[ -n "$COMPOSE_FILE" ]] && command -v yq &>/dev/null; then
         # Remove bridge-net from all services' network lists
         SERVICES=$(yq -r '.services | keys | .[]' "$COMPOSE_FILE" 2>/dev/null)
         for svc in $SERVICES; do
-            yq -i "
+            yq -Y -i "
                 .services.\"${svc}\".networks = (
                     .services.\"${svc}\".networks // [] | map(select(. != \"bridge-net\"))
                 ) |
@@ -76,8 +76,8 @@ if [[ -n "$COMPOSE_FILE" ]] && command -v yq &>/dev/null; then
         done
 
         # Remove top-level bridge-net
-        yq -i 'del(.networks."bridge-net")' "$COMPOSE_FILE"
-        yq -i 'if .networks | length == 0 then del(.networks) else . end' "$COMPOSE_FILE"
+        yq -Y -i 'del(.networks."bridge-net")' "$COMPOSE_FILE"
+        yq -Y -i 'if .networks | length == 0 then del(.networks) else . end' "$COMPOSE_FILE"
 
         log "   ${COMPOSE_FILE} — removed bridge-net"
     fi

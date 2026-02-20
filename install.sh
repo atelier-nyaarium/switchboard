@@ -140,7 +140,7 @@ else
         echo "   Detected service: ${SERVICE_NAME}"
 
         # Top-level external network definition
-        yq -i "
+        yq -Y -i "
             .networks.\"bridge-net\".external = true |
             .networks.\"bridge-net\".name = \"${NETWORK_NAME}\" |
             .networks.\"bridge-net\".\"x-marker\" = \"${BRIDGE_MARKER}\"
@@ -150,9 +150,9 @@ else
         HAS_NETWORKS=$(yq -r ".services.\"${SERVICE_NAME}\".networks" "$COMPOSE_FILE" 2>/dev/null)
 
         if [[ "$HAS_NETWORKS" == "null" ]]; then
-            yq -i ".services.\"${SERVICE_NAME}\".networks = [\"bridge-net\"]" "$COMPOSE_FILE"
+            yq -Y -i ".services.\"${SERVICE_NAME}\".networks = [\"bridge-net\"]" "$COMPOSE_FILE"
         else
-            yq -i ".services.\"${SERVICE_NAME}\".networks += [\"bridge-net\"]" "$COMPOSE_FILE"
+            yq -Y -i ".services.\"${SERVICE_NAME}\".networks += [\"bridge-net\"]" "$COMPOSE_FILE"
         fi
 
         echo "   Added bridge-net to ${COMPOSE_FILE}"
