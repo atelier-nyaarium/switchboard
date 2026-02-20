@@ -16,6 +16,18 @@ if (!TEAM_NAME) {
 }
 
 // ---------------------------------------------------------------------------
+// Ingest log — POST to router, append NDJSON in workspace .cursor (no stderr storm)
+// ---------------------------------------------------------------------------
+function logIngest(message, data = {}) {
+	const payload = { message, data, location: "mcp/server.js", timestamp: Date.now(), team: TEAM_NAME };
+	fetch(`${ROUTER_URL}/ingest`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(payload),
+	}).catch(() => {});
+}
+
+// ---------------------------------------------------------------------------
 // Run an agent CLI command: stdin → stdout
 // ---------------------------------------------------------------------------
 function runAgent(command, args, input) {
@@ -25,6 +37,14 @@ function runAgent(command, args, input) {
 		const extra = [`${home}/.local/bin`, `${home}/bin`].join(":");
 		env.PATH = [env.PATH, extra].filter(Boolean).join(process.platform === "win32" ? ";" : ":");
 	}
+
+	logIngest("spawn attempt", {
+		HOME: process.env.HOME ?? undefined,
+		PATH_prefix: (env.PATH || "").slice(0, 200),
+		cmd: command,
+		args,
+		cwd: process.cwd(),
+	});
 
 	return new Promise((resolve, reject) => {
 		const proc = spawn(command, args, {
@@ -39,6 +59,11 @@ function runAgent(command, args, input) {
 		proc.stdout.on("data", (d) => (stdout += d));
 		proc.stderr.on("data", (d) => (stderr += d));
 
+		proc.on("error", (err) => {
+			logIngest("spawn error", { code: err.code, message: err.message });
+			reject(err);
+		});
+
 		if (input) {
 			proc.stdin.write(input);
 			proc.stdin.end();
@@ -51,8 +76,6 @@ function runAgent(command, args, input) {
 				reject(new Error(`Agent exited ${code}: ${stderr.trim()}`));
 			}
 		});
-
-		proc.on("error", reject);
 	});
 }
 

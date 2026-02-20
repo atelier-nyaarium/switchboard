@@ -1,5 +1,7 @@
 import crypto from "crypto";
 import express from "express";
+import fs from "fs";
+import path from "path";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
 
@@ -7,6 +9,7 @@ const app = express();
 app.use(express.json({ limit: "1mb" }));
 
 const PORT = process.env.PORT || 5678;
+const LOG_PATH = process.env.BRIDGE_LOG_PATH || path.join("/app", "logs", "debug.log");
 const RESPONSE_TIMEOUT_MS = parseInt(process.env.RESPONSE_TIMEOUT_MS || "600000");
 
 // ---------------------------------------------------------------------------
@@ -96,6 +99,24 @@ wss.on("connection", (ws) => {
 			console.log(`[ws] ${teamName} disconnected`);
 		}
 	});
+});
+
+// ---------------------------------------------------------------------------
+// POST /ingest — MCP sends log lines (NDJSON), append to file for debugging
+// ---------------------------------------------------------------------------
+app.post("/ingest", (req, res) => {
+	const payload = req.body && typeof req.body === "object" ? req.body : { message: String(req.body) };
+	payload.timestamp = payload.timestamp ?? Date.now();
+	const line = JSON.stringify(payload) + "\n";
+	try {
+		const dir = path.dirname(LOG_PATH);
+		if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+		fs.appendFileSync(LOG_PATH, line);
+		res.json({ ok: true });
+	} catch (err) {
+		console.error("[ingest]", err.message);
+		res.status(500).json({ ok: false, error: err.message });
+	}
 });
 
 // ---------------------------------------------------------------------------
