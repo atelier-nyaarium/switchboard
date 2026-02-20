@@ -232,6 +232,9 @@ function parseAgentResponse(output) {
 // Handle inbound inject from router (via WebSocket)
 // ---------------------------------------------------------------------------
 async function handleInject(msg) {
+	// #region agent log
+	await logIngest("handleInject_enter", { callback_id: msg.callback_id, from: msg.from, subject: msg.subject });
+	// #endregion
 	const handler = AGENT_HANDLERS[AGENT_TYPE];
 	if (!handler) {
 		console.error(`[bridge-mcp] unknown agent type: "${AGENT_TYPE}"`);
@@ -265,12 +268,18 @@ async function handleInject(msg) {
 		parsed.callback_id = msg.callback_id;
 
 		console.error(`[bridge-mcp] response: ${parsed.status} [${msg.callback_id}]`);
+		// #region agent log
+		await logIngest("handleInject_respond_ok", { callback_id: msg.callback_id, status: parsed.status });
+		// #endregion
 		await routerPost("/respond", {
 			callback_id: msg.callback_id,
 			...parsed,
 		});
 	} catch (err) {
 		console.error(`[bridge-mcp] inject failed: ${err.message}`);
+		// #region agent log
+		await logIngest("handleInject_respond_not_configured", { callback_id: msg.callback_id, error: err.message });
+		// #endregion
 		await routerPost("/respond", {
 			callback_id: msg.callback_id,
 			status: "not_configured",
@@ -300,7 +309,9 @@ function connectToRouter() {
 		} catch {
 			return;
 		}
-
+		// #region agent log
+		logIngest("ws_message", { type: msg.type, callback_id: msg.callback_id, from: msg.from }).catch(() => {});
+		// #endregion
 		if (msg.type === "inject") {
 			handleInject(msg);
 		}
