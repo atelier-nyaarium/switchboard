@@ -1,8 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { execSync, spawn } from "child_process";
+import { spawn } from "child_process";
 import crypto from "crypto";
-import os from "os";
 import WebSocket from "ws";
 import { z } from "zod";
 
@@ -40,28 +39,6 @@ async function runAgent(command, args, input) {
 		const extra = [`${home}/.local/bin`, `${home}/bin`].join(":");
 		env.PATH = [env.PATH, extra].filter(Boolean).join(process.platform === "win32" ? ";" : ":");
 	}
-
-	let whichCmd = "(not run)";
-	try {
-		whichCmd =
-			process.platform === "win32"
-				? execSync("where claude 2>nul", { encoding: "utf8", env, timeout: 2000 }).trim() || "(not found)"
-				: execSync("which claude 2>/dev/null || echo '(not found)'", {
-						encoding: "utf8",
-						env,
-						timeout: 2000,
-					}).trim();
-	} catch (_) {
-		whichCmd = "(which failed)";
-	}
-
-	let process_owner = process.env.USER ?? process.env.LOGNAME ?? "?";
-	let process_uid;
-	try {
-		const ui = os.userInfo();
-		process_owner = ui.username ?? process_owner;
-		process_uid = ui.uid;
-	} catch (_) {}
 
 	return new Promise((resolve, reject) => {
 		const proc = spawn(command, args, {

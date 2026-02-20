@@ -1,8 +1,8 @@
 import crypto from "crypto";
 import express from "express";
 import fs from "fs";
-import path from "path";
 import { createServer } from "http";
+import path from "path";
 import { WebSocketServer } from "ws";
 
 const app = express();
@@ -62,11 +62,6 @@ function getMutex(team) {
 	return targetLocks.get(team);
 }
 
-const activeLocks = new Map(); // callback_id → release function
-
-// ---------------------------------------------------------------------------
-// Callback correlator (unchanged)
-// ---------------------------------------------------------------------------
 const pendingCallbacks = new Map(); // callback_id → { resolve, timer }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +82,13 @@ wss.on("connection", (ws) => {
 		}
 
 		if (msg.type === "register") {
+			// If a different socket is already registered for this team, close it cleanly
+			// so its close-handler doesn't later clobber the new registration.
+			const existing = registry.get(msg.team);
+			if (existing && existing !== ws) {
+				console.log(`[ws] ${msg.team} re-registered — closing stale socket`);
+				existing.close();
+			}
 			teamName = msg.team;
 			registry.set(teamName, ws);
 			console.log(`[ws] ${teamName} connected`);
@@ -94,9 +96,39 @@ wss.on("connection", (ws) => {
 	});
 
 	ws.on("close", () => {
-		if (teamName) {
-			registry.delete(teamName);
-			console.log(`[ws] ${teamName} disconnected`);
+		if (!teamName) return;
+
+		// Only clean up if this socket is still the current one for this team.
+		// If the team reconnected before this close fired, the registry already
+		// points to the new socket — don't touch it.
+		if (registry.get(teamName) !== ws) {
+			console.log(`[ws] stale close for ${teamName} — new socket already registered, skipping cleanup`);
+			return;
+		}
+
+		registry.delete(teamName);
+		console.log(`[ws] ${teamName} disconnected`);
+
+		// Immediately fail all pending callbacks waiting on this team so callers
+		// get an error response right away instead of hanging until timeout.
+		for (const [id, entry] of pendingCallbacks) {
+			if (entry.to === teamName) {
+				clearTimeout(entry.timer);
+				pendingCallbacks.delete(id);
+				entry.resolve({
+					status: "error",
+					message: `Team "${teamName}" disconnected before responding`,
+				});
+				console.log(`[ws] cancelled pending callback ${id} (${teamName} disconnected)`);
+			}
+		}
+
+		// Force-release the mutex so any senders queued behind this team's lock
+		// get unblocked. They'll each hit the 404 "not connected" path cleanly.
+		const mutex = targetLocks.get(teamName);
+		if (mutex && mutex.locked) {
+			console.log(`[mutex] force-releasing ${teamName} after disconnect`);
+			mutex.release();
 		}
 	});
 });
@@ -155,7 +187,7 @@ app.get("/teams", (_req, res) => {
 // POST /send — MCP calls this via HTTP. Blocks until target responds.
 // ---------------------------------------------------------------------------
 app.post("/send", async (req, res) => {
-	const { from, to, type, priority, subject, body, follow_up_to } = req.body;
+	const { from, to, type, priority, subject, body, session_id } = req.body;
 
 	const targetWs = registry.get(to);
 	if (!targetWs || targetWs.readyState !== 1) {
@@ -169,18 +201,12 @@ app.post("/send", async (req, res) => {
 	let release;
 
 	try {
-		// Acquire or reuse mutex
-		if (!follow_up_to) {
-			const mutex = getMutex(to);
-			release = await mutex.acquire(callbackId);
-			activeLocks.set(callbackId, release);
-			console.log(`[mutex] ${to} locked by ${callbackId} (from ${from})`);
-		} else {
-			release = activeLocks.get(follow_up_to);
-			if (release) {
-				activeLocks.set(callbackId, release);
-			}
-		}
+		// Every request (initial or follow-up) acquires the mutex independently.
+		// This still serializes concurrent requests to the same team; it just
+		// no longer holds the lock across an entire conversation thread.
+		const mutex = getMutex(to);
+		release = await mutex.acquire(callbackId);
+		console.log(`[mutex] ${to} locked by ${callbackId} (from ${from})`);
 
 		// Set up callback listener
 		const responsePromise = new Promise((resolve) => {
@@ -204,22 +230,24 @@ app.post("/send", async (req, res) => {
 			subject: subject || "",
 			body: body || "",
 			callback_id: callbackId,
-			follow_up_to: follow_up_to || null,
+			session_id: session_id || null,
 		};
 
 		console.log(`[send] ${from} → ${to}: ${subject || "(no subject)"} [${callbackId}]`);
+		// Re-check readyState immediately before sending — team may have disconnected
+		// in the window between the registry lookup above and now.
+		if (targetWs.readyState !== 1) {
+			throw new Error(`Team "${to}" disconnected before message could be delivered`);
+		}
 		targetWs.send(JSON.stringify(payload));
 
 		// Block until response
 		const response = await responsePromise;
 
-		// Release mutex if terminal
-		const isTerminal = ["completed", "deferred", "needs_human"].includes(response.status);
-		if (isTerminal && release) {
-			console.log(`[mutex] ${to} released (conversation complete)`);
+		// Release mutex so the next /send can run
+		if (release) {
+			console.log(`[mutex] ${to} released [${response.status}]`);
 			release();
-			activeLocks.delete(callbackId);
-			if (follow_up_to) activeLocks.delete(follow_up_to);
 		}
 
 		res.json(response);
@@ -227,7 +255,6 @@ app.post("/send", async (req, res) => {
 		console.error(`[send] Error:`, err.message);
 		if (release) {
 			release();
-			activeLocks.delete(callbackId);
 		}
 		res.status(500).json({ error: err.message });
 	}
