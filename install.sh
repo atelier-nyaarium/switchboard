@@ -14,7 +14,6 @@
 set -euo pipefail
 
 BRIDGE_VERSION="v0.1.0"
-BRIDGE_MARKER="agent-team-bridge: ${BRIDGE_VERSION}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "${SCRIPT_DIR}/mcp/skill-bridge.md" ]]; then
 	BRIDGE_ROOT="${SCRIPT_DIR}"
@@ -94,22 +93,22 @@ MCPJSON
 )
 
 if [[ -f ".mcp.json" ]]; then
-    jq --argjson entry "$BRIDGE_MCP_ENTRY" '.mcpServers["agent-team-bridge"] = $entry' .mcp.json > .mcp.json.tmp
+    jq --tab --argjson entry "$BRIDGE_MCP_ENTRY" '.mcpServers["agent-team-bridge"] = $entry' .mcp.json > .mcp.json.tmp
     mv .mcp.json.tmp .mcp.json
     echo "   Updated existing .mcp.json"
 else
-    jq -n --argjson entry "$BRIDGE_MCP_ENTRY" '{ mcpServers: { "agent-team-bridge": $entry } }' > .mcp.json
+    jq --tab -n --argjson entry "$BRIDGE_MCP_ENTRY" '{ mcpServers: { "agent-team-bridge": $entry } }' > .mcp.json
     echo "   Created .mcp.json"
 fi
 
 echo "── .cursor/mcp.json"
 mkdir -p .cursor
 if [[ -f ".cursor/mcp.json" ]]; then
-    jq --argjson entry "$BRIDGE_MCP_ENTRY" '.mcpServers["agent-team-bridge"] = $entry' .cursor/mcp.json > .cursor/mcp.json.tmp
+    jq --tab --argjson entry "$BRIDGE_MCP_ENTRY" '.mcpServers["agent-team-bridge"] = $entry' .cursor/mcp.json > .cursor/mcp.json.tmp
     mv .cursor/mcp.json.tmp .cursor/mcp.json
     echo "   Updated existing .cursor/mcp.json"
 else
-    jq -n --argjson entry "$BRIDGE_MCP_ENTRY" '{ mcpServers: { "agent-team-bridge": $entry } }' > .cursor/mcp.json
+    jq --tab -n --argjson entry "$BRIDGE_MCP_ENTRY" '{ mcpServers: { "agent-team-bridge": $entry } }' > .cursor/mcp.json
     echo "   Created .cursor/mcp.json"
 fi
 
@@ -150,8 +149,7 @@ else
 
         # Network: auto-created on first compose up
         yq -Y -i "
-            .networks.\"agent-team-bridge-network\".name = \"${NETWORK_NAME}\" |
-            .networks.\"agent-team-bridge-network\".\"x-marker\" = \"${BRIDGE_MARKER}\"
+            .networks.\"agent-team-bridge-network\".name = \"${NETWORK_NAME}\"
         " "$COMPOSE_FILE"
 
         # Add to service's network list
