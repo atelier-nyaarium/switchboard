@@ -99,4 +99,4 @@ fi
 
 log ""
 log "✓ Agent Team Bridge configuration removed."
-log "Double check your .devcontainer/compose.yml file. `yq` unfortunately does't preserve comments."
+log "Double check your .devcontainer/compose.yml file. yq unfortunately doesn't preserve comments."
