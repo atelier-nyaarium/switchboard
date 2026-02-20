@@ -22,7 +22,7 @@ log "── Removing Agent Team Bridge configuration..."
 # ═════════════════════════════════════════════════════════════════════════════
 
 if [[ -f ".mcp.json" ]]; then
-    if jq -e '.mcpServers["agent-team-bridge"].env._marker // empty | test("agent-team-bridge:")' .mcp.json &>/dev/null; then
+    if jq -e '.mcpServers["agent-team-bridge"]' .mcp.json &>/dev/null; then
         jq 'del(.mcpServers["agent-team-bridge"])' .mcp.json > .mcp.json.tmp
         mv .mcp.json.tmp .mcp.json
 
@@ -37,7 +37,7 @@ if [[ -f ".mcp.json" ]]; then
 fi
 
 if [[ -f ".cursor/mcp.json" ]]; then
-    if jq -e '.mcpServers["agent-team-bridge"].env._marker // empty | test("agent-team-bridge:")' .cursor/mcp.json &>/dev/null; then
+    if jq -e '.mcpServers["agent-team-bridge"]' .cursor/mcp.json &>/dev/null; then
         jq 'del(.mcpServers["agent-team-bridge"])' .cursor/mcp.json > .cursor/mcp.json.tmp
         mv .cursor/mcp.json.tmp .cursor/mcp.json
 

@@ -88,8 +88,7 @@ BRIDGE_MCP_ENTRY=$(cat <<MCPJSON
     "env": {
         "BRIDGE_ROUTER_URL": "${ROUTER_URL}",
         "BRIDGE_TEAM_NAME": "${TEAM_NAME}",
-        "BRIDGE_AGENT_TYPE": "${AGENT_TYPE}",
-        "_marker": "${BRIDGE_MARKER}"
+        "BRIDGE_AGENT_TYPE": "${AGENT_TYPE}"
     }
 }
 MCPJSON
@@ -175,6 +174,6 @@ echo ""
 echo "✓ Installed for ${TEAM_NAME}"
 echo ""
 echo "  Next steps:"
-echo "  1. Double check your .devcontainer/compose.yml file. `yq` unfortunately does't preserve comments."
+echo "  1. Double check your .devcontainer/compose.yml file. yq unfortunately doesn't preserve comments."
 echo "  2. Rebuild your Devcontainer."
 echo "  3. If you already haven't, start the team bridge router."
