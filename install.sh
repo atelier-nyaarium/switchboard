@@ -2,11 +2,12 @@
 # install.sh — Configure a DevContainer project for Agent Team Bridge
 #
 # Usage:
-#   /path/to/install.sh <team-name>
+#   PROJECT_NAME=@org/my-app /path/to/install.sh
+#   /path/to/install.sh <team-name>   # fallback if PROJECT_NAME unset
 #
 # Example:
-#   ./scripts/install.sh @nyaarium/cool-library
-#   BRIDGE_ROUTER_HOST=my-router ./scripts/install.sh @nyaarium/nextjs-app
+#   PROJECT_NAME=@nyaarium/cool-library ./install.sh
+#   BRIDGE_ROUTER_HOST=my-router ./install.sh @nyaarium/nextjs-app
 #
 # Run from the project root (where .devcontainer/ lives).
 
@@ -19,17 +20,18 @@ BRIDGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 AGENT_TYPE="${BRIDGE_AGENT_TYPE:-claude}"
 
-TEAM_NAME="${1:-}"
+TEAM_NAME="${PROJECT_NAME:-${1:-}}"
 ROUTER_HOST="${BRIDGE_ROUTER_HOST:-agent-team-bridge}"
 ROUTER_PORT="${BRIDGE_ROUTER_PORT:-5678}"
 NETWORK_NAME="${BRIDGE_NETWORK_NAME:-agent-team-bridge}"
 
 if [[ -z "$TEAM_NAME" ]]; then
-    echo "Usage: install.sh <team-name>"
+    echo "Usage: PROJECT_NAME=<team-name> install.sh   OR   install.sh <team-name>"
     echo ""
-    echo "Example: install.sh @nyaarium/cool-library"
+    echo "Example: PROJECT_NAME=@nyaarium/cool-library ./install.sh"
     echo ""
     echo "Environment variables:"
+    echo "  PROJECT_NAME         (default: PROJECT_NAME env var or first argument)"
     echo "  BRIDGE_ROUTER_HOST   (default: agent-team-bridge)"
     echo "  BRIDGE_ROUTER_PORT   (default: 5678)"
     echo "  BRIDGE_AGENT_TYPE    (default: claude)  Options: claude, cursor"
