@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { spawn, execSync } from "child_process";
+import { execSync, spawn } from "child_process";
 import crypto from "crypto";
 import os from "os";
 import WebSocket from "ws";
@@ -46,7 +46,11 @@ async function runAgent(command, args, input) {
 		whichCmd =
 			process.platform === "win32"
 				? execSync("where claude 2>nul", { encoding: "utf8", env, timeout: 2000 }).trim() || "(not found)"
-				: execSync("which claude 2>/dev/null || echo '(not found)'", { encoding: "utf8", env, timeout: 2000 }).trim();
+				: execSync("which claude 2>/dev/null || echo '(not found)'", {
+						encoding: "utf8",
+						env,
+						timeout: 2000,
+					}).trim();
 	} catch (_) {
 		whichCmd = "(which failed)";
 	}
@@ -109,7 +113,8 @@ async function runAgent(command, args, input) {
 					stdout_tail: stdout.trim().slice(-500),
 				});
 				// #endregion
-				reject(new Error(`Agent exited ${code}: ${stderr.trim()}`));
+				const errText = [stderr.trim(), stdout.trim()].filter(Boolean).join("\n") || "(no output)";
+				reject(new Error(`Agent exited ${code}: ${errText}`));
 			}
 		});
 	});
