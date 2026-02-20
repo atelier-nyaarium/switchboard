@@ -59,17 +59,17 @@ const AGENT_HANDLERS = {
 			return crypto.randomUUID();
 		},
 		async sendMessage(sessionId, message) {
-			return runAgent("claude", ["-p", "--session-id", sessionId], message);
+			return runAgent("claude", ["-p", "--dangerously-skip-permissions", "--session-id", sessionId], message);
 		},
 	},
 
 	cursor: {
 		async createSession() {
-			const id = await runAgent("cursor-agent", ["create-chat"], null);
+			const id = await runAgent("cursor-agent", ["create-chat", "-f"], null);
 			return id.trim();
 		},
 		async sendMessage(sessionId, message) {
-			return runAgent("cursor-agent", [`--resume=${sessionId}`, "-p"], message);
+			return runAgent("cursor-agent", ["-f", "-p", `--resume=${sessionId}`], message);
 		},
 	},
 };
