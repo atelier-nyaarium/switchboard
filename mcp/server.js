@@ -149,7 +149,21 @@ const AGENT_HANDLERS = {
 // ---------------------------------------------------------------------------
 // Session tracking — one CLI session per conversation thread
 // ---------------------------------------------------------------------------
-const conversationSessions = new Map(); // callback_id → sessionId
+const conversationSessions = new Map(); // callback_id → { sessionId, ts }
+
+// Prune sessions older than 2 hours to prevent unbounded memory growth.
+const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
+setInterval(
+	() => {
+		const cutoff = Date.now() - SESSION_TTL_MS;
+		for (const [id, entry] of conversationSessions) {
+			if (entry.ts < cutoff) {
+				conversationSessions.delete(id);
+			}
+		}
+	},
+	10 * 60 * 1000,
+).unref(); // run every 10 min, don't keep process alive
 
 // ---------------------------------------------------------------------------
 // Prompt builders
@@ -290,7 +304,7 @@ async function handleInject(msg) {
 		let output;
 
 		if (msg.follow_up_to && conversationSessions.has(msg.follow_up_to)) {
-			sessionId = conversationSessions.get(msg.follow_up_to);
+			sessionId = conversationSessions.get(msg.follow_up_to).sessionId;
 			const prompt = buildFollowUpPrompt(msg);
 			console.error(`[bridge-mcp] follow-up via ${AGENT_TYPE} session ${sessionId.slice(0, 8)}...`);
 			output = await handler.sendMessage(sessionId, prompt);
@@ -301,7 +315,7 @@ async function handleInject(msg) {
 			output = await handler.sendMessage(sessionId, prompt);
 		}
 
-		conversationSessions.set(msg.callback_id, sessionId);
+		conversationSessions.set(msg.callback_id, { sessionId, ts: Date.now() });
 
 		const parsed = parseAgentResponse(output);
 		parsed.callback_id = msg.callback_id;
@@ -328,9 +342,22 @@ async function handleInject(msg) {
 }
 
 // ---------------------------------------------------------------------------
-// WebSocket connection to router
+// WebSocket connection to router — with exponential backoff
 // ---------------------------------------------------------------------------
 let routerWs = null;
+let reconnectTimer = null; // guard: only one reconnect scheduled at a time
+let reconnectDelay = 2000; // starts at 2s, doubles each attempt, caps at 30s
+const RECONNECT_MAX_MS = 30000;
+
+function scheduleReconnect() {
+	if (reconnectTimer) return; // already scheduled — don't stack
+	reconnectTimer = setTimeout(() => {
+		reconnectTimer = null;
+		connectToRouter();
+	}, reconnectDelay);
+	console.error(`[bridge-mcp] reconnecting in ${reconnectDelay / 1000}s...`);
+	reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
+}
 
 function connectToRouter() {
 	const wsUrl = ROUTER_URL.replace(/^http/, "ws");
@@ -341,6 +368,7 @@ function connectToRouter() {
 
 	routerWs.on("open", () => {
 		console.error(`[bridge-mcp] connected to router`);
+		reconnectDelay = 2000; // reset backoff on successful connect
 		routerWs.send(JSON.stringify({ type: "register", team: TEAM_NAME }));
 		// #region agent log
 		logIngest("ws_registered", { team: TEAM_NAME }).catch(() => {});
@@ -366,8 +394,8 @@ function connectToRouter() {
 		// #region agent log
 		logIngest("ws_close", { team: TEAM_NAME }).catch(() => {});
 		// #endregion
-		console.error(`[bridge-mcp] disconnected, reconnecting in 2s...`);
-		setTimeout(connectToRouter, 2000);
+		console.error(`[bridge-mcp] disconnected`);
+		scheduleReconnect();
 	});
 
 	routerWs.on("error", (err) => {
@@ -375,19 +403,36 @@ function connectToRouter() {
 		logIngest("ws_error", { message: err.message, team: TEAM_NAME }).catch(() => {});
 		// #endregion
 		console.error(`[bridge-mcp] ws error: ${err.message}`);
+		// ws always emits close after error, so scheduleReconnect is handled there.
+		// No action needed here — just log.
 	});
 }
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
 // ---------------------------------------------------------------------------
-async function routerPost(path, body) {
-	const res = await fetch(`${ROUTER_URL}${path}`, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(body),
-	});
-	return res.json();
+async function routerPost(path, body, { retries = 4, retryDelayMs = 1500 } = {}) {
+	let lastErr;
+	for (let attempt = 0; attempt <= retries; attempt++) {
+		try {
+			const res = await fetch(`${ROUTER_URL}${path}`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+			return res.json();
+		} catch (err) {
+			lastErr = err;
+			if (attempt < retries) {
+				const delay = retryDelayMs * Math.pow(2, attempt);
+				console.error(
+					`[bridge-mcp] routerPost ${path} failed (attempt ${attempt + 1}/${retries + 1}), retrying in ${delay}ms: ${err.message}`,
+				);
+				await new Promise((r) => setTimeout(r, delay));
+			}
+		}
+	}
+	throw lastErr;
 }
 
 async function routerGet(path) {
