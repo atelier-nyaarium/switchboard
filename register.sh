@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "[bridge] Setting up bridge for team '${BRIDGE_TEAM_NAME:-unknown}'"
+echo "[bridge] Setting up bridge for project '${PROJECT_NAME:-unknown}'"
 
 # Install MCP dependencies
 if [[ -d /agent-team-bridge/mcp ]] && [[ ! -d /agent-team-bridge/mcp/node_modules ]]; then

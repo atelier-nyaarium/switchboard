@@ -6,12 +6,12 @@ import WebSocket from "ws";
 import { z } from "zod";
 
 const ROUTER_URL = process.env.BRIDGE_ROUTER_URL || "http://agent-team-bridge:5678";
-const TEAM_NAME = process.env.BRIDGE_TEAM_NAME; // TODO: make it just $PROJECT_NAME
+const TEAM_NAME = process.env.PROJECT_NAME;
 const AGENT_TYPE = process.env.BRIDGE_AGENT_TYPE || "claude";
 const AGENT_TIMEOUT_MS = parseInt(process.env.BRIDGE_AGENT_TIMEOUT_MS || "600000"); // 10 min default
 
 if (!TEAM_NAME) {
-	console.error("BRIDGE_TEAM_NAME environment variable is required");
+	console.error("PROJECT_NAME environment variable is required");
 	process.exit(1);
 }
 

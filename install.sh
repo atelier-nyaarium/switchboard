@@ -87,7 +87,6 @@ BRIDGE_MCP_ENTRY=$(cat <<MCPJSON
     "args": ["/agent-team-bridge/mcp/server.js"],
     "env": {
         "BRIDGE_ROUTER_URL": "${ROUTER_URL}",
-        "BRIDGE_TEAM_NAME": "${TEAM_NAME}",
         "BRIDGE_AGENT_TYPE": "${AGENT_TYPE}"
     }
 }
