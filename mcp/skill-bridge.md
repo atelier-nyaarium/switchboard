@@ -41,7 +41,7 @@ Acceptable response statuses:
 Response statuses that indicate a problem. Propogate the issue back to your human.
 
 - **needs_human** — They need a human decision on their end.
-- **not_configured** — Something is wrong with the target's setup.
+- **error** — Something went wrong; the `reason` field is the error message (e.g. arbiter failed to start, parse failure, unknown agent type).
 - **timeout** — No response in time. The other team may be down or overloaded.
 
 ## Timeout Note

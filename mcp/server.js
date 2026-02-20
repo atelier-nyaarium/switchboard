@@ -257,7 +257,7 @@ function parseAgentResponse(output) {
 	}
 
 	return {
-		status: "needs_human",
+		status: "error",
 		reason: "Bridge could not parse agent response (no valid YAML frontmatter).",
 	};
 }
@@ -274,7 +274,7 @@ async function handleInject(msg) {
 		console.error(`[bridge-mcp] unknown agent type: "${AGENT_TYPE}"`);
 		await routerPost("/respond", {
 			callback_id: msg.callback_id,
-			status: "not_configured",
+			status: "error",
 			reason: `Agent type "${AGENT_TYPE}" is not a recognized handler. Valid types: ${Object.keys(AGENT_HANDLERS).join(", ")}`,
 		});
 		return;
@@ -316,8 +316,8 @@ async function handleInject(msg) {
 		// #endregion
 		await routerPost("/respond", {
 			callback_id: msg.callback_id,
-			status: "not_configured",
-			reason: `Bridge arbiter failed to start: ${err.message}`,
+			status: "error",
+			reason: err.message,
 		});
 	}
 }
@@ -494,10 +494,8 @@ server.tool(
 				parts.push(`Reason: ${result.reason}`);
 				if (result.what_to_decide) parts.push(`Decision needed: ${result.what_to_decide}`);
 				parts.push("\nThe other team needs their human. Inform yours.");
-			} else if (result.status === "not_configured") {
-				parts.push("⚠️ The target team has a configuration error.");
-				parts.push(`Reason: ${result.reason}`);
-				parts.push("\nThis is not something the other agent can fix. Inform your human.");
+			} else if (result.status === "error") {
+				parts.push(`Error: ${result.reason ?? "Unknown error"}`);
 			} else if (result.status === "timeout") {
 				parts.push(result.message || "No response in time.");
 			}
