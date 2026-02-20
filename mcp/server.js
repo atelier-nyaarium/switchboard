@@ -62,22 +62,6 @@ async function runAgent(command, args, input) {
 		process_owner = ui.username ?? process_owner;
 		process_uid = ui.uid;
 	} catch (_) {}
-	await logIngest("agent_env_diagnostic", {
-		process_owner,
-		process_uid,
-		cwd: process.cwd(),
-		home: env.HOME ?? env.USERPROFILE ?? "(unset)",
-		PATH: (env.PATH || "").slice(0, 500),
-		which_claude: whichCmd,
-		cmd: command,
-	});
-	await logIngest("spawn attempt", {
-		HOME: process.env.HOME ?? undefined,
-		PATH_prefix: (env.PATH || "").slice(0, 200),
-		cmd: command,
-		args,
-		cwd: process.cwd(),
-	});
 
 	return new Promise((resolve, reject) => {
 		const proc = spawn(command, args, {
@@ -92,8 +76,7 @@ async function runAgent(command, args, input) {
 		proc.stdout.on("data", (d) => (stdout += d));
 		proc.stderr.on("data", (d) => (stderr += d));
 
-		proc.on("error", async (err) => {
-			await logIngest("spawn error", { code: err.code, message: err.message });
+		proc.on("error", (err) => {
 			reject(err);
 		});
 
@@ -102,17 +85,10 @@ async function runAgent(command, args, input) {
 			proc.stdin.end();
 		}
 
-		proc.on("close", async (code) => {
+		proc.on("close", (code) => {
 			if (code === 0) {
 				resolve(stdout.trim());
 			} else {
-				// #region agent log
-				await logIngest("agent_exit_nonzero", {
-					code,
-					stderr: stderr.slice(-1000),
-					stdout_tail: stdout.trim().slice(-500),
-				});
-				// #endregion
 				const errText = [stderr.trim(), stdout.trim()].filter(Boolean).join("\n") || "(no output)";
 				reject(new Error(`Agent exited ${code}: ${errText}`));
 			}
@@ -145,25 +121,6 @@ const AGENT_HANDLERS = {
 		},
 	},
 };
-
-// ---------------------------------------------------------------------------
-// Session tracking — one CLI session per conversation thread
-// ---------------------------------------------------------------------------
-const conversationSessions = new Map(); // callback_id → { sessionId, ts }
-
-// Prune sessions older than 2 hours to prevent unbounded memory growth.
-const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
-setInterval(
-	() => {
-		const cutoff = Date.now() - SESSION_TTL_MS;
-		for (const [id, entry] of conversationSessions) {
-			if (entry.ts < cutoff) {
-				conversationSessions.delete(id);
-			}
-		}
-	},
-	10 * 60 * 1000,
-).unref(); // run every 10 min, don't keep process alive
 
 // ---------------------------------------------------------------------------
 // Prompt builders
@@ -285,9 +242,6 @@ function parseAgentResponse(output) {
 // Handle inbound inject from router (via WebSocket)
 // ---------------------------------------------------------------------------
 async function handleInject(msg) {
-	// #region agent log
-	await logIngest("handleInject_enter", { callback_id: msg.callback_id, from: msg.from, subject: msg.subject });
-	// #endregion
 	const handler = AGENT_HANDLERS[AGENT_TYPE];
 	if (!handler) {
 		console.error(`[bridge-mcp] unknown agent type: "${AGENT_TYPE}"`);
@@ -300,39 +254,29 @@ async function handleInject(msg) {
 	}
 
 	try {
-		let sessionId;
-		let output;
+		// If a session_id was provided, this is a follow-up — use it directly.
+		// Otherwise create a fresh agent session. No map needed.
+		const sessionId = msg.session_id ?? (await handler.createSession());
+		const isFollowUp = !!msg.session_id;
 
-		if (msg.follow_up_to && conversationSessions.has(msg.follow_up_to)) {
-			sessionId = conversationSessions.get(msg.follow_up_to).sessionId;
-			const prompt = buildFollowUpPrompt(msg);
-			console.error(`[bridge-mcp] follow-up via ${AGENT_TYPE} session ${sessionId.slice(0, 8)}...`);
-			output = await handler.sendMessage(sessionId, prompt);
-		} else {
-			sessionId = await handler.createSession();
-			const prompt = buildInitialPrompt(msg);
-			console.error(`[bridge-mcp] new ${AGENT_TYPE} session ${sessionId.slice(0, 8)}... from ${msg.from}`);
-			output = await handler.sendMessage(sessionId, prompt);
-		}
+		const prompt = isFollowUp ? buildFollowUpPrompt(msg) : buildInitialPrompt(msg);
+		console.error(
+			`[bridge-mcp] ${isFollowUp ? "follow-up" : "new"} ${AGENT_TYPE} session ${sessionId.slice(0, 8)}... from ${msg.from}`,
+		);
 
-		conversationSessions.set(msg.callback_id, { sessionId, ts: Date.now() });
+		const output = await handler.sendMessage(sessionId, prompt);
 
 		const parsed = parseAgentResponse(output);
 		parsed.callback_id = msg.callback_id;
+		parsed.session_id = sessionId; // always echo back so caller can thread follow-ups
 
 		console.error(`[bridge-mcp] response: ${parsed.status} [${msg.callback_id}]`);
-		// #region agent log
-		await logIngest("handleInject_respond_ok", { callback_id: msg.callback_id, status: parsed.status });
-		// #endregion
 		await routerPost("/respond", {
 			callback_id: msg.callback_id,
 			...parsed,
 		});
 	} catch (err) {
 		console.error(`[bridge-mcp] inject failed: ${err.message}`);
-		// #region agent log
-		await logIngest("handleInject_respond_not_configured", { callback_id: msg.callback_id, error: err.message });
-		// #endregion
 		await routerPost("/respond", {
 			callback_id: msg.callback_id,
 			status: "error",
@@ -361,18 +305,12 @@ function scheduleReconnect() {
 
 function connectToRouter() {
 	const wsUrl = ROUTER_URL.replace(/^http/, "ws");
-	// #region agent log
-	logIngest("ws_connect_attempt", { url: wsUrl, team: TEAM_NAME }).catch(() => {});
-	// #endregion
 	routerWs = new WebSocket(wsUrl);
 
 	routerWs.on("open", () => {
 		console.error(`[bridge-mcp] connected to router`);
-		reconnectDelay = 2000; // reset backoff on successful connect
+		reconnectDelay = 2000;
 		routerWs.send(JSON.stringify({ type: "register", team: TEAM_NAME }));
-		// #region agent log
-		logIngest("ws_registered", { team: TEAM_NAME }).catch(() => {});
-		// #endregion
 	});
 
 	routerWs.on("message", (raw) => {
@@ -382,29 +320,18 @@ function connectToRouter() {
 		} catch {
 			return;
 		}
-		// #region agent log
-		logIngest("ws_message", { type: msg.type, callback_id: msg.callback_id, from: msg.from }).catch(() => {});
-		// #endregion
 		if (msg.type === "inject") {
 			handleInject(msg);
 		}
 	});
 
 	routerWs.on("close", () => {
-		// #region agent log
-		logIngest("ws_close", { team: TEAM_NAME }).catch(() => {});
-		// #endregion
 		console.error(`[bridge-mcp] disconnected`);
 		scheduleReconnect();
 	});
 
 	routerWs.on("error", (err) => {
-		// #region agent log
-		logIngest("ws_error", { message: err.message, team: TEAM_NAME }).catch(() => {});
-		// #endregion
 		console.error(`[bridge-mcp] ws error: ${err.message}`);
-		// ws always emits close after error, so scheduleReconnect is handled there.
-		// No action needed here — just log.
 	});
 }
 
@@ -499,9 +426,12 @@ server.tool(
 		priority: z.enum(["low", "normal", "urgent", "blocking"]).default("normal"),
 		subject: z.string().describe("Short summary"),
 		body: z.string().describe("Full details"),
-		follow_up_to: z.string().optional().describe("Previous callback_id if continuing a conversation"),
+		session_id: z
+			.string()
+			.optional()
+			.describe("Agent session ID from a previous response — omit to start a new conversation thread"),
 	},
-	async ({ to, type, priority, subject, body, follow_up_to }) => {
+	async ({ to, type, priority, subject, body, session_id }) => {
 		try {
 			const result = await routerPost("/send", {
 				from: TEAM_NAME,
@@ -510,7 +440,7 @@ server.tool(
 				priority,
 				subject,
 				body,
-				follow_up_to: follow_up_to || null,
+				session_id: session_id || null,
 			});
 
 			if (result.error) {
@@ -535,7 +465,7 @@ server.tool(
 				if (result.narrative) parts.push(`\nDetails:\n${result.narrative}`);
 			} else if (result.status === "clarification") {
 				parts.push(`Question: ${result.question}`);
-				parts.push(`\nTo answer, use bridge_send with follow_up_to: "${result.callback_id}"`);
+				parts.push(`\nTo answer, use bridge_send with session_id: "${result.session_id}"`);
 			} else if (result.status === "deferred") {
 				parts.push(`Reason: ${result.reason}`);
 				if (result.estimated_minutes) parts.push(`Estimated wait: ${result.estimated_minutes} minutes`);
@@ -550,7 +480,7 @@ server.tool(
 				parts.push(result.message || "No response in time.");
 			}
 
-			if (result.callback_id) parts.push(`\n[callback_id: ${result.callback_id}]`);
+			if (result.session_id) parts.push(`\n[session_id: ${result.session_id}]`);
 
 			return {
 				content: [{ type: "text", text: parts.join("\n") }],
