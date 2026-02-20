@@ -36,6 +36,20 @@ if [[ -f ".mcp.json" ]]; then
     fi
 fi
 
+if [[ -f ".cursor/mcp.json" ]]; then
+    if jq -e '.mcpServers["agent-team-bridge"].env._marker // empty | test("agent-team-bridge:")' .cursor/mcp.json &>/dev/null; then
+        jq 'del(.mcpServers["agent-team-bridge"])' .cursor/mcp.json > .cursor/mcp.json.tmp
+        mv .cursor/mcp.json.tmp .cursor/mcp.json
+
+        if jq -e '.mcpServers | length == 0' .cursor/mcp.json &>/dev/null; then
+            rm .cursor/mcp.json
+            log "   .cursor/mcp.json removed (was empty)"
+        else
+            log "   .cursor/mcp.json — removed agent-team-bridge entry"
+        fi
+    fi
+fi
+
 # ═════════════════════════════════════════════════════════════════════════════
 # 2. .claude/skills — remove skill file
 # ═════════════════════════════════════════════════════════════════════════════

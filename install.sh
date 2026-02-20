@@ -104,6 +104,17 @@ else
     echo "   Created .mcp.json"
 fi
 
+echo "── .cursor/mcp.json"
+mkdir -p .cursor
+if [[ -f ".cursor/mcp.json" ]]; then
+    jq --argjson entry "$BRIDGE_MCP_ENTRY" '.mcpServers["agent-team-bridge"] = $entry' .cursor/mcp.json > .cursor/mcp.json.tmp
+    mv .cursor/mcp.json.tmp .cursor/mcp.json
+    echo "   Updated existing .cursor/mcp.json"
+else
+    jq -n --argjson entry "$BRIDGE_MCP_ENTRY" '{ mcpServers: { "agent-team-bridge": $entry } }' > .cursor/mcp.json
+    echo "   Created .cursor/mcp.json"
+fi
+
 # ═════════════════════════════════════════════════════════════════════════════
 # 2. .claude/skills/bridge.md
 # ═════════════════════════════════════════════════════════════════════════════
