@@ -2,6 +2,10 @@
 
 Cross-team communication for Claude Code and Cursor agent teams running in separate Devcontainers.
 
+## 🛑 Who it's for
+
+This is aimed at people who already use **Dev Containers** and want agent teams in different containers to talk to each other. If you don't use Dev Containers, this project won't help you.
+
 ## How it works
 
 Teams register with a central router over WebSocket. Any agent can call `bridge_send` to reach another team — the router spawns a dedicated agent session on the receiving end, which handles the request and responds in a structured format. Conversations are threaded by `session_id`.
