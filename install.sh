@@ -16,7 +16,11 @@ set -euo pipefail
 BRIDGE_VERSION="v0.1.0"
 BRIDGE_MARKER="agent-team-bridge: ${BRIDGE_VERSION}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BRIDGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+if [[ -f "${SCRIPT_DIR}/mcp/skill-bridge.md" ]]; then
+	BRIDGE_ROOT="${SCRIPT_DIR}"
+else
+	BRIDGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+fi
 
 AGENT_TYPE="${BRIDGE_AGENT_TYPE:-claude}"
 
