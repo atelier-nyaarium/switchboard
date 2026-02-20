@@ -19,10 +19,18 @@ if (!TEAM_NAME) {
 // Run an agent CLI command: stdin → stdout
 // ---------------------------------------------------------------------------
 function runAgent(command, args, input) {
+	const env = { ...process.env };
+	const home = process.env.HOME || process.env.USERPROFILE;
+	if (home) {
+		const extra = [`${home}/.local/bin`, `${home}/bin`].join(":");
+		env.PATH = [env.PATH, extra].filter(Boolean).join(process.platform === "win32" ? ";" : ":");
+	}
+
 	return new Promise((resolve, reject) => {
 		const proc = spawn(command, args, {
 			timeout: AGENT_TIMEOUT_MS,
 			cwd: process.cwd(),
+			env,
 		});
 
 		let stdout = "";
