@@ -55,7 +55,7 @@ RUN git clone --depth 1 https://github.com/atelier-nyaarium/agent-team-bridge.gi
 In `.cursor/mcp.json`, set:
 
 ```json
-"BRIDGE_AGENT_TYPE": "cursor"
+"AGENT_TYPE": "cursor"
 ```
 
 ## Circular dependency warning

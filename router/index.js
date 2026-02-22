@@ -9,7 +9,7 @@ const app = express();
 app.use(express.json({ limit: "1mb" }));
 
 const PORT = process.env.PORT || 5678;
-const LOG_PATH = process.env.BRIDGE_LOG_PATH || path.join("/app", "logs", "debug.log");
+const LOG_PATH = path.join("/app", "log", "debug.log");
 const RESPONSE_TIMEOUT_MS = parseInt(process.env.RESPONSE_TIMEOUT_MS || "600000");
 
 // ---------------------------------------------------------------------------
@@ -62,7 +62,7 @@ function getMutex(team) {
 	return targetLocks.get(team);
 }
 
-const pendingCallbacks = new Map(); // callback_id → { resolve, timer }
+const pendingCallbacks = new Map(); // session_id → { resolve, timer }
 
 // ---------------------------------------------------------------------------
 // WebSocket server — containers connect here on startup
@@ -139,7 +139,7 @@ wss.on("connection", (ws) => {
 					status: "error",
 					message: `Team "${teamName}" disconnected before responding`,
 				});
-				console.log(`[ws] cancelled pending callback ${id} (${teamName} disconnected)`);
+				console.log(`[ws] cancelled pending session ${id} (${teamName} disconnected)`);
 			}
 		}
 
@@ -176,13 +176,8 @@ app.post("/ingest", (req, res) => {
 // ---------------------------------------------------------------------------
 app.get("/pending", (_req, res) => {
 	const list = [];
-	for (const [id, entry] of pendingCallbacks) {
-		list.push({
-			callback_id: id,
-			from: entry.from,
-			to: entry.to,
-			subject: entry.subject || "(no subject)",
-		});
+	for (const [sessionId, entry] of pendingCallbacks) {
+		list.push({ session_id: sessionId, from: entry.from, to: entry.to });
 	}
 	res.json(list);
 });
@@ -207,7 +202,7 @@ app.get("/teams", (_req, res) => {
 // POST /send — MCP calls this via HTTP. Blocks until target responds.
 // ---------------------------------------------------------------------------
 app.post("/send", async (req, res) => {
-	const { from, to, type, priority, subject, body, session_id } = req.body;
+	const { from, to, type, effort, body, session_id } = req.body;
 
 	const targetWs = registry.get(to);
 	if (!targetWs || targetWs.readyState !== 1) {
@@ -217,43 +212,39 @@ app.post("/send", async (req, res) => {
 		});
 	}
 
-	const callbackId = crypto.randomUUID();
+	const sessionId = session_id || crypto.randomUUID();
 	let release;
 
 	try {
-		// Every request (initial or follow-up) acquires the mutex independently.
-		// This still serializes concurrent requests to the same team; it just
-		// no longer holds the lock across an entire conversation thread.
 		const mutex = getMutex(to);
-		release = await mutex.acquire(callbackId);
-		console.log(`[mutex] ${to} locked by ${callbackId} (from ${from})`);
+		release = await mutex.acquire(sessionId);
 
-		// Set up callback listener
+		console.log(`[mutex] ${to} locked by ${sessionId} (from ${from})`);
+
 		const responsePromise = new Promise((resolve) => {
 			const timer = setTimeout(() => {
-				pendingCallbacks.delete(callbackId);
+				pendingCallbacks.delete(sessionId);
 				resolve({
 					status: "timeout",
 					message: `No response from ${to} within ${RESPONSE_TIMEOUT_MS / 1000}s`,
 				});
 			}, RESPONSE_TIMEOUT_MS);
 
-			pendingCallbacks.set(callbackId, { resolve, timer, from, to, subject });
+			pendingCallbacks.set(sessionId, { resolve, timer, from, to });
 		});
 
-		// Push message down the target's WebSocket
 		const payload = {
 			type: "inject",
 			from,
 			request_type: type || "question",
-			priority: priority || "normal",
-			subject: subject || "",
 			body: body || "",
-			callback_id: callbackId,
-			session_id: session_id || null,
+			effort: effort || "auto",
+			session_id: sessionId,
+			is_follow_up: !!session_id,
 		};
 
-		console.log(`[send] ${from} → ${to}: ${subject || "(no subject)"} [${callbackId}]`);
+		console.log(`[send] ${from} → ${to} [${sessionId}]`);
+
 		// Re-check readyState immediately before sending — team may have disconnected
 		// in the window between the registry lookup above and now.
 		if (targetWs.readyState !== 1) {
@@ -284,24 +275,24 @@ app.post("/send", async (req, res) => {
 // POST /respond — MCP calls this via HTTP when agent responds
 // ---------------------------------------------------------------------------
 app.post("/respond", (req, res) => {
-	const { callback_id, ...response } = req.body;
+	const { session_id: respondSessionId, ...response } = req.body;
 
-	if (!callback_id) {
-		return res.status(400).json({ error: "callback_id is required" });
+	if (!respondSessionId) {
+		return res.status(400).json({ error: "session_id is required" });
 	}
 
-	const pending = pendingCallbacks.get(callback_id);
+	const pending = pendingCallbacks.get(respondSessionId);
 	if (!pending) {
 		return res.status(404).json({
-			error: `No pending request for callback_id "${callback_id}"`,
+			error: `No pending request for session_id "${respondSessionId}"`,
 		});
 	}
 
 	clearTimeout(pending.timer);
-	pendingCallbacks.delete(callback_id);
+	pendingCallbacks.delete(respondSessionId);
 	pending.resolve(response);
 
-	console.log(`[respond] ${callback_id} → ${response.status}`);
+	console.log(`[respond] ${respondSessionId} → ${response.status}`);
 	res.json({ delivered: true });
 });
 

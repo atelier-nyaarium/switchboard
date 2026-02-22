@@ -1,32 +1,30 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { spawn } from "child_process";
-import crypto from "crypto";
+import { createServer } from "http";
 import WebSocket from "ws";
 import { z } from "zod";
 
 const ROUTER_URL = process.env.BRIDGE_ROUTER_URL || "http://agent-team-bridge:5678";
-const TEAM_NAME = process.env.PROJECT_NAME;
-const AGENT_TYPE = process.env.BRIDGE_AGENT_TYPE || "claude";
-const AGENT_TIMEOUT_MS = parseInt(process.env.BRIDGE_AGENT_TIMEOUT_MS || "600000"); // 10 min default
+const TEAM_NAME = process.env.TEAM_NAME;
+const AGENT_TYPE = process.env.AGENT_TYPE || "claude";
+const AGENT_TIMEOUT_MS = parseInt(process.env.AGENT_TIMEOUT_MS || "600000"); // 10 min default
 
 if (!TEAM_NAME) {
-	console.error("PROJECT_NAME environment variable is required");
+	console.error("TEAM_NAME environment variable is required (set in MCP config)");
 	process.exit(1);
 }
 
 // ---------------------------------------------------------------------------
-// Ingest log — POST to router, append NDJSON in workspace .cursor (no stderr storm)
+// Ingest log — POST to router /ingest (NDJSON to router LOG_PATH).
 // ---------------------------------------------------------------------------
-async function logIngest(message, data = {}) {
+async function debugLog(message, data = {}) {
 	const payload = { message, data, location: "mcp/server.js", timestamp: Date.now(), team: TEAM_NAME };
-	try {
-		await fetch(`${ROUTER_URL}/ingest`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(payload),
-		});
-	} catch (_) {}
+	await fetch(`${ROUTER_URL}/ingest`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(payload),
+	}).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -63,10 +61,12 @@ async function runAgent(command, args, input) {
 		}
 
 		proc.on("close", (code) => {
+			const outTrimmed = stdout.trim();
+			const errTrimmed = stderr.trim();
 			if (code === 0) {
-				resolve(stdout.trim());
+				resolve(outTrimmed);
 			} else {
-				const errText = [stderr.trim(), stdout.trim()].filter(Boolean).join("\n") || "(no output)";
+				const errText = [errTrimmed, outTrimmed].filter(Boolean).join("\n") || "(no output)";
 				reject(new Error(`Agent exited ${code}: ${errText}`));
 			}
 		});
@@ -74,17 +74,59 @@ async function runAgent(command, args, input) {
 }
 
 // ---------------------------------------------------------------------------
+// Effort → model resolution
+//
+// install.sh writes MODEL_SIMPLE/STANDARD/COMPLEX into the MCP json as
+// logical names (haiku, sonnet, opus, codex, auto). resolveModel() maps those
+// logical names to the agent-specific CLI string for the active AGENT_TYPE.
+// ---------------------------------------------------------------------------
+const EFFORT_ENV = {
+	simple: process.env.MODEL_SIMPLE || "auto",
+	standard: process.env.MODEL_STANDARD || "auto",
+	complex: process.env.MODEL_COMPLEX || "auto",
+};
+
+// Logical model name → CLI string per agent type.
+// "auto" on Claude = omit --model flag entirely (let Claude Code decide).
+const MODEL_STRINGS = {
+	claude: {
+		auto: "auto",
+		haiku: "haiku",
+		sonnet: "sonnet",
+		opus: "opus",
+		codex: "ERROR",
+	},
+	cursor: {
+		auto: "auto",
+		haiku: "ERROR",
+		sonnet: "sonnet-4.6-thinking",
+		opus: "opus-4.6-thinking",
+		codex: "gpt-5.3-codex",
+	},
+};
+
+function resolveModel(effort) {
+	const logicalName = EFFORT_ENV[effort ?? "auto"] ?? "auto";
+
+	if (logicalName === "codex" && AGENT_TYPE !== "cursor") {
+		throw new Error(
+			'Model "codex" is not supported by the Claude agent. ' +
+				"Set AGENT_TYPE=cursor in your .cursor/mcp.json to use Codex in Cursor.",
+		);
+	}
+
+	const agentModels = MODEL_STRINGS[AGENT_TYPE];
+	return agentModels?.[logicalName] ?? "auto";
+}
+
+// ---------------------------------------------------------------------------
 // Agent handlers — each agent type knows its own CLI
 // ---------------------------------------------------------------------------
 const AGENT_HANDLERS = {
 	claude: {
-		async createSession() {
-			// Claude Code: generate a UUID, first -p call with --session-id
-			// establishes the session.
-			return crypto.randomUUID();
-		},
-		async sendMessage(sessionId, message) {
-			return runAgent("claude", ["-p", "--dangerously-skip-permissions", "--session-id", sessionId], message);
+		async sendMessage(sessionId, message, model) {
+			const args = ["-p", "--dangerously-skip-permissions", "--model", model, "--session-id", sessionId];
+			return runAgent("claude", args, message);
 		},
 	},
 
@@ -93,172 +135,144 @@ const AGENT_HANDLERS = {
 			const id = await runAgent("cursor-agent", ["create-chat", "-f"], null);
 			return id.trim();
 		},
-		async sendMessage(sessionId, message) {
-			return runAgent("cursor-agent", ["-f", "-p", `--resume=${sessionId}`], message);
+		async sendMessage(sessionId, message, model) {
+			const args = ["-f", "-p", "--model", model, `--resume=${sessionId}`];
+			return runAgent("cursor-agent", args, message);
 		},
 	},
 };
 
 // ---------------------------------------------------------------------------
+// Reply proxy — so CLI sub-agents (no MCP) can POST their reply to us; we forward to router
+// ---------------------------------------------------------------------------
+function createReplyProxy(sessionId) {
+	return new Promise((resolve) => {
+		const server = createServer((req, res) => {
+			if (req.method !== "POST") {
+				res.writeHead(405).end();
+				return;
+			}
+			let body = "";
+			req.on("data", (chunk) => (body += chunk));
+			req.on("end", async () => {
+				try {
+					const data = JSON.parse(body);
+					if (data.session_id !== sessionId) {
+						res.writeHead(400, { "Content-Type": "application/json" });
+						res.end(JSON.stringify({ error: "session_id mismatch" }));
+						return;
+					}
+					await routerPost("/respond", data);
+					res.writeHead(200, { "Content-Type": "application/json" });
+					res.end(JSON.stringify({ delivered: true }));
+					console.error(
+						`[bridge-mcp] reply proxy received reply: ${data.status} [${sessionId.slice(0, 8)}...]`,
+					);
+				} catch (err) {
+					res.writeHead(500, { "Content-Type": "application/json" });
+					res.end(JSON.stringify({ error: err.message }));
+				} finally {
+					server.close();
+				}
+			});
+		});
+		server.listen(0, "127.0.0.1", () => {
+			const port = server.address().port;
+			resolve({
+				port,
+				close: () => {
+					if (server.listening) server.close();
+				},
+			});
+		});
+	});
+}
+
+// ---------------------------------------------------------------------------
 // Prompt builders
 // ---------------------------------------------------------------------------
-function buildInitialPrompt(msg) {
-	return `# Cross-Team Request
-
-**From:** ${msg.from}
-**Type:** ${msg.request_type}
-**Priority:** ${msg.priority}
-
-## Request
-
-${msg.subject ? `**${msg.subject}**\n\n` : ""}${msg.body}
-
-## How to Respond
-
-You are receiving this because another team's agent needs something from this codebase.
-Do the work if you can. Ask for clarification if the request is ambiguous. Defer if you're
-deep in something else. Escalate if a human needs to decide.
-
-**Your response MUST start with YAML frontmatter.** The bridge parses this to route your answer.
-
-For completed work:
-\`\`\`
----
-status: completed
-summary: Short description of what you did
-version: 1.2.3
-breaking: false
-migration_notes: Optional notes if breaking
----
-...Your formatted Markdown response here...
-\`\`\`
-
-For clarification needed:
-\`\`\`
----
-status: clarification
-question: Your question here
----
-...Your formatted Markdown response here...
-\`\`\`
-
-For deferring:
-\`\`\`
----
-status: deferred
-reason: Why you can't do it now
-estimated_minutes: 20
----
-...Your formatted Markdown response here...
-\`\`\`
-
-For human escalation:
-\`\`\`
----
-status: needs_human
-reason: Why a human must decide
-what_to_decide: The specific decision
----
-...Your formatted Markdown response here...
-\`\`\`
-
-After the frontmatter, explain your work in detail. The frontmatter is machine-parsed;
-everything after it is context for the requesting agent.
-`;
-}
-
-function buildFollowUpPrompt(msg) {
-	return `# Cross-Team Follow-Up
-
-**From:** ${msg.from}
+function buildInitialPrompt(msg, replyProxyPort, sessionId) {
+	return `┃ CROSS-TEAM COMMUNICATION — USE SKILL: agent-team-bridge - **Receiving a Request**
+┃ From: ${msg.from}
+┃ Type: ${msg.request_type}
+┃ session_id: ${sessionId}
+┃ ↳ When finished, call bridge_reply with the session_id above.
+┃ If you do NOT have the bridge_reply MCP tool (e.g. CLI agent), submit your reply by POSTing JSON to:
+┃   http://127.0.0.1:${replyProxyPort}/respond
+┃ Body: { "session_id": "${sessionId}", "status": "completed"|"clarification"|"deferred"|"needs_human", ... }
+┃ Example (completed): curl -s -X POST http://127.0.0.1:${replyProxyPort}/respond -H "Content-Type: application/json" -d '{"session_id":"${sessionId}","status":"completed","response":"Your answer here"}'
 
 ${msg.body}
-
-(Same format — start with YAML frontmatter, then your detailed response.)
 `;
 }
 
-// ---------------------------------------------------------------------------
-// Parse YAML frontmatter from agent stdout
-// ---------------------------------------------------------------------------
-function parseAgentResponse(output) {
-	const fmMatch = output.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-	if (fmMatch) {
-		try {
-			const meta = {};
-			for (const line of fmMatch[1].split("\n")) {
-				const colon = line.indexOf(":");
-				if (colon === -1) continue;
-				const key = line.slice(0, colon).trim();
-				let val = line.slice(colon + 1).trim();
+function buildFollowUpPrompt(msg, replyProxyPort, sessionId) {
+	return `┃ CROSS-TEAM COMMUNICATION — USE SKILL: agent-team-bridge - **Receiving a Follow-up**
+┃ From: ${msg.from}
+┃ session_id: ${sessionId}
+┃ ↳ When finished, call bridge_reply with the session_id above.
+┃ If you do NOT have bridge_reply, POST your reply to: http://127.0.0.1:${replyProxyPort}/respond (session_id: ${sessionId})
 
-				if (val === "true") val = true;
-				else if (val === "false") val = false;
-				else if (/^\d+$/.test(val)) val = parseInt(val, 10);
-
-				meta[key] = val;
-			}
-
-			if (meta.status) {
-				const narrative = output.slice(fmMatch[0].length).trim();
-				if (narrative) meta.narrative = narrative;
-				return meta;
-			}
-		} catch {
-			/* fall through */
-		}
-	}
-
-	return {
-		status: "error",
-		reason: "Bridge could not parse agent response (no valid YAML frontmatter).",
-	};
+${msg.body}
+`;
 }
 
 // ---------------------------------------------------------------------------
 // Handle inbound inject from router (via WebSocket)
 // ---------------------------------------------------------------------------
 async function handleInject(msg) {
+	const sessionId = msg.session_id;
+	if (typeof sessionId !== "string" || sessionId.length === 0) {
+		console.error("[bridge-mcp] inject missing session_id; router must send it");
+		return;
+	}
+
 	const handler = AGENT_HANDLERS[AGENT_TYPE];
 	if (!handler) {
 		console.error(`[bridge-mcp] unknown agent type: "${AGENT_TYPE}"`);
 		await routerPost("/respond", {
-			callback_id: msg.callback_id,
+			session_id: sessionId,
 			status: "error",
 			reason: `Agent type "${AGENT_TYPE}" is not a recognized handler. Valid types: ${Object.keys(AGENT_HANDLERS).join(", ")}`,
-		});
+		}).catch(() => {});
+		return;
+	}
+
+	let replyProxy;
+	try {
+		replyProxy = await createReplyProxy(sessionId);
+	} catch (err) {
+		await routerPost("/respond", {
+			session_id: sessionId,
+			status: "error",
+			reason: err.message,
+		}).catch(() => {});
 		return;
 	}
 
 	try {
-		// If a session_id was provided, this is a follow-up — use it directly.
-		// Otherwise create a fresh agent session. No map needed.
-		const sessionId = msg.session_id ?? (await handler.createSession());
-		const isFollowUp = !!msg.session_id;
+		const model = resolveModel(msg.effort);
+		const isFollowUp = !!msg.is_follow_up;
+		const agentSessionId = isFollowUp ? sessionId : await handler.createSession(sessionId);
 
-		const prompt = isFollowUp ? buildFollowUpPrompt(msg) : buildInitialPrompt(msg);
+		const prompt = isFollowUp
+			? buildFollowUpPrompt(msg, replyProxy.port, sessionId)
+			: buildInitialPrompt(msg, replyProxy.port, sessionId);
+
 		console.error(
-			`[bridge-mcp] ${isFollowUp ? "follow-up" : "new"} ${AGENT_TYPE} session ${sessionId.slice(0, 8)}... from ${msg.from}`,
+			`[bridge-mcp] ${isFollowUp ? "follow-up" : "new"} ${AGENT_TYPE}/${model} session ${sessionId.slice(0, 8)}... from ${msg.from}`,
 		);
 
-		const output = await handler.sendMessage(sessionId, prompt);
-
-		const parsed = parseAgentResponse(output);
-		parsed.callback_id = msg.callback_id;
-		parsed.session_id = sessionId; // always echo back so caller can thread follow-ups
-
-		console.error(`[bridge-mcp] response: ${parsed.status} [${msg.callback_id}]`);
-		await routerPost("/respond", {
-			callback_id: msg.callback_id,
-			...parsed,
-		});
+		await handler.sendMessage(agentSessionId, prompt, model);
 	} catch (err) {
 		console.error(`[bridge-mcp] inject failed: ${err.message}`);
 		await routerPost("/respond", {
-			callback_id: msg.callback_id,
+			session_id: sessionId,
 			status: "error",
 			reason: err.message,
-		});
+		}).catch(() => {});
+	} finally {
+		if (replyProxy) replyProxy.close();
 	}
 }
 
@@ -298,7 +312,9 @@ function connectToRouter() {
 			return;
 		}
 		if (msg.type === "inject") {
-			handleInject(msg);
+			handleInject(msg).catch((err) => {
+				console.error(`[bridge-mcp] handleInject error: ${err.message}`);
+			});
 		}
 	});
 
@@ -345,11 +361,11 @@ async function routerGet(path) {
 }
 
 // ---------------------------------------------------------------------------
-// MCP Tools — exposed to the main agent session via stdio
+// MCP Tools — exposed to the agent session via stdio
 // ---------------------------------------------------------------------------
 const server = new McpServer({
 	name: "agent-team-bridge",
-	version: "0.2.0",
+	version: "0.3.0",
 });
 
 server.tool("bridge_discover", "List all active teams on the bridge network.", {}, async () => {
@@ -359,12 +375,7 @@ server.tool("bridge_discover", "List all active teams on the bridge network.", {
 
 		if (others.length === 0) {
 			return {
-				content: [
-					{
-						type: "text",
-						text: "No other teams are currently online.",
-					},
-				],
+				content: [{ type: "text", text: "No other teams are currently online." }],
 			};
 		}
 
@@ -374,21 +385,11 @@ server.tool("bridge_discover", "List all active teams on the bridge network.", {
 		});
 
 		return {
-			content: [
-				{
-					type: "text",
-					text: `Teams on the bridge:\n${lines.join("\n")}`,
-				},
-			],
+			content: [{ type: "text", text: `Teams on the bridge:\n${lines.join("\n")}` }],
 		};
 	} catch (err) {
 		return {
-			content: [
-				{
-					type: "text",
-					text: `Failed to reach router: ${err.message}`,
-				},
-			],
+			content: [{ type: "text", text: `Failed to reach router: ${err.message}` }],
 			isError: true,
 		};
 	}
@@ -398,24 +399,30 @@ server.tool(
 	"bridge_send",
 	"Send a request to another team and wait for their response. Blocks until they respond.",
 	{
-		to: z.string().describe("Target team name"),
-		type: z.enum(["feature", "bugfix", "breaking-change", "question"]).default("question"),
-		priority: z.enum(["low", "normal", "urgent", "blocking"]).default("normal"),
-		subject: z.string().describe("Short summary"),
-		body: z.string().describe("Full details"),
+		to: z.string().describe("Target team name. You can use bridge_discover to find the available teams."),
+		type: z.enum(["feature", "bugfix", "question"]).describe("The type of request you are making."),
+		effort: z
+			.enum(["simple", "standard", "complex"])
+			.describe("How much effort it should take to understand and handle this request."),
+		body: z
+			.string()
+			.describe(
+				"Full Markdown formatted details of the request. Provide a detailed description of the request and any context that would be helpful to the other team.",
+			),
 		session_id: z
 			.string()
 			.optional()
-			.describe("Agent session ID from a previous response — omit to start a new conversation thread"),
+			.describe(
+				"Conversation session ID. Must be provided to continue the same conversation thread. Omit to start a new conversation thread.",
+			),
 	},
-	async ({ to, type, priority, subject, body, session_id }) => {
+	async ({ to, type, effort, body, session_id }) => {
 		try {
 			const result = await routerPost("/send", {
-				from: TEAM_NAME,
+				from: TEAM_NAME, // TODO: move this into the router server
 				to,
 				type,
-				priority,
-				subject,
+				effort,
 				body,
 				session_id: session_id || null,
 			});
@@ -435,11 +442,7 @@ server.tool(
 			const parts = [`Response from ${to}:`, `Status: ${result.status}`];
 
 			if (result.status === "completed") {
-				parts.push(`Summary: ${result.summary || "(no summary)"}`);
-				if (result.version) parts.push(`Version: ${result.version}`);
-				if (result.breaking) parts.push("⚠️ BREAKING CHANGE");
-				if (result.migration_notes) parts.push(`Migration: ${result.migration_notes}`);
-				if (result.narrative) parts.push(`\nDetails:\n${result.narrative}`);
+				if (result.response) parts.push(`\n${result.response}`);
 			} else if (result.status === "clarification") {
 				parts.push(`Question: ${result.question}`);
 				parts.push(`\nTo answer, use bridge_send with session_id: "${result.session_id}"`);
@@ -464,12 +467,46 @@ server.tool(
 			};
 		} catch (err) {
 			return {
-				content: [
-					{
-						type: "text",
-						text: `Failed to send: ${err.message}`,
-					},
-				],
+				content: [{ type: "text", text: `Failed to send: ${err.message}` }],
+				isError: true,
+			};
+		}
+	},
+);
+
+server.tool(
+	"bridge_reply",
+	"Reply to an incoming bridge request. Call this once when you are done handling the request.",
+	{
+		session_id: z
+			.string()
+			.describe("The session_id from the incoming request header. Required to route the reply correctly."),
+		status: z.enum(["completed", "clarification", "deferred", "needs_human"]).describe("The outcome of your work."),
+		response: z
+			.string()
+			.optional()
+			.describe("Your full response to the request. Required when status is completed."),
+		question: z
+			.string()
+			.optional()
+			.describe("The specific question you need answered. Required when status is clarification."),
+		reason: z.string().optional().describe("Why you are deferred or need a human. Required for those statuses."),
+		estimated_minutes: z.number().optional().describe("Estimated minutes until you can handle this. For deferred."),
+		what_to_decide: z
+			.string()
+			.optional()
+			.describe("The specific decision or approval a human must make. Required for needs_human."),
+	},
+	async ({ session_id, status, ...rest }) => {
+		try {
+			await routerPost("/respond", { session_id, status, ...rest });
+			console.error(`[bridge-mcp] bridge_reply sent: ${status} [${session_id}]`);
+			return {
+				content: [{ type: "text", text: `Reply sent (${status}).` }],
+			};
+		} catch (err) {
+			return {
+				content: [{ type: "text", text: `Failed to send reply: ${err.message}` }],
 				isError: true,
 			};
 		}
@@ -483,12 +520,7 @@ server.tool(
 	async ({ seconds }) => {
 		await new Promise((r) => setTimeout(r, seconds * 1000));
 		return {
-			content: [
-				{
-					type: "text",
-					text: `Waited ${seconds}s. You can retry now.`,
-				},
-			],
+			content: [{ type: "text", text: `Waited ${seconds}s. You can retry now.` }],
 		};
 	},
 );

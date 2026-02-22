@@ -10,8 +10,8 @@ services:
       - RESPONSE_TIMEOUT_MS=600000
     networks:
       - agent-team-bridge-network
-
+    volumes:
+      - .cursor:/app/log
 networks:
   agent-team-bridge-network:
     name: agent-team-bridge
-    external: true

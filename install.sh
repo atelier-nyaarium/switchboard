@@ -29,16 +29,7 @@ ROUTER_PORT="${BRIDGE_ROUTER_PORT:-5678}"
 NETWORK_NAME="${BRIDGE_NETWORK_NAME:-agent-team-bridge}"
 
 if [[ -z "$TEAM_NAME" ]]; then
-    echo "Usage: PROJECT_NAME=<team-name> install.sh   OR   install.sh <team-name>"
-    echo ""
-    echo "Example: PROJECT_NAME=@nyaarium/cool-library ./install.sh"
-    echo ""
-    echo "Environment variables:"
-    echo "  PROJECT_NAME         (default: PROJECT_NAME env var or first argument)"
-    echo "  BRIDGE_ROUTER_HOST   (default: agent-team-bridge)"
-    echo "  BRIDGE_ROUTER_PORT   (default: 5678)"
-    echo "  BRIDGE_AGENT_TYPE    (default: claude)  Options: claude, cursor"
-    echo "  BRIDGE_NETWORK_NAME  (default: agent-team-bridge)"
+    echo "Usage: install.sh <team-name>"
     exit 1
 fi
 
@@ -85,8 +76,12 @@ BRIDGE_MCP_ENTRY=$(cat <<MCPJSON
     "command": "node",
     "args": ["/agent-team-bridge/mcp/server.js"],
     "env": {
+        "TEAM_NAME": "${TEAM_NAME}",
         "BRIDGE_ROUTER_URL": "${ROUTER_URL}",
-        "BRIDGE_AGENT_TYPE": "${AGENT_TYPE}"
+        "AGENT_TYPE": "${AGENT_TYPE}",
+        "MODEL_SIMPLE": "auto",
+        "MODEL_STANDARD": "sonnet",
+        "MODEL_COMPLEX": "opus"
     }
 }
 MCPJSON
