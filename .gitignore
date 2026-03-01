@@ -22,7 +22,7 @@ _test/
 /.env*
 /compose*.yml
 /next-env.d.ts
-debug.log
+debug*.log
 
 #### OS
 Thumbs.db

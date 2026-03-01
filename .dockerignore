@@ -15,7 +15,7 @@ debug/
 /.vscode/
 /compose*.yml
 /coverage/
-/debug.log
+/debug*.log
 /volumes/
 
 #### OS
