@@ -124,6 +124,9 @@ function resolveModel(effort) {
 // ---------------------------------------------------------------------------
 const AGENT_HANDLERS = {
 	claude: {
+		async createSession(sessionId) {
+			return sessionId;
+		},
 		async sendMessage(sessionId, message, model) {
 			const args = ["-p", "--dangerously-skip-permissions", "--model", model, "--session-id", sessionId];
 			return runAgent("claude", args, message);
