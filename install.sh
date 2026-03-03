@@ -108,14 +108,36 @@ else
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 2. .claude/skills/bridge.md
+# 2. .claude/settings.json — add agent-team-bridge plugin
 # ═════════════════════════════════════════════════════════════════════════════
 
-echo "── .claude/skills/bridge.md"
+echo "── .claude/settings.json"
 
-mkdir -p .claude/skills/agent-team-bridge
-cp "${BRIDGE_ROOT}/mcp/skill-bridge.md" .claude/skills/agent-team-bridge/SKILL.md
-echo "   Copied skill template"
+BRIDGE_MARKETPLACE=$(cat <<'MKJSON'
+{
+    "source": {
+        "source": "github",
+        "repo": "atelier-nyaarium/agent-team-bridge"
+    }
+}
+MKJSON
+)
+
+mkdir -p .claude
+if [[ -f ".claude/settings.json" ]]; then
+    jq --tab --argjson mk "$BRIDGE_MARKETPLACE" '
+        .extraKnownMarketplaces["agent-team-bridge"] = $mk |
+        .enabledPlugins["agent-team-bridge@agent-team-bridge"] = true
+    ' .claude/settings.json > .claude/settings.json.tmp
+    mv .claude/settings.json.tmp .claude/settings.json
+    echo "   Updated existing .claude/settings.json"
+else
+    jq --tab -n --argjson mk "$BRIDGE_MARKETPLACE" '{
+        extraKnownMarketplaces: { "agent-team-bridge": $mk },
+        enabledPlugins: { "agent-team-bridge@agent-team-bridge": true }
+    }' > .claude/settings.json
+    echo "   Created .claude/settings.json"
+fi
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 3. .devcontainer/compose.yml — add external network

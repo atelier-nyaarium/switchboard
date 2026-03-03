@@ -51,15 +51,36 @@ if [[ -f ".cursor/mcp.json" ]]; then
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 2. .claude/skills — remove skill file
+# 2. .claude/settings.json — remove agent-team-bridge plugin
 # ═════════════════════════════════════════════════════════════════════════════
 
+if [[ -f ".claude/settings.json" ]]; then
+    if jq -e '.extraKnownMarketplaces["agent-team-bridge"] // .enabledPlugins["agent-team-bridge@agent-team-bridge"]' .claude/settings.json &>/dev/null; then
+        jq --tab '
+            del(.extraKnownMarketplaces["agent-team-bridge"]) |
+            del(.enabledPlugins["agent-team-bridge@agent-team-bridge"]) |
+            if .extraKnownMarketplaces | length == 0 then del(.extraKnownMarketplaces) else . end |
+            if .enabledPlugins | length == 0 then del(.enabledPlugins) else . end
+        ' .claude/settings.json > .claude/settings.json.tmp
+        mv .claude/settings.json.tmp .claude/settings.json
+
+        # If settings is now empty, remove the file
+        if jq -e 'length == 0' .claude/settings.json &>/dev/null; then
+            rm .claude/settings.json
+            log "   .claude/settings.json removed (was empty)"
+        else
+            log "   .claude/settings.json — removed agent-team-bridge plugin"
+        fi
+    fi
+fi
+
+# Clean up legacy skill files if present
 if [[ -f ".claude/skills/agent-team-bridge/SKILL.md" ]]; then
     rm .claude/skills/agent-team-bridge/SKILL.md
     rmdir .claude/skills/agent-team-bridge 2>/dev/null || true
-    log "   .claude/skills/agent-team-bridge removed"
+    rmdir .claude/skills 2>/dev/null || true
+    log "   Cleaned up legacy .claude/skills/agent-team-bridge"
 fi
-rmdir .claude/skills 2>/dev/null || true
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 3. .devcontainer/compose.yml — remove agent-team-bridge-network
