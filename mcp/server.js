@@ -87,14 +87,15 @@ const EFFORT_ENV = {
 };
 
 // Logical model name → CLI string per agent type.
-// "auto" on Claude = omit --model flag entirely (let Claude Code decide).
+// Every effort level MUST resolve to a concrete model — never pass "auto" to
+// the CLI, because sessions share the process and an unset model flag lets the
+// previous session's choice bleed into the next one.
 const MODEL_STRINGS = {
 	claude: {
-		auto: "auto",
+		auto: "haiku",
 		haiku: "haiku",
 		sonnet: "sonnet",
 		opus: "opus",
-		codex: "ERROR",
 	},
 	cursor: {
 		auto: "auto",
@@ -108,15 +109,20 @@ const MODEL_STRINGS = {
 function resolveModel(effort) {
 	const logicalName = EFFORT_ENV[effort ?? "auto"] ?? "auto";
 
-	if (logicalName === "codex" && AGENT_TYPE !== "cursor") {
+	const agentModels = MODEL_STRINGS[AGENT_TYPE];
+	if (!agentModels) {
+		throw new Error(`Unknown AGENT_TYPE "${AGENT_TYPE}". Valid types: ${Object.keys(MODEL_STRINGS).join(", ")}`);
+	}
+
+	const model = agentModels[logicalName];
+	if (!model || model === "ERROR") {
 		throw new Error(
-			'Model "codex" is not supported by the Claude agent. ' +
-				"Set AGENT_TYPE=cursor in your .cursor/mcp.json to use Codex in Cursor.",
+			`Model "${logicalName}" is not supported by agent type "${AGENT_TYPE}". ` +
+				`Valid models for ${AGENT_TYPE}: ${Object.entries(agentModels).filter(([, v]) => v !== "ERROR").map(([k]) => k).join(", ")}`,
 		);
 	}
 
-	const agentModels = MODEL_STRINGS[AGENT_TYPE];
-	return agentModels?.[logicalName] ?? "auto";
+	return model;
 }
 
 // ---------------------------------------------------------------------------
