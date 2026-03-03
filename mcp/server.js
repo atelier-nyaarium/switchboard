@@ -104,6 +104,12 @@ const MODEL_STRINGS = {
 		opus: "opus-4.6-thinking",
 		codex: "gpt-5.3-codex",
 	},
+	copilot: {
+		auto: "claude-haiku-4.5",
+		haiku: "claude-haiku-4.5",
+		sonnet: "claude-sonnet-4.6",
+		opus: "claude-opus-4.6",
+	},
 };
 
 function resolveModel(effort) {
@@ -118,7 +124,10 @@ function resolveModel(effort) {
 	if (!model || model === "ERROR") {
 		throw new Error(
 			`Model "${logicalName}" is not supported by agent type "${AGENT_TYPE}". ` +
-				`Valid models for ${AGENT_TYPE}: ${Object.entries(agentModels).filter(([, v]) => v !== "ERROR").map(([k]) => k).join(", ")}`,
+				`Valid models for ${AGENT_TYPE}: ${Object.entries(agentModels)
+					.filter(([, v]) => v !== "ERROR")
+					.map(([k]) => k)
+					.join(", ")}`,
 		);
 	}
 
@@ -147,6 +156,16 @@ const AGENT_HANDLERS = {
 		async sendMessage(sessionId, message, model) {
 			const args = ["-f", "-p", "--model", model, `--resume=${sessionId}`];
 			return runAgent("cursor-agent", args, message);
+		},
+	},
+
+	copilot: {
+		async createSession(sessionId) {
+			return sessionId;
+		},
+		async sendMessage(sessionId, message, model) {
+			const args = ["-p", message, "--yolo", "--no-ask-user", "--model", model, "--resume", sessionId, "-s"];
+			return runAgent("copilot", args, null);
 		},
 	},
 };
