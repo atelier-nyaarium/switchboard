@@ -70,25 +70,26 @@ const pendingCallbacks = new Map(); // session_id → { resolve, timer }
 const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 
-// Heartbeat — ping all clients every 30s. Any socket that doesn't pong back
-// within the interval is terminated, triggering the normal close handler and
+// Heartbeat — ping all clients every 30s. Clients that miss 2 consecutive
+// pongs (~60s) are terminated, triggering the normal close handler and
 // removing the team from the registry.
 const HEARTBEAT_INTERVAL_MS = 30000;
+const MISSED_PINGS_LIMIT = 2;
 setInterval(() => {
 	for (const ws of wss.clients) {
-		if (!ws.isAlive) {
+		ws.missedPings = (ws.missedPings || 0) + 1;
+		if (ws.missedPings >= MISSED_PINGS_LIMIT) {
 			ws.terminate();
-			return;
+			continue;
 		}
-		ws.isAlive = false;
 		ws.ping();
 	}
 }, HEARTBEAT_INTERVAL_MS);
 
 wss.on("connection", (ws) => {
-	ws.isAlive = true;
+	ws.missedPings = 0;
 	ws.on("pong", () => {
-		ws.isAlive = true;
+		ws.missedPings = 0;
 	});
 
 	let teamName = null;
