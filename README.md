@@ -71,7 +71,8 @@ RUN git clone --depth 1 https://github.com/atelier-nyaarium/agent-team-bridge.gi
 			"source": {
 				"source": "github",
 				"repo": "atelier-nyaarium/agent-team-bridge"
-			}
+			},
+			"autoUpdate": true
 		}
 	},
 	"enabledPlugins": {

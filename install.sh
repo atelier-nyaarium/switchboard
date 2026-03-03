@@ -118,7 +118,8 @@ BRIDGE_MARKETPLACE=$(cat <<'MKJSON'
     "source": {
         "source": "github",
         "repo": "atelier-nyaarium/agent-team-bridge"
-    }
+    },
+    "autoUpdate": true
 }
 MKJSON
 )
@@ -127,14 +128,16 @@ mkdir -p .claude
 if [[ -f ".claude/settings.json" ]]; then
     jq --tab --argjson mk "$BRIDGE_MARKETPLACE" '
         .extraKnownMarketplaces["agent-team-bridge"] = $mk |
-        .enabledPlugins["agent-team-bridge@agent-team-bridge"] = true
+        .enabledPlugins["agent-team-bridge@agent-team-bridge"] = true |
+        .enabledPlugins = (.enabledPlugins | to_entries | sort_by(.key) | from_entries) |
+        .extraKnownMarketplaces = (.extraKnownMarketplaces | to_entries | sort_by(.key) | from_entries)
     ' .claude/settings.json > .claude/settings.json.tmp
     mv .claude/settings.json.tmp .claude/settings.json
     echo "   Updated existing .claude/settings.json"
 else
     jq --tab -n --argjson mk "$BRIDGE_MARKETPLACE" '{
-        extraKnownMarketplaces: { "agent-team-bridge": $mk },
-        enabledPlugins: { "agent-team-bridge@agent-team-bridge": true }
+        enabledPlugins: { "agent-team-bridge@agent-team-bridge": true },
+        extraKnownMarketplaces: { "agent-team-bridge": $mk }
     }' > .claude/settings.json
     echo "   Created .claude/settings.json"
 fi
