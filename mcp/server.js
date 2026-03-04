@@ -561,6 +561,14 @@ async function main() {
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
 	console.error(`[bridge-mcp] started for ${TEAM_NAME} (agent: ${AGENT_TYPE})`);
+
+	// When the parent (Claude Code / IDE) exits, stdin closes. Shut down
+	// cleanly so the router's close-handler removes us from the registry.
+	process.stdin.on("end", () => {
+		console.error("[bridge-mcp] stdin closed (parent exited), shutting down");
+		if (routerWs) routerWs.close();
+		process.exit(0);
+	});
 }
 
 main().catch((err) => {
