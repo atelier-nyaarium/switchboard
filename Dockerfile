@@ -1,7 +1,7 @@
 FROM oven/bun:1 AS build
 WORKDIR /app
-COPY package.json bun.lockb ./
-RUN bun install --frozen-lockfile
+COPY package.json ./
+RUN bun install
 COPY src/ src/
 COPY tsconfig.json ./
 RUN bun build --compile --target=bun-linux-x64 src/main.ts --outfile=agent-team-bridge
