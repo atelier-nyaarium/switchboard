@@ -10,20 +10,10 @@ import { resolveModel } from "./resolve-model.js";
 
 import type { InjectPayload, ResponsePayload } from "../shared/types.js";
 
-const ROUTER_URL = process.env.BRIDGE_ROUTER_URL || "http://agent-team-bridge:5678";
-const TEAM_NAME = process.env.TEAM_NAME;
-const AGENT_TYPE = process.env.AGENT_TYPE || "claude";
-
-const EFFORT_ENV = {
-	simple: process.env.MODEL_SIMPLE || "auto",
-	standard: process.env.MODEL_STANDARD || "auto",
-	complex: process.env.MODEL_COMPLEX || "auto",
-};
-
-if (!TEAM_NAME) {
-	console.error("TEAM_NAME environment variable is required (set in MCP config)");
-	process.exit(1);
-}
+let ROUTER_URL: string;
+let TEAM_NAME: string;
+let AGENT_TYPE: string;
+let EFFORT_ENV: { simple: string; standard: string; complex: string };
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
@@ -321,6 +311,20 @@ mcpServer.tool(
 // Startup
 // ---------------------------------------------------------------------------
 export async function startMcp() {
+	ROUTER_URL = process.env.BRIDGE_ROUTER_URL || "http://agent-team-bridge:5678";
+	TEAM_NAME = process.env.TEAM_NAME!;
+	AGENT_TYPE = process.env.AGENT_TYPE || "claude";
+	EFFORT_ENV = {
+		simple: process.env.MODEL_SIMPLE || "auto",
+		standard: process.env.MODEL_STANDARD || "auto",
+		complex: process.env.MODEL_COMPLEX || "auto",
+	};
+
+	if (!TEAM_NAME) {
+		console.error("TEAM_NAME environment variable is required (set in MCP config)");
+		process.exit(1);
+	}
+
 	connectToRouter();
 	const transport = new StdioServerTransport();
 	await mcpServer.connect(transport);
