@@ -113,8 +113,6 @@ export function createRoutes({ registry, pendingCallbacks, getMutex, config }: R
 				is_follow_up: !!session_id,
 			};
 
-			console.log(`[send] ${from} → ${to} [${sessionId}]`);
-
 			if (targetWs.readyState !== 1) {
 				throw new Error(`Team "${to}" disconnected before message could be delivered`);
 			}

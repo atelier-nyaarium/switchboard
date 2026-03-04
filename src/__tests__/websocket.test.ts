@@ -5,7 +5,7 @@ import type { PendingEntry } from "../shared/types.js";
 
 function createMockWs(): any {
 	return {
-		data: { teamName: null, missedPings: 0 } as WsData,
+		data: { teamName: null, missedPings: 0, isStale: false } as WsData,
 		readyState: 1,
 		close: vi.fn(),
 		ping: vi.fn(),

@@ -12,6 +12,7 @@ export interface WebSocketDeps {
 export interface WsData {
 	teamName: string | null;
 	missedPings: number;
+	isStale: boolean;
 }
 
 export function createWebSocketHandlers({ registry, pendingCallbacks, targetLocks, config }: WebSocketDeps) {
@@ -31,6 +32,7 @@ export function createWebSocketHandlers({ registry, pendingCallbacks, targetLock
 
 	function open(ws: ServerWebSocket<WsData>) {
 		ws.data.missedPings = 0;
+		ws.data.isStale = false;
 	}
 
 	function message(ws: ServerWebSocket<WsData>, raw: string | Buffer) {
@@ -45,6 +47,7 @@ export function createWebSocketHandlers({ registry, pendingCallbacks, targetLock
 			const existing = registry.get(msg.team);
 			if (existing && existing !== (ws as any)) {
 				console.log(`[ws] ${msg.team} re-registered - closing stale socket`);
+				(existing.data as WsData).isStale = true;
 				existing.close();
 			}
 			ws.data.teamName = msg.team;
@@ -58,6 +61,12 @@ export function createWebSocketHandlers({ registry, pendingCallbacks, targetLock
 
 	function close(ws: ServerWebSocket<WsData>) {
 		const teamName = ws.data.teamName;
+
+		if (ws.data.isStale) {
+			console.log(`[ws] stale socket closed for ${teamName} - ignoring`);
+			return;
+		}
+
 		if (!teamName) return;
 
 		if (registry.get(teamName) !== (ws as any)) {
