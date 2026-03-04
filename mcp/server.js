@@ -16,7 +16,7 @@ if (!TEAM_NAME) {
 }
 
 // ---------------------------------------------------------------------------
-// Ingest log — POST to router /ingest (NDJSON to router LOG_PATH).
+// Ingest log - POST to router /ingest (NDJSON to router LOG_PATH).
 // ---------------------------------------------------------------------------
 async function debugLog(message, data = {}) {
 	const payload = { message, data, location: "mcp/server.js", timestamp: Date.now(), team: TEAM_NAME };
@@ -24,16 +24,15 @@ async function debugLog(message, data = {}) {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(payload),
-	}).catch(() => {});
+	}).catch(() => {}); // debug logging is best-effort - never let it crash the process
 }
 
-// ---------------------------------------------------------------------------
-// Run an agent CLI command: stdin → stdout
-// ---------------------------------------------------------------------------
 async function runAgent(command, args, input) {
 	const env = { ...process.env };
 	const home = process.env.HOME || process.env.USERPROFILE;
 	if (home) {
+		// Ensure user-local bin dirs are on PATH - agent CLIs (claude, cursor-agent) are
+		// often installed there and may not be present in the MCP process environment.
 		const extra = [`${home}/.local/bin`, `${home}/bin`].join(":");
 		env.PATH = [env.PATH, extra].filter(Boolean).join(process.platform === "win32" ? ";" : ":");
 	}
@@ -87,7 +86,7 @@ const EFFORT_ENV = {
 };
 
 // Logical model name → CLI string per agent type.
-// Every effort level MUST resolve to a concrete model — never pass "auto" to
+// Every effort level MUST resolve to a concrete model. Never pass "auto" to
 // the CLI, because sessions share the process and an unset model flag lets the
 // previous session's choice bleed into the next one.
 const MODEL_STRINGS = {
@@ -135,7 +134,8 @@ function resolveModel(effort) {
 }
 
 // ---------------------------------------------------------------------------
-// Agent handlers — each agent type knows its own CLI
+// Agent handlers - one entry per supported AGENT_TYPE. Each handler knows
+// how to create a session and deliver a message for its CLI.
 // ---------------------------------------------------------------------------
 const AGENT_HANDLERS = {
 	claude: {
@@ -171,7 +171,7 @@ const AGENT_HANDLERS = {
 };
 
 // ---------------------------------------------------------------------------
-// Reply proxy — so CLI sub-agents (no MCP) can POST their reply to us; we forward to router
+// Reply proxy - so CLI sub-agents (no MCP) can POST their reply to us; we forward to router
 // ---------------------------------------------------------------------------
 function createReplyProxy(sessionId) {
 	return new Promise((resolve) => {
@@ -217,10 +217,11 @@ function createReplyProxy(sessionId) {
 }
 
 // ---------------------------------------------------------------------------
-// Prompt builders
+// Prompt builders - inject a structured header into the agent's context so it
+// knows the session_id and how to reply (bridge_reply tool or HTTP fallback).
 // ---------------------------------------------------------------------------
 function buildInitialPrompt(msg, replyProxyPort, sessionId) {
-	return `┃ CROSS-TEAM COMMUNICATION — USE SKILL: agent-team-bridge - **Receiving a Request**
+	return `┃ CROSS-TEAM COMMUNICATION - USE SKILL: agent-team-bridge - **Receiving a Request**
 ┃ From: ${msg.from}
 ┃ Type: ${msg.request_type}
 ┃ session_id: ${sessionId}
@@ -235,7 +236,7 @@ ${msg.body}
 }
 
 function buildFollowUpPrompt(msg, replyProxyPort, sessionId) {
-	return `┃ CROSS-TEAM COMMUNICATION — USE SKILL: agent-team-bridge - **Receiving a Follow-up**
+	return `┃ CROSS-TEAM COMMUNICATION - USE SKILL: agent-team-bridge - **Receiving a Follow-up**
 ┃ From: ${msg.from}
 ┃ session_id: ${sessionId}
 ┃ ↳ When finished, call bridge_reply with the session_id above.
@@ -246,7 +247,8 @@ ${msg.body}
 }
 
 // ---------------------------------------------------------------------------
-// Handle inbound inject from router (via WebSocket)
+// handleInject - called when the router pushes an incoming request over WS.
+// Starts a reply proxy, spawns the agent, and forwards the reply to /respond.
 // ---------------------------------------------------------------------------
 async function handleInject(msg) {
 	const sessionId = msg.session_id;
@@ -305,7 +307,7 @@ async function handleInject(msg) {
 }
 
 // ---------------------------------------------------------------------------
-// WebSocket connection to router — with exponential backoff
+// WebSocket connection to router - with exponential backoff
 // ---------------------------------------------------------------------------
 let routerWs = null;
 let reconnectTimer = null; // guard: only one reconnect scheduled at a time
@@ -313,7 +315,7 @@ let reconnectDelay = 2000; // starts at 2s, doubles each attempt, caps at 30s
 const RECONNECT_MAX_MS = 30000;
 
 function scheduleReconnect() {
-	if (reconnectTimer) return; // already scheduled — don't stack
+	if (reconnectTimer) return; // already scheduled - don't stack
 	reconnectTimer = setTimeout(() => {
 		reconnectTimer = null;
 		connectToRouter();
@@ -389,7 +391,7 @@ async function routerGet(path) {
 }
 
 // ---------------------------------------------------------------------------
-// MCP Tools — exposed to the agent session via stdio
+// MCP tools - registered on the server and exposed to the agent via stdio.
 // ---------------------------------------------------------------------------
 const server = new McpServer({
 	name: "agent-team-bridge",
@@ -554,7 +556,7 @@ server.tool(
 );
 
 // ---------------------------------------------------------------------------
-// Start
+// Startup - connect to router, then attach MCP stdio transport.
 // ---------------------------------------------------------------------------
 async function main() {
 	connectToRouter();

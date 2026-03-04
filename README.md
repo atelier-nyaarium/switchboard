@@ -8,7 +8,7 @@ This is aimed at people who already use **Dev Containers** and want agent teams 
 
 ## How it works
 
-Teams register with a central router over WebSocket. Any agent can call `bridge_send` to reach another team — the router spawns a dedicated agent session on the receiving end, which handles the request and responds in a structured format. Conversations are threaded by `session_id`.
+Teams register with a central router over WebSocket. Any agent can call `bridge_send` to reach another team. The router spawns a dedicated agent session on the receiving end, which handles the request and responds in a structured format. Conversations are threaded by `session_id`.
 
 See `skills/agent-team-bridge/SKILL.md` for the full tool reference and response format.
 
@@ -124,4 +124,4 @@ In `.cursor/mcp.json`, set:
 
 ## Circular dependency warning
 
-If Team A is waiting on Team B, Team B must not call back to Team A — both will deadlock until timeout.
+If Team A is waiting on Team B, Team B must not call back to Team A. Both will deadlock until timeout.

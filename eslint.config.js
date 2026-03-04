@@ -51,7 +51,6 @@ export default [
 		],
 	},
 
-	// Base recommended rules
 	{
 		rules: {
 			...eslintJs.configs.recommended.rules,
@@ -60,7 +59,6 @@ export default [
 		},
 	},
 
-	// JavaScript/JSX Configuration
 	{
 		files: ["**/*.{js,jsx}"],
 		languageOptions: {
@@ -96,7 +94,6 @@ export default [
 		},
 	},
 
-	// TypeScript/TSX Configuration
 	{
 		files: ["**/*.{ts,tsx}"],
 		languageOptions: {

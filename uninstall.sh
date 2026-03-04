@@ -1,5 +1,5 @@
 #!/bin/bash
-# uninstall.sh — Remove Agent Team Bridge configuration from a DevContainer project
+# uninstall.sh - Remove Agent Team Bridge configuration from a DevContainer project
 #
 # Usage:
 #   /path/to/uninstall.sh [--quiet]
@@ -18,7 +18,7 @@ log() {
 log "── Removing Agent Team Bridge configuration..."
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 1. .mcp.json — remove the bridge server entry
+# 1. .mcp.json - remove the bridge server entry
 # ═════════════════════════════════════════════════════════════════════════════
 
 if [[ -f ".mcp.json" ]]; then
@@ -26,12 +26,11 @@ if [[ -f ".mcp.json" ]]; then
         jq --tab 'del(.mcpServers["agent-team-bridge"])' .mcp.json > .mcp.json.tmp
         mv .mcp.json.tmp .mcp.json
 
-        # If mcpServers is now empty, remove the file
         if jq -e '.mcpServers | length == 0' .mcp.json &>/dev/null; then
             rm .mcp.json
             log "   .mcp.json removed (was empty)"
         else
-            log "   .mcp.json — removed agent-team-bridge entry"
+            log "   .mcp.json - removed agent-team-bridge entry"
         fi
     fi
 fi
@@ -45,13 +44,13 @@ if [[ -f ".cursor/mcp.json" ]]; then
             rm .cursor/mcp.json
             log "   .cursor/mcp.json removed (was empty)"
         else
-            log "   .cursor/mcp.json — removed agent-team-bridge entry"
+            log "   .cursor/mcp.json - removed agent-team-bridge entry"
         fi
     fi
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 2. .claude/settings.json — remove agent-team-bridge plugin
+# 2. .claude/settings.json - remove agent-team-bridge plugin
 # ═════════════════════════════════════════════════════════════════════════════
 
 if [[ -f ".claude/settings.json" ]]; then
@@ -64,12 +63,11 @@ if [[ -f ".claude/settings.json" ]]; then
         ' .claude/settings.json > .claude/settings.json.tmp
         mv .claude/settings.json.tmp .claude/settings.json
 
-        # If settings is now empty, remove the file
         if jq -e 'length == 0' .claude/settings.json &>/dev/null; then
             rm .claude/settings.json
             log "   .claude/settings.json removed (was empty)"
         else
-            log "   .claude/settings.json — removed agent-team-bridge plugin"
+            log "   .claude/settings.json - removed agent-team-bridge plugin"
         fi
     fi
 fi
@@ -83,7 +81,7 @@ if [[ -f ".claude/skills/agent-team-bridge/SKILL.md" ]]; then
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 3. .devcontainer/compose.yml — remove agent-team-bridge-network
+# 3. .devcontainer/compose.yml - remove agent-team-bridge-network
 # ═════════════════════════════════════════════════════════════════════════════
 
 COMPOSE_FILE=""
@@ -114,7 +112,7 @@ if [[ -n "$COMPOSE_FILE" ]] && command -v yq &>/dev/null; then
         yq -Y -i 'del(.networks."agent-team-bridge-network")' "$COMPOSE_FILE"
         yq -Y -i 'if .networks | length == 0 then del(.networks) else . end' "$COMPOSE_FILE"
 
-        log "   ${COMPOSE_FILE} — removed agent-team-bridge-network"
+        log "   ${COMPOSE_FILE} - removed agent-team-bridge-network"
     fi
 fi
 

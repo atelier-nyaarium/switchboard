@@ -1,5 +1,5 @@
 #!/bin/bash
-# install.sh — Configure a DevContainer project for Agent Team Bridge
+# install.sh - Configure a DevContainer project for Agent Team Bridge
 #
 # Usage:
 #   PROJECT_NAME=@org/my-app /path/to/install.sh
@@ -53,15 +53,13 @@ if ! command -v yq &>/dev/null; then
 fi
 
 echo "╔══════════════════════════════════════════╗"
-echo "║     Agent Team Bridge — Install          ║"
+echo "║     Agent Team Bridge - Install          ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 echo "  Team:     ${TEAM_NAME}"
 echo "  Router:   ${ROUTER_URL}"
 echo "  Network:  ${NETWORK_NAME}"
 echo ""
-
-# Uninstall first
 
 bash "${SCRIPT_DIR}/uninstall.sh" --quiet 2>/dev/null || true
 
@@ -108,7 +106,7 @@ else
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 2. .claude/settings.json — add agent-team-bridge plugin
+# 2. .claude/settings.json - add agent-team-bridge plugin
 # ═════════════════════════════════════════════════════════════════════════════
 
 echo "── .claude/settings.json"
@@ -143,7 +141,7 @@ else
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 3. .devcontainer/compose.yml — add external network
+# 3. .devcontainer/compose.yml - add external network
 # ═════════════════════════════════════════════════════════════════════════════
 
 echo "── .devcontainer/compose.yml"
@@ -157,13 +155,13 @@ for candidate in ".devcontainer/compose.yml" ".devcontainer/compose.yaml" ".devc
 done
 
 if [[ -z "$COMPOSE_FILE" ]]; then
-    echo "   Warning: No compose file found — skipping network setup."
+    echo "   Warning: No compose file found - skipping network setup."
     echo "   Manually add your container to the '${NETWORK_NAME}' Docker network."
 else
     SERVICE_NAME=$(yq -r '.services | keys | .[0]' "$COMPOSE_FILE" 2>/dev/null)
 
     if [[ -z "$SERVICE_NAME" || "$SERVICE_NAME" == "null" ]]; then
-        echo "   Warning: Could not detect service name — skipping network setup."
+        echo "   Warning: Could not detect service name - skipping network setup."
     else
         echo "   Detected service: ${SERVICE_NAME}"
 
@@ -172,7 +170,6 @@ else
             .networks.\"agent-team-bridge-network\".name = \"${NETWORK_NAME}\"
         " "$COMPOSE_FILE"
 
-        # Add to service's network list
         HAS_NETWORKS=$(yq -r ".services.\"${SERVICE_NAME}\".networks" "$COMPOSE_FILE" 2>/dev/null)
 
         if [[ "$HAS_NETWORKS" == "null" ]]; then

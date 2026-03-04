@@ -13,13 +13,13 @@ const LOG_PATH = path.join("/app", "log", "debug.log");
 const RESPONSE_TIMEOUT_MS = parseInt(process.env.RESPONSE_TIMEOUT_MS || "600000");
 
 // ---------------------------------------------------------------------------
-// Registry — maps team name → WebSocket
+// Registry - maps team name → WebSocket
 // A connected socket IS registration. Disconnect IS deregistration.
 // ---------------------------------------------------------------------------
 const registry = new Map(); // team name → WebSocket
 
 // ---------------------------------------------------------------------------
-// Mutex (unchanged — same Mutex class as before)
+// Mutex for serializing concurrent sends to the same target team.
 // ---------------------------------------------------------------------------
 class Mutex {
 	constructor() {
@@ -34,7 +34,7 @@ class Mutex {
 				if (!this.locked) {
 					this.locked = true;
 					this.holder = callbackId;
-					resolve(() => this.release());
+					resolve(() => this.release()); // caller receives a release function, not the lock itself
 				} else {
 					this.queue.push(tryAcquire);
 				}
@@ -65,12 +65,12 @@ function getMutex(team) {
 const pendingCallbacks = new Map(); // session_id → { resolve, timer }
 
 // ---------------------------------------------------------------------------
-// WebSocket server — containers connect here on startup
+// WebSocket server - containers connect here on startup
 // ---------------------------------------------------------------------------
 const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 
-// Heartbeat — ping all clients every 30s. Clients that miss 2 consecutive
+// Heartbeat - ping all clients every 30s. Clients that miss 2 consecutive
 // pongs (~60s) are terminated, triggering the normal close handler and
 // removing the team from the registry.
 const HEARTBEAT_INTERVAL_MS = 30000;
@@ -80,7 +80,7 @@ setInterval(() => {
 		ws.missedPings = (ws.missedPings || 0) + 1;
 		if (ws.missedPings >= MISSED_PINGS_LIMIT) {
 			ws.terminate();
-			continue;
+			continue; // already terminated - skip the ping below
 		}
 		ws.ping();
 	}
@@ -107,7 +107,7 @@ wss.on("connection", (ws) => {
 			// so its close-handler doesn't later clobber the new registration.
 			const existing = registry.get(msg.team);
 			if (existing && existing !== ws) {
-				console.log(`[ws] ${msg.team} re-registered — closing stale socket`);
+				console.log(`[ws] ${msg.team} re-registered - closing stale socket`);
 				existing.close();
 			}
 			teamName = msg.team;
@@ -121,9 +121,9 @@ wss.on("connection", (ws) => {
 
 		// Only clean up if this socket is still the current one for this team.
 		// If the team reconnected before this close fired, the registry already
-		// points to the new socket — don't touch it.
+		// points to the new socket, so don't touch it.
 		if (registry.get(teamName) !== ws) {
-			console.log(`[ws] stale close for ${teamName} — new socket already registered, skipping cleanup`);
+			console.log(`[ws] stale close for ${teamName} - new socket already registered, skipping cleanup`);
 			return;
 		}
 
@@ -155,7 +155,7 @@ wss.on("connection", (ws) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /ingest — MCP sends log lines (NDJSON), append to file for debugging
+// POST /ingest - MCP sends log lines (NDJSON), append to file for debugging
 // ---------------------------------------------------------------------------
 app.post("/ingest", (req, res) => {
 	const payload = req.body && typeof req.body === "object" ? req.body : { message: String(req.body) };
@@ -173,7 +173,7 @@ app.post("/ingest", (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /pending — list pending callbacks (for debugging)
+// GET /pending - list pending callbacks (for debugging)
 // ---------------------------------------------------------------------------
 app.get("/pending", (_req, res) => {
 	const list = [];
@@ -184,7 +184,7 @@ app.get("/pending", (_req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /teams — discovery endpoint
+// GET /teams - discovery endpoint
 // ---------------------------------------------------------------------------
 app.get("/teams", (_req, res) => {
 	const teams = [];
@@ -193,14 +193,14 @@ app.get("/teams", (_req, res) => {
 		teams.push({
 			team: name,
 			status: "active",
-			queue_depth: lock ? lock.queue.length + (lock.locked ? 1 : 0) : 0,
+			queue_depth: lock ? lock.queue.length + (lock.locked ? 1 : 0) : 0, // +1 for the currently-running request
 		});
 	}
 	res.json(teams);
 });
 
 // ---------------------------------------------------------------------------
-// POST /send — MCP calls this via HTTP. Blocks until target responds.
+// POST /send - MCP calls this via HTTP. Blocks until target responds.
 // ---------------------------------------------------------------------------
 app.post("/send", async (req, res) => {
 	const { from, to, type, effort, body, session_id } = req.body;
@@ -246,17 +246,15 @@ app.post("/send", async (req, res) => {
 
 		console.log(`[send] ${from} → ${to} [${sessionId}]`);
 
-		// Re-check readyState immediately before sending — team may have disconnected
+		// Re-check readyState immediately before sending - team may have disconnected
 		// in the window between the registry lookup above and now.
 		if (targetWs.readyState !== 1) {
 			throw new Error(`Team "${to}" disconnected before message could be delivered`);
 		}
 		targetWs.send(JSON.stringify(payload));
 
-		// Block until response
 		const response = await responsePromise;
 
-		// Release mutex so the next /send can run
 		if (release) {
 			console.log(`[mutex] ${to} released [${response.status}]`);
 			release();
@@ -273,7 +271,7 @@ app.post("/send", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /respond — MCP calls this via HTTP when agent responds
+// POST /respond - MCP calls this via HTTP when agent responds
 // ---------------------------------------------------------------------------
 app.post("/respond", (req, res) => {
 	const { session_id: respondSessionId, ...response } = req.body;

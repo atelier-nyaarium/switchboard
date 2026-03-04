@@ -1,6 +1,6 @@
 ---
 name: agent-team-bridge
-description: Cross-team communication for agent teams in different Devcontainers. Use when another team's **help** is needed via the bridge. **Help** could be anything ranging from analysis, debugging, or even bugfixing.
+description: Cross-team communication for agent teams in different Devcontainers. Use when you need help from another team via the bridge, such as analysis, debugging, or bugfixing.
 ---
 
 # Agent Team Bridge
@@ -15,9 +15,9 @@ and can be reached through these tools.
 
 ### Tools
 
-- **bridge_discover** — List online teams and their queue depth. Always check before sending.
-- **bridge_send** — Send a request to another team and wait for their response. Blocks until they respond.
-- **bridge_wait** — Wait N seconds before retrying a deferred request.
+- **bridge_discover** - List online teams and their queue depth. Always check before sending.
+- **bridge_send** - Send a request to another team and wait for their response. Blocks until they respond.
+- **bridge_wait** - Wait N seconds before retrying a deferred request.
 
 ### How Threading Works
 
@@ -27,11 +27,11 @@ deferred request), pass that same `session_id` back in your next `bridge_send`. 
 start a fresh conversation thread.
 
 ```
-# First message — no session_id
+# First message - no session_id
 bridge_send(to="cool-lib", type="question", body="...")
 → response includes session_id: "bfa069ad-..."
 
-# Follow-up — pass session_id to continue the same thread
+# Follow-up - pass session_id to continue the same thread
 bridge_send(to="cool-lib", session_id="bfa069ad-...", body="...")
 ```
 
@@ -42,19 +42,19 @@ its own thread.
 
 **Successful:**
 
-- **completed** — Work done. Check `response`.
-- **clarification** — They need more info. Answer via a follow-up `bridge_send` with the same `session_id`.
-- **deferred** — They're busy, or still working on it. Use `bridge_wait`, then retry.
+- **completed** - Work done. Check `response`.
+- **clarification** - They need more info. Answer via a follow-up `bridge_send` with the same `session_id`.
+- **deferred** - They're busy, or still working on it. Use `bridge_wait`, then retry.
 
-**Problems — propagate these back to your human:**
+**Problems - propagate these back to your human:**
 
-- **needs_human** — They need a human decision on their end.
-- **error** — Something went wrong. The `reason` field has details.
-- **timeout** — No response in time. The other team may be down or overloaded.
+- **needs_human** - They need a human decision on their end.
+- **error** - Something went wrong. The `reason` field has details.
+- **timeout** - No response in time. The other team may be down or overloaded.
 
 ### Timeout Note
 
-Cross-team requests can take many tens of minutes — the other agent may need to implement
+Cross-team requests can take many tens of minutes. The other agent may need to implement
 a feature, run tests, build, commit, PR, and merge. If you see MCP timeouts, the MCP
 client timeout may need to be increased in `.mcp.json` or the client's settings.
 
