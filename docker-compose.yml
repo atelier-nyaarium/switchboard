@@ -1,6 +1,6 @@
 services:
   router:
-    build: ./router
+    build: .
     hostname: agent-team-bridge
     container_name: agent-team-bridge
     ports:

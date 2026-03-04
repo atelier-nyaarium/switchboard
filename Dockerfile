@@ -1,6 +1,13 @@
+FROM oven/bun:1 AS build
+WORKDIR /app
+COPY package.json bun.lockb ./
+RUN bun install --frozen-lockfile
+COPY src/ src/
+COPY tsconfig.json ./
+RUN bun build --compile --target=bun-linux-x64 src/main.ts --outfile=agent-team-bridge
+
 FROM ubuntu:noble
 
-# Switch to apt noninteractive
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt update && apt install -y locales tzdata && apt clean -y && rm -rf /var/lib/apt/lists/* \
@@ -51,25 +58,6 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | g
 	&& apt update && apt install -y gh \
 	&& apt clean && rm -rf /var/lib/apt/lists/*
 
-# Node.js
-RUN NODE_MAJOR=24 \
-	&& curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
-	&& echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
-	&& apt update && apt install -y nodejs \
-	&& npm install -g npm@latest \
-	&& npm config set -g update-notifier false \
-	&& corepack enable \
-	&& corepack prepare yarn@stable --activate \
-	&& rm -f /etc/apt/sources.list.d/nodesource.list /etc/apt/keyrings/nodesource.gpg \
-	&& apt clean && rm -rf /var/lib/apt/lists/*
+COPY --from=build /app/agent-team-bridge /usr/local/bin/agent-team-bridge
 
-WORKDIR /app
-
-COPY package.json ./
-RUN npm install
-
-COPY . .
-
-EXPOSE 5678
-
-CMD ["node", "index.js"]
+CMD ["agent-team-bridge", "--arbiter"]

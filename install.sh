@@ -15,7 +15,7 @@ set -euo pipefail
 
 BRIDGE_VERSION="v0.1.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -f "${SCRIPT_DIR}/mcp/skill-bridge.md" ]]; then
+if [[ -f "${SCRIPT_DIR}/src/main.ts" ]]; then
 	BRIDGE_ROOT="${SCRIPT_DIR}"
 else
 	BRIDGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -71,8 +71,8 @@ echo "── .mcp.json"
 
 BRIDGE_MCP_ENTRY=$(cat <<MCPJSON
 {
-    "command": "node",
-    "args": ["/agent-team-bridge/mcp/server.js"],
+    "command": "/agent-team-bridge/build/agent-team-bridge",
+    "args": [],
     "env": {
         "TEAM_NAME": "${TEAM_NAME}",
         "BRIDGE_ROUTER_URL": "${ROUTER_URL}",
