@@ -203,7 +203,7 @@ app.get("/teams", (_req, res) => {
 // POST /send - MCP calls this via HTTP. Blocks until target responds.
 // ---------------------------------------------------------------------------
 app.post("/send", async (req, res) => {
-	const { from, to, type, effort, body, session_id } = req.body;
+	const { from, to, type, effort, body, session_id, debug } = req.body;
 
 	const targetWs = registry.get(to);
 	if (!targetWs || targetWs.readyState !== 1) {
@@ -260,7 +260,11 @@ app.post("/send", async (req, res) => {
 			release();
 		}
 
-		res.json(response);
+		if (debug) {
+			res.json({ ...response, session_id: sessionId, from, to, is_follow_up: !!session_id });
+		} else {
+			res.json(response);
+		}
 	} catch (err) {
 		console.error(`[send] Error:`, err.message);
 		if (release) {

@@ -142,8 +142,9 @@ const AGENT_HANDLERS = {
 		async createSession(sessionId) {
 			return sessionId;
 		},
-		async sendMessage(sessionId, message, model) {
-			const args = ["-p", "--dangerously-skip-permissions", "--model", model, "--session-id", sessionId];
+		async sendMessage(sessionId, message, model, isFollowUp) {
+			const sessionFlag = isFollowUp ? "--resume" : "--session-id";
+			const args = ["-p", "--dangerously-skip-permissions", "--model", model, sessionFlag, sessionId];
 			return runAgent("claude", args, message);
 		},
 	},
@@ -293,7 +294,7 @@ async function handleInject(msg) {
 			`[bridge-mcp] ${isFollowUp ? "follow-up" : "new"} ${AGENT_TYPE}/${model} session ${sessionId.slice(0, 8)}... from ${msg.from}`,
 		);
 
-		await handler.sendMessage(agentSessionId, prompt, model);
+		await handler.sendMessage(agentSessionId, prompt, model, isFollowUp);
 	} catch (err) {
 		console.error(`[bridge-mcp] inject failed: ${err.message}`);
 		await routerPost("/respond", {
