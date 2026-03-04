@@ -18,6 +18,7 @@ if (!TEAM_NAME) {
 // ---------------------------------------------------------------------------
 // Ingest log - POST to router /ingest (NDJSON to router LOG_PATH).
 // ---------------------------------------------------------------------------
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function debugLog(message, data = {}) {
 	const payload = { message, data, location: "mcp/server.js", timestamp: Date.now(), team: TEAM_NAME };
 	await fetch(`${ROUTER_URL}/ingest`, {
