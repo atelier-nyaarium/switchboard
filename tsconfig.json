@@ -14,5 +14,18 @@
 		"isolatedModules": true,
 		"types": ["bun-types"]
 	},
-	"include": ["src"]
+	"include": ["src"],
+	"exclude": [
+		".claude",
+		".cursor",
+		".yarn",
+		"build",
+		"coverage",
+		"node_modules",
+		"volumes",
+		".eslintrc.js",
+		".pnp.cjs",
+		".pnp.loader.mjs",
+		"tsconfig.json"
+	]
 }

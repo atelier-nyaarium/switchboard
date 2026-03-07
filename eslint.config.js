@@ -39,15 +39,19 @@ const bannedSyntax = [
 export default [
 	{
 		ignores: [
-			".claude/",
-			"build/",
-			"coverage/",
-			"node_modules/",
-			"volumes/",
+			".claude",
+			".cursor",
+			".yarn",
+			"build",
+			"coverage",
+			"node_modules",
+			"volumes",
 			".eslintrc.js",
+			".pnp.cjs",
+			".pnp.loader.mjs",
+			"remix.env.d.ts",
 			"tsconfig.json",
 			"vite.config.ts",
-			"remix.env.d.ts",
 		],
 	},
 
