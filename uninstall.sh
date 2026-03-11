@@ -15,64 +15,28 @@ log() {
     $QUIET || echo "$@"
 }
 
-log "── Removing Agent Team Bridge configuration..."
+log "Removing Agent Team Bridge configuration..."
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 1. .mcp.json - remove the bridge server entry
+# 1. Legacy cleanup (pre-plugin installs injected config directly)
 # ═════════════════════════════════════════════════════════════════════════════
 
-if [[ -f ".mcp.json" ]]; then
-    if jq -e '.mcpServers["agent-team-bridge"]' .mcp.json &>/dev/null; then
-        jq --tab 'del(.mcpServers["agent-team-bridge"])' .mcp.json > .mcp.json.tmp
-        mv .mcp.json.tmp .mcp.json
+if command -v jq &>/dev/null; then
+    for mcp_file in ".mcp.json" ".cursor/mcp.json"; do
+        if [[ -f "$mcp_file" ]] && jq -e '.mcpServers["agent-team-bridge"]' "$mcp_file" &>/dev/null; then
+            jq --tab 'del(.mcpServers["agent-team-bridge"])' "$mcp_file" > "${mcp_file}.tmp"
+            mv "${mcp_file}.tmp" "$mcp_file"
 
-        if jq -e '.mcpServers | length == 0' .mcp.json &>/dev/null; then
-            rm .mcp.json
-            log "   .mcp.json removed (was empty)"
-        else
-            log "   .mcp.json - removed agent-team-bridge entry"
+            if jq -e '.mcpServers | length == 0' "$mcp_file" &>/dev/null; then
+                rm "$mcp_file"
+                log "   ${mcp_file} removed (was empty)"
+            else
+                log "   ${mcp_file} - removed legacy entry"
+            fi
         fi
-    fi
+    done
 fi
 
-if [[ -f ".cursor/mcp.json" ]]; then
-    if jq -e '.mcpServers["agent-team-bridge"]' .cursor/mcp.json &>/dev/null; then
-        jq --tab 'del(.mcpServers["agent-team-bridge"])' .cursor/mcp.json > .cursor/mcp.json.tmp
-        mv .cursor/mcp.json.tmp .cursor/mcp.json
-
-        if jq -e '.mcpServers | length == 0' .cursor/mcp.json &>/dev/null; then
-            rm .cursor/mcp.json
-            log "   .cursor/mcp.json removed (was empty)"
-        else
-            log "   .cursor/mcp.json - removed agent-team-bridge entry"
-        fi
-    fi
-fi
-
-# ═════════════════════════════════════════════════════════════════════════════
-# 2. .claude/settings.json - remove agent-team-bridge plugin
-# ═════════════════════════════════════════════════════════════════════════════
-
-if [[ -f ".claude/settings.json" ]]; then
-    if jq -e '.extraKnownMarketplaces["agent-team-bridge"] // .enabledPlugins["agent-team-bridge@agent-team-bridge"]' .claude/settings.json &>/dev/null; then
-        jq --tab '
-            del(.extraKnownMarketplaces["agent-team-bridge"]) |
-            del(.enabledPlugins["agent-team-bridge@agent-team-bridge"]) |
-            if .extraKnownMarketplaces | length == 0 then del(.extraKnownMarketplaces) else . end |
-            if .enabledPlugins | length == 0 then del(.enabledPlugins) else . end
-        ' .claude/settings.json > .claude/settings.json.tmp
-        mv .claude/settings.json.tmp .claude/settings.json
-
-        if jq -e 'length == 0' .claude/settings.json &>/dev/null; then
-            rm .claude/settings.json
-            log "   .claude/settings.json removed (was empty)"
-        else
-            log "   .claude/settings.json - removed agent-team-bridge plugin"
-        fi
-    fi
-fi
-
-# Clean up legacy skill files if present
 if [[ -f ".claude/skills/agent-team-bridge/SKILL.md" ]]; then
     rm .claude/skills/agent-team-bridge/SKILL.md
     rmdir .claude/skills/agent-team-bridge 2>/dev/null || true
@@ -81,7 +45,7 @@ if [[ -f ".claude/skills/agent-team-bridge/SKILL.md" ]]; then
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 3. .devcontainer/compose.yml - remove agent-team-bridge-network
+# 2. .devcontainer/compose.yml - remove agent-team-bridge-network
 # ═════════════════════════════════════════════════════════════════════════════
 
 COMPOSE_FILE=""
@@ -94,8 +58,6 @@ done
 
 if [[ -n "$COMPOSE_FILE" ]] && command -v yq &>/dev/null; then
     if yq -e '.networks."agent-team-bridge-network"' "$COMPOSE_FILE" &>/dev/null; then
-
-        # Remove agent-team-bridge-network from all services' network lists
         SERVICES=$(yq -r '.services | keys | .[]' "$COMPOSE_FILE" 2>/dev/null)
         for svc in $SERVICES; do
             yq -Y -i "
@@ -108,7 +70,6 @@ if [[ -n "$COMPOSE_FILE" ]] && command -v yq &>/dev/null; then
             " "$COMPOSE_FILE"
         done
 
-        # Remove top-level agent-team-bridge-network
         yq -Y -i 'del(.networks."agent-team-bridge-network")' "$COMPOSE_FILE"
         yq -Y -i 'if .networks | length == 0 then del(.networks) else . end' "$COMPOSE_FILE"
 
@@ -117,5 +78,4 @@ if [[ -n "$COMPOSE_FILE" ]] && command -v yq &>/dev/null; then
 fi
 
 log ""
-log "✓ Agent Team Bridge configuration removed."
-log "Double check your .devcontainer/compose.yml file. yq unfortunately doesn't preserve comments."
+log "Done. Double check your compose file. yq doesn't preserve comments."

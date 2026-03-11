@@ -1,16 +1,5 @@
-# Build
-/build/
-build/
-
 # Node
 node_modules/
-.yarn/*
-.pnp.*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/sdks
-!.yarn/versions
 
 # Development
 _test/

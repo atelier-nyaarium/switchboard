@@ -11,7 +11,7 @@ import { resolveModel } from "./resolve-model.js";
 import type { InjectPayload, ResponsePayload } from "../shared/types.js";
 
 let ROUTER_URL: string;
-let TEAM_NAME: string;
+let PROJECT_NAME: string;
 let AGENT_TYPE: string;
 let EFFORT_ENV: { simple: string; standard: string; complex: string };
 
@@ -131,7 +131,7 @@ function connectToRouter() {
 	routerWs.on("open", () => {
 		console.error(`[bridge-mcp] connected to router`);
 		reconnectDelay = 2000;
-		routerWs!.send(JSON.stringify({ type: "register", team: TEAM_NAME }));
+		routerWs!.send(JSON.stringify({ type: "register", team: PROJECT_NAME }));
 	});
 
 	routerWs.on("message", (raw: WebSocket.Data) => {
@@ -169,7 +169,7 @@ const mcpServer = new McpServer({
 mcpServer.tool("bridge_discover", "List all active teams on the bridge network.", {}, async () => {
 	try {
 		const teams = await routerGet("/teams");
-		const others = teams.filter((t: any) => t.team !== TEAM_NAME);
+		const others = teams.filter((t: any) => t.team !== PROJECT_NAME);
 
 		if (others.length === 0) {
 			return { content: [{ type: "text" as const, text: "No other teams are currently online." }] };
@@ -210,7 +210,7 @@ mcpServer.tool(
 	async ({ to, type, effort, body, session_id }) => {
 		try {
 			const result = (await routerPost("/send", {
-				from: TEAM_NAME,
+				from: PROJECT_NAME,
 				to,
 				type,
 				effort,
@@ -312,7 +312,7 @@ mcpServer.tool(
 // ---------------------------------------------------------------------------
 export async function startMcp() {
 	ROUTER_URL = process.env.BRIDGE_ROUTER_URL || "http://agent-team-bridge:5678";
-	TEAM_NAME = process.env.TEAM_NAME!;
+	PROJECT_NAME = process.env.PROJECT_NAME!;
 	AGENT_TYPE = process.env.AGENT_TYPE || "claude";
 	EFFORT_ENV = {
 		simple: process.env.MODEL_SIMPLE || "auto",
@@ -320,15 +320,15 @@ export async function startMcp() {
 		complex: process.env.MODEL_COMPLEX || "auto",
 	};
 
-	if (!TEAM_NAME) {
-		console.error("TEAM_NAME environment variable is required (set in MCP config)");
+	if (!PROJECT_NAME) {
+		console.error("PROJECT_NAME environment variable is required (set in MCP config)");
 		process.exit(1);
 	}
 
 	connectToRouter();
 	const transport = new StdioServerTransport();
 	await mcpServer.connect(transport);
-	console.error(`[bridge-mcp] started for ${TEAM_NAME} (agent: ${AGENT_TYPE})`);
+	console.error(`[bridge-mcp] started for ${PROJECT_NAME} (agent: ${AGENT_TYPE})`);
 
 	process.stdin.on("end", () => {
 		console.error("[bridge-mcp] stdin closed (parent exited), shutting down");

@@ -1,0 +1,16 @@
+{
+	"mcpServers": {
+		"agent-team-bridge": {
+			"command": "bunx",
+			"args": ["--bun", "${CLAUDE_PLUGIN_ROOT}/src/main.ts"],
+			"env": {
+				"PROJECT_NAME": "${PROJECT_NAME}",
+				"BRIDGE_ROUTER_URL": "${BRIDGE_ROUTER_URL}",
+				"AGENT_TYPE": "${AGENT_TYPE}",
+				"MODEL_SIMPLE": "${MODEL_SIMPLE}",
+				"MODEL_STANDARD": "${MODEL_STANDARD}",
+				"MODEL_COMPLEX": "${MODEL_COMPLEX}"
+			}
+		}
+	}
+}

@@ -24,103 +24,41 @@ The router listens on port 5678 and uses the external network `agent-team-bridge
 
 ## Setup
 
-**1. Append to the Devcontainer's Dockerfile:**
+**1. Install the plugin.** In Claude Code:
 
-```dockerfile
-# Agent Team Bridge
-RUN git clone --depth 1 https://github.com/atelier-nyaarium/agent-team-bridge.git /agent-team-bridge \
-    && cd /agent-team-bridge/mcp && npm i --silent
+```
+/plugin install atelier-nyaarium/agent-team-bridge
 ```
 
-**2. Build and start the Devcontainer, then run the install script:**
+The plugin provides the MCP server and skill automatically.
+
+**2. Set environment variables** in your devcontainer:
+
+- `PROJECT_NAME` - Your team's name on the bridge (e.g. `@org/my-project`)
+- `BRIDGE_ROUTER_URL` - Router URL (default: `http://agent-team-bridge:5678`)
+
+**3. Add the Docker network** to your devcontainer:
 
 ```bash
-/agent-team-bridge/install.sh
+/path/to/agent-team-bridge/install.sh
 ```
 
-This configures `.mcp.json`, `.cursor/mcp.json`, `.claude/settings.json` (plugin), and `.devcontainer/compose.yml` (network).
+This adds `agent-team-bridge-network` to your `.devcontainer/compose.yml`.
 
-**3. Rebuild the Devcontainer.**
+**4. Rebuild the Devcontainer.**
 
 - **F1**
 - `> Dev Containers: Rebuild Container`
 
-**To uninstall, run:**
+**To remove the network config:**
 
 ```bash
-/agent-team-bridge/uninstall.sh
+/path/to/agent-team-bridge/uninstall.sh
 ```
-
-<details>
-<summary>Manual configuration (what the scripts do)</summary>
-
-**Dockerfile addition:**
-
-```dockerfile
-# Agent Team Bridge
-RUN git clone --depth 1 https://github.com/atelier-nyaarium/agent-team-bridge.git /agent-team-bridge \
-    && cd /agent-team-bridge/mcp && npm i --silent
-```
-
-**Plugin in `.claude/settings.json`:**
-
-```json
-{
-	"extraKnownMarketplaces": {
-		"agent-team-bridge": {
-			"source": {
-				"source": "github",
-				"repo": "atelier-nyaarium/agent-team-bridge"
-			},
-			"autoUpdate": true
-		}
-	},
-	"enabledPlugins": {
-		"agent-team-bridge@agent-team-bridge": true
-	}
-}
-```
-
-**MCP server in `.mcp.json`:**
-
-```json
-{
-	"mcpServers": {
-		"agent-team-bridge": {
-			"command": "node",
-			"args": ["/agent-team-bridge/mcp/server.js"],
-			"env": {
-				"TEAM_NAME": "@org/my-project",
-				"BRIDGE_ROUTER_URL": "http://agent-team-bridge:5678",
-				"AGENT_TYPE": "claude",
-				"MODEL_SIMPLE": "auto",
-				"MODEL_STANDARD": "sonnet",
-				"MODEL_COMPLEX": "opus"
-			}
-		}
-	}
-}
-```
-
-**External network in `.devcontainer/compose.yml`:**
-
-```yaml
-networks:
-  agent-team-bridge-network:
-    name: agent-team-bridge
-```
-
-Add `agent-team-bridge-network` to your service's `networks` list.
-
-</details>
 
 ## Using Cursor agents instead of Claude
 
-In `.cursor/mcp.json`, set:
-
-```json
-"AGENT_TYPE": "cursor"
-```
+Set `AGENT_TYPE=cursor` in your devcontainer environment.
 
 ## Circular dependency warning
 
