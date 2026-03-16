@@ -1,3 +1,6 @@
+////////////////////////////////
+//  Bridge Types
+
 export type EffortLevel = "simple" | "standard" | "complex";
 export type RequestType = "feature" | "bugfix" | "question";
 export type ResponseStatus = "completed" | "clarification" | "deferred" | "needs_human" | "error" | "timeout";
@@ -12,11 +15,6 @@ export interface InjectPayload {
 	is_follow_up: boolean;
 }
 
-export interface RegisterMessage {
-	type: "register";
-	team: string;
-}
-
 export interface ResponsePayload {
 	session_id: string;
 	status: ResponseStatus;
@@ -26,6 +24,20 @@ export interface ResponsePayload {
 	estimated_minutes?: number;
 	what_to_decide?: string;
 	message?: string;
+}
+
+export interface EffortEnv {
+	simple: string;
+	standard: string;
+	complex: string;
+}
+
+////////////////////////////////
+//  WebSocket Types
+
+export interface RegisterMessage {
+	type: "register";
+	team: string;
 }
 
 export interface PendingEntry {
@@ -41,11 +53,8 @@ export interface TeamInfo {
 	queue_depth: number;
 }
 
-export interface EffortEnv {
-	simple: string;
-	standard: string;
-	complex: string;
-}
+////////////////////////////////
+//  Config Types
 
 export interface ArbiterConfig {
 	LOG_PATH: string;

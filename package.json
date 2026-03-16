@@ -1,10 +1,12 @@
 {
 	"name": "agent-team-bridge",
-	"version": "0.4.1",
+	"version": "0.5.0",
 	"type": "module",
 	"scripts": {
 		"start:arbiter": "bun run src/main.ts --arbiter",
 		"start:mcp": "bun run src/main.ts",
+		"lint": "biome ci . && bunx tsc --noEmit",
+		"lint:fix": "biome check --write .",
 		"test": "vitest run"
 	},
 	"dependencies": {
@@ -13,6 +15,7 @@
 		"zod": "^3.24.2"
 	},
 	"devDependencies": {
+		"@biomejs/biome": "^2.4.6",
 		"@types/ws": "^8.5.14",
 		"bun-types": "^1.2.5",
 		"typescript": "^5.7.3",

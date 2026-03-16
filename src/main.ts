@@ -5,7 +5,7 @@ if (process.argv.includes("--arbiter")) {
 	startArbiter();
 } else {
 	startMcp().catch((err) => {
-		console.error("[bridge-mcp] fatal:", err);
+		console.error(`[mcp] fatal:`, err);
 		process.exit(1);
 	});
 }

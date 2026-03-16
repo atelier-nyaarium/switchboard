@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildInitialPrompt, buildFollowUpPrompt } from "../mcp/prompt-builders.js";
+import { buildFollowUpPrompt, buildInitialPrompt } from "../mcp/prompt-builders.js";
 
 const msg = {
 	from: "team-alpha",

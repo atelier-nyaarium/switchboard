@@ -1,12 +1,12 @@
-// ---------------------------------------------------------------------------
-// Mutex for serializing concurrent sends to the same target team.
-// ---------------------------------------------------------------------------
-export class Mutex {
-	locked = false;
-	queue: (() => void)[] = [];
-	holder: string | null = null;
+////////////////////////////////
+//  Class
 
-	acquire(callbackId: string): Promise<() => void> {
+export class Mutex {
+	public locked = false;
+	public queue: (() => void)[] = [];
+	public holder: string | null = null;
+
+	public acquire(callbackId: string): Promise<() => void> {
 		return new Promise((resolve) => {
 			const tryAcquire = () => {
 				if (!this.locked) {
@@ -21,7 +21,7 @@ export class Mutex {
 		});
 	}
 
-	release(): void {
+	public release(): void {
 		this.holder = null;
 		this.locked = false;
 		if (this.queue.length > 0) {
@@ -29,6 +29,9 @@ export class Mutex {
 		}
 	}
 }
+
+////////////////////////////////
+//  Functions & Helpers
 
 export function getMutex(targetLocks: Map<string, Mutex>, team: string): Mutex {
 	if (!targetLocks.has(team)) {

@@ -1,14 +1,14 @@
 {
-  "name": "agent-team-bridge",
-  "description": "Cross-team communication for agent teams in different Devcontainers",
-  "owner": {
-    "name": "Nyaarium"
-  },
-  "plugins": [
-    {
-      "name": "agent-team-bridge",
-      "description": "Cross-team communication for agent teams in different Devcontainers. Provides bridge_discover, bridge_send, bridge_wait, and bridge_reply tools via MCP.",
-      "source": "./"
-    }
-  ]
+	"name": "agent-team-bridge",
+	"description": "Cross-team communication for agent teams in different Devcontainers",
+	"owner": {
+		"name": "Nyaarium"
+	},
+	"plugins": [
+		{
+			"name": "agent-team-bridge",
+			"description": "Cross-team communication for agent teams in different Devcontainers. Provides bridge_discover, bridge_send, bridge_wait, and bridge_reply tools via MCP.",
+			"source": "./"
+		}
+	]
 }

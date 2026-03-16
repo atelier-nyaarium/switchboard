@@ -2,8 +2,11 @@ import type { ServerWebSocket } from "bun";
 import type { Mutex } from "../shared/mutex.js";
 import type { PendingEntry, WebSocketConfig } from "../shared/types.js";
 
+////////////////////////////////
+//  Interfaces & Types
+
 export interface WebSocketDeps {
-	registry: Map<string, ServerWebSocket<{ teamName: string | null }>>;
+	registry: Map<string, ServerWebSocket<WsData>>;
 	pendingCallbacks: Map<string, PendingEntry>;
 	targetLocks: Map<string, Mutex>;
 	config: WebSocketConfig;
@@ -14,6 +17,9 @@ export interface WsData {
 	missedPings: number;
 	isStale: boolean;
 }
+
+////////////////////////////////
+//  Functions & Helpers
 
 export function createWebSocketHandlers({ registry, pendingCallbacks, targetLocks, config }: WebSocketDeps) {
 	const { HEARTBEAT_INTERVAL_MS = 30000, MISSED_PINGS_LIMIT = 2 } = config;
@@ -30,13 +36,13 @@ export function createWebSocketHandlers({ registry, pendingCallbacks, targetLock
 		}
 	}, HEARTBEAT_INTERVAL_MS);
 
-	function open(ws: ServerWebSocket<WsData>) {
+	function open(ws: ServerWebSocket<WsData>): void {
 		ws.data.missedPings = 0;
 		ws.data.isStale = false;
 	}
 
-	function message(ws: ServerWebSocket<WsData>, raw: string | Buffer) {
-		let msg: any;
+	function message(ws: ServerWebSocket<WsData>, raw: string | Buffer): void {
+		let msg: Record<string, unknown>;
 		try {
 			msg = JSON.parse(typeof raw === "string" ? raw : raw.toString());
 		} catch {
@@ -44,14 +50,15 @@ export function createWebSocketHandlers({ registry, pendingCallbacks, targetLock
 		}
 
 		if (msg.type === "register") {
-			const existing = registry.get(msg.team);
-			if (existing && existing !== (ws as any)) {
-				console.log(`[ws] ${msg.team} re-registered - closing stale socket`);
-				(existing.data as WsData).isStale = true;
+			const team = msg.team as string;
+			const existing = registry.get(team);
+			if (existing && existing !== ws) {
+				console.log(`[ws] ${team} re-registered - closing stale socket`);
+				existing.data.isStale = true;
 				existing.close();
 			}
-			ws.data.teamName = msg.team;
-			registry.set(msg.team, ws as any);
+			ws.data.teamName = team;
+			registry.set(team, ws);
 			console.log(`[ws] ${msg.team} connected`);
 		}
 
@@ -59,7 +66,7 @@ export function createWebSocketHandlers({ registry, pendingCallbacks, targetLock
 		ws.data.missedPings = 0;
 	}
 
-	function close(ws: ServerWebSocket<WsData>) {
+	function close(ws: ServerWebSocket<WsData>): void {
 		const teamName = ws.data.teamName;
 
 		if (ws.data.isStale) {
@@ -69,7 +76,7 @@ export function createWebSocketHandlers({ registry, pendingCallbacks, targetLock
 
 		if (!teamName) return;
 
-		if (registry.get(teamName) !== (ws as any)) {
+		if (registry.get(teamName) !== ws) {
 			console.log(`[ws] stale close for ${teamName} - new socket already registered, skipping cleanup`);
 			return;
 		}
@@ -91,7 +98,7 @@ export function createWebSocketHandlers({ registry, pendingCallbacks, targetLock
 		}
 
 		const mutex = targetLocks.get(teamName);
-		if (mutex && mutex.locked) {
+		if (mutex?.locked) {
 			console.log(`[mutex] force-releasing ${teamName} after disconnect`);
 			mutex.release();
 		}

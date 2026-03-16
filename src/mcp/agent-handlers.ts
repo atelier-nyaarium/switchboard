@@ -1,6 +1,20 @@
-import { spawn } from "child_process";
+import { spawn } from "node:child_process";
 
-const AGENT_TIMEOUT_MS = parseInt(process.env.AGENT_TIMEOUT_MS || "600000");
+////////////////////////////////
+//  Interfaces & Types
+
+export interface AgentHandler {
+	createSession(sessionId: string): Promise<string>;
+	sendMessage(sessionId: string, message: string, model: string, isFollowUp?: boolean): Promise<string>;
+}
+
+////////////////////////////////
+//  Functions & Helpers
+
+const AGENT_TIMEOUT_MS = parseInt(process.env.AGENT_TIMEOUT_MS || "600000", 10);
+
+// Maps bridge session IDs to codex thread IDs for follow-ups
+const codexThreadIds = new Map<string, string>();
 
 function runAgent(command: string, args: string[], input: string | null): Promise<string> {
 	const env = { ...process.env };
@@ -44,14 +58,6 @@ function runAgent(command: string, args: string[], input: string | null): Promis
 		});
 	});
 }
-
-export interface AgentHandler {
-	createSession(sessionId: string): Promise<string>;
-	sendMessage(sessionId: string, message: string, model: string, isFollowUp?: boolean): Promise<string>;
-}
-
-// Maps bridge session IDs to codex thread IDs for follow-ups
-const codexThreadIds = new Map<string, string>();
 
 export const AGENT_HANDLERS: Record<string, AgentHandler> = {
 	claude: {
@@ -98,7 +104,7 @@ export const AGENT_HANDLERS: Record<string, AgentHandler> = {
 				return runAgent("codex", args, message);
 			}
 
-			// New session. Use --json to capture thread_id from the first JSONL line.
+			// New session — use --json to capture thread_id from the first JSONL line
 			const args = ["exec", "-m", model, "--dangerously-bypass-approvals-and-sandbox", "--json"];
 			const output = await runAgent("codex", args, message);
 
@@ -109,7 +115,7 @@ export const AGENT_HANDLERS: Record<string, AgentHandler> = {
 					codexThreadIds.set(sessionId, parsed.thread_id);
 				}
 			} catch {
-				// Best effort
+				// Best effort — thread_id extraction is optional
 			}
 
 			return output;

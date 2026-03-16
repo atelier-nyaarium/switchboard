@@ -1,10 +1,16 @@
-// ---------------------------------------------------------------------------
-// Effort -> model resolution
-//
-// DEFAULT_MODELS defines the default model for each effort level per agent type.
-// Env vars (MODEL_SIMPLE, MODEL_STANDARD, MODEL_COMPLEX) can override with a
-// literal model string. Set to "auto" (or leave unset) to use the default.
-// ---------------------------------------------------------------------------
+import type { EffortEnv } from "../shared/types.js";
+
+////////////////////////////////
+//  Interfaces & Types
+
+export interface ResolveModelOptions {
+	effortEnv: EffortEnv;
+	agentType: string;
+}
+
+////////////////////////////////
+//  Functions & Helpers
+
 export const DEFAULT_MODELS: Record<string, Record<string, string>> = {
 	claude: {
 		simple: "haiku",
@@ -28,10 +34,7 @@ export const DEFAULT_MODELS: Record<string, Record<string, string>> = {
 	},
 };
 
-export function resolveModel(
-	effort: string | null | undefined,
-	{ effortEnv, agentType }: { effortEnv: Record<string, string>; agentType: string },
-): string {
+export function resolveModel(effort: string | null | undefined, { effortEnv, agentType }: ResolveModelOptions): string {
 	const agentModels = DEFAULT_MODELS[agentType];
 	if (!agentModels) {
 		throw new Error(`Unknown AGENT_TYPE "${agentType}". Valid types: ${Object.keys(DEFAULT_MODELS).join(", ")}`);
@@ -40,7 +43,7 @@ export function resolveModel(
 	const level = effort ?? "simple";
 
 	// Env var override takes priority. "auto" or unset means use the default.
-	const override = effortEnv[level];
+	const override = effortEnv[level as keyof EffortEnv];
 	if (override && override !== "auto") {
 		return override;
 	}

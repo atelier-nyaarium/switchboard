@@ -1,16 +1,16 @@
-import { describe, expect, it, vi, afterEach } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createWebSocketHandlers, type WsData } from "../arbiter/websocket.js";
 import { Mutex } from "../shared/mutex.js";
 import type { PendingEntry } from "../shared/types.js";
 
-function createMockWs(): any {
+function createMockWs() {
 	return {
 		data: { teamName: null, missedPings: 0, isStale: false } as WsData,
 		readyState: 1,
 		close: vi.fn(),
 		ping: vi.fn(),
 		send: vi.fn(),
-	};
+	} as unknown as import("bun").ServerWebSocket<WsData>;
 }
 
 describe("createWebSocketHandlers", () => {
@@ -20,7 +20,13 @@ describe("createWebSocketHandlers", () => {
 		intervals = [];
 	});
 
-	function setup(overrides: { registry?: Map<string, any>; pendingCallbacks?: Map<string, PendingEntry>; targetLocks?: Map<string, Mutex> } = {}) {
+	function setup(
+		overrides: {
+			registry?: Map<string, import("bun").ServerWebSocket<WsData>>;
+			pendingCallbacks?: Map<string, PendingEntry>;
+			targetLocks?: Map<string, Mutex>;
+		} = {},
+	) {
 		const registry = overrides.registry || new Map();
 		const pendingCallbacks = overrides.pendingCallbacks || new Map();
 		const targetLocks = overrides.targetLocks || new Map();
@@ -67,9 +73,11 @@ describe("createWebSocketHandlers", () => {
 
 	it("disconnect cancels pending callbacks for that team", () => {
 		const pendingCallbacks = new Map<string, PendingEntry>();
-		let resolved: any = null;
+		let resolved: Record<string, unknown> | null = null;
 		pendingCallbacks.set("sess-1", {
-			resolve: (v: any) => { resolved = v; },
+			resolve: (v: unknown) => {
+				resolved = v as Record<string, unknown>;
+			},
 			timer: setTimeout(() => {}, 10000),
 			from: "other",
 			to: "alpha",
@@ -79,7 +87,7 @@ describe("createWebSocketHandlers", () => {
 		handlers.open(ws);
 		handlers.message(ws, JSON.stringify({ type: "register", team: "alpha" }));
 		handlers.close(ws);
-		expect(resolved.status).toBe("error");
+		expect(resolved!.status).toBe("error");
 		expect(pendingCallbacks.has("sess-1")).toBe(false);
 	});
 

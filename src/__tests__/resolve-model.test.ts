@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveModel, DEFAULT_MODELS } from "../mcp/resolve-model.js";
+import { resolveModel } from "../mcp/resolve-model.js";
 
 const defaultEnv = { simple: "auto", standard: "auto", complex: "auto" };
 

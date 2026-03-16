@@ -1,17 +1,33 @@
-import crypto from "crypto";
-import fs from "fs";
-import path from "path";
-
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import type { ServerWebSocket } from "bun";
-import { Mutex } from "../shared/mutex.js";
+import type { Mutex } from "../shared/mutex.js";
 import type { ArbiterConfig, PendingEntry, ResponsePayload, TeamInfo } from "../shared/types.js";
+import type { WsData } from "./websocket.js";
+
+////////////////////////////////
+//  Interfaces & Types
 
 export interface RoutesDeps {
-	registry: Map<string, ServerWebSocket<{ teamName: string | null }>>;
+	registry: Map<string, ServerWebSocket<WsData>>;
 	pendingCallbacks: Map<string, PendingEntry>;
 	getMutex: ((team: string) => Mutex) & { peek: (team: string) => Mutex | undefined };
 	config: ArbiterConfig;
 }
+
+interface SendRequestBody {
+	from: string;
+	to: string;
+	type?: string;
+	effort?: string;
+	body?: string;
+	session_id?: string;
+	debug?: boolean;
+}
+
+////////////////////////////////
+//  Functions & Helpers
 
 function jsonResponse(data: unknown, status = 200): Response {
 	return new Response(JSON.stringify(data), {
@@ -26,15 +42,16 @@ export function createRoutes({ registry, pendingCallbacks, getMutex, config }: R
 	function ingest(req: Request, body: Record<string, unknown>): Response {
 		const payload: Record<string, unknown> = body && typeof body === "object" ? body : { message: String(body) };
 		payload.timestamp = payload.timestamp ?? Date.now();
-		const line = JSON.stringify(payload) + "\n";
+		const line = `${JSON.stringify(payload)}\n`;
 		try {
 			const dir = path.dirname(LOG_PATH);
 			if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 			fs.appendFileSync(LOG_PATH, line);
 			return jsonResponse({ ok: true });
-		} catch (err: any) {
-			console.error("[ingest]", err.message);
-			return jsonResponse({ ok: false, error: err.message }, 500);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			console.error(`[ingest]`, message);
+			return jsonResponse({ ok: false, error: message }, 500);
 		}
 	}
 
@@ -60,17 +77,9 @@ export function createRoutes({ registry, pendingCallbacks, getMutex, config }: R
 	}
 
 	async function send(req: Request, body: Record<string, unknown>): Promise<Response> {
-		const { from, to, type, effort, body: msgBody, session_id, debug } = body as {
-			from: string;
-			to: string;
-			type?: string;
-			effort?: string;
-			body?: string;
-			session_id?: string;
-			debug?: boolean;
-		};
+		const { from, to, type, effort, body: msgBody, session_id, debug } = body as unknown as SendRequestBody;
 
-		const targetWs = registry.get(to as string);
+		const targetWs = registry.get(to);
 		if (!targetWs || targetWs.readyState !== 1) {
 			return jsonResponse(
 				{
@@ -85,7 +94,7 @@ export function createRoutes({ registry, pendingCallbacks, getMutex, config }: R
 		let release: (() => void) | undefined;
 
 		try {
-			const mutex = getMutex(to as string);
+			const mutex = getMutex(to);
 			release = await mutex.acquire(sessionId);
 
 			console.log(`[mutex] ${to} locked by ${sessionId} (from ${from})`);
@@ -100,7 +109,7 @@ export function createRoutes({ registry, pendingCallbacks, getMutex, config }: R
 					});
 				}, RESPONSE_TIMEOUT_MS);
 
-				pendingCallbacks.set(sessionId, { resolve, timer, from: from as string, to: to as string });
+				pendingCallbacks.set(sessionId, { resolve, timer, from, to });
 			});
 
 			const payload = {
@@ -129,10 +138,11 @@ export function createRoutes({ registry, pendingCallbacks, getMutex, config }: R
 				return jsonResponse({ ...response, session_id: sessionId, from, to, is_follow_up: !!session_id });
 			}
 			return jsonResponse(response);
-		} catch (err: any) {
-			console.error(`[send] Error:`, err.message);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			console.error(`[send] Error:`, message);
 			if (release) release();
-			return jsonResponse({ error: err.message }, 500);
+			return jsonResponse({ error: message }, 500);
 		}
 	}
 
@@ -140,7 +150,7 @@ export function createRoutes({ registry, pendingCallbacks, getMutex, config }: R
 		const { session_id: respondSessionId, ...response } = body as { session_id?: string; [key: string]: unknown };
 
 		if (!respondSessionId) {
-			return jsonResponse({ error: "session_id is required" }, 400);
+			return jsonResponse({ error: `session_id is required` }, 400);
 		}
 
 		const pendingEntry = pendingCallbacks.get(respondSessionId);
@@ -150,9 +160,9 @@ export function createRoutes({ registry, pendingCallbacks, getMutex, config }: R
 
 		clearTimeout(pendingEntry.timer);
 		pendingCallbacks.delete(respondSessionId);
-		pendingEntry.resolve(response as ResponsePayload);
+		pendingEntry.resolve(response as unknown as ResponsePayload);
 
-		console.log(`[respond] ${respondSessionId} → ${(response as any).status}`);
+		console.log(`[respond] ${respondSessionId} → ${response.status}`);
 		return jsonResponse({ delivered: true });
 	}
 
