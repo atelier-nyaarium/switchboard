@@ -20,13 +20,12 @@ export async function startMcp(): Promise<void> {
 	});
 
 	const inContainer = isInsideContainer();
-	const bridgeEnabled = !!process.env.PROJECT_NAME;
 
-	if (bridgeEnabled) {
+	if (inContainer) {
+		// Container: register bridge tools for cross-team communication
 		registerBridgeTools(mcpServer);
-	}
-
-	if (!inContainer) {
+	} else {
+		// Host: register devcontainer tools for managing containers
 		registerDevcontainerChat(mcpServer);
 		registerDevcontainerExec(mcpServer);
 		console.error(`[mcp] devcontainer tools enabled (host mode)`);
@@ -35,8 +34,8 @@ export async function startMcp(): Promise<void> {
 	const transport = new StdioServerTransport();
 	await mcpServer.connect(transport);
 
-	const modes = [bridgeEnabled && "bridge", !inContainer && "devcontainer"].filter(Boolean).join(" + ");
-	console.error(`[mcp] started (${modes || "no tools — check configuration"})`);
+	const mode = inContainer ? "bridge" : "devcontainer";
+	console.error(`[mcp] started (${mode})`);
 
 	process.stdin.on("end", () => {
 		console.error(`[mcp] stdin closed, shutting down`);

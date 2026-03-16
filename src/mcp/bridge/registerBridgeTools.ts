@@ -9,9 +9,29 @@ import { connectToRouter, initBridge } from "./helpers.js";
 //  Functions & Helpers
 
 export function registerBridgeTools(mcpServer: McpServer): void {
+	const projectName = process.env.PROJECT_NAME;
+
+	if (!projectName) {
+		// Register tools that return config error — agents see the tools exist but get a clear message
+		const configError = {
+			content: [
+				{
+					type: "text" as const,
+					text: `Bridge is not configured. The PROJECT_NAME environment variable is missing from this container's devcontainer config.`,
+				},
+			],
+			isError: true,
+		};
+		mcpServer.tool("bridge_discover", `List all active teams on the bridge network.`, {}, async () => configError);
+		mcpServer.tool("bridge_send", `Send a request to another team.`, {}, async () => configError);
+		mcpServer.tool("bridge_reply", `Reply to an incoming bridge request.`, {}, async () => configError);
+		mcpServer.tool("bridge_wait", `Wait N seconds before retrying.`, {}, async () => configError);
+		return;
+	}
+
 	initBridge({
 		routerUrl: process.env.BRIDGE_ROUTER_URL || "http://agent-team-bridge:5678",
-		projectName: process.env.PROJECT_NAME!,
+		projectName,
 		agentType: process.env.AGENT_TYPE || "claude",
 		effortEnv: {
 			simple: process.env.MODEL_SIMPLE || "auto",
@@ -26,5 +46,4 @@ export function registerBridgeTools(mcpServer: McpServer): void {
 	registerBridgeWait(mcpServer);
 
 	connectToRouter();
-	console.error(`[bridge] tools enabled for "${process.env.PROJECT_NAME}"`);
 }
