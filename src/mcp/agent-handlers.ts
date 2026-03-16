@@ -50,6 +50,9 @@ export interface AgentHandler {
 	sendMessage(sessionId: string, message: string, model: string, isFollowUp?: boolean): Promise<string>;
 }
 
+// Maps bridge session IDs to codex thread IDs for follow-ups
+const codexThreadIds = new Map<string, string>();
+
 export const AGENT_HANDLERS: Record<string, AgentHandler> = {
 	claude: {
 		async createSession(sessionId) {
@@ -80,6 +83,36 @@ export const AGENT_HANDLERS: Record<string, AgentHandler> = {
 		async sendMessage(sessionId, message, model) {
 			const args = ["-p", message, "--yolo", "--no-ask-user", "--model", model, "--resume", sessionId, "-s"];
 			return runAgent("copilot", args, null);
+		},
+	},
+
+	codex: {
+		async createSession(sessionId) {
+			return sessionId;
+		},
+		async sendMessage(sessionId, message, model, isFollowUp) {
+			const threadId = codexThreadIds.get(sessionId);
+
+			if (isFollowUp && threadId) {
+				const args = ["exec", "resume", threadId, "-m", model, "--dangerously-bypass-approvals-and-sandbox"];
+				return runAgent("codex", args, message);
+			}
+
+			// New session. Use --json to capture thread_id from the first JSONL line.
+			const args = ["exec", "-m", model, "--dangerously-bypass-approvals-and-sandbox", "--json"];
+			const output = await runAgent("codex", args, message);
+
+			try {
+				const firstLine = output.split("\n")[0];
+				const parsed = JSON.parse(firstLine);
+				if (parsed.thread_id) {
+					codexThreadIds.set(sessionId, parsed.thread_id);
+				}
+			} catch {
+				// Best effort
+			}
+
+			return output;
 		},
 	},
 };
