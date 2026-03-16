@@ -1,6 +1,6 @@
 {
 	"name": "agent-team-bridge",
-	"version": "1.3.1",
+	"version": "1.3.2",
 	"description": "Cross-team communication and devcontainer orchestration for agent teams. Provides bridge_discover, bridge_send, bridge_wait, bridge_reply, devcontainerChat, and devcontainerExec tools via MCP.",
 	"author": {
 		"name": "Nyaarium"
