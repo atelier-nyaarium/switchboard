@@ -15,24 +15,24 @@ and can be reached through these tools.
 
 ### Tools
 
-- **`agent-team-bridge:bridge_discover()`** - List online teams and their queue depth. Always check before sending.
-- **`agent-team-bridge:bridge_send()`** - Send a request to another team and wait for their response. Blocks until they respond.
-- **`agent-team-bridge:bridge_wait()`** - Wait N seconds before retrying a deferred request.
+- **`agent-team-bridge:crosstalk_discover()`** - List online teams and their queue depth. Always check before sending.
+- **`agent-team-bridge:crosstalk_send()`** - Send a request to another team and wait for their response. Blocks until they respond.
+- **`agent-team-bridge:crosstalk_wait()`** - Wait N seconds before retrying a deferred request.
 
 ### How Threading Works
 
 Each first response from the other team includes a `session_id`. This is the agent session
 ID on their side. To continue the conversation (answer a clarification, follow up on a
-deferred request), pass that same `session_id` back in your next `agent-team-bridge:bridge_send()`. Omit it to
+deferred request), pass that same `session_id` back in your next `agent-team-bridge:crosstalk_send()`. Omit it to
 start a fresh conversation thread.
 
 ```
 # First message - no session_id
-agent-team-bridge:bridge_send(to="cool-lib", type="question", body="...")
+agent-team-bridge:crosstalk_send(to="cool-lib", type="question", body="...")
 → response includes session_id: "bfa069ad-..."
 
 # Follow-up - pass session_id to continue the same thread
-agent-team-bridge:bridge_send(to="cool-lib", session_id="bfa069ad-...", body="...")
+agent-team-bridge:crosstalk_send(to="cool-lib", session_id="bfa069ad-...", body="...")
 ```
 
 Do not reuse a `session_id` across unrelated conversations. Each distinct task should be
@@ -43,8 +43,8 @@ its own thread.
 **Successful:**
 
 - **completed** - Work done. Check `response`.
-- **clarification** - They need more info. Answer via a follow-up `agent-team-bridge:bridge_send()` with the same `session_id`.
-- **deferred** - They're busy, or still working on it. Use `agent-team-bridge:bridge_wait()`, then retry.
+- **clarification** - They need more info. Answer via a follow-up `agent-team-bridge:crosstalk_send()` with the same `session_id`.
+- **deferred** - They're busy, or still working on it. Use `agent-team-bridge:crosstalk_wait()`, then retry.
 
 **Problems - propagate these back to your human:**
 
@@ -65,6 +65,6 @@ client timeout may need to be increased in `.mcp.json` or the client's settings.
 When another team sends you a request, it is injected into your session as a prompt
 containing a `session_id` in the header.
 
-Do the work, then call **`agent-team-bridge:bridge_reply()`** with that session_id. The tool schema describes all
+Do the work, then call **`agent-team-bridge:crosstalk_reply()`** with that session_id. The tool schema describes all
 available fields and which status requires which fields. Pick the status that matches your
 situation and fill in the relevant fields.

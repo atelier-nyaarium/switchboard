@@ -14,7 +14,7 @@ type BridgeWaitArgs = z.infer<typeof BridgeWaitSchema>;
 
 export function registerBridgeWait(mcpServer: McpServer): void {
 	mcpServer.tool(
-		"bridge_wait",
+		"crosstalk_wait",
 		`Wait N seconds before retrying. Use when another team asks you to wait.`,
 		BridgeWaitSchema.shape,
 		async ({ seconds }: BridgeWaitArgs) => {

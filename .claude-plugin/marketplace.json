@@ -7,7 +7,7 @@
 	"plugins": [
 		{
 			"name": "agent-team-bridge",
-			"description": "Cross-team communication and devcontainer orchestration for agent teams. In containers: bridge_discover, bridge_send, bridge_wait, bridge_reply. On host: devcontainerChat, devcontainerExec.",
+			"description": "Cross-team communication and devcontainer orchestration for agent teams. In containers: crosstalk_discover, crosstalk_send, crosstalk_wait, crosstalk_reply. On host: dispatch_chat, dispatch_exec.",
 			"source": "./"
 		}
 	]

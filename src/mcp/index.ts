@@ -16,25 +16,25 @@ function isInsideContainer(): boolean {
 export async function startMcp(): Promise<void> {
 	const mcpServer = new McpServer({
 		name: "agent-team-bridge",
-		version: "0.5.0",
+		version: "0.6.0",
 	});
 
 	const inContainer = isInsideContainer();
 
 	if (inContainer) {
-		// Container: register bridge tools for cross-team communication
+		// Container: register crosstalk tools for cross-team communication
 		registerBridgeTools(mcpServer);
 	} else {
-		// Host: register devcontainer tools for managing containers
+		// Host: register dispatch tools for managing containers
 		registerDevcontainerChat(mcpServer);
 		registerDevcontainerExec(mcpServer);
-		console.error(`[mcp] devcontainer tools enabled (host mode)`);
+		console.error(`[mcp] dispatch tools enabled (host mode)`);
 	}
 
 	const transport = new StdioServerTransport();
 	await mcpServer.connect(transport);
 
-	const mode = inContainer ? "bridge" : "devcontainer";
+	const mode = inContainer ? "crosstalk" : "dispatch";
 	console.error(`[mcp] started (${mode})`);
 
 	process.stdin.on("end", () => {

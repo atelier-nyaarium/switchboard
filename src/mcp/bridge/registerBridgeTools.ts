@@ -22,10 +22,15 @@ export function registerBridgeTools(mcpServer: McpServer): void {
 			],
 			isError: true,
 		};
-		mcpServer.tool("bridge_discover", `List all active teams on the bridge network.`, {}, async () => configError);
-		mcpServer.tool("bridge_send", `Send a request to another team.`, {}, async () => configError);
-		mcpServer.tool("bridge_reply", `Reply to an incoming bridge request.`, {}, async () => configError);
-		mcpServer.tool("bridge_wait", `Wait N seconds before retrying.`, {}, async () => configError);
+		mcpServer.tool(
+			"crosstalk_discover",
+			`List all active teams on the bridge network.`,
+			{},
+			async () => configError,
+		);
+		mcpServer.tool("crosstalk_send", `Send a request to another team.`, {}, async () => configError);
+		mcpServer.tool("crosstalk_reply", `Reply to an incoming bridge request.`, {}, async () => configError);
+		mcpServer.tool("crosstalk_wait", `Wait N seconds before retrying.`, {}, async () => configError);
 		return;
 	}
 

@@ -5,7 +5,7 @@ import { bridgeProjectName, routerGet } from "./helpers.js";
 //  Functions & Helpers
 
 export function registerBridgeDiscover(mcpServer: McpServer): void {
-	mcpServer.tool("bridge_discover", `List all active teams on the bridge network.`, {}, async () => {
+	mcpServer.tool("crosstalk_discover", `List all active teams on the bridge network.`, {}, async () => {
 		try {
 			const teams = (await routerGet("/teams")) as Array<{ team: string; queue_depth: number }>;
 			const others = teams.filter((t) => t.team !== bridgeProjectName());

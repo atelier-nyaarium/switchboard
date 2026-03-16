@@ -38,7 +38,7 @@ const DevcontainerChatSchema = z.object({
 	agent: z
 		.enum(AGENT_TYPES)
 		.describe(
-			`Agent CLI to use: claude, cursor, copilot, or codex. Try claude first. If it is not installed in the container, use devcontainerExec to run "which claude cursor copilot codex" to see which are available.`,
+			`Agent CLI to use: claude, cursor, copilot, or codex. Try claude first. If it is not installed in the container, use dispatch_exec to run "which claude cursor copilot codex" to see which are available.`,
 		),
 	effort: z
 		.enum(EFFORT_LEVELS)
@@ -148,7 +148,7 @@ async function pollJob(projectPath: string, jobId: string, waitMs: number): Prom
 }
 
 export function registerDevcontainerChat(mcpServer: McpServer): void {
-	mcpServer.tool("devcontainerChat", description, DevcontainerChatSchema.shape, async (rawArgs) => {
+	mcpServer.tool("dispatch_chat", description, DevcontainerChatSchema.shape, async (rawArgs) => {
 		try {
 			const args: DevcontainerChatArgs = DevcontainerChatSchema.parse(rawArgs);
 			assertNotContainer();

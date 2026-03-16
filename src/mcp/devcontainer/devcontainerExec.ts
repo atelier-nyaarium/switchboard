@@ -33,7 +33,7 @@ Set background: true to run in a persistent tmux session that survives after thi
 `.trim();
 
 export function registerDevcontainerExec(mcpServer: McpServer): void {
-	mcpServer.tool("devcontainerExec", description, DevcontainerExecSchema.shape, async (rawArgs) => {
+	mcpServer.tool("dispatch_exec", description, DevcontainerExecSchema.shape, async (rawArgs) => {
 		try {
 			const args: DevcontainerExecArgs = DevcontainerExecSchema.parse(rawArgs);
 			assertNotContainer();

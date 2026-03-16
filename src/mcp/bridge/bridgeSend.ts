@@ -7,7 +7,7 @@ import { bridgeProjectName, routerPost } from "./helpers.js";
 //  Schemas
 
 const BridgeSendSchema = z.object({
-	to: z.string().describe(`Target team name. Use bridge_discover to find available teams.`),
+	to: z.string().describe(`Target team name. Use crosstalk_discover to find available teams.`),
 	type: z.enum(["feature", "bugfix", "question"]).describe(`The type of request you are making.`),
 	effort: z
 		.enum(["simple", "standard", "complex"])
@@ -36,7 +36,7 @@ type SendResult = ResponsePayload & { error?: string; available?: string[] };
 
 export function registerBridgeSend(mcpServer: McpServer): void {
 	mcpServer.tool(
-		"bridge_send",
+		"crosstalk_send",
 		`Send a request to another team and wait for their response. Blocks until they respond.`,
 		BridgeSendSchema.shape,
 		async ({ to, type, effort, body, session_id }: BridgeSendArgs) => {
@@ -68,11 +68,11 @@ export function registerBridgeSend(mcpServer: McpServer): void {
 					if (result.response) parts.push(`\n${result.response}`);
 				} else if (result.status === "clarification") {
 					parts.push(`Question: ${result.question}`);
-					parts.push(`\nTo answer, use bridge_send with session_id: "${result.session_id}"`);
+					parts.push(`\nTo answer, use crosstalk_send with session_id: "${result.session_id}"`);
 				} else if (result.status === "deferred") {
 					parts.push(`Reason: ${result.reason}`);
 					if (result.estimated_minutes) parts.push(`Estimated wait: ${result.estimated_minutes} minutes`);
-					parts.push(`\nYou can use bridge_wait to wait, then retry.`);
+					parts.push(`\nYou can use crosstalk_wait to wait, then retry.`);
 				} else if (result.status === "needs_human") {
 					parts.push(`Reason: ${result.reason}`);
 					if (result.what_to_decide) parts.push(`Decision needed: ${result.what_to_decide}`);

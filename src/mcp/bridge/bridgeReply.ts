@@ -29,13 +29,13 @@ type BridgeReplyArgs = z.infer<typeof BridgeReplySchema>;
 
 export function registerBridgeReply(mcpServer: McpServer): void {
 	mcpServer.tool(
-		"bridge_reply",
+		"crosstalk_reply",
 		`Reply to an incoming bridge request. Call this once when you are done handling the request.`,
 		BridgeReplySchema.shape,
 		async ({ session_id, status, ...rest }: BridgeReplyArgs) => {
 			try {
 				await routerPost("/respond", { session_id, status, ...rest });
-				console.error(`[bridge] bridge_reply sent: ${status} [${session_id}]`);
+				console.error(`[bridge] crosstalk_reply sent: ${status} [${session_id}]`);
 				return { content: [{ type: "text" as const, text: `Reply sent (${status}).` }] };
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
