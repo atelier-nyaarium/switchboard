@@ -30,6 +30,7 @@ export function startArbiter(): void {
 	const store = new PendingJobStore<ResponsePayload>();
 	const targetLocks = new Map<string, Mutex>();
 	const knownTeamPaths = new Map<string, string>();
+	const offlineCatalog = new Map<string, string>();
 	const wakeCoordinator = new WakeCoordinator();
 
 	store.startCleanup();
@@ -67,6 +68,7 @@ export function startArbiter(): void {
 		getMutex: getMutexForTeam,
 		config: { LOG_PATH, RESPONSE_TIMEOUT_MS },
 		tryWakeTeam,
+		offlineCatalog,
 	});
 
 	const wsHandlers = createWebSocketHandlers({
@@ -75,6 +77,7 @@ export function startArbiter(): void {
 		targetLocks,
 		config: { HEARTBEAT_INTERVAL_MS, MISSED_PINGS_LIMIT },
 		knownTeamPaths,
+		offlineCatalog,
 		wakeCoordinator,
 	});
 

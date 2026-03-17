@@ -12,6 +12,7 @@ export interface WebSocketDeps {
 	store: PendingJobStore<ResponsePayload>;
 	targetLocks: Map<string, Mutex>;
 	knownTeamPaths: Map<string, string>;
+	offlineCatalog: Map<string, string>;
 	wakeCoordinator: WakeCoordinator;
 	config: WebSocketConfig;
 }
@@ -30,6 +31,7 @@ export function createWebSocketHandlers({
 	store,
 	targetLocks,
 	knownTeamPaths,
+	offlineCatalog,
 	wakeCoordinator,
 	config,
 }: WebSocketDeps) {
@@ -83,6 +85,22 @@ export function createWebSocketHandlers({
 			wakeCoordinator.notify(msg.team, false);
 		}
 
+		if (msg.type === "catalog" && ws.data.teamName === "__host__") {
+			const projects = msg.projects;
+			if (Array.isArray(projects)) {
+				offlineCatalog.clear();
+				for (const p of projects) {
+					if (typeof p.team === "string" && typeof p.projectPath === "string") {
+						offlineCatalog.set(p.team, p.projectPath);
+						if (!knownTeamPaths.has(p.team)) {
+							knownTeamPaths.set(p.team, p.projectPath);
+						}
+					}
+				}
+				console.log(`[ws] catalog received: ${offlineCatalog.size} projects`);
+			}
+		}
+
 		// Reset missed pings on any message (acts like pong)
 		ws.data.missedPings = 0;
 	}
@@ -96,6 +114,13 @@ export function createWebSocketHandlers({
 		}
 
 		if (!teamName) return;
+
+		if (teamName === "__host__") {
+			registry.delete(teamName);
+			offlineCatalog.clear();
+			console.log(`[ws] __host__ disconnected — offline catalog cleared`);
+			return;
+		}
 
 		if (registry.get(teamName) !== ws) {
 			console.log(`[ws] stale close for ${teamName} - new socket already registered, skipping cleanup`);

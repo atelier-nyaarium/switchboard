@@ -5,16 +5,17 @@ import { bridgeProjectName, routerGet } from "./helpers.js";
 //  Functions & Helpers
 
 export function registerBridgeDiscover(mcpServer: McpServer): void {
-	mcpServer.tool("crosstalk_discover", `List all active teams on the bridge network.`, {}, async () => {
+	mcpServer.tool("crosstalk_discover", `List all teams on the bridge network (active and offline).`, {}, async () => {
 		try {
-			const teams = (await routerGet("/teams")) as Array<{ team: string; queue_depth: number }>;
+			const teams = (await routerGet("/teams")) as Array<{ team: string; status: string; queue_depth: number }>;
 			const others = teams.filter((t) => t.team !== bridgeProjectName());
 
 			if (others.length === 0) {
-				return { content: [{ type: "text" as const, text: `No other teams are currently online.` }] };
+				return { content: [{ type: "text" as const, text: `No other teams found.` }] };
 			}
 
 			const lines = others.map((t) => {
+				if (t.status === "offline") return `- ${t.team}: offline`;
 				const status = t.queue_depth > 0 ? `busy (${t.queue_depth} in queue)` : "available";
 				return `- ${t.team}: ${status}`;
 			});

@@ -15,7 +15,7 @@ and can be reached through these tools.
 
 ### Tools
 
-- **`agent-team-bridge:crosstalk_discover()`** - List online teams and their queue depth. Always check before sending.
+- **`agent-team-bridge:crosstalk_discover()`** - List all teams on the bridge (active and offline). Offline teams can be woken on demand by sending them a request. Always check before sending.
 - **`agent-team-bridge:crosstalk_send()`** - Send a request to another team and wait for their response. Blocks until they respond.
 - **`agent-team-bridge:crosstalk_wait()`** - Wait N seconds before retrying a deferred request.
 

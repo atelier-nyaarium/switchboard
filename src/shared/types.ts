@@ -49,8 +49,13 @@ export interface RegisterMessage {
 
 export interface TeamInfo {
 	team: string;
-	status: "active";
+	status: "active" | "offline";
 	queue_depth: number;
+}
+
+export interface CatalogMessage {
+	type: "catalog";
+	projects: Array<{ team: string; projectPath: string }>;
 }
 
 ////////////////////////////////

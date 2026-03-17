@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import WebSocket from "ws";
@@ -41,6 +42,10 @@ function connect(): void {
 		console.error("[host-wake] connected to arbiter");
 		reconnectDelay = 2000;
 		ws!.send(JSON.stringify({ type: "register", team: "__host__" }));
+
+		const projects = scanDevcontainerProjects();
+		ws!.send(JSON.stringify({ type: "catalog", projects }));
+		console.error(`[host-wake] sent catalog with ${projects.length} projects`);
 	});
 
 	ws.on("message", (raw: WebSocket.Data) => {
@@ -73,6 +78,31 @@ function scheduleReconnect(): void {
 		connect();
 	}, reconnectDelay);
 	reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
+}
+
+////////////////////////////////
+//  Catalog scanner
+
+function scanDevcontainerProjects(): Array<{ team: string; projectPath: string }> {
+	const results: Array<{ team: string; projectPath: string }> = [];
+	let entries: string[];
+	try {
+		entries = fs.readdirSync(HOME);
+	} catch {
+		return results;
+	}
+	for (const entry of entries) {
+		const full = path.join(HOME, entry);
+		try {
+			if (!fs.statSync(full).isDirectory()) continue;
+			if (fs.existsSync(path.join(full, ".devcontainer", "devcontainer.json"))) {
+				results.push({ team: entry, projectPath: full });
+			}
+		} catch {
+			// skip inaccessible entries
+		}
+	}
+	return results;
 }
 
 ////////////////////////////////

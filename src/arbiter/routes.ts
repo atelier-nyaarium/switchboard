@@ -1,7 +1,7 @@
-import type { ServerWebSocket } from "bun";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import type { ServerWebSocket } from "bun";
 import type { Mutex } from "../shared/mutex.js";
 import type { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ArbiterConfig, ResponsePayload, TeamInfo } from "../shared/types.js";
@@ -15,6 +15,7 @@ export interface RoutesDeps {
 	store: PendingJobStore<ResponsePayload>;
 	getMutex: ((team: string) => Mutex) & { peek: (team: string) => Mutex | undefined };
 	tryWakeTeam: (team: string) => Promise<boolean>;
+	offlineCatalog: Map<string, string>;
 	config: ArbiterConfig;
 }
 
@@ -38,7 +39,7 @@ function jsonResponse(data: unknown, status = 200): Response {
 	});
 }
 
-export function createRoutes({ registry, store, getMutex, tryWakeTeam, config }: RoutesDeps) {
+export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCatalog, config }: RoutesDeps) {
 	const { LOG_PATH, RESPONSE_TIMEOUT_MS } = config;
 
 	function ingest(req: Request, body: Record<string, unknown>): Response {
@@ -69,8 +70,11 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, config }:
 
 	function teams(): Response {
 		const teamsList: TeamInfo[] = [];
+		const seen = new Set<string>();
+
 		for (const [name] of registry) {
 			if (name === "__host__") continue;
+			seen.add(name);
 			const lock = getMutex.peek(name);
 			teamsList.push({
 				team: name,
@@ -78,6 +82,12 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, config }:
 				queue_depth: lock ? lock.queue.length + (lock.locked ? 1 : 0) : 0,
 			});
 		}
+
+		for (const [name] of offlineCatalog) {
+			if (seen.has(name)) continue;
+			teamsList.push({ team: name, status: "offline", queue_depth: 0 });
+		}
+
 		return jsonResponse(teamsList);
 	}
 

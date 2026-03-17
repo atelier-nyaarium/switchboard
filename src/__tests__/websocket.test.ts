@@ -28,6 +28,7 @@ describe("createWebSocketHandlers", () => {
 			store?: PendingJobStore<ResponsePayload>;
 			targetLocks?: Map<string, Mutex>;
 			knownTeamPaths?: Map<string, string>;
+			offlineCatalog?: Map<string, string>;
 			wakeCoordinator?: WakeCoordinator;
 		} = {},
 	) {
@@ -35,6 +36,7 @@ describe("createWebSocketHandlers", () => {
 		const store = overrides.store || new PendingJobStore<ResponsePayload>();
 		const targetLocks = overrides.targetLocks || new Map();
 		const knownTeamPaths = overrides.knownTeamPaths || new Map();
+		const offlineCatalog = overrides.offlineCatalog || new Map();
 		const wakeCoordinator = overrides.wakeCoordinator || new WakeCoordinator();
 		const handlers = createWebSocketHandlers({
 			registry,
@@ -42,10 +44,11 @@ describe("createWebSocketHandlers", () => {
 			targetLocks,
 			config: { HEARTBEAT_INTERVAL_MS: 100000, MISSED_PINGS_LIMIT: 2 },
 			knownTeamPaths,
+			offlineCatalog,
 			wakeCoordinator,
 		});
 		intervals.push(handlers.heartbeatInterval);
-		return { handlers, registry, store, targetLocks, knownTeamPaths, wakeCoordinator };
+		return { handlers, registry, store, targetLocks, knownTeamPaths, offlineCatalog, wakeCoordinator };
 	}
 
 	it("register message adds team to registry", () => {
@@ -134,5 +137,77 @@ describe("createWebSocketHandlers", () => {
 		handlers.open(ws);
 		handlers.message(ws, "not json{{{");
 		expect(registry.size).toBe(0);
+	});
+
+	it("catalog from __host__ populates offlineCatalog", () => {
+		const { handlers, offlineCatalog } = setup();
+		const ws = createMockWs();
+		handlers.open(ws);
+		handlers.message(ws, JSON.stringify({ type: "register", team: "__host__" }));
+		handlers.message(
+			ws,
+			JSON.stringify({
+				type: "catalog",
+				projects: [
+					{ team: "proj-a", projectPath: "/home/user/proj-a" },
+					{ team: "proj-b", projectPath: "/home/user/proj-b" },
+				],
+			}),
+		);
+		expect(offlineCatalog.size).toBe(2);
+		expect(offlineCatalog.get("proj-a")).toBe("/home/user/proj-a");
+	});
+
+	it("catalog from non-host is ignored", () => {
+		const { handlers, offlineCatalog } = setup();
+		const ws = createMockWs();
+		handlers.open(ws);
+		handlers.message(ws, JSON.stringify({ type: "register", team: "some-team" }));
+		handlers.message(
+			ws,
+			JSON.stringify({
+				type: "catalog",
+				projects: [{ team: "proj-a", projectPath: "/home/user/proj-a" }],
+			}),
+		);
+		expect(offlineCatalog.size).toBe(0);
+	});
+
+	it("host disconnect clears offlineCatalog", () => {
+		const { handlers, offlineCatalog } = setup();
+		const ws = createMockWs();
+		handlers.open(ws);
+		handlers.message(ws, JSON.stringify({ type: "register", team: "__host__" }));
+		handlers.message(
+			ws,
+			JSON.stringify({
+				type: "catalog",
+				projects: [{ team: "proj-a", projectPath: "/home/user/proj-a" }],
+			}),
+		);
+		expect(offlineCatalog.size).toBe(1);
+		handlers.close(ws);
+		expect(offlineCatalog.size).toBe(0);
+	});
+
+	it("catalog populates knownTeamPaths only for new teams", () => {
+		const knownTeamPaths = new Map<string, string>();
+		knownTeamPaths.set("proj-a", "/existing/path");
+		const { handlers } = setup({ knownTeamPaths });
+		const ws = createMockWs();
+		handlers.open(ws);
+		handlers.message(ws, JSON.stringify({ type: "register", team: "__host__" }));
+		handlers.message(
+			ws,
+			JSON.stringify({
+				type: "catalog",
+				projects: [
+					{ team: "proj-a", projectPath: "/catalog/proj-a" },
+					{ team: "proj-b", projectPath: "/catalog/proj-b" },
+				],
+			}),
+		);
+		expect(knownTeamPaths.get("proj-a")).toBe("/existing/path");
+		expect(knownTeamPaths.get("proj-b")).toBe("/catalog/proj-b");
 	});
 });

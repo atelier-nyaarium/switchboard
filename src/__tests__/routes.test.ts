@@ -7,6 +7,7 @@ import type { ResponsePayload } from "../shared/types.js";
 function makeCtx(overrides: Partial<RoutesDeps> = {}): RoutesDeps {
 	const registry = overrides.registry || (new Map() as RoutesDeps["registry"]);
 	const store = overrides.store || new PendingJobStore<ResponsePayload>();
+	const offlineCatalog = overrides.offlineCatalog || new Map<string, string>();
 	const targetLocks = new Map<string, Mutex>();
 	const getMutexFn = ((team: string) => {
 		if (!targetLocks.has(team)) targetLocks.set(team, new Mutex());
@@ -19,6 +20,7 @@ function makeCtx(overrides: Partial<RoutesDeps> = {}): RoutesDeps {
 		getMutex: getMutexFn,
 		config: { LOG_PATH: "/tmp/test-debug.log", RESPONSE_TIMEOUT_MS: 500 },
 		tryWakeTeam: overrides.tryWakeTeam || (() => Promise.resolve(false)),
+		offlineCatalog,
 	};
 }
 
@@ -59,6 +61,31 @@ describe("routes", () => {
 			const { teams } = createRoutes(ctx);
 			const res = teams();
 			expect(await res.json()).toEqual([{ team: "team-x", status: "active", queue_depth: 1 }]);
+		});
+
+		it("returns offline teams from catalog", async () => {
+			const offlineCatalog = new Map<string, string>();
+			offlineCatalog.set("proj-a", "/home/user/proj-a");
+			const ctx = makeCtx({ offlineCatalog });
+			const { teams } = createRoutes(ctx);
+			const res = teams();
+			expect(await res.json()).toEqual([{ team: "proj-a", status: "offline", queue_depth: 0 }]);
+		});
+
+		it("active teams take precedence over catalog", async () => {
+			const registry = new Map();
+			registry.set("proj-a", { readyState: 1 });
+			const offlineCatalog = new Map<string, string>();
+			offlineCatalog.set("proj-a", "/home/user/proj-a");
+			offlineCatalog.set("proj-b", "/home/user/proj-b");
+			const ctx = makeCtx({ registry: registry as RoutesDeps["registry"], offlineCatalog });
+			const { teams } = createRoutes(ctx);
+			const res = teams();
+			const json = await res.json();
+			expect(json).toEqual([
+				{ team: "proj-a", status: "active", queue_depth: 0 },
+				{ team: "proj-b", status: "offline", queue_depth: 0 },
+			]);
 		});
 	});
 
