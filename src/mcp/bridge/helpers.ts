@@ -2,7 +2,6 @@ import WebSocket from "ws";
 import type { EffortEnv, InjectPayload } from "../../shared/types.js";
 import { AGENT_HANDLERS } from "../agent-handlers.js";
 import { buildFollowUpPrompt, buildInitialPrompt } from "../prompt-builders.js";
-import { createReplyProxy } from "../reply-proxy.js";
 import { resolveModel } from "../resolve-model.js";
 
 ////////////////////////////////
@@ -148,27 +147,12 @@ async function handleInject(msg: InjectPayload): Promise<void> {
 		return;
 	}
 
-	let replyProxy: { port: number; close: () => void } | undefined;
-	try {
-		replyProxy = await createReplyProxy(sessionId, routerPost);
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		await routerPost("/respond", {
-			session_id: sessionId,
-			status: "error",
-			reason: message,
-		}).catch(() => {});
-		return;
-	}
-
 	try {
 		const model = resolveModel(msg.effort, { effortEnv: EFFORT_ENV, agentType: AGENT_TYPE });
 		const isFollowUp = !!msg.is_follow_up;
 		const agentSessionId = isFollowUp ? sessionId : await handler.createSession(sessionId);
 
-		const prompt = isFollowUp
-			? buildFollowUpPrompt(msg, replyProxy.port, sessionId)
-			: buildInitialPrompt(msg, replyProxy.port, sessionId);
+		const prompt = isFollowUp ? buildFollowUpPrompt(msg, sessionId) : buildInitialPrompt(msg, sessionId);
 
 		console.error(
 			`[bridge] ${isFollowUp ? "follow-up" : "new"} ${AGENT_TYPE}/${model} session ${sessionId.slice(0, 8)}... from ${msg.from}`,
@@ -183,7 +167,5 @@ async function handleInject(msg: InjectPayload): Promise<void> {
 			status: "error",
 			reason: message,
 		}).catch(() => {});
-	} finally {
-		if (replyProxy) replyProxy.close();
 	}
 }

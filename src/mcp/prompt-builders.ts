@@ -10,7 +10,7 @@ export interface InjectMessage {
 ////////////////////////////////
 //  Functions & Helpers
 
-export function buildInitialPrompt(msg: InjectMessage, replyProxyPort: number, sessionId: string): string {
+export function buildInitialPrompt(msg: InjectMessage, sessionId: string): string {
 	return `
 ┃ CROSS-TEAM COMMUNICATION - USE SKILL: crosstalk - **Receiving a Request**
 ┃ From: ${msg.from}
@@ -22,7 +22,7 @@ ${msg.body}
 `.trim();
 }
 
-export function buildFollowUpPrompt(msg: InjectMessage, replyProxyPort: number, sessionId: string): string {
+export function buildFollowUpPrompt(msg: InjectMessage, sessionId: string): string {
 	return `
 ┃ CROSS-TEAM COMMUNICATION - USE SKILL: crosstalk - **Receiving a Follow-up**
 ┃ From: ${msg.from}
