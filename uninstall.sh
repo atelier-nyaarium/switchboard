@@ -18,7 +18,7 @@ log() {
 log "Removing Agent Team Bridge configuration..."
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 1. Legacy cleanup (pre-plugin installs injected config directly)
+# 1. MCP config - remove agent-team-bridge server entry
 # ═════════════════════════════════════════════════════════════════════════════
 
 if command -v jq &>/dev/null; then
@@ -31,17 +31,10 @@ if command -v jq &>/dev/null; then
                 rm "$mcp_file"
                 log "   ${mcp_file} removed (was empty)"
             else
-                log "   ${mcp_file} - removed legacy entry"
+                log "   ${mcp_file} - removed agent-team-bridge entry"
             fi
         fi
     done
-fi
-
-if [[ -f ".claude/skills/agent-team-bridge/SKILL.md" ]]; then
-    rm .claude/skills/agent-team-bridge/SKILL.md
-    rmdir .claude/skills/agent-team-bridge 2>/dev/null || true
-    rmdir .claude/skills 2>/dev/null || true
-    log "   Cleaned up legacy .claude/skills/agent-team-bridge"
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
