@@ -40,7 +40,10 @@ export function startArbiter(): void {
 
 	async function tryWakeTeam(team: string): Promise<boolean> {
 		const hostWs = registry.get("__host__");
-		if (!hostWs || hostWs.readyState !== 1) return false;
+		if (!hostWs || hostWs.readyState !== 1) {
+			console.log(`[wake] cannot wake ${team} — __host__ is not connected`);
+			return false;
+		}
 
 		const projectPath = knownTeamPaths.get(team);
 		hostWs.send(
@@ -114,6 +117,9 @@ export function startArbiter(): void {
 			open: wsHandlers.open,
 			message: wsHandlers.message,
 			close: wsHandlers.close,
+			pong(ws) {
+				ws.data.missedPings = 0;
+			},
 		},
 	});
 
