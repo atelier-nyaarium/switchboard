@@ -2,7 +2,7 @@
 	"mcpServers": {
 		"agent-team-bridge": {
 			"command": "bunx",
-			"args": ["--bun", "./src/main.ts"]
+			"args": ["--bun", "${CLAUDE_PLUGIN_ROOT}/src/main.ts"]
 		}
 	}
 }
