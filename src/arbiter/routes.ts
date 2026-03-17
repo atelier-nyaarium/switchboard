@@ -3,7 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { Mutex } from "../shared/mutex.js";
-import type { ArbiterConfig, PendingEntry, ResponsePayload, TeamInfo } from "../shared/types.js";
+import type { PendingJobStore } from "../shared/pending-job-store.js";
+import type { ArbiterConfig, ResponsePayload, TeamInfo } from "../shared/types.js";
 import type { WsData } from "./websocket.js";
 
 ////////////////////////////////
@@ -11,7 +12,7 @@ import type { WsData } from "./websocket.js";
 
 export interface RoutesDeps {
 	registry: Map<string, ServerWebSocket<WsData>>;
-	pendingCallbacks: Map<string, PendingEntry>;
+	store: PendingJobStore<ResponsePayload>;
 	getMutex: ((team: string) => Mutex) & { peek: (team: string) => Mutex | undefined };
 	config: ArbiterConfig;
 }
@@ -36,7 +37,7 @@ function jsonResponse(data: unknown, status = 200): Response {
 	});
 }
 
-export function createRoutes({ registry, pendingCallbacks, getMutex, config }: RoutesDeps) {
+export function createRoutes({ registry, store, getMutex, config }: RoutesDeps) {
 	const { LOG_PATH, RESPONSE_TIMEOUT_MS } = config;
 
 	function ingest(req: Request, body: Record<string, unknown>): Response {
@@ -56,10 +57,12 @@ export function createRoutes({ registry, pendingCallbacks, getMutex, config }: R
 	}
 
 	function pending(): Response {
-		const list: { session_id: string; from: string; to: string }[] = [];
-		for (const [sessionId, entry] of pendingCallbacks) {
-			list.push({ session_id: sessionId, from: entry.from, to: entry.to });
-		}
+		const list = store.listAll().map((e) => ({
+			session_id: e.id,
+			from: e.from,
+			to: e.to,
+			state: e.state,
+		}));
 		return jsonResponse(list);
 	}
 
@@ -99,18 +102,7 @@ export function createRoutes({ registry, pendingCallbacks, getMutex, config }: R
 
 			console.log(`[mutex] ${to} locked by ${sessionId} (from ${from})`);
 
-			const responsePromise = new Promise<ResponsePayload>((resolve) => {
-				const timer = setTimeout(() => {
-					pendingCallbacks.delete(sessionId);
-					resolve({
-						session_id: sessionId,
-						status: "timeout",
-						message: `No response from ${to} within ${RESPONSE_TIMEOUT_MS / 1000}s`,
-					});
-				}, RESPONSE_TIMEOUT_MS);
-
-				pendingCallbacks.set(sessionId, { resolve, timer, from, to });
-			});
+			store.create(sessionId, from, to);
 
 			const payload = {
 				type: "inject",
@@ -127,17 +119,26 @@ export function createRoutes({ registry, pendingCallbacks, getMutex, config }: R
 			}
 			targetWs.send(JSON.stringify(payload));
 
-			const response = await responsePromise;
+			const waitResult = await store.waitForResult(sessionId, RESPONSE_TIMEOUT_MS);
 
 			if (release) {
-				console.log(`[mutex] ${to} released [${response.status}]`);
+				console.log(`[mutex] ${to} released [${waitResult.delivered ? "delivered" : "running"}]`);
 				release();
 			}
 
-			if (debug) {
-				return jsonResponse({ ...response, session_id: sessionId, from, to, is_follow_up: !!session_id });
+			if (waitResult.delivered && waitResult.result) {
+				const response = waitResult.result;
+				if (debug) {
+					return jsonResponse({ ...response, session_id: sessionId, from, to, is_follow_up: !!session_id });
+				}
+				return jsonResponse(response);
 			}
-			return jsonResponse(response);
+
+			return jsonResponse({
+				session_id: sessionId,
+				status: "running",
+				message: `No response from ${to} within ${RESPONSE_TIMEOUT_MS / 1000}s. Poll with session_id to check later.`,
+			});
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			console.error(`[send] Error:`, message);
@@ -153,26 +154,46 @@ export function createRoutes({ registry, pendingCallbacks, getMutex, config }: R
 			return jsonResponse({ error: `session_id is required` }, 400);
 		}
 
-		const pendingEntry = pendingCallbacks.get(respondSessionId);
-		if (!pendingEntry) {
+		const delivered = store.deliver(respondSessionId, response as unknown as ResponsePayload);
+		if (!delivered) {
 			return jsonResponse({ error: `No pending request for session_id "${respondSessionId}"` }, 404);
 		}
 
-		clearTimeout(pendingEntry.timer);
-		pendingCallbacks.delete(respondSessionId);
-		pendingEntry.resolve(response as unknown as ResponsePayload);
-
-		console.log(`[respond] ${respondSessionId} → ${response.status}`);
+		console.log(`[respond] ${respondSessionId} → ${(response as Record<string, unknown>).status}`);
 		return jsonResponse({ delivered: true });
+	}
+
+	function poll(req: Request, body: Record<string, unknown>): Response {
+		const { session_id } = body as { session_id?: string };
+
+		if (!session_id) {
+			return jsonResponse({ error: `session_id is required` }, 400);
+		}
+
+		const result = store.poll(session_id);
+
+		if (result === undefined) {
+			return jsonResponse({ error: `No pending job for session_id "${session_id}"` }, 404);
+		}
+
+		if (result === null) {
+			return jsonResponse({
+				session_id,
+				status: "running",
+				message: `Job is still running. Poll again later.`,
+			});
+		}
+
+		return jsonResponse(result);
 	}
 
 	function health(): Response {
 		return jsonResponse({
 			ok: true,
 			teams: registry.size,
-			pending_callbacks: pendingCallbacks.size,
+			pending_jobs: store.size,
 		});
 	}
 
-	return { ingest, pending, teams, send, respond, health };
+	return { ingest, pending, teams, send, respond, poll, health };
 }

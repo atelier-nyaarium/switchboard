@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createWebSocketHandlers, type WsData } from "../arbiter/websocket.js";
 import { Mutex } from "../shared/mutex.js";
-import type { PendingEntry } from "../shared/types.js";
+import { PendingJobStore } from "../shared/pending-job-store.js";
+import type { ResponsePayload } from "../shared/types.js";
 
 function createMockWs() {
 	return {
@@ -23,21 +24,21 @@ describe("createWebSocketHandlers", () => {
 	function setup(
 		overrides: {
 			registry?: Map<string, import("bun").ServerWebSocket<WsData>>;
-			pendingCallbacks?: Map<string, PendingEntry>;
+			store?: PendingJobStore<ResponsePayload>;
 			targetLocks?: Map<string, Mutex>;
 		} = {},
 	) {
 		const registry = overrides.registry || new Map();
-		const pendingCallbacks = overrides.pendingCallbacks || new Map();
+		const store = overrides.store || new PendingJobStore<ResponsePayload>();
 		const targetLocks = overrides.targetLocks || new Map();
 		const handlers = createWebSocketHandlers({
 			registry,
-			pendingCallbacks,
+			store,
 			targetLocks,
 			config: { HEARTBEAT_INTERVAL_MS: 100000, MISSED_PINGS_LIMIT: 2 },
 		});
 		intervals.push(handlers.heartbeatInterval);
-		return { handlers, registry, pendingCallbacks, targetLocks };
+		return { handlers, registry, store, targetLocks };
 	}
 
 	it("register message adds team to registry", () => {
@@ -71,24 +72,24 @@ describe("createWebSocketHandlers", () => {
 		expect(registry.has("alpha")).toBe(false);
 	});
 
-	it("disconnect cancels pending callbacks for that team", () => {
-		const pendingCallbacks = new Map<string, PendingEntry>();
-		let resolved: Record<string, unknown> | null = null;
-		pendingCallbacks.set("sess-1", {
-			resolve: (v: unknown) => {
-				resolved = v as Record<string, unknown>;
-			},
-			timer: setTimeout(() => {}, 10000),
-			from: "other",
-			to: "alpha",
+	it("disconnect delivers error to pending jobs for that team", async () => {
+		const store = new PendingJobStore<ResponsePayload>();
+		store.create("sess-1", "other", "alpha");
+
+		let waitResult: { delivered: boolean; result?: ResponsePayload } | null = null;
+		const waitPromise = store.waitForResult("sess-1", 10_000).then((r) => {
+			waitResult = r;
 		});
-		const { handlers } = setup({ pendingCallbacks });
+
+		const { handlers } = setup({ store });
 		const ws = createMockWs();
 		handlers.open(ws);
 		handlers.message(ws, JSON.stringify({ type: "register", team: "alpha" }));
 		handlers.close(ws);
-		expect(resolved!.status).toBe("error");
-		expect(pendingCallbacks.has("sess-1")).toBe(false);
+
+		await waitPromise;
+		expect(waitResult!.delivered).toBe(true);
+		expect(waitResult!.result!.status).toBe("error");
 	});
 
 	it("disconnect force-releases mutex if locked", async () => {

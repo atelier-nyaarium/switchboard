@@ -1,7 +1,8 @@
 import path from "node:path";
 import type { ServerWebSocket } from "bun";
 import { getMutex, type Mutex } from "../shared/mutex.js";
-import type { PendingEntry } from "../shared/types.js";
+import { PendingJobStore } from "../shared/pending-job-store.js";
+import type { ResponsePayload } from "../shared/types.js";
 import { createRoutes } from "./routes.js";
 import { createWebSocketHandlers, type WsData } from "./websocket.js";
 
@@ -24,8 +25,10 @@ export function startArbiter(): void {
 	const MISSED_PINGS_LIMIT = 2;
 
 	const registry = new Map<string, ServerWebSocket<WsData>>();
-	const pendingCallbacks = new Map<string, PendingEntry>();
+	const store = new PendingJobStore<ResponsePayload>();
 	const targetLocks = new Map<string, Mutex>();
+
+	store.startCleanup();
 
 	const getMutexForTeam: MutexAccessor = Object.assign((team: string) => getMutex(targetLocks, team), {
 		peek: (team: string) => targetLocks.get(team),
@@ -33,14 +36,14 @@ export function startArbiter(): void {
 
 	const routes = createRoutes({
 		registry,
-		pendingCallbacks,
+		store,
 		getMutex: getMutexForTeam,
 		config: { LOG_PATH, RESPONSE_TIMEOUT_MS },
 	});
 
 	const wsHandlers = createWebSocketHandlers({
 		registry,
-		pendingCallbacks,
+		store,
 		targetLocks,
 		config: { HEARTBEAT_INTERVAL_MS, MISSED_PINGS_LIMIT },
 	});
@@ -66,6 +69,7 @@ export function startArbiter(): void {
 		if (method === "GET" && url.pathname === "/teams") return routes.teams();
 		if (method === "POST" && url.pathname === "/send") return routes.send(req, body);
 		if (method === "POST" && url.pathname === "/respond") return routes.respond(req, body);
+		if (method === "POST" && url.pathname === "/poll") return routes.poll(req, body);
 		if (method === "GET" && url.pathname === "/health") return routes.health();
 
 		return new Response("Not Found", { status: 404 });

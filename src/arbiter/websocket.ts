@@ -1,13 +1,14 @@
 import type { ServerWebSocket } from "bun";
 import type { Mutex } from "../shared/mutex.js";
-import type { PendingEntry, WebSocketConfig } from "../shared/types.js";
+import type { PendingJobStore } from "../shared/pending-job-store.js";
+import type { ResponsePayload, WebSocketConfig } from "../shared/types.js";
 
 ////////////////////////////////
 //  Interfaces & Types
 
 export interface WebSocketDeps {
 	registry: Map<string, ServerWebSocket<WsData>>;
-	pendingCallbacks: Map<string, PendingEntry>;
+	store: PendingJobStore<ResponsePayload>;
 	targetLocks: Map<string, Mutex>;
 	config: WebSocketConfig;
 }
@@ -21,7 +22,7 @@ export interface WsData {
 ////////////////////////////////
 //  Functions & Helpers
 
-export function createWebSocketHandlers({ registry, pendingCallbacks, targetLocks, config }: WebSocketDeps) {
+export function createWebSocketHandlers({ registry, store, targetLocks, config }: WebSocketDeps) {
 	const { HEARTBEAT_INTERVAL_MS = 30000, MISSED_PINGS_LIMIT = 2 } = config;
 
 	const heartbeatInterval = setInterval(() => {
@@ -84,17 +85,13 @@ export function createWebSocketHandlers({ registry, pendingCallbacks, targetLock
 		registry.delete(teamName);
 		console.log(`[ws] ${teamName} disconnected`);
 
-		for (const [id, entry] of pendingCallbacks) {
-			if (entry.to === teamName) {
-				clearTimeout(entry.timer);
-				pendingCallbacks.delete(id);
-				entry.resolve({
-					session_id: id,
-					status: "error",
-					message: `Team "${teamName}" disconnected before responding`,
-				});
-				console.log(`[ws] cancelled pending session ${id} (${teamName} disconnected)`);
-			}
+		for (const id of store.getIdsForTeam(teamName)) {
+			store.deliver(id, {
+				session_id: id,
+				status: "error",
+				message: `Team "${teamName}" disconnected before responding`,
+			} as ResponsePayload);
+			console.log(`[ws] cancelled pending session ${id} (${teamName} disconnected)`);
 		}
 
 		const mutex = targetLocks.get(teamName);

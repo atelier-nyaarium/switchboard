@@ -3,7 +3,14 @@
 
 export type EffortLevel = "simple" | "standard" | "complex";
 export type RequestType = "feature" | "bugfix" | "question";
-export type ResponseStatus = "completed" | "clarification" | "deferred" | "needs_human" | "error" | "timeout";
+export type ResponseStatus =
+	| "completed"
+	| "clarification"
+	| "deferred"
+	| "needs_human"
+	| "error"
+	| "timeout"
+	| "running";
 
 export interface InjectPayload {
 	type: "inject";
@@ -38,13 +45,6 @@ export interface EffortEnv {
 export interface RegisterMessage {
 	type: "register";
 	team: string;
-}
-
-export interface PendingEntry {
-	resolve: (value: ResponsePayload) => void;
-	timer: ReturnType<typeof setTimeout>;
-	from: string;
-	to: string;
 }
 
 export interface TeamInfo {

@@ -7,22 +7,22 @@ import { bridgeProjectName, routerPost } from "./helpers.js";
 //  Schemas
 
 const BridgeSendSchema = z.object({
-	to: z.string().describe(`Target team name. Use crosstalk_discover to find available teams.`),
-	type: z.enum(["feature", "bugfix", "question"]).describe(`The type of request you are making.`),
+	to: z.string().optional().describe(`Target team name. Use crosstalk_discover to find available teams.`),
+	type: z.enum(["feature", "bugfix", "question"]).optional().describe(`The type of request you are making.`),
 	effort: z
 		.enum(["simple", "standard", "complex"])
+		.optional()
 		.describe(`How much effort it should take to understand and handle this request.`),
 	body: z
 		.string()
+		.optional()
 		.describe(
 			`Full Markdown formatted details of the request. Provide a detailed description and any context that would be helpful to the other team.`,
 		),
 	session_id: z
 		.string()
 		.optional()
-		.describe(
-			`Conversation session ID. Must be provided to continue the same conversation thread. Omit to start a new conversation thread.`,
-		),
+		.describe(`Session ID from a previous response. For follow-ups (with body) or polling (without body).`),
 });
 type BridgeSendArgs = z.infer<typeof BridgeSendSchema>;
 
@@ -34,13 +34,74 @@ type SendResult = ResponsePayload & { error?: string; available?: string[] };
 ////////////////////////////////
 //  Functions & Helpers
 
+const description = `
+Send a request to another team and wait for their response.
+
+Three call patterns:
+1. New request: provide to + type + effort + body. Returns the team's response.
+2. Follow-up: provide to + type + effort + body + session_id. Continues the conversation.
+3. Poll: provide session_id only (no body). Checks if a running job has completed.
+
+If the team takes too long, status will be "running" with a session_id. Call again with just session_id to poll.
+`.trim();
+
+function formatResult(result: SendResult, to?: string): { content: Array<{ type: "text"; text: string }> } {
+	const target = to || "team";
+	const parts = [`Response from ${target}:`, `Status: ${result.status}`];
+
+	if (result.status === "completed") {
+		if (result.response) parts.push(`\n${result.response}`);
+	} else if (result.status === "clarification") {
+		parts.push(`Question: ${result.question}`);
+		parts.push(`\nTo answer, use crosstalk_send with session_id: "${result.session_id}"`);
+	} else if (result.status === "deferred") {
+		parts.push(`Reason: ${result.reason}`);
+		if (result.estimated_minutes) parts.push(`Estimated wait: ${result.estimated_minutes} minutes`);
+		parts.push(`\nYou can use crosstalk_wait to wait, then retry.`);
+	} else if (result.status === "needs_human") {
+		parts.push(`Reason: ${result.reason}`);
+		if (result.what_to_decide) parts.push(`Decision needed: ${result.what_to_decide}`);
+		parts.push(`\nThe other team needs their human. Inform yours.`);
+	} else if (result.status === "running") {
+		parts.push(result.message || "Still running.");
+		parts.push(`\nTo check again, call this tool with just session_id (no body).`);
+	} else if (result.status === "error") {
+		parts.push(`Error: ${result.reason ?? result.message ?? "Unknown error"}`);
+	} else if (result.status === "timeout") {
+		parts.push(result.message || `No response in time.`);
+	}
+
+	if (result.session_id) parts.push(`\n[session_id: ${result.session_id}]`);
+
+	return { content: [{ type: "text" as const, text: parts.join("\n") }] };
+}
+
 export function registerBridgeSend(mcpServer: McpServer): void {
 	mcpServer.tool(
 		"crosstalk_send",
-		`Send a request to another team and wait for their response. Blocks until they respond.`,
+		description,
 		BridgeSendSchema.shape,
 		async ({ to, type, effort, body, session_id }: BridgeSendArgs) => {
 			try {
+				// Poll mode: session_id present, no body
+				if (session_id && !body) {
+					const result = (await routerPost("/poll", { session_id })) as SendResult;
+
+					if (result.error) {
+						return {
+							content: [{ type: "text" as const, text: `Poll error: ${result.error}` }],
+							isError: true,
+						};
+					}
+
+					return formatResult(result, to);
+				}
+
+				// Send mode: requires to, type, effort, body
+				if (!to || !type || !effort || !body) {
+					throw new Error(`Provide to + type + effort + body for sending, or just session_id for polling.`);
+				}
+
 				const result = (await routerPost("/send", {
 					from: bridgeProjectName(),
 					to,
@@ -62,30 +123,7 @@ export function registerBridgeSend(mcpServer: McpServer): void {
 					};
 				}
 
-				const parts = [`Response from ${to}:`, `Status: ${result.status}`];
-
-				if (result.status === "completed") {
-					if (result.response) parts.push(`\n${result.response}`);
-				} else if (result.status === "clarification") {
-					parts.push(`Question: ${result.question}`);
-					parts.push(`\nTo answer, use crosstalk_send with session_id: "${result.session_id}"`);
-				} else if (result.status === "deferred") {
-					parts.push(`Reason: ${result.reason}`);
-					if (result.estimated_minutes) parts.push(`Estimated wait: ${result.estimated_minutes} minutes`);
-					parts.push(`\nYou can use crosstalk_wait to wait, then retry.`);
-				} else if (result.status === "needs_human") {
-					parts.push(`Reason: ${result.reason}`);
-					if (result.what_to_decide) parts.push(`Decision needed: ${result.what_to_decide}`);
-					parts.push(`\nThe other team needs their human. Inform yours.`);
-				} else if (result.status === "error") {
-					parts.push(`Error: ${result.reason ?? "Unknown error"}`);
-				} else if (result.status === "timeout") {
-					parts.push(result.message || `No response in time.`);
-				}
-
-				if (result.session_id) parts.push(`\n[session_id: ${result.session_id}]`);
-
-				return { content: [{ type: "text" as const, text: parts.join("\n") }] };
+				return formatResult(result, to);
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
 				return {

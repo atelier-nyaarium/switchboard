@@ -1,6 +1,6 @@
 {
 	"name": "agent-team-bridge",
-	"version": "1.4.3",
+	"version": "1.4.4",
 	"description": "Cross-team communication and devcontainer orchestration for agent teams. Provides crosstalk_discover, crosstalk_send, crosstalk_wait, crosstalk_reply, dispatch_chat, and dispatch_exec tools via MCP.",
 	"author": {
 		"name": "Nyaarium"

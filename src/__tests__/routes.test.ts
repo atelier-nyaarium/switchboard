@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createRoutes, type RoutesDeps } from "../arbiter/routes.js";
 import { Mutex } from "../shared/mutex.js";
+import { PendingJobStore } from "../shared/pending-job-store.js";
+import type { ResponsePayload } from "../shared/types.js";
 
 function makeCtx(overrides: Partial<RoutesDeps> = {}): RoutesDeps {
 	const registry = overrides.registry || (new Map() as RoutesDeps["registry"]);
-	const pendingCallbacks = overrides.pendingCallbacks || new Map();
+	const store = overrides.store || new PendingJobStore<ResponsePayload>();
 	const targetLocks = new Map<string, Mutex>();
 	const getMutexFn = ((team: string) => {
 		if (!targetLocks.has(team)) targetLocks.set(team, new Mutex());
@@ -13,7 +15,7 @@ function makeCtx(overrides: Partial<RoutesDeps> = {}): RoutesDeps {
 	getMutexFn.peek = (team: string) => targetLocks.get(team);
 	return {
 		registry,
-		pendingCallbacks,
+		store,
 		getMutex: getMutexFn,
 		config: { LOG_PATH: "/tmp/test-debug.log", RESPONSE_TIMEOUT_MS: 500 },
 	};
@@ -21,20 +23,20 @@ function makeCtx(overrides: Partial<RoutesDeps> = {}): RoutesDeps {
 
 describe("routes", () => {
 	describe("/pending", () => {
-		it("returns empty array when no callbacks", async () => {
+		it("returns empty array when no jobs", async () => {
 			const ctx = makeCtx();
 			const { pending } = createRoutes(ctx);
 			const res = pending();
 			expect(await res.json()).toEqual([]);
 		});
 
-		it("returns session_id, from, to for each pending callback", async () => {
-			const pendingCallbacks = new Map();
-			pendingCallbacks.set("sess-1", { resolve: () => {}, timer: null, from: "a", to: "b" });
-			const ctx = makeCtx({ pendingCallbacks });
+		it("returns session_id, from, to, state for each pending job", async () => {
+			const store = new PendingJobStore<ResponsePayload>();
+			store.create("sess-1", "a", "b");
+			const ctx = makeCtx({ store });
 			const { pending } = createRoutes(ctx);
 			const res = pending();
-			expect(await res.json()).toEqual([{ session_id: "sess-1", from: "a", to: "b" }]);
+			expect(await res.json()).toEqual([{ session_id: "sess-1", from: "a", to: "b", state: "waiting" }]);
 		});
 	});
 
@@ -67,34 +69,78 @@ describe("routes", () => {
 			expect(res.status).toBe(400);
 		});
 
-		it("returns 404 when no pending callback", async () => {
+		it("returns 404 when no pending job", async () => {
 			const ctx = makeCtx();
 			const { respond } = createRoutes(ctx);
 			const res = respond(new Request("http://localhost/respond", { method: "POST" }), { session_id: "nope" });
 			expect(res.status).toBe(404);
 		});
 
-		it("resolves pending callback and returns delivered", async () => {
-			const pendingCallbacks = new Map();
-			let resolved: Record<string, unknown> | null = null;
-			pendingCallbacks.set("sess-1", {
-				resolve: (v: unknown) => {
-					resolved = v as Record<string, unknown>;
-				},
-				timer: setTimeout(() => {}, 10000),
-				from: "a",
-				to: "b",
+		it("delivers result to waiting job and returns delivered", async () => {
+			const store = new PendingJobStore<ResponsePayload>();
+			store.create("sess-1", "a", "b");
+
+			let waitResult: unknown = null;
+			const waitPromise = store.waitForResult("sess-1", 10_000).then((r) => {
+				waitResult = r;
 			});
-			const ctx = makeCtx({ pendingCallbacks });
+
+			const ctx = makeCtx({ store });
 			const { respond } = createRoutes(ctx);
 			const res = respond(new Request("http://localhost/respond", { method: "POST" }), {
 				session_id: "sess-1",
 				status: "completed",
 				response: "done",
 			});
+
+			await waitPromise;
 			expect(await res.json()).toEqual({ delivered: true });
-			expect(resolved).toEqual({ status: "completed", response: "done" });
-			expect(pendingCallbacks.has("sess-1")).toBe(false);
+			expect(waitResult).toEqual({ delivered: true, result: { status: "completed", response: "done" } });
+		});
+	});
+
+	describe("/poll", () => {
+		it("returns 400 when session_id missing", async () => {
+			const ctx = makeCtx();
+			const { poll } = createRoutes(ctx);
+			const res = poll(new Request("http://localhost/poll", { method: "POST" }), {});
+			expect(res.status).toBe(400);
+		});
+
+		it("returns 404 when no pending job", async () => {
+			const ctx = makeCtx();
+			const { poll } = createRoutes(ctx);
+			const res = poll(new Request("http://localhost/poll", { method: "POST" }), { session_id: "nope" });
+			expect(res.status).toBe(404);
+		});
+
+		it("returns running when job is timed out but no result yet", async () => {
+			const store = new PendingJobStore<ResponsePayload>();
+			store.create("sess-1", "a", "b");
+			await store.waitForResult("sess-1", 1); // 1ms timeout
+			await new Promise((r) => setTimeout(r, 10)); // let timeout fire
+
+			const ctx = makeCtx({ store });
+			const { poll } = createRoutes(ctx);
+			const res = poll(new Request("http://localhost/poll", { method: "POST" }), { session_id: "sess-1" });
+			const json = await res.json();
+			expect(json.status).toBe("running");
+		});
+
+		it("returns stored result after late delivery", async () => {
+			const store = new PendingJobStore<ResponsePayload>();
+			store.create("sess-1", "a", "b");
+			await store.waitForResult("sess-1", 1);
+			await new Promise((r) => setTimeout(r, 10));
+
+			store.deliver("sess-1", { session_id: "sess-1", status: "completed", response: "late answer" });
+
+			const ctx = makeCtx({ store });
+			const { poll } = createRoutes(ctx);
+			const res = poll(new Request("http://localhost/poll", { method: "POST" }), { session_id: "sess-1" });
+			const json = await res.json();
+			expect(json.status).toBe("completed");
+			expect(json.response).toBe("late answer");
 		});
 	});
 
@@ -102,12 +148,12 @@ describe("routes", () => {
 		it("returns ok with counts", async () => {
 			const registry = new Map();
 			registry.set("a", {});
-			const pendingCallbacks = new Map();
-			pendingCallbacks.set("s1", {});
-			const ctx = makeCtx({ registry: registry as RoutesDeps["registry"], pendingCallbacks });
+			const store = new PendingJobStore<ResponsePayload>();
+			store.create("s1", "a", "b");
+			const ctx = makeCtx({ registry: registry as RoutesDeps["registry"], store });
 			const { health } = createRoutes(ctx);
 			const res = health();
-			expect(await res.json()).toEqual({ ok: true, teams: 1, pending_callbacks: 1 });
+			expect(await res.json()).toEqual({ ok: true, teams: 1, pending_jobs: 1 });
 		});
 	});
 
@@ -137,7 +183,7 @@ describe("routes", () => {
 			expect(res.status).toBe(404);
 		});
 
-		it("sends inject payload and returns response when resolved", async () => {
+		it("sends inject payload and returns response when delivered inline", async () => {
 			const sent: Record<string, unknown>[] = [];
 			const fakeWs = {
 				readyState: 1,
@@ -147,7 +193,8 @@ describe("routes", () => {
 			};
 			const registry = new Map();
 			registry.set("b", fakeWs);
-			const ctx = makeCtx({ registry: registry as RoutesDeps["registry"] });
+			const store = new PendingJobStore<ResponsePayload>();
+			const ctx = makeCtx({ registry: registry as RoutesDeps["registry"], store });
 			const { send } = createRoutes(ctx);
 
 			const promise = send(new Request("http://localhost/send", { method: "POST" }), {
@@ -159,11 +206,10 @@ describe("routes", () => {
 
 			await new Promise((r) => setTimeout(r, 10));
 
-			const [sessionId] = [...ctx.pendingCallbacks.keys()];
-			const entry = ctx.pendingCallbacks.get(sessionId)!;
-			clearTimeout(entry.timer);
-			ctx.pendingCallbacks.delete(sessionId);
-			entry.resolve({ session_id: sessionId, status: "completed", response: "answer" });
+			// Deliver via the store (simulating /respond)
+			const jobs = store.listAll();
+			expect(jobs.length).toBe(1);
+			store.deliver(jobs[0].id, { session_id: jobs[0].id, status: "completed", response: "answer" });
 
 			const res = await promise;
 			const json = await res.json();
@@ -179,7 +225,8 @@ describe("routes", () => {
 			const fakeWs = { readyState: 1, send() {} };
 			const registry = new Map();
 			registry.set("b", fakeWs);
-			const ctx = makeCtx({ registry: registry as RoutesDeps["registry"] });
+			const store = new PendingJobStore<ResponsePayload>();
+			const ctx = makeCtx({ registry: registry as RoutesDeps["registry"], store });
 			const { send } = createRoutes(ctx);
 
 			const promise = send(new Request("http://localhost/send", { method: "POST" }), {
@@ -190,11 +237,8 @@ describe("routes", () => {
 			});
 			await new Promise((r) => setTimeout(r, 10));
 
-			const [sessionId] = [...ctx.pendingCallbacks.keys()];
-			const entry = ctx.pendingCallbacks.get(sessionId)!;
-			clearTimeout(entry.timer);
-			ctx.pendingCallbacks.delete(sessionId);
-			entry.resolve({ session_id: sessionId, status: "completed" });
+			const jobs = store.listAll();
+			store.deliver(jobs[0].id, { session_id: jobs[0].id, status: "completed" });
 
 			const res = await promise;
 			const json = await res.json();
@@ -204,7 +248,7 @@ describe("routes", () => {
 			expect(json.to).toBe("b");
 		});
 
-		it("returns timeout when no response in time", async () => {
+		it("returns running when no response in time", async () => {
 			const fakeWs = { readyState: 1, send() {} };
 			const registry = new Map();
 			registry.set("b", fakeWs);
@@ -219,7 +263,41 @@ describe("routes", () => {
 			});
 			const json = await res.json();
 
-			expect(json.status).toBe("timeout");
+			expect(json.status).toBe("running");
+			expect(json.session_id).toBeDefined();
+		}, 10000);
+
+		it("late delivery is stored and pollable after timeout", async () => {
+			const fakeWs = { readyState: 1, send() {} };
+			const registry = new Map();
+			registry.set("b", fakeWs);
+			const store = new PendingJobStore<ResponsePayload>();
+			const ctx = makeCtx({ registry: registry as RoutesDeps["registry"], store });
+			ctx.config.RESPONSE_TIMEOUT_MS = 50;
+			const routes = createRoutes(ctx);
+
+			const sendRes = await routes.send(new Request("http://localhost/send", { method: "POST" }), {
+				from: "a",
+				to: "b",
+				body: "hi",
+			});
+			const sendJson = await sendRes.json();
+			expect(sendJson.status).toBe("running");
+
+			// Late delivery
+			store.deliver(sendJson.session_id, {
+				session_id: sendJson.session_id,
+				status: "completed",
+				response: "late answer",
+			});
+
+			// Poll should return the stored result
+			const pollRes = routes.poll(new Request("http://localhost/poll", { method: "POST" }), {
+				session_id: sendJson.session_id,
+			});
+			const pollJson = await pollRes.json();
+			expect(pollJson.status).toBe("completed");
+			expect(pollJson.response).toBe("late answer");
 		}, 10000);
 	});
 });
