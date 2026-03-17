@@ -1,5 +1,5 @@
 ---
-name: agent-team-bridge
+name: crosstalk
 description: Cross-team communication for agent teams in different Devcontainers. Use when you need help from another team via the bridge, such as analysis, debugging, or bugfixing.
 ---
 
