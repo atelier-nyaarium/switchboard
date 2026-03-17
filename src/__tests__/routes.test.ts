@@ -18,6 +18,7 @@ function makeCtx(overrides: Partial<RoutesDeps> = {}): RoutesDeps {
 		store,
 		getMutex: getMutexFn,
 		config: { LOG_PATH: "/tmp/test-debug.log", RESPONSE_TIMEOUT_MS: 500 },
+		tryWakeTeam: overrides.tryWakeTeam || (() => Promise.resolve(false)),
 	};
 }
 

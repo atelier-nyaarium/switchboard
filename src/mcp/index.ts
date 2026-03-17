@@ -5,6 +5,7 @@ import { closeRouter } from "./bridge/helpers.js";
 import { registerBridgeTools } from "./bridge/registerBridgeTools.js";
 import { registerDevcontainerChat } from "./devcontainer/devcontainerChat.js";
 import { registerDevcontainerExec } from "./devcontainer/devcontainerExec.js";
+import { startHostWakeListener, stopHostWakeListener } from "./devcontainer/hostWakeListener.js";
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -28,6 +29,7 @@ export async function startMcp(): Promise<void> {
 		// Host: register dispatch tools for managing containers
 		registerDevcontainerChat(mcpServer);
 		registerDevcontainerExec(mcpServer);
+		startHostWakeListener();
 		console.error(`[mcp] dispatch tools enabled (host mode)`);
 	}
 
@@ -40,6 +42,7 @@ export async function startMcp(): Promise<void> {
 	process.stdin.on("end", () => {
 		console.error(`[mcp] stdin closed, shutting down`);
 		closeRouter();
+		stopHostWakeListener();
 		process.exit(0);
 	});
 }

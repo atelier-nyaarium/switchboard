@@ -1,7 +1,7 @@
+import type { ServerWebSocket } from "bun";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type { ServerWebSocket } from "bun";
 import type { Mutex } from "../shared/mutex.js";
 import type { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ArbiterConfig, ResponsePayload, TeamInfo } from "../shared/types.js";
@@ -14,6 +14,7 @@ export interface RoutesDeps {
 	registry: Map<string, ServerWebSocket<WsData>>;
 	store: PendingJobStore<ResponsePayload>;
 	getMutex: ((team: string) => Mutex) & { peek: (team: string) => Mutex | undefined };
+	tryWakeTeam: (team: string) => Promise<boolean>;
 	config: ArbiterConfig;
 }
 
@@ -37,7 +38,7 @@ function jsonResponse(data: unknown, status = 200): Response {
 	});
 }
 
-export function createRoutes({ registry, store, getMutex, config }: RoutesDeps) {
+export function createRoutes({ registry, store, getMutex, tryWakeTeam, config }: RoutesDeps) {
 	const { LOG_PATH, RESPONSE_TIMEOUT_MS } = config;
 
 	function ingest(req: Request, body: Record<string, unknown>): Response {
@@ -69,6 +70,7 @@ export function createRoutes({ registry, store, getMutex, config }: RoutesDeps) 
 	function teams(): Response {
 		const teamsList: TeamInfo[] = [];
 		for (const [name] of registry) {
+			if (name === "__host__") continue;
 			const lock = getMutex.peek(name);
 			teamsList.push({
 				team: name,
@@ -82,12 +84,25 @@ export function createRoutes({ registry, store, getMutex, config }: RoutesDeps) 
 	async function send(req: Request, body: Record<string, unknown>): Promise<Response> {
 		const { from, to, type, effort, body: msgBody, session_id, debug } = body as unknown as SendRequestBody;
 
-		const targetWs = registry.get(to);
+		if (to === "__host__") {
+			return jsonResponse({ error: `"__host__" is not a team` }, 400);
+		}
+
+		let targetWs = registry.get(to);
+
+		// If offline, attempt to wake the container
+		if (!targetWs || targetWs.readyState !== 1) {
+			const woken = await tryWakeTeam(to);
+			if (woken) {
+				targetWs = registry.get(to);
+			}
+		}
+
 		if (!targetWs || targetWs.readyState !== 1) {
 			return jsonResponse(
 				{
 					error: `Team "${to}" is not connected`,
-					available: [...registry.keys()],
+					available: [...registry.keys()].filter((k) => k !== "__host__"),
 				},
 				404,
 			);

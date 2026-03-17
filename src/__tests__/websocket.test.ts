@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { WakeCoordinator } from "../arbiter/wake.js";
 import { createWebSocketHandlers, type WsData } from "../arbiter/websocket.js";
 import { Mutex } from "../shared/mutex.js";
 import { PendingJobStore } from "../shared/pending-job-store.js";
@@ -26,19 +27,25 @@ describe("createWebSocketHandlers", () => {
 			registry?: Map<string, import("bun").ServerWebSocket<WsData>>;
 			store?: PendingJobStore<ResponsePayload>;
 			targetLocks?: Map<string, Mutex>;
+			knownTeamPaths?: Map<string, string>;
+			wakeCoordinator?: WakeCoordinator;
 		} = {},
 	) {
 		const registry = overrides.registry || new Map();
 		const store = overrides.store || new PendingJobStore<ResponsePayload>();
 		const targetLocks = overrides.targetLocks || new Map();
+		const knownTeamPaths = overrides.knownTeamPaths || new Map();
+		const wakeCoordinator = overrides.wakeCoordinator || new WakeCoordinator();
 		const handlers = createWebSocketHandlers({
 			registry,
 			store,
 			targetLocks,
 			config: { HEARTBEAT_INTERVAL_MS: 100000, MISSED_PINGS_LIMIT: 2 },
+			knownTeamPaths,
+			wakeCoordinator,
 		});
 		intervals.push(handlers.heartbeatInterval);
-		return { handlers, registry, store, targetLocks };
+		return { handlers, registry, store, targetLocks, knownTeamPaths, wakeCoordinator };
 	}
 
 	it("register message adds team to registry", () => {

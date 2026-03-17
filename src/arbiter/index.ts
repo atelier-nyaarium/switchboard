@@ -4,6 +4,7 @@ import { getMutex, type Mutex } from "../shared/mutex.js";
 import { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ResponsePayload } from "../shared/types.js";
 import { createRoutes } from "./routes.js";
+import { WakeCoordinator } from "./wake.js";
 import { createWebSocketHandlers, type WsData } from "./websocket.js";
 
 ////////////////////////////////
@@ -21,12 +22,15 @@ export function startArbiter(): void {
 	const PORT = parseInt(process.env.PORT || "5678", 10);
 	const LOG_PATH = path.join("/app", "log", "debug.log");
 	const RESPONSE_TIMEOUT_MS = parseInt(process.env.RESPONSE_TIMEOUT_MS || "600000", 10);
+	const WAKE_TIMEOUT_MS = parseInt(process.env.WAKE_TIMEOUT_MS || "120000", 10);
 	const HEARTBEAT_INTERVAL_MS = 30000;
 	const MISSED_PINGS_LIMIT = 2;
 
 	const registry = new Map<string, ServerWebSocket<WsData>>();
 	const store = new PendingJobStore<ResponsePayload>();
 	const targetLocks = new Map<string, Mutex>();
+	const knownTeamPaths = new Map<string, string>();
+	const wakeCoordinator = new WakeCoordinator();
 
 	store.startCleanup();
 
@@ -34,11 +38,32 @@ export function startArbiter(): void {
 		peek: (team: string) => targetLocks.get(team),
 	});
 
+	async function tryWakeTeam(team: string): Promise<boolean> {
+		const hostWs = registry.get("__host__");
+		if (!hostWs || hostWs.readyState !== 1) return false;
+
+		const projectPath = knownTeamPaths.get(team);
+		hostWs.send(
+			JSON.stringify({
+				type: "wake",
+				team,
+				...(projectPath ? { projectPath } : {}),
+			}),
+		);
+
+		console.log(`[wake] requesting ${team} startup${projectPath ? ` (${projectPath})` : " (convention)"}`);
+
+		const success = await wakeCoordinator.waitFor(team, WAKE_TIMEOUT_MS);
+		console.log(`[wake] ${team} ${success ? "is now online" : "failed to come online"}`);
+		return success;
+	}
+
 	const routes = createRoutes({
 		registry,
 		store,
 		getMutex: getMutexForTeam,
 		config: { LOG_PATH, RESPONSE_TIMEOUT_MS },
+		tryWakeTeam,
 	});
 
 	const wsHandlers = createWebSocketHandlers({
@@ -46,6 +71,8 @@ export function startArbiter(): void {
 		store,
 		targetLocks,
 		config: { HEARTBEAT_INTERVAL_MS, MISSED_PINGS_LIMIT },
+		knownTeamPaths,
+		wakeCoordinator,
 	});
 
 	async function router(req: Request): Promise<Response> {

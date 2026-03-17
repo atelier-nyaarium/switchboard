@@ -96,7 +96,11 @@ export function connectToRouter(): void {
 	routerWs.on("open", () => {
 		console.error(`[bridge] connected to router`);
 		reconnectDelay = 2000;
-		routerWs!.send(JSON.stringify({ type: "register", team: PROJECT_NAME }));
+		const registerMsg: Record<string, string> = { type: "register", team: PROJECT_NAME };
+		if (process.env.PROJECT_HOST_PATH) {
+			registerMsg.projectPath = process.env.PROJECT_HOST_PATH;
+		}
+		routerWs!.send(JSON.stringify(registerMsg));
 	});
 
 	routerWs.on("message", (raw: WebSocket.Data) => {

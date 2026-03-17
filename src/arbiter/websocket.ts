@@ -2,6 +2,7 @@ import type { ServerWebSocket } from "bun";
 import type { Mutex } from "../shared/mutex.js";
 import type { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ResponsePayload, WebSocketConfig } from "../shared/types.js";
+import type { WakeCoordinator } from "./wake.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -10,6 +11,8 @@ export interface WebSocketDeps {
 	registry: Map<string, ServerWebSocket<WsData>>;
 	store: PendingJobStore<ResponsePayload>;
 	targetLocks: Map<string, Mutex>;
+	knownTeamPaths: Map<string, string>;
+	wakeCoordinator: WakeCoordinator;
 	config: WebSocketConfig;
 }
 
@@ -22,7 +25,14 @@ export interface WsData {
 ////////////////////////////////
 //  Functions & Helpers
 
-export function createWebSocketHandlers({ registry, store, targetLocks, config }: WebSocketDeps) {
+export function createWebSocketHandlers({
+	registry,
+	store,
+	targetLocks,
+	knownTeamPaths,
+	wakeCoordinator,
+	config,
+}: WebSocketDeps) {
 	const { HEARTBEAT_INTERVAL_MS = 30000, MISSED_PINGS_LIMIT = 2 } = config;
 
 	const heartbeatInterval = setInterval(() => {
@@ -60,7 +70,17 @@ export function createWebSocketHandlers({ registry, store, targetLocks, config }
 			}
 			ws.data.teamName = team;
 			registry.set(team, ws);
-			console.log(`[ws] ${msg.team} connected`);
+
+			if (typeof msg.projectPath === "string" && msg.projectPath) {
+				knownTeamPaths.set(team, msg.projectPath);
+			}
+
+			wakeCoordinator.notify(team);
+			console.log(`[ws] ${team} connected`);
+		}
+
+		if (msg.type === "wake_result" && msg.success === false && typeof msg.team === "string") {
+			wakeCoordinator.notify(msg.team, false);
 		}
 
 		// Reset missed pings on any message (acts like pong)

@@ -1,4 +1,4 @@
-import { execSync, spawn } from "node:child_process";
+import { exec, execSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -127,6 +127,46 @@ export function ensureContainerUp(projectPath: string): void {
 		}
 		throw e;
 	}
+}
+
+export function ensureContainerUpAsync(projectPath: string): Promise<void> {
+	if (isContainerReady(projectPath)) return Promise.resolve();
+
+	const bin = devcontainerBin();
+
+	return new Promise((resolve, reject) => {
+		exec(
+			`"${bin}" up --workspace-folder "${projectPath}"`,
+			{ encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 },
+			(error, stdout) => {
+				if (error) {
+					reject(new Error(`devcontainer up failed for '${projectPath}':\n${error.message}`));
+					return;
+				}
+
+				const lines = stdout.trim().split("\n");
+				const lastLine = lines[lines.length - 1];
+				try {
+					const result = JSON.parse(lastLine);
+					if (result.outcome !== "success") {
+						reject(new Error(`devcontainer up returned outcome '${result.outcome}' for '${projectPath}'.`));
+						return;
+					}
+				} catch (e) {
+					if (e instanceof SyntaxError) {
+						reject(
+							new Error(`devcontainer up returned unexpected output for '${projectPath}':\n${lastLine}`),
+						);
+						return;
+					}
+					reject(e);
+					return;
+				}
+
+				resolve();
+			},
+		);
+	});
 }
 
 // Agent command building
