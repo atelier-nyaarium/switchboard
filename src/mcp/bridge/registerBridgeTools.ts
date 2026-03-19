@@ -1,5 +1,5 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { execSync } from "node:child_process";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerBridgeDiscover } from "./bridgeDiscover.js";
 import { registerBridgeReply } from "./bridgeReply.js";
 import { registerBridgeSend } from "./bridgeSend.js";
@@ -32,7 +32,7 @@ export function registerBridgeTools(mcpServer: McpServer): void {
 	const projectName = process.env.PROJECT_NAME;
 
 	if (!projectName) {
-		// Register tools that return config error — agents see the tools exist but get a clear message
+		// Register tools that return config error so agents see the tools exist but get a clear message
 		const configError = {
 			content: [
 				{
@@ -55,7 +55,7 @@ export function registerBridgeTools(mcpServer: McpServer): void {
 	}
 
 	initBridge({
-		routerUrl: process.env.BRIDGE_ROUTER_URL || "http://agent-team-bridge:5678",
+		routerUrl: process.env.BRIDGE_ROUTER_URL || "http://agent-team-bridge:20000",
 		projectName,
 		agentType: process.env.AGENT_TYPE || detectAgentType(),
 		effortEnv: {

@@ -1,13 +1,13 @@
 {
 	"name": "agent-team-bridge",
-	"description": "Cross-team communication and devcontainer orchestration for agent teams",
+	"description": "Cross-team communication, game client connector, and devcontainer orchestration for agent teams",
 	"owner": {
 		"name": "Nyaarium"
 	},
 	"plugins": [
 		{
 			"name": "agent-team-bridge",
-			"description": "Cross-team communication and devcontainer orchestration for agent teams. In containers: crosstalk_discover, crosstalk_send, crosstalk_wait, crosstalk_reply. On host: dispatch_chat, dispatch_exec.",
+			"description": "Cross-team communication, game client connector, and devcontainer orchestration for agent teams. Provides crosstalk, dispatch, and connector tools via MCP.",
 			"source": "./"
 		}
 	]

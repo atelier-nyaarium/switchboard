@@ -33,46 +33,52 @@ Set background: true to run in a persistent tmux session that survives after thi
 `.trim();
 
 export function registerDevcontainerExec(mcpServer: McpServer): void {
-	mcpServer.tool("dispatch_exec", description, DevcontainerExecSchema.shape, async (rawArgs) => {
-		try {
-			const args: DevcontainerExecArgs = DevcontainerExecSchema.parse(rawArgs);
-			assertNotContainer();
-			const projectPath = resolveProject(args.projectPath);
+	mcpServer.tool(
+		"dispatch_exec",
+		description,
+		// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
+		DevcontainerExecSchema.shape as any,
+		async (rawArgs: Record<string, unknown>) => {
+			try {
+				const args: DevcontainerExecArgs = DevcontainerExecSchema.parse(rawArgs);
+				assertNotContainer();
+				const projectPath = resolveProject(args.projectPath);
 
-			ensureContainerUp(projectPath);
+				ensureContainerUp(projectPath);
 
-			if (!args.background) {
-				const output = await execInContainer({ projectPath, command: ["bash", "-c", args.command] });
-				return { content: [{ type: "text" as const, text: JSON.stringify({ output }, null, 2) }] };
+				if (!args.background) {
+					const output = await execInContainer({ projectPath, command: ["bash", "-c", args.command] });
+					return { content: [{ type: "text" as const, text: JSON.stringify({ output }, null, 2) }] };
+				}
+
+				// Background mode: ensure tmux session exists, send command via base64 to avoid escaping issues
+				const session = args.tmuxSession || "host-to-container";
+				const b64 = Buffer.from(args.command).toString("base64");
+				const script = [
+					`tmux has-session -t '${session}' 2>/dev/null || tmux new-session -d -s '${session}'`,
+					`tmux send-keys -t '${session}' -l "$(echo '${b64}' | base64 -d)"`,
+					`tmux send-keys -t '${session}' Enter`,
+				].join(" && ");
+
+				await execInContainer({ projectPath, command: ["bash", "-c", script] });
+				const result = {
+					status: "started_in_background",
+					tmuxSession: session,
+					command: args.command,
+					hint: `To check output, use this tool with command: tmux capture-pane -t '${session}' -p -S -50\nTo send input, use: tmux send-keys -t '${session}' 'your input' Enter\nTo stop the process, use: tmux send-keys -t '${session}' C-c`,
+				};
+				return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+			} catch (error) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: JSON.stringify({ errors: [{ message: (error as Error).message }] }, null, 2),
+						},
+					],
+					isError: true,
+				};
 			}
-
-			// Background mode: ensure tmux session exists, send command via base64 to avoid escaping issues
-			const session = args.tmuxSession || "host-to-container";
-			const b64 = Buffer.from(args.command).toString("base64");
-			const script = [
-				`tmux has-session -t '${session}' 2>/dev/null || tmux new-session -d -s '${session}'`,
-				`tmux send-keys -t '${session}' -l "$(echo '${b64}' | base64 -d)"`,
-				`tmux send-keys -t '${session}' Enter`,
-			].join(" && ");
-
-			await execInContainer({ projectPath, command: ["bash", "-c", script] });
-			const result = {
-				status: "started_in_background",
-				tmuxSession: session,
-				command: args.command,
-				hint: `To check output, use this tool with command: tmux capture-pane -t '${session}' -p -S -50\nTo send input, use: tmux send-keys -t '${session}' 'your input' Enter\nTo stop the process, use: tmux send-keys -t '${session}' C-c`,
-			};
-			return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-		} catch (error) {
-			return {
-				content: [
-					{
-						type: "text" as const,
-						text: JSON.stringify({ errors: [{ message: (error as Error).message }] }, null, 2),
-					},
-				],
-				isError: true,
-			};
-		}
-	});
+		},
+	);
 }

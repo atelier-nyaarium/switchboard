@@ -21,6 +21,8 @@ export interface WsData {
 	teamName: string | null;
 	missedPings: number;
 	isStale: boolean;
+	proxyProject?: string;
+	proxyAuth?: string;
 }
 
 ////////////////////////////////
@@ -118,7 +120,7 @@ export function createWebSocketHandlers({
 		if (teamName === "__host__") {
 			registry.delete(teamName);
 			offlineCatalog.clear();
-			console.log(`[ws] __host__ disconnected — offline catalog cleared`);
+			console.log(`[ws] __host__ disconnected - offline catalog cleared`);
 			return;
 		}
 

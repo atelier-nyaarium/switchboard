@@ -4,9 +4,9 @@ services:
     hostname: agent-team-bridge
     container_name: agent-team-bridge
     ports:
-      - "5678:5678"
+      - "20000:20000"
     environment:
-      - PORT=5678
+      - PORT=20000
       - RESPONSE_TIMEOUT_MS=600000
     networks:
       - agent-team-bridge-network

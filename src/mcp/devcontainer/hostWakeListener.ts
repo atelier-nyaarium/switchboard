@@ -13,7 +13,7 @@ const RECONNECT_MAX_MS = 30000;
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelay = 2000;
-let arbiterUrl = "ws://localhost:5678";
+let arbiterUrl = "ws://localhost:20000";
 
 export function startHostWakeListener(): void {
 	const envUrl = process.env.BRIDGE_ROUTER_URL;

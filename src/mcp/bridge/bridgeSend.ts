@@ -80,7 +80,8 @@ export function registerBridgeSend(mcpServer: McpServer): void {
 	mcpServer.tool(
 		"crosstalk_send",
 		description,
-		BridgeSendSchema.shape,
+		// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
+		BridgeSendSchema.shape as any,
 		async ({ to, type, effort, body, session_id }: BridgeSendArgs) => {
 			try {
 				// Poll mode: session_id present, no body

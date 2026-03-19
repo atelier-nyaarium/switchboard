@@ -31,7 +31,8 @@ export function registerBridgeReply(mcpServer: McpServer): void {
 	mcpServer.tool(
 		"crosstalk_reply",
 		`Reply to an incoming bridge request. Call this once when you are done handling the request.`,
-		BridgeReplySchema.shape,
+		// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
+		BridgeReplySchema.shape as any,
 		async ({ session_id, status, ...rest }: BridgeReplyArgs) => {
 			try {
 				await routerPost("/respond", { session_id, status, ...rest });

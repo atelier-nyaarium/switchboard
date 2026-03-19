@@ -134,7 +134,7 @@ async function pollJob(projectPath: string, jobId: string, waitMs: number): Prom
 				hint: `To send a follow-up message, call this tool again with projectPath + prompt + sessionId.`,
 			};
 		} catch {
-			// exit file doesn't exist yet — still running
+			// exit file doesn't exist yet, still running
 		}
 
 		await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
@@ -148,82 +148,88 @@ async function pollJob(projectPath: string, jobId: string, waitMs: number): Prom
 }
 
 export function registerDevcontainerChat(mcpServer: McpServer): void {
-	mcpServer.tool("dispatch_chat", description, DevcontainerChatSchema.shape, async (rawArgs) => {
-		try {
-			const args: DevcontainerChatArgs = DevcontainerChatSchema.parse(rawArgs);
-			assertNotContainer();
-			const projectPath = resolveProject(args.projectPath);
+	mcpServer.tool(
+		"dispatch_chat",
+		description,
+		// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
+		DevcontainerChatSchema.shape as any,
+		async (rawArgs: Record<string, unknown>) => {
+			try {
+				const args: DevcontainerChatArgs = DevcontainerChatSchema.parse(rawArgs);
+				assertNotContainer();
+				const projectPath = resolveProject(args.projectPath);
 
-			ensureContainerUp(projectPath);
+				ensureContainerUp(projectPath);
 
-			// Poll mode: check on existing job
-			if (args.jobId) {
-				if (!SAFE_ID.test(args.jobId)) throw new Error(`Invalid jobId.`);
-				const result = await pollJob(projectPath, args.jobId, POLL_WAIT_MS);
-				return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+				// Poll mode: check on existing job
+				if (args.jobId) {
+					if (!SAFE_ID.test(args.jobId)) throw new Error(`Invalid jobId.`);
+					const result = await pollJob(projectPath, args.jobId, POLL_WAIT_MS);
+					return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+				}
+
+				// Start mode: launch new job
+				if (!args.prompt) {
+					throw new Error(`Provide either prompt (start new job) or jobId (poll existing job).`);
+				}
+
+				const model = resolveDevcontainerModel(args.agent, args.effort);
+
+				const jobId = crypto.randomUUID();
+				const sessionId = args.sessionId || crypto.randomUUID();
+				const isFollowUp = !!args.sessionId;
+
+				if (isFollowUp && !SAFE_ID.test(sessionId)) {
+					throw new Error(`Invalid sessionId format.`);
+				}
+
+				// Write prompt into container /tmp via stdin pipe
+				const writeCmd = `mkdir -p ${CHAT_DIR}/${jobId} && cat > ${CHAT_DIR}/${jobId}/prompt.md`;
+				await execInContainer({
+					projectPath,
+					command: ["bash", "-c", writeCmd],
+					timeoutMs: 30_000,
+					stdin: args.prompt,
+				});
+
+				// Build the agent-specific command and write runner script
+				const agentCmd = buildAgentCommand({
+					agent: args.agent,
+					model,
+					sessionId,
+					isFollowUp,
+					promptFile: `${CHAT_DIR}/${jobId}/prompt.md`,
+					responseFile: `${CHAT_DIR}/${jobId}/response.txt`,
+					stderrFile: `${CHAT_DIR}/${jobId}/stderr.txt`,
+				});
+				const setupCmd = [
+					`cat > ${CHAT_DIR}/${jobId}/run.sh << 'ENDSCRIPT'`,
+					"#!/bin/bash",
+					agentCmd,
+					`echo $? > ${CHAT_DIR}/${jobId}/exit.txt`,
+					`rm -f ${CHAT_DIR}/${jobId}/prompt.md`,
+					"ENDSCRIPT",
+					`chmod +x ${CHAT_DIR}/${jobId}/run.sh`,
+					`tmux new-session -d -s 'chat-${jobId}' ${CHAT_DIR}/${jobId}/run.sh`,
+				].join("\n");
+				await execInContainer({ projectPath, command: ["bash", "-c", setupCmd] });
+
+				// Wait for completion, return early if fast
+				const result = await pollJob(projectPath, jobId, INITIAL_WAIT_MS);
+				return {
+					content: [{ type: "text" as const, text: JSON.stringify({ ...result, sessionId }, null, 2) }],
+				};
+			} catch (error) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: JSON.stringify({ errors: [{ message: (error as Error).message }] }, null, 2),
+						},
+					],
+					isError: true,
+				};
 			}
-
-			// Start mode: launch new job
-			if (!args.prompt) {
-				throw new Error(`Provide either prompt (start new job) or jobId (poll existing job).`);
-			}
-
-			const model = resolveDevcontainerModel(args.agent, args.effort);
-
-			const jobId = crypto.randomUUID();
-			const sessionId = args.sessionId || crypto.randomUUID();
-			const isFollowUp = !!args.sessionId;
-
-			if (isFollowUp && !SAFE_ID.test(sessionId)) {
-				throw new Error(`Invalid sessionId format.`);
-			}
-
-			// Write prompt into container /tmp via stdin pipe
-			const writeCmd = `mkdir -p ${CHAT_DIR}/${jobId} && cat > ${CHAT_DIR}/${jobId}/prompt.md`;
-			await execInContainer({
-				projectPath,
-				command: ["bash", "-c", writeCmd],
-				timeoutMs: 30_000,
-				stdin: args.prompt,
-			});
-
-			// Build the agent-specific command and write runner script
-			const agentCmd = buildAgentCommand({
-				agent: args.agent,
-				model,
-				sessionId,
-				isFollowUp,
-				promptFile: `${CHAT_DIR}/${jobId}/prompt.md`,
-				responseFile: `${CHAT_DIR}/${jobId}/response.txt`,
-				stderrFile: `${CHAT_DIR}/${jobId}/stderr.txt`,
-			});
-			const setupCmd = [
-				`cat > ${CHAT_DIR}/${jobId}/run.sh << 'ENDSCRIPT'`,
-				"#!/bin/bash",
-				agentCmd,
-				`echo $? > ${CHAT_DIR}/${jobId}/exit.txt`,
-				`rm -f ${CHAT_DIR}/${jobId}/prompt.md`,
-				"ENDSCRIPT",
-				`chmod +x ${CHAT_DIR}/${jobId}/run.sh`,
-				`tmux new-session -d -s 'chat-${jobId}' ${CHAT_DIR}/${jobId}/run.sh`,
-			].join("\n");
-			await execInContainer({ projectPath, command: ["bash", "-c", setupCmd] });
-
-			// Wait for completion, return early if fast
-			const result = await pollJob(projectPath, jobId, INITIAL_WAIT_MS);
-			return {
-				content: [{ type: "text" as const, text: JSON.stringify({ ...result, sessionId }, null, 2) }],
-			};
-		} catch (error) {
-			return {
-				content: [
-					{
-						type: "text" as const,
-						text: JSON.stringify({ errors: [{ message: (error as Error).message }] }, null, 2),
-					},
-				],
-				isError: true,
-			};
-		}
-	});
+		},
+	);
 }

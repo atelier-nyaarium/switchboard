@@ -22,7 +22,7 @@ interface RouterPostOptions {
 ////////////////////////////////
 //  Functions & Helpers
 
-// Bridge state — set by initBridge(), read by tool handlers after MCP connects
+// Bridge state: set by initBridge(), read by tool handlers after MCP connects
 let ROUTER_URL = "";
 let PROJECT_NAME = "";
 let AGENT_TYPE = "";
@@ -131,7 +131,7 @@ export function closeRouter(): void {
 	if (routerWs) routerWs.close();
 }
 
-// Inject handler — receives requests from other teams via the router
+// Inject handler: receives requests from other teams via the router
 
 async function handleInject(msg: InjectPayload): Promise<void> {
 	const sessionId = msg.session_id;

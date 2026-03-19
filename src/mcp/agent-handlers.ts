@@ -104,7 +104,7 @@ export const AGENT_HANDLERS: Record<string, AgentHandler> = {
 				return runAgent("codex", args, message);
 			}
 
-			// New session — use --json to capture thread_id from the first JSONL line
+			// New session: use --json to capture thread_id from the first JSONL line
 			const args = ["exec", "-m", model, "--dangerously-bypass-approvals-and-sandbox", "--json"];
 			const output = await runAgent("codex", args, message);
 
@@ -115,7 +115,7 @@ export const AGENT_HANDLERS: Record<string, AgentHandler> = {
 					codexThreadIds.set(sessionId, parsed.thread_id);
 				}
 			} catch {
-				// Best effort — thread_id extraction is optional
+				// Best effort, thread_id extraction is optional
 			}
 
 			return output;

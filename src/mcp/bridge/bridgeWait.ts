@@ -16,7 +16,8 @@ export function registerBridgeWait(mcpServer: McpServer): void {
 	mcpServer.tool(
 		"crosstalk_wait",
 		`Wait N seconds before retrying. Use when another team asks you to wait.`,
-		BridgeWaitSchema.shape,
+		// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
+		BridgeWaitSchema.shape as any,
 		async ({ seconds }: BridgeWaitArgs) => {
 			await new Promise((r) => setTimeout(r, seconds * 1000));
 			return { content: [{ type: "text" as const, text: `Waited ${seconds}s. You can retry now.` }] };

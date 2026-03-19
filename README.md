@@ -20,7 +20,7 @@ From the repo root:
 docker compose up -d
 ```
 
-The router listens on port 5678 and uses the external network `agent-team-bridge`.
+The router listens on port 20000 and uses the external network `agent-team-bridge`.
 
 ## Setup
 
@@ -35,7 +35,7 @@ The plugin provides the MCP server and skill automatically.
 **2. Set environment variables** in your devcontainer:
 
 - `PROJECT_NAME` - Your team's name on the bridge (e.g. `@org/my-project`)
-- `BRIDGE_ROUTER_URL` - Router URL (default: `http://agent-team-bridge:5678`)
+- `BRIDGE_ROUTER_URL` - Router URL (default: `http://agent-team-bridge:20000`)
 
 **3. Add the Docker network** to your devcontainer:
 
