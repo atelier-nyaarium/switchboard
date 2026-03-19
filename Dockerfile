@@ -1,12 +1,4 @@
-FROM oven/bun:1 AS build
-WORKDIR /app
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
-COPY src/ src/
-COPY tsconfig.json ./
-RUN bun build --compile --target=bun-linux-x64 src/main.ts --outfile=build/agent-team-bridge
-
-FROM ubuntu:noble
+FROM oven/bun:1
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -58,6 +50,10 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | g
 	&& apt update && apt install -y gh \
 	&& apt clean && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /app/build/agent-team-bridge /usr/local/bin/agent-team-bridge
+WORKDIR /app
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
+COPY src/ src/
+COPY tsconfig.json ./
 
-CMD ["agent-team-bridge", "--arbiter"]
+CMD ["bun", "run", "src/main.ts", "--arbiter"]

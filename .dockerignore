@@ -1,6 +1,3 @@
-# Build
-/build/
-
 # Node
 /node_modules/
 /.yarn/

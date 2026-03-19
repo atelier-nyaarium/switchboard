@@ -5,7 +5,6 @@
 			"**",
 			"!**/.claude",
 			"!**/.cursor",
-			"!**/build",
 			"!**/coverage",
 			"!**/node_modules",
 			"!**/volumes",
