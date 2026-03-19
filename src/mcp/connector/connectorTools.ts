@@ -84,7 +84,7 @@ export function registerConnectorTools(
 
 			if (!serving) {
 				result.hint = hasSchema
-					? `This session is not serving. Another IDE may own port ${port}. Call mcpConnectorServe to take over, or mcpConnectorUnserve in the other session first.`
+					? `This session is not serving. Port ${port} is likely held by another IDE session. Call mcpConnectorUnserve in that session to release it, then mcpConnectorServe here.`
 					: `This session is not serving. Call mcpConnectorServe to start, then mcpConnectorCreateSchema to create a schema.`;
 			} else if (!hasSchema) {
 				result.hint = `No mcp-schema.js found. Call mcpConnectorCreateSchema to initialize, then /mcp to restart.`;
