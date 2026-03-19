@@ -90,7 +90,7 @@ function scheduleReconnect(): void {
 }
 
 export function connectToRouter(): void {
-	const wsUrl = ROUTER_URL.replace(/^http/, "ws");
+	const wsUrl = `${ROUTER_URL.replace(/^http/, "ws")}/bridge`;
 	routerWs = new WebSocket(wsUrl);
 
 	routerWs.on("open", () => {

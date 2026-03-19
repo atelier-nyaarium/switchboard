@@ -36,7 +36,7 @@ export function stopHostWakeListener(): void {
 }
 
 function connect(): void {
-	ws = new WebSocket(arbiterUrl);
+	ws = new WebSocket(`${arbiterUrl}/bridge`);
 
 	ws.on("open", () => {
 		console.error("[host-wake] connected to arbiter");

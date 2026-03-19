@@ -135,10 +135,14 @@ export function startArbiter(): void {
 				return new Response("WebSocket upgrade failed", { status: 400 });
 			}
 
-			// Team WebSocket upgrade
-			if (server.upgrade(req, { data: { teamName: null, missedPings: 0, isStale: false } })) {
-				return;
+			// Team/host registration: /bridge
+			if (url.pathname === "/bridge") {
+				if (server.upgrade(req, { data: { teamName: null, missedPings: 0, isStale: false } })) {
+					return;
+				}
+				return new Response("WebSocket upgrade failed", { status: 400 });
 			}
+
 			return router(req);
 		},
 		websocket: {
