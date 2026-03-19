@@ -26,7 +26,7 @@ interface RouterPostOptions {
 let ROUTER_URL = "";
 let PROJECT_NAME = "";
 let AGENT_TYPE = "";
-let EFFORT_ENV: EffortEnv = { simple: "auto", standard: "auto", complex: "auto" };
+let EFFORT_ENV: EffortEnv = {};
 
 let routerWs: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;

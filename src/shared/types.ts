@@ -34,9 +34,9 @@ export interface ResponsePayload {
 }
 
 export interface EffortEnv {
-	simple: string;
-	standard: string;
-	complex: string;
+	simple?: string;
+	standard?: string;
+	complex?: string;
 }
 
 ////////////////////////////////

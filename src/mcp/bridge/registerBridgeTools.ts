@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { execSync } from "node:child_process";
 import { registerBridgeDiscover } from "./bridgeDiscover.js";
 import { registerBridgeReply } from "./bridgeReply.js";
 import { registerBridgeSend } from "./bridgeSend.js";
@@ -7,6 +8,25 @@ import { connectToRouter, initBridge } from "./helpers.js";
 
 ////////////////////////////////
 //  Functions & Helpers
+
+const AGENT_CLI_NAMES: Record<string, string> = {
+	claude: "claude",
+	cursor: "cursor-agent",
+	copilot: "copilot",
+	codex: "codex",
+};
+
+function detectAgentType(): string {
+	for (const [agentType, cli] of Object.entries(AGENT_CLI_NAMES)) {
+		try {
+			execSync(`which ${cli}`, { stdio: "ignore" });
+			return agentType;
+		} catch {
+			// Not found, try next
+		}
+	}
+	return "claude";
+}
 
 export function registerBridgeTools(mcpServer: McpServer): void {
 	const projectName = process.env.PROJECT_NAME;
@@ -37,11 +57,11 @@ export function registerBridgeTools(mcpServer: McpServer): void {
 	initBridge({
 		routerUrl: process.env.BRIDGE_ROUTER_URL || "http://agent-team-bridge:5678",
 		projectName,
-		agentType: process.env.AGENT_TYPE || "claude",
+		agentType: process.env.AGENT_TYPE || detectAgentType(),
 		effortEnv: {
-			simple: process.env.MODEL_SIMPLE || "auto",
-			standard: process.env.MODEL_STANDARD || "auto",
-			complex: process.env.MODEL_COMPLEX || "auto",
+			simple: process.env.MODEL_SIMPLE,
+			standard: process.env.MODEL_STANDARD,
+			complex: process.env.MODEL_COMPLEX,
 		},
 	});
 
