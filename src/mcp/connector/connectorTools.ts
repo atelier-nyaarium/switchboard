@@ -71,7 +71,7 @@ export function registerConnectorTools(
 				remoteAddress: c.remoteAddress,
 			}));
 
-			const result: Record<string, unknown> = listenerState
+			const result: Record<string, unknown> = serving
 				? {
 						serving,
 						mode: listenerState.mode,
@@ -80,18 +80,18 @@ export function registerConnectorTools(
 						authEnabled: !!getAuthToken(),
 						clients,
 					}
-				: { serving, mode: "stopped", authEnabled: !!getAuthToken(), clients: [] };
+				: { serving, port, authEnabled: !!getAuthToken() };
 
-			if (!serving && !hasSchema) {
-				result.setup = `Not serving. Call mcpConnectorServe to start, then mcpConnectorCreateSchema to initialize.`;
-			} else if (!serving) {
-				result.setup = `Not serving. Call mcpConnectorServe to start serving project tools.`;
+			if (!serving) {
+				result.hint = hasSchema
+					? `This session is not serving. Another IDE may own port ${port}. Call mcpConnectorServe to take over, or mcpConnectorUnserve in the other session first.`
+					: `This session is not serving. Call mcpConnectorServe to start, then mcpConnectorCreateSchema to create a schema.`;
 			} else if (!hasSchema) {
-				result.setup = `No mcp-schema.js found. Call mcpConnectorCreateSchema to initialize, then use /mcp to restart.`;
+				result.hint = `No mcp-schema.js found. Call mcpConnectorCreateSchema to initialize, then /mcp to restart.`;
 			} else if (clients.length === 0) {
-				result.setup = `Waiting for game clients. Share connection info via mcpConnectorClientBundle.`;
+				result.hint = `Serving but no game clients connected yet.`;
 			} else {
-				result.setup = `Ready. Use project tools with a clientId from the clients list.`;
+				result.hint = `Ready. Use project tools with a clientId from the clients list.`;
 			}
 
 			if (!getAuthToken() || !hasCerts) {
@@ -116,14 +116,14 @@ export function registerConnectorTools(
 		},
 		async () => {
 			if (getListenerState()) {
-				return textResult("Already serving.");
+				return textResult(`Already serving on port ${port}.`);
 			}
 			try {
 				startListener(port);
-				return textResult(JSON.stringify({ status: "serving", port }, null, 2));
+				return textResult(`Now serving on port ${port}. Game clients can connect.`);
 			} catch {
 				return textResult(
-					`Port ${port} is in use by another session. Stop it there first with mcpConnectorUnserve.`,
+					`Port ${port} is held by another IDE session. Call mcpConnectorUnserve in that session first.`,
 					true,
 				);
 			}
@@ -140,10 +140,12 @@ export function registerConnectorTools(
 		},
 		async () => {
 			if (!getListenerState()) {
-				return textResult("Not serving.");
+				return textResult(`Not serving. Nothing to stop.`);
 			}
 			stopListener();
-			return textResult("Stopped. Another session can now call mcpConnectorServe to take over.");
+			return textResult(
+				`Stopped serving on port ${port}. Game clients disconnected. Another IDE session can now call mcpConnectorServe.`,
+			);
 		},
 	);
 
@@ -157,7 +159,7 @@ export function registerConnectorTools(
 		},
 		async () => {
 			if (!getListenerState()) {
-				return textResult("Not serving. Call mcpConnectorServe first.", true);
+				return textResult(`Not serving. Call mcpConnectorServe to start.`, true);
 			}
 			try {
 				if (!getAuthToken()) {
@@ -198,7 +200,7 @@ export function registerConnectorTools(
 		},
 		async () => {
 			if (!getListenerState()) {
-				return textResult("Not serving. Call mcpConnectorServe first.", true);
+				return textResult(`Not serving. Call mcpConnectorServe to start.`, true);
 			}
 			restartWithoutTls(port);
 			const state = getListenerState();
@@ -312,7 +314,7 @@ export function registerConnectorTools(
 		// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
 		async (args: any) => {
 			if (!getListenerState()) {
-				return textResult("Not serving. Call mcpConnectorServe first.", true);
+				return textResult(`Not serving. Call mcpConnectorServe to start.`, true);
 			}
 			const clientId = args.clientId as string;
 			const client = getClient(clientId);
@@ -336,7 +338,7 @@ export function registerConnectorTools(
 		async () => {
 			const listenerState = getListenerState();
 			if (!listenerState) {
-				return textResult("Not serving. Call mcpConnectorServe first.", true);
+				return textResult(`Not serving. Call mcpConnectorServe to start.`, true);
 			}
 
 			const protocol = listenerState.mode === "https" ? "wss" : "ws";
