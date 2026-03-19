@@ -2,7 +2,15 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getAuthToken, getListenerState, restartWithoutTls, restartWithTls, setAuthToken } from "./listener.js";
+import {
+	getAuthToken,
+	getListenerState,
+	restartWithoutTls,
+	restartWithTls,
+	setAuthToken,
+	startListener,
+	stopListener,
+} from "./listener.js";
 import { getAllClients, getClient } from "./sessions.js";
 import { generateCaCert, generateServerCert } from "./tls.js";
 import { textResult } from "./utils.js";
@@ -56,6 +64,7 @@ export function registerConnectorTools(
 		},
 		async () => {
 			const listenerState = getListenerState();
+			const serving = !!listenerState;
 			const clients = getAllClients().map((c) => ({
 				clientId: c.shortHash,
 				connectedAt: c.connectedAt.toISOString(),
@@ -64,16 +73,20 @@ export function registerConnectorTools(
 
 			const result: Record<string, unknown> = listenerState
 				? {
+						serving,
 						mode: listenerState.mode,
 						hostname: listenerState.hostname,
 						port: listenerState.port,
 						authEnabled: !!getAuthToken(),
 						clients,
 					}
-				: { mode: "stopped", authEnabled: !!getAuthToken(), clients: [] };
+				: { serving, mode: "stopped", authEnabled: !!getAuthToken(), clients: [] };
 
-			// Contextual onboarding guidance
-			if (!hasSchema) {
+			if (!serving && !hasSchema) {
+				result.setup = `Not serving. Call mcpConnectorServe to start, then mcpConnectorCreateSchema to initialize.`;
+			} else if (!serving) {
+				result.setup = `Not serving. Call mcpConnectorServe to start serving project tools.`;
+			} else if (!hasSchema) {
 				result.setup = `No mcp-schema.js found. Call mcpConnectorCreateSchema to initialize, then use /mcp to restart.`;
 			} else if (clients.length === 0) {
 				result.setup = `Waiting for game clients. Share connection info via mcpConnectorClientBundle.`;
@@ -93,16 +106,59 @@ export function registerConnectorTools(
 		},
 	);
 
+	// mcpConnectorServe
+	mcpServer.registerTool(
+		"mcpConnectorServe",
+		{
+			title: "Start Connector",
+			description: `Start serving project tools on the connector port. Fails if another session already owns the port.`,
+			inputSchema: z.object({}).shape,
+		},
+		async () => {
+			if (getListenerState()) {
+				return textResult("Already serving.");
+			}
+			try {
+				startListener(port);
+				return textResult(JSON.stringify({ status: "serving", port }, null, 2));
+			} catch {
+				return textResult(
+					`Port ${port} is in use by another session. Stop it there first with mcpConnectorUnserve.`,
+					true,
+				);
+			}
+		},
+	);
+
+	// mcpConnectorUnserve
+	mcpServer.registerTool(
+		"mcpConnectorUnserve",
+		{
+			title: "Stop Connector",
+			description: `Stop serving project tools. Disconnects all game clients. Another IDE session can then take over with mcpConnectorServe.`,
+			inputSchema: z.object({}).shape,
+		},
+		async () => {
+			if (!getListenerState()) {
+				return textResult("Not serving.");
+			}
+			stopListener();
+			return textResult("Stopped. Another session can now call mcpConnectorServe to take over.");
+		},
+	);
+
 	// mcpConnectorOpen
 	mcpServer.registerTool(
 		"mcpConnectorOpen",
 		{
 			title: "Open MCP Connector",
 			description: `Open the connector to the public with HTTPS/WSS. Requires both a token (mcpConnectorGenerateToken) and certs (mcpConnectorGenerateCert). Warning: disconnects all currently connected game clients.`,
-			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-			inputSchema: z.object({}).shape as any,
+			inputSchema: z.object({}).shape,
 		},
 		async () => {
+			if (!getListenerState()) {
+				return textResult("Not serving. Call mcpConnectorServe first.", true);
+			}
 			try {
 				if (!getAuthToken()) {
 					return textResult(
@@ -141,6 +197,9 @@ export function registerConnectorTools(
 			inputSchema: z.object({}).shape as any,
 		},
 		async () => {
+			if (!getListenerState()) {
+				return textResult("Not serving. Call mcpConnectorServe first.", true);
+			}
 			restartWithoutTls(port);
 			const state = getListenerState();
 			return textResult(
@@ -162,14 +221,13 @@ export function registerConnectorTools(
 	const generateCertObj = z.object({
 		domain: z.string().optional().describe(`Domain for the certificate SAN. Defaults to "localhost".`),
 	});
-	// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-	const generateCertSchema = generateCertObj.shape as any;
 	mcpServer.registerTool(
 		"mcpConnectorGenerateCert",
 		{
 			title: "Generate TLS Certificate",
 			description: `Generate a self-signed CA and server certificate. Writes to .claude/connector/. Required before mcpConnectorOpen.`,
-			inputSchema: generateCertSchema,
+			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
+			inputSchema: generateCertObj.shape as any,
 		},
 		// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
 		async (args: any) => {
@@ -243,17 +301,19 @@ export function registerConnectorTools(
 	const disconnectObj = z.object({
 		clientId: z.string().describe(`6-char client hash from mcpConnectorStatus.`),
 	});
-	// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-	const disconnectSchema = disconnectObj.shape as any;
 	mcpServer.registerTool(
 		"mcpConnectorDisconnect",
 		{
 			title: "Disconnect Game Client",
 			description: `Disconnect a game client by its 6-char ID. Pending tool invocations on that client will fail. Get IDs from mcpConnectorStatus.`,
-			inputSchema: disconnectSchema,
+			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
+			inputSchema: disconnectObj.shape as any,
 		},
 		// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
 		async (args: any) => {
+			if (!getListenerState()) {
+				return textResult("Not serving. Call mcpConnectorServe first.", true);
+			}
 			const clientId = args.clientId as string;
 			const client = getClient(clientId);
 			if (!client) {
@@ -276,7 +336,7 @@ export function registerConnectorTools(
 		async () => {
 			const listenerState = getListenerState();
 			if (!listenerState) {
-				return textResult(`Listener is not running.`, true);
+				return textResult("Not serving. Call mcpConnectorServe first.", true);
 			}
 
 			const protocol = listenerState.mode === "https" ? "wss" : "ws";

@@ -42,7 +42,13 @@ export async function startMcp(): Promise<void> {
 				console.error(`[connector] Auth token loaded`);
 			}
 
-			startListener(port);
+			// Best-effort start - port may be held by another IDE session
+			try {
+				startListener(port);
+			} catch {
+				console.error(`[connector] port ${port} in use, connector managed by another session`);
+			}
+
 			registerConnectorTools(mcpServer, projectName, connectorDir, port);
 			await registerProjectTools(mcpServer, projectName, connectorDir);
 		} else {

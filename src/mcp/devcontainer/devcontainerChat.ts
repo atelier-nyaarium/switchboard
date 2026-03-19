@@ -148,11 +148,14 @@ async function pollJob(projectPath: string, jobId: string, waitMs: number): Prom
 }
 
 export function registerDevcontainerChat(mcpServer: McpServer): void {
-	mcpServer.tool(
+	mcpServer.registerTool(
 		"dispatch_chat",
-		description,
-		// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-		DevcontainerChatSchema.shape as any,
+		{
+			title: "Dispatch Chat",
+			description,
+			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
+			inputSchema: DevcontainerChatSchema.shape as any,
+		},
 		async (rawArgs: Record<string, unknown>) => {
 			try {
 				const args: DevcontainerChatArgs = DevcontainerChatSchema.parse(rawArgs);

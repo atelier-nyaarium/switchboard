@@ -77,11 +77,14 @@ function formatResult(result: SendResult, to?: string): { content: Array<{ type:
 }
 
 export function registerBridgeSend(mcpServer: McpServer): void {
-	mcpServer.tool(
+	mcpServer.registerTool(
 		"crosstalk_send",
-		description,
-		// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-		BridgeSendSchema.shape as any,
+		{
+			title: "Crosstalk Send",
+			description,
+			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
+			inputSchema: BridgeSendSchema.shape as any,
+		},
 		async ({ to, type, effort, body, session_id }: BridgeSendArgs) => {
 			try {
 				// Poll mode: session_id present, no body

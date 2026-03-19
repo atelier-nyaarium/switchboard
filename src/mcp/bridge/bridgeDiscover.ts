@@ -5,30 +5,42 @@ import { bridgeProjectName, routerGet } from "./helpers.js";
 //  Functions & Helpers
 
 export function registerBridgeDiscover(mcpServer: McpServer): void {
-	mcpServer.tool("crosstalk_discover", `List all teams on the bridge network (active and offline).`, {}, async () => {
-		try {
-			const teams = (await routerGet("/teams")) as Array<{ team: string; status: string; queue_depth: number }>;
-			const others = teams.filter((t) => t.team !== bridgeProjectName());
+	mcpServer.registerTool(
+		"crosstalk_discover",
+		{
+			title: "Crosstalk Discover",
+			description: `List all teams on the bridge network (active and offline).`,
+			inputSchema: {},
+		},
+		async () => {
+			try {
+				const teams = (await routerGet("/teams")) as Array<{
+					team: string;
+					status: string;
+					queue_depth: number;
+				}>;
+				const others = teams.filter((t) => t.team !== bridgeProjectName());
 
-			if (others.length === 0) {
-				return { content: [{ type: "text" as const, text: `No other teams found.` }] };
+				if (others.length === 0) {
+					return { content: [{ type: "text" as const, text: `No other teams found.` }] };
+				}
+
+				const lines = others.map((t) => {
+					if (t.status === "offline") return `- ${t.team}: offline`;
+					const status = t.queue_depth > 0 ? `busy (${t.queue_depth} in queue)` : "available";
+					return `- ${t.team}: ${status}`;
+				});
+
+				return {
+					content: [{ type: "text" as const, text: `Teams on the bridge:\n${lines.join("\n")}` }],
+				};
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				return {
+					content: [{ type: "text" as const, text: `Failed to reach router: ${message}` }],
+					isError: true,
+				};
 			}
-
-			const lines = others.map((t) => {
-				if (t.status === "offline") return `- ${t.team}: offline`;
-				const status = t.queue_depth > 0 ? `busy (${t.queue_depth} in queue)` : "available";
-				return `- ${t.team}: ${status}`;
-			});
-
-			return {
-				content: [{ type: "text" as const, text: `Teams on the bridge:\n${lines.join("\n")}` }],
-			};
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			return {
-				content: [{ type: "text" as const, text: `Failed to reach router: ${message}` }],
-				isError: true,
-			};
-		}
-	});
+		},
+	);
 }

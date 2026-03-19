@@ -33,11 +33,14 @@ Set background: true to run in a persistent tmux session that survives after thi
 `.trim();
 
 export function registerDevcontainerExec(mcpServer: McpServer): void {
-	mcpServer.tool(
+	mcpServer.registerTool(
 		"dispatch_exec",
-		description,
-		// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-		DevcontainerExecSchema.shape as any,
+		{
+			title: "Dispatch Exec",
+			description,
+			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
+			inputSchema: DevcontainerExecSchema.shape as any,
+		},
 		async (rawArgs: Record<string, unknown>) => {
 			try {
 				const args: DevcontainerExecArgs = DevcontainerExecSchema.parse(rawArgs);

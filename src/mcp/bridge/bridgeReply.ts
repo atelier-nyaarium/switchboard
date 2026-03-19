@@ -28,11 +28,14 @@ type BridgeReplyArgs = z.infer<typeof BridgeReplySchema>;
 //  Functions & Helpers
 
 export function registerBridgeReply(mcpServer: McpServer): void {
-	mcpServer.tool(
+	mcpServer.registerTool(
 		"crosstalk_reply",
-		`Reply to an incoming bridge request. Call this once when you are done handling the request.`,
-		// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-		BridgeReplySchema.shape as any,
+		{
+			title: "Crosstalk Reply",
+			description: `Reply to an incoming bridge request. Call this once when you are done handling the request.`,
+			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
+			inputSchema: BridgeReplySchema.shape as any,
+		},
 		async ({ session_id, status, ...rest }: BridgeReplyArgs) => {
 			try {
 				await routerPost("/respond", { session_id, status, ...rest });

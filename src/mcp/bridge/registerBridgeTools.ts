@@ -42,15 +42,30 @@ export function registerBridgeTools(mcpServer: McpServer): void {
 			],
 			isError: true,
 		};
-		mcpServer.tool(
+		mcpServer.registerTool(
 			"crosstalk_discover",
-			`List all active teams on the bridge network.`,
-			{},
+			{
+				title: "Crosstalk Discover",
+				description: `List all active teams on the bridge network.`,
+				inputSchema: {},
+			},
 			async () => configError,
 		);
-		mcpServer.tool("crosstalk_send", `Send a request to another team.`, {}, async () => configError);
-		mcpServer.tool("crosstalk_reply", `Reply to an incoming bridge request.`, {}, async () => configError);
-		mcpServer.tool("crosstalk_wait", `Wait N seconds before retrying.`, {}, async () => configError);
+		mcpServer.registerTool(
+			"crosstalk_send",
+			{ title: "Crosstalk Send", description: `Send a request to another team.`, inputSchema: {} },
+			async () => configError,
+		);
+		mcpServer.registerTool(
+			"crosstalk_reply",
+			{ title: "Crosstalk Reply", description: `Reply to an incoming bridge request.`, inputSchema: {} },
+			async () => configError,
+		);
+		mcpServer.registerTool(
+			"crosstalk_wait",
+			{ title: "Crosstalk Wait", description: `Wait N seconds before retrying.`, inputSchema: {} },
+			async () => configError,
+		);
 		return;
 	}
 
