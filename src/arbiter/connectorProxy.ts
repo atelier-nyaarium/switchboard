@@ -5,11 +5,7 @@ const upstreamMap = new Map<ServerWebSocket<WsData>, WebSocket>();
 
 export function setupProxy(clientWs: ServerWebSocket<WsData>, project: string, authHeader: string): void {
 	const url = `ws://${project}:20000/ws`;
-	const opts: { headers?: Record<string, string> } = {};
-	if (authHeader) {
-		opts.headers = { Authorization: authHeader };
-	}
-
+	const opts: Bun.WebSocketOptions = authHeader ? { headers: { Authorization: authHeader } } : {};
 	const upstream = new WebSocket(url, opts as unknown as string[]);
 
 	upstream.addEventListener("open", () => {
@@ -41,7 +37,8 @@ export function setupProxy(clientWs: ServerWebSocket<WsData>, project: string, a
 	});
 
 	upstream.addEventListener("error", (event) => {
-		console.log(`[proxy] upstream ${project} error: ${event}`);
+		const msg = event instanceof ErrorEvent ? event.message : String(event);
+		console.log(`[proxy] upstream ${project} error: ${msg}`);
 		upstreamMap.delete(clientWs);
 		try {
 			clientWs.close();
