@@ -1,10 +1,11 @@
 import { execSync } from "node:child_process";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { registerChannelReply } from "../channel/channelReply.js";
+import { registerCliReply } from "../cli/cliReply.js";
 import { registerBridgeDiscover } from "./bridgeDiscover.js";
-import { registerBridgeReply } from "./bridgeReply.js";
 import { registerBridgeSend } from "./bridgeSend.js";
 import { registerBridgeWait } from "./bridgeWait.js";
-import { connectToRouter, initBridge } from "./helpers.js";
+import { connectToRouter, initBridge, setChannelServer } from "./helpers.js";
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -16,7 +17,7 @@ const AGENT_CLI_NAMES: Record<string, string> = {
 	codex: "codex",
 };
 
-function detectAgentType(): string {
+export function detectAgentType(): string {
 	for (const [agentType, cli] of Object.entries(AGENT_CLI_NAMES)) {
 		try {
 			execSync(`which ${cli}`, { stdio: "ignore" });
@@ -69,10 +70,13 @@ export function registerBridgeTools(mcpServer: McpServer): void {
 		return;
 	}
 
+	const agentType = process.env.AGENT_TYPE || detectAgentType();
+	const isChannel = agentType === "claude";
+
 	initBridge({
 		routerUrl: process.env.BRIDGE_ROUTER_URL || "http://agent-team-bridge:20000",
 		projectName,
-		agentType: process.env.AGENT_TYPE || detectAgentType(),
+		agentType,
 		effortEnv: {
 			simple: process.env.MODEL_SIMPLE,
 			standard: process.env.MODEL_STANDARD,
@@ -80,10 +84,21 @@ export function registerBridgeTools(mcpServer: McpServer): void {
 		},
 	});
 
+	// Shared outgoing tools (all agents)
 	registerBridgeDiscover(mcpServer);
 	registerBridgeSend(mcpServer);
-	registerBridgeReply(mcpServer);
 	registerBridgeWait(mcpServer);
+
+	if (isChannel) {
+		// Claude channel mode: register channel_reply, set up channel server reference
+		registerChannelReply(mcpServer);
+		setChannelServer(mcpServer.server);
+		console.error(`[bridge] Claude channel mode, channel_reply registered`);
+	} else {
+		// CLI mode: register crosstalk_reply for CLI agents
+		registerCliReply(mcpServer);
+		console.error(`[bridge] CLI mode (${agentType}), crosstalk_reply registered`);
+	}
 
 	connectToRouter();
 }

@@ -29,13 +29,13 @@ export interface ExecInContainerParams {
 
 const HOME = os.homedir();
 
-// Derived from DEFAULT_MODELS (shared with bridge)
-export const AGENT_TYPES = Object.keys(DEFAULT_MODELS) as [string, ...string[]];
+// CLI agent types for dispatch_cli (Claude uses channel-based communication instead)
+export const CLI_AGENT_TYPES = ["cursor", "copilot", "codex"] as [string, ...string[]];
 export const EFFORT_LEVELS = ["simple", "standard", "complex"] as [string, ...string[]];
 
 export function resolveDevcontainerModel(agent: string, effort: string): string {
 	const models = DEFAULT_MODELS[agent];
-	if (!models) throw new Error(`Unknown agent '${agent}'. Valid: ${AGENT_TYPES.join(", ")}`);
+	if (!models) throw new Error(`Unknown agent '${agent}'. Valid: ${CLI_AGENT_TYPES.join(", ")}`);
 	const model = models[effort];
 	if (!model) throw new Error(`Unknown effort '${effort}'. Valid: ${EFFORT_LEVELS.join(", ")}`);
 	return model;
@@ -181,10 +181,6 @@ export function buildAgentCommand({
 	stderrFile,
 }: BuildAgentCommandParams): string {
 	switch (agent) {
-		case "claude": {
-			const sessionFlag = isFollowUp ? "--resume" : "--session-id";
-			return `claude -p --dangerously-skip-permissions --model ${model} ${sessionFlag} ${sessionId} < ${promptFile} > ${responseFile} 2>${stderrFile}`;
-		}
 		case "cursor":
 			return `cursor-agent -f -p --model ${model} --resume=${sessionId} < ${promptFile} > ${responseFile} 2>${stderrFile}`;
 		case "copilot":
@@ -196,7 +192,9 @@ export function buildAgentCommand({
 			return `codex exec -m ${model} --dangerously-bypass-approvals-and-sandbox < ${promptFile} > ${responseFile} 2>${stderrFile}`;
 		}
 		default:
-			throw new Error(`Unknown agent '${agent}'.`);
+			throw new Error(
+				`Unknown CLI agent '${agent}'. Claude uses channel-based communication, so use crosstalk_send instead.`,
+			);
 	}
 }
 

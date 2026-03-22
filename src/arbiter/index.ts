@@ -123,6 +123,7 @@ export function startArbiter(): void {
 					server.upgrade(req, {
 						data: {
 							teamName: null,
+							mode: "cli" as const,
 							missedPings: 0,
 							isStale: false,
 							proxyProject: project,
@@ -137,7 +138,11 @@ export function startArbiter(): void {
 
 			// Team/host registration: /bridge
 			if (url.pathname === "/bridge") {
-				if (server.upgrade(req, { data: { teamName: null, missedPings: 0, isStale: false } })) {
+				if (
+					server.upgrade(req, {
+						data: { teamName: null, mode: "cli" as const, missedPings: 0, isStale: false },
+					})
+				) {
 					return;
 				}
 				return new Response("WebSocket upgrade failed", { status: 400 });

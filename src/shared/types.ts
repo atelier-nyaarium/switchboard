@@ -1,6 +1,7 @@
 ////////////////////////////////
 //  Bridge Types
 
+export type ConnectionMode = "cli" | "channel";
 export type EffortLevel = "simple" | "standard" | "complex";
 export type RequestType = "feature" | "bugfix" | "question";
 export type ResponseStatus =
@@ -14,6 +15,16 @@ export type ResponseStatus =
 
 export interface InjectPayload {
 	type: "inject";
+	from: string;
+	request_type: RequestType;
+	body: string;
+	effort: EffortLevel | "auto";
+	session_id: string;
+	is_follow_up: boolean;
+}
+
+export interface ChannelPushPayload {
+	type: "channel_push";
 	from: string;
 	request_type: RequestType;
 	body: string;
@@ -45,11 +56,13 @@ export interface EffortEnv {
 export interface RegisterMessage {
 	type: "register";
 	team: string;
+	mode?: ConnectionMode;
 }
 
 export interface TeamInfo {
 	team: string;
 	status: "active" | "offline";
+	mode?: ConnectionMode;
 	queue_depth: number;
 }
 

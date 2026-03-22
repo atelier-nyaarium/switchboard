@@ -1,7 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import type { Mutex } from "../shared/mutex.js";
 import type { PendingJobStore } from "../shared/pending-job-store.js";
-import type { ResponsePayload, WebSocketConfig } from "../shared/types.js";
+import type { ConnectionMode, ResponsePayload, WebSocketConfig } from "../shared/types.js";
 import type { WakeCoordinator } from "./wake.js";
 
 ////////////////////////////////
@@ -19,6 +19,7 @@ export interface WebSocketDeps {
 
 export interface WsData {
 	teamName: string | null;
+	mode: ConnectionMode;
 	missedPings: number;
 	isStale: boolean;
 	proxyProject?: string;
@@ -66,6 +67,7 @@ export function createWebSocketHandlers({
 
 		if (msg.type === "register") {
 			const team = msg.team as string;
+			const mode = (msg.mode === "channel" ? "channel" : "cli") as ConnectionMode;
 			const existing = registry.get(team);
 			if (existing && existing !== ws) {
 				console.log(`[ws] ${team} re-registered - closing stale socket`);
@@ -73,6 +75,7 @@ export function createWebSocketHandlers({
 				existing.close();
 			}
 			ws.data.teamName = team;
+			ws.data.mode = mode;
 			registry.set(team, ws);
 
 			if (typeof msg.projectPath === "string" && msg.projectPath) {
@@ -80,7 +83,7 @@ export function createWebSocketHandlers({
 			}
 
 			wakeCoordinator.notify(team);
-			console.log(`[ws] ${team} connected`);
+			console.log(`[ws] ${team} connected (mode: ${mode})`);
 		}
 
 		if (msg.type === "wake_result" && msg.success === false && typeof msg.team === "string") {

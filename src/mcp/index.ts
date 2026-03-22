@@ -1,13 +1,15 @@
 import fs from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { closeRouter } from "./bridge/helpers.js";
-import { registerBridgeTools } from "./bridge/registerBridgeTools.js";
+import { registerBridgeDiscover } from "./bridge/bridgeDiscover.js";
+import { registerBridgeSend } from "./bridge/bridgeSend.js";
+import { closeRouter, initBridge } from "./bridge/helpers.js";
+import { detectAgentType, registerBridgeTools } from "./bridge/registerBridgeTools.js";
 import { registerConnectorTools } from "./connector/connectorTools.js";
 import { setAuthToken, startListener, stopListener } from "./connector/listener.js";
 import { registerProjectTools } from "./connector/projectTools.js";
 import { registerStubTool } from "./connector/utils.js";
-import { registerDevcontainerChat } from "./devcontainer/devcontainerChat.js";
+import { registerDevcontainerCli } from "./devcontainer/devcontainerCli.js";
 import { registerDevcontainerExec } from "./devcontainer/devcontainerExec.js";
 import { startHostWakeListener, stopHostWakeListener } from "./devcontainer/hostWakeListener.js";
 
@@ -18,13 +20,26 @@ function isInsideContainer(): boolean {
 	return fs.existsSync("/.dockerenv") || !!process.env.REMOTE_CONTAINERS;
 }
 
-export async function startMcp(): Promise<void> {
-	const mcpServer = new McpServer({
-		name: "agent-team-bridge",
-		version: "0.6.0",
-	});
+const CHANNEL_INSTRUCTIONS = [
+	'Cross-team messages arrive as <channel source="bridge"> tags with attributes: session_id, from, request_type, effort, is_follow_up.',
+	"When you receive a channel message, read the request and do the work.",
+	"When finished, call the channel_reply tool with the session_id from the tag attributes.",
+].join(" ");
 
+export async function startMcp(): Promise<void> {
 	const inContainer = isInsideContainer();
+	const agentType = inContainer ? process.env.AGENT_TYPE || detectAgentType() : "claude";
+	const isChannel = inContainer && agentType === "claude";
+
+	const mcpServer = new McpServer(
+		{ name: "agent-team-bridge", version: "0.7.0" },
+		isChannel
+			? {
+					capabilities: { experimental: { "claude/channel": {} } },
+					instructions: CHANNEL_INSTRUCTIONS,
+				}
+			: undefined,
+	);
 
 	if (inContainer) {
 		// Container: register crosstalk tools for cross-team communication
@@ -68,16 +83,33 @@ export async function startMcp(): Promise<void> {
 		}
 	} else {
 		// Host: register dispatch tools for managing containers
-		registerDevcontainerChat(mcpServer);
+		registerDevcontainerCli(mcpServer);
 		registerDevcontainerExec(mcpServer);
+
+		// Init bridge for HTTP-only access (no WebSocket, just routerPost/routerGet)
+		initBridge({
+			routerUrl: process.env.BRIDGE_ROUTER_URL || "http://localhost:20000",
+			projectName: "__orchestrator__",
+			agentType: "claude",
+			effortEnv: {},
+		});
+
+		// Register crosstalk outgoing tools so the host can send to channel-connected containers
+		registerBridgeSend(mcpServer);
+		registerBridgeDiscover(mcpServer);
+
 		startHostWakeListener();
-		console.error(`[mcp] dispatch tools enabled (host mode)`);
+		console.error(`[mcp] dispatch + crosstalk tools enabled (host mode)`);
 	}
 
 	const transport = new StdioServerTransport();
 	await mcpServer.connect(transport);
 
-	const mode = inContainer ? "crosstalk + connector" : "dispatch";
+	const mode = inContainer
+		? isChannel
+			? "channel + crosstalk + connector"
+			: "cli + crosstalk + connector"
+		: "dispatch + crosstalk";
 	console.error(`[mcp] started (${mode})`);
 
 	process.stdin.on("end", () => {

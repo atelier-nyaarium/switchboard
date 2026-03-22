@@ -59,18 +59,12 @@ function runAgent(command: string, args: string[], input: string | null): Promis
 	});
 }
 
-export const AGENT_HANDLERS: Record<string, AgentHandler> = {
-	claude: {
-		async createSession(sessionId) {
-			return sessionId;
-		},
-		async sendMessage(sessionId, message, model, isFollowUp) {
-			const sessionFlag = isFollowUp ? "--resume" : "--session-id";
-			const args = ["-p", "--dangerously-skip-permissions", "--model", model, sessionFlag, sessionId];
-			return runAgent("claude", args, message);
-		},
-	},
-
+/**
+ * CLI run-and-quit agent handlers.
+ * Each handler spawns an agent CLI process, sends a prompt, and waits for exit.
+ * Claude is not included here. Claude uses the channel-based path instead.
+ */
+export const CLI_AGENT_HANDLERS: Record<string, AgentHandler> = {
 	cursor: {
 		async createSession() {
 			const id = await runAgent("cursor-agent", ["create-chat", "-f"], null);

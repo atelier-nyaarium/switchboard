@@ -1,8 +1,8 @@
+import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import WebSocket from "ws";
-import type { EffortEnv, InjectPayload } from "../../shared/types.js";
-import { AGENT_HANDLERS } from "../agent-handlers.js";
-import { buildFollowUpPrompt, buildInitialPrompt } from "../prompt-builders.js";
-import { resolveModel } from "../resolve-model.js";
+import type { ChannelPushPayload, ConnectionMode, EffortEnv, InjectPayload } from "../../shared/types.js";
+import { emitChannelNotification } from "../channel/channelNotify.js";
+import { handleInject } from "../cli/handleInject.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -33,6 +33,9 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelay = 2000;
 const RECONNECT_MAX_MS = 30000;
 
+// Server instance for channel notifications (set when Claude + channel mode)
+let channelServer: Server | null = null;
+
 export function initBridge(config: BridgeConfig): void {
 	ROUTER_URL = config.routerUrl;
 	PROJECT_NAME = config.projectName;
@@ -40,8 +43,16 @@ export function initBridge(config: BridgeConfig): void {
 	EFFORT_ENV = config.effortEnv;
 }
 
+export function setChannelServer(server: Server): void {
+	channelServer = server;
+}
+
 export function bridgeProjectName(): string {
 	return PROJECT_NAME;
+}
+
+export function bridgeAgentType(): string {
+	return AGENT_TYPE;
 }
 
 export async function routerPost(
@@ -93,10 +104,13 @@ export function connectToRouter(): void {
 	const wsUrl = `${ROUTER_URL.replace(/^http/, "ws")}/bridge`;
 	routerWs = new WebSocket(wsUrl);
 
+	const isChannel = AGENT_TYPE === "claude";
+	const mode: ConnectionMode = isChannel ? "channel" : "cli";
+
 	routerWs.on("open", () => {
-		console.error(`[bridge] connected to router`);
+		console.error(`[bridge] connected to router (mode: ${mode})`);
 		reconnectDelay = 2000;
-		const registerMsg: Record<string, string> = { type: "register", team: PROJECT_NAME };
+		const registerMsg: Record<string, string> = { type: "register", team: PROJECT_NAME, mode };
 		if (process.env.PROJECT_HOST_PATH) {
 			registerMsg.projectPath = process.env.PROJECT_HOST_PATH;
 		}
@@ -110,8 +124,17 @@ export function connectToRouter(): void {
 		} catch {
 			return;
 		}
-		if (msg.type === "inject") {
-			handleInject(msg as unknown as InjectPayload).catch((err: Error) => {
+
+		// Channel mode: receive channel_push messages for Claude
+		if (msg.type === "channel_push" && isChannel && channelServer) {
+			emitChannelNotification(channelServer, msg as unknown as ChannelPushPayload).catch((err: Error) => {
+				console.error(`[channel] notification error: ${err.message}`);
+			});
+		}
+
+		// CLI mode: receive inject messages for non-Claude agents
+		if (msg.type === "inject" && !isChannel) {
+			handleInject(msg as unknown as InjectPayload, AGENT_TYPE, EFFORT_ENV).catch((err: Error) => {
 				console.error(`[bridge] handleInject error: ${err.message}`);
 			});
 		}
@@ -129,47 +152,4 @@ export function connectToRouter(): void {
 
 export function closeRouter(): void {
 	if (routerWs) routerWs.close();
-}
-
-// Inject handler: receives requests from other teams via the router
-
-async function handleInject(msg: InjectPayload): Promise<void> {
-	const sessionId = msg.session_id;
-	if (typeof sessionId !== "string" || sessionId.length === 0) {
-		console.error(`[bridge] inject missing session_id; router must send it`);
-		return;
-	}
-
-	const handler = AGENT_HANDLERS[AGENT_TYPE];
-	if (!handler) {
-		console.error(`[bridge] unknown agent type: "${AGENT_TYPE}"`);
-		await routerPost("/respond", {
-			session_id: sessionId,
-			status: "error",
-			reason: `Agent type "${AGENT_TYPE}" is not a recognized handler. Valid types: ${Object.keys(AGENT_HANDLERS).join(", ")}`,
-		}).catch(() => {});
-		return;
-	}
-
-	try {
-		const model = resolveModel(msg.effort, { effortEnv: EFFORT_ENV, agentType: AGENT_TYPE });
-		const isFollowUp = !!msg.is_follow_up;
-		const agentSessionId = isFollowUp ? sessionId : await handler.createSession(sessionId);
-
-		const prompt = isFollowUp ? buildFollowUpPrompt(msg, sessionId) : buildInitialPrompt(msg, sessionId);
-
-		console.error(
-			`[bridge] ${isFollowUp ? "follow-up" : "new"} ${AGENT_TYPE}/${model} session ${sessionId.slice(0, 8)}... from ${msg.from}`,
-		);
-
-		await handler.sendMessage(agentSessionId, prompt, model, isFollowUp);
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		console.error(`[bridge] inject failed: ${message}`);
-		await routerPost("/respond", {
-			session_id: sessionId,
-			status: "error",
-			reason: message,
-		}).catch(() => {});
-	}
 }

@@ -10,14 +10,16 @@ description: You are a Multi-Project Orchestrator. Spawn relay agents to coordin
 
 You spin up and manage a relay team using `TeamCreate` to orchestrate work across multiple devcontainer projects simultaneously. Each relay agent is a smart bridge to a devcontainer where the real agent lives. The container agent is the brain for that project. The relay chooses call patterns (chat vs exec), holds reports until complete, and prioritizes human-action alerts. You never implement directly, nor enter devcontainers yourself.
 
-**Prerequisite:** This skill runs on the WSL host. The MCP tools `agent-team-bridge:dispatch_chat()` and `agent-team-bridge:dispatch_exec()` must be available. If they are not, stop and tell the user.
+**Prerequisite:** This skill runs on the WSL host. The MCP tools `agent-team-bridge:dispatch_cli()`, `agent-team-bridge:dispatch_exec()`, `agent-team-bridge:crosstalk_send()`, and `agent-team-bridge:crosstalk_discover()` must be available. If they are not, stop and tell the user.
+
+**Agent routing:** Claude containers use channel-based communication via `crosstalk_send`. Other CLI agents (cursor, copilot, codex) use `dispatch_cli`. Use `crosstalk_discover` to see which teams are online and their connection mode.
 
 ## Your team
 
 - **You** - survey projects, plan work, spawn relay agents, delegate tasks, coordinate across projects, synthesize reports, relay human decisions
 - `roster` - structural memory. Holds current team state including each relay's projectPath, sessionId, and connection details.
 - `goals` - intent memory. Records objectives, milestones, direction changes. Written verbosely so it can restore full context after compaction.
-- **Relay Agents** - one per devcontainer project. Named `relay-<project>`. Each relay uses `agent-team-bridge:dispatch_chat()` to send prompts into its devcontainer and return results.
+- **Relay Agents** - one per devcontainer project. Named `relay-<project>`. Each relay uses `agent-team-bridge:dispatch_cli()` to send prompts into its devcontainer and return results.
 - **Host Agents** - for projects without a devcontainer (e.g. Blender addons). Named by project. Work directly on the host filesystem.
 
 ## Team Identity

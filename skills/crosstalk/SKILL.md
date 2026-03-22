@@ -62,9 +62,20 @@ client timeout may need to be increased in `.mcp.json` or the client's settings.
 
 ## Receiving a Request
 
-When another team sends you a request, it is injected into your session as a prompt
-containing a `session_id` in the header.
+How you receive requests depends on which agent is running:
 
-Do the work, then call **`agent-team-bridge:crosstalk_reply()`** with that session_id. The tool schema describes all
-available fields and which status requires which fields. Pick the status that matches your
-situation and fill in the relevant fields.
+### Claude (channel mode)
+
+Requests arrive as `<channel source="bridge">` tags in your session with attributes
+like `session_id`, `from`, `request_type`, and `effort`. Do the work, then call
+**`agent-team-bridge:channel_reply()`** with that `session_id`.
+
+### CLI agents (cursor, copilot, codex)
+
+Requests are injected into your session as a prompt containing a `session_id` in the header.
+Do the work, then call **`agent-team-bridge:crosstalk_reply()`** with that `session_id`.
+
+### Reply statuses
+
+The tool schema describes all available fields and which status requires which fields.
+Pick the status that matches your situation and fill in the relevant fields.

@@ -72,13 +72,14 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCa
 		const teamsList: TeamInfo[] = [];
 		const seen = new Set<string>();
 
-		for (const [name] of registry) {
+		for (const [name, ws] of registry) {
 			if (name === "__host__") continue;
 			seen.add(name);
 			const lock = getMutex.peek(name);
 			teamsList.push({
 				team: name,
 				status: "active",
+				mode: ws.data.mode,
 				queue_depth: lock ? lock.queue.length + (lock.locked ? 1 : 0) : 0,
 			});
 		}
@@ -119,6 +120,43 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCa
 		}
 
 		const sessionId = session_id || crypto.randomUUID();
+		const targetMode = targetWs.data.mode;
+
+		// Channel mode: fire-and-forget, no mutex. Claude receives via channel push.
+		if (targetMode === "channel") {
+			try {
+				store.create(sessionId, from, to);
+
+				const payload = {
+					type: "channel_push",
+					from,
+					request_type: type || "question",
+					body: msgBody || "",
+					effort: effort || "auto",
+					session_id: sessionId,
+					is_follow_up: !!session_id,
+				};
+
+				if (targetWs.readyState !== 1) {
+					throw new Error(`Team "${to}" disconnected before message could be delivered`);
+				}
+				targetWs.send(JSON.stringify(payload));
+
+				console.log(`[send] channel_push to ${to} [${sessionId.slice(0, 8)}...] from ${from}`);
+
+				return jsonResponse({
+					session_id: sessionId,
+					status: "running",
+					message: `Message pushed to ${to} via channel. Poll with session_id to check for reply.`,
+				});
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				console.error(`[send] channel error:`, message);
+				return jsonResponse({ error: message }, 500);
+			}
+		}
+
+		// CLI mode: mutex + inject + wait for response (existing behavior)
 		let release: (() => void) | undefined;
 
 		try {

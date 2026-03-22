@@ -2,9 +2,9 @@ import crypto from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
-	AGENT_TYPES,
 	assertNotContainer,
 	buildAgentCommand,
+	CLI_AGENT_TYPES,
 	EFFORT_LEVELS,
 	ensureContainerUp,
 	execInContainer,
@@ -15,7 +15,7 @@ import {
 ////////////////////////////////
 //  Schemas
 
-const DevcontainerChatSchema = z.object({
+const DevcontainerCliSchema = z.object({
 	projectPath: z.string().describe(`Path to the project directory. Absolute or relative to ~/.`),
 	prompt: z
 		.string()
@@ -36,15 +36,15 @@ const DevcontainerChatSchema = z.object({
 			`Session ID returned in a previous response. Pass it back along with a new prompt to continue the same conversation. Omit to start a fresh conversation.`,
 		),
 	agent: z
-		.enum(AGENT_TYPES)
+		.enum(CLI_AGENT_TYPES)
 		.describe(
-			`Agent CLI to use: claude, cursor, copilot, or codex. Try claude first. If it is not installed in the container, use dispatch_exec to run "which claude cursor copilot codex" to see which are available.`,
+			`CLI agent to use: cursor, copilot, or codex. Use dispatch_exec to run "which cursor-agent copilot codex" to see which are available. Claude uses channel-based communication instead, so use crosstalk_send to reach Claude containers.`,
 		),
 	effort: z
 		.enum(EFFORT_LEVELS)
 		.describe(`Effort level: simple, standard, or complex. Controls which model the agent uses.`),
 });
-type DevcontainerChatArgs = z.infer<typeof DevcontainerChatSchema>;
+type DevcontainerCliArgs = z.infer<typeof DevcontainerCliSchema>;
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -68,9 +68,12 @@ const POLL_WAIT_MS = 60_000;
 const POLL_INTERVAL_MS = 5_000;
 
 const description = `
-Send a prompt to an agent CLI inside a project's devcontainer.
-Automatically starts the container if needed.
-Supports claude, cursor, copilot, and codex agents.
+Run a CLI agent (cursor, copilot, codex) inside a project's devcontainer.
+Spawns the agent process, sends a prompt, and waits for completion.
+This is a run-and-quit operation. The agent runs, responds, then exits.
+
+NOTE: Claude does NOT use this tool. Claude containers use channel-based communication.
+To send work to a Claude container, use crosstalk_send instead.
 
 Three call patterns:
 1. New chat: provide projectPath + prompt + agent + effort. Returns response, sessionId, and jobId.
@@ -147,18 +150,18 @@ async function pollJob(projectPath: string, jobId: string, waitMs: number): Prom
 	};
 }
 
-export function registerDevcontainerChat(mcpServer: McpServer): void {
+export function registerDevcontainerCli(mcpServer: McpServer): void {
 	mcpServer.registerTool(
-		"dispatch_chat",
+		"dispatch_cli",
 		{
-			title: "Dispatch Chat",
+			title: "Dispatch CLI",
 			description,
 			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-			inputSchema: DevcontainerChatSchema.shape as any,
+			inputSchema: DevcontainerCliSchema.shape as any,
 		},
 		async (rawArgs: Record<string, unknown>) => {
 			try {
-				const args: DevcontainerChatArgs = DevcontainerChatSchema.parse(rawArgs);
+				const args: DevcontainerCliArgs = DevcontainerCliSchema.parse(rawArgs);
 				assertNotContainer();
 				const projectPath = resolveProject(args.projectPath);
 
