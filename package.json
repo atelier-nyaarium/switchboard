@@ -1,6 +1,6 @@
 {
 	"name": "agent-team-bridge",
-	"version": "2.1.6",
+	"version": "2.2.0",
 	"type": "module",
 	"scripts": {
 		"start:arbiter": "bun run src/main.ts --arbiter",
@@ -11,6 +11,7 @@
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.26.0",
+		"discord.js": "^14.25.1",
 		"ws": "^8.18.0",
 		"zod": "^4.3.6"
 	},

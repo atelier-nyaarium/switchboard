@@ -4,6 +4,7 @@ import { getMutex, type Mutex } from "../shared/mutex.js";
 import { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ResponsePayload } from "../shared/types.js";
 import { handleProxyClose, handleProxyMessage, isProxyConnection, setupProxy } from "./connectorProxy.js";
+import { startDiscordRelay } from "./discord/discordClient.js";
 import { createRoutes } from "./routes.js";
 import { WakeCoordinator } from "./wake.js";
 import { createWebSocketHandlers, type WsData } from "./websocket.js";
@@ -19,7 +20,7 @@ interface MutexAccessor {
 ////////////////////////////////
 //  Functions & Helpers
 
-export function startArbiter(): void {
+export async function startArbiter(): Promise<void> {
 	const PORT = parseInt(process.env.PORT || "20000", 10);
 	const LOG_PATH = path.join("/app", "log", "debug.log");
 	const RESPONSE_TIMEOUT_MS = parseInt(process.env.RESPONSE_TIMEOUT_MS || "600000", 10);
@@ -64,6 +65,10 @@ export function startArbiter(): void {
 		return success;
 	}
 
+	// Start Discord relay if all required env vars are present
+	const hasDiscord = process.env.DISCORD_CLIENT_ID && process.env.DISCORD_SECRET_KEY && process.env.DISCORD_OWNER_ID;
+	const discordRelay = hasDiscord ? await startDiscordRelay({ registry }) : null;
+
 	const routes = createRoutes({
 		registry,
 		store,
@@ -71,6 +76,7 @@ export function startArbiter(): void {
 		config: { LOG_PATH, RESPONSE_TIMEOUT_MS },
 		tryWakeTeam,
 		offlineCatalog,
+		discordRelay,
 	});
 
 	const wsHandlers = createWebSocketHandlers({
@@ -106,6 +112,7 @@ export function startArbiter(): void {
 		if (method === "POST" && url.pathname === "/respond") return routes.respond(req, body);
 		if (method === "POST" && url.pathname === "/poll") return routes.poll(req, body);
 		if (method === "GET" && url.pathname === "/health") return routes.health();
+		if (method === "POST" && url.pathname === "/discord/reply") return routes.discordReply(req, body);
 
 		return new Response("Not Found", { status: 404 });
 	}

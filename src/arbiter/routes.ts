@@ -18,6 +18,9 @@ export interface RoutesDeps {
 	tryWakeTeam: (team: string) => Promise<boolean>;
 	offlineCatalog: Map<string, string>;
 	config: ArbiterConfig;
+	discordRelay?: {
+		sendDM: (parts: string[], retryCount?: number) => Promise<import("./discord/discordClient.js").SendDMResult>;
+	} | null;
 }
 
 const SendRequestSchema = z.object({
@@ -43,6 +46,11 @@ const RespondBodySchema = z.object({
 
 const PollRequestSchema = z.object({
 	session_id: z.string(),
+});
+
+const DiscordReplySchema = z.object({
+	parts: z.array(z.string()),
+	retryCount: z.number().optional(),
 });
 
 ////////////////////////////////
@@ -80,7 +88,15 @@ function getAllActiveWs(subs: Map<string, ServerWebSocket<WsData>>): ServerWebSo
 	return result;
 }
 
-export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCatalog, config }: RoutesDeps) {
+export function createRoutes({
+	registry,
+	store,
+	getMutex,
+	tryWakeTeam,
+	offlineCatalog,
+	config,
+	discordRelay,
+}: RoutesDeps) {
 	const { LOG_PATH, RESPONSE_TIMEOUT_MS } = config;
 
 	function ingest(req: Request, body: Record<string, unknown>): Response {
@@ -338,5 +354,25 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCa
 		});
 	}
 
-	return { ingest, pending, teams, send, respond, poll, health };
+	async function discordReply(req: Request, body: Record<string, unknown>): Promise<Response> {
+		if (!discordRelay) {
+			return jsonResponse(
+				{
+					error: `Discord relay is not active. Set DISCORD_CLIENT_ID, DISCORD_SECRET_KEY, and DISCORD_OWNER_ID.`,
+				},
+				503,
+			);
+		}
+
+		const parsed = DiscordReplySchema.safeParse(body);
+		if (!parsed.success) {
+			return jsonResponse({ error: `Invalid request: parts (string[]) is required` }, 400);
+		}
+
+		const { parts, retryCount } = parsed.data;
+		const result = await discordRelay.sendDM(parts, retryCount ?? 0);
+		return jsonResponse(result, result.success ? 200 : 422);
+	}
+
+	return { ingest, pending, teams, send, respond, poll, health, discordReply };
 }

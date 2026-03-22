@@ -15,6 +15,7 @@ import { registerProjectTools } from "./connector/projectTools.js";
 import { registerStubTool } from "./connector/utils.js";
 import { registerDevcontainerCli } from "./devcontainer/devcontainerCli.js";
 import { registerDevcontainerExec } from "./devcontainer/devcontainerExec.js";
+import { registerDiscordReply } from "./devcontainer/discordReply.js";
 import { startHostWakeListener, stopHostWakeListener } from "./devcontainer/hostWakeListener.js";
 import { registerSessionPeek } from "./devcontainer/sessionPeek.js";
 import { registerSessionSend } from "./devcontainer/sessionSend.js";
@@ -104,6 +105,12 @@ export async function startMcp(): Promise<void> {
 		registerBridgeSend(mcpServer);
 		registerBridgeDiscover(mcpServer);
 		setChannelServer(mcpServer.server);
+
+		// Register Discord reply tool if Discord env vars are present
+		if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_SECRET_KEY && process.env.DISCORD_OWNER_ID) {
+			registerDiscordReply(mcpServer);
+			console.error(`[mcp] discord_reply tool enabled`);
+		}
 
 		const projectDirs = [path.join(os.homedir(), "projects")];
 		startHostWakeListener(projectDirs);

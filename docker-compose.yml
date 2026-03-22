@@ -9,6 +9,9 @@ services:
     environment:
       - PORT=20000
       - RESPONSE_TIMEOUT_MS=600000
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID:-}
+      - DISCORD_SECRET_KEY=${DISCORD_SECRET_KEY:-}
+      - DISCORD_OWNER_ID=${DISCORD_OWNER_ID:-}
     networks:
       - agent-team-bridge-network
     volumes:
