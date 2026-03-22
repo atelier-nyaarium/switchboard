@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import type { Server } from "bun";
+import { isInsideContainer } from "../../shared/env.js";
 import { addClient, type ClientData, getAllClients, getClient, removeClient } from "./sessions.js";
 
 const TAG = "[connector]";
@@ -41,16 +42,12 @@ export function getAuthToken(): string | null {
 	return authToken;
 }
 
-export function isInContainer(): boolean {
-	return existsSync("/.dockerenv") || !!process.env.REMOTE_CONTAINERS;
-}
-
 export function getListenerState(): ListenerState | null {
 	return state;
 }
 
 export function startListener(port: number): void {
-	const hostname = isInContainer() ? "0.0.0.0" : "127.0.0.1";
+	const hostname = isInsideContainer() ? "0.0.0.0" : "127.0.0.1";
 	state = createServer({ hostname, port, mode: "http" });
 	console.error(`${TAG} Listener started on ${hostname}:${port} (HTTP)`);
 }
@@ -73,7 +70,7 @@ export function restartWithTls(connectorDir: string, port: number): void {
 
 export function restartWithoutTls(port: number): void {
 	stopListener();
-	const hostname = isInContainer() ? "0.0.0.0" : "127.0.0.1";
+	const hostname = isInsideContainer() ? "0.0.0.0" : "127.0.0.1";
 	state = createServer({ hostname, port, mode: "http" });
 	console.error(`${TAG} Listener restarted on ${hostname}:${port} (HTTP)`);
 }

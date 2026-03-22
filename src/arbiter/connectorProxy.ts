@@ -53,11 +53,7 @@ export function setupProxy(clientWs: ServerWebSocket<WsData>, project: string, a
 export function handleProxyMessage(clientWs: ServerWebSocket<WsData>, data: string | Buffer): void {
 	const upstream = upstreamMap.get(clientWs);
 	if (!upstream || upstream.readyState !== WebSocket.OPEN) return;
-	if (typeof data === "string") {
-		upstream.send(data);
-	} else {
-		upstream.send(data);
-	}
+	upstream.send(data);
 }
 
 export function handleProxyClose(clientWs: ServerWebSocket<WsData>): void {

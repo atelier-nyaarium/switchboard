@@ -27,7 +27,7 @@ export function startArbiter(): void {
 	const HEARTBEAT_INTERVAL_MS = 30000;
 	const MISSED_PINGS_LIMIT = 2;
 
-	const registry = new Map<string, ServerWebSocket<WsData>>();
+	const registry = new Map<string, Map<string, ServerWebSocket<WsData>>>();
 	const store = new PendingJobStore<ResponsePayload>();
 	const targetLocks = new Map<string, Mutex>();
 	const knownTeamPaths = new Map<string, string>();
@@ -41,8 +41,9 @@ export function startArbiter(): void {
 	});
 
 	async function tryWakeTeam(team: string): Promise<boolean> {
-		const hostWs = registry.get("__host__");
-		if (!hostWs || hostWs.readyState !== 1) {
+		const hostSubs = registry.get("__host__");
+		const hostWs = hostSubs ? [...hostSubs.values()].find((ws) => ws.readyState === 1) : undefined;
+		if (!hostWs) {
 			console.log(`[wake] cannot wake ${team} - __host__ is not connected`);
 			return false;
 		}
@@ -123,6 +124,7 @@ export function startArbiter(): void {
 					server.upgrade(req, {
 						data: {
 							teamName: null,
+							subId: "",
 							mode: "cli" as const,
 							missedPings: 0,
 							isStale: false,
@@ -140,7 +142,7 @@ export function startArbiter(): void {
 			if (url.pathname === "/bridge") {
 				if (
 					server.upgrade(req, {
-						data: { teamName: null, mode: "cli" as const, missedPings: 0, isStale: false },
+						data: { teamName: null, subId: "", mode: "cli" as const, missedPings: 0, isStale: false },
 					})
 				) {
 					return;

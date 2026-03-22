@@ -4,6 +4,17 @@ import { Mutex } from "../shared/mutex.js";
 import { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ResponsePayload } from "../shared/types.js";
 
+/** Wrap a fake WebSocket into the nested registry structure: team → subId → ws */
+function makeRegistry(entries: Record<string, unknown>): RoutesDeps["registry"] {
+	const registry = new Map() as RoutesDeps["registry"];
+	for (const [team, ws] of Object.entries(entries)) {
+		const subs = new Map();
+		subs.set("sub-1", ws);
+		registry.set(team, subs);
+	}
+	return registry;
+}
+
 function makeCtx(overrides: Partial<RoutesDeps> = {}): RoutesDeps {
 	const registry = overrides.registry || (new Map() as RoutesDeps["registry"]);
 	const store = overrides.store || new PendingJobStore<ResponsePayload>();
@@ -52,9 +63,8 @@ describe("routes", () => {
 		});
 
 		it("returns team info with queue_depth", async () => {
-			const registry = new Map();
-			registry.set("team-x", { readyState: 1, data: { mode: "cli" } });
-			const ctx = makeCtx({ registry: registry as RoutesDeps["registry"] });
+			const registry = makeRegistry({ "team-x": { readyState: 1, data: { mode: "cli" } } });
+			const ctx = makeCtx({ registry });
 			const mutex = ctx.getMutex("team-x");
 			await mutex.acquire("id-1");
 
@@ -73,12 +83,11 @@ describe("routes", () => {
 		});
 
 		it("active teams take precedence over catalog", async () => {
-			const registry = new Map();
-			registry.set("proj-a", { readyState: 1, data: { mode: "cli" } });
+			const registry = makeRegistry({ "proj-a": { readyState: 1, data: { mode: "cli" } } });
 			const offlineCatalog = new Map<string, string>();
 			offlineCatalog.set("proj-a", "/home/user/proj-a");
 			offlineCatalog.set("proj-b", "/home/user/proj-b");
-			const ctx = makeCtx({ registry: registry as RoutesDeps["registry"], offlineCatalog });
+			const ctx = makeCtx({ registry, offlineCatalog });
 			const { teams } = createRoutes(ctx);
 			const res = teams();
 			const json = await res.json();
@@ -174,11 +183,10 @@ describe("routes", () => {
 
 	describe("/health", () => {
 		it("returns ok with counts", async () => {
-			const registry = new Map();
-			registry.set("a", {});
+			const registry = makeRegistry({ a: { readyState: 1, data: { mode: "cli" } } });
 			const store = new PendingJobStore<ResponsePayload>();
 			store.create("s1", "a", "b");
-			const ctx = makeCtx({ registry: registry as RoutesDeps["registry"], store });
+			const ctx = makeCtx({ registry, store });
 			const { health } = createRoutes(ctx);
 			const res = health();
 			expect(await res.json()).toEqual({ ok: true, teams: 1, pending_jobs: 1 });
@@ -199,9 +207,8 @@ describe("routes", () => {
 		});
 
 		it("returns 404 when target ws.readyState !== 1", async () => {
-			const registry = new Map();
-			registry.set("b", { readyState: 3, data: { mode: "cli" } });
-			const ctx = makeCtx({ registry: registry as RoutesDeps["registry"] });
+			const registry = makeRegistry({ b: { readyState: 3, data: { mode: "cli" } } });
+			const ctx = makeCtx({ registry });
 			const { send } = createRoutes(ctx);
 			const res = await send(new Request("http://localhost/send", { method: "POST" }), {
 				from: "a",
@@ -220,10 +227,9 @@ describe("routes", () => {
 					sent.push(JSON.parse(data));
 				},
 			};
-			const registry = new Map();
-			registry.set("b", fakeWs);
+			const registry = makeRegistry({ b: fakeWs });
 			const store = new PendingJobStore<ResponsePayload>();
-			const ctx = makeCtx({ registry: registry as RoutesDeps["registry"], store });
+			const ctx = makeCtx({ registry, store });
 			const { send } = createRoutes(ctx);
 
 			const promise = send(new Request("http://localhost/send", { method: "POST" }), {
@@ -252,10 +258,9 @@ describe("routes", () => {
 
 		it("includes debug fields when debug=true", async () => {
 			const fakeWs = { readyState: 1, data: { mode: "cli" }, send() {} };
-			const registry = new Map();
-			registry.set("b", fakeWs);
+			const registry = makeRegistry({ b: fakeWs });
 			const store = new PendingJobStore<ResponsePayload>();
-			const ctx = makeCtx({ registry: registry as RoutesDeps["registry"], store });
+			const ctx = makeCtx({ registry, store });
 			const { send } = createRoutes(ctx);
 
 			const promise = send(new Request("http://localhost/send", { method: "POST" }), {
@@ -279,9 +284,8 @@ describe("routes", () => {
 
 		it("returns running when no response in time", async () => {
 			const fakeWs = { readyState: 1, data: { mode: "cli" }, send() {} };
-			const registry = new Map();
-			registry.set("b", fakeWs);
-			const ctx = makeCtx({ registry: registry as RoutesDeps["registry"] });
+			const registry = makeRegistry({ b: fakeWs });
+			const ctx = makeCtx({ registry });
 			ctx.config.RESPONSE_TIMEOUT_MS = 50;
 			const { send } = createRoutes(ctx);
 
@@ -298,10 +302,9 @@ describe("routes", () => {
 
 		it("late delivery is stored and pollable after timeout", async () => {
 			const fakeWs = { readyState: 1, data: { mode: "cli" }, send() {} };
-			const registry = new Map();
-			registry.set("b", fakeWs);
+			const registry = makeRegistry({ b: fakeWs });
 			const store = new PendingJobStore<ResponsePayload>();
-			const ctx = makeCtx({ registry: registry as RoutesDeps["registry"], store });
+			const ctx = makeCtx({ registry, store });
 			ctx.config.RESPONSE_TIMEOUT_MS = 50;
 			const routes = createRoutes(ctx);
 

@@ -57,6 +57,7 @@ export interface RegisterMessage {
 	type: "register";
 	team: string;
 	mode?: ConnectionMode;
+	subId?: string;
 }
 
 export interface TeamInfo {

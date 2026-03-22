@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WakeCoordinator } from "../arbiter/wake.js";
-import { createWebSocketHandlers, type WsData } from "../arbiter/websocket.js";
+import { createWebSocketHandlers, type TeamRegistry, type WsData } from "../arbiter/websocket.js";
 import { Mutex } from "../shared/mutex.js";
 import { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ResponsePayload } from "../shared/types.js";
 
 function createMockWs() {
 	return {
-		data: { teamName: null, missedPings: 0, isStale: false } as WsData,
+		data: { teamName: null, subId: "", missedPings: 0, isStale: false } as WsData,
 		readyState: 1,
 		close: vi.fn(),
 		ping: vi.fn(),
@@ -24,7 +24,7 @@ describe("createWebSocketHandlers", () => {
 
 	function setup(
 		overrides: {
-			registry?: Map<string, import("bun").ServerWebSocket<WsData>>;
+			registry?: TeamRegistry;
 			store?: PendingJobStore<ResponsePayload>;
 			targetLocks?: Map<string, Mutex>;
 			knownTeamPaths?: Map<string, string>;
@@ -32,7 +32,7 @@ describe("createWebSocketHandlers", () => {
 			wakeCoordinator?: WakeCoordinator;
 		} = {},
 	) {
-		const registry = overrides.registry || new Map();
+		const registry: TeamRegistry = overrides.registry || new Map();
 		const store = overrides.store || new PendingJobStore<ResponsePayload>();
 		const targetLocks = overrides.targetLocks || new Map();
 		const knownTeamPaths = overrides.knownTeamPaths || new Map();
@@ -55,34 +55,67 @@ describe("createWebSocketHandlers", () => {
 		const { handlers, registry } = setup();
 		const ws = createMockWs();
 		handlers.open(ws);
-		handlers.message(ws, JSON.stringify({ type: "register", team: "alpha" }));
-		expect(registry.get("alpha")).toBe(ws);
+		handlers.message(ws, JSON.stringify({ type: "register", team: "alpha", subId: "s1" }));
+		const subs = registry.get("alpha");
+		expect(subs).toBeDefined();
+		expect(subs!.get("s1")).toBe(ws);
 	});
 
-	it("re-registration closes stale socket", () => {
+	it("multiple sub-sessions coexist under same team", () => {
+		const { handlers, registry } = setup();
+		const ws1 = createMockWs();
+		const ws2 = createMockWs();
+		handlers.open(ws1);
+		handlers.open(ws2);
+		handlers.message(ws1, JSON.stringify({ type: "register", team: "alpha", subId: "s1" }));
+		handlers.message(ws2, JSON.stringify({ type: "register", team: "alpha", subId: "s2" }));
+
+		const subs = registry.get("alpha");
+		expect(subs!.size).toBe(2);
+		expect(subs!.get("s1")).toBe(ws1);
+		expect(subs!.get("s2")).toBe(ws2);
+		expect(ws1.close).not.toHaveBeenCalled();
+	});
+
+	it("re-registration with same subId closes stale socket", () => {
 		const { handlers, registry } = setup();
 		const ws1 = createMockWs();
 		handlers.open(ws1);
-		handlers.message(ws1, JSON.stringify({ type: "register", team: "alpha" }));
+		handlers.message(ws1, JSON.stringify({ type: "register", team: "alpha", subId: "s1" }));
 
 		const ws2 = createMockWs();
 		handlers.open(ws2);
-		handlers.message(ws2, JSON.stringify({ type: "register", team: "alpha" }));
+		handlers.message(ws2, JSON.stringify({ type: "register", team: "alpha", subId: "s1" }));
 
 		expect(ws1.close).toHaveBeenCalled();
-		expect(registry.get("alpha")).toBe(ws2);
+		expect(registry.get("alpha")!.get("s1")).toBe(ws2);
 	});
 
-	it("disconnect removes team from registry", () => {
+	it("disconnect removes sub from team, keeps team if other subs remain", () => {
+		const { handlers, registry } = setup();
+		const ws1 = createMockWs();
+		const ws2 = createMockWs();
+		handlers.open(ws1);
+		handlers.open(ws2);
+		handlers.message(ws1, JSON.stringify({ type: "register", team: "alpha", subId: "s1" }));
+		handlers.message(ws2, JSON.stringify({ type: "register", team: "alpha", subId: "s2" }));
+
+		handlers.close(ws1);
+		expect(registry.has("alpha")).toBe(true);
+		expect(registry.get("alpha")!.size).toBe(1);
+		expect(registry.get("alpha")!.has("s2")).toBe(true);
+	});
+
+	it("last sub disconnect removes team from registry", () => {
 		const { handlers, registry } = setup();
 		const ws = createMockWs();
 		handlers.open(ws);
-		handlers.message(ws, JSON.stringify({ type: "register", team: "alpha" }));
+		handlers.message(ws, JSON.stringify({ type: "register", team: "alpha", subId: "s1" }));
 		handlers.close(ws);
 		expect(registry.has("alpha")).toBe(false);
 	});
 
-	it("disconnect delivers error to pending jobs for that team", async () => {
+	it("last sub disconnect delivers error to pending jobs", async () => {
 		const store = new PendingJobStore<ResponsePayload>();
 		store.create("sess-1", "other", "alpha");
 
@@ -94,7 +127,7 @@ describe("createWebSocketHandlers", () => {
 		const { handlers } = setup({ store });
 		const ws = createMockWs();
 		handlers.open(ws);
-		handlers.message(ws, JSON.stringify({ type: "register", team: "alpha" }));
+		handlers.message(ws, JSON.stringify({ type: "register", team: "alpha", subId: "s1" }));
 		handlers.close(ws);
 
 		await waitPromise;
@@ -102,7 +135,7 @@ describe("createWebSocketHandlers", () => {
 		expect(waitResult!.result!.status).toBe("error");
 	});
 
-	it("disconnect force-releases mutex if locked", async () => {
+	it("last sub disconnect force-releases mutex", async () => {
 		const targetLocks = new Map<string, Mutex>();
 		const mutex = new Mutex();
 		await mutex.acquire("id-1");
@@ -111,24 +144,24 @@ describe("createWebSocketHandlers", () => {
 		const { handlers } = setup({ targetLocks });
 		const ws = createMockWs();
 		handlers.open(ws);
-		handlers.message(ws, JSON.stringify({ type: "register", team: "alpha" }));
+		handlers.message(ws, JSON.stringify({ type: "register", team: "alpha", subId: "s1" }));
 		handlers.close(ws);
 		expect(mutex.locked).toBe(false);
 	});
 
-	it("stale close does not remove team from registry", () => {
+	it("stale close does not remove sub from registry", () => {
 		const { handlers, registry } = setup();
 		const ws1 = createMockWs();
 		handlers.open(ws1);
-		handlers.message(ws1, JSON.stringify({ type: "register", team: "alpha" }));
+		handlers.message(ws1, JSON.stringify({ type: "register", team: "alpha", subId: "s1" }));
 
 		const ws2 = createMockWs();
 		handlers.open(ws2);
-		handlers.message(ws2, JSON.stringify({ type: "register", team: "alpha" }));
+		handlers.message(ws2, JSON.stringify({ type: "register", team: "alpha", subId: "s1" }));
 
-		// ws1 close fires late
+		// ws1 close fires late (marked stale by re-registration)
 		handlers.close(ws1);
-		expect(registry.get("alpha")).toBe(ws2);
+		expect(registry.get("alpha")!.get("s1")).toBe(ws2);
 	});
 
 	it("invalid JSON message is silently ignored", () => {
@@ -143,7 +176,7 @@ describe("createWebSocketHandlers", () => {
 		const { handlers, offlineCatalog } = setup();
 		const ws = createMockWs();
 		handlers.open(ws);
-		handlers.message(ws, JSON.stringify({ type: "register", team: "__host__" }));
+		handlers.message(ws, JSON.stringify({ type: "register", team: "__host__", subId: "h1" }));
 		handlers.message(
 			ws,
 			JSON.stringify({
@@ -162,7 +195,7 @@ describe("createWebSocketHandlers", () => {
 		const { handlers, offlineCatalog } = setup();
 		const ws = createMockWs();
 		handlers.open(ws);
-		handlers.message(ws, JSON.stringify({ type: "register", team: "some-team" }));
+		handlers.message(ws, JSON.stringify({ type: "register", team: "some-team", subId: "s1" }));
 		handlers.message(
 			ws,
 			JSON.stringify({
@@ -177,7 +210,7 @@ describe("createWebSocketHandlers", () => {
 		const { handlers, offlineCatalog } = setup();
 		const ws = createMockWs();
 		handlers.open(ws);
-		handlers.message(ws, JSON.stringify({ type: "register", team: "__host__" }));
+		handlers.message(ws, JSON.stringify({ type: "register", team: "__host__", subId: "h1" }));
 		handlers.message(
 			ws,
 			JSON.stringify({
@@ -196,7 +229,7 @@ describe("createWebSocketHandlers", () => {
 		const { handlers } = setup({ knownTeamPaths });
 		const ws = createMockWs();
 		handlers.open(ws);
-		handlers.message(ws, JSON.stringify({ type: "register", team: "__host__" }));
+		handlers.message(ws, JSON.stringify({ type: "register", team: "__host__", subId: "h1" }));
 		handlers.message(
 			ws,
 			JSON.stringify({

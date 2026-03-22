@@ -4,14 +4,14 @@ import path from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { Mutex } from "../shared/mutex.js";
 import type { PendingJobStore } from "../shared/pending-job-store.js";
-import type { ArbiterConfig, ResponsePayload, TeamInfo } from "../shared/types.js";
-import type { WsData } from "./websocket.js";
+import type { ArbiterConfig, ConnectionMode, ResponsePayload, TeamInfo } from "../shared/types.js";
+import type { TeamRegistry, WsData } from "./websocket.js";
 
 ////////////////////////////////
 //  Interfaces & Types
 
 export interface RoutesDeps {
-	registry: Map<string, ServerWebSocket<WsData>>;
+	registry: TeamRegistry;
 	store: PendingJobStore<ResponsePayload>;
 	getMutex: ((team: string) => Mutex) & { peek: (team: string) => Mutex | undefined };
 	tryWakeTeam: (team: string) => Promise<boolean>;
@@ -37,6 +37,31 @@ function jsonResponse(data: unknown, status = 200): Response {
 		status,
 		headers: { "Content-Type": "application/json" },
 	});
+}
+
+/** Get the first active WebSocket for a team (any sub-session). */
+function getFirstWs(subs: Map<string, ServerWebSocket<WsData>>): ServerWebSocket<WsData> | undefined {
+	for (const [, ws] of subs) {
+		if (ws.readyState === 1) return ws;
+	}
+	return undefined;
+}
+
+/** Get the mode of a team from its first sub-session. */
+function getTeamMode(subs: Map<string, ServerWebSocket<WsData>>): ConnectionMode {
+	for (const [, ws] of subs) {
+		return ws.data.mode;
+	}
+	return "cli";
+}
+
+/** Get all active WebSockets for a team. */
+function getAllActiveWs(subs: Map<string, ServerWebSocket<WsData>>): ServerWebSocket<WsData>[] {
+	const result: ServerWebSocket<WsData>[] = [];
+	for (const [, ws] of subs) {
+		if (ws.readyState === 1) result.push(ws);
+	}
+	return result;
 }
 
 export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCatalog, config }: RoutesDeps) {
@@ -72,14 +97,14 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCa
 		const teamsList: TeamInfo[] = [];
 		const seen = new Set<string>();
 
-		for (const [name, ws] of registry) {
+		for (const [name, subs] of registry) {
 			if (name === "__host__") continue;
 			seen.add(name);
 			const lock = getMutex.peek(name);
 			teamsList.push({
 				team: name,
 				status: "active",
-				mode: ws.data.mode,
+				mode: getTeamMode(subs),
 				queue_depth: lock ? lock.queue.length + (lock.locked ? 1 : 0) : 0,
 			});
 		}
@@ -99,17 +124,19 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCa
 			return jsonResponse({ error: `"__host__" is not a team` }, 400);
 		}
 
-		let targetWs = registry.get(to);
+		let subs = registry.get(to);
+		let targetWs = subs ? getFirstWs(subs) : undefined;
 
 		// If offline, attempt to wake the container
-		if (!targetWs || targetWs.readyState !== 1) {
+		if (!targetWs) {
 			const woken = await tryWakeTeam(to);
 			if (woken) {
-				targetWs = registry.get(to);
+				subs = registry.get(to);
+				targetWs = subs ? getFirstWs(subs) : undefined;
 			}
 		}
 
-		if (!targetWs || targetWs.readyState !== 1) {
+		if (!targetWs || !subs) {
 			return jsonResponse(
 				{
 					error: `Team "${to}" is not connected`,
@@ -120,14 +147,14 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCa
 		}
 
 		const sessionId = session_id || crypto.randomUUID();
-		const targetMode = targetWs.data.mode;
+		const targetMode = getTeamMode(subs);
 
-		// Channel mode: fire-and-forget, no mutex. Claude receives via channel push.
+		// Channel mode: broadcast to all sub-sessions, no mutex.
 		if (targetMode === "channel") {
 			try {
 				store.create(sessionId, from, to);
 
-				const payload = {
+				const payload = JSON.stringify({
 					type: "channel_push",
 					from,
 					request_type: type || "question",
@@ -135,14 +162,20 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCa
 					effort: effort || "auto",
 					session_id: sessionId,
 					is_follow_up: !!session_id,
-				};
+				});
 
-				if (targetWs.readyState !== 1) {
-					throw new Error(`Team "${to}" disconnected before message could be delivered`);
+				const activeWs = getAllActiveWs(subs);
+				if (activeWs.length === 0) {
+					throw new Error(`Team "${to}" has no active connections`);
 				}
-				targetWs.send(JSON.stringify(payload));
 
-				console.log(`[send] channel_push to ${to} [${sessionId.slice(0, 8)}...] from ${from}`);
+				for (const ws of activeWs) {
+					ws.send(payload);
+				}
+
+				console.log(
+					`[send] channel_push to ${to} [${sessionId.slice(0, 8)}...] from ${from} (${activeWs.length} sub-session${activeWs.length > 1 ? "s" : ""})`,
+				);
 
 				return jsonResponse({
 					session_id: sessionId,
@@ -156,7 +189,7 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCa
 			}
 		}
 
-		// CLI mode: mutex + inject + wait for response (existing behavior)
+		// CLI mode: send to first available sub, mutex + wait for response
 		let release: (() => void) | undefined;
 
 		try {

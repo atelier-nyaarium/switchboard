@@ -55,7 +55,3 @@ export function getClient(shortHash: string): ClientSession | undefined {
 export function getAllClients(): ClientSession[] {
 	return Array.from(clients.values());
 }
-
-export function getClientCount(): number {
-	return clients.size;
-}

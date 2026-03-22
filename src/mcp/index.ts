@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import packageJson from "../../package.json";
+import { isInsideContainer } from "../shared/env.js";
 import { registerBridgeDiscover } from "./bridge/bridgeDiscover.js";
 import { registerBridgeSend } from "./bridge/bridgeSend.js";
 import { closeRouter, initBridge } from "./bridge/helpers.js";
@@ -16,10 +18,6 @@ import { startHostWakeListener, stopHostWakeListener } from "./devcontainer/host
 ////////////////////////////////
 //  Functions & Helpers
 
-function isInsideContainer(): boolean {
-	return fs.existsSync("/.dockerenv") || !!process.env.REMOTE_CONTAINERS;
-}
-
 const CHANNEL_INSTRUCTIONS = [
 	'Cross-team messages arrive as <channel source="bridge"> tags with attributes: session_id, from, request_type, effort, is_follow_up.',
 	"When you receive a channel message, read the request and do the work.",
@@ -32,7 +30,7 @@ export async function startMcp(): Promise<void> {
 	const isChannel = inContainer && agentType === "claude";
 
 	const mcpServer = new McpServer(
-		{ name: "agent-team-bridge", version: "2.0.1" },
+		{ name: "agent-team-bridge", version: packageJson.version },
 		isChannel
 			? {
 					capabilities: { experimental: { "claude/channel": {} } },

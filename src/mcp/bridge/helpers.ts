@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import WebSocket from "ws";
 import type { ChannelPushPayload, ConnectionMode, EffortEnv, InjectPayload } from "../../shared/types.js";
@@ -110,7 +111,8 @@ export function connectToRouter(): void {
 	routerWs.on("open", () => {
 		console.error(`[bridge] connected to router (mode: ${mode})`);
 		reconnectDelay = 2000;
-		const registerMsg: Record<string, string> = { type: "register", team: PROJECT_NAME, mode };
+		const subId = crypto.randomUUID().slice(0, 8);
+		const registerMsg: Record<string, string> = { type: "register", team: PROJECT_NAME, mode, subId };
 		if (process.env.PROJECT_HOST_PATH) {
 			registerMsg.projectPath = process.env.PROJECT_HOST_PATH;
 		}

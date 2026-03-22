@@ -7,8 +7,10 @@ import type { WakeCoordinator } from "./wake.js";
 ////////////////////////////////
 //  Interfaces & Types
 
+export type TeamRegistry = Map<string, Map<string, ServerWebSocket<WsData>>>;
+
 export interface WebSocketDeps {
-	registry: Map<string, ServerWebSocket<WsData>>;
+	registry: TeamRegistry;
 	store: PendingJobStore<ResponsePayload>;
 	targetLocks: Map<string, Mutex>;
 	knownTeamPaths: Map<string, string>;
@@ -19,6 +21,7 @@ export interface WebSocketDeps {
 
 export interface WsData {
 	teamName: string | null;
+	subId: string;
 	mode: ConnectionMode;
 	missedPings: number;
 	isStale: boolean;
@@ -41,14 +44,16 @@ export function createWebSocketHandlers({
 	const { HEARTBEAT_INTERVAL_MS = 30000, MISSED_PINGS_LIMIT = 2 } = config;
 
 	const heartbeatInterval = setInterval(() => {
-		for (const [, ws] of registry) {
-			const data = ws.data as WsData;
-			data.missedPings = (data.missedPings || 0) + 1;
-			if (data.missedPings >= MISSED_PINGS_LIMIT) {
-				ws.close();
-				continue;
+		for (const [, subs] of registry) {
+			for (const [, ws] of subs) {
+				const data = ws.data as WsData;
+				data.missedPings = (data.missedPings || 0) + 1;
+				if (data.missedPings >= MISSED_PINGS_LIMIT) {
+					ws.close();
+					continue;
+				}
+				ws.ping();
 			}
-			ws.ping();
 		}
 	}, HEARTBEAT_INTERVAL_MS);
 
@@ -67,23 +72,33 @@ export function createWebSocketHandlers({
 
 		if (msg.type === "register") {
 			const team = msg.team as string;
+			const subId = (msg.subId as string) || crypto.randomUUID().slice(0, 8);
 			const mode = (msg.mode === "channel" ? "channel" : "cli") as ConnectionMode;
-			const existing = registry.get(team);
+
+			let subs = registry.get(team);
+			if (!subs) {
+				subs = new Map();
+				registry.set(team, subs);
+			}
+
+			// If this subId already exists with a different socket, close the old one
+			const existing = subs.get(subId);
 			if (existing && existing !== ws) {
-				console.log(`[ws] ${team} re-registered - closing stale socket`);
 				existing.data.isStale = true;
 				existing.close();
 			}
+
 			ws.data.teamName = team;
+			ws.data.subId = subId;
 			ws.data.mode = mode;
-			registry.set(team, ws);
+			subs.set(subId, ws);
 
 			if (typeof msg.projectPath === "string" && msg.projectPath) {
 				knownTeamPaths.set(team, msg.projectPath);
 			}
 
 			wakeCoordinator.notify(team);
-			console.log(`[ws] ${team} connected (mode: ${mode})`);
+			console.log(`[ws] ${team}/${subId} connected (mode: ${mode})`);
 		}
 
 		if (msg.type === "wake_result" && msg.success === false && typeof msg.team === "string") {
@@ -112,42 +127,56 @@ export function createWebSocketHandlers({
 
 	function close(ws: ServerWebSocket<WsData>): void {
 		const teamName = ws.data.teamName;
+		const subId = ws.data.subId;
 
 		if (ws.data.isStale) {
-			console.log(`[ws] stale socket closed for ${teamName} - ignoring`);
+			console.log(`[ws] stale socket closed for ${teamName}/${subId} - ignoring`);
 			return;
 		}
 
 		if (!teamName) return;
 
 		if (teamName === "__host__") {
-			registry.delete(teamName);
+			const subs = registry.get(teamName);
+			if (subs) {
+				subs.delete(subId);
+				if (subs.size === 0) registry.delete(teamName);
+			}
 			offlineCatalog.clear();
 			console.log(`[ws] __host__ disconnected - offline catalog cleared`);
 			return;
 		}
 
-		if (registry.get(teamName) !== ws) {
-			console.log(`[ws] stale close for ${teamName} - new socket already registered, skipping cleanup`);
+		const subs = registry.get(teamName);
+		if (!subs) return;
+
+		// Only remove if this is the registered socket for this subId
+		if (subs.get(subId) !== ws) {
+			console.log(`[ws] stale close for ${teamName}/${subId} - skipping cleanup`);
 			return;
 		}
 
-		registry.delete(teamName);
-		console.log(`[ws] ${teamName} disconnected`);
+		subs.delete(subId);
+		console.log(`[ws] ${teamName}/${subId} disconnected (${subs.size} remaining)`);
 
-		for (const id of store.getIdsForTeam(teamName)) {
-			store.deliver(id, {
-				session_id: id,
-				status: "error",
-				message: `Team "${teamName}" disconnected before responding`,
-			} as ResponsePayload);
-			console.log(`[ws] cancelled pending session ${id} (${teamName} disconnected)`);
-		}
+		// If team has no more sub-sessions, clean up fully
+		if (subs.size === 0) {
+			registry.delete(teamName);
 
-		const mutex = targetLocks.get(teamName);
-		if (mutex?.locked) {
-			console.log(`[mutex] force-releasing ${teamName} after disconnect`);
-			mutex.release();
+			for (const id of store.getIdsForTeam(teamName)) {
+				store.deliver(id, {
+					session_id: id,
+					status: "error",
+					message: `Team "${teamName}" disconnected before responding`,
+				} as ResponsePayload);
+				console.log(`[ws] cancelled pending session ${id} (${teamName} disconnected)`);
+			}
+
+			const mutex = targetLocks.get(teamName);
+			if (mutex?.locked) {
+				console.log(`[mutex] force-releasing ${teamName} after disconnect`);
+				mutex.release();
+			}
 		}
 	}
 
