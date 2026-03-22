@@ -32,7 +32,7 @@ export async function startMcp(): Promise<void> {
 	const isChannel = inContainer && agentType === "claude";
 
 	const mcpServer = new McpServer(
-		{ name: "agent-team-bridge", version: "0.7.0" },
+		{ name: "agent-team-bridge", version: "2.0.1" },
 		isChannel
 			? {
 					capabilities: { experimental: { "claude/channel": {} } },

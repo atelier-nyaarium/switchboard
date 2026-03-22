@@ -81,11 +81,20 @@ export class PendingJobStore<T> {
 		if (!entry) return false;
 
 		if (entry.state === "waiting" && entry.resolve) {
+			// Synchronous delivery: someone is waiting via waitForResult()
 			if (entry.timer) clearTimeout(entry.timer);
 			entry.timer = null;
 			entry.resolve({ delivered: true, result });
 			entry.resolve = null;
 			this.entries.delete(id);
+			return true;
+		}
+
+		if (entry.state === "waiting" && !entry.resolve) {
+			// Async delivery: channel mode, no one called waitForResult(). Store for polling.
+			entry.state = "stored";
+			entry.storedResult = result;
+			entry.createdAt = Date.now();
 			return true;
 		}
 
