@@ -2,8 +2,14 @@ import crypto from "node:crypto";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import WebSocket from "ws";
 import { createReconnector } from "../../shared/reconnect.js";
-import type { ChannelPushPayload, ConnectionMode, EffortEnv, InjectPayload } from "../../shared/types.js";
-import { emitChannelNotification } from "../channel/channelNotify.js";
+import type {
+	ChannelPushPayload,
+	ConnectionMode,
+	EffortEnv,
+	InjectPayload,
+	ResponsePushPayload,
+} from "../../shared/types.js";
+import { emitChannelNotification, emitResponseNotification } from "../channel/channelNotify.js";
 import { handleInject } from "../cli/handleInject.js";
 
 ////////////////////////////////
@@ -120,6 +126,13 @@ export function connectToRouter(): void {
 		if (msg.type === "channel_push" && isChannel && channelServer) {
 			emitChannelNotification(channelServer, msg as unknown as ChannelPushPayload).catch((err: Error) => {
 				console.error(`[channel] notification error: ${err.message}`);
+			});
+		}
+
+		// Channel mode: receive response_push when a reply arrives for a sent request
+		if (msg.type === "response_push" && isChannel && channelServer) {
+			emitResponseNotification(channelServer, msg as unknown as ResponsePushPayload).catch((err: Error) => {
+				console.error(`[channel] response notification error: ${err.message}`);
 			});
 		}
 

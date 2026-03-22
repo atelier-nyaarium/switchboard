@@ -5,7 +5,7 @@ import type { ServerWebSocket } from "bun";
 import { z } from "zod";
 import type { Mutex } from "../shared/mutex.js";
 import type { PendingJobStore } from "../shared/pending-job-store.js";
-import type { ArbiterConfig, ConnectionMode, ResponsePayload, TeamInfo } from "../shared/types.js";
+import type { ArbiterConfig, ConnectionMode, ResponsePayload, ResponsePushPayload, TeamInfo } from "../shared/types.js";
 import type { TeamRegistry, WsData } from "./websocket.js";
 
 ////////////////////////////////
@@ -274,12 +274,34 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCa
 
 		const { session_id: respondSessionId, ...response } = parsed.data;
 
-		const delivered = store.deliver(respondSessionId, response as ResponsePayload);
-		if (!delivered) {
+		const deliverResult = store.deliver(respondSessionId, response as ResponsePayload);
+		if (!deliverResult) {
 			return jsonResponse({ error: `No pending request for session_id "${respondSessionId}"` }, 404);
 		}
 
 		console.log(`[respond] ${respondSessionId} → ${response.status}`);
+
+		// Push response back to channel-mode sender
+		const fromSubs = registry.get(deliverResult.from);
+		if (fromSubs && getTeamMode(fromSubs) === "channel") {
+			try {
+				const push: ResponsePushPayload = {
+					type: "response_push",
+					session_id: respondSessionId,
+					...response,
+					status: response.status ?? "",
+				};
+				const pushMsg = JSON.stringify(push);
+				for (const ws of getAllActiveWs(fromSubs)) {
+					ws.send(pushMsg);
+				}
+				store.remove(respondSessionId);
+				console.log(`[respond] pushed to ${deliverResult.from} [${respondSessionId.slice(0, 8)}...]`);
+			} catch {
+				console.log(`[respond] push failed, kept for polling [${respondSessionId.slice(0, 8)}...]`);
+			}
+		}
+
 		return jsonResponse({ delivered: true });
 	}
 

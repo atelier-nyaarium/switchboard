@@ -76,7 +76,7 @@ export class PendingJobStore<T> {
 		});
 	}
 
-	deliver(id: string, result: T): boolean {
+	deliver(id: string, result: T): { delivered: boolean; from: string; to: string } | false {
 		const entry = this.entries.get(id);
 		if (!entry) return false;
 
@@ -87,7 +87,7 @@ export class PendingJobStore<T> {
 			entry.resolve({ delivered: true, result });
 			entry.resolve = null;
 			this.entries.delete(id);
-			return true;
+			return { delivered: true, from: entry.from, to: entry.to };
 		}
 
 		if (entry.state === "waiting" && !entry.resolve) {
@@ -95,17 +95,23 @@ export class PendingJobStore<T> {
 			entry.state = "stored";
 			entry.storedResult = result;
 			entry.createdAt = Date.now();
-			return true;
+			return { delivered: true, from: entry.from, to: entry.to };
 		}
 
 		if (entry.state === "timed_out") {
 			entry.state = "stored";
 			entry.storedResult = result;
 			entry.createdAt = Date.now();
-			return true;
+			return { delivered: true, from: entry.from, to: entry.to };
 		}
 
 		return false;
+	}
+
+	remove(id: string): void {
+		const entry = this.entries.get(id);
+		if (entry?.timer) clearTimeout(entry.timer);
+		this.entries.delete(id);
 	}
 
 	poll(id: string): T | null | undefined {

@@ -1,5 +1,5 @@
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import type { ChannelPushPayload } from "../../shared/types.js";
+import type { ChannelPushPayload, ResponsePushPayload } from "../../shared/types.js";
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -26,4 +26,20 @@ export async function emitChannelNotification(server: Server, payload: ChannelPu
 	console.error(
 		`[channel] pushed ${payload.is_follow_up ? "follow-up" : "request"} from ${payload.from} [${payload.session_id.slice(0, 8)}...]`,
 	);
+}
+
+export async function emitResponseNotification(server: Server, payload: ResponsePushPayload): Promise<void> {
+	const parts = [`Status: ${payload.status}`];
+	if (payload.response) parts.push(payload.response);
+	if (payload.question) parts.push(`Question: ${payload.question}`);
+	if (payload.reason) parts.push(`Reason: ${payload.reason}`);
+
+	await server.notification({
+		method: "notifications/claude/channel",
+		params: {
+			content: parts.join("\n"),
+			meta: { session_id: payload.session_id, type: "response" },
+		},
+	});
+	console.error(`[channel] response pushed to sender [${payload.session_id.slice(0, 8)}...]`);
 }

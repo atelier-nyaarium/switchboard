@@ -244,7 +244,12 @@ describe("routes", () => {
 			// Deliver via the store (simulating /respond)
 			const jobs = store.listAll();
 			expect(jobs.length).toBe(1);
-			store.deliver(jobs[0].id, { session_id: jobs[0].id, status: "completed", response: "answer" });
+			const deliverResult = store.deliver(jobs[0].id, {
+				session_id: jobs[0].id,
+				status: "completed",
+				response: "answer",
+			});
+			expect(deliverResult).toBeTruthy();
 
 			const res = await promise;
 			const json = await res.json();

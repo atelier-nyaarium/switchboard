@@ -44,6 +44,18 @@ export interface ResponsePayload {
 	message?: string;
 }
 
+export interface ResponsePushPayload {
+	type: "response_push";
+	session_id: string;
+	status: string;
+	response?: string;
+	question?: string;
+	reason?: string;
+	estimated_minutes?: number;
+	what_to_decide?: string;
+	message?: string;
+}
+
 export interface EffortEnv {
 	simple?: string;
 	standard?: string;

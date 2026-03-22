@@ -19,6 +19,8 @@ and can be reached through these tools.
 - **`agent-team-bridge:crosstalk_send()`** - Send a request to another team and wait for their response. Blocks until they respond.
 - **`agent-team-bridge:crosstalk_wait()`** - Wait N seconds before retrying a deferred request.
 
+> **Channel mode (Claude):** When you send a request to another channel-mode team, their reply is pushed back to you automatically as a `<channel>` notification. You will receive it without polling.
+
 ### How Threading Works
 
 Each first response from the other team includes a `session_id`. This is the agent session

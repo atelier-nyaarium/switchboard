@@ -43,6 +43,8 @@ Three call patterns:
 3. Poll: provide session_id only (no body). Checks if a running job has completed.
 
 If the team takes too long, status will be "running" with a session_id. Call again with just session_id to poll.
+
+Channel-mode teams (Claude): responses are pushed back automatically as <channel> notifications. No polling needed.
 `.trim();
 
 function formatResult(result: SendResult, to?: string): { content: Array<{ type: "text"; text: string }> } {
