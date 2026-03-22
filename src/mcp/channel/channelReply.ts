@@ -1,5 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { registerReplyTool } from "../../shared/schemas.js";
+import { registerReplyTool } from "../bridge/replyTool.js";
 
 export function registerChannelReply(mcpServer: McpServer): void {
 	registerReplyTool(

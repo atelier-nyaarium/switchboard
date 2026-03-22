@@ -47,24 +47,28 @@ export function registerBridgeTools(mcpServer: McpServer): void {
 			"crosstalk_discover",
 			{
 				title: "Crosstalk Discover",
-				description: `List all active teams on the bridge network.`,
+				description: `[Disabled] List all active teams on the bridge network.`,
 				inputSchema: {},
 			},
 			async () => configError,
 		);
 		mcpServer.registerTool(
 			"crosstalk_send",
-			{ title: "Crosstalk Send", description: `Send a request to another team.`, inputSchema: {} },
+			{ title: "Crosstalk Send", description: `[Disabled] Send a request to another team.`, inputSchema: {} },
 			async () => configError,
 		);
 		mcpServer.registerTool(
 			"crosstalk_reply",
-			{ title: "Crosstalk Reply", description: `Reply to an incoming bridge request.`, inputSchema: {} },
+			{
+				title: "Crosstalk Reply",
+				description: `[Disabled] Reply to an incoming bridge request.`,
+				inputSchema: {},
+			},
 			async () => configError,
 		);
 		mcpServer.registerTool(
 			"crosstalk_wait",
-			{ title: "Crosstalk Wait", description: `Wait N seconds before retrying.`, inputSchema: {} },
+			{ title: "Crosstalk Wait", description: `[Disabled] Wait N seconds before retrying.`, inputSchema: {} },
 			async () => configError,
 		);
 		return;

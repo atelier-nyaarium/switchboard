@@ -45,6 +45,7 @@ its own thread.
 - **completed** - Work done. Check `response`.
 - **clarification** - They need more info. Answer via a follow-up `agent-team-bridge:crosstalk_send()` with the same `session_id`.
 - **deferred** - They're busy, or still working on it. Use `agent-team-bridge:crosstalk_wait()`, then retry.
+- **running** - The team is still processing. Poll with `session_id` to check later.
 
 **Problems - propagate these back to your human:**
 
