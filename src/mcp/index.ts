@@ -1,8 +1,8 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import packageJson from "../../package.json";
 import { isInsideContainer } from "../shared/env.js";
 import { registerBridgeDiscover } from "./bridge/bridgeDiscover.js";
@@ -16,6 +16,8 @@ import { registerStubTool } from "./connector/utils.js";
 import { registerDevcontainerCli } from "./devcontainer/devcontainerCli.js";
 import { registerDevcontainerExec } from "./devcontainer/devcontainerExec.js";
 import { startHostWakeListener, stopHostWakeListener } from "./devcontainer/hostWakeListener.js";
+import { registerSessionPeek } from "./devcontainer/sessionPeek.js";
+import { registerSessionSend } from "./devcontainer/sessionSend.js";
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -87,6 +89,8 @@ export async function startMcp(): Promise<void> {
 		// Host: register dispatch tools for managing containers
 		registerDevcontainerCli(mcpServer);
 		registerDevcontainerExec(mcpServer);
+		registerSessionPeek(mcpServer);
+		registerSessionSend(mcpServer);
 
 		// Init bridge for HTTP-only access (no WebSocket, just routerPost/routerGet)
 		initBridge({
