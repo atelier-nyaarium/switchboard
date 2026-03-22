@@ -5,7 +5,7 @@ import { registerCliReply } from "../cli/cliReply.js";
 import { registerBridgeDiscover } from "./bridgeDiscover.js";
 import { registerBridgeSend } from "./bridgeSend.js";
 import { registerBridgeWait } from "./bridgeWait.js";
-import { connectToRouter, initBridge, setChannelServer } from "./helpers.js";
+import { initBridge, setChannelServer } from "./helpers.js";
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -99,6 +99,4 @@ export function registerBridgeTools(mcpServer: McpServer): void {
 		registerCliReply(mcpServer);
 		console.error(`[bridge] CLI mode (${agentType}), crosstalk_reply registered`);
 	}
-
-	connectToRouter();
 }
