@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { ServerWebSocket } from "bun";
+import { z } from "zod";
 import type { Mutex } from "../shared/mutex.js";
 import type { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ArbiterConfig, ConnectionMode, ResponsePayload, TeamInfo } from "../shared/types.js";
@@ -19,15 +20,23 @@ export interface RoutesDeps {
 	config: ArbiterConfig;
 }
 
-interface SendRequestBody {
-	from: string;
-	to: string;
-	type?: string;
-	effort?: string;
-	body?: string;
-	session_id?: string;
-	debug?: boolean;
-}
+const SendRequestSchema = z.object({
+	from: z.string(),
+	to: z.string(),
+	type: z.string().optional(),
+	effort: z.string().optional(),
+	body: z.string().optional(),
+	session_id: z.string().optional(),
+	debug: z.boolean().optional(),
+});
+
+const RespondRequestSchema = z.object({
+	session_id: z.string(),
+});
+
+const PollRequestSchema = z.object({
+	session_id: z.string(),
+});
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -118,7 +127,11 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCa
 	}
 
 	async function send(req: Request, body: Record<string, unknown>): Promise<Response> {
-		const { from, to, type, effort, body: msgBody, session_id, debug } = body as unknown as SendRequestBody;
+		const parsed = SendRequestSchema.safeParse(body);
+		if (!parsed.success) {
+			return jsonResponse({ error: `Invalid request: ${parsed.error.message}` }, 400);
+		}
+		const { from, to, type, effort, body: msgBody, session_id, debug } = parsed.data;
 
 		if (to === "__host__") {
 			return jsonResponse({ error: `"__host__" is not a team` }, 400);
@@ -247,11 +260,13 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCa
 	}
 
 	function respond(req: Request, body: Record<string, unknown>): Response {
-		const { session_id: respondSessionId, ...response } = body as { session_id?: string; [key: string]: unknown };
-
-		if (!respondSessionId) {
+		const parsed = RespondRequestSchema.safeParse(body);
+		if (!parsed.success) {
 			return jsonResponse({ error: `session_id is required` }, 400);
 		}
+
+		const { session_id: respondSessionId } = parsed.data;
+		const { session_id: _sid, ...response } = body;
 
 		const delivered = store.deliver(respondSessionId, response as unknown as ResponsePayload);
 		if (!delivered) {
@@ -263,11 +278,12 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCa
 	}
 
 	function poll(req: Request, body: Record<string, unknown>): Response {
-		const { session_id } = body as { session_id?: string };
-
-		if (!session_id) {
+		const parsed = PollRequestSchema.safeParse(body);
+		if (!parsed.success) {
 			return jsonResponse({ error: `session_id is required` }, 400);
 		}
+
+		const { session_id } = parsed.data;
 
 		const result = store.poll(session_id);
 
