@@ -7,7 +7,7 @@ import packageJson from "../../package.json";
 import { isInsideContainer } from "../shared/env.js";
 import { registerBridgeDiscover } from "./bridge/bridgeDiscover.js";
 import { registerBridgeSend } from "./bridge/bridgeSend.js";
-import { closeRouter, connectToRouter, initBridge } from "./bridge/helpers.js";
+import { closeRouter, connectToRouter, initBridge, setChannelServer } from "./bridge/helpers.js";
 import { detectAgentType, registerBridgeTools } from "./bridge/registerBridgeTools.js";
 import { registerConnectorTools } from "./connector/connectorTools.js";
 import { setAuthToken, startListener, stopListener } from "./connector/listener.js";
@@ -97,6 +97,7 @@ export async function startMcp(): Promise<void> {
 		// Register crosstalk outgoing tools so the host can send to channel-connected containers
 		registerBridgeSend(mcpServer);
 		registerBridgeDiscover(mcpServer);
+		setChannelServer(mcpServer.server);
 
 		const projectDirs = [path.join(os.homedir(), "projects")];
 		startHostWakeListener(projectDirs);
@@ -106,15 +107,13 @@ export async function startMcp(): Promise<void> {
 	const transport = new StdioServerTransport();
 	await mcpServer.connect(transport);
 
-	if (inContainer) {
-		connectToRouter();
-	}
+	connectToRouter();
 
 	const mode = inContainer
 		? isChannel
 			? "channel + crosstalk + connector"
 			: "cli + crosstalk + connector"
-		: "dispatch + crosstalk";
+		: "dispatch + crosstalk + channel";
 	console.error(`[mcp] started (${mode})`);
 
 	process.stdin.on("end", () => {
