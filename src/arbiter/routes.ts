@@ -103,7 +103,7 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCa
 			const lock = getMutex.peek(name);
 			teamsList.push({
 				team: name,
-				status: "active",
+				status: "online",
 				mode: getTeamMode(subs),
 				queue_depth: lock ? lock.queue.length + (lock.locked ? 1 : 0) : 0,
 			});
@@ -111,7 +111,7 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCa
 
 		for (const [name] of offlineCatalog) {
 			if (seen.has(name)) continue;
-			teamsList.push({ team: name, status: "offline", queue_depth: 0 });
+			teamsList.push({ team: name, status: "available", queue_depth: 0 });
 		}
 
 		return jsonResponse(teamsList);

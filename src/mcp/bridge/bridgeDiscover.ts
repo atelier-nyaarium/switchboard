@@ -9,7 +9,7 @@ export function registerBridgeDiscover(mcpServer: McpServer): void {
 		"crosstalk_discover",
 		{
 			title: "Crosstalk Discover",
-			description: `List all teams on the bridge network (active and offline).`,
+			description: `List all teams on the bridge network (online and available).`,
 			inputSchema: {},
 		},
 		async () => {
@@ -26,8 +26,8 @@ export function registerBridgeDiscover(mcpServer: McpServer): void {
 				}
 
 				const lines = others.map((t) => {
-					if (t.status === "offline") return `- ${t.team}: offline`;
-					const status = t.queue_depth > 0 ? `busy (${t.queue_depth} in queue)` : "available";
+					if (t.status === "available") return `- ${t.team}: available (wake on demand)`;
+					const status = t.queue_depth > 0 ? `busy (${t.queue_depth} in queue)` : "online";
 					return `- ${t.team}: ${status}`;
 				});
 

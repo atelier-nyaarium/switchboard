@@ -62,7 +62,7 @@ export interface RegisterMessage {
 
 export interface TeamInfo {
 	team: string;
-	status: "active" | "offline";
+	status: "online" | "available";
 	mode?: ConnectionMode;
 	queue_depth: number;
 }

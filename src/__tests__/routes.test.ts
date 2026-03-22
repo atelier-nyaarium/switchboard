@@ -70,7 +70,7 @@ describe("routes", () => {
 
 			const { teams } = createRoutes(ctx);
 			const res = teams();
-			expect(await res.json()).toEqual([{ team: "team-x", status: "active", mode: "cli", queue_depth: 1 }]);
+			expect(await res.json()).toEqual([{ team: "team-x", status: "online", mode: "cli", queue_depth: 1 }]);
 		});
 
 		it("returns offline teams from catalog", async () => {
@@ -79,7 +79,7 @@ describe("routes", () => {
 			const ctx = makeCtx({ offlineCatalog });
 			const { teams } = createRoutes(ctx);
 			const res = teams();
-			expect(await res.json()).toEqual([{ team: "proj-a", status: "offline", queue_depth: 0 }]);
+			expect(await res.json()).toEqual([{ team: "proj-a", status: "available", queue_depth: 0 }]);
 		});
 
 		it("active teams take precedence over catalog", async () => {
@@ -92,8 +92,8 @@ describe("routes", () => {
 			const res = teams();
 			const json = await res.json();
 			expect(json).toEqual([
-				{ team: "proj-a", status: "active", mode: "cli", queue_depth: 0 },
-				{ team: "proj-b", status: "offline", queue_depth: 0 },
+				{ team: "proj-a", status: "online", mode: "cli", queue_depth: 0 },
+				{ team: "proj-b", status: "available", queue_depth: 0 },
 			]);
 		});
 	});
