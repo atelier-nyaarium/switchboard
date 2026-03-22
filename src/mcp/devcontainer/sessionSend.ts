@@ -1,5 +1,5 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { execSync } from "node:child_process";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { assertNotContainer } from "./helpers.js";
 
@@ -8,7 +8,9 @@ import { assertNotContainer } from "./helpers.js";
 
 const SessionSendSchema = z.object({
 	team: z.string().describe(`Team name (e.g. "evie-bot"). Resolves to container "{team}_devcontainer-dev-1".`),
-	command: z.string().describe(`Single line of input to send (e.g. "/model opus", "/effort high", "/reload-plugins").`),
+	command: z
+		.string()
+		.describe(`Single line of input to send (e.g. "/model opus", "/effort high", "/reload-plugins").`),
 });
 type SessionSendArgs = z.infer<typeof SessionSendSchema>;
 

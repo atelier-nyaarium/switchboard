@@ -203,7 +203,7 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCa
 				return jsonResponse({
 					session_id: sessionId,
 					status: "running",
-					message: `Message pushed to ${to} via channel. Poll with session_id to check for reply.`,
+					message: `Message pushed to ${to} via channel. Response will be pushed back automatically.`,
 				});
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
