@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import WebSocket from "ws";
-import { ensureContainerUpAsync, resolveProject } from "./helpers.js";
+import { ensureContainerUpAsync, execInContainer, resolveProject } from "./helpers.js";
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -119,9 +119,71 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 
 	try {
 		const resolved = resolveProject(projectPath);
+		const projectName = path.basename(resolved);
 		console.error(`[host-wake] starting ${msg.team} at ${resolved}`);
 		await ensureContainerUpAsync(resolved);
-		console.error(`[host-wake] ${msg.team} is up`);
+		console.error(`[host-wake] ${msg.team} container is up, starting Claude`);
+
+		// Check if a "claude" tmux session already exists
+		let sessionExists = false;
+		try {
+			await execInContainer({
+				projectPath: resolved,
+				command: ["tmux", "has-session", "-t", "claude"],
+				timeoutMs: 10000,
+			});
+			sessionExists = true;
+		} catch {
+			// has-session exits non-zero if session doesn't exist
+		}
+
+		if (!sessionExists) {
+			await execInContainer({
+				projectPath: resolved,
+				command: [
+					"tmux",
+					"new-session",
+					"-d",
+					"-s",
+					"claude",
+					`source ~/.bashrc && cd /workspace/${projectName} && claude-skip`,
+				],
+				timeoutMs: 15000,
+			});
+			console.error(`[host-wake] ${msg.team} Claude session started`);
+		} else {
+			console.error(`[host-wake] ${msg.team} Claude session already exists`);
+		}
+
+		// Poll tmux screen to auto-accept the dev channels prompt
+		for (let i = 0; i < 10; i++) {
+			await new Promise((r) => setTimeout(r, 1000));
+			let screen = "";
+			try {
+				screen = await execInContainer({
+					projectPath: resolved,
+					command: ["tmux", "capture-pane", "-t", "claude", "-p"],
+					timeoutMs: 10000,
+				});
+			} catch {
+				// ignore capture errors
+			}
+			if (screen.includes("Claude Code")) {
+				console.error(`[host-wake] ${msg.team} Claude is ready`);
+				break;
+			}
+			if (screen.includes("Loading development channels")) {
+				try {
+					await execInContainer({
+						projectPath: resolved,
+						command: ["tmux", "send-keys", "-t", "claude", "", "Enter"],
+						timeoutMs: 5000,
+					});
+				} catch {
+					// ignore send-keys errors
+				}
+			}
+		}
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		console.error(`[host-wake] failed to wake ${msg.team}: ${message}`);
