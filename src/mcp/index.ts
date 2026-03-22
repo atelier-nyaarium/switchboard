@@ -31,12 +31,14 @@ export async function startMcp(): Promise<void> {
 	const agentType = inContainer ? process.env.AGENT_TYPE || detectAgentType() : "claude";
 	const isChannel = inContainer && agentType === "claude";
 
+	const needsChannel = agentType === "claude";
+
 	const mcpServer = new McpServer(
 		{ name: "agent-team-bridge", version: packageJson.version },
-		isChannel
+		needsChannel
 			? {
 					capabilities: { experimental: { "claude/channel": {} } },
-					instructions: CHANNEL_INSTRUCTIONS,
+					...(isChannel ? { instructions: CHANNEL_INSTRUCTIONS } : {}),
 				}
 			: undefined,
 	);
