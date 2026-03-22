@@ -1,5 +1,5 @@
-import dotenv from "dotenv";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -98,12 +98,7 @@ export async function startMcp(): Promise<void> {
 		registerBridgeSend(mcpServer);
 		registerBridgeDiscover(mcpServer);
 
-		dotenv.config({
-			path: path.resolve(import.meta.dirname, "../../.env"),
-			quiet: true,
-		});
-		const projectDirsEnv = process.env.DEVCONTAINER_PROJECT_DIRS;
-		const projectDirs = projectDirsEnv ? projectDirsEnv.split(":").filter(Boolean) : undefined;
+		const projectDirs = [path.join(os.homedir(), "projects")];
 		startHostWakeListener(projectDirs);
 		console.error(`[mcp] dispatch + crosstalk tools enabled (host mode)`);
 	}
