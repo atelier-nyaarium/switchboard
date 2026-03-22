@@ -106,11 +106,8 @@ export async function startMcp(): Promise<void> {
 		registerBridgeDiscover(mcpServer);
 		setChannelServer(mcpServer.server);
 
-		// Register Discord reply tool if Discord env vars are present
-		if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_SECRET_KEY && process.env.DISCORD_OWNER_ID) {
-			registerDiscordReply(mcpServer);
-			console.error(`[mcp] discord_reply tool enabled`);
-		}
+		// Discord reply tool — always registered, arbiter handles activation
+		registerDiscordReply(mcpServer);
 
 		const projectDirs = [path.join(os.homedir(), "projects")];
 		startHostWakeListener(projectDirs);
