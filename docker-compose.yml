@@ -3,6 +3,7 @@ services:
     build: .
     hostname: agent-team-bridge
     container_name: agent-team-bridge
+    restart: unless-stopped
     ports:
       - "20000:20000"
     environment:
