@@ -26,7 +26,7 @@ export function registerBridgeDiscover(mcpServer: McpServer): void {
 				}
 
 				const lines = others.map((t) => {
-					if (t.status === "available") return `- ${t.team}: available (wake on demand)`;
+					if (t.status === "available") return `- ${t.team}: available`;
 					const status = t.queue_depth > 0 ? `busy (${t.queue_depth} in queue)` : "online";
 					return `- ${t.team}: ${status}`;
 				});
