@@ -96,7 +96,9 @@ export async function startMcp(): Promise<void> {
 		registerBridgeSend(mcpServer);
 		registerBridgeDiscover(mcpServer);
 
-		startHostWakeListener();
+		const projectDirsEnv = process.env.DEVCONTAINER_PROJECT_DIRS;
+		const projectDirs = projectDirsEnv ? projectDirsEnv.split(":").filter(Boolean) : undefined;
+		startHostWakeListener(projectDirs);
 		console.error(`[mcp] dispatch + crosstalk tools enabled (host mode)`);
 	}
 

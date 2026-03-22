@@ -12,9 +12,13 @@ const HOME = os.homedir();
 
 let ws: WebSocket | null = null;
 let arbiterUrl = "ws://localhost:20000";
+let projectDirs: string[] = [HOME];
 const reconnector = createReconnector(() => connect());
 
-export function startHostWakeListener(): void {
+export function startHostWakeListener(dirs?: string[]): void {
+	if (dirs && dirs.length > 0) {
+		projectDirs = dirs;
+	}
 	const envUrl = process.env.BRIDGE_ROUTER_URL;
 	if (envUrl) {
 		arbiterUrl = envUrl.replace(/^http/, "ws");
@@ -71,21 +75,24 @@ function connect(): void {
 
 function scanDevcontainerProjects(): Array<{ team: string; projectPath: string }> {
 	const results: Array<{ team: string; projectPath: string }> = [];
-	let entries: string[];
-	try {
-		entries = fs.readdirSync(HOME);
-	} catch {
-		return results;
-	}
-	for (const entry of entries) {
-		const full = path.join(HOME, entry);
+	for (const dir of projectDirs) {
+		const resolved = path.isAbsolute(dir) ? dir : path.join(HOME, dir);
+		let entries: string[];
 		try {
-			if (!fs.statSync(full).isDirectory()) continue;
-			if (fs.existsSync(path.join(full, ".devcontainer", "devcontainer.json"))) {
-				results.push({ team: entry, projectPath: full });
-			}
+			entries = fs.readdirSync(resolved);
 		} catch {
-			// skip inaccessible entries
+			continue;
+		}
+		for (const entry of entries) {
+			const full = path.join(resolved, entry);
+			try {
+				if (!fs.statSync(full).isDirectory()) continue;
+				if (fs.existsSync(path.join(full, ".devcontainer", "devcontainer.json"))) {
+					results.push({ team: entry, projectPath: full });
+				}
+			} catch {
+				// skip inaccessible entries
+			}
 		}
 	}
 	return results;
@@ -100,8 +107,19 @@ interface WakeMessage {
 	projectPath?: string;
 }
 
+function findProjectPath(team: string): string {
+	for (const dir of projectDirs) {
+		const resolved = path.isAbsolute(dir) ? dir : path.join(HOME, dir);
+		const candidate = path.join(resolved, team);
+		if (fs.existsSync(path.join(candidate, ".devcontainer", "devcontainer.json"))) {
+			return candidate;
+		}
+	}
+	return path.join(projectDirs[0], team);
+}
+
 async function handleWake(msg: WakeMessage): Promise<void> {
-	const projectPath = msg.projectPath || path.join(HOME, msg.team);
+	const projectPath = msg.projectPath || findProjectPath(msg.team);
 
 	try {
 		const resolved = resolveProject(projectPath);
