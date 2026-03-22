@@ -131,6 +131,9 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCa
 		if (!targetWs) {
 			const woken = await tryWakeTeam(to);
 			if (woken) {
+				// Claude Code needs time after MCP connect to initialize its channel listener.
+				// Registration happens instantly but channel notifications aren't ready yet.
+				await new Promise((r) => setTimeout(r, 3000));
 				subs = registry.get(to);
 				targetWs = subs ? getFirstWs(subs) : undefined;
 			}
