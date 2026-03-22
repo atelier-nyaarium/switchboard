@@ -23,6 +23,9 @@ const DevcontainerExecSchema = z.object({
 });
 type DevcontainerExecArgs = z.infer<typeof DevcontainerExecSchema>;
 
+// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
+const execSchema: any = DevcontainerExecSchema;
+
 ////////////////////////////////
 //  Functions & Helpers
 
@@ -38,12 +41,10 @@ export function registerDevcontainerExec(mcpServer: McpServer): void {
 		{
 			title: "Dispatch Exec",
 			description,
-			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-			inputSchema: DevcontainerExecSchema.shape as any,
+			inputSchema: execSchema,
 		},
-		async (rawArgs: Record<string, unknown>) => {
+		async (args: DevcontainerExecArgs) => {
 			try {
-				const args: DevcontainerExecArgs = DevcontainerExecSchema.parse(rawArgs);
 				assertNotContainer();
 				const projectPath = resolveProject(args.projectPath);
 

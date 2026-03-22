@@ -46,6 +46,9 @@ const DevcontainerCliSchema = z.object({
 });
 type DevcontainerCliArgs = z.infer<typeof DevcontainerCliSchema>;
 
+// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
+const cliSchema: any = DevcontainerCliSchema;
+
 ////////////////////////////////
 //  Interfaces & Types
 
@@ -156,12 +159,10 @@ export function registerDevcontainerCli(mcpServer: McpServer): void {
 		{
 			title: "Dispatch CLI",
 			description,
-			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-			inputSchema: DevcontainerCliSchema.shape as any,
+			inputSchema: cliSchema,
 		},
-		async (rawArgs: Record<string, unknown>) => {
+		async (args: DevcontainerCliArgs) => {
 			try {
-				const args: DevcontainerCliArgs = DevcontainerCliSchema.parse(rawArgs);
 				assertNotContainer();
 				const projectPath = resolveProject(args.projectPath);
 

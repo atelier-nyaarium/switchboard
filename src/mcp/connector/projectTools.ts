@@ -98,18 +98,19 @@ export async function registerProjectTools(
 			...tool.schema.shape,
 		};
 
+		// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
+		const toolSchema: any = z.object(extendedShape);
+
 		mcpServer.registerTool(
 			tool.name,
 			{
 				title: tool.title,
 				description: tool.description,
-				// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-				inputSchema: extendedShape as any,
+				inputSchema: toolSchema,
 			},
-			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-			async (args: any) => {
+			async (args: Record<string, unknown>) => {
 				try {
-					const { clientId, ...toolArgs } = args as Record<string, unknown>;
+					const { clientId, ...toolArgs } = args;
 
 					if (!clientId || typeof clientId !== "string") {
 						return textResult(

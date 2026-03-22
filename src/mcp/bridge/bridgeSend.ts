@@ -82,8 +82,8 @@ export function registerBridgeSend(mcpServer: McpServer): void {
 		{
 			title: "Crosstalk Send",
 			description,
-			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-			inputSchema: BridgeSendSchema.shape as any,
+			// biome-ignore lint/suspicious/noExplicitAny: MCP SDK expects this type
+			inputSchema: BridgeSendSchema as any,
 		},
 		async ({ to, type, effort, body, session_id }: BridgeSendArgs) => {
 			try {

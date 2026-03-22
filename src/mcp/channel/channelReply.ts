@@ -15,8 +15,8 @@ export function registerChannelReply(mcpServer: McpServer): void {
 		{
 			title: "Channel Reply",
 			description: `Reply to an incoming channel message. Call this once when you are done handling the request from the <channel> tag.`,
-			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-			inputSchema: BridgeReplySchema.shape as any,
+			// biome-ignore lint/suspicious/noExplicitAny: MCP SDK expects this type
+			inputSchema: BridgeReplySchema as any,
 		},
 		async ({ session_id, status, ...rest }: BridgeReplyArgs) => {
 			try {

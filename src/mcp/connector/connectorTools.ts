@@ -53,14 +53,16 @@ export function registerConnectorTools(
 	const hasSchema = existsSync(schemaPath);
 	const hasCerts = existsSync(`${connectorDir}/server.crt`) && existsSync(`${connectorDir}/server.key`);
 
+	// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
+	const emptySchema: any = z.object({});
+
 	// mcpConnectorStatus
 	mcpServer.registerTool(
 		"mcpConnectorStatus",
 		{
 			title: "MCP Connector Status",
 			description: `Show the connector's mode (HTTP/HTTPS), auth status, and connected game clients with their IDs.`,
-			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-			inputSchema: z.object({}).shape as any,
+			inputSchema: emptySchema,
 		},
 		async () => {
 			const listenerState = getListenerState();
@@ -195,8 +197,7 @@ export function registerConnectorTools(
 		{
 			title: "Close MCP Connector",
 			description: `Revert the connector to localhost-only HTTP. Disconnects remote clients.`,
-			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-			inputSchema: z.object({}).shape as any,
+			inputSchema: emptySchema,
 		},
 		async () => {
 			if (!getListenerState()) {
@@ -220,7 +221,8 @@ export function registerConnectorTools(
 	);
 
 	// mcpConnectorGenerateCert
-	const generateCertObj = z.object({
+	// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
+	const generateCertObj: any = z.object({
 		domain: z.string().optional().describe(`Domain for the certificate SAN. Defaults to "localhost".`),
 	});
 	mcpServer.registerTool(
@@ -228,13 +230,11 @@ export function registerConnectorTools(
 		{
 			title: "Generate TLS Certificate",
 			description: `Generate a self-signed CA and server certificate. Writes to .claude/connector/. Required before mcpConnectorOpen.`,
-			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-			inputSchema: generateCertObj.shape as any,
+			inputSchema: generateCertObj,
 		},
-		// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-		async (args: any) => {
+		async ({ domain: domainArg }: { domain?: string }) => {
 			try {
-				const domain = (args.domain as string) || "localhost";
+				const domain = domainArg || "localhost";
 
 				if (!existsSync(connectorDir)) {
 					mkdirSync(connectorDir, { recursive: true });
@@ -273,8 +273,7 @@ export function registerConnectorTools(
 		{
 			title: "Generate Auth Token",
 			description: `Generate a bearer token for authenticating game client connections. Required before mcpConnectorOpen. Token is persisted in .claude/connector/token.`,
-			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-			inputSchema: z.object({}).shape as any,
+			inputSchema: emptySchema,
 		},
 		async () => {
 			const token = randomUUID();
@@ -300,7 +299,8 @@ export function registerConnectorTools(
 	);
 
 	// mcpConnectorDisconnect
-	const disconnectObj = z.object({
+	// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
+	const disconnectObj: any = z.object({
 		clientId: z.string().describe(`6-char client hash from mcpConnectorStatus.`),
 	});
 	mcpServer.registerTool(
@@ -308,15 +308,12 @@ export function registerConnectorTools(
 		{
 			title: "Disconnect Game Client",
 			description: `Disconnect a game client by its 6-char ID. Pending tool invocations on that client will fail. Get IDs from mcpConnectorStatus.`,
-			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-			inputSchema: disconnectObj.shape as any,
+			inputSchema: disconnectObj,
 		},
-		// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-		async (args: any) => {
+		async ({ clientId }: { clientId: string }) => {
 			if (!getListenerState()) {
 				return textResult(`Not serving. Call mcpConnectorServe to start.`, true);
 			}
-			const clientId = args.clientId as string;
 			const client = getClient(clientId);
 			if (!client) {
 				return textResult(`Client ${clientId} not found.`, true);
@@ -332,8 +329,7 @@ export function registerConnectorTools(
 		{
 			title: "Get Client Connection Bundle",
 			description: `Generate a connect.json and ca.crt bundle for a game tester to copy into their game's mcp-connector/ folder.`,
-			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-			inputSchema: z.object({}).shape as any,
+			inputSchema: emptySchema,
 		},
 		async () => {
 			const listenerState = getListenerState();
@@ -377,8 +373,7 @@ export function registerConnectorTools(
 			{
 				title: "Create MCP Schema",
 				description: `No .claude/connector/mcp-schema.js found. Run this to generate an example schema. Use /mcp to restart after editing.`,
-				// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-				inputSchema: z.object({}).shape as any,
+				inputSchema: emptySchema,
 			},
 			async () => {
 				if (!existsSync(connectorDir)) {

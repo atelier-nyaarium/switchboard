@@ -18,8 +18,8 @@ export function registerBridgeWait(mcpServer: McpServer): void {
 		{
 			title: "Crosstalk Wait",
 			description: `Wait N seconds before retrying. Use when another team asks you to wait.`,
-			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-			inputSchema: BridgeWaitSchema.shape as any,
+			// biome-ignore lint/suspicious/noExplicitAny: MCP SDK expects this type
+			inputSchema: BridgeWaitSchema as any,
 		},
 		async ({ seconds }: BridgeWaitArgs) => {
 			await new Promise((r) => setTimeout(r, seconds * 1000));

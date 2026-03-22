@@ -12,13 +12,14 @@ export function textResult(text: string, isError?: boolean) {
 }
 
 export function registerStubTool(mcpServer: McpServer, name: string, description: string, handler: () => string): void {
+	// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
+	const emptySchema: any = z.object({});
 	mcpServer.registerTool(
 		name,
 		{
 			title: name,
 			description,
-			// biome-ignore lint/suspicious/noExplicitAny: zod v4 / MCP SDK type compat
-			inputSchema: z.object({}).shape as any,
+			inputSchema: emptySchema,
 		},
 		async () => textResult(handler()),
 	);
