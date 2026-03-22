@@ -9,10 +9,13 @@ import type { ChannelPushPayload, ResponsePushPayload } from "../../shared/types
  * The message arrives as a <channel source="bridge" ...>body</channel> tag.
  */
 export async function emitChannelNotification(server: Server, payload: ChannelPushPayload): Promise<void> {
+	const replyReminder = `
+┃ 📫 Communicate with tool \`channel_reply\` ➜ session_id: \`${payload.session_id}\`
+`.trim();
 	await server.notification({
 		method: "notifications/claude/channel",
 		params: {
-			content: payload.body,
+			content: `${replyReminder}\n\n${payload.body}`,
 			meta: {
 				session_id: payload.session_id,
 				from: payload.from,

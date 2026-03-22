@@ -1,8 +1,8 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import packageJson from "../../package.json";
 import { isInsideContainer } from "../shared/env.js";
 import { registerBridgeDiscover } from "./bridge/bridgeDiscover.js";
