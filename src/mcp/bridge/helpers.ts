@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import WebSocket from "ws";
+import { createReconnector } from "../../shared/reconnect.js";
 import type { ChannelPushPayload, ConnectionMode, EffortEnv, InjectPayload } from "../../shared/types.js";
 import { emitChannelNotification } from "../channel/channelNotify.js";
 import { handleInject } from "../cli/handleInject.js";
@@ -30,9 +31,7 @@ let AGENT_TYPE = "";
 let EFFORT_ENV: EffortEnv = {};
 
 let routerWs: WebSocket | null = null;
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let reconnectDelay = 2000;
-const RECONNECT_MAX_MS = 30000;
+const reconnector = createReconnector(() => connectToRouter());
 
 // Server instance for channel notifications (set when Claude + channel mode)
 let channelServer: Server | null = null;
@@ -91,16 +90,6 @@ export async function routerGet(path: string): Promise<unknown> {
 
 // WebSocket connection to router
 
-function scheduleReconnect(): void {
-	if (reconnectTimer) return;
-	reconnectTimer = setTimeout(() => {
-		reconnectTimer = null;
-		connectToRouter();
-	}, reconnectDelay);
-	console.error(`[bridge] reconnecting in ${reconnectDelay / 1000}s...`);
-	reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
-}
-
 export function connectToRouter(): void {
 	const wsUrl = `${ROUTER_URL.replace(/^http/, "ws")}/bridge`;
 	routerWs = new WebSocket(wsUrl);
@@ -110,7 +99,7 @@ export function connectToRouter(): void {
 
 	routerWs.on("open", () => {
 		console.error(`[bridge] connected to router (mode: ${mode})`);
-		reconnectDelay = 2000;
+		reconnector.reset();
 		const subId = crypto.randomUUID().slice(0, 8);
 		const registerMsg: Record<string, string> = { type: "register", team: PROJECT_NAME, mode, subId };
 		if (process.env.PROJECT_HOST_PATH) {
@@ -144,7 +133,7 @@ export function connectToRouter(): void {
 
 	routerWs.on("close", () => {
 		console.error(`[bridge] disconnected`);
-		scheduleReconnect();
+		reconnector.schedule();
 	});
 
 	routerWs.on("error", (err: Error) => {

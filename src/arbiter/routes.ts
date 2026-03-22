@@ -30,8 +30,15 @@ const SendRequestSchema = z.object({
 	debug: z.boolean().optional(),
 });
 
-const RespondRequestSchema = z.object({
+const RespondBodySchema = z.object({
 	session_id: z.string(),
+	status: z.string().optional(),
+	response: z.string().optional(),
+	question: z.string().optional(),
+	reason: z.string().optional(),
+	estimated_minutes: z.number().optional(),
+	what_to_decide: z.string().optional(),
+	message: z.string().optional(),
 });
 
 const PollRequestSchema = z.object({
@@ -260,20 +267,19 @@ export function createRoutes({ registry, store, getMutex, tryWakeTeam, offlineCa
 	}
 
 	function respond(req: Request, body: Record<string, unknown>): Response {
-		const parsed = RespondRequestSchema.safeParse(body);
+		const parsed = RespondBodySchema.safeParse(body);
 		if (!parsed.success) {
-			return jsonResponse({ error: `session_id is required` }, 400);
+			return jsonResponse({ error: `Invalid request: ${parsed.error.message}` }, 400);
 		}
 
-		const { session_id: respondSessionId } = parsed.data;
-		const { session_id: _sid, ...response } = body;
+		const { session_id: respondSessionId, ...response } = parsed.data;
 
-		const delivered = store.deliver(respondSessionId, response as unknown as ResponsePayload);
+		const delivered = store.deliver(respondSessionId, response as ResponsePayload);
 		if (!delivered) {
 			return jsonResponse({ error: `No pending request for session_id "${respondSessionId}"` }, 404);
 		}
 
-		console.log(`[respond] ${respondSessionId} → ${(response as Record<string, unknown>).status}`);
+		console.log(`[respond] ${respondSessionId} → ${response.status}`);
 		return jsonResponse({ delivered: true });
 	}
 

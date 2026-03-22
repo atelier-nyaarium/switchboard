@@ -86,6 +86,22 @@ export function resolveProject(projectPath: string): string {
 
 // Container lifecycle
 
+function parseDevcontainerOutput(output: string, projectPath: string): void {
+	const lines = output.trim().split("\n");
+	const lastLine = lines[lines.length - 1];
+	try {
+		const result = JSON.parse(lastLine);
+		if (result.outcome !== "success") {
+			throw new Error(`devcontainer up returned outcome '${result.outcome}' for '${projectPath}'.`);
+		}
+	} catch (e) {
+		if (e instanceof SyntaxError) {
+			throw new Error(`devcontainer up returned unexpected output for '${projectPath}':\n${lastLine}`);
+		}
+		throw e;
+	}
+}
+
 function isContainerReady(projectPath: string): boolean {
 	try {
 		execSync(`"${devcontainerBin()}" exec --workspace-folder "${projectPath}" echo ok`, {
@@ -114,19 +130,7 @@ export function ensureContainerUp(projectPath: string): void {
 		throw new Error(`devcontainer up failed for '${projectPath}':\n${msg}`);
 	}
 
-	const lines = output.trim().split("\n");
-	const lastLine = lines[lines.length - 1];
-	try {
-		const result = JSON.parse(lastLine);
-		if (result.outcome !== "success") {
-			throw new Error(`devcontainer up returned outcome '${result.outcome}' for '${projectPath}'.`);
-		}
-	} catch (e) {
-		if (e instanceof SyntaxError) {
-			throw new Error(`devcontainer up returned unexpected output for '${projectPath}':\n${lastLine}`);
-		}
-		throw e;
-	}
+	parseDevcontainerOutput(output, projectPath);
 }
 
 export function ensureContainerUpAsync(projectPath: string): Promise<void> {
@@ -144,21 +148,9 @@ export function ensureContainerUpAsync(projectPath: string): Promise<void> {
 					return;
 				}
 
-				const lines = stdout.trim().split("\n");
-				const lastLine = lines[lines.length - 1];
 				try {
-					const result = JSON.parse(lastLine);
-					if (result.outcome !== "success") {
-						reject(new Error(`devcontainer up returned outcome '${result.outcome}' for '${projectPath}'.`));
-						return;
-					}
+					parseDevcontainerOutput(stdout, projectPath);
 				} catch (e) {
-					if (e instanceof SyntaxError) {
-						reject(
-							new Error(`devcontainer up returned unexpected output for '${projectPath}':\n${lastLine}`),
-						);
-						return;
-					}
 					reject(e);
 					return;
 				}

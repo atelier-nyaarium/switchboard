@@ -53,16 +53,13 @@ export function registerConnectorTools(
 	const hasSchema = existsSync(schemaPath);
 	const hasCerts = existsSync(`${connectorDir}/server.crt`) && existsSync(`${connectorDir}/server.key`);
 
-	// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
-	const emptySchema: any = z.object({});
-
 	// mcpConnectorStatus
 	mcpServer.registerTool(
 		"mcpConnectorStatus",
 		{
 			title: "MCP Connector Status",
 			description: `Show the connector's mode (HTTP/HTTPS), auth status, and connected game clients with their IDs.`,
-			inputSchema: emptySchema,
+			inputSchema: {},
 		},
 		async () => {
 			const listenerState = getListenerState();
@@ -114,7 +111,7 @@ export function registerConnectorTools(
 		{
 			title: "Start Connector",
 			description: `Start serving project tools on the connector port. Fails if another session already owns the port.`,
-			inputSchema: z.object({}).shape,
+			inputSchema: {},
 		},
 		async () => {
 			if (getListenerState()) {
@@ -138,7 +135,7 @@ export function registerConnectorTools(
 		{
 			title: "Stop Connector",
 			description: `Stop serving project tools. Disconnects all game clients. Another IDE session can then take over with mcpConnectorServe.`,
-			inputSchema: z.object({}).shape,
+			inputSchema: {},
 		},
 		async () => {
 			if (!getListenerState()) {
@@ -157,7 +154,7 @@ export function registerConnectorTools(
 		{
 			title: "Open MCP Connector",
 			description: `Open the connector to the public with HTTPS/WSS. Requires both a token (mcpConnectorGenerateToken) and certs (mcpConnectorGenerateCert). Warning: disconnects all currently connected game clients.`,
-			inputSchema: z.object({}).shape,
+			inputSchema: {},
 		},
 		async () => {
 			if (!getListenerState()) {
@@ -197,7 +194,7 @@ export function registerConnectorTools(
 		{
 			title: "Close MCP Connector",
 			description: `Revert the connector to localhost-only HTTP. Disconnects remote clients.`,
-			inputSchema: emptySchema,
+			inputSchema: {},
 		},
 		async () => {
 			if (!getListenerState()) {
@@ -273,7 +270,7 @@ export function registerConnectorTools(
 		{
 			title: "Generate Auth Token",
 			description: `Generate a bearer token for authenticating game client connections. Required before mcpConnectorOpen. Token is persisted in .claude/connector/token.`,
-			inputSchema: emptySchema,
+			inputSchema: {},
 		},
 		async () => {
 			const token = randomUUID();
@@ -329,7 +326,7 @@ export function registerConnectorTools(
 		{
 			title: "Get Client Connection Bundle",
 			description: `Generate a connect.json and ca.crt bundle for a game tester to copy into their game's mcp-connector/ folder.`,
-			inputSchema: emptySchema,
+			inputSchema: {},
 		},
 		async () => {
 			const listenerState = getListenerState();
@@ -373,7 +370,7 @@ export function registerConnectorTools(
 			{
 				title: "Create MCP Schema",
 				description: `No .claude/connector/mcp-schema.js found. Run this to generate an example schema. Use /mcp to restart after editing.`,
-				inputSchema: emptySchema,
+				inputSchema: {},
 			},
 			async () => {
 				if (!existsSync(connectorDir)) {

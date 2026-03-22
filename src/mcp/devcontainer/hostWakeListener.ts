@@ -2,18 +2,17 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import WebSocket from "ws";
+import { createReconnector } from "../../shared/reconnect.js";
 import { ensureContainerUpAsync, execInContainer, resolveProject } from "./helpers.js";
 
 ////////////////////////////////
 //  Functions & Helpers
 
 const HOME = os.homedir();
-const RECONNECT_MAX_MS = 30000;
 
 let ws: WebSocket | null = null;
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let reconnectDelay = 2000;
 let arbiterUrl = "ws://localhost:20000";
+const reconnector = createReconnector(() => connect());
 
 export function startHostWakeListener(): void {
 	const envUrl = process.env.BRIDGE_ROUTER_URL;
@@ -24,10 +23,6 @@ export function startHostWakeListener(): void {
 }
 
 export function stopHostWakeListener(): void {
-	if (reconnectTimer) {
-		clearTimeout(reconnectTimer);
-		reconnectTimer = null;
-	}
 	if (ws) {
 		ws.removeAllListeners();
 		ws.close();
@@ -40,7 +35,7 @@ function connect(): void {
 
 	ws.on("open", () => {
 		console.error("[host-wake] connected to arbiter");
-		reconnectDelay = 2000;
+		reconnector.reset();
 		ws!.send(JSON.stringify({ type: "register", team: "__host__" }));
 
 		const projects = scanDevcontainerProjects();
@@ -63,21 +58,12 @@ function connect(): void {
 
 	ws.on("close", () => {
 		console.error("[host-wake] disconnected");
-		scheduleReconnect();
+		reconnector.schedule();
 	});
 
 	ws.on("error", (err: Error) => {
 		console.error(`[host-wake] ws error: ${err.message}`);
 	});
-}
-
-function scheduleReconnect(): void {
-	if (reconnectTimer) return;
-	reconnectTimer = setTimeout(() => {
-		reconnectTimer = null;
-		connect();
-	}, reconnectDelay);
-	reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
 }
 
 ////////////////////////////////
