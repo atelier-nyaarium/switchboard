@@ -45,6 +45,8 @@ Three call patterns:
 If the team takes too long, status will be "running" with a session_id. Call again with just session_id to poll.
 
 Channel-mode teams (Claude): responses are pushed back automatically as <channel> notifications. No polling needed.
+
+When relaying responses back to the user, send them verbatim unless the user explicitly asked for a summary.
 `.trim();
 
 function formatResult(result: SendResult, to?: string): { content: Array<{ type: "text"; text: string }> } {

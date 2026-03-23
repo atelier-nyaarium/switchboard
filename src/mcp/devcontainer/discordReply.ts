@@ -31,6 +31,7 @@ Send a message to the user via Discord DM.
 Provide the message as an array of parts, each under 2000 characters.
 If the message is short enough, use a single-element array.
 If validation fails, the response includes splitting guidelines and a suggested part count. Retry with the message split into that many parts.
+Send the message verbatim unless the user explicitly asked for a summary.
 `.trim();
 
 export function registerDiscordReply(mcpServer: McpServer): void {

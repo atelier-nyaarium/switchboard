@@ -6,7 +6,7 @@ export function registerChannelReply(mcpServer: McpServer): void {
 		mcpServer,
 		"channel_reply",
 		"Channel Reply",
-		`Reply to an incoming channel message. Call this once when you are done handling the request from the <channel> tag.`,
+		`Reply to an incoming channel message. Call this once when you are done handling the request from the <channel> tag. Send the response verbatim unless the requester explicitly asked for a summary.`,
 		"channel",
 	);
 }
