@@ -344,6 +344,30 @@ export function createRoutes({
 	}
 
 	async function evieToolCall(req: Request, body: Record<string, unknown>): Promise<Response> {
+		// #region Hypothesis C: Check what arrives at the arbiter route
+		const debugLine = JSON.stringify({
+			runId: "debug-evie-tool",
+			hypothesisId: "C",
+			location: "routes.ts:evieToolCall",
+			message: `Received evie tool call`,
+			data: {
+				bodyKeys: Object.keys(body),
+				action: body.action,
+				paramsType: typeof body.params,
+				paramsIsArray: Array.isArray(body.params),
+				paramsRaw: body.params,
+			},
+			timestamp: new Date().toISOString(),
+		});
+		try {
+			const dir = path.dirname(LOG_PATH);
+			if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+			fs.appendFileSync(LOG_PATH, `${debugLine}\n`);
+		} catch {
+			// Log write failed
+		}
+		// #endregion
+
 		if (!evieClient || !evieClient.isConnected()) {
 			return jsonResponse({ error: `Evie-bot is not connected.` }, 503);
 		}

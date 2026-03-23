@@ -36,6 +36,29 @@ export function registerEvieTools(mcpServer: McpServer, tools: EvieToolSchema[])
 				inputSchema: zodSchema as any,
 			},
 			async (args: Record<string, unknown>) => {
+				// #region Hypothesis A/B: Check what MCP SDK passes as args
+				console.error(
+					JSON.stringify({
+						runId: "debug-evie-tool",
+						hypothesisId: "A/B",
+						location: "evieTools.ts:handler",
+						message: `Tool call args for ${tool.name}`,
+						data: {
+							toolName: tool.name,
+							argsKeys: Object.keys(args),
+							argsTypes: Object.fromEntries(
+								Object.entries(args).map(([k, v]) => [
+									k,
+									`${typeof v}${Array.isArray(v) ? "(array)" : ""}`,
+								]),
+							),
+							argsRaw: args,
+						},
+						timestamp: new Date().toISOString(),
+					}),
+				);
+				// #endregion
+
 				try {
 					const response = (await routerPost("/evie/tool-call", {
 						action: tool.name,

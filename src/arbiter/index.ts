@@ -112,7 +112,7 @@ export async function startArbiter(): Promise<void> {
 					type: "channel_push",
 					from: "discord",
 					request_type: "question",
-					body: dm.content,
+					body: `[channelId: ${dm.channelId}]\n\n${dm.content}`,
 					effort: "standard",
 					session_id: sessionId,
 					is_follow_up: false,

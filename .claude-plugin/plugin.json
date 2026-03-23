@@ -1,6 +1,6 @@
 {
 	"name": "agent-team-bridge",
-	"version": "2.3.4",
+	"version": "2.3.5",
 	"description": "MCP-to-project-API connectors, cross-team communication, and devcontainer orchestration for agent teams. Provides crosstalk, dispatch, and connector tools via MCP.",
 	"author": {
 		"name": "Nyaarium"
