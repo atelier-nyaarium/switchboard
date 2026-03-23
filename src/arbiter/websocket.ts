@@ -32,6 +32,14 @@ export interface WsData {
 ////////////////////////////////
 //  Functions & Helpers
 
+export function getAllActiveWs(subs: Map<string, ServerWebSocket<WsData>>): ServerWebSocket<WsData>[] {
+	const result: ServerWebSocket<WsData>[] = [];
+	for (const [, ws] of subs) {
+		if (ws.readyState === 1) result.push(ws);
+	}
+	return result;
+}
+
 export function createWebSocketHandlers({
 	registry,
 	store,

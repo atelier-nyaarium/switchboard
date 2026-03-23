@@ -1,14 +1,11 @@
 import crypto from "node:crypto";
-import type { ServerWebSocket } from "bun";
 import { Client, Events, GatewayIntentBits, MessageFlags, Partials } from "discord.js";
 import type { ChannelPushPayload } from "../../shared/types.js";
-import type { WsData } from "../websocket.js";
+import { getAllActiveWs, type TeamRegistry } from "../websocket.js";
 import { validateMessageParts } from "./validateMessageParts.js";
 
 ////////////////////////////////
 //  Interfaces & Types
-
-export type TeamRegistry = Map<string, Map<string, ServerWebSocket<WsData>>>;
 
 export interface DiscordRelayDeps {
 	registry: TeamRegistry;
@@ -43,14 +40,6 @@ export type SendDMResult = SendDMSuccess | SendDMValidationFailure | SendDMError
 
 ////////////////////////////////
 //  Functions & Helpers
-
-function getAllActiveWs(subs: Map<string, ServerWebSocket<WsData>>): ServerWebSocket<WsData>[] {
-	const result: ServerWebSocket<WsData>[] = [];
-	for (const [, ws] of subs) {
-		if (ws.readyState === 1) result.push(ws);
-	}
-	return result;
-}
 
 export async function startDiscordRelay({ registry }: DiscordRelayDeps): Promise<DiscordRelay> {
 	const secretKey = process.env.DISCORD_SECRET_KEY!;

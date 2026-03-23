@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { Mutex } from "../shared/mutex.js";
 import type { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ArbiterConfig, ConnectionMode, ResponsePayload, ResponsePushPayload, TeamInfo } from "../shared/types.js";
-import type { TeamRegistry, WsData } from "./websocket.js";
+import { getAllActiveWs, type TeamRegistry, type WsData } from "./websocket.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -21,6 +21,7 @@ export interface RoutesDeps {
 	discordRelay?: {
 		sendDM: (parts: string[], retryCount?: number) => Promise<import("./discord/discordClient.js").SendDMResult>;
 	} | null;
+	evieClient?: import("./evie/evieClient.js").EvieClient | null;
 }
 
 const SendRequestSchema = z.object({
@@ -53,6 +54,11 @@ const DiscordReplySchema = z.object({
 	retryCount: z.number().optional(),
 });
 
+const EvieToolCallSchema = z.object({
+	action: z.string(),
+	params: z.record(z.string(), z.unknown()),
+});
+
 ////////////////////////////////
 //  Functions & Helpers
 
@@ -79,15 +85,6 @@ function getTeamMode(subs: Map<string, ServerWebSocket<WsData>>): ConnectionMode
 	return "cli";
 }
 
-/** Get all active WebSockets for a team. */
-function getAllActiveWs(subs: Map<string, ServerWebSocket<WsData>>): ServerWebSocket<WsData>[] {
-	const result: ServerWebSocket<WsData>[] = [];
-	for (const [, ws] of subs) {
-		if (ws.readyState === 1) result.push(ws);
-	}
-	return result;
-}
-
 export function createRoutes({
 	registry,
 	store,
@@ -96,6 +93,7 @@ export function createRoutes({
 	offlineCatalog,
 	config,
 	discordRelay,
+	evieClient,
 }: RoutesDeps) {
 	const { LOG_PATH, RESPONSE_TIMEOUT_MS } = config;
 
@@ -374,5 +372,27 @@ export function createRoutes({
 		return jsonResponse(result, result.success ? 200 : 422);
 	}
 
-	return { ingest, pending, teams, send, respond, poll, health, discordReply };
+	async function evieToolCall(req: Request, body: Record<string, unknown>): Promise<Response> {
+		if (!evieClient || !evieClient.isConnected()) {
+			return jsonResponse({ error: `Evie-bot is not connected.` }, 503);
+		}
+
+		const parsed = EvieToolCallSchema.safeParse(body);
+		if (!parsed.success) {
+			return jsonResponse({ error: `Invalid request: action (string) and params (object) are required` }, 400);
+		}
+
+		const { action, params } = parsed.data;
+		const result = await evieClient.callTool(action, params as Record<string, unknown>);
+		return jsonResponse(result, result.error ? 500 : 200);
+	}
+
+	function evieTools(): Response {
+		if (!evieClient || !evieClient.isConnected()) {
+			return jsonResponse({ error: `Evie-bot is not connected.`, tools: [] }, 503);
+		}
+		return jsonResponse({ tools: evieClient.getToolSchemas() });
+	}
+
+	return { ingest, pending, teams, send, respond, poll, health, discordReply, evieToolCall, evieTools };
 }

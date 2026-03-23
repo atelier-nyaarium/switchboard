@@ -7,7 +7,7 @@ import packageJson from "../../package.json";
 import { isInsideContainer } from "../shared/env.js";
 import { registerBridgeDiscover } from "./bridge/bridgeDiscover.js";
 import { registerBridgeSend } from "./bridge/bridgeSend.js";
-import { closeRouter, connectToRouter, initBridge, setChannelServer } from "./bridge/helpers.js";
+import { closeRouter, connectToRouter, initBridge, routerGet, setChannelServer } from "./bridge/helpers.js";
 import { detectAgentType, registerBridgeTools } from "./bridge/registerBridgeTools.js";
 import { registerConnectorTools } from "./connector/connectorTools.js";
 import { setAuthToken, startListener, stopListener } from "./connector/listener.js";
@@ -51,7 +51,7 @@ export async function startMcp(): Promise<void> {
 		registerBridgeTools(mcpServer);
 
 		const projectName = process.env.PROJECT_NAME;
-		const port = Number(process.env.MCP_CONNECTOR_PORT) || 20000;
+		const port = Number(process.env.MCP_CONNECTOR_PORT) || 20002;
 
 		if (projectName) {
 			const connectorDir = `/workspace/${projectName}/.claude/connector`;
@@ -82,7 +82,7 @@ export async function startMcp(): Promise<void> {
 						"",
 						"Requirements:",
 						"  - PROJECT_NAME env var must be set in the container",
-						"  - MCP_CONNECTOR_PORT (default 20000) must be exposed via compose.yml",
+						"  - MCP_CONNECTOR_PORT (default 20002) must be exposed via compose.yml",
 					].join("\n"),
 			);
 		}
@@ -106,8 +106,42 @@ export async function startMcp(): Promise<void> {
 		registerBridgeDiscover(mcpServer);
 		setChannelServer(mcpServer.server);
 
-		// Discord reply tool — always registered, arbiter handles activation
-		registerDiscordReply(mcpServer);
+		// Probe arbiter for available services and register tools conditionally
+		const bridgeUrl = process.env.BRIDGE_ROUTER_URL || "http://localhost:20000";
+		try {
+			const health = (await routerGet("/health")) as Record<string, unknown>;
+			if (health.ok) {
+				// Probe Discord relay. Arbiter returns 503 if not active.
+				try {
+					const discordProbe = await fetch(`${bridgeUrl}/discord/reply`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ parts: [], retryCount: 0 }),
+					});
+					if (discordProbe.status !== 503) {
+						registerDiscordReply(mcpServer);
+						console.error(`[mcp] discord_reply tool enabled`);
+					}
+				} catch {
+					// Discord relay not available
+				}
+
+				// Fetch evie tool schemas from the arbiter if evie is connected.
+				try {
+					const evieData = (await routerGet("/evie/tools")) as {
+						tools?: import("../arbiter/evie/evieClient.js").EvieToolSchema[];
+					};
+					if (evieData.tools && evieData.tools.length > 0) {
+						const { registerEvieTools } = await import("./evie/evieTools.js");
+						registerEvieTools(mcpServer, evieData.tools);
+					}
+				} catch {
+					// Evie not available
+				}
+			}
+		} catch {
+			console.error(`[mcp] arbiter not reachable, Discord and evie tools unavailable`);
+		}
 
 		const projectDirs = [path.join(os.homedir(), "projects")];
 		startHostWakeListener(projectDirs);

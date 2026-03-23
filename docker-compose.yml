@@ -12,10 +12,12 @@ services:
       - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID:-}
       - DISCORD_SECRET_KEY=${DISCORD_SECRET_KEY:-}
       - DISCORD_OWNER_ID=${DISCORD_OWNER_ID:-}
+      - BRIDGE_TOKEN=${BRIDGE_TOKEN:-}
     networks:
       - agent-team-bridge-network
     volumes:
       - .cursor:/app/log
+      - ${HOME}/projects/evie-bot/kubeconfig.yaml:/app/kubeconfig.yaml:ro
 networks:
   agent-team-bridge-network:
     name: agent-team-bridge

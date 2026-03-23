@@ -5,6 +5,8 @@ import { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ResponsePayload } from "../shared/types.js";
 import { handleProxyClose, handleProxyMessage, isProxyConnection, setupProxy } from "./connectorProxy.js";
 import { startDiscordRelay } from "./discord/discordClient.js";
+import { startEvieClient } from "./evie/evieClient.js";
+import { startPortForward } from "./evie/portForward.js";
 import { createRoutes } from "./routes.js";
 import { WakeCoordinator } from "./wake.js";
 import { createWebSocketHandlers, type WsData } from "./websocket.js";
@@ -69,6 +71,45 @@ export async function startArbiter(): Promise<void> {
 	const hasDiscord = process.env.DISCORD_CLIENT_ID && process.env.DISCORD_SECRET_KEY && process.env.DISCORD_OWNER_ID;
 	const discordRelay = hasDiscord ? await startDiscordRelay({ registry }) : null;
 
+	// Start evie-bot bridge if config is present
+	const evieAuthToken = process.env.BRIDGE_TOKEN;
+	const evieKubeconfig = process.env.EVIE_KUBECONFIG || "/app/kubeconfig.yaml";
+	const evieNamespace = process.env.EVIE_NAMESPACE || "evie-bot";
+	const evieDeploymentLabel = process.env.EVIE_DEPLOYMENT_LABEL || "app=evie-bot";
+	const eviePort = parseInt(process.env.EVIE_BRIDGE_PORT || "20001", 10);
+	const evieLocalPort = parseInt(process.env.EVIE_LOCAL_PORT || "20001", 10);
+
+	let evieClient: ReturnType<typeof startEvieClient> | null = null;
+
+	if (evieAuthToken) {
+		const portForward = startPortForward({
+			kubeconfig: evieKubeconfig,
+			namespace: evieNamespace,
+			deploymentLabel: evieDeploymentLabel,
+			remotePort: eviePort,
+			localPort: evieLocalPort,
+		});
+
+		// Port-forward needs a moment before the tunnel is ready
+		await new Promise((r) => setTimeout(r, 3_000));
+
+		evieClient = startEvieClient({
+			url: `ws://localhost:${evieLocalPort}`,
+			authToken: evieAuthToken,
+			onToolRegistry: (tools) => {
+				console.log(`[evie] received ${tools.length} tools`);
+			},
+			onDisconnect: () => {
+				console.error(`[evie] disconnected from evie-bot`);
+			},
+		});
+
+		process.on("SIGTERM", () => {
+			evieClient?.stop();
+			portForward.stop();
+		});
+	}
+
 	const routes = createRoutes({
 		registry,
 		store,
@@ -77,6 +118,7 @@ export async function startArbiter(): Promise<void> {
 		tryWakeTeam,
 		offlineCatalog,
 		discordRelay,
+		evieClient,
 	});
 
 	const wsHandlers = createWebSocketHandlers({
@@ -113,6 +155,8 @@ export async function startArbiter(): Promise<void> {
 		if (method === "POST" && url.pathname === "/poll") return routes.poll(req, body);
 		if (method === "GET" && url.pathname === "/health") return routes.health();
 		if (method === "POST" && url.pathname === "/discord/reply") return routes.discordReply(req, body);
+		if (method === "GET" && url.pathname === "/evie/tools") return routes.evieTools();
+		if (method === "POST" && url.pathname === "/evie/tool-call") return routes.evieToolCall(req, body);
 
 		return new Response("Not Found", { status: 404 });
 	}
