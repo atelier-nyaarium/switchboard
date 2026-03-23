@@ -16,14 +16,33 @@ export function registerEvieTools(mcpServer: McpServer, tools: EvieToolSchema[])
 		const mcpName = `evie_${tool.name.replace(/-/g, "_")}`;
 
 		// Build a Zod schema from the JSON Schema properties for MCP SDK compatibility.
-		// Evie validates the full schema server-side, so we use permissive types here.
-		const properties = (tool.parameters.properties ?? {}) as Record<string, { description?: string }>;
+		// Type-aware mapping prevents the model from sending numbers for string fields
+		// (which causes precision loss on large Discord IDs).
+		const properties = (tool.parameters.properties ?? {}) as Record<
+			string,
+			{ type?: string; description?: string; items?: { type?: string } }
+		>;
 		const shape: Record<string, z.ZodTypeAny> = {};
 		for (const [key, prop] of Object.entries(properties)) {
-			shape[key] = z
-				.unknown()
-				.optional()
-				.describe(prop.description ?? "");
+			const desc = prop.description ?? "";
+			switch (prop.type) {
+				case "string":
+					shape[key] = z.string().optional().describe(desc);
+					break;
+				case "number":
+				case "integer":
+					shape[key] = z.number().optional().describe(desc);
+					break;
+				case "boolean":
+					shape[key] = z.boolean().optional().describe(desc);
+					break;
+				case "array":
+					shape[key] = z.array(z.unknown()).optional().describe(desc);
+					break;
+				default:
+					shape[key] = z.unknown().optional().describe(desc);
+					break;
+			}
 		}
 		const zodSchema = Object.keys(shape).length > 0 ? z.object(shape) : z.object({});
 
@@ -36,29 +55,6 @@ export function registerEvieTools(mcpServer: McpServer, tools: EvieToolSchema[])
 				inputSchema: zodSchema as any,
 			},
 			async (args: Record<string, unknown>) => {
-				// #region Hypothesis A/B: Check what MCP SDK passes as args
-				console.error(
-					JSON.stringify({
-						runId: "debug-evie-tool",
-						hypothesisId: "A/B",
-						location: "evieTools.ts:handler",
-						message: `Tool call args for ${tool.name}`,
-						data: {
-							toolName: tool.name,
-							argsKeys: Object.keys(args),
-							argsTypes: Object.fromEntries(
-								Object.entries(args).map(([k, v]) => [
-									k,
-									`${typeof v}${Array.isArray(v) ? "(array)" : ""}`,
-								]),
-							),
-							argsRaw: args,
-						},
-						timestamp: new Date().toISOString(),
-					}),
-				);
-				// #endregion
-
 				try {
 					const response = (await routerPost("/evie/tool-call", {
 						action: tool.name,
