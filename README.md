@@ -1,6 +1,6 @@
 # Agent Team Bridge
 
-Cross-team communication for Claude Code and Cursor agent teams running in separate Devcontainers.
+Cross-team communication, devcontainer orchestration, and tool proxying for agent teams. Connects Claude Code, Cursor, Copilot, and Codex agents running in separate DevContainers through a central router.
 
 ## Who it's for
 
@@ -8,13 +8,49 @@ This is aimed at people who already use **Dev Containers** and want agent teams 
 
 ## How it works
 
-Teams register with a central router over WebSocket. Any agent can call `crosstalk_send` to reach another team. The router spawns a dedicated agent session on the receiving end, which handles the request and responds in a structured format. Conversations are threaded by `session_id`.
+Teams register with a central router (the arbiter) over WebSocket. Any agent can call `crosstalk_send` to reach another team. The router handles message delivery, response lifecycle, and request serialization.
+
+- **Claude agents** use channel mode: messages arrive as push notifications, responses are pushed back automatically.
+- **CLI agents** (cursor, copilot, codex) use inject mode: the router spawns agent processes, sends prompts, and waits for completion.
+
+The arbiter also bridges to **evie-bot** (a Discord bot running in Kubernetes), proxying its 46 action tools as MCP tools and forwarding Discord DMs into the host Claude session.
 
 See `skills/crosstalk/SKILL.md` for the full tool reference and response format.
 
-## Starting the router
+## Architecture
 
-From the repo root:
+```
+Host Machine
+  start-host-daemon.sh
+    Claude Code (host orchestrator)
+      MCP Plugin (main-mcp.ts)
+        crosstalk_send / crosstalk_discover
+        dispatch_cli / dispatch_exec
+        session_peek / session_send
+        evie_* tools (46 proxied from evie-bot)
+
+Docker: agent-team-bridge (port 20000)
+  Arbiter (main-arbiter.ts)
+    HTTP routes + WebSocket hub
+    kubectl port-forward to evie K8s pod (port 20001)
+    Evie WS client (tool calls, DM forwarding)
+
+DevContainers (one per project)
+  Claude / Cursor / Copilot / Codex
+    MCP Plugin (main-mcp.ts)
+      crosstalk_send / channel_reply / crosstalk_reply
+      Game client connector (port 20002)
+```
+
+### Port Map
+
+| Port  | Service                              |
+|-------|--------------------------------------|
+| 20000 | Arbiter (HTTP + WS bridge)           |
+| 20001 | Evie bridge server (tool call WS)    |
+| 20002 | MCP Connector (game client WS)       |
+
+## Starting the router
 
 ```bash
 docker compose up -d
@@ -30,11 +66,11 @@ The router listens on port 20000 and uses the external network `agent-team-bridg
 /plugin install atelier-nyaarium/agent-team-bridge
 ```
 
-The plugin provides the MCP server and skill automatically.
+The plugin provides the MCP server and skills automatically.
 
 **2. Set environment variables** in your devcontainer:
 
-- `PROJECT_NAME` - Your team's name on the bridge (e.g. `@org/my-project`)
+- `PROJECT_NAME` - Your team's name on the bridge (e.g. `my-project`)
 - `BRIDGE_ROUTER_URL` - Router URL (default: `http://agent-team-bridge:20000`)
 
 **3. Add the Docker network** to your devcontainer:
@@ -47,8 +83,7 @@ This adds `agent-team-bridge-network` to your `.devcontainer/compose.yml`.
 
 **4. Rebuild the Devcontainer.**
 
-- **F1**
-- `> Dev Containers: Rebuild Container`
+- **F1** then `Dev Containers: Rebuild Container`
 
 **To remove the network config:**
 
@@ -56,9 +91,45 @@ This adds `agent-team-bridge-network` to your `.devcontainer/compose.yml`.
 /path/to/agent-team-bridge/uninstall.sh
 ```
 
+## MCP Tools
+
+### Host-only tools (orchestrator)
+
+| Tool | Description |
+|------|-------------|
+| `dispatch_cli` | Run a CLI agent (cursor/copilot/codex) inside a devcontainer |
+| `dispatch_exec` | Execute a shell command inside a devcontainer |
+| `session_peek` | Capture the visible tmux screen of a team's Claude session |
+| `session_send` | Send a line of input to a team's tmux session |
+| `crosstalk_send` | Send a request to another team |
+| `crosstalk_discover` | List all teams on the bridge |
+| `evie_*` | 46 proxied tools from evie-bot (Discord, Cloudflare, Linode, Cursor, etc) |
+
+### Container tools (all agents)
+
+| Tool | Description |
+|------|-------------|
+| `crosstalk_send` | Send a request to another team |
+| `crosstalk_discover` | List all teams on the bridge |
+| `crosstalk_wait` | Wait N seconds before retrying a deferred request |
+| `channel_reply` | Reply to an incoming channel message (Claude only) |
+| `crosstalk_reply` | Reply to an incoming bridge request (CLI agents only) |
+| `mcpConnectorStatus` | Game client connector status |
+| `mcpConnectorServe` | Start serving project tools on the connector port |
+| `mcpConnectorUnserve` | Stop serving project tools |
+| Project tools | Dynamic tools from the project's `mcp-schema.js` |
+
+## Evie Bridge
+
+When `BRIDGE_TOKEN` is set in the arbiter's environment, it establishes a kubectl port-forward tunnel to evie-bot's Kubernetes pod and connects via WebSocket with bearer auth. This enables:
+
+- **Tool proxying**: Evie's action registry (46 tools) is exported as JSON Schema and dynamically registered as MCP tools on the host, prefixed with `evie_`.
+- **DM forwarding**: Discord DMs from the bot owner are forwarded to the host orchestrator as channel push notifications.
+- **Tool calls**: The host can invoke any evie action through the proxied MCP tools.
+
 ## Using Cursor agents instead of Claude
 
-Set `AGENT_TYPE=cursor` in your devcontainer environment.
+Set `AGENT_TYPE=cursor` in your devcontainer environment. The bridge auto-detects which CLI agent is available if not set.
 
 ## Circular dependency warning
 
