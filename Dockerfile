@@ -60,4 +60,4 @@ RUN bun install --frozen-lockfile
 COPY src/ src/
 COPY tsconfig.json ./
 
-CMD ["bun", "run", "src/main.ts", "--arbiter"]
+CMD ["bun", "run", "src/main-arbiter.ts"]
