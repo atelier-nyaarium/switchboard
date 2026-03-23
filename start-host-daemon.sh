@@ -15,8 +15,8 @@ if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
 fi
 
 
-echo "Starting claude remote-control on ${HOST_NAME}..."
-tmux new-session -d -s "$TMUX_SESSION" "claude --name '${HOST_NAME}' --rc --model opus --effort high --dangerously-skip-permissions --dangerously-load-development-channels plugin:agent-team-bridge@agent-team-bridge; exec bash"
+echo "Starting claude on ${HOST_NAME}..."
+tmux new-session -d -s "$TMUX_SESSION" "claude --name '${HOST_NAME}' --model opus --effort high --dangerously-skip-permissions --dangerously-load-development-channels plugin:agent-team-bridge@agent-team-bridge; exec bash"
 
 # Wait for Claude to start, auto-accept dev channels prompt if it appears
 for i in $(seq 1 10); do
