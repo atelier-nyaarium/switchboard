@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import type { EvieToolCallResult, EvieToolSchema } from "../../arbiter/evie/evieClient.js";
 import { routerPost } from "../bridge/helpers.js";
 
@@ -14,13 +15,25 @@ export function registerEvieTools(mcpServer: McpServer, tools: EvieToolSchema[])
 	for (const tool of tools) {
 		const mcpName = `evie_${tool.name.replace(/-/g, "_")}`;
 
+		// Build a Zod schema from the JSON Schema properties for MCP SDK compatibility.
+		// Evie validates the full schema server-side, so we use permissive types here.
+		const properties = (tool.parameters.properties ?? {}) as Record<string, { description?: string }>;
+		const shape: Record<string, z.ZodTypeAny> = {};
+		for (const [key, prop] of Object.entries(properties)) {
+			shape[key] = z
+				.unknown()
+				.optional()
+				.describe(prop.description ?? "");
+		}
+		const zodSchema = Object.keys(shape).length > 0 ? z.object(shape) : z.object({});
+
 		mcpServer.registerTool(
 			mcpName,
 			{
 				title: `Evie: ${tool.title}`,
 				description: `[evie-bot] ${tool.description}`,
 				// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
-				inputSchema: tool.parameters as any,
+				inputSchema: zodSchema as any,
 			},
 			async (args: Record<string, unknown>) => {
 				try {
