@@ -15,36 +15,7 @@ export function registerEvieTools(mcpServer: McpServer, tools: EvieToolSchema[])
 	for (const tool of tools) {
 		const mcpName = `evie_${tool.name.replace(/-/g, "_")}`;
 
-		// Build a Zod schema from the JSON Schema properties for MCP SDK compatibility.
-		// Type-aware mapping prevents the model from sending numbers for string fields
-		// (which causes precision loss on large Discord IDs).
-		const properties = (tool.parameters.properties ?? {}) as Record<
-			string,
-			{ type?: string; description?: string; items?: { type?: string } }
-		>;
-		const shape: Record<string, z.ZodTypeAny> = {};
-		for (const [key, prop] of Object.entries(properties)) {
-			const desc = prop.description ?? "";
-			switch (prop.type) {
-				case "string":
-					shape[key] = z.string().optional().describe(desc);
-					break;
-				case "number":
-				case "integer":
-					shape[key] = z.number().optional().describe(desc);
-					break;
-				case "boolean":
-					shape[key] = z.boolean().optional().describe(desc);
-					break;
-				case "array":
-					shape[key] = z.array(z.unknown()).optional().describe(desc);
-					break;
-				default:
-					shape[key] = z.unknown().optional().describe(desc);
-					break;
-			}
-		}
-		const zodSchema = Object.keys(shape).length > 0 ? z.object(shape) : z.object({});
+		const zodSchema = z.fromJSONSchema(tool.parameters);
 
 		mcpServer.registerTool(
 			mcpName,
