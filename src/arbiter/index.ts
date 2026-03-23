@@ -94,6 +94,15 @@ export async function startArbiter(): Promise<void> {
 			authToken: evieAuthToken,
 			onToolRegistry: (tools) => {
 				console.log(`[evie] received ${tools.length} tools`);
+				// Push tool schemas to orchestrator so it can register them dynamically
+				const orchestratorSubs = registry.get("__orchestrator__");
+				if (orchestratorSubs) {
+					const payload = JSON.stringify({ type: "evie_tools", tools });
+					for (const ws of getAllActiveWs(orchestratorSubs)) {
+						ws.send(payload);
+					}
+					console.log(`[evie] pushed tool schemas to __orchestrator__`);
+				}
 			},
 			onDmForward: (dm) => {
 				const orchestratorSubs = registry.get("__orchestrator__");
@@ -153,6 +162,16 @@ export async function startArbiter(): Promise<void> {
 		knownTeamPaths,
 		offlineCatalog,
 		wakeCoordinator,
+		onTeamConnect: (team, ws) => {
+			// When orchestrator connects, push cached evie tools if available
+			if (team === "__orchestrator__" && evieClient?.isConnected()) {
+				const tools = evieClient.getToolSchemas();
+				if (tools.length > 0) {
+					ws.send(JSON.stringify({ type: "evie_tools", tools }));
+					console.log(`[evie] pushed ${tools.length} cached tool schemas to new __orchestrator__`);
+				}
+			}
+		},
 	});
 
 	async function router(req: Request): Promise<Response> {

@@ -7,7 +7,14 @@ import packageJson from "../../package.json";
 import { isInsideContainer } from "../shared/env.js";
 import { registerBridgeDiscover } from "./bridge/bridgeDiscover.js";
 import { registerBridgeSend } from "./bridge/bridgeSend.js";
-import { closeRouter, connectToRouter, initBridge, routerGet, setChannelServer } from "./bridge/helpers.js";
+import {
+	closeRouter,
+	connectToRouter,
+	initBridge,
+	routerGet,
+	setChannelServer,
+	setEvieToolsHandler,
+} from "./bridge/helpers.js";
 import { detectAgentType, registerBridgeTools } from "./bridge/registerBridgeTools.js";
 import { registerConnectorTools } from "./connector/connectorTools.js";
 import { setAuthToken, startListener, stopListener } from "./connector/listener.js";
@@ -105,24 +112,36 @@ export async function startMcp(): Promise<void> {
 		registerBridgeDiscover(mcpServer);
 		setChannelServer(mcpServer.server);
 
-		// Probe arbiter for evie tools and register them if available
+		// Evie tool registration: try startup probe + listen for WebSocket push
+		let evieToolsRegistered = false;
+
+		async function tryRegisterEvieTools(
+			tools: import("../arbiter/evie/evieClient.js").EvieToolSchema[],
+		): Promise<void> {
+			if (evieToolsRegistered || tools.length === 0) return;
+			const { registerEvieTools } = await import("./evie/evieTools.js");
+			registerEvieTools(mcpServer, tools);
+			evieToolsRegistered = true;
+		}
+
+		// Listen for arbiter pushing tool schemas when evie connects/reconnects
+		setEvieToolsHandler((tools) => {
+			void tryRegisterEvieTools(tools as import("../arbiter/evie/evieClient.js").EvieToolSchema[]);
+		});
+
+		// Initial probe (best-effort, non-blocking if it fails)
 		try {
 			const health = (await routerGet("/health")) as Record<string, unknown>;
 			if (health.ok) {
-				try {
-					const evieData = (await routerGet("/evie/tools")) as {
-						tools?: import("../arbiter/evie/evieClient.js").EvieToolSchema[];
-					};
-					if (evieData.tools && evieData.tools.length > 0) {
-						const { registerEvieTools } = await import("./evie/evieTools.js");
-						registerEvieTools(mcpServer, evieData.tools);
-					}
-				} catch {
-					// Evie not available
+				const evieData = (await routerGet("/evie/tools")) as {
+					tools?: import("../arbiter/evie/evieClient.js").EvieToolSchema[];
+				};
+				if (evieData.tools) {
+					await tryRegisterEvieTools(evieData.tools);
 				}
 			}
 		} catch {
-			console.error(`[mcp] arbiter not reachable, evie tools unavailable`);
+			console.error(`[mcp] arbiter not reachable at startup, evie tools will register when available`);
 		}
 
 		const projectDirs = [path.join(os.homedir(), "projects")];

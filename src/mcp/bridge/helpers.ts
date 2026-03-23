@@ -42,6 +42,9 @@ const reconnector = createReconnector(() => connectToRouter());
 // Server instance for channel notifications (set when Claude + channel mode)
 let channelServer: Server | null = null;
 
+// Callback for dynamically registering evie tools when they arrive via WebSocket
+let evieToolsHandler: ((tools: unknown[]) => void) | null = null;
+
 export function initBridge(config: BridgeConfig): void {
 	ROUTER_URL = config.routerUrl;
 	PROJECT_NAME = config.projectName;
@@ -51,6 +54,10 @@ export function initBridge(config: BridgeConfig): void {
 
 export function setChannelServer(server: Server): void {
 	channelServer = server;
+}
+
+export function setEvieToolsHandler(handler: (tools: unknown[]) => void): void {
+	evieToolsHandler = handler;
 }
 
 export function bridgeProjectName(): string {
@@ -89,9 +96,24 @@ export async function routerPost(
 	throw lastErr;
 }
 
-export async function routerGet(path: string): Promise<unknown> {
-	const res = await fetch(`${ROUTER_URL}${path}`);
-	return res.json();
+export async function routerGet(
+	path: string,
+	{ retries = 2, retryDelayMs = 1000 }: RouterPostOptions = {},
+): Promise<unknown> {
+	let lastErr: Error | undefined;
+	for (let attempt = 0; attempt <= retries; attempt++) {
+		try {
+			const res = await fetch(`${ROUTER_URL}${path}`);
+			return res.json();
+		} catch (err) {
+			lastErr = err instanceof Error ? err : new Error(String(err));
+			if (attempt < retries) {
+				const delay = retryDelayMs * 2 ** attempt;
+				await new Promise((r) => setTimeout(r, delay));
+			}
+		}
+	}
+	throw lastErr;
 }
 
 // WebSocket connection to router
@@ -141,6 +163,11 @@ export function connectToRouter(): void {
 			handleInject(msg as unknown as InjectPayload, AGENT_TYPE, EFFORT_ENV).catch((err: Error) => {
 				console.error(`[bridge] handleInject error: ${err.message}`);
 			});
+		}
+
+		// Host mode: receive evie tool schemas pushed from arbiter
+		if (msg.type === "evie_tools" && Array.isArray(msg.tools) && evieToolsHandler) {
+			evieToolsHandler(msg.tools);
 		}
 	});
 

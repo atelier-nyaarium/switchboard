@@ -17,6 +17,7 @@ export interface WebSocketDeps {
 	offlineCatalog: Map<string, string>;
 	wakeCoordinator: WakeCoordinator;
 	config: WebSocketConfig;
+	onTeamConnect?: (team: string, ws: ServerWebSocket<WsData>) => void;
 }
 
 export interface WsData {
@@ -48,6 +49,7 @@ export function createWebSocketHandlers({
 	offlineCatalog,
 	wakeCoordinator,
 	config,
+	onTeamConnect,
 }: WebSocketDeps) {
 	const { HEARTBEAT_INTERVAL_MS = 30000, MISSED_PINGS_LIMIT = 2 } = config;
 
@@ -107,6 +109,7 @@ export function createWebSocketHandlers({
 
 			wakeCoordinator.notify(team);
 			console.log(`[ws] ${team}/${subId} connected (mode: ${mode})`);
+			onTeamConnect?.(team, ws);
 		}
 
 		if (msg.type === "wake_result" && msg.success === false && typeof msg.team === "string") {
