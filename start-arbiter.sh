@@ -2,6 +2,9 @@
 
 pushd "$(dirname "$0")" > /dev/null || exit 1
 
+git fetch --prune || true
+git pull || true
+
 docker compose down --remove-orphans 2>/dev/null || true
 docker compose up --build -d
 
