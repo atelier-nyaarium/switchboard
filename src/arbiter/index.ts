@@ -75,7 +75,7 @@ export async function startArbiter(): Promise<void> {
 	const evieAuthToken = process.env.BRIDGE_TOKEN;
 	const evieKubeconfig = process.env.EVIE_KUBECONFIG || "/app/kubeconfig.yaml";
 	const evieNamespace = process.env.EVIE_NAMESPACE || "evie-bot";
-	const evieDeploymentLabel = process.env.EVIE_DEPLOYMENT_LABEL || "app=evie-bot";
+	const evieDeploymentLabel = process.env.EVIE_DEPLOYMENT_LABEL || "app=evie-bot-app";
 	const eviePort = parseInt(process.env.EVIE_BRIDGE_PORT || "20001", 10);
 	const evieLocalPort = parseInt(process.env.EVIE_LOCAL_PORT || "20001", 10);
 
