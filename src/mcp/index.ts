@@ -129,19 +129,35 @@ export async function startMcp(): Promise<void> {
 			void tryRegisterEvieTools(tools as import("../arbiter/evie/evieClient.js").EvieToolSchema[]);
 		});
 
-		// Initial probe (best-effort, non-blocking if it fails)
-		try {
-			const health = (await routerGet("/health")) as Record<string, unknown>;
-			if (health.ok) {
-				const evieData = (await routerGet("/evie/tools")) as {
-					tools?: import("../arbiter/evie/evieClient.js").EvieToolSchema[];
-				};
-				if (evieData.tools) {
-					await tryRegisterEvieTools(evieData.tools);
+		// Initial probe with retries (arbiter may still be starting)
+		const MAX_ATTEMPTS = 3;
+		const RETRY_DELAY_MS = 10_000;
+		for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+			try {
+				const health = (await routerGet("/health", { retries: 0 })) as Record<string, unknown>;
+				if (health.ok) {
+					const evieData = (await routerGet("/evie/tools", { retries: 0 })) as {
+						tools?: import("../arbiter/evie/evieClient.js").EvieToolSchema[];
+					};
+					if (evieData.tools && evieData.tools.length > 0) {
+						await tryRegisterEvieTools(evieData.tools);
+						console.error(`[mcp] evie tools registered on attempt ${attempt}`);
+						break;
+					}
 				}
+			} catch {
+				// arbiter not reachable yet
 			}
-		} catch {
-			console.error(`[mcp] arbiter not reachable at startup, evie tools will register when available`);
+			if (attempt < MAX_ATTEMPTS) {
+				console.error(
+					`[mcp] evie tools not available (attempt ${attempt}/${MAX_ATTEMPTS}), retrying in ${RETRY_DELAY_MS / 1000}s`,
+				);
+				await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+			} else {
+				console.error(
+					`[mcp] evie tools not available after ${MAX_ATTEMPTS} attempts, will register when pushed via WebSocket`,
+				);
+			}
 		}
 
 		const projectDirs = [path.join(os.homedir(), "projects")];
