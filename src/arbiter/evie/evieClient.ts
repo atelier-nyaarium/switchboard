@@ -17,10 +17,18 @@ export interface EvieToolCallResult {
 	error?: string;
 }
 
+export interface DmForwardPayload {
+	content: string;
+	userId: string;
+	channelId: string;
+	messageId: string;
+}
+
 export interface EvieClientConfig {
 	url: string;
 	authToken: string;
 	onToolRegistry?: (tools: EvieToolSchema[]) => void;
+	onDmForward?: (dm: DmForwardPayload) => void;
 	onDisconnect?: () => void;
 }
 
@@ -74,17 +82,21 @@ export function startEvieClient(config: EvieClientConfig): EvieClient {
 				config.onToolRegistry?.(cachedTools);
 			}
 
-			if (msg.type === "tool_result" || msg.type === "tool_error") {
+			if (msg.type === "dm_forward") {
+				config.onDmForward?.(msg as unknown as DmForwardPayload);
+			}
+
+			if (msg.type === "tool_result" || msg.type === "tool_error" || msg.type === "post_response_result") {
 				const callId = msg.callId as string;
 				const pending = pendingCalls.get(callId);
 				if (pending) {
 					clearTimeout(pending.timer);
 					pendingCalls.delete(callId);
-					pending.resolve({
-						callId,
-						result: msg.type === "tool_result" ? msg.result : undefined,
-						error: msg.type === "tool_error" ? (msg.error as string) : undefined,
-					});
+					if (msg.type === "tool_error") {
+						pending.resolve({ callId, error: msg.error as string });
+					} else {
+						pending.resolve({ callId, result: msg.result ?? msg });
+					}
 				}
 			}
 		});

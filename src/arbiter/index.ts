@@ -1,15 +1,15 @@
+import crypto from "node:crypto";
 import path from "node:path";
 import type { ServerWebSocket } from "bun";
 import { getMutex, type Mutex } from "../shared/mutex.js";
 import { PendingJobStore } from "../shared/pending-job-store.js";
-import type { ResponsePayload } from "../shared/types.js";
+import type { ChannelPushPayload, ResponsePayload } from "../shared/types.js";
 import { handleProxyClose, handleProxyMessage, isProxyConnection, setupProxy } from "./connectorProxy.js";
-import { startDiscordRelay } from "./discord/discordClient.js";
 import { startEvieClient } from "./evie/evieClient.js";
 import { startPortForward } from "./evie/portForward.js";
 import { createRoutes } from "./routes.js";
 import { WakeCoordinator } from "./wake.js";
-import { createWebSocketHandlers, type WsData } from "./websocket.js";
+import { createWebSocketHandlers, getAllActiveWs, type WsData } from "./websocket.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -67,10 +67,6 @@ export async function startArbiter(): Promise<void> {
 		return success;
 	}
 
-	// Start Discord relay if all required env vars are present
-	const hasDiscord = process.env.DISCORD_CLIENT_ID && process.env.DISCORD_SECRET_KEY && process.env.DISCORD_OWNER_ID;
-	const discordRelay = hasDiscord ? await startDiscordRelay({ registry }) : null;
-
 	// Start evie-bot bridge if config is present
 	const evieAuthToken = process.env.BRIDGE_TOKEN;
 	const evieKubeconfig = process.env.EVIE_KUBECONFIG || "/app/kubeconfig.yaml";
@@ -99,6 +95,35 @@ export async function startArbiter(): Promise<void> {
 			onToolRegistry: (tools) => {
 				console.log(`[evie] received ${tools.length} tools`);
 			},
+			onDmForward: (dm) => {
+				const orchestratorSubs = registry.get("__orchestrator__");
+				if (!orchestratorSubs) {
+					console.error(`[evie] DM forward dropped: no __orchestrator__ registered`);
+					return;
+				}
+				const activeWs = getAllActiveWs(orchestratorSubs);
+				if (activeWs.length === 0) {
+					console.error(`[evie] DM forward dropped: __orchestrator__ has no active connections`);
+					return;
+				}
+
+				const sessionId = crypto.randomUUID();
+				const payload: ChannelPushPayload = {
+					type: "channel_push",
+					from: "discord",
+					request_type: "question",
+					body: dm.content,
+					effort: "standard",
+					session_id: sessionId,
+					is_follow_up: false,
+				};
+
+				const serialized = JSON.stringify(payload);
+				for (const ws of activeWs) {
+					ws.send(serialized);
+				}
+				console.log(`[evie] DM forwarded to __orchestrator__ [${sessionId.slice(0, 8)}...]`);
+			},
 			onDisconnect: () => {
 				console.error(`[evie] disconnected from evie-bot`);
 			},
@@ -117,7 +142,6 @@ export async function startArbiter(): Promise<void> {
 		config: { LOG_PATH, RESPONSE_TIMEOUT_MS },
 		tryWakeTeam,
 		offlineCatalog,
-		discordRelay,
 		evieClient,
 	});
 
@@ -154,7 +178,6 @@ export async function startArbiter(): Promise<void> {
 		if (method === "POST" && url.pathname === "/respond") return routes.respond(req, body);
 		if (method === "POST" && url.pathname === "/poll") return routes.poll(req, body);
 		if (method === "GET" && url.pathname === "/health") return routes.health();
-		if (method === "POST" && url.pathname === "/discord/reply") return routes.discordReply(req, body);
 		if (method === "GET" && url.pathname === "/evie/tools") return routes.evieTools();
 		if (method === "POST" && url.pathname === "/evie/tool-call") return routes.evieToolCall(req, body);
 

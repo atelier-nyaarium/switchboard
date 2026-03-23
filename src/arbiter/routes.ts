@@ -18,9 +18,6 @@ export interface RoutesDeps {
 	tryWakeTeam: (team: string) => Promise<boolean>;
 	offlineCatalog: Map<string, string>;
 	config: ArbiterConfig;
-	discordRelay?: {
-		sendDM: (parts: string[], retryCount?: number) => Promise<import("./discord/discordClient.js").SendDMResult>;
-	} | null;
 	evieClient?: import("./evie/evieClient.js").EvieClient | null;
 }
 
@@ -47,11 +44,6 @@ const RespondBodySchema = z.object({
 
 const PollRequestSchema = z.object({
 	session_id: z.string(),
-});
-
-const DiscordReplySchema = z.object({
-	parts: z.array(z.string()),
-	retryCount: z.number().optional(),
 });
 
 const EvieToolCallSchema = z.object({
@@ -92,7 +84,6 @@ export function createRoutes({
 	tryWakeTeam,
 	offlineCatalog,
 	config,
-	discordRelay,
 	evieClient,
 }: RoutesDeps) {
 	const { LOG_PATH, RESPONSE_TIMEOUT_MS } = config;
@@ -352,26 +343,6 @@ export function createRoutes({
 		});
 	}
 
-	async function discordReply(req: Request, body: Record<string, unknown>): Promise<Response> {
-		if (!discordRelay) {
-			return jsonResponse(
-				{
-					error: `Discord relay is not active. Set DISCORD_CLIENT_ID, DISCORD_SECRET_KEY, and DISCORD_OWNER_ID.`,
-				},
-				503,
-			);
-		}
-
-		const parsed = DiscordReplySchema.safeParse(body);
-		if (!parsed.success) {
-			return jsonResponse({ error: `Invalid request: parts (string[]) is required` }, 400);
-		}
-
-		const { parts, retryCount } = parsed.data;
-		const result = await discordRelay.sendDM(parts, retryCount ?? 0);
-		return jsonResponse(result, result.success ? 200 : 422);
-	}
-
 	async function evieToolCall(req: Request, body: Record<string, unknown>): Promise<Response> {
 		if (!evieClient || !evieClient.isConnected()) {
 			return jsonResponse({ error: `Evie-bot is not connected.` }, 503);
@@ -394,5 +365,5 @@ export function createRoutes({
 		return jsonResponse({ tools: evieClient.getToolSchemas() });
 	}
 
-	return { ingest, pending, teams, send, respond, poll, health, discordReply, evieToolCall, evieTools };
+	return { ingest, pending, teams, send, respond, poll, health, evieToolCall, evieTools };
 }

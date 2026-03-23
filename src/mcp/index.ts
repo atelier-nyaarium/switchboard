@@ -15,7 +15,6 @@ import { registerProjectTools } from "./connector/projectTools.js";
 import { registerStubTool } from "./connector/utils.js";
 import { registerDevcontainerCli } from "./devcontainer/devcontainerCli.js";
 import { registerDevcontainerExec } from "./devcontainer/devcontainerExec.js";
-import { registerDiscordReply } from "./devcontainer/discordReply.js";
 import { startHostWakeListener, stopHostWakeListener } from "./devcontainer/hostWakeListener.js";
 import { registerSessionPeek } from "./devcontainer/sessionPeek.js";
 import { registerSessionSend } from "./devcontainer/sessionSend.js";
@@ -106,27 +105,10 @@ export async function startMcp(): Promise<void> {
 		registerBridgeDiscover(mcpServer);
 		setChannelServer(mcpServer.server);
 
-		// Probe arbiter for available services and register tools conditionally
-		const bridgeUrl = process.env.BRIDGE_ROUTER_URL || "http://localhost:20000";
+		// Probe arbiter for evie tools and register them if available
 		try {
 			const health = (await routerGet("/health")) as Record<string, unknown>;
 			if (health.ok) {
-				// Probe Discord relay. Arbiter returns 503 if not active.
-				try {
-					const discordProbe = await fetch(`${bridgeUrl}/discord/reply`, {
-						method: "POST",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ parts: [], retryCount: 0 }),
-					});
-					if (discordProbe.status !== 503) {
-						registerDiscordReply(mcpServer);
-						console.error(`[mcp] discord_reply tool enabled`);
-					}
-				} catch {
-					// Discord relay not available
-				}
-
-				// Fetch evie tool schemas from the arbiter if evie is connected.
 				try {
 					const evieData = (await routerGet("/evie/tools")) as {
 						tools?: import("../arbiter/evie/evieClient.js").EvieToolSchema[];
@@ -140,7 +122,7 @@ export async function startMcp(): Promise<void> {
 				}
 			}
 		} catch {
-			console.error(`[mcp] arbiter not reachable, Discord and evie tools unavailable`);
+			console.error(`[mcp] arbiter not reachable, evie tools unavailable`);
 		}
 
 		const projectDirs = [path.join(os.homedir(), "projects")];
