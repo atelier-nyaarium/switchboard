@@ -22,7 +22,10 @@ import { registerProjectTools } from "./connector/projectTools.js";
 import { registerStubTool } from "./connector/utils.js";
 import { registerDevcontainerCli } from "./devcontainer/devcontainerCli.js";
 import { registerDevcontainerExec } from "./devcontainer/devcontainerExec.js";
+import { registerHostSessionPeek } from "./devcontainer/hostSessionPeek.js";
+import { registerHostSessionSend } from "./devcontainer/hostSessionSend.js";
 import { startHostWakeListener, stopHostWakeListener } from "./devcontainer/hostWakeListener.js";
+import { registerReloadPlugins } from "./devcontainer/reloadPlugins.js";
 import { registerSessionPeek } from "./devcontainer/sessionPeek.js";
 import { registerSessionSend } from "./devcontainer/sessionSend.js";
 
@@ -55,6 +58,7 @@ export async function startMcp(): Promise<void> {
 	if (inContainer) {
 		// Container: register crosstalk tools for cross-team communication
 		registerBridgeTools(mcpServer);
+		registerReloadPlugins(mcpServer);
 
 		const projectName = process.env.PROJECT_NAME;
 		const port = Number(process.env.MCP_CONNECTOR_PORT) || 20002;
@@ -98,6 +102,9 @@ export async function startMcp(): Promise<void> {
 		registerDevcontainerExec(mcpServer);
 		registerSessionPeek(mcpServer);
 		registerSessionSend(mcpServer);
+		registerHostSessionPeek(mcpServer);
+		registerHostSessionSend(mcpServer);
+		registerReloadPlugins(mcpServer);
 
 		// Init bridge for HTTP-only access (no WebSocket, just routerPost/routerGet)
 		initBridge({
@@ -129,35 +136,19 @@ export async function startMcp(): Promise<void> {
 			void tryRegisterEvieTools(tools as import("../arbiter/evie/evieClient.js").EvieToolSchema[]);
 		});
 
-		// Initial probe with retries (arbiter may still be starting)
-		const MAX_ATTEMPTS = 3;
-		const RETRY_DELAY_MS = 10_000;
-		for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-			try {
-				const health = (await routerGet("/health", { retries: 0 })) as Record<string, unknown>;
-				if (health.ok) {
-					const evieData = (await routerGet("/evie/tools", { retries: 0 })) as {
-						tools?: import("../arbiter/evie/evieClient.js").EvieToolSchema[];
-					};
-					if (evieData.tools && evieData.tools.length > 0) {
-						await tryRegisterEvieTools(evieData.tools);
-						console.error(`[mcp] evie tools registered on attempt ${attempt}`);
-						break;
-					}
+		// Initial probe (best-effort, non-blocking if it fails)
+		try {
+			const health = (await routerGet("/health")) as Record<string, unknown>;
+			if (health.ok) {
+				const evieData = (await routerGet("/evie/tools")) as {
+					tools?: import("../arbiter/evie/evieClient.js").EvieToolSchema[];
+				};
+				if (evieData.tools) {
+					await tryRegisterEvieTools(evieData.tools);
 				}
-			} catch {
-				// arbiter not reachable yet
 			}
-			if (attempt < MAX_ATTEMPTS) {
-				console.error(
-					`[mcp] evie tools not available (attempt ${attempt}/${MAX_ATTEMPTS}), retrying in ${RETRY_DELAY_MS / 1000}s`,
-				);
-				await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-			} else {
-				console.error(
-					`[mcp] evie tools not available after ${MAX_ATTEMPTS} attempts, will register when pushed via WebSocket`,
-				);
-			}
+		} catch {
+			console.error(`[mcp] arbiter not reachable at startup, evie tools will register when available`);
 		}
 
 		const projectDirs = [path.join(os.homedir(), "projects")];
