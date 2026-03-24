@@ -45,12 +45,12 @@ ${buildTmuxFn(tmuxPrefix)}
 PANE="${TMUX_SESSION}.0"
 
 capture_pane() {
-	tmux_cmd capture-pane -t "$PANE" -p -S -50
+	tmux_cmd capture-pane -t "$PANE" -p
 }
 
 send_key() {
 	tmux_cmd send-keys -t "$PANE" "$1"
-	sleep 0.3
+	sleep 1
 }
 
 send_text() {
@@ -90,7 +90,8 @@ send_text "/mcp"
 sleep 2
 
 # Navigate down until selection is on nyaascripts
-for _ in $(seq 1 30); do
+for _ in $(seq 1 20); do
+	sleep 1
 	SCREEN=$(capture_pane)
 	if echo "$SCREEN" | grep -qE '\u276f.*nyaascripts'; then
 		break
