@@ -44,6 +44,9 @@
       - `devcontainerExec.ts` - `dispatch_exec` tool: execute shell commands in a devcontainer
       - `sessionPeek.ts` - `session_peek` tool: capture tmux pane 0 screen of a team's session
       - `sessionSend.ts` - `session_send` tool: send a line of input to a team's tmux session
+      - `hostSessionPeek.ts` - `host_session_peek` tool: capture the host's own tmux pane 0 screen
+      - `hostSessionSend.ts` - `host_session_send` tool: send input to the host's own tmux session
+      - `reloadPlugins.ts` - `reload_plugins` tool: automated plugin update and MCP reconnect sequence
       - `helpers.ts` - Project resolution, container lifecycle, devcontainer CLI discovery
       - `hostWakeListener.ts` - Host-side __host__ WebSocket: catalog scan, on-demand container waking
     - `evie/` - **Evie tool proxy** - Dynamic MCP tool registration from evie-bot's action registry

@@ -1,0 +1,206 @@
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { isInsideContainer } from "../../shared/env.js";
+
+////////////////////////////////
+//  Schemas
+
+const ReloadPluginsSchema = z.object({
+	team: z
+		.string()
+		.optional()
+		.describe(
+			`Host-only. Team name to target (e.g. "evie-bot"). Resolves to container "{team}_devcontainer-dev-1". Omit to target the host's own session.`,
+		),
+});
+type ReloadPluginsArgs = z.infer<typeof ReloadPluginsSchema>;
+
+// biome-ignore lint/suspicious/noExplicitAny: MCP SDK type compat
+const reloadSchema: any = ReloadPluginsSchema;
+
+////////////////////////////////
+//  Functions & Helpers
+
+const TMUX_SESSION = "claude";
+
+function buildTmuxFn(tmuxPrefix: string): string {
+	// For docker exec, wrap the tmux binary call; for local, call tmux directly
+	if (tmuxPrefix === "tmux") {
+		return `tmux_cmd() { tmux "$@"; }`;
+	}
+	// docker exec prefix: extract the container portion
+	return `tmux_cmd() { ${tmuxPrefix} "$@"; }`;
+}
+
+function buildScript(tmuxPrefix: string): string {
+	return `#!/bin/bash
+set -euo pipefail
+
+${buildTmuxFn(tmuxPrefix)}
+
+PANE="${TMUX_SESSION}.0"
+
+capture_pane() {
+	tmux_cmd capture-pane -t "$PANE" -p
+}
+
+send_key() {
+	tmux_cmd send-keys -t "$PANE" "$1"
+	sleep 1
+}
+
+send_text() {
+	tmux_cmd send-keys -t "$PANE" -l "$1"
+	tmux_cmd send-keys -t "$PANE" Enter
+}
+
+# Wait for the MCP tool call to finish before driving the session
+sleep 3
+
+# Check the session is idle
+SCREEN=$(capture_pane)
+if ! echo "$SCREEN" | grep -q '\u276f'; then
+	echo "Session does not appear idle. Aborting." >&2
+	exit 1
+fi
+
+# /plugin - update plugins
+send_text "/plugin"
+sleep 2
+send_key Right
+send_key Right
+send_key Down
+send_key "u"
+send_key Down
+send_key Down
+send_key "u"
+send_key Enter
+sleep 20
+
+# /reload-plugins
+send_text "/reload-plugins"
+sleep 5
+
+# Reconnect an MCP server by name via the /mcp menu.
+# Navigates down until the selection indicator is on a line matching the pattern.
+# Prioritize plugin:*:agent-team-bridge over plain agent-team-bridge.
+reconnect_mcp() {
+	local PATTERN="$1"
+	send_text "/mcp"
+	sleep 2
+
+	local FOUND=false
+	for _ in $(seq 1 20); do
+		sleep 1
+		SCREEN=$(capture_pane)
+		if echo "$SCREEN" | grep -qE "\u276f.*$PATTERN"; then
+			FOUND=true
+			break
+		fi
+		send_key Down
+	done
+
+	if [ "$FOUND" = true ]; then
+		send_key Enter
+		sleep 1
+		send_key "2"
+		sleep 5
+	else
+		send_key Escape
+		sleep 1
+	fi
+}
+
+reconnect_mcp "nyaascripts"
+reconnect_mcp "plugin:.*agent-team-bridge"
+
+echo "Reload sequence complete."
+`;
+}
+
+const description = `
+Automate the full plugin update and MCP reconnect sequence for a Claude Code session.
+Spawns a background script that drives the tmux session through:
+1. /plugin update
+2. /reload-plugins
+3. /mcp reconnect nyaascripts
+4. /mcp reconnect plugin:agent-team-bridge (prioritized over plain agent-team-bridge)
+
+The tool returns immediately. The script waits for the current tool call to finish before starting.
+On the host, omit 'team' to target the host session, or provide 'team' to target a devcontainer.
+In a container, always targets the local session (team param is ignored).
+`.trim();
+
+export function registerReloadPlugins(mcpServer: McpServer): void {
+	mcpServer.registerTool(
+		"reload_plugins",
+		{
+			title: "Reload Plugins",
+			description,
+			inputSchema: reloadSchema,
+		},
+		async (args: ReloadPluginsArgs) => {
+			try {
+				const inContainer = isInsideContainer();
+
+				let tmuxPrefix: string;
+				let targetLabel: string;
+
+				if (inContainer) {
+					tmuxPrefix = "tmux";
+					targetLabel = "self (container)";
+				} else if (args.team) {
+					const container = `${args.team}_devcontainer-dev-1`;
+					tmuxPrefix = `docker exec -u vscode "${container}" tmux`;
+					targetLabel = `container: ${container}`;
+				} else {
+					tmuxPrefix = "tmux";
+					targetLabel = "self (host)";
+				}
+
+				const script = buildScript(tmuxPrefix);
+				const scriptPath = path.join(os.tmpdir(), `reload-plugins-${Date.now()}.sh`);
+				fs.writeFileSync(scriptPath, script, { mode: 0o755 });
+
+				// Spawn detached so it outlives this tool call
+				const child = spawn("bash", [scriptPath], {
+					detached: true,
+					stdio: "ignore",
+				});
+				child.unref();
+
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: JSON.stringify(
+								{
+									initiated: true,
+									target: targetLabel,
+									scriptPath,
+									note: "Background script starts ~3s after this tool call completes. Full sequence takes about 40 seconds.",
+								},
+								null,
+								2,
+							),
+						},
+					],
+				};
+			} catch (error) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: JSON.stringify({ errors: [{ message: (error as Error).message }] }, null, 2),
+						},
+					],
+					isError: true,
+				};
+			}
+		},
+	);
+}
