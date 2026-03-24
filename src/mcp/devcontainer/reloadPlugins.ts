@@ -85,24 +85,38 @@ sleep 20
 send_text "/reload-plugins"
 sleep 5
 
-# /mcp - reconnect nyaascripts
-send_text "/mcp"
-sleep 2
+# Reconnect an MCP server by name via the /mcp menu.
+# Navigates down until the selection indicator is on a line matching the pattern.
+# Prioritize plugin:*:agent-team-bridge over plain agent-team-bridge.
+reconnect_mcp() {
+	local PATTERN="$1"
+	send_text "/mcp"
+	sleep 2
 
-# Navigate down until selection is on nyaascripts
-for _ in $(seq 1 20); do
-	sleep 1
-	SCREEN=$(capture_pane)
-	if echo "$SCREEN" | grep -qE '\u276f.*nyaascripts'; then
-		break
+	local FOUND=false
+	for _ in $(seq 1 20); do
+		sleep 1
+		SCREEN=$(capture_pane)
+		if echo "$SCREEN" | grep -qE "\u276f.*$PATTERN"; then
+			FOUND=true
+			break
+		fi
+		send_key Down
+	done
+
+	if [ "$FOUND" = true ]; then
+		send_key Enter
+		sleep 1
+		send_key "2"
+		sleep 5
+	else
+		send_key Escape
+		sleep 1
 	fi
-	send_key Down
-done
+}
 
-send_key Enter
-sleep 1
-send_key "2"
-sleep 5
+reconnect_mcp "nyaascripts"
+reconnect_mcp "plugin:.*agent-team-bridge"
 
 echo "Reload sequence complete."
 `;
@@ -114,6 +128,7 @@ Spawns a background script that drives the tmux session through:
 1. /plugin update
 2. /reload-plugins
 3. /mcp reconnect nyaascripts
+4. /mcp reconnect plugin:agent-team-bridge (prioritized over plain agent-team-bridge)
 
 The tool returns immediately. The script waits for the current tool call to finish before starting.
 On the host, omit 'team' to target the host session, or provide 'team' to target a devcontainer.
