@@ -105,14 +105,30 @@ export async function startArbiter(): Promise<void> {
 				}
 			},
 			onDmForward: (dm) => {
+				// Route specific users directly to a named devcontainer team
+				const DM_ROUTES: Record<string, string> = {
+					"944439985174630462": "icy-pet-game",
+				};
+
+				const directTeam = DM_ROUTES[dm.userId];
+				const targetSubs = directTeam ? registry.get(directTeam) : undefined;
 				const orchestratorSubs = registry.get("__orchestrator__");
-				if (!orchestratorSubs) {
+
+				// Try direct team first, fall back to orchestrator
+				let activeWs = targetSubs ? getAllActiveWs(targetSubs) : [];
+				let routedTo = directTeam ?? "__orchestrator__";
+				if (activeWs.length === 0 && directTeam) {
+					activeWs = orchestratorSubs ? getAllActiveWs(orchestratorSubs) : [];
+					routedTo = "__orchestrator__";
+					if (activeWs.length === 0) {
+						console.error(
+							`[evie] DM forward dropped: neither ${directTeam} nor __orchestrator__ available`,
+						);
+						return;
+					}
+					console.log(`[evie] ${directTeam} offline, falling back to __orchestrator__`);
+				} else if (activeWs.length === 0) {
 					console.error(`[evie] DM forward dropped: no __orchestrator__ registered`);
-					return;
-				}
-				const activeWs = getAllActiveWs(orchestratorSubs);
-				if (activeWs.length === 0) {
-					console.error(`[evie] DM forward dropped: __orchestrator__ has no active connections`);
 					return;
 				}
 
@@ -131,7 +147,7 @@ export async function startArbiter(): Promise<void> {
 				for (const ws of activeWs) {
 					ws.send(serialized);
 				}
-				console.log(`[evie] DM forwarded to __orchestrator__ [${sessionId.slice(0, 8)}...]`);
+				console.log(`[evie] DM forwarded to ${routedTo} [${sessionId.slice(0, 8)}...]`);
 			},
 			onDisconnect: () => {
 				console.error(`[evie] disconnected from evie-bot`);
