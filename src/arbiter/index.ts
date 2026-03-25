@@ -107,7 +107,7 @@ export async function startArbiter(): Promise<void> {
 			onDmForward: (dm) => {
 				// Route specific users directly to a named devcontainer team
 				const DM_ROUTES: Record<string, string> = {
-					"944439985174630462": "icy-pet-game",
+					"944439985174630462": "nyaadot",
 				};
 
 				const directTeam = DM_ROUTES[dm.userId];
