@@ -125,10 +125,9 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 		const resolved = resolveProject(projectPath);
 		const projectName = path.basename(resolved);
 		console.error(`[host-wake] starting ${msg.team} at ${resolved}`);
-		await ensureContainerUpAsync(resolved);
+		const { pluginsProvisioned } = await ensureContainerUpAsync(resolved);
 		console.error(`[host-wake] ${msg.team} container is up, starting Claude`);
 
-		// Check if a "claude" tmux session already exists
 		let sessionExists = false;
 		try {
 			await execInContainer({
@@ -160,11 +159,11 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 		}
 
 		// Poll tmux screen to auto-accept the dev channels prompt
+		let lastScreen = "";
 		for (let i = 0; i < 10; i++) {
 			await new Promise((r) => setTimeout(r, 1000));
-			let screen = "";
 			try {
-				screen = await execInContainer({
+				lastScreen = await execInContainer({
 					projectPath: resolved,
 					command: ["tmux", "capture-pane", "-t", "claude", "-p"],
 					timeoutMs: 10000,
@@ -172,11 +171,12 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 			} catch {
 				// ignore capture errors
 			}
-			if (screen.includes("Claude Code")) {
+			// "Claude Code v" appears on the idle prompt, not just the wizard
+			if (lastScreen.includes("Claude Code v") && !lastScreen.includes("Choose the text style")) {
 				console.error(`[host-wake] ${msg.team} Claude is ready`);
 				break;
 			}
-			if (screen.includes("Loading development channels")) {
+			if (lastScreen.includes("Loading development channels")) {
 				try {
 					await execInContainer({
 						projectPath: resolved,
@@ -187,6 +187,19 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 					// ignore send-keys errors
 				}
 			}
+		}
+
+		// Always send wake_result with a screen capture so the caller can assess
+		if (ws?.readyState === WebSocket.OPEN) {
+			ws.send(
+				JSON.stringify({
+					type: "wake_result",
+					team: msg.team,
+					success: true,
+					pluginsProvisioned,
+					screen: lastScreen,
+				}),
+			);
 		}
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
