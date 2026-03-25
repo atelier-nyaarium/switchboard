@@ -131,6 +131,17 @@ export function ensureContainerUp(projectPath: string): void {
 	}
 
 	parseDevcontainerOutput(output, projectPath);
+
+	// Run lifecycle commands (postCreateCommand, postStartCommand) so the
+	// home directory gets provisioned and plugins are available.
+	try {
+		execSync(`"${bin}" run-user-commands --workspace-folder "${projectPath}"`, {
+			encoding: "utf-8",
+			maxBuffer: 10 * 1024 * 1024,
+		});
+	} catch {
+		console.error(`[devcontainer] run-user-commands failed for '${projectPath}' (non-fatal)`);
+	}
 }
 
 export function ensureContainerUpAsync(projectPath: string): Promise<void> {
@@ -155,7 +166,17 @@ export function ensureContainerUpAsync(projectPath: string): Promise<void> {
 					return;
 				}
 
-				resolve();
+				// Run lifecycle commands (postCreateCommand, postStartCommand)
+				exec(
+					`"${bin}" run-user-commands --workspace-folder "${projectPath}"`,
+					{ encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 },
+					(lcError) => {
+						if (lcError) {
+							console.error(`[devcontainer] run-user-commands failed for '${projectPath}' (non-fatal)`);
+						}
+						resolve();
+					},
+				);
 			},
 		);
 	});
