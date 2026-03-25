@@ -24,6 +24,11 @@ export interface ExecInContainerParams {
 	stdin?: string;
 }
 
+export interface ContainerUpResult {
+	wasAlreadyRunning: boolean;
+	pluginsProvisioned: boolean;
+}
+
 ////////////////////////////////
 //  Functions & Helpers
 
@@ -114,8 +119,58 @@ function isContainerReady(projectPath: string): boolean {
 	}
 }
 
-export function ensureContainerUp(projectPath: string): void {
-	if (isContainerReady(projectPath)) return;
+const PLUGIN_SETTINGS = JSON.stringify({
+	enabledPlugins: {
+		"agent-team-bridge@agent-team-bridge": true,
+		"nyaaskills@nyaaskills": true,
+	},
+	extraKnownMarketplaces: {
+		"agent-team-bridge": {
+			source: { source: "github", repo: "atelier-nyaarium/agent-team-bridge" },
+			autoUpdate: true,
+		},
+		nyaaskills: {
+			source: { source: "github", repo: "atelier-nyaarium/nyaaskills" },
+			autoUpdate: true,
+		},
+	},
+});
+
+function hasPluginSettings(projectPath: string): boolean {
+	try {
+		const result = execSync(
+			`"${devcontainerBin()}" exec --workspace-folder "${projectPath}" bash -c "jq -e '.enabledPlugins[\\"agent-team-bridge@agent-team-bridge\\"]' /home/vscode/.claude/settings.json 2>/dev/null"`,
+			{ encoding: "utf-8", timeout: 10_000, stdio: "pipe" },
+		);
+		return result.trim() === "true";
+	} catch {
+		return false;
+	}
+}
+
+function provisionPluginSettings(projectPath: string): void {
+	const bin = devcontainerBin();
+	const settingsPath = "/home/vscode/.claude/settings.json";
+
+	// Merge plugin config into existing settings (or create from scratch)
+	const jqScript = `'(if . == null then {} else . end) * ${PLUGIN_SETTINGS.replace(/'/g, "'\\''")}'`;
+	const cmd = [
+		`mkdir -p /home/vscode/.claude`,
+		`(cat ${settingsPath} 2>/dev/null || echo '{}') | jq ${jqScript} > /tmp/claude-settings.json`,
+		`mv /tmp/claude-settings.json ${settingsPath}`,
+	].join(" && ");
+
+	execSync(`"${bin}" exec --workspace-folder "${projectPath}" bash -c "${cmd.replace(/"/g, '\\"')}"`, {
+		encoding: "utf-8",
+		timeout: 10_000,
+	});
+	console.log(`[devcontainer] provisioned plugin settings for '${projectPath}'`);
+}
+
+export function ensureContainerUp(projectPath: string): ContainerUpResult {
+	if (isContainerReady(projectPath)) {
+		return { wasAlreadyRunning: true, pluginsProvisioned: false };
+	}
 
 	const bin = devcontainerBin();
 
@@ -142,10 +197,24 @@ export function ensureContainerUp(projectPath: string): void {
 	} catch {
 		console.error(`[devcontainer] run-user-commands failed for '${projectPath}' (non-fatal)`);
 	}
+
+	let pluginsProvisioned = false;
+	if (!hasPluginSettings(projectPath)) {
+		try {
+			provisionPluginSettings(projectPath);
+			pluginsProvisioned = true;
+		} catch (e) {
+			console.error(`[devcontainer] plugin provisioning failed: ${(e as Error).message}`);
+		}
+	}
+
+	return { wasAlreadyRunning: false, pluginsProvisioned };
 }
 
-export function ensureContainerUpAsync(projectPath: string): Promise<void> {
-	if (isContainerReady(projectPath)) return Promise.resolve();
+export function ensureContainerUpAsync(projectPath: string): Promise<ContainerUpResult> {
+	if (isContainerReady(projectPath)) {
+		return Promise.resolve({ wasAlreadyRunning: true, pluginsProvisioned: false });
+	}
 
 	const bin = devcontainerBin();
 
@@ -174,7 +243,18 @@ export function ensureContainerUpAsync(projectPath: string): Promise<void> {
 						if (lcError) {
 							console.error(`[devcontainer] run-user-commands failed for '${projectPath}' (non-fatal)`);
 						}
-						resolve();
+
+						let pluginsProvisioned = false;
+						if (!hasPluginSettings(projectPath)) {
+							try {
+								provisionPluginSettings(projectPath);
+								pluginsProvisioned = true;
+							} catch (e) {
+								console.error(`[devcontainer] plugin provisioning failed: ${(e as Error).message}`);
+							}
+						}
+
+						resolve({ wasAlreadyRunning: false, pluginsProvisioned });
 					},
 				);
 			},
