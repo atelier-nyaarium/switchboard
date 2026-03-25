@@ -117,18 +117,17 @@ export async function startArbiter(): Promise<void> {
 				// Try direct team first, fall back to orchestrator
 				let activeWs = targetSubs ? getAllActiveWs(targetSubs) : [];
 				let routedTo = directTeam ?? "__orchestrator__";
-				if (activeWs.length === 0 && directTeam) {
+
+				if (activeWs.length === 0) {
 					activeWs = orchestratorSubs ? getAllActiveWs(orchestratorSubs) : [];
 					routedTo = "__orchestrator__";
-					if (activeWs.length === 0) {
-						console.error(
-							`[evie] DM forward dropped: neither ${directTeam} nor __orchestrator__ available`,
-						);
-						return;
+					if (directTeam) {
+						console.log(`[evie] ${directTeam} offline, falling back to __orchestrator__`);
 					}
-					console.log(`[evie] ${directTeam} offline, falling back to __orchestrator__`);
-				} else if (activeWs.length === 0) {
-					console.error(`[evie] DM forward dropped: no __orchestrator__ registered`);
+				}
+
+				if (activeWs.length === 0) {
+					console.error(`[evie] DM forward dropped: no available target`);
 					return;
 				}
 
