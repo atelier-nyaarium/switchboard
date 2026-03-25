@@ -107,8 +107,26 @@ reconnect_mcp() {
 	if [ "$FOUND" = true ]; then
 		send_key Enter
 		sleep 1
-		send_key "2"
-		sleep 5
+
+		# Navigate submenu to find Reconnect or Enable
+		local ACTION_FOUND=false
+		for _ in $(seq 1 5); do
+			sleep 1
+			SCREEN=$(capture_pane)
+			if echo "$SCREEN" | grep -qE '\u276f.*(Reconnect|Enable)'; then
+				ACTION_FOUND=true
+				break
+			fi
+			send_key Down
+		done
+
+		if [ "$ACTION_FOUND" = true ]; then
+			send_key Enter
+			sleep 5
+		else
+			send_key Escape
+			sleep 1
+		fi
 	else
 		send_key Escape
 		sleep 1
