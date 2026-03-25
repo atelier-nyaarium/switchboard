@@ -68,16 +68,35 @@ if ! echo "$SCREEN" | grep -q '\u276f'; then
 	exit 1
 fi
 
-# /plugin - update plugins
+# /plugin - update marketplaces
 send_text "/plugin"
 sleep 2
 send_key Right
 send_key Right
-send_key Down
-send_key "u"
-send_key Down
-send_key Down
-send_key "u"
+sleep 1
+
+# Navigate to agent-team-bridge marketplace and mark for update
+for _ in $(seq 1 10); do
+	sleep 1
+	SCREEN=$(capture_pane)
+	if echo "$SCREEN" | grep -qE '\u276f.*agent-team-bridge'; then
+		send_key "u"
+		break
+	fi
+	send_key Down
+done
+
+# Navigate to nyaaskills marketplace and mark for update
+for _ in $(seq 1 10); do
+	sleep 1
+	SCREEN=$(capture_pane)
+	if echo "$SCREEN" | grep -qE '\u276f.*nyaaskills'; then
+		send_key "u"
+		break
+	fi
+	send_key Down
+done
+
 send_key Enter
 sleep 20
 
