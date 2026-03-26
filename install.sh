@@ -57,8 +57,13 @@ yq -Y -i "
 HAS_NETWORKS=$(yq -r ".services.\"${SERVICE_NAME}\".networks" "$COMPOSE_FILE" 2>/dev/null)
 
 if [[ "$HAS_NETWORKS" == "null" ]]; then
-    yq -Y -i ".services.\"${SERVICE_NAME}\".networks = [\"agent-team-bridge-network\"]" "$COMPOSE_FILE"
+    yq -Y -i ".services.\"${SERVICE_NAME}\".networks = [\"default\", \"agent-team-bridge-network\"]" "$COMPOSE_FILE"
 else
+    # Ensure default is present before adding the bridge network
+    HAS_DEFAULT=$(yq -r ".services.\"${SERVICE_NAME}\".networks | index(\"default\") // empty" "$COMPOSE_FILE" 2>/dev/null)
+    if [[ -z "$HAS_DEFAULT" ]]; then
+        yq -Y -i ".services.\"${SERVICE_NAME}\".networks = [\"default\"] + .services.\"${SERVICE_NAME}\".networks" "$COMPOSE_FILE"
+    fi
     yq -Y -i ".services.\"${SERVICE_NAME}\".networks += [\"agent-team-bridge-network\"]" "$COMPOSE_FILE"
 fi
 

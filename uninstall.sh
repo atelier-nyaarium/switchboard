@@ -18,27 +18,7 @@ log() {
 log "Removing Agent Team Bridge configuration..."
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 1. MCP config - remove agent-team-bridge server entry
-# ═════════════════════════════════════════════════════════════════════════════
-
-if command -v jq &>/dev/null; then
-    for mcp_file in ".mcp.json" ".cursor/mcp.json"; do
-        if [[ -f "$mcp_file" ]] && jq -e '.mcpServers["agent-team-bridge"]' "$mcp_file" &>/dev/null; then
-            jq --tab 'del(.mcpServers["agent-team-bridge"])' "$mcp_file" > "${mcp_file}.tmp"
-            mv "${mcp_file}.tmp" "$mcp_file"
-
-            if jq -e '.mcpServers | length == 0' "$mcp_file" &>/dev/null; then
-                rm "$mcp_file"
-                log "   ${mcp_file} removed (was empty)"
-            else
-                log "   ${mcp_file} - removed agent-team-bridge entry"
-            fi
-        fi
-    done
-fi
-
-# ═════════════════════════════════════════════════════════════════════════════
-# 2. .devcontainer/compose.yml - remove agent-team-bridge-network
+# .devcontainer/compose.yml - remove agent-team-bridge-network
 # ═════════════════════════════════════════════════════════════════════════════
 
 COMPOSE_FILE=""
