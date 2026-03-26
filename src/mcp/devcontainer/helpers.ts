@@ -148,17 +148,38 @@ function hasPluginSettings(projectPath: string): boolean {
 	}
 }
 
+const MCP_SERVERS = JSON.stringify({
+	mcpServers: {
+		nyaascripts: {
+			type: "stdio",
+			command: "/home/vscode/scripts/nyaascripts",
+			args: [],
+			env: {},
+		},
+	},
+});
+
 function provisionPluginSettings(projectPath: string): void {
 	const bin = devcontainerBin();
 	const settingsPath = "/home/vscode/.claude/settings.json";
+	const claudeJson = "/home/vscode/.claude.json";
 
 	// Merge plugin config into existing settings (or create from scratch)
 	const jqScript = `'(if . == null then {} else . end) * ${PLUGIN_SETTINGS.replace(/'/g, "'\\''")}'`;
-	const cmd = [
+	const settingsCmd = [
 		`mkdir -p /home/vscode/.claude`,
 		`(cat ${settingsPath} 2>/dev/null || echo '{}') | jq ${jqScript} > /tmp/claude-settings.json`,
 		`mv /tmp/claude-settings.json ${settingsPath}`,
 	].join(" && ");
+
+	// Merge nyaascripts MCP server into ~/.claude.json
+	const mcpJqScript = `'(if . == null then {} else . end) * ${MCP_SERVERS.replace(/'/g, "'\\''")}'`;
+	const mcpCmd = [
+		`(cat ${claudeJson} 2>/dev/null || echo '{}') | jq ${mcpJqScript} > /tmp/claude-json.tmp`,
+		`mv /tmp/claude-json.tmp ${claudeJson}`,
+	].join(" && ");
+
+	const cmd = `${settingsCmd} && ${mcpCmd}`;
 
 	execSync(`"${bin}" exec --workspace-folder "${projectPath}" bash -c "${cmd.replace(/"/g, '\\"')}"`, {
 		encoding: "utf-8",
