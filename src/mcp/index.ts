@@ -26,6 +26,7 @@ import { registerHostSessionPeek } from "./devcontainer/hostSessionPeek.js";
 import { registerHostSessionSend } from "./devcontainer/hostSessionSend.js";
 import { startHostWakeListener, stopHostWakeListener } from "./devcontainer/hostWakeListener.js";
 import { registerReloadPlugins } from "./devcontainer/reloadPlugins.js";
+import { registerSessionAwaitIdle } from "./devcontainer/sessionAwaitIdle.js";
 import { registerSessionPeek } from "./devcontainer/sessionPeek.js";
 import { registerSessionSend } from "./devcontainer/sessionSend.js";
 
@@ -102,6 +103,7 @@ export async function startMcp(): Promise<void> {
 		registerDevcontainerExec(mcpServer);
 		registerSessionPeek(mcpServer);
 		registerSessionSend(mcpServer);
+		registerSessionAwaitIdle(mcpServer);
 		registerHostSessionPeek(mcpServer);
 		registerHostSessionSend(mcpServer);
 		registerReloadPlugins(mcpServer);
