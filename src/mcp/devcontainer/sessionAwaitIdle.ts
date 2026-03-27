@@ -53,7 +53,8 @@ function detectState(screen: string): SessionState {
 		screen.includes("✻ Idle") ||
 		screen.includes("✻ Worked") ||
 		screen.includes("✻ Crunched") ||
-		screen.includes("✻ Brewed")
+		screen.includes("✻ Brewed") ||
+		screen.includes("✻ Churned")
 	) {
 		return "idle";
 	}
