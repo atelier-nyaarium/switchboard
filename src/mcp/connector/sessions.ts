@@ -13,6 +13,7 @@ export interface ClientSession {
 	ws: ServerWebSocket<ClientData>;
 	connectedAt: Date;
 	remoteAddress: string;
+	registeredTools: string[];
 }
 
 ////////////////////////////////
@@ -39,6 +40,7 @@ export function addClient(ws: ServerWebSocket<ClientData>, remoteAddress: string
 		ws,
 		connectedAt: new Date(),
 		remoteAddress,
+		registeredTools: [],
 	};
 	clients.set(shortHash, session);
 	return session;

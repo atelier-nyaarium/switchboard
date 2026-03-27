@@ -19,7 +19,21 @@ const McpToolSchema = z.object({
 type McpTool = z.infer<typeof McpToolSchema>;
 
 ////////////////////////////////
+//  State
+
+// biome-ignore lint/suspicious/noExplicitAny: Zod schema generic
+const loadedToolSchemas = new Map<string, z.ZodObject<any>>();
+
+////////////////////////////////
 //  Functions & Helpers
+
+export function getToolSchema(name: string): z.ZodObject<z.ZodRawShape> | undefined {
+	return loadedToolSchemas.get(name);
+}
+
+export function getLoadedToolNames(): string[] {
+	return Array.from(loadedToolSchemas.keys());
+}
 
 export async function registerProjectTools(
 	mcpServer: McpServer,
@@ -91,6 +105,12 @@ export async function registerProjectTools(
 	}
 
 	const tools: McpTool[] = parsed.data;
+
+	// Store schemas for validation by listener
+	loadedToolSchemas.clear();
+	for (const tool of tools) {
+		loadedToolSchemas.set(tool.name, tool.schema);
+	}
 
 	for (const tool of tools) {
 		const extendedShape = {

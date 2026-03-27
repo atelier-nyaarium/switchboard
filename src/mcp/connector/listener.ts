@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import type { Server } from "bun";
 import { isInsideContainer } from "../../shared/env.js";
+import { getLoadedToolNames, getToolSchema } from "./projectTools.js";
 import { addClient, type ClientData, getAllClients, getClient, removeClient } from "./sessions.js";
 
 const TAG = "[connector]";
@@ -95,6 +96,15 @@ export function invokeOnClient(shortHash: string, tool: string, args: Record<str
 		);
 	}
 
+	// Validate params against loaded Zod schema
+	const toolSchema = getToolSchema(tool);
+	if (toolSchema) {
+		const parsed = toolSchema.safeParse(args);
+		if (!parsed.success) {
+			return Promise.reject(new Error(`Invalid params for tool "${tool}": ${parsed.error.message}`));
+		}
+	}
+
 	const id = `req-${++requestCounter}`;
 
 	return new Promise((resolve, reject) => {
@@ -171,7 +181,24 @@ function createServer({ hostname, port, mode, cert, key }: CreateServerParams): 
 				try {
 					const data = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
 
-					if (data.type === "result" && data.id) {
+					if (data.type === "register" && Array.isArray(data.tools)) {
+						const clientTools: string[] = data.tools;
+						const knownTools = getLoadedToolNames();
+						const unknown = clientTools.filter((t: string) => !knownTools.includes(t));
+						const valid = clientTools.filter((t: string) => knownTools.includes(t));
+
+						if (unknown.length > 0) {
+							console.error(
+								`${TAG} Client ${ws.data.shortHash} registered unknown tools: ${unknown.join(", ")}`,
+							);
+						}
+						console.error(
+							`${TAG} Client ${ws.data.shortHash} registered ${valid.length}/${clientTools.length} tool(s)`,
+						);
+
+						const session = getClient(ws.data.shortHash);
+						if (session) session.registeredTools = clientTools;
+					} else if (data.type === "result" && data.id) {
 						const pending = pendingInvocations.get(data.id);
 						if (pending) {
 							clearTimeout(pending.timer);

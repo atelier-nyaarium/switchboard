@@ -10,7 +10,8 @@ import type { ChannelPushPayload, ResponsePushPayload } from "../../shared/types
  */
 export async function emitChannelNotification(server: Server, payload: ChannelPushPayload): Promise<void> {
 	const replyReminder = `
-┃ 📫 Communicate with tool \`channel_reply\` ➜ session_id: \`${payload.session_id}\`
+┃ 📫 Reply ONLY via \`channel_reply\`. Do not output additional text outside this tool call.
+┃ ➜ session_id: \`${payload.session_id}\`
 `.trim();
 	await server.notification({
 		method: "notifications/claude/channel",
