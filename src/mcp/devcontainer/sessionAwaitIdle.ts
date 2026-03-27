@@ -35,11 +35,11 @@ type SessionState = "idle" | "idle_teammates_running" | "worked" | "edit_prompt"
 const description = `
 Wait for a team's Claude Code session to become idle or show an edit confirmation prompt.
 Polls the session screen until one of these states is detected:
-- "idle" — fully idle, safe for session_send commands (reload, etc.)
-- "idle_teammates_running" — lead is idle but teammates are active. Safe for channel communication (crosstalk), but NOT safe for session_send commands (reload, etc.) as a teammate response could reactivate the lead at any moment.
-- "worked" — just finished working (shows elapsed time). Same as idle, safe for commands.
-- "edit_prompt" — session shows "Do you want to make this edit" confirmation dialog.
-- "timeout" — none of the above detected within the timeout period (returns last screen capture).
+- "idle"  - fully idle, safe for session_send commands (reload, etc.)
+- "idle_teammates_running"  - lead is idle but teammates are active. Safe for channel communication (crosstalk), but NOT safe for session_send commands (reload, etc.) as a teammate response could reactivate the lead at any moment.
+- "worked"  - just finished working (shows elapsed time). Same as idle, safe for commands.
+- "edit_prompt"  - session shows "Do you want to make this edit" confirmation dialog.
+- "timeout"  - none of the above detected within the timeout period (returns last screen capture).
 `.trim();
 
 function detectState(screen: string): SessionState {
