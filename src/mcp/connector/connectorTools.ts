@@ -66,6 +66,7 @@ export function registerConnectorTools(
 			const serving = !!listenerState;
 			const clients = getAllClients().map((c) => ({
 				clientId: c.shortHash,
+				...(c.instance && { instance: c.instance }),
 				connectedAt: c.connectedAt.toISOString(),
 				remoteAddress: c.remoteAddress,
 			}));
@@ -90,7 +91,7 @@ export function registerConnectorTools(
 			} else if (clients.length === 0) {
 				result.hint = `Serving but no game clients connected yet.`;
 			} else {
-				result.hint = `Ready. Use project tools with a clientId from the clients list.`;
+				result.hint = `Ready. Use project tools with a clientId or instance name from the clients list.`;
 			}
 
 			if (!getAuthToken() || !hasCerts) {

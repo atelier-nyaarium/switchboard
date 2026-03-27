@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { invokeOnClient } from "./listener.js";
+import { invokeResolved } from "./listener.js";
 import { registerStubTool, textResult } from "./utils.js";
 
 const TAG = "[connector]";
@@ -114,7 +114,16 @@ export async function registerProjectTools(
 
 	for (const tool of tools) {
 		const extendedShape = {
-			clientId: z.string().describe(`6-char client hash from mcpConnectorStatus`),
+			clientId: z
+				.string()
+				.optional()
+				.describe(`6-char client hash from mcpConnectorStatus. Use this or instance to target a client.`),
+			instance: z
+				.string()
+				.optional()
+				.describe(
+					`Instance name (from ?instance= query param on connect). Use this or clientId to target a client.`,
+				),
 			...tool.schema.shape,
 		};
 
@@ -130,16 +139,21 @@ export async function registerProjectTools(
 			},
 			async (args: Record<string, unknown>) => {
 				try {
-					const { clientId, ...toolArgs } = args;
+					const { clientId, instance, ...toolArgs } = args;
 
-					if (!clientId || typeof clientId !== "string") {
+					if (!clientId && !instance) {
 						return textResult(
-							`clientId is required. Call mcpConnectorStatus to get connected client IDs.`,
+							`Either clientId or instance is required. Call mcpConnectorStatus for connected clients.`,
 							true,
 						);
 					}
 
-					const result = await invokeOnClient(clientId, tool.name, toolArgs);
+					const result = await invokeResolved(
+						clientId as string | undefined,
+						instance as string | undefined,
+						tool.name,
+						toolArgs,
+					);
 					return textResult(JSON.stringify(result, null, 2));
 				} catch (error) {
 					return textResult(

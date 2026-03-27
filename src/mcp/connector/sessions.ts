@@ -6,10 +6,12 @@ import type { ServerWebSocket } from "bun";
 
 export interface ClientData {
 	shortHash: string;
+	instance: string;
 }
 
 export interface ClientSession {
 	shortHash: string;
+	instance: string;
 	ws: ServerWebSocket<ClientData>;
 	connectedAt: Date;
 	remoteAddress: string;
@@ -32,11 +34,24 @@ function generateShortHash(): string {
 	throw new Error(`Failed to generate unique short hash after 10 attempts`);
 }
 
-export function addClient(ws: ServerWebSocket<ClientData>, remoteAddress: string): ClientSession {
+export function addClient(ws: ServerWebSocket<ClientData>, remoteAddress: string, instance: string): ClientSession {
+	// If a client with the same instance name already exists, close the old connection
+	if (instance) {
+		for (const [hash, existing] of clients) {
+			if (existing.instance === instance) {
+				existing.ws.close(1000, `Replaced by new connection with instance "${instance}"`);
+				clients.delete(hash);
+				break;
+			}
+		}
+	}
+
 	const shortHash = generateShortHash();
 	ws.data.shortHash = shortHash;
+	ws.data.instance = instance;
 	const session: ClientSession = {
 		shortHash,
+		instance,
 		ws,
 		connectedAt: new Date(),
 		remoteAddress,
@@ -52,6 +67,13 @@ export function removeClient(shortHash: string): void {
 
 export function getClient(shortHash: string): ClientSession | undefined {
 	return clients.get(shortHash);
+}
+
+export function getClientByInstance(instance: string): ClientSession | undefined {
+	for (const session of clients.values()) {
+		if (session.instance === instance) return session;
+	}
+	return undefined;
 }
 
 export function getAllClients(): ClientSession[] {

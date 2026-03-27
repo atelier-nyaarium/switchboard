@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import type { Server } from "bun";
 import { isInsideContainer } from "../../shared/env.js";
 import { getLoadedToolNames, getToolSchema } from "./projectTools.js";
-import { addClient, type ClientData, getAllClients, getClient, removeClient } from "./sessions.js";
+import { addClient, type ClientData, getAllClients, getClient, getClientByInstance, removeClient } from "./sessions.js";
 
 const TAG = "[connector]";
 
@@ -88,6 +88,21 @@ export function stopListener(): void {
 	}
 }
 
+export function resolveClient(
+	clientId: string | undefined,
+	instance: string | undefined,
+): { client: ReturnType<typeof getClient>; label: string } {
+	if (instance) {
+		const client = getClientByInstance(instance);
+		return { client, label: `instance "${instance}"` };
+	}
+	if (clientId) {
+		const client = getClient(clientId);
+		return { client, label: `client ${clientId}` };
+	}
+	return { client: undefined, label: "unknown" };
+}
+
 export function invokeOnClient(shortHash: string, tool: string, args: Record<string, unknown>): Promise<unknown> {
 	const client = getClient(shortHash);
 	if (!client) {
@@ -117,6 +132,19 @@ export function invokeOnClient(shortHash: string, tool: string, args: Record<str
 
 		client.ws.send(JSON.stringify({ type: "invoke", id, tool, args }));
 	});
+}
+
+export function invokeResolved(
+	clientId: string | undefined,
+	instance: string | undefined,
+	tool: string,
+	args: Record<string, unknown>,
+): Promise<unknown> {
+	const { client, label } = resolveClient(clientId, instance);
+	if (!client) {
+		return Promise.reject(new Error(`${label} not connected. Call mcpConnectorStatus for active clients.`));
+	}
+	return invokeOnClient(client.shortHash, tool, args);
 }
 
 ////////////////////////////////
@@ -152,8 +180,9 @@ function createServer({ hostname, port, mode, cert, key }: CreateServerParams): 
 			}
 
 			if (url.pathname === "/ws") {
+				const instance = url.searchParams.get("instance") ?? "";
 				const upgraded = server.upgrade(req, {
-					data: { shortHash: "" },
+					data: { shortHash: "", instance },
 				});
 				// Bun expects undefined after successful WS upgrade; types require the cast
 				if (upgraded) return undefined as unknown as Response;
@@ -163,6 +192,7 @@ function createServer({ hostname, port, mode, cert, key }: CreateServerParams): 
 			if (url.pathname === "/status") {
 				const clients = getAllClients().map((c) => ({
 					clientId: c.shortHash,
+					...(c.instance && { instance: c.instance }),
 					connectedAt: c.connectedAt.toISOString(),
 					remoteAddress: c.remoteAddress,
 				}));
@@ -174,8 +204,10 @@ function createServer({ hostname, port, mode, cert, key }: CreateServerParams): 
 		websocket: {
 			open(ws) {
 				const address = ws.remoteAddress || "unknown";
-				const session = addClient(ws, address);
-				console.error(`${TAG} Client connected: ${session.shortHash} (${address})`);
+				const instance = ws.data.instance;
+				const session = addClient(ws, address, instance);
+				const instanceLabel = instance ? ` [${instance}]` : "";
+				console.error(`${TAG} Client connected: ${session.shortHash}${instanceLabel} (${address})`);
 			},
 			message(ws, message) {
 				try {
@@ -197,7 +229,14 @@ function createServer({ hostname, port, mode, cert, key }: CreateServerParams): 
 						);
 
 						const session = getClient(ws.data.shortHash);
-						if (session) session.registeredTools = clientTools;
+						if (session) {
+							session.registeredTools = clientTools;
+							// Allow register message to set/update instance name
+							if (typeof data.instance === "string" && data.instance) {
+								session.instance = data.instance;
+								ws.data.instance = data.instance;
+							}
+						}
 					} else if (data.type === "result" && data.id) {
 						const pending = pendingInvocations.get(data.id);
 						if (pending) {
