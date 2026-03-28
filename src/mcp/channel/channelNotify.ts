@@ -8,6 +8,9 @@ import type { ChannelPushPayload, ResponsePushPayload } from "../../shared/types
 // | A  | response_push received by wrong MCP sub-process        | Multiple PIDs logging recv for same session, only one is active |
 // | B  | server.notification() silently fails or throws          | recv logged but emit missing or shows FAILED                    |
 // | C  | Notification emitted but Claude Code drops it when idle | Both recv and emit logged as OK, but agent never sees it        |
+// | D  | Stale sub-sessions accumulate on arbiter                | Arbiter registry shows subIds from dead MCP processes           |
+// | E  | Heartbeat too slow to evict ghosts (60s window)         | Stale subId persists across multiple broadcasts before eviction |
+// | F  | MCP reconnect creates new subId without closing old WS  | Old subId remains in registry alongside new subId for same team |
 
 const DEBUG_LOG = "/home/nyaarium/projects/agent-team-bridge/.cursor/debug.log";
 const RUN_ID = `debug-${Date.now().toString(36)}`;

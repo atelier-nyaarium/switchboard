@@ -1,8 +1,30 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { Mutex } from "../shared/mutex.js";
 import type { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ConnectionMode, ResponsePayload, WebSocketConfig } from "../shared/types.js";
 import type { WakeCoordinator } from "./wake.js";
+
+const LOG_PATH = process.env.LOG_PATH || "/app/log/debug.log";
+
+function debugLog(hypothesisId: string, location: string, message: string, data: Record<string, unknown>): void {
+	try {
+		const dir = path.dirname(LOG_PATH);
+		if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+		const line = JSON.stringify({
+			runId: "arbiter",
+			hypothesisId,
+			location,
+			message,
+			data,
+			timestamp: new Date().toISOString(),
+		});
+		fs.appendFileSync(LOG_PATH, `${line}\n`);
+	} catch {
+		// Silent
+	}
+}
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -54,11 +76,20 @@ export function createWebSocketHandlers({
 	const { HEARTBEAT_INTERVAL_MS = 30000, MISSED_PINGS_LIMIT = 2 } = config;
 
 	const heartbeatInterval = setInterval(() => {
-		for (const [, subs] of registry) {
-			for (const [, ws] of subs) {
+		for (const [teamName, subs] of registry) {
+			for (const [subId, ws] of subs) {
 				const data = ws.data as WsData;
 				data.missedPings = (data.missedPings || 0) + 1;
 				if (data.missedPings >= MISSED_PINGS_LIMIT) {
+					// #region Hypothesis E: heartbeat evicting stale socket
+					debugLog("E", "src/arbiter/websocket.ts:heartbeat", "evicting stale socket", {
+						team: teamName,
+						subId,
+						missedPings: data.missedPings,
+						readyState: ws.readyState,
+						totalSubsForTeam: subs.size,
+					});
+					// #endregion
 					ws.close();
 					continue;
 				}
@@ -97,6 +128,17 @@ export function createWebSocketHandlers({
 				existing.data.isStale = true;
 				existing.close();
 			}
+
+			// #region Hypothesis D/F: log register with pre-existing sub-session state
+			debugLog("D", "src/arbiter/websocket.ts:register", "team registered", {
+				team,
+				subId,
+				mode,
+				existingSubIds: Array.from(subs.keys()),
+				existingSubCount: subs.size,
+				replacedExisting: !!existing,
+			});
+			// #endregion
 
 			ws.data.teamName = team;
 			ws.data.subId = subId;
@@ -139,6 +181,20 @@ export function createWebSocketHandlers({
 	function close(ws: ServerWebSocket<WsData>): void {
 		const teamName = ws.data.teamName;
 		const subId = ws.data.subId;
+
+		// #region Hypothesis D: log close event with registry state
+		if (teamName && teamName !== "__host__") {
+			const subs = registry.get(teamName);
+			debugLog("D", "src/arbiter/websocket.ts:close", "socket closing", {
+				team: teamName,
+				subId,
+				isStale: ws.data.isStale,
+				readyState: ws.readyState,
+				subsBeforeClose: subs ? Array.from(subs.keys()) : [],
+				subsCount: subs?.size ?? 0,
+			});
+		}
+		// #endregion
 
 		if (ws.data.isStale) {
 			console.log(`[ws] stale socket closed for ${teamName}/${subId} - ignoring`);

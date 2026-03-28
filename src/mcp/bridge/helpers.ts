@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { appendFileSync, mkdirSync } from "node:fs";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import WebSocket from "ws";
 import { createReconnector } from "../../shared/reconnect.js";
@@ -36,7 +37,28 @@ let PROJECT_NAME = "";
 let AGENT_TYPE = "";
 let EFFORT_ENV: EffortEnv = {};
 
+const DEBUG_LOG = "/home/nyaarium/projects/agent-team-bridge/.cursor/debug.log";
+const RUN_ID = `bridge-${process.pid}-${Date.now().toString(36)}`;
+
+function debugLog(hypothesisId: string, location: string, message: string, data: Record<string, unknown>): void {
+	try {
+		mkdirSync("/home/nyaarium/projects/agent-team-bridge/.cursor", { recursive: true });
+		const line = JSON.stringify({
+			runId: RUN_ID,
+			hypothesisId,
+			location,
+			message,
+			data,
+			timestamp: new Date().toISOString(),
+		});
+		appendFileSync(DEBUG_LOG, `${line}\n`);
+	} catch {
+		// Silent
+	}
+}
+
 let routerWs: WebSocket | null = null;
+let previousSubId: string | null = null;
 const reconnector = createReconnector(() => connectToRouter());
 
 // Server instance for channel notifications (set when Claude + channel mode)
@@ -129,6 +151,18 @@ export function connectToRouter(): void {
 		console.error(`[bridge] connected to router (mode: ${mode})`);
 		reconnector.reset();
 		const subId = crypto.randomUUID().slice(0, 8);
+
+		// #region Hypothesis F: track subId lifecycle across reconnects
+		debugLog("F", "src/mcp/bridge/helpers.ts:connectToRouter", "registering new subId", {
+			pid: process.pid,
+			team: PROJECT_NAME,
+			newSubId: subId,
+			previousSubId: previousSubId ?? "none",
+			mode,
+		});
+		previousSubId = subId;
+		// #endregion
+
 		const registerMsg: Record<string, string> = { type: "register", team: PROJECT_NAME, mode, subId };
 		if (process.env.PROJECT_HOST_PATH) {
 			registerMsg.projectPath = process.env.PROJECT_HOST_PATH;
@@ -172,11 +206,26 @@ export function connectToRouter(): void {
 	});
 
 	routerWs.on("close", () => {
+		// #region Hypothesis F: log disconnect with subId that arbiter should clean up
+		debugLog("F", "src/mcp/bridge/helpers.ts:connectToRouter", "disconnected", {
+			pid: process.pid,
+			team: PROJECT_NAME,
+			subId: previousSubId ?? "unknown",
+		});
+		// #endregion
 		console.error(`[bridge] disconnected`);
 		reconnector.schedule();
 	});
 
 	routerWs.on("error", (err: Error) => {
+		// #region Hypothesis F: log connection error
+		debugLog("F", "src/mcp/bridge/helpers.ts:connectToRouter", "ws error", {
+			pid: process.pid,
+			team: PROJECT_NAME,
+			subId: previousSubId ?? "unknown",
+			error: err.message,
+		});
+		// #endregion
 		console.error(`[bridge] ws error: ${err.message}`);
 	});
 }
