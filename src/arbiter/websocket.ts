@@ -292,6 +292,19 @@ export function createWebSocketHandlers({
 			isMainOrLead = /true/i.test(response);
 		}
 
+		// #region Hypothesis G: log resolveHandshake inputs and result
+		debugLog("G", "src/arbiter/websocket.ts:resolveHandshake", "handshake resolution", {
+			sessionId,
+			team: pending.team,
+			subId: pending.subId,
+			replyAsJson: replyAsJson ?? null,
+			response: response ?? null,
+			isMainOrLead,
+			replyAsJsonType: typeof replyAsJson,
+			fieldType: replyAsJson ? typeof replyAsJson.isMainOrLead : "n/a",
+		});
+		// #endregion
+
 		if (isMainOrLead) {
 			ws.data.handshakeConfirmed = true;
 			console.log(`[ws] handshake confirmed: ${pending.team}/${pending.subId} is lead`);

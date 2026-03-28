@@ -192,6 +192,14 @@ export function connectToRouter(): void {
 			if (isMainOrLeadAgent !== null) {
 				const hsSessionId = msg.session_id as string;
 				console.error(`[bridge] handshake auto-reply [${hsSessionId}], isMainOrLead=${isMainOrLeadAgent}`);
+				// #region Hypothesis H: confirm auto-reply fires with correct payload
+				debugLog("H", "src/mcp/bridge/helpers.ts:handshake", "auto-reply firing", {
+					sessionId: hsSessionId,
+					isMainOrLeadAgent,
+					team: PROJECT_NAME,
+					replyPayload: { isMainOrLead: isMainOrLeadAgent },
+				});
+				// #endregion
 				routerPost("/respond", {
 					session_id: hsSessionId,
 					status: "completed",
