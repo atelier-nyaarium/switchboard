@@ -31,12 +31,14 @@ export interface ChannelPushPayload {
 	effort: EffortLevel | "auto";
 	session_id: string;
 	is_follow_up: boolean;
+	replyJsonSchema?: string;
 }
 
 export interface ResponsePayload {
 	session_id: string;
 	status: ResponseStatus;
 	response?: string;
+	replyAsJson?: Record<string, unknown>;
 	question?: string;
 	reason?: string;
 	estimated_minutes?: number;
@@ -49,6 +51,7 @@ export interface ResponsePushPayload {
 	session_id: string;
 	status: string;
 	response?: string;
+	replyAsJson?: Record<string, unknown>;
 	question?: string;
 	reason?: string;
 	estimated_minutes?: number;

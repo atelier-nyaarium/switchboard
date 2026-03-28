@@ -132,7 +132,10 @@ describe("routes", () => {
 
 			await waitPromise;
 			expect(await res.json()).toEqual({ delivered: true });
-			expect(waitResult).toEqual({ delivered: true, result: { status: "completed", response: "done" } });
+			expect(waitResult).toEqual({
+				delivered: true,
+				result: expect.objectContaining({ status: "completed", response: "done" }),
+			});
 		});
 	});
 

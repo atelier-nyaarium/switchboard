@@ -40,10 +40,14 @@ function debugLog(location: string, hypothesisId: string, message: string, data:
  * The message arrives as a <channel source="bridge" ...>body</channel> tag.
  */
 export async function emitChannelNotification(server: Server, payload: ChannelPushPayload): Promise<void> {
-	const replyReminder = `
-┃ 📫 Reply ONLY via \`channel_reply\`. Do not output additional text outside this tool call.
-┃ ➜ session_id: \`${payload.session_id}\`
-`.trim();
+	const lines = [
+		"┃ Reply ONLY via `channel_reply`. Do not output additional text outside this tool call.",
+		`┃ session_id: \`${payload.session_id}\``,
+	];
+	if (payload.replyJsonSchema) {
+		lines.push(`┃ Reply Schema: ${payload.replyJsonSchema}`);
+	}
+	const replyReminder = lines.join("\n");
 
 	// #region Hypothesis A: channel_push received by this sub-process
 	debugLog("src/mcp/channel/channelNotify.ts:emitChannelNotification", "A", "channel_push received", {

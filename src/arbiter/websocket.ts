@@ -48,6 +48,7 @@ export interface WsData {
 	mode: ConnectionMode;
 	missedPings: number;
 	isStale: boolean;
+	handshakeConfirmed: boolean;
 	proxyProject?: string;
 	proxyAuth?: string;
 }
@@ -98,9 +99,13 @@ export function createWebSocketHandlers({
 		}
 	}, HEARTBEAT_INTERVAL_MS);
 
+	// Maps handshake session_id -> { team, subId } so we can resolve handshake responses
+	const handshakePending = new Map<string, { team: string; subId: string }>();
+
 	function open(ws: ServerWebSocket<WsData>): void {
 		ws.data.missedPings = 0;
 		ws.data.isStale = false;
+		ws.data.handshakeConfirmed = false;
 	}
 
 	function message(ws: ServerWebSocket<WsData>, raw: string | Buffer): void {
@@ -151,6 +156,28 @@ export function createWebSocketHandlers({
 
 			wakeCoordinator.notify(team);
 			console.log(`[ws] ${team}/${subId} connected (mode: ${mode})`);
+
+			// Handshake: ask channel-mode connections if they are the main/lead agent
+			if (mode === "channel" && team !== "__host__") {
+				const hsSessionId = `hs-${crypto.randomUUID().slice(0, 8)}`;
+				handshakePending.set(hsSessionId, { team, subId });
+				ws.send(
+					JSON.stringify({
+						type: "channel_push",
+						from: "__arbiter__",
+						request_type: "question",
+						body: "Handshake: Are you the main agent or team lead for this project? Reply with the JSON schema below.",
+						effort: "simple",
+						session_id: hsSessionId,
+						is_follow_up: false,
+						replyJsonSchema: "{ isLead: bool }",
+					}),
+				);
+				console.log(`[ws] handshake sent to ${team}/${subId} [${hsSessionId}]`);
+			} else {
+				ws.data.handshakeConfirmed = true;
+			}
+
 			onTeamConnect?.(team, ws);
 		}
 
@@ -247,5 +274,36 @@ export function createWebSocketHandlers({
 		}
 	}
 
-	return { open, message, close, heartbeatInterval };
+	/** Resolve a handshake response. Returns true if it was a handshake session. */
+	function resolveHandshake(sessionId: string, replyAsJson?: Record<string, unknown>, response?: string): boolean {
+		const pending = handshakePending.get(sessionId);
+		if (!pending) return false;
+		handshakePending.delete(sessionId);
+
+		const subs = registry.get(pending.team);
+		const ws = subs?.get(pending.subId);
+		if (!ws) return true;
+
+		// Determine if this agent claims to be the lead
+		let isLead = false;
+		if (replyAsJson && typeof replyAsJson.isLead === "boolean") {
+			isLead = replyAsJson.isLead;
+		} else if (response) {
+			// Fallback: try to parse from string
+			isLead = /true/i.test(response);
+		}
+
+		if (isLead) {
+			ws.data.handshakeConfirmed = true;
+			console.log(`[ws] handshake confirmed: ${pending.team}/${pending.subId} is lead`);
+		} else {
+			console.log(`[ws] handshake rejected: ${pending.team}/${pending.subId} is worker, closing`);
+			ws.data.isStale = true;
+			ws.send(JSON.stringify({ type: "handshake_reject" }));
+			ws.close();
+		}
+		return true;
+	}
+
+	return { open, message, close, heartbeatInterval, resolveHandshake };
 }

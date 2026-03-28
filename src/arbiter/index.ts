@@ -159,16 +159,6 @@ export async function startArbiter(): Promise<void> {
 		});
 	}
 
-	const routes = createRoutes({
-		registry,
-		store,
-		getMutex: getMutexForTeam,
-		config: { LOG_PATH, RESPONSE_TIMEOUT_MS },
-		tryWakeTeam,
-		offlineCatalog,
-		evieClient,
-	});
-
 	const wsHandlers = createWebSocketHandlers({
 		registry,
 		store,
@@ -187,6 +177,17 @@ export async function startArbiter(): Promise<void> {
 				}
 			}
 		},
+	});
+
+	const routes = createRoutes({
+		registry,
+		store,
+		getMutex: getMutexForTeam,
+		config: { LOG_PATH, RESPONSE_TIMEOUT_MS },
+		tryWakeTeam,
+		offlineCatalog,
+		evieClient,
+		resolveHandshake: wsHandlers.resolveHandshake,
 	});
 
 	async function router(req: Request): Promise<Response> {
@@ -236,6 +237,7 @@ export async function startArbiter(): Promise<void> {
 							mode: "cli" as const,
 							missedPings: 0,
 							isStale: false,
+							handshakeConfirmed: false,
 							proxyProject: project,
 							proxyAuth: authHeader,
 						},
@@ -250,7 +252,14 @@ export async function startArbiter(): Promise<void> {
 			if (url.pathname === "/bridge") {
 				if (
 					server.upgrade(req, {
-						data: { teamName: null, subId: "", mode: "cli" as const, missedPings: 0, isStale: false },
+						data: {
+							teamName: null,
+							subId: "",
+							mode: "cli" as const,
+							missedPings: 0,
+							isStale: false,
+							handshakeConfirmed: false,
+						},
 					})
 				) {
 					return;

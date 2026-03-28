@@ -17,9 +17,24 @@ export function registerReplyTool(
 			// biome-ignore lint/suspicious/noExplicitAny: MCP SDK expects this type
 			inputSchema: BridgeReplySchema as any,
 		},
-		async ({ session_id, status, ...rest }: BridgeReplyArgs) => {
+		async ({ session_id, status, replyAsString, replyAsJson, ...rest }: BridgeReplyArgs) => {
 			try {
-				await routerPost("/respond", { session_id, status, ...rest });
+				const payload: Record<string, unknown> = { session_id, status, ...rest };
+
+				if (replyAsJson) {
+					try {
+						payload.replyAsJson = JSON.parse(replyAsJson);
+					} catch {
+						return {
+							content: [{ type: "text" as const, text: "replyAsJson must be a valid JSON string." }],
+							isError: true,
+						};
+					}
+				} else if (replyAsString !== undefined) {
+					payload.response = replyAsString;
+				}
+
+				await routerPost("/respond", payload);
 				console.error(`[${logPrefix}] ${toolName} sent: ${status} [${session_id}]`);
 				return { content: [{ type: "text" as const, text: `Reply sent (${status}).` }] };
 			} catch (err) {

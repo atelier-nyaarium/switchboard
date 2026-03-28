@@ -19,6 +19,7 @@ export interface RoutesDeps {
 	offlineCatalog: Map<string, string>;
 	config: ArbiterConfig;
 	evieClient?: import("./evie/evieClient.js").EvieClient | null;
+	resolveHandshake?: (sessionId: string, replyAsJson?: Record<string, unknown>, response?: string) => boolean;
 }
 
 const SendRequestSchema = z.object({
@@ -29,12 +30,14 @@ const SendRequestSchema = z.object({
 	body: z.string().optional(),
 	session_id: z.string().optional(),
 	debug: z.boolean().optional(),
+	replyJsonSchema: z.string().optional(),
 });
 
 const RespondBodySchema = z.object({
 	session_id: z.string(),
 	status: z.string().optional(),
 	response: z.string().optional(),
+	replyAsJson: z.record(z.string(), z.unknown()).optional(),
 	question: z.string().optional(),
 	reason: z.string().optional(),
 	estimated_minutes: z.number().optional(),
@@ -85,6 +88,7 @@ export function createRoutes({
 	offlineCatalog,
 	config,
 	evieClient,
+	resolveHandshake,
 }: RoutesDeps) {
 	const { LOG_PATH, RESPONSE_TIMEOUT_MS } = config;
 
@@ -143,7 +147,7 @@ export function createRoutes({
 		if (!parsed.success) {
 			return jsonResponse({ error: `Invalid request: ${parsed.error.message}` }, 400);
 		}
-		const { from, to, type, effort, body: msgBody, session_id, debug } = parsed.data;
+		const { from, to, type, effort, body: msgBody, session_id, debug, replyJsonSchema } = parsed.data;
 
 		if (to === "__host__") {
 			return jsonResponse({ error: `"__host__" is not a team` }, 400);
@@ -182,7 +186,7 @@ export function createRoutes({
 			try {
 				store.create(sessionId, from, to);
 
-				const payload = JSON.stringify({
+				const channelPayload: Record<string, unknown> = {
 					type: "channel_push",
 					from,
 					request_type: type || "question",
@@ -190,7 +194,9 @@ export function createRoutes({
 					effort: effort || "auto",
 					session_id: sessionId,
 					is_follow_up: !!session_id,
-				});
+				};
+				if (replyJsonSchema) channelPayload.replyJsonSchema = replyJsonSchema;
+				const payload = JSON.stringify(channelPayload);
 
 				const activeWs = getAllActiveWs(subs);
 				if (activeWs.length === 0) {
@@ -277,9 +283,32 @@ export function createRoutes({
 			return jsonResponse({ error: `Invalid request: ${parsed.error.message}` }, 400);
 		}
 
-		const { session_id: respondSessionId, ...response } = parsed.data;
+		const { session_id: respondSessionId, replyAsJson, ...rest } = parsed.data;
 
-		const deliverResult = store.deliver(respondSessionId, response as ResponsePayload);
+		// Check if this is a handshake response
+		if (resolveHandshake?.(respondSessionId, replyAsJson ?? undefined, rest.response ?? undefined)) {
+			return jsonResponse({ delivered: true, handshake: true });
+		}
+
+		// If JSON reply provided but no explicit response string, pretty-stringify for text consumers
+		const response: ResponsePayload = {
+			session_id: respondSessionId,
+			status: (rest.status as ResponsePayload["status"]) ?? "completed",
+			response: rest.response,
+			question: rest.question,
+			reason: rest.reason,
+			estimated_minutes: rest.estimated_minutes,
+			what_to_decide: rest.what_to_decide,
+			message: rest.message,
+		};
+		if (replyAsJson) {
+			response.replyAsJson = replyAsJson;
+			if (!response.response) {
+				response.response = JSON.stringify(replyAsJson, null, 2);
+			}
+		}
+
+		const deliverResult = store.deliver(respondSessionId, response);
 		if (!deliverResult) {
 			return jsonResponse({ error: `No pending request for session_id "${respondSessionId}"` }, 404);
 		}
@@ -293,8 +322,11 @@ export function createRoutes({
 				const push: ResponsePushPayload = {
 					type: "response_push",
 					session_id: respondSessionId,
-					...response,
 					status: response.status ?? "",
+					response: response.response,
+					replyAsJson: response.replyAsJson,
+					question: response.question,
+					reason: response.reason,
 				};
 				const pushMsg = JSON.stringify(push);
 				const activeWsList = getAllActiveWs(fromSubs);
