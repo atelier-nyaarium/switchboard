@@ -197,7 +197,7 @@ export function ensureContainerUp(projectPath: string): ContainerUpResult {
 
 	let output: string;
 	try {
-		output = execSync(`"${bin}" up --workspace-folder "${projectPath}"`, {
+		output = execSync(`"${bin}" up --workspace-folder "${projectPath}" --remove-existing-container`, {
 			encoding: "utf-8",
 			maxBuffer: 10 * 1024 * 1024,
 		});
@@ -241,7 +241,7 @@ export function ensureContainerUpAsync(projectPath: string): Promise<ContainerUp
 
 	return new Promise((resolve, reject) => {
 		exec(
-			`"${bin}" up --workspace-folder "${projectPath}"`,
+			`"${bin}" up --workspace-folder "${projectPath}" --remove-existing-container`,
 			{ encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 },
 			(error, stdout) => {
 				if (error) {

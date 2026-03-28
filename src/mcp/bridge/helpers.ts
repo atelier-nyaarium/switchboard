@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
-import { appendFileSync, mkdirSync } from "node:fs";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import WebSocket from "ws";
+import { debugLog } from "../../shared/debug-log.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import type {
 	ChannelPushPayload,
@@ -36,26 +36,6 @@ let ROUTER_URL = "";
 let PROJECT_NAME = "";
 let AGENT_TYPE = "";
 let EFFORT_ENV: EffortEnv = {};
-
-const DEBUG_LOG = "/home/nyaarium/projects/agent-team-bridge/.cursor/debug.log";
-const RUN_ID = `bridge-${process.pid}-${Date.now().toString(36)}`;
-
-function debugLog(hypothesisId: string, location: string, message: string, data: Record<string, unknown>): void {
-	try {
-		mkdirSync("/home/nyaarium/projects/agent-team-bridge/.cursor", { recursive: true });
-		const line = JSON.stringify({
-			runId: RUN_ID,
-			hypothesisId,
-			location,
-			message,
-			data,
-			timestamp: new Date().toISOString(),
-		});
-		appendFileSync(DEBUG_LOG, `${line}\n`);
-	} catch {
-		// Silent
-	}
-}
 
 let routerWs: WebSocket | null = null;
 let previousSubId: string | null = null;

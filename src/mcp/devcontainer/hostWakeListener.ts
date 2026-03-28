@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import WebSocket from "ws";
+import { debugLog } from "../../shared/debug-log.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import { ensureContainerUpAsync, execInContainer, resolveProject } from "./helpers.js";
 
@@ -121,11 +122,35 @@ function findProjectPath(team: string): string {
 async function handleWake(msg: WakeMessage): Promise<void> {
 	const projectPath = msg.projectPath || findProjectPath(msg.team);
 
+	// #region Hypothesis J: confirm wake message arrives at hostWakeListener
+	debugLog("J", "hostWakeListener.ts:handleWake", "wake received", {
+		team: msg.team,
+		projectPath,
+		wsReadyState: ws?.readyState ?? null,
+	});
+	// #endregion
+
 	try {
 		const resolved = resolveProject(projectPath);
 		const projectName = path.basename(resolved);
 		console.error(`[host-wake] starting ${msg.team} at ${resolved}`);
+
+		// #region Hypothesis K: log before ensureContainerUpAsync
+		debugLog("K", "hostWakeListener.ts:handleWake", "starting container", {
+			team: msg.team,
+			resolved,
+		});
+		// #endregion
+
 		const { pluginsProvisioned } = await ensureContainerUpAsync(resolved);
+
+		// #region Hypothesis K: log after ensureContainerUpAsync
+		debugLog("K", "hostWakeListener.ts:handleWake", "container up", {
+			team: msg.team,
+			pluginsProvisioned,
+		});
+		// #endregion
+
 		console.error(`[host-wake] ${msg.team} container is up, starting Claude`);
 
 		let sessionExists = false;
@@ -189,6 +214,15 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 			}
 		}
 
+		// #region Hypothesis L: log wake_result send state
+		debugLog("L", "hostWakeListener.ts:handleWake", "sending wake_result success", {
+			team: msg.team,
+			wsReadyState: ws?.readyState ?? null,
+			wsOpen: ws?.readyState === WebSocket.OPEN,
+			screenSnippet: lastScreen.slice(0, 200),
+		});
+		// #endregion
+
 		// Always send wake_result with a screen capture so the caller can assess
 		if (ws?.readyState === WebSocket.OPEN) {
 			ws.send(
@@ -204,6 +238,16 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		console.error(`[host-wake] failed to wake ${msg.team}: ${message}`);
+
+		// #region Hypothesis K: log wake failure with error details
+		debugLog("K", "hostWakeListener.ts:handleWake", "wake failed", {
+			team: msg.team,
+			error: message,
+			wsReadyState: ws?.readyState ?? null,
+			wsOpen: ws?.readyState === WebSocket.OPEN,
+		});
+		// #endregion
+
 		if (ws?.readyState === WebSocket.OPEN) {
 			ws.send(JSON.stringify({ type: "wake_result", team: msg.team, success: false, error: message }));
 		}

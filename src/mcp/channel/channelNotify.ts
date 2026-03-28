@@ -1,36 +1,6 @@
-import { appendFileSync, mkdirSync } from "node:fs";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { debugLog } from "../../shared/debug-log.js";
 import type { ChannelPushPayload, ResponsePushPayload } from "../../shared/types.js";
-
-// Hypothesis table:
-// | ID | Hypothesis                                              | Expected evidence                                              |
-// |----|--------------------------------------------------------|----------------------------------------------------------------|
-// | A  | response_push received by wrong MCP sub-process        | Multiple PIDs logging recv for same session, only one is active |
-// | B  | server.notification() silently fails or throws          | recv logged but emit missing or shows FAILED                    |
-// | C  | Notification emitted but Claude Code drops it when idle | Both recv and emit logged as OK, but agent never sees it        |
-// | D  | Stale sub-sessions accumulate on arbiter                | Arbiter registry shows subIds from dead MCP processes           |
-// | E  | Heartbeat too slow to evict ghosts (60s window)         | Stale subId persists across multiple broadcasts before eviction |
-// | F  | MCP reconnect creates new subId without closing old WS  | Old subId remains in registry alongside new subId for same team |
-
-const DEBUG_LOG = "/home/nyaarium/projects/agent-team-bridge/.cursor/debug.log";
-const RUN_ID = `debug-${Date.now().toString(36)}`;
-
-function debugLog(location: string, hypothesisId: string, message: string, data: Record<string, unknown>): void {
-	try {
-		const line = JSON.stringify({
-			runId: RUN_ID,
-			hypothesisId,
-			location,
-			message,
-			data,
-			timestamp: new Date().toISOString(),
-		});
-		mkdirSync("/home/nyaarium/projects/agent-team-bridge/.cursor", { recursive: true });
-		appendFileSync(DEBUG_LOG, `${line}\n`);
-	} catch {
-		// Silent - debug logging must never break production flow
-	}
-}
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -50,7 +20,7 @@ export async function emitChannelNotification(server: Server, payload: ChannelPu
 	const replyReminder = lines.join("\n");
 
 	// #region Hypothesis A: channel_push received by this sub-process
-	debugLog("src/mcp/channel/channelNotify.ts:emitChannelNotification", "A", "channel_push received", {
+	debugLog("A", "src/mcp/channel/channelNotify.ts:emitChannelNotification", "channel_push received", {
 		pid: process.pid,
 		sessionId: payload.session_id.slice(0, 8),
 		from: payload.from,
@@ -73,7 +43,7 @@ export async function emitChannelNotification(server: Server, payload: ChannelPu
 	});
 
 	// #region Hypothesis B: channel notification emitted successfully
-	debugLog("src/mcp/channel/channelNotify.ts:emitChannelNotification", "B", "channel notification emitted", {
+	debugLog("B", "src/mcp/channel/channelNotify.ts:emitChannelNotification", "channel notification emitted", {
 		pid: process.pid,
 		sessionId: payload.session_id.slice(0, 8),
 		result: "OK",
@@ -92,7 +62,7 @@ export async function emitResponseNotification(server: Server, payload: Response
 	if (payload.reason) parts.push(`Reason: ${payload.reason}`);
 
 	// #region Hypothesis A: response_push received by this sub-process
-	debugLog("src/mcp/channel/channelNotify.ts:emitResponseNotification", "A", "response_push received", {
+	debugLog("A", "src/mcp/channel/channelNotify.ts:emitResponseNotification", "response_push received", {
 		pid: process.pid,
 		sessionId: payload.session_id.slice(0, 8),
 		status: payload.status,
@@ -110,7 +80,7 @@ export async function emitResponseNotification(server: Server, payload: Response
 		});
 
 		// #region Hypothesis B: response notification emitted successfully
-		debugLog("src/mcp/channel/channelNotify.ts:emitResponseNotification", "B", "response notification emitted", {
+		debugLog("B", "src/mcp/channel/channelNotify.ts:emitResponseNotification", "response notification emitted", {
 			pid: process.pid,
 			sessionId: payload.session_id.slice(0, 8),
 			result: "OK",
@@ -118,7 +88,7 @@ export async function emitResponseNotification(server: Server, payload: Response
 		// #endregion
 	} catch (err) {
 		// #region Hypothesis B: server.notification() threw an error
-		debugLog("src/mcp/channel/channelNotify.ts:emitResponseNotification", "B", "response notification FAILED", {
+		debugLog("B", "src/mcp/channel/channelNotify.ts:emitResponseNotification", "response notification FAILED", {
 			pid: process.pid,
 			sessionId: payload.session_id.slice(0, 8),
 			error: (err as Error).message,

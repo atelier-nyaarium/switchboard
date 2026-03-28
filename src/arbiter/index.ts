@@ -46,6 +46,15 @@ export async function startArbiter(): Promise<void> {
 	async function tryWakeTeam(team: string): Promise<boolean> {
 		const hostSubs = registry.get("__host__");
 		const hostWs = hostSubs ? [...hostSubs.values()].find((ws) => ws.readyState === 1) : undefined;
+
+		// #region Hypothesis I: check __host__ WebSocket state when wake fires
+		const hostSubCount = hostSubs?.size ?? 0;
+		const hostWsStates = hostSubs ? [...hostSubs.values()].map((ws) => ws.readyState) : [];
+		console.log(
+			`[wake] __host__ state: subs=${hostSubCount}, readyStates=[${hostWsStates.join(",")}], foundAlive=${!!hostWs}`,
+		);
+		// #endregion
+
 		if (!hostWs) {
 			console.log(`[wake] cannot wake ${team} - __host__ is not connected`);
 			return false;

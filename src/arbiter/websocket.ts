@@ -1,30 +1,9 @@
-import fs from "node:fs";
-import path from "node:path";
 import type { ServerWebSocket } from "bun";
+import { debugLog } from "../shared/debug-log.js";
 import type { Mutex } from "../shared/mutex.js";
 import type { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ConnectionMode, ResponsePayload, WebSocketConfig } from "../shared/types.js";
 import type { WakeCoordinator } from "./wake.js";
-
-const LOG_PATH = process.env.LOG_PATH || "/app/log/debug.log";
-
-function debugLog(hypothesisId: string, location: string, message: string, data: Record<string, unknown>): void {
-	try {
-		const dir = path.dirname(LOG_PATH);
-		if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-		const line = JSON.stringify({
-			runId: "arbiter",
-			hypothesisId,
-			location,
-			message,
-			data,
-			timestamp: new Date().toISOString(),
-		});
-		fs.appendFileSync(LOG_PATH, `${line}\n`);
-	} catch {
-		// Silent
-	}
-}
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -181,9 +160,19 @@ export function createWebSocketHandlers({
 			onTeamConnect?.(team, ws);
 		}
 
-		if (msg.type === "wake_result" && msg.success === false && typeof msg.team === "string") {
-			wakeCoordinator.notify(msg.team, false);
+		// #region Hypothesis M: log all wake_results (arbiter only handles success=false)
+		if (msg.type === "wake_result" && typeof msg.team === "string") {
+			debugLog("M", "src/arbiter/websocket.ts:wake_result", "wake_result received", {
+				team: msg.team as string,
+				success: msg.success as boolean,
+				error: (msg.error as string) ?? null,
+				screen: typeof msg.screen === "string" ? (msg.screen as string).slice(0, 200) : null,
+			});
+			if (msg.success === false) {
+				wakeCoordinator.notify(msg.team, false);
+			}
 		}
+		// #endregion
 
 		if (msg.type === "catalog" && ws.data.teamName === "__host__") {
 			const projects = msg.projects;
