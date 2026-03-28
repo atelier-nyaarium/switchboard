@@ -67,7 +67,7 @@ let channelServer: Server | null = null;
 
 // Whether this MCP instance is the main/lead agent (vs a team worker).
 // true = auto-reply lead, false = auto-reply worker, null = let the LLM decide via notification.
-let isLeadAgent: boolean | null = null;
+let isMainOrLeadAgent: boolean | null = null;
 
 // Callback for dynamically registering evie tools when they arrive via WebSocket
 let evieToolsHandler: ((tools: unknown[]) => void) | null = null;
@@ -83,8 +83,8 @@ export function setChannelServer(server: Server): void {
 	channelServer = server;
 }
 
-export function setIsLeadAgent(value: boolean): void {
-	isLeadAgent = value;
+export function setIsMainOrLeadAgent(value: boolean): void {
+	isMainOrLeadAgent = value;
 }
 
 export function setEvieToolsHandler(handler: (tools: unknown[]) => void): void {
@@ -189,19 +189,19 @@ export function connectToRouter(): void {
 
 		// Handshake from arbiter: auto-reply if we know the answer, otherwise let the LLM decide
 		if (msg.type === "channel_push" && msg.from === "__arbiter__" && msg.replyJsonSchema) {
-			if (isLeadAgent !== null) {
+			if (isMainOrLeadAgent !== null) {
 				const hsSessionId = msg.session_id as string;
-				console.error(`[bridge] handshake auto-reply [${hsSessionId}], isLead=${isLeadAgent}`);
+				console.error(`[bridge] handshake auto-reply [${hsSessionId}], isMainOrLead=${isMainOrLeadAgent}`);
 				routerPost("/respond", {
 					session_id: hsSessionId,
 					status: "completed",
-					replyAsJson: { isLead: isLeadAgent },
+					replyAsJson: { isMainOrLead: isMainOrLeadAgent },
 				}).catch((err: Error) => {
 					console.error(`[bridge] handshake reply failed: ${err.message}`);
 				});
 				return;
 			}
-			// isLeadAgent === null: let the LLM decide via channel notification (falls through)
+			// isMainOrLeadAgent === null: let the LLM decide via channel notification (falls through)
 		}
 
 		// Handshake rejected: worker agent, stop reconnecting

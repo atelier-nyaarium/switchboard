@@ -166,11 +166,11 @@ export function createWebSocketHandlers({
 						type: "channel_push",
 						from: "__arbiter__",
 						request_type: "question",
-						body: "Handshake: Are you the main agent or team lead for this project? Reply with the JSON schema below.",
+						body: "Handshake: Are you the main agent or team lead for this project? If you are the primary session (not a worker spawned by another agent), reply true.",
 						effort: "simple",
 						session_id: hsSessionId,
 						is_follow_up: false,
-						replyJsonSchema: "{ isLead: bool }",
+						replyJsonSchema: "{ isMainOrLead: bool }",
 					}),
 				);
 				console.log(`[ws] handshake sent to ${team}/${subId} [${hsSessionId}]`);
@@ -285,15 +285,14 @@ export function createWebSocketHandlers({
 		if (!ws) return true;
 
 		// Determine if this agent claims to be the lead
-		let isLead = false;
-		if (replyAsJson && typeof replyAsJson.isLead === "boolean") {
-			isLead = replyAsJson.isLead;
+		let isMainOrLead = false;
+		if (replyAsJson && typeof replyAsJson.isMainOrLead === "boolean") {
+			isMainOrLead = replyAsJson.isMainOrLead;
 		} else if (response) {
-			// Fallback: try to parse from string
-			isLead = /true/i.test(response);
+			isMainOrLead = /true/i.test(response);
 		}
 
-		if (isLead) {
+		if (isMainOrLead) {
 			ws.data.handshakeConfirmed = true;
 			console.log(`[ws] handshake confirmed: ${pending.team}/${pending.subId} is lead`);
 		} else {

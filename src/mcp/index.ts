@@ -14,7 +14,7 @@ import {
 	routerGet,
 	setChannelServer,
 	setEvieToolsHandler,
-	setIsLeadAgent,
+	setIsMainOrLeadAgent,
 } from "./bridge/helpers.js";
 import { detectAgentType, registerBridgeTools } from "./bridge/registerBridgeTools.js";
 import { registerConnectorTools } from "./connector/connectorTools.js";
@@ -116,7 +116,7 @@ export async function startMcp(): Promise<void> {
 			agentType: "claude",
 			effortEnv: {},
 		});
-		setIsLeadAgent(true);
+		setIsMainOrLeadAgent(true);
 
 		// Register crosstalk outgoing tools so the host can send to channel-connected containers
 		registerBridgeSend(mcpServer);
