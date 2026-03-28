@@ -297,7 +297,29 @@ export function createRoutes({
 					status: response.status ?? "",
 				};
 				const pushMsg = JSON.stringify(push);
-				for (const ws of getAllActiveWs(fromSubs)) {
+				const activeWsList = getAllActiveWs(fromSubs);
+
+				// #region Hypothesis A: response_push broadcast to multiple sub-sessions
+				try {
+					const line = JSON.stringify({
+						runId: "arbiter",
+						hypothesisId: "A",
+						location: "src/arbiter/routes.ts:respond",
+						message: "response_push broadcast",
+						data: {
+							sessionId: respondSessionId.slice(0, 8),
+							to: deliverResult.from,
+							totalSubs: fromSubs.size,
+							activeSubs: activeWsList.length,
+							subIds: Array.from(fromSubs.keys()),
+						},
+						timestamp: new Date().toISOString(),
+					});
+					fs.appendFileSync(LOG_PATH, `${line}\n`);
+				} catch {}
+				// #endregion
+
+				for (const ws of activeWsList) {
 					ws.send(pushMsg);
 				}
 				store.remove(respondSessionId);
