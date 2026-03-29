@@ -26,7 +26,7 @@ export async function startArbiter(): Promise<void> {
 	const PORT = parseInt(process.env.PORT || "20000", 10);
 	const LOG_PATH = path.join("/app", "log", "debug.log");
 	const RESPONSE_TIMEOUT_MS = parseInt(process.env.RESPONSE_TIMEOUT_MS || "600000", 10);
-	const WAKE_TIMEOUT_MS = parseInt(process.env.WAKE_TIMEOUT_MS || "120000", 10);
+	const WAKE_TIMEOUT_MS = parseInt(process.env.WAKE_TIMEOUT_MS || "600000", 10);
 	const HEARTBEAT_INTERVAL_MS = 30000;
 	const MISSED_PINGS_LIMIT = 2;
 
