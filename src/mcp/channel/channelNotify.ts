@@ -10,8 +10,12 @@ import type { ChannelPushPayload, ResponsePushPayload } from "../../shared/types
  * The message arrives as a <channel source="bridge" ...>body</channel> tag.
  */
 export async function emitChannelNotification(server: Server, payload: ChannelPushPayload): Promise<void> {
+	const isDiscord = payload.from === "discord";
+	const replyInstruction = isDiscord
+		? "┃ Reply via `evie_post_response` using the channelId in the message body. Do not output plain text — it goes to the terminal, not Discord."
+		: "┃ Reply ONLY via `channel_reply`. Do not output additional text outside this tool call.";
 	const lines = [
-		"┃ Reply ONLY via `channel_reply`. Do not output additional text outside this tool call.",
+		replyInstruction,
 		`┃ session_id: \`${payload.session_id}\``,
 	];
 	if (payload.replyJsonSchema) {
