@@ -112,7 +112,7 @@ export async function startMcp(): Promise<void> {
 		// Init bridge for HTTP-only access (no WebSocket, just routerPost/routerGet)
 		initBridge({
 			routerUrl: process.env.BRIDGE_ROUTER_URL || "http://localhost:20000",
-			projectName: "__orchestrator__",
+			projectName: "__arbiter__",
 			agentType: "claude",
 			effortEnv: {},
 		});

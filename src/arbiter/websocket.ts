@@ -145,7 +145,7 @@ export function createWebSocketHandlers({
 						type: "channel_push",
 						from: "__arbiter__",
 						request_type: "question",
-						body: "Handshake: Are you the main agent or team lead for this project? If you are the primary session (not a worker spawned by another agent), reply true.",
+						body: `This is the initial bridge handshake. Reply via \`channel_reply\` using the session_id shown above.\n\nSet \`replyAsJson: { isMainOrLead: true }\` if you are the primary session or team lead.\nSet \`replyAsJson: { isMainOrLead: false }\` if you are a worker agent spawned by another agent.\n\nDo not use \`crosstalk_send\` — use \`channel_reply\` with status \`"completed"\` and the replyAsJson field.`,
 						effort: "simple",
 						session_id: hsSessionId,
 						is_follow_up: false,

@@ -104,13 +104,13 @@ export async function startArbiter(): Promise<void> {
 			onToolRegistry: (tools) => {
 				console.log(`[evie] received ${tools.length} tools`);
 				// Push tool schemas to orchestrator so it can register them dynamically
-				const orchestratorSubs = registry.get("__orchestrator__");
+				const orchestratorSubs = registry.get("__arbiter__");
 				if (orchestratorSubs) {
 					const payload = JSON.stringify({ type: "evie_tools", tools });
 					for (const ws of getAllActiveWs(orchestratorSubs)) {
 						ws.send(payload);
 					}
-					console.log(`[evie] pushed tool schemas to __orchestrator__`);
+					console.log(`[evie] pushed tool schemas to __arbiter__`);
 				}
 			},
 			onDmForward: (dm) => {
@@ -121,17 +121,17 @@ export async function startArbiter(): Promise<void> {
 
 				const directTeam = DM_ROUTES[dm.userId];
 				const targetSubs = directTeam ? registry.get(directTeam) : undefined;
-				const orchestratorSubs = registry.get("__orchestrator__");
+				const orchestratorSubs = registry.get("__arbiter__");
 
 				// Try direct team first, fall back to orchestrator
 				let activeWs = targetSubs ? getAllActiveWs(targetSubs) : [];
-				let routedTo = directTeam ?? "__orchestrator__";
+				let routedTo = directTeam ?? "__arbiter__";
 
 				if (activeWs.length === 0) {
 					activeWs = orchestratorSubs ? getAllActiveWs(orchestratorSubs) : [];
-					routedTo = "__orchestrator__";
+					routedTo = "__arbiter__";
 					if (directTeam) {
-						console.log(`[evie] ${directTeam} offline, falling back to __orchestrator__`);
+						console.log(`[evie] ${directTeam} offline, falling back to __arbiter__`);
 					}
 				}
 
@@ -178,11 +178,11 @@ export async function startArbiter(): Promise<void> {
 		wakeCoordinator,
 		onTeamConnect: (team, ws) => {
 			// When orchestrator connects, push cached evie tools if available
-			if (team === "__orchestrator__" && evieClient?.isConnected()) {
+			if (team === "__arbiter__" && evieClient?.isConnected()) {
 				const tools = evieClient.getToolSchemas();
 				if (tools.length > 0) {
 					ws.send(JSON.stringify({ type: "evie_tools", tools }));
-					console.log(`[evie] pushed ${tools.length} cached tool schemas to new __orchestrator__`);
+					console.log(`[evie] pushed ${tools.length} cached tool schemas to new __arbiter__`);
 				}
 			}
 		},
