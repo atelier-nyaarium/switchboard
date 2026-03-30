@@ -16,7 +16,7 @@ fi
 
 
 echo "Starting claude on ${HOST_NAME}..."
-tmux new-session -d -s "$TMUX_SESSION" "claude --name '${HOST_NAME}' --model opus --effort high --dangerously-skip-permissions --dangerously-load-development-channels plugin:agent-team-bridge@agent-team-bridge; exec bash"
+tmux new-session -d -s "$TMUX_SESSION" "claude --name '${HOST_NAME}' --model sonnet --effort high --dangerously-skip-permissions --dangerously-load-development-channels plugin:agent-team-bridge@agent-team-bridge; exec bash"
 
 # Wait for Claude to start, auto-accept dev channels prompt if it appears
 for i in $(seq 1 10); do
