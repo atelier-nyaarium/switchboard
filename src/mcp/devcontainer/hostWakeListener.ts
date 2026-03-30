@@ -166,6 +166,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 		}
 
 		if (!sessionExists) {
+			const claudeCommand = `claude --dangerously-skip-permissions --dangerously-load-development-channels plugin:agent-team-bridge@agent-team-bridge`;
 			await execInContainer({
 				projectPath: resolved,
 				command: [
@@ -174,7 +175,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 					"-d",
 					"-s",
 					"claude",
-					`source ~/.bashrc && cd /workspace/${projectName} && claude-skip`,
+					`source ~/.bashrc && cd /workspace/${projectName} && ${claudeCommand}`,
 				],
 				timeoutMs: 15000,
 			});
