@@ -1,6 +1,6 @@
 {
 	"name": "agent-team-bridge",
-	"version": "2.6.6",
+	"version": "2.6.7",
 	"type": "module",
 	"scripts": {
 		"start:arbiter": "bun run src/main-arbiter.ts",
