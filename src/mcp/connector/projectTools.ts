@@ -1,19 +1,28 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { invokeResolved } from "./listener.js";
 import { registerStubTool, textResult } from "./utils.js";
 
 const TAG = "[connector]";
+const CONNECTOR_FILES_DIR = "/tmp/connector-files";
+const FILE_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
 
 ////////////////////////////////
 //  Schemas
+
+const ResponseFileSpec = z.object({
+	encoding: z.enum(["base64"]),
+	extension: z.string(),
+});
 
 const McpToolSchema = z.object({
 	name: z.string(),
 	title: z.string(),
 	description: z.string(),
 	schema: z.instanceof(z.ZodObject),
+	responseFiles: z.record(z.string(), ResponseFileSpec).optional(),
 });
 
 type McpTool = z.infer<typeof McpToolSchema>;
@@ -23,12 +32,50 @@ type McpTool = z.infer<typeof McpToolSchema>;
 
 // biome-ignore lint/suspicious/noExplicitAny: Zod schema generic
 const loadedToolSchemas = new Map<string, z.ZodObject<any>>();
+const loadedResponseFiles = new Map<string, Record<string, z.infer<typeof ResponseFileSpec>>>();
 
 ////////////////////////////////
 //  Functions & Helpers
 
 export function getToolSchema(name: string): z.ZodObject<z.ZodRawShape> | undefined {
 	return loadedToolSchemas.get(name);
+}
+
+function cleanupOldFiles(): void {
+	if (!existsSync(CONNECTOR_FILES_DIR)) return;
+	const now = Date.now();
+	for (const file of readdirSync(CONNECTOR_FILES_DIR)) {
+		const filePath = join(CONNECTOR_FILES_DIR, file);
+		try {
+			if (now - statSync(filePath).mtimeMs > FILE_MAX_AGE_MS) {
+				unlinkSync(filePath);
+			}
+		} catch {}
+	}
+}
+
+function processResponseFiles(toolName: string, result: Record<string, unknown>): Record<string, unknown> {
+	const specs = loadedResponseFiles.get(toolName);
+	if (!specs) return result;
+
+	const processed = { ...result };
+	for (const [field, spec] of Object.entries(specs)) {
+		const value = processed[field];
+		if (typeof value !== "string" || !value) continue;
+
+		mkdirSync(CONNECTOR_FILES_DIR, { recursive: true });
+		cleanupOldFiles();
+
+		const fileName = `${toolName}-${Date.now()}.${spec.extension}`;
+		const filePath = join(CONNECTOR_FILES_DIR, fileName);
+
+		if (spec.encoding === "base64") {
+			writeFileSync(filePath, Buffer.from(value, "base64"));
+		}
+
+		processed[field] = filePath;
+	}
+	return processed;
 }
 
 export function getLoadedToolNames(): string[] {
@@ -106,10 +153,14 @@ export async function registerProjectTools(
 
 	const tools: McpTool[] = parsed.data;
 
-	// Store schemas for validation by listener
+	// Store schemas and response file specs for validation by listener
 	loadedToolSchemas.clear();
+	loadedResponseFiles.clear();
 	for (const tool of tools) {
 		loadedToolSchemas.set(tool.name, tool.schema);
+		if (tool.responseFiles) {
+			loadedResponseFiles.set(tool.name, tool.responseFiles);
+		}
 	}
 
 	for (const tool of tools) {
@@ -148,12 +199,13 @@ export async function registerProjectTools(
 						);
 					}
 
-					const result = await invokeResolved(
+					const rawResult = await invokeResolved(
 						clientId as string | undefined,
 						instance as string | undefined,
 						tool.name,
 						toolArgs,
 					);
+					const result = processResponseFiles(tool.name, rawResult as Record<string, unknown>);
 					return textResult(JSON.stringify(result, null, 2));
 				} catch (error) {
 					return textResult(
