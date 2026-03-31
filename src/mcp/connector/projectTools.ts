@@ -56,9 +56,6 @@ function cleanupOldFiles(): void {
 
 function processResponseFiles(toolName: string, result: Record<string, unknown>): Record<string, unknown> {
 	const specs = loadedResponseFiles.get(toolName);
-	console.error(
-		`${TAG} processResponseFiles: tool=${toolName}, hasSpecs=${!!specs}, allTools=[${[...loadedResponseFiles.keys()].join(",")}]`,
-	);
 	if (!specs) return result;
 
 	const processed = { ...result };
@@ -163,7 +160,6 @@ export async function registerProjectTools(
 		loadedToolSchemas.set(tool.name, tool.schema);
 		if (tool.responseFiles) {
 			loadedResponseFiles.set(tool.name, tool.responseFiles);
-			console.error(`${TAG} responseFiles registered for ${tool.name}: ${JSON.stringify(tool.responseFiles)}`);
 		}
 	}
 
