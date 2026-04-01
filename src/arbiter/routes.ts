@@ -310,6 +310,9 @@ export function createRoutes({
 
 		const deliverResult = store.deliver(respondSessionId, response);
 		if (!deliverResult) {
+			console.log(
+				`[respond] 404 - no pending job for ${respondSessionId.slice(0, 8)}... (already delivered or expired)`,
+			);
 			return jsonResponse({ error: `No pending request for session_id "${respondSessionId}"` }, 404);
 		}
 
