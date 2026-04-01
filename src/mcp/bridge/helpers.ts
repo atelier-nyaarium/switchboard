@@ -86,13 +86,13 @@ export async function routerPost(
 ): Promise<unknown> {
 	let lastErr: Error | undefined;
 	for (let attempt = 0; attempt <= retries; attempt++) {
+		let res: Response;
 		try {
-			const res = await fetch(`${ROUTER_URL}${path}`, {
+			res = await fetch(`${ROUTER_URL}${path}`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(body),
 			});
-			return res.json();
 		} catch (err) {
 			lastErr = err instanceof Error ? err : new Error(String(err));
 			if (attempt < retries) {
@@ -102,9 +102,15 @@ export async function routerPost(
 				);
 				await new Promise((r) => setTimeout(r, delay));
 			}
+			continue;
 		}
+		const json = (await res.json()) as Record<string, unknown>;
+		if (!res.ok) {
+			throw new Error((json?.error as string) || `HTTP ${res.status}`);
+		}
+		return json;
 	}
-	throw lastErr;
+	throw lastErr!;
 }
 
 export async function routerGet(

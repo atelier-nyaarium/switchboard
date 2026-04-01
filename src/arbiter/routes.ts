@@ -357,7 +357,6 @@ export function createRoutes({
 				for (const ws of activeWsList) {
 					ws.send(pushMsg);
 				}
-				store.remove(respondSessionId);
 				console.log(`[respond] pushed to ${deliverResult.from} [${respondSessionId.slice(0, 8)}...]`);
 			} catch {
 				console.log(`[respond] push failed, kept for polling [${respondSessionId.slice(0, 8)}...]`);

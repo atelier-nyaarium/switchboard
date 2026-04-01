@@ -105,6 +105,13 @@ export class PendingJobStore<T> {
 			return { delivered: true, from: entry.from, to: entry.to };
 		}
 
+		if (entry.state === "stored") {
+			// Re-delivery: channel sessions may receive multiple replies
+			entry.storedResult = result;
+			entry.createdAt = Date.now();
+			return { delivered: true, from: entry.from, to: entry.to };
+		}
+
 		return false;
 	}
 
