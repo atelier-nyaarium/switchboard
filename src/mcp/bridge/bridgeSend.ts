@@ -116,7 +116,7 @@ export function registerBridgeSend(mcpServer: McpServer): void {
 					type,
 					effort,
 					body,
-					session_id,
+					...(session_id != null ? { session_id } : {}),
 				})) as SendResult;
 
 				if (result.error) {
