@@ -5,7 +5,7 @@ import { getMutex, type Mutex } from "../shared/mutex.js";
 import { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ChannelPushPayload, ResponsePayload } from "../shared/types.js";
 import { handleProxyClose, handleProxyMessage, isProxyConnection, setupProxy } from "./connectorProxy.js";
-import { startEvieClient } from "./evie/evieClient.js";
+import { type DmForwardPayload, startEvieClient } from "./evie/evieClient.js";
 import { startPortForward } from "./evie/portForward.js";
 import { createRoutes } from "./routes.js";
 import { WakeCoordinator } from "./wake.js";
@@ -86,7 +86,62 @@ export async function startArbiter(): Promise<void> {
 
 	let evieClient: ReturnType<typeof startEvieClient> | null = null;
 
+	const DM_ROUTES: Record<string, string> = {
+		"944439985174630462": "nyaadot",
+	};
+
+	const dmQueue: Array<{ dm: DmForwardPayload; queuedAt: number }> = [];
+	const DM_QUEUE_TTL_MS = 600_000;
+	const DM_QUEUE_MAX = 50;
+
+	function tryDeliverDm(dm: DmForwardPayload): boolean {
+		const directTeam = DM_ROUTES[dm.userId];
+		const targetSubs = directTeam ? registry.get(directTeam) : undefined;
+		const orchestratorSubs = registry.get("__arbiter__");
+
+		let activeWs = targetSubs ? getAllActiveWs(targetSubs) : [];
+		let routedTo = directTeam ?? "__arbiter__";
+
+		if (activeWs.length === 0) {
+			activeWs = orchestratorSubs ? getAllActiveWs(orchestratorSubs) : [];
+			routedTo = "__arbiter__";
+			if (directTeam) {
+				console.log(`[evie] ${directTeam} offline, falling back to __arbiter__`);
+			}
+		}
+
+		if (activeWs.length === 0) return false;
+
+		const sessionId = crypto.randomUUID();
+		const payload: ChannelPushPayload = {
+			type: "channel_push",
+			from: "discord",
+			request_type: "question",
+			body: `[channelId: ${dm.channelId}]\n\n${dm.content}`,
+			effort: "standard",
+			session_id: sessionId,
+			is_follow_up: false,
+		};
+
+		const serialized = JSON.stringify(payload);
+		for (const ws of activeWs) {
+			ws.send(serialized);
+		}
+		console.log(`[evie] DM forwarded to ${routedTo} [${sessionId.slice(0, 8)}...]`);
+		return true;
+	}
+
 	if (evieAuthToken) {
+		const dmQueueSweep = setInterval(() => {
+			const now = Date.now();
+			for (let i = dmQueue.length - 1; i >= 0; i--) {
+				if (now - dmQueue[i].queuedAt > DM_QUEUE_TTL_MS) {
+					console.log(`[evie] queued DM expired after ${DM_QUEUE_TTL_MS / 1000}s`);
+					dmQueue.splice(i, 1);
+				}
+			}
+		}, 60_000);
+
 		const portForward = startPortForward({
 			kubeconfig: evieKubeconfig,
 			namespace: evieNamespace,
@@ -114,48 +169,14 @@ export async function startArbiter(): Promise<void> {
 				}
 			},
 			onDmForward: (dm) => {
-				// Route specific users directly to a named devcontainer team
-				const DM_ROUTES: Record<string, string> = {
-					"944439985174630462": "nyaadot",
-				};
+				if (tryDeliverDm(dm)) return;
 
-				const directTeam = DM_ROUTES[dm.userId];
-				const targetSubs = directTeam ? registry.get(directTeam) : undefined;
-				const orchestratorSubs = registry.get("__arbiter__");
-
-				// Try direct team first, fall back to orchestrator
-				let activeWs = targetSubs ? getAllActiveWs(targetSubs) : [];
-				let routedTo = directTeam ?? "__arbiter__";
-
-				if (activeWs.length === 0) {
-					activeWs = orchestratorSubs ? getAllActiveWs(orchestratorSubs) : [];
-					routedTo = "__arbiter__";
-					if (directTeam) {
-						console.log(`[evie] ${directTeam} offline, falling back to __arbiter__`);
-					}
+				if (dmQueue.length >= DM_QUEUE_MAX) {
+					console.error(`[evie] DM queue full, dropping oldest`);
+					dmQueue.shift();
 				}
-
-				if (activeWs.length === 0) {
-					console.error(`[evie] DM forward dropped: no available target`);
-					return;
-				}
-
-				const sessionId = crypto.randomUUID();
-				const payload: ChannelPushPayload = {
-					type: "channel_push",
-					from: "discord",
-					request_type: "question",
-					body: `[channelId: ${dm.channelId}]\n\n${dm.content}`,
-					effort: "standard",
-					session_id: sessionId,
-					is_follow_up: false,
-				};
-
-				const serialized = JSON.stringify(payload);
-				for (const ws of activeWs) {
-					ws.send(serialized);
-				}
-				console.log(`[evie] DM forwarded to ${routedTo} [${sessionId.slice(0, 8)}...]`);
+				dmQueue.push({ dm, queuedAt: Date.now() });
+				console.log(`[evie] DM queued (${dmQueue.length} pending)`);
 			},
 			onDisconnect: () => {
 				console.error(`[evie] disconnected from evie-bot`);
@@ -163,6 +184,7 @@ export async function startArbiter(): Promise<void> {
 		});
 
 		process.on("SIGTERM", () => {
+			clearInterval(dmQueueSweep);
 			evieClient?.stop();
 			portForward.stop();
 		});
@@ -183,6 +205,20 @@ export async function startArbiter(): Promise<void> {
 				if (tools.length > 0) {
 					ws.send(JSON.stringify({ type: "evie_tools", tools }));
 					console.log(`[evie] pushed ${tools.length} cached tool schemas to new __arbiter__`);
+				}
+			}
+
+			// Drain queued DMs now that a potential target is online
+			if (dmQueue.length > 0) {
+				let drained = 0;
+				for (let i = dmQueue.length - 1; i >= 0; i--) {
+					if (tryDeliverDm(dmQueue[i].dm)) {
+						dmQueue.splice(i, 1);
+						drained++;
+					}
+				}
+				if (drained > 0) {
+					console.log(`[evie] drained ${drained} queued DM(s) after ${team} connected`);
 				}
 			}
 		},
