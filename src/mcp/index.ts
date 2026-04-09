@@ -4,6 +4,7 @@ import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import packageJson from "../../package.json";
+import { debugLog } from "../shared/debug-log.js";
 import { isInsideContainer } from "../shared/env.js";
 import type { ChannelPushPayload } from "../shared/types.js";
 import { registerBridgeDiscover } from "./bridge/bridgeDiscover.js";
@@ -135,17 +136,44 @@ export async function startMcp(): Promise<void> {
 
 		async function tryRegisterEvieTools(
 			tools: import("../arbiter/evie/evieClient.js").EvieToolSchema[],
+			source: string,
 		): Promise<void> {
-			if (evieToolsRegistered || tools.length === 0) return;
-			const { registerEvieTools } = await import("./evie/evieTools.js");
-			registerEvieTools(mcpServer, tools);
-			evieToolsRegistered = true;
-			onEvieToolsRegistered?.();
+			if (evieToolsRegistered || tools.length === 0) {
+				// #region Hypothesis Q: registration skipped
+				debugLog("Q", "src/mcp/index.ts:tryRegisterEvieTools", "skipped", {
+					source,
+					alreadyRegistered: evieToolsRegistered,
+					toolCount: tools.length,
+				});
+				// #endregion
+				return;
+			}
+			try {
+				const { registerEvieTools } = await import("./evie/evieTools.js");
+				registerEvieTools(mcpServer, tools);
+				evieToolsRegistered = true;
+				onEvieToolsRegistered?.();
+				// #region Hypothesis Q: registration succeeded
+				debugLog("Q", "src/mcp/index.ts:tryRegisterEvieTools", "registered", {
+					source,
+					toolCount: tools.length,
+				});
+				// #endregion
+			} catch (err) {
+				// #region Hypothesis Q: registration failed (z.fromJSONSchema or other error)
+				debugLog("Q", "src/mcp/index.ts:tryRegisterEvieTools", "registration error", {
+					source,
+					toolCount: tools.length,
+					error: (err as Error).message,
+				});
+				// #endregion
+				console.error(`[mcp] evie tool registration failed: ${(err as Error).message}`);
+			}
 		}
 
 		// Listen for arbiter pushing tool schemas when evie connects/reconnects
 		setEvieToolsHandler((tools) => {
-			void tryRegisterEvieTools(tools as import("../arbiter/evie/evieClient.js").EvieToolSchema[]);
+			void tryRegisterEvieTools(tools as import("../arbiter/evie/evieClient.js").EvieToolSchema[], "ws-push");
 		});
 
 		// Fast path: HTTP probe for evie tools
@@ -154,12 +182,25 @@ export async function startMcp(): Promise<void> {
 			if (health.ok) {
 				const evieData = (await routerGet("/evie/tools")) as {
 					tools?: import("../arbiter/evie/evieClient.js").EvieToolSchema[];
+					error?: string;
 				};
+				// #region Hypothesis P: HTTP probe result
+				debugLog("P", "src/mcp/index.ts:evieProbe", "HTTP probe result", {
+					healthOk: true,
+					toolCount: evieData.tools?.length ?? 0,
+					error: evieData.error ?? null,
+				});
+				// #endregion
 				if (evieData.tools) {
-					await tryRegisterEvieTools(evieData.tools);
+					await tryRegisterEvieTools(evieData.tools, "http-probe");
 				}
 			}
-		} catch {
+		} catch (err) {
+			// #region Hypothesis P: HTTP probe failed
+			debugLog("P", "src/mcp/index.ts:evieProbe", "HTTP probe failed", {
+				error: (err as Error).message,
+			});
+			// #endregion
 			console.error(`[mcp] arbiter not reachable via HTTP, will try WebSocket`);
 		}
 
@@ -174,6 +215,12 @@ export async function startMcp(): Promise<void> {
 				}),
 				new Promise<true>((resolve) => setTimeout(() => resolve(true), 15_000)),
 			]);
+			// #region Hypothesis R: slow path outcome
+			debugLog("R", "src/mcp/index.ts:evieSlowPath", "slow path completed", {
+				timedOut,
+				evieToolsRegistered,
+			});
+			// #endregion
 			if (timedOut) {
 				console.error(`[mcp] evie tools unavailable after 15s, continuing without`);
 			}
@@ -192,6 +239,12 @@ export async function startMcp(): Promise<void> {
 		console.error(`[mcp] dispatch + crosstalk tools enabled (host mode)`);
 	}
 
+	// #region Hypothesis S: transport connection timing relative to evie registration
+	debugLog("S", "src/mcp/index.ts:transport", "connecting stdio transport", {
+		inContainer,
+		routerAlreadyConnected,
+	});
+	// #endregion
 	const transport = new StdioServerTransport();
 	await mcpServer.connect(transport);
 
