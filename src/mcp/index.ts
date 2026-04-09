@@ -59,6 +59,8 @@ export async function startMcp(): Promise<void> {
 			: undefined,
 	);
 
+	let routerAlreadyConnected = false;
+
 	if (inContainer) {
 		// Container: register crosstalk tools for cross-team communication
 		registerBridgeTools(mcpServer);
@@ -125,8 +127,11 @@ export async function startMcp(): Promise<void> {
 		registerBridgeDiscover(mcpServer);
 		setChannelServer(mcpServer.server);
 
-		// Evie tool registration: try startup probe + listen for WebSocket push
+		// Evie tool registration: try HTTP probe, then fall back to WebSocket push.
+		// Tools MUST be registered before mcpServer.connect(transport) since Claude
+		// does not pick up dynamically added tools after the initial advertisement.
 		let evieToolsRegistered = false;
+		let onEvieToolsRegistered: (() => void) | null = null;
 
 		async function tryRegisterEvieTools(
 			tools: import("../arbiter/evie/evieClient.js").EvieToolSchema[],
@@ -135,6 +140,7 @@ export async function startMcp(): Promise<void> {
 			const { registerEvieTools } = await import("./evie/evieTools.js");
 			registerEvieTools(mcpServer, tools);
 			evieToolsRegistered = true;
+			onEvieToolsRegistered?.();
 		}
 
 		// Listen for arbiter pushing tool schemas when evie connects/reconnects
@@ -142,7 +148,7 @@ export async function startMcp(): Promise<void> {
 			void tryRegisterEvieTools(tools as import("../arbiter/evie/evieClient.js").EvieToolSchema[]);
 		});
 
-		// Initial probe (best-effort, non-blocking if it fails)
+		// Fast path: HTTP probe for evie tools
 		try {
 			const health = (await routerGet("/health")) as Record<string, unknown>;
 			if (health.ok) {
@@ -154,7 +160,23 @@ export async function startMcp(): Promise<void> {
 				}
 			}
 		} catch {
-			console.error(`[mcp] arbiter not reachable at startup, evie tools will register when available`);
+			console.error(`[mcp] arbiter not reachable via HTTP, will try WebSocket`);
+		}
+
+		// Slow path: connect WebSocket and wait for arbiter to push evie tools
+		if (!evieToolsRegistered) {
+			connectToRouter();
+			routerAlreadyConnected = true;
+			console.error(`[mcp] waiting for evie tools via WebSocket...`);
+			const timedOut = await Promise.race([
+				new Promise<false>((resolve) => {
+					onEvieToolsRegistered = () => resolve(false);
+				}),
+				new Promise<true>((resolve) => setTimeout(() => resolve(true), 15_000)),
+			]);
+			if (timedOut) {
+				console.error(`[mcp] evie tools unavailable after 15s, continuing without`);
+			}
 		}
 
 		const projectDirs = [path.join(os.homedir(), "projects")];
@@ -173,7 +195,12 @@ export async function startMcp(): Promise<void> {
 	const transport = new StdioServerTransport();
 	await mcpServer.connect(transport);
 
-	connectToRouter();
+	// Container always connects after transport (no evie tools to wait for).
+	// Host connects here only if evie tools arrived via HTTP probe (the slow
+	// path above already connected the WebSocket when the probe failed).
+	if (!routerAlreadyConnected) {
+		connectToRouter();
+	}
 
 	const mode = inContainer
 		? isChannel
