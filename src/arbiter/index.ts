@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import type { ServerWebSocket } from "bun";
 import { debugLog } from "../shared/debug-log.js";
@@ -26,6 +27,14 @@ interface MutexAccessor {
 export async function startArbiter(): Promise<void> {
 	const PORT = parseInt(process.env.PORT || "20000", 10);
 	const LOG_PATH = path.join("/app", "log", "debug.log");
+
+	// Clear debug log on startup so it only contains entries from this run
+	try {
+		const dir = path.dirname(LOG_PATH);
+		if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(LOG_PATH, "");
+	} catch {}
+
 	const RESPONSE_TIMEOUT_MS = parseInt(process.env.RESPONSE_TIMEOUT_MS || "600000", 10);
 	const WAKE_TIMEOUT_MS = parseInt(process.env.WAKE_TIMEOUT_MS || "600000", 10);
 	const HEARTBEAT_INTERVAL_MS = 30000;
