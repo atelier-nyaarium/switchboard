@@ -7,6 +7,11 @@ import { createReconnector } from "../../shared/reconnect.js";
 import { ensureContainerUpAsync, execInContainer, resolveProject } from "./helpers.js";
 
 ////////////////////////////////
+//  Interfaces & Types
+
+export type ChannelPushHandler = (msg: Record<string, unknown>) => void;
+
+////////////////////////////////
 //  Functions & Helpers
 
 const HOME = os.homedir();
@@ -14,11 +19,15 @@ const HOME = os.homedir();
 let ws: WebSocket | null = null;
 let arbiterUrl = "ws://localhost:20000";
 let projectDirs: string[] = [HOME];
+let channelPushHandler: ChannelPushHandler | null = null;
 const reconnector = createReconnector(() => connect());
 
-export function startHostWakeListener(dirs?: string[]): void {
+export function startHostWakeListener(dirs?: string[], onChannelPush?: ChannelPushHandler): void {
 	if (dirs && dirs.length > 0) {
 		projectDirs = dirs;
+	}
+	if (onChannelPush) {
+		channelPushHandler = onChannelPush;
 	}
 	const envUrl = process.env.BRIDGE_ROUTER_URL;
 	if (envUrl) {
@@ -58,6 +67,19 @@ function connect(): void {
 
 		if (msg.type === "wake") {
 			handleWake(msg as unknown as WakeMessage);
+		}
+
+		if (msg.type === "channel_push") {
+			// #region Hypothesis N: __host__ received channel_push fallback
+			debugLog("N", "hostWakeListener.ts:onMessage", "channel_push received via __host__", {
+				from: msg.from,
+				sessionId: String(msg.session_id ?? "").slice(0, 8),
+				hasHandler: !!channelPushHandler,
+			});
+			// #endregion
+			if (channelPushHandler) {
+				channelPushHandler(msg);
+			}
 		}
 	});
 

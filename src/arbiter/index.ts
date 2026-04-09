@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import type { ServerWebSocket } from "bun";
+import { debugLog } from "../shared/debug-log.js";
 import { getMutex, type Mutex } from "../shared/mutex.js";
 import { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ChannelPushPayload, ResponsePayload } from "../shared/types.js";
@@ -86,49 +87,89 @@ export async function startArbiter(): Promise<void> {
 
 	let evieClient: ReturnType<typeof startEvieClient> | null = null;
 
-	const DM_ROUTES: Record<string, string> = {
-		"944439985174630462": "nyaadot",
-	};
-
 	const dmQueue: Array<{ dm: DmForwardPayload; queuedAt: number }> = [];
 	const DM_QUEUE_TTL_MS = 600_000;
 	const DM_QUEUE_MAX = 50;
 
+	// DMs go to the orchestrator or the host daemon.
+	// The orchestrator can delegate to a specific project if needed.
+	const DM_TARGETS = ["__arbiter__", "__host__"];
+
 	function tryDeliverDm(dm: DmForwardPayload): boolean {
-		const directTeam = DM_ROUTES[dm.userId];
-		const targetSubs = directTeam ? registry.get(directTeam) : undefined;
-		const orchestratorSubs = registry.get("__arbiter__");
+		// #region Hypothesis N: DM delivery attempt with registry state
+		const registrySnapshot: Record<string, number> = {};
+		for (const target of DM_TARGETS) {
+			const subs = registry.get(target);
+			registrySnapshot[target] = subs ? getAllActiveWs(subs).length : 0;
+		}
+		debugLog(
+			"N",
+			"src/arbiter/index.ts:tryDeliverDm",
+			"attempting delivery",
+			{
+				userId: dm.userId,
+				channelId: dm.channelId,
+				bodyLen: dm.content.length,
+				targetState: registrySnapshot,
+			},
+			"arbiter",
+		);
+		// #endregion
 
-		let activeWs = targetSubs ? getAllActiveWs(targetSubs) : [];
-		let routedTo = directTeam ?? "__arbiter__";
+		for (const target of DM_TARGETS) {
+			const subs = registry.get(target);
+			const activeWs = subs ? getAllActiveWs(subs) : [];
+			if (activeWs.length === 0) continue;
 
-		if (activeWs.length === 0) {
-			activeWs = orchestratorSubs ? getAllActiveWs(orchestratorSubs) : [];
-			routedTo = "__arbiter__";
-			if (directTeam) {
-				console.log(`[evie] ${directTeam} offline, falling back to __arbiter__`);
+			const sessionId = crypto.randomUUID();
+			const payload: ChannelPushPayload = {
+				type: "channel_push",
+				from: "discord",
+				request_type: "question",
+				body: `[channelId: ${dm.channelId}]\n\n${dm.content}`,
+				effort: "standard",
+				session_id: sessionId,
+				is_follow_up: false,
+			};
+
+			const serialized = JSON.stringify(payload);
+			for (const ws of activeWs) {
+				ws.send(serialized);
 			}
+
+			// #region Hypothesis N: DM delivered successfully
+			debugLog(
+				"N",
+				"src/arbiter/index.ts:tryDeliverDm",
+				"delivered",
+				{
+					target,
+					sessionId: sessionId.slice(0, 8),
+					activeWsCount: activeWs.length,
+				},
+				"arbiter",
+			);
+			// #endregion
+
+			console.log(`[evie] DM forwarded to ${target} [${sessionId.slice(0, 8)}...]`);
+			return true;
 		}
 
-		if (activeWs.length === 0) return false;
+		// #region Hypothesis N: DM delivery failed, will be queued
+		debugLog(
+			"N",
+			"src/arbiter/index.ts:tryDeliverDm",
+			"no available target",
+			{
+				userId: dm.userId,
+				registryState: registrySnapshot,
+				allTeams: [...registry.keys()],
+			},
+			"arbiter",
+		);
+		// #endregion
 
-		const sessionId = crypto.randomUUID();
-		const payload: ChannelPushPayload = {
-			type: "channel_push",
-			from: "discord",
-			request_type: "question",
-			body: `[channelId: ${dm.channelId}]\n\n${dm.content}`,
-			effort: "standard",
-			session_id: sessionId,
-			is_follow_up: false,
-		};
-
-		const serialized = JSON.stringify(payload);
-		for (const ws of activeWs) {
-			ws.send(serialized);
-		}
-		console.log(`[evie] DM forwarded to ${routedTo} [${sessionId.slice(0, 8)}...]`);
-		return true;
+		return false;
 	}
 
 	if (evieAuthToken) {

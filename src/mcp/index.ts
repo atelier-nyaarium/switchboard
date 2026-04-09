@@ -5,6 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import packageJson from "../../package.json";
 import { isInsideContainer } from "../shared/env.js";
+import type { ChannelPushPayload } from "../shared/types.js";
 import { registerBridgeDiscover } from "./bridge/bridgeDiscover.js";
 import { registerBridgeSend } from "./bridge/bridgeSend.js";
 import {
@@ -17,6 +18,7 @@ import {
 	setIsMainOrLeadAgent,
 } from "./bridge/helpers.js";
 import { detectAgentType, registerBridgeTools } from "./bridge/registerBridgeTools.js";
+import { emitChannelNotification } from "./channel/channelNotify.js";
 import { registerConnectorTools } from "./connector/connectorTools.js";
 import { setAuthToken, startListener, stopListener } from "./connector/listener.js";
 import { registerProjectTools } from "./connector/projectTools.js";
@@ -156,7 +158,15 @@ export async function startMcp(): Promise<void> {
 		}
 
 		const projectDirs = [path.join(os.homedir(), "projects")];
-		startHostWakeListener(projectDirs);
+		startHostWakeListener(projectDirs, (msg) => {
+			// Fallback: if __arbiter__ bridge is down, __host__ still delivers DMs
+			const server = mcpServer.server;
+			if (server) {
+				emitChannelNotification(server, msg as unknown as ChannelPushPayload).catch((err: Error) => {
+					console.error(`[host-wake] channel notification error: ${err.message}`);
+				});
+			}
+		});
 		console.error(`[mcp] dispatch + crosstalk tools enabled (host mode)`);
 	}
 
