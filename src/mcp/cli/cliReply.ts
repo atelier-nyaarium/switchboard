@@ -6,7 +6,7 @@ export function registerCliReply(mcpServer: McpServer): void {
 		mcpServer,
 		"crosstalk_reply",
 		"Crosstalk Reply",
-		`Reply to an incoming bridge request. Call this once when you are done handling the request. Send the response verbatim unless the requester explicitly asked for a summary.`,
+		`Reply to an incoming bridge request. Call this when you are done handling the request. Send the response verbatim unless the requester explicitly asked for a summary.`,
 		"bridge",
 	);
 }

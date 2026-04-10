@@ -9,9 +9,11 @@ import type { WakeCoordinator } from "./wake.js";
 //  Interfaces & Types
 
 export type TeamRegistry = Map<string, Map<string, ServerWebSocket<WsData>>>;
+export type MailboxRegistry = Map<string, ServerWebSocket<WsData>>;
 
 export interface WebSocketDeps {
 	registry: TeamRegistry;
+	mailboxRegistry: MailboxRegistry;
 	store: PendingJobStore<ResponsePayload>;
 	targetLocks: Map<string, Mutex>;
 	knownTeamPaths: Map<string, string>;
@@ -24,6 +26,7 @@ export interface WebSocketDeps {
 export interface WsData {
 	teamName: string | null;
 	subId: string;
+	mailboxId: string | null;
 	mode: ConnectionMode;
 	missedPings: number;
 	isStale: boolean;
@@ -45,6 +48,7 @@ export function getAllActiveWs(subs: Map<string, ServerWebSocket<WsData>>): Serv
 
 export function createWebSocketHandlers({
 	registry,
+	mailboxRegistry,
 	store,
 	targetLocks,
 	knownTeamPaths,
@@ -85,6 +89,7 @@ export function createWebSocketHandlers({
 		ws.data.missedPings = 0;
 		ws.data.isStale = false;
 		ws.data.handshakeConfirmed = false;
+		ws.data.mailboxId = null;
 	}
 
 	function message(ws: ServerWebSocket<WsData>, raw: string | Buffer): void {
@@ -99,6 +104,7 @@ export function createWebSocketHandlers({
 			const team = msg.team as string;
 			const subId = (msg.subId as string) || crypto.randomUUID().slice(0, 8);
 			const mode = (msg.mode === "channel" ? "channel" : "cli") as ConnectionMode;
+			const mailboxId = (msg.mailboxId as string | undefined) ?? null;
 
 			let subs = registry.get(team);
 			if (!subs) {
@@ -118,6 +124,7 @@ export function createWebSocketHandlers({
 				team,
 				subId,
 				mode,
+				mailboxId: mailboxId ?? "none",
 				existingSubIds: Array.from(subs.keys()),
 				existingSubCount: subs.size,
 				replacedExisting: !!existing,
@@ -126,8 +133,18 @@ export function createWebSocketHandlers({
 
 			ws.data.teamName = team;
 			ws.data.subId = subId;
+			ws.data.mailboxId = mailboxId;
 			ws.data.mode = mode;
 			subs.set(subId, ws);
+
+			if (mailboxId) {
+				const priorMailboxWs = mailboxRegistry.get(mailboxId);
+				if (priorMailboxWs && priorMailboxWs !== ws && priorMailboxWs.readyState === 1) {
+					priorMailboxWs.data.isStale = true;
+					priorMailboxWs.close();
+				}
+				mailboxRegistry.set(mailboxId, ws);
+			}
 
 			if (typeof msg.projectPath === "string" && msg.projectPath) {
 				knownTeamPaths.set(team, msg.projectPath);
@@ -225,6 +242,10 @@ export function createWebSocketHandlers({
 				subs.delete(subId);
 				if (subs.size === 0) registry.delete(teamName);
 			}
+			const hostMailboxId = ws.data.mailboxId;
+			if (hostMailboxId && mailboxRegistry.get(hostMailboxId) === ws) {
+				mailboxRegistry.delete(hostMailboxId);
+			}
 			offlineCatalog.clear();
 			console.log(`[ws] __host__ disconnected - offline catalog cleared`);
 			return;
@@ -242,11 +263,19 @@ export function createWebSocketHandlers({
 		subs.delete(subId);
 		console.log(`[ws] ${teamName}/${subId} disconnected (${subs.size} remaining)`);
 
+		// Clear mailbox registry entry if it still points at this ws.
+		const closingMailboxId = ws.data.mailboxId;
+		if (closingMailboxId && mailboxRegistry.get(closingMailboxId) === ws) {
+			mailboxRegistry.delete(closingMailboxId);
+		}
+
 		// If team has no more sub-sessions, clean up fully
 		if (subs.size === 0) {
 			registry.delete(teamName);
 
-			for (const id of store.getIdsForTeam(teamName)) {
+			// Cancel only transient (CLI-mode) pending jobs. Persistent channel mailboxes
+			// stay alive so the conversation resumes cleanly when the team reconnects.
+			for (const id of store.getTransientIdsForTeam(teamName)) {
 				store.deliver(id, {
 					session_id: id,
 					status: "error",

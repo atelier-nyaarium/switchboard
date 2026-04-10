@@ -6,13 +6,14 @@ import { z } from "zod";
 import type { Mutex } from "../shared/mutex.js";
 import type { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ArbiterConfig, ConnectionMode, ResponsePayload, ResponsePushPayload, TeamInfo } from "../shared/types.js";
-import { getAllActiveWs, type TeamRegistry, type WsData } from "./websocket.js";
+import { getAllActiveWs, type MailboxRegistry, type TeamRegistry, type WsData } from "./websocket.js";
 
 ////////////////////////////////
 //  Interfaces & Types
 
 export interface RoutesDeps {
 	registry: TeamRegistry;
+	mailboxRegistry: MailboxRegistry;
 	store: PendingJobStore<ResponsePayload>;
 	getMutex: ((team: string) => Mutex) & { peek: (team: string) => Mutex | undefined };
 	tryWakeTeam: (team: string) => Promise<boolean>;
@@ -24,6 +25,7 @@ export interface RoutesDeps {
 
 const SendRequestSchema = z.object({
 	from: z.string(),
+	fromMailboxId: z.string().optional(),
 	to: z.string(),
 	type: z.string().optional(),
 	effort: z.string().optional(),
@@ -80,8 +82,21 @@ function getTeamMode(subs: Map<string, ServerWebSocket<WsData>>): ConnectionMode
 	return "cli";
 }
 
+/**
+ * Derive the stable conversation mailbox id for a channel-mode exchange.
+ * Same (sender mailbox, target team) pair always hashes to the same id, so
+ * subsequent sends reuse the same store entry instead of generating a fresh UUID
+ * that eventually gets swept. Falls back to null if the sender did not provide
+ * a mailbox id (legacy path; channel mode should always provide one now).
+ */
+function deriveConversationId(fromMailboxId: string | undefined, to: string): string | null {
+	if (!fromMailboxId) return null;
+	return `conv:${fromMailboxId}:${to}`;
+}
+
 export function createRoutes({
 	registry,
+	mailboxRegistry,
 	store,
 	getMutex,
 	tryWakeTeam,
@@ -147,7 +162,7 @@ export function createRoutes({
 		if (!parsed.success) {
 			return jsonResponse({ error: `Invalid request: ${parsed.error.message}` }, 400);
 		}
-		const { from, to, type, effort, body: msgBody, session_id, debug, replyJsonSchema } = parsed.data;
+		const { from, fromMailboxId, to, type, effort, body: msgBody, debug, replyJsonSchema } = parsed.data;
 
 		if (to === "__host__") {
 			return jsonResponse({ error: `"__host__" is not a team` }, 400);
@@ -178,22 +193,30 @@ export function createRoutes({
 			);
 		}
 
-		const sessionId = session_id || crypto.randomUUID();
 		const targetMode = getTeamMode(subs);
 
-		// Channel mode: broadcast to all sub-sessions, no mutex.
+		// Channel mode: stable mailbox id per (sender_mailbox, target_team) pair.
+		// Same pair reuses the same conversation forever; mailbox entries are persistent.
 		if (targetMode === "channel") {
 			try {
-				store.create(sessionId, from, to);
+				const conversationId = deriveConversationId(fromMailboxId, to);
+				if (!conversationId) {
+					return jsonResponse({ error: `fromMailboxId is required for channel-mode targets` }, 400);
+				}
 
+				const isFollowUp = store.has(conversationId);
+				store.create(conversationId, from, to, { persistent: true, fromMailboxId });
+
+				const messageId = crypto.randomUUID();
 				const channelPayload: Record<string, unknown> = {
 					type: "channel_push",
 					from,
 					request_type: type || "question",
 					body: msgBody || "",
 					effort: effort || "auto",
-					session_id: sessionId,
-					is_follow_up: !!session_id,
+					session_id: conversationId,
+					message_id: messageId,
+					is_follow_up: isFollowUp,
 				};
 				if (replyJsonSchema) channelPayload.replyJsonSchema = replyJsonSchema;
 				const payload = JSON.stringify(channelPayload);
@@ -208,13 +231,13 @@ export function createRoutes({
 				}
 
 				console.log(
-					`[send] channel_push to ${to} [${sessionId.slice(0, 8)}...] from ${from} (${activeWs.length} sub-session${activeWs.length > 1 ? "s" : ""})`,
+					`[send] channel_push to ${to} [${conversationId}] msg=${messageId.slice(0, 8)} from ${from} (${activeWs.length} sub-session${activeWs.length > 1 ? "s" : ""})`,
 				);
 
 				return jsonResponse({
-					session_id: sessionId,
+					session_id: conversationId,
 					status: "running",
-					message: `Message pushed to ${to} via channel. Response will be pushed back automatically.`,
+					message: `Message pushed to ${to} via channel mailbox. Responses will be pushed back automatically.`,
 				});
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
@@ -224,6 +247,7 @@ export function createRoutes({
 		}
 
 		// CLI mode: send to first available sub, mutex + wait for response
+		const sessionId = crypto.randomUUID();
 		let release: (() => void) | undefined;
 
 		try {
@@ -241,7 +265,7 @@ export function createRoutes({
 				body: msgBody || "",
 				effort: effort || "auto",
 				session_id: sessionId,
-				is_follow_up: !!session_id,
+				is_follow_up: false,
 			};
 
 			if (targetWs.readyState !== 1) {
@@ -259,7 +283,7 @@ export function createRoutes({
 			if (waitResult.delivered && waitResult.result) {
 				const response = waitResult.result;
 				if (debug) {
-					return jsonResponse({ ...response, session_id: sessionId, from, to, is_follow_up: !!session_id });
+					return jsonResponse({ ...response, session_id: sessionId, from, to, is_follow_up: false });
 				}
 				return jsonResponse(response);
 			}
@@ -318,48 +342,54 @@ export function createRoutes({
 
 		console.log(`[respond] ${respondSessionId} → ${response.status}`);
 
-		// Push response back to channel-mode sender
-		const fromSubs = registry.get(deliverResult.from);
-		if (fromSubs && getTeamMode(fromSubs) === "channel") {
-			try {
-				const push: ResponsePushPayload = {
-					type: "response_push",
-					session_id: respondSessionId,
-					status: response.status ?? "",
-					response: response.response,
-					replyAsJson: response.replyAsJson,
-					question: response.question,
-					reason: response.reason,
-				};
-				const pushMsg = JSON.stringify(push);
-				const activeWsList = getAllActiveWs(fromSubs);
+		// Push response back to the sender. For mailbox-routed sends we target the
+		// specific sub-session via mailboxRegistry so parallel host windows don't
+		// all receive each other's replies. Fall back to team broadcast if there
+		// is no mailbox id on the entry (CLI mode that still uses waitForResult
+		// has already been satisfied above and won't hit this branch for a push).
+		const push: ResponsePushPayload = {
+			type: "response_push",
+			session_id: respondSessionId,
+			status: response.status ?? "",
+			response: response.response,
+			replyAsJson: response.replyAsJson,
+			question: response.question,
+			reason: response.reason,
+		};
+		const pushMsg = JSON.stringify(push);
 
-				// #region Hypothesis A: response_push broadcast to multiple sub-sessions
+		let pushedViaMailbox = false;
+		if (deliverResult.fromMailboxId) {
+			const senderWs = mailboxRegistry.get(deliverResult.fromMailboxId);
+			if (senderWs && senderWs.readyState === 1) {
+				senderWs.send(pushMsg);
+				pushedViaMailbox = true;
+				console.log(
+					`[respond] pushed to ${deliverResult.from} via mailbox ${deliverResult.fromMailboxId.slice(0, 8)}... [${respondSessionId}]`,
+				);
+			} else {
+				console.log(
+					`[respond] mailbox ${deliverResult.fromMailboxId.slice(0, 8)}... offline, response kept in store [${respondSessionId}]`,
+				);
+			}
+		}
+
+		if (!pushedViaMailbox) {
+			const fromSubs = registry.get(deliverResult.from);
+			if (fromSubs && getTeamMode(fromSubs) === "channel") {
 				try {
-					const line = JSON.stringify({
-						runId: "arbiter",
-						hypothesisId: "A",
-						location: "src/arbiter/routes.ts:respond",
-						message: "response_push broadcast",
-						data: {
-							sessionId: respondSessionId.slice(0, 8),
-							to: deliverResult.from,
-							totalSubs: fromSubs.size,
-							activeSubs: activeWsList.length,
-							subIds: Array.from(fromSubs.keys()),
-						},
-						timestamp: new Date().toISOString(),
-					});
-					fs.appendFileSync(LOG_PATH, `${line}\n`);
-				} catch {}
-				// #endregion
-
-				for (const ws of activeWsList) {
-					ws.send(pushMsg);
+					const activeWsList = getAllActiveWs(fromSubs);
+					for (const ws of activeWsList) {
+						ws.send(pushMsg);
+					}
+					if (activeWsList.length > 0) {
+						console.log(
+							`[respond] pushed to ${deliverResult.from} via team broadcast (${activeWsList.length} subs) [${respondSessionId}]`,
+						);
+					}
+				} catch {
+					console.log(`[respond] push failed, kept for polling [${respondSessionId.slice(0, 8)}...]`);
 				}
-				console.log(`[respond] pushed to ${deliverResult.from} [${respondSessionId.slice(0, 8)}...]`);
-			} catch {
-				console.log(`[respond] push failed, kept for polling [${respondSessionId.slice(0, 8)}...]`);
 			}
 		}
 

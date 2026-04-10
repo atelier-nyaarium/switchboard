@@ -32,6 +32,7 @@ export interface ChannelPushPayload {
 	session_id: string;
 	is_follow_up: boolean;
 	replyJsonSchema?: string;
+	message_id?: string;
 }
 
 export interface ResponsePayload {
@@ -73,6 +74,7 @@ export interface RegisterMessage {
 	team: string;
 	mode?: ConnectionMode;
 	subId?: string;
+	mailboxId: string;
 }
 
 export interface TeamInfo {

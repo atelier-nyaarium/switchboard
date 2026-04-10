@@ -37,6 +37,11 @@ let PROJECT_NAME = "";
 let AGENT_TYPE = "";
 let EFFORT_ENV: EffortEnv = {};
 
+// Stable mailbox id for the life of this MCP process. Regenerated on process start,
+// reused across WebSocket reconnects so the arbiter can keep the conversation mailbox
+// tied to the same agent window / container instance.
+const MAILBOX_ID: string = crypto.randomUUID();
+
 let routerWs: WebSocket | null = null;
 let previousSubId: string | null = null;
 let suppressReconnect = false;
@@ -77,6 +82,10 @@ export function bridgeProjectName(): string {
 
 export function bridgeAgentType(): string {
 	return AGENT_TYPE;
+}
+
+export function bridgeMailboxId(): string {
+	return MAILBOX_ID;
 }
 
 export async function routerPost(
@@ -158,7 +167,13 @@ export function connectToRouter(): void {
 		previousSubId = subId;
 		// #endregion
 
-		const registerMsg: Record<string, string> = { type: "register", team: PROJECT_NAME, mode, subId };
+		const registerMsg: Record<string, string> = {
+			type: "register",
+			team: PROJECT_NAME,
+			mode,
+			subId,
+			mailboxId: MAILBOX_ID,
+		};
 		if (process.env.PROJECT_HOST_PATH) {
 			registerMsg.projectPath = process.env.PROJECT_HOST_PATH;
 		}

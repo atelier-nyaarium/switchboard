@@ -7,6 +7,8 @@ interface JobEntry<T> {
 	id: string;
 	from: string;
 	to: string;
+	fromMailboxId: string | null;
+	persistent: boolean;
 	state: JobState;
 	createdAt: number;
 	timer: ReturnType<typeof setTimeout> | null;
@@ -17,6 +19,11 @@ interface JobEntry<T> {
 export interface WaitResult<T> {
 	delivered: boolean;
 	result?: T;
+}
+
+export interface CreateOptions {
+	persistent?: boolean;
+	fromMailboxId?: string;
 }
 
 ////////////////////////////////
@@ -47,13 +54,33 @@ export class PendingJobStore<T> {
 		}
 	}
 
-	create(id: string, from: string, to: string): void {
+	has(id: string): boolean {
+		return this.entries.has(id);
+	}
+
+	/**
+	 * Create a new job entry. If one already exists for this id, refresh its metadata
+	 * (for persistent channel-mode mailboxes this keeps the existing stored result
+	 * intact while resetting the TTL clock).
+	 */
+	create(id: string, from: string, to: string, opts: CreateOptions = {}): void {
+		const { persistent = false, fromMailboxId = null } = opts;
 		const existing = this.entries.get(id);
-		if (existing?.timer) clearTimeout(existing.timer);
+		if (existing) {
+			// Mailbox reuse: keep stored result, refresh metadata.
+			existing.from = from;
+			existing.to = to;
+			existing.fromMailboxId = fromMailboxId;
+			existing.persistent = persistent || existing.persistent;
+			existing.createdAt = Date.now();
+			return;
+		}
 		this.entries.set(id, {
 			id,
 			from,
 			to,
+			fromMailboxId,
+			persistent,
 			state: "waiting",
 			createdAt: Date.now(),
 			timer: null,
@@ -76,7 +103,10 @@ export class PendingJobStore<T> {
 		});
 	}
 
-	deliver(id: string, result: T): { delivered: boolean; from: string; to: string } | false {
+	deliver(
+		id: string,
+		result: T,
+	): { delivered: boolean; from: string; to: string; fromMailboxId: string | null; persistent: boolean } | false {
 		const entry = this.entries.get(id);
 		if (!entry) return false;
 
@@ -86,8 +116,21 @@ export class PendingJobStore<T> {
 			entry.timer = null;
 			entry.resolve({ delivered: true, result });
 			entry.resolve = null;
-			this.entries.delete(id);
-			return { delivered: true, from: entry.from, to: entry.to };
+			// Persistent entries stay in the store even after a sync delivery.
+			if (!entry.persistent) {
+				this.entries.delete(id);
+			} else {
+				entry.state = "stored";
+				entry.storedResult = result;
+				entry.createdAt = Date.now();
+			}
+			return {
+				delivered: true,
+				from: entry.from,
+				to: entry.to,
+				fromMailboxId: entry.fromMailboxId,
+				persistent: entry.persistent,
+			};
 		}
 
 		if (entry.state === "waiting" && !entry.resolve) {
@@ -95,21 +138,39 @@ export class PendingJobStore<T> {
 			entry.state = "stored";
 			entry.storedResult = result;
 			entry.createdAt = Date.now();
-			return { delivered: true, from: entry.from, to: entry.to };
+			return {
+				delivered: true,
+				from: entry.from,
+				to: entry.to,
+				fromMailboxId: entry.fromMailboxId,
+				persistent: entry.persistent,
+			};
 		}
 
 		if (entry.state === "timed_out") {
 			entry.state = "stored";
 			entry.storedResult = result;
 			entry.createdAt = Date.now();
-			return { delivered: true, from: entry.from, to: entry.to };
+			return {
+				delivered: true,
+				from: entry.from,
+				to: entry.to,
+				fromMailboxId: entry.fromMailboxId,
+				persistent: entry.persistent,
+			};
 		}
 
 		if (entry.state === "stored") {
-			// Re-delivery: channel sessions may receive multiple replies
+			// Re-delivery: channel sessions and persistent mailboxes may receive multiple replies
 			entry.storedResult = result;
 			entry.createdAt = Date.now();
-			return { delivered: true, from: entry.from, to: entry.to };
+			return {
+				delivered: true,
+				from: entry.from,
+				to: entry.to,
+				fromMailboxId: entry.fromMailboxId,
+				persistent: entry.persistent,
+			};
 		}
 
 		return false;
@@ -121,13 +182,20 @@ export class PendingJobStore<T> {
 		this.entries.delete(id);
 	}
 
+	/**
+	 * Non-destructive peek: returns the latest stored result for persistent entries
+	 * without removing them. Non-persistent entries retain the consume-on-poll
+	 * semantics used by CLI-mode waiting clients.
+	 */
 	poll(id: string): T | null | undefined {
 		const entry = this.entries.get(id);
 		if (!entry) return undefined;
 
 		if (entry.state === "stored" && entry.storedResult !== null) {
 			const result = entry.storedResult;
-			this.entries.delete(id);
+			if (!entry.persistent) {
+				this.entries.delete(id);
+			}
 			return result;
 		}
 
@@ -146,13 +214,29 @@ export class PendingJobStore<T> {
 		return ids;
 	}
 
-	listAll(): Array<{ id: string; from: string; to: string; state: JobState }> {
-		return [...this.entries.values()].map(({ id, from, to, state }) => ({ id, from, to, state }));
+	/** Non-persistent entries only: used when cancelling pending jobs on team disconnect. */
+	getTransientIdsForTeam(team: string): string[] {
+		const ids: string[] = [];
+		for (const [id, entry] of this.entries) {
+			if (entry.to === team && !entry.persistent) ids.push(id);
+		}
+		return ids;
+	}
+
+	listAll(): Array<{ id: string; from: string; to: string; state: JobState; persistent: boolean }> {
+		return [...this.entries.values()].map(({ id, from, to, state, persistent }) => ({
+			id,
+			from,
+			to,
+			state,
+			persistent,
+		}));
 	}
 
 	private sweep(): void {
 		const now = Date.now();
 		for (const [id, entry] of this.entries) {
+			if (entry.persistent) continue;
 			if (entry.state !== "waiting" && now - entry.createdAt > this.ttlMs) {
 				if (entry.timer) clearTimeout(entry.timer);
 				this.entries.delete(id);

@@ -41,6 +41,7 @@ export async function startArbiter(): Promise<void> {
 	const MISSED_PINGS_LIMIT = 2;
 
 	const registry = new Map<string, Map<string, ServerWebSocket<WsData>>>();
+	const mailboxRegistry = new Map<string, ServerWebSocket<WsData>>();
 	const store = new PendingJobStore<ResponsePayload>();
 	const targetLocks = new Map<string, Mutex>();
 	const knownTeamPaths = new Map<string, string>();
@@ -242,6 +243,7 @@ export async function startArbiter(): Promise<void> {
 
 	const wsHandlers = createWebSocketHandlers({
 		registry,
+		mailboxRegistry,
 		store,
 		targetLocks,
 		config: { HEARTBEAT_INTERVAL_MS, MISSED_PINGS_LIMIT },
@@ -276,6 +278,7 @@ export async function startArbiter(): Promise<void> {
 
 	const routes = createRoutes({
 		registry,
+		mailboxRegistry,
 		store,
 		getMutex: getMutexForTeam,
 		config: { LOG_PATH, RESPONSE_TIMEOUT_MS },
@@ -329,6 +332,7 @@ export async function startArbiter(): Promise<void> {
 						data: {
 							teamName: null,
 							subId: "",
+							mailboxId: null,
 							mode: "cli" as const,
 							missedPings: 0,
 							isStale: false,
@@ -350,6 +354,7 @@ export async function startArbiter(): Promise<void> {
 						data: {
 							teamName: null,
 							subId: "",
+							mailboxId: null,
 							mode: "cli" as const,
 							missedPings: 0,
 							isStale: false,
