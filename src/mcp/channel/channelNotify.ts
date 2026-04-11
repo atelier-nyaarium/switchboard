@@ -60,7 +60,8 @@ export async function emitChannelNotification(server: Server, payload: ChannelPu
 }
 
 export async function emitResponseNotification(server: Server, payload: ResponsePushPayload): Promise<void> {
-	const parts = [`Status: ${payload.status}`];
+	const parts: string[] = [];
+	if (payload.status) parts.push(`Status: ${payload.status}`);
 	if (payload.response) parts.push(payload.response);
 	if (payload.question) parts.push(`Question: ${payload.question}`);
 	if (payload.reason) parts.push(`Reason: ${payload.reason}`);

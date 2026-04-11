@@ -317,7 +317,7 @@ export function createRoutes({
 		// If JSON reply provided but no explicit response string, pretty-stringify for text consumers
 		const response: ResponsePayload = {
 			session_id: respondSessionId,
-			status: (rest.status as ResponsePayload["status"]) ?? "completed",
+			status: rest.status as ResponsePayload["status"] | undefined,
 			response: rest.response,
 			question: rest.question,
 			reason: rest.reason,
@@ -340,7 +340,7 @@ export function createRoutes({
 			return jsonResponse({ error: `No pending request for session_id "${respondSessionId}"` }, 404);
 		}
 
-		console.log(`[respond] ${respondSessionId} → ${response.status}`);
+		console.log(`[respond] ${respondSessionId}${response.status ? ` → ${response.status}` : ""}`);
 
 		// Push response back to the sender. For conversation-routed sends we target the
 		// specific sub-session via conversationRegistry so parallel host windows don't
@@ -350,12 +350,12 @@ export function createRoutes({
 		const push: ResponsePushPayload = {
 			type: "response_push",
 			session_id: respondSessionId,
-			status: response.status ?? "",
 			response: response.response,
 			replyAsJson: response.replyAsJson,
 			question: response.question,
 			reason: response.reason,
 		};
+		if (response.status) push.status = response.status;
 		const pushMsg = JSON.stringify(push);
 
 		let pushedViaConversation = false;

@@ -1,13 +1,15 @@
 import { z } from "zod";
 
-export const BridgeReplySchema = z
+////////////////////////////////
+//  CLI Reply Schema
+//
+//  CLI-mode replies are one-shot: the request arrives, the agent does work, it
+//  replies exactly once with a terminal status. status is required.
+
+export const CliReplySchema = z
 	.object({
 		session_id: z.string().describe(`The session_id for this request. Required to route the reply correctly.`),
-		status: z
-			.enum(["running", "completed", "clarification", "deferred", "needs_human"])
-			.describe(
-				`The outcome or current state of your work. Use "running" for interim progress updates (phase reports, ACKs) and "completed" for the final answer.`,
-			),
+		status: z.enum(["completed", "clarification", "deferred", "needs_human"]).describe(`The outcome of your work.`),
 		replyAsString: z
 			.string()
 			.optional()
@@ -33,4 +35,32 @@ export const BridgeReplySchema = z
 		message: "Provide replyAsString or replyAsJson, not both.",
 	});
 
-export type BridgeReplyArgs = z.infer<typeof BridgeReplySchema>;
+export type CliReplyArgs = z.infer<typeof CliReplySchema>;
+
+////////////////////////////////
+//  Channel Reply Schema
+//
+//  Channel-mode conversations are streams: the conversation stays open for the
+//  life of the process, and the agent can reply any number of times. There is
+//  no status because there is no "end" — every reply is just another message in
+//  the stream.
+
+export const ChannelReplySchema = z
+	.object({
+		session_id: z.string().describe(`The session_id for this request. Required to route the reply correctly.`),
+		replyAsString: z
+			.string()
+			.optional()
+			.describe(`Your text response. Use this for normal replies. Mutually exclusive with replyAsJson.`),
+		replyAsJson: z
+			.string()
+			.optional()
+			.describe(
+				`A JSON object response. Use when the request specifies a Reply Schema. Pass a valid JSON string matching the schema. Mutually exclusive with replyAsString.`,
+			),
+	})
+	.refine((data) => !(data.replyAsString && data.replyAsJson), {
+		message: "Provide replyAsString or replyAsJson, not both.",
+	});
+
+export type ChannelReplyArgs = z.infer<typeof ChannelReplySchema>;

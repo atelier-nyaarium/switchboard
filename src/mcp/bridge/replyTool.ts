@@ -1,13 +1,27 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { type BridgeReplyArgs, BridgeReplySchema } from "../../shared/schemas.js";
+import type { z } from "zod";
 import { routerPost } from "./helpers.js";
 
-export function registerReplyTool(
+////////////////////////////////
+//  Interfaces & Types
+
+interface ReplyArgsBase {
+	session_id: string;
+	status?: string;
+	replyAsString?: string;
+	replyAsJson?: string;
+}
+
+////////////////////////////////
+//  Functions & Helpers
+
+export function registerReplyTool<S extends z.ZodTypeAny>(
 	mcpServer: McpServer,
 	toolName: string,
 	title: string,
 	description: string,
 	logPrefix: string,
+	schema: S,
 ): void {
 	mcpServer.registerTool(
 		toolName,
@@ -15,11 +29,14 @@ export function registerReplyTool(
 			title,
 			description,
 			// biome-ignore lint/suspicious/noExplicitAny: MCP SDK expects this type
-			inputSchema: BridgeReplySchema as any,
+			inputSchema: schema as any,
 		},
-		async ({ session_id, status, replyAsString, replyAsJson, ...rest }: BridgeReplyArgs) => {
+		async (args: unknown) => {
 			try {
-				const payload: Record<string, unknown> = { session_id, status, ...rest };
+				const { session_id, status, replyAsString, replyAsJson, ...rest } = args as ReplyArgsBase &
+					Record<string, unknown>;
+				const payload: Record<string, unknown> = { session_id, ...rest };
+				if (status !== undefined) payload.status = status;
 
 				if (replyAsJson) {
 					try {
@@ -35,8 +52,9 @@ export function registerReplyTool(
 				}
 
 				await routerPost("/respond", payload);
-				console.error(`[${logPrefix}] ${toolName} sent: ${status} [${session_id}]`);
-				return { content: [{ type: "text" as const, text: `Reply sent (${status}).` }] };
+				const suffix = status ? ` (${status})` : "";
+				console.error(`[${logPrefix}] ${toolName} sent${suffix} [${session_id}]`);
+				return { content: [{ type: "text" as const, text: `Reply sent${suffix}.` }] };
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
 				return {

@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { ChannelReplySchema } from "../../shared/schemas.js";
 import { registerReplyTool } from "../bridge/replyTool.js";
 
 export function registerChannelReply(mcpServer: McpServer): void {
@@ -6,7 +7,8 @@ export function registerChannelReply(mcpServer: McpServer): void {
 		mcpServer,
 		"channel_reply",
 		"Channel Reply",
-		`Reply to an incoming channel message. The channel conversation stays open, so you can call this multiple times on the same session_id: use status "running" for interim progress updates (phase reports, partial results, acknowledgements) and status "completed" when you have delivered the final answer. The conversation is only truly closed when your process exits. Send responses verbatim unless the requester explicitly asked for a summary.`,
+		`Reply to an incoming channel message. Channel conversations are streams — you can call this any number of times on the same session_id. Each call is just another message in the stream; there is no finality or "done" status. Send responses verbatim unless the requester explicitly asked for a summary.`,
 		"channel",
+		ChannelReplySchema,
 	);
 }

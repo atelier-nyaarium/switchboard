@@ -50,7 +50,8 @@ When relaying responses back to the user, send them verbatim unless the user exp
 
 function formatResult(result: SendResult, to?: string): { content: Array<{ type: "text"; text: string }> } {
 	const target = to || "team";
-	const parts = [`Response from ${target}:`, `Status: ${result.status}`];
+	const parts = [`Response from ${target}:`];
+	if (result.status) parts.push(`Status: ${result.status}`);
 
 	if (result.status === "completed") {
 		if (result.response) parts.push(`\n${result.response}`);

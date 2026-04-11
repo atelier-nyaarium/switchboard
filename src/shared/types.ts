@@ -13,6 +13,11 @@ export type ResponseStatus =
 	| "timeout"
 	| "running";
 
+////////////////////////////////
+//  Note: CLI replies (crosstalk_reply) carry a status. Channel replies
+//  (channel_reply) are stream messages with no status at all — the fields
+//  below are optional so the same payload type serves both paths.
+
 export interface InjectPayload {
 	type: "inject";
 	from: string;
@@ -37,7 +42,7 @@ export interface ChannelPushPayload {
 
 export interface ResponsePayload {
 	session_id: string;
-	status: ResponseStatus;
+	status?: ResponseStatus;
 	response?: string;
 	replyAsJson?: Record<string, unknown>;
 	question?: string;
@@ -50,7 +55,7 @@ export interface ResponsePayload {
 export interface ResponsePushPayload {
 	type: "response_push";
 	session_id: string;
-	status: string;
+	status?: string;
 	response?: string;
 	replyAsJson?: Record<string, unknown>;
 	question?: string;
