@@ -60,7 +60,7 @@ export class PendingJobStore<T> {
 
 	/**
 	 * Create a new job entry. If one already exists for this id, refresh its metadata
-	 * (for persistent channel-mode mailboxes this keeps the existing stored result
+	 * (for persistent channel-mode conversations this keeps the existing stored result
 	 * intact while resetting the TTL clock).
 	 */
 	create(id: string, from: string, to: string, opts: CreateOptions = {}): void {
@@ -163,7 +163,7 @@ export class PendingJobStore<T> {
 		}
 
 		if (entry.state === "stored") {
-			// Re-delivery: channel sessions and persistent mailboxes may receive multiple replies
+			// Re-delivery: channel sessions may receive multiple replies
 			entry.storedResult = result;
 			entry.createdAt = Date.now();
 			return {

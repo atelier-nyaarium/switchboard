@@ -3,7 +3,11 @@ import { z } from "zod";
 export const BridgeReplySchema = z
 	.object({
 		session_id: z.string().describe(`The session_id for this request. Required to route the reply correctly.`),
-		status: z.enum(["completed", "clarification", "deferred", "needs_human"]).describe(`The outcome of your work.`),
+		status: z
+			.enum(["running", "completed", "clarification", "deferred", "needs_human"])
+			.describe(
+				`The outcome or current state of your work. Use "running" for interim progress updates (phase reports, ACKs) and "completed" for the final answer.`,
+			),
 		replyAsString: z
 			.string()
 			.optional()

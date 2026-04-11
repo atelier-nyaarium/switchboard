@@ -273,7 +273,7 @@ export function createWebSocketHandlers({
 		if (subs.size === 0) {
 			registry.delete(teamName);
 
-			// Cancel only transient (CLI-mode) pending jobs. Persistent channel mailboxes
+			// Cancel only transient (CLI-mode) pending jobs. Persistent channel conversations
 			// stay alive so the conversation resumes cleanly when the team reconnects.
 			for (const id of store.getTransientIdsForTeam(teamName)) {
 				store.deliver(id, {
