@@ -6,14 +6,14 @@ import { z } from "zod";
 import type { Mutex } from "../shared/mutex.js";
 import type { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ArbiterConfig, ConnectionMode, ResponsePayload, ResponsePushPayload, TeamInfo } from "../shared/types.js";
-import { getAllActiveWs, type MailboxRegistry, type TeamRegistry, type WsData } from "./websocket.js";
+import { type ConversationRegistry, getAllActiveWs, type TeamRegistry, type WsData } from "./websocket.js";
 
 ////////////////////////////////
 //  Interfaces & Types
 
 export interface RoutesDeps {
 	registry: TeamRegistry;
-	mailboxRegistry: MailboxRegistry;
+	conversationRegistry: ConversationRegistry;
 	store: PendingJobStore<ResponsePayload>;
 	getMutex: ((team: string) => Mutex) & { peek: (team: string) => Mutex | undefined };
 	tryWakeTeam: (team: string) => Promise<boolean>;
@@ -25,7 +25,7 @@ export interface RoutesDeps {
 
 const SendRequestSchema = z.object({
 	from: z.string(),
-	fromMailboxId: z.string().optional(),
+	fromConversationId: z.string().optional(),
 	to: z.string(),
 	type: z.string().optional(),
 	effort: z.string().optional(),
@@ -83,20 +83,20 @@ function getTeamMode(subs: Map<string, ServerWebSocket<WsData>>): ConnectionMode
 }
 
 /**
- * Derive the stable conversation mailbox id for a channel-mode exchange.
- * Same (sender mailbox, target team) pair always hashes to the same id, so
+ * Derive the stable channel job id for a channel-mode exchange.
+ * Same (sender conversation id, target team) pair always produces the same key, so
  * subsequent sends reuse the same store entry instead of generating a fresh UUID
  * that eventually gets swept. Falls back to null if the sender did not provide
- * a mailbox id (legacy path; channel mode should always provide one now).
+ * a conversation id (channel mode should always provide one now).
  */
-function deriveConversationId(fromMailboxId: string | undefined, to: string): string | null {
-	if (!fromMailboxId) return null;
-	return `conv:${fromMailboxId}:${to}`;
+function deriveChannelJobId(fromConversationId: string | undefined, to: string): string | null {
+	if (!fromConversationId) return null;
+	return `conv:${fromConversationId}:${to}`;
 }
 
 export function createRoutes({
 	registry,
-	mailboxRegistry,
+	conversationRegistry,
 	store,
 	getMutex,
 	tryWakeTeam,
@@ -162,7 +162,7 @@ export function createRoutes({
 		if (!parsed.success) {
 			return jsonResponse({ error: `Invalid request: ${parsed.error.message}` }, 400);
 		}
-		const { from, fromMailboxId, to, type, effort, body: msgBody, debug, replyJsonSchema } = parsed.data;
+		const { from, fromConversationId, to, type, effort, body: msgBody, debug, replyJsonSchema } = parsed.data;
 
 		if (to === "__host__") {
 			return jsonResponse({ error: `"__host__" is not a team` }, 400);
@@ -195,17 +195,17 @@ export function createRoutes({
 
 		const targetMode = getTeamMode(subs);
 
-		// Channel mode: stable mailbox id per (sender_mailbox, target_team) pair.
-		// Same pair reuses the same conversation forever; mailbox entries are persistent.
+		// Channel mode: stable job id per (sender_conversation_id, target_team) pair.
+		// Same pair reuses the same store entry forever; entries are persistent.
 		if (targetMode === "channel") {
 			try {
-				const conversationId = deriveConversationId(fromMailboxId, to);
-				if (!conversationId) {
-					return jsonResponse({ error: `fromMailboxId is required for channel-mode targets` }, 400);
+				const channelJobId = deriveChannelJobId(fromConversationId, to);
+				if (!channelJobId) {
+					return jsonResponse({ error: `fromConversationId is required for channel-mode targets` }, 400);
 				}
 
-				const isFollowUp = store.has(conversationId);
-				store.create(conversationId, from, to, { persistent: true, fromMailboxId });
+				const isFollowUp = store.has(channelJobId);
+				store.create(channelJobId, from, to, { persistent: true, fromConversationId });
 
 				const messageId = crypto.randomUUID();
 				const channelPayload: Record<string, unknown> = {
@@ -214,7 +214,7 @@ export function createRoutes({
 					request_type: type || "question",
 					body: msgBody || "",
 					effort: effort || "auto",
-					session_id: conversationId,
+					session_id: channelJobId,
 					message_id: messageId,
 					is_follow_up: isFollowUp,
 				};
@@ -231,13 +231,13 @@ export function createRoutes({
 				}
 
 				console.log(
-					`[send] channel_push to ${to} [${conversationId}] msg=${messageId.slice(0, 8)} from ${from} (${activeWs.length} sub-session${activeWs.length > 1 ? "s" : ""})`,
+					`[send] channel_push to ${to} [${channelJobId}] msg=${messageId.slice(0, 8)} from ${from} (${activeWs.length} sub-session${activeWs.length > 1 ? "s" : ""})`,
 				);
 
 				return jsonResponse({
-					session_id: conversationId,
+					session_id: channelJobId,
 					status: "running",
-					message: `Message pushed to ${to} via channel mailbox. Responses will be pushed back automatically.`,
+					message: `Message pushed to ${to} via channel. Responses will be pushed back automatically.`,
 				});
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
@@ -342,10 +342,10 @@ export function createRoutes({
 
 		console.log(`[respond] ${respondSessionId} → ${response.status}`);
 
-		// Push response back to the sender. For mailbox-routed sends we target the
-		// specific sub-session via mailboxRegistry so parallel host windows don't
+		// Push response back to the sender. For conversation-routed sends we target the
+		// specific sub-session via conversationRegistry so parallel host windows don't
 		// all receive each other's replies. Fall back to team broadcast if there
-		// is no mailbox id on the entry (CLI mode that still uses waitForResult
+		// is no conversation id on the entry (CLI mode that still uses waitForResult
 		// has already been satisfied above and won't hit this branch for a push).
 		const push: ResponsePushPayload = {
 			type: "response_push",
@@ -358,23 +358,23 @@ export function createRoutes({
 		};
 		const pushMsg = JSON.stringify(push);
 
-		let pushedViaMailbox = false;
-		if (deliverResult.fromMailboxId) {
-			const senderWs = mailboxRegistry.get(deliverResult.fromMailboxId);
+		let pushedViaConversation = false;
+		if (deliverResult.fromConversationId) {
+			const senderWs = conversationRegistry.get(deliverResult.fromConversationId);
 			if (senderWs && senderWs.readyState === 1) {
 				senderWs.send(pushMsg);
-				pushedViaMailbox = true;
+				pushedViaConversation = true;
 				console.log(
-					`[respond] pushed to ${deliverResult.from} via mailbox ${deliverResult.fromMailboxId.slice(0, 8)}... [${respondSessionId}]`,
+					`[respond] pushed to ${deliverResult.from} via conversation ${deliverResult.fromConversationId.slice(0, 8)}... [${respondSessionId}]`,
 				);
 			} else {
 				console.log(
-					`[respond] mailbox ${deliverResult.fromMailboxId.slice(0, 8)}... offline, response kept in store [${respondSessionId}]`,
+					`[respond] conversation ${deliverResult.fromConversationId.slice(0, 8)}... offline, response kept in store [${respondSessionId}]`,
 				);
 			}
 		}
 
-		if (!pushedViaMailbox) {
+		if (!pushedViaConversation) {
 			const fromSubs = registry.get(deliverResult.from);
 			if (fromSubs && getTeamMode(fromSubs) === "channel") {
 				try {

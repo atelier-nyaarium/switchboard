@@ -17,7 +17,7 @@ function makeRegistry(entries: Record<string, unknown>): RoutesDeps["registry"] 
 
 function makeCtx(overrides: Partial<RoutesDeps> = {}): RoutesDeps {
 	const registry = overrides.registry || (new Map() as RoutesDeps["registry"]);
-	const mailboxRegistry = overrides.mailboxRegistry || (new Map() as RoutesDeps["mailboxRegistry"]);
+	const conversationRegistry = overrides.conversationRegistry || (new Map() as RoutesDeps["conversationRegistry"]);
 	const store = overrides.store || new PendingJobStore<ResponsePayload>();
 	const offlineCatalog = overrides.offlineCatalog || new Map<string, string>();
 	const targetLocks = new Map<string, Mutex>();
@@ -28,7 +28,7 @@ function makeCtx(overrides: Partial<RoutesDeps> = {}): RoutesDeps {
 	getMutexFn.peek = (team: string) => targetLocks.get(team);
 	return {
 		registry,
-		mailboxRegistry,
+		conversationRegistry,
 		store,
 		getMutex: getMutexFn,
 		config: { LOG_PATH: "/tmp/test-debug.log", RESPONSE_TIMEOUT_MS: 500 },

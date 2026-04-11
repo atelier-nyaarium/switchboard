@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ResponsePayload } from "../../shared/types.js";
-import { bridgeMailboxId, bridgeProjectName, routerPost } from "./helpers.js";
+import { bridgeConversationId, bridgeProjectName, routerPost } from "./helpers.js";
 
 ////////////////////////////////
 //  Schemas
@@ -23,7 +23,7 @@ const BridgeSendSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			`Polling only: pass a session_id (with no body) to peek at the latest result for an existing mailbox. Omit this field for sends — channel mailboxes are auto-derived from the sender/target pair.`,
+			`Polling only: pass a session_id (with no body) to peek at the latest result for an existing conversation. Omit this field for sends — channel conversations are auto-derived from the sender/target pair.`,
 		),
 });
 type BridgeSendArgs = z.infer<typeof BridgeSendSchema>;
@@ -40,10 +40,10 @@ const description = `
 Send a request to another team.
 
 Two call patterns:
-1. Send: provide to + type + effort + body. The conversation mailbox with that team is automatically reused across all your messages — you do not manage session_ids.
-2. Poll: provide session_id only (no body). Peeks at the latest stored result for an existing mailbox without consuming it. Rarely needed for channel-mode teams since responses arrive via push.
+1. Send: provide to + type + effort + body. The conversation with that team is automatically reused across all your messages — you do not manage session_ids.
+2. Poll: provide session_id only (no body). Peeks at the latest stored result for an existing conversation without consuming it. Rarely needed for channel-mode teams since responses arrive via push.
 
-Channel-mode teams (Claude): responses are pushed back automatically as <channel> notifications. No polling needed. The target team can reply multiple times (progress updates, phase reports) without closing the mailbox; just keep watching the channel.
+Channel-mode teams (Claude): responses are pushed back automatically as <channel> notifications. No polling needed. The target team can reply multiple times (progress updates, phase reports) without closing the conversation; just keep watching the channel.
 
 When relaying responses back to the user, send them verbatim unless the user explicitly asked for a summary.
 `.trim();
@@ -111,7 +111,7 @@ export function registerBridgeSend(mcpServer: McpServer): void {
 
 				const result = (await routerPost("/send", {
 					from: bridgeProjectName(),
-					fromMailboxId: bridgeMailboxId(),
+					fromConversationId: bridgeConversationId(),
 					to,
 					type,
 					effort,

@@ -7,7 +7,7 @@ interface JobEntry<T> {
 	id: string;
 	from: string;
 	to: string;
-	fromMailboxId: string | null;
+	fromConversationId: string | null;
 	persistent: boolean;
 	state: JobState;
 	createdAt: number;
@@ -23,7 +23,7 @@ export interface WaitResult<T> {
 
 export interface CreateOptions {
 	persistent?: boolean;
-	fromMailboxId?: string;
+	fromConversationId?: string;
 }
 
 ////////////////////////////////
@@ -64,13 +64,13 @@ export class PendingJobStore<T> {
 	 * intact while resetting the TTL clock).
 	 */
 	create(id: string, from: string, to: string, opts: CreateOptions = {}): void {
-		const { persistent = false, fromMailboxId = null } = opts;
+		const { persistent = false, fromConversationId = null } = opts;
 		const existing = this.entries.get(id);
 		if (existing) {
-			// Mailbox reuse: keep stored result, refresh metadata.
+			// Conversation reuse: keep stored result, refresh metadata.
 			existing.from = from;
 			existing.to = to;
-			existing.fromMailboxId = fromMailboxId;
+			existing.fromConversationId = fromConversationId;
 			existing.persistent = persistent || existing.persistent;
 			existing.createdAt = Date.now();
 			return;
@@ -79,7 +79,7 @@ export class PendingJobStore<T> {
 			id,
 			from,
 			to,
-			fromMailboxId,
+			fromConversationId,
 			persistent,
 			state: "waiting",
 			createdAt: Date.now(),
@@ -106,7 +106,9 @@ export class PendingJobStore<T> {
 	deliver(
 		id: string,
 		result: T,
-	): { delivered: boolean; from: string; to: string; fromMailboxId: string | null; persistent: boolean } | false {
+	):
+		| { delivered: boolean; from: string; to: string; fromConversationId: string | null; persistent: boolean }
+		| false {
 		const entry = this.entries.get(id);
 		if (!entry) return false;
 
@@ -128,7 +130,7 @@ export class PendingJobStore<T> {
 				delivered: true,
 				from: entry.from,
 				to: entry.to,
-				fromMailboxId: entry.fromMailboxId,
+				fromConversationId: entry.fromConversationId,
 				persistent: entry.persistent,
 			};
 		}
@@ -142,7 +144,7 @@ export class PendingJobStore<T> {
 				delivered: true,
 				from: entry.from,
 				to: entry.to,
-				fromMailboxId: entry.fromMailboxId,
+				fromConversationId: entry.fromConversationId,
 				persistent: entry.persistent,
 			};
 		}
@@ -155,7 +157,7 @@ export class PendingJobStore<T> {
 				delivered: true,
 				from: entry.from,
 				to: entry.to,
-				fromMailboxId: entry.fromMailboxId,
+				fromConversationId: entry.fromConversationId,
 				persistent: entry.persistent,
 			};
 		}
@@ -168,7 +170,7 @@ export class PendingJobStore<T> {
 				delivered: true,
 				from: entry.from,
 				to: entry.to,
-				fromMailboxId: entry.fromMailboxId,
+				fromConversationId: entry.fromConversationId,
 				persistent: entry.persistent,
 			};
 		}

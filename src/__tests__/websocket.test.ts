@@ -1,13 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WakeCoordinator } from "../arbiter/wake.js";
-import { createWebSocketHandlers, type MailboxRegistry, type TeamRegistry, type WsData } from "../arbiter/websocket.js";
+import {
+	type ConversationRegistry,
+	createWebSocketHandlers,
+	type TeamRegistry,
+	type WsData,
+} from "../arbiter/websocket.js";
 import { Mutex } from "../shared/mutex.js";
 import { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ResponsePayload } from "../shared/types.js";
 
 function createMockWs() {
 	return {
-		data: { teamName: null, subId: "", mailboxId: null, missedPings: 0, isStale: false } as WsData,
+		data: { teamName: null, subId: "", conversationId: null, missedPings: 0, isStale: false } as WsData,
 		readyState: 1,
 		close: vi.fn(),
 		ping: vi.fn(),
@@ -25,7 +30,7 @@ describe("createWebSocketHandlers", () => {
 	function setup(
 		overrides: {
 			registry?: TeamRegistry;
-			mailboxRegistry?: MailboxRegistry;
+			conversationRegistry?: ConversationRegistry;
 			store?: PendingJobStore<ResponsePayload>;
 			targetLocks?: Map<string, Mutex>;
 			knownTeamPaths?: Map<string, string>;
@@ -34,7 +39,7 @@ describe("createWebSocketHandlers", () => {
 		} = {},
 	) {
 		const registry: TeamRegistry = overrides.registry || new Map();
-		const mailboxRegistry: MailboxRegistry = overrides.mailboxRegistry || new Map();
+		const conversationRegistry: ConversationRegistry = overrides.conversationRegistry || new Map();
 		const store = overrides.store || new PendingJobStore<ResponsePayload>();
 		const targetLocks = overrides.targetLocks || new Map();
 		const knownTeamPaths = overrides.knownTeamPaths || new Map();
@@ -42,7 +47,7 @@ describe("createWebSocketHandlers", () => {
 		const wakeCoordinator = overrides.wakeCoordinator || new WakeCoordinator();
 		const handlers = createWebSocketHandlers({
 			registry,
-			mailboxRegistry,
+			conversationRegistry,
 			store,
 			targetLocks,
 			config: { HEARTBEAT_INTERVAL_MS: 100000, MISSED_PINGS_LIMIT: 2 },
@@ -54,7 +59,7 @@ describe("createWebSocketHandlers", () => {
 		return {
 			handlers,
 			registry,
-			mailboxRegistry,
+			conversationRegistry,
 			store,
 			targetLocks,
 			knownTeamPaths,

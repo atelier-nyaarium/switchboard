@@ -87,15 +87,15 @@ Two separate entry points, two different runtime contexts:
 - **Channel mode** (Claude) - Messages arrive as `<channel>` push notifications via `notifications/claude/channel`. Bidirectional, no polling needed. Conversations use persistent mailboxes (see below).
 - **CLI mode** (cursor, copilot, codex) - Messages are injected as prompts into spawned agent processes. Uses mutex to serialize requests per team. Each send is a one-shot request/response.
 
-### Channel Mailbox Model
+### Channel Conversation Model
 
-Channel-mode agents (Claude windows and devcontainer Claudes) have persistent conversation mailboxes. Each MCP process generates a stable `mailbox_id` on startup and reuses it across WebSocket reconnects for the life of that process.
+Channel-mode agents (Claude windows and devcontainer Claudes) have persistent conversations. Each MCP process generates a stable `conversation_id` on startup and reuses it across WebSocket reconnects for the life of that process.
 
-- The arbiter derives a deterministic `conversation_id = "conv:" + senderMailboxId + ":" + targetTeam`. Every `crosstalk_send` between the same (sender window, target team) pair lands in the same mailbox; the caller does not manage session_ids.
-- Pending-job entries for mailbox conversations are marked `persistent: true` and are never swept by the store's TTL cleanup. Transient CLI-mode entries still time out after `RESPONSE_TIMEOUT_MS`.
-- `channel_reply` may be called multiple times on the same session_id. Use `status: "running"` for interim updates (phase reports, ACKs, partial results) and `status: "completed"` for the final answer. The mailbox only closes when a process exits.
-- Responses push back to the specific sender sub-session via `mailboxRegistry`, so parallel host windows targeting the same devcontainer do not receive each other's replies.
-- Reconnects rebind the mailbox: the same `mailbox_id` shows up with a new WebSocket, the arbiter swaps the registry pointer, and the conversation resumes without losing state.
+- The arbiter derives a deterministic channel job key `"conv:" + senderConversationId + ":" + targetTeam`. Every `crosstalk_send` between the same (sender window, target team) pair lands in the same store entry; the caller does not manage session_ids.
+- Pending-job entries for channel conversations are marked `persistent: true` and are never swept by the store's TTL cleanup. Transient CLI-mode entries still time out after `RESPONSE_TIMEOUT_MS`.
+- `channel_reply` may be called multiple times on the same session_id. Use `status: "running"` for interim updates (phase reports, ACKs, partial results) and `status: "completed"` for the final answer. The conversation only closes when a process exits.
+- Responses push back to the specific sender sub-session via `conversationRegistry`, so parallel host windows targeting the same devcontainer do not receive each other's replies.
+- Reconnects rebind the conversation: the same `conversation_id` shows up with a new WebSocket, the arbiter swaps the registry pointer, and the conversation resumes without losing state.
 
 ### Evie Bridge
 

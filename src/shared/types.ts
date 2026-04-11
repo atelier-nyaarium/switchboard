@@ -74,7 +74,7 @@ export interface RegisterMessage {
 	team: string;
 	mode?: ConnectionMode;
 	subId?: string;
-	mailboxId: string;
+	conversationId: string;
 }
 
 export interface TeamInfo {

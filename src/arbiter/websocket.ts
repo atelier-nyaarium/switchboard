@@ -9,11 +9,11 @@ import type { WakeCoordinator } from "./wake.js";
 //  Interfaces & Types
 
 export type TeamRegistry = Map<string, Map<string, ServerWebSocket<WsData>>>;
-export type MailboxRegistry = Map<string, ServerWebSocket<WsData>>;
+export type ConversationRegistry = Map<string, ServerWebSocket<WsData>>;
 
 export interface WebSocketDeps {
 	registry: TeamRegistry;
-	mailboxRegistry: MailboxRegistry;
+	conversationRegistry: ConversationRegistry;
 	store: PendingJobStore<ResponsePayload>;
 	targetLocks: Map<string, Mutex>;
 	knownTeamPaths: Map<string, string>;
@@ -26,7 +26,7 @@ export interface WebSocketDeps {
 export interface WsData {
 	teamName: string | null;
 	subId: string;
-	mailboxId: string | null;
+	conversationId: string | null;
 	mode: ConnectionMode;
 	missedPings: number;
 	isStale: boolean;
@@ -48,7 +48,7 @@ export function getAllActiveWs(subs: Map<string, ServerWebSocket<WsData>>): Serv
 
 export function createWebSocketHandlers({
 	registry,
-	mailboxRegistry,
+	conversationRegistry,
 	store,
 	targetLocks,
 	knownTeamPaths,
@@ -89,7 +89,7 @@ export function createWebSocketHandlers({
 		ws.data.missedPings = 0;
 		ws.data.isStale = false;
 		ws.data.handshakeConfirmed = false;
-		ws.data.mailboxId = null;
+		ws.data.conversationId = null;
 	}
 
 	function message(ws: ServerWebSocket<WsData>, raw: string | Buffer): void {
@@ -104,7 +104,7 @@ export function createWebSocketHandlers({
 			const team = msg.team as string;
 			const subId = (msg.subId as string) || crypto.randomUUID().slice(0, 8);
 			const mode = (msg.mode === "channel" ? "channel" : "cli") as ConnectionMode;
-			const mailboxId = (msg.mailboxId as string | undefined) ?? null;
+			const conversationId = (msg.conversationId as string | undefined) ?? null;
 
 			let subs = registry.get(team);
 			if (!subs) {
@@ -124,7 +124,7 @@ export function createWebSocketHandlers({
 				team,
 				subId,
 				mode,
-				mailboxId: mailboxId ?? "none",
+				conversationId: conversationId ?? "none",
 				existingSubIds: Array.from(subs.keys()),
 				existingSubCount: subs.size,
 				replacedExisting: !!existing,
@@ -133,17 +133,17 @@ export function createWebSocketHandlers({
 
 			ws.data.teamName = team;
 			ws.data.subId = subId;
-			ws.data.mailboxId = mailboxId;
+			ws.data.conversationId = conversationId;
 			ws.data.mode = mode;
 			subs.set(subId, ws);
 
-			if (mailboxId) {
-				const priorMailboxWs = mailboxRegistry.get(mailboxId);
-				if (priorMailboxWs && priorMailboxWs !== ws && priorMailboxWs.readyState === 1) {
-					priorMailboxWs.data.isStale = true;
-					priorMailboxWs.close();
+			if (conversationId) {
+				const priorConversationWs = conversationRegistry.get(conversationId);
+				if (priorConversationWs && priorConversationWs !== ws && priorConversationWs.readyState === 1) {
+					priorConversationWs.data.isStale = true;
+					priorConversationWs.close();
 				}
-				mailboxRegistry.set(mailboxId, ws);
+				conversationRegistry.set(conversationId, ws);
 			}
 
 			if (typeof msg.projectPath === "string" && msg.projectPath) {
@@ -242,9 +242,9 @@ export function createWebSocketHandlers({
 				subs.delete(subId);
 				if (subs.size === 0) registry.delete(teamName);
 			}
-			const hostMailboxId = ws.data.mailboxId;
-			if (hostMailboxId && mailboxRegistry.get(hostMailboxId) === ws) {
-				mailboxRegistry.delete(hostMailboxId);
+			const hostConversationId = ws.data.conversationId;
+			if (hostConversationId && conversationRegistry.get(hostConversationId) === ws) {
+				conversationRegistry.delete(hostConversationId);
 			}
 			offlineCatalog.clear();
 			console.log(`[ws] __host__ disconnected - offline catalog cleared`);
@@ -263,10 +263,10 @@ export function createWebSocketHandlers({
 		subs.delete(subId);
 		console.log(`[ws] ${teamName}/${subId} disconnected (${subs.size} remaining)`);
 
-		// Clear mailbox registry entry if it still points at this ws.
-		const closingMailboxId = ws.data.mailboxId;
-		if (closingMailboxId && mailboxRegistry.get(closingMailboxId) === ws) {
-			mailboxRegistry.delete(closingMailboxId);
+		// Clear conversation registry entry if it still points at this ws.
+		const closingConversationId = ws.data.conversationId;
+		if (closingConversationId && conversationRegistry.get(closingConversationId) === ws) {
+			conversationRegistry.delete(closingConversationId);
 		}
 
 		// If team has no more sub-sessions, clean up fully
