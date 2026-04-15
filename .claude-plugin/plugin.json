@@ -1,6 +1,6 @@
 {
 	"name": "agent-team-bridge",
-	"version": "2.9.3",
+	"version": "2.9.4",
 	"description": "Cross-team communication, devcontainer orchestration, and tool proxying for agent teams. Provides crosstalk, dispatch, connector, and evie-bot bridge tools via MCP.",
 	"author": {
 		"name": "Nyaarium"

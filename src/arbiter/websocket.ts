@@ -240,14 +240,18 @@ export function createWebSocketHandlers({
 			const subs = registry.get(teamName);
 			if (subs) {
 				subs.delete(subId);
-				if (subs.size === 0) registry.delete(teamName);
+				if (subs.size === 0) {
+					registry.delete(teamName);
+					offlineCatalog.clear();
+					console.log(`[ws] __host__ disconnected - offline catalog cleared`);
+				} else {
+					console.log(`[ws] __host__/${subId} disconnected (${subs.size} remaining)`);
+				}
 			}
 			const hostConversationId = ws.data.conversationId;
 			if (hostConversationId && conversationRegistry.get(hostConversationId) === ws) {
 				conversationRegistry.delete(hostConversationId);
 			}
-			offlineCatalog.clear();
-			console.log(`[ws] __host__ disconnected - offline catalog cleared`);
 			return;
 		}
 

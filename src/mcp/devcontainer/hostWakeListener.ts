@@ -18,7 +18,7 @@ const HOME = os.homedir();
 
 let ws: WebSocket | null = null;
 let arbiterUrl = "ws://localhost:20000";
-let projectDirs: string[] = [HOME];
+let projectDirs: string[] = [path.join(HOME, "projects")];
 let channelPushHandler: ChannelPushHandler | null = null;
 const reconnector = createReconnector(() => connect());
 
