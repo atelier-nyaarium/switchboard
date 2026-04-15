@@ -91,6 +91,27 @@ export function resolveProject(projectPath: string): string {
 
 // Container lifecycle
 
+function teardownContainer(projectPath: string): void {
+	const projectName = path.basename(projectPath);
+	const composeName = `${projectName}_devcontainer`;
+	try {
+		execSync(`docker compose -p "${composeName}" down --remove-orphans`, {
+			encoding: "utf-8",
+			stdio: "pipe",
+		});
+	} catch {
+		// non-fatal — compose project may not exist yet
+	}
+	try {
+		execSync(
+			`docker network ls --filter "name=${composeName}" -q | xargs -r docker network rm`,
+			{ encoding: "utf-8", shell: "/bin/bash", stdio: "pipe" },
+		);
+	} catch {
+		// non-fatal
+	}
+}
+
 function parseDevcontainerOutput(output: string, projectPath: string): void {
 	const lines = output.trim().split("\n");
 	const lastLine = lines[lines.length - 1];
@@ -193,6 +214,8 @@ export function ensureContainerUp(projectPath: string): ContainerUpResult {
 		return { wasAlreadyRunning: true, pluginsProvisioned: false };
 	}
 
+	teardownContainer(projectPath);
+
 	const bin = devcontainerBin();
 
 	let output: string;
@@ -236,6 +259,8 @@ export function ensureContainerUpAsync(projectPath: string): Promise<ContainerUp
 	if (isContainerReady(projectPath)) {
 		return Promise.resolve({ wasAlreadyRunning: true, pluginsProvisioned: false });
 	}
+
+	teardownContainer(projectPath);
 
 	const bin = devcontainerBin();
 
