@@ -228,7 +228,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 				try {
 					await execInContainer({
 						projectPath: resolved,
-						command: ["tmux", "send-keys", "-t", "claude", "", "Enter"],
+						command: ["tmux", "send-keys", "-t", "claude", "Enter"],
 						timeoutMs: 5000,
 					});
 				} catch {
