@@ -103,10 +103,11 @@ function teardownContainer(projectPath: string): void {
 		// non-fatal — compose project may not exist yet
 	}
 	try {
-		execSync(
-			`docker network ls --filter "name=${composeName}" -q | xargs -r docker network rm`,
-			{ encoding: "utf-8", shell: "/bin/bash", stdio: "pipe" },
-		);
+		execSync(`docker network ls --filter "name=${composeName}" -q | xargs -r docker network rm`, {
+			encoding: "utf-8",
+			shell: "/bin/bash",
+			stdio: "pipe",
+		});
 	} catch {
 		// non-fatal
 	}

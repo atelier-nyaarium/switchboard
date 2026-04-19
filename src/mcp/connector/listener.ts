@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import type { Server } from "bun";
+import type { Server, ServerWebSocket } from "bun";
 import { isInsideContainer } from "../../shared/env.js";
 import { getLoadedToolNames, getToolSchema } from "./projectTools.js";
 import { addClient, type ClientData, getAllClients, getClient, getClientByInstance, removeClient } from "./sessions.js";
@@ -24,12 +24,19 @@ interface PendingInvocation {
 	clientHash: string;
 }
 
+interface ChunkStream {
+	total: number;
+	parts: (string | null)[];
+	received: number;
+}
+
 ////////////////////////////////
 //  State
 
 let state: ListenerState | null = null;
 let authToken: string | null = null;
 const pendingInvocations = new Map<string, PendingInvocation>();
+const chunkStreams = new Map<string, ChunkStream>();
 let requestCounter = 0;
 
 ////////////////////////////////
@@ -150,6 +157,57 @@ export function invokeResolved(
 ////////////////////////////////
 //  Internal
 
+function acceptChunk(hash: string, streamId: string, seq: number, total: number, payload: string): string | null {
+	if (!hash || !streamId || total <= 0 || seq < 0 || seq >= total) {
+		console.error(`${TAG} Invalid chunk frame from ${hash}: id=${streamId} seq=${seq} total=${total}`);
+		return null;
+	}
+	const key = `${hash}:${streamId}`;
+	let stream = chunkStreams.get(key);
+	if (!stream) {
+		stream = { total, parts: new Array<string | null>(total).fill(null), received: 0 };
+		chunkStreams.set(key, stream);
+	}
+	if (stream.parts[seq] == null) {
+		stream.parts[seq] = payload;
+		stream.received++;
+	}
+	if (stream.received < stream.total) return null;
+	chunkStreams.delete(key);
+	return stream.parts.join("");
+}
+
+function dispatchMessage(ws: ServerWebSocket<ClientData>, data: Record<string, unknown>): void {
+	if (data.type === "register" && Array.isArray(data.tools)) {
+		const clientTools: string[] = data.tools;
+		const knownTools = getLoadedToolNames();
+		const unknown = clientTools.filter((t: string) => !knownTools.includes(t));
+		const valid = clientTools.filter((t: string) => knownTools.includes(t));
+
+		if (unknown.length > 0) {
+			console.error(`${TAG} Client ${ws.data.shortHash} registered unknown tools: ${unknown.join(", ")}`);
+		}
+		console.error(`${TAG} Client ${ws.data.shortHash} registered ${valid.length}/${clientTools.length} tool(s)`);
+
+		const session = getClient(ws.data.shortHash);
+		if (session) {
+			session.registeredTools = clientTools;
+			if (typeof data.instance === "string" && data.instance) {
+				session.instance = data.instance;
+				ws.data.instance = data.instance;
+			}
+		}
+	} else if (data.type === "result" && typeof data.id === "string") {
+		const pending = pendingInvocations.get(data.id);
+		console.error(`${TAG} dispatching result id=${data.id} has_pending=${pending !== undefined}`);
+		if (pending) {
+			clearTimeout(pending.timer);
+			pendingInvocations.delete(data.id);
+			pending.resolve(data.data);
+		}
+	}
+}
+
 interface CreateServerParams {
 	hostname: string;
 	port: number;
@@ -210,44 +268,46 @@ function createServer({ hostname, port, mode, cert, key }: CreateServerParams): 
 				console.error(`${TAG} Client connected: ${session.shortHash}${instanceLabel} (${address})`);
 			},
 			message(ws, message) {
+				const raw = typeof message === "string" ? message : new TextDecoder().decode(message);
+				const hash = ws.data.shortHash;
+
+				let data: Record<string, unknown>;
 				try {
-					const data = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
-
-					if (data.type === "register" && Array.isArray(data.tools)) {
-						const clientTools: string[] = data.tools;
-						const knownTools = getLoadedToolNames();
-						const unknown = clientTools.filter((t: string) => !knownTools.includes(t));
-						const valid = clientTools.filter((t: string) => knownTools.includes(t));
-
-						if (unknown.length > 0) {
-							console.error(
-								`${TAG} Client ${ws.data.shortHash} registered unknown tools: ${unknown.join(", ")}`,
-							);
-						}
-						console.error(
-							`${TAG} Client ${ws.data.shortHash} registered ${valid.length}/${clientTools.length} tool(s)`,
-						);
-
-						const session = getClient(ws.data.shortHash);
-						if (session) {
-							session.registeredTools = clientTools;
-							// Allow register message to set/update instance name
-							if (typeof data.instance === "string" && data.instance) {
-								session.instance = data.instance;
-								ws.data.instance = data.instance;
-							}
-						}
-					} else if (data.type === "result" && data.id) {
-						const pending = pendingInvocations.get(data.id);
-						if (pending) {
-							clearTimeout(pending.timer);
-							pendingInvocations.delete(data.id);
-							pending.resolve(data.data);
-						}
-					}
-				} catch {
-					console.error(`${TAG} Invalid message from ${ws.data.shortHash}`);
+					data = JSON.parse(raw);
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : String(err);
+					console.error(`${TAG} JSON parse failed from ${hash}: ${msg} | head: ${raw.slice(0, 200)}`);
+					return;
 				}
+
+				if (
+					data.type === "chunk" &&
+					typeof data.id === "string" &&
+					typeof data.seq === "number" &&
+					typeof data.total === "number" &&
+					typeof data.payload === "string"
+				) {
+					console.error(
+						`${TAG} chunk recv id=${data.id} seq=${data.seq}/${data.total - 1} from=${hash} msg_bytes=${raw.length}`,
+					);
+					const reassembled = acceptChunk(hash, data.id, data.seq, data.total, data.payload);
+					if (reassembled == null) return;
+					console.error(`${TAG} reassembled id=${data.id} total_chars=${reassembled.length} from=${hash}`);
+					let inner: Record<string, unknown>;
+					try {
+						inner = JSON.parse(reassembled);
+					} catch (err) {
+						const msg = err instanceof Error ? err.message : String(err);
+						console.error(
+							`${TAG} Reassembled JSON parse failed id=${data.id}: ${msg} | head: ${reassembled.slice(0, 200)}`,
+						);
+						return;
+					}
+					dispatchMessage(ws, inner);
+					return;
+				}
+
+				dispatchMessage(ws, data);
 			},
 			close(ws) {
 				const hash = ws.data.shortHash;
@@ -260,6 +320,11 @@ function createServer({ hostname, port, mode, cert, key }: CreateServerParams): 
 						pending.reject(new Error(`Client ${hash} disconnected during invocation`));
 						pendingInvocations.delete(id);
 					}
+				}
+
+				const prefix = `${hash}:`;
+				for (const key of chunkStreams.keys()) {
+					if (key.startsWith(prefix)) chunkStreams.delete(key);
 				}
 			},
 		},
