@@ -143,8 +143,8 @@ function isContainerReady(projectPath: string): boolean {
 
 const PLUGIN_SETTINGS = JSON.stringify({
 	enabledPlugins: {
-		"atelier-nyaarium@switchboard": true,
-		"nyaaskills@nyaaskills": true,
+		"switchboard@atelier-nyaarium": true,
+		"nyaaskills@atelier-nyaarium": true,
 	},
 	extraKnownMarketplaces: {
 		switchboard: {
@@ -161,7 +161,7 @@ const PLUGIN_SETTINGS = JSON.stringify({
 function hasPluginSettings(projectPath: string): boolean {
 	try {
 		const result = execSync(
-			`"${devcontainerBin()}" exec --workspace-folder "${projectPath}" bash -c "jq -e '.enabledPlugins[\\"atelier-nyaarium@switchboard\\"]' /home/vscode/.claude/settings.json 2>/dev/null"`,
+			`"${devcontainerBin()}" exec --workspace-folder "${projectPath}" bash -c "jq -e '.enabledPlugins[\\"switchboard@atelier-nyaarium\\"]' /home/vscode/.claude/settings.json 2>/dev/null"`,
 			{ encoding: "utf-8", timeout: 10_000, stdio: "pipe" },
 		);
 		return result.trim() === "true";

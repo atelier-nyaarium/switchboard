@@ -188,7 +188,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 		}
 
 		if (!sessionExists) {
-			const claudeCommand = `claude --model default --effort high --dangerously-skip-permissions --dangerously-load-development-channels plugin:atelier-nyaarium@switchboard`;
+			const claudeCommand = `claude --model default --effort high --dangerously-skip-permissions --dangerously-load-development-channels plugin:switchboard@atelier-nyaarium`;
 			await execInContainer({
 				projectPath: resolved,
 				command: [
