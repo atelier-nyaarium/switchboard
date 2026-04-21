@@ -21,6 +21,9 @@ export interface RoutesDeps {
 	config: ArbiterConfig;
 	evieClient?: import("./evie/evieClient.js").EvieClient | null;
 	resolveHandshake?: (sessionId: string, replyAsJson?: Record<string, unknown>, response?: string) => boolean;
+	pinnedHolders: Map<string, string | null>;
+	sessionToChannel: Map<string, string>;
+	postSystemMessageToChannel: (channelId: string, text: string) => Promise<void>;
 }
 
 const SendRequestSchema = z.object({
@@ -54,6 +57,19 @@ const PollRequestSchema = z.object({
 const EvieToolCallSchema = z.object({
 	action: z.string(),
 	params: z.record(z.string(), z.unknown()),
+});
+
+const HumanRespondSchema = z.object({
+	from: z.string(),
+	session_id: z.string(),
+	parts: z.array(z.string()).min(1),
+});
+
+const HumanTransferSchema = z.object({
+	from: z.string(),
+	session_id: z.string(),
+	team: z.string(),
+	brief: z.string().min(1),
 });
 
 ////////////////////////////////
@@ -104,6 +120,9 @@ export function createRoutes({
 	config,
 	evieClient,
 	resolveHandshake,
+	pinnedHolders,
+	sessionToChannel,
+	postSystemMessageToChannel,
 }: RoutesDeps) {
 	const { LOG_PATH, RESPONSE_TIMEOUT_MS } = config;
 
@@ -451,5 +470,142 @@ export function createRoutes({
 		return jsonResponse({ tools: evieClient.getToolSchemas() });
 	}
 
-	return { ingest, pending, teams, send, respond, poll, health, evieToolCall, evieTools };
+	function displayTeamName(team: string): string {
+		return team === "__host__" ? "host" : team;
+	}
+
+	function resolveTargetTeam(input: string): string {
+		return input === "host" ? "__host__" : input;
+	}
+
+	async function humanRespond(body: Record<string, unknown>): Promise<Response> {
+		const parsed = HumanRespondSchema.safeParse(body);
+		if (!parsed.success) {
+			return jsonResponse({ error: `Invalid request: ${parsed.error.message}` }, 400);
+		}
+		const { from, session_id, parts } = parsed.data;
+
+		const channelId = sessionToChannel.get(session_id);
+		if (!channelId) {
+			return jsonResponse(
+				{ error: `Unknown session_id. Only sessions from recent channel_push messages are valid.` },
+				404,
+			);
+		}
+
+		const currentHolder = pinnedHolders.get(channelId) ?? null;
+		if (currentHolder !== null && currentHolder !== from) {
+			return jsonResponse(
+				{
+					error: `Channel is currently held by "${displayTeamName(currentHolder)}". Ask them via crosstalk_send for the line, then they can transfer_human_to you.`,
+				},
+				403,
+			);
+		}
+
+		if (currentHolder === null) {
+			pinnedHolders.set(channelId, from);
+			await postSystemMessageToChannel(channelId, `> *Connected to \`${displayTeamName(from)}\` agent*`);
+		}
+
+		if (!evieClient || !evieClient.isConnected()) {
+			return jsonResponse({ error: `Evie-bot is not connected.` }, 503);
+		}
+
+		const result = await evieClient.callTool("post_response", { parts, channelId });
+		if (result.error) {
+			return jsonResponse({ error: result.error }, 500);
+		}
+		console.log(
+			`[human] ${from} responded to channel ${channelId} (${parts.length} part${parts.length > 1 ? "s" : ""})`,
+		);
+		return jsonResponse({ ok: true, partsSent: parts.length });
+	}
+
+	async function humanTransfer(body: Record<string, unknown>): Promise<Response> {
+		const parsed = HumanTransferSchema.safeParse(body);
+		if (!parsed.success) {
+			return jsonResponse({ error: `Invalid request: ${parsed.error.message}` }, 400);
+		}
+		const { from, session_id, team: teamInput, brief } = parsed.data;
+
+		const channelId = sessionToChannel.get(session_id);
+		if (!channelId) {
+			return jsonResponse(
+				{ error: `Unknown session_id. Only sessions from recent channel_push messages are valid.` },
+				404,
+			);
+		}
+
+		const target = resolveTargetTeam(teamInput);
+		if (target === from) {
+			return jsonResponse({ error: `You are already the holder.` }, 400);
+		}
+
+		const currentHolder = pinnedHolders.get(channelId) ?? null;
+		if (currentHolder !== null && currentHolder !== from) {
+			return jsonResponse(
+				{
+					error: `Channel is currently held by "${displayTeamName(currentHolder)}". Ask them via crosstalk_send for the line first.`,
+				},
+				403,
+			);
+		}
+
+		let subs = registry.get(target);
+		let activeWs = subs ? getAllActiveWs(subs) : [];
+
+		if (activeWs.length === 0) {
+			if (target === "__host__") {
+				return jsonResponse({ error: `Host is offline; cannot transfer.` }, 503);
+			}
+			const woken = await tryWakeTeam(target);
+			if (!woken) {
+				return jsonResponse({ error: `Failed to wake target team "${target}".` }, 503);
+			}
+			await new Promise((r) => setTimeout(r, 3000));
+			subs = registry.get(target);
+			activeWs = subs ? getAllActiveWs(subs) : [];
+			if (activeWs.length === 0) {
+				return jsonResponse({ error: `Target team "${target}" did not come online.` }, 503);
+			}
+		}
+
+		await postSystemMessageToChannel(channelId, `> *Connected to \`${displayTeamName(target)}\` agent*`);
+		pinnedHolders.set(channelId, target);
+
+		const briefSessionId = crypto.randomUUID();
+		sessionToChannel.set(briefSessionId, channelId);
+
+		const pushPayload = {
+			type: "channel_push",
+			from: "discord",
+			request_type: "handoff",
+			body: `[Handoff brief from ${displayTeamName(from)}]\n\n${brief}`,
+			effort: "standard",
+			session_id: briefSessionId,
+			is_follow_up: false,
+		};
+		const serialized = JSON.stringify(pushPayload);
+		for (const ws of activeWs) {
+			ws.send(serialized);
+		}
+
+		console.log(`[human] ${from} → ${target} transfer on channel ${channelId} [${briefSessionId.slice(0, 8)}]`);
+		return jsonResponse({ ok: true, target, session_id: briefSessionId });
+	}
+
+	return {
+		ingest,
+		pending,
+		teams,
+		send,
+		respond,
+		poll,
+		health,
+		evieToolCall,
+		evieTools,
+		humanRespond,
+		humanTransfer,
+	};
 }

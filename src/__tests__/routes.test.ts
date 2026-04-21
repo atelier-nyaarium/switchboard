@@ -34,6 +34,9 @@ function makeCtx(overrides: Partial<RoutesDeps> = {}): RoutesDeps {
 		config: { LOG_PATH: "/tmp/test-debug.log", RESPONSE_TIMEOUT_MS: 500 },
 		tryWakeTeam: overrides.tryWakeTeam || (() => Promise.resolve(false)),
 		offlineCatalog,
+		pinnedHolders: overrides.pinnedHolders || new Map<string, string | null>(),
+		sessionToChannel: overrides.sessionToChannel || new Map<string, string>(),
+		postSystemMessageToChannel: overrides.postSystemMessageToChannel || (() => Promise.resolve()),
 	};
 }
 

@@ -78,7 +78,7 @@ export function registerBridgeTools(mcpServer: McpServer): void {
 	const isChannel = agentType === "claude";
 
 	initBridge({
-		routerUrl: process.env.BRIDGE_ROUTER_URL || "http://agent-team-bridge:20000",
+		routerUrl: process.env.BRIDGE_ROUTER_URL || "http://switchboard:20000",
 		projectName,
 		agentType,
 		effortEnv: {

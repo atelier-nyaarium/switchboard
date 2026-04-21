@@ -1,8 +1,8 @@
 services:
   router:
     build: .
-    hostname: agent-team-bridge
-    container_name: agent-team-bridge
+    hostname: switchboard
+    container_name: switchboard
     ports:
       - "20000:20000"
     environment:
@@ -10,10 +10,10 @@ services:
       - RESPONSE_TIMEOUT_MS=600000
       - BRIDGE_TOKEN=${BRIDGE_TOKEN:-}
     networks:
-      - agent-team-bridge-network
+      - switchboard-network
     volumes:
       - .cursor:/app/log
       - ${HOME}/projects/evie-bot/kubeconfig.yaml:/app/kubeconfig.yaml:ro
 networks:
-  agent-team-bridge-network:
-    name: agent-team-bridge
+  switchboard-network:
+    name: switchboard

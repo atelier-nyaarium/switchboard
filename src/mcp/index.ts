@@ -20,6 +20,7 @@ import {
 } from "./bridge/helpers.js";
 import { detectAgentType, registerBridgeTools } from "./bridge/registerBridgeTools.js";
 import { emitChannelNotification } from "./channel/channelNotify.js";
+import { registerHumanTools } from "./channel/humanTools.js";
 import { registerConnectorTools } from "./connector/connectorTools.js";
 import { setAuthToken, startListener, stopListener } from "./connector/listener.js";
 import { registerProjectTools } from "./connector/projectTools.js";
@@ -51,7 +52,7 @@ export async function startMcp(): Promise<void> {
 	const needsChannel = agentType === "claude";
 
 	const mcpServer = new McpServer(
-		{ name: "agent-team-bridge", version: packageJson.version },
+		{ name: "switchboard", version: packageJson.version },
 		needsChannel
 			? {
 					capabilities: { experimental: { "claude/channel": {} } },
@@ -66,6 +67,7 @@ export async function startMcp(): Promise<void> {
 		// Container: register crosstalk tools for cross-team communication
 		registerBridgeTools(mcpServer);
 		registerReloadPlugins(mcpServer);
+		registerHumanTools(mcpServer);
 
 		const projectName = process.env.PROJECT_NAME;
 		const port = Number(process.env.MCP_CONNECTOR_PORT) || 20002;
@@ -126,6 +128,7 @@ export async function startMcp(): Promise<void> {
 		// Register crosstalk outgoing tools so the host can send to channel-connected containers
 		registerBridgeSend(mcpServer);
 		registerBridgeDiscover(mcpServer);
+		registerHumanTools(mcpServer);
 		setChannelServer(mcpServer.server);
 
 		// Evie tool registration: try HTTP probe, then fall back to WebSocket push.

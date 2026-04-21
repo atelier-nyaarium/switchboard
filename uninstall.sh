@@ -1,5 +1,5 @@
 #!/bin/bash
-# uninstall.sh - Remove Agent Team Bridge configuration from a DevContainer project
+# uninstall.sh - Remove Switchboard configuration from a DevContainer project
 #
 # Usage:
 #   /path/to/uninstall.sh [--quiet]
@@ -15,10 +15,10 @@ log() {
     $QUIET || echo "$@"
 }
 
-log "Removing Agent Team Bridge configuration..."
+log "Removing Switchboard configuration..."
 
 # ═════════════════════════════════════════════════════════════════════════════
-# .devcontainer/compose.yml - remove agent-team-bridge-network
+# .devcontainer/compose.yml - remove switchboard-network
 # ═════════════════════════════════════════════════════════════════════════════
 
 COMPOSE_FILE=""
@@ -30,12 +30,12 @@ for candidate in ".devcontainer/compose.yml" ".devcontainer/compose.yaml" ".devc
 done
 
 if [[ -n "$COMPOSE_FILE" ]] && command -v yq &>/dev/null; then
-    if yq -e '.networks."agent-team-bridge-network"' "$COMPOSE_FILE" &>/dev/null; then
+    if yq -e '.networks."switchboard-network"' "$COMPOSE_FILE" &>/dev/null; then
         SERVICES=$(yq -r '.services | keys | .[]' "$COMPOSE_FILE" 2>/dev/null)
         for svc in $SERVICES; do
             yq -Y -i "
                 .services.\"${svc}\".networks = (
-                    .services.\"${svc}\".networks // [] | map(select(. != \"agent-team-bridge-network\"))
+                    .services.\"${svc}\".networks // [] | map(select(. != \"switchboard-network\"))
                 ) |
                 if .services.\"${svc}\".networks | length == 0
                 then del(.services.\"${svc}\".networks)
@@ -43,10 +43,10 @@ if [[ -n "$COMPOSE_FILE" ]] && command -v yq &>/dev/null; then
             " "$COMPOSE_FILE"
         done
 
-        yq -Y -i 'del(.networks."agent-team-bridge-network")' "$COMPOSE_FILE"
+        yq -Y -i 'del(.networks."switchboard-network")' "$COMPOSE_FILE"
         yq -Y -i 'if .networks | length == 0 then del(.networks) else . end' "$COMPOSE_FILE"
 
-        log "   ${COMPOSE_FILE} - removed agent-team-bridge-network"
+        log "   ${COMPOSE_FILE} - removed switchboard-network"
     fi
 fi
 

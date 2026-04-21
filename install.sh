@@ -1,5 +1,5 @@
 #!/bin/bash
-# install.sh - Add the agent-team-bridge Docker network to a DevContainer project
+# install.sh - Add the switchboard Docker network to a DevContainer project
 #
 # Usage:
 #   /path/to/install.sh
@@ -9,7 +9,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NETWORK_NAME="${BRIDGE_NETWORK_NAME:-agent-team-bridge}"
+NETWORK_NAME="${BRIDGE_NETWORK_NAME:-switchboard}"
 
 # ── Preflight ─────────────────────────────────────────────────────────────────
 
@@ -51,23 +51,23 @@ if [[ -z "$SERVICE_NAME" || "$SERVICE_NAME" == "null" ]]; then
 fi
 
 yq -Y -i "
-    .networks.\"agent-team-bridge-network\".name = \"${NETWORK_NAME}\"
+    .networks.\"switchboard-network\".name = \"${NETWORK_NAME}\"
 " "$COMPOSE_FILE"
 
 HAS_NETWORKS=$(yq -r ".services.\"${SERVICE_NAME}\".networks" "$COMPOSE_FILE" 2>/dev/null)
 
 if [[ "$HAS_NETWORKS" == "null" ]]; then
-    yq -Y -i ".services.\"${SERVICE_NAME}\".networks = [\"default\", \"agent-team-bridge-network\"]" "$COMPOSE_FILE"
+    yq -Y -i ".services.\"${SERVICE_NAME}\".networks = [\"default\", \"switchboard-network\"]" "$COMPOSE_FILE"
 else
-    # Ensure default is present before adding the bridge network
+    # Ensure default is present before adding the switchboard network
     HAS_DEFAULT=$(yq -r ".services.\"${SERVICE_NAME}\".networks | index(\"default\") // empty" "$COMPOSE_FILE" 2>/dev/null)
     if [[ -z "$HAS_DEFAULT" ]]; then
         yq -Y -i ".services.\"${SERVICE_NAME}\".networks = [\"default\"] + .services.\"${SERVICE_NAME}\".networks" "$COMPOSE_FILE"
     fi
-    yq -Y -i ".services.\"${SERVICE_NAME}\".networks += [\"agent-team-bridge-network\"]" "$COMPOSE_FILE"
+    yq -Y -i ".services.\"${SERVICE_NAME}\".networks += [\"switchboard-network\"]" "$COMPOSE_FILE"
 fi
 
-echo "Added agent-team-bridge-network to ${COMPOSE_FILE} (service: ${SERVICE_NAME})"
+echo "Added switchboard-network to ${COMPOSE_FILE} (service: ${SERVICE_NAME})"
 echo ""
 echo "Next steps:"
 echo "  1. Double check your compose file. yq unfortunately doesn't preserve comments."

@@ -7,7 +7,7 @@ import path from "node:path";
 // Arbiter writes to /app/log/debug.log, MCP host writes to .cursor/debug.log
 const LOG_PATH = existsSync("/.dockerenv")
 	? process.env.LOG_PATH || "/app/log/debug.log"
-	: path.join(process.env.HOME || "/home/nyaarium", "projects/agent-team-bridge/.cursor/debug.log");
+	: path.join(process.env.HOME || "/home/nyaarium", "projects/switchboard/.cursor/debug.log");
 
 const RUN_ID_SUFFIX = `${process.pid}-${Date.now().toString(36)}`;
 

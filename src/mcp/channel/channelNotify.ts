@@ -12,7 +12,7 @@ import type { ChannelPushPayload, ResponsePushPayload } from "../../shared/types
 export async function emitChannelNotification(server: Server, payload: ChannelPushPayload): Promise<void> {
 	const isDiscord = payload.from === "discord";
 	const replyInstruction = isDiscord
-		? "┃ Reply via `evie_post_response`. Do not output additional text outside this tool call."
+		? "┃ Reply via `respond_to_human`. You hold the channel for this session until you transfer it. Do not output additional text outside the tool call."
 		: "┃ Reply via `channel_reply`. The conversation stays open, so you can reply multiple times: use status `running` for interim updates (phase reports, progress, ACKs) and `completed` for the final answer. Do not output additional text outside the tool call.";
 	const lines = [replyInstruction, `┃ session_id: \`${payload.session_id}\``];
 	if (payload.message_id) {

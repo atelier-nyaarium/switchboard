@@ -75,11 +75,11 @@ send_key Right
 send_key Right
 sleep 1
 
-# Navigate to agent-team-bridge marketplace and mark for update
+# Navigate to switchboard marketplace and mark for update
 for _ in $(seq 1 10); do
 	sleep 1
 	SCREEN=$(capture_pane)
-	if echo "$SCREEN" | grep -qE '\u276f.*agent-team-bridge'; then
+	if echo "$SCREEN" | grep -qE '\u276f.*switchboard'; then
 		send_key "u"
 		break
 	fi
@@ -106,7 +106,7 @@ sleep 5
 
 # Reconnect an MCP server by name via the /mcp menu.
 # Navigates down until the selection indicator is on a line matching the pattern.
-# Prioritize plugin:*:agent-team-bridge over plain agent-team-bridge.
+# Prioritize plugin:*:switchboard over plain switchboard.
 reconnect_mcp() {
 	local PATTERN="$1"
 	send_text "/mcp"
@@ -153,7 +153,7 @@ reconnect_mcp() {
 }
 
 reconnect_mcp "nyaascripts"
-reconnect_mcp "plugin:.*agent-team-bridge"
+reconnect_mcp "plugin:.*switchboard"
 
 echo "Reload sequence complete."
 `;
@@ -165,7 +165,7 @@ Spawns a background script that drives the tmux session through:
 1. /plugin update
 2. /reload-plugins
 3. /mcp reconnect nyaascripts
-4. /mcp reconnect plugin:agent-team-bridge (prioritized over plain agent-team-bridge)
+4. /mcp reconnect plugin:switchboard (prioritized over plain switchboard)
 
 The tool returns immediately. The script waits for the current tool call to finish before starting.
 On the host, omit 'team' to target the host session, or provide 'team' to target a devcontainer.

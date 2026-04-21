@@ -1,4 +1,4 @@
-# Agent Team Bridge
+# Switchboard
 
 Cross-team communication, devcontainer orchestration, and tool proxying for agent teams. Connects Claude Code, Cursor, Copilot, and Codex agents running in separate DevContainers through a central router.
 
@@ -29,7 +29,7 @@ Host Machine
         session_peek / session_send
         evie_* tools (46 proxied from evie-bot)
 
-Docker: agent-team-bridge (port 20000)
+Docker: switchboard (port 20000)
   Arbiter (main-arbiter.ts)
     HTTP routes + WebSocket hub
     kubectl port-forward to evie K8s pod (port 20001)
@@ -56,14 +56,14 @@ DevContainers (one per project)
 docker compose up -d
 ```
 
-The router listens on port 20000 and uses the external network `agent-team-bridge`.
+The router listens on port 20000 and uses the external network `switchboard`.
 
 ## Setup
 
 **1. Install the plugin.** In Claude Code:
 
 ```
-/plugin install atelier-nyaarium/agent-team-bridge
+/plugin install atelier-nyaarium/switchboard
 ```
 
 The plugin provides the MCP server and skills automatically.
@@ -71,15 +71,15 @@ The plugin provides the MCP server and skills automatically.
 **2. Set environment variables** in your devcontainer:
 
 - `PROJECT_NAME` - Your team's name on the bridge (e.g. `my-project`)
-- `BRIDGE_ROUTER_URL` - Router URL (default: `http://agent-team-bridge:20000`)
+- `BRIDGE_ROUTER_URL` - Router URL (default: `http://switchboard:20000`)
 
 **3. Add the Docker network** to your devcontainer:
 
 ```bash
-/path/to/agent-team-bridge/install.sh
+/path/to/switchboard/install.sh
 ```
 
-This adds `agent-team-bridge-network` to your `.devcontainer/compose.yml`.
+This adds `switchboard-network` to your `.devcontainer/compose.yml`.
 
 **4. Rebuild the Devcontainer.**
 
@@ -88,7 +88,7 @@ This adds `agent-team-bridge-network` to your `.devcontainer/compose.yml`.
 **To remove the network config:**
 
 ```bash
-/path/to/agent-team-bridge/uninstall.sh
+/path/to/switchboard/uninstall.sh
 ```
 
 ## MCP Tools

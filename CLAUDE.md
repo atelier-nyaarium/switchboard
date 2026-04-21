@@ -69,8 +69,8 @@
 - `.mcp.json` - MCP server config (entry point: main-mcp.ts)
 - `docker-compose.yml` - Docker Compose for the arbiter (port 20000, bridge network)
 - `Dockerfile` - Arbiter container image (Bun + kubectl + dev tools)
-- `install.sh` - Add agent-team-bridge Docker network to a devcontainer project
-- `uninstall.sh` - Remove agent-team-bridge Docker network from a devcontainer project
+- `install.sh` - Add switchboard Docker network to a devcontainer project
+- `uninstall.sh` - Remove switchboard Docker network from a devcontainer project
 - `start-arbiter.sh` - Quick script to rebuild and start the arbiter container
 - `start-host-daemon.sh` - Start Claude Code host daemon in a tmux session
 
@@ -158,7 +158,7 @@ File structure follows categorized sections:
 
 **MCP Plugin (Container):**
 - `PROJECT_NAME` - Team name on the bridge (required for crosstalk)
-- `BRIDGE_ROUTER_URL` - Arbiter URL (default: http://agent-team-bridge:20000)
+- `BRIDGE_ROUTER_URL` - Arbiter URL (default: http://switchboard:20000)
 - `AGENT_TYPE` - Agent type override (auto-detected if not set)
 - `PROJECT_HOST_PATH` - Host-side project path for wake registration
 - `MCP_CONNECTOR_PORT` - Game client connector port (default: 20002)

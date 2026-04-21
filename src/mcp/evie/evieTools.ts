@@ -13,6 +13,9 @@ import { routerPost } from "../bridge/helpers.js";
  */
 export function registerEvieTools(mcpServer: McpServer, tools: EvieToolSchema[]): void {
 	for (const tool of tools) {
+		// post_response is replaced by the arbiter-owned respond_to_human tool.
+		if (tool.name === "post_response") continue;
+
 		const mcpName = `evie_${tool.name.replace(/-/g, "_")}`;
 
 		const zodSchema = z.fromJSONSchema(tool.parameters);

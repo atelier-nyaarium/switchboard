@@ -16,7 +16,7 @@ import { generateCaCert, generateServerCert } from "./tls.js";
 import { textResult } from "./utils.js";
 
 const SCHEMA_TEMPLATE = `/**
- * MCP Schema - Agent-Team-Bridge Connector
+ * MCP Schema - Switchboard Connector
  *
  * Each tool defined here becomes available to IDE agents when a game client
  * connects via WebSocket. The agent calls the tool, the connector forwards it

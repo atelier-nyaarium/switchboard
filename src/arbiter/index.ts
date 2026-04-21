@@ -48,6 +48,13 @@ export async function startArbiter(): Promise<void> {
 	const offlineCatalog = new Map<string, string>();
 	const wakeCoordinator = new WakeCoordinator();
 
+	// Human-channel routing state. Pin is the team holding a given Discord channel;
+	// null/missing means no holder, and the next inbound DM or outbound respond_to_human
+	// call will assign one. sessionToChannel maps every DM/handoff session_id to the
+	// channel it originated from so respond_to_human and transfer_human_to can route.
+	const pinnedHolders = new Map<string, string | null>();
+	const sessionToChannel = new Map<string, string>();
+
 	store.startCleanup();
 
 	const getMutexForTeam: MutexAccessor = Object.assign((team: string) => getMutex(targetLocks, team), {
@@ -97,102 +104,116 @@ export async function startArbiter(): Promise<void> {
 
 	let evieClient: ReturnType<typeof startEvieClient> | null = null;
 
-	const dmQueue: Array<{ dm: DmForwardPayload; queuedAt: number }> = [];
-	const DM_QUEUE_TTL_MS = 600_000;
-	const DM_QUEUE_MAX = 50;
-
-	// DMs go to the orchestrator or the host daemon.
-	// The orchestrator can delegate to a specific project if needed.
-	const DM_TARGETS = ["__arbiter__", "__host__"];
-
-	function tryDeliverDm(dm: DmForwardPayload): boolean {
-		// #region Hypothesis N: DM delivery attempt with registry state
-		const registrySnapshot: Record<string, number> = {};
-		for (const target of DM_TARGETS) {
-			const subs = registry.get(target);
-			registrySnapshot[target] = subs ? getAllActiveWs(subs).length : 0;
+	async function postSystemMessageToChannel(channelId: string, text: string): Promise<void> {
+		if (!evieClient || !evieClient.isConnected()) {
+			console.error(`[human] cannot post to channel ${channelId} - evie offline`);
+			return;
 		}
-		debugLog(
-			"N",
-			"src/arbiter/index.ts:tryDeliverDm",
-			"attempting delivery",
-			{
-				userId: dm.userId,
-				channelId: dm.channelId,
-				bodyLen: dm.content.length,
-				targetState: registrySnapshot,
-			},
-			"arbiter",
-		);
-		// #endregion
+		try {
+			await evieClient.callTool("post_response", { parts: [text], channelId });
+		} catch (err) {
+			console.error(`[human] post to channel ${channelId} failed: ${(err as Error).message}`);
+		}
+	}
 
-		for (const target of DM_TARGETS) {
-			const subs = registry.get(target);
-			const activeWs = subs ? getAllActiveWs(subs) : [];
-			if (activeWs.length === 0) continue;
+	function displayTeamName(team: string): string {
+		return team === "__host__" ? "host" : team;
+	}
 
-			const sessionId = crypto.randomUUID();
-			const payload: ChannelPushPayload = {
-				type: "channel_push",
-				from: "discord",
-				request_type: "question",
-				body: `[channelId: ${dm.channelId}]\n\n${dm.content}`,
-				effort: "standard",
-				session_id: sessionId,
-				is_follow_up: false,
-			};
+	function pickFirstOnlineTeam(): string | null {
+		const hostSubs = registry.get("__host__");
+		if (hostSubs && getAllActiveWs(hostSubs).length > 0) return "__host__";
+		for (const [name, subs] of registry) {
+			if (name === "__host__" || name === "__arbiter__") continue;
+			if (getAllActiveWs(subs).length > 0) return name;
+		}
+		return null;
+	}
 
-			const serialized = JSON.stringify(payload);
-			for (const ws of activeWs) {
-				ws.send(serialized);
+	function clearPinsForTeam(team: string): void {
+		for (const [channelId, holder] of pinnedHolders) {
+			if (holder === team) {
+				pinnedHolders.set(channelId, null);
+				console.log(`[human] pin on channel ${channelId} cleared (${team} disconnected)`);
 			}
+		}
+	}
 
-			// #region Hypothesis N: DM delivered successfully
-			debugLog(
-				"N",
-				"src/arbiter/index.ts:tryDeliverDm",
-				"delivered",
-				{
-					target,
-					sessionId: sessionId.slice(0, 8),
-					activeWsCount: activeWs.length,
-				},
-				"arbiter",
-			);
-			// #endregion
+	async function tryDeliverDm(dm: DmForwardPayload): Promise<boolean> {
+		const channelId = dm.channelId;
+		let holder = pinnedHolders.get(channelId) ?? null;
 
-			console.log(`[evie] DM forwarded to ${target} [${sessionId.slice(0, 8)}...]`);
-			return true;
+		// If the pinned team is no longer online, null the pin so auto-assign runs.
+		if (holder) {
+			const subs = registry.get(holder);
+			if (!subs || getAllActiveWs(subs).length === 0) {
+				pinnedHolders.set(channelId, null);
+				console.log(`[human] pin on channel ${channelId} cleared (${holder} offline)`);
+				holder = null;
+			}
 		}
 
-		// #region Hypothesis N: DM delivery failed, will be queued
+		// No pin: pick first-online (host first), commit, and announce.
+		if (!holder) {
+			holder = pickFirstOnlineTeam();
+			if (!holder) {
+				debugLog(
+					"N",
+					"src/arbiter/index.ts:tryDeliverDm",
+					"no team online",
+					{ userId: dm.userId, channelId, allTeams: [...registry.keys()] },
+					"arbiter",
+				);
+				return false;
+			}
+			pinnedHolders.set(channelId, holder);
+			await postSystemMessageToChannel(channelId, `> *Connected to \`${displayTeamName(holder)}\` agent*`);
+		}
+
+		const subs = registry.get(holder);
+		const activeWs = subs ? getAllActiveWs(subs) : [];
+		if (activeWs.length === 0) {
+			// Raced with disconnect between auto-assign and send.
+			pinnedHolders.set(channelId, null);
+			return false;
+		}
+
+		const sessionId = crypto.randomUUID();
+		sessionToChannel.set(sessionId, channelId);
+
+		const payload: ChannelPushPayload = {
+			type: "channel_push",
+			from: "discord",
+			request_type: "question",
+			body: dm.content,
+			effort: "standard",
+			session_id: sessionId,
+			is_follow_up: false,
+		};
+
+		const serialized = JSON.stringify(payload);
+		for (const ws of activeWs) {
+			ws.send(serialized);
+		}
+
 		debugLog(
 			"N",
 			"src/arbiter/index.ts:tryDeliverDm",
-			"no available target",
+			"delivered",
 			{
-				userId: dm.userId,
-				registryState: registrySnapshot,
-				allTeams: [...registry.keys()],
+				holder,
+				channelId,
+				sessionId: sessionId.slice(0, 8),
+				activeWsCount: activeWs.length,
 			},
 			"arbiter",
 		);
-		// #endregion
 
-		return false;
+		console.log(`[evie] DM forwarded to ${holder} [${sessionId.slice(0, 8)}...]`);
+		return true;
 	}
 
 	if (evieAuthToken) {
-		const dmQueueSweep = setInterval(() => {
-			const now = Date.now();
-			for (let i = dmQueue.length - 1; i >= 0; i--) {
-				if (now - dmQueue[i].queuedAt > DM_QUEUE_TTL_MS) {
-					console.log(`[evie] queued DM expired after ${DM_QUEUE_TTL_MS / 1000}s`);
-					dmQueue.splice(i, 1);
-				}
-			}
-		}, 60_000);
-
 		const portForward = startPortForward({
 			kubeconfig: evieKubeconfig,
 			namespace: evieNamespace,
@@ -220,14 +241,15 @@ export async function startArbiter(): Promise<void> {
 				}
 			},
 			onDmForward: (dm) => {
-				if (tryDeliverDm(dm)) return;
-
-				if (dmQueue.length >= DM_QUEUE_MAX) {
-					console.error(`[evie] DM queue full, dropping oldest`);
-					dmQueue.shift();
-				}
-				dmQueue.push({ dm, queuedAt: Date.now() });
-				console.log(`[evie] DM queued (${dmQueue.length} pending)`);
+				void (async () => {
+					const delivered = await tryDeliverDm(dm);
+					if (delivered) return;
+					await postSystemMessageToChannel(
+						dm.channelId,
+						`No team is currently online to handle this message. Please try again shortly.`,
+					);
+					console.log(`[evie] DM bounced - no team online [channel ${dm.channelId}]`);
+				})();
 			},
 			onDisconnect: () => {
 				console.error(`[evie] disconnected from evie-bot`);
@@ -235,7 +257,6 @@ export async function startArbiter(): Promise<void> {
 		});
 
 		process.on("SIGTERM", () => {
-			clearInterval(dmQueueSweep);
 			evieClient?.stop();
 			portForward.stop();
 		});
@@ -259,20 +280,9 @@ export async function startArbiter(): Promise<void> {
 					console.log(`[evie] pushed ${tools.length} cached tool schemas to new __arbiter__`);
 				}
 			}
-
-			// Drain queued DMs now that a potential target is online
-			if (dmQueue.length > 0) {
-				let drained = 0;
-				for (let i = dmQueue.length - 1; i >= 0; i--) {
-					if (tryDeliverDm(dmQueue[i].dm)) {
-						dmQueue.splice(i, 1);
-						drained++;
-					}
-				}
-				if (drained > 0) {
-					console.log(`[evie] drained ${drained} queued DM(s) after ${team} connected`);
-				}
-			}
+		},
+		onTeamDisconnect: (team) => {
+			clearPinsForTeam(team);
 		},
 	});
 
@@ -286,6 +296,9 @@ export async function startArbiter(): Promise<void> {
 		offlineCatalog,
 		evieClient,
 		resolveHandshake: wsHandlers.resolveHandshake,
+		pinnedHolders,
+		sessionToChannel,
+		postSystemMessageToChannel,
 	});
 
 	async function router(req: Request): Promise<Response> {
@@ -313,6 +326,8 @@ export async function startArbiter(): Promise<void> {
 		if (method === "GET" && url.pathname === "/health") return routes.health();
 		if (method === "GET" && url.pathname === "/evie/tools") return routes.evieTools();
 		if (method === "POST" && url.pathname === "/evie/tool-call") return routes.evieToolCall(req, body);
+		if (method === "POST" && url.pathname === "/human/respond") return routes.humanRespond(body);
+		if (method === "POST" && url.pathname === "/human/transfer") return routes.humanTransfer(body);
 
 		return new Response("Not Found", { status: 404 });
 	}

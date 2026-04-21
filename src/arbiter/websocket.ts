@@ -21,6 +21,7 @@ export interface WebSocketDeps {
 	wakeCoordinator: WakeCoordinator;
 	config: WebSocketConfig;
 	onTeamConnect?: (team: string, ws: ServerWebSocket<WsData>) => void;
+	onTeamDisconnect?: (team: string) => void;
 }
 
 export interface WsData {
@@ -56,6 +57,7 @@ export function createWebSocketHandlers({
 	wakeCoordinator,
 	config,
 	onTeamConnect,
+	onTeamDisconnect,
 }: WebSocketDeps) {
 	const { HEARTBEAT_INTERVAL_MS = 30000, MISSED_PINGS_LIMIT = 2 } = config;
 
@@ -244,6 +246,7 @@ export function createWebSocketHandlers({
 					registry.delete(teamName);
 					offlineCatalog.clear();
 					console.log(`[ws] __host__ disconnected - offline catalog cleared`);
+					onTeamDisconnect?.(teamName);
 				} else {
 					console.log(`[ws] __host__/${subId} disconnected (${subs.size} remaining)`);
 				}
@@ -276,6 +279,7 @@ export function createWebSocketHandlers({
 		// If team has no more sub-sessions, clean up fully
 		if (subs.size === 0) {
 			registry.delete(teamName);
+			onTeamDisconnect?.(teamName);
 
 			// Cancel only transient (CLI-mode) pending jobs. Persistent channel conversations
 			// stay alive so the conversation resumes cleanly when the team reconnects.

@@ -188,7 +188,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 		}
 
 		if (!sessionExists) {
-			const claudeCommand = `claude --model default --effort high --dangerously-skip-permissions --dangerously-load-development-channels plugin:agent-team-bridge@agent-team-bridge`;
+			const claudeCommand = `claude --model default --effort high --dangerously-skip-permissions --dangerously-load-development-channels plugin:switchboard@switchboard`;
 			await execInContainer({
 				projectPath: resolved,
 				command: [
