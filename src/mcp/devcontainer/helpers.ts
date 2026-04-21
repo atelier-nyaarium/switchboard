@@ -147,12 +147,8 @@ const PLUGIN_SETTINGS = JSON.stringify({
 		"nyaaskills@atelier-nyaarium": true,
 	},
 	extraKnownMarketplaces: {
-		switchboard: {
-			source: { source: "github", repo: "atelier-nyaarium/switchboard" },
-			autoUpdate: true,
-		},
-		nyaaskills: {
-			source: { source: "github", repo: "atelier-nyaarium/nyaaskills" },
+		"atelier-nyaarium": {
+			source: { source: "github", repo: "atelier-nyaarium/claude-marketplace" },
 			autoUpdate: true,
 		},
 	},
