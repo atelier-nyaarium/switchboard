@@ -50,7 +50,7 @@ function connect(): void {
 	ws.on("open", () => {
 		console.error("[host-wake] connected to arbiter");
 		reconnector.reset();
-		ws!.send(JSON.stringify({ type: "register", team: "__host__" }));
+		ws!.send(JSON.stringify({ type: "register", team: "host" }));
 
 		const projects = scanDevcontainerProjects();
 		ws!.send(JSON.stringify({ type: "catalog", projects }));
@@ -70,8 +70,8 @@ function connect(): void {
 		}
 
 		if (msg.type === "channel_push") {
-			// #region Hypothesis N: __host__ received channel_push fallback
-			debugLog("N", "hostWakeListener.ts:onMessage", "channel_push received via __host__", {
+			// #region Hypothesis N: host daemon received channel_push fallback
+			debugLog("N", "hostWakeListener.ts:onMessage", "channel_push received via host", {
 				from: msg.from,
 				sessionId: String(msg.session_id ?? "").slice(0, 8),
 				hasHandler: !!channelPushHandler,

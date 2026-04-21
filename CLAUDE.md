@@ -48,7 +48,7 @@
       - `hostSessionSend.ts` - `host_session_send` tool: send input to the host's own tmux session
       - `reloadPlugins.ts` - `reload_plugins` tool: automated plugin update and MCP reconnect sequence
       - `helpers.ts` - Project resolution, container lifecycle, devcontainer CLI discovery
-      - `hostWakeListener.ts` - Host-side __host__ WebSocket: catalog scan, on-demand container waking
+      - `hostWakeListener.ts` - Host-side `host` WebSocket: catalog scan, on-demand container waking
     - `evie/` - **Evie tool proxy** - Dynamic MCP tool registration from evie-bot's action registry
       - `evieTools.ts` - Converts evie's JSON Schema tool definitions to Zod via `z.fromJSONSchema()`
     - `resolve-model.ts` - Model resolution by agent type and effort level

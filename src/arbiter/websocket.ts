@@ -39,6 +39,8 @@ export interface WsData {
 ////////////////////////////////
 //  Functions & Helpers
 
+export const RESERVED_TEAM_NAMES = new Set(["arbiter", "host"]);
+
 export function getAllActiveWs(subs: Map<string, ServerWebSocket<WsData>>): ServerWebSocket<WsData>[] {
 	const result: ServerWebSocket<WsData>[] = [];
 	for (const [, ws] of subs) {
@@ -108,6 +110,22 @@ export function createWebSocketHandlers({
 			const mode = (msg.mode === "channel" ? "channel" : "cli") as ConnectionMode;
 			const conversationId = (msg.conversationId as string | undefined) ?? null;
 
+			// Reserved-name protection: first live registration wins. A second process
+			// trying to claim "arbiter" or "host" is rejected so a stray container project
+			// cannot squat on the host's slots.
+			if (RESERVED_TEAM_NAMES.has(team)) {
+				const existingSubs = registry.get(team);
+				const existingActive = existingSubs ? getAllActiveWs(existingSubs) : [];
+				const sameSocketAlready = existingSubs?.get(subId) === ws;
+				if (!sameSocketAlready && existingActive.length > 0) {
+					console.log(`[ws] rejected register for reserved team "${team}" - already held`);
+					ws.send(JSON.stringify({ type: "register_reject", team, reason: "reserved" }));
+					ws.data.isStale = true;
+					ws.close();
+					return;
+				}
+			}
+
 			let subs = registry.get(team);
 			if (!subs) {
 				subs = new Map();
@@ -156,13 +174,13 @@ export function createWebSocketHandlers({
 			console.log(`[ws] ${team}/${subId} connected (mode: ${mode})`);
 
 			// Handshake: ask channel-mode connections if they are the main/lead agent
-			if (mode === "channel" && team !== "__host__") {
+			if (mode === "channel" && team !== "host") {
 				const hsSessionId = `hs-${crypto.randomUUID().slice(0, 8)}`;
 				handshakePending.set(hsSessionId, { team, subId });
 				ws.send(
 					JSON.stringify({
 						type: "channel_push",
-						from: "__arbiter__",
+						from: "arbiter",
 						request_type: "question",
 						body: `This is the initial bridge handshake. Reply via \`channel_reply\` using the session_id shown above.\n\nSet \`replyAsJson: { isMainOrLead: true }\` if you are the primary session or team lead.\nSet \`replyAsJson: { isMainOrLead: false }\` if you are a worker agent spawned by another agent.\n\nDo not use \`crosstalk_send\` — use \`channel_reply\` with status \`"completed"\` and the replyAsJson field.`,
 						effort: "simple",
@@ -193,7 +211,7 @@ export function createWebSocketHandlers({
 		}
 		// #endregion
 
-		if (msg.type === "catalog" && ws.data.teamName === "__host__") {
+		if (msg.type === "catalog" && ws.data.teamName === "host") {
 			const projects = msg.projects;
 			if (Array.isArray(projects)) {
 				offlineCatalog.clear();
@@ -218,7 +236,7 @@ export function createWebSocketHandlers({
 		const subId = ws.data.subId;
 
 		// #region Hypothesis D: log close event with registry state
-		if (teamName && teamName !== "__host__") {
+		if (teamName && teamName !== "host") {
 			const subs = registry.get(teamName);
 			debugLog("D", "src/arbiter/websocket.ts:close", "socket closing", {
 				team: teamName,
@@ -238,17 +256,17 @@ export function createWebSocketHandlers({
 
 		if (!teamName) return;
 
-		if (teamName === "__host__") {
+		if (teamName === "host") {
 			const subs = registry.get(teamName);
 			if (subs) {
 				subs.delete(subId);
 				if (subs.size === 0) {
 					registry.delete(teamName);
 					offlineCatalog.clear();
-					console.log(`[ws] __host__ disconnected - offline catalog cleared`);
+					console.log(`[ws] host disconnected - offline catalog cleared`);
 					onTeamDisconnect?.(teamName);
 				} else {
-					console.log(`[ws] __host__/${subId} disconnected (${subs.size} remaining)`);
+					console.log(`[ws] host/${subId} disconnected (${subs.size} remaining)`);
 				}
 			}
 			const hostConversationId = ws.data.conversationId;

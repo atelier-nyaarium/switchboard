@@ -68,6 +68,20 @@ describe("createWebSocketHandlers", () => {
 		};
 	}
 
+	it("reserved name squatters are rejected after first registration", () => {
+		const { handlers, registry } = setup();
+		const ws1 = createMockWs();
+		const ws2 = createMockWs();
+		handlers.open(ws1);
+		handlers.open(ws2);
+		handlers.message(ws1, JSON.stringify({ type: "register", team: "arbiter", subId: "a1" }));
+		handlers.message(ws2, JSON.stringify({ type: "register", team: "arbiter", subId: "a2" }));
+		const subs = registry.get("arbiter");
+		expect(subs!.size).toBe(1);
+		expect(subs!.get("a1")).toBe(ws1);
+		expect(ws2.close).toHaveBeenCalled();
+	});
+
 	it("register message adds team to registry", () => {
 		const { handlers, registry } = setup();
 		const ws = createMockWs();
@@ -189,11 +203,11 @@ describe("createWebSocketHandlers", () => {
 		expect(registry.size).toBe(0);
 	});
 
-	it("catalog from __host__ populates offlineCatalog", () => {
+	it("catalog from host populates offlineCatalog", () => {
 		const { handlers, offlineCatalog } = setup();
 		const ws = createMockWs();
 		handlers.open(ws);
-		handlers.message(ws, JSON.stringify({ type: "register", team: "__host__", subId: "h1" }));
+		handlers.message(ws, JSON.stringify({ type: "register", team: "host", subId: "h1" }));
 		handlers.message(
 			ws,
 			JSON.stringify({
@@ -227,7 +241,7 @@ describe("createWebSocketHandlers", () => {
 		const { handlers, offlineCatalog } = setup();
 		const ws = createMockWs();
 		handlers.open(ws);
-		handlers.message(ws, JSON.stringify({ type: "register", team: "__host__", subId: "h1" }));
+		handlers.message(ws, JSON.stringify({ type: "register", team: "host", subId: "h1" }));
 		handlers.message(
 			ws,
 			JSON.stringify({
@@ -246,7 +260,7 @@ describe("createWebSocketHandlers", () => {
 		const { handlers } = setup({ knownTeamPaths });
 		const ws = createMockWs();
 		handlers.open(ws);
-		handlers.message(ws, JSON.stringify({ type: "register", team: "__host__", subId: "h1" }));
+		handlers.message(ws, JSON.stringify({ type: "register", team: "host", subId: "h1" }));
 		handlers.message(
 			ws,
 			JSON.stringify({

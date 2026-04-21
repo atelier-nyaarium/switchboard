@@ -189,7 +189,7 @@ export function connectToRouter(): void {
 		}
 
 		// Handshake from arbiter: auto-reply if we know the answer, otherwise let the LLM decide
-		if (msg.type === "channel_push" && msg.from === "__arbiter__" && msg.replyJsonSchema) {
+		if (msg.type === "channel_push" && msg.from === "arbiter" && msg.replyJsonSchema) {
 			if (isMainOrLeadAgent !== null) {
 				const hsSessionId = msg.session_id as string;
 				console.error(`[bridge] handshake auto-reply [${hsSessionId}], isMainOrLead=${isMainOrLeadAgent}`);

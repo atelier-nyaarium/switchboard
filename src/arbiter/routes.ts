@@ -6,7 +6,13 @@ import { z } from "zod";
 import type { Mutex } from "../shared/mutex.js";
 import type { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ArbiterConfig, ConnectionMode, ResponsePayload, ResponsePushPayload, TeamInfo } from "../shared/types.js";
-import { type ConversationRegistry, getAllActiveWs, type TeamRegistry, type WsData } from "./websocket.js";
+import {
+	type ConversationRegistry,
+	getAllActiveWs,
+	RESERVED_TEAM_NAMES,
+	type TeamRegistry,
+	type WsData,
+} from "./websocket.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -157,7 +163,7 @@ export function createRoutes({
 		const seen = new Set<string>();
 
 		for (const [name, subs] of registry) {
-			if (name === "__host__") continue;
+			if (name === "host") continue;
 			seen.add(name);
 			const lock = getMutex.peek(name);
 			teamsList.push({
@@ -183,8 +189,13 @@ export function createRoutes({
 		}
 		const { from, fromConversationId, to, type, effort, body: msgBody, debug, replyJsonSchema } = parsed.data;
 
-		if (to === "__host__") {
-			return jsonResponse({ error: `"__host__" is not a team` }, 400);
+		if (RESERVED_TEAM_NAMES.has(to)) {
+			return jsonResponse(
+				{
+					error: `"${to}" is a reserved name. Use transfer_human_to for the Discord channel; crosstalk_send targets container teams only.`,
+				},
+				400,
+			);
 		}
 
 		let subs = registry.get(to);
@@ -206,7 +217,7 @@ export function createRoutes({
 			return jsonResponse(
 				{
 					error: `Team "${to}" is not connected`,
-					available: [...registry.keys()].filter((k) => k !== "__host__"),
+					available: [...registry.keys()].filter((k) => !RESERVED_TEAM_NAMES.has(k)),
 				},
 				404,
 			);
@@ -470,12 +481,14 @@ export function createRoutes({
 		return jsonResponse({ tools: evieClient.getToolSchemas() });
 	}
 
-	function displayTeamName(team: string): string {
-		return team === "__host__" ? "host" : team;
-	}
-
-	function resolveTargetTeam(input: string): string {
-		return input === "host" ? "__host__" : input;
+	// The host process registers two WebSockets with arbiter: "arbiter" (channel mode,
+	// the channel responder) and "host" (cli mode, the wake-listener daemon). They are
+	// the same Claude process, so either identity is authoritative for the other when
+	// checking channel-holder equality.
+	function holderMatchesSender(holder: string, from: string): boolean {
+		if (holder === from) return true;
+		if (RESERVED_TEAM_NAMES.has(holder) && RESERVED_TEAM_NAMES.has(from)) return true;
+		return false;
 	}
 
 	async function humanRespond(body: Record<string, unknown>): Promise<Response> {
@@ -494,10 +507,10 @@ export function createRoutes({
 		}
 
 		const currentHolder = pinnedHolders.get(channelId) ?? null;
-		if (currentHolder !== null && currentHolder !== from) {
+		if (currentHolder !== null && !holderMatchesSender(currentHolder, from)) {
 			return jsonResponse(
 				{
-					error: `Channel is currently held by "${displayTeamName(currentHolder)}". Ask them via crosstalk_send for the line, then they can transfer_human_to you.`,
+					error: `Channel is currently held by "${currentHolder}". Ask them via crosstalk_send for the line, then they can transfer_human_to you.`,
 				},
 				403,
 			);
@@ -505,7 +518,7 @@ export function createRoutes({
 
 		if (currentHolder === null) {
 			pinnedHolders.set(channelId, from);
-			await postSystemMessageToChannel(channelId, `> *Connected to \`${displayTeamName(from)}\` agent*`);
+			await postSystemMessageToChannel(channelId, `> *Connected to \`${from}\` agent*`);
 		}
 
 		if (!evieClient || !evieClient.isConnected()) {
@@ -537,16 +550,16 @@ export function createRoutes({
 			);
 		}
 
-		const target = resolveTargetTeam(teamInput);
-		if (target === from) {
+		const target = teamInput;
+		if (holderMatchesSender(target, from)) {
 			return jsonResponse({ error: `You are already the holder.` }, 400);
 		}
 
 		const currentHolder = pinnedHolders.get(channelId) ?? null;
-		if (currentHolder !== null && currentHolder !== from) {
+		if (currentHolder !== null && !holderMatchesSender(currentHolder, from)) {
 			return jsonResponse(
 				{
-					error: `Channel is currently held by "${displayTeamName(currentHolder)}". Ask them via crosstalk_send for the line first.`,
+					error: `Channel is currently held by "${currentHolder}". Ask them via crosstalk_send for the line first.`,
 				},
 				403,
 			);
@@ -556,8 +569,8 @@ export function createRoutes({
 		let activeWs = subs ? getAllActiveWs(subs) : [];
 
 		if (activeWs.length === 0) {
-			if (target === "__host__") {
-				return jsonResponse({ error: `Host is offline; cannot transfer.` }, 503);
+			if (RESERVED_TEAM_NAMES.has(target)) {
+				return jsonResponse({ error: `"${target}" is offline; cannot transfer.` }, 503);
 			}
 			const woken = await tryWakeTeam(target);
 			if (!woken) {
@@ -571,7 +584,7 @@ export function createRoutes({
 			}
 		}
 
-		await postSystemMessageToChannel(channelId, `> *Connected to \`${displayTeamName(target)}\` agent*`);
+		await postSystemMessageToChannel(channelId, `> *Connected to \`${target}\` agent*`);
 		pinnedHolders.set(channelId, target);
 
 		const briefSessionId = crypto.randomUUID();
@@ -581,7 +594,7 @@ export function createRoutes({
 			type: "channel_push",
 			from: "discord",
 			request_type: "handoff",
-			body: `[Handoff brief from ${displayTeamName(from)}]\n\n${brief}`,
+			body: `[Handoff brief from ${from}]\n\n${brief}`,
 			effort: "standard",
 			session_id: briefSessionId,
 			is_follow_up: false,

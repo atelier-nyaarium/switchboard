@@ -119,7 +119,7 @@ export async function startMcp(): Promise<void> {
 		// Init bridge for HTTP-only access (no WebSocket, just routerPost/routerGet)
 		initBridge({
 			routerUrl: process.env.BRIDGE_ROUTER_URL || "http://localhost:20000",
-			projectName: "__arbiter__",
+			projectName: "arbiter",
 			agentType: "claude",
 			effortEnv: {},
 		});
@@ -231,7 +231,7 @@ export async function startMcp(): Promise<void> {
 
 		const projectDirs = [path.join(os.homedir(), "projects")];
 		startHostWakeListener(projectDirs, (msg) => {
-			// Fallback: if __arbiter__ bridge is down, __host__ still delivers DMs
+			// Fallback: if arbiter bridge is down, host daemon still delivers DMs
 			const server = mcpServer.server;
 			if (server) {
 				emitChannelNotification(server, msg as unknown as ChannelPushPayload).catch((err: Error) => {

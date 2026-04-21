@@ -62,19 +62,19 @@ export async function startArbiter(): Promise<void> {
 	});
 
 	async function tryWakeTeam(team: string): Promise<boolean> {
-		const hostSubs = registry.get("__host__");
+		const hostSubs = registry.get("host");
 		const hostWs = hostSubs ? [...hostSubs.values()].find((ws) => ws.readyState === 1) : undefined;
 
-		// #region Hypothesis I: check __host__ WebSocket state when wake fires
+		// #region Hypothesis I: check host WebSocket state when wake fires
 		const hostSubCount = hostSubs?.size ?? 0;
 		const hostWsStates = hostSubs ? [...hostSubs.values()].map((ws) => ws.readyState) : [];
 		console.log(
-			`[wake] __host__ state: subs=${hostSubCount}, readyStates=[${hostWsStates.join(",")}], foundAlive=${!!hostWs}`,
+			`[wake] host state: subs=${hostSubCount}, readyStates=[${hostWsStates.join(",")}], foundAlive=${!!hostWs}`,
 		);
 		// #endregion
 
 		if (!hostWs) {
-			console.log(`[wake] cannot wake ${team} - __host__ is not connected`);
+			console.log(`[wake] cannot wake ${team} - host is not connected`);
 			return false;
 		}
 
@@ -116,15 +116,17 @@ export async function startArbiter(): Promise<void> {
 		}
 	}
 
-	function displayTeamName(team: string): string {
-		return team === "__host__" ? "host" : team;
-	}
-
 	function pickFirstOnlineTeam(): string | null {
-		const hostSubs = registry.get("__host__");
-		if (hostSubs && getAllActiveWs(hostSubs).length > 0) return "__host__";
+		// Prefer the host's channel-mode responder ("arbiter") over the cli-mode
+		// wake-listener daemon ("host"). Both run in the same host Claude process,
+		// but "arbiter" is the identity that respond_to_human sends from, so pinning
+		// it directly keeps the holder check consistent.
+		const arbiterSubs = registry.get("arbiter");
+		if (arbiterSubs && getAllActiveWs(arbiterSubs).length > 0) return "arbiter";
+		const hostSubs = registry.get("host");
+		if (hostSubs && getAllActiveWs(hostSubs).length > 0) return "host";
 		for (const [name, subs] of registry) {
-			if (name === "__host__" || name === "__arbiter__") continue;
+			if (name === "host" || name === "arbiter") continue;
 			if (getAllActiveWs(subs).length > 0) return name;
 		}
 		return null;
@@ -167,7 +169,7 @@ export async function startArbiter(): Promise<void> {
 				return false;
 			}
 			pinnedHolders.set(channelId, holder);
-			await postSystemMessageToChannel(channelId, `> *Connected to \`${displayTeamName(holder)}\` agent*`);
+			await postSystemMessageToChannel(channelId, `> *Connected to \`${holder}\` agent*`);
 		}
 
 		const subs = registry.get(holder);
@@ -231,13 +233,13 @@ export async function startArbiter(): Promise<void> {
 			onToolRegistry: (tools) => {
 				console.log(`[evie] received ${tools.length} tools`);
 				// Push tool schemas to orchestrator so it can register them dynamically
-				const orchestratorSubs = registry.get("__arbiter__");
+				const orchestratorSubs = registry.get("arbiter");
 				if (orchestratorSubs) {
 					const payload = JSON.stringify({ type: "evie_tools", tools });
 					for (const ws of getAllActiveWs(orchestratorSubs)) {
 						ws.send(payload);
 					}
-					console.log(`[evie] pushed tool schemas to __arbiter__`);
+					console.log(`[evie] pushed tool schemas to arbiter`);
 				}
 			},
 			onDmForward: (dm) => {
@@ -273,11 +275,11 @@ export async function startArbiter(): Promise<void> {
 		wakeCoordinator,
 		onTeamConnect: (team, ws) => {
 			// When orchestrator connects, push cached evie tools if available
-			if (team === "__arbiter__" && evieClient?.isConnected()) {
+			if (team === "arbiter" && evieClient?.isConnected()) {
 				const tools = evieClient.getToolSchemas();
 				if (tools.length > 0) {
 					ws.send(JSON.stringify({ type: "evie_tools", tools }));
-					console.log(`[evie] pushed ${tools.length} cached tool schemas to new __arbiter__`);
+					console.log(`[evie] pushed ${tools.length} cached tool schemas to new arbiter`);
 				}
 			}
 		},
