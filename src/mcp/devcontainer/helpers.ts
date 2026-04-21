@@ -141,30 +141,21 @@ function isContainerReady(projectPath: string): boolean {
 	}
 }
 
-const PLUGIN_SETTINGS = JSON.stringify({
-	enabledPlugins: {
-		"switchboard@atelier-nyaarium": true,
-		"nyaaskills@atelier-nyaarium": true,
-	},
+const PLUGINS = [
+	{ name: "switchboard", marketplace: "atelier-nyaarium" },
+	{ name: "nyaaskills", marketplace: "atelier-nyaarium" },
+];
+
+const MARKETPLACE_SOURCE = "atelier-nyaarium/claude-marketplace";
+
+// Sets autoUpdate:true on the marketplace entry after `claude plugin install` creates it.
+// Everything else (enabledPlugins, marketplace source, installed_plugins.json) is written
+// by the CLI — this patch just flips the autoUpdate flag we want.
+const AUTOUPDATE_PATCH = JSON.stringify({
 	extraKnownMarketplaces: {
-		"atelier-nyaarium": {
-			source: { source: "github", repo: "atelier-nyaarium/claude-marketplace" },
-			autoUpdate: true,
-		},
+		"atelier-nyaarium": { autoUpdate: true },
 	},
 });
-
-function hasPluginSettings(projectPath: string): boolean {
-	try {
-		const result = execSync(
-			`"${devcontainerBin()}" exec --workspace-folder "${projectPath}" bash -c "jq -e '.enabledPlugins[\\"switchboard@atelier-nyaarium\\"]' /home/vscode/.claude/settings.json 2>/dev/null"`,
-			{ encoding: "utf-8", timeout: 10_000, stdio: "pipe" },
-		);
-		return result.trim() === "true";
-	} catch {
-		return false;
-	}
-}
 
 const MCP_SERVERS = JSON.stringify({
 	mcpServers: {
@@ -177,20 +168,43 @@ const MCP_SERVERS = JSON.stringify({
 	},
 });
 
+function hasPluginSettings(projectPath: string): boolean {
+	try {
+		const result = execSync(
+			`"${devcontainerBin()}" exec --workspace-folder "${projectPath}" bash -c "jq -e '.plugins[\\"switchboard@atelier-nyaarium\\"]' /home/vscode/.claude/plugins/installed_plugins.json 2>/dev/null"`,
+			{ encoding: "utf-8", timeout: 10_000, stdio: "pipe" },
+		);
+		return result.trim().length > 0 && result.trim() !== "null";
+	} catch {
+		return false;
+	}
+}
+
 function provisionPluginSettings(projectPath: string): void {
 	const bin = devcontainerBin();
 	const settingsPath = "/home/vscode/.claude/settings.json";
 	const claudeJson = "/home/vscode/.claude.json";
 
-	// Merge plugin config into existing settings (or create from scratch)
-	const jqScript = `'(if . == null then {} else . end) * ${PLUGIN_SETTINGS.replace(/'/g, "'\\''")}'`;
+	// Step 1: CLI install (idempotent; adds marketplace if missing, then installs each plugin).
+	// These write to installed_plugins.json, known_marketplaces.json, and flip enabledPlugins in settings.json.
+	const installSteps = [
+		`claude plugin marketplace add ${MARKETPLACE_SOURCE} 2>/dev/null || true`,
+		...PLUGINS.map((p) => `claude plugin install ${p.name}@${p.marketplace}`),
+	].join(" && ");
+
+	execSync(`"${bin}" exec --workspace-folder "${projectPath}" bash -lc "${installSteps.replace(/"/g, '\\"')}"`, {
+		encoding: "utf-8",
+		timeout: 120_000,
+	});
+
+	// Step 2: jq-merge the autoUpdate flag into the marketplace entry the CLI just wrote,
+	// plus the nyaascripts mcpServer into ~/.claude.json.
+	const autoUpdateJq = `'(if . == null then {} else . end) * ${AUTOUPDATE_PATCH.replace(/'/g, "'\\''")}'`;
 	const settingsCmd = [
-		`mkdir -p /home/vscode/.claude`,
-		`(cat ${settingsPath} 2>/dev/null || echo '{}') | jq ${jqScript} > /tmp/claude-settings.json`,
+		`(cat ${settingsPath} 2>/dev/null || echo '{}') | jq ${autoUpdateJq} > /tmp/claude-settings.json`,
 		`mv /tmp/claude-settings.json ${settingsPath}`,
 	].join(" && ");
 
-	// Merge nyaascripts MCP server into ~/.claude.json
 	const mcpJqScript = `'(if . == null then {} else . end) * ${MCP_SERVERS.replace(/'/g, "'\\''")}'`;
 	const mcpCmd = [
 		`(cat ${claudeJson} 2>/dev/null || echo '{}') | jq ${mcpJqScript} > /tmp/claude-json.tmp`,
@@ -198,12 +212,11 @@ function provisionPluginSettings(projectPath: string): void {
 	].join(" && ");
 
 	const cmd = `${settingsCmd} && ${mcpCmd}`;
-
 	execSync(`"${bin}" exec --workspace-folder "${projectPath}" bash -c "${cmd.replace(/"/g, '\\"')}"`, {
 		encoding: "utf-8",
 		timeout: 10_000,
 	});
-	console.log(`[devcontainer] provisioned plugin settings for '${projectPath}'`);
+	console.log(`[devcontainer] provisioned plugins for '${projectPath}'`);
 }
 
 export function ensureContainerUp(projectPath: string): ContainerUpResult {
