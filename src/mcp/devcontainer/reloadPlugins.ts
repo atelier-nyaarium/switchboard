@@ -75,22 +75,12 @@ send_key Right
 send_key Right
 sleep 1
 
-# Navigate to atelier-nyaarium marketplace and mark for update
+# Navigate to the atelier-nyaarium umbrella marketplace and mark for update.
+# One row now covers both switchboard and nyaaskills since they share a marketplace.
 for _ in $(seq 1 10); do
 	sleep 1
 	SCREEN=$(capture_pane)
 	if echo "$SCREEN" | grep -qE '\u276f.*atelier-nyaarium'; then
-		send_key "u"
-		break
-	fi
-	send_key Down
-done
-
-# Navigate to nyaaskills marketplace and mark for update
-for _ in $(seq 1 10); do
-	sleep 1
-	SCREEN=$(capture_pane)
-	if echo "$SCREEN" | grep -qE '\u276f.*nyaaskills'; then
 		send_key "u"
 		break
 	fi
@@ -162,7 +152,7 @@ echo "Reload sequence complete."
 const description = `
 Automate the full plugin update and MCP reconnect sequence for a Claude Code session.
 Spawns a background script that drives the tmux session through:
-1. /plugin update
+1. /plugin update on the atelier-nyaarium marketplace (covers both switchboard and nyaaskills)
 2. /reload-plugins
 3. /mcp reconnect nyaascripts
 4. /mcp reconnect plugin:switchboard (prioritized over plain switchboard)
