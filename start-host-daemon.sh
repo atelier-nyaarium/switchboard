@@ -16,7 +16,7 @@ fi
 
 
 echo "Starting claude on ${HOST_NAME}..."
-tmux new-session -d -s "$TMUX_SESSION" "bash -c 'source ~/.bashrc; claude --name ${HOST_NAME} --model default --effort low --dangerously-skip-permissions --dangerously-load-development-channels plugin:switchboard@switchboard; exec bash'"
+tmux new-session -d -s "$TMUX_SESSION" "bash -c 'source ~/.bashrc; claude --name ${HOST_NAME} --model default --effort low --dangerously-skip-permissions --dangerously-load-development-channels plugin:atelier-nyaarium@switchboard; exec bash'"
 
 # Wait for Claude to start, auto-accept dev channels prompt if it appears
 for i in $(seq 1 10); do

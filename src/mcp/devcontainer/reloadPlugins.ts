@@ -75,11 +75,11 @@ send_key Right
 send_key Right
 sleep 1
 
-# Navigate to switchboard marketplace and mark for update
+# Navigate to atelier-nyaarium marketplace and mark for update
 for _ in $(seq 1 10); do
 	sleep 1
 	SCREEN=$(capture_pane)
-	if echo "$SCREEN" | grep -qE '\u276f.*switchboard'; then
+	if echo "$SCREEN" | grep -qE '\u276f.*atelier-nyaarium'; then
 		send_key "u"
 		break
 	fi
