@@ -34,7 +34,7 @@ Transfer the Discord conversation to another team. Only the current holder may c
 
 Arbiter will:
   1. Wake the target team if offline (rejects if wake fails).
-  2. Post a system message "Connected to <team> agent" to the human.
+  2. Post a system message announcing the new holder to the human.
   3. Flip the pin to the new team.
   4. Push your brief to the new team as a channel message.
 

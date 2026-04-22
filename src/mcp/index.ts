@@ -34,6 +34,7 @@ import { registerReloadPlugins } from "./devcontainer/reloadPlugins.js";
 import { registerSessionAwaitIdle } from "./devcontainer/sessionAwaitIdle.js";
 import { registerSessionPeek } from "./devcontainer/sessionPeek.js";
 import { registerSessionSend } from "./devcontainer/sessionSend.js";
+import { registerSetEffortLevel } from "./devcontainer/setEffortLevel.js";
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -67,6 +68,7 @@ export async function startMcp(): Promise<void> {
 		// Container: register crosstalk tools for cross-team communication
 		registerBridgeTools(mcpServer);
 		registerReloadPlugins(mcpServer);
+		registerSetEffortLevel(mcpServer);
 		registerHumanTools(mcpServer);
 
 		const projectName = process.env.PROJECT_NAME;
@@ -115,6 +117,7 @@ export async function startMcp(): Promise<void> {
 		registerHostSessionPeek(mcpServer);
 		registerHostSessionSend(mcpServer);
 		registerReloadPlugins(mcpServer);
+		registerSetEffortLevel(mcpServer);
 
 		// Init bridge for HTTP-only access (no WebSocket, just routerPost/routerGet)
 		initBridge({

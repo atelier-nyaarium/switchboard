@@ -8,6 +8,7 @@ import type { PendingJobStore } from "../shared/pending-job-store.js";
 import type { ArbiterConfig, ConnectionMode, ResponsePayload, ResponsePushPayload, TeamInfo } from "../shared/types.js";
 import {
 	type ConversationRegistry,
+	formatHolderConnectedMessage,
 	getAllActiveWs,
 	RESERVED_TEAM_NAMES,
 	type TeamRegistry,
@@ -518,7 +519,7 @@ export function createRoutes({
 
 		if (currentHolder === null) {
 			pinnedHolders.set(channelId, from);
-			await postSystemMessageToChannel(channelId, `> *Connected to \`${from}\` agent*`);
+			await postSystemMessageToChannel(channelId, formatHolderConnectedMessage(from));
 		}
 
 		if (!evieClient || !evieClient.isConnected()) {
@@ -584,7 +585,7 @@ export function createRoutes({
 			}
 		}
 
-		await postSystemMessageToChannel(channelId, `> *Connected to \`${target}\` agent*`);
+		await postSystemMessageToChannel(channelId, formatHolderConnectedMessage(target));
 		pinnedHolders.set(channelId, target);
 
 		const briefSessionId = crypto.randomUUID();

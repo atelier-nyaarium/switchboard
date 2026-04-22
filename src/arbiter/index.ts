@@ -11,7 +11,7 @@ import { type DmForwardPayload, startEvieClient } from "./evie/evieClient.js";
 import { startPortForward } from "./evie/portForward.js";
 import { createRoutes } from "./routes.js";
 import { WakeCoordinator } from "./wake.js";
-import { createWebSocketHandlers, getAllActiveWs, type WsData } from "./websocket.js";
+import { createWebSocketHandlers, formatHolderConnectedMessage, getAllActiveWs, type WsData } from "./websocket.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -169,7 +169,7 @@ export async function startArbiter(): Promise<void> {
 				return false;
 			}
 			pinnedHolders.set(channelId, holder);
-			await postSystemMessageToChannel(channelId, `> *Connected to \`${holder}\` agent*`);
+			await postSystemMessageToChannel(channelId, formatHolderConnectedMessage(holder));
 		}
 
 		const subs = registry.get(holder);
