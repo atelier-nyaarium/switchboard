@@ -23,6 +23,8 @@ const TMUX_TARGET = "claude.0";
 const description = `
 Set the effort level on the local Claude Code session by sending "/effort <level>" to tmux pane 0.
 
+Requires the session to be idle: the "/effort" line only takes effect when the REPL prompt is accepting input. Before calling this tool, schedule a one-shot CronCreate for 2 minutes later with prompt "Resume.", then stop the current turn so the session goes idle.
+
 Levels:
   low:    Quick, straightforward implementation with minimal overhead
   medium: Balanced approach with standard implementation and testing

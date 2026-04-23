@@ -25,6 +25,7 @@ import { registerConnectorTools } from "./connector/connectorTools.js";
 import { setAuthToken, startListener, stopListener } from "./connector/listener.js";
 import { registerProjectTools } from "./connector/projectTools.js";
 import { registerStubTool } from "./connector/utils.js";
+import { registerCompactSession } from "./devcontainer/compactSession.js";
 import { registerDevcontainerCli } from "./devcontainer/devcontainerCli.js";
 import { registerDevcontainerExec } from "./devcontainer/devcontainerExec.js";
 import { registerHostSessionPeek } from "./devcontainer/hostSessionPeek.js";
@@ -69,6 +70,7 @@ export async function startMcp(): Promise<void> {
 		registerBridgeTools(mcpServer);
 		registerReloadPlugins(mcpServer);
 		registerSetEffortLevel(mcpServer);
+		registerCompactSession(mcpServer);
 		registerHumanTools(mcpServer);
 
 		const projectName = process.env.PROJECT_NAME;
@@ -118,6 +120,7 @@ export async function startMcp(): Promise<void> {
 		registerHostSessionSend(mcpServer);
 		registerReloadPlugins(mcpServer);
 		registerSetEffortLevel(mcpServer);
+		registerCompactSession(mcpServer);
 
 		// Init bridge for HTTP-only access (no WebSocket, just routerPost/routerGet)
 		initBridge({
