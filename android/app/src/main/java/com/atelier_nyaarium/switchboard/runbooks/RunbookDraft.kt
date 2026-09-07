@@ -12,7 +12,15 @@ data class ParameterDraft(
 	val kind: String = "text",
 	val options: List<String> = emptyList(),
 	val default: String = "",
-)
+) {
+	/**
+	 * A choice cannot default to something it does not offer, and its typed Default field is gone
+	 * once the switch lands, so a value kept here would block Save with nowhere left to clear it.
+	 */
+	fun asKind(next: String): ParameterDraft =
+		if (next == "choice") copy(kind = next, default = default.takeIf { it in options }.orEmpty())
+		else copy(kind = next)
+}
 
 /** The parameter list is derived from the body, so neither a blank nor a setting can exist alone. */
 data class RunbookDraft(

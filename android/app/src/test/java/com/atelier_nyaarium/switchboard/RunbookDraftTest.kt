@@ -83,6 +83,25 @@ class RunbookDraftTest {
 	}
 
 	@Test
+	fun becomingAChoiceDropsATypedDefaultItCannotOffer() {
+		val typed = ParameterDraft(label = "Environment", default = "prod")
+		// The Default field is gone in a choice, so a value kept here could never be cleared.
+		assertEquals("", typed.asKind("choice").default)
+		assertEquals("prod", typed.copy(options = listOf("prod")).asKind("choice").default)
+		// Back to text, a chosen option is a perfectly good typed default.
+		assertEquals("prod", typed.copy(kind = "choice", options = listOf("prod")).asKind("text").default)
+	}
+
+	@Test
+	fun switchingKindLeavesADraftTheOwnerCanStillSave() {
+		val typed = draft("go {{env}}", mapOf("env" to ParameterDraft(label = "Environment", default = "prod")))
+		val asChoice = typed
+			.withSettings("env") { it.asKind("choice") }
+			.withSettings("env") { it.copy(options = listOf("staging")) }
+		assertNull(asChoice.refusal())
+	}
+
+	@Test
 	fun aDraftMissingItsOwnPartsRefusesRatherThanSaving() {
 		assertNotNull(draft("").refusal())
 		assertNotNull(draft("go {{env}}").copy(name = "").refusal())

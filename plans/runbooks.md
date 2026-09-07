@@ -685,6 +685,16 @@ asserts. Worth knowing before writing another test that expects two distinct ans
   Two sites fixed the same way; five consecutive full parallel runs green afterwards. CI had been red
   on it twice, which nobody looked at because `AGENTS.md` said this repo had no CI checks.
 
+- **A refusal the owner could not act on, because the field it names is not on screen.** Save went
+  dead with "name: pick a default it offers, or none" and no way out. A Default typed while a
+  parameter is Text survives the switch to Choice, and the Default field only renders in Text mode,
+  so the offending value has no field left to clear it in. The rule was right and unreachable, which
+  is worse than a rule that is wrong. `ParameterDraft.asKind` now drops a default the options cannot
+  offer at the one transition that can create the state, which makes that branch of `refusal()`
+  unreachable from the interface rather than merely unlikely. The lesson generalises: a refusal
+  naming a field is only honest while that field is visible, and a form that hides fields by mode
+  can strand any rule written against a hidden one.
+
 - **The Kotlin unit tests run on a different regex engine than the one that ships.** The editor
   crashed on the owner's phone the first time it was opened, on
   `PatternSyntaxException` compiling `PLACEHOLDER_AT` in `RunbookGrammar.kt`. The pattern ended in a

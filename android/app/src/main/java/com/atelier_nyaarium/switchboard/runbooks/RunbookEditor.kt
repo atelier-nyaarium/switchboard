@@ -152,12 +152,12 @@ private fun ParameterCard(name: String, setting: ParameterDraft, onEdit: ((Param
 			SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
 				SegmentedButton(
 					selected = setting.kind == "text",
-					onClick = hapticClick { onEdit { it.copy(kind = "text") } },
+					onClick = hapticClick { onEdit { it.asKind("text") } },
 					shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
 				) { Text("Text") }
 				SegmentedButton(
 					selected = setting.kind == "choice",
-					onClick = hapticClick { onEdit { it.copy(kind = "choice") } },
+					onClick = hapticClick { onEdit { it.asKind("choice") } },
 					shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
 				) { Text("Choice") }
 			}
