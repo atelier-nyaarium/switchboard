@@ -21,8 +21,8 @@ import com.atelier_nyaarium.switchboard.plugins.designer.storedCardFrom
  * the wire could see it. That is the class of bug this exists to catch.
  *
  * Nothing here is compiled into debug or release: this source set only belongs to the `emulator`
- * build type, and the one shared-code entry point it calls (`ChatRepository.seedSandbox`) checks its
- * own build type before doing anything.
+ * build type. The shared code it needs lives in `SandboxSeeder.kt` and is compiled into every
+ * variant, so each piece of it stands behind `isSandbox`.
  */
 class SandboxApp : Application() {
 	override fun onCreate() {

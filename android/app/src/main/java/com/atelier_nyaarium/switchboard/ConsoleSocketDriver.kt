@@ -28,6 +28,8 @@ internal class ConsoleSocketDriver(
 	private var reconnectPending = false
 
 	fun connect() {
+		// The open fails on OkHttp's dispatcher, where no caller's runCatching reaches it.
+		if (isSandbox) return
 		reconnectPending = false
 		val gen = coordinator.beginSocket()
 		val listener = Listener(gen)

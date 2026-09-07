@@ -2,8 +2,23 @@ package com.atelier_nyaarium.switchboard
 
 import kotlinx.coroutines.flow.update
 
+/** No Gateway, no Router, no network. */
+internal val isSandbox: Boolean get() = BuildConfig.BUILD_TYPE == "emulator"
+
+internal const val SANDBOX_UNREACHABLE = "no Gateway in the sandbox"
+
 internal fun sandboxHomeGateway(firstTeam: String?, current: String): String =
 	firstTeam?.split(".")?.getOrNull(1) ?: current
+
+private val SANDBOX_PROVISIONING =
+	"""{"transport":"direct","routerUrl":"https://router.sandbox.invalid:20001",""" +
+		""""routerCertFp":"${"11".repeat(32)}","appToken":"sandbox","conversationId":"sandbox"}"""
+
+/** Every identity fact a boot needs, so `Need` cannot outgrow the sandbox unseen. */
+internal fun seedSandboxIdentity(identity: PhoneIdentity, domainId: String?) {
+	if (identity.blob() == null) identity.saveBlob(SANDBOX_PROVISIONING)
+	domainId?.let { identity.learnDomainId(it, SANDBOX_PROVISIONING) }
+}
 
 internal interface SandboxSeeder {
 	fun seedSandbox(
@@ -28,9 +43,9 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 		goals: Map<String, PendingGoal>,
 		admittedGateways: List<String>,
 	) {
-		if (BuildConfig.BUILD_TYPE != "emulator") return
+		if (!isSandbox) return
 		repo.homeGatewayId = sandboxHomeGateway(teams.firstOrNull()?.name, repo.homeGatewayId)
-		if (repo.store.load() == null) repo.identity.saveBlob(SANDBOX_PROVISIONING)
+		seedSandboxIdentity(repo.identity, teams.firstOrNull()?.domainId)
 		this.dirs = dirs
 		repo._state.update { s ->
 			s.copy(
@@ -48,12 +63,5 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 				homeGatewayId = repo.homeGatewayId,
 			)
 		}
-	}
-
-	private companion object {
-		/** Sandbox provisioning blob. */
-		val SANDBOX_PROVISIONING =
-			"""{"transport":"direct","routerUrl":"https://router.sandbox.invalid:20001",""" +
-				""""routerCertFp":"${"11".repeat(32)}","appToken":"sandbox","conversationId":"sandbox"}"""
 	}
 }

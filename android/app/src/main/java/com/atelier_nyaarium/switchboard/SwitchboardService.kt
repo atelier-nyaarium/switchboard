@@ -544,6 +544,8 @@ class SwitchboardService : Service(), DeepIdleScheduler, ScheduledSendAlarmSched
 
 		/** Start (or no-op if already running) once the app is provisioned. */
 		fun start(context: Context) {
+			// Four receivers and the activity reach this; the sandbox must not connect from any.
+			if (isSandbox) return
 			ContextCompat.startForegroundService(context, Intent(context, SwitchboardService::class.java))
 		}
 

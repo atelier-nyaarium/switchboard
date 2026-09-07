@@ -11,7 +11,8 @@ internal fun chipLabel(option: String): String {
 	if (head == option.trim() && head.length <= CHIP_HEAD) return head
 	// Never end on half a pair.
 	val cut = head.take(CHIP_HEAD).let { if (it.isNotEmpty() && it.last().isHighSurrogate()) it.dropLast(1) else it }
-	return "${cut.trimEnd()}..."
+	// A first line ending in a period would otherwise read as four dots.
+	return "${cut.trimEnd().trimEnd('.')}..."
 }
 
 /** Blank edges go; indent stays. */

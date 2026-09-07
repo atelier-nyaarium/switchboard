@@ -14,6 +14,14 @@ class RunbookTextTest {
 	}
 
 	@Test
+	fun aSentenceEndingLineIsNotMarkedWithAFourthDot() {
+		assertEquals("Read the log...", chipLabel("Read the log.\nQuote what failed."))
+		// Trailing dots are the marker's own; the cut absorbs however many there were.
+		assertEquals("Wait...", chipLabel("Wait....\nmore"))
+		assertEquals("...", chipLabel("....\nmore"))
+	}
+
+	@Test
 	fun blankEdgesAreNotMoreToShow() {
 		assertEquals("patch", chipLabel("\n\n  patch  \n\n"))
 		assertEquals("patch", chipLabel("patch\n"))

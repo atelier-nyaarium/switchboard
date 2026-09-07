@@ -84,6 +84,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - S8 retained endpoints: `/capabilities`, `/discover`, `/task-board`
 - `android/.../ChatRepository.kt` - console process singleton, OwnerOp client, and home Gateway state
 - `android/.../PhoneIdentity.kt` / `PhoneBootstrap.kt` / `PhoneAmbient.kt` - the one door for identity facts, the boot value it publishes, and the ambient record (clock, entropy, ids, timer)
+- `android/.../SandboxSeeder.kt` - the emulator build's seam: `isSandbox`, the identity facts a
+  sandbox boot needs, and the canned state it publishes
 - `android/.../RepositoryPorts.kt` / `RepositoryCollaborators.kt` - role ports for the ops classes and their repository adapters
 - `android/.../Message.kt` / `MessageFile.kt` / `MessageText.kt` / `Draft.kt` / `ThreadOps.kt` / `ReadAnchor.kt` / `ChatState.kt` / `ConnError.kt` / `FederationTypes.kt` / `ScheduledSend.kt` - repository value types and pure helpers
 - `android/.../ChatPersistence.kt` - JSON codec between repository state and AppStateStore
@@ -383,6 +385,21 @@ adb exec-out screencap -p > /tmp/shot.png
 
 It installs beside the real app. Emulator seeding bypasses mailbox draining, so handler-created
 state must be seeded directly. Run `adb emu kill` when finished.
+
+The sandbox renders nothing until the boot is Ready, and it reaches no Router at all. Both are held
+by `SandboxSeeder.kt`:
+
+- **`Need` cannot grow without the sandbox growing with it:** `seedSandboxIdentity` writes every
+  identity fact `PhoneBootstrap.assemble` asks for, and `SandboxIdentityTest` asserts the boot it
+  produces is Ready. A `Need` added without it leaves the build on the onboarding screen, which no
+  other gate can see.
+- **`isSandbox` closes every network door, not the caller in front of it:** the guards sit in
+  `SwitchboardService.start`, `ConsoleSocketDriver.connect`, and the transport's `postOwnerOp` and
+  `apiReachable`, because four receivers and the activity all start the service. An owner op
+  cancels its own caller rather than throwing, since the scopes that launch one do not all handle a
+  failure, and the socket does not open at all, since its failure lands on OkHttp's dispatcher where
+  no caller's `runCatching` reaches it. A screen waiting on a Gateway stays on its pending state
+  here, which is the honest answer.
 
 ### Dependencies
 

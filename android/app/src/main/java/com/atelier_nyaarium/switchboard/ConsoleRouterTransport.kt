@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.proto.OwnerOp
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.proto.parseTarget
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -114,6 +115,7 @@ internal class ConsoleRouterTransport(
 
 	/** Leaf-pinned Router preflight; answers the reach, which may name the Domain. */
 	override suspend fun apiReachable(): RouterReach? {
+		if (isSandbox) return null
 		// Only the preflight may fail over.
 		withReachFailover { base ->
 			val req = buildHealthRequest(base)
@@ -159,17 +161,23 @@ internal class ConsoleRouterTransport(
 		body: RequestBody,
 		logBody: Boolean,
 		fail: (String) -> R,
-	): R = withReachFailover { base ->
-		ConsoleHttp.postRouterDirect(clientFor(base), base + Protocol.Wire.ROUTER_PATH_CONSOLE, credentials.appToken, tag, describe, body, logBody, fail)
+	): R {
+		if (isSandbox) return fail(SANDBOX_UNREACHABLE)
+		return withReachFailover { base ->
+			ConsoleHttp.postRouterDirect(clientFor(base), base + Protocol.Wire.ROUTER_PATH_CONSOLE, credentials.appToken, tag, describe, body, logBody, fail)
+		}
 	}
 
-	internal suspend fun postOwnerOp(ownerOp: OwnerOp): JsonElement =
-		withReachFailover { base ->
+	/** Cancelling the one caller, since an ordinary throw would take its whole scope down. */
+	internal suspend fun postOwnerOp(ownerOp: OwnerOp): JsonElement {
+		if (isSandbox) throw CancellationException(SANDBOX_UNREACHABLE)
+		return withReachFailover { base ->
 			val req = buildOwnerOpRequest(base, ownerOp)
 			val resp = ConsoleHttp.executeCancellable(clientFor(base), req)
 			if (!resp.isSuccessful) error("HTTP ${resp.code}: ${resp.text.take(500)}")
 			wireJson.parseToJsonElement(resp.text)
 		}
+	}
 
 	internal fun buildOwnerOpRequest(base: String, ownerOp: OwnerOp): Request =
 		buildOwnerOpRequest(base, ownerOp, credentials.appToken)
