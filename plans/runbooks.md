@@ -685,6 +685,19 @@ asserts. Worth knowing before writing another test that expects two distinct ans
   Two sites fixed the same way; five consecutive full parallel runs green afterwards. CI had been red
   on it twice, which nobody looked at because `AGENTS.md` said this repo had no CI checks.
 
+- **The Kotlin unit tests run on a different regex engine than the one that ships.** The editor
+  crashed on the owner's phone the first time it was opened, on
+  `PatternSyntaxException` compiling `PLACEHOLDER_AT` in `RunbookGrammar.kt`. The pattern ended in a
+  bare `}}`, which the desktop JVM accepts as a literal and Android's ICU engine refuses outright.
+  `testDebugUnitTest` runs on the desktop JVM, so the vector corpus that exists precisely to keep
+  the two runtimes honest passed on a pattern that could never compile on the device. The fix is to
+  escape both braces, which is valid on either engine. What it exposes is bigger: nothing in the
+  gates executes Kotlin the way the phone does, there is no `androidTest` source set, and the whole
+  class of engine-dialect differences is invisible until an owner opens the screen. Every other
+  `Regex` in the app uses `{n,m}` quantifiers, which both engines accept, so this was the first one
+  to hit it. A twin that depends on two regex engines agreeing is the fragile part; a hand-rolled
+  character scan would have no dialect at all.
+
 - **`AGENTS.md` said "CI has no checks on this repo" and there are three workflows.** `ci.yml`
   repeats lint, tests and the drift checks on every push to `main`. Two runs during this plan were
   red, on the test above, and the claim in the map is why no one went and read them. A map that is

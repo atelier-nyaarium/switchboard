@@ -6,7 +6,9 @@ package com.atelier_nyaarium.switchboard.runbooks
  * own, or a preview would not match what a fire sends.
  */
 // Explicit whitespace, never `\s`: the two runtimes disagree about which characters it covers.
-private val PLACEHOLDER_AT = Regex("""^\{\{[ \t\r\n]*([A-Za-z][A-Za-z0-9_]*)[ \t\r\n]*}}""")
+// Both braces escaped, because Android compiles this with ICU, which refuses a bare `}`. A unit
+// test cannot see that: it runs on the desktop JVM, where the same pattern is accepted.
+private val PLACEHOLDER_AT = Regex("""^\{\{[ \t\r\n]*([A-Za-z][A-Za-z0-9_]*)[ \t\r\n]*\}\}""")
 
 /** Null when an opener names no parameter, which the gateway refuses outright. */
 fun placeholdersOf(body: String): List<String>? {

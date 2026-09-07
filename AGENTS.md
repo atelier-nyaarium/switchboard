@@ -192,6 +192,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     innocent and compose a placeholder only after substitution, which no check on the body can see.
   - **The whitespace class is written out longhand:** JavaScript `\s` matches U+00A0 and JVM `\s`
     does not, so `RunbookGrammar.kt` could not agree with a shorthand. `tests/fixtures/runbook-grammar/vectors.json` pins both.
+  - **A Kotlin `Regex` must be written for ICU, not for the desktop JVM:** Android compiles patterns
+    with ICU, which refuses a bare `}` that OpenJDK accepts as a literal. `testDebugUnitTest` runs on
+    OpenJDK and cannot see the difference, and there is no `androidTest` source set, so a pattern
+    that crashes on the phone can pass every gate. Escape every brace.
 - `src/federation-server/scheduled/` - scheduled sends: versioned records, timers, fire through the op ledger, result rows
 - `src/federation-server/tier1/` - capability fold and read anchors
 - `src/federation-server/migration/` - leases, serve gate, and cursor translation
