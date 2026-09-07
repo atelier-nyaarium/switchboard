@@ -1,6 +1,6 @@
 import type { Ambient } from "../../shared/ambient.js";
 import type { FederatedOp } from "../../shared/federation-protocol.js";
-import type { PendingJobStore } from "../../shared/pending-job-store.js";
+import type { JobContract, LocalReply, PendingJobStore, Reservation } from "../../shared/pending-job-store.js";
 import {
 	Address,
 	composeSessionName,
@@ -40,7 +40,7 @@ export interface SendRoutesDeps {
 	ambient: Pick<Ambient, "now" | "newId" | "setTimer">;
 	registry: TeamRegistry;
 	conversationRegistry: ConversationRegistry;
-	store: Pick<PendingJobStore<ResponsePayload>, "create">;
+	store: Pick<PendingJobStore<ResponsePayload>, "reserve" | "commit" | "abort">;
 	tryWakeTeam: (team: string, createOpts?: { displayLabel?: string; mintedFrom?: string }) => Promise<WakeResult>;
 	sessionStore?: import("../../shared/session-store.js").SessionStore;
 	routerClient?: Pick<import("../router/routerClient.js").RouterClient, "isConnected"> | null;
@@ -97,6 +97,7 @@ export function createSendRoutes({
 		from: string;
 		fromAddress?: string;
 		fromConversationId: string | undefined;
+		reply: (conversationId: string) => LocalReply;
 		body?: string;
 		files?: ChannelFile[];
 		displayLabel?: string;
@@ -110,6 +111,7 @@ export function createSendRoutes({
 			from,
 			fromAddress,
 			fromConversationId,
+			reply,
 			body,
 			files,
 			displayLabel,
@@ -139,15 +141,21 @@ export function createSendRoutes({
 			...(disposition ? { disposition } : {}),
 			returnRoute: { srcGateway: localGatewayId, srcConversationId: fromConversationId, srcSession },
 		};
+		// Anchor first, or a fast reply outruns it.
+		const reserved = store.reserve(
+			srcSession,
+			from,
+			qualifiedTo,
+			{ kind: "outbound", reply: reply(fromConversationId), dstDomainId: resolvedDomain ?? null },
+			{ persistent: true },
+		);
+		if (reserved.kind === "conflict") return jsonResponse({ error: reserved.reason }, 409);
 		const relay = await relayToGateway(targetGateway, op, targetDomain, opId);
-		if (!relay.ok)
+		if (!relay.ok) {
+			store.abort(reserved.reservation);
 			return jsonResponse({ error: relay.error ?? `cross-Gateway send to "${qualifiedTo}" failed` }, 502);
-		// Anchor only after destination acceptance.
-		store.create(srcSession, from, qualifiedTo, {
-			persistent: true,
-			fromConversationId,
-			dstDomainId: resolvedDomain ?? undefined,
-		});
+		}
+		store.commit(reserved.reservation);
 		if (senderAddr) {
 			mirrorPeer(senderAddr, senderCanonical, targetAddr.canonical, { body, files });
 		}
@@ -198,6 +206,9 @@ export function createSendRoutes({
 		const inboundSessionId = trustedInbound ? parsed.data.sessionId : undefined;
 		const returnRoute = trustedInbound ? parsed.data.returnRoute : undefined;
 		const dstDomainId = trustedInbound ? parsed.data.dstDomainId : undefined;
+		// Bind replies to caller.
+		const localReply = (conversationId: string): LocalReply =>
+			opts.consoleSender ? { kind: "owner", ownerId: conversationId } : { kind: "conversation", conversationId };
 
 		if (files && files.length > 0) {
 			// Enforce the file-size limit again at the trust boundary.
@@ -233,6 +244,7 @@ export function createSendRoutes({
 						? consoleSelfAddress(fromConversationId).canonical
 						: undefined,
 				fromConversationId,
+				reply: localReply,
 				body: msgBody,
 				files,
 				displayLabel,
@@ -317,23 +329,30 @@ export function createSendRoutes({
 		}
 
 		if (targetMode === "channel") {
+			let anchor: Reservation | null = null;
 			try {
-				const channelJobId =
-					inboundSessionId ??
-					(fromConversationId
-						? storeKey({ kind: "conv", conversationId: fromConversationId, address: target.address })
-						: null);
-				if (!channelJobId) {
+				let channelJobId: string;
+				let contract: JobContract;
+				if (inboundSessionId) {
+					// Federated replies need routes.
+					if (!returnRoute) {
+						return jsonResponse({ error: `a federated send must carry a return route` }, 400);
+					}
+					channelJobId = inboundSessionId;
+					contract = { kind: "inbound", route: returnRoute, dstDomainId: dstDomainId ?? null };
+				} else if (fromConversationId) {
+					channelJobId = storeKey({
+						kind: "conv",
+						conversationId: fromConversationId,
+						address: target.address,
+					});
+					contract = { kind: "local", reply: localReply(fromConversationId) };
+				} else {
 					return jsonResponse({ error: `fromConversationId is required for channel-mode targets` }, 400);
 				}
-
-				const inboundDstDomainId = inboundSessionId ? dstDomainId : undefined;
-				store.create(channelJobId, from, localName, {
-					persistent: true,
-					fromConversationId,
-					returnRoute,
-					dstDomainId: inboundDstDomainId,
-				});
+				const reserved = store.reserve(channelJobId, from, localName, contract, { persistent: true });
+				if (reserved.kind === "conflict") return jsonResponse({ error: reserved.reason }, 409);
+				anchor = reserved.reservation;
 
 				const hasFiles = files !== undefined && files.length > 0;
 				const messageId = hasFiles ? ambient.newId() : undefined;
@@ -353,10 +372,16 @@ export function createSendRoutes({
 						enqueuedAt: ambient.now(),
 					});
 					if (outcome === "refused") {
+						store.abort(anchor);
 						return jsonResponse(
 							{ error: `"${qualifiedTo}" has too many messages waiting; nothing was accepted` },
 							503,
 						);
+					}
+					// Migration is a refusal.
+					if (outcome === "migrating") {
+						store.abort(anchor);
+						return jsonResponse({ error: `this Gateway is migrating; nothing was accepted` }, 503);
 					}
 					console.log(`[send] channel_push ${outcome} for ${qualifiedTo} [${channelJobId}] from ${from}`);
 				} else {
@@ -403,12 +428,14 @@ export function createSendRoutes({
 					}
 				}
 
+				store.commit(anchor);
 				return jsonResponse({
 					session_id: channelJobId,
 					status: "running",
 					message: `Message pushed to ${localName} via channel. Responses will be pushed back automatically.`,
 				});
 			} catch (err) {
+				if (anchor) store.abort(anchor);
 				const message = err instanceof Error ? err.message : String(err);
 				console.error(`[send] channel error:`, message);
 				return jsonResponse({ error: message }, 500);

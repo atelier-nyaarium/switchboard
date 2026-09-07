@@ -6,7 +6,6 @@ import type { GatewayConfig, ResponsePayload, ResponsePushPayload } from "../../
 import { isNoAckSessionId } from "../awarenessBank.js";
 import {
 	fileBytes,
-	getTeamMode,
 	jsonResponse,
 	MAX_RESPONSE_FILE_BYTES,
 	PollRequestSchema,
@@ -15,12 +14,7 @@ import {
 	stripFileRefs,
 } from "../routeSchemas.js";
 import { type Presented, presentedByRequest } from "../sessionAuthority.js";
-import {
-	type ConversationRegistry,
-	getAllActiveWs,
-	type HandshakeRepushOutcome,
-	type TeamRegistry,
-} from "../wsTypes.js";
+import type { ConversationRegistry, HandshakeRepushOutcome } from "../wsTypes.js";
 
 type ConsolePushOps = ReturnType<typeof import("../consolePushOps.js").createConsolePushOps>;
 
@@ -28,7 +22,6 @@ export interface RespondRoutesDeps {
 	config: GatewayConfig;
 	ambient: Pick<Ambient, "newId">;
 	localDomain: string;
-	registry: TeamRegistry;
 	conversationRegistry: ConversationRegistry;
 	store: Pick<PendingJobStore<ResponsePayload>, "deliver" | "targetOf" | "has" | "poll">;
 	resolveHandshake?: (
@@ -63,7 +56,6 @@ export interface RespondRoutesDeps {
 export function createRespondRoutes({
 	config,
 	localDomain,
-	registry,
 	conversationRegistry,
 	store,
 	resolveHandshake,
@@ -183,16 +175,17 @@ export function createRespondRoutes({
 
 		console.log(`[respond] ${respondSessionId}${response.status ? ` → ${response.status}` : ""}`);
 
-		// A job created by a federated send carries a returnRoute back to its origin.
-		if (deliverResult.returnRoute) {
-			const rr = deliverResult.returnRoute;
+		const contract = deliverResult.contract;
+
+		if (contract.kind === "inbound") {
+			const rr = contract.route;
 			// Share may have been revoked since the original send; re-check it here.
-			if (deliverResult.dstDomainId) {
+			if (contract.dstDomainId) {
 				const pinned = parseStoreKey(rr.srcSession);
 				const sessionTarget = pinned?.kind === "conv" ? pinned.address.canonical : undefined;
-				if (!sessionTarget || !isSharedToForReply?.(sessionTarget, deliverResult.dstDomainId)) {
+				if (!sessionTarget || !isSharedToForReply?.(sessionTarget, contract.dstDomainId)) {
 					console.log(
-						`[respond] ${respondSessionId} DROPPED: session no longer shared to Domain "${deliverResult.dstDomainId}"`,
+						`[respond] ${respondSessionId} DROPPED: session no longer shared to Domain "${contract.dstDomainId}"`,
 					);
 					return jsonResponse({ delivered: false, dropped: "unshared" });
 				}
@@ -211,7 +204,7 @@ export function createRespondRoutes({
 					...(files && files.length > 0 ? { files } : {}),
 				},
 				"cross-Gateway reply-pin",
-				deliverResult.dstDomainId ?? undefined,
+				contract.dstDomainId ?? undefined,
 				producerOpId,
 			);
 			if (opts.onFederatedSettled) {
@@ -245,78 +238,60 @@ export function createRespondRoutes({
 		}
 		const pushMsg = JSON.stringify(push);
 
-		let pushedViaConversation = false;
-		if (deliverResult.fromConversationId) {
-			const senderWs = conversationRegistry.get(deliverResult.fromConversationId);
-			// Console threads carry the owner id as their conversation id.
-			if (deliverResult.fromConversationId === ownerId?.()) {
-				const delivered = deliverToOwner({
-					entry: {
-						kind: "reply",
-						session_id: respondSessionId,
-						body: response.response,
-						...pickTiers(response),
-						status: response.status,
-						files: files && files.length > 0 ? files : undefined,
-					},
-					dedupeKey: ambient.newId(),
-					label: "respond",
-				});
-				pushedViaConversation = delivered === true;
-				console.log(
-					`[respond] ${delivered === true ? "appended to the owner inbox" : "owner inbox append refused"} for conversation ${deliverResult.fromConversationId.slice(0, 8)}... [${respondSessionId}]`,
-				);
-			} else if (senderWs && senderWs.readyState === 1) {
+		const reply = contract.reply;
+		if (reply.kind === "owner") {
+			// Reject stale owner.
+			if (reply.ownerId !== ownerId?.()) {
+				console.warn(`[respond] ${respondSessionId} DROPPED: anchored to another owner`);
+				return jsonResponse({ delivered: false, dropped: "owner-mismatch" });
+			}
+			const delivered = deliverToOwner({
+				entry: {
+					kind: "reply",
+					session_id: respondSessionId,
+					body: response.response,
+					...pickTiers(response),
+					status: response.status,
+					files: files && files.length > 0 ? files : undefined,
+				},
+				dedupeKey: ambient.newId(),
+				label: "respond",
+			});
+			console.log(
+				`[respond] ${delivered === true ? "appended to the owner inbox" : "owner inbox append refused"} [${respondSessionId}]`,
+			);
+		} else {
+			const senderWs = conversationRegistry.get(reply.conversationId);
+			if (senderWs && senderWs.readyState === 1) {
 				senderWs.send(pushMsg);
-				pushedViaConversation = true;
 				console.log(
-					`[respond] pushed to ${deliverResult.from} via conversation ${deliverResult.fromConversationId.slice(0, 8)}... [${respondSessionId}]`,
+					`[respond] pushed to ${deliverResult.from} via conversation ${reply.conversationId.slice(0, 8)}... [${respondSessionId}]`,
 				);
 			} else {
 				console.log(
-					`[respond] conversation ${deliverResult.fromConversationId.slice(0, 8)}... offline, response kept in store [${respondSessionId}]`,
+					`[respond] conversation ${reply.conversationId.slice(0, 8)}... offline, response kept in store [${respondSessionId}]`,
 				);
-			}
-			const askerAddr = opts.consoleSender ? null : tryLocalAddress(deliverResult.from);
-			if (askerAddr && provedLocalSession(req)) {
-				const key = parseStoreKey(respondSessionId);
-				const isRemoteAnchor =
-					key?.kind === "conv" &&
-					(key.address.gateway !== localGatewayId || key.address.domain !== localDomain);
-				const mirrorPayload = {
-					body: response.response,
-					files,
-					status: response.status,
-					...pickTiers(response),
-				};
-				if (isRemoteAnchor) {
-					mirrorPeer(askerAddr, deliverResult.to, askerAddr.canonical, mirrorPayload);
-				} else {
-					const replierAddr = tryLocalAddress(deliverResult.to);
-					if (replierAddr) {
-						mirrorPeer(askerAddr, replierAddr.canonical, askerAddr.canonical, mirrorPayload);
-						mirrorPeer(replierAddr, replierAddr.canonical, askerAddr.canonical, mirrorPayload);
-					}
-				}
 			}
 		}
 
-		// Broadcast by name only when the job was never conversation-routed.
-		if (!pushedViaConversation && !deliverResult.fromConversationId) {
-			const fromSubs = registry.get(deliverResult.from);
-			if (fromSubs && getTeamMode(fromSubs) === "channel") {
-				try {
-					const activeWsList = getAllActiveWs(fromSubs);
-					for (const ws of activeWsList) {
-						ws.send(pushMsg);
-					}
-					if (activeWsList.length > 0) {
-						console.log(
-							`[respond] pushed to ${deliverResult.from} via team broadcast (${activeWsList.length} subs) [${respondSessionId}]`,
-						);
-					}
-				} catch {
-					console.log(`[respond] push failed, kept for polling [${respondSessionId.slice(0, 8)}...]`);
+		const askerAddr = opts.consoleSender ? null : tryLocalAddress(deliverResult.from);
+		if (askerAddr && provedLocalSession(req)) {
+			const key = parseStoreKey(respondSessionId);
+			const isRemoteAnchor =
+				key?.kind === "conv" && (key.address.gateway !== localGatewayId || key.address.domain !== localDomain);
+			const mirrorPayload = {
+				body: response.response,
+				files,
+				status: response.status,
+				...pickTiers(response),
+			};
+			if (isRemoteAnchor) {
+				mirrorPeer(askerAddr, deliverResult.to, askerAddr.canonical, mirrorPayload);
+			} else {
+				const replierAddr = tryLocalAddress(deliverResult.to);
+				if (replierAddr) {
+					mirrorPeer(askerAddr, replierAddr.canonical, askerAddr.canonical, mirrorPayload);
+					mirrorPeer(replierAddr, replierAddr.canonical, askerAddr.canonical, mirrorPayload);
 				}
 			}
 		}

@@ -11,8 +11,9 @@ import { processAmbient } from "../shared/ambient.js";
 import { DurableStore, openDurable } from "../shared/durable-store.js";
 import { invalidate, MIGRATING, readGatewayMigrationWindow, useMigrationEpochFile } from "../shared/migration-fence.js";
 import { PendingDeliveryStore } from "../shared/pending-delivery-store.js";
-import { PendingJobStore } from "../shared/pending-job-store.js";
+import { type JobContract, PendingJobStore } from "../shared/pending-job-store.js";
 import { PlaneRegistry } from "../shared/plane-registry.js";
+import { Address, storeKey } from "../shared/session-id.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -20,37 +21,105 @@ afterEach(() => {
 });
 
 describe("delivery-state durability", () => {
+	const jobId = (conv: string, spawn: string) =>
+		storeKey({ kind: "conv", conversationId: conv, address: Address.of("bob", "hostb", spawn, "dev") });
+	const asked = (conv: string): JobContract => ({
+		kind: "local",
+		reply: { kind: "conversation", conversationId: conv },
+	});
+	function anchor(store: PendingJobStore<string>, id: string, contract: JobContract, persistent: boolean): void {
+		const reserved = store.reserve(id, "Aqua", "host.team", contract, { persistent });
+		if (reserved.kind !== "ok") throw new Error(reserved.reason);
+		store.commit(reserved.reservation);
+	}
+
 	it("persistent job anchors (and their stored result) survive snapshot/restore", () => {
+		const id = jobId("c1", "team");
+		const transient = jobId("c2", "other");
 		const a = new PendingJobStore<string>(600_000, processAmbient());
-		a.create("conv:c1:host/team", "Aqua", "host/team", { persistent: true, fromConversationId: "c1" });
+		anchor(a, id, asked("c1"), true);
 		// Async delivery stores the result.
-		a.deliver("conv:c1:host/team", "hello");
+		a.deliver(id, "hello");
 		// Non-persistent jobs do not survive restore.
-		a.create("transient", "x", "y");
+		anchor(a, transient, asked("c2"), false);
 
 		const snap = a.snapshot();
-		expect(snap.length).toBe(1);
-		expect(snap[0].id).toBe("conv:c1:host/team");
+		expect(snap.jobs.length).toBe(1);
+		expect(snap.jobs[0].id).toBe(id);
 
 		const b = new PendingJobStore<string>(600_000, processAmbient());
-		b.restore(snap);
-		expect(b.poll("conv:c1:host/team")).toBe("hello");
-		expect(b.has("transient")).toBe(false);
+		expect(b.restore(snap).restored).toBe(1);
+		expect(b.poll(id)).toBe("hello");
+		expect(b.has(transient)).toBe(false);
 	});
 
 	it("a restore never clobbers a live entry that beat the load", () => {
+		const id = jobId("x", "team");
 		const a = new PendingJobStore<string>(600_000, processAmbient());
-		a.create("conv:x", "from", "to", { persistent: true });
-		a.deliver("conv:x", "old");
+		anchor(a, id, asked("x"), true);
+		a.deliver(id, "old");
 		const snap = a.snapshot();
 
 		const b = new PendingJobStore<string>(600_000, processAmbient());
-		b.create("conv:x", "from", "to", { persistent: true });
+		anchor(b, id, asked("x"), true);
 		// Live registration races restore.
-		b.deliver("conv:x", "fresh");
+		b.deliver(id, "fresh");
 		b.restore(snap);
 		// The live entry wins restore.
-		expect(b.poll("conv:x")).toBe("fresh");
+		expect(b.poll(id)).toBe("fresh");
+	});
+
+	it("drops a persisted row whose contract disagrees with its session key", () => {
+		const store = new PendingJobStore<string>(600_000, processAmbient());
+		const report = store.restore({
+			version: 2,
+			jobs: [
+				{
+					id: jobId("c1", "team"),
+					from: "a",
+					to: "b",
+					contract: asked("someone-else"),
+					state: "waiting",
+					createdAt: 0,
+					storedResult: null,
+				},
+			],
+		});
+		expect(report).toMatchObject({ restored: 0, rejected: 1 });
+	});
+
+	it("migrates a legacy row that names its return route, and drops one that cannot say", () => {
+		const routed = jobId("c1", "team");
+		const ambiguous = jobId("c2", "team");
+		const store = new PendingJobStore<string>(600_000, processAmbient());
+		const report = store.restore([
+			{
+				id: routed,
+				from: "a",
+				to: "b",
+				state: "waiting",
+				createdAt: 0,
+				storedResult: null,
+				fromConversationId: "c1",
+				dstDomainId: "alice",
+				returnRoute: { srcGateway: "alice-gw", srcConversationId: "c1", srcSession: routed },
+			},
+			{
+				id: ambiguous,
+				from: "a",
+				to: "b",
+				state: "waiting",
+				createdAt: 0,
+				storedResult: null,
+				fromConversationId: "c2",
+				returnRoute: null,
+				dstDomainId: null,
+			},
+		]);
+
+		expect(report).toMatchObject({ restored: 1, rejected: 1, legacy: true });
+		expect(store.has(routed)).toBe(true);
+		expect(store.has(ambiguous)).toBe(false);
 	});
 });
 

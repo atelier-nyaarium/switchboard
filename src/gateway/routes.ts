@@ -216,7 +216,6 @@ export function createRoutes(deps: RoutesDeps) {
 		config,
 		ambient,
 		localDomain,
-		registry: deps.registry,
 		conversationRegistry: deps.conversationRegistry,
 		store,
 		resolveHandshake: deps.resolveHandshake,

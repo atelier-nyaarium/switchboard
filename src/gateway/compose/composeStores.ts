@@ -63,7 +63,15 @@ export function composeStores(deps: StoresStageDeps): StoresStage {
 
 	restoreDurable("pending-jobs", () => {
 		const persisted = jobsDurable.load();
-		if (Array.isArray(persisted)) jobs.restore(persisted as Parameters<typeof jobs.restore>[0]);
+		if (persisted === null) return;
+		const report = jobs.restore(persisted);
+		if (report.rejected > 0) {
+			const quarantine = new DurableStore(dataDir, "pending-jobs-quarantine");
+			if (quarantine.load() === null) quarantine.saveChecked(persisted);
+			console.warn(
+				`[pending-jobs] quarantined ${report.rejected} ${report.legacy ? "legacy " : ""}row(s) with no verifiable origin; ${report.restored} restored`,
+			);
+		}
 	});
 
 	return {
