@@ -60,11 +60,11 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 	val values = sheet.values
 	val scope = rememberCoroutineScope()
 
-	LaunchedEffect(runbook.revision, gatewayId, values) {
+	LaunchedEffect(runbook.revision, sheet.gateway, values) {
 		sheet.preview = (sheet.preview as? PreviewState.Ready)?.let { PreviewState.Stale(it.text) }
 			?: PreviewState.Pending
 		delay(PREVIEW_SETTLE_MS)
-		val answer = repo.runbookOps.preview(runbookId, values, gatewayId)
+		val answer = repo.runbookOps.preview(runbookId, values, sheet.gateway)
 		sheet.preview = when {
 			answer == null -> PreviewState.Unreachable(repo.runbookOps.conflictOf(runbookId)?.reason)
 			answer.text != null -> PreviewState.Ready(answer.text, answer.revision)
@@ -122,7 +122,18 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 							shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
 						) { Text("Existing session") }
 					}
-					val choices = if (sheet.freshSession) spawnTargets(state) else sessionTargets(state)
+					val gateways = gatewayTargets(state)
+					if (gateways.size > 1) {
+						TargetMenu(
+							label = "Gateway",
+							choices = gateways.map { FireTarget(it, it) },
+							picked = FireTarget(sheet.gateway, sheet.gateway),
+							onPick = { sheet.aimAtGateway(it.address) },
+						)
+					}
+					val choices =
+						if (sheet.freshSession) spawnTargets(state, sheet.gateway)
+						else sessionTargets(state, sheet.gateway)
 					TargetMenu(
 						label = if (sheet.freshSession) "Start on" else "Send to",
 						choices = choices,
@@ -150,7 +161,7 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 							} else {
 								RunbookFireTarget.Session(target = sheet.target)
 							}
-							val answer = repo.runbookOps.fire(runbookId, values, into, pinned.revision, gatewayId)
+							val answer = repo.runbookOps.fire(runbookId, values, into, pinned.revision, sheet.gateway)
 							sheet.firing = false
 							if (answer?.fired == true) {
 								onDismiss()
@@ -240,13 +251,20 @@ internal class FireSheetState(runbook: Runbook, gatewayId: String) {
 
 	var freshSession by mutableStateOf(true)
 		private set
+	var gateway by mutableStateOf(gatewayId)
+		private set
 	var target by mutableStateOf("")
 		private set
 
-	// Reset target on switch.
 	fun aimAt(fresh: Boolean) {
 		if (fresh == freshSession) return
 		freshSession = fresh
+		target = ""
+	}
+
+	fun aimAtGateway(id: String) {
+		if (id == gateway) return
+		gateway = id
 		target = ""
 	}
 
