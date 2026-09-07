@@ -65,6 +65,7 @@ export function createRunbookFireHandler({
 		}
 		const registered = await awaitRegister(team);
 		if (!registered.ok) {
+			console.warn(`[runbook] ${team} started but never registered (${registered.errorKind ?? "timeout"})`);
 			// The session is left running: it may be seconds from ready, and firing again reaches it.
 			return {
 				fired: false,
@@ -119,7 +120,11 @@ export function createRunbookFireHandler({
 		}
 
 		const sent = await deliver(team, made.text, ctx);
-		if (!sent.ok) return { fired: false, sessionId, reason: sent.error ?? "the runbook could not be delivered" };
+		if (!sent.ok) {
+			console.warn(`[runbook] "${runbook.name}" refused by ${team}: ${sent.error ?? "no reason given"}`);
+			return { fired: false, sessionId, reason: sent.error ?? "the runbook could not be delivered" };
+		}
+		console.log(`[runbook] "${runbook.name}" fired into ${team}`);
 		return { fired: true, sessionId: sessionId ?? team };
 	}
 

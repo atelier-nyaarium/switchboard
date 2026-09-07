@@ -17,6 +17,22 @@ describe("WakeCoordinator", () => {
 		await expect(p).resolves.toEqual({ ok: false });
 	});
 
+	it("does not wait for an edge that already passed", async () => {
+		const live = new Set<string>();
+		const coord = new WakeCoordinator(processAmbient(), (team) => live.has(team));
+		live.add("alpha");
+		coord.notify("alpha");
+
+		await expect(coord.waitFor("alpha", 10)).resolves.toEqual({ ok: true });
+	});
+
+	it("still waits for a team that is not registered yet", async () => {
+		const coord = new WakeCoordinator(processAmbient(), () => false);
+		const p = coord.waitFor("alpha", 10_000);
+		coord.notify("alpha", true);
+		await expect(p).resolves.toEqual({ ok: true });
+	});
+
 	it("resolves an ambiguous timeout rather than hanging", async () => {
 		const coord = new WakeCoordinator(processAmbient());
 		await expect(coord.waitFor("slow", 10)).resolves.toEqual({ ok: false, errorKind: "timeout" });

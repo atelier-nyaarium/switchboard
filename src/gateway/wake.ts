@@ -36,9 +36,14 @@ interface WakeWaiter {
 export class WakeCoordinator {
 	private waiters = new Map<string, WakeWaiter[]>();
 
-	constructor(private readonly ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">) {}
+	constructor(
+		private readonly ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">,
+		/** Late waiters read state. */
+		private readonly isRegistered: (team: string) => boolean = () => false,
+	) {}
 
 	waitFor(team: string, timeoutMs: number): Promise<WakeResult> {
+		if (this.isRegistered(team)) return Promise.resolve({ ok: true });
 		return new Promise((resolve) => {
 			const timer = this.ambient.setTimer(() => {
 				this.removeWaiter(team, entry);

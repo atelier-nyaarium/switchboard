@@ -6,7 +6,7 @@ import type { HostOp, HostOpResult } from "../../shared/host-op.js";
 import { HostOpCoordinator } from "../hostOpCoordinator.js";
 import { WakeCoordinator } from "../wake.js";
 import { WakeService } from "../wakeService.js";
-import type { WsData } from "../wsTypes.js";
+import { resolveLiveIncarnation, type WsData } from "../wsTypes.js";
 import type { SessionsStage } from "./composeSessions.js";
 
 const HOST_OP_TIMEOUT_MS = 20_000;
@@ -38,7 +38,9 @@ export interface HostStage {
 }
 
 export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps): HostStage {
-	const wakeCoordinator = new WakeCoordinator(ambient);
+	const wakeCoordinator = new WakeCoordinator(ambient, (team) =>
+		Boolean(resolveLiveIncarnation(sessions.registry, sessions.sessionStore, team)),
+	);
 	const hostOpCoordinator = new HostOpCoordinator(ambient);
 
 	function liveHostSocket(): ServerWebSocket<WsData> | undefined {
