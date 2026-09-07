@@ -672,15 +672,23 @@ asserts. Worth knowing before writing another test that expects two distinct ans
   new files aside and back. Same shape as the federation harness flake above, and the same cost:
   the expensive part is not the rerun, it is disbelieving a red gate.
 
-- **The federation harness flake now fails the default run more often than it passes.**
+- **The federation harness "flake" was a real bug, and calling it a flake is what hid it.**
   `federation-harness-boot.test.ts`, the case `converges to one presence row per team when a session
-  reattaches after a gateway restart`. It began as one failure in five full runs, then one in three,
-  then two consecutively under load, and by the end of this plan it failed the plain `bun run test`
-  repeatedly on a quiet machine. Three facts pin it down: it passes three for three alone, it fails
-  with this whole feature's working tree stashed, and the entire suite passes with
-  `--no-file-parallelism`. So it is a timing assumption that loses to concurrency rather than a
-  regression, and `bun run test` no longer answers reliably without that flag. Already recorded in
-  `plans/claimed-backlog.md`, and now the thing that makes a green gate cost two runs to believe.
+  reattaches after a gateway restart`. Every symptom said timing: it passed alone, failed under
+  load, failed with the working tree stashed, and passed with `--no-file-parallelism`. All of that
+  was true and none of it was the cause. The poll read
+  `JSON.stringify(planes.find(...)?.payload).includes(team)`, and `JSON.stringify(undefined)` answers
+  `undefined` rather than a string, so the optional chain guarded the property access and left the
+  `.includes` to throw. `waitFor` propagates a throw instead of polling again, so the test failed
+  whenever its first poll beat the presence plane into existence, which is exactly what load and
+  parallelism decide. The line three above it is written correctly, which is how it survived review.
+  Two sites fixed the same way; five consecutive full parallel runs green afterwards. CI had been red
+  on it twice, which nobody looked at because `AGENTS.md` said this repo had no CI checks.
+
+- **`AGENTS.md` said "CI has no checks on this repo" and there are three workflows.** `ci.yml`
+  repeats lint, tests and the drift checks on every push to `main`. Two runs during this plan were
+  red, on the test above, and the claim in the map is why no one went and read them. A map that is
+  confidently wrong costs more than a map with a gap in it.
 
 - **A value op's answer is coalesced per op id, which is invisible until a test needs two.** Firing
   the same op id twice concurrently through the harness, both promises resolved to the same answer,

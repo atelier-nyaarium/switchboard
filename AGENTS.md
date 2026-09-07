@@ -307,7 +307,9 @@ How each subsystem works lives in `docs/`:
 Commit and push to `main`. Do not open a branch or a PR for ordinary work, and do not leave one
 open: an unmerged PR is work the owner will forget.
 
-Nothing gates a push but the local gates, so run them first. CI has no checks on this repo.
+Nothing BLOCKS a push, so run the local gates first. CI does run: `.github/workflows/ci.yml` repeats
+lint, tests and the drift checks on every push to `main`, and `main-push.yml` builds Android. They
+report after the fact, so a red run is found only by looking. Check `gh run list` after a push.
 
 Run `gitFetch` and `gitPull` before every follow-up edit after a push. A non-empty
 `git log main..origin/main` is a hard stop. Scripted edits must assert their match before writing.

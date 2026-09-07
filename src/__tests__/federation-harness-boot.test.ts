@@ -162,7 +162,8 @@ describe("federation harness routing and restart", () => {
 		await first.ready();
 		await h.waitFor(async () => {
 			const { planes } = await h.phone.planesRead();
-			return JSON.stringify(planes.find((plane) => plane.name === "presence")?.payload).includes(first.team);
+			const plane = planes.find((candidate) => candidate.name === "presence");
+			return plane ? JSON.stringify(plane.payload).includes(first.team) : undefined;
 		}, "presence before the restart");
 		await h.restartGateway();
 		const second = attachFakeSession(h.gateway, { team: "fixture-app.again", conversationId: "conv-again" });
@@ -170,7 +171,8 @@ describe("federation harness routing and restart", () => {
 		const presence = await h.waitFor(async () => {
 			const { planes } = await h.phone.planesRead();
 			const plane = planes.find((candidate) => candidate.name === "presence");
-			const payload = JSON.stringify(plane?.payload);
+			if (!plane) return undefined;
+			const payload = JSON.stringify(plane.payload);
 			return payload.includes(`"team":"${second.team}"`) && payload.includes('"status":"online"')
 				? plane
 				: undefined;
