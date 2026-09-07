@@ -10,6 +10,7 @@ import { type NoticeTierWire, pickTiers } from "../shared/notice.js";
 import { formatInboxAddress, OpResultEnvelopeSchema, signRowEnvelope } from "../shared/schemasInbox.js";
 import { type Address, storeKey } from "../shared/session-id.js";
 import type { ChannelFile } from "../shared/types.js";
+import { fireAndForget } from "./fireAndForget.js";
 import {
 	fileBytes,
 	HumanNotifySchema,
@@ -206,7 +207,7 @@ export function createConsolePushOps({
 		});
 	}
 
-	const drainTimer = ambient.setInterval(() => void drainOutbox(), 1000);
+	const drainTimer = ambient.setInterval(() => fireAndForget("owner outbox drain", drainOutbox()), 1000);
 	const stop = (): void => ambient.clearInterval(drainTimer);
 
 	function deliverToOwner({
@@ -238,7 +239,7 @@ export function createConsolePushOps({
 	function appendOwnerRow(entry: ConsolePushEntry, opId: string, label: string, volatile = false): boolean {
 		const item: OwnerRowOutboxItem = { entry, opId, label, at: now(), ...(volatile ? { volatile } : {}) };
 		if (!queueOutbox(item)) return false;
-		void drainOutbox();
+		fireAndForget("owner outbox drain", drainOutbox());
 		return true;
 	}
 

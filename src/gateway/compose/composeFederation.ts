@@ -20,6 +20,7 @@ import { logAdmitGatewayQr } from "../federation/enrollQr.js";
 import type { createGatewayRelayHandler } from "../federation/gatewayRelay.js";
 import { ReplayGuard } from "../federation/replayGuard.js";
 import { createSealer } from "../federation/sealer.js";
+import { fireAndForget } from "../fireAndForget.js";
 import { createBlobUploader } from "../router/blobUploader.js";
 import { createBoardClient } from "../router/boardClient.js";
 import { createInboxDeliveryPump } from "../router/inboxDeliveryPump.js";
@@ -237,7 +238,8 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 				sessions.sessionReporter.reconcile();
 				presenceReporter?.baseline();
 				shareAttestor?.attest();
-				void inboxPump?.resendReceipts();
+				const resent = inboxPump?.resendReceipts();
+				if (resent) fireAndForget("inbox receipt resend", resent);
 				// Older rows are sealed under the epochs below the oldest held one.
 				const oldestHeld = Math.min(...context.contentKeys().epochs());
 				const wanted = Number.isFinite(oldestHeld) ? oldestHeld - 1 : 1;
@@ -250,10 +252,12 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 				const unlinked = (frame as { domainId?: unknown }).domainId;
 				if (typeof unlinked === "string") deps.unlinkDomain()?.(unlinked);
 			},
-			onInboxDeliver: (frame) =>
-				void inboxPump?.onFrame(
+			onInboxDeliver: (frame) => {
+				const pumped = inboxPump?.onFrame(
 					frame as { address: string; rows: unknown; incarnation?: number; deliveryEpoch: number },
-				),
+				);
+				if (pumped) fireAndForget("inbox deliver", pumped);
+			},
 			onBlobFetch: (frame) => {
 				const request = frame as { opId: string; blobId: string; range?: { offset: number; length: number } };
 				try {
@@ -263,19 +267,25 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 						request.range?.offset ?? 0,
 						request.range?.length ?? MAX_BLOB_BYTES,
 					);
-					void routerClient.callInboxTool("blob_fetch_reply", {
-						opId: request.opId,
-						outcome: "fetched",
-						bytes: read.bytes.toString("base64"),
-						eof: read.eof,
-						sealed: false,
-					});
+					fireAndForget(
+						`blob_fetch_reply for ${request.opId}`,
+						routerClient.callInboxTool("blob_fetch_reply", {
+							opId: request.opId,
+							outcome: "fetched",
+							bytes: read.bytes.toString("base64"),
+							eof: read.eof,
+							sealed: false,
+						}),
+					);
 				} catch {
-					void routerClient.callInboxTool("blob_fetch_reply", {
-						opId: request.opId,
-						outcome: "absent",
-						sealed: false,
-					});
+					fireAndForget(
+						`blob_fetch_reply for ${request.opId}`,
+						routerClient.callInboxTool("blob_fetch_reply", {
+							opId: request.opId,
+							outcome: "absent",
+							sealed: false,
+						}),
+					);
 				}
 			},
 		});

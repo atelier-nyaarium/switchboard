@@ -204,7 +204,7 @@ export function createRespondRoutes({
 					...(response.reason ? { reason: response.reason } : {}),
 					...(files && files.length > 0 ? { files } : {}),
 				},
-				"cross-Gateway reply-pin",
+				`cross-Gateway reply-pin [${respondSessionId}]`,
 				contract.dstDomainId ?? undefined,
 				producerOpId,
 			);

@@ -124,7 +124,10 @@ export class CodexRelay {
 
 	private onHello(raw: Record<string, unknown>): void {
 		const hello = CodexDaemonHelloSchema.safeParse(raw);
-		if (!hello.success) return;
+		if (!hello.success) {
+			console.warn(`[codex] dropped a malformed hello: ${hello.error.issues[0]?.message ?? "invalid"}`);
+			return;
+		}
 		// A hello invalidates outstanding reconciliation guards.
 		this.reconciling.clear();
 		// The gateway owns the reconciliation candidate list.
@@ -141,13 +144,19 @@ export class CodexRelay {
 
 	private onReceipt(raw: Record<string, unknown>): void {
 		const parsed = CodexDaemonReceiptSchema.safeParse(raw);
-		if (!parsed.success) return;
+		if (!parsed.success) {
+			console.warn(`[codex] dropped a malformed receipt: ${parsed.error.issues[0]?.message ?? "invalid"}`);
+			return;
+		}
 		void this.serialize(parsed.data.ownerKey, parsed.data.agentId, () => this.reduceReceipt(parsed.data));
 	}
 
 	private onEvent(raw: Record<string, unknown>): void {
 		const parsed = CodexDaemonEventSchema.safeParse(raw);
-		if (!parsed.success) return;
+		if (!parsed.success) {
+			console.warn(`[codex] dropped a malformed event: ${parsed.error.issues[0]?.message ?? "invalid"}`);
+			return;
+		}
 		void this.serialize(parsed.data.ownerKey, parsed.data.agentId, () => this.reduceEvent(parsed.data));
 	}
 

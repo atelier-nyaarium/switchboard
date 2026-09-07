@@ -3,6 +3,7 @@
 import type { Ambient, IntervalHandle } from "../../shared/ambient.js";
 import { createPersistRunner } from "../../shared/durable-store.js";
 import { fenced, MIGRATION_SETTLE_MS } from "../../shared/migration-fence.js";
+import { fireAndForget } from "../fireAndForget.js";
 import { resolveLiveIncarnation } from "../wsTypes.js";
 import type { SessionsStage } from "./composeSessions.js";
 import type { StoresStage } from "./composeStores.js";
@@ -63,7 +64,8 @@ export function composePersistence({
 					});
 					if (sweptTeams.length === 0) return;
 					for (const team of sweptTeams) {
-						void context.slice()?.boardClient.sessionEnded(team, "release");
+						const released = context.slice()?.boardClient.sessionEnded(team, "release");
+						if (released) fireAndForget(`board release for ${team}`, released);
 						sessionEnded?.(team);
 					}
 					sessions.presence.markDirty();

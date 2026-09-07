@@ -104,7 +104,10 @@ export class FileSecretStore {
 	}
 
 	public saveDomain(domainId: string, state: EnrollmentState): void {
-		if (!this.identity) return;
+		if (!this.identity) {
+			console.error(`[federation-store] refused a domain write for ${domainId}: store not initialized`);
+			return;
+		}
 		const next = structuredClone(state);
 		const outcome = this.writeChain
 			.then(() => this.persistDomain(domainId, next))

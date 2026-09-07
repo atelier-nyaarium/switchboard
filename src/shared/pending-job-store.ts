@@ -282,6 +282,9 @@ export class PendingJobStore<T> {
 	waitForResult(id: string, timeoutMs: number): Promise<WaitResult<T>> {
 		const entry = this.entries.get(id);
 		if (!entry) return Promise.resolve({ delivered: false });
+		// Reuse stored result.
+		if (entry.state === "stored" && entry.storedResult !== null)
+			return Promise.resolve({ delivered: true, result: entry.storedResult });
 		return new Promise((resolve) => {
 			entry.resolve = resolve;
 			entry.timer = this.ambient.setTimer(() => {

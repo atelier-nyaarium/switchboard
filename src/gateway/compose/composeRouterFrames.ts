@@ -10,6 +10,7 @@ import type { FederationSlice, RouterFrameHandlers } from "../boot.js";
 import { createConsoleDispatcher } from "../console/consoleHandler.js";
 import { createCrossDomainHandshakePump } from "../federation/crossDomainHandshake.js";
 import { createGatewayRelayHandler, createGatewayRelayPump } from "../federation/gatewayRelay.js";
+import { fireAndForget } from "../fireAndForget.js";
 import { composeValueResult } from "../router/valueResult.js";
 import type { HostStage } from "./composeHost.js";
 import type { RouterPresenceBuild } from "./composeRouterPresence.js";
@@ -61,7 +62,8 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			ambient,
 			isTrustedCatalogProject: sessions.isTrustedCatalogProject,
 			dropSessionResume: (team, disposition) => {
-				void context.slice()?.boardClient.sessionEnded(team, disposition);
+				const released = context.slice()?.boardClient.sessionEnded(team, disposition);
+				if (released) fireAndForget(`board release for ${team}`, released);
 				sessions.presence.forget(team);
 			},
 			sessionStore: sessions.presence,

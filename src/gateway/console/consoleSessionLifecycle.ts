@@ -5,6 +5,7 @@ import { type HostOp, type HostOpResult, isSpawnWorkdirPath } from "../../shared
 import { composeSessionName } from "../../shared/session-id.js";
 import { sanitizeLabel } from "../../shared/session-sanitize.js";
 import type { SessionRecord, SessionStore } from "../../shared/session-store.js";
+import { fireAndForget } from "../fireAndForget.js";
 import type { WakeResult } from "../wake.js";
 import type { ConsoleTargets } from "./consoleTargets.js";
 import { CreateSessionAmbiguousError } from "./consoleTypes.js";
@@ -123,7 +124,10 @@ export function createSessionLifecycleHandlers({
 			if (viaWake || !awaitRegister) {
 				releaseInFlight?.();
 			} else {
-				void awaitRegister(launchTeam).finally(() => releaseInFlight?.());
+				fireAndForget(
+					`register wait for ${launchTeam}`,
+					awaitRegister(launchTeam).finally(() => releaseInFlight?.()),
+				);
 			}
 		});
 

@@ -121,7 +121,10 @@ export class CopilotRelay {
 
 	private onHello(raw: Record<string, unknown>): void {
 		const hello = CopilotDaemonHelloSchema.safeParse(raw);
-		if (!hello.success) return;
+		if (!hello.success) {
+			console.warn(`[copilot] dropped a malformed hello: ${hello.error.issues[0]?.message ?? "invalid"}`);
+			return;
+		}
 		this.reconciling.clear();
 		for (const owner of this.deps.sessionStore.list()) {
 			const ownerKey = this.deps.sessionStore.teamOf(owner);
@@ -135,13 +138,19 @@ export class CopilotRelay {
 
 	private onReceipt(raw: Record<string, unknown>): void {
 		const parsed = CopilotDaemonReceiptSchema.safeParse(raw);
-		if (!parsed.success) return;
+		if (!parsed.success) {
+			console.warn(`[copilot] dropped a malformed receipt: ${parsed.error.issues[0]?.message ?? "invalid"}`);
+			return;
+		}
 		void this.serialize(parsed.data.ownerKey, parsed.data.agentId, () => this.reduceReceipt(parsed.data));
 	}
 
 	private onEvent(raw: Record<string, unknown>): void {
 		const parsed = CopilotDaemonEventSchema.safeParse(raw);
-		if (!parsed.success) return;
+		if (!parsed.success) {
+			console.warn(`[copilot] dropped a malformed event: ${parsed.error.issues[0]?.message ?? "invalid"}`);
+			return;
+		}
 		void this.serialize(parsed.data.ownerKey, parsed.data.agentId, () => this.reduceEvent(parsed.data));
 	}
 

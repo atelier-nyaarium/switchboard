@@ -1,6 +1,7 @@
 import type { Ambient, TimerHandle } from "../../shared/ambient.js";
 import type { PresenceRow } from "../../shared/presence-identity.js";
 import type { GatewaySpawnPoints } from "../../shared/types.js";
+import { fireAndForget } from "../fireAndForget.js";
 import { applyAnswer, nextFrame, type PresenceAnswer, type Sync } from "./presenceProtocol.js";
 
 export interface PresenceReporterDeps {
@@ -39,7 +40,7 @@ export function createPresenceReporter(deps: PresenceReporterDeps) {
 		const delay = Math.max(0, deadline - now());
 		timer = deps.ambient.setTimer(() => {
 			timer = null;
-			void pump();
+			fireAndForget("presence pump", pump());
 		}, delay);
 	};
 
@@ -116,7 +117,7 @@ export function createPresenceReporter(deps: PresenceReporterDeps) {
 		setDeadline(0);
 		sync = { at: "needsBaseline" };
 		const result = new Promise<void>((resolve) => baselineWaiters.push(resolve));
-		void pump();
+		fireAndForget("presence pump", pump());
 		return result;
 	};
 
@@ -125,13 +126,13 @@ export function createPresenceReporter(deps: PresenceReporterDeps) {
 		if (sync.at === "parked") return;
 		// Armed deadlines never move later.
 		if (deadline === null) setDeadline(now() + (deps.debounceMs ?? 250));
-		void pump();
+		fireAndForget("presence pump", pump());
 	};
 
 	const resync = (): void => {
 		sync = { at: "needsBaseline" };
 		setDeadline(0);
-		void pump();
+		fireAndForget("presence pump", pump());
 	};
 
 	const stop = (): void => {

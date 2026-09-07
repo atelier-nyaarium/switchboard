@@ -151,7 +151,13 @@ export function createSendRoutes({
 			{ persistent: true },
 		);
 		if (reserved.kind === "conflict") return jsonResponse({ error: reserved.reason }, 409);
-		const relay = await relayToGateway(targetGateway, op, targetDomain, opId);
+		let relay: { ok: boolean; error?: string };
+		try {
+			relay = await relayToGateway(targetGateway, op, targetDomain, opId);
+		} catch (err) {
+			store.abort(reserved.reservation);
+			return jsonResponse({ error: err instanceof Error ? err.message : String(err) }, 502);
+		}
 		if (!relay.ok) {
 			store.abort(reserved.reservation);
 			return jsonResponse({ error: relay.error ?? `cross-Gateway send to "${qualifiedTo}" failed` }, 502);
