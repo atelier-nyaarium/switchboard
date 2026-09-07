@@ -6,6 +6,7 @@ import { isComposite } from "../shared/session-id.js";
 import type { ConnectionMode } from "../shared/types.js";
 import { HandshakeGate } from "./handshakeGate.js";
 import { NOTHING_PRESENTED, type Presented, presentedByRegister } from "./sessionAuthority.js";
+import { reached, sendOn } from "./wsSend.js";
 import {
 	getAllActiveWs,
 	type HandshakeRepushOutcome,
@@ -72,12 +73,7 @@ export function createWebSocketHandlers({
 
 	function mintHandshake(ws: ServerWebSocket<WsData>, team: string, subId: string): void {
 		const { hsId, push } = handshakeGate.mint(team, subId);
-		try {
-			ws.send(push);
-		} catch (err) {
-			console.error(`[ws] handshake send failed for ${team}/${subId} [${hsId}]: ${err}`);
-			return;
-		}
+		if (!reached(sendOn(ws, push, `handshake to ${team}/${subId}`))) return;
 		console.log(`[ws] handshake sent to ${team}/${subId} [${hsId}]`);
 	}
 
@@ -86,12 +82,8 @@ export function createWebSocketHandlers({
 		if (decision.kind !== "send") return decision.kind;
 		const ws = registry.get(team)?.get(subId);
 		if (ws?.readyState !== 1) return "socket-gone";
-		try {
-			ws.send(decision.push);
-		} catch (err) {
-			console.error(`[ws] handshake re-push send failed for ${team}/${subId} [${decision.hsId}]: ${err}`);
-			return "socket-gone";
-		}
+		// Spend attempts on delivery.
+		if (!reached(sendOn(ws, decision.push, `handshake re-push to ${team}/${subId}`))) return "socket-gone";
 		decision.commit();
 		console.log(`[ws] handshake re-pushed to ${team}/${subId} [${decision.hsId}] (attempt ${decision.attempt})`);
 		return "pushed";
@@ -142,7 +134,11 @@ export function createWebSocketHandlers({
 			// Only the authenticated host socket may drive terminals and wakes.
 			if (team === "host" && (!config.hostWsToken || reg.data.token !== config.hostWsToken)) {
 				console.log(`[ws] rejected host register - bad or missing token`);
-				ws.send(JSON.stringify({ type: "register_reject", team, reason: "unauthorized" }));
+				sendOn(
+					ws,
+					JSON.stringify({ type: "register_reject", team, reason: "unauthorized" }),
+					"register_reject",
+				);
 				ws.data.isStale = true;
 				ws.close();
 				return;
@@ -156,7 +152,11 @@ export function createWebSocketHandlers({
 			// A bound name may be claimed only by its binding holder.
 			if (auth && !auth.satisfies(auth.toClaim(team), presentedHere)) {
 				console.log(`[ws] rejected register for bound team "${team}" - binding not presented`);
-				ws.send(JSON.stringify({ type: "register_reject", team, reason: "unauthorized" }));
+				sendOn(
+					ws,
+					JSON.stringify({ type: "register_reject", team, reason: "unauthorized" }),
+					"register_reject",
+				);
 				ws.data.isStale = true;
 				ws.close();
 				return;
@@ -164,7 +164,11 @@ export function createWebSocketHandlers({
 			// Host shell sessions must prove daemon-launched ownership.
 			if (auth && isHostSpawnSession(team) && !auth.presentsOwnLaunchToken(team, presentedHere)) {
 				console.log(`[ws] rejected register for host session "${team}" - no daemon launch token`);
-				ws.send(JSON.stringify({ type: "register_reject", team, reason: "unauthorized" }));
+				sendOn(
+					ws,
+					JSON.stringify({ type: "register_reject", team, reason: "unauthorized" }),
+					"register_reject",
+				);
 				ws.data.isStale = true;
 				ws.close();
 				return;
@@ -192,7 +196,11 @@ export function createWebSocketHandlers({
 				const sameSocketAlready = existingSubs?.get(subId) === ws;
 				if (!sameSocketAlready && existingActive.length > 0) {
 					console.log(`[ws] rejected register for reserved team "${team}" - already held`);
-					ws.send(JSON.stringify({ type: "register_reject", team, reason: "reserved" }));
+					sendOn(
+						ws,
+						JSON.stringify({ type: "register_reject", team, reason: "reserved" }),
+						"register_reject",
+					);
 					ws.data.isStale = true;
 					ws.close();
 					return;
@@ -259,9 +267,8 @@ export function createWebSocketHandlers({
 			wakeCoordinator.notify(team);
 			console.log(`[ws] ${team}/${subId} connected (mode: ${mode})`);
 
-			try {
-				ws.send(JSON.stringify({ type: "register_ok", opLedgerProtocol: OP_LEDGER_PROTOCOL }));
-			} catch {
+			const acked = JSON.stringify({ type: "register_ok", opLedgerProtocol: OP_LEDGER_PROTOCOL });
+			if (!reached(sendOn(ws, acked, `register_ok for ${team}`))) {
 				evictSocket(ws);
 				return;
 			}
@@ -490,7 +497,7 @@ export function createWebSocketHandlers({
 			console.log(`[ws] handshake confirmed: ${pending.team}/${pending.subId} is lead`);
 		} else {
 			console.log(`[ws] handshake rejected: ${pending.team}/${pending.subId} is worker, closing`);
-			ws.send(JSON.stringify({ type: "handshake_reject" }));
+			sendOn(ws, JSON.stringify({ type: "handshake_reject" }), "handshake_reject");
 			evictSocket(ws);
 		}
 		return true;

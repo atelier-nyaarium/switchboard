@@ -14,6 +14,7 @@ import {
 	stripFileRefs,
 } from "../routeSchemas.js";
 import { type Presented, presentedByRequest } from "../sessionAuthority.js";
+import { reached, sendOn } from "../wsSend.js";
 import type { ConversationRegistry, HandshakeRepushOutcome } from "../wsTypes.js";
 
 type ConsolePushOps = ReturnType<typeof import("../consolePushOps.js").createConsolePushOps>;
@@ -263,9 +264,9 @@ export function createRespondRoutes({
 		} else {
 			const senderWs = conversationRegistry.get(reply.conversationId);
 			if (senderWs && senderWs.readyState === 1) {
-				senderWs.send(pushMsg);
+				const outcome = sendOn(senderWs, pushMsg, `reply to ${deliverResult.from}`);
 				console.log(
-					`[respond] pushed to ${deliverResult.from} via conversation ${reply.conversationId.slice(0, 8)}... [${respondSessionId}]`,
+					`[respond] ${reached(outcome) ? "pushed to" : "could not reach"} ${deliverResult.from} via conversation ${reply.conversationId.slice(0, 8)}... [${respondSessionId}]`,
 				);
 			} else {
 				console.log(

@@ -115,33 +115,39 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 				const ownerSignPub = slice.allowlist.ownerSignPub;
 				const domainId = context.domainId();
 				const incarnation = slice.routerClient.incarnation();
-				if (!ownerSignPub || !domainId || incarnation === null) return;
+				if (!ownerSignPub || !domainId || incarnation === null) {
+					// No identity, no answer.
+					console.warn(`[value-op] ${frame.data.opId} dropped: no active federation identity`);
+					return;
+				}
 				const value = ContentEnvelopeSchema.safeParse(frame.data.value);
-				if (!value.success) return;
-				const opened = slice.contentKeyStore.open(value.data, {
-					domainId,
-					ownerSignPub,
-					epoch: value.data.epoch,
-					kind: opPayloadAadKind(),
-				});
 				let result: unknown;
-				if (opened.kind !== "ok") result = { kind: "refusal", reason: "content key unavailable" };
+				if (!value.success) result = { kind: "refusal", reason: "the value envelope did not parse" };
 				else {
-					try {
-						const op = ConsoleOpSchema.parse(JSON.parse(opened.plaintext.toString("utf8")));
-						result = {
-							kind: "ok",
-							// Replies use owner key.
-							result: await consoleHandler.handleValue(
-								op,
-								frame.data.device,
-								frame.data.conversationId,
-								frame.data.opId,
-								ownerSignPub,
-							),
-						};
-					} catch (error) {
-						result = { kind: "refusal", reason: (error as Error).message };
+					const opened = slice.contentKeyStore.open(value.data, {
+						domainId,
+						ownerSignPub,
+						epoch: value.data.epoch,
+						kind: opPayloadAadKind(),
+					});
+					if (opened.kind !== "ok") result = { kind: "refusal", reason: "content key unavailable" };
+					else {
+						try {
+							const op = ConsoleOpSchema.parse(JSON.parse(opened.plaintext.toString("utf8")));
+							result = {
+								kind: "ok",
+								// Replies use owner key.
+								result: await consoleHandler.handleValue(
+									op,
+									frame.data.device,
+									frame.data.conversationId,
+									frame.data.opId,
+									ownerSignPub,
+								),
+							};
+						} catch (error) {
+							result = { kind: "refusal", reason: (error as Error).message };
+						}
 					}
 				}
 				const valueResult = composeValueResult({
@@ -162,7 +168,10 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 				// An unsettled answer is a Router that will time the console out; say so.
 				if ((settled as { result?: { settled?: boolean } })?.result?.settled === false)
 					console.warn(`[value-op] Router did not settle value_result for ${frame.data.opId}`);
-			})().catch(() => undefined);
+			})().catch((error) => {
+				// Name dropped operations.
+				console.warn(`[value-op] dropped: ${(error as Error).message}`);
+			});
 		};
 
 		const gatewayRelayHandler = createGatewayRelayHandler({

@@ -23,6 +23,7 @@ import {
 } from "../routeSchemas.js";
 import { presentedByRequest, type SessionAuthority } from "../sessionAuthority.js";
 import type { WakeResult } from "../wake.js";
+import { reached, sendOn } from "../wsSend.js";
 import {
 	type ConversationRegistry,
 	getAllActiveWs,
@@ -403,12 +404,15 @@ export function createSendRoutes({
 					if (disposition) channelPayload.disposition = disposition;
 					const payload = JSON.stringify(channelPayload);
 
+					let took = false;
 					for (const ws of activeWs) {
 						if (!ws.data.handshakeConfirmed && ws.data.teamName) {
 							repushHandshake?.(ws.data.teamName, ws.data.subId);
 						}
-						ws.send(payload);
+						if (reached(sendOn(ws, payload, `channel_push to ${qualifiedTo}`))) took = true;
 					}
+					// Without the durable queue behind it, a message nobody took is simply lost.
+					if (!took) throw new Error(`Team "${qualifiedTo}" took none of the message`);
 
 					console.log(
 						`[send] channel_push to ${qualifiedTo} [${channelJobId}]${messageId ? ` msg=${messageId.slice(0, 8)}` : ""} from ${from} (${activeWs.length} sub-session${activeWs.length > 1 ? "s" : ""})`,

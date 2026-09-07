@@ -5,6 +5,7 @@ import type { AwarenessObservation } from "../../shared/awareness-types.js";
 import type { BoardEntry } from "../../shared/console-protocol.js";
 import { type AwarenessBank, createAwarenessBank } from "../awarenessBank.js";
 import { boardAwarenessSubscriber } from "../boardAwareness.js";
+import { reached, sendOn } from "../wsSend.js";
 import { resolveLiveIncarnation } from "../wsTypes.js";
 import type { HostStage } from "./composeHost.js";
 import type { SessionsStage } from "./composeSessions.js";
@@ -33,8 +34,7 @@ export function composeAwareness({ sessions, host, ambient }: AwarenessStageDeps
 		deliver: (sessionKey, payload) => {
 			const live = resolveLiveIncarnation(sessions.registry, sessions.sessionStore, sessionKey);
 			if (!live?.data.handshakeConfirmed) return false;
-			live.send(JSON.stringify(payload));
-			return true;
+			return reached(sendOn(live, JSON.stringify(payload), `awareness for ${sessionKey}`));
 		},
 	});
 	const boardObserve = awareness.register(boardAwarenessSubscriber);

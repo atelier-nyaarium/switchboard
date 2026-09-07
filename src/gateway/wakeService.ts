@@ -5,6 +5,7 @@ import { isComposite, parseSessionName } from "../shared/session-id.js";
 import type { SessionStore } from "../shared/session-store.js";
 import type { PresenceFacade } from "./presence.js";
 import { decideWakeCreate, type WakeCoordinator, type WakeResult } from "./wake.js";
+import { reached, sendOn } from "./wsSend.js";
 import { resolveLiveIncarnation, type TeamRegistry, type WsData } from "./wsTypes.js";
 
 export interface WakeServiceDeps {
@@ -120,7 +121,8 @@ export class WakeService {
 		const record = this.deps.sessionStore.getByTeam(wakeTeam);
 		const resumeSessionId = record?.claudeSessionId;
 		const workdirHint = record ? this.deps.sessionStore.hostWorkdirHint(record) : undefined;
-		hostWs.send(
+		const requested = sendOn(
+			hostWs,
 			JSON.stringify({
 				type: "wake",
 				team: wakeTeam,
@@ -129,7 +131,10 @@ export class WakeService {
 				...(workdirHint ? { workdirHint } : {}),
 				...(record ? { sessionToken: this.deps.sessionStore.ensureBindToken(record) } : {}),
 			}),
+			`wake ${wakeTeam}`,
 		);
+		// Dropped wakes never answer.
+		if (!reached(requested)) return { ok: false, errorKind: "disconnected" };
 
 		console.log(`[wake] requesting ${wakeTeam} startup${projectPath ? ` (${projectPath})` : " (convention)"}`);
 

@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import { fenced, MIGRATING } from "../shared/migration-fence.js";
 import type { PendingDelivery, PendingDeliveryStore } from "../shared/pending-delivery-store.js";
+import { reached, sendOn } from "./wsSend.js";
 import { getAllActiveWs, type TeamRegistry, type WsData } from "./wsTypes.js";
 
 ////////////////////////////////
@@ -73,12 +74,14 @@ export class ChannelDeliveryCoordinator {
 		if (sockets.length === 0) return false;
 
 		const payload = JSON.stringify(channelPushPayload(delivery));
+		let took = false;
 		for (const ws of sockets) {
 			if (!ws.data.handshakeConfirmed && ws.data.teamName) {
 				this.deps.repushHandshake?.(ws.data.teamName, ws.data.subId);
 			}
-			ws.send(payload);
+			if (reached(sendOn(ws, payload, `channel_push to ${delivery.team}`))) took = true;
 		}
+		if (!took) return false;
 
 		// Nobody here can acknowledge, so holding the row would re-offer it on every reconnect and
 		// duplicate the message. Retiring now gives an old plugin precisely today's behaviour.

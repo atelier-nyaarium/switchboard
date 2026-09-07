@@ -6,6 +6,7 @@ import type { HostOp, HostOpResult } from "../../shared/host-op.js";
 import { HostOpCoordinator } from "../hostOpCoordinator.js";
 import { WakeCoordinator } from "../wake.js";
 import { WakeService } from "../wakeService.js";
+import { reached, sendOn } from "../wsSend.js";
 import { resolveLiveIncarnation, type WsData } from "../wsTypes.js";
 import type { SessionsStage } from "./composeSessions.js";
 
@@ -64,7 +65,9 @@ export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps)
 		const hostWs = liveHostSocket();
 		if (!hostWs) return { ok: false, error: "host daemon offline - terminal unavailable" };
 		const reqId = ambient.randomBytes(8).toString("hex");
-		hostWs.send(JSON.stringify({ type: "host_op", reqId, op }));
+		// Dropped requests never answer.
+		if (!reached(sendOn(hostWs, JSON.stringify({ type: "host_op", reqId, op }), `host_op ${op.kind}`)))
+			return { ok: false, error: "the host daemon did not take the request" };
 		return hostOpCoordinator.wait(reqId, HOST_OP_TIMEOUT_MS);
 	}
 
@@ -79,8 +82,9 @@ export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps)
 		const watch = sessions.intentTracker.watchList(liveTeams);
 		const serialized = JSON.stringify(watch);
 		if (!force && serialized === lastPushedWatch) return;
-		lastPushedWatch = serialized;
-		hostWs.send(JSON.stringify({ type: "presence_watch", watch }));
+		// Retry dropped watches.
+		if (reached(sendOn(hostWs, JSON.stringify({ type: "presence_watch", watch }), "presence_watch")))
+			lastPushedWatch = serialized;
 	}
 	const presenceWatchTimer = ambient.setInterval(() => pushPresenceWatch(), 2_000);
 

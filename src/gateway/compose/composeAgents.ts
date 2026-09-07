@@ -8,6 +8,7 @@ import { CodexRoute } from "../codexRoute.js";
 import { CopilotAgentService } from "../copilotAgentService.js";
 import { CopilotRelay } from "../copilotRelay.js";
 import { CopilotRoute } from "../copilotRoute.js";
+import { reached, sendOn } from "../wsSend.js";
 import type { HostStage } from "./composeHost.js";
 import type { SessionsStage } from "./composeSessions.js";
 
@@ -30,8 +31,7 @@ export function composeAgents({ sessions, host, ambient }: AgentsStageDeps): Age
 	const sendToHost = (message: unknown): boolean => {
 		const hostWs = host.liveHostSocket();
 		if (!hostWs) return false;
-		hostWs.send(JSON.stringify(message));
-		return true;
+		return reached(sendOn(hostWs, JSON.stringify(message), "agent daemon command"));
 	};
 
 	const codexAgentService = new CodexAgentService({

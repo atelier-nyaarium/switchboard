@@ -403,6 +403,14 @@ delete it and does the code still read, or does it fit in about four words? Self
 work here, because the same judgment that wrote the sentence keeps calling it critical. Calibrate
 against `AppStateStore.kt` and `MainActivity.kt`, which are the house length.
 
+**Hand the change itself to an auditor too, and tell it to read `/architecture`.** Name the skill in
+the prompt, because an auditor that is only shown a diff reviews the lines in it and reports nits. It
+has to look wider than the diff: what class does this change belong to, where else does that class
+live, and did the change leave a sibling instance behind. Ask for defect classes, not line notes.
+
+**A second occurrence is not a second bug.** It is evidence of a class. Stop patching instances, run
+`/architecture`, and make the class inexpressible. Track it on the board rather than in a comment.
+
 **Do not sanitize invisible characters in display strings:** `oneLine` collapses ASCII whitespace,
 which is the whole of it. No category strip, no bidi rule, no Unicode whitespace set.
 
