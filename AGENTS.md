@@ -115,6 +115,14 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     stale rather than blanking it, and Fire waits for a preview whose revision matches the runbook.
   - **`FireSheetState` holds two lifetimes:** the values and the preview belong to a runbook at a
     revision and `adopt` resets them; the target and a fire in flight belong to the sheet.
+- `android/.../runbooks/RunbookText.kt` - the one-line form an option and a body are shown in, and
+  the trim a typed option passes through
+  - **A cut chip says it was cut:** `chipLabel` takes the first line to a character cap and marks
+    what it dropped, since `maxLines` alone shows a short first line as if it were the whole value.
+    The cut never ends on half a surrogate pair. The Kotlin gate reads this rule; no gate here reads
+    a Compose layout.
+  - **A typed option keeps its indent:** `trimmedOption` drops blank edge lines, and trims fully only
+    when one line is left, so a pasted block does not lose the indentation of its first line alone.
 - `android/.../AttachmentOps.kt` - attachment fetch-and-sweep state
 - `android/.../ScheduledSendOps.kt` - scheduled sends and single fire mutex
 - `android/.../GoalOps.kt` / `Goal.kt` - armed goals and `/goal` line production

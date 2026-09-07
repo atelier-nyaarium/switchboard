@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
@@ -93,7 +94,7 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 									FilterChip(
 										selected = value == option,
 										onClick = hapticClick { sheet.values = values + (parameter.name to option) },
-										label = { Text(option) },
+										label = { Text(chipLabel(option), maxLines = 1, overflow = TextOverflow.Ellipsis) },
 									)
 								}
 							}

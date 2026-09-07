@@ -523,13 +523,24 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 		com.atelier_nyaarium.switchboard.proto.Runbook(
 			id = "triage",
 			name = "Morning triage",
-			body = "Read the overnight CI failures on {{branch}} and tell me which are real.",
+			body = "Read the overnight CI failures on {{branch}} and tell me which are real.\n\n{{depth}}",
 			parameters = listOf(
 				com.atelier_nyaarium.switchboard.proto.RunbookParameter(
 					name = "branch",
 					label = "Branch",
 					kind = "text",
 					default = "main",
+				),
+				com.atelier_nyaarium.switchboard.proto.RunbookParameter(
+					name = "depth",
+					label = "How far to dig",
+					kind = "choice",
+					default = "Name the failing job and stop.",
+					options = listOf(
+						"Name the failing job and stop.",
+						"Read the failing job's log.\nQuote the assertion that failed.\nDo not open the source.",
+						"Read the log, open the source, and say which commit introduced it.",
+					),
 				),
 			),
 			revision = 1L,

@@ -106,6 +106,3 @@ private fun RunbookRow(runbook: Runbook, onFire: () -> Unit, onEdit: () -> Unit)
 		}
 	}
 }
-
-internal fun summaryOf(body: String): String =
-	body.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() } ?: ""

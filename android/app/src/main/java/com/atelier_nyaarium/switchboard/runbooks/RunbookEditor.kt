@@ -37,6 +37,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.RunbookConflict
@@ -161,30 +162,31 @@ private fun ParameterCard(name: String, setting: ParameterDraft, onEdit: ((Param
 			if (setting.kind == "choice") {
 				FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
 					for (held in setting.options) {
+						val shown = chipLabel(held)
 						InputChip(
 							selected = setting.default == held,
 							onClick = hapticClick { onEdit { it.copy(default = if (it.default == held) "" else held) } },
-							label = { Text(held) },
+							label = { Text(shown, maxLines = 1, overflow = TextOverflow.Ellipsis) },
 							trailingIcon = {
 								IconButton(onClick = hapticClick {
 									onEdit { it.copy(options = it.options - held, default = if (it.default == held) "" else it.default) }
-								}) { Icon(Icons.Default.Close, contentDescription = "Remove $held") }
+								}) { Icon(Icons.Default.Close, contentDescription = "Remove $shown") }
 							},
 						)
 					}
 				}
+				val ready = trimmedOption(option)
 				Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
 					OutlinedTextField(
 						value = option,
 						onValueChange = { option = it },
 						label = { Text("Option") },
-						singleLine = true,
-						modifier = Modifier.weight(1f),
+						modifier = Modifier.weight(1f).heightIn(max = 200.dp),
 					)
 					TextButton(
-						enabled = option.isNotBlank() && option !in setting.options,
+						enabled = ready.isNotBlank() && ready !in setting.options,
 						onClick = hapticClick {
-							onEdit { it.copy(options = it.options + option.trim()) }
+							onEdit { it.copy(options = it.options + ready) }
 							option = ""
 						},
 					) { Text("Add") }
