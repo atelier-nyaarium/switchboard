@@ -49,7 +49,6 @@ export function createConsoleDispatcher({
 	onSessionEnded,
 }: ConsoleHandlerDeps) {
 	const targets = createConsoleTargets({ localDomainId, localGatewayId, isTrustedCatalogProject });
-	/** A `sent` row's thread. A spawn point is not a conversation, so it keys to nothing. */
 	const sentSessionKey = (ownerId: string, to: string): string => {
 		const address = targets.parse(to);
 		return address instanceof SpawnPoint ? "" : storeKey({ kind: "conv", conversationId: ownerId, address });
@@ -92,7 +91,6 @@ export function createConsoleDispatcher({
 				const json = (await res.json().catch(() => ({}))) as SendRouteJson;
 				return { ok: false, error: json.error };
 			}
-			// The same row a typed message leaves, so a fire is in the sent history.
 			appendIfLive(
 				ctx.conversationId,
 				{ kind: "sent", session_id: sentSessionKey(ctx.ownerId, to), opId: ctx.opId, body },
@@ -102,7 +100,6 @@ export function createConsoleDispatcher({
 		},
 	});
 	const ownerByConversation = new Map<string, string>();
-	/** Fires this process started. A durable record cannot tell one from a crash. */
 	const firingNow = new Set<string>();
 	const appendIfLive = (
 		conversationId: string,
@@ -326,12 +323,10 @@ export function createConsoleDispatcher({
 				return runbookFire.preview(op);
 
 			case "runbook_fire": {
-				// Value ops are not deduped upstream, so a retry would send twice.
 				if (!durableOpStore) throw new Error("firing a runbook needs the idempotency store");
 				const key = durableOpKey(op.kind, opId);
 				const held = durableOpStore.get(conversationId, key);
 				if (held?.state === "complete") return held.result;
-				// A restored in-flight record is a crash to re-execute, not a fire still going.
 				if (firingNow.has(key)) return { fired: false, reason: "this runbook is already firing" };
 				const generation = durableOpStore.markInFlight(conversationId, key);
 				firingNow.add(key);
@@ -346,7 +341,6 @@ export function createConsoleDispatcher({
 						return result;
 					}
 					durableOpStore.markComplete(conversationId, key, result);
-					// A fenced completion never reached disk, so hold the key instead.
 					if (durableOpStore.get(conversationId, key)?.state === "complete") firingNow.delete(key);
 					return result;
 				} catch (error) {

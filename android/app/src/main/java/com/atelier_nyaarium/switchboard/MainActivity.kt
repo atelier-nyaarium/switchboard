@@ -129,7 +129,6 @@ fun App(
 	var boardModal by remember { mutableStateOf<Pair<String, String>?>(null) }
 	var vaultModal by remember { mutableStateOf<VaultModal?>(null) }
 	var fireRunbookId by remember { mutableStateOf<String?>(null) }
-	// Null inside means a new one, which is why the intent is wrapped rather than a bare id.
 	var editRunbook by remember { mutableStateOf<RunbookEdit?>(null) }
 	// Clear reveal after handoff.
 	val revealAtState = remember { mutableStateOf<Pair<String, Long>?>(null) }
@@ -609,7 +608,6 @@ fun App(
 	}
 }
 
-/** A runbook to edit, or a new one when the id is absent. */
 data class RunbookEdit(val id: String?)
 
 /** Log and skip plugin claim errors. */

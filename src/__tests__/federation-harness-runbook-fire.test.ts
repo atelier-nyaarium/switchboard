@@ -37,7 +37,6 @@ describe("federation harness: firing a runbook", () => {
 			(await h.phone.value({ kind: "runbook_fire", runbookId: release.id, values, into }, opId)).result,
 		);
 
-	/** What the fake daemon does when the gateway asks it to launch: register, or never answer. */
 	const launchesInto = (registers: boolean) => {
 		const launched: FakeSession[] = [];
 		h.host.handlers.onCreateSession = (op) => {
@@ -113,7 +112,6 @@ describe("federation harness: firing a runbook", () => {
 			fire(values, { kind: "session", target }, "op-fire-concurrent"),
 		]);
 
-		// One refusal, one delivery.
 		expect(both.some((answer) => !answer.fired)).toBe(true);
 		await h.waitFor(
 			async () => (attached.inbound.filter((frame) => frame.body === body).length === 1 ? true : undefined),
@@ -136,7 +134,6 @@ describe("federation harness: firing a runbook", () => {
 		launchesInto(false);
 		const answer = await fire({ level: "patch", repo: "quiet" }, { kind: "new", target: "host" });
 		expect(answer.fired).toBe(false);
-		// Left running, to be fired at again.
 		expect(answer.sessionId).toBeTruthy();
 		expect(h.gateway.faults.sessionRecord(composeSessionName("host", answer.sessionId as string))).toBeTruthy();
 	});

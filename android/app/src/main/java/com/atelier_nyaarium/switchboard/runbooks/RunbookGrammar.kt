@@ -1,15 +1,9 @@
 package com.atelier_nyaarium.switchboard.runbooks
 
-/**
- * The twin of `placeholdersOf` in `src/shared/runbook-grammar.ts`, pinned by
- * `tests/fixtures/runbook-grammar/vectors.json`. Recognition only, since the render is the
- * gateway's.
- */
-// Whitespace explicit, never `\s`: the runtimes cover different characters.
-// Braces escaped for ICU, which refuses a bare `}`. Unit tests run on the JVM and cannot see it.
+// Explicit whitespace class.
+// Escape braces for ICU.
 private val PLACEHOLDER_AT = Regex("""^\{\{[ \t\r\n]*([A-Za-z][A-Za-z0-9_]*)[ \t\r\n]*\}\}""")
 
-/** Null when an opener names no parameter. */
 fun placeholdersOf(body: String): List<String>? {
 	val names = LinkedHashSet<String>()
 	var at = 0

@@ -1,4 +1,4 @@
-// One parse owns the placeholder grammar. Every reader derives from it.
+// Parser owns grammar.
 
 import type { RunbookParameter } from "./schemasRunbook.js";
 
@@ -6,16 +6,13 @@ export type RunbookToken = { kind: "literal"; text: string } | { kind: "placehol
 
 export type RunbookParse = { ok: true; tokens: RunbookToken[] } | { ok: false; reason: string };
 
-/** Explicit, because `\s` covers different characters in the Kotlin twin. */
+/** Explicit whitespace class. */
 const SPACE = "[ \\t\\r\\n]*";
 
-/** Anchored, so a `{{` either opens a placeholder here or opens nothing. */
 const PLACEHOLDER_AT = new RegExp(`^\\{\\{${SPACE}([A-Za-z][A-Za-z0-9_]*)${SPACE}\\}\\}`);
 
-/** The same form, found anywhere. Reads rendered text, not a template. */
 const PLACEHOLDER_ANYWHERE = new RegExp(`\\{\\{${SPACE}[A-Za-z][A-Za-z0-9_]*${SPACE}\\}\\}`);
 
-/** Only an opener begins a placeholder, so a lone `}}` stays literal. */
 export function parseBody(body: string): RunbookParse {
 	const tokens: RunbookToken[] = [];
 	let literalFrom = 0;
@@ -34,7 +31,6 @@ export function parseBody(body: string): RunbookParse {
 	return { ok: true, tokens };
 }
 
-/** First mention first, without repeats. Empty for a body that does not parse. */
 export function placeholdersOf(body: string): string[] {
 	const parsed = parseBody(body);
 	if (!parsed.ok) return [];
@@ -43,7 +39,7 @@ export function placeholdersOf(body: string): string[] {
 
 export type RunbookRender = { ok: true; text: string } | { ok: false; reason: string };
 
-/** Reads its own output: a value and its literals can compose a placeholder. */
+/** Validate rendered output. */
 export function renderRunbook(
 	body: string,
 	parameters: readonly RunbookParameter[],
@@ -54,14 +50,13 @@ export function renderRunbook(
 
 	const declared = new Map(parameters.map((parameter) => [parameter.name, parameter]));
 	const unknown = Object.keys(values).filter((name) => !declared.has(name));
-	// An unknown parameter means the sender holds a different runbook.
 	if (unknown.length > 0) {
 		return { ok: false, reason: `this runbook has no ${unknown.join(", ")}; push your copy of it first` };
 	}
 
 	const filled = new Map<string, string>();
 	for (const [name, parameter] of declared) {
-		// Own properties only: a parameter may legally be named `toString`.
+		// Own properties only.
 		const supplied = Object.hasOwn(values, name) ? values[name] : undefined;
 		const value = supplied ?? parameter.default ?? "";
 		if (value === "") return { ok: false, reason: `${name} has no value` };
@@ -75,7 +70,6 @@ export function renderRunbook(
 		.map((token) => (token.kind === "literal" ? token.text : (filled.get(token.name) as string)))
 		.join("");
 
-	// Only a well-formed placeholder is a fault. A bare `{{` stays prose.
 	if (PLACEHOLDER_ANYWHERE.test(text)) {
 		return { ok: false, reason: "a filled value composes another `{{name}}`; take the braces out of it" };
 	}

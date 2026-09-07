@@ -9,7 +9,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** Drives the placeholder twin through the vectors src/__tests__/runbook-grammar-vectors.test.ts reads. */
 class RunbookGrammarVectorsTest {
 	private val vectors =
 		Json.parseToJsonElement(

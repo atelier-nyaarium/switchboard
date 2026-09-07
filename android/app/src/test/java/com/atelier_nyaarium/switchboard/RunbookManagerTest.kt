@@ -66,7 +66,6 @@ class RunbookManagerTest {
 
 		store.refusing = true
 		assertEquals(listOf("deploy"), manager.merge(listOf(book("release"))).map { it.id })
-		// What a restart would find.
 		assertEquals(listOf("deploy"), RunbookManager(store).all().map { it.id })
 	}
 

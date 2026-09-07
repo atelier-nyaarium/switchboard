@@ -22,7 +22,6 @@ internal sealed interface PushDecision {
 	data class Adopt(val theirs: Runbook) : PushDecision
 }
 
-/** Equal revisions with different words are a lost update, which the gateway refuses. */
 internal fun pushDecision(mine: Runbook, held: Runbook?): PushDecision = when {
 	held == null -> PushDecision.Put
 	held.revision > mine.revision -> PushDecision.Adopt(held)
@@ -31,13 +30,11 @@ internal fun pushDecision(mine: Runbook, held: Runbook?): PushDecision = when {
 	else -> PushDecision.Put
 }
 
-/** The revision a save must clear to win. */
 internal data class RunbookConflict(val reason: String, val heldRevision: Long)
 
 internal fun conflictOfRefusal(answer: ConsoleRunbookPutResult): RunbookConflict =
 	RunbookConflict(answer.reason ?: "This Gateway holds a different copy", answer.revision)
 
-/** No answer leaves a standing conflict alone. */
 internal fun conflictsAfterPut(
 	held: Map<String, RunbookConflict>,
 	runbookId: String,
@@ -48,24 +45,20 @@ internal fun conflictsAfterPut(
 	else -> held + (runbookId to conflictOfRefusal(answer))
 }
 
-/** Rebasing below the draft would mint a revision `merge` discards. */
+/** Equal still conflicts. */
 internal fun standingConflict(conflict: RunbookConflict?, draftRevision: Long): RunbookConflict? =
 	conflict?.takeIf { it.heldRevision >= draftRevision }
 
-/** Refused keeps the editor open; the other two close it. */
 internal sealed interface RunbookSaved {
 	data object Stored : RunbookSaved
-	/** No Gateway answered, so the copy is the phone's alone. */
 	data object Local : RunbookSaved
 	data class Refused(val conflict: RunbookConflict) : RunbookSaved
 }
 
-/** The gateway calls. `RunbookManager` owns the library itself. */
 internal class RunbookOps(
 	private val state: MutableStateFlow<ChatState>,
 	private val host: RunbookHost,
 ) {
-	/** One push per revision, so typing does not ask the gateway per keystroke. */
 	private val synced = mutableSetOf<Triple<String, String, Long>>()
 
 	private var conflicts = emptyMap<String, RunbookConflict>()
@@ -76,23 +69,19 @@ internal class RunbookOps(
 		show(host.library.all())
 	}
 
-	/** Adopts anything the gateway holds newer. */
 	suspend fun refresh(gatewayId: String = host.homeGatewayId()) {
 		val client = host.client ?: return
 		if (gatewayId.isBlank()) return
 		val held = attempt { client.runbookList(gatewayId) } ?: return
-		// Just read, so nothing older is believable.
 		synced.clear()
 		show(host.library.merge(held.runbooks))
 	}
 
-	/** Pushed before it answers, so a refusal reaches the editor while the draft is open. */
 	suspend fun save(runbook: Runbook, gatewayId: String = host.homeGatewayId()): RunbookSaved {
 		synced.removeAll { it.second == runbook.id }
 		val client = host.client
 		val reachable = client != null && gatewayId.isNotBlank()
 
-		// Refused before the library is touched, so a lost update never lands.
 		val answer = if (reachable) put(client as ConsoleClient, gatewayId, runbook) else null
 		if (answer != null && !answer.stored) return RunbookSaved.Refused(conflictOfRefusal(answer))
 
@@ -101,7 +90,6 @@ internal class RunbookOps(
 		return if (answer != null) RunbookSaved.Stored else RunbookSaved.Local
 	}
 
-	/** Null when the library did not take the save. */
 	private fun keep(runbook: Runbook): Runbook? {
 		val library = host.library.merge(listOf(runbook))
 		show(library)
@@ -137,7 +125,6 @@ internal class RunbookOps(
 		return attempt { client.runbookPreview(gatewayId, runbookId, values) }
 	}
 
-	/** Pinned to the previewed revision, so a body edited since is refused. */
 	suspend fun fire(
 		runbookId: String,
 		values: Map<String, String>,
@@ -152,7 +139,6 @@ internal class RunbookOps(
 		} catch (cancelled: CancellationException) {
 			throw cancelled
 		} catch (refused: Exception) {
-			// A bare null would throw the reason away.
 			ConsoleRunbookFireResult(fired = false, reason = refused.message ?: "the Gateway refused this fire")
 		}
 	}
@@ -164,7 +150,6 @@ internal class RunbookOps(
 		if (Triple(gatewayId, runbookId, mine.revision) in synced) return true
 
 		val theirs = attempt { client.runbookList(gatewayId) } ?: return false
-		// Settles the revision it checked, not whatever lands later.
 		var settledRevision = mine.revision
 		val settled = when (val decision = pushDecision(mine, theirs.runbooks.find { it.id == runbookId })) {
 			PushDecision.Ready -> true
@@ -173,7 +158,7 @@ internal class RunbookOps(
 				show(host.library.merge(listOf(decision.theirs)))
 				true
 			}
-			// A delete in flight must not be undone by this put.
+			// Not if deleted meanwhile.
 			PushDecision.Put ->
 				host.library.find(runbookId) != null && put(client, gatewayId, mine)?.stored == true
 		}
@@ -181,14 +166,12 @@ internal class RunbookOps(
 		return settled
 	}
 
-	/** The one push. A refusal is an edit conflict, not an outage. */
 	private suspend fun put(client: ConsoleClient, gatewayId: String, mine: Runbook): ConsoleRunbookPutResult? {
 		val answer = attempt { client.runbookPut(gatewayId, mine) }
 		conflicts = conflictsAfterPut(conflicts, mine.id, answer)
 		return answer
 	}
 
-	/** A cancelled call stays cancelled. Only a real failure answers null. */
 	private suspend fun <T> attempt(call: suspend () -> T): T? = try {
 		call()
 	} catch (cancelled: CancellationException) {

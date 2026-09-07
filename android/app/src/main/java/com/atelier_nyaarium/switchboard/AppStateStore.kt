@@ -292,7 +292,6 @@ class AppStateStore internal constructor(
 
 	override fun loadVault(): String? = prefs.getString(KEY_VAULT, null)
 
-	/** The phone authors runbooks, so this is the library rather than a cache; the write must land. */
 	override fun saveRunbooks(json: String) = check(prefs.edit().putString(KEY_RUNBOOKS, json).commit())
 
 	override fun loadRunbooks(): String? = prefs.getString(KEY_RUNBOOKS, null)

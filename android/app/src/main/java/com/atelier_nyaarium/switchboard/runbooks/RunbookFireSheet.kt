@@ -40,10 +40,8 @@ import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** How long values sit still before a render is asked for. */
 private const val PREVIEW_SETTLE_MS = 400L
 
-/** What the preview shows is what a fire sends, and Fire pins the revision it was shown. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, onDismiss: () -> Unit) {
@@ -58,7 +56,6 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 	val values = sheet.values
 	val scope = rememberCoroutineScope()
 
-	// An edit marks the preview stale rather than blanking it, and Fire waits.
 	LaunchedEffect(runbook.revision, gatewayId, values) {
 		sheet.preview = (sheet.preview as? PreviewState.Ready)?.let { PreviewState.Stale(it.text) }
 			?: PreviewState.Pending
@@ -136,7 +133,6 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 
 			Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
 				TextButton(onClick = hapticClick(onDismiss), modifier = Modifier.weight(1f)) { Text("Cancel") }
-				// A landed revision whose reset has not run leaves a preview of older words.
 				val ready = (sheet.preview as? PreviewState.Ready)?.takeIf { it.revision == runbook.revision }
 				Button(
 					enabled = ready != null && !sheet.firing && sheet.target.isNotBlank(),
@@ -201,19 +197,15 @@ private fun PreviewPane(preview: PreviewState) {
 	}
 }
 
-/** Two lifetimes, so neither can be keyed by mistake. */
 internal class FireSheetState(runbook: Runbook, gatewayId: String) {
 	var revision by mutableStateOf(runbook.revision)
 		private set
 
-	// The runbook's, at a revision. A new one may declare other parameters.
 	var values by mutableStateOf(runbook.parameters.associate { it.name to (it.default ?: "") })
 	var preview by mutableStateOf<PreviewState>(PreviewState.Pending)
 	var refusal by mutableStateOf<String?>(null)
 
-	// The sheet's. A choice of target outlives an edit to the wording.
 	var freshSession by mutableStateOf(true)
-	// A spawn point, never a gateway id, which resolves to no spawn.
 	var target by mutableStateOf("host")
 	var firing by mutableStateOf(false)
 
@@ -228,9 +220,7 @@ internal class FireSheetState(runbook: Runbook, gatewayId: String) {
 
 internal sealed interface PreviewState {
 	data object Pending : PreviewState
-	/** No answer. Carries a standing conflict's reason when one explains it. */
 	data class Unreachable(val reason: String?) : PreviewState
-	/** The last render, held while a newer one is asked for. */
 	data class Stale(val text: String) : PreviewState
 	data class Ready(val text: String, val revision: Long) : PreviewState
 	data class Refused(val reason: String) : PreviewState

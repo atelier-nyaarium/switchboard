@@ -19,7 +19,6 @@ class RunbookDraftTest {
 		val two = one.copy(body = "cut a {{level}} release of {{repo}}")
 		assertEquals(listOf("level", "repo"), two.declared)
 
-		// An unparsed body declares nothing, not half a list.
 		assertNull(one.copy(body = "cut a {{level").declared)
 	}
 
@@ -35,7 +34,6 @@ class RunbookDraftTest {
 
 		val removed = withSettings.copy(body = "go")
 		assertEquals(emptyList<String>(), removed.declared)
-		// Every setting, not just the label.
 		assertEquals(settled, removed.copy(body = "go {{env}}").settingsFor("env"))
 	}
 
@@ -73,22 +71,18 @@ class RunbookDraftTest {
 	@Test
 	fun everyRuleTheGatewayWouldRefuseOnIsCheckedBeforeSaveIsOffered() {
 		val fill = { setting: ParameterDraft -> draft("go {{env}}", mapOf("env" to setting)).refusal() }
-		// A filled value is text, never another template.
 		assertNotNull(fill(ParameterDraft(label = "Environment", default = "{{other}}")))
 		assertNotNull(
 			fill(ParameterDraft(label = "Environment", kind = "choice", options = listOf("prod", "{{other}}"))),
 		)
-		// An empty option is a choice the owner cannot pick.
 		assertNotNull(fill(ParameterDraft(label = "Environment", kind = "choice", options = listOf("prod", " "))))
 	}
 
 	@Test
 	fun becomingAChoiceDropsATypedDefaultItCannotOffer() {
 		val typed = ParameterDraft(label = "Environment", default = "prod")
-		// A choice hides the Default field, so a kept value could never be cleared.
 		assertEquals("", typed.asKind("choice").default)
 		assertEquals("prod", typed.copy(options = listOf("prod")).asKind("choice").default)
-		// Back to text, a chosen option is a good typed default.
 		assertEquals("prod", typed.copy(kind = "choice", options = listOf("prod")).asKind("text").default)
 	}
 
@@ -105,7 +99,6 @@ class RunbookDraftTest {
 	fun aDraftMissingItsOwnPartsRefusesRatherThanSaving() {
 		assertNotNull(draft("").refusal())
 		assertNotNull(draft("go {{env}}").copy(name = "").refusal())
-		// A blank label reaches the owner as an unlabelled box.
 		assertNotNull(draft("go {{env}}", mapOf("env" to ParameterDraft(label = " "))).refusal())
 		assertNull(draft("go {{env}}", mapOf("env" to ParameterDraft(label = "Environment"))).refusal())
 	}
