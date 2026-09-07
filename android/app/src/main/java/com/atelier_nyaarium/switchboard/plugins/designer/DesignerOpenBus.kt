@@ -1,5 +1,7 @@
 package com.atelier_nyaarium.switchboard.plugins.designer
 
+import com.atelier_nyaarium.switchboard.DebugLog
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,4 +33,10 @@ object DesignerOpenBus {
 /** A process-lifetime scope for a Designer fire-and-forget send (Reattach), so closing the thread
  * mid-send does not cancel it - matching the composer's own App-scoped send rather than the dock's
  * composition scope. */
-internal val designerSendScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+internal val designerSendScope = CoroutineScope(
+	SupervisorJob() + Dispatchers.Main +
+		CoroutineExceptionHandler { _, e ->
+			// The send reaches the Router, and a lone child's throw would take the process down.
+			DebugLog.log("Designer", "uncaught in send scope: ${e.javaClass.simpleName}: ${e.message}")
+		},
+)

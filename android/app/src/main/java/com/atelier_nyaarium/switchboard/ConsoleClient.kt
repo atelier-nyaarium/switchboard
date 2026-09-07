@@ -260,6 +260,7 @@ internal suspend fun sendValueOp(gatewayId: String, op: ConsoleOp, opId: String 
 
 	/** Connected Gateways, or unknown. */
 	fun fetchConnectedGateways(): List<String>? {
+		if (isSandbox) return null
 		val req = buildConnectedGatewaysRequest(transport.proxyBase)
 		transport.client.newCall(req).execute().use { resp ->
 			if (!resp.isSuccessful) return null

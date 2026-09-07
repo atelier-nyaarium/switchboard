@@ -399,7 +399,9 @@ by `SandboxSeeder.kt`:
   cancels its own caller rather than throwing, since the scopes that launch one do not all handle a
   failure, and the socket does not open at all, since its failure lands on OkHttp's dispatcher where
   no caller's `runCatching` reaches it. A screen waiting on a Gateway stays on its pending state
-  here, which is the honest answer.
+  here, which is the honest answer. `sandbox-network-residue.test.ts` reads every `newCall` and
+  `newWebSocket` on the phone and refuses a file that opens one without asking, so a new door is a
+  decision rather than an oversight. Its allowlist names why each exempt file is exempt.
 
 ### Dependencies
 
@@ -453,6 +455,11 @@ passed every gate. Run the path where it actually runs, or fence what the gate c
 
 **Do not sanitize invisible characters in display strings:** `oneLine` collapses ASCII whitespace,
 which is the whole of it. No category strip, no bidi rule, no Unicode whitespace set.
+
+**A long-lived coroutine scope on the phone carries a `CoroutineExceptionHandler`:** it outlives the
+call that made it, so a throw inside has no caller to catch it, and a `SupervisorJob` only spares
+the siblings. These scopes reach the Router, where a dead network throws, and the process goes down.
+`coroutine-scope-residue.test.ts` reads every one, since no gate here runs the phone.
 
 ### Testing
 

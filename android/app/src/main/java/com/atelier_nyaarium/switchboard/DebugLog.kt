@@ -58,7 +58,8 @@ object DebugLog {
 	}
 
 	fun attachIngest(prov: ConsoleCredentials, baseUrl: () -> String) {
-		if (BuildConfig.DEBUG) {
+		// The emulator build inherits debug, and its Router address resolves to nothing.
+		if (BuildConfig.DEBUG && !isSandbox) {
 			// Resolve the base URL per flush for transport failover.
 			ingestBase = baseUrl
 			ingestAppToken = prov.appToken
