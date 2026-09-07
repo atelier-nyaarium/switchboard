@@ -195,7 +195,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A Kotlin `Regex` must be written for ICU, not for the desktop JVM:** Android compiles patterns
     with ICU, which refuses a bare `}` that OpenJDK accepts as a literal. `testDebugUnitTest` runs on
     OpenJDK and cannot see the difference, and there is no `androidTest` source set, so a pattern
-    that crashes on the phone can pass every gate. Escape every brace.
+    that crashes on the phone can pass every gate. `icu-regex-residue.test.ts` now reads every phone
+    `Regex` literal for it, since nothing that runs Kotlin can.
 - `src/federation-server/scheduled/` - scheduled sends: versioned records, timers, fire through the op ledger, result rows
 - `src/federation-server/tier1/` - capability fold and read anchors
 - `src/federation-server/migration/` - leases, serve gate, and cursor translation
@@ -410,6 +411,15 @@ live, and did the change leave a sibling instance behind. Ask for defect classes
 
 **A second occurrence is not a second bug.** It is evidence of a class. Stop patching instances, run
 `/architecture`, and make the class inexpressible. Track it on the board rather than in a comment.
+
+**A test that fails sometimes is a defect until it is proved otherwise.** Calling it a flake is a
+diagnosis, and it needs the same evidence as any other. `8e0c3bf5` was dismissed as load-sensitive
+three times before CI showed a plain TypeError.
+
+**A gate that cannot see a failure is not covering it.** Before calling a path done, ask what would
+have caught it: the phone compiles regexes ICU refuses and the desktop JVM accepts, and the harness
+attaches its fake session on a timing that made a real wake race impossible to reproduce. Both
+passed every gate. Run the path where it actually runs, or fence what the gate cannot reach.
 
 **Do not sanitize invisible characters in display strings:** `oneLine` collapses ASCII whitespace,
 which is the whole of it. No category strip, no bidi rule, no Unicode whitespace set.
