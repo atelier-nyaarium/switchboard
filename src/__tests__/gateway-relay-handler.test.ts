@@ -8,7 +8,7 @@ import type { Sealer } from "../gateway/federation/sealer.js";
 
 function makeHandler(respond: FederationRoutes["respond"]) {
 	const routes: FederationRoutes = {
-		send: async () => new Response(JSON.stringify({ session_id: "s", status: "running" })),
+		acceptGatewaySend: async () => new Response(JSON.stringify({ session_id: "s", status: "running" })),
 		respond,
 		teams: () => new Response(JSON.stringify([])),
 		localSpawnPoints: () => [{ domainId: "alice", gatewayId: "test-host", hostSpawns: [] }],

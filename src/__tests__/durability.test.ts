@@ -154,7 +154,7 @@ describe("migration fence durability", () => {
 		});
 		const relay = createGatewayRelayHandler({
 			routes: {
-				send: async () => new Response("{}"),
+				acceptGatewaySend: async () => new Response("{}"),
 				respond: () => new Response("{}"),
 				teams: () => new Response("[]"),
 				localSpawnPoints: () => [],

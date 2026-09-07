@@ -3,7 +3,6 @@ import type { ConsoleOp, ConsoleOpResult } from "../../shared/console-protocol.j
 import { fenced, MIGRATING } from "../../shared/migration-fence.js";
 import { ownerKeyId } from "../../shared/owner-id.js";
 import { DELIVERY_OP_KINDS, TOLERATED_DELIVERY_OP_KINDS, VALUE_OP_KINDS } from "../../shared/schemasConsoleOp.js";
-import { SpawnPoint, storeKey } from "../../shared/session-id.js";
 import { answerBlobOp } from "../blobOps.js";
 import { createCrossDomainHandlers } from "./consoleCrossDomain.js";
 import { createRunbookFireHandler } from "./consoleRunbookFire.js";
@@ -49,10 +48,6 @@ export function createConsoleDispatcher({
 	onSessionEnded,
 }: ConsoleHandlerDeps) {
 	const targets = createConsoleTargets({ localDomainId, localGatewayId, isTrustedCatalogProject });
-	const sentSessionKey = (ownerId: string, to: string): string => {
-		const address = targets.parse(to);
-		return address instanceof SpawnPoint ? "" : storeKey({ kind: "conv", conversationId: ownerId, address });
-	};
 	const terminalOps = createTerminalHandlers({ targets, relayToHost, sessionStore });
 	const sessionLifecycle = createSessionLifecycleHandlers({
 		targets,
@@ -82,18 +77,13 @@ export function createConsoleDispatcher({
 		createSession: (op, conv, opId) => sessionLifecycle.createSession(op, conv, opId),
 		awaitRegister,
 		deliver: async (to, body, ctx) => {
-			const res = await routes.send(
-				FAKE_REQ,
-				{ from: ctx.device, fromConversationId: ctx.ownerId, to, body, channelOnly: true },
-				{ consoleSender: true },
-			);
-			if (!res.ok) {
-				const json = (await res.json().catch(() => ({}))) as SendRouteJson;
-				return { ok: false, error: json.error };
-			}
+			const res = await routes.sendFromOwner({ from: ctx.device, to, body, channelOnly: true });
+			const json = (await res.json().catch(() => ({}))) as SendRouteJson;
+			if (!res.ok) return { ok: false, error: json.error };
 			appendIfLive(
 				ctx.conversationId,
-				{ kind: "sent", session_id: sentSessionKey(ctx.ownerId, to), opId: ctx.opId, body },
+				// Use route-minted key.
+				{ kind: "sent", session_id: json.session_id ?? "", opId: ctx.opId, body },
 				`sent:${ctx.conversationId}:${ctx.opId}`,
 			);
 			return { ok: true };
@@ -128,20 +118,15 @@ export function createConsoleDispatcher({
 	): Promise<ConsoleOpResult> {
 		switch (op.kind) {
 			case "send": {
-				const expectedSession = sentSessionKey(ownerId, op.to);
-				const sendPromise = routes.send(
-					FAKE_REQ,
-					{
-						from: device,
-						fromConversationId: ownerId,
-						to: op.to,
-						targetDomainId: op.domainId,
-						body: op.body,
-						files: op.files,
-						channelOnly: true,
-					},
-					{ consoleSender: true },
-				);
+				const expectedSession = routes.ownerSessionKey(op.to, op.domainId);
+				const sendPromise = routes.sendFromOwner({
+					from: device,
+					to: op.to,
+					targetDomainId: op.domainId,
+					body: op.body,
+					files: op.files,
+					channelOnly: true,
+				});
 
 				const winner = await withinMs(ambient, sendPromise, sendBoundMs);
 

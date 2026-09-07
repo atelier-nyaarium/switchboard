@@ -19,7 +19,7 @@ export type HttpRoutes = Pick<
 	| "teams"
 	| "capabilities"
 	| "discover"
-	| "send"
+	| "sendFromSession"
 	| "respond"
 	| "poll"
 	| "health"
@@ -118,7 +118,7 @@ export function createHttpRouter({
 		if (method === "GET" && url.pathname === "/teams") return r.teams();
 		if (method === "GET" && url.pathname === "/capabilities") return r.capabilities();
 		if (method === "GET" && url.pathname === "/discover") return r.discover(url);
-		if (method === "POST" && url.pathname === "/send") return r.send(req, body);
+		if (method === "POST" && url.pathname === "/send") return r.sendFromSession(req, body);
 		if (method === "POST" && url.pathname === "/respond") return r.respond(req, body);
 		if (method === "POST" && url.pathname === "/poll") return r.poll(req, body);
 		if (method === "GET" && url.pathname === "/health") return r.health();

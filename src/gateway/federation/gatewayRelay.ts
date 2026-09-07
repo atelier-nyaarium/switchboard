@@ -14,7 +14,7 @@ import type { WakeResult } from "../wake.js";
 import type { Sealer } from "./sealer.js";
 
 export interface FederationRoutes {
-	send: (req: Request, body: Record<string, unknown>, opts?: { trustedInbound?: boolean }) => Promise<Response>;
+	acceptGatewaySend: (body: Record<string, unknown>) => Promise<Response>;
 	respond: (req: Request, body: Record<string, unknown>, opts?: { trustedInbound?: boolean }) => Response;
 	teams: () => Response;
 	localSpawnPoints: () => GatewaySpawnPoints[];
@@ -112,22 +112,18 @@ export function createGatewayRelayHandler({
 					await gateCrossDomainTarget(op.to, srcDomainId);
 					assertCrossDomainReturnRoute(op.returnRoute, srcGateway, srcDomainId);
 				}
-				const res = await routes.send(
-					FAKE_REQ,
-					{
-						from: sender,
-						to: op.to,
-						body: op.body,
-						files: op.files,
-						channelOnly: true,
-						sessionId: op.returnRoute.srcSession,
-						returnRoute: op.returnRoute,
-						...(srcDomainId !== null ? { dstDomainId: srcDomainId } : {}),
-						...(op.displayLabel ? { displayLabel: op.displayLabel } : {}),
-						...(op.disposition ? { disposition: op.disposition } : {}),
-					},
-					{ trustedInbound: true },
-				);
+				const res = await routes.acceptGatewaySend({
+					from: sender,
+					to: op.to,
+					body: op.body,
+					files: op.files,
+					channelOnly: true,
+					sessionId: op.returnRoute.srcSession,
+					returnRoute: op.returnRoute,
+					...(srcDomainId !== null ? { dstDomainId: srcDomainId } : {}),
+					...(op.displayLabel ? { displayLabel: op.displayLabel } : {}),
+					...(op.disposition ? { disposition: op.disposition } : {}),
+				});
 				const json = (await res.json()) as { session_id?: string; status?: string; error?: string };
 				if (!res.ok) throw new Error(json.error ?? `send from Gateway ${srcGateway} failed`);
 				return { session_id: json.session_id ?? op.returnRoute.srcSession, status: json.status ?? "running" };

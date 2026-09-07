@@ -188,7 +188,8 @@ export function createRoutes(deps: RoutesDeps) {
 		routerClient: deps.routerClient,
 		teams,
 	});
-	const { send } = createSendRoutes({
+	const { sendFromOwner, sendFromSession, acceptGatewaySend, ownerSessionKey } = createSendRoutes({
+		ownerId: deps.ownerId,
 		config,
 		localDomain,
 		ambient,
@@ -246,7 +247,10 @@ export function createRoutes(deps: RoutesDeps) {
 		discover,
 		discoverFull,
 		localSpawnPoints,
-		send,
+		sendFromOwner,
+		sendFromSession,
+		acceptGatewaySend,
+		ownerSessionKey,
 		respond,
 		poll,
 		fetchBlobFromGateway,

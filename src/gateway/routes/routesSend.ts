@@ -35,6 +35,8 @@ import type { CallerScope } from "./callerGuards.js";
 
 type ConsolePushOps = ReturnType<typeof import("../consolePushOps.js").createConsolePushOps>;
 
+type Ingress = { kind: "owner"; ownerId: string } | { kind: "session"; req: Request } | { kind: "gateway" };
+
 export interface SendRoutesDeps {
 	config: GatewayConfig;
 	localDomain: string;
@@ -63,6 +65,7 @@ export interface SendRoutesDeps {
 	mirrorPeer: ConsolePushOps["mirrorPeer"];
 	refuseImpersonation: (req: Request, claimed: string, scope: CallerScope) => Response | null;
 	provedLocalSession: (req: Request) => boolean;
+	ownerId?: (() => string | null) | null;
 }
 
 export function createSendRoutes({
@@ -88,6 +91,7 @@ export function createSendRoutes({
 	mirrorPeer,
 	refuseImpersonation,
 	provedLocalSession,
+	ownerId,
 }: SendRoutesDeps) {
 	const { localGatewayId } = config;
 
@@ -173,18 +177,13 @@ export function createSendRoutes({
 		});
 	}
 
-	async function send(
-		req: Request,
-		body: Record<string, unknown>,
-		opts: { trustedInbound?: boolean; consoleSender?: boolean } = {},
-	): Promise<Response> {
+	async function send(ingress: Ingress, body: Record<string, unknown>): Promise<Response> {
 		const parsed = SendRequestSchema.safeParse(body);
 		if (!parsed.success) {
 			return jsonResponse({ error: `Invalid request: ${parsed.error.message}` }, 400);
 		}
 		const {
 			from,
-			fromConversationId,
 			to,
 			targetDomainId: targetDomain,
 			body: msgBody,
@@ -194,28 +193,30 @@ export function createSendRoutes({
 			disposition,
 			opId: producerOpId,
 		} = parsed.data;
+		const fromConversationId = ingress.kind === "owner" ? ingress.ownerId : parsed.data.fromConversationId;
 		const files =
 			rawSendFiles &&
 			// Only trusted inbound data keeps its existing blob holder.
-			(opts.trustedInbound || opts.consoleSender ? rawSendFiles : stampBlobHolder(rawSendFiles, localGatewayId));
-		if (!opts.trustedInbound && !opts.consoleSender) {
-			// External callers must prove the claimed sender session.
-			const refused = refuseImpersonation(req, from, "session");
+			(ingress.kind === "session" ? stampBlobHolder(rawSendFiles, localGatewayId) : rawSendFiles);
+		if (ingress.kind === "session") {
+			// Session callers prove identity.
+			const refused = refuseImpersonation(ingress.req, from, "session");
 			if (refused) return refused;
 			const holder = fromConversationId ? conversationRegistry.get(fromConversationId) : undefined;
-			if (auth && !auth.satisfies(auth.toAnswerFor(holder), presentedByRequest(req))) {
+			if (auth && !auth.satisfies(auth.toAnswerFor(holder), presentedByRequest(ingress.req))) {
 				console.warn(`[auth] refused a send claiming another session's conversation`);
 				return jsonResponse({ error: "conversation is not this caller's" }, 403);
 			}
 		}
-		const trustedInbound = opts.trustedInbound === true;
+		const trustedInbound = ingress.kind === "gateway";
 		// Federated fields are accepted only from the trusted relay.
 		const inboundSessionId = trustedInbound ? parsed.data.sessionId : undefined;
 		const returnRoute = trustedInbound ? parsed.data.returnRoute : undefined;
 		const dstDomainId = trustedInbound ? parsed.data.dstDomainId : undefined;
-		// Bind replies to caller.
 		const localReply = (conversationId: string): LocalReply =>
-			opts.consoleSender ? { kind: "owner", ownerId: conversationId } : { kind: "conversation", conversationId };
+			ingress.kind === "owner"
+				? { kind: "owner", ownerId: ingress.ownerId }
+				: { kind: "conversation", conversationId };
 
 		if (files && files.length > 0) {
 			// Enforce the file-size limit again at the trust boundary.
@@ -246,10 +247,7 @@ export function createSendRoutes({
 				targetName: composeSessionName(parsedTarget.spawn, parsedTarget.session),
 				targetDomain: realDomain,
 				from,
-				fromAddress:
-					opts.consoleSender && fromConversationId
-						? consoleSelfAddress(fromConversationId).canonical
-						: undefined,
+				fromAddress: ingress.kind === "owner" ? consoleSelfAddress(ingress.ownerId).canonical : undefined,
 				fromConversationId,
 				reply: localReply,
 				body: msgBody,
@@ -429,9 +427,9 @@ export function createSendRoutes({
 					const toAddr = target.address;
 					if (inboundSessionId) {
 						mirrorPeer(toAddr, from, toAddr.canonical, { body: msgBody, files });
-					} else if (!opts.consoleSender) {
+					} else if (ingress.kind === "session") {
 						const fromAddr = tryLocalAddress(from);
-						if (fromAddr && provedLocalSession(req)) {
+						if (fromAddr && provedLocalSession(ingress.req)) {
 							mirrorPeer(fromAddr, fromAddr.canonical, toAddr.canonical, { body: msgBody, files });
 							mirrorPeer(toAddr, fromAddr.canonical, toAddr.canonical, { body: msgBody, files });
 						}
@@ -455,5 +453,44 @@ export function createSendRoutes({
 		return jsonResponse({ error: "unsupported connection mode" }, 400);
 	}
 
-	return { send };
+	/**
+	 * The key an owner send will anchor on, for a caller that must answer before the send resolves.
+	 * Reads the same owner and the same address rules the send does. A wake that resolves a
+	 * different team can still move it, so the send's own answer wins where both exist.
+	 */
+	function ownerSessionKey(to: string, targetDomain?: string): string {
+		const owner = ownerId?.();
+		if (!owner) return "";
+		const parsed = parseTarget(to, localDomain, localGatewayId);
+		if (!parsed || parsed instanceof SpawnPoint) return "";
+		if (parsed.domain !== localDomain || parsed.gateway !== localGatewayId) {
+			const realDomain =
+				parsed.domain !== localDomain && parsed.domain !== LOCAL_DOMAIN_SENTINEL ? parsed.domain : targetDomain;
+			const address = Address.remote(
+				targetDomainId(parsed.gateway, realDomain) ?? localDomain,
+				parsed.gateway,
+				parsed.spawn,
+				parsed.session,
+			);
+			return storeKey({ kind: "conv", conversationId: owner, address });
+		}
+		const local = resolveLocalTarget(to);
+		return local ? storeKey({ kind: "conv", conversationId: owner, address: local.address }) : "";
+	}
+
+	async function sendFromOwner(body: Record<string, unknown>): Promise<Response> {
+		const owner = ownerId?.();
+		if (!owner) return jsonResponse({ error: "this Gateway has no owner to send as" }, 409);
+		return send({ kind: "owner", ownerId: owner }, body);
+	}
+
+	async function sendFromSession(req: Request, body: Record<string, unknown>): Promise<Response> {
+		return send({ kind: "session", req }, body);
+	}
+
+	async function acceptGatewaySend(body: Record<string, unknown>): Promise<Response> {
+		return send({ kind: "gateway" }, body);
+	}
+
+	return { sendFromOwner, sendFromSession, acceptGatewaySend, ownerSessionKey };
 }

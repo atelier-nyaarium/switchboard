@@ -28,7 +28,10 @@ import type { ConversationRegistry, TeamRegistry } from "../wsTypes.js";
 import type { DurableOpStore } from "./durableOpStore.js";
 
 export interface ConsoleRoutes {
-	send: (req: Request, body: Record<string, unknown>, opts?: { consoleSender?: boolean }) => Promise<Response>;
+	// Owner-only console door.
+	sendFromOwner: (body: Record<string, unknown>) => Promise<Response>;
+	// The key that send will anchor on, for an answer owed before it resolves.
+	ownerSessionKey: (to: string, targetDomain?: string) => string;
 	respond: (
 		req: Request,
 		body: Record<string, unknown>,
