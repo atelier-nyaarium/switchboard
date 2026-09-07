@@ -398,6 +398,11 @@ CI enforces the `SYNC-HASH` and the copy. Always use `sync-leaf.ts`: format, res
 
 Biome: tabs, double quotes, semicolons, 120-character width.
 
+**Hand comments to Codex after every coding pass.** Give it the diff and one question per comment:
+delete it and does the code still read, or does it fit in about four words? Self-review does not
+work here, because the same judgment that wrote the sentence keeps calling it critical. Calibrate
+against `AppStateStore.kt` and `MainActivity.kt`, which are the house length.
+
 **Do not sanitize invisible characters in display strings:** `oneLine` collapses ASCII whitespace,
 which is the whole of it. No category strip, no bidi rule, no Unicode whitespace set.
 
