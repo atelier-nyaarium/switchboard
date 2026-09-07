@@ -10,9 +10,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
@@ -109,21 +113,21 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 					SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
 						SegmentedButton(
 							selected = sheet.freshSession,
-							onClick = hapticClick { sheet.freshSession = true },
+							onClick = hapticClick { sheet.aimAt(true) },
 							shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
 						) { Text("New session") }
 						SegmentedButton(
 							selected = !sheet.freshSession,
-							onClick = hapticClick { sheet.freshSession = false },
+							onClick = hapticClick { sheet.aimAt(false) },
 							shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
 						) { Text("Existing session") }
 					}
-					OutlinedTextField(
-						value = sheet.target,
-						onValueChange = { sheet.target = it },
-						label = { Text(if (sheet.freshSession) "Start on" else "Send to") },
-						singleLine = true,
-						modifier = Modifier.fillMaxWidth(),
+					val choices = if (sheet.freshSession) spawnTargets(state) else sessionTargets(state)
+					TargetMenu(
+						label = if (sheet.freshSession) "Start on" else "Send to",
+						choices = choices,
+						picked = choices.find { it.address == sheet.target },
+						onPick = { sheet.pick(it.address) },
 					)
 				}
 
@@ -159,6 +163,35 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 					},
 					modifier = Modifier.weight(1f),
 				) { Text(if (sheet.firing) "Firing" else "Fire") }
+			}
+		}
+	}
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TargetMenu(label: String, choices: List<FireTarget>, picked: FireTarget?, onPick: (FireTarget) -> Unit) {
+	var open by remember { mutableStateOf(false) }
+
+	ExposedDropdownMenuBox(expanded = open, onExpandedChange = { open = it }, modifier = Modifier.fillMaxWidth()) {
+		OutlinedTextField(
+			value = picked?.label ?: "",
+			onValueChange = {},
+			readOnly = true,
+			label = { Text(label) },
+			placeholder = { Text(if (choices.isEmpty()) "Nothing to pick" else "Choose one") },
+			trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = open) },
+			modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+		)
+		ExposedDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+			for (choice in choices) {
+				DropdownMenuItem(
+					text = { Text(choice.label) },
+					onClick = hapticClick {
+						onPick(choice)
+						open = false
+					},
+				)
 			}
 		}
 	}
@@ -206,7 +239,20 @@ internal class FireSheetState(runbook: Runbook, gatewayId: String) {
 	var refusal by mutableStateOf<String?>(null)
 
 	var freshSession by mutableStateOf(true)
-	var target by mutableStateOf("host")
+		private set
+	var target by mutableStateOf("")
+		private set
+
+	// Reset target on switch.
+	fun aimAt(fresh: Boolean) {
+		if (fresh == freshSession) return
+		freshSession = fresh
+		target = ""
+	}
+
+	fun pick(address: String) {
+		target = address
+	}
 	var firing by mutableStateOf(false)
 
 	fun adopt(runbook: Runbook) {
