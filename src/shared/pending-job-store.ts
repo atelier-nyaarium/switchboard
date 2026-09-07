@@ -150,20 +150,28 @@ function readReply(raw: unknown): LocalReply | null {
 	return null;
 }
 
-function migrateLegacyContract(row: Record<string, unknown>): JobContract | null {
+/** Without an owner id a local row is quarantined, never defaulted to a conversation. */
+function migrateLegacyContract(row: Record<string, unknown>, ownerId: string | null): JobContract | null {
 	const route = row.returnRoute as Record<string, unknown> | null | undefined;
-	if (!route) return null;
-	if (typeof route.srcGateway !== "string" || typeof route.srcSession !== "string") return null;
-	if (typeof route.srcConversationId !== "string") return null;
-	return {
-		kind: "inbound",
-		route: {
-			srcGateway: route.srcGateway,
-			srcConversationId: route.srcConversationId,
-			srcSession: route.srcSession,
-		},
-		dstDomainId: typeof row.dstDomainId === "string" ? row.dstDomainId : null,
-	};
+	if (route) {
+		if (typeof route.srcGateway !== "string" || typeof route.srcSession !== "string") return null;
+		if (typeof route.srcConversationId !== "string") return null;
+		return {
+			kind: "inbound",
+			route: {
+				srcGateway: route.srcGateway,
+				srcConversationId: route.srcConversationId,
+				srcSession: route.srcSession,
+			},
+			dstDomainId: typeof row.dstDomainId === "string" ? row.dstDomainId : null,
+		};
+	}
+	const conversationId = row.fromConversationId;
+	if (typeof conversationId !== "string" || ownerId === null) return null;
+	const reply: LocalReply =
+		conversationId === ownerId ? { kind: "owner", ownerId } : { kind: "conversation", conversationId };
+	const dstDomainId = typeof row.dstDomainId === "string" ? row.dstDomainId : null;
+	return dstDomainId ? { kind: "outbound", reply, dstDomainId } : { kind: "local", reply };
 }
 
 function readState(raw: unknown): JobState | null {
@@ -486,7 +494,7 @@ export class PendingJobStore<T> {
 	}
 
 	/** Reject unverifiable origins. */
-	restore(raw: unknown): RestoreReport {
+	restore(raw: unknown, legacyOwnerId: string | null = null): RestoreReport {
 		const legacy = Array.isArray(raw);
 		const rows: unknown[] = legacy
 			? raw
@@ -502,7 +510,7 @@ export class PendingJobStore<T> {
 			}
 			const r = row as Record<string, unknown>;
 			const state = readState(r.state);
-			const contract = legacy ? migrateLegacyContract(r) : readContract(r.contract);
+			const contract = legacy ? migrateLegacyContract(r, legacyOwnerId) : readContract(r.contract);
 			if (
 				typeof r.id !== "string" ||
 				typeof r.from !== "string" ||

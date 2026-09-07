@@ -28,6 +28,17 @@ export type AllowlistFile = z.infer<typeof AllowlistFileSchema>;
 
 export const ALLOWLIST_FILE = "federation-allowlist.json";
 
+/** Non-destructive owner-key read. */
+export function readOwnerSignPub(dataDir: string): string | null {
+	try {
+		const raw = fs.readFileSync(path.join(dataDir, ALLOWLIST_FILE), "utf8");
+		const parsed = AllowlistFileSchema.safeParse(JSON.parse(raw));
+		return parsed.success ? parsed.data.ownerSignPub : null;
+	} catch {
+		return null;
+	}
+}
+
 export class AllowlistCorruptError extends Error {
 	readonly asidePath: string;
 

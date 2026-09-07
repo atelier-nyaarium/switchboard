@@ -19,6 +19,7 @@ export interface StoresStageDeps {
 	ambient: Ambient;
 	/** Runs whenever a job lands or settles, so the share attestation follows the live set. */
 	onJobChange: () => void;
+	legacyOwnerId: string | null;
 }
 
 /** What the previous run persisted under session-resume. */
@@ -64,7 +65,7 @@ export function composeStores(deps: StoresStageDeps): StoresStage {
 	restoreDurable("pending-jobs", () => {
 		const persisted = jobsDurable.load();
 		if (persisted === null) return;
-		const report = jobs.restore(persisted);
+		const report = jobs.restore(persisted, deps.legacyOwnerId);
 		if (report.rejected > 0) {
 			const quarantine = new DurableStore(dataDir, "pending-jobs-quarantine");
 			if (quarantine.load() === null) quarantine.saveChecked(persisted);
