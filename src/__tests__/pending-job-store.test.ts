@@ -110,7 +110,7 @@ describe("PendingJobStore.reserve", () => {
 		const reserved = store.reserve(id, "a", "b", local("c1"), { persistent: true });
 		if (reserved.kind !== "ok") throw new Error(reserved.reason);
 
-		expect(store.deliver(id, "answered")).not.toBe(false);
+		expect(store.settle(id, "answered")).not.toBe(false);
 		store.abort(reserved.reservation);
 
 		expect(store.poll(id)).toBe("answered");
@@ -206,7 +206,7 @@ describe("PendingJobStore.expireByDomain", () => {
 
 		expect(daveSettled).toBe(false);
 		expect(store.has(dave)).toBe(true);
-		expect(store.deliver(dave, "ok")).not.toBe(false);
+		expect(store.settle(dave, "ok")).not.toBe(false);
 	});
 
 	it("returns 0 when no job is bound to the Domain", () => {
@@ -224,7 +224,7 @@ describe("PendingJobStore.expireByDomain", () => {
 		const store = new PendingJobStore<string>(600_000, processAmbient());
 		const carolConv = convKey("c1", "lib");
 		anchor(store, carolConv, outbound("c1", "carol"), { persistent: true });
-		store.deliver(carolConv, "hello");
+		store.settle(carolConv, "hello");
 		expect(store.expireByDomain("carol")).toBe(1);
 		expect(store.has(carolConv)).toBe(false);
 	});
@@ -280,7 +280,7 @@ describe("PendingJobStore.expireBySession", () => {
 		await Promise.resolve();
 		expect(settled).toBe(false);
 		expect(store.has(id)).toBe(true);
-		expect(store.deliver(id, "ok")).not.toBe(false);
+		expect(store.settle(id, "ok")).not.toBe(false);
 	});
 
 	it("ignores a local / same-Domain job for the same session name", () => {

@@ -90,8 +90,8 @@ export interface CrossDomainBinding {
 	returnGateway: string | null;
 }
 
-export interface DeliverMeta {
-	delivered: boolean;
+export interface SettleMeta {
+	recorded: true;
 	from: string;
 	to: string;
 	contract: JobContract;
@@ -304,12 +304,12 @@ export class PendingJobStore<T> {
 		return this.entries.get(id)?.from;
 	}
 
-	deliver(id: string, result: T): DeliverMeta | false {
+	settle(id: string, result: T): SettleMeta | false {
 		const entry = this.entries.get(id);
 		if (!entry) return false;
 
-		const meta = (): DeliverMeta => ({
-			delivered: true,
+		const meta = (): SettleMeta => ({
+			recorded: true,
 			from: entry.from,
 			to: entry.to,
 			contract: entry.contract,

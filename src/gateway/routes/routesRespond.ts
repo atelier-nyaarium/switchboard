@@ -24,7 +24,7 @@ export interface RespondRoutesDeps {
 	ambient: Pick<Ambient, "newId">;
 	localDomain: string;
 	conversationRegistry: ConversationRegistry;
-	store: Pick<PendingJobStore<ResponsePayload>, "deliver" | "targetOf" | "has" | "poll">;
+	store: Pick<PendingJobStore<ResponsePayload>, "settle" | "targetOf" | "has" | "poll">;
 	resolveHandshake?: (
 		sessionId: string,
 		replyAsJson?: Record<string, unknown>,
@@ -166,7 +166,7 @@ export function createRespondRoutes({
 		}
 
 		// The session_id is the opaque store key the agent echoes verbatim.
-		const deliverResult = store.deliver(respondSessionId, response);
+		const deliverResult = store.settle(respondSessionId, response);
 		if (!deliverResult) {
 			console.log(
 				`[respond] 404 - no pending job for ${respondSessionId.slice(0, 8)}... (already delivered or expired)`,
@@ -211,7 +211,7 @@ export function createRespondRoutes({
 			if (opts.onFederatedSettled) {
 				void relayOutcome.then((r) => opts.onFederatedSettled?.(r.ok));
 			}
-			console.log(`[respond] ${respondSessionId} pinned to Gateway ${rr.srcGateway} via the Router`);
+			console.log(`[respond] ${respondSessionId} handed to Gateway ${rr.srcGateway} for relay`);
 			// Mirror the LOCAL responder's own thread; never for the console itself.
 			const localAddr = opts.consoleSender ? null : tryLocalAddress(deliverResult.to);
 			if (localAddr && provedLocalSession(req)) {
@@ -222,7 +222,7 @@ export function createRespondRoutes({
 					...pickTiers(response),
 				});
 			}
-			return jsonResponse({ delivered: true, federated: true });
+			return jsonResponse({ recorded: true, federated: true, relaying: true });
 		}
 
 		// Push response back to the sender, preferring its own conversation over a name broadcast.
@@ -240,6 +240,8 @@ export function createRespondRoutes({
 		const pushMsg = JSON.stringify(push);
 
 		const reply = contract.reply;
+		let notified: boolean;
+		let recoverable = true;
 		if (reply.kind === "owner") {
 			// Reject stale owner.
 			if (reply.ownerId !== ownerId?.()) {
@@ -258,17 +260,21 @@ export function createRespondRoutes({
 				dedupeKey: ambient.newId(),
 				label: "respond",
 			});
+			notified = delivered === true;
+			recoverable = notified;
 			console.log(
-				`[respond] ${delivered === true ? "appended to the owner inbox" : "owner inbox append refused"} [${respondSessionId}]`,
+				`[respond] ${notified ? "appended to the owner inbox" : "owner inbox append refused"} [${respondSessionId}]`,
 			);
 		} else {
 			const senderWs = conversationRegistry.get(reply.conversationId);
 			if (senderWs && senderWs.readyState === 1) {
 				const outcome = sendOn(senderWs, pushMsg, `reply to ${deliverResult.from}`);
+				notified = reached(outcome);
 				console.log(
-					`[respond] ${reached(outcome) ? "pushed to" : "could not reach"} ${deliverResult.from} via conversation ${reply.conversationId.slice(0, 8)}... [${respondSessionId}]`,
+					`[respond] ${notified ? "pushed to" : "could not reach"} ${deliverResult.from} via conversation ${reply.conversationId.slice(0, 8)}... [${respondSessionId}]`,
 				);
 			} else {
+				notified = false;
 				console.log(
 					`[respond] conversation ${reply.conversationId.slice(0, 8)}... offline, response kept in store [${respondSessionId}]`,
 				);
@@ -297,7 +303,7 @@ export function createRespondRoutes({
 			}
 		}
 
-		return jsonResponse({ delivered: true });
+		return jsonResponse({ recorded: true, notified, delivered: recoverable });
 	}
 
 	function poll(req: Request, body: Record<string, unknown>): Response {

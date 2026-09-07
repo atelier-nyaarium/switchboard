@@ -39,7 +39,7 @@ describe("delivery-state durability", () => {
 		const a = new PendingJobStore<string>(600_000, processAmbient());
 		anchor(a, id, asked("c1"), true);
 		// Async delivery stores the result.
-		a.deliver(id, "hello");
+		a.settle(id, "hello");
 		// Non-persistent jobs do not survive restore.
 		anchor(a, transient, asked("c2"), false);
 
@@ -57,13 +57,13 @@ describe("delivery-state durability", () => {
 		const id = jobId("x", "team");
 		const a = new PendingJobStore<string>(600_000, processAmbient());
 		anchor(a, id, asked("x"), true);
-		a.deliver(id, "old");
+		a.settle(id, "old");
 		const snap = a.snapshot();
 
 		const b = new PendingJobStore<string>(600_000, processAmbient());
 		anchor(b, id, asked("x"), true);
 		// Live registration races restore.
-		b.deliver(id, "fresh");
+		b.settle(id, "fresh");
 		b.restore(snap);
 		// The live entry wins restore.
 		expect(b.poll(id)).toBe("fresh");
