@@ -3,26 +3,23 @@ package com.atelier_nyaarium.switchboard.runbooks
 import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.RunbookParameter
 
-/** Opaque and random: the library keys by id alone, so two phones must never mint the same one. */
+/** Random: the library keys by id alone, across phones. */
 fun newRunbookId(): String = java.util.UUID.randomUUID().toString()
 
-/** What the editor holds for one blank. Kept keyed by name, so a deleted placeholder keeps its settings. */
+/** One blank's settings. Keyed by name, so a deleted placeholder keeps them. */
 data class ParameterDraft(
 	val label: String = "",
 	val kind: String = "text",
 	val options: List<String> = emptyList(),
 	val default: String = "",
 ) {
-	/**
-	 * A choice cannot default to something it does not offer, and its typed Default field is gone
-	 * once the switch lands, so a value kept here would block Save with nowhere left to clear it.
-	 */
+	/** A choice hides the Default field, so a value it cannot offer could never be cleared. */
 	fun asKind(next: String): ParameterDraft =
 		if (next == "choice") copy(kind = next, default = default.takeIf { it in options }.orEmpty())
 		else copy(kind = next)
 }
 
-/** The parameter list is derived from the body, so neither a blank nor a setting can exist alone. */
+/** Derived from the body, so neither a blank nor a setting exists alone. */
 data class RunbookDraft(
 	val id: String,
 	val name: String = "",
@@ -30,7 +27,7 @@ data class RunbookDraft(
 	val settings: Map<String, ParameterDraft> = emptyMap(),
 	val revision: Long = 0L,
 ) {
-	/** The names the body declares, or null while it does not parse. */
+	/** Null while the body does not parse. */
 	val declared: List<String>? get() = placeholdersOf(body)
 
 	fun settingsFor(name: String): ParameterDraft = settings[name] ?: ParameterDraft(label = name)
@@ -38,7 +35,7 @@ data class RunbookDraft(
 	fun withSettings(name: String, edit: (ParameterDraft) -> ParameterDraft): RunbookDraft =
 		copy(settings = settings + (name to edit(settingsFor(name))))
 
-	/** Every rule the gateway refuses on, in the owner's terms, so Save is never offered in vain. */
+	/** The gateway's rules in the owner's terms, so Save is never offered in vain. */
 	fun refusal(): String? {
 		if (name.isBlank()) return "Give it a name"
 		if (body.isBlank()) return "Write the body"
@@ -46,7 +43,7 @@ data class RunbookDraft(
 		for (parameterName in names) {
 			val setting = settingsFor(parameterName)
 			if (setting.label.isBlank()) return "$parameterName: give it a label"
-			// A filled value is text, never another template, as it is on the gateway.
+			// A filled value is text, never another template.
 			if ((listOf(setting.default) + setting.options).any { it.contains("{{") }) {
 				return "$parameterName: take the {{ out of its values"
 			}
@@ -61,7 +58,7 @@ data class RunbookDraft(
 		return null
 	}
 
-	/** Orphaned settings are pruned here, which is the only place they stop being remembered. */
+	/** The one place orphaned settings are pruned. */
 	fun toRunbook(): Runbook? {
 		if (refusal() != null) return null
 		val names = declared ?: return null

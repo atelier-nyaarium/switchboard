@@ -45,7 +45,7 @@ import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.standingConflict
 import kotlinx.coroutines.launch
 
-/** Settings are keyed by placeholder name, so deleting one hides them and pasting it back restores them. */
+/** Settings keyed by placeholder name, so a deleted one comes back with them. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit) {
@@ -71,7 +71,7 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 							saving = true
 							refused = null
 							scope.launch {
-								// A refusal keeps the draft, so the owner can rebase it or walk away.
+								// A refusal keeps the draft to rebase or abandon.
 								when (val saved = repo.runbookOps.save(candidate)) {
 									is RunbookSaved.Refused -> refused = saved.conflict
 									else -> onClose()
@@ -104,7 +104,7 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 				modifier = Modifier.fillMaxWidth().heightIn(min = 220.dp),
 			)
 
-			// A body that does not parse declares nothing, and the refusal below says why.
+			// An unparsed body declares nothing. The refusal below says why.
 			for (name in declared.orEmpty()) {
 				ParameterCard(
 					name = name,
@@ -118,7 +118,7 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 				Card(Modifier.fillMaxWidth()) {
 					Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 						Text(conflict.reason, style = MaterialTheme.typography.bodyMedium)
-						// Saving from their revision is what makes the next push win.
+						// Saving from their revision makes the next push win.
 						TextButton(
 							onClick = hapticClick {
 								draft = draft.copy(revision = conflict.heldRevision)

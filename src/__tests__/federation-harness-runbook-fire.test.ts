@@ -113,7 +113,7 @@ describe("federation harness: firing a runbook", () => {
 			fire(values, { kind: "session", target }, "op-fire-concurrent"),
 		]);
 
-		// One attempt is refused, and the body still lands exactly once.
+		// One refusal, one delivery.
 		expect(both.some((answer) => !answer.fired)).toBe(true);
 		await h.waitFor(
 			async () => (attached.inbound.filter((frame) => frame.body === body).length === 1 ? true : undefined),
@@ -136,7 +136,7 @@ describe("federation harness: firing a runbook", () => {
 		launchesInto(false);
 		const answer = await fire({ level: "patch", repo: "quiet" }, { kind: "new", target: "host" });
 		expect(answer.fired).toBe(false);
-		// The session is left to be fired at again rather than closed.
+		// Left running, to be fired at again.
 		expect(answer.sessionId).toBeTruthy();
 		expect(h.gateway.faults.sessionRecord(composeSessionName("host", answer.sessionId as string))).toBeTruthy();
 	});

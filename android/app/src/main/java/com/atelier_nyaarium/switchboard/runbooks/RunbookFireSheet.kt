@@ -40,7 +40,7 @@ import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** How long the values sit still before the gateway is asked to render them. */
+/** How long values sit still before a render is asked for. */
 private const val PREVIEW_SETTLE_MS = 400L
 
 /** What the preview shows is what a fire sends, and Fire pins the revision it was shown. */
@@ -58,8 +58,7 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 	val values = sheet.values
 	val scope = rememberCoroutineScope()
 
-	// An edit invalidates the preview without blanking it: the words stay, marked stale, and Fire
-	// waits, so the sheet never shows nothing and never offers to send what it is showing.
+	// An edit marks the preview stale rather than blanking it, and Fire waits.
 	LaunchedEffect(runbook.revision, gatewayId, values) {
 		sheet.preview = (sheet.preview as? PreviewState.Ready)?.let { PreviewState.Stale(it.text) }
 			?: PreviewState.Pending
@@ -137,8 +136,7 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 
 			Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
 				TextButton(onClick = hapticClick(onDismiss), modifier = Modifier.weight(1f)) { Text("Cancel") }
-				// The pin is the enabling condition, not just the safety net: a revision that has
-				// landed but whose reset has not run yet leaves a preview of words no longer shown.
+				// A landed revision whose reset has not run leaves a preview of older words.
 				val ready = (sheet.preview as? PreviewState.Ready)?.takeIf { it.revision == runbook.revision }
 				Button(
 					enabled = ready != null && !sheet.firing && sheet.target.isNotBlank(),
@@ -203,24 +201,20 @@ private fun PreviewPane(preview: PreviewState) {
 	}
 }
 
-/**
- * Two lifetimes, so neither can be keyed by mistake. A form belongs to a runbook at a revision and
- * `adopt` resets it. A fire in flight belongs to the sheet, or a revision landing mid-fire would
- * offer Fire again with one still going.
- */
+/** Two lifetimes, so neither can be keyed by mistake. */
 internal class FireSheetState(runbook: Runbook, gatewayId: String) {
 	var revision by mutableStateOf(runbook.revision)
 		private set
 
-	// Belongs to the runbook at a revision: a new one may declare different parameters entirely.
+	// The runbook's, at a revision. A new one may declare other parameters.
 	var values by mutableStateOf(runbook.parameters.associate { it.name to (it.default ?: "") })
 	var preview by mutableStateOf<PreviewState>(PreviewState.Pending)
 	var refusal by mutableStateOf<String?>(null)
 
-	// Belongs to the sheet. Where the owner wants it to land, and whether a fire is going, both
-	// outlive an edit to the body's wording; resetting them would discard a choice for no reason.
+	// The sheet's. A choice of target outlives an edit to the wording.
 	var freshSession by mutableStateOf(true)
-	var target by mutableStateOf(gatewayId.ifBlank { "host" })
+	// A spawn point, never a gateway id, which resolves to no spawn.
+	var target by mutableStateOf("host")
 	var firing by mutableStateOf(false)
 
 	fun adopt(runbook: Runbook) {
@@ -234,9 +228,9 @@ internal class FireSheetState(runbook: Runbook, gatewayId: String) {
 
 internal sealed interface PreviewState {
 	data object Pending : PreviewState
-	/** No answer, carrying the standing conflict's reason when one explains it. */
+	/** No answer. Carries a standing conflict's reason when one explains it. */
 	data class Unreachable(val reason: String?) : PreviewState
-	/** The last render, kept visible while a newer one is asked for. Fire waits for it. */
+	/** The last render, held while a newer one is asked for. */
 	data class Stale(val text: String) : PreviewState
 	data class Ready(val text: String, val revision: Long) : PreviewState
 	data class Refused(val reason: String) : PreviewState

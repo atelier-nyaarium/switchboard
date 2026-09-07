@@ -11,7 +11,7 @@ interface RunbookStore {
 	fun saveRunbooks(json: String)
 }
 
-/** The owner's library. The phone authors it and gateways hold copies. */
+/** The owner's library. Gateways hold copies. */
 class RunbookManager(private val store: RunbookStore) : ClearsOnReprovision {
 	private val json = Json { ignoreUnknownKeys = true }
 
@@ -44,7 +44,7 @@ class RunbookManager(private val store: RunbookStore) : ClearsOnReprovision {
 		commit(library.filterNot { it.id == runbookId })
 	}
 
-	/** On disk before it is shown, so a failed write leaves the owner the library they still have. */
+	/** On disk before it is shown, so a failed write changes nothing. */
 	private fun commit(next: List<Runbook>): List<Runbook> {
 		val written = runCatching { store.saveRunbooks(json.encodeToString(next)) }
 		if (written.isFailure) {
@@ -55,7 +55,7 @@ class RunbookManager(private val store: RunbookStore) : ClearsOnReprovision {
 		return next
 	}
 
-	/** The previous owner's writing goes whether or not the disk cooperates. */
+	/** Clears memory whether or not the disk cooperates. */
 	override suspend fun clearInMemory() {
 		synchronized(stateLock) {
 			library = emptyList()

@@ -53,7 +53,7 @@ class RunbookOpsTest {
 		assertEquals(PushDecision.Put, pushDecision(mine, book("a", revision = 2L)))
 		assertEquals(PushDecision.Ready, pushDecision(mine, mine))
 
-		// Equal revisions carrying different words are a lost update, which the Gateway refuses.
+		// Equal revisions, different words: a lost update.
 		assertEquals(PushDecision.Put, pushDecision(mine, book("a", name = "Renamed", revision = 3L)))
 
 		val theirs = book("a", revision = 9L)
@@ -73,7 +73,7 @@ class RunbookOpsTest {
 		val raised = conflictsAfterPut(emptyMap(), "a", refused)
 		assertEquals(RunbookConflict("held newer", 7L), raised["a"])
 
-		// An unreachable Gateway is not evidence the conflict went away.
+		// Unreachable is not evidence the conflict went away.
 		assertEquals(raised, conflictsAfterPut(raised, "a", null))
 		assertEquals(emptyMap<String, RunbookConflict>(), conflictsAfterPut(raised, "a", refused.copy(stored = true)))
 	}
@@ -82,7 +82,7 @@ class RunbookOpsTest {
 	fun aSaveTheLibraryDidNotTakeIsAConflictRatherThanASilentLoss() {
 		val (ops, _) = opsOver(listOf(book("a", revision = 4L)))
 
-		// The editor opened at 3 and something newer landed underneath it.
+		// A stale draft, outranked underneath.
 		val saved = kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 4L).copy(body = "stale")) }
 		assertEquals(RunbookSaved.Refused(RunbookConflict("This phone holds a newer copy", 4L)), saved)
 	}
@@ -98,7 +98,7 @@ class RunbookOpsTest {
 	fun aConflictBelowTheDraftIsSpentSoTheEditorStopsOfferingIt() {
 		val conflict = RunbookConflict("held newer", 7L)
 		assertEquals(conflict, standingConflict(conflict, 7L))
-		// Rebasing onto 7 from 8 would mint 8 again, which the library's merge would discard.
+		// Rebasing backwards mints a revision merge discards.
 		assertEquals(null, standingConflict(conflict, 8L))
 	}
 

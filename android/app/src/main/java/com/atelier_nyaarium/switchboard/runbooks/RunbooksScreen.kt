@@ -107,6 +107,6 @@ private fun RunbookRow(runbook: Runbook, onFire: () -> Unit, onEdit: () -> Unit)
 	}
 }
 
-/** The first line the owner wrote, which is what they recognise a runbook by. */
+/** The first line the owner wrote. */
 internal fun summaryOf(body: String): String =
 	body.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() } ?: ""

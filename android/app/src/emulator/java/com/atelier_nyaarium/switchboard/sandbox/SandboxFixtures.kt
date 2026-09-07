@@ -475,7 +475,7 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 		store.saveTaskBoard(Json { ignoreUnknownKeys = true }.encodeToString(BoardBlob.serializer(), blob))
 	}
 
-	/** Nothing here opens a title, so the cache beside these is what the board renders from. */
+	/** Nothing opens a title here, so the cache renders the board. */
 	private fun BoardEntry.stored(gatewayId: String) = BoardStoredEntry(
 		clear = BoardEntryClear(
 			id = id,
@@ -491,10 +491,7 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 		sealed = BoardEntrySealed(title = UNREADABLE, body = body?.let { UNREADABLE }),
 	)
 
-	/**
-	 * Before the repository exists, since `RunbookManager` reads its blob once at construction. Only
-	 * into an empty store, or every launch would delete what was authored in the last one.
-	 */
+	/** Before the repository exists, and only into an empty store. */
 	fun seedRunbooks(store: AppStateStore) {
 		if (store.loadRunbooks() != null) return
 		val serializer = kotlinx.serialization.builtins.ListSerializer(

@@ -92,7 +92,7 @@ export function createConsoleDispatcher({
 				const json = (await res.json().catch(() => ({}))) as SendRouteJson;
 				return { ok: false, error: json.error };
 			}
-			// The same row a typed message leaves, so a fired runbook is in the owner's sent history.
+			// The same row a typed message leaves, so a fire is in the sent history.
 			appendIfLive(
 				ctx.conversationId,
 				{ kind: "sent", session_id: sentSessionKey(ctx.ownerId, to), opId: ctx.opId, body },
@@ -102,7 +102,7 @@ export function createConsoleDispatcher({
 		},
 	});
 	const ownerByConversation = new Map<string, string>();
-	/** Fires this process started, which a durable in-flight record cannot distinguish from a crash. */
+	/** Fires this process started. A durable record cannot tell one from a crash. */
 	const firingNow = new Set<string>();
 	const appendIfLive = (
 		conversationId: string,
@@ -326,13 +326,12 @@ export function createConsoleDispatcher({
 				return runbookFire.preview(op);
 
 			case "runbook_fire": {
-				// Value ops are not deduped upstream; without this store a retry sends the runbook twice.
+				// Value ops are not deduped upstream, so a retry would send twice.
 				if (!durableOpStore) throw new Error("firing a runbook needs the idempotency store");
 				const key = durableOpKey(op.kind, opId);
 				const held = durableOpStore.get(conversationId, key);
 				if (held?.state === "complete") return held.result;
-				// A restored in-flight record is a crashed attempt the store means to be re-executed;
-				// only one this process started is a fire still going.
+				// A restored in-flight record is a crash to re-execute, not a fire still going.
 				if (firingNow.has(key)) return { fired: false, reason: "this runbook is already firing" };
 				const generation = durableOpStore.markInFlight(conversationId, key);
 				firingNow.add(key);
@@ -347,7 +346,7 @@ export function createConsoleDispatcher({
 						return result;
 					}
 					durableOpStore.markComplete(conversationId, key, result);
-					// A completion the fence refused is not on disk, so this process holds the line instead.
+					// A fenced completion never reached disk, so hold the key instead.
 					if (durableOpStore.get(conversationId, key)?.state === "complete") firingNow.delete(key);
 					return result;
 				} catch (error) {

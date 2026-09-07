@@ -1,4 +1,4 @@
-// One parse owns the placeholder grammar; every reader of a body derives from it.
+// One parse owns the placeholder grammar. Every reader derives from it.
 
 import type { RunbookParameter } from "./schemasRunbook.js";
 
@@ -6,16 +6,16 @@ export type RunbookToken = { kind: "literal"; text: string } | { kind: "placehol
 
 export type RunbookParse = { ok: true; tokens: RunbookToken[] } | { ok: false; reason: string };
 
-/** Explicit, because `\s` differs across runtimes and the Kotlin twin must agree character for character. */
+/** Explicit, because `\s` covers different characters in the Kotlin twin. */
 const SPACE = "[ \\t\\r\\n]*";
 
 /** Anchored, so a `{{` either opens a placeholder here or opens nothing. */
 const PLACEHOLDER_AT = new RegExp(`^\\{\\{${SPACE}([A-Za-z][A-Za-z0-9_]*)${SPACE}\\}\\}`);
 
-/** The same form, found anywhere. Reads rendered text, which is prose rather than a template. */
+/** The same form, found anywhere. Reads rendered text, not a template. */
 const PLACEHOLDER_ANYWHERE = new RegExp(`\\{\\{${SPACE}[A-Za-z][A-Za-z0-9_]*${SPACE}\\}\\}`);
 
-/** Only an opener can begin a placeholder, so a lone `}}` stays literal for prose about JSON. */
+/** Only an opener begins a placeholder, so a lone `}}` stays literal. */
 export function parseBody(body: string): RunbookParse {
 	const tokens: RunbookToken[] = [];
 	let literalFrom = 0;
@@ -43,7 +43,7 @@ export function placeholdersOf(body: string): string[] {
 
 export type RunbookRender = { ok: true; text: string } | { ok: false; reason: string };
 
-/** Renders once, then parses its own output; a value and its literals can compose a placeholder. */
+/** Reads its own output: a value and its literals can compose a placeholder. */
 export function renderRunbook(
 	body: string,
 	parameters: readonly RunbookParameter[],
@@ -54,7 +54,7 @@ export function renderRunbook(
 
 	const declared = new Map(parameters.map((parameter) => [parameter.name, parameter]));
 	const unknown = Object.keys(values).filter((name) => !declared.has(name));
-	// A value for a parameter that does not exist means the sender holds a different runbook.
+	// An unknown parameter means the sender holds a different runbook.
 	if (unknown.length > 0) {
 		return { ok: false, reason: `this runbook has no ${unknown.join(", ")}; push your copy of it first` };
 	}
@@ -75,7 +75,7 @@ export function renderRunbook(
 		.map((token) => (token.kind === "literal" ? token.text : (filled.get(token.name) as string)))
 		.join("");
 
-	// Only a well-formed placeholder is a fault; a bare `{{` composes nothing and stays prose.
+	// Only a well-formed placeholder is a fault. A bare `{{` stays prose.
 	if (PLACEHOLDER_ANYWHERE.test(text)) {
 		return { ok: false, reason: "a filled value composes another `{{name}}`; take the braces out of it" };
 	}

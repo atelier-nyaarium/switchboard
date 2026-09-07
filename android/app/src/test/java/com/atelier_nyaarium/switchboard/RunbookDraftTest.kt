@@ -19,7 +19,7 @@ class RunbookDraftTest {
 		val two = one.copy(body = "cut a {{level}} release of {{repo}}")
 		assertEquals(listOf("level", "repo"), two.declared)
 
-		// A body that does not parse declares nothing rather than half a list.
+		// An unparsed body declares nothing, not half a list.
 		assertNull(one.copy(body = "cut a {{level").declared)
 	}
 
@@ -35,7 +35,7 @@ class RunbookDraftTest {
 
 		val removed = withSettings.copy(body = "go")
 		assertEquals(emptyList<String>(), removed.declared)
-		// Every setting comes back, not just the label, which is the whole point of keying by name.
+		// Every setting, not just the label.
 		assertEquals(settled, removed.copy(body = "go {{env}}").settingsFor("env"))
 	}
 
@@ -85,10 +85,10 @@ class RunbookDraftTest {
 	@Test
 	fun becomingAChoiceDropsATypedDefaultItCannotOffer() {
 		val typed = ParameterDraft(label = "Environment", default = "prod")
-		// The Default field is gone in a choice, so a value kept here could never be cleared.
+		// A choice hides the Default field, so a kept value could never be cleared.
 		assertEquals("", typed.asKind("choice").default)
 		assertEquals("prod", typed.copy(options = listOf("prod")).asKind("choice").default)
-		// Back to text, a chosen option is a perfectly good typed default.
+		// Back to text, a chosen option is a good typed default.
 		assertEquals("prod", typed.copy(kind = "choice", options = listOf("prod")).asKind("text").default)
 	}
 
@@ -105,7 +105,7 @@ class RunbookDraftTest {
 	fun aDraftMissingItsOwnPartsRefusesRatherThanSaving() {
 		assertNotNull(draft("").refusal())
 		assertNotNull(draft("go {{env}}").copy(name = "").refusal())
-		// A blank label would reach the owner as an unlabelled box.
+		// A blank label reaches the owner as an unlabelled box.
 		assertNotNull(draft("go {{env}}", mapOf("env" to ParameterDraft(label = " "))).refusal())
 		assertNull(draft("go {{env}}", mapOf("env" to ParameterDraft(label = "Environment"))).refusal())
 	}
