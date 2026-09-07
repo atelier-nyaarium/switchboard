@@ -131,12 +131,13 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 						const op = ConsoleOpSchema.parse(JSON.parse(opened.plaintext.toString("utf8")));
 						result = {
 							kind: "ok",
+							// Replies use owner key.
 							result: await consoleHandler.handleValue(
 								op,
 								frame.data.device,
 								frame.data.conversationId,
 								frame.data.opId,
-								frame.data.signerSignPub,
+								ownerSignPub,
 							),
 						};
 					} catch (error) {

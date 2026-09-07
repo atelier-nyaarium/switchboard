@@ -70,6 +70,28 @@ describe("federation harness: firing a runbook", () => {
 		await h.waitFor(async () => attached.inbound.find((frame) => frame.body === body), "the rendered runbook");
 	});
 
+	it("routes the session's answer back to the owner inbox", async () => {
+		const target = "fixture-app.answers";
+		const attached = attachFakeSession(h.gateway, { team: target, conversationId: "conv-runbook-answer" });
+		sessions.push(attached);
+		await attached.ready();
+
+		const fired = await fire({ level: "patch", repo: "lexicon" }, { kind: "session", target });
+		expect(fired.fired).toBe(true);
+
+		const landed = await h.waitFor(
+			async () => attached.inbound.find((frame) => frame.session_id),
+			"the fired body, with the session id to answer on",
+		);
+		await attached.reply(landed.session_id as string, "answered");
+
+		const reply = await h.waitFor(async () => {
+			const entries = h.phone.entries(await h.phone.inboxRead());
+			return entries.find((entry) => entry.kind === "reply" && entry.body === "answered");
+		}, "the owner inbox row");
+		expect(reply.kind).toBe("reply");
+	});
+
 	it("refuses by name rather than shipping a placeholder as instruction", async () => {
 		const target = "fixture-app.release";
 		const missing = await fire({ level: "minor" }, { kind: "session", target });
