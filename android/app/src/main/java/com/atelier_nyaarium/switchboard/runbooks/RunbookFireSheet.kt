@@ -120,7 +120,7 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 							selected = !sheet.freshSession,
 							onClick = hapticClick { sheet.freshSession = false },
 							shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-						) { Text("Pick one") }
+						) { Text("Existing session") }
 					}
 					OutlinedTextField(
 						value = sheet.target,
