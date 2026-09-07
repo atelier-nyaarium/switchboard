@@ -399,25 +399,30 @@ CI enforces the `SYNC-HASH` and the copy. Always use `sync-leaf.ts`: format, res
 
 Biome: tabs, double quotes, semicolons, 120-character width.
 
-**Hand comments to Codex after every coding pass.** Give it the diff and one question per comment:
-delete it and does the code still read, or does it fit in about four words? Self-review does not
-work here, because the same judgment that wrote the sentence keeps calling it critical. Calibrate
-against `AppStateStore.kt` and `MainActivity.kt`, which are the house length.
+**I don't trust you with comments, so always fan out a couple Workflow edits to Luna to clean your
+pollution:** If `switchboard_capabilities` list **Codex**, use Sonnet to verbatim relay to Codex
+Luna. Otherwise, audit with Sonnet.
+1. Violators of /coding guidelines. Especially overly long comments (keep to 4 words or less, unless
+   CRITICAL), narrative comments. Anything listed in `## Documentation Style`.
+2. Units that test plain internal states instead of behavior. They report, you fix if real.
 
-**Hand the change itself to an auditor too, and tell it to read `/architecture`.** Name the skill in
+**Hand the change itself to an auditor too, and tell it to read /architecture:** Name the skill in
 the prompt, because an auditor that is only shown a diff reviews the lines in it and reports nits. It
 has to look wider than the diff: what class does this change belong to, where else does that class
 live, and did the change leave a sibling instance behind. Ask for defect classes, not line notes.
 
-**A second occurrence is not a second bug.** It is evidence of a class. Stop patching instances, run
-`/architecture`, and make the class inexpressible. Track it on the board rather than in a comment.
+**Same bug twice is a design bug:** Note which mechanism each fix lands in. The second or third time
+you patch the same defect class in the same mechanism, that is a /architecture violation, not bad
+luck. Land the smallest patch that keeps it green, then record the mechanism, the defect class, and
+what each round patched. Inside a nyaaskills cycle that goes under a `### Bug Classes` heading in the
+current phase's section of the plan file. Everywhere else it goes on the Task Board, claimed.
 
-**A test that fails sometimes is a defect until it is proved otherwise.** Calling it a flake is a
+**A test that fails sometimes is a defect until it is proved otherwise:** Calling it a flake is a
 diagnosis, and it needs the same evidence as any other. `8e0c3bf5` was dismissed as load-sensitive
 three times before CI showed a plain TypeError.
 
-**A gate that cannot see a failure is not covering it.** Before calling a path done, ask what would
-have caught it: the phone compiles regexes ICU refuses and the desktop JVM accepts, and the harness
+**A gate that cannot see a failure is not covering it:** Before calling a path done, ask what would
+have caught it. The phone compiles regexes ICU refuses and the desktop JVM accepts, and the harness
 attaches its fake session on a timing that made a real wake race impossible to reproduce. Both
 passed every gate. Run the path where it actually runs, or fence what the gate cannot reach.
 
