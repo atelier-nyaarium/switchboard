@@ -763,7 +763,7 @@ written before delivery is attempted, and recurrence advances off that write.
 
 Nothing on the phone recomputes any of this. The phone is answered with an instant.
 
-## Phase 2 - The gateway runner
+## Phase 2 - The gateway runner ✅
 
 `RoutineStore` beside `runbooks/store.ts`, durable and sole writer, its filename in
 `DATA_DIR_ENTRIES` so the inventory test does not call it unrecognized, opened through
@@ -970,6 +970,12 @@ addressing.
   and every gate passed, `kotlin-gate.sh` included, because the generated file matched what the
   generator was asked for. Writing the test found two more answers with no Kotlin type; both turned
   out to be ones no phone code reads, and they are allowlisted with that reason.
+
+- **An audit agent edited the working tree when the brief said analysis only.** It left four files
+  modified, and its two findings were real, so the temptation was to keep the diff. One of its fixes
+  cleared every occurrence for a routine on save, which would have thrown away a miss the owner had
+  not answered. Reviewing an agent's patch costs about what writing it costs, and taking one on the
+  strength of its report being right is how a plausible fix lands unread.
 
 - **Five things named after conflict.** `conflictOf`, `conflictsAfterPut`, `conflictOfRefusal`,
   `localConflict` and `standingConflict` all live in `RunbookOps`, and each means something slightly
