@@ -5,6 +5,7 @@ import { type DurableStore, DurableStoreInstalledError } from "../../shared/dura
 import { renderRunbook } from "../../shared/runbook-grammar.js";
 import { type Routine, RoutineSchema, routineRefusal } from "../../shared/schemasRoutine.js";
 import { REVISION_CEILING, type Runbook } from "../../shared/schemasRunbook.js";
+import { routineTeam } from "./reservation.js";
 
 export interface RoutineStoreDeps {
 	/** Opened through `openDurable`, so a poisoned file starts this store fresh. */
@@ -13,6 +14,8 @@ export interface RoutineStoreDeps {
 	getRunbook?: (runbookId: string) => Runbook | null;
 	/** Whether this gateway has that spawn point. */
 	knowsSpawn?: (spawn: string) => boolean;
+	/** Whether something this routine did not make already holds its reserved session's name. */
+	sessionTaken?: (routine: Routine) => boolean;
 	now: () => number;
 }
 
@@ -68,6 +71,9 @@ function sameContent(a: Routine, b: Routine): boolean {
 function contextRefusal(routine: Routine, deps: RoutineStoreDeps): string | null {
 	if (deps.knowsSpawn && !deps.knowsSpawn(routine.target.spawn)) {
 		return `this Gateway has no spawn point called ${routine.target.spawn}`;
+	}
+	if (deps.sessionTaken?.(routine)) {
+		return `a session called ${routineTeam(routine)} is already open and is not this routine's`;
 	}
 	if (!deps.getRunbook) return null;
 	const runbook = deps.getRunbook(routine.runbookId);

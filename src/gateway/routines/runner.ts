@@ -23,6 +23,8 @@ export type PrepareResult =
 	| { ok: true; revision: number; snapshot: string; team: string }
 	/** The words the owner approved are not what would run. */
 	| { ok: false; reason: "revision_moved" }
+	/** Something else holds the session this routine reserves, so only the owner can settle it. */
+	| { ok: false; reason: "session_taken" }
 	/** Nothing is wrong with the routine; the session could not be reached. */
 	| { ok: false; reason: "unreachable" };
 
@@ -40,11 +42,13 @@ export interface RoutineRunnerDeps {
 	routines: RoutineStore;
 	occurrences: OccurrenceStore;
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">;
-	attempt: RoutineAttempt;
+	/** Read late, because what executes is composed after the stage that runs it. */
+	attempt: () => RoutineAttempt;
 }
 
 export function createRoutineRunner(deps: RoutineRunnerDeps) {
-	const { routines, occurrences, ambient, attempt } = deps;
+	const { routines, occurrences, ambient } = deps;
+	const attempt = () => deps.attempt();
 	let timer: TimerHandle | null = null;
 	let tick: TimerHandle | null = null;
 	let admitting = false;
@@ -83,7 +87,8 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		const now = ambient.now();
 
 		if (now > occurrence.deadlineAt) {
-			miss(occurrence, occurrence.state === "waiting_idle" ? "session_busy" : "gateway_down");
+			// The cause it started waiting for; nothing probes a host this late.
+			miss(occurrence, occurrence.reason ?? "gateway_down");
 			return;
 		}
 		if (!routine.enabled) {
@@ -91,41 +96,47 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			return;
 		}
 
+		/** Waits, naming the cause the deadline will use. */
+		const wait = (row: Occurrence, reason: MissReason) => {
+			if (row.state !== "due") return;
+			occurrences.transition(
+				row.routineId,
+				row.scheduledAt,
+				{ state: row.state, version: row.version },
+				"waiting_idle",
+				{ reason },
+			);
+		};
+
 		let held = occurrence;
 		if (held.state === "due" || held.state === "waiting_idle") {
-			if (!attempt.sessionIdle(routine)) {
-				if (held.state === "due") {
-					occurrences.transition(
-						held.routineId,
-						held.scheduledAt,
-						{ state: held.state, version: held.version },
-						"waiting_idle",
-					);
-				}
+			if (!attempt().sessionIdle(routine)) {
+				wait(held, "session_busy");
 				return;
 			}
-			const prepared = await attempt.prepare(routine, held);
+			const prepared = await attempt().prepare(routine, held);
 			if (!prepared.ok) {
-				if (prepared.reason === "revision_moved") {
-					occurrences.transition(
-						held.routineId,
-						held.scheduledAt,
-						{ state: held.state, version: held.version },
-						"needs_review",
-					);
+				if (prepared.reason === "unreachable") {
+					// Reachability can come back inside the window, so this waits rather than settling.
+					wait(held, "host_unreachable");
 					return;
 				}
-				// Reachability can come back inside the window, so this waits rather than settling.
-				if (held.state === "due") {
-					occurrences.transition(
-						held.routineId,
-						held.scheduledAt,
-						{ state: held.state, version: held.version },
-						"waiting_idle",
-					);
-				}
+				occurrences.transition(
+					held.routineId,
+					held.scheduledAt,
+					{ state: held.state, version: held.version },
+					"needs_review",
+				);
 				return;
 			}
+			const afterPrepare = routines.get(held.routineId);
+			if (!afterPrepare?.enabled) {
+				miss(held, "disabled");
+				return;
+			}
+			// An edit landed while this prepared, so the snapshot is of words the owner has replaced.
+			// Left where it is, for the next sweep to prepare against what they now mean.
+			if (afterPrepare.revision !== routine.revision) return;
 			const moved = occurrences.transition(
 				held.routineId,
 				held.scheduledAt,
@@ -155,7 +166,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			"dispatched",
 		);
 		if (!dispatched) return;
-		await attempt.deliver(routine, dispatched);
+		await attempt().deliver(routine, dispatched);
 	}
 
 	/** Serialized, so two wakeups cannot walk the same occurrence at once. */
@@ -194,24 +205,28 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		if (!admitting) return;
 		const now = ambient.now();
 
-		for (const occurrence of occurrences.all()) {
-			if (occurrence.state === "due" || occurrence.state === "waiting_idle") await advance(occurrence);
-		}
-
-		for (const routine of routines.list()) {
-			if (!routine.enabled) continue;
-			recordSevereMiss(routine, now);
-			// Everything still inside its window, so a gateway briefly down still runs them.
-			let cursor = nextAt(routine, now - GRACE_MS);
-			while (cursor !== null && cursor <= now) {
-				const opened = occurrences.open(routine.id, cursor, cursor + GRACE_MS);
-				if (opened && (opened.state === "due" || opened.state === "waiting_idle")) await advance(opened);
-				cursor = nextAt(routine, cursor);
+		// Rearmed whatever happened, or nothing wakes.
+		try {
+			for (const occurrence of occurrences.all()) {
+				if (occurrence.state === "due" || occurrence.state === "waiting_idle") await advance(occurrence);
 			}
-		}
 
-		occurrences.sweep(now - KEEP_MS);
-		rearm();
+			for (const routine of routines.list()) {
+				if (!routine.enabled) continue;
+				recordSevereMiss(routine, now);
+				// Everything still inside its window, and never before the routine existed.
+				let cursor = nextAt(routine, Math.max(now - GRACE_MS, routine.since));
+				while (cursor !== null && cursor <= now) {
+					const opened = occurrences.open(routine.id, cursor, cursor + GRACE_MS);
+					if (opened && (opened.state === "due" || opened.state === "waiting_idle")) await advance(opened);
+					cursor = nextAt(routine, cursor);
+				}
+			}
+
+			occurrences.sweep(now - KEEP_MS);
+		} finally {
+			rearm();
+		}
 	}
 
 	/** The earliest thing worth waking for, whether a deadline or a due instant. */
@@ -277,8 +292,10 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 				const routine = routines.get(routineId);
 				const held = occurrences.at(routineId, scheduledAt);
 				if (!routine || !held || held.state !== "missed") return;
-				const prepared = await attempt.prepare(routine, held);
+				const prepared = await attempt().prepare(routine, held);
 				if (!prepared.ok) return;
+				// The owner edited it while this prepared, so their Run now was for other words.
+				if (routines.get(routineId)?.revision !== routine.revision) return;
 				const dispatched = occurrences.transition(
 					routineId,
 					scheduledAt,
@@ -287,7 +304,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 					{ preparedRevision: prepared.revision, snapshot: prepared.snapshot, team: prepared.team },
 				);
 				if (!dispatched) return;
-				await attempt.deliver(routine, dispatched);
+				await attempt().deliver(routine, dispatched);
 				ran = true;
 			}).then(() => ran);
 		},

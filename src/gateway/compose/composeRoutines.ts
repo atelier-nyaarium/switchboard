@@ -1,6 +1,6 @@
 import type { Ambient } from "../../shared/ambient.js";
 import { openDurable } from "../../shared/durable-store.js";
-import type { RoutineMiss, RoutineState } from "../../shared/schemasRoutine.js";
+import type { Routine, RoutineMiss, RoutineState } from "../../shared/schemasRoutine.js";
 import type { Runbook } from "../../shared/schemasRunbook.js";
 import type { RoutineConsoleHandlers } from "../console/consoleTypes.js";
 import { createOccurrenceStore, type Occurrence } from "../routines/occurrences.js";
@@ -10,10 +10,11 @@ import { createRoutineStore } from "../routines/store.js";
 export interface RoutineStageDeps {
 	dataDir: string;
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">;
-	/** Execution arrives in its own phase; until then nothing prepares and nothing is delivered. */
-	attempt?: RoutineAttempt;
+	/** Read late, since what executes is composed after this stage. */
+	attempt?: () => RoutineAttempt | null;
 	getRunbook?: (runbookId: string) => Runbook | null;
 	knowsSpawn?: (spawn: string) => boolean;
+	sessionTaken?: (routine: Routine) => boolean;
 }
 
 export interface RoutineStage {
@@ -22,6 +23,7 @@ export interface RoutineStage {
 	start: () => void;
 	stop: () => Promise<void>;
 	reconcile: () => Promise<void>;
+	bindExecution: (attempt: RoutineAttempt) => void;
 }
 
 /** Nothing to run against, so every occurrence waits rather than being declared missed. */
@@ -44,11 +46,13 @@ function panelFor(rows: Occurrence[], now: number): RoutineMiss | undefined {
 }
 
 export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
+	let bound: RoutineAttempt | null = null;
 	const store = openDurable(deps.dataDir, "routines", (durable) =>
 		createRoutineStore({
 			store: durable,
 			getRunbook: deps.getRunbook,
 			knowsSpawn: deps.knowsSpawn,
+			sessionTaken: deps.sessionTaken,
 			now: () => deps.ambient.now(),
 		}),
 	);
@@ -59,22 +63,25 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		routines: store,
 		occurrences,
 		ambient: deps.ambient,
-		attempt: deps.attempt ?? IDLE_ATTEMPT,
+		attempt: () => bound ?? deps.attempt?.() ?? IDLE_ATTEMPT,
 	});
 
 	const state = (): RoutineState[] => {
 		const now = deps.ambient.now();
 		return store.list().map((routine) => {
 			const rows = occurrences.forRoutine(routine.id);
-			const ran = rows
-				.filter((row) => row.state === "dispatched")
-				.sort((a, b) => b.scheduledAt - a.scheduledAt)[0];
+			const newestOf = (state: Occurrence["state"]) =>
+				rows.filter((row) => row.state === state).sort((a, b) => b.scheduledAt - a.scheduledAt)[0];
+			const ran = newestOf("dispatched");
+			const review = newestOf("needs_review");
 			const nextAt = runner.nextAt(routine, now);
+			const missed = panelFor(rows, now);
 			return {
 				routine,
 				...(nextAt === null ? {} : { nextAt }),
 				...(ran ? { lastRanAt: ran.scheduledAt } : {}),
-				...(panelFor(rows, now) ? { missed: panelFor(rows, now) } : {}),
+				...(missed ? { missed } : {}),
+				...(review ? { reviewAt: review.scheduledAt } : {}),
 			};
 		});
 	};
@@ -88,8 +95,10 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 				return result;
 			},
 			remove: (routineId) => {
+				// The routine goes first, so a half-done delete leaves rows nothing will walk.
+				const removed = store.remove(routineId);
 				occurrences.clear(routineId);
-				return store.remove(routineId);
+				return removed;
 			},
 			enable: (routineId, enabled) => store.setEnabled(routineId, enabled),
 			runNow: async (routineId, occurrenceId) => {
@@ -104,5 +113,8 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		start: () => runner.start(),
 		stop: () => runner.stop(),
 		reconcile: () => runner.reconcile(),
+		bindExecution: (attempt) => {
+			bound = attempt;
+		},
 	};
 }

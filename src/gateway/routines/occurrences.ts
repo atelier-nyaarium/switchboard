@@ -112,18 +112,20 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 	};
 
 	/**
-	 * Drops what nobody will look at again. A routine's newest miss is its panel and stays however
-	 * old it is; anything else settled before the cutoff goes, or the file grows without end.
+	 * Drops what nobody will look at again. A routine's newest miss is its panel and its newest
+	 * review is why it stopped running, so both stay however old they are. Anything else settled
+	 * before the cutoff goes, or the file grows without end.
 	 */
 	const sweep = (before: number): number => {
-		const newestMiss = new Map<string, number>();
+		const newest = new Map<string, number>();
 		for (const row of rows) {
-			if (row.state !== "missed") continue;
-			const held = newestMiss.get(row.routineId);
-			if (held === undefined || row.scheduledAt > held) newestMiss.set(row.routineId, row.scheduledAt);
+			if (row.state !== "missed" && row.state !== "needs_review") continue;
+			const key = `${row.state}:${row.routineId}`;
+			const held = newest.get(key);
+			if (held === undefined || row.scheduledAt > held) newest.set(key, row.scheduledAt);
 		}
 		const kept = rows.filter(
-			(row) => row.scheduledAt >= before || newestMiss.get(row.routineId) === row.scheduledAt,
+			(row) => row.scheduledAt >= before || newest.get(`${row.state}:${row.routineId}`) === row.scheduledAt,
 		);
 		const dropped = rows.length - kept.length;
 		if (dropped > 0) commit(kept);

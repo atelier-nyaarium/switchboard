@@ -53,6 +53,8 @@ export interface GatewayFaultPort {
 	sealForPeer(target: PeerAddress, op: unknown): SealedEnvelope;
 	routerCall(name: string, params: Record<string, unknown>): Promise<RouterToolCallResult>;
 	routerInboxCall(name: string, params: Record<string, unknown>): Promise<RouterToolCallResult>;
+	/** One routine sweep now, off the clock. */
+	sweepRoutines(): Promise<void>;
 }
 
 export interface GatewayGraph {

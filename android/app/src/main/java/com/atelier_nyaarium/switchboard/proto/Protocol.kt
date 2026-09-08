@@ -1717,6 +1717,7 @@ data class RoutineState(
 	val nextAt: Long? = null,
 	val lastRanAt: Long? = null,
 	val missed: RoutineMiss? = null,
+	val reviewAt: Long? = null,
 )
 
 @Serializable

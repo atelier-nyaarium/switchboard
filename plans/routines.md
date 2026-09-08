@@ -821,7 +821,7 @@ red team found a routine will currently save with neither.
   store checks the catalog at save, or the refusal at resolve time is made explicit and durable so
   the owner learns rather than the occurrence quietly missing.
 
-## Phase 3 - Execution
+## Phase 3 - Execution ✅
 
 The reserved session: a durable recipe for making one, bound to the routine, and a logical binding
 that survives the physical session being replaced. Creation and recreation both, since a session
@@ -845,6 +845,56 @@ saw nothing is the miss signal rather than a retry.
 than behind a capability, authenticated through `SessionAuthority.resolveConfirmedManagedSession`,
 and answering the stored snapshot for an occurrence id. Four outcomes stay distinct: no routine on
 this session, unknown occurrence, wrong session, and invalid token.
+
+### Decisions this phase made
+
+- **A name is not a binding, so provenance is.** `reservation.ts` owns the reserved session's
+  identity: the team it lives at, the provenance `createSession` stamps, and whether a record is a
+  given routine's. Reserving refuses a record it did not make, and saving refuses a routine whose
+  name something else already holds, so the owner learns at the editor rather than at 09:00. Without
+  it a routine would adopt an ordinary session, and in Phase 4 its grant would activate inside one
+  the owner opened for something else.
+- **The id has to leave a session name.** `routineSessionName` is the one place that name is made,
+  and `RoutineSchema.id` is bounded to what it can produce, so a routine that could never reserve a
+  session cannot be stored.
+- **A revision fence around preparation.** A routine read before an await is not the routine after
+  it. Preparation now refuses to dispatch a snapshot the owner has replaced, leaving the occurrence
+  where the next sweep prepares it again, so an edit costs a lap rather than the occurrence.
+- **The newest review outlives the sweep, as the newest miss does.** It is why the routine stopped
+  running, and it is cleared by re-saving rather than by time.
+- **The routine goes before its occurrences on delete.** A half-done delete then leaves rows nothing
+  walks, rather than a routine whose dispatch tombstones are gone.
+
+### Bug Classes
+
+**Mechanism:** the routine subsystem's declarations. **Class:** something declared, and nothing
+wired to it, with every gate green because a declaration compiles.
+
+Four instances found in one lap, which is what makes it a class:
+
+1. `MISS_REASONS` declared `host_unreachable` and `not_delivered`, and nothing could produce either.
+   Every wait was blamed on a busy session.
+2. `RoutineStoreDeps.knowsSpawn` was declared and never passed, so the ruling about a target naming
+   a spawn this gateway has was half-built.
+3. The delivery id ruling said to derive it from the occurrence anyway; `routesSend` minted a random
+   one.
+4. `needs_review` was a state the phone could not see. `panelFor` reads missed rows alone, so a
+   routine that stopped running showed no run, no miss, and no reason.
+
+The cause is that a phase writes the vocabulary and the wiring in one pass, and a declaration that
+went in first reads as done. A test would not have caught any of them: nothing was wrong, something
+was absent.
+
+Closed by producing three and deleting one, and by `reviewAt` on the wire. What would catch the next
+one is a reader over the routine vocabulary asking which members have a producer, which is worth
+building only if a fifth turns up.
+
+**Mechanism:** materializing past occurrences. **Class:** a floor applied to one walk of two.
+
+`recordSevereMiss` never reached past `routine.since`, and the due walk beside it did, so a routine
+saved this afternoon would fire for this morning. One rule, two callers, one of them left behind.
+Both floor now. The same shape is what `reservation.ts` is for: the reserved session's name was
+being derived in two places before it had an owner.
 
 ## Phase 4 - The grant
 
@@ -873,6 +923,21 @@ whether the work went well, which it has not.
 
 Independent of the scheduler, and the only phase that is a security change.
 
+Three things Phase 3 settled that this one has to read:
+
+- **The occurrence's identity is `occurrenceId(routineId, scheduledAt)`,** never the instant alone,
+  which is unique only inside one routine. A `vault_attention` record keyed by the instant would
+  collide across routines that share a slot.
+- **The reserved session is provenance-checked, not name-checked.** A grant activating in a session
+  the routine did not make was the hazard, and `reservation.ts` is what closes it. Nothing in this
+  phase may reach the session by name alone.
+- **The revision fence exists.** Preparation already refuses to dispatch against a routine that
+  moved, which is the same instant an edit has to revoke authority. Revocation reads that fence
+  rather than adding a second notion of when a routine changed.
+
+Activation does not belong in `deliver`. That seam runs after `dispatched` is durable, so a grant
+minted there sits in the crash window the at-most-once rule deliberately loses.
+
 ## Phase 5 - The phone
 
 `RunbookManager` holds a copy per gateway, which Question 17 asked for and Phase 1 left standing.
@@ -899,6 +964,13 @@ Three things this screen has to get right, all of them naming rather than mechan
   editor shows local time, the gateway keeps server time, the save intent decides whether anything
   converts, and occurrences already materialized keep their instants. That needs one confirmation
   that states what changes and names the next absolute run, not a silent save.
+- **A routine belongs to one gateway, and copying one makes a second executor.** Each gateway holds
+  its own routines and its own occurrences, which the gateway-local ruling chose deliberately. A tab
+  that lists them together, or a copy action that reads as replication, would make two machines run
+  the same thing and call it one routine.
+
+`reviewAt` is what says a routine stopped running. Phase 3 emits it; without a line for it the owner
+sees a routine that shows no run, no miss, and no reason.
 
 The runbook delete button lands here too. The gateway, the wire and `RunbookOps.delete` are all
 finished already and nothing calls them, and a routine that pins a runbook makes deleting one a

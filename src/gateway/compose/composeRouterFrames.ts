@@ -12,6 +12,7 @@ import { createCrossDomainHandshakePump } from "../federation/crossDomainHandsha
 import { createGatewayRelayHandler, createGatewayRelayPump } from "../federation/gatewayRelay.js";
 import { fireAndForget } from "../fireAndForget.js";
 import { composeValueResult } from "../router/valueResult.js";
+import { createRoutineExecution } from "../routines/execution.js";
 import type { HostStage } from "./composeHost.js";
 import type { RouterPresenceBuild } from "./composeRouterPresence.js";
 import type { GatewayRoutes } from "./composeRoutes.js";
@@ -33,7 +34,7 @@ export interface RouterFramesStageDeps {
 	routes: () => GatewayRoutes;
 	vault: Pick<VaultStage, "console" | "sessionEnded">;
 	runbooks: Pick<RunbookStage, "console">;
-	routines: Pick<RoutineStage, "console">;
+	routines: Pick<RoutineStage, "console" | "bindExecution">;
 }
 
 export interface RouterFramesBuild extends RouterFrameHandlers {
@@ -112,6 +113,20 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			routines: deps.routines.console,
 			onSessionEnded: (team) => deps.vault.sessionEnded(team),
 		});
+
+		deps.routines.bindExecution(
+			createRoutineExecution({
+				getRunbook: (runbookId) => deps.runbooks.console.get(runbookId),
+				workingOf: (team) => sessions.presence.workingOf(team),
+				reserveSession: (routine) => consoleHandler.reserveRoutineSession(routine),
+				deliver: async ({ from, to, body, deliveryId }) => {
+					const res = await deps.routes().sendFromOwner({ from, to, body, deliveryId, channelOnly: true });
+					if (res.ok) return null;
+					const json = (await res.json().catch(() => ({}))) as { error?: string };
+					return json.error ?? `send to "${to}" failed`;
+				},
+			}),
+		);
 
 		const valueOp = (raw: unknown): void => {
 			void (async () => {

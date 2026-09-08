@@ -1,5 +1,6 @@
 // The whole gateway graph, one stage at a time.
 
+import { hostSpawnPoint } from "../shared/host-spawn.js";
 import { ownerKeyId } from "../shared/owner-id.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
 import { composeAgents } from "./compose/composeAgents.js";
@@ -27,6 +28,7 @@ import { composeWebSockets, type WebSocketsStage } from "./compose/composeWebSoc
 import { FederationContext } from "./compose/federationContext.js";
 import type { GatewayDeps, GatewayGraph } from "./compose/gatewayTypes.js";
 import { readOwnerSignPub } from "./federation/allowlist.js";
+import { routineOwns, routineTeam } from "./routines/reservation.js";
 
 export { createProjectPredicates } from "./compose/composeSessions.js";
 export type {
@@ -183,6 +185,13 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		dataDir: bootstrap.dataDir,
 		ambient: bootstrap.ambient,
 		getRunbook: (runbookId) => runbooks.console.get(runbookId),
+		knowsSpawn: (spawn) => {
+			if (hostSpawnPoint(spawn)?.alwaysAvailable) return true;
+			// Never announced is not a no.
+			if (!sessions.hostSpawnPoints.known) return true;
+			return sessions.hostSpawnPoints.ids.includes(spawn) || sessions.offlineCatalog.has(spawn);
+		},
+		sessionTaken: (routine) => !routineOwns(sessions.sessionStore.getByTeam(routineTeam(routine)), routine),
 	});
 	routerFrames = composeRouterFrames({
 		localGatewayId: bootstrap.localGatewayId,
@@ -225,6 +234,6 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		router: listener.router,
 		wsHandlers: websockets.wsHandlers,
 		close: listener.close,
-		faults: composeFaults({ context, sessions }),
+		faults: composeFaults({ context, sessions, routines }),
 	};
 }

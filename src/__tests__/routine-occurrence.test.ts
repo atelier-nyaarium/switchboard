@@ -38,6 +38,28 @@ describe("what an occurrence may become", () => {
 		for (const from of OCCURRENCE_STATES) expect(canTransition(from, "due")).toBe(false);
 	});
 
+	it("keeps a routine's newest miss and newest review however old, and drops the rest", () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "routine-occurrence-"));
+		roots.push(root);
+		const occurrences = createOccurrenceStore({ store: new DurableStore(root, "occurrences") });
+		const settle = (at: number, to: "missed" | "needs_review" | "dispatched") => {
+			occurrences.open("triage", at, at + 1);
+			occurrences.transition("triage", at, { state: "due", version: 1 }, to);
+		};
+		settle(100, "missed");
+		settle(200, "missed");
+		settle(300, "needs_review");
+		settle(400, "dispatched");
+
+		occurrences.sweep(1000);
+
+		// The panel and the reason it stopped running both outlive the cutoff; what ran does not.
+		expect(occurrences.forRoutine("triage").map((row) => [row.scheduledAt, row.state])).toEqual([
+			[200, "missed"],
+			[300, "needs_review"],
+		]);
+	});
+
 	it("rejects a stale version and preserves state after a failed durable write", () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "routine-occurrence-"));
 		roots.push(root);

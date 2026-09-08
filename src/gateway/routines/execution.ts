@@ -1,19 +1,19 @@
 // What a routine does when its moment comes. The runner owns when; none of that is decided here.
 
 import { renderRunbook } from "../../shared/runbook-grammar.js";
-import type { Routine } from "../../shared/schemasRoutine.js";
+import { type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
 import { type Runbook, runbookRefusal } from "../../shared/schemasRunbook.js";
-import type { Occurrence } from "./occurrences.js";
+import { type Occurrence, occurrenceId } from "./occurrences.js";
+import { type ReserveResult, routineTeam } from "./reservation.js";
 import type { PrepareResult, RoutineAttempt } from "./runner.js";
 
 export interface RoutineExecutionDeps {
 	getRunbook: (runbookId: string) => Runbook | null;
 	/** True while the session is working, false while it is not, undefined when nobody knows. */
 	workingOf: (team: string) => boolean | undefined;
-	/** Makes the reserved session if it has gone, answering the team it lives at. */
-	reserveSession: (routine: Routine) => Promise<string | null>;
-	/** Hands the nudge to delivery. The occurrence is already durable as dispatched. */
-	deliver: (team: string, body: string) => Promise<void>;
+	reserveSession: (routine: Routine) => Promise<ReserveResult>;
+	/** Why the nudge was refused, or null. */
+	deliver: (nudge: { from: string; to: string; body: string; deliveryId: string }) => Promise<string | null>;
 }
 
 /**
@@ -29,14 +29,11 @@ export function nudgeFor(routine: Routine, occurrence: Occurrence): string {
 }
 
 export function createRoutineExecution(deps: RoutineExecutionDeps): RoutineAttempt {
-	/** Where a routine's own session lives. Derived, so no stale id is ever stored. */
-	const teamOf = (routine: Routine) => `${routine.target.spawn}.routine-${routine.id}`;
-
 	return {
 		sessionIdle(routine: Routine): boolean {
 			// Unknown counts as idle: a session nobody has heard from is not one that is busy, and
 			// the deadline is what stops this waiting forever.
-			return deps.workingOf(teamOf(routine)) !== true;
+			return deps.workingOf(routineTeam(routine)) !== true;
 		},
 
 		async prepare(routine: Routine, _occurrence: Occurrence): Promise<PrepareResult> {
@@ -50,14 +47,27 @@ export function createRoutineExecution(deps: RoutineExecutionDeps): RoutineAttem
 			const rendered = renderRunbook(runbook.body, runbook.parameters, routine.values);
 			if (!rendered.ok) return { ok: false, reason: "revision_moved" };
 
-			const team = await deps.reserveSession(routine);
-			if (!team) return { ok: false, reason: "unreachable" };
-			return { ok: true, revision: runbook.revision, snapshot: rendered.text, team };
+			// One routine's dead machine must not end the sweep.
+			const reserved = await deps.reserveSession(routine).catch((): ReserveResult => ({ kind: "pending" }));
+			if (reserved.kind === "taken") return { ok: false, reason: "session_taken" };
+			if (reserved.kind === "pending") return { ok: false, reason: "unreachable" };
+			return { ok: true, revision: runbook.revision, snapshot: rendered.text, team: reserved.team };
 		},
 
 		async deliver(routine: Routine, occurrence: Occurrence): Promise<void> {
-			const team = occurrence.team ?? teamOf(routine);
-			await deps.deliver(team, nudgeFor(routine, occurrence));
+			const team = occurrence.team ?? routineTeam(routine);
+			const refused = await deps
+				.deliver({
+					// Display only; it sends as the owner.
+					from: routineSessionName(routine.id),
+					to: team,
+					body: nudgeFor(routine, occurrence),
+					// Names the row, and never the guarantee, which the occurrence state holds.
+					deliveryId: occurrenceId(occurrence.routineId, occurrence.scheduledAt),
+				})
+				.catch((error: Error) => error.message);
+			// Dispatched either way, so this is the only account.
+			if (refused) console.warn(`[routine] ${routine.id} nudge to ${team} was not delivered: ${refused}`);
 		},
 	};
 }

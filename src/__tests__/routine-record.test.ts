@@ -38,6 +38,13 @@ describe("what a routine may be", () => {
 		expect(routineRefusal(routine({ zone: "Mars/Olympus" }))).toContain("not a zone");
 	});
 
+	it("refuses an id that could not name the session it reserves", () => {
+		for (const id of ["Morning Triage", "morning triage", "-morning", "a".repeat(57)]) {
+			expect(RoutineSchema.safeParse(routine({ id })).success, id).toBe(false);
+		}
+		expect(RoutineSchema.safeParse(routine({ id: "a".repeat(56) })).success).toBe(true);
+	});
+
 	it("holds the schema to the ranges the editor offers", () => {
 		expect(RoutineSchema.safeParse(routine({ weekdays: [0] })).success).toBe(false);
 		expect(RoutineSchema.safeParse(routine({ weekdays: [8] })).success).toBe(false);

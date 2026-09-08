@@ -366,7 +366,8 @@ export function createSendRoutes({
 
 				if (deliveries) {
 					const outcome = deliveries.accept({
-						deliveryId: ambient.newId(),
+						// Only the owner names a row, since a session could otherwise pick one already spent.
+						deliveryId: (ingress.kind === "owner" ? parsed.data.deliveryId : undefined) ?? ambient.newId(),
 						team: targetWs?.data.teamName ?? localName,
 						channelJobId,
 						from,

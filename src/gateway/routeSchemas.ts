@@ -40,6 +40,8 @@ export const SendRequestSchema = z.object({
 	sessionId: z.string().optional(),
 	returnRoute: ReturnRouteSchema.optional(),
 	dstDomainId: z.string().optional(),
+	/** Names the queue row rather than guaranteeing anything, and only the owner may choose it. */
+	deliveryId: z.string().min(1).max(128).optional(),
 });
 
 export const RespondBodySchema = z.object({

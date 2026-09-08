@@ -37,6 +37,6 @@ export function isTerminal(state: OccurrenceState): boolean {
 }
 
 /** Why an occurrence never ran. A deadline is shared by all of these; a story is not. */
-export const MISS_REASONS = ["gateway_down", "session_busy", "host_unreachable", "disabled", "not_delivered"] as const;
+export const MISS_REASONS = ["gateway_down", "session_busy", "host_unreachable", "disabled"] as const;
 
 export type MissReason = (typeof MISS_REASONS)[number];

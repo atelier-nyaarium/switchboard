@@ -97,6 +97,15 @@ describe("routine store", () => {
 		expect(store.remove("a")).toEqual({ deleted: false });
 	});
 
+	it("refuses a routine whose reserved session name something else already holds", () => {
+		const guarded = openDurable(fresh(), "routines", (store) =>
+			createRoutineStore({ store, now: () => 1_700_000_000_000, sessionTaken: () => true }),
+		);
+		const refused = guarded.put(routine("morning"));
+		expect(refused.stored).toBe(false);
+		expect(refused.reason).toContain("host.routine-morning");
+	});
+
 	it("refuses to hand a caller the record it holds to edit", () => {
 		const store = open(fresh());
 		store.put(routine("morning"));

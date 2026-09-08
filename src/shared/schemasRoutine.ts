@@ -2,9 +2,20 @@
 
 import { z } from "zod";
 import { instantOf, type LocalDate, nextOccurrence, parseLocalDate, parseLocalTime } from "./routine-recurrence.js";
+import { MAX_SLUG_LEN, SLUG_RE } from "./session-id.js";
 
 /** Eight weeks is the longest interval the editor offers. */
 const MAX_WEEK_INTERVAL = 8;
+
+const ROUTINE_SESSION_PREFIX = "routine-";
+
+/** The id has to leave a valid session segment, since the reserved session is named from it. */
+export const MAX_ROUTINE_ID_LEN = MAX_SLUG_LEN - ROUTINE_SESSION_PREFIX.length;
+
+/** Where a routine's reserved session lives. The one place that name is made. */
+export function routineSessionName(routineId: string): string {
+	return `${ROUTINE_SESSION_PREFIX}${routineId}`;
+}
 
 /**
  * Where the reserved session is made. A policy rather than a session id, because the id would bake
@@ -22,7 +33,7 @@ export type RoutineTarget = z.infer<typeof RoutineTargetSchema>;
 
 export const RoutineSchema = z
 	.object({
-		id: z.string().min(1),
+		id: z.string().min(1).max(MAX_ROUTINE_ID_LEN).regex(SLUG_RE),
 		name: z.string().min(1),
 		/** ISO weekdays it fires on. Monday is 1. */
 		weekdays: z.array(z.number().int().min(1).max(7)),
@@ -78,6 +89,8 @@ export const RoutineStateSchema = z
 		nextAt: z.number().int().nonnegative().optional(),
 		lastRanAt: z.number().int().nonnegative().optional(),
 		missed: RoutineMissSchema.optional(),
+		/** When it last refused a moved revision. Saving the routine again is what clears it. */
+		reviewAt: z.number().int().nonnegative().optional(),
 	})
 	.meta({ id: "RoutineState" });
 

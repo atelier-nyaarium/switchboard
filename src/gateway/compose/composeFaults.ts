@@ -3,6 +3,7 @@
 import { canonicalJson, sha256Hex } from "../../shared/canonical-json.js";
 import { type RowEnvelope, signRowEnvelope } from "../../shared/schemasInbox.js";
 import type { FederationSlice } from "../boot.js";
+import type { RoutineStage } from "./composeRoutines.js";
 import type { SessionsStage } from "./composeSessions.js";
 import type { FederationContext } from "./federationContext.js";
 import type { GatewayFaultPort, PeerAddress } from "./gatewayTypes.js";
@@ -10,9 +11,10 @@ import type { GatewayFaultPort, PeerAddress } from "./gatewayTypes.js";
 export interface FaultsStageDeps {
 	context: FederationContext;
 	sessions: Pick<SessionsStage, "sessionStore">;
+	routines: Pick<RoutineStage, "reconcile">;
 }
 
-export function composeFaults({ context, sessions }: FaultsStageDeps): GatewayFaultPort {
+export function composeFaults({ context, sessions, routines }: FaultsStageDeps): GatewayFaultPort {
 	function federated(): FederationSlice {
 		const slice = context.slice();
 		if (!slice) throw new Error("this Gateway is not federated");
@@ -43,5 +45,6 @@ export function composeFaults({ context, sessions }: FaultsStageDeps): GatewayFa
 		sealForPeer: (target: PeerAddress, op: unknown) => federated().sealer.seal(target, op),
 		routerCall: (name, params) => federated().routerClient.callTool(name, params),
 		routerInboxCall: (name, params) => federated().routerClient.callInboxTool(name, params),
+		sweepRoutines: () => routines.reconcile(),
 	};
 }

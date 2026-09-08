@@ -3,7 +3,15 @@ import type { ConsoleOp, ConsoleOpResult } from "../../shared/console-protocol.j
 import { fenced, MIGRATING } from "../../shared/migration-fence.js";
 import { ownerKeyId } from "../../shared/owner-id.js";
 import { DELIVERY_OP_KINDS, TOLERATED_DELIVERY_OP_KINDS, VALUE_OP_KINDS } from "../../shared/schemasConsoleOp.js";
+import { type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
 import { answerBlobOp } from "../blobOps.js";
+import {
+	RESERVE_OP,
+	type ReserveResult,
+	reserveConversation,
+	routineOwns,
+	routineTeam,
+} from "../routines/reservation.js";
 import { createCrossDomainHandlers } from "./consoleCrossDomain.js";
 import { createRunbookFireHandler } from "./consoleRunbookFire.js";
 import { createSessionLifecycleHandlers } from "./consoleSessionLifecycle.js";
@@ -403,5 +411,28 @@ export function createConsoleDispatcher({
 		return dispatch(op, device, conversationId, ownerKeyId(ownerSignPub), opId, ownerSignPub);
 	}
 
-	return { handleValue, handleDelivery };
+	/**
+	 * A routine's own session, named from the routine so no stale id is stored. The host reattaches a
+	 * live session and launches a gone one, so this recreates it too.
+	 */
+	async function reserveRoutineSession(routine: Routine): Promise<ReserveResult> {
+		const team = routineTeam(routine);
+		// Adopting a session somebody else made would run the routine, and later its grant, inside
+		// one the owner opened for something else.
+		if (!routineOwns(sessionStore?.getByTeam(team), routine)) return { kind: "taken" };
+		const made = await sessionLifecycle.createSession(
+			{
+				kind: "create_session",
+				target: routine.target.spawn,
+				sessionName: routineSessionName(routine.id),
+				...(routine.target.workdir ? { workdir: routine.target.workdir } : {}),
+			},
+			reserveConversation(routine),
+			RESERVE_OP,
+		);
+		// Still launching is not yet reachable.
+		return made.status === "pending" ? { kind: "pending" } : { kind: "ok", team };
+	}
+
+	return { handleValue, handleDelivery, reserveRoutineSession };
 }

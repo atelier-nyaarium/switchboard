@@ -66,7 +66,7 @@ function world(over: Partial<RoutineAttempt> = {}, took = A_YEAR_BEFORE) {
 			setTimer: () => ({}) as ReturnType<Ambient["setTimer"]>,
 			clearTimer: () => undefined,
 		},
-		attempt,
+		attempt: () => attempt,
 	});
 	// Nothing is admitted until the stage is armed, which activation does in the real graph.
 	runner.start();
@@ -119,6 +119,21 @@ describe("the routine runner", () => {
 		expect(w.delivered).toEqual([]);
 	});
 
+	it("waits on an unreachable host, and says that rather than blaming a busy session", async () => {
+		const w = world({ prepare: async () => ({ ok: false, reason: "unreachable" }) });
+		w.routines.put(routine());
+
+		await w.runner.reconcile();
+		expect(w.occurrences.at("triage", MONDAY_0900_LA)?.state).toBe("waiting_idle");
+
+		w.at(MONDAY_0900_LA + GRACE_MS + 1);
+		await w.runner.reconcile();
+		const held = w.occurrences.at("triage", MONDAY_0900_LA);
+		expect(held?.state).toBe("missed");
+		expect(held?.reason).toBe("host_unreachable");
+		expect(w.delivered).toEqual([]);
+	});
+
 	it("sends a routine whose pinned revision moved for review, rather than firing it", async () => {
 		const w = world({ prepare: async () => moved });
 		w.routines.put(routine());
@@ -157,6 +172,42 @@ describe("the routine runner", () => {
 		expect(w.delivered).toEqual([]);
 	});
 
+	it("runs the words the owner now means when an edit lands mid-preparation", async () => {
+		let release!: () => void;
+		let started!: () => void;
+		const preparationStarted = new Promise<void>((resolve) => {
+			started = resolve;
+		});
+		const preparationRelease = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let prepares = 0;
+		const w = world({
+			prepare: async (current) => {
+				prepares += 1;
+				if (prepares === 1) {
+					started();
+					await preparationRelease;
+				}
+				return { ...ready, snapshot: current.values.branch ?? "" };
+			},
+		});
+		w.routines.put(routine({ values: { branch: "main" } }));
+
+		const reconcile = w.runner.reconcile();
+		await preparationStarted;
+		expect(w.routines.put(routine({ values: { branch: "release" } }), { base: 1 })).toMatchObject({
+			stored: true,
+			revision: 2,
+		});
+		release();
+		await reconcile;
+
+		// The stale snapshot was dropped rather than dispatched, and the occurrence prepared again.
+		expect(w.occurrences.at("triage", MONDAY_0900_LA)?.snapshot).toBe("release");
+		expect(w.delivered).toEqual([`triage:${MONDAY_0900_LA}`]);
+	});
+
 	it("does not dispatch after preparation crosses the deadline", async () => {
 		let release!: () => void;
 		let started!: () => void;
@@ -189,23 +240,26 @@ describe("the routine runner", () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "routine-stage-"));
 		roots.push(root);
 		let prepared = false;
+		// Taken the minute before its slot.
+		let now = MONDAY_0900_LA - 60_000;
 		const delivered: string[] = [];
 		const stage = composeRoutines({
 			dataDir: root,
 			ambient: {
-				now: () => MONDAY_0900_LA,
+				now: () => now,
 				setTimer: () => ({}) as ReturnType<Ambient["setTimer"]>,
 				clearTimer: () => undefined,
 			},
-			attempt: {
+			attempt: () => ({
 				sessionIdle: () => true,
 				prepare: async () => (prepared ? ready : moved),
 				deliver: async (_routine, occurrence) => {
 					delivered.push(String(occurrence.scheduledAt));
 				},
-			},
+			}),
 		});
 		stage.console.put(routine());
+		now = MONDAY_0900_LA;
 		stage.start();
 		await stage.reconcile();
 		prepared = true;
@@ -249,6 +303,18 @@ describe("the routine runner", () => {
 		await w.runner.reconcile();
 
 		expect(w.occurrences.forRoutine("triage").filter((row) => row.state === "missed")).toEqual([]);
+	});
+
+	it("does not fire a routine saved this afternoon for a slot that passed this morning", async () => {
+		// Taken an hour after today's slot, still inside its window.
+		const w = world({}, MONDAY_0900_LA + 60 * 60 * 1000);
+		w.at(MONDAY_0900_LA + 60 * 60 * 1000);
+		w.routines.put(routine());
+
+		await w.runner.reconcile();
+
+		expect(w.occurrences.forRoutine("triage")).toEqual([]);
+		expect(w.delivered).toEqual([]);
 	});
 
 	it("collapses weeks of unseen occurrences into one miss, and still runs the current one", async () => {

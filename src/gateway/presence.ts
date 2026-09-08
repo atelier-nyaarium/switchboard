@@ -172,6 +172,11 @@ export class PresenceFacade {
 		if (this.createInFlight.delete(team)) this.markDirty();
 	}
 
+	/** Undefined is nobody having said, not a no. */
+	workingOf(team: string): boolean | undefined {
+		return this.working.get(team)?.working;
+	}
+
 	isWakeInFlight(team: string): boolean {
 		return this.wakeInFlight.has(team) || this.createInFlight.has(team);
 	}
