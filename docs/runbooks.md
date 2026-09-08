@@ -38,9 +38,18 @@ not open a placeholder of its own.
 so a stored record has passed the rules, and restore keeps whatever the schema accepts rather than
 discarding the owner's work.
 
-The phone owns the revision. A higher one replaces, a lower one is refused and told what to rebase
-on, and an equal one is a retry when the content matches and a refusal when it does not. That last
-case is what stops a second device silently overwriting the first.
+The phone owns the revision, and a put lands only at exactly one past what the gateway holds. An id
+the gateway has never seen is a first write at whatever revision it carries, since a second gateway
+meets a runbook mid-life. A repeat at the stored revision with the same content is a retry of a lost
+answer. Everything else is refused and told what is actually held.
+
+Writing the next revision means having read the one it replaces, so a device that jumped the counter
+cannot erase edits it never saw. The gateway cannot tell a copy that descends from the one it holds
+from a divergent one, so `overwrite` on `runbook_put` replaces regardless. Only an owner tap reaches
+it: `RunbookOps.sync` never sets it, and `save` defaults it off.
+
+A revision has a ceiling, because a record at the top of the range would have no successor and could
+never be edited again.
 
 Five console ops, all owner-authenticated: `runbook_list`, `runbook_put`, `runbook_delete`,
 `runbook_preview` and `runbook_fire`.
@@ -92,14 +101,23 @@ waits, so the sheet never offers to send something it is not showing.
 
 ## A refused push
 
-The phone being sole author does not make two phones impossible, so a Gateway refuses a put at or
-below the revision it holds and answers both a reason and that revision.
+Any phone may author a runbook, so a Gateway refuses anything but the next revision and answers both
+a reason and the revision it holds.
 
 `RunbookOps.save` pushes before it answers. Stored, and the library takes it and the editor closes.
 Refused, and the library is untouched and the editor stays open with the reason and an Overwrite
-action that rebases the draft onto the held revision, so the next save wins. Unreachable, and the
-copy is local, which is what a phone-owned library means with no Gateway listening; the next preview
-or fire pushes it.
+action. Unreachable, and the copy is local, which is what a phone-owned library means with no Gateway
+listening; the next preview or fire pushes it.
 
-`standingConflict` withdraws the offer once the draft has passed that revision, since rebasing
-backwards would mint a revision the library's merge discards.
+Overwrite records intent rather than rewriting the draft, and `save` mints the outgoing revision from
+what the library currently holds. Both halves matter: a Gateway that is behind would otherwise be
+handed a revision the phone's own library outranks, so the write would land there and never come
+back, leaving the two disagreeing while the owner was told it was refused.
+
+A refusal the current save earned outranks one left standing from an earlier push, which is what
+`RunbookEditor` names its conflict cases to keep visible. `standingConflict` filters only the
+leftover.
+
+The fire sheet carries the same action. A preview that cannot be rendered because the Gateway refused
+the sync shows the reason and an Overwrite beside it; one that failed for any other reason shows no
+action, since there is nothing to force.

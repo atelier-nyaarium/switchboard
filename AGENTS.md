@@ -34,6 +34,12 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/boot.ts` - `GatewayBootstrap.resolve`, the boot phase decision, the federation slice types, and `RouterHandlers` split into frames and presence
 - `src/gateway/router/registerAuth.ts` / `valueResult.ts` - the `gateway_register` frame and the `value_result` settlement, pure
 - `src/gateway/wake.ts` - container/session wake decisions
+- `src/gateway/wakeService.ts` - one launch per team, whichever door it came through
+  - **A joiner gets the launch, not a second one:** `joinCreate` hands the first caller a release
+    closure and every later one `null`, so a create cannot be wired to join without being able to
+    end, and presence starts and ends once however many callers arrive. A launch that failed is not
+    waited on for registration, which would otherwise hold the team for the whole wake timeout and
+    refuse close and forget for that long.
 - `src/gateway/sessionAuthority.ts` - sole owner of credential-field access; residue-tested
 - `src/gateway/presence.ts` / `readAnchors.ts` / `hostOpCoordinator.ts` - presence, read anchors, host RPC correlation
 - `src/gateway/router/boardClient.ts` - Router-held task board client
@@ -42,6 +48,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/vault/operationSet.ts` - the one shape rule, the wrapper table read from each program's help, and the set a window grant covers
 - `src/gateway/compose/composeVault.ts` - vault client, decisions, requests, routes, and console operations
 - `src/gateway/runbooks/store.ts` - gateway-held runbooks; sole writer, so a stored record has passed the rules
+  - **A put lands only at one past what is held:** an unseen id is a first write at any revision, and
+    a repeat of the stored content at the stored revision is a lost answer. Everything else is
+    refused with what is actually held, so a device that jumped the counter cannot erase edits it
+    never read. `overwrite` replaces regardless, because no revision arithmetic can tell a copy that
+    descends from the held one from a divergent one. Only an owner tap reaches it.
 - `src/gateway/compose/composeRunbooks.ts` - the runbook store and its console operations
 - `src/gateway/console/consoleRunbookFire.ts` - renders a stored runbook and lands it in a session, creating one first
   - **A preview and a fire reach the same words:** `textOf` is the one road from an id and values to
@@ -101,7 +112,12 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     copy is local. `keep` decides the last part by whether the library actually took the candidate,
     so a save the merge would drop is a conflict rather than a silence.
   - **`standingConflict` withdraws a spent offer:** below the draft's revision, rebasing onto the
-    held one would mint a revision `merge` discards.
+    held one would mint a revision `merge` discards. It filters only the leftover conflict; a
+    refusal the current save earned outranks it, which `RunbookEditor` names rather than nests.
+  - **An overwrite is minted from the library, not from the gateway:** `overwriteRevision` reads
+    what the library holds now, since a gateway that is behind would otherwise take a revision the
+    library outranks and the two would disagree while the owner was told it was refused. Patched
+    three times before it was written this way; see Phase 0 in `plans/routines.md`.
 - `android/.../runbooks/RunbookManager.kt` - the phone-held library and its persistence, beside `BoardManager`
   - **On disk before it is shown:** a refused write leaves the owner the library they still have.
     `clearInMemory` is the exception, since a re-provision takes the previous owner's writing out of
