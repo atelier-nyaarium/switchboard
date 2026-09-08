@@ -671,7 +671,7 @@ Runbooks have no users, so the runbook and routine shapes may change freely and 
 optional-then-required dance. Deploy order still holds: the gateway ships before the console for
 anything it emits.
 
-## Phase 0 - The inherited defects
+## Phase 0 - The inherited defects ✅
 
 Both, each with its own test. `createSession` is directly load-bearing now that a routine creates
 and recreates its reserved session. The runbook revision jump would not by itself make the runner
@@ -892,3 +892,39 @@ Name what no gate here can reach, and cover each deliberately rather than declar
   the OEM behaviour an emulator does not represent.
 - **The grant.** Every refusal path gets a test, because a grant that silently covers more than it
   says is the failure that looks exactly like success.
+
+# Painpoints
+
+Written after Phase 0. Not defects, and not a code audit. These are the things that made the work
+slower or riskier than it needed to be, so a later phase can decide whether any of them is worth
+addressing.
+
+- **No phone test can reach the wire.** `RunbookOpsTest`'s only host fake answers `client = null`,
+  so every test of `RunbookOps` exercises the no-Gateway path and nothing else. There is no way to
+  assert that a flag the phone sets actually reaches `ConsoleClient`, which is exactly what an audit
+  asked for and I could not give. The gateway contract is covered from the TypeScript side, so the
+  hole is specifically the phone's client layer. A fake `ConsoleClient` would close a whole class of
+  untestable phone behaviour, and Phase 5 is the first phase that will really want one.
+
+- **A rule written inside a Composable is invisible to every gate.** `overwriteRevision` began as an
+  expression inside `RunbookEditor`, where nothing could test it, and there is no `androidTest`
+  source set to reach it. Extracting it beside `standingConflict` made it testable, but nothing
+  forces that. State lives in the Composable, so rules keep drifting there. Worth a rule of its own:
+  a decision the phone makes belongs beside the ops class, not in the screen that shows it.
+
+- **The sandbox cannot show a refusal.** `isSandbox` closes every network door, correctly, which
+  also means no screen that depends on a Gateway answering can be seen. The Overwrite action shipped
+  in this phase has never been rendered by anything, on device or in a test, because reaching it
+  needs a Gateway that refuses. Either the sandbox learns to answer canned refusals, or that class
+  of screen stays unverified.
+
+- **`kotlin-gate.sh` does not say what it checked.** Gradle reports `UP-TO-DATE` for a task it
+  skipped and for one whose inputs really had not changed, and the two look identical. Twice this
+  phase I could not tell whether my edits had compiled, and resorted to comparing class file
+  timestamps against source timestamps. The gate could simply say which tasks executed.
+
+- **Five things named after conflict.** `conflictOf`, `conflictsAfterPut`, `conflictOfRefusal`,
+  `localConflict` and `standingConflict` all live in `RunbookOps`, and each means something slightly
+  different. Two separate audit agents misread this area, and both misreads were about which
+  conflict outranks which. That is a naming problem rather than an agent problem: a human reading it
+  cold would make the same mistake.
