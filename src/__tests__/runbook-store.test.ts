@@ -106,6 +106,18 @@ describe("runbook store", () => {
 		});
 	});
 
+	it("reads a repeat as a repeat even when it spells a dropped field differently", () => {
+		const store = open(fresh());
+		// Options mean nothing to a text parameter, so the store drops them. A retry still carrying
+		// them is the same runbook, and refusing it would strand a caller on content already held.
+		const carried = book("deploy", {
+			parameters: [{ name: "level", label: "Level", kind: "text", options: ["x"] }],
+		});
+		expect(store.put(carried)).toMatchObject({ stored: true, revision: 1 });
+		expect(store.get("deploy")?.parameters[0]?.options).toBeUndefined();
+		expect(store.put(carried)).toMatchObject({ stored: true, revision: 1 });
+	});
+
 	it("refuses a base for an id it has never seen", () => {
 		const store = open(fresh());
 		expect(store.put(book("ghost"), { base: 3 })).toMatchObject({ stored: false, revision: 0 });

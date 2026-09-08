@@ -175,6 +175,19 @@ class RunbookOpsTest {
 	}
 
 	@Test
+	fun anEditInProgressOutlivesTheScreenThatWasTypingIt() {
+		val (ops, _) = opsOver(listOf(book("a")))
+		val typed = com.atelier_nyaarium.switchboard.runbooks.RunbookDraft(id = "a", name = "Half typed")
+
+		ops.keepDraft("a", typed)
+		// What a recreated editor asks for, holding nothing of its own.
+		assertEquals(typed, ops.draftFor("a"))
+
+		ops.dropDraft("a")
+		assertEquals(null, ops.draftFor("a"))
+	}
+
+	@Test
 	fun deletingTakesItOutOfTheLibraryEvenWithNoGatewayToTell() {
 		val (ops, state) = opsOver(listOf(book("a"), book("b")))
 		kotlinx.coroutines.runBlocking { ops.delete("a") }

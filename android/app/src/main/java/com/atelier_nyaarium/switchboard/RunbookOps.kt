@@ -6,6 +6,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookPutResult
 import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
+import com.atelier_nyaarium.switchboard.runbooks.RunbookDraft
 import com.atelier_nyaarium.switchboard.runbooks.RunbookManager
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -88,6 +89,23 @@ internal class RunbookOps(
 	private val host: RunbookHost,
 ) {
 	private val synced = mutableSetOf<Triple<String, String, Long>>()
+
+	/**
+	 * Editors in progress, keyed by the runbook being edited. This class outlives an activity, so a
+	 * rotation finds the draft still here; saved instance state could not hold one, since a body is
+	 * bounded by nothing and the parcel it would ride in is.
+	 */
+	private val drafts = mutableMapOf<String, RunbookDraft>()
+
+	fun draftFor(key: String): RunbookDraft? = drafts[key]
+
+	fun keepDraft(key: String, draft: RunbookDraft) {
+		drafts[key] = draft
+	}
+
+	fun dropDraft(key: String) {
+		drafts.remove(key)
+	}
 
 	private var conflicts = emptyMap<String, RunbookConflict>()
 

@@ -45,8 +45,7 @@ describe("what a routine may be", () => {
 		expect(RoutineSchema.safeParse(routine({ approvedRevision: 0 })).success).toBe(false);
 	});
 
-	it("keeps a routine whose first occurrence is a long fortnight away", () => {
-		// One weekday every eight weeks is the sparsest the editor can make, and it still fires.
+	it("accepts the sparsest schedule the editor can make", () => {
 		expect(routineRefusal(routine({ weekdays: [7], weekInterval: 8 }))).toBeNull();
 	});
 });

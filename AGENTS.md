@@ -115,11 +115,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **`standingConflict` withdraws a spent offer:** below the draft's revision, rebasing onto the
     held one would mint a revision `merge` discards. It filters only the leftover conflict; a
     refusal the current save earned outranks it, which `RunbookEditor` names rather than nests.
-  - **The phone adopts the revision, it does not mint one:** `save` sends the revision the editor
-    was opened at and keeps whatever record the gateway answers with. An earlier shape had the phone
-    minting, which was patched three times for the same defect before the authority moved; see
-    Phase 0 in `plans/routines.md`. The library still holds one copy per runbook, so its revision is
-    the home gateway's and another gateway drifts from it.
+  - **The phone adopts the revision, it does not mint one:** `save` sends the revision the editor was
+    opened at and keeps whatever record the gateway answers with. The library holds one copy per
+    runbook, so its revision is the home gateway's and another gateway drifts from it.
+  - **An edit in progress lives in `RunbookOps`, not the screen:** the repository outlives an
+    activity and saved instance state is a parcel, which a runbook body is not bounded to fit.
 - `android/.../runbooks/RunbookManager.kt` - the phone-held library and its persistence, beside `BoardManager`
   - **On disk before it is shown:** a refused write leaves the owner the library they still have.
     `clearInMemory` is the exception, since a re-provision takes the previous owner's writing out of

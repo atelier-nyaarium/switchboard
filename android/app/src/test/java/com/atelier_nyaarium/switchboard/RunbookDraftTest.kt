@@ -1,9 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
-import androidx.compose.runtime.saveable.SaverScope
 import com.atelier_nyaarium.switchboard.runbooks.ParameterDraft
 import com.atelier_nyaarium.switchboard.runbooks.RunbookDraft
-import com.atelier_nyaarium.switchboard.runbooks.RunbookDraftSaver
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -47,15 +45,6 @@ class RunbookDraftTest {
 		val saved = orphaned.toRunbook()
 		assertNotNull(saved)
 		assertEquals(listOf("env"), saved?.parameters?.map { it.name })
-	}
-
-	@Test
-	fun aDraftSurvivesBeingWrittenDownAndReadBack() {
-		val typed = draft("go {{env}}")
-			.copy(name = "Deploy", revision = 3L)
-			.withSettings("env") { it.copy(label = "Environment", kind = "choice", options = listOf("prod")) }
-		val saved = with(RunbookDraftSaver) { requireNotNull(SaverScope { true }.save(typed)) }
-		assertEquals(typed, RunbookDraftSaver.restore(saved))
 	}
 
 	@Test

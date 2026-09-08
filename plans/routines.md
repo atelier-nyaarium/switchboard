@@ -937,10 +937,13 @@ addressing.
   source set, so no gate can call into a `@Composable`, and "is this expression a rule" is not
   something a residue test can decide. `overwriteRevision` was the instance that earned it.
 
-- **The runbook editor lost a whole draft on rotation.** Fixed in Phase 1. `MainActivity` declares no
-  `configChanges`, so a rotation recreated it and `remember` took everything typed with it. The draft
-  and the overwrite intent are both `rememberSaveable` now, over a `Saver` that writes the draft as
-  JSON, with a round trip test. Other editors were not audited for the same pattern.
+- **The runbook editor lost a whole draft on rotation.** Fixed in Phase 1, twice. `MainActivity`
+  declares no `configChanges`, so a rotation recreates it and `remember` took everything typed with
+  it. The first fix made the draft `rememberSaveable`, which did nothing: the route that decides
+  whether the editor is composed at all was itself `remember`, so the editor was gone before any
+  saver ran. It also would have put an unbounded body into a parcel that is bounded. The draft now
+  lives in `RunbookOps`, which outlives the activity, and only the open editor's id is saved state.
+  Other editors were not audited for the same pattern.
 
 - **The sandbox cannot show a refusal.** `isSandbox` closes every network door, correctly, which
   also means no screen that depends on a Gateway answering can be seen. The Overwrite action shipped

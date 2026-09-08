@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { instantOf, type LocalDate, nextOccurrence, parseLocalDate, parseLocalTime } from "./routine-recurrence.js";
 
-/** A fortnight is the longest interval the editor offers. */
+/** Eight weeks is the longest interval the editor offers. */
 const MAX_WEEK_INTERVAL = 8;
 
 /**

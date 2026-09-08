@@ -129,7 +129,8 @@ fun App(
 	var boardModal by remember { mutableStateOf<Pair<String, String>?>(null) }
 	var vaultModal by remember { mutableStateOf<VaultModal?>(null) }
 	var fireRunbookId by remember { mutableStateOf<String?>(null) }
-	var editRunbook by remember { mutableStateOf<RunbookEdit?>(null) }
+	// Null is closed and "" is a new runbook, so the open editor survives a rotation.
+	var editRunbook by rememberSaveable { mutableStateOf<String?>(null) }
 	// Clear reveal after handoff.
 	val revealAtState = remember { mutableStateOf<Pair<String, Long>?>(null) }
 	var revealAt by revealAtState
@@ -503,7 +504,7 @@ fun App(
 						repo = repo,
 						state = state,
 						onFire = { fireRunbookId = it },
-						onEdit = { editRunbook = RunbookEdit(it) },
+						onEdit = { editRunbook = it ?: "" },
 						modifier = modifier,
 					)
 				},
@@ -603,12 +604,12 @@ fun App(
 	fireRunbookId?.let { id ->
 		com.atelier_nyaarium.switchboard.runbooks.RunbookFireSheet(repo, state, id) { fireRunbookId = null }
 	}
-	editRunbook?.let { intent ->
-		com.atelier_nyaarium.switchboard.runbooks.RunbookEditor(repo, intent.id) { editRunbook = null }
+	editRunbook?.let { opened ->
+		val id = opened.ifEmpty { null }
+		com.atelier_nyaarium.switchboard.runbooks.RunbookEditor(repo, id) { editRunbook = null }
 	}
 }
 
-data class RunbookEdit(val id: String?)
 
 /** Log and skip plugin claim errors. */
 internal fun logPluginThrow(message: String, err: Throwable) {

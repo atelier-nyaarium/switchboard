@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,9 +52,16 @@ import kotlinx.coroutines.launch
 @Composable
 fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit) {
 	val existing = remember(runbookId) { runbookId?.let { repo.runbooks.find(it) } }
-	var draft by rememberSaveable(runbookId, stateSaver = RunbookDraftSaver) {
-		mutableStateOf(existing?.let { RunbookDraft.of(it) } ?: RunbookDraft(id = newRunbookId()))
+	val draftKey = runbookId ?: "new"
+	var draft by remember(runbookId) {
+		mutableStateOf(
+			repo.runbookOps.draftFor(draftKey)
+				?: existing?.let { RunbookDraft.of(it) }
+				?: RunbookDraft(id = newRunbookId()),
+		)
 	}
+	// The repository outlives this activity, so an edit in progress survives a rotation there.
+	LaunchedEffect(draft) { repo.runbookOps.keepDraft(draftKey, draft) }
 	val declared = draft.declared
 	val scope = rememberCoroutineScope()
 	var saving by remember(runbookId) { mutableStateOf(false) }
@@ -66,7 +74,12 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 			TopAppBar(
 				title = { Text(if (existing == null) "New runbook" else "Edit runbook") },
 				actions = {
-					TextButton(onClick = hapticClick(onClose)) { Text("Cancel") }
+					TextButton(
+						onClick = hapticClick {
+							repo.runbookOps.dropDraft(draftKey)
+							onClose()
+						},
+					) { Text("Cancel") }
 					Button(
 						enabled = draft.refusal() == null && !saving,
 						onClick = hapticClick {
@@ -77,7 +90,10 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 							scope.launch {
 								when (val saved = repo.runbookOps.save(candidate, baseRevision = base, overwrite = overwriting)) {
 									is RunbookSaved.Refused -> refused = saved.conflict
-									else -> onClose()
+									else -> {
+										repo.runbookOps.dropDraft(draftKey)
+										onClose()
+									}
 								}
 								overwriting = false
 								saving = false

@@ -97,12 +97,15 @@ export function createRunbookStore(deps: RunbookStoreDeps) {
 		const held0 = current?.revision ?? 0;
 		const refusal = runbookRefusal(incoming);
 		if (refusal) return { stored: false, revision: held0, reason: refusal };
+		// Canonical before comparing, or a repeat that spells a dropped field differently reads as an
+		// edit, and the caller is refused for content the store already holds.
+		const candidate = frozen(incoming);
 		if (current && !options.overwrite) {
 			// A repeat of what is stored is a lost answer, whichever stage it was lost at: before the
 			// write, after it, or after a first write the caller still believes it has not made.
 			const echoesFirst = options.base === undefined && current.revision === 1;
 			const echoesEdit = options.base === current.revision || options.base === current.revision - 1;
-			if ((echoesFirst || echoesEdit) && sameContent(incoming, current)) {
+			if ((echoesFirst || echoesEdit) && sameContent(candidate, current)) {
 				return { stored: true, revision: current.revision, runbook: current };
 			}
 			if (options.base !== current.revision) {
@@ -120,7 +123,7 @@ export function createRunbookStore(deps: RunbookStoreDeps) {
 			return { stored: false, revision: held0, reason: "this runbook has no revision left to write" };
 		}
 		// The gateway names the revision, so nobody else can name one it would not have chosen.
-		const runbook = frozen({ ...incoming, revision: held0 + 1 });
+		const runbook = frozen({ ...candidate, revision: held0 + 1 });
 		const next = current
 			? runbooks.map((existing) => (existing.id === runbook.id ? runbook : existing))
 			: [...runbooks, runbook];
