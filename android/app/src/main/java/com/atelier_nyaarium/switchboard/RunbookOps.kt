@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookFireResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookPutResult
 import com.atelier_nyaarium.switchboard.proto.Runbook
@@ -10,8 +11,34 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
+/** The gateway calls this class makes, so a test can answer them without a transport. */
+internal interface RunbookGateway {
+	suspend fun list(gatewayId: String): ConsoleRunbookListResult
+	suspend fun put(
+		gatewayId: String,
+		runbook: Runbook,
+		baseRevision: Long?,
+		overwrite: Boolean,
+	): ConsoleRunbookPutResult
+
+	suspend fun delete(gatewayId: String, runbookId: String)
+	suspend fun preview(
+		gatewayId: String,
+		runbookId: String,
+		values: Map<String, String>,
+	): ConsoleRunbookPreviewResult
+
+	suspend fun fire(
+		gatewayId: String,
+		runbookId: String,
+		values: Map<String, String>,
+		into: RunbookFireTarget,
+		previewedRevision: Long?,
+	): ConsoleRunbookFireResult
+}
+
 internal interface RunbookHost {
-	val client: ConsoleClient?
+	val gateway: RunbookGateway?
 	fun homeGatewayId(): String
 	val library: RunbookManager
 }
@@ -71,9 +98,9 @@ internal class RunbookOps(
 	}
 
 	suspend fun refresh(gatewayId: String = host.homeGatewayId()) {
-		val client = host.client ?: return
+		val client = host.gateway ?: return
 		if (gatewayId.isBlank()) return
-		val held = attempt { client.runbookList(gatewayId) } ?: return
+		val held = attempt { client.list(gatewayId) } ?: return
 		synced.clear()
 		show(host.library.merge(held.runbooks))
 	}
@@ -85,10 +112,10 @@ internal class RunbookOps(
 		overwrite: Boolean = false,
 	): RunbookSaved {
 		synced.removeAll { it.second == runbook.id }
-		val client = host.client
+		val client = host.gateway
 		val reachable = client != null && gatewayId.isNotBlank()
 
-		val answer = if (reachable) put(client as ConsoleClient, gatewayId, runbook, baseRevision, overwrite) else null
+		val answer = if (reachable) put(client as RunbookGateway, gatewayId, runbook, baseRevision, overwrite) else null
 		if (answer != null && !answer.stored) return RunbookSaved.Refused(conflictOfRefusal(answer))
 
 		// The gateway names the revision, so what it answers with is what the library takes.
@@ -120,8 +147,8 @@ internal class RunbookOps(
 		synced.removeAll { it.second == runbookId }
 		conflicts = conflicts - runbookId
 		show(host.library.remove(runbookId))
-		val client = host.client ?: return
-		if (gatewayId.isNotBlank()) attempt { client.runbookDelete(gatewayId, runbookId) }
+		val client = host.gateway ?: return
+		if (gatewayId.isNotBlank()) attempt { client.delete(gatewayId, runbookId) }
 	}
 
 	private fun show(library: List<Runbook>) {
@@ -133,9 +160,9 @@ internal class RunbookOps(
 		values: Map<String, String>,
 		gatewayId: String = host.homeGatewayId(),
 	): ConsoleRunbookPreviewResult? {
-		val client = host.client ?: return null
+		val client = host.gateway ?: return null
 		if (!sync(runbookId, gatewayId)) return null
-		return attempt { client.runbookPreview(gatewayId, runbookId, values) }
+		return attempt { client.preview(gatewayId, runbookId, values) }
 	}
 
 	suspend fun fire(
@@ -145,10 +172,10 @@ internal class RunbookOps(
 		previewedRevision: Long?,
 		gatewayId: String = host.homeGatewayId(),
 	): ConsoleRunbookFireResult? {
-		val client = host.client ?: return null
+		val client = host.gateway ?: return null
 		if (!sync(runbookId, gatewayId)) return null
 		return try {
-			client.runbookFire(gatewayId, runbookId, values, into, previewedRevision)
+			client.fire(gatewayId, runbookId, values, into, previewedRevision)
 		} catch (cancelled: CancellationException) {
 			throw cancelled
 		} catch (refused: Exception) {
@@ -157,12 +184,12 @@ internal class RunbookOps(
 	}
 
 	private suspend fun sync(runbookId: String, gatewayId: String): Boolean {
-		val client = host.client ?: return false
+		val client = host.gateway ?: return false
 		if (gatewayId.isBlank()) return false
 		val mine = host.library.find(runbookId) ?: return false
 		if (Triple(gatewayId, runbookId, mine.revision) in synced) return true
 
-		val theirs = attempt { client.runbookList(gatewayId) } ?: return false
+		val theirs = attempt { client.list(gatewayId) } ?: return false
 		val held = theirs.runbooks.find { it.id == runbookId }
 		var settledRevision = mine.revision
 		val settled = when (val decision = pushDecision(mine, held)) {
@@ -189,20 +216,20 @@ internal class RunbookOps(
 	}
 
 	private suspend fun put(
-		client: ConsoleClient,
+		client: RunbookGateway,
 		gatewayId: String,
 		mine: Runbook,
 		baseRevision: Long? = null,
 		overwrite: Boolean = false,
 	): ConsoleRunbookPutResult? {
-		val answer = attempt { client.runbookPut(gatewayId, mine, baseRevision, overwrite) }
+		val answer = attempt { client.put(gatewayId, mine, baseRevision, overwrite) }
 		conflicts = conflictsAfterPut(conflicts, mine.id, answer)
 		return answer
 	}
 
 	/** Owner-authorized replacement. */
 	suspend fun overwrite(runbookId: String, gatewayId: String = host.homeGatewayId()): Boolean {
-		val client = host.client ?: return false
+		val client = host.gateway ?: return false
 		if (gatewayId.isBlank()) return false
 		val mine = host.library.find(runbookId) ?: return false
 		val answer = put(client, gatewayId, mine, overwrite = true)

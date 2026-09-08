@@ -33,4 +33,7 @@ if ! diff -r "$fixtures" "$fresh" >&2; then
 fi
 
 cd android || exit 1
-exec ./gradlew :app:testDebugUnitTest --console=plain "$@"
+# Gradle reports UP-TO-DATE for a task it skipped and for one whose inputs really had not changed,
+# so say plainly what this run covered rather than leaving the reader to compare timestamps.
+./gradlew :app:testDebugUnitTest --console=plain "$@" || exit 1
+echo "kotlin-gate: imports ok, Protocol.kt matches its schemas, wire fixtures match, unit tests pass"

@@ -2,6 +2,8 @@ package com.atelier_nyaarium.switchboard
 
 import android.net.Uri
 import com.atelier_nyaarium.switchboard.proto.ConsolePeekResult
+import com.atelier_nyaarium.switchboard.proto.Runbook
+import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
 import com.atelier_nyaarium.switchboard.proto.SignedDeleteDomain
 import com.atelier_nyaarium.switchboard.proto.SignedProvisionTenant
 import com.atelier_nyaarium.switchboard.proto.SignedRemoveTenant
@@ -114,9 +116,32 @@ internal class ChatRepositoryBoardCollaborators(private val repo: ChatRepository
 }
 
 internal class ChatRepositoryRunbookHost(private val repo: ChatRepository) : RunbookHost {
-	override val client: ConsoleClient? get() = repo.clientOrNull()
+	override val gateway: RunbookGateway? get() = repo.clientOrNull()?.let(::ConsoleRunbookGateway)
 	override fun homeGatewayId() = repo.homeGatewayId
 	override val library get() = repo.runbooks
+}
+
+/** The port over the console client's runbook calls. */
+internal class ConsoleRunbookGateway(private val client: ConsoleClient) : RunbookGateway {
+	override suspend fun list(gatewayId: String) = client.runbookList(gatewayId)
+
+	override suspend fun put(gatewayId: String, runbook: Runbook, baseRevision: Long?, overwrite: Boolean) =
+		client.runbookPut(gatewayId, runbook, baseRevision, overwrite)
+
+	override suspend fun delete(gatewayId: String, runbookId: String) {
+		client.runbookDelete(gatewayId, runbookId)
+	}
+
+	override suspend fun preview(gatewayId: String, runbookId: String, values: Map<String, String>) =
+		client.runbookPreview(gatewayId, runbookId, values)
+
+	override suspend fun fire(
+		gatewayId: String,
+		runbookId: String,
+		values: Map<String, String>,
+		into: RunbookFireTarget,
+		previewedRevision: Long?,
+	) = client.runbookFire(gatewayId, runbookId, values, into, previewedRevision)
 }
 
 internal class ChatRepositoryVaultCollaborators(private val repo: ChatRepository) : VaultOpsCollaborators {

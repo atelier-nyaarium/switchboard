@@ -910,12 +910,11 @@ Written after Phase 0. Not defects, and not a code audit. These are the things t
 slower or riskier than it needed to be, so a later phase can decide whether any of them is worth
 addressing.
 
-- **No phone test can reach the wire.** `RunbookOpsTest`'s only host fake answers `client = null`,
-  so every test of `RunbookOps` exercises the no-Gateway path and nothing else. There is no way to
-  assert that a flag the phone sets actually reaches `ConsoleClient`, which is exactly what an audit
-  asked for and I could not give. The gateway contract is covered from the TypeScript side, so the
-  hole is specifically the phone's client layer. A fake `ConsoleClient` would close a whole class of
-  untestable phone behaviour, and Phase 5 is the first phase that will really want one.
+- **No phone test could reach the wire.** Fixed in Phase 1. `RunbookOps` took a `ConsoleClient`
+  directly and called extension functions on it, which nothing can stand in for, so every test
+  exercised the no-Gateway path alone. It now takes a `RunbookGateway` port, and `RunbookOpsTest`
+  has a fake that mints revisions the way the real gateway does and records what it was sent. That
+  is what a save sending its base and adopting the answer is now checked against.
 
 - **A rule written inside a Composable is invisible to every gate.** `overwriteRevision` began as an
   expression inside `RunbookEditor`, where nothing could test it, and there is no `androidTest`
@@ -929,10 +928,12 @@ addressing.
   needs a Gateway that refuses. Either the sandbox learns to answer canned refusals, or that class
   of screen stays unverified.
 
-- **`kotlin-gate.sh` does not say what it checked.** Gradle reports `UP-TO-DATE` for a task it
-  skipped and for one whose inputs really had not changed, and the two look identical. Twice this
-  phase I could not tell whether my edits had compiled, and resorted to comparing class file
-  timestamps against source timestamps. The gate could simply say which tasks executed.
+- **`kotlin-gate.sh` did not say what it checked.** Fixed in Phase 1: it prints what it verified
+  when it passes. Gradle reports `UP-TO-DATE` for a task it skipped and for one whose inputs really
+  had not changed, and the two look identical, so twice in Phase 0 I compared class file timestamps
+  against source timestamps to find out whether my edits had compiled. The gate also diffs
+  `Protocol.kt` against its schemas, which I had not realised, and which is why a schema change
+  needs this gate rather than `lint` and `test` alone.
 
 - **Five things named after conflict.** `conflictOf`, `conflictsAfterPut`, `conflictOfRefusal`,
   `localConflict` and `standingConflict` all live in `RunbookOps`, and each means something slightly

@@ -1,7 +1,11 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookFireResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookListResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookPutResult
 import com.atelier_nyaarium.switchboard.proto.Runbook
+import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
 import com.atelier_nyaarium.switchboard.proto.RunbookParameter
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
@@ -15,9 +19,54 @@ class RunbookOpsTest {
 	}
 
 	private class NoGateway(store: MemoryStore = MemoryStore()) : RunbookHost {
-		override val client: ConsoleClient? = null
+		override val gateway: RunbookGateway? = null
 		override fun homeGatewayId() = ""
 		override val library = com.atelier_nyaarium.switchboard.runbooks.RunbookManager(store)
+	}
+
+	/** A gateway that names revisions the way the real one does, and records what it was sent. */
+	private class FakeGateway : RunbookGateway {
+		val stored = mutableMapOf<String, Runbook>()
+		val puts = mutableListOf<Triple<Runbook, Long?, Boolean>>()
+
+		override suspend fun list(gatewayId: String) = ConsoleRunbookListResult(runbooks = stored.values.toList())
+
+		override suspend fun put(
+			gatewayId: String,
+			runbook: Runbook,
+			baseRevision: Long?,
+			overwrite: Boolean,
+		): ConsoleRunbookPutResult {
+			puts += Triple(runbook, baseRevision, overwrite)
+			val held = stored[runbook.id]
+			if (held != null && !overwrite && baseRevision != held.revision) {
+				return ConsoleRunbookPutResult(stored = false, revision = held.revision, reason = "moved on")
+			}
+			val minted = runbook.copy(revision = (held?.revision ?: 0L) + 1)
+			stored[runbook.id] = minted
+			return ConsoleRunbookPutResult(stored = true, revision = minted.revision, runbook = minted)
+		}
+
+		override suspend fun delete(gatewayId: String, runbookId: String) {
+			stored.remove(runbookId)
+		}
+
+		override suspend fun preview(gatewayId: String, runbookId: String, values: Map<String, String>) =
+			ConsoleRunbookPreviewResult(text = "rendered", revision = stored[runbookId]?.revision ?: 0L)
+
+		override suspend fun fire(
+			gatewayId: String,
+			runbookId: String,
+			values: Map<String, String>,
+			into: RunbookFireTarget,
+			previewedRevision: Long?,
+		) = ConsoleRunbookFireResult(fired = true)
+	}
+
+	private class WithGateway(val fake: FakeGateway = FakeGateway()) : RunbookHost {
+		override val gateway: RunbookGateway = fake
+		override fun homeGatewayId() = "gw"
+		override val library = com.atelier_nyaarium.switchboard.runbooks.RunbookManager(MemoryStore())
 	}
 
 	private fun book(id: String, name: String = id, revision: Long = 1L) = Runbook(
@@ -57,6 +106,38 @@ class RunbookOpsTest {
 
 		val theirs = book("a", revision = 9L)
 		assertEquals(PushDecision.Adopt(theirs), pushDecision(mine, theirs))
+	}
+
+	@Test
+	fun aSaveSendsTheBaseItReadAndKeepsTheRevisionTheGatewayNamed() {
+		val host = WithGateway()
+		val state = MutableStateFlow(ChatState())
+		val ops = RunbookOps(state, host)
+
+		val first = kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L)) }
+		assertEquals(RunbookSaved.Stored, first)
+		// Sent no base, since nothing was stored yet, and took back what the gateway named.
+		assertEquals(null, host.fake.puts[0].second)
+		assertEquals(1L, state.value.runbooks.first { it.id == "a" }.revision)
+
+		val second = kotlinx.coroutines.runBlocking { ops.save(book("a", name = "Two", revision = 1L), baseRevision = 1L) }
+		assertEquals(RunbookSaved.Stored, second)
+		assertEquals(1L, host.fake.puts[1].second)
+		assertEquals(2L, state.value.runbooks.first { it.id == "a" }.revision)
+	}
+
+	@Test
+	fun aSaveTheGatewayRefusesLeavesTheLibraryAlone() {
+		val host = WithGateway()
+		val state = MutableStateFlow(ChatState())
+		val ops = RunbookOps(state, host)
+		kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L)) }
+
+		val refused = kotlinx.coroutines.runBlocking {
+			ops.save(book("a", name = "Stale", revision = 1L), baseRevision = 7L)
+		}
+		assertEquals(true, refused is RunbookSaved.Refused)
+		assertEquals("a", state.value.runbooks.first { it.id == "a" }.name)
 	}
 
 	@Test
