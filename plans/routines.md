@@ -664,6 +664,11 @@ by Routines, and Routines cannot be correct while either stands.
 
 # Plan
 
+**`# Rulings taken` wins.** These phases restate consequences drawn from it, and a restatement drifts
+from what it was drawn from. Twice already a ruling landed and left a superseded model standing here.
+Where the two disagree, the ruling is right and the phase text is the bug, so fix the phase text
+rather than building what it says.
+
 Each phase lands with its own tests. Phase 6 is where the cross-system scenarios go, not where
 correctness is first checked.
 
@@ -916,11 +921,10 @@ addressing.
   has a fake that mints revisions the way the real gateway does and records what it was sent. That
   is what a save sending its base and adopting the answer is now checked against.
 
-- **A rule written inside a Composable is invisible to every gate.** `overwriteRevision` began as an
-  expression inside `RunbookEditor`, where nothing could test it, and there is no `androidTest`
-  source set to reach it. Extracting it beside `standingConflict` made it testable, but nothing
-  forces that. State lives in the Composable, so rules keep drifting there. Worth a rule of its own:
-  a decision the phone makes belongs beside the ops class, not in the screen that shows it.
+- **A rule written inside a Composable is invisible to every gate.** Written up as a rule in
+  `AGENTS.md` under Code style, since nothing can enforce it mechanically: there is no `androidTest`
+  source set, so no gate can call into a `@Composable`, and "is this expression a rule" is not
+  something a residue test can decide. `overwriteRevision` was the instance that earned it.
 
 - **The sandbox cannot show a refusal.** `isSandbox` closes every network door, correctly, which
   also means no screen that depends on a Gateway answering can be seen. The Overwrite action shipped

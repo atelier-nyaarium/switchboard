@@ -468,6 +468,12 @@ current phase's section of the plan file. Everywhere else it goes on the Task Bo
 diagnosis, and it needs the same evidence as any other. `8e0c3bf5` was dismissed as load-sensitive
 three times before CI showed a plain TypeError.
 
+**A decision the phone makes lives beside its ops class, never in the screen:** there is no
+`androidTest` source set, so nothing can call into a `@Composable`, and a rule written inside one is
+invisible to every gate. State lives in the screen, so rules drift there. `overwriteRevision` began
+as an expression inside `RunbookEditor` and was wrong twice before it was moved out and covered.
+Extract it, name it, and test it beside `standingConflict` and `pushDecision`.
+
 **A gate that cannot see a failure is not covering it:** Before calling a path done, ask what would
 have caught it. The phone compiles regexes ICU refuses and the desktop JVM accepts, and the harness
 attaches its fake session on a timing that made a real wake race impossible to reproduce. Both
