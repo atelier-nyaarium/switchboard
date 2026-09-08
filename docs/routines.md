@@ -53,3 +53,30 @@ answer something the owner is looking at.
 
 The list answer carries each routine with its next instant and any occurrence the owner has not dealt
 with. The phone recomputes none of it.
+
+## The runner
+
+`src/gateway/routines/runner.ts` owns when, and everything that could act on an occurrence enters
+through `advance`, so the timer, the reconcile tick and a manual Run now cannot each be walking the
+same one.
+
+It wakes on the earliest thing worth waking for, and a bounded tick runs beside it because a timer
+only counts down: a machine resuming from suspend would otherwise sit past a deadline holding a timer
+for the old delay.
+
+`src/gateway/routines/occurrences.ts` holds the durable rows. Every move is a compare-and-swap from a
+named state and version, and `src/shared/routine-occurrence.ts` says which moves exist at all.
+
+- **`dispatched` is written before the nudge is handed over.** Exactly once was not available, so a
+  crash between the two loses the run visibly rather than sending it twice.
+- **Enablement and the deadline are re-read immediately before that write**, since preparation is
+  awaited and either can change while it runs.
+- **A miss carries its reason.** Being down, waiting on a busy session and being disabled share a
+  deadline but not a story.
+- **Recovery collapses.** Occurrences still inside their twelve hours run; everything older becomes a
+  single severe miss, so a week away is one panel. Reconstruction never reaches past the routine's
+  `since`, which the gateway stamps when it first takes one.
+
+The stage is armed from the federation context's activation callback, so it cannot fire before the
+routes exist, and both the already-active boot and a later enrollment go through it. Shutdown stops
+admission and drains the attempt in flight before the listener's flush.

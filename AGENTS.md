@@ -55,6 +55,15 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     `overwrite` replaces regardless, still at the next revision, because no revision arithmetic can
     tell a copy that descends from the held one from a divergent one. Only an owner tap reaches it.
 - `src/gateway/compose/composeRunbooks.ts` - the runbook store and its console operations
+- `src/gateway/routines/store.ts` / `occurrences.ts` / `runner.ts` - routines, their occurrences, and
+  the loop that walks one; `compose/composeRoutines.ts` arms it from federation activation
+  - **`advance` is the only door:** the timer, the reconcile tick and a manual Run now all enter
+    there, so none of them can walk an occurrence another is already walking.
+  - **`dispatched` is written before delivery is attempted:** a crash between them loses the run
+    visibly rather than repeating it, which is the at-most-once choice. Enablement and the deadline
+    are re-read immediately before that write, since preparation is awaited.
+  - **Recovery cannot reach past `since`:** the gateway stamps when it took a routine, so one saved
+    today is never handed a miss for a slot that passed before it existed.
 - `src/gateway/console/consoleRunbookFire.ts` - renders a stored runbook and lands it in a session, creating one first
   - **A preview and a fire reach the same words:** `textOf` is the one road from an id and values to
     text, so `runbook_preview` cannot answer something a `runbook_fire` would not send. A fire may
