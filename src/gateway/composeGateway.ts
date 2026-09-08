@@ -177,7 +177,11 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		routes: requireRoutes,
 	});
 	const runbooks = composeRunbooks({ dataDir: bootstrap.dataDir });
-	const routines = composeRoutines({ dataDir: bootstrap.dataDir, ambient: bootstrap.ambient });
+	const routines = composeRoutines({
+		dataDir: bootstrap.dataDir,
+		ambient: bootstrap.ambient,
+		getRunbook: (runbookId) => runbooks.console.get(runbookId),
+	});
 	routerFrames = composeRouterFrames({
 		localGatewayId: bootstrap.localGatewayId,
 		wakeTimeoutMs: config.wakeTimeoutMs,

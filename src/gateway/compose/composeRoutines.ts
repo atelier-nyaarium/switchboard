@@ -1,6 +1,7 @@
 import type { Ambient } from "../../shared/ambient.js";
 import { openDurable } from "../../shared/durable-store.js";
 import type { RoutineMiss, RoutineState } from "../../shared/schemasRoutine.js";
+import type { Runbook } from "../../shared/schemasRunbook.js";
 import type { RoutineConsoleHandlers } from "../console/consoleTypes.js";
 import { createOccurrenceStore, type Occurrence } from "../routines/occurrences.js";
 import { createRoutineRunner, type RoutineAttempt } from "../routines/runner.js";
@@ -11,6 +12,8 @@ export interface RoutineStageDeps {
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">;
 	/** Execution arrives in its own phase; until then nothing prepares and nothing is delivered. */
 	attempt?: RoutineAttempt;
+	getRunbook?: (runbookId: string) => Runbook | null;
+	knowsSpawn?: (spawn: string) => boolean;
 }
 
 export interface RoutineStage {
@@ -41,7 +44,9 @@ function panelFor(rows: Occurrence[], now: number): RoutineMiss | undefined {
 }
 
 export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
-	const store = openDurable(deps.dataDir, "routines", (durable) => createRoutineStore({ store: durable }));
+	const store = openDurable(deps.dataDir, "routines", (durable) =>
+		createRoutineStore({ store: durable, getRunbook: deps.getRunbook, knowsSpawn: deps.knowsSpawn }),
+	);
 	const occurrences = openDurable(deps.dataDir, "routine-occurrences", (durable) =>
 		createOccurrenceStore({ store: durable }),
 	);

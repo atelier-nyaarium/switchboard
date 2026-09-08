@@ -2,12 +2,17 @@
 
 import { z } from "zod";
 import { type DurableStore, DurableStoreInstalledError } from "../../shared/durable-store.js";
+import { renderRunbook } from "../../shared/runbook-grammar.js";
 import { type Routine, RoutineSchema, routineRefusal } from "../../shared/schemasRoutine.js";
-import { REVISION_CEILING } from "../../shared/schemasRunbook.js";
+import { REVISION_CEILING, type Runbook } from "../../shared/schemasRunbook.js";
 
 export interface RoutineStoreDeps {
 	/** Opened through `openDurable`, so a poisoned file starts this store fresh. */
 	store: DurableStore;
+	/** The record cannot check itself against a runbook it cannot see. */
+	getRunbook?: (runbookId: string) => Runbook | null;
+	/** Whether this gateway has that spawn point. */
+	knowsSpawn?: (spawn: string) => boolean;
 }
 
 export interface RoutinePutResult {
@@ -55,6 +60,24 @@ function sameContent(a: Routine, b: Routine): boolean {
 	);
 }
 
+/**
+ * What the record cannot refuse for itself, because both need what only the gateway holds. Values
+ * are complete at save so nothing is asked at fire time, and a target names a spawn that exists.
+ */
+function contextRefusal(routine: Routine, deps: RoutineStoreDeps): string | null {
+	if (deps.knowsSpawn && !deps.knowsSpawn(routine.target.spawn)) {
+		return `this Gateway has no spawn point called ${routine.target.spawn}`;
+	}
+	if (!deps.getRunbook) return null;
+	const runbook = deps.getRunbook(routine.runbookId);
+	if (!runbook) return `no runbook called ${routine.runbookId} is stored here`;
+	if (runbook.revision !== routine.approvedRevision) {
+		return `revision ${runbook.revision} is stored; this routine approved ${routine.approvedRevision}`;
+	}
+	const rendered = renderRunbook(runbook.body, runbook.parameters, routine.values);
+	return rendered.ok ? null : rendered.reason;
+}
+
 export function createRoutineStore(deps: RoutineStoreDeps) {
 	const { store } = deps;
 	let routines: Routine[] = RoutinesSchema.parse(store.load() ?? []).map(frozen);
@@ -84,7 +107,7 @@ export function createRoutineStore(deps: RoutineStoreDeps) {
 	const put = (incoming: Routine, options: RoutinePutOptions = {}): RoutinePutResult => {
 		const current = held(incoming.id);
 		const held0 = current?.revision ?? 0;
-		const refusal = routineRefusal(incoming);
+		const refusal = routineRefusal(incoming) ?? contextRefusal(incoming, deps);
 		if (refusal) return { stored: false, revision: held0, reason: refusal };
 		const candidate = frozen(incoming);
 		if (current) {

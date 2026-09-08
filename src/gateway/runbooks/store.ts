@@ -68,6 +68,13 @@ export function createRunbookStore(deps: RunbookStoreDeps) {
 	// before anything landed, and discarding a record here would erase it on the next write.
 	let runbooks: Runbook[] = RunbooksSchema.parse(store.load() ?? []).map(frozen);
 
+	/**
+	 * What a deleted id last held. Without it a delayed put from another phone lands as a first
+	 * write and the runbook is back, since "nothing stored" reads the same either way. Not durable:
+	 * a restart is long enough after a delete that an in-flight put is no longer in flight.
+	 */
+	const buried = new Map<string, number>();
+
 	/** A write the phone is told landed is on disk first. */
 	const commit = (next: Runbook[]): boolean => {
 		const previous = runbooks;
@@ -119,6 +126,10 @@ export function createRunbookStore(deps: RunbookStoreDeps) {
 		if (!current && options.base !== undefined) {
 			return { stored: false, revision: 0, reason: "no runbook with that id is stored" };
 		}
+		const grave = buried.get(incoming.id);
+		if (!current && grave !== undefined && !options.overwrite) {
+			return { stored: false, revision: 0, reason: `revision ${grave} was deleted; save it as a new runbook` };
+		}
 		if (held0 >= REVISION_CEILING) {
 			return { stored: false, revision: held0, reason: "this runbook has no revision left to write" };
 		}
@@ -132,9 +143,12 @@ export function createRunbookStore(deps: RunbookStoreDeps) {
 	};
 
 	const remove = (id: string): { deleted: boolean } => {
+		const going = held(id);
 		const kept = runbooks.filter((runbook) => runbook.id !== id);
-		if (kept.length === runbooks.length) return { deleted: false };
-		return { deleted: commit(kept) };
+		if (!going) return { deleted: false };
+		const deleted = commit(kept);
+		if (deleted) buried.set(id, going.revision);
+		return { deleted };
 	};
 
 	return { list, get, put, remove };

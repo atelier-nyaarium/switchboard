@@ -118,6 +118,20 @@ describe("runbook store", () => {
 		expect(store.put(carried)).toMatchObject({ stored: true, revision: 1 });
 	});
 
+	it("does not let a delayed put resurrect what was deleted", () => {
+		const store = open(fresh());
+		store.put(book("deploy"));
+		expect(store.remove("deploy")).toEqual({ deleted: true });
+
+		// Another phone's put, sent before it heard about the delete.
+		const late = store.put(book("deploy"));
+		expect(late.stored).toBe(false);
+		expect(store.list()).toEqual([]);
+
+		// The owner may still put it back deliberately.
+		expect(store.put(book("deploy"), { overwrite: true }).stored).toBe(true);
+	});
+
 	it("refuses a base for an id it has never seen", () => {
 		const store = open(fresh());
 		expect(store.put(book("ghost"), { base: 3 })).toMatchObject({ stored: false, revision: 0 });
