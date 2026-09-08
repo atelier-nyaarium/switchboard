@@ -24,12 +24,22 @@ class RunbookOpsTest {
 		override val library = com.atelier_nyaarium.switchboard.runbooks.RunbookManager(store)
 	}
 
-	/** A gateway that names revisions the way the real one does, and records what it was sent. */
+	/**
+	 * The rules of `src/gateway/runbooks/store.ts`, per gateway. A fake that answers differently
+	 * teaches its tests the wrong contract, so this mirrors that store rather than approximating it.
+	 */
 	private class FakeGateway : RunbookGateway {
-		val stored = mutableMapOf<String, Runbook>()
+		val stored = mutableMapOf<String, MutableMap<String, Runbook>>()
 		val puts = mutableListOf<Triple<Runbook, Long?, Boolean>>()
 
-		override suspend fun list(gatewayId: String) = ConsoleRunbookListResult(runbooks = stored.values.toList())
+		private fun shelf(gatewayId: String) = stored.getOrPut(gatewayId) { mutableMapOf() }
+
+		private fun sameContent(a: Runbook, b: Runbook) = a.name == b.name && a.body == b.body &&
+			a.parameters == b.parameters
+
+		override suspend fun list(gatewayId: String) = ConsoleRunbookListResult(
+			runbooks = shelf(gatewayId).values.sortedWith(compareBy({ it.name }, { it.id })),
+		)
 
 		override suspend fun put(
 			gatewayId: String,
@@ -38,21 +48,33 @@ class RunbookOpsTest {
 			overwrite: Boolean,
 		): ConsoleRunbookPutResult {
 			puts += Triple(runbook, baseRevision, overwrite)
-			val held = stored[runbook.id]
-			if (held != null && !overwrite && baseRevision != held.revision) {
-				return ConsoleRunbookPutResult(stored = false, revision = held.revision, reason = "moved on")
+			val shelf = shelf(gatewayId)
+			val held = shelf[runbook.id]
+			if (held == null && baseRevision != null) {
+				return ConsoleRunbookPutResult(stored = false, revision = 0L, reason = "nothing stored")
+			}
+			if (held != null && !overwrite) {
+				val lost = (baseRevision == null && held.revision == 1L) ||
+					baseRevision == held.revision ||
+					baseRevision == held.revision - 1
+				if (lost && sameContent(runbook, held)) {
+					return ConsoleRunbookPutResult(stored = true, revision = held.revision, runbook = held)
+				}
+				if (baseRevision != held.revision) {
+					return ConsoleRunbookPutResult(stored = false, revision = held.revision, reason = "moved on")
+				}
 			}
 			val minted = runbook.copy(revision = (held?.revision ?: 0L) + 1)
-			stored[runbook.id] = minted
+			shelf[runbook.id] = minted
 			return ConsoleRunbookPutResult(stored = true, revision = minted.revision, runbook = minted)
 		}
 
 		override suspend fun delete(gatewayId: String, runbookId: String) {
-			stored.remove(runbookId)
+			shelf(gatewayId).remove(runbookId)
 		}
 
 		override suspend fun preview(gatewayId: String, runbookId: String, values: Map<String, String>) =
-			ConsoleRunbookPreviewResult(text = "rendered", revision = stored[runbookId]?.revision ?: 0L)
+			ConsoleRunbookPreviewResult(text = "rendered", revision = shelf(gatewayId)[runbookId]?.revision ?: 0L)
 
 		override suspend fun fire(
 			gatewayId: String,
@@ -124,6 +146,18 @@ class RunbookOpsTest {
 		assertEquals(RunbookSaved.Stored, second)
 		assertEquals(1L, host.fake.puts[1].second)
 		assertEquals(2L, state.value.runbooks.first { it.id == "a" }.revision)
+	}
+
+	@Test
+	fun aRetryOfAnAnswerThatWasLostIsNotASecondEdit() {
+		val host = WithGateway()
+		val ops = RunbookOps(MutableStateFlow(ChatState()), host)
+		kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L)) }
+
+		// The editor never heard, so it names the base it read rather than the one now stored.
+		val again = kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L), baseRevision = null) }
+		assertEquals(RunbookSaved.Stored, again)
+		assertEquals(1L, host.fake.stored.getValue("gw").getValue("a").revision)
 	}
 
 	@Test

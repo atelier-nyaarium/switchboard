@@ -19,8 +19,10 @@ export interface LocalDate {
 	day: number;
 }
 
-/** A rule with no day, or an unreachable interval, would search forever. */
-const SEARCH_DAYS = 400;
+/** Enough to cross one whole interval and land on any weekday in it. */
+function searchDays(weekInterval: number): number {
+	return 7 * weekInterval + 7;
+}
 
 const DAY_MS = 86_400_000;
 
@@ -162,7 +164,8 @@ export function nextOccurrence(rule: RoutineRule, after: number): number | null 
 	const floor: LocalDate = { year: from.year, month: from.month, day: from.day };
 	// A start date past the window would otherwise exhaust the walk before reaching it.
 	let cursor = asUtcMidnight(floor) < asUtcMidnight(start) ? start : floor;
-	for (let walked = 0; walked < SEARCH_DAYS; walked++) {
+	const limit = searchDays(rule.weekInterval);
+	for (let walked = 0; walked < limit; walked++) {
 		if (fallsOn(rule, start, cursor)) {
 			const at = instantOf(rule.zone, cursor, time.hour, time.minute);
 			if (at > after) return at;

@@ -94,6 +94,11 @@ describe("runbook store", () => {
 			stored: true,
 			revision: 2,
 		});
+		// Lost before the caller learned there was anything stored at all.
+		expect(store.put(book("fresh", { body: "new {{level}}" }))).toMatchObject({ stored: true, revision: 1 });
+		expect(store.put(book("fresh", { body: "new {{level}}" }))).toMatchObject({ stored: true, revision: 1 });
+		expect(store.list().filter((r) => r.id === "fresh")).toHaveLength(1);
+
 		// The same base with different content is a real conflict, not a retry.
 		expect(store.put(book("deploy", { body: "three {{level}}" }), { base: 1 })).toMatchObject({
 			stored: false,

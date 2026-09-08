@@ -30,6 +30,8 @@ const RunbooksSchema = z.array(RunbookSchema);
 function frozen(runbook: Runbook): Runbook {
 	const parameters = runbook.parameters.map((parameter) => {
 		const copy = { ...parameter };
+		// Options mean nothing to a text parameter, so one representation rather than two.
+		if (copy.kind !== "choice") copy.options = undefined;
 		if (copy.options) {
 			copy.options = [...copy.options];
 			Object.freeze(copy.options);
@@ -96,9 +98,11 @@ export function createRunbookStore(deps: RunbookStoreDeps) {
 		const refusal = runbookRefusal(incoming);
 		if (refusal) return { stored: false, revision: held0, reason: refusal };
 		if (current && !options.overwrite) {
-			// A lost answer, whether it was lost before the write or after it.
-			const already = options.base === current.revision || options.base === current.revision - 1;
-			if (already && sameContent(incoming, current)) {
+			// A repeat of what is stored is a lost answer, whichever stage it was lost at: before the
+			// write, after it, or after a first write the caller still believes it has not made.
+			const echoesFirst = options.base === undefined && current.revision === 1;
+			const echoesEdit = options.base === current.revision || options.base === current.revision - 1;
+			if ((echoesFirst || echoesEdit) && sameContent(incoming, current)) {
 				return { stored: true, revision: current.revision, runbook: current };
 			}
 			if (options.base !== current.revision) {

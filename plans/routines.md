@@ -805,6 +805,17 @@ nudge visibly. `dispatched`, `missed` and `dismissed` are terminal.
 
 One execution loop, and each miss carries its reason.
 
+Two refusals the record cannot make for itself, because both need what only the gateway holds. The
+red team found a routine will currently save with neither.
+
+- **The values must fill the pinned runbook.** "Complete at save, so nothing is asked at fire time"
+  is the ruling, and `RoutineSchema` cannot check it: a values map with a missing key, or a key no
+  placeholder names, passes today and only fails when `renderRunbook` runs. The store loads the
+  runbook at its approved revision and renders against it before accepting.
+- **The target must name a spawn this gateway has.** Any non-empty string passes today. Either the
+  store checks the catalog at save, or the refusal at resolve time is made explicit and durable so
+  the owner learns rather than the occurrence quietly missing.
+
 ## Phase 3 - Execution
 
 The reserved session: a durable recipe for making one, bound to the routine, and a logical binding

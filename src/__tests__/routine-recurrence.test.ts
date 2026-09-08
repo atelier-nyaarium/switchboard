@@ -72,6 +72,12 @@ describe("which days a rule names", () => {
 		expect(nextOccurrence(later, utc("2026-09-07T00:00:00Z"))).toBe(utc("2026-12-02T17:00:00Z"));
 	});
 
+	it("searches as far as its own interval reaches, not a fixed window", () => {
+		// Wider than the schema offers, since the calculator is exported and does not read that.
+		const yearly = rule({ weekdays: [1], weekInterval: 58, startDate: "2026-01-05" });
+		expect(nextOccurrence(yearly, utc("2026-01-06T00:00:00Z"))).toBe(utc("2027-02-15T17:00:00Z"));
+	});
+
 	it("reaches a start date further off than the search window", () => {
 		// Asked from now for a routine that begins in three years, the walk must not run out first.
 		const distant = rule({ weekdays: [1], startDate: "2029-09-03" });
