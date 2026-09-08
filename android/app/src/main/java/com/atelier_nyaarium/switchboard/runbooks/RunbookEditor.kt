@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,14 +51,15 @@ import kotlinx.coroutines.launch
 @Composable
 fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit) {
 	val existing = remember(runbookId) { runbookId?.let { repo.runbooks.find(it) } }
-	var draft by remember(runbookId) {
+	var draft by rememberSaveable(runbookId, stateSaver = RunbookDraftSaver) {
 		mutableStateOf(existing?.let { RunbookDraft.of(it) } ?: RunbookDraft(id = newRunbookId()))
 	}
 	val declared = draft.declared
 	val scope = rememberCoroutineScope()
 	var saving by remember(runbookId) { mutableStateOf(false) }
 	var refused by remember(runbookId) { mutableStateOf<RunbookConflict?>(null) }
-	var overwriting by remember(runbookId) { mutableStateOf(false) }
+	// Kept with the draft, or a rotation would leave the intent behind and save an ordinary edit.
+	var overwriting by rememberSaveable(runbookId) { mutableStateOf(false) }
 
 	Scaffold(
 		topBar = {

@@ -1,10 +1,13 @@
 package com.atelier_nyaarium.switchboard.runbooks
 
+import androidx.compose.runtime.saveable.Saver
 import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.RunbookParameter
+import kotlinx.serialization.json.Json
 
 fun newRunbookId(): String = java.util.UUID.randomUUID().toString()
 
+@kotlinx.serialization.Serializable
 data class ParameterDraft(
 	val label: String = "",
 	val kind: String = "text",
@@ -16,6 +19,7 @@ data class ParameterDraft(
 		else copy(kind = next)
 }
 
+@kotlinx.serialization.Serializable
 data class RunbookDraft(
 	val id: String,
 	val name: String = "",
@@ -90,3 +94,9 @@ data class RunbookDraft(
 		)
 	}
 }
+
+/** A rotation recreates the editor, and typed work outlives it only if it is written down. */
+internal val RunbookDraftSaver: Saver<RunbookDraft, String> = Saver(
+	save = { runCatching { Json.encodeToString(RunbookDraft.serializer(), it) }.getOrNull() },
+	restore = { runCatching { Json.decodeFromString(RunbookDraft.serializer(), it) }.getOrNull() },
+)

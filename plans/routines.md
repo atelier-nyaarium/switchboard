@@ -937,6 +937,11 @@ addressing.
   source set, so no gate can call into a `@Composable`, and "is this expression a rule" is not
   something a residue test can decide. `overwriteRevision` was the instance that earned it.
 
+- **The runbook editor lost a whole draft on rotation.** Fixed in Phase 1. `MainActivity` declares no
+  `configChanges`, so a rotation recreated it and `remember` took everything typed with it. The draft
+  and the overwrite intent are both `rememberSaveable` now, over a `Saver` that writes the draft as
+  JSON, with a round trip test. Other editors were not audited for the same pattern.
+
 - **The sandbox cannot show a refusal.** `isSandbox` closes every network door, correctly, which
   also means no screen that depends on a Gateway answering can be seen. The Overwrite action shipped
   in this phase has never been rendered by anything, on device or in a test, because reaching it
