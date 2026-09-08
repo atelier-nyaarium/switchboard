@@ -25,6 +25,7 @@ export const DATA_DIR_ENTRIES: ReadonlySet<string> = new Set([
 	"pending-jobs.json",
 	"pending-jobs-quarantine.json",
 	"replay-guard.json",
+	"routines.json",
 	"runbooks.json",
 	"session-resume.json",
 	"vault-decisions.json",

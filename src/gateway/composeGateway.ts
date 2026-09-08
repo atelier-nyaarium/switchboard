@@ -18,6 +18,7 @@ import {
 	type RouterPresenceStage,
 } from "./compose/composeRouterPresence.js";
 import { composeRoutes, type GatewayRoutes, type RoutesStage } from "./compose/composeRoutes.js";
+import { composeRoutines } from "./compose/composeRoutines.js";
 import { composeRunbooks } from "./compose/composeRunbooks.js";
 import { composeSessions } from "./compose/composeSessions.js";
 import { composeStores } from "./compose/composeStores.js";
@@ -176,6 +177,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		routes: requireRoutes,
 	});
 	const runbooks = composeRunbooks({ dataDir: bootstrap.dataDir });
+	const routines = composeRoutines({ dataDir: bootstrap.dataDir });
 	routerFrames = composeRouterFrames({
 		localGatewayId: bootstrap.localGatewayId,
 		wakeTimeoutMs: config.wakeTimeoutMs,
@@ -187,6 +189,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		routes: requireRoutes,
 		vault,
 		runbooks,
+		routines,
 	});
 
 	if (bootstrap.gatewayBoot.kind === "arming") enrollment.enterArming(bootstrap.gatewayBoot.nonce);

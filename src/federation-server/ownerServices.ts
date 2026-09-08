@@ -1,6 +1,6 @@
 import type { DomainSnapshot } from "../shared/admission.js";
-import type { Ambient, TimerHandle } from "../shared/ambient.js";
 import type { BlobReference } from "../shared/blob-reference.js";
+import { type ChainTimers, chainedTimer } from "../shared/chained-timer.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
 import {
 	formatInboxAddress,
@@ -43,23 +43,6 @@ export interface OwnerServicesDeps {
 	consoleSockets?: Pick<ConsoleSockets, "pushOwnerRow" | "pushPlane" | "forget" | "readPlanes">;
 	leases?: ReturnType<typeof createLeaseService>;
 	ambient: ChainTimers;
-}
-
-const MAX_TIMER_MS = 2_147_483_647;
-
-type ChainTimers = Pick<Ambient, "setTimer" | "clearTimer">;
-
-/** Re-arms past the platform's timer ceiling. */
-export function chainedTimer(ambient: ChainTimers, delayMs: number, fn: () => void): { handle: () => TimerHandle } {
-	let current: TimerHandle;
-	const arm = (remaining: number) => {
-		current = ambient.setTimer(
-			() => (remaining > MAX_TIMER_MS ? arm(remaining - MAX_TIMER_MS) : fn()),
-			Math.min(remaining, MAX_TIMER_MS),
-		);
-	};
-	arm(delayMs);
-	return { handle: () => current };
 }
 
 export function createOwnerServices(deps: OwnerServicesDeps) {

@@ -15,6 +15,7 @@ import { composeValueResult } from "../router/valueResult.js";
 import type { HostStage } from "./composeHost.js";
 import type { RouterPresenceBuild } from "./composeRouterPresence.js";
 import type { GatewayRoutes } from "./composeRoutes.js";
+import type { RoutineStage } from "./composeRoutines.js";
 import type { RunbookStage } from "./composeRunbooks.js";
 import type { SessionsStage } from "./composeSessions.js";
 import type { StoresStage } from "./composeStores.js";
@@ -32,6 +33,7 @@ export interface RouterFramesStageDeps {
 	routes: () => GatewayRoutes;
 	vault: Pick<VaultStage, "console" | "sessionEnded">;
 	runbooks: Pick<RunbookStage, "console">;
+	routines: Pick<RoutineStage, "console">;
 }
 
 export interface RouterFramesBuild extends RouterFrameHandlers {
@@ -107,6 +109,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			durableOpStore: stores.durableOpStore,
 			vault: deps.vault.console,
 			runbooks: deps.runbooks.console,
+			routines: deps.routines.console,
 			onSessionEnded: (team) => deps.vault.sessionEnded(team),
 		});
 

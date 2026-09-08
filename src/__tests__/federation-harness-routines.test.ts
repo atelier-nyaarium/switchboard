@@ -27,18 +27,32 @@ describe("federation harness: routine operations without a runner", () => {
 		revision: 1,
 	};
 
-	it("refuses each one, and the gateway keeps serving", async () => {
-		const ops = [
-			{ kind: "routine_list" as const },
-			{ kind: "routine_put" as const, routine },
-			{ kind: "routine_delete" as const, routineId: "r1" },
-			{ kind: "routine_enable" as const, routineId: "r1", enabled: false },
-			{ kind: "routine_run_now" as const, routineId: "r1", occurrenceId: "o1" },
-			{ kind: "routine_dismiss" as const, routineId: "r1", occurrenceId: "o1" },
-		];
-		for (const op of ops) {
-			const { result } = await h.phone.value(op);
-			expect(result, op.kind).toMatchObject({ kind: "refusal" });
+	it("carries a routine from the phone to the gateway's store and back", async () => {
+		const saved = await h.phone.value({ kind: "routine_put", routine });
+		expect(saved.result).toMatchObject({ stored: true, revision: 1 });
+
+		const listed = await h.phone.value({ kind: "routine_list" });
+		expect(listed.result).toMatchObject({ routines: [{ routine: { id: "r1", name: "Morning triage" } }] });
+
+		const off = await h.phone.value({ kind: "routine_enable", routineId: "r1", enabled: false });
+		expect(off.result).toMatchObject({ stored: true, revision: 2 });
+
+		const gone = await h.phone.value({ kind: "routine_delete", routineId: "r1" });
+		expect(gone.result).toEqual({ deleted: true });
+	});
+
+	it("refuses a schedule the gateway cannot read, naming what it could not", async () => {
+		const refused = await h.phone.value({
+			kind: "routine_put",
+			routine: { ...routine, id: "bad", zone: "Mars/Olympus" },
+		});
+		expect(refused.result).toMatchObject({ stored: false });
+	});
+
+	it("answers the occurrence operations without a runner, rather than throwing", async () => {
+		for (const kind of ["routine_run_now", "routine_dismiss"] as const) {
+			const { result } = await h.phone.value({ kind, routineId: "r1", occurrenceId: "o1" });
+			expect(result, kind).toMatchObject({ applied: false });
 		}
 
 		// Still answering afterwards, which a thrown handler taking the socket down would not.
