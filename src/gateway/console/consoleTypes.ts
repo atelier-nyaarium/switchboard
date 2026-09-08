@@ -17,6 +17,13 @@ import type { SignedXDomainLink } from "../../shared/federation-protocol.js";
 import type { HostOp, HostOpResult } from "../../shared/host-op.js";
 import { MAX_POLL_HOLD_MS } from "../../shared/schemas.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
+import type {
+	ConsoleRoutineDeleteResult,
+	ConsoleRoutineListResult,
+	ConsoleRoutineOccurrenceResult,
+	ConsoleRoutinePutResult,
+	Routine,
+} from "../../shared/schemasRoutine.js";
 import type { Runbook } from "../../shared/schemasRunbook.js";
 import type { VaultDecision, VaultGrant } from "../../shared/schemasVault.js";
 import type { SessionStore } from "../../shared/session-store.js";
@@ -105,6 +112,7 @@ export interface ConsoleHandlerDeps {
 	durableOpStore?: DurableOpStore;
 	vault?: VaultConsoleHandlers;
 	runbooks?: RunbookConsoleHandlers;
+	routines?: RoutineConsoleHandlers;
 	onSessionEnded?: (team: string) => void;
 }
 
@@ -117,6 +125,17 @@ export interface RunbookConsoleHandlers {
 		options?: { overwrite?: boolean },
 	) => { stored: boolean; revision: number; reason?: string };
 	remove: (runbookId: string) => { deleted: boolean };
+}
+
+/** The runner behind these arrives in a later phase; the wire is settled first. */
+export interface RoutineConsoleHandlers {
+	list: () => ConsoleRoutineListResult;
+	/** `base` is the revision the editor was opened at, absent on a first save. */
+	put: (routine: Routine, base?: number) => ConsoleRoutinePutResult;
+	remove: (routineId: string) => ConsoleRoutineDeleteResult;
+	enable: (routineId: string, enabled: boolean) => ConsoleRoutinePutResult;
+	runNow: (routineId: string, occurrenceId: string) => Promise<ConsoleRoutineOccurrenceResult>;
+	dismiss: (routineId: string, occurrenceId: string) => ConsoleRoutineOccurrenceResult;
 }
 
 export interface VaultConsoleHandlers {

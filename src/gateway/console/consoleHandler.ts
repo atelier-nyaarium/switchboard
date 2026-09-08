@@ -45,6 +45,7 @@ export function createConsoleDispatcher({
 	durableOpStore,
 	vault,
 	runbooks,
+	routines,
 	onSessionEnded,
 }: ConsoleHandlerDeps) {
 	const targets = createConsoleTargets({ localDomainId, localGatewayId, isTrustedCatalogProject });
@@ -333,7 +334,30 @@ export function createConsoleDispatcher({
 					throw error;
 				}
 			}
+
+			case "routine_list":
+				return requireRoutines().list();
+
+			case "routine_put":
+				return requireRoutines().put(op.routine, op.baseRevision);
+
+			case "routine_delete":
+				return requireRoutines().remove(op.routineId);
+
+			case "routine_enable":
+				return requireRoutines().enable(op.routineId, op.enabled);
+
+			case "routine_run_now":
+				return requireRoutines().runNow(op.routineId, op.occurrenceId);
+
+			case "routine_dismiss":
+				return requireRoutines().dismiss(op.routineId, op.occurrenceId);
 		}
+	}
+
+	function requireRoutines() {
+		if (!routines) throw new Error("routines are not available on this Gateway");
+		return routines;
 	}
 
 	function requireVault() {

@@ -3,6 +3,7 @@ import { ChannelFilesSchema } from "./channel-file.js";
 import { SignedXDomainLinkSchema } from "./federation-protocol.js";
 import { BlobGetOpSchema, BlobPutOpSchema, BlobStatOpSchema } from "./schemasBlob.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
+import { RoutineSchema } from "./schemasRoutine.js";
 import { RunbookFireTargetSchema, RunbookSchema } from "./schemasRunbook.js";
 import { VaultDecisionSchema } from "./schemasVault.js";
 
@@ -158,6 +159,30 @@ export const ConsoleOpSchema = z
 			/** The revision the owner previewed. A newer stored one refuses rather than fires. */
 			expectedRevision: z.number().int().positive().optional(),
 		}),
+		z.object({ kind: z.literal("routine_list") }),
+		// Whole record, never a patch, as a runbook is.
+		z.object({
+			kind: z.literal("routine_put"),
+			routine: RoutineSchema,
+			/**
+			 * The revision the editor was opened at, absent on a first save. The gateway stores at its
+			 * own successor, so the phone never names the revision it wants.
+			 */
+			baseRevision: z.number().int().positive().optional(),
+		}),
+		z.object({ kind: z.literal("routine_delete"), routineId: z.string().min(1).max(64) }),
+		z.object({ kind: z.literal("routine_enable"), routineId: z.string().min(1).max(64), enabled: z.boolean() }),
+		// Run now and Dismiss answer an occurrence the owner is looking at, never the routine.
+		z.object({
+			kind: z.literal("routine_run_now"),
+			routineId: z.string().min(1).max(64),
+			occurrenceId: z.string().min(1).max(128),
+		}),
+		z.object({
+			kind: z.literal("routine_dismiss"),
+			routineId: z.string().min(1).max(64),
+			occurrenceId: z.string().min(1).max(128),
+		}),
 	])
 	.meta({ id: "ConsoleOp" });
 
@@ -200,6 +225,12 @@ export const VALUE_OP_KINDS = new Set([
 	"runbook_delete",
 	"runbook_preview",
 	"runbook_fire",
+	"routine_list",
+	"routine_put",
+	"routine_delete",
+	"routine_enable",
+	"routine_run_now",
+	"routine_dismiss",
 ]);
 
 export const MailboxEntrySchema = z
