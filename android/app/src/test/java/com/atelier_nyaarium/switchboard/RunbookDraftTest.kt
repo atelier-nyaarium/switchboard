@@ -48,11 +48,17 @@ class RunbookDraftTest {
 	}
 
 	@Test
-	fun aSaveBumpsTheRevisionSoAGatewayTakesIt() {
-		val saved = draft("go {{env}}").copy(revision = 4L)
-			.withSettings("env") { it.copy(label = "Environment") }
-			.toRunbook()
-		assertEquals(5L, saved?.revision)
+	fun aSaveLeavesTheRevisionToTheGateway() {
+		val edited = { revision: Long ->
+			draft("go {{env}}").copy(revision = revision)
+				.withSettings("env") { it.copy(label = "Environment") }
+				.toRunbook()
+				?.revision
+		}
+		// Carried through unchanged, since the gateway stores at its own successor either way.
+		assertEquals(4L, edited(4L))
+		// A draft that was never saved still has to satisfy a schema that wants a positive one.
+		assertEquals(1L, edited(0L))
 	}
 
 	@Test

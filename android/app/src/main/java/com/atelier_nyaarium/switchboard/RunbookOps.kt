@@ -49,9 +49,6 @@ internal fun conflictsAfterPut(
 internal fun standingConflict(conflict: RunbookConflict?, draftRevision: Long): RunbookConflict? =
 	conflict?.takeIf { it.heldRevision >= draftRevision }
 
-/** Must outrank the library, or the merge keeps the old copy. */
-internal fun overwriteRevision(candidateRevision: Long, libraryRevision: Long?): Long =
-	maxOf(candidateRevision, (libraryRevision ?: 0L) + 1)
 
 internal sealed interface RunbookSaved {
 	data object Stored : RunbookSaved
@@ -84,24 +81,20 @@ internal class RunbookOps(
 	suspend fun save(
 		runbook: Runbook,
 		gatewayId: String = host.homeGatewayId(),
+		baseRevision: Long? = null,
 		overwrite: Boolean = false,
 	): RunbookSaved {
 		synced.removeAll { it.second == runbook.id }
 		val client = host.client
 		val reachable = client != null && gatewayId.isNotBlank()
 
-		val outgoing =
-			if (overwrite) {
-				runbook.copy(revision = overwriteRevision(runbook.revision, host.library.find(runbook.id)?.revision))
-			} else {
-				runbook
-			}
-
-		val answer = if (reachable) put(client as ConsoleClient, gatewayId, outgoing, overwrite) else null
+		val answer = if (reachable) put(client as ConsoleClient, gatewayId, runbook, baseRevision, overwrite) else null
 		if (answer != null && !answer.stored) return RunbookSaved.Refused(conflictOfRefusal(answer))
 
-		val kept = keep(outgoing) ?: return RunbookSaved.Refused(localConflict(outgoing))
-		if (answer != null) synced += Triple(gatewayId, outgoing.id, kept.revision)
+		// The gateway names the revision, so what it answers with is what the library takes.
+		val landed = answer?.runbook ?: runbook
+		val kept = keep(landed) ?: return RunbookSaved.Refused(localConflict(landed))
+		if (answer != null) synced += Triple(gatewayId, landed.id, kept.revision)
 		return if (answer != null) RunbookSaved.Stored else RunbookSaved.Local
 	}
 
@@ -165,8 +158,9 @@ internal class RunbookOps(
 		if (Triple(gatewayId, runbookId, mine.revision) in synced) return true
 
 		val theirs = attempt { client.runbookList(gatewayId) } ?: return false
+		val held = theirs.runbooks.find { it.id == runbookId }
 		var settledRevision = mine.revision
-		val settled = when (val decision = pushDecision(mine, theirs.runbooks.find { it.id == runbookId })) {
+		val settled = when (val decision = pushDecision(mine, held)) {
 			PushDecision.Ready -> true
 			is PushDecision.Adopt -> {
 				settledRevision = decision.theirs.revision
@@ -174,8 +168,13 @@ internal class RunbookOps(
 				true
 			}
 			// Not if deleted meanwhile.
-			PushDecision.Put ->
-				host.library.find(runbookId) != null && put(client, gatewayId, mine)?.stored == true
+			PushDecision.Put -> {
+				val answer = if (host.library.find(runbookId) == null) null else {
+					put(client, gatewayId, mine, held?.revision)
+				}
+				answer?.runbook?.let { settledRevision = it.revision }
+				answer?.stored == true
+			}
 		}
 		if (settled) synced += Triple(gatewayId, runbookId, settledRevision)
 		return settled
@@ -185,9 +184,10 @@ internal class RunbookOps(
 		client: ConsoleClient,
 		gatewayId: String,
 		mine: Runbook,
+		baseRevision: Long? = null,
 		overwrite: Boolean = false,
 	): ConsoleRunbookPutResult? {
-		val answer = attempt { client.runbookPut(gatewayId, mine, overwrite) }
+		val answer = attempt { client.runbookPut(gatewayId, mine, baseRevision, overwrite) }
 		conflicts = conflictsAfterPut(conflicts, mine.id, answer)
 		return answer
 	}
@@ -197,9 +197,11 @@ internal class RunbookOps(
 		val client = host.client ?: return false
 		if (gatewayId.isBlank()) return false
 		val mine = host.library.find(runbookId) ?: return false
-		val stored = put(client, gatewayId, mine, overwrite = true)?.stored == true
-		if (stored) synced += Triple(gatewayId, runbookId, mine.revision)
-		return stored
+		val answer = put(client, gatewayId, mine, overwrite = true)
+		if (answer?.stored != true) return false
+		answer.runbook?.let { show(host.library.merge(listOf(it))) }
+		synced += Triple(gatewayId, runbookId, answer.revision)
+		return true
 	}
 
 	private suspend fun <T> attempt(call: suspend () -> T): T? = try {

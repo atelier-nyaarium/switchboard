@@ -48,11 +48,12 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/vault/operationSet.ts` - the one shape rule, the wrapper table read from each program's help, and the set a window grant covers
 - `src/gateway/compose/composeVault.ts` - vault client, decisions, requests, routes, and console operations
 - `src/gateway/runbooks/store.ts` - gateway-held runbooks; sole writer, so a stored record has passed the rules
-  - **A put lands only at one past what is held:** an unseen id is a first write at any revision, and
-    a repeat of the stored content at the stored revision is a lost answer. Everything else is
-    refused with what is actually held, so a device that jumped the counter cannot erase edits it
-    never read. `overwrite` replaces regardless, because no revision arithmetic can tell a copy that
-    descends from the held one from a divergent one. Only an owner tap reaches it.
+  - **The gateway names every revision:** a put carries the revision the caller read and the store
+    writes its own successor, answering with the record. Nothing on the phone chooses a number, so a
+    number the gateway would not have chosen is unwritable. A base that does not match what is held
+    is refused with what is; a repeat of the stored content at the stored base is a lost answer.
+    `overwrite` replaces regardless, still at the next revision, because no revision arithmetic can
+    tell a copy that descends from the held one from a divergent one. Only an owner tap reaches it.
 - `src/gateway/compose/composeRunbooks.ts` - the runbook store and its console operations
 - `src/gateway/console/consoleRunbookFire.ts` - renders a stored runbook and lands it in a session, creating one first
   - **A preview and a fire reach the same words:** `textOf` is the one road from an id and values to
@@ -114,10 +115,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **`standingConflict` withdraws a spent offer:** below the draft's revision, rebasing onto the
     held one would mint a revision `merge` discards. It filters only the leftover conflict; a
     refusal the current save earned outranks it, which `RunbookEditor` names rather than nests.
-  - **An overwrite is minted from the library, not from the gateway:** `overwriteRevision` reads
-    what the library holds now, since a gateway that is behind would otherwise take a revision the
-    library outranks and the two would disagree while the owner was told it was refused. Patched
-    three times before it was written this way; see Phase 0 in `plans/routines.md`.
+  - **The phone adopts the revision, it does not mint one:** `save` sends the revision the editor
+    was opened at and keeps whatever record the gateway answers with. An earlier shape had the phone
+    minting, which was patched three times for the same defect before the authority moved; see
+    Phase 0 in `plans/routines.md`. The library still holds one copy per runbook, so its revision is
+    the home gateway's and another gateway drifts from it.
 - `android/.../runbooks/RunbookManager.kt` - the phone-held library and its persistence, beside `BoardManager`
   - **On disk before it is shown:** a refused write leaves the owner the library they still have.
     `clearInMemory` is the exception, since a re-provision takes the previous owner's writing out of

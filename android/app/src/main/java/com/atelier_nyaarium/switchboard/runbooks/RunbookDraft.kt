@@ -68,7 +68,8 @@ data class RunbookDraft(
 					options = if (setting.kind == "choice") setting.options else null,
 				)
 			},
-			revision = revision + 1,
+			// The gateway names the stored revision; this only has to satisfy the schema.
+			revision = maxOf(revision, 1L),
 		)
 	}
 

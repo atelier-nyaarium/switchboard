@@ -30,7 +30,7 @@ describe("runbook store", () => {
 	it("holds what the phone pushed and gives it back across a reopen", () => {
 		const dataDir = fresh();
 		const store = open(dataDir);
-		expect(store.put(book("deploy"))).toEqual({ stored: true, revision: 1 });
+		expect(store.put(book("deploy"))).toMatchObject({ stored: true, revision: 1 });
 		expect(store.get("deploy")?.body).toBe("release {{level}}");
 		expect(
 			open(dataDir)
@@ -47,32 +47,62 @@ describe("runbook store", () => {
 		expect(store.list().map((r) => r.id)).toEqual(["a", "c", "b"]);
 	});
 
-	it("takes the next revision, and refuses one that skipped what it holds", () => {
+	it("names the revision itself, whatever the caller sent", () => {
 		const store = open(fresh());
-		store.put(book("deploy", { revision: 5, body: "five {{level}}" }));
-		expect(store.put(book("deploy", { revision: 6, body: "six {{level}}" })).stored).toBe(true);
-		expect(store.get("deploy")?.body).toBe("six {{level}}");
+		// A first write lands at 1, not at the number the caller happened to carry.
+		expect(store.put(book("deploy", { revision: 97 }))).toMatchObject({ stored: true, revision: 1 });
+		expect(store.get("deploy")?.revision).toBe(1);
 
-		// Jumping the counter erases an edit nobody read.
-		const jumped = store.put(book("deploy", { revision: 9, body: "nine {{level}}" }));
-		expect(jumped.stored).toBe(false);
-		expect(jumped.revision).toBe(6);
+		expect(store.put(book("deploy", { revision: 97, body: "two {{level}}" }), { base: 1 })).toMatchObject({
+			stored: true,
+			revision: 2,
+		});
+		expect(store.get("deploy")?.body).toBe("two {{level}}");
+	});
 
-		const stale = store.put(book("deploy", { revision: 5, body: "five {{level}}" }));
-		expect(stale.stored).toBe(false);
-		// A refused put says what to rebase on.
-		expect(stale.revision).toBe(6);
-		expect(store.get("deploy")?.body).toBe("six {{level}}");
+	it("takes a put only from the revision it holds", () => {
+		const store = open(fresh());
+		store.put(book("deploy", { body: "one {{level}}" }));
+		store.put(book("deploy", { body: "two {{level}}" }), { base: 1 });
+
+		// Editing a revision that has moved on cannot land, whichever way it moved.
+		expect(store.put(book("deploy", { body: "other {{level}}" }), { base: 1 })).toMatchObject({
+			stored: false,
+			revision: 2,
+		});
+		expect(store.put(book("deploy", { body: "other {{level}}" }), { base: 7 })).toMatchObject({
+			stored: false,
+			revision: 2,
+		});
+		// Claiming there is nothing stored cannot land either.
+		expect(store.put(book("deploy", { body: "other {{level}}" })).stored).toBe(false);
+		expect(store.get("deploy")?.body).toBe("two {{level}}");
+	});
+
+	it("takes a repeat of what it holds as a lost answer", () => {
+		const store = open(fresh());
+		store.put(book("deploy", { body: "one {{level}}" }));
+		expect(store.put(book("deploy", { body: "one {{level}}" }), { base: 1 })).toMatchObject({
+			stored: true,
+			revision: 1,
+		});
+	});
+
+	it("refuses a base for an id it has never seen", () => {
+		const store = open(fresh());
+		expect(store.put(book("ghost"), { base: 3 })).toMatchObject({ stored: false, revision: 0 });
+		expect(store.list()).toEqual([]);
 	});
 
 	it("lets the owner overwrite a copy it cannot prove the incoming one descends from", () => {
 		const store = open(fresh());
-		store.put(book("deploy", { revision: 1, body: "one {{level}}" }));
-		expect(store.put(book("deploy", { revision: 4, body: "four {{level}}" })).stored).toBe(false);
+		store.put(book("deploy", { body: "one {{level}}" }));
+		expect(store.put(book("deploy", { body: "four {{level}}" }), { base: 9 }).stored).toBe(false);
 
-		expect(store.put(book("deploy", { revision: 4, body: "four {{level}}" }), { overwrite: true })).toEqual({
+		// An overwrite still moves forward, so it can never mint a revision already used.
+		expect(store.put(book("deploy", { body: "four {{level}}" }), { overwrite: true })).toMatchObject({
 			stored: true,
-			revision: 4,
+			revision: 2,
 		});
 		expect(store.get("deploy")?.body).toBe("four {{level}}");
 	});
@@ -83,18 +113,6 @@ describe("runbook store", () => {
 		const refused = store.put(book("deploy", { revision: 2, body: "no placeholders here" }), { overwrite: true });
 		expect(refused.stored).toBe(false);
 		expect(store.get("deploy")?.body).toBe("release {{level}}");
-	});
-
-	it("takes an unchanged re-push but refuses a changed one at the same revision", () => {
-		const store = open(fresh());
-		store.put(book("deploy", { revision: 6, body: "six {{level}}" }));
-		expect(store.put(book("deploy", { revision: 6, body: "six {{level}}" })).stored).toBe(true);
-
-		// A second device editing without bumping would otherwise overwrite the first silently.
-		const conflict = store.put(book("deploy", { revision: 6, body: "other {{level}}" }));
-		expect(conflict.stored).toBe(false);
-		expect(conflict.revision).toBe(6);
-		expect(store.get("deploy")?.body).toBe("six {{level}}");
 	});
 
 	it("refuses a record whose body and parameters disagree, leaving the held one alone", () => {

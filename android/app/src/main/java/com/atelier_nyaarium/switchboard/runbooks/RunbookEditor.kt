@@ -71,8 +71,9 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 							val candidate = draft.toRunbook() ?: return@hapticClick
 							saving = true
 							refused = null
+							val base = draft.revision.takeIf { it > 0L }
 							scope.launch {
-								when (val saved = repo.runbookOps.save(candidate, overwrite = overwriting)) {
+								when (val saved = repo.runbookOps.save(candidate, baseRevision = base, overwrite = overwriting)) {
 									is RunbookSaved.Refused -> refused = saved.conflict
 									else -> onClose()
 								}

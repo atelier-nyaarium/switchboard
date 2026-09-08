@@ -716,10 +716,18 @@ The shape is the gateway minting the successor. The phone sends its edit and the
 and the gateway answers with the number it stored, which deletes `overwriteRevision` and the whole
 question of what the phone should mint.
 
-Question 17 settled what that needs from the phone: a copy per gateway, so the revision describes one
-gateway's copy rather than the runbook. `RunbookManager.merge` keeping the higher revision across
-gateways is the thing that has to go, and the fire sheet's pin and a routine's pin both become
-gateway-scoped with it.
+Landed in Phase 1. `RunbookStore.put` takes the revision the caller read and stores at its own
+successor, answering with the record it wrote. The phone sends that base and adopts the answer, so
+`RunbookDraft` no longer mints, `overwriteRevision` is gone, and the class this section is about
+cannot be written any more: nothing on the phone chooses a revision. An overwrite still moves
+forward, so it cannot land on a number already used.
+
+**What it deliberately did not do.** Question 17 also asks the phone to hold a copy per gateway, and
+it still holds one. The revision the library carries is the home gateway's, and a second gateway that
+mints its own drifts from it. That was true before this change too, differently, and closing it means
+restructuring `RunbookManager` and its persistence, which belongs with the rest of the phone work in
+Phase 5. Until then `pushDecision` compares revisions minted by two authorities, which is only sound
+for the home gateway.
 
 ### Deployment
 
@@ -845,6 +853,9 @@ whether the work went well, which it has not.
 Independent of the scheduler, and the only phase that is a security change.
 
 ## Phase 5 - The phone
+
+`RunbookManager` holds a copy per gateway, which Question 17 asked for and Phase 1 left standing.
+Until it does, the library's revision is the home gateway's and any other gateway drifts from it.
 
 The first phase the owner can actually use.
 

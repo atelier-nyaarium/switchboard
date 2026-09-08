@@ -7,7 +7,7 @@ import { parseBody, placeholdersOf } from "./runbook-grammar.js";
 // the console path's 64 MiB body cap is the only ceiling.
 
 /** Two billion edits, inside a JVM Long and a JS safe integer. */
-const REVISION_CEILING = 2_147_483_647;
+export const REVISION_CEILING = 2_147_483_647;
 
 export const RunbookParameterSchema = z
 	.object({
@@ -48,6 +48,8 @@ export const ConsoleRunbookPutResultSchema = z
 		stored: z.boolean(),
 		/** What the gateway holds after the write, so a refused put still says what to rebase on. */
 		revision: z.number().int().nonnegative(),
+		/** The stored record, so the phone adopts the revision rather than minting one. */
+		runbook: RunbookSchema.optional(),
 		reason: z.string().optional(),
 	})
 	.meta({ id: "ConsoleRunbookPutResult" });

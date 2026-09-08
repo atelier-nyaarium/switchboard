@@ -300,7 +300,7 @@ export function createConsoleDispatcher({
 				return requireRunbooks().list();
 
 			case "runbook_put":
-				return requireRunbooks().put(op.runbook, { overwrite: op.overwrite });
+				return requireRunbooks().put(op.runbook, { base: op.baseRevision, overwrite: op.overwrite });
 
 			case "runbook_delete":
 				return requireRunbooks().remove(op.runbookId);

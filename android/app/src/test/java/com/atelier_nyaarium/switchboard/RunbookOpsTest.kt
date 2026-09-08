@@ -60,29 +60,6 @@ class RunbookOpsTest {
 	}
 
 	@Test
-	fun anOverwriteMintsARevisionTheLibraryWillTakeBack() {
-		// Overwrite must outrank the library.
-		assertEquals(6L, overwriteRevision(candidateRevision = 6L, libraryRevision = 5L))
-		assertEquals(10L, overwriteRevision(candidateRevision = 6L, libraryRevision = 9L))
-		assertEquals(7L, overwriteRevision(candidateRevision = 6L, libraryRevision = 6L))
-		assertEquals(6L, overwriteRevision(candidateRevision = 6L, libraryRevision = null))
-		// At the ceiling it mints a successor the wire refuses. Recorded, not handled.
-		assertEquals(2_147_483_648L, overwriteRevision(candidateRevision = 1L, libraryRevision = 2_147_483_647L))
-	}
-
-	@Test
-	fun anOverwriteOutranksALibraryThatMovedWhileTheEditorSatOpen() {
-		val (ops, state) = opsOver(listOf(book("a", revision = 9L)))
-
-		// The draft was opened at 5; the library has since advanced past it.
-		kotlinx.coroutines.runBlocking { ops.save(book("a", name = "Mine", revision = 6L), overwrite = true) }
-
-		val held = state.value.runbooks.first { it.id == "a" }
-		assertEquals("Mine", held.name)
-		assertEquals(10L, held.revision)
-	}
-
-	@Test
 	fun deletingTakesItOutOfTheLibraryEvenWithNoGatewayToTell() {
 		val (ops, state) = opsOver(listOf(book("a"), book("b")))
 		kotlinx.coroutines.runBlocking { ops.delete("a") }

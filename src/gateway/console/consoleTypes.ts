@@ -122,8 +122,8 @@ export interface RunbookConsoleHandlers {
 	list: () => { runbooks: Runbook[] };
 	put: (
 		runbook: Runbook,
-		options?: { overwrite?: boolean },
-	) => { stored: boolean; revision: number; reason?: string };
+		options?: { base?: number; overwrite?: boolean },
+	) => { stored: boolean; revision: number; runbook?: Runbook; reason?: string };
 	remove: (runbookId: string) => { deleted: boolean };
 }
 

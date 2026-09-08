@@ -38,18 +38,23 @@ not open a placeholder of its own.
 so a stored record has passed the rules, and restore keeps whatever the schema accepts rather than
 discarding the owner's work.
 
-The phone owns the revision, and a put lands only at exactly one past what the gateway holds. An id
-the gateway has never seen is a first write at whatever revision it carries, since a second gateway
-meets a runbook mid-life. A repeat at the stored revision with the same content is a retry of a lost
-answer. Everything else is refused and told what is actually held.
+The gateway owns the revision. A put carries `baseRevision`, the revision the caller read, and the
+gateway stores at its own successor and answers with the record it wrote. Nothing on the phone
+chooses a number, so nothing can choose one the gateway would not have.
 
-Writing the next revision means having read the one it replaces, so a device that jumped the counter
-cannot erase edits it never saw. The gateway cannot tell a copy that descends from the one it holds
-from a divergent one, so `overwrite` on `runbook_put` replaces regardless. Only an owner tap reaches
-it: `RunbookOps.sync` never sets it, and `save` defaults it off.
+A put whose base is not what the gateway holds is refused and told what is. That is what stops a
+second device erasing an edit it never read. A repeat of the stored content at the stored base is a
+retry of a lost answer. A base for an id the gateway has never seen is refused too, since the caller
+believed something was there.
 
-A revision has a ceiling, because a record at the top of the range would have no successor and could
-never be edited again.
+The gateway cannot tell a copy that descends from the one it holds from a divergent one, so
+`overwrite` replaces regardless, still at the next revision. Only an owner tap reaches it:
+`RunbookOps.sync` never sets it, and `save` defaults it off.
+
+A revision has a ceiling, and a runbook that reaches it can no longer be written.
+
+The phone's library holds one copy per runbook, and its revision is the home gateway's. Another
+gateway mints its own, so the two drift; a copy per gateway is the shape that fixes it.
 
 Five console ops, all owner-authenticated: `runbook_list`, `runbook_put`, `runbook_delete`,
 `runbook_preview` and `runbook_fire`.

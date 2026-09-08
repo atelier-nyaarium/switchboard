@@ -25,13 +25,13 @@ describe("federation harness: runbooks", () => {
 		...over,
 	});
 
-	const put = async (runbook: Runbook, overwrite?: boolean) =>
-		ConsoleRunbookPutResultSchema.parse((await h.phone.value({ kind: "runbook_put", runbook, overwrite })).result);
+	const put = async (runbook: Runbook, over: { baseRevision?: number; overwrite?: boolean } = {}) =>
+		ConsoleRunbookPutResultSchema.parse((await h.phone.value({ kind: "runbook_put", runbook, ...over })).result);
 	const list = async () =>
 		ConsoleRunbookListResultSchema.parse((await h.phone.value({ kind: "runbook_list" })).result);
 
 	it("carries a runbook from the phone to the gateway's store and back", async () => {
-		expect(await put(book())).toEqual({ stored: true, revision: 1 });
+		expect(await put(book())).toMatchObject({ stored: true, revision: 1 });
 
 		const listed = await list();
 		expect(listed.runbooks.map((runbook) => runbook.id)).toEqual(["release"]);
@@ -51,26 +51,28 @@ describe("federation harness: runbooks", () => {
 		expect((await list()).runbooks.map((runbook) => runbook.id)).not.toContain("broken");
 	});
 
-	it("refuses a second device's edit that did not bump the revision", async () => {
-		await put(book({ id: "deploy", revision: 3 }));
-		const conflict = await put(book({ id: "deploy", revision: 3, name: "Deploy" }));
-		expect(conflict).toMatchObject({ stored: false, revision: 3 });
+	it("refuses a second device editing a revision that has already moved", async () => {
+		await put(book({ id: "deploy" }));
+		await put(book({ id: "deploy", name: "Deploy" }), { baseRevision: 1 });
+
+		const conflict = await put(book({ id: "deploy", name: "Elsewhere" }), { baseRevision: 1 });
+		expect(conflict).toMatchObject({ stored: false, revision: 2 });
 
 		const held = (await list()).runbooks.find((runbook) => runbook.id === "deploy");
-		expect(held?.name).toBe("Release");
+		expect(held?.name).toBe("Deploy");
 	});
 
 	it("carries the owner's overwrite through to a copy the gateway would otherwise refuse", async () => {
-		await put(book({ id: "sweep", revision: 1 }));
-		// An ordinary put cannot catch up a lagging gateway.
-		expect(await put(book({ id: "sweep", revision: 6, name: "Sweep" }))).toMatchObject({
+		await put(book({ id: "sweep" }));
+		// An ordinary put cannot land on a revision it did not read.
+		expect(await put(book({ id: "sweep", name: "Sweep" }), { baseRevision: 9 })).toMatchObject({
 			stored: false,
 			revision: 1,
 		});
 
-		expect(await put(book({ id: "sweep", revision: 6, name: "Sweep" }), true)).toEqual({
+		expect(await put(book({ id: "sweep", name: "Sweep" }), { overwrite: true })).toMatchObject({
 			stored: true,
-			revision: 6,
+			revision: 2,
 		});
 		expect((await list()).runbooks.find((runbook) => runbook.id === "sweep")?.name).toBe("Sweep");
 	});

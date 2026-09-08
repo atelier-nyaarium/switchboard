@@ -142,6 +142,11 @@ export const ConsoleOpSchema = z
 		z.object({
 			kind: z.literal("runbook_put"),
 			runbook: RunbookSchema,
+			/**
+			 * The revision the editor was opened at, absent on a first save. The gateway stores at its
+			 * own successor, so the runbook's own revision field is not read here.
+			 */
+			baseRevision: z.number().int().positive().optional(),
 			/** Owner-authorized. Replaces whatever revision is held. */
 			overwrite: z.boolean().optional(),
 		}),

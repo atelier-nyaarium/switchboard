@@ -137,6 +137,12 @@ object Protocol {
 			const val RUNBOOK_DELETE: String = "runbook_delete"
 			const val RUNBOOK_PREVIEW: String = "runbook_preview"
 			const val RUNBOOK_FIRE: String = "runbook_fire"
+			const val ROUTINE_LIST: String = "routine_list"
+			const val ROUTINE_PUT: String = "routine_put"
+			const val ROUTINE_DELETE: String = "routine_delete"
+			const val ROUTINE_ENABLE: String = "routine_enable"
+			const val ROUTINE_RUN_NOW: String = "routine_run_now"
+			const val ROUTINE_DISMISS: String = "routine_dismiss"
 		}
 
 		object SocketFrame {
@@ -469,6 +475,7 @@ sealed class ConsoleOp {
 	@SerialName("runbook_put")
 	data class RunbookPut(
 		val runbook: Runbook,
+		val baseRevision: Long? = null,
 		val overwrite: Boolean? = null,
 	) : ConsoleOp()
 
@@ -492,6 +499,44 @@ sealed class ConsoleOp {
 		val values: JsonObject,
 		val into: RunbookFireTarget,
 		val expectedRevision: Long? = null,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("routine_list")
+	data object RoutineList : ConsoleOp()
+
+	@Serializable
+	@SerialName("routine_put")
+	data class RoutinePut(
+		val routine: Routine,
+		val baseRevision: Long? = null,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("routine_delete")
+	data class RoutineDelete(
+		val routineId: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("routine_enable")
+	data class RoutineEnable(
+		val routineId: String,
+		val enabled: Boolean,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("routine_run_now")
+	data class RoutineRunNow(
+		val routineId: String,
+		val occurrenceId: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("routine_dismiss")
+	data class RoutineDismiss(
+		val routineId: String,
+		val occurrenceId: String,
 	) : ConsoleOp()
 }
 
@@ -1611,6 +1656,7 @@ data class ConsoleRunbookListResult(
 data class ConsoleRunbookPutResult(
 	val stored: Boolean,
 	val revision: Long,
+	val runbook: Runbook? = null,
 	val reason: String? = null,
 )
 
@@ -1828,6 +1874,29 @@ data class XDomainLink(
 	val peerBoxPub: String,
 	val issuedAt: Long,
 	val nonce: String,
+)
+
+@Serializable
+data class Routine(
+	val id: String,
+	val name: String,
+	val weekdays: List<Long>,
+	val weekInterval: Long,
+	val startDate: String,
+	val time: String,
+	val zone: String,
+	val runbookId: String,
+	val approvedRevision: Long,
+	val values: JsonObject,
+	val target: RoutineTarget,
+	val enabled: Boolean,
+	val revision: Long,
+)
+
+@Serializable
+data class RoutineTarget(
+	val spawn: String,
+	val workdir: String? = null,
 )
 
 @Serializable

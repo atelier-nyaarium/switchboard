@@ -1,8 +1,8 @@
-// A put lands only on the revision it read.
+// The gateway names every revision it stores, and takes a put only from the one it already held.
 
 import { z } from "zod";
 import { type DurableStore, DurableStoreInstalledError } from "../../shared/durable-store.js";
-import { type Runbook, RunbookSchema, runbookRefusal } from "../../shared/schemasRunbook.js";
+import { REVISION_CEILING, type Runbook, RunbookSchema, runbookRefusal } from "../../shared/schemasRunbook.js";
 
 export interface RunbookStoreDeps {
 	/** Opened through `openDurable`, so a poisoned file starts this store fresh. */
@@ -12,10 +12,14 @@ export interface RunbookStoreDeps {
 export interface RunbookPutResult {
 	stored: boolean;
 	revision: number;
+	/** What is now stored, so the caller adopts the revision rather than guessing it. */
+	runbook?: Runbook;
 	reason?: string;
 }
 
 export interface RunbookPutOptions {
+	/** The revision the caller was editing. Absent means it believed there was nothing stored. */
+	base?: number;
 	/** Replaces what is held, whatever its revision. Only an owner tap sets it. */
 	overwrite?: boolean;
 }
@@ -87,28 +91,36 @@ export function createRunbookStore(deps: RunbookStoreDeps) {
 	const get = (id: string): Runbook | null => held(id) ?? null;
 
 	const put = (incoming: Runbook, options: RunbookPutOptions = {}): RunbookPutResult => {
-		const runbook = frozen(incoming);
-		const current = held(runbook.id);
-		const refusal = runbookRefusal(runbook);
-		if (refusal) return { stored: false, revision: current?.revision ?? 0, reason: refusal };
+		const current = held(incoming.id);
+		const held0 = current?.revision ?? 0;
+		const refusal = runbookRefusal(incoming);
+		if (refusal) return { stored: false, revision: held0, reason: refusal };
+		if (held0 >= REVISION_CEILING) {
+			return { stored: false, revision: held0, reason: "this runbook has no revision left to write" };
+		}
 		if (current && !options.overwrite) {
-			// A lost answer, not a lost update.
-			if (runbook.revision === current.revision && sameContent(runbook, current)) {
-				return { stored: true, revision: current.revision };
+			// A repeat of what is stored is a lost answer, not a lost update.
+			if (options.base === current.revision && sameContent(incoming, current)) {
+				return { stored: true, revision: current.revision, runbook: current };
 			}
-			if (runbook.revision !== current.revision + 1) {
+			if (options.base !== current.revision) {
 				return {
 					stored: false,
 					revision: current.revision,
-					reason: `revision ${current.revision} is stored; an edit of it would be ${current.revision + 1}`,
+					reason: `revision ${current.revision} is stored; this edits ${options.base ?? "nothing"}`,
 				};
 			}
 		}
+		if (!current && options.base !== undefined) {
+			return { stored: false, revision: 0, reason: "no runbook with that id is stored" };
+		}
+		// The gateway names the revision, so nobody else can name one it would not have chosen.
+		const runbook = frozen({ ...incoming, revision: held0 + 1 });
 		const next = current
 			? runbooks.map((existing) => (existing.id === runbook.id ? runbook : existing))
 			: [...runbooks, runbook];
-		if (!commit(next)) return { stored: false, revision: current?.revision ?? 0, reason: "could not be written" };
-		return { stored: true, revision: runbook.revision };
+		if (!commit(next)) return { stored: false, revision: held0, reason: "could not be written" };
+		return { stored: true, revision: runbook.revision, runbook };
 	};
 
 	const remove = (id: string): { deleted: boolean } => {

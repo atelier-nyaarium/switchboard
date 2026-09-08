@@ -24,10 +24,14 @@ suspend fun ConsoleClient.runbookList(gatewayId: String): ConsoleRunbookListResu
 suspend fun ConsoleClient.runbookPut(
 	gatewayId: String,
 	runbook: Runbook,
+	baseRevision: Long? = null,
 	overwrite: Boolean = false,
 ): ConsoleRunbookPutResult =
 	valueResult(
-		sendValueOp(gatewayId, ConsoleOp.RunbookPut(runbook = runbook, overwrite = overwrite)),
+		sendValueOp(
+			gatewayId,
+			ConsoleOp.RunbookPut(runbook = runbook, baseRevision = baseRevision, overwrite = overwrite),
+		),
 		Protocol.Wire.ConsoleOpKind.RUNBOOK_PUT,
 	)
 
