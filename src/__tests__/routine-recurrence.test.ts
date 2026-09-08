@@ -72,6 +72,12 @@ describe("which days a rule names", () => {
 		expect(nextOccurrence(later, utc("2026-09-07T00:00:00Z"))).toBe(utc("2026-12-02T17:00:00Z"));
 	});
 
+	it("reaches a start date further off than the search window", () => {
+		// Asked from now for a routine that begins in three years, the walk must not run out first.
+		const distant = rule({ weekdays: [1], startDate: "2029-09-03" });
+		expect(nextOccurrence(distant, utc("2026-09-07T00:00:00Z"))).toBe(utc("2029-09-03T16:00:00Z"));
+	});
+
 	it("answers nothing rather than searching forever when no day can match", () => {
 		expect(nextOccurrence(rule({ weekdays: [] }), utc("2026-09-07T00:00:00Z"))).toBeNull();
 		expect(nextOccurrence(rule({ weekInterval: 0 }), utc("2026-09-07T00:00:00Z"))).toBeNull();

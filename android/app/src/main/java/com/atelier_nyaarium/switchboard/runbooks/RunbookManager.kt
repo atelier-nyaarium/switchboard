@@ -37,6 +37,16 @@ class RunbookManager(private val store: RunbookStore) : ClearsOnReprovision {
 		commit(byId.values.sortedWith(compareBy({ it.name }, { it.id })))
 	}
 
+	/**
+	 * Takes a record whatever its revision, because the gateway names it. `merge` cannot serve here:
+	 * it keeps the higher one, and a gateway's successor is not always higher than what is held.
+	 */
+	fun adopt(runbook: Runbook): List<Runbook> = synchronized(stateLock) {
+		val byId = library.associateByTo(LinkedHashMap()) { it.id }
+		byId[runbook.id] = runbook
+		commit(byId.values.sortedWith(compareBy({ it.name }, { it.id })))
+	}
+
 	fun remove(runbookId: String): List<Runbook> = synchronized(stateLock) {
 		commit(library.filterNot { it.id == runbookId })
 	}

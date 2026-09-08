@@ -1680,6 +1680,69 @@ data class ConsoleRunbookFireResult(
 )
 
 @Serializable
+data class RoutineTarget(
+	val spawn: String,
+	val workdir: String? = null,
+)
+
+@Serializable
+data class Routine(
+	val id: String,
+	val name: String,
+	val weekdays: List<Long>,
+	val weekInterval: Long,
+	val startDate: String,
+	val time: String,
+	val zone: String,
+	val runbookId: String,
+	val approvedRevision: Long,
+	val values: JsonObject,
+	val target: RoutineTarget,
+	val enabled: Boolean,
+	val revision: Long,
+)
+
+@Serializable
+data class RoutineMiss(
+	val occurrenceId: String,
+	val scheduledAt: Long,
+	val reason: String,
+	val runnable: Boolean,
+)
+
+@Serializable
+data class RoutineState(
+	val routine: Routine,
+	val nextAt: Long? = null,
+	val lastRanAt: Long? = null,
+	val missed: RoutineMiss? = null,
+)
+
+@Serializable
+data class ConsoleRoutineListResult(
+	val routines: List<RoutineState>,
+)
+
+@Serializable
+data class ConsoleRoutinePutResult(
+	val stored: Boolean,
+	val revision: Long,
+	val routine: Routine? = null,
+	val reason: String? = null,
+)
+
+@Serializable
+data class ConsoleRoutineDeleteResult(
+	val deleted: Boolean,
+)
+
+@Serializable
+data class ConsoleRoutineOccurrenceResult(
+	val applied: Boolean,
+	val reason: String? = null,
+)
+
+@Serializable
 data class ScheduledRecord(
 	val target: ScheduledTarget,
 	val fireAt: Long,
@@ -1874,29 +1937,6 @@ data class XDomainLink(
 	val peerBoxPub: String,
 	val issuedAt: Long,
 	val nonce: String,
-)
-
-@Serializable
-data class Routine(
-	val id: String,
-	val name: String,
-	val weekdays: List<Long>,
-	val weekInterval: Long,
-	val startDate: String,
-	val time: String,
-	val zone: String,
-	val runbookId: String,
-	val approvedRevision: Long,
-	val values: JsonObject,
-	val target: RoutineTarget,
-	val enabled: Boolean,
-	val revision: Long,
-)
-
-@Serializable
-data class RoutineTarget(
-	val spawn: String,
-	val workdir: String? = null,
 )
 
 @Serializable

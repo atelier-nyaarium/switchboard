@@ -159,7 +159,9 @@ export function nextOccurrence(rule: RoutineRule, after: number): number | null 
 	if (!start || !time || rule.weekdays.length === 0 || rule.weekInterval < 1) return null;
 
 	const from = partsIn(rule.zone, after);
-	let cursor: LocalDate = { year: from.year, month: from.month, day: from.day };
+	const floor: LocalDate = { year: from.year, month: from.month, day: from.day };
+	// A start date past the window would otherwise exhaust the walk before reaching it.
+	let cursor = asUtcMidnight(floor) < asUtcMidnight(start) ? start : floor;
 	for (let walked = 0; walked < SEARCH_DAYS; walked++) {
 		if (fallsOn(rule, start, cursor)) {
 			const at = instantOf(rule.zone, cursor, time.hour, time.minute);

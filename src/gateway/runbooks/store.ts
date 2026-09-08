@@ -95,12 +95,10 @@ export function createRunbookStore(deps: RunbookStoreDeps) {
 		const held0 = current?.revision ?? 0;
 		const refusal = runbookRefusal(incoming);
 		if (refusal) return { stored: false, revision: held0, reason: refusal };
-		if (held0 >= REVISION_CEILING) {
-			return { stored: false, revision: held0, reason: "this runbook has no revision left to write" };
-		}
 		if (current && !options.overwrite) {
-			// A repeat of what is stored is a lost answer, not a lost update.
-			if (options.base === current.revision && sameContent(incoming, current)) {
+			// A lost answer, whether it was lost before the write or after it.
+			const already = options.base === current.revision || options.base === current.revision - 1;
+			if (already && sameContent(incoming, current)) {
 				return { stored: true, revision: current.revision, runbook: current };
 			}
 			if (options.base !== current.revision) {
@@ -113,6 +111,9 @@ export function createRunbookStore(deps: RunbookStoreDeps) {
 		}
 		if (!current && options.base !== undefined) {
 			return { stored: false, revision: 0, reason: "no runbook with that id is stored" };
+		}
+		if (held0 >= REVISION_CEILING) {
+			return { stored: false, revision: held0, reason: "this runbook has no revision left to write" };
 		}
 		// The gateway names the revision, so nobody else can name one it would not have chosen.
 		const runbook = frozen({ ...incoming, revision: held0 + 1 });

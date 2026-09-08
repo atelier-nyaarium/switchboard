@@ -79,12 +79,25 @@ describe("runbook store", () => {
 		expect(store.get("deploy")?.body).toBe("two {{level}}");
 	});
 
-	it("takes a repeat of what it holds as a lost answer", () => {
+	it("takes a repeat of what it holds as a lost answer, whenever the answer was lost", () => {
 		const store = open(fresh());
 		store.put(book("deploy", { body: "one {{level}}" }));
+		// Lost before the write landed: the caller retries against the same base.
 		expect(store.put(book("deploy", { body: "one {{level}}" }), { base: 1 })).toMatchObject({
 			stored: true,
 			revision: 1,
+		});
+
+		store.put(book("deploy", { body: "two {{level}}" }), { base: 1 });
+		// Lost after it landed: the caller still names the base it read, now one behind.
+		expect(store.put(book("deploy", { body: "two {{level}}" }), { base: 1 })).toMatchObject({
+			stored: true,
+			revision: 2,
+		});
+		// The same base with different content is a real conflict, not a retry.
+		expect(store.put(book("deploy", { body: "three {{level}}" }), { base: 1 })).toMatchObject({
+			stored: false,
+			revision: 2,
 		});
 	});
 

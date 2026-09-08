@@ -92,9 +92,14 @@ internal class RunbookOps(
 		if (answer != null && !answer.stored) return RunbookSaved.Refused(conflictOfRefusal(answer))
 
 		// The gateway names the revision, so what it answers with is what the library takes.
-		val landed = answer?.runbook ?: runbook
-		val kept = keep(landed) ?: return RunbookSaved.Refused(localConflict(landed))
-		if (answer != null) synced += Triple(gatewayId, landed.id, kept.revision)
+		val landed = answer?.runbook
+		if (landed != null) {
+			show(host.library.adopt(landed))
+			synced += Triple(gatewayId, landed.id, landed.revision)
+			return RunbookSaved.Stored
+		}
+		val kept = keep(runbook) ?: return RunbookSaved.Refused(localConflict(runbook))
+		if (answer != null) synced += Triple(gatewayId, runbook.id, kept.revision)
 		return if (answer != null) RunbookSaved.Stored else RunbookSaved.Local
 	}
 
@@ -172,7 +177,10 @@ internal class RunbookOps(
 				val answer = if (host.library.find(runbookId) == null) null else {
 					put(client, gatewayId, mine, held?.revision)
 				}
-				answer?.runbook?.let { settledRevision = it.revision }
+				answer?.runbook?.let {
+					settledRevision = it.revision
+					show(host.library.adopt(it))
+				}
 				answer?.stored == true
 			}
 		}
@@ -199,7 +207,7 @@ internal class RunbookOps(
 		val mine = host.library.find(runbookId) ?: return false
 		val answer = put(client, gatewayId, mine, overwrite = true)
 		if (answer?.stored != true) return false
-		answer.runbook?.let { show(host.library.merge(listOf(it))) }
+		answer.runbook?.let { show(host.library.adopt(it)) }
 		synced += Triple(gatewayId, runbookId, answer.revision)
 		return true
 	}

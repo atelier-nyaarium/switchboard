@@ -122,6 +122,16 @@ import {
 	RosterEntrySchema,
 } from "../src/shared/schemasRouterPresence.js";
 import {
+	ConsoleRoutineDeleteResultSchema,
+	ConsoleRoutineListResultSchema,
+	ConsoleRoutineOccurrenceResultSchema,
+	ConsoleRoutinePutResultSchema,
+	RoutineMissSchema,
+	RoutineSchema,
+	RoutineStateSchema,
+	RoutineTargetSchema,
+} from "../src/shared/schemasRoutine.js";
+import {
 	ConsoleRunbookDeleteResultSchema,
 	ConsoleRunbookFireResultSchema,
 	ConsoleRunbookListResultSchema,
@@ -327,6 +337,14 @@ const ROOTS: z.ZodType[] = [
 	ConsoleRunbookDeleteResultSchema,
 	ConsoleRunbookPreviewResultSchema,
 	ConsoleRunbookFireResultSchema,
+	RoutineTargetSchema,
+	RoutineSchema,
+	RoutineMissSchema,
+	RoutineStateSchema,
+	ConsoleRoutineListResultSchema,
+	ConsoleRoutinePutResultSchema,
+	ConsoleRoutineDeleteResultSchema,
+	ConsoleRoutineOccurrenceResultSchema,
 	ScheduledRecordSchema,
 	ScheduleSendValueSchema,
 	ScheduleCancelValueSchema,
