@@ -212,6 +212,17 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A body's placeholders ARE its parameter list:** `runbookRefusal` refuses either without the
     other, so no stored runbook carries a blank nothing can fill or a parameter nothing uses. It
     bounds nothing by size; a record is refused for what it means.
+- `src/shared/schemasRoutine.ts` - routine wire truth and `routineRefusal`
+  - **A schedule is refused by asking the calculator:** whether a rule can ever come around is not
+    something reading its fields answers, so `routineRefusal` calls `nextOccurrence` from the start
+    date rather than judging the weekday set and interval by eye.
+- `src/shared/routine-recurrence.ts` - the next instant a rule names, read in the rule's own zone
+  - **Both sides of a transition are considered, never just the probe's:** a wall time probed as if
+    it were UTC lands on whichever side of an overlap that instant falls, which is the earlier one in
+    Los Angeles and the later one in London. A gap answers the moment it ends, found by searching for
+    where the offset changes.
+  - **The walk is bounded by the rule's interval, and starts at the start date:** a fixed window
+    would answer "never" for a routine beginning past it.
 - `src/shared/runbook-grammar.ts` - the `{{name}}` grammar and the render, shared by the store and the fire
   - **One parse owns the grammar:** `parseBody` refuses a `{{` that opens no placeholder, so text
     shaped like one is a parse decision rather than a guard beside the scan. A lone `}}` stays
@@ -316,6 +327,7 @@ How each subsystem works lives in `docs/`:
 | `docs/task-board.md` | Board, attachments, awareness |
 | `docs/vault.md` | Vault client, grants, request road, loopback routes |
 | `docs/runbooks.md` | The `{{name}}` grammar, the gateway store, the fire, the tab, the editor, a refused push |
+| `docs/routines.md` | The routine record, recurrence in a recorded zone, and the console operations |
 | `docs/references.md` | `ref://` grammar and matchers |
 | `docs/testing.md` | The federation harness, the minted wire fixtures, the identity set, the gates |
 | `docs/environment.md` | Every environment variable |
