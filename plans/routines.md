@@ -742,7 +742,7 @@ owner's installed app unable to fire a runbook on a gateway that had fallen behi
 updates. Runbooks have no users and the owner holds both, so this is a note rather than a blocker:
 update the app alongside the gateway.
 
-## Phase 1 - The record, the rules, and the contracts
+## Phase 1 - The record, the rules, and the contracts ✅
 
 `RoutineSchema` and its refusals in `src/shared/`, beside `schemasRunbook.ts`: the weekday set, the
 week interval, the start date, the time, the recorded zone, the bound values, the runbook id and
