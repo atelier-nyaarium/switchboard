@@ -113,9 +113,15 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 				)
 			}
 
-			val standing =
-				if (overwriting) null else refused ?: standingConflict(repo.runbookOps.conflictOf(draft.id), draft.revision)
-			standing?.let { conflict ->
+			// A refusal this save earned outranks one left standing from an earlier push.
+			val thisSave = refused
+			val earlier = standingConflict(repo.runbookOps.conflictOf(draft.id), draft.revision)
+			val shown = when {
+				overwriting -> null
+				thisSave != null -> thisSave
+				else -> earlier
+			}
+			shown?.let { conflict ->
 				Card(Modifier.fillMaxWidth()) {
 					Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 						Text(conflict.reason, style = MaterialTheme.typography.bodyMedium)

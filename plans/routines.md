@@ -310,6 +310,28 @@ on whether a routine links a secret is not a danger classifier, since the sessio
 shell and network either way. Pinning the placeholder set rather than the body would let a body
 become something entirely different under identical parameters.
 
+## Question 17 - Is a runbook's revision one number, or one per gateway?
+
+Q: The phone holds one copy and keeps the higher revision, so a gateway that mints its own successor
+cannot have that answer adopted. Hold a copy per gateway, or make one gateway canonical and the rest
+replicas?
+A: A copy per gateway.
+
+> A copy per gateway I guess. If one is down, it will just have to catch up when it comes back.
+
+The revision stops being a property of the runbook and becomes a fact about one gateway's copy of
+it. Each gateway mints its own successor, so the same content sits at 6 on one and 4 on another
+without either being wrong.
+
+That answer dissolves the case this phase built the Overwrite affordance for. Catching up a gateway
+that was down stops being an overwrite: the phone pushes the content naming the revision it read
+from THAT gateway, and the gateway mints the next one. No forcing, because there was never a
+disagreement, only a gateway that had not been told yet. Overwrite survives for the case that is
+genuinely a conflict, where another phone has already moved the copy this one is editing.
+
+What Phase 1 still has to settle is which CONTENT wins when two gateways hold different bodies,
+since a revision comparison can no longer answer it across gateways.
+
 # Rulings taken
 
 Design decisions, not owner questions. Recorded so they are not relitigated. In the order they were
@@ -683,8 +705,21 @@ bounds every revision the wire accepts, so the phone's `+ 1` can no longer overf
 It does not remove the ceiling case itself. A library sitting at exactly `REVISION_CEILING` mints a
 successor the schema refuses, and an overwrite mints the same one, so that runbook can never be
 written again. Two billion edits away, and left standing deliberately rather than patched a fourth
-time. The cure is one owner for "what revision comes next", which `architecture-fan-out` should
-weigh.
+time.
+
+The cure lands in Phase 1, with the rest of the contracts, and not here: Routines only ever pins a
+revision and rechecks it, so the gateway half of this plan survives the change, while the phone
+editor and the `runbook_put` shape would otherwise be built on the authority model that already
+failed three times.
+
+The shape is the gateway minting the successor. The phone sends its edit and the revision it read,
+and the gateway answers with the number it stored, which deletes `overwriteRevision` and the whole
+question of what the phone should mint.
+
+Question 17 settled what that needs from the phone: a copy per gateway, so the revision describes one
+gateway's copy rather than the runbook. `RunbookManager.merge` keeping the higher revision across
+gateways is the thing that has to go, and the fire sheet's pin and a routine's pin both become
+gateway-scoped with it.
 
 ### Deployment
 
