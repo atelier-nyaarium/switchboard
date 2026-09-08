@@ -61,13 +61,16 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 	val values = sheet.values
 	val scope = rememberCoroutineScope()
 
-	LaunchedEffect(runbook.revision, sheet.gateway, values) {
+	LaunchedEffect(runbook.revision, sheet.gateway, values, sheet.attempt) {
 		sheet.preview = (sheet.preview as? PreviewState.Ready)?.let { PreviewState.Stale(it.text) }
 			?: PreviewState.Pending
 		delay(PREVIEW_SETTLE_MS)
 		val answer = repo.runbookOps.preview(runbookId, values, sheet.gateway)
 		sheet.preview = when {
-			answer == null -> PreviewState.Unreachable(repo.runbookOps.conflictOf(runbookId)?.reason)
+			answer == null -> {
+				val conflict = repo.runbookOps.conflictOf(runbookId)
+				PreviewState.Blocked(conflict?.reason, canOverwrite = conflict != null)
+			}
 			answer.text != null -> PreviewState.Ready(answer.text, answer.revision)
 			else -> PreviewState.Refused(answer.reason ?: "these values do not render")
 		}
@@ -143,7 +146,12 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 					)
 				}
 
-				PreviewPane(sheet.preview)
+				PreviewPane(sheet.preview) {
+					scope.launch {
+						repo.runbookOps.overwrite(runbookId, sheet.gateway)
+						sheet.retry()
+					}
+				}
 				sheet.refusal?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
 			}
 
@@ -210,7 +218,7 @@ private fun TargetMenu(label: String, choices: List<FireTarget>, picked: FireTar
 }
 
 @Composable
-private fun PreviewPane(preview: PreviewState) {
+private fun PreviewPane(preview: PreviewState, onOverwrite: () -> Unit) {
 	val rendered = when (preview) {
 		is PreviewState.Ready -> preview.text
 		is PreviewState.Stale -> preview.text
@@ -231,10 +239,15 @@ private fun PreviewPane(preview: PreviewState) {
 						modifier = Modifier.horizontalScroll(rememberScrollState()),
 					)
 					preview is PreviewState.Refused -> Text(preview.reason, style = MaterialTheme.typography.bodySmall)
-					preview is PreviewState.Unreachable -> Text(
-						preview.reason ?: "This Gateway did not answer",
-						style = MaterialTheme.typography.bodySmall,
-					)
+					preview is PreviewState.Blocked -> Column {
+						Text(
+							preview.reason ?: "This Gateway did not answer",
+							style = MaterialTheme.typography.bodySmall,
+						)
+						if (preview.canOverwrite) {
+							TextButton(onClick = hapticClick(onOverwrite)) { Text("Overwrite") }
+						}
+					}
 					else -> Text("Rendering", style = MaterialTheme.typography.bodySmall)
 				}
 			}
@@ -249,6 +262,14 @@ internal class FireSheetState(runbook: Runbook, gatewayId: String) {
 	var values by mutableStateOf(runbook.parameters.associate { it.name to (it.default ?: "") })
 	var preview by mutableStateOf<PreviewState>(PreviewState.Pending)
 	var refusal by mutableStateOf<String?>(null)
+
+	/** Forces a preview retry. */
+	var attempt by mutableStateOf(0)
+		private set
+
+	fun retry() {
+		attempt += 1
+	}
 
 	var freshSession by mutableStateOf(true)
 		private set
@@ -285,7 +306,8 @@ internal class FireSheetState(runbook: Runbook, gatewayId: String) {
 
 internal sealed interface PreviewState {
 	data object Pending : PreviewState
-	data class Unreachable(val reason: String?) : PreviewState
+	/** A gateway that refused as much as one that never answered. */
+	data class Blocked(val reason: String?, val canOverwrite: Boolean = false) : PreviewState
 	data class Stale(val text: String) : PreviewState
 	data class Ready(val text: String, val revision: Long) : PreviewState
 	data class Refused(val reason: String) : PreviewState

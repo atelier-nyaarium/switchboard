@@ -600,20 +600,38 @@ by Routines, and Routines cannot be correct while either stands.
   line says "the phone is every runbook's sole author", which was true until any phone may
   configure. A stale phone can therefore label its old copy revision 3 and overwrite revision 2.
 
-  The fix: `put` takes the revision the caller believed it was editing, and stores only at exactly
-  one past it. A first write names none. A retry of the same content at the same revision still
-  succeeds, because that is a lost answer rather than a lost update, and that is the behaviour the
-  store already has. Anything else is refused with what is actually stored, which is what the
-  editor's Overwrite affordance already reads.
+  The fix: `put` stores only at exactly one past what it holds. A first write for an id lands at
+  whatever revision it carries, since a second gateway legitimately meets a runbook mid-life. A
+  retry of the same content at the same revision still succeeds, because that is a lost answer
+  rather than a lost update, and that is the behaviour the store already has. Anything else is
+  refused with what is actually stored, which is what the editor's Overwrite affordance already
+  reads.
+
+  No separate base-revision field, though an earlier draft of this fix carried one. `RunbookDraft`
+  already mints one past the revision it was opened at, so the increment IS the claim about what was
+  read, and a second field would have been a copy of it that could disagree.
+
+  A gateway left behind cannot be caught up by an ordinary put, and no revision arithmetic can tell
+  a copy that descends from what it holds from a divergent one. So catch-up is an explicit
+  `overwrite`. `RunbookOps.sync` never sets it and `save` defaults it off; the editor passes it only
+  for the owner's Overwrite, and the fire sheet only for the button beside a refusal. Nothing
+  automatic reaches it, which is what keeps the strict rule from being decorative.
 - **`createSession` launches whether or not it created the record:** `adoptOrReattach` answers
   `created`, and nothing reads it before `tryWakeTeam` or `relayToHost` runs. `markCreateInFlight`
   records presence without joining. The relay path carries a `dedupKey` that may absorb it; the
   wake path carries nothing.
 
-  The fix: only the caller that created the record launches. One that finds an existing record waits
-  on the launch already in flight and takes its answer, rather than starting a second. That keeps
-  today's behaviour for an ordinary create, where there is no second caller, and closes the case
-  Routines makes ordinary.
+  The fix: a launch already in flight for that team is joined rather than started again, and the
+  joiner takes its answer. That keeps today's behaviour for an ordinary create, where there is no
+  second caller, and closes the case Routines makes ordinary.
+
+  It is the in-flight launch that gates, not `created`, though an earlier draft of this fix said
+  `created`. A record that exists with nothing launching is the ordinary reattach of a session that
+  has gone to sleep, and it must still launch. Gating on `created` would have left the owner unable
+  to wake it.
+
+  `WakeService` holds the launch now, beside the wake it already held, so presence starts and ends
+  once however many callers arrive.
 
 
 # Open
@@ -639,6 +657,42 @@ execute the wrong words, since the recheck before preparing refuses a moved revi
 land before any phone can edit a routine and before the corrected `runbook_put` shape is generated.
 
 Independently useful on its own, which no later phase is.
+
+### Bug Classes
+
+**Mechanism:** revision minting on the phone. **Class:** an overwrite mints a revision the phone's
+own library will not take back, so the gateway stores it and the library keeps its old copy, and the
+two disagree while the owner is told the save was refused.
+
+Patched three times in one lap, which makes it a design bug rather than three accidents:
+
+1. The editor's Overwrite rebased onto the gateway's held revision. Against a gateway that was
+   behind, that minted below the library. Found by the alignment audit.
+2. Rebasing onto the maximum of held and draft. The library can move while an editor sits open, so
+   it still minted below. Found by the re-audit of the first fix.
+3. `(libraryRevision ?: 0) + 1` overflowing at the integer ceiling, minting a negative. Found by the
+   red team.
+
+Each round taught the minting side about one more input it had to know. The cause is that minting
+and merging are two authorities on the same ordering: `RunbookDraft` and `RunbookOps` decide what
+revision to send, `RunbookManager.merge` decides whether to keep it, and nothing makes them agree.
+
+Now capped rather than cured. `overwriteRevision` reads the library directly, and `REVISION_CEILING`
+bounds every revision the wire accepts, so the phone's `+ 1` can no longer overflow a Long.
+
+It does not remove the ceiling case itself. A library sitting at exactly `REVISION_CEILING` mints a
+successor the schema refuses, and an overwrite mints the same one, so that runbook can never be
+written again. Two billion edits away, and left standing deliberately rather than patched a fourth
+time. The cure is one owner for "what revision comes next", which `architecture-fan-out` should
+weigh.
+
+### Deployment
+
+A new gateway refuses a put from an old phone whose revision skipped, and an old phone has no
+Overwrite to answer with. So the gateway-first order the rest of the project uses would leave the
+owner's installed app unable to fire a runbook on a gateway that had fallen behind, until the app
+updates. Runbooks have no users and the owner holds both, so this is a note rather than a blocker:
+update the app alongside the gateway.
 
 ## Phase 1 - The record, the rules, and the contracts
 

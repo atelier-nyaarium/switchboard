@@ -1,4 +1,4 @@
-// The phone is every runbook's sole author, so revision is the only concurrency control.
+// A put lands only on the revision it read.
 
 import { z } from "zod";
 import { type DurableStore, DurableStoreInstalledError } from "../../shared/durable-store.js";
@@ -13,6 +13,11 @@ export interface RunbookPutResult {
 	stored: boolean;
 	revision: number;
 	reason?: string;
+}
+
+export interface RunbookPutOptions {
+	/** Replaces what is held, whatever its revision. Only an owner tap sets it. */
+	overwrite?: boolean;
 }
 
 const RunbooksSchema = z.array(RunbookSchema);
@@ -81,22 +86,23 @@ export function createRunbookStore(deps: RunbookStoreDeps) {
 
 	const get = (id: string): Runbook | null => held(id) ?? null;
 
-	const put = (incoming: Runbook): RunbookPutResult => {
+	const put = (incoming: Runbook, options: RunbookPutOptions = {}): RunbookPutResult => {
 		const runbook = frozen(incoming);
 		const current = held(runbook.id);
 		const refusal = runbookRefusal(runbook);
 		if (refusal) return { stored: false, revision: current?.revision ?? 0, reason: refusal };
-		if (current && runbook.revision === current.revision) {
-			// An unchanged re-push is a retry; a changed one at that revision is a lost update.
-			if (sameContent(runbook, current)) return { stored: true, revision: current.revision };
-			return {
-				stored: false,
-				revision: current.revision,
-				reason: `a different edit is already stored as revision ${current.revision}; edit that one`,
-			};
-		}
-		if (current && runbook.revision < current.revision) {
-			return { stored: false, revision: current.revision, reason: "a newer revision is already stored" };
+		if (current && !options.overwrite) {
+			// A lost answer, not a lost update.
+			if (runbook.revision === current.revision && sameContent(runbook, current)) {
+				return { stored: true, revision: current.revision };
+			}
+			if (runbook.revision !== current.revision + 1) {
+				return {
+					stored: false,
+					revision: current.revision,
+					reason: `revision ${current.revision} is stored; an edit of it would be ${current.revision + 1}`,
+				};
+			}
 		}
 		const next = current
 			? runbooks.map((existing) => (existing.id === runbook.id ? runbook : existing))

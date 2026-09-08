@@ -57,6 +57,7 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 	val scope = rememberCoroutineScope()
 	var saving by remember(runbookId) { mutableStateOf(false) }
 	var refused by remember(runbookId) { mutableStateOf<RunbookConflict?>(null) }
+	var overwriting by remember(runbookId) { mutableStateOf(false) }
 
 	Scaffold(
 		topBar = {
@@ -71,10 +72,11 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 							saving = true
 							refused = null
 							scope.launch {
-								when (val saved = repo.runbookOps.save(candidate)) {
+								when (val saved = repo.runbookOps.save(candidate, overwrite = overwriting)) {
 									is RunbookSaved.Refused -> refused = saved.conflict
 									else -> onClose()
 								}
+								overwriting = false
 								saving = false
 							}
 						},
@@ -111,14 +113,15 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 				)
 			}
 
-			val standing = refused ?: standingConflict(repo.runbookOps.conflictOf(draft.id), draft.revision)
+			val standing =
+				if (overwriting) null else refused ?: standingConflict(repo.runbookOps.conflictOf(draft.id), draft.revision)
 			standing?.let { conflict ->
 				Card(Modifier.fillMaxWidth()) {
 					Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 						Text(conflict.reason, style = MaterialTheme.typography.bodyMedium)
 						TextButton(
 							onClick = hapticClick {
-								draft = draft.copy(revision = conflict.heldRevision)
+								overwriting = true
 								refused = null
 							},
 						) { Text("Overwrite") }

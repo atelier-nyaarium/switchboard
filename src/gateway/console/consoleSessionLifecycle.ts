@@ -17,7 +17,10 @@ export interface SessionLifecycleDeps {
 	relayToHost?: (op: HostOp) => Promise<HostOpResult>;
 	tryWakeTeam?: (team: string) => Promise<WakeResult>;
 	isWakeInFlight?: (team: string) => boolean;
-	markCreateInFlight?: (team: string) => () => void;
+	joinCreate?: (
+		team: string,
+		start: () => Promise<HostOpResult>,
+	) => { launch: Promise<HostOpResult>; release: (() => void) | null };
 	awaitRegister?: (team: string) => Promise<WakeResult>;
 	dropSessionResume?: (team: string, boardDisposition: BoardDisposition) => void;
 	/** Close and forget end session grants. */
@@ -43,7 +46,7 @@ export function createSessionLifecycleHandlers({
 	relayToHost,
 	tryWakeTeam,
 	isWakeInFlight,
-	markCreateInFlight,
+	joinCreate,
 	awaitRegister,
 	dropSessionResume,
 	onSessionEnded,
@@ -99,10 +102,9 @@ export function createSessionLifecycleHandlers({
 
 		const launchTeam = composeSessionName(target.name, target.sessionName);
 		const viaWake = target.kind === "devcontainer" && tryWakeTeam;
-		const releaseInFlight = markCreateInFlight?.(launchTeam);
-		const launch: Promise<HostOpResult> = (
+		const startLaunch = (): Promise<HostOpResult> =>
 			viaWake
-				? tryWakeTeam(launchTeam).then(
+				? viaWake(launchTeam).then(
 						(r): HostOpResult =>
 							r.ok
 								? { ok: true }
@@ -119,17 +121,25 @@ export function createSessionLifecycleHandlers({
 						resumeSessionId: adopted?.record.claudeSessionId,
 						sessionToken: adopted ? sessionStore?.ensureBindToken(adopted.record) : undefined,
 						dedupKey,
-					})
-		).finally(() => {
-			if (viaWake || !awaitRegister) {
-				releaseInFlight?.();
-			} else {
-				fireAndForget(
-					`register wait for ${launchTeam}`,
-					awaitRegister(launchTeam).finally(() => releaseInFlight?.()),
-				);
-			}
-		});
+					});
+
+		const shared = joinCreate?.(launchTeam, startLaunch);
+		const launch = shared?.launch ?? startLaunch();
+		const release = shared?.release;
+		// Presence outlives the launch, since a created session is not usable until it registers.
+		if (release) {
+			fireAndForget(
+				`create release for ${launchTeam}`,
+				(async () => {
+					// A launch that failed has nothing to register, and waiting would hold the team.
+					const settled = await launch.catch(() => null);
+					if (settled?.ok && !viaWake && awaitRegister) {
+						await awaitRegister(launchTeam).catch(() => undefined);
+					}
+					release();
+				})(),
+			);
+		}
 
 		const winner = await withinMs(ambient, launch, createSessionBoundMs);
 

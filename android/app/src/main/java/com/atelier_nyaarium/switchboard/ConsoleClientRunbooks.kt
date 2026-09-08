@@ -21,8 +21,15 @@ private fun valuesOf(values: Map<String, String>): JsonObject =
 suspend fun ConsoleClient.runbookList(gatewayId: String): ConsoleRunbookListResult =
 	valueResult(sendValueOp(gatewayId, ConsoleOp.RunbookList), Protocol.Wire.ConsoleOpKind.RUNBOOK_LIST)
 
-suspend fun ConsoleClient.runbookPut(gatewayId: String, runbook: Runbook): ConsoleRunbookPutResult =
-	valueResult(sendValueOp(gatewayId, ConsoleOp.RunbookPut(runbook = runbook)), Protocol.Wire.ConsoleOpKind.RUNBOOK_PUT)
+suspend fun ConsoleClient.runbookPut(
+	gatewayId: String,
+	runbook: Runbook,
+	overwrite: Boolean = false,
+): ConsoleRunbookPutResult =
+	valueResult(
+		sendValueOp(gatewayId, ConsoleOp.RunbookPut(runbook = runbook, overwrite = overwrite)),
+		Protocol.Wire.ConsoleOpKind.RUNBOOK_PUT,
+	)
 
 suspend fun ConsoleClient.runbookDelete(gatewayId: String, runbookId: String): ConsoleRunbookDeleteResult =
 	valueResult(

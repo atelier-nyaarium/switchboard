@@ -93,7 +93,10 @@ export interface ConsoleHandlerDeps {
 	// Closing a team during wake must refuse.
 	isWakeInFlight?: (team: string) => boolean;
 	// Host creation remains verifying until MCP registration.
-	markCreateInFlight?: (team: string) => () => void;
+	joinCreate?: (
+		team: string,
+		start: () => Promise<HostOpResult>,
+	) => { launch: Promise<HostOpResult>; release: (() => void) | null };
 	awaitRegister?: (team: string) => Promise<WakeResult>;
 	crossDomain?: CrossDomainConsoleHandlers;
 	crossDomainShare?: CrossDomainShareHandlers;
@@ -109,7 +112,10 @@ export interface RunbookConsoleHandlers {
 	/** The fire reads one by id; every other reader takes the list. */
 	get: (runbookId: string) => Runbook | null;
 	list: () => { runbooks: Runbook[] };
-	put: (runbook: Runbook) => { stored: boolean; revision: number; reason?: string };
+	put: (
+		runbook: Runbook,
+		options?: { overwrite?: boolean },
+	) => { stored: boolean; revision: number; reason?: string };
 	remove: (runbookId: string) => { deleted: boolean };
 }
 

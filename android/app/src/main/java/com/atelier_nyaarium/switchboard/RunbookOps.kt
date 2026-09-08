@@ -49,6 +49,10 @@ internal fun conflictsAfterPut(
 internal fun standingConflict(conflict: RunbookConflict?, draftRevision: Long): RunbookConflict? =
 	conflict?.takeIf { it.heldRevision >= draftRevision }
 
+/** Must outrank the library, or the merge keeps the old copy. */
+internal fun overwriteRevision(candidateRevision: Long, libraryRevision: Long?): Long =
+	maxOf(candidateRevision, (libraryRevision ?: 0L) + 1)
+
 internal sealed interface RunbookSaved {
 	data object Stored : RunbookSaved
 	data object Local : RunbookSaved
@@ -77,16 +81,27 @@ internal class RunbookOps(
 		show(host.library.merge(held.runbooks))
 	}
 
-	suspend fun save(runbook: Runbook, gatewayId: String = host.homeGatewayId()): RunbookSaved {
+	suspend fun save(
+		runbook: Runbook,
+		gatewayId: String = host.homeGatewayId(),
+		overwrite: Boolean = false,
+	): RunbookSaved {
 		synced.removeAll { it.second == runbook.id }
 		val client = host.client
 		val reachable = client != null && gatewayId.isNotBlank()
 
-		val answer = if (reachable) put(client as ConsoleClient, gatewayId, runbook) else null
+		val outgoing =
+			if (overwrite) {
+				runbook.copy(revision = overwriteRevision(runbook.revision, host.library.find(runbook.id)?.revision))
+			} else {
+				runbook
+			}
+
+		val answer = if (reachable) put(client as ConsoleClient, gatewayId, outgoing, overwrite) else null
 		if (answer != null && !answer.stored) return RunbookSaved.Refused(conflictOfRefusal(answer))
 
-		val kept = keep(runbook) ?: return RunbookSaved.Refused(localConflict(runbook))
-		if (answer != null) synced += Triple(gatewayId, runbook.id, kept.revision)
+		val kept = keep(outgoing) ?: return RunbookSaved.Refused(localConflict(outgoing))
+		if (answer != null) synced += Triple(gatewayId, outgoing.id, kept.revision)
 		return if (answer != null) RunbookSaved.Stored else RunbookSaved.Local
 	}
 
@@ -166,10 +181,25 @@ internal class RunbookOps(
 		return settled
 	}
 
-	private suspend fun put(client: ConsoleClient, gatewayId: String, mine: Runbook): ConsoleRunbookPutResult? {
-		val answer = attempt { client.runbookPut(gatewayId, mine) }
+	private suspend fun put(
+		client: ConsoleClient,
+		gatewayId: String,
+		mine: Runbook,
+		overwrite: Boolean = false,
+	): ConsoleRunbookPutResult? {
+		val answer = attempt { client.runbookPut(gatewayId, mine, overwrite) }
 		conflicts = conflictsAfterPut(conflicts, mine.id, answer)
 		return answer
+	}
+
+	/** Owner-authorized replacement. */
+	suspend fun overwrite(runbookId: String, gatewayId: String = host.homeGatewayId()): Boolean {
+		val client = host.client ?: return false
+		if (gatewayId.isBlank()) return false
+		val mine = host.library.find(runbookId) ?: return false
+		val stored = put(client, gatewayId, mine, overwrite = true)?.stored == true
+		if (stored) synced += Triple(gatewayId, runbookId, mine.revision)
+		return stored
 	}
 
 	private suspend fun <T> attempt(call: suspend () -> T): T? = try {

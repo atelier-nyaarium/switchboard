@@ -74,7 +74,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			relayToHost: host.relayToHost,
 			tryWakeTeam: (team) => host.wakeService.tryWakeTeam(team),
 			isWakeInFlight: (team) => host.wakeService.isWakeInFlight(team),
-			markCreateInFlight: (team) => host.wakeService.markCreateInFlight(team),
+			joinCreate: (team, start) => host.wakeService.joinCreate(team, start),
 			awaitRegister: (team) => host.wakeCoordinator.waitFor(team, deps.wakeTimeoutMs),
 			crossDomain: {
 				listen: () => slice.coordinator.listen(),

@@ -469,6 +469,7 @@ sealed class ConsoleOp {
 	@SerialName("runbook_put")
 	data class RunbookPut(
 		val runbook: Runbook,
+		val overwrite: Boolean? = null,
 	) : ConsoleOp()
 
 	@Serializable

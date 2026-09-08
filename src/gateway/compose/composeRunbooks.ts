@@ -16,7 +16,7 @@ export function composeRunbooks(deps: RunbookStageDeps): RunbookStage {
 		console: {
 			get: (runbookId) => store.get(runbookId),
 			list: () => ({ runbooks: store.list() }),
-			put: (runbook) => store.put(runbook),
+			put: (runbook, options) => store.put(runbook, options),
 			remove: (runbookId) => store.remove(runbookId),
 		},
 	};

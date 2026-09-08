@@ -138,7 +138,12 @@ export const ConsoleOpSchema = z
 		z.object({ kind: z.literal("vault_revoke"), grantId: z.string().min(1).max(128) }),
 		z.object({ kind: z.literal("runbook_list") }),
 		// Whole record, never a patch.
-		z.object({ kind: z.literal("runbook_put"), runbook: RunbookSchema }),
+		z.object({
+			kind: z.literal("runbook_put"),
+			runbook: RunbookSchema,
+			/** Owner-authorized. Replaces whatever revision is held. */
+			overwrite: z.boolean().optional(),
+		}),
 		z.object({ kind: z.literal("runbook_delete"), runbookId: z.string().min(1).max(64) }),
 		z.object({
 			kind: z.literal("runbook_preview"),

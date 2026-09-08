@@ -126,12 +126,26 @@ describe("WakeService", () => {
 		expect(s.forgotten).toEqual([launched]);
 	});
 
-	it("markCreateInFlight covers the relayToHost branch until its cleanup runs", () => {
+	it("gives a second create the first one's launch instead of starting another", async () => {
 		const s = setup();
-		const done = s.service.markCreateInFlight("proj.new");
+		let launches = 0;
+		const start = () => {
+			launches += 1;
+			return Promise.resolve({ ok: true });
+		};
+
+		const first = s.service.joinCreate("proj.new", start);
+		const second = s.service.joinCreate("proj.new", start);
+
+		expect(launches).toBe(1);
+		// Only the caller that launched can end it.
+		expect(second.release).toBeNull();
+		expect(second.launch).toBe(first.launch);
 		expect(s.service.isWakeInFlight("proj.new")).toBe(true);
-		done();
+
+		first.release?.();
 		expect(s.service.isWakeInFlight("proj.new")).toBe(false);
+		// Joining twice must not double the presence it reports.
 		expect(s.presenceCalls).toEqual(["createStart:proj.new", "createEnd:proj.new"]);
 	});
 });

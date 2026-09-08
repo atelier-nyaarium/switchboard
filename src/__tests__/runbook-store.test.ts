@@ -47,17 +47,42 @@ describe("runbook store", () => {
 		expect(store.list().map((r) => r.id)).toEqual(["a", "c", "b"]);
 	});
 
-	it("takes a newer revision and refuses an older one", () => {
+	it("takes the next revision, and refuses one that skipped what it holds", () => {
 		const store = open(fresh());
 		store.put(book("deploy", { revision: 5, body: "five {{level}}" }));
 		expect(store.put(book("deploy", { revision: 6, body: "six {{level}}" })).stored).toBe(true);
 		expect(store.get("deploy")?.body).toBe("six {{level}}");
+
+		// Jumping the counter erases an edit nobody read.
+		const jumped = store.put(book("deploy", { revision: 9, body: "nine {{level}}" }));
+		expect(jumped.stored).toBe(false);
+		expect(jumped.revision).toBe(6);
 
 		const stale = store.put(book("deploy", { revision: 5, body: "five {{level}}" }));
 		expect(stale.stored).toBe(false);
 		// A refused put says what to rebase on.
 		expect(stale.revision).toBe(6);
 		expect(store.get("deploy")?.body).toBe("six {{level}}");
+	});
+
+	it("lets the owner overwrite a copy it cannot prove the incoming one descends from", () => {
+		const store = open(fresh());
+		store.put(book("deploy", { revision: 1, body: "one {{level}}" }));
+		expect(store.put(book("deploy", { revision: 4, body: "four {{level}}" })).stored).toBe(false);
+
+		expect(store.put(book("deploy", { revision: 4, body: "four {{level}}" }), { overwrite: true })).toEqual({
+			stored: true,
+			revision: 4,
+		});
+		expect(store.get("deploy")?.body).toBe("four {{level}}");
+	});
+
+	it("refuses a record its own rules reject, overwrite or not", () => {
+		const store = open(fresh());
+		store.put(book("deploy"));
+		const refused = store.put(book("deploy", { revision: 2, body: "no placeholders here" }), { overwrite: true });
+		expect(refused.stored).toBe(false);
+		expect(store.get("deploy")?.body).toBe("release {{level}}");
 	});
 
 	it("takes an unchanged re-push but refuses a changed one at the same revision", () => {

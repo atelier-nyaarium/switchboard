@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseBody, placeholdersOf } from "../shared/runbook-grammar.js";
-import { type Runbook, type RunbookParameter, runbookRefusal } from "../shared/schemasRunbook.js";
+import { type Runbook, type RunbookParameter, RunbookSchema, runbookRefusal } from "../shared/schemasRunbook.js";
 
 const parameter = (name: string, over: Partial<RunbookParameter> = {}): RunbookParameter => ({
 	name,
@@ -84,5 +84,12 @@ describe("runbook refusals", () => {
 		const many = Array.from({ length: 64 }, (_, i) => `{{p${i}}}`).join(" ");
 		const params = Array.from({ length: 64 }, (_, i) => parameter(`p${i}`));
 		expect(runbookRefusal(runbook(`${"x".repeat(200_000)}${many}`, params))).toBeNull();
+	});
+
+	it("refuses a revision with no successor, which nothing could edit again", () => {
+		const at = (revision: number) => RunbookSchema.safeParse({ ...runbook("hello"), revision }).success;
+		expect(at(2_147_483_647)).toBe(true);
+		expect(at(2_147_483_648)).toBe(false);
+		expect(at(Number.MAX_SAFE_INTEGER)).toBe(false);
 	});
 });

@@ -1,5 +1,5 @@
 import type { ServerWebSocket } from "bun";
-import { isReservedHostSession } from "../shared/host-op.js";
+import { type HostOpResult, isReservedHostSession } from "../shared/host-op.js";
 import { isHostSpawn } from "../shared/host-spawn.js";
 import { isComposite, parseSessionName } from "../shared/session-id.js";
 import type { SessionStore } from "../shared/session-store.js";
@@ -21,9 +21,9 @@ export interface WakeServiceDeps {
 }
 
 export class WakeService {
+	// One launch per team, whichever door.
 	private inflightWakes = new Map<string, Promise<WakeResult>>();
-	// Concurrent sends for one team share a single wake.
-	private inflightCreates = new Set<string>();
+	private inflightCreates = new Map<string, Promise<HostOpResult>>();
 
 	constructor(private deps: WakeServiceDeps) {}
 
@@ -31,12 +31,24 @@ export class WakeService {
 		return this.inflightWakes.has(team) || this.inflightCreates.has(team);
 	}
 
-	markCreateInFlight(team: string): () => void {
-		this.inflightCreates.add(team);
+	/** The first caller launches and is handed the release; the rest join it and get none. */
+	joinCreate(
+		team: string,
+		start: () => Promise<HostOpResult>,
+	): { launch: Promise<HostOpResult>; release: (() => void) | null } {
+		const existing = this.inflightCreates.get(team);
+		if (existing) {
+			console.log(`[create] ${team} create already in flight; joining it`);
+			return { launch: existing, release: null };
+		}
+		const launch = start();
+		this.inflightCreates.set(team, launch);
 		this.deps.presence.createStart(team);
-		return () => {
-			this.inflightCreates.delete(team);
-			this.deps.presence.createEnd(team);
+		return {
+			launch,
+			release: () => {
+				if (this.inflightCreates.delete(team)) this.deps.presence.createEnd(team);
+			},
 		};
 	}
 

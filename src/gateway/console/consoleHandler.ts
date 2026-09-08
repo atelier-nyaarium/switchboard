@@ -36,7 +36,7 @@ export function createConsoleDispatcher({
 	relayToHost,
 	tryWakeTeam,
 	isWakeInFlight,
-	markCreateInFlight,
+	joinCreate,
 	awaitRegister,
 	crossDomain,
 	crossDomainShare,
@@ -56,7 +56,7 @@ export function createConsoleDispatcher({
 		relayToHost,
 		tryWakeTeam,
 		isWakeInFlight,
-		markCreateInFlight,
+		joinCreate,
 		awaitRegister,
 		dropSessionResume,
 		onSessionEnded,
@@ -299,7 +299,7 @@ export function createConsoleDispatcher({
 				return requireRunbooks().list();
 
 			case "runbook_put":
-				return requireRunbooks().put(op.runbook);
+				return requireRunbooks().put(op.runbook, { overwrite: op.overwrite });
 
 			case "runbook_delete":
 				return requireRunbooks().remove(op.runbookId);

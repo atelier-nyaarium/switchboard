@@ -6,6 +6,9 @@ import { parseBody, placeholdersOf } from "./runbook-grammar.js";
 // Size is the owner's own to spend: these ops reach one gateway, authenticated as its owner, and
 // the console path's 64 MiB body cap is the only ceiling.
 
+/** Two billion edits, inside a JVM Long and a JS safe integer. */
+const REVISION_CEILING = 2_147_483_647;
+
 export const RunbookParameterSchema = z
 	.object({
 		/** Matches its placeholder in the body. */
@@ -29,8 +32,8 @@ export const RunbookSchema = z
 		name: z.string().min(1),
 		body: z.string().min(1),
 		parameters: z.array(RunbookParameterSchema),
-		/** Phone-owned. A gateway refuses a put below the revision it holds. */
-		revision: z.number().int().positive(),
+		/** Phone-owned, one past what the gateway holds. */
+		revision: z.number().int().positive().max(REVISION_CEILING),
 	})
 	.meta({ id: "Runbook" });
 
