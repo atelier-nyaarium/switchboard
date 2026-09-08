@@ -330,7 +330,9 @@ How each subsystem works lives in `docs/`:
 - `bun run check:fixtures` - regenerate the TS wire fixtures and diff.
 - `bun run build patch|minor|major` - release build and commit.
 - `bun run build --build-only` - bundle without versioning.
-- `bun scripts/codegen-kotlin.ts` - regenerate Kotlin protocol types.
+- `bun scripts/codegen-kotlin.ts` - regenerate Kotlin protocol types. A `src/shared/schemas*.ts`
+  change must carry the regenerated `Protocol.kt` in the SAME commit: `lint` and `test` both pass
+  with it stale, and only CI's drift check notices.
 - `bun scripts/check-module-residue.ts` - verify `node_modules` against `bun.lock`.
 - `bun scripts/import-stts-voices.ts` - regenerate the committed TTS catalog.
 - `bun scripts/sync-leaf.ts <path>` or `--all` - synchronize a leaf.
