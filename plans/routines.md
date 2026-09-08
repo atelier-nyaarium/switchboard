@@ -958,6 +958,14 @@ addressing.
   `Protocol.kt` against its schemas, which I had not realised, and which is why a schema change
   needs this gate rather than `lint` and `test` alone.
 
+- **The Kotlin codegen has an explicit root list, and nothing noticed what was missing from it.**
+  Closed by `console-result-codegen.test.ts`, which reads every answer the union carries and asks
+  whether Protocol.kt has a type for it. Adding a shared schema and forgetting `ROOTS` in
+  `scripts/codegen-kotlin.ts` produced a phone that could send an operation and not parse its answer,
+  and every gate passed, `kotlin-gate.sh` included, because the generated file matched what the
+  generator was asked for. Writing the test found two more answers with no Kotlin type; both turned
+  out to be ones no phone code reads, and they are allowlisted with that reason.
+
 - **Five things named after conflict.** `conflictOf`, `conflictsAfterPut`, `conflictOfRefusal`,
   `localConflict` and `standingConflict` all live in `RunbookOps`, and each means something slightly
   different. Two separate audit agents misread this area, and both misreads were about which
