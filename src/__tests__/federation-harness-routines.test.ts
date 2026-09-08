@@ -25,6 +25,8 @@ describe("federation harness: routine operations without a runner", () => {
 		target: { spawn: "host" },
 		enabled: true,
 		revision: 1,
+		// The gateway sets this itself; what a phone sends is ignored.
+		since: 0,
 	};
 
 	/** A routine binds a runbook the gateway already holds, so the library comes first. */

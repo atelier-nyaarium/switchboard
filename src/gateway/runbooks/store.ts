@@ -26,6 +26,9 @@ export interface RunbookPutOptions {
 
 const RunbooksSchema = z.array(RunbookSchema);
 
+/** Far more deletes than a put could still be in flight behind. */
+const MAX_BURIED = 256;
+
 /** A frozen copy, so neither a reader nor the caller that pushed it can edit what the store holds. */
 function frozen(runbook: Runbook): Runbook {
 	const parameters = runbook.parameters.map((parameter) => {
@@ -147,7 +150,13 @@ export function createRunbookStore(deps: RunbookStoreDeps) {
 		const kept = runbooks.filter((runbook) => runbook.id !== id);
 		if (!going) return { deleted: false };
 		const deleted = commit(kept);
-		if (deleted) buried.set(id, going.revision);
+		if (deleted) {
+			buried.set(id, going.revision);
+			// Oldest out, so a long-lived gateway cannot grow this without end.
+			for (const stale of [...buried.keys()].slice(0, Math.max(0, buried.size - MAX_BURIED))) {
+				buried.delete(stale);
+			}
+		}
 		return { deleted };
 	};
 

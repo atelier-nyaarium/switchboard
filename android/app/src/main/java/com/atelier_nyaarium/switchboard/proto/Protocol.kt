@@ -1700,6 +1700,7 @@ data class Routine(
 	val target: RoutineTarget,
 	val enabled: Boolean,
 	val revision: Long,
+	val since: Long,
 )
 
 @Serializable

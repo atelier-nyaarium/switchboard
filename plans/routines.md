@@ -805,6 +805,11 @@ nudge visibly. `dispatched`, `missed` and `dismissed` are terminal.
 
 One execution loop, and each miss carries its reason.
 
+The gateway stamps `since` when it first takes a routine, and reconstruction never reaches past it.
+Without that a routine saved today, with a start date last month, would be handed a severe miss for a
+slot that passed before it existed. It does not distinguish a routine that was disabled for a while,
+so re-enabling one after a long pause can still show a single stale panel, which a dismiss clears.
+
 Two refusals the record cannot make for itself, because both need what only the gateway holds. The
 red team found a routine will currently save with neither.
 

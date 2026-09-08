@@ -13,6 +13,7 @@ export interface RoutineStoreDeps {
 	getRunbook?: (runbookId: string) => Runbook | null;
 	/** Whether this gateway has that spawn point. */
 	knowsSpawn?: (spawn: string) => boolean;
+	now: () => number;
 }
 
 export interface RoutinePutResult {
@@ -131,7 +132,8 @@ export function createRoutineStore(deps: RoutineStoreDeps) {
 		if (held0 >= REVISION_CEILING) {
 			return { stored: false, revision: held0, reason: "this routine has no revision left to write" };
 		}
-		const routine = frozen({ ...candidate, revision: held0 + 1 });
+		// The gateway owns both of these, so an editor cannot move either by sending one.
+		const routine = frozen({ ...candidate, revision: held0 + 1, since: current?.since ?? deps.now() });
 		const next = current
 			? routines.map((existing) => (existing.id === routine.id ? routine : existing))
 			: [...routines, routine];

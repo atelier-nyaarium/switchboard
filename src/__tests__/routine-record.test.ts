@@ -15,6 +15,7 @@ const routine = (over: Partial<Routine> = {}): Routine => ({
 	target: { spawn: "host" },
 	enabled: true,
 	revision: 1,
+	since: 0,
 	...over,
 });
 

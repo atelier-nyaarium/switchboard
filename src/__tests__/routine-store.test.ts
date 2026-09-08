@@ -15,7 +15,8 @@ const fresh = () => {
 	roots.push(root);
 	return root;
 };
-const open = (dataDir: string) => openDurable(dataDir, "routines", (store) => createRoutineStore({ store }));
+const open = (dataDir: string) =>
+	openDurable(dataDir, "routines", (store) => createRoutineStore({ store, now: () => 1_700_000_000_000 }));
 
 const routine = (id: string, over: Partial<Routine> = {}): Routine => ({
 	id,
@@ -31,6 +32,7 @@ const routine = (id: string, over: Partial<Routine> = {}): Routine => ({
 	target: { spawn: "host" },
 	enabled: true,
 	revision: 1,
+	since: 0,
 	...over,
 });
 

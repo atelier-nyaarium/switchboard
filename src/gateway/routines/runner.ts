@@ -40,6 +40,8 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 	let timer: TimerHandle | null = null;
 	let tick: TimerHandle | null = null;
 	let admitting = false;
+	/** Fences a timer callback that was already queued when the runner stopped. */
+	let generation = 0;
 	let inFlight: Promise<void> = Promise.resolve();
 
 	const ruleOf = (routine: Routine) => ({
@@ -117,6 +119,15 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		}
 
 		if (held.state !== "prepared") return;
+		const currentRoutine = routines.get(held.routineId);
+		if (!currentRoutine?.enabled) {
+			miss(held, "disabled");
+			return;
+		}
+		if (ambient.now() > held.deadlineAt) {
+			miss(held, "gateway_down");
+			return;
+		}
 		// Written before the nudge is handed over, so a crash loses it rather than sending it twice.
 		const dispatched = occurrences.transition(
 			held.routineId,
@@ -142,7 +153,9 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		const seen = occurrences.forRoutine(routine.id);
 		const newest = seen.reduce((held, row) => Math.max(held, row.scheduledAt), 0);
 		const closed = now - GRACE_MS;
-		let cursor = nextAt(routine, Math.max(newest, now - KEEP_MS));
+		// Never past the moment this gateway took the routine, or a routine saved today would be
+		// handed a miss for a slot that passed before it existed.
+		let cursor = nextAt(routine, Math.max(newest, routine.since, now - KEEP_MS));
 		let latest: number | null = null;
 		while (cursor !== null && cursor < closed) {
 			latest = cursor;
@@ -210,7 +223,10 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		start(): void {
 			if (admitting) return;
 			admitting = true;
+			const mine = ++generation;
 			tick = ambient.setTimer(function again() {
+				// A callback already queued when stop ran would otherwise re-arm the tick it cleared.
+				if (mine !== generation) return;
 				fireAndForget("routine sweep", queue(sweepDue));
 				tick = ambient.setTimer(again, RECONCILE_MS);
 			}, RECONCILE_MS);
@@ -220,6 +236,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		/** Stops taking work, then waits for the attempt in flight. */
 		async stop(): Promise<void> {
 			admitting = false;
+			generation += 1;
 			if (timer) ambient.clearTimer(timer);
 			if (tick) ambient.clearTimer(tick);
 			timer = null;
@@ -236,6 +253,8 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		runNow(routineId: string, scheduledAt: number): Promise<boolean> {
 			let ran = false;
 			return queue(async () => {
+				// A shutdown has closed admission, and this would write after the flush.
+				if (!admitting) return;
 				const routine = routines.get(routineId);
 				const held = occurrences.at(routineId, scheduledAt);
 				if (!routine || !held || held.state !== "missed") return;
@@ -255,8 +274,9 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		},
 
 		dismiss(routineId: string, scheduledAt: number): boolean {
+			if (!admitting) return false;
 			const held = occurrences.at(routineId, scheduledAt);
-			if (!held || held.state !== "missed") return false;
+			if (held?.state !== "missed") return false;
 			return (
 				occurrences.transition(
 					routineId,

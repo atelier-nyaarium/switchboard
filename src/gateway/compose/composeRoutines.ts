@@ -45,7 +45,12 @@ function panelFor(rows: Occurrence[], now: number): RoutineMiss | undefined {
 
 export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 	const store = openDurable(deps.dataDir, "routines", (durable) =>
-		createRoutineStore({ store: durable, getRunbook: deps.getRunbook, knowsSpawn: deps.knowsSpawn }),
+		createRoutineStore({
+			store: durable,
+			getRunbook: deps.getRunbook,
+			knowsSpawn: deps.knowsSpawn,
+			now: () => deps.ambient.now(),
+		}),
 	);
 	const occurrences = openDurable(deps.dataDir, "routine-occurrences", (durable) =>
 		createOccurrenceStore({ store: durable }),
@@ -77,7 +82,11 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 	return {
 		console: {
 			list: () => ({ routines: state() }),
-			put: (routine, base) => store.put(routine, { base }),
+			put: (routine, base) => {
+				const result = store.put(routine, { base });
+				if (result.stored) occurrences.clearReview(routine.id);
+				return result;
+			},
 			remove: (routineId) => {
 				occurrences.clear(routineId);
 				return store.remove(routineId);

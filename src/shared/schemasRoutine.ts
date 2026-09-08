@@ -47,6 +47,11 @@ export const RoutineSchema = z
 		enabled: z.boolean(),
 		/** Bumped by the gateway on every save, so a stale editor cannot land on a moved record. */
 		revision: z.number().int().positive(),
+		/**
+		 * When this gateway first took the routine, set by it and carried across edits. Recovery
+		 * cannot reach past it, so a routine saved today is never handed a miss for last month.
+		 */
+		since: z.number().int().nonnegative(),
 	})
 	.meta({ id: "Routine" });
 

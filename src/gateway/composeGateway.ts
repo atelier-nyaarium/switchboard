@@ -79,6 +79,8 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			frames = routerFrames.build(slice, presenceHandlers);
 			slice.handlers = { frames, presence: presenceHandlers };
 			federation.startShareSweep(slice);
+			// Here rather than beside the active boot, so enrolling into an arming one arms this too.
+			routines?.start();
 		},
 	});
 
@@ -197,11 +199,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	});
 
 	if (bootstrap.gatewayBoot.kind === "arming") enrollment.enterArming(bootstrap.gatewayBoot.nonce);
-	if (bootstrap.gatewayBoot.kind === "active") {
-		context.activate(bootstrap.gatewayBoot.boot);
-		// Only once the routes exist, and never during an arming boot.
-		routines.start();
-	}
+	if (bootstrap.gatewayBoot.kind === "active") context.activate(bootstrap.gatewayBoot.boot);
 
 	const listener = composeListener({
 		dataDir: bootstrap.dataDir,

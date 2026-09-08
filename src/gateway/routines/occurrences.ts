@@ -87,6 +87,16 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		return commit(next) ? moved : null;
 	};
 
+	/**
+	 * A re-save supersedes an occurrence waiting on review, and nothing else. A miss the owner has
+	 * not dealt with is still theirs to answer, and what already ran still happened.
+	 */
+	const clearReview = (routineId: string): boolean => {
+		const kept = rows.filter((row) => !(row.routineId === routineId && row.state === "needs_review"));
+		if (kept.length === rows.length) return true;
+		return commit(kept);
+	};
+
 	/** Everything for a routine goes when the routine does. */
 	const clear = (routineId: string): boolean => {
 		const kept = rows.filter((row) => row.routineId !== routineId);
@@ -113,7 +123,7 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		return dropped;
 	};
 
-	return { all, at, forRoutine, open, transition, clear, sweep };
+	return { all, at, forRoutine, open, transition, clearReview, clear, sweep };
 }
 
 export type OccurrenceStore = ReturnType<typeof createOccurrenceStore>;
