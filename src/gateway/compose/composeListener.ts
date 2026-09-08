@@ -11,6 +11,7 @@ import type { HostStage } from "./composeHost.js";
 import type { PersistenceStage } from "./composePersistence.js";
 import type { RouterPresenceStage } from "./composeRouterPresence.js";
 import type { RoutesStage } from "./composeRoutes.js";
+import type { RoutineStage } from "./composeRoutines.js";
 import type { SessionsStage } from "./composeSessions.js";
 import type { StoresStage } from "./composeStores.js";
 import type { VaultStage } from "./composeVault.js";
@@ -33,6 +34,7 @@ export interface ListenerStageDeps {
 	websockets: Pick<WebSocketsStage, "wsHandlers">;
 	routes: Pick<RoutesStage, "current" | "stop">;
 	routerPresence: Pick<RouterPresenceStage, "stop">;
+	routines?: Pick<RoutineStage, "stop">;
 	vault: Pick<VaultStage, "routes">;
 }
 
@@ -57,6 +59,9 @@ export function composeListener(deps: ListenerStageDeps): ListenerStage {
 	reportUnrecognizedDataEntries(deps.dataDir);
 
 	async function close(): Promise<void> {
+		// Stop taking work and let the attempt in flight finish, so the flush below sees a settled
+		// occurrence rather than one halfway through its own writes.
+		await deps.routines?.stop();
 		// Flush while writers are live.
 		stores.jobsDurable.saveChecked(stores.jobs.snapshot());
 		stores.sessionResumeDurable.saveChecked(sessions.sessionResumeSnapshot(true));

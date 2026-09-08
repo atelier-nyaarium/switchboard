@@ -177,7 +177,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		routes: requireRoutes,
 	});
 	const runbooks = composeRunbooks({ dataDir: bootstrap.dataDir });
-	const routines = composeRoutines({ dataDir: bootstrap.dataDir });
+	const routines = composeRoutines({ dataDir: bootstrap.dataDir, ambient: bootstrap.ambient });
 	routerFrames = composeRouterFrames({
 		localGatewayId: bootstrap.localGatewayId,
 		wakeTimeoutMs: config.wakeTimeoutMs,
@@ -193,7 +193,11 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	});
 
 	if (bootstrap.gatewayBoot.kind === "arming") enrollment.enterArming(bootstrap.gatewayBoot.nonce);
-	if (bootstrap.gatewayBoot.kind === "active") context.activate(bootstrap.gatewayBoot.boot);
+	if (bootstrap.gatewayBoot.kind === "active") {
+		context.activate(bootstrap.gatewayBoot.boot);
+		// Only once the routes exist, and never during an arming boot.
+		routines.start();
+	}
 
 	const listener = composeListener({
 		dataDir: bootstrap.dataDir,
@@ -203,6 +207,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		stores,
 		sessions,
 		persistence,
+		routines,
 		host,
 		agents,
 		awareness,
