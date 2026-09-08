@@ -27,7 +27,7 @@ export interface RoutineStage {
 /** Nothing to run against, so every occurrence waits rather than being declared missed. */
 const IDLE_ATTEMPT: RoutineAttempt = {
 	sessionIdle: () => false,
-	prepare: async () => null,
+	prepare: async () => ({ ok: false, reason: "unreachable" }),
 	deliver: async () => undefined,
 };
 

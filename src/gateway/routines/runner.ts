@@ -18,12 +18,20 @@ const RECONCILE_MS = 60_000;
 /** Settled occurrences older than this are swept, except a routine's newest miss. */
 const KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** What Phase 3 fills in. The loop owns when, this owns what. */
+/** Why an occurrence could not be prepared, which decides where it goes rather than the loop. */
+export type PrepareResult =
+	| { ok: true; revision: number; snapshot: string; team: string }
+	/** The words the owner approved are not what would run. */
+	| { ok: false; reason: "revision_moved" }
+	/** Nothing is wrong with the routine; the session could not be reached. */
+	| { ok: false; reason: "unreachable" };
+
+/** The loop owns when, this owns what. */
 export interface RoutineAttempt {
 	/** Whether the routine's reserved session can take work now. */
 	sessionIdle: (routine: Routine) => boolean;
-	/** Renders, stores the snapshot and binds the session. Answers the revision it prepared. */
-	prepare: (routine: Routine, occurrence: Occurrence) => Promise<number | null>;
+	/** Renders and binds the session, answering what to store against the occurrence. */
+	prepare: (routine: Routine, occurrence: Occurrence) => Promise<PrepareResult>;
 	/** Called after `dispatched` is durable, so a crash here loses the nudge rather than repeating it. */
 	deliver: (routine: Routine, occurrence: Occurrence) => Promise<void>;
 }
@@ -97,14 +105,25 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 				return;
 			}
 			const prepared = await attempt.prepare(routine, held);
-			if (prepared === null) {
-				// The pinned revision moved, so the words the owner approved are not what would run.
-				occurrences.transition(
-					held.routineId,
-					held.scheduledAt,
-					{ state: held.state, version: held.version },
-					"needs_review",
-				);
+			if (!prepared.ok) {
+				if (prepared.reason === "revision_moved") {
+					occurrences.transition(
+						held.routineId,
+						held.scheduledAt,
+						{ state: held.state, version: held.version },
+						"needs_review",
+					);
+					return;
+				}
+				// Reachability can come back inside the window, so this waits rather than settling.
+				if (held.state === "due") {
+					occurrences.transition(
+						held.routineId,
+						held.scheduledAt,
+						{ state: held.state, version: held.version },
+						"waiting_idle",
+					);
+				}
 				return;
 			}
 			const moved = occurrences.transition(
@@ -112,7 +131,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 				held.scheduledAt,
 				{ state: held.state, version: held.version },
 				"prepared",
-				{ preparedRevision: prepared },
+				{ preparedRevision: prepared.revision, snapshot: prepared.snapshot, team: prepared.team },
 			);
 			if (!moved) return;
 			held = moved;
@@ -259,13 +278,13 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 				const held = occurrences.at(routineId, scheduledAt);
 				if (!routine || !held || held.state !== "missed") return;
 				const prepared = await attempt.prepare(routine, held);
-				if (prepared === null) return;
+				if (!prepared.ok) return;
 				const dispatched = occurrences.transition(
 					routineId,
 					scheduledAt,
 					{ state: held.state, version: held.version },
 					"dispatched",
-					{ preparedRevision: prepared },
+					{ preparedRevision: prepared.revision, snapshot: prepared.snapshot, team: prepared.team },
 				);
 				if (!dispatched) return;
 				await attempt.deliver(routine, dispatched);

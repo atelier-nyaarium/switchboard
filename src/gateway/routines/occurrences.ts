@@ -21,6 +21,13 @@ export const OccurrenceSchema = z.object({
 	reason: z.enum(MISS_REASONS).optional(),
 	/** The runbook revision this occurrence was prepared against. */
 	preparedRevision: z.number().int().positive().optional(),
+	/**
+	 * What was rendered when it was prepared. Served back rather than rendered again, or a runbook
+	 * edited on Tuesday would rewrite instructions issued on Monday.
+	 */
+	snapshot: z.string().optional(),
+	/** The session it was bound to, resolved from the target policy at preparation. */
+	team: z.string().optional(),
 });
 
 export type Occurrence = z.infer<typeof OccurrenceSchema>;
@@ -77,7 +84,7 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		scheduledAt: number,
 		from: { state: OccurrenceState; version: number },
 		to: OccurrenceState,
-		patch: Partial<Pick<Occurrence, "reason" | "preparedRevision">> = {},
+		patch: Partial<Pick<Occurrence, "reason" | "preparedRevision" | "snapshot" | "team">> = {},
 	): Occurrence | null => {
 		const held = at(routineId, scheduledAt);
 		if (!held || held.state !== from.state || held.version !== from.version) return null;

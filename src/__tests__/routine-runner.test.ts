@@ -38,6 +38,9 @@ const routine = (over: Partial<Routine> = {}): Routine => ({
 
 const A_YEAR_BEFORE = MONDAY_0900_LA - 365 * 24 * 60 * 60 * 1000;
 
+const ready = { ok: true, revision: 3, snapshot: "do the thing", team: "host.routine-triage" } as const;
+const moved = { ok: false, reason: "revision_moved" } as const;
+
 function world(over: Partial<RoutineAttempt> = {}, took = A_YEAR_BEFORE) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "routine-runner-"));
 	roots.push(root);
@@ -48,7 +51,7 @@ function world(over: Partial<RoutineAttempt> = {}, took = A_YEAR_BEFORE) {
 	const delivered: string[] = [];
 	const attempt: RoutineAttempt = {
 		sessionIdle: () => true,
-		prepare: async () => 3,
+		prepare: async () => ready,
 		deliver: async (_routine, occurrence) => {
 			delivered.push(`${occurrence.routineId}:${occurrence.scheduledAt}`);
 		},
@@ -117,7 +120,7 @@ describe("the routine runner", () => {
 	});
 
 	it("sends a routine whose pinned revision moved for review, rather than firing it", async () => {
-		const w = world({ prepare: async () => null });
+		const w = world({ prepare: async () => moved });
 		w.routines.put(routine());
 
 		await w.runner.reconcile();
@@ -138,7 +141,7 @@ describe("the routine runner", () => {
 			prepare: async () => {
 				started();
 				await preparationRelease;
-				return 3;
+				return ready;
 			},
 		});
 		w.routines.put(routine());
@@ -167,7 +170,7 @@ describe("the routine runner", () => {
 			prepare: async () => {
 				started();
 				await preparationRelease;
-				return 3;
+				return ready;
 			},
 		});
 		w.routines.put(routine());
@@ -185,7 +188,7 @@ describe("the routine runner", () => {
 	it("clears a review occurrence when the routine is saved again", async () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "routine-stage-"));
 		roots.push(root);
-		let prepared: number | null = null;
+		let prepared = false;
 		const delivered: string[] = [];
 		const stage = composeRoutines({
 			dataDir: root,
@@ -196,7 +199,7 @@ describe("the routine runner", () => {
 			},
 			attempt: {
 				sessionIdle: () => true,
-				prepare: async () => prepared,
+				prepare: async () => (prepared ? ready : moved),
 				deliver: async (_routine, occurrence) => {
 					delivered.push(String(occurrence.scheduledAt));
 				},
@@ -205,7 +208,7 @@ describe("the routine runner", () => {
 		stage.console.put(routine());
 		stage.start();
 		await stage.reconcile();
-		prepared = 3;
+		prepared = true;
 		stage.console.put(routine());
 		await stage.reconcile();
 
