@@ -996,7 +996,7 @@ typed as and refuses to write a file that references one it did not declare. A u
 entry point, like `ConsoleSocketInbound`, is still allowed to emit nothing, because nothing is typed
 as it.
 
-## Phase 5 - The phone
+## Phase 5 - The phone ✅
 
 `RunbookManager` holds a copy per gateway, which Question 17 asked for and Phase 1 left standing.
 Until it does, the library's revision is the home gateway's and any other gateway drifts from it.
@@ -1038,7 +1038,7 @@ The runbook delete button lands here too. The gateway, the wire and `RunbookOps.
 finished already and nothing calls them, and a routine that pins a runbook makes deleting one a
 case that needs an answer rather than a confirm dialog.
 
-## Phase 6 - The fences
+## Phase 6 - The fences ✅
 
 Residue tests for what no ordinary gate can see: that nothing but the store writes a routine, that
 recurrence has one implementation, that no surface claims a run succeeded, and that the phone holds
@@ -1173,3 +1173,23 @@ addressing.
   `standingRefusal`: one word for the thing, and a name per producer. "Refusal" is what the rest of
   the codebase already calls a rule saying no, so the family reads with `runbookRefusal` and
   `routineRefusal` rather than against them.
+
+# Left for the owner
+
+Every phase is done. These came out of the Phase 5 and 6 audits, are real, and are decisions rather
+than defects, so none of them was taken here.
+
+- **The background poll's thirty-second tick.** With a socket, the background pass rides the
+  earliest-wake coordinator as this plan asked. Without one, the `POLL` link loops on its own
+  thirty-second tick and never reaches `plan(...)`, so no doze alarm is armed and a miss is learned
+  when doze lifts. That is the poll loop's own shape and predates routines; changing it trades
+  battery against how quickly a miss is seen.
+- **Naming the gateway on the Routines and Runbooks tabs.** Both are scoped to the home gateway and
+  neither says so. The conflation this plan actually guarded against, one list across gateways or a
+  copy that reads as replication, does not exist. Adding a line to both tabs is a UI call.
+- **"Approve this occurrence now" on an unanswered secret.** The attention record carries no vault
+  request id, and the request is gone by the time the owner sees the panel. Offering it needs a
+  gateway operation that opens access for one occurrence and entry, which is a new authority shape.
+- **A routine that has run nothing for thirty days loses its reserved session.** The session store
+  sweeps an idle record at that age, so the next run creates a new session rather than reattaching.
+  Nothing breaks, and the alternative is a record that never expires.
