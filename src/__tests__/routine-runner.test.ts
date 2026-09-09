@@ -429,6 +429,32 @@ describe("the routine runner", () => {
 		expect(w.delivered).toEqual([]);
 	});
 
+	it("says a pressed run did not happen when its words moved before it could be sent", async () => {
+		const w = world({ prepare: async () => moved });
+		w.routines.put(routine());
+
+		// Refused for review, so nothing was delivered and the answer must not say otherwise.
+		expect(await w.runner.runFresh("triage")).toBe(null);
+		expect(w.delivered).toEqual([]);
+	});
+
+	it("names every window open in a session, not just the first", async () => {
+		const w = world();
+		w.routines.put(routine());
+		await w.runner.reconcile();
+		// Pressed twice while the scheduled run is still working, which nothing refuses.
+		w.at(MONDAY_0900_LA + 1000);
+		const first = await w.runner.runFresh("triage");
+		w.at(MONDAY_0900_LA + 2000);
+		const second = await w.runner.runFresh("triage");
+
+		const open = w.runner.workingOccurrences("host.routine-triage").map((row) => row.scheduledAt);
+
+		// A reader answering one leaves the rest alive, so a session that ended would keep the
+		// routine's authority through whichever window it did not close.
+		expect(open).toEqual([MONDAY_0900_LA, first, second]);
+	});
+
 	it("does not let a pressed run hide a scheduled slot that never happened", async () => {
 		const w = world();
 		w.routines.put(routine());

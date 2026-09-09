@@ -258,9 +258,11 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		},
 		runbookMoved,
 		sessionEnded: (sessionTarget) => {
-			// Its session is gone, so its work is over whatever the last observation said.
-			const held = runner.workingOccurrence(sessionTarget);
-			if (held) occurrences.noteWork(held.routineId, held.scheduledAt, "done");
+			// Its session is gone, so its work is over whatever the last observation said. Every open
+			// window, not the first: one left open keeps the routine's authority alive without it.
+			for (const held of runner.workingOccurrences(sessionTarget)) {
+				occurrences.noteWork(held.routineId, held.scheduledAt, "done");
+			}
 		},
 		secretUnanswered: (sessionTarget, entryId) => {
 			const held = runner.workingOccurrence(sessionTarget);

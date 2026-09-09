@@ -116,6 +116,11 @@ as everything else, so it cannot race the timer or the tick.
   is where it was. `lastRanAt` moves, which is what it means.
 - **Nothing refuses it while a run is already working.** The owner ruled on that knowing what it
   does: a second nudge lands in a session that is mid-turn, with nothing coordinating the two.
+- **Several windows can be open in one session, so everything that closes them closes them all.**
+  `workingOccurrences` answers every one, and a session ending marks each `done`. Closing only the
+  first would leave the routine's authority alive in a session that is gone, for up to twelve hours.
+- **The answer says what became of the run, not that a row was opened.** Preparation is awaited, so
+  the deadline or a moved revision can settle the occurrence before the operation answers.
 
 The stage is armed from the federation context's activation callback, so it cannot fire before the
 routes exist, and both the already-active boot and a later enrollment go through it. Shutdown stops

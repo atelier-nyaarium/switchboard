@@ -435,6 +435,23 @@ Two of the plan's five confirmations were wrong, and the code is what settled it
   does it in a `finally`, and `runFresh` did not. Its deadline is a new instant worth waking for, so
   the sixty-second tick was the only thing that would have noticed.
 
+### What the red team found
+
+**The security one, and my change is what made it reachable.** A session ending closed the FIRST open
+work window and left the rest. Before this phase two open windows for one routine were nearly
+impossible, since the rule names at most one instant a day. Unlimited presses make it ordinary, and a
+window left open keeps the routine's vault authority alive in a session that is gone, for up to
+twelve hours. `workingOccurrences` answers every one now, and the session-ended path closes them all.
+
+**The answer could say a run happened when it had not.** `runFresh` reported the instant it opened
+without reading back what became of it. Preparation is awaited, so a deadline or a moved revision can
+settle the occurrence as missed or needs-review first, and the owner would have been told it ran.
+
+Checked and found safe, which is worth recording because the disabled bypass looks like an
+escalation and is not: disabling a routine clears its standing vault grant outright, so a pressed run
+on a disabled routine executes its runbook and reaches no linked secret. The reserved session stays
+provenance-bound rather than name-bound on this road as on the others.
+
 Accepted rather than fixed, with the reasons:
 
 - **A gateway rolled back past this change strips `adhoc` from the stored rows.** The old schema does
@@ -443,6 +460,13 @@ Accepted rather than fixed, with the reasons:
 - **An old gateway refuses `routine_run` and the row simply does not change.** The refusal is caught
   and the tab refreshes either way, which is the owner's "no refusals or warns" applied to a case
   they did not name. Gateway ships before the phone, as it always does.
+- **A pressed run that fails becomes the newest miss, so the sweep keeps it forever.** That exemption
+  exists because a routine's newest miss is its panel, and a press that failed is a panel the owner
+  wants. It can displace a rule-named miss, which is honest: the more recent failure is the one they
+  just caused.
+- **Occurrence rows are bounded by age alone, thirty days.** Fifty presses a day leaves about fifteen
+  hundred rows per routine. Nothing caps the count, which is the store's existing shape rather than
+  something this phase introduced.
 
 # Findings
 

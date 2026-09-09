@@ -195,16 +195,22 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			occurrences.noteWork(occurrence.routineId, occurrence.scheduledAt, "done");
 	}
 
-	/** The occurrence whose work is open in that session right now, or null. */
-	function workingOccurrence(sessionTarget: string): Occurrence | null {
+	/**
+	 * Every occurrence whose work is open in that session right now. More than one is ordinary: the
+	 * owner may press Run again while a run is still working, and each carries its own window.
+	 */
+	function workingOccurrences(sessionTarget: string): Occurrence[] {
 		const now = ambient.now();
-		for (const occurrence of occurrences.all()) {
-			if (occurrence.team !== sessionTarget || occurrence.state !== "dispatched") continue;
-			if (occurrence.work === undefined || occurrence.work === "done") continue;
-			if (now > (occurrence.workUntil ?? occurrence.deadlineAt)) continue;
-			return occurrence;
-		}
-		return null;
+		return occurrences.all().filter((occurrence) => {
+			if (occurrence.team !== sessionTarget || occurrence.state !== "dispatched") return false;
+			if (occurrence.work === undefined || occurrence.work === "done") return false;
+			return now <= (occurrence.workUntil ?? occurrence.deadlineAt);
+		});
+	}
+
+	/** Whichever is found first, for the readers that need one rather than all of them. */
+	function workingOccurrence(sessionTarget: string): Occurrence | null {
+		return workingOccurrences(sessionTarget)[0] ?? null;
 	}
 
 	/** Serialized, so two wakeups cannot walk the same occurrence at once. */
@@ -344,7 +350,10 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 				// A pressed run can land waiting on a busy session, and its deadline is a new instant
 				// worth waking for.
 				rearm();
-				opened = at;
+				// What became of it, not that a row was opened. Preparation is awaited, so the deadline
+				// or a moved revision can settle it before this answers.
+				const settled = occurrences.at(routineId, at)?.state;
+				if (settled !== "missed" && settled !== "needs_review") opened = at;
 			}).then(() => opened);
 		},
 
@@ -398,6 +407,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 
 		nextAt,
 		workingOccurrence,
+		workingOccurrences,
 	};
 }
 
