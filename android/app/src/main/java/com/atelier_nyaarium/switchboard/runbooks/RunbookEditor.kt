@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -68,6 +69,7 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 	var refused by remember(runbookId) { mutableStateOf<SaveRefusal?>(null) }
 	// Kept with the draft, or a rotation would leave the intent behind and save an ordinary edit.
 	var overwriting by rememberSaveable(runbookId) { mutableStateOf(false) }
+	var deleting by remember(runbookId) { mutableStateOf(false) }
 
 	Scaffold(
 		topBar = {
@@ -152,8 +154,46 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 			}
 
 			draft.refusal()?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+			if (existing != null) {
+				TextButton(onClick = hapticClick { deleting = true }) { Text("Delete runbook") }
+			}
 			Spacer(Modifier.height(24.dp))
 		}
+	}
+
+	if (deleting) {
+		// Named rather than counted: a routine pinning this stops, and only the owner can decide
+		// whether that is what they meant.
+		val pinning = repo.state.value.routines
+			.filter { it.routine.runbookId == draft.id }
+			.map { it.routine.name }
+		AlertDialog(
+			onDismissRequest = { deleting = false },
+			title = { Text("Delete this runbook") },
+			text = {
+				Text(
+					if (pinning.isEmpty()) {
+						"It goes from this Gateway and from this phone."
+					} else {
+						"It goes, and these routines stop running until you give them another: " +
+							pinning.joinToString(", ")
+					},
+				)
+			},
+			confirmButton = {
+				TextButton(
+					onClick = hapticClick {
+						deleting = false
+						scope.launch {
+							repo.runbookOps.delete(draft.id)
+							repo.runbookOps.dropDraft(draftKey)
+							onClose()
+						}
+					},
+				) { Text("Delete") }
+			},
+			dismissButton = { TextButton(onClick = hapticClick { deleting = false }) { Text("Cancel") } },
+		)
 	}
 }
 

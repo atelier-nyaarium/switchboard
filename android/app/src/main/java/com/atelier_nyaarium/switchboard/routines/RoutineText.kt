@@ -1,0 +1,63 @@
+package com.atelier_nyaarium.switchboard.routines
+
+import com.atelier_nyaarium.switchboard.absoluteTimeText
+import com.atelier_nyaarium.switchboard.proto.Routine
+import com.atelier_nyaarium.switchboard.proto.RoutineAttention
+import com.atelier_nyaarium.switchboard.proto.RoutineMiss
+
+private val WEEKDAYS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+/**
+ * The rule as the gateway holds it, in the zone it holds it in. Nothing here converts: the phone
+ * would otherwise show a schedule that reads differently in every airport, for a rule that did not
+ * move. Only the next run is ever converted, and `nextRunLine` is what does it.
+ */
+internal fun scheduleLine(routine: Routine): String {
+	val days = routine.weekdays.sorted().mapNotNull { WEEKDAYS.getOrNull(it.toInt() - 1) }
+	val named = when {
+		days.isEmpty() -> "No day"
+		days.size == 7 -> "Every day"
+		else -> days.joinToString(", ")
+	}
+	val every = when (routine.weekInterval) {
+		1L -> ""
+		2L -> "every other week, "
+		else -> "every ${routine.weekInterval} weeks, "
+	}
+	return "$every$named at ${routine.time} ${routine.zone}"
+}
+
+/** The one instant the phone converts, because the owner needs to know when it actually lands. */
+internal fun nextRunLine(routine: Routine, nextAt: Long?, zone: java.time.ZoneId): String = when {
+	!routine.enabled -> "Disabled"
+	nextAt == null -> "Nothing further scheduled"
+	else -> "Next ${absoluteTimeText(nextAt, zone)}"
+}
+
+/** What a miss says. The reason is the gateway's word for it; the phone does not classify. */
+internal fun missLine(miss: RoutineMiss, zone: java.time.ZoneId): String {
+	val story = when (miss.reason) {
+		"session_busy" -> "its session stayed busy"
+		"host_unreachable" -> "its machine could not be reached"
+		"disabled" -> "it was turned off"
+		else -> "this Gateway was not running"
+	}
+	return "Did not run at ${absoluteTimeText(miss.scheduledAt, zone)}: $story"
+}
+
+internal fun reviewLine(reviewAt: Long, zone: java.time.ZoneId): String =
+	"Stopped at ${absoluteTimeText(reviewAt, zone)}: its runbook changed. Open it to approve the new words."
+
+/** Names the run that wanted them, since approving one is not the same as linking for every run. */
+internal fun attentionLine(attention: RoutineAttention, zone: java.time.ZoneId): String {
+	val secrets = attention.entryIds.joinToString(", ")
+	return "The run at ${absoluteTimeText(attention.scheduledAt, zone)} asked for $secrets and got no answer."
+}
+
+/** What each verb touches, said rather than implied. */
+internal const val DISMISS_EXPLAINS = "Settles this one run. The schedule keeps going."
+internal const val DISABLE_EXPLAINS = "Stops the schedule. The routine and its runs stay."
+internal const val DELETE_EXPLAINS = "Removes the routine, its runs and its linked secrets."
+
+/** A run already handed to its session is not recalled by any of the three. */
+internal const val VERBS_EXPLAIN = "A run already handed over carries on either way."

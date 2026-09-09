@@ -1,0 +1,258 @@
+package com.atelier_nyaarium.switchboard.routines
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.atelier_nyaarium.switchboard.ChatRepository
+import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.RoutineSaved
+import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.proto.Routine
+import kotlinx.coroutines.launch
+
+private val WEEKDAY_LABELS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RoutineEditor(repo: ChatRepository, state: ChatState, routineId: String?, onClose: () -> Unit) {
+	val held: Routine? = remember(routineId, state.routines) {
+		routineId?.let { id -> state.routines.find { it.routine.id == id }?.routine }
+	}
+	val zone = remember { java.time.ZoneId.systemDefault() }
+	var draft by remember(routineId) {
+		mutableStateOf(
+			held?.let { RoutineDraft.of(it) }
+				?: RoutineDraft(
+					id = "routine-${java.util.UUID.randomUUID().toString().take(8)}",
+					startDate = java.time.LocalDate.now(zone).toString(),
+					zone = zone.id,
+				),
+		)
+	}
+	val vaultRevision by repo.vault.revision
+	val entries = remember(vaultRevision) { repo.vaultOps.views() }
+	val scope = rememberCoroutineScope()
+	var saving by remember(routineId) { mutableStateOf(false) }
+	var refused by remember(routineId) { mutableStateOf<String?>(null) }
+	var confirming by remember(routineId) { mutableStateOf(false) }
+	var confirmingDelete by remember(routineId) { mutableStateOf(false) }
+
+	val commit: () -> Unit = {
+		val candidate = draft.toRoutine()
+		if (candidate != null) {
+			saving = true
+			refused = null
+			scope.launch {
+				when (val saved = repo.routineOps.save(candidate, draft.revision.takeIf { it > 0L })) {
+					is RoutineSaved.Refused -> refused = saved.reason
+					RoutineSaved.Unreachable -> refused = "This Gateway could not be reached"
+					is RoutineSaved.Stored -> onClose()
+				}
+				saving = false
+			}
+		}
+	}
+
+	Scaffold(
+		topBar = {
+			TopAppBar(
+				title = { Text(if (held == null) "New routine" else "Edit routine") },
+				actions = {
+					TextButton(onClick = hapticClick(onClose)) { Text("Cancel") }
+					Button(
+						enabled = draft.refusal() == null && !saving,
+						onClick = hapticClick { if (ruleMoved(held, draft)) confirming = true else commit() },
+						modifier = Modifier.padding(end = 8.dp),
+					) { Text(if (saving) "Saving" else "Save") }
+				},
+			)
+		},
+	) { pad ->
+		Column(
+			Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+			verticalArrangement = Arrangement.spacedBy(12.dp),
+		) {
+			OutlinedTextField(
+				value = draft.name,
+				onValueChange = { draft = draft.copy(name = it) },
+				label = { Text("Name") },
+				modifier = Modifier.fillMaxWidth(),
+			)
+
+			Text("Schedule", style = MaterialTheme.typography.labelLarge)
+			FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+				WEEKDAY_LABELS.forEachIndexed { index, label ->
+					val day = index + 1
+					FilterChip(
+						selected = day in draft.weekdays,
+						onClick = hapticClick {
+							draft = draft.copy(
+								weekdays = if (day in draft.weekdays) draft.weekdays - day else draft.weekdays + day,
+							)
+						},
+						label = { Text(label) },
+					)
+				}
+			}
+			Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+				OutlinedTextField(
+					value = draft.time,
+					onValueChange = { draft = draft.copy(time = it) },
+					label = { Text("Time") },
+					modifier = Modifier.weight(1f),
+				)
+				OutlinedTextField(
+					value = draft.weekInterval.toString(),
+					onValueChange = { text -> text.toIntOrNull()?.let { draft = draft.copy(weekInterval = it) } },
+					label = { Text("Every N weeks") },
+					modifier = Modifier.weight(1f),
+				)
+			}
+			OutlinedTextField(
+				value = draft.zone,
+				onValueChange = { draft = draft.copy(zone = it) },
+				label = { Text("Zone the schedule is read in") },
+				modifier = Modifier.fillMaxWidth(),
+			)
+
+			Text("Runbook", style = MaterialTheme.typography.labelLarge)
+			FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+				for (book in state.runbooks) {
+					FilterChip(
+						selected = draft.runbookId == book.id,
+						onClick = hapticClick {
+							draft = draft.copy(runbookId = book.id, approvedRevision = book.revision)
+						},
+						label = { Text(book.name) },
+					)
+				}
+			}
+			val picked = state.runbooks.find { it.id == draft.runbookId }
+			for (parameter in picked?.parameters.orEmpty()) {
+				OutlinedTextField(
+					value = draft.values[parameter.name].orEmpty(),
+					onValueChange = { draft = draft.copy(values = draft.values + (parameter.name to it)) },
+					label = { Text(parameter.label) },
+					modifier = Modifier.fillMaxWidth(),
+				)
+			}
+
+			OutlinedTextField(
+				value = draft.spawn,
+				onValueChange = { draft = draft.copy(spawn = it) },
+				label = { Text("Spawn point") },
+				modifier = Modifier.fillMaxWidth(),
+			)
+
+			Text("Linked secrets", style = MaterialTheme.typography.labelLarge)
+			Text(
+				"Each is unrestricted while this routine is working: it may be used for anything the " +
+					"session can be talked into running.",
+				style = MaterialTheme.typography.bodySmall,
+			)
+			FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+				for (entry in entries) {
+					FilterChip(
+						selected = entry.id in draft.linkedEntries,
+						onClick = hapticClick {
+							draft = draft.copy(
+								linkedEntries = if (entry.id in draft.linkedEntries) {
+									draft.linkedEntries - entry.id
+								} else {
+									draft.linkedEntries + entry.id
+								},
+							)
+						},
+						label = { Text(entry.title) },
+					)
+				}
+			}
+
+			Row(
+				Modifier.fillMaxWidth(),
+				horizontalArrangement = Arrangement.spacedBy(8.dp),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				Column(Modifier.weight(1f)) {
+					Text("Enabled", style = MaterialTheme.typography.bodyMedium)
+					Text(DISABLE_EXPLAINS, style = MaterialTheme.typography.bodySmall)
+				}
+				Switch(checked = draft.enabled, onCheckedChange = { draft = draft.copy(enabled = it) })
+			}
+
+			refused?.let {
+				Card(Modifier.fillMaxWidth()) {
+					Text(it, Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+				}
+			}
+
+			if (held != null) {
+				TextButton(onClick = hapticClick { confirmingDelete = true }) { Text("Delete routine") }
+			}
+		}
+	}
+
+	if (confirming) {
+		AlertDialog(
+			onDismissRequest = { confirming = false },
+			title = { Text("The schedule moves") },
+			text = { Text("It becomes ${scheduleLine(draft.toRoutine() ?: return@AlertDialog)}. $VERBS_EXPLAIN") },
+			confirmButton = {
+				TextButton(
+					onClick = hapticClick {
+						confirming = false
+						commit()
+					},
+				) { Text("Save") }
+			},
+			dismissButton = { TextButton(onClick = hapticClick { confirming = false }) { Text("Cancel") } },
+		)
+	}
+
+	if (confirmingDelete) {
+		AlertDialog(
+			onDismissRequest = { confirmingDelete = false },
+			title = { Text("Delete this routine") },
+			text = { Text("$DELETE_EXPLAINS $VERBS_EXPLAIN") },
+			confirmButton = {
+				TextButton(
+					onClick = hapticClick {
+						confirmingDelete = false
+						scope.launch {
+							repo.routineOps.delete(draft.id)
+							onClose()
+						}
+					},
+				) { Text("Delete") }
+			},
+			dismissButton = { TextButton(onClick = hapticClick { confirmingDelete = false }) { Text("Cancel") } },
+		)
+	}
+}

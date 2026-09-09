@@ -131,6 +131,7 @@ fun App(
 	var fireRunbookId by remember { mutableStateOf<String?>(null) }
 	// Null is closed and "" is a new runbook, so the open editor survives a rotation.
 	var editRunbook by rememberSaveable { mutableStateOf<String?>(null) }
+	var editRoutine by rememberSaveable { mutableStateOf<String?>(null) }
 	// Clear reveal after handoff.
 	val revealAtState = remember { mutableStateOf<Pair<String, Long>?>(null) }
 	var revealAt by revealAtState
@@ -238,9 +239,13 @@ fun App(
 	}
 
 	// Back follows render order.
-	BackHandler(enabled = editRunbook != null || overlays.isNotEmpty() || showSettings || openTeam != null) {
+	BackHandler(
+		enabled = editRunbook != null || editRoutine != null || overlays.isNotEmpty() || showSettings ||
+			openTeam != null,
+	) {
 		when {
 			editRunbook != null -> editRunbook = null
+			editRoutine != null -> editRoutine = null
 			overlays.isNotEmpty() -> closeOverlay()
 			// Mirrors SettingsScreen's own back: Federation was entered from Domain & Trust.
 			showSettings && settingsRoute == SettingsRoute.FEDERATION ->
@@ -508,6 +513,15 @@ fun App(
 						modifier = modifier,
 					)
 				},
+				routinesEnabled = true,
+				routines = { modifier ->
+					com.atelier_nyaarium.switchboard.routines.RoutinesScreen(
+						repo = repo,
+						state = state,
+						onEdit = { editRoutine = it ?: "" },
+						modifier = modifier,
+					)
+				},
 				snackbarHostState = snackbarHostState,
 				onRefresh = {
 					repo.command { presence.refreshTeams() }
@@ -607,6 +621,10 @@ fun App(
 	editRunbook?.let { opened ->
 		val id = opened.ifEmpty { null }
 		com.atelier_nyaarium.switchboard.runbooks.RunbookEditor(repo, id) { editRunbook = null }
+	}
+	editRoutine?.let { opened ->
+		val id = opened.ifEmpty { null }
+		com.atelier_nyaarium.switchboard.routines.RoutineEditor(repo, state, id) { editRoutine = null }
 	}
 }
 

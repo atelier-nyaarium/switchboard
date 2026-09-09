@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import android.net.Uri
 import com.atelier_nyaarium.switchboard.proto.ConsolePeekResult
+import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
 import com.atelier_nyaarium.switchboard.proto.SignedDeleteDomain
@@ -119,6 +120,32 @@ internal class ChatRepositoryRunbookHost(private val repo: ChatRepository) : Run
 	override val gateway: RunbookGateway? get() = repo.clientOrNull()?.let(::ConsoleRunbookGateway)
 	override fun homeGatewayId() = repo.homeGatewayId
 	override val library get() = repo.runbooks
+}
+
+/** The port over the console client's routine calls. */
+internal class ConsoleRoutineGateway(private val client: ConsoleClient) : RoutineGateway {
+	override suspend fun list(gatewayId: String) = client.routineList(gatewayId)
+
+	override suspend fun put(gatewayId: String, routine: Routine, baseRevision: Long?) =
+		client.routinePut(gatewayId, routine, baseRevision)
+
+	override suspend fun delete(gatewayId: String, routineId: String) {
+		client.routineDelete(gatewayId, routineId)
+	}
+
+	override suspend fun enable(gatewayId: String, routineId: String, enabled: Boolean) =
+		client.routineEnable(gatewayId, routineId, enabled)
+
+	override suspend fun runNow(gatewayId: String, routineId: String, occurrenceId: String) =
+		client.routineRunNow(gatewayId, routineId, occurrenceId)
+
+	override suspend fun dismiss(gatewayId: String, routineId: String, occurrenceId: String) =
+		client.routineDismiss(gatewayId, routineId, occurrenceId)
+}
+
+internal class ChatRepositoryRoutineHost(private val repo: ChatRepository) : RoutineHost {
+	override val gateway: RoutineGateway? get() = repo.clientOrNull()?.let(::ConsoleRoutineGateway)
+	override fun homeGatewayId() = repo.homeGatewayId
 }
 
 /** The port over the console client's runbook calls. */
