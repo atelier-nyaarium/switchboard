@@ -46,14 +46,34 @@ Small consequences with a defensible reading, stated to the owner rather than pu
 - **A manual run is not the schedule, so a disabled routine still takes one.** `DISABLE_EXPLAINS`
   already says disable stops the schedule and keeps the routine and its runs. Pressing a button is an
   explicit act, and it is not the schedule firing.
-- **Firing while one is still working is allowed.** Two open works in one session name the same
-  routine, so no authority is confused. The only cost is that an unanswered secret is attributed to
-  whichever of the two occurrences is found first, so its panel can name the wrong instant.
+- **Firing while one is still working warns, and never refuses.** Withdrawn as a silent allow once
+  the owner asked what it actually does: the nudge is a channel message, so a second one lands in a
+  session that is mid-turn and nothing coordinates the two. Refusing is worse, because "still
+  working" comes from presence, and presence leaves the work marked `open` for twelve hours when it
+  never observed the session. A signal that unreliable may inform the owner and may not block them.
+  The residual cost stands: with two runs open, an unanswered secret is attributed to whichever
+  occurrence is found first, so its panel can name the wrong instant.
 
 ## Question 2 - Should the Routines and Runbooks tabs name their gateway?
 
 Both are scoped to the home gateway and neither says so. The Sessions tab already carries the
 gateway's name in its status row, so the fact is on screen once, one tab away.
+
+A: The owner runs several gateways, and wants them kept separate per gateway rather than
+synchronised. That is already the data model; what it exposes is a display gap, taken up in
+Question 5.
+
+> yeah I do have multiple gateways. but for simplicity let's make them separate per gateway so we
+> aren't fighting synchronization issues across gateways.
+
+## Question 5 - Do routines live on more than one gateway?
+
+`RoutineOps.show` and `RunbookOps.show` both return early unless the id is the home gateway's, so
+each tab draws the one gateway this phone enrolled with and cannot reach another. The client already
+takes a gateway per call, so this is display, not plumbing.
+
+Q: Are routines only ever on the home gateway, in which case naming it is enough, or does the tab
+need a gateway picker, one at a time and named?
 
 A: pending.
 
