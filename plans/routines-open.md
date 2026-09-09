@@ -468,6 +468,27 @@ Accepted rather than fixed, with the reasons:
   hundred rows per routine. Nothing caps the count, which is the store's existing shape rather than
   something this phase introduced.
 
+### Bug Classes
+
+**Mechanism:** the occurrence lifecycle. **Class:** the same one Phase 1 kept hitting, on a different
+axis. A model becomes plural, and a reader beside it stays singular while still compiling and looking
+correct.
+
+Phase 1 made GATEWAYS plural. This phase makes OCCURRENCES PER SESSION plural: the rule names at most
+one instant a day, so one working window per session was true until a button could open another.
+
+Two readers were left behind by that, both found by the red team rather than by a gate:
+
+1. `sessionEnded` closed the first open window and left the rest, so a session that had gone kept the
+   routine's vault authority through whichever it did not close.
+2. `runFresh` answered with the instant it opened rather than reading back what became of it, which
+   is the same shape one level down: it trusted a single write instead of the state that followed.
+
+**Recorded rather than redesigned.** The Phase 1 entry already names the fix that would make this
+inexpressible, and it is the same one: an owner for the plural thing, so no caller holds a singular
+reader over it. Here that would be the occurrence store answering sets rather than firsts, and every
+consumer taking a set. Not attempted in passing, for the reason round 4 of Phase 1 exists.
+
 # Findings
 
 Established before asking, so the choices are real rather than hypothetical.

@@ -195,10 +195,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			occurrences.noteWork(occurrence.routineId, occurrence.scheduledAt, "done");
 	}
 
-	/**
-	 * Every occurrence whose work is open in that session right now. More than one is ordinary: the
-	 * owner may press Run again while a run is still working, and each carries its own window.
-	 */
+	/** Every open window in that session. More than one is ordinary: each press carries its own. */
 	function workingOccurrences(sessionTarget: string): Occurrence[] {
 		const now = ambient.now();
 		return occurrences.all().filter((occurrence) => {
@@ -208,7 +205,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		});
 	}
 
-	/** Whichever is found first, for the readers that need one rather than all of them. */
+	/** Whichever is found first, for readers that need one rather than all. */
 	function workingOccurrence(sessionTarget: string): Occurrence | null {
 		return workingOccurrences(sessionTarget)[0] ?? null;
 	}
@@ -350,8 +347,8 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 				// A pressed run can land waiting on a busy session, and its deadline is a new instant
 				// worth waking for.
 				rearm();
-				// What became of it, not that a row was opened. Preparation is awaited, so the deadline
-				// or a moved revision can settle it before this answers.
+				// What became of it, not that a row was opened: preparation is awaited, and a deadline
+				// or a moved revision can settle it first.
 				const settled = occurrences.at(routineId, at)?.state;
 				if (settled !== "missed" && settled !== "needs_review") opened = at;
 			}).then(() => opened);
