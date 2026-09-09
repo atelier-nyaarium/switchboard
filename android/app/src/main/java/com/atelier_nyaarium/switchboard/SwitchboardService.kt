@@ -232,6 +232,7 @@ class SwitchboardService : Service(), DeepIdleScheduler, ScheduledSendAlarmSched
 		}
 		repo.onInbound = { team, messages -> notifications.notifyBurst(repo, team, messages) }
 		repo.scheduled.onScheduledSendFailed = { team, opId -> notifications.notifyScheduledSendFailed(repo, team, opId) }
+		repo.onRoutinesChanged = { notifications.reconcileRoutineNotifications(repo) }
 		repo.playback.chimeSource = { resolveChime() }
 		// Transport surfaces send commands and show state; they never hold state of their own, so the
 		// lockscreen and the in-thread row cannot disagree about what is playing.

@@ -27,6 +27,9 @@ internal interface RoutineGateway {
 internal interface RoutineHost {
 	val gateway: RoutineGateway?
 	fun homeGatewayId(): String
+
+	/** What the gateway now says, so the shade is reconciled against it rather than against a poll. */
+	fun onRoutinesChanged() {}
 }
 
 /**
@@ -60,6 +63,7 @@ internal class RoutineOps(
 		if (gatewayId.isBlank()) return
 		val held = attempt { client.list(gatewayId) } ?: return
 		show(gatewayId, held.routines)
+		host.onRoutinesChanged()
 	}
 
 	/** Carries the revision the editor was opened at; the gateway names the one it stores. */

@@ -109,5 +109,10 @@ class ScheduledSendTest {
 		val id = SwitchboardService.scheduledSendFailedNotificationId("some.team.address.here")
 		assertTrue(id >= SwitchboardService.SCHEDULED_SEND_FAILED_ID_RANGE_START)
 		assertTrue(id < SwitchboardService.SCHEDULED_SEND_FAILED_ID_RANGE_START + SwitchboardService.SCHEDULED_SEND_FAILED_ID_RANGE_SIZE)
+
+		// Its own range, so no reconcile that sweeps another one can reach a routine's row.
+		val routineId = ServiceNotifications.routineNotificationId("triage")
+		assertTrue(routineId >= ServiceNotifications.ROUTINE_ID_RANGE_START)
+		assertTrue(routineId < ServiceNotifications.ROUTINE_ID_RANGE_START + ServiceNotifications.ROUTINE_ID_RANGE_SIZE)
 	}
 }

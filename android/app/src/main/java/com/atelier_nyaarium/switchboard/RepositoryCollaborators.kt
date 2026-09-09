@@ -145,6 +145,7 @@ internal class ConsoleRoutineGateway(private val client: ConsoleClient) : Routin
 }
 
 internal class ChatRepositoryRoutineHost(private val repo: ChatRepository) : RoutineHost {
+	override fun onRoutinesChanged() = repo.notifyRoutinesChanged()
 	// The sandbox answers as a Gateway would, so a screen that only appears on a refusal is reachable.
 	override val gateway: RoutineGateway? get() =
 		if (isSandbox) SandboxRoutineGateway() else repo.clientOrNull()?.let(::ConsoleRoutineGateway)

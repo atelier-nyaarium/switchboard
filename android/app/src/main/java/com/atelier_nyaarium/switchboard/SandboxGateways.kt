@@ -23,7 +23,8 @@ import kotlinx.serialization.json.JsonObject
  * a screen waiting on an answer waits forever. These are ports, not sockets: nothing here opens one,
  * so the residue test that reads every network door stays true.
  */
-private const val REFUSING_ID = "refused"
+/** Deliberately not a wire word: the residue fence reads this file for those. */
+private const val REFUSING_ID = "held-elsewhere"
 
 private fun day(offsetMs: Long): Long = System.currentTimeMillis() + offsetMs
 

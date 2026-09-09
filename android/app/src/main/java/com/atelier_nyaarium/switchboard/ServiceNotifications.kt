@@ -74,6 +74,49 @@ internal class ServiceNotifications(private val context: Context) {
 				enableVibration(true)
 			},
 		)
+		nm.createNotificationChannel(
+			NotificationChannel(CHANNEL_ROUTINE, "Routines", NotificationManager.IMPORTANCE_DEFAULT).apply {
+				description = "A routine did not run"
+			},
+		)
+	}
+
+	/**
+	 * Every routine's notification against the state the gateway last reported, not against a row's
+	 * arrival: a miss the owner settled elsewhere has to leave the shade, and a poll that saw the
+	 * same miss twice must not say it twice. Level-based, as the team reconcile is.
+	 */
+	internal fun reconcileRoutineNotifications(repo: ChatRepository) {
+		if (!canNotify()) return
+		val nmc = NotificationManagerCompat.from(context)
+		val active = context.getSystemService(NotificationManager::class.java)
+			.activeNotifications
+			.mapTo(HashSet()) { it.id }
+		for (row in repo.state.value.routines) {
+			val id = routineNotificationId(row.routine.id)
+			val missed = row.missed
+			if (missed == null) {
+				if (id in active) nmc.cancel(id)
+				continue
+			}
+			val notification = NotificationCompat.Builder(context, CHANNEL_ROUTINE)
+				.setSmallIcon(android.R.drawable.stat_notify_error)
+				.setContentTitle("${row.routine.name} did not run")
+				.setContentText(routineMissText(missed.reason))
+				.setAutoCancel(true)
+				.setOnlyAlertOnce(true)
+				.setContentIntent(contentIntent(null))
+				.build()
+			nmc.notify(id, notification)
+		}
+	}
+
+	/** The gateway's word for it, since the phone classifies nothing. */
+	private fun routineMissText(reason: String): String = when (reason) {
+		"session_busy" -> "Its session stayed busy"
+		"host_unreachable" -> "Its machine could not be reached"
+		"disabled" -> "It was turned off"
+		else -> "This Gateway was not running"
 	}
 
 	private fun contentIntent(team: String?): PendingIntent {
@@ -291,6 +334,7 @@ internal class ServiceNotifications(private val context: Context) {
 		const val CHANNEL_MESSAGES = "messages_v2"
 		const val CHANNEL_SCHEDULED_SEND_FAILED = "scheduled_send_failed"
 		const val CHANNEL_VAULT = "vault_requests"
+		const val CHANNEL_ROUTINE = "routine_missed"
 
 		private const val TEAM_ID_RANGE_START = 1000
 		private const val TEAM_ID_RANGE_SIZE = 1_000_000
@@ -319,7 +363,17 @@ internal class ServiceNotifications(private val context: Context) {
 		internal fun vaultNotificationId(requestId: String): Int =
 			VAULT_ID_RANGE_START + (requestId.hashCode() and 0x7FFFFFFF) % VAULT_ID_RANGE_SIZE
 
+		// Own id range, like the others.
+		internal const val ROUTINE_ID_RANGE_START = 4_000_000
+		internal const val ROUTINE_ID_RANGE_SIZE = 1_000_000
+
+		internal fun routineNotificationId(routineId: String): Int =
+			ROUTINE_ID_RANGE_START + (routineId.hashCode() and 0x7FFFFFFF) % ROUTINE_ID_RANGE_SIZE
+
 		init {
+			require(ROUTINE_ID_RANGE_START >= VAULT_ID_RANGE_START + VAULT_ID_RANGE_SIZE) {
+				"ROUTINE_ID_RANGE must fall entirely outside the vault id range"
+			}
 			require(VAULT_ID_RANGE_START >= SCHEDULED_SEND_FAILED_ID_RANGE_START + SCHEDULED_SEND_FAILED_ID_RANGE_SIZE) {
 				"VAULT_ID_RANGE must fall entirely outside the scheduled-send failure id range"
 			}

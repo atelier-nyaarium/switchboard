@@ -406,6 +406,13 @@ class ChatRepository(
 
 	var onInbound: ((team: String, messages: List<Message>) -> Unit)? = null
 
+	/** Set by the service; absent when nothing is drawing a shade. */
+	var onRoutinesChanged: (() -> Unit)? = null
+
+	internal fun notifyRoutinesChanged() {
+		onRoutinesChanged?.invoke()
+	}
+
 	fun onForeground() = focusHost.onForeground()
 
 	fun onBackground() = focusHost.onBackground()
