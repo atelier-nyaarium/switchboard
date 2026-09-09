@@ -3,25 +3,26 @@
 What Routines left open. `plans/routines.md` is finished; these are the two things it named and did
 not settle, plus whatever they turn out to need.
 
-## Question 1 - What does approving an unanswered secret reach?
+## Question 1 - What does approving an unanswered secret reach? [retracted]
 
-A routine's run asks for a vault entry. The owner does not answer within nine minutes, so the request
-settles as refused and an attention row is recorded. The occurrence's work window is twelve hours, so
-when the owner sees the panel the run that asked is usually still going.
+Asked as a choice between minting the authority, minting it and telling the session, re-running, or
+not building it. Retracted before it was answered.
 
-The session has already been told no, and nothing gives it a reason to ask again.
+> I'm approving of what exactly? To a failed idle session because it timed out?
+>
+> But what do you mean granting after it failed and stopped?
 
-Q: When the owner approves for that one run, what does it reach?
+The owner was right and the question rested on a mistake. The request has already settled as
+`refused`; a grant minted afterwards revives nothing, because only a NEW request can use one and only
+the agent opens those. Approving would have authorized something nothing was waiting on.
 
-Choices put to the owner:
+Superseded by Question 3.
 
-- **A. The authority only.** A grant for that entry, bound to that occurrence, expiring with its work
-  window. If the session asks again it works.
-- **B. The authority and the session.** As A, and the reserved session is told the secret is now
-  available. It decides whether to retry.
-- **C. Re-run the occurrence.** Mint the grant and dispatch that occurrence again.
-- **D. Do not build it.** Keep only Link the secret, and say plainly that a refused run cannot be
-  given the secret afterwards.
+## Question 3 - Should the attention panel offer a fresh run?
+
+Q: The two honest actions are Link the secret, which serves future runs, and a fresh run, which is
+the only thing that can finish the work that was blocked. Is the second worth building, or is linking
+enough and the next scheduled run soon enough?
 
 A: pending.
 
@@ -35,10 +36,15 @@ A: pending.
 
 Established before asking, so the choices are real rather than hypothetical.
 
-- **`VAULT_REQUEST_DEADLINE_MS` is nine minutes; an occurrence's `workUntil` is twelve hours.** The
-  run that asked is almost always still alive when the panel appears. Approving for one run is
-  therefore a live action, not a memorial, which is the opposite of what `plans/routines.md` assumed
-  when it deferred this.
+- **`VAULT_REQUEST_DEADLINE_MS` is nine minutes; an occurrence's `workUntil` is twelve hours.** I read
+  the second number as "the run is still alive" and put a question to the owner on it. It is only the
+  outer bound on authority. The request itself has settled as `refused`, and nothing but a new request
+  can use a new grant.
+- **A routine's authority is live only while `work` is not `done`, and `work` reaches `started` only
+  if presence observed the session working.** So a session that was seen working and went idle loses
+  the authority within about a minute, and one that was never observed keeps it for twelve hours.
+  Same failure, opposite outcomes, decided by whether an observation landed. Nothing owner-facing
+  should rest on that, which is the second reason Question 1 was retracted.
 - **`routineHolding(sessionTarget)` answers a routine id, never an occurrence.** Any occurrence-bound
   grant has to make `covers` occurrence-aware, or approving Monday's run authorizes next Monday's in
   the same session. That is the silent over-grant this question has to avoid whichever choice wins.
