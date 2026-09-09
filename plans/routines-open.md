@@ -385,7 +385,7 @@ cannot disagree about it. The prune then disappears rather than being made corre
 That is the same work as retiring `homeGatewayId`, it is claimed on the board with the full shape,
 and it is deliberately not attempted here: doing it in passing is how round 4 happened.
 
-## Phase 2 - A run button on every row
+## Phase 2 - A run button on every row ✅
 
 A manual run is a fresh occurrence at the moment it is pressed, never a re-entry of a dispatched one,
 which the at-most-once ruling forbids. It ignores the recurrence rule, so the one-day minimum does
