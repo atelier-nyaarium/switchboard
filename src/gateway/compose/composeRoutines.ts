@@ -50,6 +50,8 @@ export interface RoutineStage {
 	bindExecution: (attempt: RoutineAttempt) => void;
 	/** The routine whose work is open in that session, which is what a standing grant reads. */
 	workingRoutine: (sessionTarget: string) => string | null;
+	/** Whether a stored routine reserves that session, which keeps it from being swept as idle. */
+	reserves: (sessionTarget: string) => boolean;
 	/** A runbook moved or went, so every routine pinned to it settles its grants again. */
 	runbookMoved: (runbookId: string) => void;
 	/** A secret the owner never answered for, recorded against the occurrence that wanted it. */
@@ -239,6 +241,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		bindExecution: (attempt) => {
 			bound = attempt;
 		},
+		reserves: (sessionTarget) => store.list().some((routine) => routineTeam(routine) === sessionTarget),
 		workingRoutine: (sessionTarget) => {
 			const held = runner.workingOccurrence(sessionTarget);
 			const routine = held && store.get(held.routineId);

@@ -121,6 +121,21 @@ internal suspend fun drainTick(
 	return TickOutcome(rowsDrained, planesApplied, inboxAdvanceSent, nextKnown)
 }
 
+/**
+ * Waits as the coordinator decided. `chainFor` is how long a chained wait holds, or null to take the
+ * next pass at once. An alarm's timeout is a backstop; the alarm itself is what wakes a sleeping phone.
+ */
+private suspend fun park(wait: PollWait, kick: kotlinx.coroutines.channels.Channel<Unit>, chainFor: Long?) {
+	when (wait) {
+		PollWait.Chain -> if (chainFor != null) withTimeoutOrNull(chainFor) { kick.receive() }
+		is PollWait.Delay -> withTimeoutOrNull(wait.ms) { kick.receive() }
+		is PollWait.Alarm ->
+			withTimeoutOrNull(
+				(wait.atMillis - System.currentTimeMillis() + ChatRepository.PARK_SLACK_MS).coerceAtLeast(0),
+			) { kick.receive() }
+	}
+}
+
 private fun advanceOutcome(answer: kotlinx.serialization.json.JsonElement?): String? =
 	(answer as? JsonObject)?.get("outcome")?.jsonPrimitive?.content
 
@@ -319,7 +334,9 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 						// Routines are read, never pushed, so a background pass is the only thing that
 						// learns a run missed while the tab was closed.
 						host.refreshRoutines()
-						withTimeoutOrNull(ChatRepository.BACKGROUND_TICK_MS) { kick.receive() }
+						// Through the coordinator, which is what arms the alarm. Waiting on a bare tick
+						// here left a backgrounded phone with no wake at all once doze suspended it.
+						park(host.plan(false, false, false).wait, kick, ChatRepository.BACKGROUND_TICK_MS)
 						continue@pollLoop
 					}
 					} catch (e: Exception) {
@@ -355,13 +372,7 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 					host.link() == ConsoleLink.SOCKET,
 					failed,
 				)
-				when (val wait = plan.wait) {
-					PollWait.Chain -> if (failed || heldEmpty) withTimeoutOrNull(ChatRepository.POLL_INTERVAL_MS) { kick.receive() }
-					is PollWait.Delay -> withTimeoutOrNull(wait.ms) { kick.receive() }
-					// Alarm timeout is a backstop.
-					is PollWait.Alarm ->
-						withTimeoutOrNull((wait.atMillis - System.currentTimeMillis() + ChatRepository.PARK_SLACK_MS).coerceAtLeast(0)) { kick.receive() }
-				}
+				park(plan.wait, kick, ChatRepository.POLL_INTERVAL_MS.takeIf { failed || heldEmpty })
 			}
 		}
 	}

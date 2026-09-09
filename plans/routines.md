@@ -1104,6 +1104,16 @@ anything after the nudge AND whether the agent ever read its instructions. Only 
 because the tool that would have been read did not. `readAt` now lands on the occurrence when the
 answer is given, and the list carries it as `lastReadAt`.
 
+**Mechanism:** an answer discarded at the port. **Class:** the caller reads "it did not throw" as
+"it worked". `RoutineOps.delete` and `RunbookOps.delete` both took a gateway result and returned
+`Unit`, so a refused delete closed the editor and, for runbooks, dropped the phone's copy first.
+Both now return the gateway's own `deleted`, and the runbook asks before it forgets.
+
+**Mechanism:** a wake nothing armed. **Class:** a coordinator bypassed by the path that needs it.
+Backgrounding forces the `POLL` link, and that branch returned before `plan(...)`, which is what
+arms the alarm. So the doze wake this plan asked for was never armed in the one state it was for.
+Both branches now park through one helper.
+
 **Mechanism:** the CI workflow. **Class:** a gate nothing runs. `check:boot` has been called the
 shipping-composition gate in `AGENTS.md` for months and was never a workflow step, so the fence built
 this phase to catch an unregistered tool was itself unreachable. `check:fixtures` was outside it too.
@@ -1191,20 +1201,18 @@ addressing.
 
 # Left for the owner
 
-Every phase is done. These came out of the Phase 5 and 6 audits, are real, and are decisions rather
-than defects, so none of them was taken here.
+Every phase is done. Two of the four things first recorded here turned out to be defects rather than
+decisions once Sol argued them, and both are now fixed: the background poll never reached `plan(...)`
+so no alarm was ever armed while backgrounded, and the idle sweep took a routine's reserved session,
+leaving a shell alive holding a token the gateway no longer knew.
 
-- **The background poll's thirty-second tick.** With a socket, the background pass rides the
-  earliest-wake coordinator as this plan asked. Without one, the `POLL` link loops on its own
-  thirty-second tick and never reaches `plan(...)`, so no doze alarm is armed and a miss is learned
-  when doze lifts. That is the poll loop's own shape and predates routines; changing it trades
-  battery against how quickly a miss is seen.
+What is left is genuinely the owner's call.
+
 - **Naming the gateway on the Routines and Runbooks tabs.** Both are scoped to the home gateway and
   neither says so. The conflation this plan actually guarded against, one list across gateways or a
   copy that reads as replication, does not exist. Adding a line to both tabs is a UI call.
 - **"Approve this occurrence now" on an unanswered secret.** The attention record carries no vault
   request id, and the request is gone by the time the owner sees the panel. Offering it needs a
   gateway operation that opens access for one occurrence and entry, which is a new authority shape.
-- **A routine that has run nothing for thirty days loses its reserved session.** The session store
-  sweeps an idle record at that age, so the next run creates a new session rather than reattaching.
-  Nothing breaks, and the alternative is a record that never expires.
+  Phase 5 asked for both halves of that panel, so this is the one thing the plan named and did not
+  get; it needs a decision about the authority before it can be built.

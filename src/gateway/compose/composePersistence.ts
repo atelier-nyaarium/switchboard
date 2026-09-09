@@ -29,6 +29,12 @@ export interface PersistenceStageDeps {
 	context: FederationContext;
 	/** Swept sessions end like closed ones. */
 	sessionEnded?: (team: string) => void;
+	/**
+	 * Whether a routine reserves that session. Read late, since routines compose after this. A
+	 * reserved record is a reachability root: sweeping it leaves the routine unable to reach a
+	 * session whose shell is still there, holding a token this gateway no longer knows.
+	 */
+	reservedByRoutine?: (team: string) => boolean;
 }
 
 export interface PersistenceStage {
@@ -43,6 +49,7 @@ export function composePersistence({
 	sessions,
 	context,
 	sessionEnded,
+	reservedByRoutine,
 }: PersistenceStageDeps): PersistenceStage {
 	const runPersistSteps = createPersistRunner();
 	const persistDelivery = (cleanShutdown: boolean) =>
@@ -60,7 +67,8 @@ export function composePersistence({
 					const sweptTeams = sessions.sessionStore.sweep(SESSION_RESUME_TTL_MS, {
 						maxEntries: MAX_SESSION_RESUME_ENTRIES,
 						isLive: (team) =>
-							resolveLiveIncarnation(sessions.registry, sessions.sessionStore, team) !== undefined,
+							resolveLiveIncarnation(sessions.registry, sessions.sessionStore, team) !== undefined ||
+							reservedByRoutine?.(team) === true,
 					});
 					if (sweptTeams.length === 0) return;
 					for (const team of sweptTeams) {

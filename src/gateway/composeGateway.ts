@@ -109,6 +109,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			vault?.sessionEnded(team);
 			routines.sessionEnded(team);
 		},
+		reservedByRoutine: (team) => routines.reserves(team),
 	});
 	const host = composeHost({ sessions, wakeTimeoutMs: config.wakeTimeoutMs, ambient: bootstrap.ambient });
 	const agents = composeAgents({ sessions, host, ambient: bootstrap.ambient });

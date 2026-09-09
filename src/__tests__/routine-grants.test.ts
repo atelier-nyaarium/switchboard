@@ -144,6 +144,20 @@ const running = async () => {
 	return s;
 };
 
+describe("the session a routine reserves", () => {
+	it("is a root, so the idle sweep does not take it while the routine is stored", async () => {
+		const s = await stage();
+		s.routines.console.put(routine());
+		// The sweep asks this before deciding a record is idle enough to drop.
+		expect(s.routines.reserves(TEAM)).toBe(true);
+		expect(s.routines.reserves("host.something-else")).toBe(false);
+
+		// Gone with the routine, so a deleted one stops holding a session open forever.
+		s.routines.console.remove("triage");
+		expect(s.routines.reserves(TEAM)).toBe(false);
+	});
+});
+
 describe("whose work is open in a session", () => {
 	it("is the routine's, while the session is still the one it reserved", async () => {
 		const s = await running();
