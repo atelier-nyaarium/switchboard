@@ -445,3 +445,40 @@ Established before asking, so the choices are real rather than hypothetical.
 - **`runNow` accepts only a `missed` occurrence.** Choice C is not a small extension of it: the
   occurrence in question is `dispatched`, so C needs its own road and would re-do work the agent may
   already have done.
+
+# Painpoints
+
+What actually cost time in Phase 1. Not a code audit, and nothing here was fixed.
+
+**A signature that lies is worse than no signature.** Six board write methods took a `gatewayId` and
+ignored it. Reading `boardSetState(gatewayId, id, state)` you cannot tell without opening it, so
+every caller dutifully threaded a value that went nowhere, and the seventh method, which DID use it,
+inherited the same casual treatment and got an empty string. The parameter list was the misalignment.
+
+**Two readers of one fact, with nothing naming the authority.** `state.admittedGateways` and
+`sessions.keyringGateways()` both answer "which Gateways". I had to read `ConnectCoordinator`'s
+`adoptHomeGateway` to work out that the home id is always one of the admitted ones, because nothing
+said so anywhere. That unstated relationship is what the prune race grew out of.
+
+**Nothing can call a `@Composable`, so a rule inside one is invisible.** `AGENTS.md` already carries
+this as a standing rule, which tells you it recurs. It did again: the per-gateway lookups were
+expressions inside `RunbookFireSheet` and `RoutineEditor`, and the only way to get a test near them
+was to lift them into `ChatState` extensions. Every screen is a place rules go to hide.
+
+**`RunbookOps` holds five things that can disagree:** `synced`, `refusals`, `drafts`, the durable
+library, and the published state. One change meant reasoning about all five. It is the largest ops
+class and it is doing sync, drafts, refusals and display at once.
+
+**The emulator check is the only real gate for this feature, and it is hand-driven.** Build, install,
+launch, then tap coordinates worked out by hand from a screenshot's scale factor. A layout change
+moves the target and the tap lands somewhere else silently. It found two things nothing else could,
+so it earns its keep, but it is the least repeatable step in the loop.
+
+**A stale sandbox is a gate that agrees with everything.** `SandboxGateways` answered every Gateway
+identically, so the emulator could not have shown the single-Gateway defect the whole phase existed
+to fix. A fixture that does not vary along the axis under test is not covering it.
+
+**Auditing agents should be pointed at a commit range, not "the working tree".** Two runs read a tree
+that had moved under them and reported line numbers and files that no longer matched. One also
+asserted a repo-wide rule that does not exist and flagged forty pre-existing lines for it, which is
+the reminder that a confident tone is not evidence.
