@@ -433,6 +433,16 @@ adb exec-out screencap -p > /tmp/shot.png
 It installs beside the real app. Emulator seeding bypasses mailbox draining, so handler-created
 state must be seeded directly. Run `adb emu kill` when finished.
 
+Start the emulator with `-no-window` from a session with no display, or it dies on the Qt platform
+plugin and reads as a broken emulator rather than a missing one:
+
+```bash
+emulator -avd <name> -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect &
+```
+
+`SandboxGateways.kt` answers the runbook and routine calls as a Gateway would, which is what makes a
+screen that only appears on a refusal reachable at all. They are ports, not sockets.
+
 The sandbox renders nothing until the boot is Ready, and it reaches no Router at all. Both are held
 by `SandboxSeeder.kt`:
 

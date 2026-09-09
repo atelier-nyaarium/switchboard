@@ -54,9 +54,17 @@ internal fun attentionLine(attention: RoutineAttention, zone: java.time.ZoneId):
 	return "The run at ${absoluteTimeText(attention.scheduledAt, zone)} asked for $secrets and got no answer."
 }
 
+/**
+ * Names are not unique; ids are. Two runbooks called the same thing are one choice the owner cannot
+ * tell apart, and picking the wrong one pins a routine to words they never read.
+ */
+internal fun runbookChipLabel(name: String, id: String, names: List<String>): String =
+	if (names.count { it == name } > 1) "$name ($id)" else name
+
 /** What each verb touches, said rather than implied. */
 internal const val DISMISS_EXPLAINS = "Settles this one run. The schedule keeps going."
-internal const val DISABLE_EXPLAINS = "Stops the schedule. The routine and its runs stay."
+internal const val ENABLED_EXPLAINS = "The schedule runs. Turning this off keeps the routine and its runs."
+internal const val DISABLE_EXPLAINS = "The schedule is stopped. The routine and its runs stay."
 internal const val DELETE_EXPLAINS = "Removes the routine, its runs and its linked secrets."
 
 /** A run already handed to its session is not recalled by any of the three. */

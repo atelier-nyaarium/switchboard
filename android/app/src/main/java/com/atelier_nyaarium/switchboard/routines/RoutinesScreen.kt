@@ -16,6 +16,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -133,9 +134,10 @@ private fun RoutineRow(
 	}
 }
 
+/** Outlined against the row it sits in: a card inside a card of the same tone reads as body text. */
 @Composable
 private fun Panel(text: String, actions: @Composable (() -> Unit)? = null) {
-	Card(Modifier.fillMaxWidth()) {
+	OutlinedCard(Modifier.fillMaxWidth()) {
 		Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
 			Text(text, style = MaterialTheme.typography.bodySmall)
 			if (actions != null) {

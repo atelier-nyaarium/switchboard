@@ -143,6 +143,7 @@ fun RoutineEditor(repo: ChatRepository, state: ChatState, routineId: String?, on
 			)
 
 			Text("Runbook", style = MaterialTheme.typography.labelLarge)
+			val names = state.runbooks.map { it.name }
 			FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
 				for (book in state.runbooks) {
 					FilterChip(
@@ -150,18 +151,35 @@ fun RoutineEditor(repo: ChatRepository, state: ChatState, routineId: String?, on
 						onClick = hapticClick {
 							draft = draft.copy(runbookId = book.id, approvedRevision = book.revision)
 						},
-						label = { Text(book.name) },
+						label = { Text(runbookChipLabel(book.name, book.id, names)) },
 					)
 				}
 			}
 			val picked = state.runbooks.find { it.id == draft.runbookId }
 			for (parameter in picked?.parameters.orEmpty()) {
-				OutlinedTextField(
-					value = draft.values[parameter.name].orEmpty(),
-					onValueChange = { draft = draft.copy(values = draft.values + (parameter.name to it)) },
-					label = { Text(parameter.label) },
-					modifier = Modifier.fillMaxWidth(),
-				)
+				val held = draft.values[parameter.name].orEmpty()
+				val set = { value: String -> draft = draft.copy(values = draft.values + (parameter.name to value)) }
+				// A choice offers what the runbook offers, as the fire sheet does. A free field here
+				// would take a value the runbook never named and only fail at the gateway.
+				if (parameter.kind == "choice") {
+					Text(parameter.label, style = MaterialTheme.typography.labelLarge)
+					FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+						for (option in parameter.options.orEmpty()) {
+							FilterChip(
+								selected = held == option,
+								onClick = hapticClick { set(option) },
+								label = { Text(option) },
+							)
+						}
+					}
+				} else {
+					OutlinedTextField(
+						value = held,
+						onValueChange = set,
+						label = { Text(parameter.label) },
+						modifier = Modifier.fillMaxWidth(),
+					)
+				}
 			}
 
 			OutlinedTextField(
@@ -173,8 +191,12 @@ fun RoutineEditor(repo: ChatRepository, state: ChatState, routineId: String?, on
 
 			Text("Linked secrets", style = MaterialTheme.typography.labelLarge)
 			Text(
-				"Each is unrestricted while this routine is working: it may be used for anything the " +
-					"session can be talked into running.",
+				if (entries.isEmpty()) {
+					"Nothing in the vault to link yet."
+				} else {
+					"Each is unrestricted while this routine is working: it may be used for anything " +
+						"the session can be talked into running."
+				},
 				style = MaterialTheme.typography.bodySmall,
 			)
 			FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -201,8 +223,13 @@ fun RoutineEditor(repo: ChatRepository, state: ChatState, routineId: String?, on
 				verticalAlignment = Alignment.CenterVertically,
 			) {
 				Column(Modifier.weight(1f)) {
-					Text("Enabled", style = MaterialTheme.typography.bodyMedium)
-					Text(DISABLE_EXPLAINS, style = MaterialTheme.typography.bodySmall)
+					// The line describes the state the switch is in, not the one it would move to: a
+					// fixed "stops the schedule" under a switch that is on reads as if on stopped it.
+					Text(if (draft.enabled) "Enabled" else "Disabled", style = MaterialTheme.typography.bodyMedium)
+					Text(
+						if (draft.enabled) ENABLED_EXPLAINS else DISABLE_EXPLAINS,
+						style = MaterialTheme.typography.bodySmall,
+					)
 				}
 				Switch(checked = draft.enabled, onCheckedChange = { draft = draft.copy(enabled = it) })
 			}

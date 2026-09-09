@@ -9,6 +9,7 @@ import com.atelier_nyaarium.switchboard.routines.attentionLine
 import com.atelier_nyaarium.switchboard.routines.missLine
 import com.atelier_nyaarium.switchboard.routines.nextRunLine
 import com.atelier_nyaarium.switchboard.routines.ruleMoved
+import com.atelier_nyaarium.switchboard.routines.runbookChipLabel
 import com.atelier_nyaarium.switchboard.routines.scheduleLine
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
@@ -80,6 +81,14 @@ class RoutineTextTest {
 		val at = java.time.Instant.parse("2026-09-14T09:00:00Z").toEpochMilli()
 		val line = attentionLine(RoutineAttention("triage:$at", at, listOf("deploy", "npm")), utc)
 		assertTrue(line.contains("deploy, npm"))
+	}
+
+	@Test
+	fun twoRunbooksSharingANameAreToldApartByTheirIds() {
+		val names = listOf("Release", "Release", "Triage")
+		assertEquals("Release (a)", runbookChipLabel("Release", "a", names))
+		assertEquals("Release (b)", runbookChipLabel("Release", "b", names))
+		assertEquals("Triage", runbookChipLabel("Triage", "c", names))
 	}
 
 	@Test

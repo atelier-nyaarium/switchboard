@@ -17,16 +17,28 @@ import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
 import com.atelier_nyaarium.switchboard.proto.RunbookParameter
 import kotlinx.serialization.json.JsonObject
 
-/**
- * What a Gateway would answer, answered in the sandbox instead. Every screen that only appears when
- * a Gateway refuses had never been rendered by anything, because `isSandbox` closes the network and
- * a screen waiting on an answer waits forever. These are ports, not sockets: nothing here opens one,
- * so the residue test that reads every network door stays true.
- */
+// What a Gateway would answer, answered in the sandbox instead. Every screen that only appears when
+// a Gateway refuses had never been rendered by anything, because `isSandbox` closes the network and
+// a screen waiting on an answer waits forever. These are ports, not sockets: nothing here opens one,
+// so the residue test that reads every network door stays true.
+
 /** Deliberately not a wire word: the residue fence reads this file for those. */
 private const val REFUSING_ID = "held-elsewhere"
 
 private fun day(offsetMs: Long): Long = System.currentTimeMillis() + offsetMs
+
+/**
+ * The next Monday or Wednesday at 09:00 in the zone the canned routines name, so the schedule line
+ * and the next run agree. Two lines that disagree are the first thing a reader would call a bug.
+ */
+private fun nextSlot(weeksOut: Long = 0L): Long {
+	val zone = java.time.ZoneId.of("America/Los_Angeles")
+	var at = java.time.ZonedDateTime.now(zone).withHour(9).withMinute(0).withSecond(0).withNano(0)
+	while (at.dayOfWeek.value != 1 && at.dayOfWeek.value != 3) at = at.plusDays(1)
+	if (at.toInstant().toEpochMilli() <= System.currentTimeMillis()) at = at.plusDays(1)
+	while (at.dayOfWeek.value != 1 && at.dayOfWeek.value != 3) at = at.plusDays(1)
+	return at.plusWeeks(weeksOut).toInstant().toEpochMilli()
+}
 
 internal class SandboxRunbookGateway : RunbookGateway {
 	override suspend fun list(gatewayId: String) = ConsoleRunbookListResult(
@@ -96,12 +108,12 @@ internal class SandboxRoutineGateway : RoutineGateway {
 		routines = listOf(
 			RoutineState(
 				routine = routine("triage", "Morning triage"),
-				nextAt = day(86_400_000L),
+				nextAt = nextSlot(),
 				lastRanAt = day(-86_400_000L),
 			),
 			RoutineState(
 				routine = routine("sweep", "Weekly sweep"),
-				nextAt = day(3 * 86_400_000L),
+				nextAt = nextSlot(1L),
 				missed = RoutineMiss(
 					occurrenceId = "sweep:1",
 					scheduledAt = day(-2 * 86_400_000L),

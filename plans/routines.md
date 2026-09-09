@@ -1094,8 +1094,14 @@ addressing.
   and an unanswered secret so no panel in the tab is unreachable. They are ports, not sockets, so
   the residue test that reads every network door stays true.
 
-  The emulator variant builds with them. Rendering them has not been done: no device was attached
-  when they were written, so the screens are reachable rather than seen.
+  Rendered, and it earned itself immediately. Four things no gate could see: a choice parameter drew
+  a free text field where the fire sheet offers the runbook's own options, the linked-secrets section
+  warned about a danger with nothing to link, the enable switch carried a fixed line describing what
+  turning it off does while sitting on, and two runbooks sharing a name were one choice the owner
+  could not tell apart.
+
+  The emulator needs `-no-window` in a headless session. It was failing to start on the Qt platform
+  plugin, which reads as a broken emulator rather than a missing display.
 
 - **`kotlin-gate.sh` did not say what it checked.** Fixed in Phase 1: it prints what it verified
   when it passes. Gradle reports `UP-TO-DATE` for a task it skipped and for one whose inputs really
