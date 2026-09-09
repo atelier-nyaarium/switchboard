@@ -15,7 +15,11 @@ interface RunbookStore {
  * One copy per gateway. A revision describes one gateway's record, so a single library would carry
  * one gateway's numbers into another and call the two the same runbook.
  */
-class RunbookManager(private val store: RunbookStore) : ClearsOnReprovision {
+class RunbookManager(
+	private val store: RunbookStore,
+	/** Which gateway claims a library written before the copies were split. */
+	private val homeGatewayId: () -> String = { "" },
+) : ClearsOnReprovision {
 	private val json = Json { ignoreUnknownKeys = true }
 
 	private val stateLock = Any()
@@ -34,13 +38,15 @@ class RunbookManager(private val store: RunbookStore) : ClearsOnReprovision {
 	}
 
 	/**
-	 * Where a library written before the split waits. The first gateway to read one takes it, since
-	 * a phone that held one copy held the home gateway's.
+	 * Where a library written before the split waits. The home gateway claims it, since a phone that
+	 * held one copy held the home gateway's. Naming which one rather than taking whoever reads first
+	 * is what stops two concurrent syncs each pushing that copy to a different gateway.
 	 */
 	private fun libraryOf(gatewayId: String): List<Runbook> {
 		val held = libraries[gatewayId]
 		if (held != null) return held
-		return if (libraries.containsKey(UNPLACED)) libraries.getValue(UNPLACED) else emptyList()
+		val home = homeGatewayId()
+		return if (gatewayId == home && home.isNotBlank()) libraries[UNPLACED].orEmpty() else emptyList()
 	}
 
 	fun all(gatewayId: String): List<Runbook> = libraryOf(gatewayId)

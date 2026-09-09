@@ -71,15 +71,17 @@ class RunbookManagerTest {
 	}
 
 	@Test
-	fun aLibraryWrittenBeforeTheCopiesWereSplitIsTakenByWhoeverReadsItFirst() {
+	fun aLibraryWrittenBeforeTheCopiesWereSplitIsTheHomeGatewaysAndNobodyElses() {
 		val store = MemoryStore()
 		store.blob = """[{"id":"deploy","name":"deploy","body":"do it","parameters":[],"revision":3}]"""
 
-		val manager = RunbookManager(store)
+		val manager = RunbookManager(store) { GW }
 		assertEquals(listOf("deploy"), manager.all(GW).map { it.id })
+		// Named rather than raced: two syncs cannot each push that copy to a different gateway.
+		assertEquals(emptyList<Runbook>(), manager.all("laptop"))
 
 		manager.merge(GW, listOf(book("deploy", revision = 4L)))
-		// Claimed, so it is no longer anybody else's.
+		assertEquals(4L, manager.find(GW, "deploy")?.revision)
 		assertEquals(emptyList<Runbook>(), manager.all("laptop"))
 	}
 

@@ -71,9 +71,9 @@ class RoutineTextTest {
 	fun aMissSaysTheGatewaysOwnStoryRatherThanOneThePhoneInvented() {
 		val at = java.time.Instant.parse("2026-09-14T09:00:00Z").toEpochMilli()
 		val miss = { reason: String -> RoutineMiss("triage:$at", at, reason, true) }
-		assertTrue(missLine(miss("session_busy"), utc).endsWith("its session stayed busy"))
-		assertTrue(missLine(miss("host_unreachable"), utc).endsWith("its machine could not be reached"))
-		assertTrue(missLine(miss("gateway_down"), utc).endsWith("this Gateway was not running"))
+		assertTrue(missLine(miss("session_busy"), utc).endsWith("its session stayed busy."))
+		assertTrue(missLine(miss("host_unreachable"), utc).endsWith("its machine could not be reached."))
+		assertTrue(missLine(miss("gateway_down"), utc).endsWith("this Gateway was not running."))
 	}
 
 	@Test

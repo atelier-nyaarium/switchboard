@@ -56,7 +56,7 @@ class ChatRepository(
 
 	val vault = com.atelier_nyaarium.switchboard.vault.VaultManager(store)
 
-	val runbooks = com.atelier_nyaarium.switchboard.runbooks.RunbookManager(store)
+	val runbooks = com.atelier_nyaarium.switchboard.runbooks.RunbookManager(store) { homeGatewayId }
 
 	internal val approvalGate = com.atelier_nyaarium.switchboard.vault.ApprovalGate(
 		policy = { store.vaultUnlock },

@@ -42,7 +42,7 @@ internal fun missLine(miss: RoutineMiss, zone: java.time.ZoneId): String {
 		"disabled" -> "it was turned off"
 		else -> "this Gateway was not running"
 	}
-	return "Did not run at ${absoluteTimeText(miss.scheduledAt, zone)}: $story"
+	return "Did not run at ${absoluteTimeText(miss.scheduledAt, zone)}: $story."
 }
 
 internal fun reviewLine(reviewAt: Long, zone: java.time.ZoneId): String =

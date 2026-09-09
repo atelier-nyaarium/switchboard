@@ -121,9 +121,14 @@ private fun RoutineRow(
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 			row.reviewAt?.let { Panel(reviewLine(it, zone)) }
-			row.attention?.let { Panel(attentionLine(it, zone)) }
+			row.attention?.let { wanted ->
+				// Linking is the owner's other answer, and the editor is where it is given.
+				Panel(attentionLine(wanted, zone)) {
+					TextButton(onClick = hapticClick(onEdit)) { Text("Link the secret") }
+				}
+			}
 			row.missed?.let { miss ->
-				Panel(missLine(miss, zone)) {
+				Panel("${missLine(miss, zone)} $DISMISS_EXPLAINS") {
 					if (miss.runnable) {
 						TextButton(onClick = hapticClick { onRunNow(miss.occurrenceId) }) { Text("Run now") }
 					}
