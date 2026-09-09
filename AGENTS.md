@@ -377,8 +377,12 @@ Commit and push to `main`. Do not open a branch or a PR for ordinary work, and d
 open: an unmerged PR is work the owner will forget.
 
 Nothing BLOCKS a push, so run the local gates first. CI does run: `.github/workflows/ci.yml` repeats
-lint, tests and the drift checks on every push to `main`, and `main-push.yml` builds Android. They
-report after the fact, so a red run is found only by looking. Check `gh run list` after a push.
+lint, tests, `check:boot`, `check:pinning` and the drift checks on every push to `main`, and
+`main-push.yml` builds Android. They report after the fact, so a red run is found only by looking.
+Check `gh run list` after a push.
+
+A gate that CI does not run is a gate nobody runs. `check:boot` sat outside the workflow for months
+while `AGENTS.md` called it the shipping-composition gate.
 
 Run `gitFetch` and `gitPull` before every follow-up edit after a push. A non-empty
 `git log main..origin/main` is a hard stop. Scripted edits must assert their match before writing.

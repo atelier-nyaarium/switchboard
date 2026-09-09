@@ -63,6 +63,20 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run check:pinning
 
+      # The suite composes the graph in-process and can pass while a stage is not wired into the
+      # real entry point, or a tool a session is told to call is registered nowhere. This boots the
+      # Router, the gateway and the MCP plugin as they ship.
+      - name: Real entry points compose and serve
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run check:boot
+
+      # The suite replays the committed fixtures and asks whether they are still accepted. This
+      # regenerates them from the real composers under bun and asks whether they are still what we
+      # emit, which a replay cannot see.
+      - name: Wire fixture drift check
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run check:fixtures
+
       - name: Codegen drift check
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         # --exit-code alone is vacuous for untracked output; the porcelain
