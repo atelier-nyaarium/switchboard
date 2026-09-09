@@ -205,10 +205,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		});
 	}
 
-	/**
-	 * One representative, for a reader whose answer is about the routine rather than the run. Named
-	 * so it cannot be mistaken for the only one: anything ending a session takes them all.
-	 */
+	/** One representative, for readers about the routine rather than the run. Ending a session takes all. */
 	function firstWorkingOccurrence(sessionTarget: string): Occurrence | null {
 		return workingOccurrences(sessionTarget)[0] ?? null;
 	}

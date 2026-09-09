@@ -191,8 +191,7 @@ describe("whose work is open in a session", () => {
 
 		s.routines.sessionEnded(TEAM);
 
-		// Closing only the first would leave the routine reaching its secrets from a session that
-		// has gone, for as long as the window it never closed.
+		// Closing one leaves the routine reaching its secrets through a window nothing closed.
 		expect(s.routines.workingRoutine(TEAM)).toBeNull();
 	});
 });

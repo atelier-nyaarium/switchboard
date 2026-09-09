@@ -396,7 +396,8 @@ Unlike Phase 1 this does touch the wire: `routine_run_now` names an occurrence a
 `missed` one, which is a different act. A fresh run is its own operation, and the Kotlin codegen
 follows it.
 
-What the gateway side has to answer, each confirmed against the code:
+What the gateway side has to answer, as it read before the work. Two of the five were wrong, and
+"What the audit changed" below says which.
 
 - **Nothing in the state machine assumes a rule-named instant.** `open` bounds `scheduledAt` only as
   a nonnegative integer, and preparation never reads it. The ad-hoc occurrence is ordinary.
