@@ -1050,6 +1050,10 @@ an automatic one, a runbook revision that moved, reading a snapshot back after a
 dismissal folding across two phone projections, and the reserved session being removed underneath.
 Assert on what a session receives and what a phone is shown, not on store bookkeeping.
 
+Built as `src/__tests__/federation-harness-routine-schedule.test.ts`, eleven cases: the nine above,
+split so that a restart and a slept gap are separate, since one proves the durable reload and the
+other proves the fold.
+
 Name what no gate here can reach, and cover each deliberately rather than declaring it unreachable:
 
 - **MCP registration.** A residue test cannot prove a tool registers. A subprocess smoke test runs

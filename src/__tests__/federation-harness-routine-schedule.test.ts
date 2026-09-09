@@ -54,6 +54,18 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 	 */
 	let offset = FIRST - 3_000 - Date.now();
 	const now = (): number => Date.now() + offset;
+	/** Minted per launch. A reconnecting plugin presents the one its record still holds. */
+	let token: string | undefined;
+
+	const attach = (): FakeSession => {
+		reserved = attachFakeSession(h.gateway, {
+			team: TEAM,
+			conversationId: `conv-routine-${creations}`,
+			sessionToken: token,
+		});
+		sessions.push(reserved);
+		return reserved;
+	};
 
 	beforeAll(async () => {
 		h = await startFederationHarness({
@@ -66,12 +78,8 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 					// plugin with it, and a second one here would take the nudges out of view.
 					if (reserved) return;
 					creations += 1;
-					reserved = attachFakeSession(h.gateway, {
-						team: TEAM,
-						conversationId: `conv-routine-${creations}`,
-						sessionToken: op.sessionToken,
-					});
-					sessions.push(reserved);
+					token = op.sessionToken;
+					attach();
 				},
 			},
 		});
@@ -149,6 +157,20 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 		const row = await shown();
 		expect(row?.missed).toMatchObject({ scheduledAt: FIRST + WEEK_MS, reason: "session_busy", runnable: false });
 		expect(nudges(FIRST + WEEK_MS)).toBe(0);
+	});
+
+	it("reads its routines back from disk after a restart", async () => {
+		const before = await shown();
+		await h.restartGateway();
+		// The plugin reconnects to the new process on the token its record still holds.
+		attach();
+
+		const after = await shown();
+		expect(after?.routine).toEqual(before?.routine);
+		expect(after?.missed).toEqual(before?.missed);
+		// Answering a run issued before the restart means the snapshot came back too.
+		const answer = await reserved?.post("/routine/session", { occurrenceId: String(FIRST) });
+		expect(await answer?.json()).toMatchObject({ kind: "instructions" });
 	});
 
 	it("catches up on a gap it slept through, and folds it into one panel", async () => {
