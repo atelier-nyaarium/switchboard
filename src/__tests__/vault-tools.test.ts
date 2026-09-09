@@ -192,7 +192,9 @@ describe("the vault tools", () => {
 			jobId: "req-1",
 		});
 		expect(t.posted.at(-1)).toEqual({ path: "/vault/collect", body: { requestId: "req-1", waitMs: 0 } });
-		expect(await t.tools.collect({ jobId: "req-1", waitMs: 10 })).toMatchObject({
+		// The budget is an upper bound, not a wait: the child returns at once. Ten milliseconds is
+		// enough here and not on a loaded machine, where the honest answer becomes "running".
+		expect(await t.tools.collect({ jobId: "req-1", waitMs: 5_000 })).toMatchObject({
 			outcome: "ran",
 			stdout: "[vault]",
 		});
