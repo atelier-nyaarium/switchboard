@@ -153,7 +153,7 @@ on them to the home gateway. The same goal, its real cost. Nothing was added tha
 already need, and three things the audits raised were left out deliberately: retiring
 `homeGatewayId`, giving gateways human-readable names, and teaching the harness a second gateway.
 
-## Phase 1 - Both tabs reach every gateway [done]
+## Phase 1 - Both tabs reach every gateway ✅
 
 **Phone only.** `sendValueOp(gatewayId, op)` already addresses whichever gateway it is given, and
 `ConsoleClientRoutines` says so in its own first line: a routine runs on one gateway, so every call
