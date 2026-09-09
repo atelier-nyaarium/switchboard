@@ -51,25 +51,25 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit) {
-	val existing = remember(runbookId) { runbookId?.let { repo.runbooks.find(repo.homeGatewayId, it) } }
+fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, onClose: () -> Unit) {
+	val existing = remember(gatewayId, runbookId) { runbookId?.let { repo.runbooks.find(gatewayId, it) } }
 	val draftKey = runbookId ?: "new"
-	var draft by remember(runbookId) {
+	var draft by remember(gatewayId, runbookId) {
 		mutableStateOf(
-			repo.runbookOps.draftFor(draftKey)
+			repo.runbookOps.draftFor(gatewayId, draftKey)
 				?: existing?.let { RunbookDraft.of(it) }
 				?: RunbookDraft(id = newRunbookId()),
 		)
 	}
 	// The repository outlives this activity, so an edit in progress survives a rotation there.
-	LaunchedEffect(draft) { repo.runbookOps.keepDraft(draftKey, draft) }
+	LaunchedEffect(draft) { repo.runbookOps.keepDraft(gatewayId, draftKey, draft) }
 	val declared = draft.declared
 	val scope = rememberCoroutineScope()
-	var saving by remember(runbookId) { mutableStateOf(false) }
-	var refused by remember(runbookId) { mutableStateOf<SaveRefusal?>(null) }
+	var saving by remember(gatewayId, runbookId) { mutableStateOf(false) }
+	var refused by remember(gatewayId, runbookId) { mutableStateOf<SaveRefusal?>(null) }
 	// Kept with the draft, or a rotation would leave the intent behind and save an ordinary edit.
-	var overwriting by rememberSaveable(runbookId) { mutableStateOf(false) }
-	var deleting by remember(runbookId) { mutableStateOf(false) }
+	var overwriting by rememberSaveable(gatewayId, runbookId) { mutableStateOf(false) }
+	var deleting by remember(gatewayId, runbookId) { mutableStateOf(false) }
 
 	Scaffold(
 		topBar = {
@@ -78,7 +78,7 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 				actions = {
 					TextButton(
 						onClick = hapticClick {
-							repo.runbookOps.dropDraft(draftKey)
+							repo.runbookOps.dropDraft(gatewayId, draftKey)
 							onClose()
 						},
 					) { Text("Cancel") }
@@ -90,10 +90,16 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 							refused = null
 							val base = draft.revision.takeIf { it > 0L }
 							scope.launch {
-								when (val saved = repo.runbookOps.save(candidate, baseRevision = base, overwrite = overwriting)) {
+								val saved = repo.runbookOps.save(
+									candidate,
+									gatewayId = gatewayId,
+									baseRevision = base,
+									overwrite = overwriting,
+								)
+								when (saved) {
 									is RunbookSaved.Refused -> refused = saved.refusal
 									else -> {
-										repo.runbookOps.dropDraft(draftKey)
+										repo.runbookOps.dropDraft(gatewayId, draftKey)
 										onClose()
 									}
 								}
@@ -137,7 +143,7 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 			val shown = if (overwriting) {
 				null
 			} else {
-				refusalToShow(refused, repo.runbookOps.refusalFor(draft.id), draft.revision)
+				refusalToShow(refused, repo.runbookOps.refusalFor(gatewayId, draft.id), draft.revision)
 			}
 			shown?.let { refusal ->
 				Card(Modifier.fillMaxWidth()) {
@@ -164,7 +170,10 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 	if (deleting) {
 		// Named rather than counted: a routine pinning this stops, and only the owner can decide
 		// whether that is what they meant.
+		// This Gateway's routines only. Another Gateway's copy of the id is another runbook.
 		val pinning = repo.state.value.routines
+			.filter { it.gatewayId == gatewayId }
+			.flatMap { group -> group.routines }
 			.filter { it.routine.runbookId == draft.id }
 			.map { it.routine.name }
 		AlertDialog(
@@ -187,8 +196,8 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 						scope.launch {
 							// Closing on a delete this Gateway never took would say gone about a copy
 							// it still holds.
-							if (repo.runbookOps.delete(draft.id)) {
-								repo.runbookOps.dropDraft(draftKey)
+							if (repo.runbookOps.delete(draft.id, gatewayId)) {
+								repo.runbookOps.dropDraft(gatewayId, draftKey)
 								onClose()
 							} else {
 								refused = SaveRefusal("This Gateway still holds it; it was not reached", 0L)

@@ -62,9 +62,27 @@ adapted in `RepositoryCollaborators.kt`, so a JVM test constructs them over shar
 `invalidateClient()`. `DrainGate` is the repository's one re-entrant drain mutex. Sealing takes an entropy hook (`Crypto.seal`, `ContentKeyring.wrapFor`,
 `KeyDeliveryOps.wrapEntropy`, `PhoneAmbient.newNonceBytes`); a null hook draws from `SecureRandom`.
 
-`homeGatewayId` selects the phone's home Gateway from the admitted gateways. Phone-bound rows are
-appended by the Gateway through `deliverToOwner`. `src/gateway/consolePushOps.ts` owns the durable
-`OwnerRowOutbox` for disconnected or uncertain appends.
+Phone-bound rows are appended by the Gateway through `deliverToOwner`.
+`src/gateway/consolePushOps.ts` owns the durable `OwnerRowOutbox` for disconnected or uncertain
+appends.
+
+### `homeGatewayId`, and the five things it is for
+
+`adoptHomeGateway` keeps the stored id while the Domain keyring still admits it, and otherwise takes
+`admitted.firstOrNull()`. The owner never picks it and there is no control for it.
+
+Every job it has resolves or identifies. None of them decides what may be shown:
+
+1. Completing an unqualified name, so a bare `sandbox` means that spawn on this Gateway.
+2. Filling the Gateway segment of this phone's own local address.
+3. Reading the Domain id off that Gateway's signed roster.
+4. Naming which of the owner's Gateways is asking, on a cross-domain trust request.
+5. Deciding which Gateway claims a runbook library written before libraries were split per Gateway.
+
+**It is not a visibility filter, and a screen that reads it to decide what to draw is a bug.** Stating
+only how it is selected is what let it be borrowed as one: the Routines and Runbooks tabs each drew
+one Gateway and silently dropped every other. Gateways are equals and the Router is the node between
+them, so a tab reads `admittedGateways` and groups by Gateway.
 
 Protocol-1 gateways receive `unsupported` for value and delivery ops.
 

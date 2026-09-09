@@ -119,7 +119,6 @@ internal class ChatRepositoryBoardCollaborators(private val repo: ChatRepository
 internal class ChatRepositoryRunbookHost(private val repo: ChatRepository) : RunbookHost {
 	override val gateway: RunbookGateway? get() =
 		if (isSandbox) SandboxRunbookGateway() else repo.clientOrNull()?.let(::ConsoleRunbookGateway)
-	override fun homeGatewayId() = repo.homeGatewayId
 	override val library get() = repo.runbooks
 }
 
@@ -149,7 +148,6 @@ internal class ChatRepositoryRoutineHost(private val repo: ChatRepository) : Rou
 	// The sandbox answers as a Gateway would, so a screen that only appears on a refusal is reachable.
 	override val gateway: RoutineGateway? get() =
 		if (isSandbox) SandboxRoutineGateway() else repo.clientOrNull()?.let(::ConsoleRoutineGateway)
-	override fun homeGatewayId() = repo.homeGatewayId
 }
 
 /** The port over the console client's runbook calls. */

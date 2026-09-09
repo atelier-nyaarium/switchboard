@@ -54,14 +54,15 @@ internal class ChatRepositoryDrainHost(private val repo: ChatRepository) : Drain
 	override val isVisible get() = repo.isVisible
 	override val autoGenerate get() = repo.sttsAutoGen
 	override fun link() = repo.transportCoordinator.link()
-	override suspend fun refreshRoutines() = repo.routineOps.refresh()
+	// Every admitted gateway, or the rest are never read in the background.
+	override suspend fun refreshRoutines() = repo.routineOps.refreshAll(repo.sessions.keyringGateways())
 	override fun plan(visible: Boolean, socket: Boolean, failed: Boolean) =
-		// The soonest a routine is expected to answer, so a deeply idle phone reads the outcome then.
+		// Wake for the soonest across every gateway.
 		repo.transportCoordinator.plan(
 			visible,
 			socket,
 			failed,
-			repo.state.value.routines.mapNotNull { it.nextAt }.minOrNull(),
+			repo.state.value.routines.flatMap { group -> group.routines.mapNotNull { it.nextAt } }.minOrNull(),
 		)
 	override fun thisDeviceAddress() = repo.thisDeviceAddress()
 	override fun fromCanonical(value: String) = repo.fromCanonical(value)

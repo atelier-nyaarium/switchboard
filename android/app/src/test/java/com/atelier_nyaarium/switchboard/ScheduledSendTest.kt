@@ -111,8 +111,14 @@ class ScheduledSendTest {
 		assertTrue(id < SwitchboardService.SCHEDULED_SEND_FAILED_ID_RANGE_START + SwitchboardService.SCHEDULED_SEND_FAILED_ID_RANGE_SIZE)
 
 		// Its own range, so no reconcile that sweeps another one can reach a routine's row.
-		val routineId = ServiceNotifications.routineNotificationId("triage")
+		val routineId = ServiceNotifications.routineNotificationId("sakura", "triage")
 		assertTrue(routineId >= ServiceNotifications.ROUTINE_ID_RANGE_START)
 		assertTrue(routineId < ServiceNotifications.ROUTINE_ID_RANGE_START + ServiceNotifications.ROUTINE_ID_RANGE_SIZE)
+
+		// Two Gateways can hold the same routine id, and one's row must not cancel the other's.
+		assertNotEquals(
+			ServiceNotifications.routineNotificationId("sakura", "triage"),
+			ServiceNotifications.routineNotificationId("mikan", "triage"),
+		)
 	}
 }

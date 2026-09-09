@@ -10,11 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Card
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Switch
@@ -29,6 +25,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.GatewayRoutines
+import com.atelier_nyaarium.switchboard.NewOnGatewayFab
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.RoutineState
 import kotlinx.coroutines.launch
@@ -37,21 +35,24 @@ import kotlinx.coroutines.launch
 fun RoutinesScreen(
 	repo: ChatRepository,
 	state: ChatState,
-	onEdit: (String?) -> Unit,
+	onEdit: (String, String?) -> Unit,
 	modifier: Modifier = Modifier,
 ) {
-	LaunchedEffect(state.homeGatewayId) { repo.routineOps.refresh() }
+	val gateways = state.admittedGateways
+	LaunchedEffect(gateways) { repo.routineOps.refreshAll(gateways) }
 	val zone = java.time.ZoneId.systemDefault()
 	val scope = rememberCoroutineScope()
+	val groups = state.routines
+	val named = groups.size > 1
 
 	Box(modifier.fillMaxSize()) {
-		if (state.routines.isEmpty()) {
+		if (groups.all { it.routines.isEmpty() }) {
 			Column(
 				Modifier.fillMaxSize().padding(24.dp),
 				verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
 				horizontalAlignment = Alignment.CenterHorizontally,
 			) {
-				Text("No routines", style = MaterialTheme.typography.titleMedium)
+				Text(emptyTitle(groups), style = MaterialTheme.typography.titleMedium)
 				Text(
 					"A routine fires a runbook on a schedule, in a session of its own.",
 					style = MaterialTheme.typography.bodySmall,
@@ -63,30 +64,56 @@ fun RoutinesScreen(
 				verticalArrangement = Arrangement.spacedBy(10.dp),
 				contentPadding = PaddingValues(top = 12.dp, bottom = 88.dp),
 			) {
-				for (row in state.routines) {
-					item(key = "routine:${row.routine.id}") {
-						RoutineRow(
-							row = row,
-							zone = zone,
-							onEdit = { onEdit(row.routine.id) },
-							onEnable = { on -> scope.launch { repo.routineOps.setEnabled(row.routine.id, on) } },
-							onRunNow = { occurrenceId ->
-								scope.launch { repo.routineOps.runNow(row.routine.id, occurrenceId) }
-							},
-							onDismiss = { occurrenceId ->
-								scope.launch { repo.routineOps.dismiss(row.routine.id, occurrenceId) }
-							},
-						)
+				for (group in groups) {
+					// Named only when there is more than one, so a single-gateway phone gains no words.
+					if (named) {
+						item(key = "gateway:${group.gatewayId}") {
+							Text(
+								group.gatewayId,
+								style = MaterialTheme.typography.labelLarge,
+								modifier = Modifier.padding(top = 6.dp),
+							)
+						}
+					}
+					for (row in group.routines) {
+						item(key = "routine:${group.gatewayId}:${row.routine.id}") {
+							RoutineRow(
+								row = row,
+								zone = zone,
+								onEdit = { onEdit(group.gatewayId, row.routine.id) },
+								onEnable = { on ->
+									scope.launch {
+										repo.routineOps.setEnabled(row.routine.id, on, group.gatewayId)
+									}
+								},
+								onRunNow = { occurrenceId ->
+									scope.launch {
+										repo.routineOps.runNow(row.routine.id, occurrenceId, group.gatewayId)
+									}
+								},
+								onDismiss = { occurrenceId ->
+									scope.launch {
+										repo.routineOps.dismiss(row.routine.id, occurrenceId, group.gatewayId)
+									}
+								},
+							)
+						}
 					}
 				}
 			}
 		}
-		FloatingActionButton(
-			onClick = hapticClick { onEdit(null) },
+		NewOnGatewayFab(
+			gateways = gateways,
+			description = "New routine",
+			onNew = { onEdit(it, null) },
 			modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-		) { Icon(Icons.Default.Add, contentDescription = "New routine") }
+		)
 	}
 }
+
+/** A gateway that answered and holds nothing is not the same as one that could not be read. */
+private fun emptyTitle(groups: List<GatewayRoutines>): String =
+	if (groups.isEmpty()) "No Gateway could be read" else "No routines"
 
 @Composable
 private fun RoutineRow(
@@ -133,7 +160,7 @@ private fun RoutineRow(
 			row.missed?.let { miss ->
 				Panel("${missLine(miss, zone)} $DISMISS_EXPLAINS") {
 					if (miss.runnable) {
-						TextButton(onClick = hapticClick { onRunNow(miss.occurrenceId) }) { Text("Run now") }
+						TextButton(onClick = hapticClick { onRunNow(miss.occurrenceId) }) { Text("Run missed") }
 					}
 					TextButton(onClick = hapticClick { onDismiss(miss.occurrenceId) }) { Text("Dismiss") }
 				}

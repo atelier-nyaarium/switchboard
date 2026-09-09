@@ -10,6 +10,9 @@ import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
 import com.atelier_nyaarium.switchboard.runbooks.RunbookDraft
 import com.atelier_nyaarium.switchboard.runbooks.RunbookManager
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
@@ -41,7 +44,6 @@ internal interface RunbookGateway {
 
 internal interface RunbookHost {
 	val gateway: RunbookGateway?
-	fun homeGatewayId(): String
 	val library: RunbookManager
 }
 
@@ -66,13 +68,13 @@ internal fun gatewayRefusal(answer: ConsoleRunbookPutResult): SaveRefusal =
 	SaveRefusal(answer.reason ?: "This Gateway holds a different copy", answer.revision)
 
 internal fun refusalsAfterPut(
-	held: Map<String, SaveRefusal>,
-	runbookId: String,
+	held: Map<Pair<String, String>, SaveRefusal>,
+	key: Pair<String, String>,
 	answer: ConsoleRunbookPutResult?,
-): Map<String, SaveRefusal> = when {
+): Map<Pair<String, String>, SaveRefusal> = when {
 	answer == null -> held
-	answer.stored -> held - runbookId
-	else -> held + (runbookId to gatewayRefusal(answer))
+	answer.stored -> held - key
+	else -> held + (key to gatewayRefusal(answer))
 }
 
 /** Equal still stands. */
@@ -96,46 +98,56 @@ internal class RunbookOps(
 ) {
 	private val synced = mutableSetOf<Triple<String, String, Long>>()
 
+	private val reads = GatewayReadFence()
+
 	/**
-	 * Editors in progress, keyed by the runbook being edited. This class outlives an activity, so a
-	 * rotation finds the draft still here; saved instance state could not hold one, since a body is
-	 * bounded by nothing and the parcel it would ride in is.
+	 * Editors in progress, keyed by gateway and runbook. Held here rather than in saved instance
+	 * state, since a body is bounded by nothing and the parcel it would ride in is.
 	 */
-	private val drafts = mutableMapOf<String, RunbookDraft>()
+	private val drafts = mutableMapOf<Pair<String, String>, RunbookDraft>()
 
-	fun draftFor(key: String): RunbookDraft? = drafts[key]
+	fun draftFor(gatewayId: String, key: String): RunbookDraft? = drafts[gatewayId to key]
 
-	fun keepDraft(key: String, draft: RunbookDraft) {
-		drafts[key] = draft
+	fun keepDraft(gatewayId: String, key: String, draft: RunbookDraft) {
+		drafts[gatewayId to key] = draft
 	}
 
-	fun dropDraft(key: String) {
-		drafts.remove(key)
+	fun dropDraft(gatewayId: String, key: String) {
+		drafts.remove(gatewayId to key)
 	}
 
-	private var refusals = emptyMap<String, SaveRefusal>()
+	private var refusals = emptyMap<Pair<String, String>, SaveRefusal>()
 
-	fun refusalFor(runbookId: String): SaveRefusal? = refusals[runbookId]
+	fun refusalFor(gatewayId: String, runbookId: String): SaveRefusal? = refusals[gatewayId to runbookId]
 
 	init {
-		show(host.homeGatewayId(), host.library.all(host.homeGatewayId()))
+		// Every gateway's stored copy, so a tab drawn before any refresh answers is not one gateway's.
+		host.library.placed().forEach { (gatewayId, library) -> show(gatewayId, library) }
 	}
 
-	suspend fun refresh(gatewayId: String = host.homeGatewayId()) {
+	/** Every gateway the keyring admits, asked together so a slow one does not hold up the rest. */
+	suspend fun refreshAll(gatewayIds: List<String>) {
+		coroutineScope { gatewayIds.map { id -> async { refresh(id) } }.awaitAll() }
+		// A gateway the keyring no longer admits stops being drawn, and stops being actionable with it.
+		state.update { held -> held.copy(runbooks = held.runbooks.filter { it.gatewayId in gatewayIds }) }
+	}
+
+	suspend fun refresh(gatewayId: String) {
 		val client = host.gateway ?: return
 		if (gatewayId.isBlank()) return
-		val held = attempt { client.list(gatewayId) } ?: return
-		synced.clear()
+		val held = reads.read(gatewayId) { attempt { client.list(gatewayId) } } ?: return
+		// This gateway's markers only. Clearing every gateway's would push again for nothing.
+		synced.removeAll { it.first == gatewayId }
 		show(gatewayId, host.library.merge(gatewayId, held.runbooks))
 	}
 
 	suspend fun save(
 		runbook: Runbook,
-		gatewayId: String = host.homeGatewayId(),
+		gatewayId: String,
 		baseRevision: Long? = null,
 		overwrite: Boolean = false,
 	): RunbookSaved {
-		synced.removeAll { it.second == runbook.id }
+		synced.removeAll { it.first == gatewayId && it.second == runbook.id }
 		val client = host.gateway
 		val reachable = client != null && gatewayId.isNotBlank()
 
@@ -168,7 +180,7 @@ internal class RunbookOps(
 	}
 
 	/** False when this Gateway still holds it, so the editor does not say gone about a copy that is not. */
-	suspend fun delete(runbookId: String, gatewayId: String = host.homeGatewayId()): Boolean {
+	suspend fun delete(runbookId: String, gatewayId: String): Boolean {
 		val client = host.gateway
 		// No Gateway to disagree with, so this phone's copy is the only one it knows of and it goes.
 		// A copy the Gateway still holds comes back on the next list, as an unsynced one always would.
@@ -184,21 +196,23 @@ internal class RunbookOps(
 	}
 
 	private fun forget(gatewayId: String, runbookId: String) {
-		synced.removeAll { it.second == runbookId }
-		refusals = refusals - runbookId
+		synced.removeAll { it.first == gatewayId && it.second == runbookId }
+		refusals = refusals - (gatewayId to runbookId)
 		show(gatewayId, host.library.remove(gatewayId, runbookId))
 	}
 
-	/** The tab draws the home gateway's copy; another gateway's is held and not drawn. */
+	/** That gateway's group, replaced whole. Sorted by id, so no gateway holds a privileged place. */
 	private fun show(gatewayId: String, library: List<Runbook>) {
-		if (gatewayId != host.homeGatewayId()) return
-		state.update { it.copy(runbooks = library) }
+		state.update { held ->
+			val kept = held.runbooks.filterNot { it.gatewayId == gatewayId }
+			held.copy(runbooks = (kept + GatewayRunbooks(gatewayId, library)).sortedBy { it.gatewayId })
+		}
 	}
 
 	suspend fun preview(
 		runbookId: String,
 		values: Map<String, String>,
-		gatewayId: String = host.homeGatewayId(),
+		gatewayId: String,
 	): ConsoleRunbookPreviewResult? {
 		val client = host.gateway ?: return null
 		if (!sync(runbookId, gatewayId)) return null
@@ -210,7 +224,7 @@ internal class RunbookOps(
 		values: Map<String, String>,
 		into: RunbookFireTarget,
 		previewedRevision: Long?,
-		gatewayId: String = host.homeGatewayId(),
+		gatewayId: String,
 	): ConsoleRunbookFireResult? {
 		val client = host.gateway ?: return null
 		if (!sync(runbookId, gatewayId)) return null
@@ -263,12 +277,12 @@ internal class RunbookOps(
 		overwrite: Boolean = false,
 	): ConsoleRunbookPutResult? {
 		val answer = attempt { client.put(gatewayId, mine, baseRevision, overwrite) }
-		refusals = refusalsAfterPut(refusals, mine.id, answer)
+		refusals = refusalsAfterPut(refusals, gatewayId to mine.id, answer)
 		return answer
 	}
 
 	/** Owner-authorized replacement. */
-	suspend fun overwrite(runbookId: String, gatewayId: String = host.homeGatewayId()): Boolean {
+	suspend fun overwrite(runbookId: String, gatewayId: String): Boolean {
 		val client = host.gateway ?: return false
 		if (gatewayId.isBlank()) return false
 		val mine = host.library.find(gatewayId, runbookId) ?: return false

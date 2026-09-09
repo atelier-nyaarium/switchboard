@@ -193,9 +193,8 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 		}
 	}
 
-	fun sourceGatewayIds(homeGatewayId: String): List<String> = listOfNotNull(homeGatewayId.takeIf { it.isNotEmpty() })
-
-	fun lastSyncedAt(gatewayId: String): Long = snapshot().lastRouterSyncAt
+	/** One board, held at the Router, so one read time rather than one per Gateway. */
+	fun lastSyncedAt(): Long = snapshot().lastRouterSyncAt
 
 	fun dismissRefusal(refusal: BoardRefusal) {
 		refusals.remove(refusal)

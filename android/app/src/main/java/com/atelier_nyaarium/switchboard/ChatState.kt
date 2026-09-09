@@ -8,6 +8,16 @@ import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.parseTarget
 
 
+/** One gateway's routines, in the zone that gateway keeps schedules in. */
+data class GatewayRoutines(
+	val gatewayId: String,
+	val routines: List<RoutineState> = emptyList(),
+	val zone: String = "",
+)
+
+/** One gateway's runbooks, at that gateway's revisions. */
+data class GatewayRunbooks(val gatewayId: String, val runbooks: List<Runbook> = emptyList())
+
 data class ChatState(
 	val provisioned: Boolean = false,
 	val teams: List<Team> = emptyList(),
@@ -62,11 +72,9 @@ data class ChatState(
 	val pendingSpawns: Set<Pair<String, String>> = emptySet(),
 	/** Wake notices expire on read and are not persisted. */
 	val wakingTeams: Map<String, Long> = emptyMap(),
-	/** The phone's own library. A gateway holds a copy, and this is what gets pushed to it. */
-	val runbooks: List<Runbook> = emptyList(),
-	val routines: List<RoutineState> = emptyList(),
-	/** The zone the home gateway reads a schedule in; the editor converts into it. */
-	val routineZone: String = "",
+	/** The phone's own library, one group per gateway. */
+	val runbooks: List<GatewayRunbooks> = emptyList(),
+	val routines: List<GatewayRoutines> = emptyList(),
 ) {
 	/** Expiry belongs to the read, so stale wakes cannot persist. */
 	fun awaitingWake(team: String, now: Long = System.currentTimeMillis()): Boolean {

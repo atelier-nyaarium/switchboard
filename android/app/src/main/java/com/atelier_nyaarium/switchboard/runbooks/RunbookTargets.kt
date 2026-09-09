@@ -9,9 +9,6 @@ import com.atelier_nyaarium.switchboard.localSessions
 
 internal data class FireTarget(val address: String, val label: String)
 
-internal fun gatewayTargets(state: ChatState): List<String> =
-	(listOf(state.homeGatewayId) + state.admittedGateways).filter { it.isNotBlank() }.distinct()
-
 private fun teamsOn(state: ChatState, gatewayId: String) =
 	localSessions(state.sessions(), state.domainId.orEmpty()).filter { it.gatewayId == gatewayId }
 

@@ -53,8 +53,10 @@ The gateway cannot tell a copy that descends from the one it holds from a diverg
 
 A revision has a ceiling, and a runbook that reaches it can no longer be written.
 
-The phone's library holds one copy per runbook, and its revision is the home gateway's. Another
-gateway mints its own, so the two drift; a copy per gateway is the shape that fixes it.
+The phone holds one library per gateway. A revision describes one gateway's record, so a single
+library would carry one gateway's numbers into another and call the two the same runbook. Every
+read and write on the phone names the gateway, and so do the editor's draft, its refusal and the
+fire sheet.
 
 Five console ops, all owner-authenticated: `runbook_list`, `runbook_put`, `runbook_delete`,
 `runbook_preview` and `runbook_fire`.
@@ -85,7 +87,13 @@ The phone is every runbook's sole author. `RunbookManager` owns the library and 
 way `BoardManager` and `VaultManager` own theirs, and it is cleared on re-provision with them.
 `RunbookOps` owns the gateway calls; `pushDecision` beside it is the sync rule.
 
-The Runbooks tab lists the library with Fire on each row.
+The Runbooks tab lists every admitted Gateway's library, grouped by Gateway and with Fire on each
+row. The heading is drawn only when there is more than one, so a single-Gateway phone gains no
+words. Groups sort by Gateway id, which gives none of them a privileged place.
+
+A runbook fires on the Gateway that holds it, so the sheet has no Gateway to pick: another Gateway's
+copy of that id is another runbook. A new runbook has no Gateway yet, so the button asks for one when
+there is more than one to ask about.
 
 The fire sheet takes the values, where it lands, and shows a preview before Fire. That preview is
 `runbook_preview`, rendered by the gateway rather than on the phone, so there is one implementation

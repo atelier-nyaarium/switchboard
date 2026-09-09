@@ -117,6 +117,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../ReportReadCompose.kt` / `ScheduledSendCompose.kt` / `CapabilitiesCompose.kt` - pure phone composers
 - `android/.../PlaybackOps.kt` / `PlaybackReadModels.kt` - playback serialization and lock-free read models
 - `android/.../BoardOps.kt` - repository board operations
+  - **The board is one Router-held board, so no read and no write names a Gateway:** entries, the
+    read time and every intent are owner-scoped. The one exception is where an attachment's blob
+    lives, and `blobGatewayFor` decides that from the entry rather than from the caller, since an
+    unassigned entry has no session Gateway and a caller passing its row's would upload to nothing.
 - `android/.../VaultOps.kt` - repository vault operations: refresh, save, delete, reveal, answer, grants
 - `android/.../RunbookOps.kt` - the gateway calls, `pushDecision`, and the refusal a save answers with
   - **A save is pushed before it answers:** stored takes it into the library and closes the editor,
@@ -130,10 +134,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     held one would mint a revision `merge` discards. It filters only the leftover refusal; one the
     current save earned outranks it, which `RunbookEditor` names rather than nests.
   - **The phone adopts the revision, it does not mint one:** `save` sends the revision the editor was
-    opened at and keeps whatever record the gateway answers with. The library holds one copy per
-    runbook, so its revision is the home gateway's and another gateway drifts from it.
+    opened at and keeps whatever record the gateway answers with.
   - **An edit in progress lives in `RunbookOps`, not the screen:** the repository outlives an
     activity and saved instance state is a parcel, which a runbook body is not bounded to fit.
+  - **Every method names its gateway, and none of them defaults it:** a call that does not say which
+    machine it means does not compile, so the compiler enumerates the call sites rather than a
+    reviewer. Drafts, refusals and `synced` are all keyed by gateway and id, since `"new"` and any
+    runbook id are shared across gateways.
 - `android/.../runbooks/RunbookManager.kt` - the phone-held library and its persistence, beside `BoardManager`
   - **On disk before it is shown:** a refused write leaves the owner the library they still have.
     `clearInMemory` is the exception, since a re-provision takes the previous owner's writing out of
@@ -152,6 +159,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     stale rather than blanking it, and Fire waits for a preview whose revision matches the runbook.
   - **`FireSheetState` holds two lifetimes:** the values and the preview belong to a runbook at a
     revision and `adopt` resets them; the target and a fire in flight belong to the sheet.
+  - **A runbook fires on the Gateway that holds it, so the sheet picks no Gateway:** one call names
+    both where the record is read and where the session lands, and another Gateway's copy of that id
+    is another runbook.
 - `android/.../runbooks/RunbookText.kt` - the one-line form an option and a body are shown in, and
   the trim a typed option passes through
   - **A cut chip says it was cut:** `chipLabel` takes the first line to a character cap and marks
@@ -160,6 +170,24 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     a Compose layout.
   - **A typed option keeps its indent:** `trimmedOption` drops blank edge lines, and trims fully only
     when one line is left, so a pasted block does not lose the indentation of its first line alone.
+- `android/.../RoutineOps.kt` / `routines/RoutinesScreen.kt` / `RoutineEditor.kt` / `RoutineText.kt` -
+  the gateway calls, the tab, the editor, and the pure lines each row shows
+  - **Nothing is held on the phone:** a routine's record, its next run, its misses and its reviews
+    are the gateway's, so a change re-reads rather than guessing.
+  - **Every gateway is asked, concurrently, and one that cannot be read leaves the rest drawn:**
+    `refreshAll` fans out over the keyring, then prunes to it, so a Gateway the keyring no longer
+    admits stops being drawn and stops being actionable with it.
+  - **A zone belongs to its gateway:** each group carries the one its gateway keeps schedules in, and
+    a schedule read against another's is a wrong time on screen.
+- `android/.../GatewayPick.kt` - the button a new record starts from
+  - **A new record has no Gateway yet:** one is taken without asking, several are asked, and none
+    draws no button. Nothing else on these tabs chooses a Gateway, since every row belongs to one.
+- `android/.../GatewayReads.kt` - `GatewayReadFence`, the one freshness rule for per-gateway reads
+  - **The later read of a gateway wins, and only of that gateway:** the drain loop and a tap both
+    start reads, so an older answer can land after a newer one and put back what the owner just
+    settled. One counter per gateway, or a slow read of one discards a fresh read of another. Both
+    ops classes take this rather than each keeping its own, which is how one of them came to have
+    none.
 - `android/.../AttachmentOps.kt` - attachment fetch-and-sweep state
 - `android/.../ScheduledSendOps.kt` - scheduled sends and single fire mutex
 - `android/.../GoalOps.kt` / `Goal.kt` - armed goals and `/goal` line production

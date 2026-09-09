@@ -94,14 +94,10 @@ internal class BoardOps(
 
 	fun boardSessionKeyOf(team: String): String = collaborators.board.sessionKeyOf(team)
 
-	fun boardEntriesOn(gatewayId: String): List<BoardEntry> = collaborators.board.routerEntries()
-
 	/** The whole Router board. */
 	fun boardEntries(): List<BoardEntry> = collaborators.board.routerEntries()
 
-	fun boardSourceGatewayIds(): List<String> = collaborators.board.sourceGatewayIds(homeGatewayId())
-
-	fun boardLastSyncedAt(gatewayId: String): Long = collaborators.board.lastSyncedAt(gatewayId)
+	fun boardLastSyncedAt(): Long = collaborators.board.lastSyncedAt()
 
 	fun boardDismissRefusal(refusal: BoardRefusal) = collaborators.board.dismissRefusal(refusal)
 
@@ -133,24 +129,30 @@ internal class BoardOps(
 		)
 	}
 
-	fun boardSetState(gatewayId: String, id: String, state: String) = intend(BoardIntent.SetState(id, state))
+	fun boardSetState(id: String, state: String) = intend(BoardIntent.SetState(id, state))
 
-	fun boardSetTitle(gatewayId: String, id: String, title: String) = intend(BoardIntent.SetTitle(id, title))
+	fun boardSetTitle(id: String, title: String) = intend(BoardIntent.SetTitle(id, title))
 
-	fun boardSetBody(gatewayId: String, id: String, body: String?) = intend(BoardIntent.SetBody(id, body))
+	fun boardSetBody(id: String, body: String?) = intend(BoardIntent.SetBody(id, body))
 
 	/** Reparents and reranks an entry. */
-	fun boardSetParent(gatewayId: String, id: String, parent: String?, rank: String) =
-		intend(BoardIntent.SetParent(id, parent, rank))
+	fun boardSetParent(id: String, parent: String?, rank: String) = intend(BoardIntent.SetParent(id, parent, rank))
 
-	fun boardSetTrashed(gatewayId: String, id: String, trashed: Boolean) =
+	fun boardSetTrashed(id: String, trashed: Boolean) =
 		intend(if (trashed) BoardIntent.Trash(id) else BoardIntent.Restore(id))
 
 	/** Sets an entry's complete attachment list. */
-	fun boardSetAttachments(gatewayId: String, id: String, keep: List<BoardAttachment>, add: List<Uri>) =
-		collaborators.command { boardSetAttachmentsNow(gatewayId, id, keep, add) }
+	fun boardSetAttachments(id: String, keep: List<BoardAttachment>, add: List<Uri>) =
+		collaborators.command { boardSetAttachmentsNow(id, keep, add) }
 
-	private fun boardSetAttachmentsNow(gatewayId: String, id: String, keep: List<BoardAttachment>, add: List<Uri>) {
+	/** Where an entry's blobs live: its own session's Gateway, or this phone's route. */
+	private fun blobGatewayFor(id: String): String {
+		val held = collaborators.board.routerEntries().firstOrNull { it.id == id }?.session?.gatewayId
+		return held?.ifEmpty { null } ?: boardGatewayOf(null)
+	}
+
+	private fun boardSetAttachmentsNow(id: String, keep: List<BoardAttachment>, add: List<Uri>) {
+		val gatewayId = blobGatewayFor(id)
 		val bucket = Attachments.boardBucket(id)
 		// Keep staged files outside the destination bucket.
 		val (staged, refused) =
@@ -321,7 +323,7 @@ internal class BoardOps(
 	}
 
 	/** Assign an entry and its subtree to a session, or null back to the backlog. */
-	fun boardAssign(fromGateway: String, id: String, team: String?) {
+	fun boardAssign(id: String, team: String?) {
 		// Assignment changes fields on one board.
 		val session = team?.let { name ->
 			val row = state.value.teams.firstOrNull { it.name == name }

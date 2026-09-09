@@ -149,7 +149,7 @@ on them to the home gateway. The same goal, its real cost. Nothing was added tha
 already need, and three things the audits raised were left out deliberately: retiring
 `homeGatewayId`, giving gateways human-readable names, and teaching the harness a second gateway.
 
-## Phase 1 - Both tabs reach every gateway
+## Phase 1 - Both tabs reach every gateway [done]
 
 **Phone only.** `sendValueOp(gatewayId, op)` already addresses whichever gateway it is given, and
 `ConsoleClientRoutines` says so in its own first line: a routine runs on one gateway, so every call
@@ -220,6 +220,82 @@ not an integration one. Every hazard above gets one.
 The harness cannot help: `addDomain` mints a whole Domain and there is no way to add a second gateway
 to one. Building that is not this plan's work. So the end-to-end, two gateways drawn in one tab, is
 verified by hand on the emulator, which the sandbox can seed.
+
+### What it actually took, where that differs from the plan above
+
+- **The fire sheet lost its Gateway picker rather than gaining a scoped one.** `runbook_fire` takes
+  one gateway id, and it is both where the record is read and where the session lands. Once a row
+  belongs to a Gateway, picking a different one would preview that Gateway's copy of the id, which is
+  a different runbook. `gatewayTargets` went with it, having no other caller.
+- **A new record needed a Gateway to be born on, which the plan did not name.** Both FABs took
+  `state.homeGatewayId`. `NewOnGatewayFab` takes one Gateway without asking and asks when there are
+  several, and it is one composable rather than a branch copied into two screens.
+- **`RunbookOps` seeded its state from the home library at construction.** Every other gateway's
+  stored copy was invisible until a refresh answered. `RunbookManager.placed()` answers every
+  gateway's library, the pre-split copy under whichever gateway claims it.
+- **The ports lost `homeGatewayId()` entirely.** `RoutineHost` and `RunbookHost` no longer offer it,
+  so neither ops class can reach for it again.
+
+### What the audit found after the first green gate
+
+Handed to an auditor told to look wider than the diff. Four findings, all real, all fixed here.
+
+- **A group was never cleared for a gateway that left the keyring.** `show` replaces one group and
+  keeps the rest, so a revoked gateway's routines and runbooks stayed on screen and stayed
+  actionable. `refreshAll` now prunes to the gateways it was given, which also settles most of the
+  next finding by removing the rows an op could be built from.
+- **The freshness fence was added to one sibling and not the other.** `RoutineOps.refresh` grew a
+  per-gateway counter; `RunbookOps.refresh` had none, so two reads of one gateway could land out of
+  order. Both now share `GatewayReadFence`, which is the point: one implementation rather than two
+  that agree today.
+- **A nonblank gateway id is not an admitted one.** Accepted rather than built out. An op posted to a
+  revoked gateway is refused by the transport, so the failure is loud and safe, and pruning removes
+  the rows that made it reachable. A capability type resolved from the keyring is the real answer and
+  belongs with retiring `homeGatewayId`, not here.
+- **An empty keyring left a button that did nothing.** `NewOnGatewayFab` renders nothing without a
+  gateway; the empty state already says no Gateway could be read.
+
+### `BoardManager.sourceGatewayIds`, confirmed and removed
+
+It was worse than "named for several and answers one". The board is one Router-held board:
+`boardEntries`, `boardEntriesOn(gw)` and `boardEntriesFor(team)` all returned the same list, and
+`lastSyncedAt(gw)` ignored its argument. `sourceGatewayIds` returned `[home]`, and `BoardScreen`
+filtered it by `it != boardGatewayOf(null)`, which is also home. **The stale-column notice was
+therefore provably always empty and had never once rendered.**
+
+The signal behind it is real: a cached board should say so. So it keeps the notice and loses the
+per-gateway framing. `lastSyncedAt()` takes no gateway, and `sourceGatewayIds` and `boardEntriesOn`
+are gone.
+
+Then the writes turned out to be the same shape and worse. Seven board write methods took a
+`gatewayId`; six ignored it outright, and the seventh used it as the destination for an attachment's
+blob. `BoardRow.gatewayId` is `entry.session?.gatewayId ?: ""`, so **adding an attachment to an
+unassigned backlog entry uploaded the blob to `""` and recorded `blobGateway = ""`**, which no other
+device can ever fetch. Silent, and nothing on screen said so.
+
+So the six lost the parameter, and `boardSetAttachments` resolves its own destination from the entry,
+falling back to this phone's write route. A caller can no longer hand a board write a wrong gateway,
+because six do not ask and the seventh does not believe them. `BoardEntryDialog` and `boardModal`
+lost the gateway with them.
+
+### Bug Classes
+
+**Mechanism:** per-gateway scoping on the phone. **Class:** a model that is plural in one place and
+singular in the reader beside it, where the singular side compiles, runs, and looks correct.
+
+Patched three times now, which makes it a design bug rather than three unlucky ones:
+
+1. `RoutineOps.show` and `RunbookOps.show` each drew the home gateway and dropped the rest. Patched
+   by grouping state per gateway and removing the defaulted parameter, so the compiler enumerates.
+2. The board carried a gateway through seven writes that mostly ignored it, and `sourceGatewayIds`
+   named a list of one. Patched by taking the parameter away from everything that did not use it.
+3. `RoutineOps` gained a per-gateway read fence and `RunbookOps` did not, in the same change that
+   made both plural. Patched by extracting `GatewayReadFence` so there is one.
+
+The common cause is that "which gateway" is an ordinary `String` threaded by hand, so every new
+plural reader is a fresh chance to forget. The fix that would make the class inexpressible is an
+admitted-gateway value resolved from the keyring, which every op takes and no caller can invent. That
+is the same work as retiring `homeGatewayId`, and it is on the board rather than in this plan.
 
 ## Phase 2 - A run button on every row
 

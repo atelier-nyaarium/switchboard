@@ -51,12 +51,11 @@ private val STATES = listOf("open", "in_progress", "paused", "done", "cancelled"
 fun BoardEntryDialog(
 	state: ChatState,
 	repo: ChatRepository,
-	gatewayId: String,
 	entryId: String,
 	onClose: () -> Unit,
 ) {
 	val revision by repo.boardOps.boardRevision
-	val entry = remember(revision, entryId) { repo.boardOps.boardEntriesOn(gatewayId).firstOrNull { it.id == entryId } }
+	val entry = remember(revision, entryId) { repo.boardOps.boardEntries().firstOrNull { it.id == entryId } }
 	if (entry == null) {
 		onClose()
 		return
@@ -67,7 +66,7 @@ fun BoardEntryDialog(
 	var viewer by remember { mutableStateOf<OpenAttachment?>(null) }
 	val changedElsewhere = entry.title != baseline.first || entry.body.orEmpty() != baseline.second
 	val children = remember(revision, entryId) {
-		repo.boardOps.boardEntriesOn(gatewayId).filter { it.parent == entryId && it.trashedAt == null }.sortedBy { it.rank }
+		repo.boardOps.boardEntries().filter { it.parent == entryId && it.trashedAt == null }.sortedBy { it.rank }
 	}
 
 	Dialog(
@@ -90,7 +89,6 @@ fun BoardEntryDialog(
 					BoardEntryEditor(
 					state = state,
 					repo = repo,
-					gatewayId = gatewayId,
 					entry = entry,
 					title = title,
 					onTitle = { title = it },
@@ -106,7 +104,7 @@ fun BoardEntryDialog(
 					TextButton(onClick = onClose) { Text("Cancel") }
 					Button(
 						onClick = {
-							saveEntryFields(repo, gatewayId, entry.id, title, body, baseline)
+							saveEntryFields(repo, entry.id, title, body, baseline)
 							onClose()
 						},
 					) { Text("Save") }
@@ -125,7 +123,6 @@ fun BoardEntryDialog(
 private fun BoardEntryEditor(
 	state: ChatState,
 	repo: ChatRepository,
-	gatewayId: String,
 	entry: com.atelier_nyaarium.switchboard.proto.BoardEntry,
 	title: String,
 	onTitle: (String) -> Unit,
@@ -171,12 +168,12 @@ private fun BoardEntryEditor(
 				modifier = Modifier.fillMaxWidth(),
 			) {
 				SessionChip("Backlog", entry.sessionId == null) {
-					repo.boardOps.boardAssign(gatewayId, entryId, null)
+					repo.boardOps.boardAssign(entryId, null)
 				}
 				for (team in repo.boardOps.boardAssignTargets()) {
 					val held = repo.boardOps.boardSessionKeyOf(team.name) == entry.sessionId
 					SessionChip(state.label(team.name), held) {
-						repo.boardOps.boardAssign(gatewayId, entryId, team.name)
+						repo.boardOps.boardAssign(entryId, team.name)
 					}
 				}
 			}
@@ -191,7 +188,7 @@ private fun BoardEntryEditor(
 			) {
 				for (s in STATES) {
 					AssistChip(
-						onClick = { repo.boardOps.boardSetState(gatewayId, entryId, s) },
+						onClick = { repo.boardOps.boardSetState(entryId, s) },
 						label = { Text(stateChipLabel(s), style = MaterialTheme.typography.labelSmall) },
 						colors = if (s == entry.state) {
 							AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
@@ -211,11 +208,10 @@ private fun BoardEntryEditor(
 				repo = repo,
 				entryId = entryId,
 				onPick = { picked ->
-					repo.boardOps.boardSetAttachments(gatewayId, entryId, entry.attachments ?: emptyList(), picked)
+					repo.boardOps.boardSetAttachments(entryId, entry.attachments ?: emptyList(), picked)
 				},
 				onRemove = { gone ->
 					repo.boardOps.boardSetAttachments(
-						gatewayId,
 						entryId,
 						(entry.attachments ?: emptyList()).filter { it.blobId != gone.blobId },
 						emptyList(),
@@ -246,7 +242,7 @@ private fun BoardEntryEditor(
 			// most prominent control in the editor.
 			TextButton(
 				onClick = {
-					repo.boardOps.boardSetTrashed(gatewayId, entryId, entry.trashedAt == null)
+					repo.boardOps.boardSetTrashed(entryId, entry.trashedAt == null)
 					onClose()
 				},
 			) {
@@ -262,14 +258,13 @@ private fun BoardEntryEditor(
 /** Both hosts save the same way, so the rule about what a refused write hands back lives in one place. */
 private fun saveEntryFields(
 	repo: ChatRepository,
-	gatewayId: String,
 	entryId: String,
 	title: String,
 	body: String,
 	baseline: Pair<String, String>,
 ) {
-	if (title.isNotBlank() && title != baseline.first) repo.boardOps.boardSetTitle(gatewayId, entryId, title.trim())
-	if (body != baseline.second) repo.boardOps.boardSetBody(gatewayId, entryId, body.ifBlank { null })
+	if (title.isNotBlank() && title != baseline.first) repo.boardOps.boardSetTitle(entryId, title.trim())
+	if (body != baseline.second) repo.boardOps.boardSetBody(entryId, body.ifBlank { null })
 }
 
 /** One selectable chip, styled the same as the state chips so the two rows read as one control. */

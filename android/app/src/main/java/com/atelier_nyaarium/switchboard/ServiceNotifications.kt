@@ -92,15 +92,15 @@ internal class ServiceNotifications(private val context: Context) {
 		val active = context.getSystemService(NotificationManager::class.java)
 			.activeNotifications
 			.mapTo(HashSet()) { it.id }
-		val rows = repo.state.value.routines
+		val rows = repo.state.value.routines.flatMap { group -> group.routines.map { group.gatewayId to it } }
 		// A routine that is gone is named by nothing in the list, so its own range is swept for it.
-		val live = rows.mapTo(HashSet()) { routineNotificationId(it.routine.id) }
+		val live = rows.mapTo(HashSet()) { (gatewayId, row) -> routineNotificationId(gatewayId, row.routine.id) }
 		for (id in active) {
 			val inRange = id >= ROUTINE_ID_RANGE_START && id < ROUTINE_ID_RANGE_START + ROUTINE_ID_RANGE_SIZE
 			if (inRange && id !in live) nmc.cancel(id)
 		}
-		for (row in rows) {
-			val id = routineNotificationId(row.routine.id)
+		for ((gatewayId, row) in rows) {
+			val id = routineNotificationId(gatewayId, row.routine.id)
 			// A review stops the schedule until the owner reads the new words, so it is told as a miss
 			// is. A miss is the more urgent of the two when a routine has both.
 			val told = row.missed?.let { "${row.routine.name} did not run" to routineMissText(it.reason) }
@@ -377,8 +377,9 @@ internal class ServiceNotifications(private val context: Context) {
 		internal const val ROUTINE_ID_RANGE_START = 4_000_000
 		internal const val ROUTINE_ID_RANGE_SIZE = 1_000_000
 
-		internal fun routineNotificationId(routineId: String): Int =
-			ROUTINE_ID_RANGE_START + (routineId.hashCode() and 0x7FFFFFFF) % ROUTINE_ID_RANGE_SIZE
+		/** The gateway is in it, or two gateways holding one routine id share a single notification. */
+		internal fun routineNotificationId(gatewayId: String, routineId: String): Int =
+			ROUTINE_ID_RANGE_START + ("$gatewayId/$routineId".hashCode() and 0x7FFFFFFF) % ROUTINE_ID_RANGE_SIZE
 
 		init {
 			require(ROUTINE_ID_RANGE_START >= VAULT_ID_RANGE_START + VAULT_ID_RANGE_SIZE) {

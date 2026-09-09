@@ -43,12 +43,20 @@ private val WEEKDAY_LABELS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "S
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RoutineEditor(repo: ChatRepository, state: ChatState, routineId: String?, onClose: () -> Unit) {
-	val held: Routine? = remember(routineId, state.routines) {
-		routineId?.let { id -> state.routines.find { it.routine.id == id }?.routine }
+fun RoutineEditor(
+	repo: ChatRepository,
+	state: ChatState,
+	gatewayId: String,
+	routineId: String?,
+	onClose: () -> Unit,
+) {
+	// One gateway's group, so a routine and the runbooks it may pin come from the same machine.
+	val group = remember(gatewayId, state.routines) { state.routines.find { it.gatewayId == gatewayId } }
+	val held: Routine? = remember(routineId, group) {
+		routineId?.let { id -> group?.routines?.find { it.routine.id == id }?.routine }
 	}
 	val zone = remember { java.time.ZoneId.systemDefault() }
-	val gatewayZone = state.routineZone.ifBlank { zone.id }
+	val gatewayZone = group?.zone.orEmpty().ifBlank { zone.id }
 	// Read in the owner's own zone, whatever the gateway keeps it in.
 	var draft by remember(routineId, gatewayZone) {
 		mutableStateOf(
@@ -75,7 +83,7 @@ fun RoutineEditor(repo: ChatRepository, state: ChatState, routineId: String?, on
 			saving = true
 			refused = null
 			scope.launch {
-				when (val saved = repo.routineOps.save(candidate, draft.revision.takeIf { it > 0L })) {
+				when (val saved = repo.routineOps.save(candidate, draft.revision.takeIf { it > 0L }, gatewayId)) {
 					is RoutineSaved.Refused -> refused = saved.reason
 					RoutineSaved.Unreachable -> refused = "This Gateway could not be reached"
 					is RoutineSaved.Stored -> onClose()
@@ -144,16 +152,20 @@ fun RoutineEditor(repo: ChatRepository, state: ChatState, routineId: String?, on
 			// save converts. Saying so beats a field that looks like a choice and is not one.
 			if (zone.id != gatewayZone) {
 				Text(
-					"Shown in your time. It is kept as $gatewayZone, where this Gateway reads it.",
+					"Shown in your time. Kept as $gatewayZone.",
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 			}
 
 			Text("Runbook", style = MaterialTheme.typography.labelLarge)
-			val names = state.runbooks.map { it.name }
+			// This gateway's only. A routine cannot pin words another machine holds.
+			val library = remember(gatewayId, state.runbooks) {
+				state.runbooks.find { it.gatewayId == gatewayId }?.runbooks.orEmpty()
+			}
+			val names = library.map { it.name }
 			FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-				for (book in state.runbooks) {
+				for (book in library) {
 					FilterChip(
 						selected = draft.runbookId == book.id,
 						onClick = hapticClick {
@@ -163,7 +175,7 @@ fun RoutineEditor(repo: ChatRepository, state: ChatState, routineId: String?, on
 					)
 				}
 			}
-			val picked = state.runbooks.find { it.id == draft.runbookId }
+			val picked = library.find { it.id == draft.runbookId }
 			for (parameter in picked?.parameters.orEmpty()) {
 				val held = draft.values[parameter.name].orEmpty()
 				val set = { value: String -> draft = draft.copy(values = draft.values + (parameter.name to value)) }
@@ -262,7 +274,7 @@ fun RoutineEditor(repo: ChatRepository, state: ChatState, routineId: String?, on
 		var next by remember(kept) { mutableStateOf<Long?>(null) }
 		LaunchedEffect(kept) {
 			if (kept == null) return@LaunchedEffect
-			next = repo.routineOps.nextRun(kept)
+			next = repo.routineOps.nextRun(kept, gatewayId)
 			asked = true
 		}
 		AlertDialog(
@@ -303,7 +315,7 @@ fun RoutineEditor(repo: ChatRepository, state: ChatState, routineId: String?, on
 					onClick = hapticClick {
 						confirmingDelete = false
 						scope.launch {
-							if (repo.routineOps.delete(draft.id)) {
+							if (repo.routineOps.delete(draft.id, gatewayId)) {
 								onClose()
 							} else {
 								refused = "This Gateway still runs it; it was not reached"

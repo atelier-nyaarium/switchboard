@@ -36,6 +36,9 @@ the Router's reference-held store already holds; a write naming anything else is
 `attachment_missing`.
 
 - **`set_attachments` replaces the field:** Other writes preserve stored attachments.
+- **The phone picks the blob's Gateway from the entry, never from the row that was tapped:** an
+  unassigned entry has no session Gateway, and a row carries `""` for one. Every other board write is
+  owner-scoped and names no Gateway at all.
 - The op declares `supplied`. Durable or cached members are retained, uploading members cause retry,
   and unresolved members are dropped and reported.
 - Presence checks are durable-first, and every member resolves before any is adopted.

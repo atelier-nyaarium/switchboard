@@ -10,7 +10,11 @@ import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
 import com.atelier_nyaarium.switchboard.proto.RunbookParameter
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
+
+private const val GW = "gw"
+private const val OTHER = "other"
 
 class RunbookOpsTest {
 	private class MemoryStore : com.atelier_nyaarium.switchboard.runbooks.RunbookStore {
@@ -21,7 +25,6 @@ class RunbookOpsTest {
 
 	private class NoGateway(store: MemoryStore = MemoryStore()) : RunbookHost {
 		override val gateway: RunbookGateway? = null
-		override fun homeGatewayId() = ""
 		override val library = com.atelier_nyaarium.switchboard.runbooks.RunbookManager(store)
 	}
 
@@ -87,7 +90,6 @@ class RunbookOpsTest {
 
 	private class WithGateway(val fake: FakeGateway = FakeGateway()) : RunbookHost {
 		override val gateway: RunbookGateway = fake
-		override fun homeGatewayId() = "gw"
 		override val library = com.atelier_nyaarium.switchboard.runbooks.RunbookManager(MemoryStore())
 	}
 
@@ -99,10 +101,13 @@ class RunbookOpsTest {
 		revision = revision,
 	)
 
+	private fun ChatState.books(gatewayId: String = GW) =
+		runbooks.find { it.gatewayId == gatewayId }?.runbooks.orEmpty()
+
 	private fun opsOver(library: List<Runbook>): Pair<RunbookOps, MutableStateFlow<ChatState>> {
 		val state = MutableStateFlow(ChatState())
 		val host = NoGateway()
-		host.library.merge(host.homeGatewayId(), library)
+		host.library.merge(GW, library)
 		return RunbookOps(state, host) to state
 	}
 
@@ -110,11 +115,11 @@ class RunbookOpsTest {
 	fun savingWithNoGatewayKeepsTheCopyAndSaysItIsLocal() {
 		val (ops, state) = opsOver(listOf(book("b", name = "Zebra"), book("a", name = "Apple")))
 
-		assertEquals(RunbookSaved.Local, kotlinx.coroutines.runBlocking { ops.save(book("c", name = "Apple")) })
-		assertEquals(listOf("a", "c", "b"), state.value.runbooks.map { it.id })
+		assertEquals(RunbookSaved.Local, kotlinx.coroutines.runBlocking { ops.save(book("c", name = "Apple"), GW) })
+		assertEquals(listOf("a", "c", "b"), state.value.books().map { it.id })
 
-		kotlinx.coroutines.runBlocking { ops.save(book("a", name = "Apple", revision = 4L)) }
-		assertEquals(4L, state.value.runbooks.first { it.id == "a" }.revision)
+		kotlinx.coroutines.runBlocking { ops.save(book("a", name = "Apple", revision = 4L), GW) }
+		assertEquals(4L, state.value.books().first { it.id == "a" }.revision)
 	}
 
 	@Test
@@ -136,28 +141,32 @@ class RunbookOpsTest {
 		val state = MutableStateFlow(ChatState())
 		val ops = RunbookOps(state, host)
 
-		val first = kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L)) }
+		val first = kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L), GW) }
 		assertEquals(RunbookSaved.Stored, first)
 		// Sent no base, since nothing was stored yet, and took back what the gateway named.
 		assertEquals(null, host.fake.puts[0].second)
-		assertEquals(1L, state.value.runbooks.first { it.id == "a" }.revision)
+		assertEquals(1L, state.value.books().first { it.id == "a" }.revision)
 
-		val second = kotlinx.coroutines.runBlocking { ops.save(book("a", name = "Two", revision = 1L), baseRevision = 1L) }
+		val second = kotlinx.coroutines.runBlocking {
+			ops.save(book("a", name = "Two", revision = 1L), GW, baseRevision = 1L)
+		}
 		assertEquals(RunbookSaved.Stored, second)
 		assertEquals(1L, host.fake.puts[1].second)
-		assertEquals(2L, state.value.runbooks.first { it.id == "a" }.revision)
+		assertEquals(2L, state.value.books().first { it.id == "a" }.revision)
 	}
 
 	@Test
 	fun aRetryOfAnAnswerThatWasLostIsNotASecondEdit() {
 		val host = WithGateway()
 		val ops = RunbookOps(MutableStateFlow(ChatState()), host)
-		kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L)) }
+		kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L), GW) }
 
 		// The editor never heard, so it names the base it read rather than the one now stored.
-		val again = kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L), baseRevision = null) }
+		val again = kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L), GW, baseRevision = null) }
 		assertEquals(RunbookSaved.Stored, again)
-		assertEquals(1L, host.fake.stored.getValue("gw").getValue("a").revision)
+		// Still the first revision, so the retry did not land as a second edit.
+		val held = kotlinx.coroutines.runBlocking { host.fake.list(GW) }
+		assertEquals(1L, held.runbooks.single().revision)
 	}
 
 	@Test
@@ -165,33 +174,54 @@ class RunbookOpsTest {
 		val host = WithGateway()
 		val state = MutableStateFlow(ChatState())
 		val ops = RunbookOps(state, host)
-		kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L)) }
+		kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L), GW) }
 
 		val refused = kotlinx.coroutines.runBlocking {
-			ops.save(book("a", name = "Stale", revision = 1L), baseRevision = 7L)
+			ops.save(book("a", name = "Stale", revision = 1L), GW, baseRevision = 7L)
 		}
 		assertEquals(true, refused is RunbookSaved.Refused)
-		assertEquals("a", state.value.runbooks.first { it.id == "a" }.name)
+		assertEquals("a", state.value.books().first { it.id == "a" }.name)
 	}
 
 	@Test
-	fun anEditInProgressOutlivesTheScreenThatWasTypingIt() {
+	fun anEditInProgressOutlivesTheScreenAndBelongsToOneGateway() {
 		val (ops, _) = opsOver(listOf(book("a")))
-		val typed = com.atelier_nyaarium.switchboard.runbooks.RunbookDraft(id = "a", name = "Half typed")
+		val here = com.atelier_nyaarium.switchboard.runbooks.RunbookDraft(id = "a", name = "Here")
+		val there = com.atelier_nyaarium.switchboard.runbooks.RunbookDraft(id = "a", name = "There")
 
-		ops.keepDraft("a", typed)
+		ops.keepDraft(GW, "a", here)
+		ops.keepDraft(OTHER, "a", there)
 		// What a recreated editor asks for, holding nothing of its own.
-		assertEquals(typed, ops.draftFor("a"))
+		assertEquals(here, ops.draftFor(GW, "a"))
+		assertEquals(there, ops.draftFor(OTHER, "a"))
 
-		ops.dropDraft("a")
-		assertEquals(null, ops.draftFor("a"))
+		// Closing one editor leaves the other still being typed.
+		ops.dropDraft(GW, "a")
+		assertEquals(null, ops.draftFor(GW, "a"))
+		assertEquals(there, ops.draftFor(OTHER, "a"))
 	}
 
 	@Test
 	fun deletingTakesItOutOfTheLibraryEvenWithNoGatewayToTell() {
 		val (ops, state) = opsOver(listOf(book("a"), book("b")))
-		kotlinx.coroutines.runBlocking { ops.delete("a") }
-		assertEquals(listOf("b"), state.value.runbooks.map { it.id })
+		kotlinx.coroutines.runBlocking { ops.delete("a", GW) }
+		assertEquals(listOf("b"), state.value.books().map { it.id })
+	}
+
+	@Test
+	fun oneGatewaysGroupIsReplacedWithoutDisturbingAnother() {
+		val host = WithGateway()
+		val state = MutableStateFlow(ChatState())
+		val ops = RunbookOps(state, host)
+
+		kotlinx.coroutines.runBlocking {
+			ops.save(book("a", name = "Here"), GW)
+			ops.save(book("a", name = "There"), OTHER)
+			// A delete on one Gateway is not a delete on the other, whatever the id.
+			ops.delete("a", GW)
+		}
+		assertEquals(emptyList<String>(), state.value.books(GW).map { it.id })
+		assertEquals(listOf("There"), state.value.books(OTHER).map { it.name })
 	}
 
 	@Test
@@ -199,32 +229,49 @@ class RunbookOpsTest {
 		val host = WithGateway()
 		val state = MutableStateFlow(ChatState())
 		val ops = RunbookOps(state, host)
-		host.library.merge(host.homeGatewayId(), listOf(book("a")))
+		host.library.merge(GW, listOf(book("a")))
 
 		// The Gateway holds no such id, so it answers no, and the owner is not shown a library that
 		// lost what the Gateway may still have.
 		kotlinx.coroutines.runBlocking {
-			assertEquals(false, ops.delete("a"))
-			assertEquals(listOf("a"), host.library.all(host.homeGatewayId()).map { it.id })
+			assertEquals(false, ops.delete("a", GW))
+			assertEquals(listOf("a"), host.library.all(GW).map { it.id })
 		}
 	}
 
 	@Test
 	fun aRefusedPushStandsUntilAPutIsTaken() {
 		val refused = ConsoleRunbookPutResult(stored = false, revision = 7L, reason = "held newer")
-		val raised = refusalsAfterPut(emptyMap(), "a", refused)
-		assertEquals(SaveRefusal("held newer", 7L), raised["a"])
+		val key = GW to "a"
+		val raised = refusalsAfterPut(emptyMap(), key, refused)
+		assertEquals(SaveRefusal("held newer", 7L), raised[key])
 
-		assertEquals(raised, refusalsAfterPut(raised, "a", null))
-		assertEquals(emptyMap<String, SaveRefusal>(), refusalsAfterPut(raised, "a", refused.copy(stored = true)))
+		assertEquals(raised, refusalsAfterPut(raised, key, null))
+		assertEquals(emptyMap<Pair<String, String>, SaveRefusal>(), refusalsAfterPut(raised, key, refused.copy(stored = true)))
+
+		// One Gateway's refusal says nothing about another's copy of that id.
+		assertEquals(null, raised[OTHER to "a"])
+	}
+
+	@Test
+	fun aRefusalOnOneGatewayLeavesTheEditorOnAnotherUnblocked() {
+		val host = WithGateway()
+		val ops = RunbookOps(MutableStateFlow(ChatState()), host)
+
+		kotlinx.coroutines.runBlocking {
+			ops.save(book("a", revision = 1L), GW)
+			ops.save(book("a", name = "Stale", revision = 1L), GW, baseRevision = 7L)
+		}
+		assertNotEquals(null, ops.refusalFor(GW, "a"))
+		assertEquals(null, ops.refusalFor(OTHER, "a"))
 	}
 
 	@Test
 	fun aSaveTheLibraryDidNotTakeIsRefusedRatherThanSilentlyLost() {
 		val (ops, _) = opsOver(listOf(book("a", revision = 4L)))
 
-		val saved = kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 4L).copy(body = "stale")) }
-		assertEquals(RunbookSaved.Refused(SaveRefusal("This phone holds a newer copy", 4L)), saved)
+		val saved = kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 4L).copy(body = "stale"), GW) }
+		assertEquals(4L, (saved as? RunbookSaved.Refused)?.refusal?.heldRevision)
 	}
 
 	@Test
@@ -255,7 +302,13 @@ class RunbookOpsTest {
 	fun firingWithoutAGatewayAnswersNothingRatherThanThrowing() {
 		val (ops, _) = opsOver(listOf(book("a")))
 		val answer = kotlinx.coroutines.runBlocking {
-			ops.fire("a", emptyMap(), com.atelier_nyaarium.switchboard.proto.RunbookFireTarget.Session("host.x"), 1L)
+			ops.fire(
+				"a",
+				emptyMap(),
+				com.atelier_nyaarium.switchboard.proto.RunbookFireTarget.Session("host.x"),
+				1L,
+				GW,
+			)
 		}
 		assertEquals(null, answer)
 	}

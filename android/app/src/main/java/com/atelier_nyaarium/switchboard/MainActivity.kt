@@ -126,12 +126,12 @@ fun App(
 	var openNonce by remember { mutableStateOf(0) }
 	// Composition mirror; store persists.
 	var boardStripHeight by remember { mutableStateOf(repo.store.boardStripHeight) }
-	var boardModal by remember { mutableStateOf<Pair<String, String>?>(null) }
+	var boardModal by remember { mutableStateOf<String?>(null) }
 	var vaultModal by remember { mutableStateOf<VaultModal?>(null) }
-	var fireRunbookId by remember { mutableStateOf<String?>(null) }
-	// Null is closed and "" is a new runbook, so the open editor survives a rotation.
-	var editRunbook by rememberSaveable { mutableStateOf<String?>(null) }
-	var editRoutine by rememberSaveable { mutableStateOf<String?>(null) }
+	var fireRunbookId by remember { mutableStateOf<Pair<String, String>?>(null) }
+	// Gateway and id. Null is closed, a blank id is a new one.
+	var editRunbook by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
+	var editRoutine by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
 	// Clear reveal after handoff.
 	val revealAtState = remember { mutableStateOf<Pair<String, Long>?>(null) }
 	var revealAt by revealAtState
@@ -366,9 +366,9 @@ fun App(
 				boardRevision = boardRevision,
 				boardStripHeight = boardStripHeight,
 				onBoardStripHeight = { boardStripHeight = it; repo.store.boardStripHeight = it },
-				onOpenBoardEntry = { boardModal = it.gatewayId to it.entry.id },
+				onOpenBoardEntry = { boardModal = it.entry.id },
 				onMoveBoardEntry = { row, drop ->
-					repo.boardOps.boardSetParent(row.gatewayId, row.entry.id, drop.parent, drop.rank)
+					repo.boardOps.boardSetParent(row.entry.id, drop.parent, drop.rank)
 				},
 				revealAt = revealAt,
 				onRevealed = { revealAt = null },
@@ -508,8 +508,8 @@ fun App(
 					com.atelier_nyaarium.switchboard.runbooks.RunbooksScreen(
 						repo = repo,
 						state = state,
-						onFire = { fireRunbookId = it },
-						onEdit = { editRunbook = it ?: "" },
+						onFire = { gatewayId, id -> fireRunbookId = gatewayId to id },
+						onEdit = { gatewayId, id -> editRunbook = gatewayId to id.orEmpty() },
 						modifier = modifier,
 					)
 				},
@@ -518,7 +518,7 @@ fun App(
 					com.atelier_nyaarium.switchboard.routines.RoutinesScreen(
 						repo = repo,
 						state = state,
-						onEdit = { editRoutine = it ?: "" },
+						onEdit = { gatewayId, id -> editRoutine = gatewayId to id.orEmpty() },
 						modifier = modifier,
 					)
 				},
@@ -537,9 +537,9 @@ fun App(
 				board = { modifier, goToSessions ->
 					BoardScreen(
 						repo = repo,
-						onOpenEntry = { gw, id -> boardModal = gw to id },
+						onOpenEntry = { id -> boardModal = id },
 						onMoveEntry = { row, drop ->
-							repo.boardOps.boardSetParent(row.gatewayId, row.entry.id, drop.parent, drop.rank)
+							repo.boardOps.boardSetParent(row.entry.id, drop.parent, drop.rank)
 						},
 						onSaved = goToSessions,
 						modifier = modifier,
@@ -605,8 +605,8 @@ fun App(
 	AttachmentViewerOverlay(viewerState, rendererPool)
 	LinkMenuDialog(linkMenuState, linkMenuNoteState)
 	// Board dialog replaces current screen.
-	boardModal?.let { (gatewayId, entryId) ->
-		BoardEntryDialog(state, repo, gatewayId, entryId) { boardModal = null }
+	boardModal?.let { entryId ->
+		BoardEntryDialog(state, repo, entryId) { boardModal = null }
 	}
 	when (val modal = vaultModal) {
 		is VaultModal.Entry ->
@@ -615,16 +615,16 @@ fun App(
 			com.atelier_nyaarium.switchboard.vault.VaultRequestSheet(repo, state, modal.id) { vaultModal = null }
 		null -> {}
 	}
-	fireRunbookId?.let { id ->
-		com.atelier_nyaarium.switchboard.runbooks.RunbookFireSheet(repo, state, id) { fireRunbookId = null }
+	fireRunbookId?.let { (gatewayId, id) ->
+		com.atelier_nyaarium.switchboard.runbooks.RunbookFireSheet(repo, state, gatewayId, id) { fireRunbookId = null }
 	}
-	editRunbook?.let { opened ->
+	editRunbook?.let { (gatewayId, opened) ->
 		val id = opened.ifEmpty { null }
-		com.atelier_nyaarium.switchboard.runbooks.RunbookEditor(repo, id) { editRunbook = null }
+		com.atelier_nyaarium.switchboard.runbooks.RunbookEditor(repo, gatewayId, id) { editRunbook = null }
 	}
-	editRoutine?.let { opened ->
+	editRoutine?.let { (gatewayId, opened) ->
 		val id = opened.ifEmpty { null }
-		com.atelier_nyaarium.switchboard.routines.RoutineEditor(repo, state, id) { editRoutine = null }
+		com.atelier_nyaarium.switchboard.routines.RoutineEditor(repo, state, gatewayId, id) { editRoutine = null }
 	}
 }
 

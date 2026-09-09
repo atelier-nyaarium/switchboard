@@ -1,7 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.GatewaySpawnPoints
-import com.atelier_nyaarium.switchboard.runbooks.gatewayTargets
 import com.atelier_nyaarium.switchboard.runbooks.sessionTargets
 import com.atelier_nyaarium.switchboard.runbooks.spawnTargets
 import org.junit.Assert.assertEquals
@@ -43,6 +42,5 @@ class RunbookTargetsTest {
 	fun anotherGatewaysTargetsNeverAppearUnderThisOne() {
 		assertEquals(listOf("host", "nyaakube"), spawnTargets(state, "mikan").map { it.address })
 		assertEquals(listOf("host.999"), sessionTargets(state, "mikan").map { it.address })
-		assertEquals(listOf("sakura", "mikan"), gatewayTargets(state))
 	}
 }

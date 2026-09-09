@@ -412,8 +412,7 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 	 * threshold so its row asks to be tapped instead, and one names bytes that are simply absent.
 	 */
 	fun seedBoard(store: AppStateStore) {
-		// A real id, not whatever a cleared install has: sourceGatewayIds drops empty ones, so a board
-		// keyed by "" renders as an empty backlog with no hint that anything was seeded.
+		// A real id, not whatever a cleared install has: a board write routes through the stored one.
 		val gatewayId = GATEWAY.also { store.saveGatewayId(it) }
 		val entryId = "b".repeat(32)
 		val present = writeBoardBytes(entryId, "shot", 4_000)

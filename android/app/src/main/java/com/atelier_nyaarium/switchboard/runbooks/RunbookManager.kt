@@ -51,6 +51,15 @@ class RunbookManager(
 
 	fun all(gatewayId: String): List<Runbook> = libraryOf(gatewayId)
 
+	/** Every gateway with a library, the pre-split copy under whichever gateway claims it. */
+	fun placed(): Map<String, List<Runbook>> {
+		val named = libraries - UNPLACED
+		val home = homeGatewayId()
+		val unplaced = libraries[UNPLACED].orEmpty()
+		if (unplaced.isEmpty() || home.isBlank() || named.containsKey(home)) return named
+		return named + (home to unplaced)
+	}
+
 	fun find(gatewayId: String, runbookId: String): Runbook? = libraryOf(gatewayId).find { it.id == runbookId }
 
 	fun merge(gatewayId: String, incoming: List<Runbook>): List<Runbook> = synchronized(stateLock) {

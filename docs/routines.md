@@ -52,7 +52,20 @@ at its own successor. Run now and Dismiss both name an occurrence rather than th
 answer something the owner is looking at.
 
 The list answer carries each routine with its next instant and any occurrence the owner has not dealt
-with. The phone recomputes none of it.
+with, plus the zone that Gateway keeps them in. The phone recomputes none of it.
+
+## The tab
+
+A routine belongs to the Gateway that runs it. The Routines tab asks every admitted Gateway,
+concurrently, and groups the answers by Gateway; one that cannot be read leaves the rest drawn. The
+heading appears only when there is more than one, and groups sort by Gateway id.
+
+Each group carries its own zone, since a schedule read against another Gateway's zone is a wrong time
+on screen. Notification ids, editor drafts and list keys all carry the Gateway too, because two
+Gateways may hold the same routine id and neither may cancel or overwrite the other.
+
+An empty tab distinguishes the two things it can mean: no Gateway answered at all, or the Gateways
+that answered hold nothing.
 
 ## The runner
 

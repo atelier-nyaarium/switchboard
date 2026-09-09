@@ -50,28 +50,36 @@ private const val PREVIEW_SETTLE_MS = 400L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, onDismiss: () -> Unit) {
-	val runbook = remember(runbookId, state.runbooks) { state.runbooks.find { it.id == runbookId } }
+fun RunbookFireSheet(
+	repo: ChatRepository,
+	state: ChatState,
+	gatewayId: String,
+	runbookId: String,
+	onDismiss: () -> Unit,
+) {
+	// The copy on the gateway the row came from, never whichever copy shares its id.
+	val runbook = remember(gatewayId, runbookId, state.runbooks) {
+		state.runbooks.find { it.gatewayId == gatewayId }?.runbooks?.find { it.id == runbookId }
+	}
 	if (runbook == null) {
 		LaunchedEffect(runbookId) { onDismiss() }
 		return
 	}
-	val gatewayId = state.homeGatewayId
-	val sheet = remember(runbookId) { FireSheetState(runbook, gatewayId) }
+	val sheet = remember(gatewayId, runbookId) { FireSheetState(runbook) }
 	LaunchedEffect(runbook.revision) { sheet.adopt(runbook) }
 	val values = sheet.values
 	val scope = rememberCoroutineScope()
 
-	LaunchedEffect(runbook.revision, sheet.gateway, values, sheet.attempt) {
+	LaunchedEffect(runbook.revision, values, sheet.attempt) {
 		sheet.preview = (sheet.preview as? PreviewState.Ready)?.let { PreviewState.Stale(it.text) }
 			?: PreviewState.Pending
 		delay(PREVIEW_SETTLE_MS)
-		val answer = repo.runbookOps.preview(runbookId, values, sheet.gateway)
+		val answer = repo.runbookOps.preview(runbookId, values, gatewayId)
 		sheet.preview = when {
 			answer == null -> {
 				// Filtered as the editor filters it, or a refusal the library has moved past explains
 				// a block it no longer causes.
-				val refusal = standingRefusal(repo.runbookOps.refusalFor(runbookId), runbook.revision)
+				val refusal = standingRefusal(repo.runbookOps.refusalFor(gatewayId, runbookId), runbook.revision)
 				PreviewState.Blocked(refusal?.reason, canOverwrite = refusal != null)
 			}
 			answer.text != null -> PreviewState.Ready(answer.text, answer.revision)
@@ -129,18 +137,11 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 							shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
 						) { Text("Existing session") }
 					}
-					val gateways = gatewayTargets(state)
-					if (gateways.size > 1) {
-						TargetMenu(
-							label = "Gateway",
-							choices = gateways.map { FireTarget(it, it) },
-							picked = FireTarget(sheet.gateway, sheet.gateway),
-							onPick = { sheet.aimAtGateway(it.address) },
-						)
-					}
+					// The runbook's own Gateway is where it fires; another one's copy of this id is
+					// another runbook.
 					val choices =
-						if (sheet.freshSession) spawnTargets(state, sheet.gateway)
-						else sessionTargets(state, sheet.gateway)
+						if (sheet.freshSession) spawnTargets(state, gatewayId)
+						else sessionTargets(state, gatewayId)
 					TargetMenu(
 						label = if (sheet.freshSession) "Start on" else "Send to",
 						choices = choices,
@@ -151,7 +152,7 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 
 				PreviewPane(sheet.preview) {
 					scope.launch {
-						repo.runbookOps.overwrite(runbookId, sheet.gateway)
+						repo.runbookOps.overwrite(runbookId, gatewayId)
 						sheet.retry()
 					}
 				}
@@ -173,13 +174,16 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 							} else {
 								RunbookFireTarget.Session(target = sheet.target)
 							}
-							val answer = repo.runbookOps.fire(runbookId, values, into, pinned.revision, sheet.gateway)
+							val answer = repo.runbookOps.fire(runbookId, values, into, pinned.revision, gatewayId)
 							sheet.firing = false
 							if (answer?.fired == true) {
 								onDismiss()
 							} else {
 								sheet.refusal = answer?.reason
-									?: standingRefusal(repo.runbookOps.refusalFor(runbookId), runbook.revision)?.reason
+									?: standingRefusal(
+										repo.runbookOps.refusalFor(gatewayId, runbookId),
+										runbook.revision,
+									)?.reason
 									?: "the fire did not reach this Gateway"
 							}
 						}
@@ -258,7 +262,7 @@ private fun PreviewPane(preview: PreviewState, onOverwrite: () -> Unit) {
 	}
 }
 
-internal class FireSheetState(runbook: Runbook, gatewayId: String) {
+internal class FireSheetState(runbook: Runbook) {
 	var revision by mutableStateOf(runbook.revision)
 		private set
 
@@ -276,20 +280,12 @@ internal class FireSheetState(runbook: Runbook, gatewayId: String) {
 
 	var freshSession by mutableStateOf(true)
 		private set
-	var gateway by mutableStateOf(gatewayId)
-		private set
 	var target by mutableStateOf("")
 		private set
 
 	fun aimAt(fresh: Boolean) {
 		if (fresh == freshSession) return
 		freshSession = fresh
-		target = ""
-	}
-
-	fun aimAtGateway(id: String) {
-		if (id == gateway) return
-		gateway = id
 		target = ""
 	}
 

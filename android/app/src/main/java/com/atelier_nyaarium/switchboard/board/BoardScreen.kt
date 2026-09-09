@@ -51,7 +51,7 @@ import com.atelier_nyaarium.switchboard.ChatRepository
 @Composable
 fun BoardScreen(
 	repo: ChatRepository,
-	onOpenEntry: (String, String) -> Unit,
+	onOpenEntry: (String) -> Unit,
 	onMoveEntry: (BoardRow, BoardDrop) -> Unit = { _, _ -> },
 	onSaved: () -> Unit = {},
 	modifier: Modifier = Modifier,
@@ -61,13 +61,10 @@ fun BoardScreen(
 	val revision by repo.boardOps.boardRevision
 	val rows = remember(revision) { flattenBoard(repo.boardOps.boardEntries()) }
 
-	// Expose stale columns explicitly.
-	val staleColumns = remember(revision) {
-		val route = repo.boardOps.boardGatewayOf(null)
-		repo.boardOps.boardSourceGatewayIds()
-			.filter { it != route }
-			.mapNotNull { gw -> repo.boardOps.boardLastSyncedAt(gw).takeIf { it > 0 }?.let { gw to it } }
-			.filter { System.currentTimeMillis() - it.second > STALE_AFTER_MS }
+	// A cached board is said to be one, rather than passing for a fresh read.
+	val staleSince = remember(revision) {
+		repo.boardOps.boardLastSyncedAt()
+			.takeIf { it > 0 && System.currentTimeMillis() - it > STALE_AFTER_MS }
 	}
 
 	var trashOpen by rememberSaveable { mutableStateOf(false) }
@@ -109,9 +106,7 @@ fun BoardScreen(
 		for ((index, refusal) in repo.boardOps.boardRefusals.withIndex()) {
 			item(key = "refused:$index:${refusal.entryId ?: "none"}") {
 				val named = refusal.entryId?.let { id ->
-					repo.boardOps.boardSourceGatewayIds().firstNotNullOfOrNull { gw ->
-						repo.boardOps.boardEntriesOn(gw).firstOrNull { it.id == id }?.title
-					}
+					repo.boardOps.boardEntries().firstOrNull { it.id == id }?.title
 				}
 				Row(
 					Modifier
@@ -137,10 +132,10 @@ fun BoardScreen(
 			}
 		}
 
-		for ((gw, at) in staleColumns) {
-			item(key = "stale:$gw") {
+		staleSince?.let { at ->
+			item(key = "stale") {
 				Text(
-					"$gw last read ${relativeAge(at)} ago",
+					"Board last read ${relativeAge(at)} ago",
 					style = MaterialTheme.typography.labelSmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -175,7 +170,7 @@ fun BoardScreen(
 			}
 		}
 		boardRowItems(rows.unassigned.rows, drag, BoardRowPresentation.Board) {
-			onOpenEntry(it.gatewayId, it.entry.id)
+			onOpenEntry(it.entry.id)
 		}
 
 		if (rows.trash.isNotEmpty()) {
@@ -194,7 +189,7 @@ fun BoardScreen(
 							row = row,
 							presentation = BoardRowPresentation.Board,
 							carried = false,
-							onClick = { onOpenEntry(row.gatewayId, row.entry.id) },
+							onClick = { onOpenEntry(row.entry.id) },
 						)
 					}
 				}

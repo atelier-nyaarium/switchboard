@@ -8,6 +8,9 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleRoutinePutResult
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineState
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
@@ -31,7 +34,6 @@ internal interface RoutineGateway {
 
 internal interface RoutineHost {
 	val gateway: RoutineGateway?
-	fun homeGatewayId(): String
 
 	/** What the gateway now says, so the shade is reconciled against it rather than against a poll. */
 	fun onRoutinesChanged() {}
@@ -51,44 +53,38 @@ internal class RoutineOps(
 	private val state: MutableStateFlow<ChatState>,
 	private val host: RoutineHost,
 ) {
-	private var drafts = mapOf<String, Routine>()
+	private var drafts = mapOf<Pair<String, String>, Routine>()
 
-	/**
-	 * Counts reads, so a slower one that started earlier does not overwrite a newer answer. Atomic
-	 * because the background loop and a tap on the screen both call in, on different threads.
-	 */
-	private val asked = java.util.concurrent.atomic.AtomicLong(0)
+	private val reads = GatewayReadFence()
 
-	fun draftFor(key: String): Routine? = drafts[key]
+	fun draftFor(gatewayId: String, key: String): Routine? = drafts[gatewayId to key]
 
-	fun keepDraft(key: String, draft: Routine) {
-		drafts = drafts + (key to draft)
+	fun keepDraft(gatewayId: String, key: String, draft: Routine) {
+		drafts = drafts + ((gatewayId to key) to draft)
 	}
 
-	fun dropDraft(key: String) {
-		drafts = drafts - key
+	fun dropDraft(gatewayId: String, key: String) {
+		drafts = drafts - (gatewayId to key)
 	}
 
-	/**
-	 * A read the background loop started can land after one an owner's tap started, and showing it
-	 * would put the panel they just settled back on screen. The later reader wins.
-	 */
-	suspend fun refresh(gatewayId: String = host.homeGatewayId()) {
+	/** Every gateway the keyring admits, asked together so a slow one does not hold up the rest. */
+	suspend fun refreshAll(gatewayIds: List<String>) {
+		coroutineScope { gatewayIds.map { id -> async { refresh(id) } }.awaitAll() }
+		// A gateway the keyring no longer admits stops being drawn, and stops being actionable with it.
+		state.update { held -> held.copy(routines = held.routines.filter { it.gatewayId in gatewayIds }) }
+		host.onRoutinesChanged()
+	}
+
+	suspend fun refresh(gatewayId: String) {
 		val client = host.gateway ?: return
 		if (gatewayId.isBlank()) return
-		val mine = asked.incrementAndGet()
-		val held = attempt { client.list(gatewayId) } ?: return
-		if (mine != asked.get()) return
+		val held = reads.read(gatewayId) { attempt { client.list(gatewayId) } } ?: return
 		show(gatewayId, held.routines, held.zone)
 		host.onRoutinesChanged()
 	}
 
 	/** Carries the revision the editor was opened at; the gateway names the one it stores. */
-	suspend fun save(
-		routine: Routine,
-		baseRevision: Long?,
-		gatewayId: String = host.homeGatewayId(),
-	): RoutineSaved {
+	suspend fun save(routine: Routine, baseRevision: Long?, gatewayId: String): RoutineSaved {
 		val client = host.gateway ?: return RoutineSaved.Unreachable
 		if (gatewayId.isBlank()) return RoutineSaved.Unreachable
 		val answer = attempt { client.put(gatewayId, routine, baseRevision) } ?: return RoutineSaved.Unreachable
@@ -101,13 +97,13 @@ internal class RoutineOps(
 	}
 
 	/** Null when nothing further is named, or when this Gateway could not be asked. */
-	suspend fun nextRun(routine: Routine, gatewayId: String = host.homeGatewayId()): Long? {
+	suspend fun nextRun(routine: Routine, gatewayId: String): Long? {
 		val client = host.gateway ?: return null
 		if (gatewayId.isBlank()) return null
 		return attempt { client.next(gatewayId, routine) }?.nextAt
 	}
 
-	suspend fun setEnabled(routineId: String, enabled: Boolean, gatewayId: String = host.homeGatewayId()): Boolean {
+	suspend fun setEnabled(routineId: String, enabled: Boolean, gatewayId: String): Boolean {
 		val client = host.gateway ?: return false
 		if (gatewayId.isBlank()) return false
 		val answer = attempt { client.enable(gatewayId, routineId, enabled) }
@@ -116,7 +112,7 @@ internal class RoutineOps(
 	}
 
 	/** The gateway's own answer, so nothing says gone about a routine it still runs. */
-	suspend fun delete(routineId: String, gatewayId: String = host.homeGatewayId()): Boolean {
+	suspend fun delete(routineId: String, gatewayId: String): Boolean {
 		val client = host.gateway ?: return false
 		if (gatewayId.isBlank()) return false
 		val answer = attempt { client.delete(gatewayId, routineId) }
@@ -124,10 +120,10 @@ internal class RoutineOps(
 		return answer?.deleted == true
 	}
 
-	suspend fun runNow(routineId: String, occurrenceId: String, gatewayId: String = host.homeGatewayId()): Boolean =
+	suspend fun runNow(routineId: String, occurrenceId: String, gatewayId: String): Boolean =
 		occurrence(gatewayId) { client -> client.runNow(gatewayId, routineId, occurrenceId) }
 
-	suspend fun dismiss(routineId: String, occurrenceId: String, gatewayId: String = host.homeGatewayId()): Boolean =
+	suspend fun dismiss(routineId: String, occurrenceId: String, gatewayId: String): Boolean =
 		occurrence(gatewayId) { client -> client.dismiss(gatewayId, routineId, occurrenceId) }
 
 	private suspend fun occurrence(
@@ -141,10 +137,12 @@ internal class RoutineOps(
 		return answer?.applied == true
 	}
 
-	/** The tab draws the home gateway's routines; another gateway's are its own to run. */
+	/** That gateway's group, replaced whole. Sorted by id, so no gateway holds a privileged place. */
 	private fun show(gatewayId: String, routines: List<RoutineState>, zone: String) {
-		if (gatewayId != host.homeGatewayId()) return
-		state.update { it.copy(routines = routines, routineZone = zone) }
+		state.update { held ->
+			val kept = held.routines.filterNot { it.gatewayId == gatewayId }
+			held.copy(routines = (kept + GatewayRoutines(gatewayId, routines, zone)).sortedBy { it.gatewayId })
+		}
 	}
 
 	private suspend fun <T> attempt(call: suspend () -> T): T? = try {
