@@ -18,11 +18,22 @@ the agent opens those. Approving would have authorized something nothing was wai
 
 Superseded by Question 3.
 
-## Question 3 - Should the attention panel offer a fresh run?
+## Question 3 - Should there be a fresh run after a correction?
 
 Q: The two honest actions are Link the secret, which serves future runs, and a fresh run, which is
 the only thing that can finish the work that was blocked. Is the second worth building, or is linking
 enough and the next scheduled run soon enough?
+
+A: Both. A manual run for after a correction, and the next scheduled run picks the grants up anyway.
+
+> Either a run now button to manually trigger it after correction, or the next scheduled run will
+> kick it off with the added grants.
+
+## Question 4 - Where does a manual run live?
+
+Q: Linking the secret is a save, and a save clears the routine's attention rows, so the panel that
+prompted the correction is gone by the time the owner would press anything on it. Does the manual run
+belong on every routine row instead?
 
 A: pending.
 
