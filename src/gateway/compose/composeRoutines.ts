@@ -230,6 +230,12 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 				const ran = await runner.runNow(routineId, Number(occurrenceId));
 				return ran ? { applied: true } : { applied: false, reason: "that occurrence cannot be run now" };
 			},
+			run: async (routineId) => {
+				const opened = await runner.runFresh(routineId);
+				return opened === null
+					? { ran: false, reason: "this Gateway could not start a run" }
+					: { ran: true, occurrenceId: String(opened) };
+			},
 			dismiss: (routineId, occurrenceId) =>
 				runner.dismiss(routineId, Number(occurrenceId))
 					? { applied: true }

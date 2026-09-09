@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineNextResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineOccurrenceResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutinePutResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineRunResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookFireResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookListResult
@@ -184,6 +185,9 @@ internal class SandboxRoutineGateway : RoutineGateway {
 
 	override suspend fun runNow(gatewayId: String, routineId: String, occurrenceId: String) =
 		ConsoleRoutineOccurrenceResult(applied = true)
+
+	override suspend fun run(gatewayId: String, routineId: String) =
+		ConsoleRoutineRunResult(ran = true, occurrenceId = System.currentTimeMillis().toString())
 
 	override suspend fun dismiss(gatewayId: String, routineId: String, occurrenceId: String) =
 		ConsoleRoutineOccurrenceResult(applied = true)

@@ -83,6 +83,9 @@ fun RoutinesScreen(
 								row = row,
 								zone = zone,
 								onEdit = { onEdit(group.gatewayId, row.routine.id) },
+								onRun = {
+									scope.launch { repo.routineOps.run(row.routine.id, group.gatewayId) }
+								},
 								onEnable = { on ->
 									scope.launch {
 										repo.routineOps.setEnabled(row.routine.id, on, group.gatewayId)
@@ -122,6 +125,7 @@ private fun RoutineRow(
 	row: RoutineState,
 	zone: java.time.ZoneId,
 	onEdit: () -> Unit,
+	onRun: () -> Unit,
 	onEnable: (Boolean) -> Unit,
 	onRunNow: (String) -> Unit,
 	onDismiss: (String) -> Unit,
@@ -142,6 +146,9 @@ private fun RoutineRow(
 						overflow = TextOverflow.Ellipsis,
 					)
 				}
+				// On every row, since firing one several times in a day is an ordinary thing to want.
+				// Enabled while disabled: the switch stops the schedule, not the routine.
+				TextButton(onClick = hapticClick(onRun)) { Text("Run") }
 				Switch(checked = row.routine.enabled, onCheckedChange = onEnable)
 			}
 			Text(

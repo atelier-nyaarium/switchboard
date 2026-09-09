@@ -44,12 +44,17 @@ a transition is twenty three hours from the last, and still the next morning.
 
 ## Operations
 
-Six console operations, all owner-authenticated: `routine_list`, `routine_put`, `routine_delete`,
-`routine_enable`, `routine_run_now` and `routine_dismiss`.
+Seven console operations, all owner-authenticated: `routine_list`, `routine_put`, `routine_delete`,
+`routine_enable`, `routine_run_now`, `routine_run` and `routine_dismiss`.
 
 `routine_put` carries `baseRevision`, the revision the editor was opened at, and the gateway stores
-at its own successor. Run now and Dismiss both name an occurrence rather than the routine, since they
-answer something the owner is looking at.
+at its own successor. Run missed and Dismiss both name an occurrence rather than the routine, since
+they answer something the owner is looking at.
+
+**`routine_run` is a different act from `routine_run_now`, which is why it is its own operation.**
+Run missed re-runs a slot the rule named and the owner is looking at, and takes only a `missed` one.
+A pressed Run opens a fresh occurrence at the instant it was pressed, so it carries no instant: the
+gateway owns `now`, and answers the occurrence id it opened.
 
 The list answer carries each routine with its next instant and any occurrence the owner has not dealt
 with, plus the zone that Gateway keeps them in. The phone recomputes none of it.
@@ -72,7 +77,7 @@ that answered hold nothing.
 ## The runner
 
 `src/gateway/routines/runner.ts` owns when, and everything that could act on an occurrence enters
-through `advance`, so the timer, the reconcile tick and a manual Run now cannot each be walking the
+through `advance`, so the timer, the reconcile tick and a pressed run cannot each be walking the
 same one.
 
 It wakes on the earliest thing worth waking for, and a bounded tick runs beside it because a timer
@@ -91,6 +96,25 @@ named state and version, and `src/shared/routine-occurrence.ts` says which moves
 - **Recovery collapses.** Occurrences still inside their twelve hours run; everything older becomes a
   single severe miss, so a week away is one panel. Reconstruction never reaches past the routine's
   `since`, which the gateway stamps when it first takes one.
+- **The severe-miss walk reads rule-named occurrences only.** A pressed run's occurrence carries
+  `adhoc`, and counting it as the newest would move the floor past a scheduled slot that never ran,
+  so pressing Run would silently swallow the miss the owner needed to see.
+
+### A pressed run
+
+`runFresh` opens an occurrence at the instant it was pressed and walks it through the same `advance`
+as everything else, so it cannot race the timer or the tick.
+
+- **It bypasses enablement and nothing else.** Disable stops the schedule, not the routine, and
+  pressing a button is not the schedule firing. Idleness, preparation, the revision fence and the
+  deadline all still apply, so a pressed run on a busy session waits exactly as a scheduled one does.
+- **It is never a re-entry.** Occurrences are keyed by routine and instant, so if the rule already
+  named that exact millisecond and its row has moved on, the run does not happen. At-most-once
+  forbids walking a dispatched occurrence twice.
+- **It does not disturb the schedule.** `nextAt` never reads occurrences, so the next scheduled run
+  is where it was. `lastRanAt` moves, which is what it means.
+- **Nothing refuses it while a run is already working.** The owner ruled on that knowing what it
+  does: a second nudge lands in a session that is mid-turn, with nothing coordinating the two.
 
 The stage is armed from the federation context's activation callback, so it cannot fire before the
 routes exist, and both the already-active boot and a later enrollment go through it. Shutdown stops

@@ -361,6 +361,9 @@ export function createConsoleDispatcher({
 			case "routine_run_now":
 				return requireRoutines().runNow(op.routineId, op.occurrenceId);
 
+			case "routine_run":
+				return requireRoutines().run(op.routineId);
+
 			case "routine_dismiss":
 				return requireRoutines().dismiss(op.routineId, op.occurrenceId);
 		}

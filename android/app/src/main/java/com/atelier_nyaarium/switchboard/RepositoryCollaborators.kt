@@ -139,6 +139,8 @@ internal class ConsoleRoutineGateway(private val client: ConsoleClient) : Routin
 	override suspend fun runNow(gatewayId: String, routineId: String, occurrenceId: String) =
 		client.routineRunNow(gatewayId, routineId, occurrenceId)
 
+	override suspend fun run(gatewayId: String, routineId: String) = client.routineRun(gatewayId, routineId)
+
 	override suspend fun dismiss(gatewayId: String, routineId: String, occurrenceId: String) =
 		client.routineDismiss(gatewayId, routineId, occurrenceId)
 }

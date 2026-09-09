@@ -23,6 +23,7 @@ import type {
 	ConsoleRoutineNextResult,
 	ConsoleRoutineOccurrenceResult,
 	ConsoleRoutinePutResult,
+	ConsoleRoutineRunResult,
 	Routine,
 } from "../../shared/schemasRoutine.js";
 import type { Runbook } from "../../shared/schemasRunbook.js";
@@ -138,6 +139,8 @@ export interface RoutineConsoleHandlers {
 	remove: (routineId: string) => ConsoleRoutineDeleteResult;
 	enable: (routineId: string, enabled: boolean) => ConsoleRoutinePutResult;
 	runNow: (routineId: string, occurrenceId: string) => Promise<ConsoleRoutineOccurrenceResult>;
+	/** A fresh run at the gateway's `now`, which is why it answers the occurrence it opened. */
+	run: (routineId: string) => Promise<ConsoleRoutineRunResult>;
 	dismiss: (routineId: string, occurrenceId: string) => ConsoleRoutineOccurrenceResult;
 }
 

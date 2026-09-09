@@ -45,6 +45,13 @@ export const OccurrenceSchema = z.object({
 	 * not the same as one that never picked the routine up, and liveness alone cannot tell them apart.
 	 */
 	readAt: z.number().int().nonnegative().optional(),
+	/**
+	 * The owner asked for this one, so no rule named its instant. Absent means the rule did, which is
+	 * what every stored row predating manual runs means. Two things read it: the enablement gates,
+	 * which it bypasses, and the severe-miss walk, which must not take it as the newest slot or a
+	 * manual run would hide a scheduled one that never happened.
+	 */
+	adhoc: z.boolean().optional(),
 });
 
 export type Occurrence = z.infer<typeof OccurrenceSchema>;
@@ -90,10 +97,11 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 	const forRoutine = (routineId: string): Occurrence[] => rows.filter((row) => row.routineId === routineId);
 
 	/** Materializes at `due`, or answers the row already there. A tombstone outranks the rule. */
-	const open = (routineId: string, scheduledAt: number, deadlineAt: number): Occurrence | null => {
+	const open = (routineId: string, scheduledAt: number, deadlineAt: number, adhoc = false): Occurrence | null => {
 		const held = at(routineId, scheduledAt);
 		if (held) return held;
 		const made: Occurrence = { routineId, scheduledAt, deadlineAt, state: "due", version: 1 };
+		if (adhoc) made.adhoc = true;
 		return commit([...rows, made]) ? made : null;
 	};
 

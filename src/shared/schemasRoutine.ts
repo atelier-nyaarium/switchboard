@@ -158,6 +158,18 @@ export const ConsoleRoutineOccurrenceResultSchema = z
 	.meta({ id: "ConsoleRoutineOccurrenceResult" });
 
 /**
+ * A fresh run names the occurrence it opened, since the gateway chose the instant. The id is the
+ * instant as a string, as every other occurrence id on this wire is.
+ */
+export const ConsoleRoutineRunResultSchema = z
+	.object({
+		ran: z.boolean(),
+		occurrenceId: z.string().min(1).max(128).optional(),
+		reason: z.string().optional(),
+	})
+	.meta({ id: "ConsoleRoutineRunResult" });
+
+/**
  * What a routine's own session asks back for, and what it is answered. Session wire, not phone wire,
  * so it carries no `.meta` id and generates no Kotlin.
  */
@@ -192,6 +204,7 @@ export type ConsoleRoutinePutResult = z.infer<typeof ConsoleRoutinePutResultSche
 export type ConsoleRoutineNextResult = z.infer<typeof ConsoleRoutineNextResultSchema>;
 export type ConsoleRoutineDeleteResult = z.infer<typeof ConsoleRoutineDeleteResultSchema>;
 export type ConsoleRoutineOccurrenceResult = z.infer<typeof ConsoleRoutineOccurrenceResultSchema>;
+export type ConsoleRoutineRunResult = z.infer<typeof ConsoleRoutineRunResultSchema>;
 
 /**
  * Why a routine cannot be stored, or null. Bounds nothing by size; a record is refused for what it

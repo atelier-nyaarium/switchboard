@@ -185,6 +185,12 @@ export const ConsoleOpSchema = z
 			routineId: z.string().min(1).max(64),
 			occurrenceId: z.string().min(1).max(128),
 		}),
+		/**
+		 * A fresh run, named by the routine alone. It carries no instant because the gateway owns
+		 * `now`, and it is not `routine_run_now`, which re-runs a slot the rule named and the owner is
+		 * looking at.
+		 */
+		z.object({ kind: z.literal("routine_run"), routineId: z.string().min(1).max(64) }),
 		z.object({
 			kind: z.literal("routine_dismiss"),
 			routineId: z.string().min(1).max(64),
@@ -238,6 +244,7 @@ export const VALUE_OP_KINDS = new Set([
 	"routine_delete",
 	"routine_enable",
 	"routine_run_now",
+	"routine_run",
 	"routine_dismiss",
 ]);
 

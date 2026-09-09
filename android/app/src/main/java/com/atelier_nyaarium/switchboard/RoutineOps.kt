@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineNextResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineOccurrenceResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutinePutResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineRunResult
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineState
 import kotlin.coroutines.cancellation.CancellationException
@@ -28,6 +29,9 @@ internal interface RoutineGateway {
 	suspend fun enable(gatewayId: String, routineId: String, enabled: Boolean): ConsoleRoutinePutResult
 
 	suspend fun runNow(gatewayId: String, routineId: String, occurrenceId: String): ConsoleRoutineOccurrenceResult
+
+	/** A fresh run at the gateway's own `now`, which is why it names no occurrence. */
+	suspend fun run(gatewayId: String, routineId: String): ConsoleRoutineRunResult
 
 	suspend fun dismiss(gatewayId: String, routineId: String, occurrenceId: String): ConsoleRoutineOccurrenceResult
 }
@@ -128,6 +132,15 @@ internal class RoutineOps(
 
 	suspend fun runNow(routineId: String, occurrenceId: String, gatewayId: String): Boolean =
 		occurrence(gatewayId) { client -> client.runNow(gatewayId, routineId, occurrenceId) }
+
+	/** A fresh run, pressed. Not the schedule firing, so a disabled routine still takes one. */
+	suspend fun run(routineId: String, gatewayId: String): Boolean {
+		val client = host.gateway ?: return false
+		if (gatewayId.isBlank()) return false
+		val answer = attempt { client.run(gatewayId, routineId) }
+		refresh(gatewayId)
+		return answer?.ran == true
+	}
 
 	suspend fun dismiss(routineId: String, occurrenceId: String, gatewayId: String): Boolean =
 		occurrence(gatewayId) { client -> client.dismiss(gatewayId, routineId, occurrenceId) }

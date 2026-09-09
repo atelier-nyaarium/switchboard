@@ -87,12 +87,16 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		if (!routine) return;
 		const now = ambient.now();
 
+		// Disable stops the schedule, not the routine, so a run the owner pressed is not the schedule
+		// firing. Every other check still applies to it.
+		const scheduled = occurrence.adhoc !== true;
+
 		if (now > occurrence.deadlineAt) {
 			// The cause it started waiting for; nothing probes a host this late.
 			miss(occurrence, occurrence.reason ?? "gateway_down");
 			return;
 		}
-		if (!routine.enabled) {
+		if (scheduled && !routine.enabled) {
 			miss(occurrence, "disabled");
 			return;
 		}
@@ -131,7 +135,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 				return;
 			}
 			const afterPrepare = routines.get(held.routineId);
-			if (!afterPrepare?.enabled) {
+			if (!afterPrepare || (scheduled && !afterPrepare.enabled)) {
 				miss(held, "disabled");
 				return;
 			}
@@ -151,7 +155,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 
 		if (held.state !== "prepared") return;
 		const currentRoutine = routines.get(held.routineId);
-		if (!currentRoutine?.enabled) {
+		if (!currentRoutine || (scheduled && !currentRoutine.enabled)) {
 			miss(held, "disabled");
 			return;
 		}
@@ -214,7 +218,9 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 	 * of them, so the owner is told the routine did not run without being told once per occurrence.
 	 */
 	function recordSevereMiss(routine: Routine, now: number): void {
-		const seen = occurrences.forRoutine(routine.id);
+		// Rule-named slots only. A run the owner pressed at 14:32 says nothing about whether this
+		// morning's scheduled slot ran, and counting it would move the floor past a miss untold.
+		const seen = occurrences.forRoutine(routine.id).filter((row) => row.adhoc !== true);
 		const newest = seen.reduce((held, row) => Math.max(held, row.scheduledAt), 0);
 		const closed = now - GRACE_MS;
 		// Never past the moment this gateway took the routine, or a routine saved today would be
@@ -316,6 +322,27 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		/** What the console's Run now and the tests reach. */
 		reconcile(): Promise<void> {
 			return queue(sweepDue);
+		},
+
+		/**
+		 * A run the owner pressed, at the instant they pressed it. Its own occurrence rather than a
+		 * re-entry of one the rule named, which at-most-once forbids. Answers the instant it opened,
+		 * since the gateway chose it.
+		 */
+		runFresh(routineId: string): Promise<number | null> {
+			let opened: number | null = null;
+			return queue(async () => {
+				// A shutdown has closed admission, and this would write after the flush.
+				if (!admitting) return;
+				if (!routines.get(routineId)) return;
+				const at = ambient.now();
+				const made = occurrences.open(routineId, at, at + GRACE_MS, true);
+				// The rule already named this exact millisecond and that row has moved on. Walking it
+				// would be the re-entry at-most-once forbids.
+				if (made?.state !== "due") return;
+				await advance(made);
+				opened = at;
+			}).then(() => opened);
 		},
 
 		/** A missed occurrence the owner asked for again, carrying a fresh authorization. */

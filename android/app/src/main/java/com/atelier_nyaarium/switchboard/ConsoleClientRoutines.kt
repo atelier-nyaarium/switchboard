@@ -6,6 +6,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineNextResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineOccurrenceResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutinePutResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineRunResult
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Routine
 
@@ -54,6 +55,13 @@ suspend fun ConsoleClient.routineRunNow(
 	valueResult(
 		sendValueOp(gatewayId, ConsoleOp.RoutineRunNow(routineId = routineId, occurrenceId = occurrenceId)),
 		Protocol.Wire.ConsoleOpKind.ROUTINE_RUN_NOW,
+	)
+
+/** No instant: the gateway owns `now`, and answers the occurrence it opened. */
+suspend fun ConsoleClient.routineRun(gatewayId: String, routineId: String): ConsoleRoutineRunResult =
+	valueResult(
+		sendValueOp(gatewayId, ConsoleOp.RoutineRun(routineId = routineId)),
+		Protocol.Wire.ConsoleOpKind.ROUTINE_RUN,
 	)
 
 suspend fun ConsoleClient.routineDismiss(

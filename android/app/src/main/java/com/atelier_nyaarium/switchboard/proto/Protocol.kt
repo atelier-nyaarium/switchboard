@@ -143,6 +143,7 @@ object Protocol {
 			const val ROUTINE_DELETE: String = "routine_delete"
 			const val ROUTINE_ENABLE: String = "routine_enable"
 			const val ROUTINE_RUN_NOW: String = "routine_run_now"
+			const val ROUTINE_RUN: String = "routine_run"
 			const val ROUTINE_DISMISS: String = "routine_dismiss"
 		}
 
@@ -537,6 +538,12 @@ sealed class ConsoleOp {
 	data class RoutineRunNow(
 		val routineId: String,
 		val occurrenceId: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("routine_run")
+	data class RoutineRun(
+		val routineId: String,
 	) : ConsoleOp()
 
 	@Serializable
@@ -1759,6 +1766,13 @@ data class ConsoleRoutineNextResult(
 @Serializable
 data class ConsoleRoutineOccurrenceResult(
 	val applied: Boolean,
+	val reason: String? = null,
+)
+
+@Serializable
+data class ConsoleRoutineRunResult(
+	val ran: Boolean,
+	val occurrenceId: String? = null,
 	val reason: String? = null,
 )
 

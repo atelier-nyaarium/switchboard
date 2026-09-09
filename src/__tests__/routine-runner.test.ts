@@ -372,4 +372,59 @@ describe("the routine runner", () => {
 		// The one still inside its window runs as normal.
 		expect(w.delivered).toEqual([`triage:${back}`]);
 	});
+
+	it("runs a fresh occurrence at the moment it was pressed, beside the rule's own", async () => {
+		const w = world();
+		w.routines.put(routine());
+		await w.runner.reconcile();
+		w.at(MONDAY_0900_LA + 60 * 60 * 1000);
+
+		const opened = await w.runner.runFresh("triage");
+
+		expect(opened).toBe(MONDAY_0900_LA + 60 * 60 * 1000);
+		// Its own row, not a second walk of the slot the rule named.
+		expect(w.occurrences.at("triage", opened as number)?.state).toBe("dispatched");
+		expect(w.occurrences.at("triage", MONDAY_0900_LA)?.state).toBe("dispatched");
+		expect(w.delivered).toEqual([`triage:${MONDAY_0900_LA}`, `triage:${opened}`]);
+	});
+
+	it("runs a disabled routine when the owner presses it, since disable stops the schedule", async () => {
+		const w = world();
+		w.routines.put(routine({ enabled: false }));
+
+		const opened = await w.runner.runFresh("triage");
+
+		expect(w.occurrences.at("triage", opened as number)?.state).toBe("dispatched");
+		expect(w.delivered).toEqual([`triage:${opened}`]);
+		// It reaches the routine's own authority, as a scheduled run does.
+		expect(w.runner.workingOccurrence("host.routine-triage")?.routineId).toBe("triage");
+	});
+
+	it("keeps every check but enablement, so a pressed run still waits on a busy session", async () => {
+		const w = world({ sessionIdle: () => false });
+		w.routines.put(routine({ enabled: false }));
+
+		const opened = await w.runner.runFresh("triage");
+
+		expect(w.occurrences.at("triage", opened as number)?.state).toBe("waiting_idle");
+		expect(w.delivered).toEqual([]);
+	});
+
+	it("does not let a pressed run hide a scheduled slot that never happened", async () => {
+		const w = world();
+		w.routines.put(routine());
+		// Today's slot runs, so it is the newest the rule named.
+		await w.runner.reconcile();
+
+		// Three weeks down. The owner presses Run before anything else reconciles, so the newest
+		// occurrence by instant is one no rule named.
+		const back = MONDAY_0900_LA + 21 * 24 * 60 * 60 * 1000;
+		w.at(back + 60 * 60 * 1000);
+		await w.runner.runFresh("triage");
+		await w.runner.reconcile();
+
+		const missed = w.occurrences.forRoutine("triage").filter((row) => row.state === "missed");
+		expect(missed).toHaveLength(1);
+		expect(missed[0]?.scheduledAt).toBe(back - 7 * 24 * 60 * 60 * 1000);
+	});
 });

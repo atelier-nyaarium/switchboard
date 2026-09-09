@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineNextResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineOccurrenceResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutinePutResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineRunResult
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineState
 import com.atelier_nyaarium.switchboard.proto.RoutineTarget
@@ -40,6 +41,7 @@ class RoutineOpsTest {
 		val zones = mutableMapOf<String, String>()
 		val held = mutableMapOf<String, CompletableDeferred<Unit>>()
 		val asked = mutableListOf<String>()
+		val ranOn = mutableListOf<String>()
 		val unreachable = mutableSetOf<String>()
 
 		override suspend fun list(gatewayId: String): ConsoleRoutineListResult {
@@ -65,6 +67,11 @@ class RoutineOpsTest {
 
 		override suspend fun runNow(gatewayId: String, routineId: String, occurrenceId: String) =
 			ConsoleRoutineOccurrenceResult(applied = true)
+
+		override suspend fun run(gatewayId: String, routineId: String): ConsoleRoutineRunResult {
+			ranOn += gatewayId
+			return ConsoleRoutineRunResult(ran = true, occurrenceId = "1")
+		}
 
 		override suspend fun dismiss(gatewayId: String, routineId: String, occurrenceId: String) =
 			ConsoleRoutineOccurrenceResult(applied = true)
@@ -185,6 +192,17 @@ class RoutineOpsTest {
 		}
 
 		assertEquals(listOf("mikan", "sakura"), state.value.routines.map { it.gatewayId })
+	}
+
+	@Test
+	fun aPressedRunGoesToTheGatewayTheRowCameFrom() {
+		val fake = FakeGateway()
+		fake.shelves["mikan"] = listOf(RoutineState(routine("triage")))
+		val state = admitting("sakura", "mikan")
+		val ops = RoutineOps(state, Host(fake))
+
+		assertEquals(true, runBlocking { ops.run("triage", "mikan") })
+		assertEquals(listOf("mikan"), fake.ranOn)
 	}
 
 	@Test
