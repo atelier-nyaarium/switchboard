@@ -59,15 +59,11 @@ internal fun missLine(miss: RoutineMiss, zone: java.time.ZoneId): String {
 internal fun reviewLine(reviewAt: Long, zone: java.time.ZoneId): String =
 	"Stopped at ${absoluteTimeText(reviewAt, zone)}: its runbook changed. Open it to approve the new words."
 
-/**
- * Names the run that wanted them, since approving one is not the same as linking for every run. Says
- * plainly that this run is over: its request already settled as refused, and only a new request can
- * use a link, so linking serves the next run rather than reviving this one.
- */
+/** Only a new request can use a link, so this run cannot be given the secret afterwards. */
 internal fun attentionLine(attention: RoutineAttention, zone: java.time.ZoneId): String {
 	val secrets = attention.entryIds.joinToString(", ")
 	return "The run at ${absoluteTimeText(attention.scheduledAt, zone)} asked for $secrets and got no answer. " +
-		"That run is over. Linking serves the next one, and Run starts one now."
+		"That run is over, so linking serves the next one."
 }
 
 /**

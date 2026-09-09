@@ -223,6 +223,26 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 		expect((await shown())?.missed?.scheduledAt).toBe(FIRST + 2 * WEEK_MS);
 	});
 
+	it("runs a disabled routine when the owner presses it, and leaves the schedule alone", async () => {
+		await at(FIRST + 4 * WEEK_MS + 2 * 60 * 60 * 1000);
+		const off = await h.phone.value({ kind: "routine_enable", routineId: routine.id, enabled: false });
+		expect(off.result).toMatchObject({ stored: true });
+		const before = await shown();
+
+		const pressed = await h.phone.value({ kind: "routine_run", routineId: routine.id });
+
+		const ran = pressed.result as { ran: boolean; occurrenceId?: string };
+		expect(ran.ran).toBe(true);
+		await h.waitFor(
+			async () => nudges(Number(ran.occurrenceId)) === 1 || undefined,
+			"the nudge the owner pressed for",
+		);
+		// Disabled, so the rule still names nothing further, and the press did not change that.
+		expect((await shown())?.nextAt).toBe(before?.nextAt);
+
+		await h.phone.value({ kind: "routine_enable", routineId: routine.id, enabled: true });
+	});
+
 	it("stops rather than running words the owner has not read, and says so on the phone", async () => {
 		const moved = await h.phone.value({
 			kind: "runbook_put",

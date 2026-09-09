@@ -146,7 +146,6 @@ private fun RoutineRow(
 						overflow = TextOverflow.Ellipsis,
 					)
 				}
-				// On every row, since firing one several times in a day is an ordinary thing to want.
 				// Enabled while disabled: the switch stops the schedule, not the routine.
 				TextButton(onClick = hapticClick(onRun)) { Text("Run") }
 				Switch(checked = row.routine.enabled, onCheckedChange = onEnable)

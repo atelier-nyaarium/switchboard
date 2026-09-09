@@ -438,8 +438,8 @@ Two of the plan's five confirmations were wrong, and the code is what settled it
 Accepted rather than fixed, with the reasons:
 
 - **A gateway rolled back past this change strips `adhoc` from the stored rows.** The old schema does
-  not keep unknown keys, so a manual run's occurrence reads as scheduled again. That is what a
-  rollback IS: the behaviour reverts with the code. Nothing can be done from this side.
+  not keep unknown keys, so a manual run's occurrence reads as scheduled again. A rollback reverts
+  behaviour along with the code, and nothing on this side of it can prevent that.
 - **An old gateway refuses `routine_run` and the row simply does not change.** The refusal is caught
   and the tab refreshes either way, which is the owner's "no refusals or warns" applied to a case
   they did not name. Gateway ships before the phone, as it always does.

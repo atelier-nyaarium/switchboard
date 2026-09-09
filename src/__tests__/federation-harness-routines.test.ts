@@ -97,6 +97,9 @@ describe("federation harness: routine operations without a runner", () => {
 			const { result } = await h.phone.value({ kind, routineId: "r1", occurrenceId: "o1" });
 			expect(result, kind).toMatchObject({ applied: false });
 		}
+		// A pressed run names no occurrence, so it answers its own shape.
+		const pressed = await h.phone.value({ kind: "routine_run", routineId: "r1" });
+		expect(pressed.result).toMatchObject({ ran: false });
 
 		// Still answering afterwards, which a thrown handler taking the socket down would not.
 		const listed = await h.phone.value({ kind: "runbook_list" });
