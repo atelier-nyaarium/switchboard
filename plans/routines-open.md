@@ -126,15 +126,31 @@ None of the five decides what may be shown. `docs/console.md` states how the id 
 what it is for, which is how it came to be borrowed as a visibility filter: a thing with no stated
 purpose gets used for whatever is nearby.
 
+## The direction, given after the audit
+
+> Home Gateways are a relic of the past. It should have died when we completed the router plan. All
+> Gateways are now equals. The router needs to be the centralized node between them.
+
+Recorded in `AGENTS.md` rather than only here, since the owner said they expected to have to repeat
+it, which means it has been lost before.
+
+It does not change what this plan builds; it decides how. Nothing new is built on `homeGatewayId`,
+and the grouping gives no gateway a privileged position: they sort stably by id, and the home one is
+not first. Removing it is separate work, and four of its five jobs have a clean Router-side answer.
+The fifth is the hard one: with equal gateways, a bare `sandbox` genuinely names more than one thing,
+so either names get qualified or the Router disambiguates. That is where that work will actually
+live, and it is why this plan does not attempt it in passing.
+
 # Plan
 
 ## Phase 1 - Both tabs reach every gateway
 
 Drop the two `show` filters. `ChatState` holds routines and runbooks per gateway rather than one
 list, and each tab groups by gateway the way the Sessions tab already groups, with a header shown
-only when there is more than one. Nothing merges and nothing synchronises across gateways.
+only when there is more than one. Gateways sort stably by id and none is privileged. Nothing merges
+and nothing synchronises across gateways.
 
-Refreshing walks the gateways the phone knows rather than home alone.
+Refreshing walks the gateways the keyring admits rather than home alone.
 
 Confirm what `BoardManager.sourceGatewayIds` is for, and either make it answer what its name says or
 rename it to the one thing it means.

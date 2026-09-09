@@ -325,6 +325,14 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 
 ## Architecture
 
+**Every Gateway is an equal, and the Router is the node between them.** `homeGatewayId` is a relic
+of the era before the Router and is on its way out. Build nothing new on it, and prefer taking a
+gateway id per call, which the runbook and routine clients already do. It survives today for five
+jobs, listed in `docs/console.md`; four have a Router-side answer and the fifth, resolving an
+unqualified name, is the one with teeth, because equal gateways make a bare name genuinely
+ambiguous. Using it to decide what a screen may SHOW is always wrong: it is a default for an
+unqualified name, never a permission.
+
 **`main-mcp.ts`** MCP plugin, user process.
 **`main-gateway.ts`** Docker gateway and central router.
 **`main-host-daemon.ts`** host `host` WS slot, devcontainer wake, session spawn, terminal view.
