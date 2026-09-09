@@ -205,8 +205,11 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		});
 	}
 
-	/** Whichever is found first, for readers that need one rather than all. */
-	function workingOccurrence(sessionTarget: string): Occurrence | null {
+	/**
+	 * One representative, for a reader whose answer is about the routine rather than the run. Named
+	 * so it cannot be mistaken for the only one: anything ending a session takes them all.
+	 */
+	function firstWorkingOccurrence(sessionTarget: string): Occurrence | null {
 		return workingOccurrences(sessionTarget)[0] ?? null;
 	}
 
@@ -403,7 +406,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		},
 
 		nextAt,
-		workingOccurrence,
+		firstWorkingOccurrence,
 		workingOccurrences,
 	};
 }

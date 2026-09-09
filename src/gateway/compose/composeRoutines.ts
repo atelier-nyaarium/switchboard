@@ -249,7 +249,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		},
 		reserves: (sessionTarget) => store.list().some((routine) => routineTeam(routine) === sessionTarget),
 		workingRoutine: (sessionTarget) => {
-			const held = runner.workingOccurrence(sessionTarget);
+			const held = runner.firstWorkingOccurrence(sessionTarget);
 			const routine = held && store.get(held.routineId);
 			// A session that merely took the name is not the routine's, so its authority does not
 			// follow the name into it.
@@ -265,7 +265,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 			}
 		},
 		secretUnanswered: (sessionTarget, entryId) => {
-			const held = runner.workingOccurrence(sessionTarget);
+			const held = runner.firstWorkingOccurrence(sessionTarget);
 			if (!held) return;
 			attention.note({
 				routineId: held.routineId,

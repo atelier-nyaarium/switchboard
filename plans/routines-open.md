@@ -484,10 +484,22 @@ Two readers were left behind by that, both found by the red team rather than by 
 2. `runFresh` answered with the instant it opened rather than reading back what became of it, which
    is the same shape one level down: it trusted a single write instead of the state that followed.
 
-**Recorded rather than redesigned.** The Phase 1 entry already names the fix that would make this
-inexpressible, and it is the same one: an owner for the plural thing, so no caller holds a singular
-reader over it. Here that would be the occurrence store answering sets rather than firsts, and every
-consumer taking a set. Not attempted in passing, for the reason round 4 of Phase 1 exists.
+**Phase 1's answer does not transfer, and checking rather than copying it is the point.** The first
+version of this note said the fix was the same one: the store answering sets, every consumer taking a
+set. An audit read every occurrence consumer and refuted it. Most are point operations by meaning: a
+CAS transition needs one row and its version, and Run, Run missed and Dismiss each name one. And the
+plurality here is narrower than it looked, because `routineTeam` derives the session target from the
+routine id, so one session belongs to exactly one routine. What is plural is only the WINDOWS that
+one routine has open in it.
+
+So the right shape for this instance is naming, not restructuring. `firstWorkingOccurrence` says what
+it answers, `workingOccurrences` is what anything ending a session takes, and the two no longer
+differ by a single letter.
+
+**The fence that was actually missing.** The first test proved the plural READER returns everything,
+which is not the defect. It would have passed with `sessionEnded` still closing one. The test that
+catches it opens three windows, ends the session, and asks whether the routine still reaches its
+secrets, and it fails against the old shape. A test at the reader is not a test at the consumer.
 
 # Findings
 

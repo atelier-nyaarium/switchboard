@@ -119,6 +119,9 @@ as everything else, so it cannot race the timer or the tick.
 - **Several windows can be open in one session, so everything that closes them closes them all.**
   `workingOccurrences` answers every one, and a session ending marks each `done`. Closing only the
   first would leave the routine's authority alive in a session that is gone, for up to twelve hours.
+  `firstWorkingOccurrence` beside it answers one representative, for readers whose answer is about
+  the routine rather than the run. One session belongs to exactly one routine, since `routineTeam`
+  derives the target from the routine id, so those readers are right to be singular.
 - **The answer says what became of the run, not that a row was opened.** Preparation is awaited, so
   the deadline or a moved revision can settle the occurrence before the operation answers.
 

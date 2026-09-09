@@ -180,6 +180,21 @@ describe("whose work is open in a session", () => {
 
 		expect(s.routines.workingRoutine(TEAM)).toBeNull();
 	});
+
+	it("is nobody's however many runs the owner pressed into that session", async () => {
+		const s = await running();
+		// Pressed twice more while the first is still working, which nothing refuses.
+		s.at(MONDAY_0900_LA + 1000);
+		expect(await s.routines.console.run("triage")).toMatchObject({ ran: true });
+		s.at(MONDAY_0900_LA + 2000);
+		expect(await s.routines.console.run("triage")).toMatchObject({ ran: true });
+
+		s.routines.sessionEnded(TEAM);
+
+		// Closing only the first would leave the routine reaching its secrets from a session that
+		// has gone, for as long as the window it never closed.
+		expect(s.routines.workingRoutine(TEAM)).toBeNull();
+	});
 });
 
 describe("a secret a routine wanted and never got", () => {

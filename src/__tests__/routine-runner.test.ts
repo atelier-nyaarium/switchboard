@@ -247,27 +247,27 @@ describe("the routine runner", () => {
 
 		const team = "host.routine-triage";
 		// Dispatched and not yet picked up. An idle read here says nothing, so the work stays open.
-		expect(w.runner.workingOccurrence(team)?.routineId).toBe("triage");
+		expect(w.runner.firstWorkingOccurrence(team)?.routineId).toBe("triage");
 		await w.runner.reconcile();
-		expect(w.runner.workingOccurrence(team)?.routineId).toBe("triage");
+		expect(w.runner.firstWorkingOccurrence(team)?.routineId).toBe("triage");
 
 		working = true;
 		await w.runner.reconcile();
-		expect(w.runner.workingOccurrence(team)?.routineId).toBe("triage");
+		expect(w.runner.firstWorkingOccurrence(team)?.routineId).toBe("triage");
 
 		working = false;
 		await w.runner.reconcile();
-		expect(w.runner.workingOccurrence(team)).toBeNull();
+		expect(w.runner.firstWorkingOccurrence(team)).toBeNull();
 	});
 
 	it("closes the work twelve hours after it began, whatever the session was ever seen doing", async () => {
 		const w = world();
 		w.routines.put(routine());
 		await w.runner.reconcile();
-		expect(w.runner.workingOccurrence("host.routine-triage")?.routineId).toBe("triage");
+		expect(w.runner.firstWorkingOccurrence("host.routine-triage")?.routineId).toBe("triage");
 
 		w.at(MONDAY_0900_LA + GRACE_MS + 1);
-		expect(w.runner.workingOccurrence("host.routine-triage")).toBeNull();
+		expect(w.runner.firstWorkingOccurrence("host.routine-triage")).toBeNull();
 	});
 
 	it("clears a review occurrence when the routine is saved again", async () => {
@@ -326,7 +326,7 @@ describe("the routine runner", () => {
 		expect(w.occurrences.at("triage", MONDAY_0900_LA)?.state).toBe("dispatched");
 		expect(w.delivered).toHaveLength(1);
 		// A run the owner asked for reaches the routine's own authority, as the ordinary road does.
-		expect(w.runner.workingOccurrence("host.routine-triage")?.routineId).toBe("triage");
+		expect(w.runner.firstWorkingOccurrence("host.routine-triage")?.routineId).toBe("triage");
 
 		// Already run, so there is nothing left to dismiss.
 		expect(w.runner.dismiss("triage", MONDAY_0900_LA)).toBe(false);
@@ -397,7 +397,7 @@ describe("the routine runner", () => {
 		expect(w.occurrences.at("triage", opened as number)?.state).toBe("dispatched");
 		expect(w.delivered).toEqual([`triage:${opened}`]);
 		// It reaches the routine's own authority, as a scheduled run does.
-		expect(w.runner.workingOccurrence("host.routine-triage")?.routineId).toBe("triage");
+		expect(w.runner.firstWorkingOccurrence("host.routine-triage")?.routineId).toBe("triage");
 	});
 
 	it("refuses a press that lands on a slot the rule already named", async () => {
