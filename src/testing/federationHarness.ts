@@ -83,6 +83,8 @@ export interface FederationHarness extends DomainPeer {
 	routerAmbient: FakeAmbient;
 	router: { server: RouterServer; port: number; certFp: string; store: FileSecretStore; dataDir: string };
 	waitFor<T>(probe: () => Probe<T>, label: string, timeoutMs?: number): Promise<T>;
+	/** Another of the owner's phones, holding its own view of what the gateway last said. */
+	phoneFor(set: IdentitySet): PhoneDriver;
 	restartGateway(): Promise<void>;
 	restartRouter(): Promise<void>;
 	addDomain(options: AddDomainOptions): Promise<DomainPeer>;
@@ -138,6 +140,7 @@ export async function startFederationHarness(options: FederationHarnessOptions =
 			return home.host;
 		},
 		phone: home.phone,
+		phoneFor: base.phoneFor,
 		waitFor,
 		restartGateway: () => home.restartGateway(),
 		restartHost: (restart) => home.restartHost(restart),

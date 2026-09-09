@@ -18,7 +18,7 @@ change what was asked of you. Read it again after a compaction rather than worki
 `.trim();
 
 /** What each outcome means, said rather than left to a bare kind. */
-function textOf(answer: z.infer<typeof SessionRoutineAnswerSchema>): string {
+export function textOf(answer: z.infer<typeof SessionRoutineAnswerSchema>): string {
 	switch (answer.kind) {
 		case "instructions":
 			return `# ${answer.routineName}\n\n${answer.text}`;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Occurrence } from "../gateway/routines/occurrences.js";
 import { answerSessionRoutine } from "../gateway/routines/sessionRoutine.js";
+import { textOf } from "../mcp/routines/routineTools.js";
 
 const row = (over: Partial<Occurrence> = {}): Occurrence => ({
 	routineId: "triage",
@@ -32,6 +33,23 @@ describe("what a routine's session may ask back", () => {
 			scheduledAt: 1_700_000_000_000,
 			text: "read the overnight failures",
 		});
+	});
+
+	// The boot check proves the tool is registered and reachable, but asks for an occurrence that is
+	// not there. Nothing else reads what a session is actually handed on the way that matters.
+	it("hands the instructions on rather than a bare kind", () => {
+		expect(
+			textOf({
+				kind: "instructions",
+				routineId: "triage",
+				routineName: "Morning triage",
+				scheduledAt: 1,
+				text: "read the overnight failures",
+			}),
+		).toBe("# Morning triage\n\nread the overnight failures");
+		for (const kind of ["no_routine", "unknown_occurrence", "wrong_session", "unauthenticated"] as const) {
+			expect(textOf({ kind }).length, kind).toBeGreaterThan(0);
+		}
 	});
 
 	it("keeps the four failures apart", () => {

@@ -204,11 +204,16 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 		const on = await h.phone.value({ kind: "routine_enable", routineId: routine.id, enabled: true });
 		expect(on.result).toMatchObject({ stored: true });
 		h.host.reportWorking(TEAM, false);
-		const ran = await h.phone.value({
-			kind: "routine_run_now",
-			routineId: routine.id,
-			occurrenceId: missed?.occurrenceId as string,
-		});
+		// Started together, since the point is that the owner's run and an automatic one cannot both
+		// deliver. One loop owns the occurrence, so whichever reaches it second finds it dispatched.
+		const [ran] = await Promise.all([
+			h.phone.value({
+				kind: "routine_run_now",
+				routineId: routine.id,
+				occurrenceId: missed?.occurrenceId as string,
+			}),
+			h.gateway.faults.sweepRoutines(),
+		]);
 		expect(ran.result).toMatchObject({ applied: true });
 		await h.waitFor(async () => nudges(slot) === 1 || undefined, "the nudge the owner asked for");
 
@@ -265,6 +270,13 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 		const missed = (await shown())?.missed;
 		expect(missed?.scheduledAt).toBe(slot);
 
+		// Another of the owner's phones, which read the same panel and still holds it.
+		const other = h.phoneFor(h.set);
+		const alsoShown = (
+			(await other.value({ kind: "routine_list" })).result as { routines: RoutineState[] }
+		).routines.find((row) => row.routine.id === routine.id);
+		expect(alsoShown?.missed?.occurrenceId).toBe(missed?.occurrenceId);
+
 		const first = await h.phone.value({
 			kind: "routine_dismiss",
 			routineId: routine.id,
@@ -272,11 +284,11 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 		});
 		expect(first.result).toMatchObject({ applied: true });
 
-		// A second projection still holding the panel taps the same one.
-		const second = await h.phone.value({
+		// The other phone taps the panel it is still holding, which is now settled.
+		const second = await other.value({
 			kind: "routine_dismiss",
 			routineId: routine.id,
-			occurrenceId: missed?.occurrenceId as string,
+			occurrenceId: alsoShown?.missed?.occurrenceId as string,
 		});
 		expect(second.result).toMatchObject({ applied: false });
 		// Named exactly, since "not that slot" would also pass on a panel that never showed it.
