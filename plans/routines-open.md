@@ -562,3 +562,29 @@ to fix. A fixture that does not vary along the axis under test is not covering i
 that had moved under them and reported line numbers and files that no longer matched. One also
 asserted a repo-wide rule that does not exist and flagged forty pre-existing lines for it, which is
 the reminder that a confident tone is not evidence.
+
+## Painpoints, Phase 2
+
+**The runner test harness rewrites your scenario while you are not looking.** `world()` calls
+`runner.start()`, which queues a sweep that runs at the first `await`. Every synchronous line after
+it, including the routine being saved and the clock being moved, has already happened by then, so the
+sweep runs against a state the test never meant to give it. Three fixtures this phase were silently
+rewritten that way, and one of them passed with the bug still in the code because of it. A fixture
+that quietly makes a test not test its subject is worse than no fixture.
+
+**A test at the reader is not a test at the consumer.** After extracting `workingOccurrences` I wrote
+a test proving it returns every window, felt covered, and moved on. It would have passed with
+`sessionEnded` still closing only the first, which was the entire defect. An auditor found that, not
+a gate. When a plural reader is extracted to fix a consumer, the consumer is what needs the test.
+
+**Every test I did not try to break was a coin flip.** Three times this phase I wrote a test, then
+reverted the fix to watch it fail, and twice it did not. Both would have shipped as coverage that
+proved nothing. Writing the test is half of it.
+
+**`workingOccurrence` and `workingOccurrences` differed by one letter.** That is how the defect was
+written and how it would have been rewritten. It is now `firstWorkingOccurrence`.
+
+**Three roads reach `advance`, and they do not carry the same checks.** `sweepDue`, `runNow` and
+`runFresh` all walk an occurrence, but an auditor's comparison showed `runNow` skips the idle and
+deadline gates the other two keep. Nothing chose that; it is where the code landed. Out of scope
+here, and worth someone deciding on deliberately.
