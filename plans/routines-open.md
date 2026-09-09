@@ -35,11 +35,25 @@ Q: Linking the secret is a save, and a save clears the routine's attention rows,
 prompted the correction is gone by the time the owner would press anything on it. Does the manual run
 belong on every routine row instead?
 
-A: pending.
+A: On every row. It is not only for a correction; the owner wants to fire one several times in a day.
+
+> tbh yeah the run button should be on all of them in case I want to hit it more than once in a day.
+
+### Decided rather than asked
+
+Small consequences with a defensible reading, stated to the owner rather than put to them.
+
+- **A manual run is not the schedule, so a disabled routine still takes one.** `DISABLE_EXPLAINS`
+  already says disable stops the schedule and keeps the routine and its runs. Pressing a button is an
+  explicit act, and it is not the schedule firing.
+- **Firing while one is still working is allowed.** Two open works in one session name the same
+  routine, so no authority is confused. The only cost is that an unanswered secret is attributed to
+  whichever of the two occurrences is found first, so its panel can name the wrong instant.
 
 ## Question 2 - Should the Routines and Runbooks tabs name their gateway?
 
-Both are scoped to the home gateway and neither says so. Not yet asked.
+Both are scoped to the home gateway and neither says so. The Sessions tab already carries the
+gateway's name in its status row, so the fact is on screen once, one tab away.
 
 A: pending.
 
