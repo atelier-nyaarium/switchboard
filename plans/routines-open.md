@@ -46,13 +46,15 @@ Small consequences with a defensible reading, stated to the owner rather than pu
 - **A manual run is not the schedule, so a disabled routine still takes one.** `DISABLE_EXPLAINS`
   already says disable stops the schedule and keeps the routine and its runs. Pressing a button is an
   explicit act, and it is not the schedule firing.
-- **Firing while one is still working warns, and never refuses.** Withdrawn as a silent allow once
-  the owner asked what it actually does: the nudge is a channel message, so a second one lands in a
-  session that is mid-turn and nothing coordinates the two. Refusing is worse, because "still
-  working" comes from presence, and presence leaves the work marked `open` for twelve hours when it
-  never observed the session. A signal that unreliable may inform the owner and may not block them.
-  The residual cost stands: with two runs open, an unanswered secret is attributed to whichever
-  occurrence is found first, so its panel can name the wrong instant.
+- **Firing while one is still working is allowed, with no warning and no refusal.** The owner ruled
+  on it knowing what it does, which is that a second nudge lands in a session that is mid-turn with
+  nothing coordinating the two.
+
+  > no refusals or warns. keep it simple. I Just have to peek myself before running it again. More
+  > often than not, I will know since I am intentionally doing it.
+
+  The residual cost stands and is accepted: with two runs open, an unanswered secret is attributed
+  to whichever occurrence is found first, so its panel can name the wrong instant.
 
 ## Question 2 - Should the Routines and Runbooks tabs name their gateway?
 
@@ -75,7 +77,60 @@ takes a gateway per call, so this is display, not plumbing.
 Q: Are routines only ever on the home gateway, in which case naming it is enough, or does the tab
 need a gateway picker, one at a time and named?
 
-A: pending.
+A: Every gateway the owner has. The question should not have been asked.
+
+> All Gateways I own. How the heck did you manage to make it only work with 1 gateway? And why is
+> this a question? What other crap has been designed with first gateway only?
+
+# Findings: what else is home-gateway only
+
+Asked for after Question 5. Every `homeGatewayId` reference on the phone was read.
+
+**Two drop another gateway's data, and both came from this plan:**
+
+- `RoutineOps.show` and `RunbookOps.show`, each `if (gatewayId != homeGatewayId) return`.
+
+**One is named for several and answers one:** `BoardManager.sourceGatewayIds` returns a list holding
+only the home id. The board is owner-scoped on the Router rather than gateway-held, so this may be
+harmless, but the name promises what it does not do.
+
+**Everything else is correct and must not be changed.** Roughly twenty other references use the home
+gateway as the default for an UNQUALIFIED name, so `sandbox` resolves against home. Sessions,
+threads, trust and rename all read that way. That is addressing, not filtering, and none of them
+hides another gateway's records.
+
+### Bug Classes
+
+**Mechanism:** the per-gateway split from Question 17. **Class:** a model made plural while its one
+reader stayed singular, with a comment recording the gap as a decision. `RunbookManager` became one
+library per gateway to close a real bug, `RunbookOps.show` kept drawing the home one, and the comment
+"the tab draws the home gateway's copy; another gateway's is held and not drawn" made the limitation
+read as intent to every later reader, including the author. `RoutineOps` then copied it. A comment
+that states a limitation without saying it is one is how a gap survives review.
+
+# Plan
+
+## Phase 1 - Both tabs reach every gateway
+
+Drop the two `show` filters. `ChatState` holds routines and runbooks per gateway rather than one
+list, and each tab groups by gateway the way the Sessions tab already groups, with a header shown
+only when there is more than one. Nothing merges and nothing synchronises across gateways.
+
+Refreshing walks the gateways the phone knows rather than home alone.
+
+Confirm what `BoardManager.sourceGatewayIds` is for, and either make it answer what its name says or
+rename it to the one thing it means.
+
+## Phase 2 - A run button on every row
+
+A manual run is a fresh occurrence at the moment it is pressed, never a re-entry of a dispatched one,
+which the at-most-once ruling forbids. It ignores the recurrence rule, so the one-day minimum does
+not apply, and it runs a disabled routine because disable stops the schedule rather than the routine.
+
+No warning and no refusal when one is already running.
+
+The attention panel keeps only Link the secret, and says plainly that a run already refused cannot be
+given the secret afterwards.
 
 # Findings
 
