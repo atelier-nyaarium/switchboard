@@ -108,6 +108,24 @@ library per gateway to close a real bug, `RunbookOps.show` kept drawing the home
 read as intent to every later reader, including the author. `RoutineOps` then copied it. A comment
 that states a limitation without saying it is one is how a gap survives review.
 
+# Findings: what the home gateway is for
+
+`adoptHomeGateway` keeps the stored id while the Domain keyring still admits it, and otherwise takes
+`admitted.firstOrNull()`. The owner never picks it and there is no control for it, so a filter built
+on it is first-gateway-only in the literal sense.
+
+Its five jobs, every one of them resolving or identifying rather than restricting:
+
+1. Completing an unqualified name, so a bare `sandbox` means that spawn on the home gateway.
+2. Filling the gateway segment of this phone's own local address.
+3. Reading the Domain id off the home gateway's signed roster.
+4. Naming which of the owner's gateways is asking, on a cross-domain trust request.
+5. Deciding which gateway claims a runbook library written before libraries were split per gateway.
+
+None of the five decides what may be shown. `docs/console.md` states how the id is selected and never
+what it is for, which is how it came to be borrowed as a visibility filter: a thing with no stated
+purpose gets used for whatever is nearby.
+
 # Plan
 
 ## Phase 1 - Both tabs reach every gateway
@@ -120,6 +138,9 @@ Refreshing walks the gateways the phone knows rather than home alone.
 
 Confirm what `BoardManager.sourceGatewayIds` is for, and either make it answer what its name says or
 rename it to the one thing it means.
+
+`homeGatewayId` keeps all five of its jobs and stops being consulted about what to draw.
+`docs/console.md` gains the five, since stating only how it is selected is what let it be borrowed.
 
 ## Phase 2 - A run button on every row
 
