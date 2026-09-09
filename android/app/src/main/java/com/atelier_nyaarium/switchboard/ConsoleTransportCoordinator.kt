@@ -168,9 +168,14 @@ internal class ConsoleTransportCoordinator(
 
 	fun onActivity(visible: Boolean) = pushback.onCommsActivity(now(), visible)
 
-	fun plan(visible: Boolean, linkUp: Boolean, lastPassFailed: Boolean): ConsoleTransportPlan =
+	fun plan(
+		visible: Boolean,
+		linkUp: Boolean,
+		lastPassFailed: Boolean,
+		soonestAnswer: Long? = null,
+	): ConsoleTransportPlan =
 		ConsoleTransportPlan(
-			wait = nextWait(visible, lastPassFailed, false),
+			wait = nextWait(visible, lastPassFailed, false, soonestAnswer),
 			reconnectSocket = visible && !linkUp,
 			pullDiscovery = !linkUp,
 		)
@@ -180,6 +185,10 @@ internal class ConsoleTransportCoordinator(
 	}
 
 	/** Router and Gateway inboxes have separate cursors. */
-	fun nextWait(visible: Boolean, lastPassFailed: Boolean, watchedWorking: Boolean): PollWait =
-		pushback.decide(now(), visible, lastPassFailed, watchedWorking)
+	fun nextWait(
+		visible: Boolean,
+		lastPassFailed: Boolean,
+		watchedWorking: Boolean,
+		soonestAnswer: Long? = null,
+	): PollWait = pushback.decide(now(), visible, lastPassFailed, watchedWorking, soonestAnswer)
 }

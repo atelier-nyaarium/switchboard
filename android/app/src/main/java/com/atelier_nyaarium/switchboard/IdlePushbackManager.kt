@@ -52,6 +52,16 @@ sealed interface PollWait {
 	data class Alarm(val atMillis: Long) : PollWait
 }
 
+/**
+ * The one alarm a deep tier arms: the aligned mark, or an expected answer if that comes first. One
+ * instant rather than a second alarm system beside the scheduled sends'. An answer already past, or
+ * inside the next minute, is not worth an alarm and takes the mark.
+ */
+internal fun wakeAt(now: Long, alignedMark: Long, soonestAnswer: Long?): Long {
+	if (soonestAnswer == null || soonestAnswer <= now + MINUTE_MS) return alignedMark
+	return minOf(alignedMark, soonestAnswer)
+}
+
 /** The service-owned side effects a deep-tier decision drives (alarms + wakelocks). Kept behind
  * an interface so [IdlePushbackManager.decide] stays unit-testable without Android. */
 interface DeepIdleScheduler {
@@ -118,7 +128,18 @@ class IdlePushbackManager(
 	 * `ChatRepository`'s own foreground flag, passed in rather than duplicated on this manager -
 	 * a separate manager-side field written by a second, non-atomic @Volatile store could
 	 * transiently disagree with it. */
-	fun decide(now: Long, visible: Boolean, lastPassFailed: Boolean, watchedWorking: Boolean): PollWait {
+	fun decide(
+		now: Long,
+		visible: Boolean,
+		lastPassFailed: Boolean,
+		watchedWorking: Boolean,
+		/**
+		 * An instant something is expected to answer at, so a deeply idle phone drains the result then
+		 * rather than at its next aligned mark. It authorizes nothing and starts nothing; a phone that
+		 * never wakes only reads the outcome later.
+		 */
+		soonestAnswer: Long? = null,
+	): PollWait {
 		// Snapshot the tier ONCE: silenceStartAt is @Volatile and can change mid-decide from the
 		// main thread (onBackground). Reading it twice risked the deep branch handing
 		// nextAlignedMark a tier its own first read never chose.
@@ -132,7 +153,7 @@ class IdlePushbackManager(
 					PollWait.Delay(DEEP_RETRY_MS)
 				} else {
 					deepRetryUsed = false
-					PollWait.Alarm(nextAlignedMark(now, tier, zone()))
+					PollWait.Alarm(wakeAt(now, nextAlignedMark(now, tier, zone()), soonestAnswer))
 				}
 		}
 		when (wait) {

@@ -52,7 +52,13 @@ internal class ChatRepositoryDrainHost(private val repo: ChatRepository) : Drain
 	override val autoGenerate get() = repo.sttsAutoGen
 	override fun link() = repo.transportCoordinator.link()
 	override fun plan(visible: Boolean, socket: Boolean, failed: Boolean) =
-		repo.transportCoordinator.plan(visible, socket, failed)
+		// The soonest a routine is expected to answer, so a deeply idle phone reads the outcome then.
+		repo.transportCoordinator.plan(
+			visible,
+			socket,
+			failed,
+			repo.state.value.routines.mapNotNull { it.nextAt }.minOrNull(),
+		)
 	override fun thisDeviceAddress() = repo.thisDeviceAddress()
 	override fun fromCanonical(value: String) = repo.fromCanonical(value)
 	override fun advanceMailbox(result: SyncPollResult<Drained>) = repo.mailboxSync.advance(result)

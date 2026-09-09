@@ -218,6 +218,27 @@ class IdlePushbackManagerTest {
 	}
 
 	@Test
+	fun anExpectedAnswerBringsTheOneAlarmForward() {
+		val (mgr, scheduler) = manager()
+		mgr.onBackground(0L)
+		val now = 600_000L
+		val aligned = (mgr.decide(now, visible = false, lastPassFailed = false, watchedWorking = false) as PollWait.Alarm)
+			.atMillis
+
+		// Sooner than the mark, so the phone reads the outcome then rather than at its next mark.
+		val soon = now + 10 * 60_000L
+		val brought = mgr.decide(now, visible = false, lastPassFailed = false, watchedWorking = false, soonestAnswer = soon)
+		assertEquals(PollWait.Alarm(soon), brought)
+		assertEquals(soon, scheduler.deepSleepAt)
+
+		// Later than the mark, already gone, or inside the next minute: the mark still decides.
+		for (answer in listOf(aligned + 60_000L, now - 1L, now + 30_000L)) {
+			val kept = mgr.decide(now, visible = false, lastPassFailed = false, watchedWorking = false, soonestAnswer = answer)
+			assertEquals(PollWait.Alarm(aligned), kept)
+		}
+	}
+
+	@Test
 	fun foregroundAlwaysChainsAndExitsDeepSleep() {
 		val (mgr, scheduler) = manager()
 		val wait = mgr.decide(now = 100_000L, visible = true, lastPassFailed = false, watchedWorking = false)
