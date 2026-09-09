@@ -961,6 +961,17 @@ minted there sits in the crash window the at-most-once rule deliberately loses.
 - **Unanswered is not denied.** A deny is the owner having decided, so only the deadline road records
   attention. The record is keyed by the routine and the instant together, and the owner answers it by
   saving the routine, whatever they decide to link.
+- **One provenance question, asked three times.** `sessionOwned` decides whether a session is a
+  routine's own, and the save, the reserve and the read of its authority all ask it. A name is
+  reusable, so binding authority to a name would have let a session that merely took the name inherit
+  a routine's secrets. Closing or forgetting the session ends the work outright.
+- **The work carries its own deadline, not the occurrence's.** Twelve hours from when the work began,
+  so a run the owner asks for late opens a window rather than one that closed before it started. The
+  occurrence's deadline still decides whether it may run at all; the two questions are separate and
+  now have separate fields.
+- **A full vault list is the only thing that catches an entry that went unwatched.** A delta says
+  what changed; a restart or a re-provision has nothing to compare against, so `entriesListed` drops
+  every grant over an entry the vault no longer holds.
 
 ### Bug Classes
 

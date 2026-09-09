@@ -105,7 +105,10 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		stores,
 		sessions,
 		context,
-		sessionEnded: (team) => vault?.sessionEnded(team),
+		sessionEnded: (team) => {
+			vault?.sessionEnded(team);
+			routines.sessionEnded(team);
+		},
 	});
 	const host = composeHost({ sessions, wakeTimeoutMs: config.wakeTimeoutMs, ambient: bootstrap.ambient });
 	const agents = composeAgents({ sessions, host, ambient: bootstrap.ambient });
@@ -128,6 +131,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		peerHandleOp: () => frames?.peerHandleOp ?? null,
 		unlinkDomain: () => presenceHandlers?.unlinkDomain ?? null,
 		entryGone: (entryId) => vault?.entryDeleted(entryId),
+		entriesListed: (entryIds) => vault?.entriesListed(entryIds),
 	});
 
 	const enrollment = composeEnrollment({
@@ -198,7 +202,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			if (!sessions.hostSpawnPoints.known) return true;
 			return sessions.hostSpawnPoints.ids.includes(spawn) || sessions.offlineCatalog.has(spawn);
 		},
-		sessionTaken: (routine) => !routineOwns(sessions.sessionStore.getByTeam(routineTeam(routine)), routine),
+		sessionOwned: (team, routine) => routineOwns(sessions.sessionStore.getByTeam(team), routine),
 		setRoutineGrants: (routineId, entryIds) => vault?.setRoutineGrants(routineId, entryIds),
 	});
 	routerFrames = composeRouterFrames({

@@ -166,7 +166,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			held.scheduledAt,
 			{ state: held.state, version: held.version },
 			"dispatched",
-			{ work: "open" },
+			{ work: "open", workUntil: ambient.now() + GRACE_MS },
 		);
 		if (!dispatched) return;
 		await attempt().deliver(routine, dispatched);
@@ -175,11 +175,11 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 	/**
 	 * Carries a dispatched occurrence's work along. Idle before the session has been seen working
 	 * says nothing, since a nudge just handed over has not been picked up yet; idle after it does.
-	 * The deadline closes the work whatever was ever observed.
+	 * The work's own deadline closes it whatever was ever observed.
 	 */
 	function noteWork(occurrence: Occurrence, now: number): void {
 		if (occurrence.work === undefined || occurrence.work === "done") return;
-		if (now > occurrence.deadlineAt) {
+		if (now > (occurrence.workUntil ?? occurrence.deadlineAt)) {
 			occurrences.noteWork(occurrence.routineId, occurrence.scheduledAt, "done");
 			return;
 		}
@@ -197,7 +197,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		for (const occurrence of occurrences.all()) {
 			if (occurrence.team !== sessionTarget || occurrence.state !== "dispatched") continue;
 			if (occurrence.work === undefined || occurrence.work === "done") continue;
-			if (now > occurrence.deadlineAt) continue;
+			if (now > (occurrence.workUntil ?? occurrence.deadlineAt)) continue;
 			return occurrence;
 		}
 		return null;
@@ -336,7 +336,15 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 					scheduledAt,
 					{ state: held.state, version: held.version },
 					"dispatched",
-					{ preparedRevision: prepared.revision, snapshot: prepared.snapshot, team: prepared.team },
+					// `work` opens here as it does on the ordinary road, or a run the owner asked for
+					// would reach none of the routine's own authority.
+					{
+						preparedRevision: prepared.revision,
+						snapshot: prepared.snapshot,
+						team: prepared.team,
+						work: "open",
+						workUntil: ambient.now() + GRACE_MS,
+					},
 				);
 				if (!dispatched) return;
 				await attempt().deliver(routine, dispatched);

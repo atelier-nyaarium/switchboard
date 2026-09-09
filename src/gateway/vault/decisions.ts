@@ -158,6 +158,17 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 		if (kept.length !== grants.length) commit(kept, true);
 	};
 
+	/**
+	 * What the vault actually holds, whole. A delta says which entries went, but a full list is the
+	 * only thing that catches an entry that went while nobody was listening, which is what a restart
+	 * and a re-provision both are.
+	 */
+	const entriesListed = (entryIds: string[]): void => {
+		const live = new Set(entryIds);
+		const kept = grants.filter((grant) => grant.entryId === undefined || live.has(grant.entryId));
+		if (kept.length !== grants.length) commit(kept, true);
+	};
+
 	const list = (now: number): VaultGrant[] => {
 		sweep(now);
 		return [...grants];
@@ -176,7 +187,17 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 		if (kept.length !== grants.length) commit(kept, true);
 	};
 
-	return { covers, grant, list, revoke, sessionEnded, setRoutineGrants, routineEnded, entryDeleted };
+	return {
+		covers,
+		grant,
+		list,
+		revoke,
+		sessionEnded,
+		setRoutineGrants,
+		routineEnded,
+		entryDeleted,
+		entriesListed,
+	};
 }
 
 export type VaultDecisions = ReturnType<typeof createVaultDecisions>;

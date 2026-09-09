@@ -5,6 +5,7 @@ import type { Runbook } from "../../shared/schemasRunbook.js";
 import type { RoutineConsoleHandlers } from "../console/consoleTypes.js";
 import { type Attention, createAttentionStore } from "../routines/attention.js";
 import { createOccurrenceStore, type Occurrence, occurrenceId } from "../routines/occurrences.js";
+import { routineTeam } from "../routines/reservation.js";
 import { createRoutineRunner, type RoutineAttempt } from "../routines/runner.js";
 import { createRoutineStore } from "../routines/store.js";
 
@@ -15,7 +16,12 @@ export interface RoutineStageDeps {
 	attempt?: () => RoutineAttempt | null;
 	getRunbook?: (runbookId: string) => Runbook | null;
 	knowsSpawn?: (spawn: string) => boolean;
-	sessionTaken?: (routine: Routine) => boolean;
+	/**
+	 * Whether that session is this routine's own, asked by provenance rather than by its name. The
+	 * one provenance question, asked when a routine is saved, when it reserves, and when its
+	 * authority is read.
+	 */
+	sessionOwned?: (team: string, routine: Routine) => boolean;
 	/** Makes a routine's grants match the entries it links, and is the only road to one. */
 	setRoutineGrants?: (routineId: string, entryIds: string[]) => void;
 }
@@ -33,6 +39,8 @@ export interface RoutineStage {
 	runbookMoved: (runbookId: string) => void;
 	/** A secret the owner never answered for, recorded against the occurrence that wanted it. */
 	secretUnanswered: (sessionTarget: string, entryId: string) => void;
+	/** That session is closed or forgotten, so any work open in it is over. */
+	sessionEnded: (sessionTarget: string) => void;
 }
 
 /** Nothing to run against, so every occurrence waits rather than being declared missed. */
@@ -68,12 +76,14 @@ function panelFor(rows: Occurrence[], now: number): RoutineMiss | undefined {
 
 export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 	let bound: RoutineAttempt | null = null;
+	/** Nobody to ask answers true, which is what the store's own tests stand on. */
+	const ownsIts = (team: string, routine: Routine): boolean => deps.sessionOwned?.(team, routine) ?? true;
 	const store = openDurable(deps.dataDir, "routines", (durable) =>
 		createRoutineStore({
 			store: durable,
 			getRunbook: deps.getRunbook,
 			knowsSpawn: deps.knowsSpawn,
-			sessionTaken: deps.sessionTaken,
+			sessionTaken: (routine) => ownsIts(routineTeam(routine), routine) === false,
 			now: () => deps.ambient.now(),
 		}),
 	);
@@ -175,8 +185,20 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		bindExecution: (attempt) => {
 			bound = attempt;
 		},
-		workingRoutine: (sessionTarget) => runner.workingOccurrence(sessionTarget)?.routineId ?? null,
+		workingRoutine: (sessionTarget) => {
+			const held = runner.workingOccurrence(sessionTarget);
+			const routine = held && store.get(held.routineId);
+			// A session that merely took the name is not the routine's, so its authority does not
+			// follow the name into it.
+			if (!routine || !ownsIts(sessionTarget, routine)) return null;
+			return routine.id;
+		},
 		runbookMoved,
+		sessionEnded: (sessionTarget) => {
+			// Its session is gone, so its work is over whatever the last observation said.
+			const held = runner.workingOccurrence(sessionTarget);
+			if (held) occurrences.noteWork(held.routineId, held.scheduledAt, "done");
+		},
 		secretUnanswered: (sessionTarget, entryId) => {
 			const held = runner.workingOccurrence(sessionTarget);
 			if (!held) return;

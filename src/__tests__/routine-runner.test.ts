@@ -258,7 +258,7 @@ describe("the routine runner", () => {
 		expect(w.runner.workingOccurrence(team)).toBeNull();
 	});
 
-	it("closes the work at the deadline, whatever the session was ever seen doing", async () => {
+	it("closes the work twelve hours after it began, whatever the session was ever seen doing", async () => {
 		const w = world();
 		w.routines.put(routine());
 		await w.runner.reconcile();
@@ -322,6 +322,8 @@ describe("the routine runner", () => {
 		expect(await w.runner.runNow("triage", MONDAY_0900_LA)).toBe(true);
 		expect(w.occurrences.at("triage", MONDAY_0900_LA)?.state).toBe("dispatched");
 		expect(w.delivered).toHaveLength(1);
+		// A run the owner asked for reaches the routine's own authority, as the ordinary road does.
+		expect(w.runner.workingOccurrence("host.routine-triage")?.routineId).toBe("triage");
 
 		// Already run, so there is nothing left to dismiss.
 		expect(w.runner.dismiss("triage", MONDAY_0900_LA)).toBe(false);

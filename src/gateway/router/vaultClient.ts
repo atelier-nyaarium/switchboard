@@ -47,6 +47,8 @@ export interface VaultClientDeps {
 	keys: Pick<ContentKeyStore, "seal" | "open">;
 	/** An entry that was live and no longer is, so every grant over it goes. */
 	onEntryGone?: (entryId: string) => void;
+	/** Every live entry, from a full read, so a grant over one that is gone cannot survive. */
+	onEntriesListed?: (entryIds: string[]) => void;
 }
 
 export type VaultRefresh = { kind: "ok"; revision: number } | { kind: "unavailable"; error: string };
@@ -115,6 +117,9 @@ export function createVaultClient(deps: VaultClientDeps) {
 			const now = held.entries.get(id);
 			if (!now || now.clear.tombstone) deps.onEntryGone?.(id);
 		}
+		// A full list is the whole truth, and the only thing that catches what went while nobody was
+		// holding a snapshot to compare against.
+		if (parsed.data.since === 0) deps.onEntriesListed?.(live().map((entry) => entry.clear.id));
 		return { kind: "ok", revision: fold.revision };
 	}
 

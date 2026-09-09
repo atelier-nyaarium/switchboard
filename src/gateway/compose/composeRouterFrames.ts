@@ -34,7 +34,7 @@ export interface RouterFramesStageDeps {
 	routes: () => GatewayRoutes;
 	vault: Pick<VaultStage, "console" | "sessionEnded">;
 	runbooks: Pick<RunbookStage, "console">;
-	routines: Pick<RoutineStage, "console" | "bindExecution">;
+	routines: Pick<RoutineStage, "console" | "bindExecution" | "sessionEnded">;
 }
 
 export interface RouterFramesBuild extends RouterFrameHandlers {
@@ -111,7 +111,10 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			vault: deps.vault.console,
 			runbooks: deps.runbooks.console,
 			routines: deps.routines.console,
-			onSessionEnded: (team) => deps.vault.sessionEnded(team),
+			onSessionEnded: (team) => {
+				deps.vault.sessionEnded(team);
+				deps.routines.sessionEnded(team);
+			},
 		});
 
 		deps.routines.bindExecution(

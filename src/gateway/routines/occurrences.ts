@@ -34,6 +34,12 @@ export const OccurrenceSchema = z.object({
 	 * gone idle again. The deadline closes it whatever was observed.
 	 */
 	work: z.enum(["open", "started", "done"]).optional(),
+	/**
+	 * The hard edge on the work, twelve hours from when it began. Its own, not the occurrence's: a
+	 * run the owner asked for late carries a fresh authorization, and would otherwise open a window
+	 * that had already closed.
+	 */
+	workUntil: z.number().int().nonnegative().optional(),
 });
 
 export type Occurrence = z.infer<typeof OccurrenceSchema>;
@@ -90,7 +96,9 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		scheduledAt: number,
 		from: { state: OccurrenceState; version: number },
 		to: OccurrenceState,
-		patch: Partial<Pick<Occurrence, "reason" | "preparedRevision" | "snapshot" | "team" | "work">> = {},
+		patch: Partial<
+			Pick<Occurrence, "reason" | "preparedRevision" | "snapshot" | "team" | "work" | "workUntil">
+		> = {},
 	): Occurrence | null => {
 		const held = at(routineId, scheduledAt);
 		if (!held || held.state !== from.state || held.version !== from.version) return null;

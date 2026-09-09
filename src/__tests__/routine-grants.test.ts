@@ -39,6 +39,7 @@ function stage(over: Partial<Runbook> = {}) {
 	roots.push(root);
 	let runbook: Runbook | null = { id: "book", name: "Book", body: "do it", parameters: [], revision: 1, ...over };
 	let now = MONDAY_0900_LA - 60_000;
+	let ownsSession = true;
 	const authorized: string[][] = [];
 	const routines = composeRoutines({
 		dataDir: root,
@@ -48,6 +49,7 @@ function stage(over: Partial<Runbook> = {}) {
 			clearTimer: () => undefined,
 		},
 		getRunbook: () => runbook,
+		sessionOwned: () => ownsSession,
 		setRoutineGrants: (_routineId, entryIds) => {
 			authorized.push(entryIds);
 		},
@@ -67,6 +69,10 @@ function stage(over: Partial<Runbook> = {}) {
 			routines.console.list().routines.find((row) => row.routine.id === routineId)?.attention,
 		at: (instant: number) => {
 			now = instant;
+		},
+		/** Something took the reserved session's name, so its record is no longer the routine's. */
+		loseSession: () => {
+			ownsSession = false;
 		},
 		moveRunbook: (to: Runbook | null) => {
 			runbook = to;
@@ -129,15 +135,39 @@ describe("what a routine is authorized to reach", () => {
 	});
 });
 
-describe("a secret a routine wanted and never got", () => {
-	const running = async () => {
-		const s = stage();
-		s.routines.console.put(routine({ linkedEntries: [] }));
-		s.at(MONDAY_0900_LA);
-		await s.routines.reconcile();
-		return s;
-	};
+const running = async () => {
+	const s = stage();
+	s.routines.console.put(routine({ linkedEntries: [] }));
+	s.at(MONDAY_0900_LA);
+	await s.routines.reconcile();
+	return s;
+};
 
+describe("whose work is open in a session", () => {
+	it("is the routine's, while the session is still the one it reserved", async () => {
+		const s = await running();
+
+		expect(s.routines.workingRoutine(TEAM)).toBe("triage");
+	});
+
+	it("is nobody's once something else holds the name, however the occurrence still reads", async () => {
+		const s = await running();
+
+		s.loseSession();
+
+		expect(s.routines.workingRoutine(TEAM)).toBeNull();
+	});
+
+	it("is nobody's once that session is closed or forgotten", async () => {
+		const s = await running();
+
+		s.routines.sessionEnded(TEAM);
+
+		expect(s.routines.workingRoutine(TEAM)).toBeNull();
+	});
+});
+
+describe("a secret a routine wanted and never got", () => {
 	it("is recorded against the occurrence that asked, and named for the owner", async () => {
 		const s = await running();
 

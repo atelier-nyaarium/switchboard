@@ -130,6 +130,16 @@ describe("vault decisions", () => {
 		expect(decisions.list(2_000)).toEqual([]);
 	});
 
+	it("a full list of what the vault holds takes a grant over anything not in it", () => {
+		const decisions = withRoutine(fresh(), () => "triage");
+		decisions.setRoutineGrants("triage", ["deploy", "npm"]);
+
+		// What a restart or a re-provision reads: no snapshot to compare against, so the list decides.
+		decisions.entriesListed(["deploy"]);
+
+		expect(decisions.list(2_000).map((grant) => grant.entryId)).toEqual(["deploy"]);
+	});
+
 	const recorded = (dataDir: string, grants: Record<string, unknown>[]) =>
 		fs.writeFileSync(path.join(dataDir, "vault-decisions.json"), JSON.stringify(grants));
 

@@ -35,6 +35,7 @@ export interface VaultStage {
 	console: VaultConsoleHandlers;
 	sessionEnded: (team: string) => void;
 	entryDeleted: (entryId: string) => void;
+	entriesListed: (entryIds: string[]) => void;
 	/** The one road to a routine's grants, reached from a routine save and from nowhere else. */
 	setRoutineGrants: (routineId: string, entryIds: string[]) => void;
 }
@@ -172,6 +173,7 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 			requests.sessionEnded(team);
 		},
 		entryDeleted: (entryId) => decisions.entryDeleted(entryId),
+		entriesListed: (entryIds) => decisions.entriesListed(entryIds),
 		setRoutineGrants: (routineId, entryIds) => {
 			decisions.setRoutineGrants(routineId, entryIds);
 		},
