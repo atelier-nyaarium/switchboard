@@ -70,6 +70,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     which it bypasses because disable stops the schedule rather than the routine, and the severe-miss
     walk, which must skip it. Counting a pressed run as the newest occurrence moves that walk's floor
     past a scheduled slot that never ran, so the owner is never told it was missed.
+  - **`runFresh` walks only a row it opened:** `open` answers whatever is already at that instant, so
+    a press landing on one the rule named would otherwise run it without the gates it keeps. It reads
+    the row back afterwards, since preparation is awaited and a deadline can settle it first.
+  - **Several work windows can be open in one session, and the two readers say which they mean:**
+    `workingOccurrences` is what anything ending a session takes, or the routine keeps reaching its
+    secrets through a window nothing closed. `firstWorkingOccurrence` answers one representative,
+    which is right only because `routineTeam` gives one session to exactly one routine.
 - `src/gateway/console/consoleRunbookFire.ts` - renders a stored runbook and lands it in a session, creating one first
   - **A preview and a fire reach the same words:** `textOf` is the one road from an id and values to
     text, so `runbook_preview` cannot answer something a `runbook_fire` would not send. A fire may
@@ -191,6 +198,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **The per-gateway reads are `ChatState` extensions, not screen expressions:** `runbookOn`,
     `routineOn`, `runbooksOn`, `routinesOn` and `soonestRoutineAt` are what stops a screen reaching
     past its own group, so they sit where a JVM test can call them.
+  - **Run and Run missed are different acts, and the row says which:** Run opens a fresh occurrence
+    at the moment it is pressed, on every row including a disabled one. The miss panel's button runs
+    the slot the rule named. Neither refuses while a run is already working.
 - `android/.../GatewayPick.kt` - the button a new record starts from
   - **A new record has no Gateway yet:** one is taken without asking, several are asked, and none
     draws no button. Nothing else on these tabs chooses a Gateway, since every row belongs to one.
