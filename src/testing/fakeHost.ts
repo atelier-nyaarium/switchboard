@@ -63,7 +63,7 @@ export interface FakeHost {
 	daemon: FakeCodexDaemon;
 	/** One daemon frame to the gateway. */
 	sendCodex(frame: CodexDaemonEvent | CodexDaemonReceipt): void;
-	/** What the daemon derives from that session's pane. Null is nobody having said. */
+	/** What the daemon derives from that session's pane; null is nobody having said. */
 	reportWorking(team: string, working: boolean | null): void;
 	close(): void;
 }

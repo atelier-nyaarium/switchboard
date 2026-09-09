@@ -315,7 +315,6 @@ async function main(): Promise<void> {
 					);
 				}
 				if (frame.type === "host_op" && frame.op?.kind === "createSession") {
-					// The token the plugin would be launched with, which is what binds it.
 					sessionToken = frame.op.sessionToken;
 					socket.send(
 						JSON.stringify({
@@ -375,15 +374,12 @@ async function main(): Promise<void> {
 		if (!sessionToken) throw new Error("the host was never asked to create a session");
 
 		const gatewayUrl = `http://127.0.0.1:${gatewayPort}`;
-		// Bound to that session, so the tool registers and the door recognizes the caller.
 		const bound = await mcpSession(gatewayUrl, "host.boot-mcp", sessionToken, "no_routine");
 		if (!bound.tools.includes(TOOL)) throw new Error(`${TOOL} was not registered for a bound session`);
 
-		// A token the gateway does not know reaches the same door and is refused by it.
 		const wrong = await mcpSession(gatewayUrl, "host.boot-mcp", "0".repeat(64));
 		if (wrong.answer.kind !== "unauthenticated") throw new Error(`stale token answered ${wrong.answer.kind}`);
 
-		// No binding at all, so there is nothing for the tool to speak for.
 		const none = await mcpSession(gatewayUrl, "host.boot-mcp", undefined);
 		if (none.tools.includes(TOOL)) throw new Error(`${TOOL} registered for a session with no token`);
 	});

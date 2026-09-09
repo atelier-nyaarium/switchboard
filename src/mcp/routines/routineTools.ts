@@ -15,8 +15,6 @@ The nudge names an occurrence id. Pass it here.
 
 The answer is the wording as it stood when the run was issued, so a runbook edited since does not
 change what was asked of you. Read it again after a compaction rather than working from memory.
-
-Say what happened with \`channel_reply\`. This tool records nothing.
 `.trim();
 
 const InputSchema = {
