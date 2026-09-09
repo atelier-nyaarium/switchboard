@@ -126,6 +126,10 @@ None of the five decides what may be shown. `docs/console.md` states how the id 
 what it is for, which is how it came to be borrowed as a visibility filter: a thing with no stated
 purpose gets used for whatever is nearby.
 
+**A sixth arrived later, from this plan's own board fix.** An unassigned board entry has no session
+Gateway, so its attachment blob is routed to this phone's write route. `docs/console.md` lists six,
+and it lists them precisely because a list that is one short is what let the fifth be borrowed.
+
 ## The direction, given after the audit
 
 > Home Gateways are a relic of the past. It should have died when we completed the router plan. All
@@ -136,10 +140,10 @@ it, which means it has been lost before.
 
 It does not change what this plan builds; it decides how. Nothing new is built on `homeGatewayId`,
 and the grouping gives no gateway a privileged position: they sort stably by id, and the home one is
-not first. Removing it is separate work, and four of its five jobs have a clean Router-side answer.
-The fifth is the hard one: with equal gateways, a bare `sandbox` genuinely names more than one thing,
-so either names get qualified or the Router disambiguates. That is where that work will actually
-live, and it is why this plan does not attempt it in passing.
+not first. Removing it is separate work, and most of its jobs have a clean Router-side answer. One is
+the hard one: with equal gateways, a bare `sandbox` genuinely names more than one thing, so either
+names get qualified or the Router disambiguates. That is where that work will actually live, and it
+is why this plan does not attempt it in passing.
 
 # Plan
 
@@ -172,6 +176,8 @@ That is the fence. A residue test was the first idea and it is the weaker one: t
 in ops classes rather than screens, and any scan is defeated by one helper. Make it a type error.
 
 ### What that then requires
+
+The hazards as they stood before the work. What landed, and where it differs, is below.
 
 - **State becomes per gateway.** `ChatState.routines`, `runbooks` and `routineZone` are singular
   today. The zone is each gateway's own, so a schedule read against another's is a wrong time on
@@ -208,8 +214,10 @@ gateway name anywhere in the phone model. Use the id and do not invent one.
 Confirm what `BoardManager.sourceGatewayIds` is for, and either make it answer what its name says or
 rename it to the one thing it means.
 
-`homeGatewayId` keeps all five of its jobs and stops being consulted about what to draw.
-`docs/console.md` gains the five, since stating only how it is selected is what let it be borrowed.
+`homeGatewayId` stops being consulted about what to draw and keeps its addressing jobs.
+`docs/console.md` gains the list, since stating only how the id is selected is what let it be
+borrowed. **The list is SIX, not five:** this plan's own board fix added the sixth, since an
+unassigned board entry has no session Gateway and its attachment blob needs a route.
 
 ### What can be tested, and what cannot
 
