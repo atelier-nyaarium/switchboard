@@ -143,14 +143,67 @@ live, and it is why this plan does not attempt it in passing.
 
 # Plan
 
+Refined once against five audits. What changed: Phase 1 was written as "drop two filters" and that
+was wrong, because dropping them alone would draw another gateway's rows and then send every action
+on them to the home gateway. The same goal, its real cost. Nothing was added that the goal did not
+already need, and three things the audits raised were left out deliberately: retiring
+`homeGatewayId`, giving gateways human-readable names, and teaching the harness a second gateway.
+
 ## Phase 1 - Both tabs reach every gateway
 
-Drop the two `show` filters. `ChatState` holds routines and runbooks per gateway rather than one
-list, and each tab groups by gateway the way the Sessions tab already groups, with a header shown
-only when there is more than one. Gateways sort stably by id and none is privileged. Nothing merges
-and nothing synchronises across gateways.
+**Phone only.** `sendValueOp(gatewayId, op)` already addresses whichever gateway it is given, and
+`ConsoleClientRoutines` says so in its own first line: a routine runs on one gateway, so every call
+names the one it means. No wire, no gateway, no Kotlin codegen. The client layer was built for this
+and the ops layer threw the answer away.
 
-Refreshing walks the gateways the keyring admits rather than home alone.
+**It is not "drop two filters".** The audit found that dropping them alone makes things worse rather
+than better: a row from another gateway would draw, and then every action on it would go to the home
+one. Enable, dismiss, run, edit, fire and the runbook picker all pass an id and no gateway, and the
+ops default the gateway to home.
+
+### The one change that makes the rest impossible to get wrong
+
+Take the `= host.homeGatewayId()` defaults off every `RoutineOps` and `RunbookOps` method. Then a
+call without a gateway does not compile, and the compiler enumerates the call sites rather than a
+reviewer doing it. A row is drawn inside its gateway's group and carries that gateway, so an action
+cannot be built without the machine it acts on.
+
+That is the fence. A residue test was the first idea and it is the weaker one: the two offenders were
+in ops classes rather than screens, and any scan is defeated by one helper. Make it a type error.
+
+### What that then requires
+
+- **State becomes per gateway.** `ChatState.routines`, `runbooks` and `routineZone` are singular
+  today. The zone is each gateway's own, so a schedule read against another's is a wrong time on
+  screen. Nothing is persisted, so there is no old blob to migrate.
+- **Compose keys and drafts take the gateway.** `item(key = "routine:${id}")` collides for two
+  gateways holding one id, and so do `RoutineOps.drafts` and the runbook drafts, where `"new"` is
+  shared outright.
+- **`routineNotificationId` takes the gateway.** Keyed on the routine id alone, two gateways holding
+  a `triage` share one Android notification and reconciliation cancels the other's.
+- **`RunbookOps` collisions.** `refusals` is keyed by runbook id alone. `synced` is correctly keyed
+  by gateway, id and revision, but both clears match the id alone, and `refresh` calls
+  `synced.clear()` for every gateway while refreshing one.
+- **`RoutineOps.asked` is one counter for all gateways**, so a slow answer from one discards a fresh
+  answer from another. It becomes a counter per gateway.
+- **Background paths walk every admitted gateway.** `DrainHost.refreshRoutines` refreshes home alone,
+  and the wake instant is computed from the single routine list, so a non-home routine would never
+  update in the background and never wake the phone. Bound the fan-out: gateways are asked
+  concurrently and one unreachable gateway must not hold up the pass.
+- **`RunbookFireSheet` starts at `state.homeGatewayId` outright**, and `RoutineEditor` offers
+  runbooks from the merged list, so a routine on one gateway could pin another's runbook.
+
+### Wording
+
+- Empty states say "No routines" when they mean "none on any reachable gateway". An admitted gateway
+  that cannot be read right now has no wording at all today.
+- The editor's "It is kept as X, where this Gateway reads it" stops being singular once a row can
+  come from any of them.
+- **Do not copy the Sessions tab's sort**, which puts the home gateway first. Sort by id, no
+  privileged position.
+
+Gateway ids are hostname-derived slugs and are the only name available; there is no human-readable
+gateway name anywhere in the phone model. Use the id and do not invent one.
 
 Confirm what `BoardManager.sourceGatewayIds` is for, and either make it answer what its name says or
 rename it to the one thing it means.
@@ -158,13 +211,49 @@ rename it to the one thing it means.
 `homeGatewayId` keeps all five of its jobs and stops being consulted about what to draw.
 `docs/console.md` gains the five, since stating only how it is selected is what let it be borrowed.
 
+### What can be tested, and what cannot
+
+The collisions are all reachable from plain JVM tests: `RoutineOpsTest` and `RunbookOpsTest` already
+build their ops over fakes with a gateway argument, so two gateways holding one id is a unit test,
+not an integration one. Every hazard above gets one.
+
+The harness cannot help: `addDomain` mints a whole Domain and there is no way to add a second gateway
+to one. Building that is not this plan's work. So the end-to-end, two gateways drawn in one tab, is
+verified by hand on the emulator, which the sandbox can seed.
+
 ## Phase 2 - A run button on every row
 
 A manual run is a fresh occurrence at the moment it is pressed, never a re-entry of a dispatched one,
 which the at-most-once ruling forbids. It ignores the recurrence rule, so the one-day minimum does
 not apply, and it runs a disabled routine because disable stops the schedule rather than the routine.
-
 No warning and no refusal when one is already running.
+
+Unlike Phase 1 this does touch the wire: `routine_run_now` names an occurrence and takes only a
+`missed` one, which is a different act. A fresh run is its own operation, and the Kotlin codegen
+follows it.
+
+What the gateway side has to answer, each confirmed against the code:
+
+- **Nothing in the state machine assumes a rule-named instant.** `open` bounds `scheduledAt` only as
+  a nonnegative integer, and preparation never reads it. The ad-hoc occurrence is ordinary.
+- **`recordSevereMiss` takes its newest from occurrences of every kind.** A manual run at 14:32 moves
+  that mark past a rule-named slot that has gone unrun, and the owner is then never told it was
+  missed. It has to walk from the newest RULE-named occurrence.
+- **The disabled bypass is three checks, not one.** `advance` gates on enablement before preparing,
+  again after preparing, and again before dispatching. A manual run passes all three and keeps every
+  other check: idleness, preparation, the revision fence and the deadline.
+- **`open` is keyed by routine and instant**, so two presses in one millisecond are one row. Correct
+  as it stands.
+- **`nextAt` never reads occurrences**, so an ad-hoc run does not disturb the next scheduled run.
+  `lastRanAt` moves, which is what it means.
+
+The console operation is a new one rather than a widened `routine_run_now`, which names an occurrence
+and takes only a `missed` one. It carries the routine and no instant, since the gateway owns `now`.
+Its answer names the occurrence it opened. `ConsoleOpSchema` is already a codegen root, so
+`Protocol.kt` follows; `console-result-codegen.test.ts` catches a missing result type.
+
+The row's button and the miss panel's button would both read "Run now" on one card. The panel's
+becomes **Run missed**, since it runs that slot rather than a fresh one.
 
 The attention panel keeps only Link the secret, and says plainly that a run already refused cannot be
 given the secret afterwards.
