@@ -30,6 +30,10 @@ class PollDrainTest {
 		val reads = mutableListOf<JsonObject>()
 		var dispatched = 0
 		override fun link() = ConsoleLink.POLL
+		var routineRefreshes = 0
+		override suspend fun refreshRoutines() {
+			routineRefreshes += 1
+		}
 		override fun plan(visible: Boolean, socket: Boolean, failed: Boolean): ConsoleTransportPlan = error("unused")
 		override fun thisDeviceAddress() = null
 		override fun fromCanonical(value: String) = value

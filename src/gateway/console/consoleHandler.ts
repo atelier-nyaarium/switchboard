@@ -349,6 +349,9 @@ export function createConsoleDispatcher({
 			case "routine_put":
 				return requireRoutines().put(op.routine, op.baseRevision);
 
+			case "routine_next":
+				return requireRoutines().nextAt(op.routine);
+
 			case "routine_delete":
 				return requireRoutines().remove(op.routineId);
 

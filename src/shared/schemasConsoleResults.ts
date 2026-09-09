@@ -17,6 +17,7 @@ import {
 import {
 	ConsoleRoutineDeleteResultSchema,
 	ConsoleRoutineListResultSchema,
+	ConsoleRoutineNextResultSchema,
 	ConsoleRoutineOccurrenceResultSchema,
 	ConsoleRoutinePutResultSchema,
 } from "./schemasRoutine.js";
@@ -484,6 +485,7 @@ export const ConsoleOpResultSchema = z.union([
 	ConsoleRoutineListResultSchema,
 	ConsoleRoutinePutResultSchema,
 	ConsoleRoutineDeleteResultSchema,
+	ConsoleRoutineNextResultSchema,
 	ConsoleRoutineOccurrenceResultSchema,
 ]);
 

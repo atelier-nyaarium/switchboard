@@ -21,6 +21,9 @@ internal interface DrainHost {
 
 	fun link(): ConsoleLink
 	fun plan(visible: Boolean, socket: Boolean, failed: Boolean): ConsoleTransportPlan
+
+	/** Reads the gateway's routines, so a background pass learns a miss with no tab open. */
+	suspend fun refreshRoutines()
 	fun thisDeviceAddress(): Address?
 	fun fromCanonical(value: String): String?
 	fun advanceMailbox(result: SyncPollResult<Drained>): SyncAdvance<Drained>
@@ -51,6 +54,7 @@ internal class ChatRepositoryDrainHost(private val repo: ChatRepository) : Drain
 	override val isVisible get() = repo.isVisible
 	override val autoGenerate get() = repo.sttsAutoGen
 	override fun link() = repo.transportCoordinator.link()
+	override suspend fun refreshRoutines() = repo.routineOps.refresh()
 	override fun plan(visible: Boolean, socket: Boolean, failed: Boolean) =
 		// The soonest a routine is expected to answer, so a deeply idle phone reads the outcome then.
 		repo.transportCoordinator.plan(

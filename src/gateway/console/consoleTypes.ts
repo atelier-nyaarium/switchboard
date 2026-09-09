@@ -20,6 +20,7 @@ import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
 import type {
 	ConsoleRoutineDeleteResult,
 	ConsoleRoutineListResult,
+	ConsoleRoutineNextResult,
 	ConsoleRoutineOccurrenceResult,
 	ConsoleRoutinePutResult,
 	Routine,
@@ -132,6 +133,8 @@ export interface RoutineConsoleHandlers {
 	list: () => ConsoleRoutineListResult;
 	/** `base` is the revision the editor was opened at, absent on a first save. */
 	put: (routine: Routine, base?: number) => ConsoleRoutinePutResult;
+	/** What a candidate would next run at, so recurrence stays in one implementation. */
+	nextAt: (routine: Routine) => ConsoleRoutineNextResult;
 	remove: (routineId: string) => ConsoleRoutineDeleteResult;
 	enable: (routineId: string, enabled: boolean) => ConsoleRoutinePutResult;
 	runNow: (routineId: string, occurrenceId: string) => Promise<ConsoleRoutineOccurrenceResult>;

@@ -65,6 +65,8 @@ data class ChatState(
 	/** The phone's own library. A gateway holds a copy, and this is what gets pushed to it. */
 	val runbooks: List<Runbook> = emptyList(),
 	val routines: List<RoutineState> = emptyList(),
+	/** The zone the home gateway reads a schedule in; the editor converts into it. */
+	val routineZone: String = "",
 ) {
 	/** Expiry belongs to the read, so stale wakes cannot persist. */
 	fun awaitingWake(team: String, now: Long = System.currentTimeMillis()): Boolean {

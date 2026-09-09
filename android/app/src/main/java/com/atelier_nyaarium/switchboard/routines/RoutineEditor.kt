@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.RoutineSaved
+import com.atelier_nyaarium.switchboard.absoluteTimeText
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.Routine
 import kotlinx.coroutines.launch
@@ -46,9 +48,11 @@ fun RoutineEditor(repo: ChatRepository, state: ChatState, routineId: String?, on
 		routineId?.let { id -> state.routines.find { it.routine.id == id }?.routine }
 	}
 	val zone = remember { java.time.ZoneId.systemDefault() }
-	var draft by remember(routineId) {
+	val gatewayZone = state.routineZone.ifBlank { zone.id }
+	// Read in the owner's own zone, whatever the gateway keeps it in.
+	var draft by remember(routineId, gatewayZone) {
 		mutableStateOf(
-			held?.let { RoutineDraft.of(it) }
+			held?.let { RoutineDraft.of(it).shown(zone.id) }
 				?: RoutineDraft(
 					id = "routine-${java.util.UUID.randomUUID().toString().take(8)}",
 					startDate = java.time.LocalDate.now(zone).toString(),
@@ -65,7 +69,8 @@ fun RoutineEditor(repo: ChatRepository, state: ChatState, routineId: String?, on
 	var confirmingDelete by remember(routineId) { mutableStateOf(false) }
 
 	val commit: () -> Unit = {
-		val candidate = draft.toRoutine()
+		// Converted here and nowhere else: what the gateway stores is its own zone's wall clock.
+		val candidate = draft.asKept(gatewayZone).toRoutine()
 		if (candidate != null) {
 			saving = true
 			refused = null
@@ -135,12 +140,15 @@ fun RoutineEditor(repo: ChatRepository, state: ChatState, routineId: String?, on
 					modifier = Modifier.weight(1f),
 				)
 			}
-			OutlinedTextField(
-				value = draft.zone,
-				onValueChange = { draft = draft.copy(zone = it) },
-				label = { Text("Zone the schedule is read in") },
-				modifier = Modifier.fillMaxWidth(),
-			)
+			// No zone picker: the gateway's zone is canonical, so the owner reads their own and the
+			// save converts. Saying so beats a field that looks like a choice and is not one.
+			if (zone.id != gatewayZone) {
+				Text(
+					"Shown in your time. It is kept as $gatewayZone, where this Gateway reads it.",
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
 
 			Text("Runbook", style = MaterialTheme.typography.labelLarge)
 			val names = state.runbooks.map { it.name }
@@ -250,7 +258,22 @@ fun RoutineEditor(repo: ChatRepository, state: ChatState, routineId: String?, on
 		AlertDialog(
 			onDismissRequest = { confirming = false },
 			title = { Text("The schedule moves") },
-			text = { Text("It becomes ${scheduleLine(draft.toRoutine() ?: return@AlertDialog)}. $VERBS_EXPLAIN") },
+			text = {
+				val kept = draft.asKept(gatewayZone).toRoutine()
+				// The instant comes from the gateway: recurrence has one implementation and it is
+				// not here. Until it answers, the rule alone is what can honestly be said.
+				val next = remember(kept) { mutableStateOf<Long?>(null) }
+				LaunchedEffect(kept) { if (kept != null) next.value = repo.routineOps.nextRun(kept) }
+				Text(
+					when {
+						kept == null -> VERBS_EXPLAIN
+						next.value == null -> "It becomes ${scheduleLine(kept)}. $VERBS_EXPLAIN"
+						else ->
+							"It becomes ${scheduleLine(kept)}, next running " +
+								"${absoluteTimeText(next.value!!, zone)}. $VERBS_EXPLAIN"
+					},
+				)
+			},
 			confirmButton = {
 				TextButton(
 					onClick = hapticClick {
@@ -273,8 +296,11 @@ fun RoutineEditor(repo: ChatRepository, state: ChatState, routineId: String?, on
 					onClick = hapticClick {
 						confirmingDelete = false
 						scope.launch {
-							repo.routineOps.delete(draft.id)
-							onClose()
+							if (repo.routineOps.delete(draft.id)) {
+								onClose()
+							} else {
+								refused = "This Gateway still runs it; it was not reached"
+							}
 						}
 					},
 				) { Text("Delete") }

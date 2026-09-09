@@ -166,12 +166,14 @@ internal class RunbookOps(
 		return SaveRefusal(reason, landed?.revision ?: 0L)
 	}
 
-	suspend fun delete(runbookId: String, gatewayId: String = host.homeGatewayId()) {
+	/** False when this Gateway still holds it, so the editor does not say gone about a copy that is not. */
+	suspend fun delete(runbookId: String, gatewayId: String = host.homeGatewayId()): Boolean {
 		synced.removeAll { it.second == runbookId }
 		refusals = refusals - runbookId
 		show(gatewayId, host.library.remove(gatewayId, runbookId))
-		val client = host.gateway ?: return
-		if (gatewayId.isNotBlank()) attempt { client.delete(gatewayId, runbookId) }
+		val client = host.gateway ?: return false
+		if (gatewayId.isBlank()) return false
+		return attempt { client.delete(gatewayId, runbookId) } != null
 	}
 
 	/** The tab draws the home gateway's copy; another gateway's is held and not drawn. */

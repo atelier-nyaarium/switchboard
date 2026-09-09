@@ -231,10 +231,14 @@ class IdlePushbackManagerTest {
 		assertEquals(PollWait.Alarm(soon), brought)
 		assertEquals(soon, scheduler.deepSleepAt)
 
-		// Later than the mark, already gone, or inside the next minute: the mark still decides.
-		for (answer in listOf(aligned + 60_000L, now - 1L, now + 30_000L)) {
-			val kept = mgr.decide(now, visible = false, lastPassFailed = false, watchedWorking = false, soonestAnswer = answer)
-			assertEquals(PollWait.Alarm(aligned), kept)
+		// Later than the mark: the mark decides.
+		val later = mgr.decide(now, visible = false, lastPassFailed = false, watchedWorking = false, soonestAnswer = aligned + 60_000L)
+		assertEquals(PollWait.Alarm(aligned), later)
+
+		// Already gone or seconds away: a deep tier parks, so it is floored rather than left to the mark.
+		for (answer in listOf(now - 1L, now + 30_000L)) {
+			val soonest = mgr.decide(now, visible = false, lastPassFailed = false, watchedWorking = false, soonestAnswer = answer)
+			assertEquals(PollWait.Alarm(now + 60_000L), soonest)
 		}
 	}
 

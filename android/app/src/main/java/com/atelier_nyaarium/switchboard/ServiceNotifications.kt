@@ -92,7 +92,14 @@ internal class ServiceNotifications(private val context: Context) {
 		val active = context.getSystemService(NotificationManager::class.java)
 			.activeNotifications
 			.mapTo(HashSet()) { it.id }
-		for (row in repo.state.value.routines) {
+		val rows = repo.state.value.routines
+		// A routine that is gone is named by nothing in the list, so its own range is swept for it.
+		val live = rows.mapTo(HashSet()) { routineNotificationId(it.routine.id) }
+		for (id in active) {
+			val inRange = id >= ROUTINE_ID_RANGE_START && id < ROUTINE_ID_RANGE_START + ROUTINE_ID_RANGE_SIZE
+			if (inRange && id !in live) nmc.cancel(id)
+		}
+		for (row in rows) {
 			val id = routineNotificationId(row.routine.id)
 			val missed = row.missed
 			if (missed == null) {

@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineListResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineNextResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineOccurrenceResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutinePutResult
 import com.atelier_nyaarium.switchboard.proto.Protocol
@@ -21,6 +22,12 @@ suspend fun ConsoleClient.routinePut(
 	valueResult(
 		sendValueOp(gatewayId, ConsoleOp.RoutinePut(routine = routine, baseRevision = baseRevision)),
 		Protocol.Wire.ConsoleOpKind.ROUTINE_PUT,
+	)
+
+suspend fun ConsoleClient.routineNext(gatewayId: String, routine: Routine): ConsoleRoutineNextResult =
+	valueResult(
+		sendValueOp(gatewayId, ConsoleOp.RoutineNext(routine = routine)),
+		Protocol.Wire.ConsoleOpKind.ROUTINE_NEXT,
 	)
 
 suspend fun ConsoleClient.routineDelete(gatewayId: String, routineId: String): ConsoleRoutineDeleteResult =

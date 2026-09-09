@@ -113,7 +113,14 @@ export const RoutineStateSchema = z
 	.meta({ id: "RoutineState" });
 
 export const ConsoleRoutineListResultSchema = z
-	.object({ routines: z.array(RoutineStateSchema) })
+	.object({
+		routines: z.array(RoutineStateSchema),
+		/**
+		 * The zone this gateway reads a schedule in, so an editor showing the owner their own time
+		 * has something to convert into. There is no zone picker: the gateway's zone is canonical.
+		 */
+		zone: z.string().min(1),
+	})
 	.meta({ id: "ConsoleRoutineListResult" });
 
 export const ConsoleRoutinePutResultSchema = z
@@ -126,6 +133,15 @@ export const ConsoleRoutinePutResultSchema = z
 		reason: z.string().optional(),
 	})
 	.meta({ id: "ConsoleRoutinePutResult" });
+
+/**
+ * Null when the rule names nothing further, which a refused rule also does. Required rather than
+ * optional: an all-optional answer matches anything, and the union that carries it could then no
+ * longer refuse a shape nothing produces.
+ */
+export const ConsoleRoutineNextResultSchema = z
+	.object({ nextAt: z.number().int().nonnegative().nullable(), reason: z.string().optional() })
+	.meta({ id: "ConsoleRoutineNextResult" });
 
 export const ConsoleRoutineDeleteResultSchema = z
 	.object({ deleted: z.boolean() })
@@ -144,6 +160,7 @@ export type RoutineMiss = z.infer<typeof RoutineMissSchema>;
 export type RoutineState = z.infer<typeof RoutineStateSchema>;
 export type ConsoleRoutineListResult = z.infer<typeof ConsoleRoutineListResultSchema>;
 export type ConsoleRoutinePutResult = z.infer<typeof ConsoleRoutinePutResultSchema>;
+export type ConsoleRoutineNextResult = z.infer<typeof ConsoleRoutineNextResultSchema>;
 export type ConsoleRoutineDeleteResult = z.infer<typeof ConsoleRoutineDeleteResultSchema>;
 export type ConsoleRoutineOccurrenceResult = z.infer<typeof ConsoleRoutineOccurrenceResultSchema>;
 

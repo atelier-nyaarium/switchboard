@@ -130,6 +130,8 @@ internal class ConsoleRoutineGateway(private val client: ConsoleClient) : Routin
 	override suspend fun put(gatewayId: String, routine: Routine, baseRevision: Long?) =
 		client.routinePut(gatewayId, routine, baseRevision)
 
+	override suspend fun next(gatewayId: String, routine: Routine) = client.routineNext(gatewayId, routine)
+
 	override suspend fun delete(gatewayId: String, routineId: String) {
 		client.routineDelete(gatewayId, routineId)
 	}

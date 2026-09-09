@@ -185,9 +185,14 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 					onClick = hapticClick {
 						deleting = false
 						scope.launch {
-							repo.runbookOps.delete(draft.id)
-							repo.runbookOps.dropDraft(draftKey)
-							onClose()
+							// Closing on a delete this Gateway never took would say gone about a copy
+							// it still holds.
+							if (repo.runbookOps.delete(draft.id)) {
+								repo.runbookOps.dropDraft(draftKey)
+								onClose()
+							} else {
+								refused = SaveRefusal("This Gateway still holds it; it was not reached", 0L)
+							}
 						}
 					},
 				) { Text("Delete") }

@@ -175,6 +175,8 @@ export const ConsoleOpSchema = z
 			 */
 			baseRevision: z.number().int().positive().optional(),
 		}),
+		/** What a candidate would next run at, so the phone names an instant without holding a rule. */
+		z.object({ kind: z.literal("routine_next"), routine: RoutineSchema }),
 		z.object({ kind: z.literal("routine_delete"), routineId: z.string().min(1).max(64) }),
 		z.object({ kind: z.literal("routine_enable"), routineId: z.string().min(1).max(64), enabled: z.boolean() }),
 		// Run now and Dismiss answer an occurrence the owner is looking at, never the routine.
@@ -232,6 +234,7 @@ export const VALUE_OP_KINDS = new Set([
 	"runbook_fire",
 	"routine_list",
 	"routine_put",
+	"routine_next",
 	"routine_delete",
 	"routine_enable",
 	"routine_run_now",

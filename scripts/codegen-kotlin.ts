@@ -124,6 +124,7 @@ import {
 import {
 	ConsoleRoutineDeleteResultSchema,
 	ConsoleRoutineListResultSchema,
+	ConsoleRoutineNextResultSchema,
 	ConsoleRoutineOccurrenceResultSchema,
 	ConsoleRoutinePutResultSchema,
 	RoutineAttentionSchema,
@@ -346,6 +347,7 @@ const ROOTS: z.ZodType[] = [
 	ConsoleRoutineListResultSchema,
 	ConsoleRoutinePutResultSchema,
 	ConsoleRoutineDeleteResultSchema,
+	ConsoleRoutineNextResultSchema,
 	ConsoleRoutineOccurrenceResultSchema,
 	ScheduledRecordSchema,
 	ScheduleSendValueSchema,

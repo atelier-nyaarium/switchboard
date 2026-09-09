@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineListResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineNextResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineOccurrenceResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutinePutResult
 import com.atelier_nyaarium.switchboard.proto.Routine
@@ -14,6 +15,9 @@ internal interface RoutineGateway {
 	suspend fun list(gatewayId: String): ConsoleRoutineListResult
 
 	suspend fun put(gatewayId: String, routine: Routine, baseRevision: Long?): ConsoleRoutinePutResult
+
+	/** What a candidate would next run at. The gateway owns recurrence; the phone holds none. */
+	suspend fun next(gatewayId: String, routine: Routine): ConsoleRoutineNextResult
 
 	suspend fun delete(gatewayId: String, routineId: String)
 
@@ -62,7 +66,7 @@ internal class RoutineOps(
 		val client = host.gateway ?: return
 		if (gatewayId.isBlank()) return
 		val held = attempt { client.list(gatewayId) } ?: return
-		show(gatewayId, held.routines)
+		show(gatewayId, held.routines, held.zone)
 		host.onRoutinesChanged()
 	}
 
@@ -83,6 +87,13 @@ internal class RoutineOps(
 		return RoutineSaved.Stored(stored)
 	}
 
+	/** Null when nothing further is named, or when this Gateway could not be asked. */
+	suspend fun nextRun(routine: Routine, gatewayId: String = host.homeGatewayId()): Long? {
+		val client = host.gateway ?: return null
+		if (gatewayId.isBlank()) return null
+		return attempt { client.next(gatewayId, routine) }?.nextAt
+	}
+
 	suspend fun setEnabled(routineId: String, enabled: Boolean, gatewayId: String = host.homeGatewayId()): Boolean {
 		val client = host.gateway ?: return false
 		if (gatewayId.isBlank()) return false
@@ -91,11 +102,13 @@ internal class RoutineOps(
 		return answer?.stored == true
 	}
 
-	suspend fun delete(routineId: String, gatewayId: String = host.homeGatewayId()) {
-		val client = host.gateway ?: return
-		if (gatewayId.isBlank()) return
-		attempt { client.delete(gatewayId, routineId) }
+	/** False when this Gateway was not reached, so nothing says gone about a routine it still runs. */
+	suspend fun delete(routineId: String, gatewayId: String = host.homeGatewayId()): Boolean {
+		val client = host.gateway ?: return false
+		if (gatewayId.isBlank()) return false
+		val took = attempt { client.delete(gatewayId, routineId) } != null
 		refresh(gatewayId)
+		return took
 	}
 
 	suspend fun runNow(routineId: String, occurrenceId: String, gatewayId: String = host.homeGatewayId()): Boolean =
@@ -116,9 +129,9 @@ internal class RoutineOps(
 	}
 
 	/** The tab draws the home gateway's routines; another gateway's are its own to run. */
-	private fun show(gatewayId: String, routines: List<RoutineState>) {
+	private fun show(gatewayId: String, routines: List<RoutineState>, zone: String) {
 		if (gatewayId != host.homeGatewayId()) return
-		state.update { it.copy(routines = routines) }
+		state.update { it.copy(routines = routines, routineZone = zone) }
 	}
 
 	private suspend fun <T> attempt(call: suspend () -> T): T? = try {

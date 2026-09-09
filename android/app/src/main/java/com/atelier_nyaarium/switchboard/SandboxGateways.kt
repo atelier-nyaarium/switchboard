@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineListResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineNextResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineOccurrenceResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutinePutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookFireResult
@@ -105,6 +106,7 @@ internal class SandboxRoutineGateway : RoutineGateway {
 
 	/** One of each panel, so no line in the tab is unreachable. */
 	override suspend fun list(gatewayId: String) = ConsoleRoutineListResult(
+		zone = "America/Los_Angeles",
 		routines = listOf(
 			RoutineState(
 				routine = routine("triage", "Morning triage"),
@@ -139,6 +141,8 @@ internal class SandboxRoutineGateway : RoutineGateway {
 		} else {
 			ConsoleRoutinePutResult(stored = true, revision = 3L, routine = routine.copy(revision = 3L))
 		}
+
+	override suspend fun next(gatewayId: String, routine: Routine) = ConsoleRoutineNextResult(nextAt = nextSlot())
 
 	override suspend fun delete(gatewayId: String, routineId: String) = Unit
 

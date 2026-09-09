@@ -111,8 +111,45 @@ class RoutineTextTest {
 		assertTrue(ruleMoved(held, draft.copy(time = "10:00")))
 		assertTrue(ruleMoved(held, draft.copy(zone = "UTC")))
 		assertTrue(ruleMoved(held, draft.copy(weekdays = setOf(2))))
+		assertTrue(ruleMoved(held, draft.copy(weekInterval = 2)))
 		// Nothing was stored, so nothing moved.
 		assertFalse(ruleMoved(null, draft.copy(time = "10:00")))
+	}
+
+	@Test
+	fun theOwnerEditsTheirOwnTimeAndTheGatewayKeepsIts() {
+		// Monday 09:00 in Los Angeles is the small hours of Tuesday in Tokyo. Which hour depends on
+		// daylight saving, so the weekday moving is what this pins rather than the clock face.
+		val la = routine(weekdays = listOf(1L), time = "09:00", zone = "America/Los_Angeles")
+		val shown = RoutineDraft.of(la).shown("Asia/Tokyo")
+		assertEquals(setOf(2), shown.weekdays)
+		assertEquals("Asia/Tokyo", shown.zone)
+
+		// Back again is what a save sends, and it is the rule the gateway already held.
+		val kept = shown.asKept("America/Los_Angeles")
+		assertEquals("09:00", kept.time)
+		assertEquals(setOf(1), kept.weekdays)
+		assertEquals("America/Los_Angeles", kept.zone)
+	}
+
+	@Test
+	fun aZoneNeitherSideKnowsLeavesTheRuleAlone() {
+		val la = routine(weekdays = listOf(1L), time = "09:00", zone = "America/Los_Angeles")
+		val draft = RoutineDraft.of(la)
+		// Better an unconverted rule the gateway then refuses than a silently mangled one.
+		assertEquals(draft.time, draft.shown("Mars/Olympus").time)
+		assertEquals(draft.weekdays, draft.shown("Mars/Olympus").weekdays)
+	}
+
+	@Test
+	fun aDraftRefusesWhatTheGatewaysSchemaWouldRatherThanBlameTheNetwork() {
+		val ok = RoutineDraft(id = "triage", name = "T", startDate = "2026-09-07", zone = "UTC", runbookId = "b", approvedRevision = 1L)
+		assertNotNull(ok.copy(weekInterval = 0).refusal())
+		assertNotNull(ok.copy(weekInterval = 9).refusal())
+		assertNotNull(ok.copy(startDate = "07/09/2026").refusal())
+		assertNotNull(ok.copy(spawn = "").refusal())
+		assertNotNull(ok.copy(linkedEntries = List(17) { "e$it" }).refusal())
+		assertNotNull(ok.copy(linkedEntries = listOf("a", "a")).refusal())
 	}
 
 	@Test

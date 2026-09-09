@@ -54,12 +54,15 @@ sealed interface PollWait {
 
 /**
  * The one alarm a deep tier arms: the aligned mark, or an expected answer if that comes first. One
- * instant rather than a second alarm system beside the scheduled sends'. An answer already past, or
- * inside the next minute, is not worth an alarm and takes the mark.
+ * instant rather than a second alarm system beside the scheduled sends'.
+ *
+ * A deep tier parks until this alarm, so an answer due in seconds cannot be left to a mark hours
+ * away. It is floored to a minute out rather than dropped, which is the soonest an alarm is worth
+ * arming for.
  */
 internal fun wakeAt(now: Long, alignedMark: Long, soonestAnswer: Long?): Long {
-	if (soonestAnswer == null || soonestAnswer <= now + MINUTE_MS) return alignedMark
-	return minOf(alignedMark, soonestAnswer)
+	if (soonestAnswer == null) return alignedMark
+	return minOf(alignedMark, maxOf(soonestAnswer, now + MINUTE_MS))
 }
 
 /** The service-owned side effects a deep-tier decision drives (alarms + wakelocks). Kept behind

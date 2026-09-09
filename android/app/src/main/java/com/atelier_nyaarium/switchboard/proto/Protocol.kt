@@ -139,6 +139,7 @@ object Protocol {
 			const val RUNBOOK_FIRE: String = "runbook_fire"
 			const val ROUTINE_LIST: String = "routine_list"
 			const val ROUTINE_PUT: String = "routine_put"
+			const val ROUTINE_NEXT: String = "routine_next"
 			const val ROUTINE_DELETE: String = "routine_delete"
 			const val ROUTINE_ENABLE: String = "routine_enable"
 			const val ROUTINE_RUN_NOW: String = "routine_run_now"
@@ -510,6 +511,12 @@ sealed class ConsoleOp {
 	data class RoutinePut(
 		val routine: Routine,
 		val baseRevision: Long? = null,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("routine_next")
+	data class RoutineNext(
+		val routine: Routine,
 	) : ConsoleOp()
 
 	@Serializable
@@ -1726,6 +1733,7 @@ data class RoutineState(
 @Serializable
 data class ConsoleRoutineListResult(
 	val routines: List<RoutineState>,
+	val zone: String,
 )
 
 @Serializable
@@ -1739,6 +1747,12 @@ data class ConsoleRoutinePutResult(
 @Serializable
 data class ConsoleRoutineDeleteResult(
 	val deleted: Boolean,
+)
+
+@Serializable
+data class ConsoleRoutineNextResult(
+	val nextAt: Long? = null,
+	val reason: String? = null,
 )
 
 @Serializable

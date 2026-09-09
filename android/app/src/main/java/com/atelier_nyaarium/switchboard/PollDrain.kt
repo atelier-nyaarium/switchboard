@@ -316,6 +316,9 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 					}
 					if (!host.isVisible && host.link() == ConsoleLink.POLL) {
 						drainOwnerInbox()
+						// Routines are read, never pushed, so a background pass is the only thing that
+						// learns a run missed while the tab was closed.
+						host.refreshRoutines()
 						withTimeoutOrNull(ChatRepository.BACKGROUND_TICK_MS) { kick.receive() }
 						continue@pollLoop
 					}
@@ -346,6 +349,7 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 					}
 					DebugLog.flushToIngest()
 				}
+				if (!host.isVisible) host.refreshRoutines()
 				val plan = host.plan(
 					host.isVisible,
 					host.link() == ConsoleLink.SOCKET,

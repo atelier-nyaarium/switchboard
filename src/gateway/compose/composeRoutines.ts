@@ -1,6 +1,12 @@
 import type { Ambient } from "../../shared/ambient.js";
 import { openDurable } from "../../shared/durable-store.js";
-import type { Routine, RoutineAttention, RoutineMiss, RoutineState } from "../../shared/schemasRoutine.js";
+import {
+	type Routine,
+	type RoutineAttention,
+	type RoutineMiss,
+	type RoutineState,
+	routineRefusal,
+} from "../../shared/schemasRoutine.js";
 import type { Runbook } from "../../shared/schemasRunbook.js";
 import type { RoutineConsoleHandlers } from "../console/consoleTypes.js";
 import { type Attention, createAttentionStore } from "../routines/attention.js";
@@ -49,6 +55,14 @@ const IDLE_ATTEMPT: RoutineAttempt = {
 	prepare: async () => ({ ok: false, reason: "unreachable" }),
 	deliver: async () => undefined,
 };
+
+/**
+ * The zone this gateway reads a schedule in. Its own, from the container, so the canonical zone is
+ * a real one that observes daylight saving rather than a line in a Dockerfile.
+ */
+function gatewayZone(): string {
+	return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
 
 /** The newest occurrence that wanted something, folded into one line for the phone. */
 function attentionFor(rows: Attention[]): RoutineAttention | undefined {
@@ -146,7 +160,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 
 	return {
 		console: {
-			list: () => ({ routines: state() }),
+			list: () => ({ routines: state(), zone: gatewayZone() }),
 			put: (routine, base) => {
 				const result = store.put(routine, { base });
 				if (result.stored) {
@@ -156,6 +170,11 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 					settleGrants(routine.id);
 				}
 				return result;
+			},
+			nextAt: (routine) => {
+				const refusal = routineRefusal(routine);
+				if (refusal) return { nextAt: null, reason: refusal };
+				return { nextAt: runner.nextAt(routine, deps.ambient.now()) };
 			},
 			remove: (routineId) => {
 				// The routine goes first, so a half-done delete leaves rows nothing will walk.
