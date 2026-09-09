@@ -367,10 +367,15 @@ disagree with its neighbour. Round 4 is the sharpest form of it: the fix for rou
 round 4, because a `List<String>` argument and a state field both claimed to say which gateways
 exist.
 
-The change that would make the class inexpressible is an admitted-gateway value resolved from the
-keyring, which every op takes and no caller can invent or capture. That is the same work as retiring
-`homeGatewayId`, it is claimed on the board, and it is deliberately not attempted here: doing it in
-passing is how round 4 happened.
+**The shape of the fix, weighed against the code and recorded on the board item.** A value type
+minted from the keyring was the obvious answer and it is the wrong one: it proves each id was
+admitted when minted, not that a list is current or that two lists came from one authority, so it
+would not have prevented round 4. What would is one owner for membership and its projections, where
+`refreshAll` takes no gateway list at all, so a caller cannot supply membership and two callers
+cannot disagree about it. The prune then disappears rather than being made correct.
+
+That is the same work as retiring `homeGatewayId`, it is claimed on the board with the full shape,
+and it is deliberately not attempted here: doing it in passing is how round 4 happened.
 
 ## Phase 2 - A run button on every row
 
