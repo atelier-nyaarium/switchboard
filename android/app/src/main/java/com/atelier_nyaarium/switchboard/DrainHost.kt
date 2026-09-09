@@ -54,8 +54,8 @@ internal class ChatRepositoryDrainHost(private val repo: ChatRepository) : Drain
 	override val isVisible get() = repo.isVisible
 	override val autoGenerate get() = repo.sttsAutoGen
 	override fun link() = repo.transportCoordinator.link()
-	// Every admitted gateway, or the rest are never read in the background.
-	override suspend fun refreshRoutines() = repo.routineOps.refreshAll(repo.sessions.keyringGateways())
+	// The published set, which the tabs also read. A second source races the prune that follows it.
+	override suspend fun refreshRoutines() = repo.routineOps.refreshAll(repo.state.value.admittedGateways)
 	override fun plan(visible: Boolean, socket: Boolean, failed: Boolean) =
 		repo.transportCoordinator.plan(visible, socket, failed, repo.state.value.soonestRoutineAt())
 	override fun thisDeviceAddress() = repo.thisDeviceAddress()

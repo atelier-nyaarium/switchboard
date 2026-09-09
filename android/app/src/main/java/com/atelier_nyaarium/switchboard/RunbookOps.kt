@@ -96,7 +96,8 @@ internal class RunbookOps(
 	private val state: MutableStateFlow<ChatState>,
 	private val host: RunbookHost,
 ) {
-	private val synced = mutableSetOf<Triple<String, String, Long>>()
+	// Gateways are refreshed side by side, so these are touched from more than one coroutine at once.
+	private val synced = java.util.concurrent.ConcurrentHashMap.newKeySet<Triple<String, String, Long>>()
 
 	private val reads = GatewayReadFence()
 
@@ -104,7 +105,7 @@ internal class RunbookOps(
 	 * Editors in progress, keyed by gateway and runbook. Held here rather than in saved instance
 	 * state, since a body is bounded by nothing and the parcel it would ride in is.
 	 */
-	private val drafts = mutableMapOf<Pair<String, String>, RunbookDraft>()
+	private val drafts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, RunbookDraft>()
 
 	fun draftFor(gatewayId: String, key: String): RunbookDraft? = drafts[gatewayId to key]
 
@@ -116,9 +117,10 @@ internal class RunbookOps(
 		drafts.remove(gatewayId to key)
 	}
 
-	private var refusals = emptyMap<Pair<String, String>, SaveRefusal>()
+	// Read and written whole, so a fold from two gateways at once cannot drop one side's refusal.
+	private val refusals = java.util.concurrent.atomic.AtomicReference(emptyMap<Pair<String, String>, SaveRefusal>())
 
-	fun refusalFor(gatewayId: String, runbookId: String): SaveRefusal? = refusals[gatewayId to runbookId]
+	fun refusalFor(gatewayId: String, runbookId: String): SaveRefusal? = refusals.get()[gatewayId to runbookId]
 
 	init {
 		// Every gateway's stored copy, so a tab drawn before any refresh answers is not one gateway's.
@@ -128,17 +130,25 @@ internal class RunbookOps(
 	/** Every gateway the keyring admits, asked together so a slow one does not hold up the rest. */
 	suspend fun refreshAll(gatewayIds: List<String>) {
 		coroutineScope { gatewayIds.map { id -> async { refresh(id) } }.awaitAll() }
-		// A gateway the keyring no longer admits stops being drawn, and stops being actionable with it.
-		state.update { held -> held.copy(runbooks = held.runbooks.filter { it.gatewayId in gatewayIds }) }
+		// Membership as it stands now, not as it stood when this pass began, so a pass that started
+		// before a Gateway was admitted does not drop what a later one drew. The stored library is
+		// left alone: a lapsed keyring entry is not a reason to lose what the owner wrote.
+		state.update { held ->
+			val admitted = held.admittedGateways.toSet()
+			held.copy(runbooks = held.runbooks.filter { it.gatewayId in admitted })
+		}
 	}
 
 	suspend fun refresh(gatewayId: String) {
 		val client = host.gateway ?: return
 		if (gatewayId.isBlank()) return
-		val held = reads.read(gatewayId) { attempt { client.list(gatewayId) } } ?: return
-		// This gateway's markers only. Clearing every gateway's would push again for nothing.
-		synced.removeAll { it.first == gatewayId }
-		show(gatewayId, host.library.merge(gatewayId, held.runbooks))
+		// One gateway's failure, whatever raised it, must not take down the pass around it.
+		attempt {
+			val held = reads.read(gatewayId) { attempt { client.list(gatewayId) } } ?: return@attempt
+			// This gateway's markers only. Clearing every gateway's would push again for nothing.
+			synced.removeAll { it.first == gatewayId }
+			show(gatewayId, host.library.merge(gatewayId, held.runbooks))
+		}
 	}
 
 	suspend fun save(
@@ -197,7 +207,7 @@ internal class RunbookOps(
 
 	private fun forget(gatewayId: String, runbookId: String) {
 		synced.removeAll { it.first == gatewayId && it.second == runbookId }
-		refusals = refusals - (gatewayId to runbookId)
+		refusals.updateAndGet { it - (gatewayId to runbookId) }
 		show(gatewayId, host.library.remove(gatewayId, runbookId))
 	}
 
@@ -277,7 +287,7 @@ internal class RunbookOps(
 		overwrite: Boolean = false,
 	): ConsoleRunbookPutResult? {
 		val answer = attempt { client.put(gatewayId, mine, baseRevision, overwrite) }
-		refusals = refusalsAfterPut(refusals, gatewayId to mine.id, answer)
+		refusals.updateAndGet { refusalsAfterPut(it, gatewayId to mine.id, answer) }
 		return answer
 	}
 

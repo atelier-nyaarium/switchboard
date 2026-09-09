@@ -53,34 +53,41 @@ internal class RoutineOps(
 	private val state: MutableStateFlow<ChatState>,
 	private val host: RoutineHost,
 ) {
-	private var drafts = mapOf<Pair<String, String>, Routine>()
+	private val drafts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, Routine>()
 
 	private val reads = GatewayReadFence()
 
 	fun draftFor(gatewayId: String, key: String): Routine? = drafts[gatewayId to key]
 
 	fun keepDraft(gatewayId: String, key: String, draft: Routine) {
-		drafts = drafts + ((gatewayId to key) to draft)
+		drafts[gatewayId to key] = draft
 	}
 
 	fun dropDraft(gatewayId: String, key: String) {
-		drafts = drafts - (gatewayId to key)
+		drafts.remove(gatewayId to key)
 	}
 
 	/** Every gateway the keyring admits, asked together so a slow one does not hold up the rest. */
 	suspend fun refreshAll(gatewayIds: List<String>) {
 		coroutineScope { gatewayIds.map { id -> async { refresh(id) } }.awaitAll() }
-		// A gateway the keyring no longer admits stops being drawn, and stops being actionable with it.
-		state.update { held -> held.copy(routines = held.routines.filter { it.gatewayId in gatewayIds }) }
+		// Membership as it stands now, not as it stood when this pass began, so a pass that started
+		// before a Gateway was admitted does not drop what a later one drew.
+		state.update { held ->
+			val admitted = held.admittedGateways.toSet()
+			held.copy(routines = held.routines.filter { it.gatewayId in admitted })
+		}
 		host.onRoutinesChanged()
 	}
 
 	suspend fun refresh(gatewayId: String) {
 		val client = host.gateway ?: return
 		if (gatewayId.isBlank()) return
-		val held = reads.read(gatewayId) { attempt { client.list(gatewayId) } } ?: return
-		show(gatewayId, held.routines, held.zone)
-		host.onRoutinesChanged()
+		// One gateway's failure, whatever raised it, must not take down the pass around it.
+		attempt {
+			val held = reads.read(gatewayId) { attempt { client.list(gatewayId) } } ?: return@attempt
+			show(gatewayId, held.routines, held.zone)
+			host.onRoutinesChanged()
+		}
 	}
 
 	/** Carries the revision the editor was opened at; the gateway names the one it stores. */

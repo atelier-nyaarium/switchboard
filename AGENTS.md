@@ -175,8 +175,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **Nothing is held on the phone:** a routine's record, its next run, its misses and its reviews
     are the gateway's, so a change re-reads rather than guessing.
   - **Every gateway is asked, concurrently, and one that cannot be read leaves the rest drawn:**
-    `refreshAll` fans out over the keyring, then prunes to it, so a Gateway the keyring no longer
-    admits stops being drawn and stops being actionable with it.
+    `refreshAll` fans out, then prunes, so a Gateway the keyring no longer admits stops being drawn
+    and stops being actionable with it.
+  - **`state.admittedGateways` is the ONE authority on membership, and the prune re-reads it:**
+    pruning to the list the pass began with let a pass started before a Gateway was admitted drop
+    what a later one had drawn, and a second source (a fresh keyring read in the drain) made those
+    two lists differ. Both callers read the published set now. The stored runbook library is never
+    pruned; a lapsed keyring entry is not a reason to lose what the owner wrote.
   - **A zone belongs to its gateway, and an instant belongs to the owner:** each group carries the
     zone its gateway keeps schedules in, which is what the editor converts a typed time into. The
     rows show instants, so they read in the owner's own zone.

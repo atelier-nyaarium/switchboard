@@ -298,6 +298,29 @@ Two findings were rejected against the code:
 - **"The documents violate a no-semicolon rule."** There is no such rule. It was asserted against
   forty pre-existing lines, which is the reminder that a confident tone is not evidence.
 
+### The red team, and the race my own fix introduced
+
+Adversarial angles on concurrency and on the board change.
+
+- **The prune raced its own callers, and it was mine.** `refreshAll` pruned to the list the pass began
+  with, and there were TWO sources for that list: the tabs passed `state.admittedGateways`, the drain
+  passed a fresh keyring read. When they differed, the drain could draw a newly admitted Gateway and
+  a pass that started earlier would then prune it away. Both callers read the published set now, and
+  the prune re-reads it at prune time rather than trusting its captured argument. A test proves it by
+  admitting a Gateway mid-pass, and it fails against the old shape.
+- **One gateway's failure could take down the pass.** Only the gateway call was guarded, so anything
+  raised after it escaped `awaitAll` and skipped the prune, leaving a mixture. The whole per-gateway
+  body is guarded now.
+- **The fan-out made three fields concurrent that were not.** Gateways are refreshed side by side, so
+  `synced`, `refusals` and both draft maps are now touched from more than one coroutine. They became
+  a concurrent set, an atomic reference folded whole, and concurrent maps.
+- **Confirmed by reading it: nothing here is persisted.** `ChatPersistence` carries neither field, so
+  the prune drops display state only and the authored library on disk is untouched.
+
+Rejected: an unbounded counter map (bounded by the number of gateways ever seen), the read fence not
+being a timeout (it is an ordering rule and says so), and the stale-board notice only recomputing on
+a revision change (real, cosmetic, and pre-existing in shape).
+
 ### `BoardManager.sourceGatewayIds`, confirmed and removed
 
 It was worse than "named for several and answers one". The board is one Router-held board:

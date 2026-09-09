@@ -74,6 +74,10 @@ class RoutineOpsTest {
 
 	private fun ChatState.on(gatewayId: String) = routines.find { it.gatewayId == gatewayId }
 
+	/** What the keyring published, which is the one authority on which groups may be drawn. */
+	private fun admitting(vararg gatewayIds: String) =
+		MutableStateFlow(ChatState(admittedGateways = gatewayIds.toList()))
+
 	@Test
 	fun everyAdmittedGatewayIsDrawnRatherThanOneOfThem() {
 		val fake = FakeGateway()
@@ -81,7 +85,7 @@ class RoutineOpsTest {
 		fake.shelves["mikan"] = listOf(RoutineState(routine("triage", name = "Elsewhere")))
 		fake.zones["sakura"] = "America/Los_Angeles"
 		fake.zones["mikan"] = "Europe/London"
-		val state = MutableStateFlow(ChatState())
+		val state = admitting("sakura", "mikan")
 		val ops = RoutineOps(state, Host(fake))
 
 		runBlocking { ops.refreshAll(listOf("sakura", "mikan")) }
@@ -98,7 +102,7 @@ class RoutineOpsTest {
 		val fake = FakeGateway()
 		fake.shelves["sakura"] = listOf(RoutineState(routine("triage")))
 		fake.unreachable += "mikan"
-		val state = MutableStateFlow(ChatState())
+		val state = admitting("sakura", "mikan")
 		val ops = RoutineOps(state, Host(fake))
 
 		runBlocking { ops.refreshAll(listOf("sakura", "mikan")) }
@@ -150,14 +154,37 @@ class RoutineOpsTest {
 		val fake = FakeGateway()
 		fake.shelves["sakura"] = listOf(RoutineState(routine("triage")))
 		fake.shelves["mikan"] = listOf(RoutineState(routine("triage")))
-		val state = MutableStateFlow(ChatState())
+		val state = admitting("sakura", "mikan")
 		val ops = RoutineOps(state, Host(fake))
 
 		runBlocking { ops.refreshAll(listOf("sakura", "mikan")) }
+		state.value = state.value.copy(admittedGateways = listOf("sakura"))
 		runBlocking { ops.refreshAll(listOf("sakura")) }
 
 		// Revoked, so its rows go rather than lingering as something the owner can still act on.
 		assertEquals(listOf("sakura"), state.value.routines.map { it.gatewayId })
+	}
+
+	@Test
+	fun aPassThatStartedBeforeAGatewayWasAdmittedDoesNotDropIt() {
+		val fake = FakeGateway()
+		fake.shelves["sakura"] = listOf(RoutineState(routine("triage")))
+		fake.shelves["mikan"] = listOf(RoutineState(routine("triage")))
+		val state = admitting("sakura")
+		val ops = RoutineOps(state, Host(fake))
+
+		runBlocking {
+			// A second Gateway is admitted and drawn while this pass is still running.
+			val gate = CompletableDeferred<Unit>()
+			fake.held["sakura"] = gate
+			val old = async { ops.refreshAll(listOf("sakura")) }
+			state.value = state.value.copy(admittedGateways = listOf("sakura", "mikan"))
+			ops.refresh("mikan")
+			gate.complete(Unit)
+			old.await()
+		}
+
+		assertEquals(listOf("mikan", "sakura"), state.value.routines.map { it.gatewayId })
 	}
 
 	@Test
