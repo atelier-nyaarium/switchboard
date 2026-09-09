@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineNextResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineOccurrenceResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutinePutResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookFireResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookPreviewResult
@@ -72,7 +73,7 @@ internal class SandboxRunbookGateway : RunbookGateway {
 			ConsoleRunbookPutResult(stored = true, revision = runbook.revision + 1, runbook = runbook.copy(revision = runbook.revision + 1))
 		}
 
-	override suspend fun delete(gatewayId: String, runbookId: String) = Unit
+	override suspend fun delete(gatewayId: String, runbookId: String) = ConsoleRunbookDeleteResult(deleted = true)
 
 	override suspend fun preview(gatewayId: String, runbookId: String, values: Map<String, String>) =
 		ConsoleRunbookPreviewResult(text = values.entries.joinToString(" ") { "${it.key}=${it.value}" }, revision = 3L)

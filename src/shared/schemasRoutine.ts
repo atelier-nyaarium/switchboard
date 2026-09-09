@@ -161,7 +161,12 @@ export const ConsoleRoutineOccurrenceResultSchema = z
  * What a routine's own session asks back for, and what it is answered. Session wire, not phone wire,
  * so it carries no `.meta` id and generates no Kotlin.
  */
-export const SessionRoutineRequestSchema = z.object({ occurrenceId: z.string().min(1) });
+/** The shape, so the tool's input and the route's parse are the same declaration. */
+export const SessionRoutineRequestShape = {
+	occurrenceId: z.string().min(1).max(64).describe(`Occurrence id from the nudge.`),
+};
+
+export const SessionRoutineRequestSchema = z.object(SessionRoutineRequestShape);
 
 export const SessionRoutineAnswerSchema = z.discriminatedUnion("kind", [
 	z.object({

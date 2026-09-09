@@ -101,15 +101,18 @@ internal class ServiceNotifications(private val context: Context) {
 		}
 		for (row in rows) {
 			val id = routineNotificationId(row.routine.id)
-			val missed = row.missed
-			if (missed == null) {
+			// A review stops the schedule until the owner reads the new words, so it is told as a miss
+			// is. A miss is the more urgent of the two when a routine has both.
+			val told = row.missed?.let { "${row.routine.name} did not run" to routineMissText(it.reason) }
+				?: row.reviewAt?.let { "${row.routine.name} stopped" to "Its runbook changed" }
+			if (told == null) {
 				if (id in active) nmc.cancel(id)
 				continue
 			}
 			val notification = NotificationCompat.Builder(context, CHANNEL_ROUTINE)
 				.setSmallIcon(android.R.drawable.stat_notify_error)
-				.setContentTitle("${row.routine.name} did not run")
-				.setContentText(routineMissText(missed.reason))
+				.setContentTitle(told.first)
+				.setContentText(told.second)
 				.setAutoCancel(true)
 				.setOnlyAlertOnce(true)
 				.setContentIntent(contentIntent(null))

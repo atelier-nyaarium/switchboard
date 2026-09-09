@@ -255,27 +255,34 @@ fun RoutineEditor(repo: ChatRepository, state: ChatState, routineId: String?, on
 	}
 
 	if (confirming) {
+		val kept = remember(draft, gatewayZone) { draft.asKept(gatewayZone).toRoutine() }
+		// The instant comes from the gateway: recurrence has one implementation and it is not here.
+		// Saving waits for it, since a confirmation that cannot name the run is not one.
+		var asked by remember(kept) { mutableStateOf(false) }
+		var next by remember(kept) { mutableStateOf<Long?>(null) }
+		LaunchedEffect(kept) {
+			if (kept == null) return@LaunchedEffect
+			next = repo.routineOps.nextRun(kept)
+			asked = true
+		}
 		AlertDialog(
 			onDismissRequest = { confirming = false },
 			title = { Text("The schedule moves") },
 			text = {
-				val kept = draft.asKept(gatewayZone).toRoutine()
-				// The instant comes from the gateway: recurrence has one implementation and it is
-				// not here. Until it answers, the rule alone is what can honestly be said.
-				val next = remember(kept) { mutableStateOf<Long?>(null) }
-				LaunchedEffect(kept) { if (kept != null) next.value = repo.routineOps.nextRun(kept) }
 				Text(
 					when {
 						kept == null -> VERBS_EXPLAIN
-						next.value == null -> "It becomes ${scheduleLine(kept)}. $VERBS_EXPLAIN"
+						!asked -> "It becomes ${scheduleLine(kept)}. Working out when it next runs."
+						next == null -> "It becomes ${scheduleLine(kept)}, and names no run. $VERBS_EXPLAIN"
 						else ->
 							"It becomes ${scheduleLine(kept)}, next running " +
-								"${absoluteTimeText(next.value!!, zone)}. $VERBS_EXPLAIN"
+								"${absoluteTimeText(next!!, zone)}. $VERBS_EXPLAIN"
 					},
 				)
 			},
 			confirmButton = {
 				TextButton(
+					enabled = kept == null || asked,
 					onClick = hapticClick {
 						confirming = false
 						commit()

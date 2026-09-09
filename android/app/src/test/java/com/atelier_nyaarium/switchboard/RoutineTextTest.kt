@@ -167,6 +167,23 @@ class RoutineTextTest {
 	}
 
 	@Test
+	fun aRuleReadOutAndBackComesHomeUnchangedInEveryWeekOfTheYear() {
+		val la = routine(weekdays = listOf(1L), time = "09:00", zone = "America/Los_Angeles")
+		val draft = RoutineDraft.of(la)
+		// Every Monday of 2026, so the weeks either side of both hemispheres' clock changes are in.
+		var day = java.time.LocalDate.parse("2026-01-05")
+		while (day.year == 2026) {
+			val shown = draft.shown("Asia/Tokyo", day)
+			val kept = shown.asKept("America/Los_Angeles", day)
+			assertEquals("$day", draft.time, kept.time)
+			assertEquals("$day", draft.weekdays, kept.weekdays)
+			assertEquals("$day", draft.startDate, kept.startDate)
+			assertFalse("$day", ruleMoved(la, shown, day))
+			day = day.plusWeeks(1)
+		}
+	}
+
+	@Test
 	fun aZoneNeitherSideKnowsLeavesTheRuleAlone() {
 		val la = routine(weekdays = listOf(1L), time = "09:00", zone = "America/Los_Angeles")
 		val draft = RoutineDraft.of(la)

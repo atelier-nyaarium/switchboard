@@ -2,14 +2,15 @@
 // spelling a tool name, so prose cannot ask for something that was never built.
 
 import type { z } from "zod";
-import { SessionRoutineAnswerSchema, SessionRoutineRequestSchema } from "./schemasRoutine.js";
+import { SessionRoutineAnswerSchema, SessionRoutineRequestShape } from "./schemasRoutine.js";
 
 export interface SessionCommand {
 	/** The MCP tool a session calls. */
 	tool: string;
 	/** The gateway's loopback path behind it. */
 	path: string;
-	request: z.ZodType;
+	/** A shape, so the tool's input schema and the route's parse cannot drift apart. */
+	request: z.ZodRawShape;
 	answer: z.ZodType;
 }
 
@@ -22,7 +23,7 @@ export const SESSION_COMMANDS = {
 	sessionRoutine: {
 		tool: "get_session_routine",
 		path: "/routine/session",
-		request: SessionRoutineRequestSchema,
+		request: SessionRoutineRequestShape,
 		answer: SessionRoutineAnswerSchema,
 	},
 } as const satisfies Record<string, SessionCommand>;

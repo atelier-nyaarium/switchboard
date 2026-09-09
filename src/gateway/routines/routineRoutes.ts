@@ -1,5 +1,6 @@
 // The one door a routine's own session reaches, and the only road to a stored snapshot.
 
+import { z } from "zod";
 import { SESSION_COMMANDS } from "../../shared/session-commands.js";
 import type { Occurrence } from "./occurrences.js";
 import { answerSessionRoutine } from "./sessionRoutine.js";
@@ -23,7 +24,7 @@ const json = (body: unknown, status: number): Response =>
 export function createRoutineRoutes(deps: RoutineRoutesDeps): Map<string, Handler> {
 	// The four outcomes are the answer's `kind`, and a status would encode the same thing twice.
 	const sessionRoutine: Handler = async (req, body) => {
-		const parsed = COMMAND.request.safeParse(body);
+		const parsed = z.object(COMMAND.request).safeParse(body);
 		if (!parsed.success) return json({ error: "an occurrence id is required" }, 400);
 		const answer = answerSessionRoutine(
 			{

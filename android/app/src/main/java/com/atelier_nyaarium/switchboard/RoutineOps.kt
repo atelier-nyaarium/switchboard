@@ -53,8 +53,11 @@ internal class RoutineOps(
 ) {
 	private var drafts = mapOf<String, Routine>()
 
-	/** Counts reads, so a slower one that started earlier does not overwrite a newer answer. */
-	private var asked = 0L
+	/**
+	 * Counts reads, so a slower one that started earlier does not overwrite a newer answer. Atomic
+	 * because the background loop and a tap on the screen both call in, on different threads.
+	 */
+	private val asked = java.util.concurrent.atomic.AtomicLong(0)
 
 	fun draftFor(key: String): Routine? = drafts[key]
 
@@ -73,9 +76,9 @@ internal class RoutineOps(
 	suspend fun refresh(gatewayId: String = host.homeGatewayId()) {
 		val client = host.gateway ?: return
 		if (gatewayId.isBlank()) return
-		val mine = ++asked
+		val mine = asked.incrementAndGet()
 		val held = attempt { client.list(gatewayId) } ?: return
-		if (mine != asked) return
+		if (mine != asked.get()) return
 		show(gatewayId, held.routines, held.zone)
 		host.onRoutinesChanged()
 	}

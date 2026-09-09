@@ -159,9 +159,7 @@ internal class ConsoleRunbookGateway(private val client: ConsoleClient) : Runboo
 	override suspend fun put(gatewayId: String, runbook: Runbook, baseRevision: Long?, overwrite: Boolean) =
 		client.runbookPut(gatewayId, runbook, baseRevision, overwrite)
 
-	override suspend fun delete(gatewayId: String, runbookId: String) {
-		client.runbookDelete(gatewayId, runbookId)
-	}
+	override suspend fun delete(gatewayId: String, runbookId: String) = client.runbookDelete(gatewayId, runbookId)
 
 	override suspend fun preview(gatewayId: String, runbookId: String, values: Map<String, String>) =
 		client.runbookPreview(gatewayId, runbookId, values)

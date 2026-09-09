@@ -1,5 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
+import type { z } from "zod";
 import type { SessionRoutineAnswerSchema } from "../../shared/schemasRoutine.js";
 import { SESSION_COMMANDS } from "../../shared/session-commands.js";
 import { routerPost } from "../bridge/helpers.js";
@@ -16,10 +16,6 @@ The nudge names an occurrence id. Pass it here.
 The answer is the wording as it stood when the run was issued, so a runbook edited since does not
 change what was asked of you. Read it again after a compaction rather than working from memory.
 `.trim();
-
-const InputSchema = {
-	occurrenceId: z.string().min(1).max(64).describe(`Occurrence id from the nudge.`),
-};
 
 /** What each outcome means, said rather than left to a bare kind. */
 function textOf(answer: z.infer<typeof SessionRoutineAnswerSchema>): string {
@@ -40,7 +36,7 @@ function textOf(answer: z.infer<typeof SessionRoutineAnswerSchema>): string {
 export function registerRoutineTools(mcpServer: McpServer): void {
 	mcpServer.registerTool(
 		COMMAND.tool,
-		{ title: `Get Session Routine`, description: DESCRIPTION, inputSchema: InputSchema },
+		{ title: `Get Session Routine`, description: DESCRIPTION, inputSchema: COMMAND.request },
 		async (args: { occurrenceId: string }) => {
 			try {
 				const answer = COMMAND.answer.parse(

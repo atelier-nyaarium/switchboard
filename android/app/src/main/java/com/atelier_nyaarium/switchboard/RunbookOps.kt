@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookFireResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookPreviewResult
@@ -22,7 +23,7 @@ internal interface RunbookGateway {
 		overwrite: Boolean,
 	): ConsoleRunbookPutResult
 
-	suspend fun delete(gatewayId: String, runbookId: String)
+	suspend fun delete(gatewayId: String, runbookId: String): ConsoleRunbookDeleteResult
 	suspend fun preview(
 		gatewayId: String,
 		runbookId: String,
@@ -168,12 +169,24 @@ internal class RunbookOps(
 
 	/** False when this Gateway still holds it, so the editor does not say gone about a copy that is not. */
 	suspend fun delete(runbookId: String, gatewayId: String = host.homeGatewayId()): Boolean {
+		val client = host.gateway
+		// No Gateway to disagree with, so this phone's copy is the only one it knows of and it goes.
+		// A copy the Gateway still holds comes back on the next list, as an unsynced one always would.
+		if (client == null || gatewayId.isBlank()) {
+			forget(gatewayId, runbookId)
+			return true
+		}
+		// Asked before the local copy goes. Removing first would hide a copy the Gateway still holds.
+		val answer = attempt { client.delete(gatewayId, runbookId) }
+		if (answer?.deleted != true) return false
+		forget(gatewayId, runbookId)
+		return true
+	}
+
+	private fun forget(gatewayId: String, runbookId: String) {
 		synced.removeAll { it.second == runbookId }
 		refusals = refusals - runbookId
 		show(gatewayId, host.library.remove(gatewayId, runbookId))
-		val client = host.gateway ?: return false
-		if (gatewayId.isBlank()) return false
-		return attempt { client.delete(gatewayId, runbookId) } != null
 	}
 
 	/** The tab draws the home gateway's copy; another gateway's is held and not drawn. */

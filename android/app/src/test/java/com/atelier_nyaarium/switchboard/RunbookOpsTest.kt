@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookFireResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookPreviewResult
@@ -69,9 +70,8 @@ class RunbookOpsTest {
 			return ConsoleRunbookPutResult(stored = true, revision = minted.revision, runbook = minted)
 		}
 
-		override suspend fun delete(gatewayId: String, runbookId: String) {
-			shelf(gatewayId).remove(runbookId)
-		}
+		override suspend fun delete(gatewayId: String, runbookId: String) =
+			ConsoleRunbookDeleteResult(deleted = shelf(gatewayId).remove(runbookId) != null)
 
 		override suspend fun preview(gatewayId: String, runbookId: String, values: Map<String, String>) =
 			ConsoleRunbookPreviewResult(text = "rendered", revision = shelf(gatewayId)[runbookId]?.revision ?: 0L)
@@ -192,6 +192,21 @@ class RunbookOpsTest {
 		val (ops, state) = opsOver(listOf(book("a"), book("b")))
 		kotlinx.coroutines.runBlocking { ops.delete("a") }
 		assertEquals(listOf("b"), state.value.runbooks.map { it.id })
+	}
+
+	@Test
+	fun aGatewayThatKeepsItKeepsThePhonesCopyToo() {
+		val host = WithGateway()
+		val state = MutableStateFlow(ChatState())
+		val ops = RunbookOps(state, host)
+		host.library.merge(host.homeGatewayId(), listOf(book("a")))
+
+		// The Gateway holds no such id, so it answers no, and the owner is not shown a library that
+		// lost what the Gateway may still have.
+		kotlinx.coroutines.runBlocking {
+			assertEquals(false, ops.delete("a"))
+			assertEquals(listOf("a"), host.library.all(host.homeGatewayId()).map { it.id })
+		}
 	}
 
 	@Test

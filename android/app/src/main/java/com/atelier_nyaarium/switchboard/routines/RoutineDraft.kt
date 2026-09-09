@@ -79,14 +79,14 @@ internal data class RoutineDraft(
 	}
 
 	/** The same rule read in another zone, for showing the owner their own time. */
-	fun shown(inZoneId: String): RoutineDraft = read(inZoneId)
+	fun shown(inZoneId: String, on: java.time.LocalDate = today()): RoutineDraft = read(inZoneId, on)
 
 	/** The same rule as the gateway keeps it, which is what a save sends. */
-	fun asKept(gatewayZone: String): RoutineDraft = read(gatewayZone)
+	fun asKept(gatewayZone: String, on: java.time.LocalDate = today()): RoutineDraft = read(gatewayZone, on)
 
-	private fun read(target: String): RoutineDraft {
+	private fun read(target: String, on: java.time.LocalDate): RoutineDraft {
 		if (target == zone) return this
-		val moved = inZone(weekdays, time, zone, target)
+		val moved = inZone(weekdays, time, zone, target, on)
 		return copy(
 			weekdays = moved.weekdays,
 			time = moved.time,
@@ -124,9 +124,9 @@ internal data class RoutineDraft(
  * Both sides are read as the gateway keeps them. Comparing the owner's clock face against the
  * gateway's would call every save abroad a move, including one that changed nothing.
  */
-internal fun ruleMoved(held: Routine?, draft: RoutineDraft): Boolean {
+internal fun ruleMoved(held: Routine?, draft: RoutineDraft, on: java.time.LocalDate = today()): Boolean {
 	if (held == null) return false
-	val sending = draft.asKept(held.zone)
+	val sending = draft.asKept(held.zone, on)
 	return held.time != sending.time ||
 		held.zone != sending.zone ||
 		held.startDate != sending.startDate ||
@@ -137,6 +137,9 @@ internal fun ruleMoved(held: Routine?, draft: RoutineDraft): Boolean {
 /** A rule read in another zone: the clock face, and how far the whole week moved with it. */
 internal data class ZoneRead(val weekdays: Set<Int>, val time: String, val days: Int)
 
+/** The week both directions anchor on, in UTC so neither zone's own date picks a different one. */
+internal fun today(): java.time.LocalDate = java.time.LocalDate.now(java.time.ZoneOffset.UTC)
+
 /**
  * The same instant read in another zone: the weekday and the time together, because converting the
  * time alone lands a Monday evening in Tokyo on a Monday morning in Los Angeles rather than Sunday.
@@ -146,8 +149,18 @@ internal data class ZoneRead(val weekdays: Set<Int>, val time: String, val days:
  *
  * One shift for the whole rule, not one per day. A wall clock has no per-day answer, and converting
  * each day on its own lets a daylight-saving week fold two of them onto one and lose an occurrence.
+ *
+ * `on` is read in UTC so both directions anchor on one calendar week. Reading it in each zone's own
+ * today lets the two directions land in different weeks, and a rule converted out and back comes
+ * home an hour off across a daylight-saving boundary.
  */
-internal fun inZone(weekdays: Set<Int>, time: String, from: String, to: String): ZoneRead {
+internal fun inZone(
+	weekdays: Set<Int>,
+	time: String,
+	from: String,
+	to: String,
+	on: java.time.LocalDate = java.time.LocalDate.now(java.time.ZoneOffset.UTC),
+): ZoneRead {
 	val unchanged = ZoneRead(weekdays, time, 0)
 	val at = runCatching {
 		val (hour, minute) = time.split(":").map { it.toInt() }
@@ -156,10 +169,7 @@ internal fun inZone(weekdays: Set<Int>, time: String, from: String, to: String):
 	val source = runCatching { java.time.ZoneId.of(from) }.getOrNull() ?: return unchanged
 	val target = runCatching { java.time.ZoneId.of(to) }.getOrNull() ?: return unchanged
 
-	// This week's Monday, so the shift is the one in force now. A wall clock in one zone has no
-	// single reading in another across a daylight-saving change, and today's is the least surprising.
-	val today = java.time.LocalDate.now(source)
-	val anchor = today.minusDays((today.dayOfWeek.value - 1).toLong())
+	val anchor = on.minusDays((on.dayOfWeek.value - 1).toLong())
 	val there = anchor.atTime(at).atZone(source).withZoneSameInstant(target)
 	val days = java.time.temporal.ChronoUnit.DAYS.between(anchor, there.toLocalDate()).toInt()
 	val moved = weekdays.map { day -> ((day - 1 + days) % 7 + 7) % 7 + 1 }.toSet()
