@@ -80,3 +80,51 @@ named state and version, and `src/shared/routine-occurrence.ts` says which moves
 The stage is armed from the federation context's activation callback, so it cannot fire before the
 routes exist, and both the already-active boot and a later enrollment go through it. Shutdown stops
 admission and drains the attempt in flight before the listener's flush.
+
+The store publishes every write it takes through a required `onChanged`, and the stage sweeps on it.
+A runner that armed from the store and was not told the store moved would only ever fire on the tick,
+so a routine saved a moment before its slot would wait the tick out.
+
+## What the session asks back
+
+A nudge names a command from `src/shared/session-commands.ts`, which holds the tool name, the gateway
+path and both schemas in one entry. The gateway serves the path and the MCP registers the tool from
+that same entry, so prose cannot ask a session to call something nothing answers.
+
+`get_session_routine` is registered for any token-bound session and sits behind no capability: a
+session a routine reserved must be able to read what it was asked, and the owner never opts that
+session into anything. It answers the snapshot taken when the occurrence was prepared, never a fresh
+render, so a runbook edited on Tuesday cannot rewrite instructions issued on Monday.
+
+Four outcomes stay distinct: no routine on this session, unknown occurrence, wrong session, and an
+unrecognized token. Separating the middle two does tell a caller that some instant is spoken for. It
+is kept because a session told "unknown" about its own run, after its session was replaced underneath
+it, would report a routine broken that is merely somewhere else.
+
+An occurrence is named on the wire by its scheduled instant alone. `deliveryKey` is the composite
+that names a delivery row, and the two are not interchangeable: every consumer of the wire form reads
+it with `Number`.
+
+## What no gate here can reach
+
+`bun run check:boot` runs the real `main-mcp` as a subprocess, answers the gateway's handshake as a
+client does, and checks the tool registers for a bound session, answers its own session, refuses a
+token the gateway does not know, and is absent without a binding. A residue test cannot see a tool
+that is never registered.
+
+The emulator covers Compose, the clock-change receiver and the zone conversion. Drive it with `adb`
+as `AGENTS.md` describes. It cannot represent the following, which is a manual pass on a real phone
+after any change to the poll loop, the alarm, or the service:
+
+- **Doze and app standby buckets.** The emulator idles differently. Use
+  `adb shell dumpsys deviceidle force-idle` on the device and confirm a routine miss still reaches
+  the phone, then `unforce`.
+- **The sandbox arms no alarm at all.** Its network doors are shut, so the poll loop that would arm
+  one never runs. The alarm path is only observable on a provisioned build against a real Gateway.
+- **OEM battery managers.** Xiaomi, Samsung, Huawei and OnePlus each kill background work on their
+  own terms and none of it appears on a stock emulator image. Confirm the app is exempted in the
+  vendor's own battery screen, not just Android's.
+- **Notification channels after an OS upgrade.** A channel the owner silenced stays silenced across
+  reinstalls; a miss then lands with nothing shown.
+- **Boot.** `adb reboot` on the device, then confirm the routine list still reads and a miss recorded
+  while it was off is shown.

@@ -48,6 +48,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/vault/operationSet.ts` - the one shape rule, the wrapper table read from each program's help, and the set a window grant covers
 - `src/gateway/compose/composeVault.ts` - vault client, decisions, requests, routes, and console operations
 - `src/gateway/runbooks/store.ts` - gateway-held runbooks; sole writer, so a stored record has passed the rules
+- `src/gateway/routines/store.ts` - gateway-held routines; sole writer, and it publishes `onChanged` so the runner cannot be left armed for what the store no longer says
+- `src/gateway/routines/routineRoutes.ts` / `sessionRoutine.ts` - the loopback door a routine's own session reads its instructions through, and the four outcomes it answers with
   - **The gateway names every revision:** a put carries the revision the caller read and the store
     writes its own successor, answering with the record. Nothing on the phone chooses a number, so a
     number the gateway would not have chosen is unwritable. A base that does not match what is held
@@ -185,6 +187,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/` - Claude Code tools
 - `src/mcp/bridge/` / `channel/` / `references/` / `board/` / `designer/` / `connector/` - bridge, channel, reference, board, designer, and connector tools
 - `src/mcp/vault/vaultTools.ts` / `vaultRun.ts` - vault tools over the gateway's loopback routes, and the child run that injects a value and scrubs it from the output
+- `src/mcp/routines/routineTools.ts` - `get_session_routine`, registered for any token-bound session and behind no capability
 - `src/mcp/devcontainer/` - host daemon plumbing and per-session tools
 - `src/mcp/devcontainer/hostResolve.ts` - pure host/workdir/watch-target resolution and tmux command construction
 - `src/mcp/devcontainer/windowsSpawn.ts` - Windows PowerShell probing, WSL path translation, and native directory listing
@@ -281,6 +284,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/shared/copilot-agent.ts` / `copilotAgent*.ts` - Copilot delegation wire truth; excluded from Kotlin codegen
 - `src/shared/channel-file.ts` - declared ChannelFile metadata; receivers do not infer it from bytes or position
 - `src/shared/session-id.ts` - sole address grammar owner
+- `src/shared/session-commands.ts` - what a session can be told to call: one entry per command, holding the tool name, the gateway path and both schemas
+  - **A nudge names a command, never a tool:** the prose renders the catalogue's name, the gateway
+    serves its path and the MCP registers it, so words cannot ask for something nothing answers.
+    `check:boot` runs the real `main-mcp` and proves the tool is there.
 - `src/shared/host-spawn.ts` - sole host-shell spawn-segment and command owner
 - `src/shared/crypto.ts` / `admission.ts` / `router-protocol.ts` / `federation-lifecycle.ts` - federation trust wire vocabulary
 - `src/shared/notice.ts` - shared notice tiers
@@ -342,7 +349,7 @@ How each subsystem works lives in `docs/`:
 | `docs/task-board.md` | Board, attachments, awareness |
 | `docs/vault.md` | Vault client, grants, request road, loopback routes |
 | `docs/runbooks.md` | The `{{name}}` grammar, the gateway store, the fire, the tab, the editor, a refused push |
-| `docs/routines.md` | The routine record, recurrence in a recorded zone, and the console operations |
+| `docs/routines.md` | The routine record, recurrence in a recorded zone, the console operations, what a session asks back, and the manual pass no gate here can reach |
 | `docs/references.md` | `ref://` grammar and matchers |
 | `docs/testing.md` | The federation harness, the minted wire fixtures, the identity set, the gates |
 | `docs/environment.md` | Every environment variable |
