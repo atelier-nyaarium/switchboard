@@ -63,6 +63,8 @@ export interface FakeHost {
 	daemon: FakeCodexDaemon;
 	/** One daemon frame to the gateway. */
 	sendCodex(frame: CodexDaemonEvent | CodexDaemonReceipt): void;
+	/** What the daemon derives from that session's pane. Null is nobody having said. */
+	reportWorking(team: string, working: boolean | null): void;
 	close(): void;
 }
 
@@ -166,6 +168,8 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		handlers,
 		daemon,
 		sendCodex,
+		reportWorking: (team, working) =>
+			send({ type: "presence_derive", team, ...(working === null ? {} : { working }) }),
 		close: () => {
 			socket.ws.close();
 			graph.wsHandlers.close(socket.ws);

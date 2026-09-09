@@ -46,7 +46,12 @@ export type Occurrence = z.infer<typeof OccurrenceSchema>;
 
 const OccurrencesSchema = z.array(OccurrenceSchema);
 
-export function occurrenceId(routineId: string, scheduledAt: number): string {
+/**
+ * Names a delivery row, which spans every routine, so it carries the routine too. What the wire
+ * calls an occurrence id is the scheduled instant alone, and the two are not interchangeable: every
+ * consumer of the wire form reads it as a number.
+ */
+export function deliveryKey(routineId: string, scheduledAt: number): string {
 	return `${routineId}:${scheduledAt}`;
 }
 

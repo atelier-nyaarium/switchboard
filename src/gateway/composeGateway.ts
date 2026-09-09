@@ -204,6 +204,10 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		},
 		sessionOwned: (team, routine) => routineOwns(sessions.sessionStore.getByTeam(team), routine),
 		setRoutineGrants: (routineId, entryIds) => vault?.setRoutineGrants(routineId, entryIds),
+		resolveCaller: (req) => {
+			const record = sessions.sessionAuthority.resolveConfirmedManagedSession(req);
+			return record ? sessions.sessionStore.teamOf(record) : null;
+		},
 	});
 	routerFrames = composeRouterFrames({
 		localGatewayId: bootstrap.localGatewayId,

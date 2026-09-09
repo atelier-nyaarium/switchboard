@@ -18,6 +18,12 @@ export interface RoutineStoreDeps {
 	/** Whether something this routine did not make already holds its reserved session's name. */
 	sessionTaken?: (routine: Routine) => boolean;
 	now: () => number;
+	/**
+	 * Called after every write that took. Required, and published from the one place that writes, so
+	 * a reader holding something derived from this store cannot be left stale by a writer that forgot
+	 * to say so.
+	 */
+	onChanged: () => void;
 }
 
 export interface RoutinePutResult {
@@ -86,9 +92,13 @@ export function createRoutineStore(deps: RoutineStoreDeps) {
 		routines = next;
 		try {
 			store.saveChecked(routines);
+			deps.onChanged();
 			return true;
 		} catch (error) {
-			if (error instanceof DurableStoreInstalledError) return true;
+			if (error instanceof DurableStoreInstalledError) {
+				deps.onChanged();
+				return true;
+			}
 			routines = previous;
 			console.warn(`[routine] write failed: ${(error as Error).message}`);
 			return false;

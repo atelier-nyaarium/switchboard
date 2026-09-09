@@ -34,6 +34,7 @@ import type { LocalAgentBackend } from "./local/localAgentHost.js";
 import { createLocalAgentBackend } from "./local/localAgentHost.js";
 import { closeReferenceSession, setReferencesEnabled } from "./references/attachRefs.js";
 import { adoptHostRoots, expectHostRoots } from "./references/refWorkspace.js";
+import { registerRoutineTools } from "./routines/routineTools.js";
 import { resolveSessionNaming } from "./team-name.js";
 import { registerVaultTools } from "./vault/vaultTools.js";
 
@@ -140,6 +141,9 @@ export async function startMcp(): Promise<void> {
 	if (process.env.SWITCHBOARD_SESSION_TOKEN && hasCapability(capabilities, "vault")) {
 		vaultTools = registerVaultTools(mcpServer);
 	}
+	// Behind no capability: a session a routine reserved must be able to read what it was asked,
+	// and the owner never opts that session into anything.
+	if (process.env.SWITCHBOARD_SESSION_TOKEN) registerRoutineTools(mcpServer);
 	// Not a tool of its own: it rides the reply path, so it is switched on rather than registered.
 	setReferencesEnabled(hasCapability(capabilities, "references"));
 

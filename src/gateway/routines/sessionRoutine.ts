@@ -8,7 +8,7 @@ export type SessionRoutineAnswer =
 	| { kind: "no_routine" }
 	/** A routine runs here, but not that occurrence. */
 	| { kind: "unknown_occurrence" }
-	/** That occurrence belongs to a different session, which asking must not reveal more about. */
+	/** That occurrence belongs to a different session, and asking learns nothing else about it. */
 	| { kind: "wrong_session" }
 	| { kind: "unauthenticated" };
 
@@ -35,7 +35,9 @@ export function answerSessionRoutine(deps: SessionRoutineDeps, occurrenceId: str
 	const wanted = String(occurrenceId);
 	const held = mine.find((row) => String(row.scheduledAt) === wanted);
 	if (!held) {
-		// Distinguishing these tells a session only about occurrences it already owns.
+		// Separating these does say that some instant is spoken for, which a session could probe
+		// for. It is kept because a session told "unknown" about its own run, after a session was
+		// replaced underneath it, would report a routine broken that is merely somewhere else.
 		const elsewhere = rows.some((row) => String(row.scheduledAt) === wanted && row.team !== team);
 		return elsewhere ? { kind: "wrong_session" } : { kind: "unknown_occurrence" };
 	}

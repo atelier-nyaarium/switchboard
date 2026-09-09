@@ -1059,6 +1059,47 @@ Name what no gate here can reach, and cover each deliberately rather than declar
 - **The grant.** Every refusal path gets a test, because a grant that silently covers more than it
   says is the failure that looks exactly like success.
 
+### Decisions this phase made
+
+- **A session command is one catalogued thing, not a name spelled in three places.**
+  `session-commands.ts` holds the tool name, the loopback path and both schemas. The nudge renders
+  the tool name from it, the route takes its path from it, and the MCP registers under it, so prose
+  can no longer ask a session to call something nothing serves.
+- **The routine store publishes its own writes.** `onChanged` is required, so a writer cannot commit
+  without the runner being told what it must wake for. The rearm was three remembered call sites
+  before, and one of them was already missing.
+- **The wire names an occurrence by its instant.** `deliveryKey` is the composite that names a
+  delivery row; the wire's `occurrenceId` is the scheduled instant alone, because both consumers
+  read it with `Number`. The attention panel was minting the composite, so any action taken from it
+  would have parsed to NaN and done nothing.
+- **The harness scenario runs on real timers over a clock this file sets, not on manual ambient.**
+  Manual ambient compresses time so hard that any work with a real await loses every race against a
+  timer armed beside it, so a session launch answered "still launching" forever and nothing could
+  ever dispatch. Real timers with an offset clock keep the races honest, and a three-second head
+  start before the first slot is what lets the runner's own timer be the thing that fires it.
+
+### Bug Classes
+
+**Mechanism:** the routine subsystem's declarations. **Class:** something declared, and nothing
+wired to it. Fifth instance, and the largest: `answerSessionRoutine` had no caller and
+`get_session_routine` did not exist, so every nudge named a tool the session could not call. The
+feature had never worked end to end, and no gate could see it because both halves were themselves
+tested. Round one to four were named in Phase 3. This round built the route, the wire and the tool,
+and the harness scenario now asks the question a session asks.
+
+**Mechanism:** the runner's arming. **Class:** state read once, and nothing telling the reader it
+moved. The runner arms from the store and nothing rearmed it on a save, an enable or a delete, so
+the sixty-second reconcile tick was the only thing that ever fired a routine. A routine saved a
+moment before its slot waited out the tick. Patched first with three remembered calls, which is the
+same class one layer up; the store now publishes `onChanged` itself and the callers do not remember
+anything.
+
+**Mechanism:** the harness scenario's own assertions. **Class:** an assertion that passes for a
+reason other than the one it names. Three instances in one file: a save refused on a stale revision
+went unread, a dismissal was proved by a panel that had moved to an older miss, and a `forget` that
+the driver refused as the wrong op kind read as done because the refusal object was truthy. Each was
+found by naming the expected value exactly rather than asserting that something changed.
+
 # Painpoints
 
 Written after Phase 0. Not defects, and not a code audit. These are the things that made the work

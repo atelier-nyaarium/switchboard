@@ -3,7 +3,8 @@
 import { renderRunbook } from "../../shared/runbook-grammar.js";
 import { type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
 import { type Runbook, runbookRefusal } from "../../shared/schemasRunbook.js";
-import { type Occurrence, occurrenceId } from "./occurrences.js";
+import { SESSION_COMMANDS } from "../../shared/session-commands.js";
+import { deliveryKey, type Occurrence } from "./occurrences.js";
 import { type ReserveResult, routineTeam } from "./reservation.js";
 import type { PrepareResult, RoutineAttempt } from "./runner.js";
 
@@ -23,7 +24,8 @@ export interface RoutineExecutionDeps {
 export function nudgeFor(routine: Routine, occurrence: Occurrence): string {
 	return [
 		`Owner issued a routine: ${routine.name}.`,
-		`Call get_session_routine with occurrenceId "${occurrence.scheduledAt}" for the instructions.`,
+		// Named from the catalog, so the words cannot ask for a tool nothing registers.
+		`Call ${SESSION_COMMANDS.sessionRoutine.tool} with occurrenceId "${occurrence.scheduledAt}" for the instructions.`,
 		"If any blocker occurs, channel_reply.",
 	].join("\n");
 }
@@ -63,7 +65,7 @@ export function createRoutineExecution(deps: RoutineExecutionDeps): RoutineAttem
 					to: team,
 					body: nudgeFor(routine, occurrence),
 					// Names the row, and never the guarantee, which the occurrence state holds.
-					deliveryId: occurrenceId(occurrence.routineId, occurrence.scheduledAt),
+					deliveryId: deliveryKey(occurrence.routineId, occurrence.scheduledAt),
 				})
 				.catch((error: Error) => error.message);
 			// Dispatched either way, so this is the only account.

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type WebSocket from "ws";
 import { pinnedDial, realWebSocket } from "../src/gateway/router/pinnedSocket.js";
+import { SESSION_COMMANDS } from "../src/shared/session-commands.js";
 import { loadIdentitySet, seedGateway, seedRouter } from "../src/testing/identitySet.js";
 import { createPhoneDriver } from "../src/testing/phoneDriver.js";
 
@@ -50,6 +51,112 @@ function exitCode(child: Child, name: string): Promise<number> {
 			reject(new Error(`${name} did not exit within 10 seconds`));
 		}, 10_000).unref();
 	});
+}
+
+const TOOL = SESSION_COMMANDS.sessionRoutine.tool;
+
+interface McpRun {
+	tools: string[];
+	answer: { kind: string };
+}
+
+/**
+ * One `main-mcp` over stdio, asked what it registers and then asked to use it. A residue test cannot
+ * see a tool that is never registered, and a nudge naming one that is not there reads as working.
+ */
+async function mcpSession(
+	gatewayUrl: string,
+	projectName: string,
+	token: string | undefined,
+	until?: string,
+): Promise<McpRun> {
+	const { child, output } = start(`mcp:${token ? "bound" : "unbound"}`, ["src/main-mcp.ts"], {
+		...process.env,
+		PROJECT_NAME: projectName,
+		BRIDGE_ROUTER_URL: gatewayUrl,
+		AGENT_TYPE: "claude",
+		ALLOW_FIXTURE_IDENTITY: "1",
+		...(token ? { SWITCHBOARD_SESSION_TOKEN: token } : { SWITCHBOARD_SESSION_TOKEN: undefined }),
+	});
+
+	let buffer = "";
+	let nextId = 1;
+	const answers = new Map<number, Record<string, unknown>>();
+	const send = (body: Record<string, unknown>) => child.stdin?.write(`${JSON.stringify(body)}\n`);
+
+	child.stdout?.on("data", (data: Buffer) => {
+		buffer += data.toString();
+		const lines = buffer.split("\n");
+		buffer = lines.pop() ?? "";
+		for (const line of lines) {
+			if (!line.trim()) continue;
+			const frame = JSON.parse(line) as {
+				id?: number;
+				method?: string;
+				result?: Record<string, unknown>;
+				params?: { meta?: { session_id?: string; reply_schema?: string } };
+			};
+			if (typeof frame.id === "number" && frame.result) answers.set(frame.id, frame.result);
+			// A session is bound only once it answers the gateway's handshake, as a real client does.
+			const handshake = frame.params?.meta;
+			if (frame.method === "notifications/claude/channel" && handshake?.reply_schema && handshake.session_id) {
+				send({
+					jsonrpc: "2.0",
+					id: nextId++,
+					method: "tools/call",
+					params: {
+						name: "channel_reply_structured",
+						arguments: { session_id: handshake.session_id, responseData: { isMainOrLead: true } },
+					},
+				});
+			}
+		}
+	});
+
+	const call = async (method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> => {
+		const id = nextId++;
+		send({ jsonrpc: "2.0", id, method, params });
+		return waitFor(async () => answers.get(id), `${method} answer`, 20_000);
+	};
+
+	try {
+		await call("initialize", {
+			protocolVersion: "2024-11-05",
+			capabilities: {},
+			clientInfo: { name: "boot-check", version: "0" },
+		});
+		send({ jsonrpc: "2.0", method: "notifications/initialized" });
+
+		const listed = (await call("tools/list")) as { tools?: Array<{ name: string }> };
+		const tools = (listed.tools ?? []).map((tool) => tool.name);
+		if (!tools.includes(TOOL)) return { tools, answer: { kind: "not_registered" } };
+
+		const ask = async (): Promise<string> => {
+			const called = (await call("tools/call", {
+				name: TOOL,
+				arguments: { occurrenceId: "1" },
+			})) as { content?: Array<{ text?: string }> };
+			const text = called.content?.[0]?.text ?? "";
+			// The tool renders each outcome as its own sentence, which is what a session reads.
+			if (text.startsWith("No routine runs")) return "no_routine";
+			if (text.startsWith("This session is not bound")) return "unauthenticated";
+			if (text.startsWith("This session holds no run")) return "unknown_occurrence";
+			if (text.startsWith("That run belongs")) return "wrong_session";
+			return "unexpected";
+		};
+
+		// A binding is confirmed by the handshake, which lands after the socket opens, so the first
+		// ask can honestly precede it.
+		if (!until) return { tools, answer: { kind: await ask() } };
+		const kind = await waitFor(
+			async () => ((await ask()) === until ? until : undefined),
+			`a ${until} answer (mcp said: ${output.slice(-6).join(" | ")})`,
+			15_000,
+		);
+		return { tools, answer: { kind } };
+	} finally {
+		child.kill("SIGKILL");
+	}
 }
 
 interface RouterRequest {
@@ -99,6 +206,8 @@ async function main(): Promise<void> {
 	let gateway: Child | undefined;
 	let routerPort = 0;
 	let routerFp = "";
+	/** Captured from the create the console asks for, so the MCP can present what a real one would. */
+	let sessionToken: string | undefined;
 
 	const step = async (name: string, action: () => Promise<void>): Promise<void> => {
 		try {
@@ -189,7 +298,7 @@ async function main(): Promise<void> {
 				const frame = JSON.parse(raw.toString()) as {
 					type: string;
 					reqId?: string;
-					op?: { kind?: string; path?: string };
+					op?: { kind?: string; path?: string; sessionToken?: string };
 				};
 				if (frame.type === "register_ok") {
 					socket.send(JSON.stringify({ type: "catalog", projects: [], hostSpawns: [] }));
@@ -202,6 +311,18 @@ async function main(): Promise<void> {
 							reqId: frame.reqId,
 							ok: true,
 							result: { entries: ["projects"], path: frame.op.path || "/home/fixture" },
+						}),
+					);
+				}
+				if (frame.type === "host_op" && frame.op?.kind === "createSession") {
+					// The token the plugin would be launched with, which is what binds it.
+					sessionToken = frame.op.sessionToken;
+					socket.send(
+						JSON.stringify({
+							type: "host_op_reply",
+							reqId: frame.reqId,
+							ok: true,
+							result: { created: true, ready: true, alive: true },
 						}),
 					);
 				}
@@ -236,6 +357,35 @@ async function main(): Promise<void> {
 		if (JSON.stringify((answer.result as { entries?: string[] }).entries) !== JSON.stringify(["projects"])) {
 			throw new Error("console op result mismatch");
 		}
+	});
+
+	await step("session tool over MCP", async () => {
+		const driver = createPhoneDriver({
+			set,
+			handle: async (request) => {
+				const answer = await routerRequest(`https://127.0.0.1:${routerPort}/console`, routerFp, {
+					headers: Object.fromEntries(request.headers),
+					body: await request.text(),
+				});
+				return new Response(answer.text, { status: answer.status });
+			},
+		});
+		const made = await driver.value({ kind: "create_session", target: "host", sessionName: "boot-mcp" });
+		if (made.envelope.outcome !== "accepted") throw new Error(`create_session outcome: ${made.envelope.outcome}`);
+		if (!sessionToken) throw new Error("the host was never asked to create a session");
+
+		const gatewayUrl = `http://127.0.0.1:${gatewayPort}`;
+		// Bound to that session, so the tool registers and the door recognizes the caller.
+		const bound = await mcpSession(gatewayUrl, "host.boot-mcp", sessionToken, "no_routine");
+		if (!bound.tools.includes(TOOL)) throw new Error(`${TOOL} was not registered for a bound session`);
+
+		// A token the gateway does not know reaches the same door and is refused by it.
+		const wrong = await mcpSession(gatewayUrl, "host.boot-mcp", "0".repeat(64));
+		if (wrong.answer.kind !== "unauthenticated") throw new Error(`stale token answered ${wrong.answer.kind}`);
+
+		// No binding at all, so there is nothing for the tool to speak for.
+		const none = await mcpSession(gatewayUrl, "host.boot-mcp", undefined);
+		if (none.tools.includes(TOOL)) throw new Error(`${TOOL} registered for a session with no token`);
 	});
 
 	host?.close();

@@ -46,7 +46,9 @@ function world(over: Partial<RoutineAttempt> = {}, took = A_YEAR_BEFORE) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "routine-runner-"));
 	roots.push(root);
 	// The gateway stamps when it took a routine, so a test says so by moving this clock.
-	const routines = openDurable(root, "routines", (store) => createRoutineStore({ store, now: () => took }));
+	const routines = openDurable(root, "routines", (store) =>
+		createRoutineStore({ store, now: () => took, onChanged: () => undefined }),
+	);
 	const occurrences = openDurable(root, "routine-occurrences", (store) => createOccurrenceStore({ store }));
 	let now = MONDAY_0900_LA;
 	const delivered: string[] = [];
@@ -282,6 +284,7 @@ describe("the routine runner", () => {
 				setTimer: () => ({}) as ReturnType<Ambient["setTimer"]>,
 				clearTimer: () => undefined,
 			},
+			resolveCaller: () => null,
 			attempt: () => ({
 				sessionIdle: () => true,
 				prepare: async () => (prepared ? ready : moved),

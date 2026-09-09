@@ -16,7 +16,9 @@ const fresh = () => {
 	return root;
 };
 const open = (dataDir: string) =>
-	openDurable(dataDir, "routines", (store) => createRoutineStore({ store, now: () => 1_700_000_000_000 }));
+	openDurable(dataDir, "routines", (store) =>
+		createRoutineStore({ store, now: () => 1_700_000_000_000, onChanged: () => undefined }),
+	);
 
 const routine = (id: string, over: Partial<Routine> = {}): Routine => ({
 	id,
@@ -114,7 +116,12 @@ describe("routine store", () => {
 
 	it("refuses a routine whose reserved session name something else already holds", () => {
 		const guarded = openDurable(fresh(), "routines", (store) =>
-			createRoutineStore({ store, now: () => 1_700_000_000_000, sessionTaken: () => true }),
+			createRoutineStore({
+				store,
+				now: () => 1_700_000_000_000,
+				sessionTaken: () => true,
+				onChanged: () => undefined,
+			}),
 		);
 		const refused = guarded.put(routine("morning"));
 		expect(refused.stored).toBe(false);

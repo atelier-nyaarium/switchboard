@@ -155,6 +155,27 @@ export const ConsoleRoutineOccurrenceResultSchema = z
 	})
 	.meta({ id: "ConsoleRoutineOccurrenceResult" });
 
+/**
+ * What a routine's own session asks back for, and what it is answered. Session wire, not phone wire,
+ * so it carries no `.meta` id and generates no Kotlin.
+ */
+export const SessionRoutineRequestSchema = z.object({ occurrenceId: z.string().min(1) });
+
+export const SessionRoutineAnswerSchema = z.discriminatedUnion("kind", [
+	z.object({
+		kind: z.literal("instructions"),
+		routineName: z.string(),
+		scheduledAt: z.number().int(),
+		text: z.string(),
+	}),
+	z.object({ kind: z.literal("no_routine") }),
+	z.object({ kind: z.literal("unknown_occurrence") }),
+	z.object({ kind: z.literal("wrong_session") }),
+	z.object({ kind: z.literal("unauthenticated") }),
+]);
+
+export type SessionRoutineRequest = z.infer<typeof SessionRoutineRequestSchema>;
+
 export type RoutineAttention = z.infer<typeof RoutineAttentionSchema>;
 export type RoutineMiss = z.infer<typeof RoutineMissSchema>;
 export type RoutineState = z.infer<typeof RoutineStateSchema>;

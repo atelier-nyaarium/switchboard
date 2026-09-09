@@ -9,9 +9,11 @@ import {
 } from "../../shared/schemasRoutine.js";
 import type { Runbook } from "../../shared/schemasRunbook.js";
 import type { RoutineConsoleHandlers } from "../console/consoleTypes.js";
+import { fireAndForget } from "../fireAndForget.js";
 import { type Attention, createAttentionStore } from "../routines/attention.js";
-import { createOccurrenceStore, type Occurrence, occurrenceId } from "../routines/occurrences.js";
+import { createOccurrenceStore, type Occurrence } from "../routines/occurrences.js";
 import { routineTeam } from "../routines/reservation.js";
+import { createRoutineRoutes, type Handler as RoutineRouteHandler } from "../routines/routineRoutes.js";
 import { createRoutineRunner, type RoutineAttempt } from "../routines/runner.js";
 import { createRoutineStore } from "../routines/store.js";
 
@@ -30,10 +32,17 @@ export interface RoutineStageDeps {
 	sessionOwned?: (team: string, routine: Routine) => boolean;
 	/** Makes a routine's grants match the entries it links, and is the only road to one. */
 	setRoutineGrants?: (routineId: string, entryIds: string[]) => void;
+	/**
+	 * The team a session's own token resolves to, which is who may read a snapshot. Required: an
+	 * omitted one leaves the door permanently answering unauthenticated, and typechecks.
+	 */
+	resolveCaller: (req: Request) => string | null;
 }
 
 export interface RoutineStage {
 	console: RoutineConsoleHandlers;
+	/** The loopback door a routine's own session reads its instructions through. */
+	routes: Map<string, RoutineRouteHandler>;
 	/** Armed from federation activation, so it cannot fire before the routes exist. */
 	start: () => void;
 	stop: () => Promise<void>;
@@ -70,7 +79,8 @@ function attentionFor(rows: Attention[]): RoutineAttention | undefined {
 	if (newest < 0) return undefined;
 	const wanted = rows.filter((row) => row.scheduledAt === newest);
 	return {
-		occurrenceId: occurrenceId(wanted[0]!.routineId, newest),
+		// The instant, as the miss panel names it. Run now and Dismiss read this as a number.
+		occurrenceId: String(newest),
 		scheduledAt: newest,
 		entryIds: [...new Set(wanted.map((row) => row.entryId))].sort(),
 	};
@@ -99,6 +109,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 			knowsSpawn: deps.knowsSpawn,
 			sessionTaken: (routine) => ownsIts(routineTeam(routine), routine) === false,
 			now: () => deps.ambient.now(),
+			onChanged: () => storeMoved(),
 		}),
 	);
 	const occurrences = openDurable(deps.dataDir, "routine-occurrences", (durable) =>
@@ -151,14 +162,33 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		deps.setRoutineGrants?.(routineId, authorized);
 	};
 
+	/**
+	 * The runner wakes for what the store said when it last armed. Every write moves that, so the
+	 * store publishes here: without it the reconcile tick is the only thing that ever fires a
+	 * routine, and one saved a moment before its slot waits out the tick instead of running.
+	 */
+	function storeMoved(): void {
+		fireAndForget("routine rearm", runner.reconcile());
+	}
+
 	/** Every routine pinned to that runbook, since one whose pin moved stops running. */
 	const runbookMoved = (runbookId: string): void => {
+		let touched = false;
 		for (const routine of store.list()) {
-			if (routine.runbookId === runbookId) settleGrants(routine.id);
+			if (routine.runbookId !== runbookId) continue;
+			settleGrants(routine.id);
+			touched = true;
 		}
+		// A run waiting on words that just came back to its pin can be prepared now.
+		if (touched) storeMoved();
 	};
 
 	return {
+		routes: createRoutineRoutes({
+			resolveCaller: deps.resolveCaller,
+			occurrences: () => occurrences.all(),
+			routineName: (routineId) => store.get(routineId)?.name ?? null,
+		}),
 		console: {
 			list: () => ({ routines: state(), zone: gatewayZone() }),
 			put: (routine, base) => {
@@ -177,11 +207,13 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 				return { nextAt: runner.nextAt(routine, deps.ambient.now()) };
 			},
 			remove: (routineId) => {
-				// The routine goes first, so a half-done delete leaves rows nothing will walk.
+				// The routine goes first, so a half-done delete leaves rows nothing will walk. A
+				// refused delete leaves a live routine, and its history is not this call's to take.
 				const removed = store.remove(routineId);
+				if (!removed.deleted) return removed;
 				occurrences.clear(routineId);
 				attention.clear(routineId);
-				if (removed.deleted) settleGrants(routineId);
+				settleGrants(routineId);
 				return removed;
 			},
 			enable: (routineId, enabled) => {

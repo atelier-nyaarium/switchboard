@@ -34,7 +34,8 @@ export interface ListenerStageDeps {
 	websockets: Pick<WebSocketsStage, "wsHandlers">;
 	routes: Pick<RoutesStage, "current" | "stop">;
 	routerPresence: Pick<RouterPresenceStage, "stop">;
-	routines?: Pick<RoutineStage, "stop">;
+	/** Required: an omitted stage leaves a routine's own session with no door, and typechecks. */
+	routines: Pick<RoutineStage, "stop" | "routes">;
 	vault: Pick<VaultStage, "routes">;
 }
 
@@ -52,7 +53,7 @@ export function composeListener(deps: ListenerStageDeps): ListenerStage {
 		admitPayload: () => context.arming()?.admitPayload,
 		blobStore: stores.blobStore,
 		sessionAuthority: sessions.sessionAuthority,
-		loopbackRoutes: new Map([...deps.agents.agentRoutes, ...deps.vault.routes]),
+		loopbackRoutes: new Map([...deps.agents.agentRoutes, ...deps.vault.routes, ...(deps.routines?.routes ?? [])]),
 		routes: routes.current,
 	});
 

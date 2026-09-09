@@ -49,6 +49,7 @@ function stage(over: Partial<Runbook> = {}) {
 			clearTimer: () => undefined,
 		},
 		getRunbook: () => runbook,
+		resolveCaller: () => null,
 		sessionOwned: () => ownsSession,
 		setRoutineGrants: (_routineId, entryIds) => {
 			authorized.push(entryIds);
@@ -177,7 +178,8 @@ describe("a secret a routine wanted and never got", () => {
 		s.routines.secretUnanswered(TEAM, "deploy");
 
 		expect(s.wanted("triage")).toEqual({
-			occurrenceId: `triage:${MONDAY_0900_LA}`,
+			// The instant, as every panel names it: Run now and Dismiss read this as a number.
+			occurrenceId: String(MONDAY_0900_LA),
 			scheduledAt: MONDAY_0900_LA,
 			entryIds: ["deploy", "npm"],
 		});
