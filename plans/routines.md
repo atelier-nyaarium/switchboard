@@ -1206,7 +1206,7 @@ decisions once Sol argued them, and both are now fixed: the background poll neve
 so no alarm was ever armed while backgrounded, and the idle sweep took a routine's reserved session,
 leaving a shell alive holding a token the gateway no longer knew.
 
-What is left is genuinely the owner's call.
+What is left is genuinely the owner's call, and is being settled in `plans/routines-open.md`.
 
 - **Naming the gateway on the Routines and Runbooks tabs.** Both are scoped to the home gateway and
   neither says so. The conflation this plan actually guarded against, one list across gateways or a
