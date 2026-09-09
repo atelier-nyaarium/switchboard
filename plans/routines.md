@@ -1089,13 +1089,13 @@ addressing.
   in Phase 0 has never been rendered by anything, on device or in a test, because reaching it needs
   a Gateway that refuses.
 
-  Settled in Phase 3, built in Phase 5. The sandbox learns to answer, and the seam already exists:
-  `RunbookGateway` is a port, and `RunbookOpsTest` already fakes it. A sandbox that supplies a
-  canned implementation rather than none reaches every refusal screen without opening a socket, so
-  the residue test that refuses a new network door stays true.
+  Settled in Phase 3, built in Phase 5. `SandboxGateways.kt` answers as a Gateway would: a runbook
+  that always refuses a save so the Overwrite offer renders, and routines carrying a miss, a review
+  and an unanswered secret so no panel in the tab is unreachable. They are ports, not sockets, so
+  the residue test that reads every network door stays true.
 
-  It waits for Phase 5 rather than landing here because the Routines tab has the same class of
-  screen, and one set of canned answers should serve both rather than two sets built a phase apart.
+  The emulator variant builds with them. Rendering them has not been done: no device was attached
+  when they were written, so the screens are reachable rather than seen.
 
 - **`kotlin-gate.sh` did not say what it checked.** Fixed in Phase 1: it prints what it verified
   when it passes. Gradle reports `UP-TO-DATE` for a task it skipped and for one whose inputs really
