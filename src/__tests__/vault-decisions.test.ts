@@ -84,7 +84,7 @@ describe("vault decisions", () => {
 		expect(decisions.covers(scope('printf %s "$V"; sudo curl x'), 2_000)).toBeUndefined();
 	});
 
-	const withRoutine = (dataDir: string, holding: () => string | null) =>
+	const withRoutine = (dataDir: string, holding: (sessionTarget: string) => string | null) =>
 		openDurable(dataDir, "vault-decisions", (store) =>
 			createVaultDecisions({ store, ambient, routineHolding: holding }),
 		);
@@ -102,6 +102,32 @@ describe("vault decisions", () => {
 		// Another routine's work in that session is not this routine's authority.
 		working = "nightly";
 		expect(decisions.covers(scope("curl anywhere", "host.routine-triage"), 1_000)).toBeUndefined();
+	});
+
+	// A grant that silently covers more than it says is the failure that looks exactly like success,
+	// so each way of refusing gets said out loud rather than left to the one happy path.
+	it("refuses a grant asked for from anywhere but where it was given", () => {
+		const dataDir = fresh();
+		const decisions = withRoutine(dataDir, (target) => (target === "host.routine-triage" ? "triage" : null));
+		decisions.grant("session", scope("ssh deploy@prod", "host.alice"), 1_000);
+		decisions.setRoutineGrants("triage", ["deploy"]);
+
+		// A session grant belongs to one session, however alike another one looks.
+		expect(decisions.covers(scope("ssh deploy@prod", "host.bob"), 1_000)).toBeUndefined();
+		// A routine's authority follows the session it reserved, not the routine's name elsewhere.
+		expect(decisions.covers(scope("ssh deploy@prod", "host.alice"), 1_000)?.tier).toBe("session");
+		expect(decisions.covers(scope("x", "host.bob", "deploy"), 1_000)).toBeUndefined();
+		// Its own session still reaches it, so the refusals above are not simply everything failing.
+		expect(decisions.covers(scope("x", "host.routine-triage", "deploy"), 1_000)?.tier).toBe("standing");
+		// Another entry is another decision, whoever is asking.
+		expect(decisions.covers(scope("x", "host.routine-triage", "npm"), 1_000)).toBeUndefined();
+	});
+
+	it("refuses a grant that names no holder at all", () => {
+		const dataDir = fresh();
+		// Neither field, which is what a row nothing recognizes looks like.
+		recorded(dataDir, [{ grantId: "orphan", tier: "session", entryId: "deploy", expiresAt: 9_000 }]);
+		expect(open(dataDir).covers(scope("ssh deploy@prod"), 1_000)).toBeUndefined();
 	});
 
 	it("a routine's grants are rewritten from its links, and go with the routine", () => {

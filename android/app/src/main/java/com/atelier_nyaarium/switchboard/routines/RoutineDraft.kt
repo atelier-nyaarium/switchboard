@@ -79,17 +79,20 @@ internal data class RoutineDraft(
 	}
 
 	/** The same rule read in another zone, for showing the owner their own time. */
-	fun shown(inZoneId: String): RoutineDraft {
-		if (inZoneId == zone) return this
-		val (days, at) = inZone(weekdays, time, zone, inZoneId)
-		return copy(weekdays = days, time = at, zone = inZoneId)
-	}
+	fun shown(inZoneId: String): RoutineDraft = read(inZoneId)
 
 	/** The same rule as the gateway keeps it, which is what a save sends. */
-	fun asKept(gatewayZone: String): RoutineDraft {
-		if (gatewayZone == zone) return this
-		val (days, at) = inZone(weekdays, time, zone, gatewayZone)
-		return copy(weekdays = days, time = at, zone = gatewayZone)
+	fun asKept(gatewayZone: String): RoutineDraft = read(gatewayZone)
+
+	private fun read(target: String): RoutineDraft {
+		if (target == zone) return this
+		val moved = inZone(weekdays, time, zone, target)
+		return copy(
+			weekdays = moved.weekdays,
+			time = moved.time,
+			startDate = shiftDate(startDate, moved.days),
+			zone = target,
+		)
 	}
 
 	companion object {
@@ -117,14 +120,22 @@ internal data class RoutineDraft(
 /**
  * Whether saving this draft moves the wall-clock rule, which is the one change the owner has to be
  * asked about: occurrences already made keep the instants they were made with.
+ *
+ * Both sides are read as the gateway keeps them. Comparing the owner's clock face against the
+ * gateway's would call every save abroad a move, including one that changed nothing.
  */
 internal fun ruleMoved(held: Routine?, draft: RoutineDraft): Boolean {
 	if (held == null) return false
-	return held.time != draft.time ||
-		held.zone != draft.zone ||
-		held.weekInterval.toInt() != draft.weekInterval ||
-		held.weekdays.map { it.toInt() }.toSet() != draft.weekdays
+	val sending = draft.asKept(held.zone)
+	return held.time != sending.time ||
+		held.zone != sending.zone ||
+		held.startDate != sending.startDate ||
+		held.weekInterval.toInt() != sending.weekInterval ||
+		held.weekdays.map { it.toInt() }.toSet() != sending.weekdays
 }
+
+/** A rule read in another zone: the clock face, and how far the whole week moved with it. */
+internal data class ZoneRead(val weekdays: Set<Int>, val time: String, val days: Int)
 
 /**
  * The same instant read in another zone: the weekday and the time together, because converting the
@@ -132,23 +143,31 @@ internal fun ruleMoved(held: Routine?, draft: RoutineDraft): Boolean {
  *
  * There is no zone picker. The owner edits in their own zone and the gateway's is canonical, so this
  * is the one road between them.
+ *
+ * One shift for the whole rule, not one per day. A wall clock has no per-day answer, and converting
+ * each day on its own lets a daylight-saving week fold two of them onto one and lose an occurrence.
  */
-internal fun inZone(weekdays: Set<Int>, time: String, from: String, to: String): Pair<Set<Int>, String> {
+internal fun inZone(weekdays: Set<Int>, time: String, from: String, to: String): ZoneRead {
+	val unchanged = ZoneRead(weekdays, time, 0)
 	val at = runCatching {
 		val (hour, minute) = time.split(":").map { it.toInt() }
 		java.time.LocalTime.of(hour, minute)
-	}.getOrNull() ?: return weekdays to time
-	val source = runCatching { java.time.ZoneId.of(from) }.getOrNull() ?: return weekdays to time
-	val target = runCatching { java.time.ZoneId.of(to) }.getOrNull() ?: return weekdays to time
+	}.getOrNull() ?: return unchanged
+	val source = runCatching { java.time.ZoneId.of(from) }.getOrNull() ?: return unchanged
+	val target = runCatching { java.time.ZoneId.of(to) }.getOrNull() ?: return unchanged
 
 	// This week's Monday, so the shift is the one in force now. A wall clock in one zone has no
 	// single reading in another across a daylight-saving change, and today's is the least surprising.
 	val today = java.time.LocalDate.now(source)
 	val anchor = today.minusDays((today.dayOfWeek.value - 1).toLong())
-	val moved = weekdays.mapNotNull { day ->
-		val there = anchor.plusDays((day - 1).toLong()).atTime(at).atZone(source).withZoneSameInstant(target)
-		there.dayOfWeek.value
-	}.toSet()
-	val here = anchor.atTime(at).atZone(source).withZoneSameInstant(target)
-	return (if (moved.isEmpty()) weekdays else moved) to "%02d:%02d".format(here.hour, here.minute)
+	val there = anchor.atTime(at).atZone(source).withZoneSameInstant(target)
+	val days = java.time.temporal.ChronoUnit.DAYS.between(anchor, there.toLocalDate()).toInt()
+	val moved = weekdays.map { day -> ((day - 1 + days) % 7 + 7) % 7 + 1 }.toSet()
+	return ZoneRead(moved, "%02d:%02d".format(there.hour, there.minute), days)
+}
+
+/** Carried with the rule, or a fortnightly one keeps a parity its weekday no longer matches. */
+private fun shiftDate(date: String, days: Int): String {
+	if (days == 0) return date
+	return runCatching { java.time.LocalDate.parse(date).plusDays(days.toLong()).toString() }.getOrDefault(date)
 }

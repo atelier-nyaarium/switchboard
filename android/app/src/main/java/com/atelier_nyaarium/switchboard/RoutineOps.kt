@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineNextResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineOccurrenceResult
@@ -19,7 +20,7 @@ internal interface RoutineGateway {
 	/** What a candidate would next run at. The gateway owns recurrence; the phone holds none. */
 	suspend fun next(gatewayId: String, routine: Routine): ConsoleRoutineNextResult
 
-	suspend fun delete(gatewayId: String, routineId: String)
+	suspend fun delete(gatewayId: String, routineId: String): ConsoleRoutineDeleteResult
 
 	suspend fun enable(gatewayId: String, routineId: String, enabled: Boolean): ConsoleRoutinePutResult
 
@@ -52,6 +53,9 @@ internal class RoutineOps(
 ) {
 	private var drafts = mapOf<String, Routine>()
 
+	/** Counts reads, so a slower one that started earlier does not overwrite a newer answer. */
+	private var asked = 0L
+
 	fun draftFor(key: String): Routine? = drafts[key]
 
 	fun keepDraft(key: String, draft: Routine) {
@@ -62,10 +66,16 @@ internal class RoutineOps(
 		drafts = drafts - key
 	}
 
+	/**
+	 * A read the background loop started can land after one an owner's tap started, and showing it
+	 * would put the panel they just settled back on screen. The later reader wins.
+	 */
 	suspend fun refresh(gatewayId: String = host.homeGatewayId()) {
 		val client = host.gateway ?: return
 		if (gatewayId.isBlank()) return
+		val mine = ++asked
 		val held = attempt { client.list(gatewayId) } ?: return
+		if (mine != asked) return
 		show(gatewayId, held.routines, held.zone)
 		host.onRoutinesChanged()
 	}
@@ -102,13 +112,13 @@ internal class RoutineOps(
 		return answer?.stored == true
 	}
 
-	/** False when this Gateway was not reached, so nothing says gone about a routine it still runs. */
+	/** The gateway's own answer, so nothing says gone about a routine it still runs. */
 	suspend fun delete(routineId: String, gatewayId: String = host.homeGatewayId()): Boolean {
 		val client = host.gateway ?: return false
 		if (gatewayId.isBlank()) return false
-		val took = attempt { client.delete(gatewayId, routineId) } != null
+		val answer = attempt { client.delete(gatewayId, routineId) }
 		refresh(gatewayId)
-		return took
+		return answer?.deleted == true
 	}
 
 	suspend fun runNow(routineId: String, occurrenceId: String, gatewayId: String = host.homeGatewayId()): Boolean =

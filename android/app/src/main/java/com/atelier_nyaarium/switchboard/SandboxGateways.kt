@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineListResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineNextResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineOccurrenceResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutinePutResult
@@ -144,7 +145,7 @@ internal class SandboxRoutineGateway : RoutineGateway {
 
 	override suspend fun next(gatewayId: String, routine: Routine) = ConsoleRoutineNextResult(nextAt = nextSlot())
 
-	override suspend fun delete(gatewayId: String, routineId: String) = Unit
+	override suspend fun delete(gatewayId: String, routineId: String) = ConsoleRoutineDeleteResult(deleted = true)
 
 	override suspend fun enable(gatewayId: String, routineId: String, enabled: Boolean) =
 		ConsoleRoutinePutResult(stored = true, revision = 3L)

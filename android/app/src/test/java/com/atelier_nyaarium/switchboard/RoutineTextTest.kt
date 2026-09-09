@@ -124,12 +124,33 @@ class RoutineTextTest {
 		val shown = RoutineDraft.of(la).shown("Asia/Tokyo")
 		assertEquals(setOf(2), shown.weekdays)
 		assertEquals("Asia/Tokyo", shown.zone)
+		// The start date goes with the week, or a fortnightly rule keeps the wrong parity.
+		assertEquals("2026-09-08", shown.startDate)
 
 		// Back again is what a save sends, and it is the rule the gateway already held.
 		val kept = shown.asKept("America/Los_Angeles")
 		assertEquals("09:00", kept.time)
 		assertEquals(setOf(1), kept.weekdays)
+		assertEquals("2026-09-07", kept.startDate)
 		assertEquals("America/Los_Angeles", kept.zone)
+	}
+
+	@Test
+	fun everyDayOfTheWeekSurvivesTheTrip() {
+		val la = routine(weekdays = (1L..7L).toList(), time = "23:30", zone = "America/Los_Angeles")
+		val shown = RoutineDraft.of(la).shown("Asia/Tokyo")
+		// Seven days go over and seven come back; a per-day conversion could fold two onto one.
+		assertEquals(7, shown.weekdays.size)
+		assertEquals(setOf(1, 2, 3, 4, 5, 6, 7), shown.asKept("America/Los_Angeles").weekdays)
+	}
+
+	@Test
+	fun anUntouchedRuleReadAbroadIsNotAMove() {
+		val la = routine(weekdays = listOf(1L), time = "09:00", zone = "America/Los_Angeles")
+		// What the editor holds while the owner is in Tokyo and has changed nothing.
+		val shown = RoutineDraft.of(la).shown("Asia/Tokyo")
+		assertFalse(ruleMoved(la, shown))
+		assertTrue(ruleMoved(la, shown.copy(time = "10:00")))
 	}
 
 	@Test
