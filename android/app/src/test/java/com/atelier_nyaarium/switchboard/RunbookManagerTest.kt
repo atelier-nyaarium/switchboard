@@ -9,6 +9,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class RunbookManagerTest {
+	private val GW = "sakura"
+
 	private class MemoryStore : RunbookStore {
 		var blob: String? = null
 		var refusing = false
@@ -30,64 +32,93 @@ class RunbookManagerTest {
 	@Test
 	fun theLibrarySurvivesTheAppBeingRestarted() {
 		val store = MemoryStore()
-		RunbookManager(store).merge(listOf(book("deploy"), book("release")))
+		RunbookManager(store).merge(GW, listOf(book("deploy"), book("release")))
 
 		val reopened = RunbookManager(store)
-		assertEquals(listOf("deploy", "release"), reopened.all().map { it.id })
-		assertEquals("release {{level}}", reopened.find("deploy")?.body)
+		assertEquals(listOf("deploy", "release"), reopened.all(GW).map { it.id })
+		assertEquals("release {{level}}", reopened.find(GW, "deploy")?.body)
 
-		reopened.remove("deploy")
-		assertEquals(listOf("release"), RunbookManager(store).all().map { it.id })
+		reopened.remove(GW, "deploy")
+		assertEquals(listOf("release"), RunbookManager(store).all(GW).map { it.id })
 	}
 
 	@Test
 	fun aCopyArrivingFromAGatewayOnlyWinsWhenItIsNewer() {
 		val manager = RunbookManager(MemoryStore())
-		manager.merge(listOf(book("deploy", revision = 4L)))
+		manager.merge(GW, listOf(book("deploy", revision = 4L)))
 
-		manager.merge(listOf(book("deploy", revision = 2L)))
-		assertEquals(4L, manager.find("deploy")?.revision)
+		manager.merge(GW, listOf(book("deploy", revision = 2L)))
+		assertEquals(4L, manager.find(GW, "deploy")?.revision)
 
-		manager.merge(listOf(book("deploy", revision = 9L)))
-		assertEquals(9L, manager.find("deploy")?.revision)
+		manager.merge(GW, listOf(book("deploy", revision = 9L)))
+		assertEquals(9L, manager.find(GW, "deploy")?.revision)
+	}
+
+	@Test
+	fun oneGatewaysRevisionsAreNotTheOthers() {
+		val store = MemoryStore()
+		val manager = RunbookManager(store)
+		manager.merge(GW, listOf(book("deploy", revision = 9L)))
+		manager.merge("laptop", listOf(book("deploy", revision = 2L)))
+
+		// The higher revision belongs to one gateway and says nothing about the other's copy.
+		assertEquals(9L, manager.find(GW, "deploy")?.revision)
+		assertEquals(2L, manager.find("laptop", "deploy")?.revision)
+
+		manager.remove("laptop", "deploy")
+		assertEquals(listOf("deploy"), RunbookManager(store).all(GW).map { it.id })
+		assertEquals(emptyList<Runbook>(), RunbookManager(store).all("laptop"))
+	}
+
+	@Test
+	fun aLibraryWrittenBeforeTheCopiesWereSplitIsTakenByWhoeverReadsItFirst() {
+		val store = MemoryStore()
+		store.blob = """[{"id":"deploy","name":"deploy","body":"do it","parameters":[],"revision":3}]"""
+
+		val manager = RunbookManager(store)
+		assertEquals(listOf("deploy"), manager.all(GW).map { it.id })
+
+		manager.merge(GW, listOf(book("deploy", revision = 4L)))
+		// Claimed, so it is no longer anybody else's.
+		assertEquals(emptyList<Runbook>(), manager.all("laptop"))
 	}
 
 	@Test
 	fun aLibraryOnDiskThatNoLongerDecodesStartsEmptyRatherThanCrashing() {
 		val store = MemoryStore().also { it.blob = "{not json" }
-		assertEquals(emptyList<Runbook>(), RunbookManager(store).all())
+		assertEquals(emptyList<Runbook>(), RunbookManager(store).all(GW))
 	}
 
 	@Test
 	fun aLibraryThatCouldNotBeWrittenIsNotShownAsIfItHad() {
 		val store = MemoryStore()
 		val manager = RunbookManager(store)
-		manager.merge(listOf(book("deploy")))
+		manager.merge(GW, listOf(book("deploy")))
 
 		store.refusing = true
-		assertEquals(listOf("deploy"), manager.merge(listOf(book("release"))).map { it.id })
-		assertEquals(listOf("deploy"), RunbookManager(store).all().map { it.id })
+		assertEquals(listOf("deploy"), manager.merge(GW, listOf(book("release"))).map { it.id })
+		assertEquals(listOf("deploy"), RunbookManager(store).all(GW).map { it.id })
 	}
 
 	@Test
 	fun reprovisioningLeavesThePreviousOwnerNothing() {
 		val store = MemoryStore()
 		val manager = RunbookManager(store)
-		manager.merge(listOf(book("deploy")))
+		manager.merge(GW, listOf(book("deploy")))
 
 		runBlocking { manager.clearInMemory() }
-		assertEquals(emptyList<Runbook>(), manager.all())
-		assertEquals(emptyList<Runbook>(), RunbookManager(store).all())
+		assertEquals(emptyList<Runbook>(), manager.all(GW))
+		assertEquals(emptyList<Runbook>(), RunbookManager(store).all(GW))
 	}
 
 	@Test
 	fun aClearTheDiskRefusesStillTakesTheLibraryOutOfMemory() {
 		val store = MemoryStore()
 		val manager = RunbookManager(store)
-		manager.merge(listOf(book("deploy")))
+		manager.merge(GW, listOf(book("deploy")))
 
 		store.refusing = true
 		runBlocking { manager.clearInMemory() }
-		assertEquals(emptyList<Runbook>(), manager.all())
+		assertEquals(emptyList<Runbook>(), manager.all(GW))
 	}
 }

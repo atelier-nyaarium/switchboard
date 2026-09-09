@@ -102,7 +102,7 @@ class RunbookOpsTest {
 	private fun opsOver(library: List<Runbook>): Pair<RunbookOps, MutableStateFlow<ChatState>> {
 		val state = MutableStateFlow(ChatState())
 		val host = NoGateway()
-		host.library.merge(library)
+		host.library.merge(host.homeGatewayId(), library)
 		return RunbookOps(state, host) to state
 	}
 

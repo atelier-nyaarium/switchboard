@@ -51,7 +51,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit) {
-	val existing = remember(runbookId) { runbookId?.let { repo.runbooks.find(it) } }
+	val existing = remember(runbookId) { runbookId?.let { repo.runbooks.find(repo.homeGatewayId, it) } }
 	val draftKey = runbookId ?: "new"
 	var draft by remember(runbookId) {
 		mutableStateOf(

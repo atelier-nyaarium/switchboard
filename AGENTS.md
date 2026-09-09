@@ -136,6 +136,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **On disk before it is shown:** a refused write leaves the owner the library they still have.
     `clearInMemory` is the exception, since a re-provision takes the previous owner's writing out of
     memory whether or not the disk cooperates.
+  - **One copy per gateway, because a revision describes one gateway's record:** a single library
+    carried one gateway's numbers into another, so two gateways at the same revision with different
+    content lost a branch by arrival order. Every read and write names the gateway.
 - `android/.../runbooks/RunbookDraft.kt` / `RunbookGrammar.kt` / `RunbookEditor.kt` - the editor's model, its recognition twin, and the screen
   - **The parameter list is derived, and settings are keyed by placeholder name:** a deleted
     placeholder keeps its settings while editing and `toRunbook` prunes them. `RunbookGrammar` is

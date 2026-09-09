@@ -117,7 +117,7 @@ internal class RunbookOps(
 	fun refusalFor(runbookId: String): SaveRefusal? = refusals[runbookId]
 
 	init {
-		show(host.library.all())
+		show(host.homeGatewayId(), host.library.all(host.homeGatewayId()))
 	}
 
 	suspend fun refresh(gatewayId: String = host.homeGatewayId()) {
@@ -125,7 +125,7 @@ internal class RunbookOps(
 		if (gatewayId.isBlank()) return
 		val held = attempt { client.list(gatewayId) } ?: return
 		synced.clear()
-		show(host.library.merge(held.runbooks))
+		show(gatewayId, host.library.merge(gatewayId, held.runbooks))
 	}
 
 	suspend fun save(
@@ -144,23 +144,23 @@ internal class RunbookOps(
 		// The gateway names the revision, so what it answers with is what the library takes.
 		val landed = answer?.runbook
 		if (landed != null) {
-			show(host.library.adopt(landed))
+			show(gatewayId, host.library.adopt(gatewayId, landed))
 			synced += Triple(gatewayId, landed.id, landed.revision)
 			return RunbookSaved.Stored
 		}
-		val kept = keep(runbook) ?: return RunbookSaved.Refused(libraryRefusal(runbook))
+		val kept = keep(gatewayId, runbook) ?: return RunbookSaved.Refused(libraryRefusal(gatewayId, runbook))
 		if (answer != null) synced += Triple(gatewayId, runbook.id, kept.revision)
 		return if (answer != null) RunbookSaved.Stored else RunbookSaved.Local
 	}
 
-	private fun keep(runbook: Runbook): Runbook? {
-		val library = host.library.merge(listOf(runbook))
-		show(library)
+	private fun keep(gatewayId: String, runbook: Runbook): Runbook? {
+		val library = host.library.merge(gatewayId, listOf(runbook))
+		show(gatewayId, library)
 		return library.find { it.id == runbook.id }?.takeIf { it == runbook }
 	}
 
-	private fun libraryRefusal(runbook: Runbook): SaveRefusal {
-		val landed = host.library.find(runbook.id)
+	private fun libraryRefusal(gatewayId: String, runbook: Runbook): SaveRefusal {
+		val landed = host.library.find(gatewayId, runbook.id)
 		val outranked = landed != null && landed.revision >= runbook.revision
 		val reason = if (outranked) "This phone holds a newer copy" else "This phone could not store it"
 		return SaveRefusal(reason, landed?.revision ?: 0L)
@@ -169,12 +169,14 @@ internal class RunbookOps(
 	suspend fun delete(runbookId: String, gatewayId: String = host.homeGatewayId()) {
 		synced.removeAll { it.second == runbookId }
 		refusals = refusals - runbookId
-		show(host.library.remove(runbookId))
+		show(gatewayId, host.library.remove(gatewayId, runbookId))
 		val client = host.gateway ?: return
 		if (gatewayId.isNotBlank()) attempt { client.delete(gatewayId, runbookId) }
 	}
 
-	private fun show(library: List<Runbook>) {
+	/** The tab draws the home gateway's copy; another gateway's is held and not drawn. */
+	private fun show(gatewayId: String, library: List<Runbook>) {
+		if (gatewayId != host.homeGatewayId()) return
 		state.update { it.copy(runbooks = library) }
 	}
 
@@ -209,7 +211,7 @@ internal class RunbookOps(
 	private suspend fun sync(runbookId: String, gatewayId: String): Boolean {
 		val client = host.gateway ?: return false
 		if (gatewayId.isBlank()) return false
-		val mine = host.library.find(runbookId) ?: return false
+		val mine = host.library.find(gatewayId, runbookId) ?: return false
 		if (Triple(gatewayId, runbookId, mine.revision) in synced) return true
 
 		val theirs = attempt { client.list(gatewayId) } ?: return false
@@ -219,17 +221,17 @@ internal class RunbookOps(
 			PushDecision.Ready -> true
 			is PushDecision.Adopt -> {
 				settledRevision = decision.theirs.revision
-				show(host.library.merge(listOf(decision.theirs)))
+				show(gatewayId, host.library.merge(gatewayId, listOf(decision.theirs)))
 				true
 			}
 			// Not if deleted meanwhile.
 			PushDecision.Put -> {
-				val answer = if (host.library.find(runbookId) == null) null else {
+				val answer = if (host.library.find(gatewayId, runbookId) == null) null else {
 					put(client, gatewayId, mine, held?.revision)
 				}
 				answer?.runbook?.let {
 					settledRevision = it.revision
-					show(host.library.adopt(it))
+					show(gatewayId, host.library.adopt(gatewayId, it))
 				}
 				answer?.stored == true
 			}
@@ -254,10 +256,10 @@ internal class RunbookOps(
 	suspend fun overwrite(runbookId: String, gatewayId: String = host.homeGatewayId()): Boolean {
 		val client = host.gateway ?: return false
 		if (gatewayId.isBlank()) return false
-		val mine = host.library.find(runbookId) ?: return false
+		val mine = host.library.find(gatewayId, runbookId) ?: return false
 		val answer = put(client, gatewayId, mine, overwrite = true)
 		if (answer?.stored != true) return false
-		answer.runbook?.let { show(host.library.adopt(it)) }
+		answer.runbook?.let { show(gatewayId, host.library.adopt(gatewayId, it)) }
 		synced += Triple(gatewayId, runbookId, answer.revision)
 		return true
 	}
