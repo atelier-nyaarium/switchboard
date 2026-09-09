@@ -31,9 +31,11 @@ fun NewOnGatewayFab(
 ) {
 	var picking by remember { mutableStateOf(false) }
 	if (gateways.isEmpty()) return
+	// By id, as the tab does. The keyring leads with home.
+	val offered = remember(gateways) { gateways.sorted() }
 
 	FloatingActionButton(
-		onClick = hapticClick { if (gateways.size > 1) picking = true else onNew(gateways.first()) },
+		onClick = hapticClick { if (offered.size > 1) picking = true else onNew(offered.first()) },
 		modifier = modifier,
 	) { Icon(Icons.Default.Add, contentDescription = description) }
 
@@ -43,7 +45,7 @@ fun NewOnGatewayFab(
 			title = { Text("Which Gateway") },
 			text = {
 				Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-					for (gatewayId in gateways) {
+					for (gatewayId in offered) {
 						TextButton(
 							onClick = hapticClick {
 								picking = false

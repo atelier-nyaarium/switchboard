@@ -28,6 +28,11 @@ import kotlinx.serialization.json.JsonObject
 /** Deliberately not a wire word: the residue fence reads this file for those. */
 private const val REFUSING_ID = "held-elsewhere"
 
+/** One answer repeated could not show a grouping bug, so these two differ from the first. */
+private const val SECOND_GATEWAY = "parsing"
+
+private const val EMPTY_GATEWAY = "idle-box"
+
 private fun day(offsetMs: Long): Long = System.currentTimeMillis() + offsetMs
 
 /**
@@ -45,25 +50,38 @@ private fun nextSlot(weeksOut: Long = 0L): Long {
 
 internal class SandboxRunbookGateway : RunbookGateway {
 	override suspend fun list(gatewayId: String) = ConsoleRunbookListResult(
-		runbooks = listOf(
-			Runbook(
-				id = "release",
-				name = "Cut a release",
-				body = "Cut a {{level}} release of {{repo}}.",
-				parameters = listOf(
-					RunbookParameter(name = "level", label = "Level", kind = "choice", options = listOf("patch", "minor")),
-					RunbookParameter(name = "repo", label = "Repo", kind = "text"),
+		runbooks = when (gatewayId) {
+			EMPTY_GATEWAY -> emptyList()
+			// The same id, a different record, so a mix-up is visible.
+			SECOND_GATEWAY -> listOf(
+				Runbook(
+					id = "release",
+					name = "Tag a build",
+					body = "Tag {{repo}} and push it.",
+					parameters = listOf(RunbookParameter(name = "repo", label = "Repo", kind = "text")),
+					revision = 1L,
 				),
-				revision = 3L,
-			),
-			Runbook(
-				id = REFUSING_ID,
-				name = "Held elsewhere",
-				body = "Saving this one is always refused, so the Overwrite offer can be seen.",
-				parameters = emptyList(),
-				revision = 9L,
-			),
-		),
+			)
+			else -> listOf(
+				Runbook(
+					id = "release",
+					name = "Cut a release",
+					body = "Cut a {{level}} release of {{repo}}.",
+					parameters = listOf(
+						RunbookParameter(name = "level", label = "Level", kind = "choice", options = listOf("patch", "minor")),
+						RunbookParameter(name = "repo", label = "Repo", kind = "text"),
+					),
+					revision = 3L,
+				),
+				Runbook(
+					id = REFUSING_ID,
+					name = "Held elsewhere",
+					body = "Saving this one is always refused, so the Overwrite offer can be seen.",
+					parameters = emptyList(),
+					revision = 9L,
+				),
+			)
+		},
 	)
 
 	override suspend fun put(gatewayId: String, runbook: Runbook, baseRevision: Long?, overwrite: Boolean) =
@@ -88,14 +106,14 @@ internal class SandboxRunbookGateway : RunbookGateway {
 }
 
 internal class SandboxRoutineGateway : RoutineGateway {
-	private fun routine(id: String, name: String, enabled: Boolean = true) = Routine(
+	private fun routine(id: String, name: String, enabled: Boolean = true, zone: String = "America/Los_Angeles") = Routine(
 		id = id,
 		name = name,
 		weekdays = listOf(1L, 3L),
 		weekInterval = 1L,
 		startDate = "2026-09-07",
 		time = "09:00",
-		zone = "America/Los_Angeles",
+		zone = zone,
 		runbookId = "release",
 		approvedRevision = 3L,
 		values = JsonObject(emptyMap()),
@@ -107,35 +125,48 @@ internal class SandboxRoutineGateway : RoutineGateway {
 	)
 
 	/** One of each panel, so no line in the tab is unreachable. */
-	override suspend fun list(gatewayId: String) = ConsoleRoutineListResult(
-		zone = "America/Los_Angeles",
-		routines = listOf(
-			RoutineState(
-				routine = routine("triage", "Morning triage"),
-				nextAt = nextSlot(),
-				lastRanAt = day(-86_400_000L),
-			),
-			RoutineState(
-				routine = routine("sweep", "Weekly sweep"),
-				nextAt = nextSlot(1L),
-				missed = RoutineMiss(
-					occurrenceId = "sweep:1",
-					scheduledAt = day(-2 * 86_400_000L),
-					reason = "session_busy",
-					runnable = true,
+	override suspend fun list(gatewayId: String) = when (gatewayId) {
+		EMPTY_GATEWAY -> ConsoleRoutineListResult(zone = "America/Los_Angeles", routines = emptyList())
+		// Its own zone, and the same id as another Gateway's routine.
+		SECOND_GATEWAY -> ConsoleRoutineListResult(
+			zone = "Europe/London",
+			routines = listOf(
+				RoutineState(
+					routine = routine("triage", "Parser sweep", zone = "Europe/London"),
+					nextAt = nextSlot(),
 				),
 			),
-			RoutineState(
-				routine = routine("deploy", "Nightly deploy", enabled = false),
-				reviewAt = day(-5 * 86_400_000L),
-				attention = RoutineAttention(
-					occurrenceId = "deploy:1",
-					scheduledAt = day(-5 * 86_400_000L),
-					entryIds = listOf("deploy-key"),
+		)
+		else -> ConsoleRoutineListResult(
+			zone = "America/Los_Angeles",
+			routines = listOf(
+				RoutineState(
+					routine = routine("triage", "Morning triage"),
+					nextAt = nextSlot(),
+					lastRanAt = day(-86_400_000L),
+				),
+				RoutineState(
+					routine = routine("sweep", "Weekly sweep"),
+					nextAt = nextSlot(1L),
+					missed = RoutineMiss(
+						occurrenceId = "sweep:1",
+						scheduledAt = day(-2 * 86_400_000L),
+						reason = "session_busy",
+						runnable = true,
+					),
+				),
+				RoutineState(
+					routine = routine("deploy", "Nightly deploy", enabled = false),
+					reviewAt = day(-5 * 86_400_000L),
+					attention = RoutineAttention(
+						occurrenceId = "deploy:1",
+						scheduledAt = day(-5 * 86_400_000L),
+						entryIds = listOf("deploy-key"),
+					),
 				),
 			),
-		),
-	)
+		)
+	}
 
 	override suspend fun put(gatewayId: String, routine: Routine, baseRevision: Long?) =
 		if (routine.id == REFUSING_ID) {

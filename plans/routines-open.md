@@ -221,6 +221,21 @@ The harness cannot help: `addDomain` mints a whole Domain and there is no way to
 to one. Building that is not this plan's work. So the end-to-end, two gateways drawn in one tab, is
 verified by hand on the emulator, which the sandbox can seed.
 
+### The hand check, and what the sandbox could not show before it
+
+The sandbox already admitted three gateways and answered all three IDENTICALLY, so it could not have
+shown a grouping bug at all. It now answers per gateway: one holds the full set, one holds the same
+ids as different records in another zone, and one answers empty.
+
+What the emulator then showed, on both tabs: three groups sorted by id with the home one LAST, the
+same id drawn as two records under two headers, each schedule line carrying its own gateway's zone,
+a gateway that answered and holds nothing drawn as a bare header, the fire sheet opening the row's
+gateway's copy with no Gateway to pick, and the new-record button asking which gateway.
+
+It also showed one thing no gate had: the picker listed gateways in keyring order, which leads with
+the home one, while the tab sorted by id. Two orders for one set of gateways on one screen, and the
+privileged position this plan set out to remove. The picker sorts by id now.
+
 ### What it actually took, where that differs from the plan above
 
 - **The fire sheet lost its Gateway picker rather than gaining a scoped one.** `runbook_fire` takes
