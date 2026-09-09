@@ -105,6 +105,8 @@ export const RoutineStateSchema = z
 		/** Absent when disabled, or when the rule names nothing further. */
 		nextAt: z.number().int().nonnegative().optional(),
 		lastRanAt: z.number().int().nonnegative().optional(),
+		/** When that run's session read its instructions. Absent means it never did. */
+		lastReadAt: z.number().int().nonnegative().optional(),
 		missed: RoutineMissSchema.optional(),
 		/** When it last refused a moved revision. Saving the routine again is what clears it. */
 		reviewAt: z.number().int().nonnegative().optional(),
@@ -164,6 +166,7 @@ export const SessionRoutineRequestSchema = z.object({ occurrenceId: z.string().m
 export const SessionRoutineAnswerSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("instructions"),
+		routineId: z.string(),
 		routineName: z.string(),
 		scheduledAt: z.number().int(),
 		text: z.string(),

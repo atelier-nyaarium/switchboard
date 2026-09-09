@@ -13,6 +13,8 @@ export interface RoutineRoutesDeps {
 	resolveCaller: (req: Request) => string | null;
 	occurrences: () => Occurrence[];
 	routineName: (routineId: string) => string | null;
+	/** Records that the session read its instructions, which is the other half of liveness. */
+	noteRead: (routineId: string, scheduledAt: number) => void;
 }
 
 const json = (body: unknown, status: number): Response =>
@@ -31,6 +33,7 @@ export function createRoutineRoutes(deps: RoutineRoutesDeps): Map<string, Handle
 			},
 			parsed.data.occurrenceId,
 		);
+		if (answer.kind === "instructions") deps.noteRead(answer.routineId, answer.scheduledAt);
 		return json(answer, 200);
 	};
 

@@ -3,7 +3,7 @@
 import type { Occurrence } from "./occurrences.js";
 
 export type SessionRoutineAnswer =
-	| { kind: "instructions"; routineName: string; scheduledAt: number; text: string }
+	| { kind: "instructions"; routineId: string; routineName: string; scheduledAt: number; text: string }
 	/** The caller is a session, and no routine runs on it. */
 	| { kind: "no_routine" }
 	/** A routine runs here, but not that occurrence. */
@@ -44,6 +44,7 @@ export function answerSessionRoutine(deps: SessionRoutineDeps, occurrenceId: str
 
 	return {
 		kind: "instructions",
+		routineId: held.routineId,
 		routineName: deps.routineName(held.routineId) ?? held.routineId,
 		scheduledAt: held.scheduledAt,
 		text: held.snapshot as string,

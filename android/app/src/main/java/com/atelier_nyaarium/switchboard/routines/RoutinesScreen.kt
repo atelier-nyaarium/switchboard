@@ -120,6 +120,9 @@ private fun RoutineRow(
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
+			lastRunLine(row, zone)?.let {
+				Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+			}
 			row.reviewAt?.let { Panel(reviewLine(it, zone)) }
 			row.attention?.let { wanted ->
 				// Linking is the owner's other answer, and the editor is where it is given.

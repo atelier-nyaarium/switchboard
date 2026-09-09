@@ -140,6 +140,8 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 				routine,
 				...(nextAt === null ? {} : { nextAt }),
 				...(ran ? { lastRanAt: ran.scheduledAt } : {}),
+				// Whether the newest run was picked up at all, which liveness alone cannot say.
+				...(ran?.readAt === undefined ? {} : { lastReadAt: ran.readAt }),
 				...(missed ? { missed } : {}),
 				...(review ? { reviewAt: review.scheduledAt } : {}),
 				...(wanted ? { attention: wanted } : {}),
@@ -188,6 +190,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 			resolveCaller: deps.resolveCaller,
 			occurrences: () => occurrences.all(),
 			routineName: (routineId) => store.get(routineId)?.name ?? null,
+			noteRead: (routineId, scheduledAt) => occurrences.noteRead(routineId, scheduledAt, deps.ambient.now()),
 		}),
 		console: {
 			list: () => ({ routines: state(), zone: gatewayZone() }),

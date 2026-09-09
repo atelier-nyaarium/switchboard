@@ -140,6 +140,10 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 
 		const other = await reserved?.post("/routine/session", { occurrenceId: "1" });
 		expect(await other?.json()).toEqual({ kind: "unknown_occurrence" });
+
+		// Reading is what the owner is shown, since a session that woke and did something else is not
+		// the same as one that never picked the routine up.
+		expect((await shown())?.lastReadAt).toBeGreaterThanOrEqual(FIRST);
 	});
 
 	it("waits while its session is busy rather than firing into it", async () => {

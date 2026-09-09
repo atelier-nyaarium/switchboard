@@ -144,6 +144,6 @@ describe("what the phone does not hold", () => {
 
 		// Converting at all means being handed the zone, so the signature is the whole rule.
 		const converting = [...text.matchAll(/internal fun (\w+)\([^)]*java\.time\.ZoneId/g)].map((m) => m[1]);
-		expect(converting.sort()).toEqual(["attentionLine", "missLine", "nextRunLine", "reviewLine"]);
+		expect(converting.sort()).toEqual(["attentionLine", "lastRunLine", "missLine", "nextRunLine", "reviewLine"]);
 	});
 });

@@ -27,6 +27,7 @@ describe("what a routine's session may ask back", () => {
 	it("answers the snapshot taken when the occurrence was prepared", () => {
 		expect(ask({})).toEqual({
 			kind: "instructions",
+			routineId: "triage",
 			routineName: "Morning triage",
 			scheduledAt: 1_700_000_000_000,
 			text: "read the overnight failures",

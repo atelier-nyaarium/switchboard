@@ -105,6 +105,10 @@ An occurrence is named on the wire by its scheduled instant alone. `deliveryKey`
 that names a delivery row, and the two are not interchangeable: every consumer of the wire form reads
 it with `Number`.
 
+Answering records `readAt` on the occurrence, and the list carries it as `lastReadAt`. That is the
+other half of liveness: a session that woke and did something else is not one that picked the routine
+up, and nothing else can tell them apart. It still says nothing about whether the work was any good.
+
 ## What no gate here can reach
 
 `bun run check:boot` runs the real `main-mcp` as a subprocess, answers the gateway's handshake as a

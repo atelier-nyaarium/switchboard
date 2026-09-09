@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.absoluteTimeText
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineAttention
 import com.atelier_nyaarium.switchboard.proto.RoutineMiss
+import com.atelier_nyaarium.switchboard.proto.RoutineState
 
 private val WEEKDAYS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
@@ -32,6 +33,16 @@ internal fun nextRunLine(routine: Routine, nextAt: Long?, zone: java.time.ZoneId
 	!routine.enabled -> "Disabled"
 	nextAt == null -> "Nothing further scheduled"
 	else -> "Next ${absoluteTimeText(nextAt, zone)}"
+}
+
+/**
+ * What became of the last run. Never whether the work was any good, which this Gateway cannot know:
+ * only whether the session it was handed to ever read what it was asked.
+ */
+internal fun lastRunLine(row: RoutineState, zone: java.time.ZoneId): String? {
+	val ran = row.lastRanAt ?: return null
+	val at = absoluteTimeText(ran, zone)
+	return if (row.lastReadAt == null) "Ran $at. Its session never read it." else "Ran $at, and it was read."
 }
 
 /** What a miss says. The reason is the gateway's word for it; the phone does not classify. */

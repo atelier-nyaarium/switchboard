@@ -3,9 +3,11 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineAttention
 import com.atelier_nyaarium.switchboard.proto.RoutineMiss
+import com.atelier_nyaarium.switchboard.proto.RoutineState
 import com.atelier_nyaarium.switchboard.proto.RoutineTarget
 import com.atelier_nyaarium.switchboard.routines.RoutineDraft
 import com.atelier_nyaarium.switchboard.routines.attentionLine
+import com.atelier_nyaarium.switchboard.routines.lastRunLine
 import com.atelier_nyaarium.switchboard.routines.missLine
 import com.atelier_nyaarium.switchboard.routines.nextRunLine
 import com.atelier_nyaarium.switchboard.routines.ruleMoved
@@ -65,6 +67,17 @@ class RoutineTextTest {
 		assertTrue(nextRunLine(routine(), at, utc).startsWith("Next "))
 		assertEquals("Disabled", nextRunLine(routine(enabled = false), at, utc))
 		assertEquals("Nothing further scheduled", nextRunLine(routine(), null, utc))
+	}
+
+	@Test
+	fun aRunSaysWhetherItWasPickedUpAndNeverWhetherItWentWell() {
+		val at = java.time.Instant.parse("2026-09-14T09:00:00Z").toEpochMilli()
+		val state = { read: Long? ->
+			RoutineState(routine = routine(), lastRanAt = at, lastReadAt = read)
+		}
+		assertNull(lastRunLine(RoutineState(routine = routine()), utc))
+		assertTrue(lastRunLine(state(null), utc)!!.endsWith("Its session never read it."))
+		assertTrue(lastRunLine(state(at + 1_000), utc)!!.endsWith("and it was read."))
 	}
 
 	@Test

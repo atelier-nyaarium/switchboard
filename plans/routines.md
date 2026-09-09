@@ -1098,6 +1098,17 @@ moment before its slot waited out the tick. Patched first with three remembered 
 same class one layer up; the store now publishes `onChanged` itself and the callers do not remember
 anything.
 
+**Mechanism:** a ruling with two halves and only one built. **Class:** the same declared-and-unwired
+class, reached from the other side. Question 14 says the gateway records whether the session did
+anything after the nudge AND whether the agent ever read its instructions. Only liveness existed,
+because the tool that would have been read did not. `readAt` now lands on the occurrence when the
+answer is given, and the list carries it as `lastReadAt`.
+
+**Mechanism:** the CI workflow. **Class:** a gate nothing runs. `check:boot` has been called the
+shipping-composition gate in `AGENTS.md` for months and was never a workflow step, so the fence built
+this phase to catch an unregistered tool was itself unreachable. `check:fixtures` was outside it too.
+Both are steps now.
+
 **Mechanism:** the harness scenario's own assertions. **Class:** an assertion that passes for a
 reason other than the one it names. Three instances in one file: a save refused on a stale revision
 went unread, a dismissal was proved by a panel that had moved to an older miss, and a `forget` that

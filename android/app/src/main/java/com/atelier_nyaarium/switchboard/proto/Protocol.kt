@@ -1725,6 +1725,7 @@ data class RoutineState(
 	val routine: Routine,
 	val nextAt: Long? = null,
 	val lastRanAt: Long? = null,
+	val lastReadAt: Long? = null,
 	val missed: RoutineMiss? = null,
 	val reviewAt: Long? = null,
 	val attention: RoutineAttention? = null,

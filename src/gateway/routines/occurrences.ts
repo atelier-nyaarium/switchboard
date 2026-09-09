@@ -40,6 +40,11 @@ export const OccurrenceSchema = z.object({
 	 * that had already closed.
 	 */
 	workUntil: z.number().int().nonnegative().optional(),
+	/**
+	 * When the session read its instructions back. A run whose session woke and did something else is
+	 * not the same as one that never picked the routine up, and liveness alone cannot tell them apart.
+	 */
+	readAt: z.number().int().nonnegative().optional(),
 });
 
 export type Occurrence = z.infer<typeof OccurrenceSchema>;
@@ -127,6 +132,13 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		return commit(rows.map((row) => (row === held ? moved : row)));
 	};
 
+	/** The first read is the one recorded; asking again says nothing new. */
+	const noteRead = (routineId: string, scheduledAt: number, at: number): boolean => {
+		const held = rows.find((row) => row.routineId === routineId && row.scheduledAt === scheduledAt);
+		if (!held || held.readAt !== undefined) return false;
+		return commit(rows.map((row) => (row === held ? { ...row, readAt: at } : row)));
+	};
+
 	/**
 	 * A re-save supersedes an occurrence waiting on review, and nothing else. A miss the owner has
 	 * not dealt with is still theirs to answer, and what already ran still happened.
@@ -165,7 +177,7 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		return dropped;
 	};
 
-	return { all, at, forRoutine, open, transition, noteWork, clearReview, clear, sweep };
+	return { all, at, forRoutine, open, transition, noteWork, noteRead, clearReview, clear, sweep };
 }
 
 export type OccurrenceStore = ReturnType<typeof createOccurrenceStore>;
