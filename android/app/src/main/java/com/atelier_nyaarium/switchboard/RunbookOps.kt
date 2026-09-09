@@ -58,30 +58,35 @@ internal fun pushDecision(mine: Runbook, held: Runbook?): PushDecision = when {
 	else -> PushDecision.Put
 }
 
-internal data class RunbookConflict(val reason: String, val heldRevision: Long)
+/** A save that was turned down, and the revision whoever turned it down holds. */
+internal data class SaveRefusal(val reason: String, val heldRevision: Long)
 
-internal fun conflictOfRefusal(answer: ConsoleRunbookPutResult): RunbookConflict =
-	RunbookConflict(answer.reason ?: "This Gateway holds a different copy", answer.revision)
+internal fun gatewayRefusal(answer: ConsoleRunbookPutResult): SaveRefusal =
+	SaveRefusal(answer.reason ?: "This Gateway holds a different copy", answer.revision)
 
-internal fun conflictsAfterPut(
-	held: Map<String, RunbookConflict>,
+internal fun refusalsAfterPut(
+	held: Map<String, SaveRefusal>,
 	runbookId: String,
 	answer: ConsoleRunbookPutResult?,
-): Map<String, RunbookConflict> = when {
+): Map<String, SaveRefusal> = when {
 	answer == null -> held
 	answer.stored -> held - runbookId
-	else -> held + (runbookId to conflictOfRefusal(answer))
+	else -> held + (runbookId to gatewayRefusal(answer))
 }
 
-/** Equal still conflicts. */
-internal fun standingConflict(conflict: RunbookConflict?, draftRevision: Long): RunbookConflict? =
-	conflict?.takeIf { it.heldRevision >= draftRevision }
+/** Equal still stands. */
+internal fun standingRefusal(refusal: SaveRefusal?, draftRevision: Long): SaveRefusal? =
+	refusal?.takeIf { it.heldRevision >= draftRevision }
+
+/** One this save earned outranks one left standing from an earlier push. */
+internal fun refusalToShow(thisSave: SaveRefusal?, standing: SaveRefusal?, draftRevision: Long): SaveRefusal? =
+	thisSave ?: standingRefusal(standing, draftRevision)
 
 
 internal sealed interface RunbookSaved {
 	data object Stored : RunbookSaved
 	data object Local : RunbookSaved
-	data class Refused(val conflict: RunbookConflict) : RunbookSaved
+	data class Refused(val refusal: SaveRefusal) : RunbookSaved
 }
 
 internal class RunbookOps(
@@ -107,9 +112,9 @@ internal class RunbookOps(
 		drafts.remove(key)
 	}
 
-	private var conflicts = emptyMap<String, RunbookConflict>()
+	private var refusals = emptyMap<String, SaveRefusal>()
 
-	fun conflictOf(runbookId: String): RunbookConflict? = conflicts[runbookId]
+	fun refusalFor(runbookId: String): SaveRefusal? = refusals[runbookId]
 
 	init {
 		show(host.library.all())
@@ -134,7 +139,7 @@ internal class RunbookOps(
 		val reachable = client != null && gatewayId.isNotBlank()
 
 		val answer = if (reachable) put(client as RunbookGateway, gatewayId, runbook, baseRevision, overwrite) else null
-		if (answer != null && !answer.stored) return RunbookSaved.Refused(conflictOfRefusal(answer))
+		if (answer != null && !answer.stored) return RunbookSaved.Refused(gatewayRefusal(answer))
 
 		// The gateway names the revision, so what it answers with is what the library takes.
 		val landed = answer?.runbook
@@ -143,7 +148,7 @@ internal class RunbookOps(
 			synced += Triple(gatewayId, landed.id, landed.revision)
 			return RunbookSaved.Stored
 		}
-		val kept = keep(runbook) ?: return RunbookSaved.Refused(localConflict(runbook))
+		val kept = keep(runbook) ?: return RunbookSaved.Refused(libraryRefusal(runbook))
 		if (answer != null) synced += Triple(gatewayId, runbook.id, kept.revision)
 		return if (answer != null) RunbookSaved.Stored else RunbookSaved.Local
 	}
@@ -154,16 +159,16 @@ internal class RunbookOps(
 		return library.find { it.id == runbook.id }?.takeIf { it == runbook }
 	}
 
-	private fun localConflict(runbook: Runbook): RunbookConflict {
+	private fun libraryRefusal(runbook: Runbook): SaveRefusal {
 		val landed = host.library.find(runbook.id)
 		val outranked = landed != null && landed.revision >= runbook.revision
 		val reason = if (outranked) "This phone holds a newer copy" else "This phone could not store it"
-		return RunbookConflict(reason, landed?.revision ?: 0L)
+		return SaveRefusal(reason, landed?.revision ?: 0L)
 	}
 
 	suspend fun delete(runbookId: String, gatewayId: String = host.homeGatewayId()) {
 		synced.removeAll { it.second == runbookId }
-		conflicts = conflicts - runbookId
+		refusals = refusals - runbookId
 		show(host.library.remove(runbookId))
 		val client = host.gateway ?: return
 		if (gatewayId.isNotBlank()) attempt { client.delete(gatewayId, runbookId) }
@@ -241,7 +246,7 @@ internal class RunbookOps(
 		overwrite: Boolean = false,
 	): ConsoleRunbookPutResult? {
 		val answer = attempt { client.put(gatewayId, mine, baseRevision, overwrite) }
-		conflicts = conflictsAfterPut(conflicts, mine.id, answer)
+		refusals = refusalsAfterPut(refusals, mine.id, answer)
 		return answer
 	}
 

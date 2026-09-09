@@ -195,35 +195,45 @@ class RunbookOpsTest {
 	}
 
 	@Test
-	fun aRefusedPushIsAConflictTheOwnerCanRebaseOn() {
+	fun aRefusedPushStandsUntilAPutIsTaken() {
 		val refused = ConsoleRunbookPutResult(stored = false, revision = 7L, reason = "held newer")
-		val raised = conflictsAfterPut(emptyMap(), "a", refused)
-		assertEquals(RunbookConflict("held newer", 7L), raised["a"])
+		val raised = refusalsAfterPut(emptyMap(), "a", refused)
+		assertEquals(SaveRefusal("held newer", 7L), raised["a"])
 
-		assertEquals(raised, conflictsAfterPut(raised, "a", null))
-		assertEquals(emptyMap<String, RunbookConflict>(), conflictsAfterPut(raised, "a", refused.copy(stored = true)))
+		assertEquals(raised, refusalsAfterPut(raised, "a", null))
+		assertEquals(emptyMap<String, SaveRefusal>(), refusalsAfterPut(raised, "a", refused.copy(stored = true)))
 	}
 
 	@Test
-	fun aSaveTheLibraryDidNotTakeIsAConflictRatherThanASilentLoss() {
+	fun aSaveTheLibraryDidNotTakeIsRefusedRatherThanSilentlyLost() {
 		val (ops, _) = opsOver(listOf(book("a", revision = 4L)))
 
 		val saved = kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 4L).copy(body = "stale")) }
-		assertEquals(RunbookSaved.Refused(RunbookConflict("This phone holds a newer copy", 4L)), saved)
+		assertEquals(RunbookSaved.Refused(SaveRefusal("This phone holds a newer copy", 4L)), saved)
 	}
 
 	@Test
 	fun aGatewaysRefusalIsReadFromItsOwnAnswer() {
 		val refused = ConsoleRunbookPutResult(stored = false, revision = 7L, reason = "held newer")
-		assertEquals(RunbookConflict("held newer", 7L), conflictOfRefusal(refused))
-		assertEquals(7L, conflictOfRefusal(refused.copy(reason = null)).heldRevision)
+		assertEquals(SaveRefusal("held newer", 7L), gatewayRefusal(refused))
+		assertEquals(7L, gatewayRefusal(refused.copy(reason = null)).heldRevision)
 	}
 
 	@Test
-	fun aConflictBelowTheDraftIsSpentSoTheEditorStopsOfferingIt() {
-		val conflict = RunbookConflict("held newer", 7L)
-		assertEquals(conflict, standingConflict(conflict, 7L))
-		assertEquals(null, standingConflict(conflict, 8L))
+	fun aRefusalBelowTheDraftIsSpentSoTheEditorStopsOfferingIt() {
+		val refusal = SaveRefusal("held newer", 7L)
+		assertEquals(refusal, standingRefusal(refusal, 7L))
+		assertEquals(null, standingRefusal(refusal, 8L))
+	}
+
+	@Test
+	fun theRefusalThisSaveEarnedOutranksTheOneLeftStanding() {
+		val standing = SaveRefusal("held newer", 7L)
+		val earned = SaveRefusal("this Gateway holds a different copy", 9L)
+		assertEquals(earned, refusalToShow(earned, standing, 7L))
+		assertEquals(standing, refusalToShow(null, standing, 7L))
+		// Spent, so nothing is offered rather than the older story.
+		assertEquals(null, refusalToShow(null, standing, 8L))
 	}
 
 	@Test

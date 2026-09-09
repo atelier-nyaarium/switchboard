@@ -119,9 +119,14 @@ what the library currently holds. Both halves matter: a Gateway that is behind w
 handed a revision the phone's own library outranks, so the write would land there and never come
 back, leaving the two disagreeing while the owner was told it was refused.
 
-A refusal the current save earned outranks one left standing from an earlier push, which is what
-`RunbookEditor` names its conflict cases to keep visible. `standingConflict` filters only the
-leftover.
+A turned-down save is a `SaveRefusal`: a reason and the revision whoever turned it down holds.
+`gatewayRefusal` reads one out of a Gateway answer and `libraryRefusal` builds one when the phone's
+own library declines, so the two are never confused for each other.
+
+`refusalToShow` decides which one the owner sees: the refusal the current save earned outranks one
+left standing from an earlier push, and `standingRefusal` drops the leftover once the copy in hand
+has moved past what was refused. The editor and the fire sheet both read it through that filter, so
+neither explains a block with a refusal that no longer causes one.
 
 The fire sheet carries the same action. A preview that cannot be rendered because the Gateway refused
 the sync shows the reason and an Overwrite beside it; one that failed for any other reason shows no

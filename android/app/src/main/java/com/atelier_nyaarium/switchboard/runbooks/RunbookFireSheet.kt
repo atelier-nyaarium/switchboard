@@ -42,6 +42,7 @@ import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
+import com.atelier_nyaarium.switchboard.standingRefusal
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -68,8 +69,10 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 		val answer = repo.runbookOps.preview(runbookId, values, sheet.gateway)
 		sheet.preview = when {
 			answer == null -> {
-				val conflict = repo.runbookOps.conflictOf(runbookId)
-				PreviewState.Blocked(conflict?.reason, canOverwrite = conflict != null)
+				// Filtered as the editor filters it, or a refusal the library has moved past explains
+				// a block it no longer causes.
+				val refusal = standingRefusal(repo.runbookOps.refusalFor(runbookId), runbook.revision)
+				PreviewState.Blocked(refusal?.reason, canOverwrite = refusal != null)
 			}
 			answer.text != null -> PreviewState.Ready(answer.text, answer.revision)
 			else -> PreviewState.Refused(answer.reason ?: "these values do not render")
@@ -176,7 +179,7 @@ fun RunbookFireSheet(repo: ChatRepository, state: ChatState, runbookId: String, 
 								onDismiss()
 							} else {
 								sheet.refusal = answer?.reason
-									?: repo.runbookOps.conflictOf(runbookId)?.reason
+									?: standingRefusal(repo.runbookOps.refusalFor(runbookId), runbook.revision)?.reason
 									?: "the fire did not reach this Gateway"
 							}
 						}

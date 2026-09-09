@@ -972,6 +972,10 @@ Three things this screen has to get right, all of them naming rather than mechan
 `reviewAt` is what says a routine stopped running. Phase 3 emits it; without a line for it the owner
 sees a routine that shows no run, no miss, and no reason.
 
+The sandbox gets canned Gateway answers in this phase, which is what lets any refusal screen here or
+in Runbooks be seen at all. `RunbookGateway` is already a port; the routine calls need the same
+shape, and `SandboxSeeder` supplies both rather than opening a door the residue test refuses.
+
 The runbook delete button lands here too. The gateway, the wire and `RunbookOps.delete` are all
 finished already and nothing calls them, and a routine that pins a runbook makes deleting one a
 case that needs an answer rather than a confirm dialog.
@@ -1024,9 +1028,16 @@ addressing.
 
 - **The sandbox cannot show a refusal.** `isSandbox` closes every network door, correctly, which
   also means no screen that depends on a Gateway answering can be seen. The Overwrite action shipped
-  in this phase has never been rendered by anything, on device or in a test, because reaching it
-  needs a Gateway that refuses. Either the sandbox learns to answer canned refusals, or that class
-  of screen stays unverified.
+  in Phase 0 has never been rendered by anything, on device or in a test, because reaching it needs
+  a Gateway that refuses.
+
+  Settled in Phase 3, built in Phase 5. The sandbox learns to answer, and the seam already exists:
+  `RunbookGateway` is a port, and `RunbookOpsTest` already fakes it. A sandbox that supplies a
+  canned implementation rather than none reaches every refusal screen without opening a socket, so
+  the residue test that refuses a new network door stays true.
+
+  It waits for Phase 5 rather than landing here because the Routines tab has the same class of
+  screen, and one set of canned answers should serve both rather than two sets built a phase apart.
 
 - **`kotlin-gate.sh` did not say what it checked.** Fixed in Phase 1: it prints what it verified
   when it passes. Gradle reports `UP-TO-DATE` for a task it skipped and for one whose inputs really
@@ -1049,8 +1060,11 @@ addressing.
   not answered. Reviewing an agent's patch costs about what writing it costs, and taking one on the
   strength of its report being right is how a plausible fix lands unread.
 
-- **Five things named after conflict.** `conflictOf`, `conflictsAfterPut`, `conflictOfRefusal`,
-  `localConflict` and `standingConflict` all live in `RunbookOps`, and each means something slightly
-  different. Two separate audit agents misread this area, and both misreads were about which
-  conflict outranks which. That is a naming problem rather than an agent problem: a human reading it
-  cold would make the same mistake.
+- **Five things named after conflict.** Fixed in Phase 3. `conflictOf`, `conflictsAfterPut`,
+  `conflictOfRefusal`, `localConflict` and `standingConflict` all lived in `RunbookOps`, and each
+  meant something slightly different. Two separate audit agents misread this area, and both misreads
+  were about which conflict outranks which, which is a naming problem rather than an agent problem.
+  They are now `SaveRefusal`, `refusalsAfterPut`, `gatewayRefusal`, `libraryRefusal` and
+  `standingRefusal`: one word for the thing, and a name per producer. "Refusal" is what the rest of
+  the codebase already calls a rule saying no, so the family reads with `runbookRefusal` and
+  `routineRefusal` rather than against them.

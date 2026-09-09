@@ -42,10 +42,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
-import com.atelier_nyaarium.switchboard.RunbookConflict
+import com.atelier_nyaarium.switchboard.SaveRefusal
 import com.atelier_nyaarium.switchboard.RunbookSaved
 import com.atelier_nyaarium.switchboard.hapticClick
-import com.atelier_nyaarium.switchboard.standingConflict
+import com.atelier_nyaarium.switchboard.refusalToShow
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -65,7 +65,7 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 	val declared = draft.declared
 	val scope = rememberCoroutineScope()
 	var saving by remember(runbookId) { mutableStateOf(false) }
-	var refused by remember(runbookId) { mutableStateOf<RunbookConflict?>(null) }
+	var refused by remember(runbookId) { mutableStateOf<SaveRefusal?>(null) }
 	// Kept with the draft, or a rotation would leave the intent behind and save an ordinary edit.
 	var overwriting by rememberSaveable(runbookId) { mutableStateOf(false) }
 
@@ -89,7 +89,7 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 							val base = draft.revision.takeIf { it > 0L }
 							scope.launch {
 								when (val saved = repo.runbookOps.save(candidate, baseRevision = base, overwrite = overwriting)) {
-									is RunbookSaved.Refused -> refused = saved.conflict
+									is RunbookSaved.Refused -> refused = saved.refusal
 									else -> {
 										repo.runbookOps.dropDraft(draftKey)
 										onClose()
@@ -132,18 +132,15 @@ fun RunbookEditor(repo: ChatRepository, runbookId: String?, onClose: () -> Unit)
 				)
 			}
 
-			// A refusal this save earned outranks one left standing from an earlier push.
-			val thisSave = refused
-			val earlier = standingConflict(repo.runbookOps.conflictOf(draft.id), draft.revision)
-			val shown = when {
-				overwriting -> null
-				thisSave != null -> thisSave
-				else -> earlier
+			val shown = if (overwriting) {
+				null
+			} else {
+				refusalToShow(refused, repo.runbookOps.refusalFor(draft.id), draft.revision)
 			}
-			shown?.let { conflict ->
+			shown?.let { refusal ->
 				Card(Modifier.fillMaxWidth()) {
 					Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-						Text(conflict.reason, style = MaterialTheme.typography.bodyMedium)
+						Text(refusal.reason, style = MaterialTheme.typography.bodyMedium)
 						TextButton(
 							onClick = hapticClick {
 								overwriting = true

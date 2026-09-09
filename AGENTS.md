@@ -120,10 +120,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A save is pushed before it answers:** stored takes it into the library and closes the editor,
     refused leaves the library alone and keeps the editor open, and no Gateway reached means the
     copy is local. `keep` decides the last part by whether the library actually took the candidate,
-    so a save the merge would drop is a conflict rather than a silence.
-  - **`standingConflict` withdraws a spent offer:** below the draft's revision, rebasing onto the
-    held one would mint a revision `merge` discards. It filters only the leftover conflict; a
-    refusal the current save earned outranks it, which `RunbookEditor` names rather than nests.
+    so a save the merge would drop is refused rather than silent.
+  - **One word for a turned-down save, and one producer per side:** `SaveRefusal` is the value,
+    `gatewayRefusal` reads one out of a gateway answer, `libraryRefusal` builds one when the phone's
+    own library declines, `refusalsAfterPut` folds them, and `refusalFor` reads the standing one.
+  - **`standingRefusal` withdraws a spent offer:** below the draft's revision, rebasing onto the
+    held one would mint a revision `merge` discards. It filters only the leftover refusal; one the
+    current save earned outranks it, which `RunbookEditor` names rather than nests.
   - **The phone adopts the revision, it does not mint one:** `save` sends the revision the editor was
     opened at and keeps whatever record the gateway answers with. The library holds one copy per
     runbook, so its revision is the home gateway's and another gateway drifts from it.
