@@ -337,10 +337,13 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 				if (!routines.get(routineId)) return;
 				const at = ambient.now();
 				const made = occurrences.open(routineId, at, at + GRACE_MS, true);
-				// The rule already named this exact millisecond and that row has moved on. Walking it
-				// would be the re-entry at-most-once forbids.
-				if (made?.state !== "due") return;
+				// Only a row this call opened. `open` answers whatever is already at that instant, and
+				// walking the rule's own row here would run it without the gates a scheduled run keeps.
+				if (made?.adhoc !== true || made.state !== "due") return;
 				await advance(made);
+				// A pressed run can land waiting on a busy session, and its deadline is a new instant
+				// worth waking for.
+				rearm();
 				opened = at;
 			}).then(() => opened);
 		},

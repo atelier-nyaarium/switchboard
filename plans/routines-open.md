@@ -422,6 +422,28 @@ becomes **Run missed**, since it runs that slot rather than a fresh one.
 The attention panel keeps only Link the secret, and says plainly that a run already refused cannot be
 given the secret afterwards.
 
+### What the audit changed
+
+Two of the plan's five confirmations were wrong, and the code is what settled it.
+
+- **"`open` is keyed by routine and instant, so two presses in one millisecond are one row. Correct
+  as it stands."** Correct for two presses, wrong for a press landing on a millisecond the RULE
+  already named. `open` answers the row already there, so the press would have walked the rule's own
+  row down the road that skips the enablement gates. `runFresh` now walks only a row it opened
+  itself, proved by a test that fails without the check.
+- **A pressed run that lands waiting did not rearm the timer.** `advance` never rearms; `sweepDue`
+  does it in a `finally`, and `runFresh` did not. Its deadline is a new instant worth waking for, so
+  the sixty-second tick was the only thing that would have noticed.
+
+Accepted rather than fixed, with the reasons:
+
+- **A gateway rolled back past this change strips `adhoc` from the stored rows.** The old schema does
+  not keep unknown keys, so a manual run's occurrence reads as scheduled again. That is what a
+  rollback IS: the behaviour reverts with the code. Nothing can be done from this side.
+- **An old gateway refuses `routine_run` and the row simply does not change.** The refusal is caught
+  and the tab refreshes either way, which is the owner's "no refusals or warns" applied to a case
+  they did not name. Gateway ships before the phone, as it always does.
+
 # Findings
 
 Established before asking, so the choices are real rather than hypothetical.

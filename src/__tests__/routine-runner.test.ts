@@ -400,6 +400,25 @@ describe("the routine runner", () => {
 		expect(w.runner.workingOccurrence("host.routine-triage")?.routineId).toBe("triage");
 	});
 
+	it("refuses a press that lands on a slot the rule already named", async () => {
+		const w = world();
+		w.routines.put(routine());
+		await w.runner.reconcile();
+
+		// The rule's own row for next week, still waiting to be walked, and the press lands on its
+		// exact instant.
+		const slot = MONDAY_0900_LA + 7 * 24 * 60 * 60 * 1000;
+		w.occurrences.open("triage", slot, slot + GRACE_MS);
+		w.at(slot);
+
+		expect(await w.runner.runFresh("triage")).toBe(null);
+
+		// Untouched: walking it here would run a rule-named slot through the road that skips the
+		// gates a scheduled run keeps.
+		expect(w.occurrences.at("triage", slot)?.state).toBe("due");
+		expect(w.delivered).toEqual([`triage:${MONDAY_0900_LA}`]);
+	});
+
 	it("keeps every check but enablement, so a pressed run still waits on a busy session", async () => {
 		const w = world({ sessionIdle: () => false });
 		w.routines.put(routine({ enabled: false }));

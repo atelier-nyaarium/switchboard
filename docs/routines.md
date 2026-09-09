@@ -108,9 +108,10 @@ as everything else, so it cannot race the timer or the tick.
 - **It bypasses enablement and nothing else.** Disable stops the schedule, not the routine, and
   pressing a button is not the schedule firing. Idleness, preparation, the revision fence and the
   deadline all still apply, so a pressed run on a busy session waits exactly as a scheduled one does.
-- **It is never a re-entry.** Occurrences are keyed by routine and instant, so if the rule already
-  named that exact millisecond and its row has moved on, the run does not happen. At-most-once
-  forbids walking a dispatched occurrence twice.
+- **It walks only a row it opened itself.** Occurrences are keyed by routine and instant, and `open`
+  answers whatever is already there. A press landing on a millisecond the rule already named would
+  otherwise run the rule's own row down a road that skips the gates a scheduled run keeps, so a row
+  that is not this call's own is refused. At-most-once forbids the re-entry either way.
 - **It does not disturb the schedule.** `nextAt` never reads occurrences, so the next scheduled run
   is where it was. `lastRanAt` moves, which is what it means.
 - **Nothing refuses it while a run is already working.** The owner ruled on that knowing what it
