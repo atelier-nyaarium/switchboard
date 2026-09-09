@@ -255,6 +255,34 @@ Handed to an auditor told to look wider than the diff. Four findings, all real, 
 - **An empty keyring left a button that did nothing.** `NewOnGatewayFab` renders nothing without a
   gateway; the empty state already says no Gateway could be read.
 
+### The alignment audit, and what it changed
+
+Five angles, one auditor each, against the shipped commit rather than the diff alone.
+
+What it found and what was done:
+
+- **A sixth job for `homeGatewayId`, introduced by this plan's own board fix.** An unassigned board
+  entry has no session Gateway, so its attachment blob falls back to this phone's write route. The
+  list in `docs/console.md` says six now, because a list that is one short is how the fifth got
+  borrowed in the first place.
+- **One visibility filter is left.** `TrustOps.shareableSessions` offers only sessions on this
+  Gateway, and the share it feeds sends `requesterGatewayId = homeGatewayId()`. Widening the list
+  alone would offer sessions the share then names wrongly, so it moves with the share op. Recorded
+  rather than changed, and it belongs with retiring `homeGatewayId`.
+- **Rules were sitting inside composables where no gate can reach them.** The per-gateway lookups and
+  the wake instant became `ChatState` extensions with tests, which is the standing rule about a
+  decision living beside its ops class rather than in a screen.
+- **Two tests could not see the failure they claimed to cover.** One was rewritten to assert the
+  round trip that actually differs, then proved by breaking the fix and watching it fail.
+
+Two findings were rejected against the code:
+
+- **"The rows use the phone's zone instead of the gateway's."** Every row time is an instant, so the
+  owner's zone is the right one, and the rule's own line already names the zone it is kept in. The
+  comment saying so is the fix, since the auditor read it the way a later reader would.
+- **"The documents violate a no-semicolon rule."** There is no such rule. It was asserted against
+  forty pre-existing lines, which is the reminder that a confident tone is not evidence.
+
 ### `BoardManager.sourceGatewayIds`, confirmed and removed
 
 It was worse than "named for several and answers one". The board is one Router-held board:

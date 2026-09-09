@@ -42,6 +42,7 @@ import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
+import com.atelier_nyaarium.switchboard.runbookOn
 import com.atelier_nyaarium.switchboard.standingRefusal
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -57,10 +58,7 @@ fun RunbookFireSheet(
 	runbookId: String,
 	onDismiss: () -> Unit,
 ) {
-	// The copy on the gateway the row came from, never whichever copy shares its id.
-	val runbook = remember(gatewayId, runbookId, state.runbooks) {
-		state.runbooks.find { it.gatewayId == gatewayId }?.runbooks?.find { it.id == runbookId }
-	}
+	val runbook = remember(gatewayId, runbookId, state.runbooks) { state.runbookOn(gatewayId, runbookId) }
 	if (runbook == null) {
 		LaunchedEffect(runbookId) { onDismiss() }
 		return

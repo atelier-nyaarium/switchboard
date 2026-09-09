@@ -41,9 +41,12 @@ class RunbookOpsTest {
 		private fun sameContent(a: Runbook, b: Runbook) = a.name == b.name && a.body == b.body &&
 			a.parameters == b.parameters
 
-		override suspend fun list(gatewayId: String) = ConsoleRunbookListResult(
-			runbooks = shelf(gatewayId).values.sortedWith(compareBy({ it.name }, { it.id })),
-		)
+		val listed = mutableListOf<String>()
+
+		override suspend fun list(gatewayId: String): ConsoleRunbookListResult {
+			listed += gatewayId
+			return ConsoleRunbookListResult(runbooks = shelf(gatewayId).values.sortedWith(compareBy({ it.name }, { it.id })))
+		}
 
 		override suspend fun put(
 			gatewayId: String,
@@ -222,6 +225,22 @@ class RunbookOpsTest {
 		}
 		assertEquals(emptyList<String>(), state.value.books(GW).map { it.id })
 		assertEquals(listOf("There"), state.value.books(OTHER).map { it.name })
+	}
+
+	@Test
+	fun refreshingOneGatewayDoesNotReopenTheSyncOnAnother() {
+		val host = WithGateway()
+		val ops = RunbookOps(MutableStateFlow(ChatState()), host)
+
+		kotlinx.coroutines.runBlocking {
+			ops.save(book("a"), OTHER)
+			ops.refresh(GW)
+			host.fake.listed.clear()
+			// OTHER is still known to be in step, so a fire there asks it nothing. Clearing every
+			// gateway's markers while refreshing one would re-read that library for nothing.
+			ops.preview("a", emptyMap(), OTHER)
+			assertEquals(emptyList<String>(), host.fake.listed)
+		}
 	}
 
 	@Test

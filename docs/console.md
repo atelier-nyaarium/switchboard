@@ -66,23 +66,27 @@ Phone-bound rows are appended by the Gateway through `deliverToOwner`.
 `src/gateway/consolePushOps.ts` owns the durable `OwnerRowOutbox` for disconnected or uncertain
 appends.
 
-### `homeGatewayId`, and the five things it is for
+### `homeGatewayId`, and the six things it is for
 
 `adoptHomeGateway` keeps the stored id while the Domain keyring still admits it, and otherwise takes
 `admitted.firstOrNull()`. The owner never picks it and there is no control for it.
 
-Every job it has resolves or identifies. None of them decides what may be shown:
+Six jobs, each resolving or identifying:
 
 1. Completing an unqualified name, so a bare `sandbox` means that spawn on this Gateway.
 2. Filling the Gateway segment of this phone's own local address.
 3. Reading the Domain id off that Gateway's signed roster.
 4. Naming which of the owner's Gateways is asking, on a cross-domain trust request.
 5. Deciding which Gateway claims a runbook library written before libraries were split per Gateway.
+6. Where an unassigned board entry's attachment blob is uploaded, since it has no session Gateway.
 
 **It is not a visibility filter, and a screen that reads it to decide what to draw is a bug.** Stating
-only how it is selected is what let it be borrowed as one: the Routines and Runbooks tabs each drew
-one Gateway and silently dropped every other. Gateways are equals and the Router is the node between
-them, so a tab reads `admittedGateways` and groups by Gateway.
+only how it is selected is what let it be borrowed as one, and the Routines and Runbooks tabs each
+drew one Gateway. They read `admittedGateways` and group by Gateway.
+
+One filter remains: `TrustOps.shareableSessions` offers only sessions on this Gateway, and the share
+it feeds sends `requesterGatewayId = homeGatewayId()`. Widening the list alone would offer sessions
+the share then names wrongly, so the two move together or not at all.
 
 Protocol-1 gateways receive `unsupported` for value and delivery ops.
 

@@ -177,17 +177,21 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **Every gateway is asked, concurrently, and one that cannot be read leaves the rest drawn:**
     `refreshAll` fans out over the keyring, then prunes to it, so a Gateway the keyring no longer
     admits stops being drawn and stops being actionable with it.
-  - **A zone belongs to its gateway:** each group carries the one its gateway keeps schedules in, and
-    a schedule read against another's is a wrong time on screen.
+  - **A zone belongs to its gateway, and an instant belongs to the owner:** each group carries the
+    zone its gateway keeps schedules in, which is what the editor converts a typed time into. The
+    rows show instants, so they read in the owner's own zone.
+  - **The per-gateway reads are `ChatState` extensions, not screen expressions:** `runbookOn`,
+    `routineOn`, `runbooksOn`, `routinesOn` and `soonestRoutineAt` are what stops a screen reaching
+    past its own group, so they sit where a JVM test can call them.
 - `android/.../GatewayPick.kt` - the button a new record starts from
   - **A new record has no Gateway yet:** one is taken without asking, several are asked, and none
     draws no button. Nothing else on these tabs chooses a Gateway, since every row belongs to one.
 - `android/.../GatewayReads.kt` - `GatewayReadFence`, the one freshness rule for per-gateway reads
   - **The later read of a gateway wins, and only of that gateway:** the drain loop and a tap both
     start reads, so an older answer can land after a newer one and put back what the owner just
-    settled. One counter per gateway, or a slow read of one discards a fresh read of another. Both
-    ops classes take this rather than each keeping its own, which is how one of them came to have
-    none.
+    settled. One counter per gateway, or a slow read of one discards a fresh read of another. Each
+    ops class holds its own fence, since a routine read and a runbook read are different reads, but
+    there is one rule rather than a copy per class, which is how one of them came to have none.
 - `android/.../AttachmentOps.kt` - attachment fetch-and-sweep state
 - `android/.../ScheduledSendOps.kt` - scheduled sends and single fire mutex
 - `android/.../GoalOps.kt` / `Goal.kt` - armed goals and `/goal` line production
@@ -355,11 +359,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 
 **Every Gateway is an equal, and the Router is the node between them.** `homeGatewayId` is a relic
 of the era before the Router and is on its way out. Build nothing new on it, and prefer taking a
-gateway id per call, which the runbook and routine clients already do. It survives today for five
-jobs, listed in `docs/console.md`; four have a Router-side answer and the fifth, resolving an
-unqualified name, is the one with teeth, because equal gateways make a bare name genuinely
-ambiguous. Using it to decide what a screen may SHOW is always wrong: it is a default for an
-unqualified name, never a permission.
+gateway id per call, which the runbook and routine clients already do. It survives today for six
+jobs, listed in `docs/console.md`. Resolving an unqualified name is the one with teeth, because equal
+gateways make a bare name genuinely ambiguous. Using it to decide what a screen may SHOW is always
+wrong: it is a default for an unqualified name, never a permission. One such filter is left, named
+in `docs/console.md`, and it moves with the share op it feeds.
 
 **`main-mcp.ts`** MCP plugin, user process.
 **`main-gateway.ts`** Docker gateway and central router.

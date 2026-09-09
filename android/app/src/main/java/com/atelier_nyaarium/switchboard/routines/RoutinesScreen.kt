@@ -40,6 +40,8 @@ fun RoutinesScreen(
 ) {
 	val gateways = state.admittedGateways
 	LaunchedEffect(gateways) { repo.routineOps.refreshAll(gateways) }
+	// Every row time is an instant, so it reads in the owner's zone, not its gateway's. The rule
+	// keeps its own, and `scheduleLine` names it.
 	val zone = java.time.ZoneId.systemDefault()
 	val scope = rememberCoroutineScope()
 	val groups = state.routines

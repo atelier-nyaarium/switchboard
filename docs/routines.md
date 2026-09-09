@@ -60,9 +60,11 @@ A routine belongs to the Gateway that runs it. The Routines tab asks every admit
 concurrently, and groups the answers by Gateway; one that cannot be read leaves the rest drawn. The
 heading appears only when there is more than one, and groups sort by Gateway id.
 
-Each group carries its own zone, since a schedule read against another Gateway's zone is a wrong time
-on screen. Notification ids, editor drafts and list keys all carry the Gateway too, because two
-Gateways may hold the same routine id and neither may cancel or overwrite the other.
+Each group carries the zone its Gateway keeps schedules in, which is what the editor converts a typed
+wall-clock time into on save. The rows do not use it: a next run, a last run and a miss are all
+instants, so they read in the owner's own zone, and the rule's line names the zone it is kept in.
+Notification ids, editor drafts and list keys all carry the Gateway, because two Gateways may hold
+the same routine id and neither may cancel or overwrite the other.
 
 An empty tab distinguishes the two things it can mean: no Gateway answered at all, or the Gateways
 that answered hold nothing.

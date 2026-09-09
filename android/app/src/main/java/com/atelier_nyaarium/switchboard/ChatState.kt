@@ -165,6 +165,26 @@ private const val WAKE_NOTICE_TTL_MS = 10 * 60_000L
 internal fun ChatState.recomputeUnread(team: String, thread: List<Message>): ChatState =
 	copy(unread = unread + (team to unreadCount(thread, readAnchors[team])))
 
+/**
+ * One gateway's copy, never whichever copy shares the id. Two gateways may hold one id and the two
+ * records are unrelated, so a screen that reaches past its own group opens someone else's words.
+ */
+internal fun ChatState.runbooksOn(gatewayId: String): List<Runbook> =
+	runbooks.find { it.gatewayId == gatewayId }?.runbooks.orEmpty()
+
+internal fun ChatState.runbookOn(gatewayId: String, runbookId: String): Runbook? =
+	runbooksOn(gatewayId).find { it.id == runbookId }
+
+internal fun ChatState.routinesOn(gatewayId: String): List<RoutineState> =
+	routines.find { it.gatewayId == gatewayId }?.routines.orEmpty()
+
+internal fun ChatState.routineOn(gatewayId: String, routineId: String): RoutineState? =
+	routinesOn(gatewayId).find { it.routine.id == routineId }
+
+/** The soonest any gateway expects to answer, so a deeply idle phone wakes once for the earliest. */
+internal fun ChatState.soonestRoutineAt(): Long? =
+	routines.flatMap { group -> group.routines.mapNotNull { it.nextAt } }.minOrNull()
+
 internal fun sessionLeaf(canonical: String): String =
 	runCatching {
 		when (val t = parseTarget(canonical, "", "")) {

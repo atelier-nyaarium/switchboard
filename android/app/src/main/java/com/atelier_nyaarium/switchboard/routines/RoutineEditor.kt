@@ -37,6 +37,8 @@ import com.atelier_nyaarium.switchboard.RoutineSaved
 import com.atelier_nyaarium.switchboard.absoluteTimeText
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.Routine
+import com.atelier_nyaarium.switchboard.routineOn
+import com.atelier_nyaarium.switchboard.runbooksOn
 import kotlinx.coroutines.launch
 
 private val WEEKDAY_LABELS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -52,8 +54,8 @@ fun RoutineEditor(
 ) {
 	// One gateway's group, so a routine and the runbooks it may pin come from the same machine.
 	val group = remember(gatewayId, state.routines) { state.routines.find { it.gatewayId == gatewayId } }
-	val held: Routine? = remember(routineId, group) {
-		routineId?.let { id -> group?.routines?.find { it.routine.id == id }?.routine }
+	val held: Routine? = remember(gatewayId, routineId, state.routines) {
+		routineId?.let { state.routineOn(gatewayId, it)?.routine }
 	}
 	val zone = remember { java.time.ZoneId.systemDefault() }
 	val gatewayZone = group?.zone.orEmpty().ifBlank { zone.id }
@@ -160,9 +162,7 @@ fun RoutineEditor(
 
 			Text("Runbook", style = MaterialTheme.typography.labelLarge)
 			// This gateway's only. A routine cannot pin words another machine holds.
-			val library = remember(gatewayId, state.runbooks) {
-				state.runbooks.find { it.gatewayId == gatewayId }?.runbooks.orEmpty()
-			}
+			val library = remember(gatewayId, state.runbooks) { state.runbooksOn(gatewayId) }
 			val names = library.map { it.name }
 			FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
 				for (book in library) {

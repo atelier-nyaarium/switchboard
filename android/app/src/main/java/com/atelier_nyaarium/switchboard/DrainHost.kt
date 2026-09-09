@@ -57,13 +57,7 @@ internal class ChatRepositoryDrainHost(private val repo: ChatRepository) : Drain
 	// Every admitted gateway, or the rest are never read in the background.
 	override suspend fun refreshRoutines() = repo.routineOps.refreshAll(repo.sessions.keyringGateways())
 	override fun plan(visible: Boolean, socket: Boolean, failed: Boolean) =
-		// Wake for the soonest across every gateway.
-		repo.transportCoordinator.plan(
-			visible,
-			socket,
-			failed,
-			repo.state.value.routines.flatMap { group -> group.routines.mapNotNull { it.nextAt } }.minOrNull(),
-		)
+		repo.transportCoordinator.plan(visible, socket, failed, repo.state.value.soonestRoutineAt())
 	override fun thisDeviceAddress() = repo.thisDeviceAddress()
 	override fun fromCanonical(value: String) = repo.fromCanonical(value)
 	override fun advanceMailbox(result: SyncPollResult<Drained>) = repo.mailboxSync.advance(result)
