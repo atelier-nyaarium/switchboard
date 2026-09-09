@@ -4,6 +4,8 @@ import { createRunbookStore } from "../runbooks/store.js";
 
 export interface RunbookStageDeps {
 	dataDir: string;
+	/** A stored runbook moved or went, which is what stops a routine pinned to an older revision. */
+	onRunbookMoved?: (runbookId: string) => void;
 }
 
 export interface RunbookStage {
@@ -16,8 +18,16 @@ export function composeRunbooks(deps: RunbookStageDeps): RunbookStage {
 		console: {
 			get: (runbookId) => store.get(runbookId),
 			list: () => ({ runbooks: store.list() }),
-			put: (runbook, options) => store.put(runbook, options),
-			remove: (runbookId) => store.remove(runbookId),
+			put: (runbook, options) => {
+				const result = store.put(runbook, options);
+				if (result.stored) deps.onRunbookMoved?.(runbook.id);
+				return result;
+			},
+			remove: (runbookId) => {
+				const result = store.remove(runbookId);
+				if (result.deleted) deps.onRunbookMoved?.(runbookId);
+				return result;
+			},
 		},
 	};
 }

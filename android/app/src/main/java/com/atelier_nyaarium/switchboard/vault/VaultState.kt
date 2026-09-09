@@ -133,6 +133,9 @@ const val VAULT_DECISION_WINDOW = "window"
 const val VAULT_DECISION_SESSION = "session"
 const val VAULT_DECISION_DENY = "deny"
 
+/** A grant tier nobody decides in the moment; a routine's, configured when the routine is saved. */
+const val VAULT_GRANT_STANDING = "standing"
+
 /** Security setting values for vault approvals. */
 const val VAULT_UNLOCK_OFF = "off"
 const val VAULT_UNLOCK_EVERY = "every"

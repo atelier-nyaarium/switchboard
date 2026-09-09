@@ -45,6 +45,8 @@ export interface VaultClientDeps {
 	gatewayId: string;
 	ownerSignPub: () => string | null;
 	keys: Pick<ContentKeyStore, "seal" | "open">;
+	/** An entry that was live and no longer is, so every grant over it goes. */
+	onEntryGone?: (entryId: string) => void;
 }
 
 export type VaultRefresh = { kind: "ok"; revision: number } | { kind: "unavailable"; error: string };
@@ -105,7 +107,14 @@ export function createVaultClient(deps: VaultClientDeps) {
 			return refresh();
 		}
 		if (fold.kind === "ignore") return { kind: "ok", revision: held?.revision ?? 0 };
+		const before = held;
 		held = { revision: fold.revision, entries: new Map(fold.entries.map((entry) => [entry.clear.id, entry])) };
+		// Buried or gone, either way nothing may still hold authority over it.
+		for (const [id, entry] of before?.entries ?? []) {
+			if (entry.clear.tombstone) continue;
+			const now = held.entries.get(id);
+			if (!now || now.clear.tombstone) deps.onEntryGone?.(id);
+		}
 		return { kind: "ok", revision: fold.revision };
 	}
 

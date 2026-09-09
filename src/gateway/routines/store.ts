@@ -1,6 +1,7 @@
 // The gateway names every revision it stores, and takes a put only from the one it already held.
 
 import { z } from "zod";
+import { canonicalJson } from "../../shared/canonical-json.js";
 import { type DurableStore, DurableStoreInstalledError } from "../../shared/durable-store.js";
 import { renderRunbook } from "../../shared/runbook-grammar.js";
 import { type Routine, RoutineSchema, routineRefusal } from "../../shared/schemasRoutine.js";
@@ -44,24 +45,14 @@ function frozen(routine: Routine): Routine {
 	});
 }
 
-/** Two records the owner would call the same. The revision is the gateway's, so it is not compared. */
+/**
+ * Two records the owner would call the same. Everything but what the gateway owns is compared, so a
+ * field added to the record is compared without anything here being edited. A hand-listed
+ * comparison would silently take an edit that only moved the field nobody added to the list.
+ */
 function sameContent(a: Routine, b: Routine): boolean {
-	return (
-		a.name === b.name &&
-		a.runbookId === b.runbookId &&
-		a.approvedRevision === b.approvedRevision &&
-		a.weekInterval === b.weekInterval &&
-		a.startDate === b.startDate &&
-		a.time === b.time &&
-		a.zone === b.zone &&
-		a.enabled === b.enabled &&
-		a.target.spawn === b.target.spawn &&
-		a.target.workdir === b.target.workdir &&
-		a.weekdays.length === b.weekdays.length &&
-		a.weekdays.every((day, i) => day === b.weekdays[i]) &&
-		Object.keys(a.values).length === Object.keys(b.values).length &&
-		Object.entries(a.values).every(([key, value]) => b.values[key] === value)
-	);
+	const owned = ({ revision: _revision, since: _since, ...rest }: Routine) => rest;
+	return canonicalJson(owned(a)) === canonicalJson(owned(b));
 }
 
 /**

@@ -30,6 +30,7 @@ const routine = (id: string, over: Partial<Routine> = {}): Routine => ({
 	approvedRevision: 1,
 	values: {},
 	target: { spawn: "host" },
+	linkedEntries: [],
 	enabled: true,
 	revision: 1,
 	since: 0,
@@ -62,11 +63,25 @@ describe("routine store", () => {
 		expect(store.get("morning")?.name).toBe("Two");
 	});
 
-	it("takes a repeat of what it holds as a lost answer", () => {
+	it("takes a repeat of what it holds as a lost answer, and any real edit as an edit", () => {
 		const store = open(fresh());
 		store.put(routine("morning"));
 		expect(store.put(routine("morning"))).toMatchObject({ stored: true, revision: 1 });
 		expect(store.list()).toHaveLength(1);
+
+		// Every field the owner writes is compared, including any added since this was written.
+		const edits: Array<Partial<Routine>> = [
+			{ name: "Other" },
+			{ linkedEntries: ["deploy"] },
+			{ target: { spawn: "host", workdir: "/tmp" } },
+			{ values: { branch: "main" } },
+		];
+		let revision = 1;
+		for (const edit of edits) {
+			const answer = store.put(routine("morning", { ...edit }), { base: revision });
+			expect(answer, JSON.stringify(edit)).toMatchObject({ stored: true, revision: revision + 1 });
+			revision += 1;
+		}
 	});
 
 	it("refuses a schedule that could never come around, leaving the held one alone", () => {

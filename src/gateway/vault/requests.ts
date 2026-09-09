@@ -40,6 +40,8 @@ export interface VaultRequestsDeps {
 	onApproved?: (request: VaultRequest, decision: VaultDecision) => void;
 	/** Once per request, however it settled. */
 	onSettled?: (request: VaultRequest) => void;
+	/** The deadline passed with nobody having decided, which a deny is not. */
+	onUnanswered?: (request: VaultRequest) => void;
 	deadlineMs?: number;
 }
 
@@ -112,10 +114,14 @@ export function createVaultRequests(deps: VaultRequestsDeps) {
 				} catch {}
 			},
 			settled: false,
-			// The deadline ends an uncollected answer too.
+			// The deadline ends an uncollected answer too. Unanswered is not the same as denied, so
+			// only this road says so; a deny is the owner having decided.
 			timer: deps.ambient.setTimer(() => {
 				entry.settle({ kind: "refused" });
 				pending.delete(requestId);
+				try {
+					deps.onUnanswered?.(request);
+				} catch {}
 			}, deadlineMs),
 		};
 		pending.set(requestId, entry);

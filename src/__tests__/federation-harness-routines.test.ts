@@ -23,6 +23,7 @@ describe("federation harness: routine operations without a runner", () => {
 		approvedRevision: 1,
 		values: {},
 		target: { spawn: "host" },
+		linkedEntries: [],
 		enabled: true,
 		revision: 1,
 		// The gateway sets this itself; what a phone sends is ignored.

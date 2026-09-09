@@ -29,6 +29,7 @@ const routine = (over: Partial<Routine> = {}): Routine => ({
 	approvedRevision: 3,
 	values: {},
 	target: { spawn: "host" },
+	linkedEntries: [],
 	enabled: true,
 	revision: 1,
 	// Taken long enough ago that recovery may reconstruct across a downtime.
@@ -234,6 +235,37 @@ describe("the routine runner", () => {
 
 		expect(w.occurrences.at("triage", MONDAY_0900_LA)?.state).toBe("missed");
 		expect(w.delivered).toEqual([]);
+	});
+
+	it("holds the work open from dispatch until the session has worked and gone quiet again", async () => {
+		let working = false;
+		const w = world({ sessionIdle: () => !working });
+		w.routines.put(routine());
+		await w.runner.reconcile();
+
+		const team = "host.routine-triage";
+		// Dispatched and not yet picked up. An idle read here says nothing, so the work stays open.
+		expect(w.runner.workingOccurrence(team)?.routineId).toBe("triage");
+		await w.runner.reconcile();
+		expect(w.runner.workingOccurrence(team)?.routineId).toBe("triage");
+
+		working = true;
+		await w.runner.reconcile();
+		expect(w.runner.workingOccurrence(team)?.routineId).toBe("triage");
+
+		working = false;
+		await w.runner.reconcile();
+		expect(w.runner.workingOccurrence(team)).toBeNull();
+	});
+
+	it("closes the work at the deadline, whatever the session was ever seen doing", async () => {
+		const w = world();
+		w.routines.put(routine());
+		await w.runner.reconcile();
+		expect(w.runner.workingOccurrence("host.routine-triage")?.routineId).toBe("triage");
+
+		w.at(MONDAY_0900_LA + GRACE_MS + 1);
+		expect(w.runner.workingOccurrence("host.routine-triage")).toBeNull();
 	});
 
 	it("clears a review occurrence when the routine is saved again", async () => {

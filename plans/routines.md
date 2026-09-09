@@ -896,7 +896,7 @@ saved this afternoon would fire for this morning. One rule, two callers, one of 
 Both floor now. The same shape is what `reservation.ts` is for: the reserved session's name was
 being derived in two places before it had an owner.
 
-## Phase 4 - The grant
+## Phase 4 - The grant ✅
 
 A holder-subjected grant beside the session-subjected one that exists. It names an entry and a
 holder, and carries no shape at all, so `operationSet` stays where it is and serves window grants
@@ -937,6 +937,53 @@ Three things Phase 3 settled that this one has to read:
 
 Activation does not belong in `deliver`. That seam runs after `dispatched` is durable, so a grant
 minted there sits in the crash window the at-most-once rule deliberately loses.
+
+### What this phase settled
+
+- **Nothing activates a grant, because a grant is not activated.** The one that reads as a runtime
+  event is instead a standing row and a live window read at the moment of use. `covers` asks which
+  routine is working in the asking session, so there is no moment to mint at and no crash window to
+  sit in. Authority is derived at the use, never carried to it.
+- **`work` is a second axis on an occurrence, not a state of it.** `dispatched` says the nudge was
+  handed over; `work` says whether the session is still on it. A state would have made the runner
+  claim it knew whether the work went well, which it does not. `noteWork` moves forward only, and
+  only on a dispatched row, so a late observation cannot reopen finished work.
+- **Idle before the session was ever seen working says nothing.** A nudge handed over has not been
+  picked up yet, so `open` waits for the session to be seen working before an idle closes it. The
+  deadline closes it whatever was ever observed, which is the ruling's hard edge.
+- **Five revocation events are one road.** Edit, enable, disable, delete and a moved pin all call
+  `settleGrants`, which rewrites from the stored record. There is no add or remove, so a routine's
+  authority cannot drift from what the record says, and a sixth event is another caller rather than
+  another rule.
+- **An entry that stops being live takes every grant over it.** `onEntryGone` fires from the one
+  place that folds the Router's vault list, so a delete on the phone reaches the gateway's grants
+  without a second notion of what a deleted entry is.
+- **Unanswered is not denied.** A deny is the owner having decided, so only the deadline road records
+  attention. The record is keyed by the routine and the instant together, and the owner answers it by
+  saving the routine, whatever they decide to link.
+
+### Bug Classes
+
+**Mechanism:** a hand-listed field comparison beside a schema. **Class:** a field added to the record
+and not to the list, so an edit that only moved that field is taken as a repeat and silently dropped.
+
+Found by writing the grant test, not by a gate: adding `linkedEntries` to `Routine` left
+`sameContent` comparing thirteen named fields, so a save that only changed the links answered
+`stored: true` and wrote nothing. The grants then settled from the record that never moved.
+
+Cured rather than patched. `sameContent` now compares the canonical form of everything except the two
+fields the gateway owns, so a field added to `Routine` is compared without anything in the store
+being edited.
+
+**Mechanism:** the Kotlin codegen's two hand-kept lists. **Class:** a union in neither list emitted
+nothing at all, and the field typed as it failed only at Kotlin compile, only for whoever ran that
+gate.
+
+`VaultHolder` was the instance. The old loop's `else` branch was empty, so the generator wrote a file
+that referenced a type it had not declared and said nothing. It now records every type a field is
+typed as and refuses to write a file that references one it did not declare. A union that is only an
+entry point, like `ConsoleSocketInbound`, is still allowed to emit nothing, because nothing is typed
+as it.
 
 ## Phase 5 - The phone
 

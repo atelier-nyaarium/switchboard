@@ -28,6 +28,12 @@ export const OccurrenceSchema = z.object({
 	snapshot: z.string().optional(),
 	/** The session it was bound to, resolved from the target policy at preparation. */
 	team: z.string().optional(),
+	/**
+	 * How far the dispatched work has got, which is the only thing a standing grant reads. `open` is
+	 * from dispatch until the session is seen working, `started` while it is, and `done` once it has
+	 * gone idle again. The deadline closes it whatever was observed.
+	 */
+	work: z.enum(["open", "started", "done"]).optional(),
 });
 
 export type Occurrence = z.infer<typeof OccurrenceSchema>;
@@ -84,7 +90,7 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		scheduledAt: number,
 		from: { state: OccurrenceState; version: number },
 		to: OccurrenceState,
-		patch: Partial<Pick<Occurrence, "reason" | "preparedRevision" | "snapshot" | "team">> = {},
+		patch: Partial<Pick<Occurrence, "reason" | "preparedRevision" | "snapshot" | "team" | "work">> = {},
 	): Occurrence | null => {
 		const held = at(routineId, scheduledAt);
 		if (!held || held.state !== from.state || held.version !== from.version) return null;
@@ -92,6 +98,20 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		const moved: Occurrence = { ...held, ...patch, state: to, version: held.version + 1 };
 		const next = rows.map((row) => (row === held ? moved : row));
 		return commit(next) ? moved : null;
+	};
+
+	const WORK_ORDER = ["open", "started", "done"] as const;
+
+	/**
+	 * Work moves along its own axis, so it is not a state transition and takes no version. It only
+	 * moves forward, and only on a dispatched row, so a late observation cannot reopen finished work.
+	 */
+	const noteWork = (routineId: string, scheduledAt: number, work: "started" | "done"): boolean => {
+		const held = at(routineId, scheduledAt);
+		if (!held || held.state !== "dispatched" || held.work === undefined) return false;
+		if (WORK_ORDER.indexOf(work) <= WORK_ORDER.indexOf(held.work)) return false;
+		const moved: Occurrence = { ...held, work };
+		return commit(rows.map((row) => (row === held ? moved : row)));
 	};
 
 	/**
@@ -132,7 +152,7 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		return dropped;
 	};
 
-	return { all, at, forRoutine, open, transition, clearReview, clear, sweep };
+	return { all, at, forRoutine, open, transition, noteWork, clearReview, clear, sweep };
 }
 
 export type OccurrenceStore = ReturnType<typeof createOccurrenceStore>;

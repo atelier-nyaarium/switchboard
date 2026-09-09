@@ -41,6 +41,7 @@ import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.StatusChip
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.VaultGrant
+import com.atelier_nyaarium.switchboard.proto.VaultHolder
 import kotlinx.coroutines.launch
 
 /** Pending requests, the entry list, and the grants a session holds. */
@@ -201,14 +202,18 @@ private fun GrantRow(
 	) {
 		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
 			Text(
-				"${sessionName(state, gatewayId, grant.sessionTarget)} on $gatewayId",
+				"${holderName(state, gatewayId, grant)} on $gatewayId",
 				style = MaterialTheme.typography.bodyMedium,
 				maxLines = 1,
 				overflow = TextOverflow.Ellipsis,
 			)
 			Text(
 				listOfNotNull(
-					if (grant.tier == VAULT_DECISION_SESSION) "This session" else "30 minutes",
+					when (grant.tier) {
+						VAULT_GRANT_STANDING -> "While it runs"
+						VAULT_DECISION_SESSION -> "This session"
+						else -> "30 minutes"
+					},
 					entryTitle,
 					// Read the old name until 2026-09-19.
 					grantCovers(grant.coveredShapes, grant.shapes),
@@ -222,6 +227,14 @@ private fun GrantRow(
 		}
 		TextButton(onClick = hapticClick(onRevoke)) { Text("Revoke") }
 	}
+}
+
+/** Who the grant is for. A row written before holders names a session and nothing else. */
+private fun holderName(state: ChatState, gatewayId: String, grant: VaultGrant): String {
+	val holder = grant.holder
+	if (holder is VaultHolder.Routine) return "Routine ${holder.routineId}"
+	val target = (holder as? VaultHolder.Session)?.sessionTarget ?: grant.sessionTarget ?: return "Unknown"
+	return sessionName(state, gatewayId, target)
 }
 
 /** The session's label when this phone knows it, else the gateway's own name for it. */

@@ -127,6 +127,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		consoleDispatch: () => frames?.consoleDelivery ?? null,
 		peerHandleOp: () => frames?.peerHandleOp ?? null,
 		unlinkDomain: () => presenceHandlers?.unlinkDomain ?? null,
+		entryGone: (entryId) => vault?.entryDeleted(entryId),
 	});
 
 	const enrollment = composeEnrollment({
@@ -171,6 +172,9 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		context,
 		routes: requireRoutes,
 		sessions,
+		// Read late: the routine stage is composed below this one.
+		workingRoutine: (target) => routines.workingRoutine(target),
+		secretUnanswered: (target, entryId) => routines.secretUnanswered(target, entryId),
 	});
 	routerPresence = composeRouterPresence({
 		ambient: bootstrap.ambient,
@@ -180,7 +184,10 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		federation,
 		routes: requireRoutes,
 	});
-	const runbooks = composeRunbooks({ dataDir: bootstrap.dataDir });
+	const runbooks = composeRunbooks({
+		dataDir: bootstrap.dataDir,
+		onRunbookMoved: (runbookId) => routines.runbookMoved(runbookId),
+	});
 	const routines = composeRoutines({
 		dataDir: bootstrap.dataDir,
 		ambient: bootstrap.ambient,
@@ -192,6 +199,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			return sessions.hostSpawnPoints.ids.includes(spawn) || sessions.offlineCatalog.has(spawn);
 		},
 		sessionTaken: (routine) => !routineOwns(sessions.sessionStore.getByTeam(routineTeam(routine)), routine),
+		setRoutineGrants: (routineId, entryIds) => vault?.setRoutineGrants(routineId, entryIds),
 	});
 	routerFrames = composeRouterFrames({
 		localGatewayId: bootstrap.localGatewayId,

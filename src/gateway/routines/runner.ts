@@ -7,6 +7,7 @@ import { nextOccurrence } from "../../shared/routine-recurrence.js";
 import type { Routine } from "../../shared/schemasRoutine.js";
 import { fireAndForget } from "../fireAndForget.js";
 import type { Occurrence, OccurrenceStore } from "./occurrences.js";
+import { routineTeam } from "./reservation.js";
 import type { RoutineStore } from "./store.js";
 
 /** The authorization window. Half a day, and never extended by anything. */
@@ -30,8 +31,8 @@ export type PrepareResult =
 
 /** The loop owns when, this owns what. */
 export interface RoutineAttempt {
-	/** Whether the routine's reserved session can take work now. */
-	sessionIdle: (routine: Routine) => boolean;
+	/** Whether that session can take work now. */
+	sessionIdle: (team: string) => boolean;
 	/** Renders and binds the session, answering what to store against the occurrence. */
 	prepare: (routine: Routine, occurrence: Occurrence) => Promise<PrepareResult>;
 	/** Called after `dispatched` is durable, so a crash here loses the nudge rather than repeating it. */
@@ -110,7 +111,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 
 		let held = occurrence;
 		if (held.state === "due" || held.state === "waiting_idle") {
-			if (!attempt().sessionIdle(routine)) {
+			if (!attempt().sessionIdle(routineTeam(routine))) {
 				wait(held, "session_busy");
 				return;
 			}
@@ -159,14 +160,47 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			return;
 		}
 		// Written before the nudge is handed over, so a crash loses it rather than sending it twice.
+		// `work` opens here, which is what any grant this routine holds reads.
 		const dispatched = occurrences.transition(
 			held.routineId,
 			held.scheduledAt,
 			{ state: held.state, version: held.version },
 			"dispatched",
+			{ work: "open" },
 		);
 		if (!dispatched) return;
 		await attempt().deliver(routine, dispatched);
+	}
+
+	/**
+	 * Carries a dispatched occurrence's work along. Idle before the session has been seen working
+	 * says nothing, since a nudge just handed over has not been picked up yet; idle after it does.
+	 * The deadline closes the work whatever was ever observed.
+	 */
+	function noteWork(occurrence: Occurrence, now: number): void {
+		if (occurrence.work === undefined || occurrence.work === "done") return;
+		if (now > occurrence.deadlineAt) {
+			occurrences.noteWork(occurrence.routineId, occurrence.scheduledAt, "done");
+			return;
+		}
+		const team = occurrence.team;
+		if (!team) return;
+		const idle = attempt().sessionIdle(team);
+		if (!idle) occurrences.noteWork(occurrence.routineId, occurrence.scheduledAt, "started");
+		else if (occurrence.work === "started")
+			occurrences.noteWork(occurrence.routineId, occurrence.scheduledAt, "done");
+	}
+
+	/** The occurrence whose work is open in that session right now, or null. */
+	function workingOccurrence(sessionTarget: string): Occurrence | null {
+		const now = ambient.now();
+		for (const occurrence of occurrences.all()) {
+			if (occurrence.team !== sessionTarget || occurrence.state !== "dispatched") continue;
+			if (occurrence.work === undefined || occurrence.work === "done") continue;
+			if (now > occurrence.deadlineAt) continue;
+			return occurrence;
+		}
+		return null;
 	}
 
 	/** Serialized, so two wakeups cannot walk the same occurrence at once. */
@@ -209,6 +243,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		try {
 			for (const occurrence of occurrences.all()) {
 				if (occurrence.state === "due" || occurrence.state === "waiting_idle") await advance(occurrence);
+				else if (occurrence.state === "dispatched") noteWork(occurrence, now);
 			}
 
 			for (const routine of routines.list()) {
@@ -324,6 +359,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		},
 
 		nextAt,
+		workingOccurrence,
 	};
 }
 

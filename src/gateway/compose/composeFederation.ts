@@ -72,6 +72,8 @@ export interface FederationStageDeps {
 	consoleDispatch: () => ConsoleDeliveryHandler | null;
 	peerHandleOp: () => PeerHandleOp | null;
 	unlinkDomain: () => ((domainId: string) => unknown) | null;
+	/** A vault entry that is no longer live, so every grant over it goes. */
+	entryGone: (entryId: string) => void;
 }
 
 export interface FederationStage {
@@ -336,6 +338,7 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 			gatewayId: localGatewayId,
 			ownerSignPub: () => allowlist.ownerSignPub,
 			keys: gatewayBootstrap.contentKeys,
+			onEntryGone: (entryId) => deps.entryGone(entryId),
 		});
 		keyRequester = createKeyRequester({
 			domainId,

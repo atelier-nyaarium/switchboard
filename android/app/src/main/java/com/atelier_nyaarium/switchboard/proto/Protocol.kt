@@ -1590,7 +1590,8 @@ data class VaultGrant(
 	val displayShape: String? = null,
 	val coveredShapes: List<String>? = null,
 	val shapes: List<String>? = null,
-	val sessionTarget: String,
+	val holder: VaultHolder? = null,
+	val sessionTarget: String? = null,
 	val expiresAt: Long? = null,
 )
 
@@ -1698,6 +1699,7 @@ data class Routine(
 	val approvedRevision: Long,
 	val values: JsonObject,
 	val target: RoutineTarget,
+	val linkedEntries: List<String>,
 	val enabled: Boolean,
 	val revision: Long,
 	val since: Long,
@@ -1718,6 +1720,7 @@ data class RoutineState(
 	val lastRanAt: Long? = null,
 	val missed: RoutineMiss? = null,
 	val reviewAt: Long? = null,
+	val attention: RoutineAttention? = null,
 )
 
 @Serializable
@@ -1845,6 +1848,23 @@ data class WireSealed(
 	val plaintextOf: String? = null,
 	val expectJson: JsonObject? = null,
 )
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class VaultHolder {
+	@Serializable
+	@SerialName("session")
+	data class Session(
+		val sessionTarget: String,
+	) : VaultHolder()
+
+	@Serializable
+	@SerialName("routine")
+	data class Routine(
+		val routineId: String,
+	) : VaultHolder()
+}
 
 @Serializable
 @OptIn(ExperimentalSerializationApi::class)
@@ -2294,6 +2314,13 @@ data class VaultEntrySealed(
 	val privateDescription: ContentEnvelope? = null,
 	val value: ContentEnvelope? = null,
 	val gateways: ContentEnvelope? = null,
+)
+
+@Serializable
+data class RoutineAttention(
+	val occurrenceId: String,
+	val scheduledAt: Long,
+	val entryIds: List<String>,
 )
 
 @Serializable

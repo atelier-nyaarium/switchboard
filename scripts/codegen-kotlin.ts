@@ -126,6 +126,7 @@ import {
 	ConsoleRoutineListResultSchema,
 	ConsoleRoutineOccurrenceResultSchema,
 	ConsoleRoutinePutResultSchema,
+	RoutineAttentionSchema,
 	RoutineMissSchema,
 	RoutineSchema,
 	RoutineStateSchema,
@@ -164,6 +165,7 @@ import {
 	ConsoleVaultRevokeResultSchema,
 	VaultDeleteValueSchema,
 	VaultGrantSchema,
+	VaultHolderSchema,
 	VaultListResultSchema,
 	VaultListValueSchema,
 	VaultPutSchema,
@@ -357,6 +359,7 @@ const ROOTS: z.ZodType[] = [
 	WireRequestSchema,
 	WirePhoneDecodeSchema,
 	WireSealedSchema,
+	VaultHolderSchema,
 	WireFixtureSchema,
 	WireFixtureEntrySchema,
 	WireManifestSchema,
@@ -372,6 +375,7 @@ const SEALED_ROOTS = new Set([
 	"RunbookFireTarget",
 	"BoardOp",
 	"BoardActor",
+	"VaultHolder",
 	"VaultRequest",
 	"WireFixture",
 ]);
@@ -425,6 +429,9 @@ function nullableInner(node: Json): Json | null {
 	return members[1 - nullIndex] as Json;
 }
 
+/** Every type a field is typed as, so nothing can be referenced and never declared. */
+const referenced = new Set<string>();
+
 function kotlinType(node: Json, defs: Map<string, Json>): string {
 	const ref = node.$ref as string | undefined;
 	if (ref) {
@@ -432,6 +439,7 @@ function kotlinType(node: Json, defs: Map<string, Json>): string {
 		const target = defs.get(name);
 		if (!target) throw new Error(`unresolved $ref ${ref}`);
 		if (!target.properties && !target.oneOf && !target.anyOf) return kotlinType(target, defs);
+		referenced.add(name);
 		return name;
 	}
 	const inner = nullableInner(node);
@@ -623,6 +631,7 @@ const schemaConstantBlock = (name: string, values: string[]) =>
 	].join("\n");
 
 const blocks: string[] = [];
+const declared = new Set<string>();
 for (const name of order) {
 	const node = defs.get(name);
 	if (!node) continue;
@@ -631,10 +640,18 @@ for (const name of order) {
 		const schema = ROOTS.find((s) => idOf(s) === name);
 		if (!schema) throw new Error(`sealed root ${name} not in ROOTS`);
 		blocks.push(emitSealedClass(name, node, discriminatorOf(schema), defs));
+		declared.add(name);
 	} else if (node.properties) {
 		blocks.push(emitDataClass(name, node, defs));
-	} else {
+		declared.add(name);
 	}
+}
+
+// A union no list names emits nothing at all, so a field typed as it used to fail only at Kotlin
+// compile, and only for whoever ran that gate.
+for (const name of referenced) {
+	if (declared.has(name)) continue;
+	throw new Error(`${name} is a field's type and nothing declares it; add it to ROOTS and SEALED_ROOTS`);
 }
 
 const header = `// generated from src/shared/schemas.ts + src/shared/console-protocol.ts - DO NOT EDIT.

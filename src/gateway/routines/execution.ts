@@ -30,10 +30,10 @@ export function nudgeFor(routine: Routine, occurrence: Occurrence): string {
 
 export function createRoutineExecution(deps: RoutineExecutionDeps): RoutineAttempt {
 	return {
-		sessionIdle(routine: Routine): boolean {
+		sessionIdle(team: string): boolean {
 			// Unknown counts as idle: a session nobody has heard from is not one that is busy, and
 			// the deadline is what stops this waiting forever.
-			return deps.workingOf(routineTeam(routine)) !== true;
+			return deps.workingOf(team) !== true;
 		},
 
 		async prepare(routine: Routine, _occurrence: Occurrence): Promise<PrepareResult> {

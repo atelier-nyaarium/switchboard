@@ -26,6 +26,7 @@ const routine = (over: Partial<Routine> = {}): Routine => ({
 	approvedRevision: 3,
 	values: { branch: "main" },
 	target: { spawn: "host" },
+	linkedEntries: [],
 	enabled: true,
 	revision: 1,
 	since: 0,
@@ -92,7 +93,9 @@ describe("what a routine does when its moment comes", () => {
 
 	it("treats a session nobody has heard from as idle, and only a working one as busy", () => {
 		const states = [undefined, false, true] as const;
-		const idle = states.map((working) => seam({ workingOf: () => working }).execution.sessionIdle(routine()));
+		const idle = states.map((working) =>
+			seam({ workingOf: () => working }).execution.sessionIdle("host.routine-triage"),
+		);
 
 		expect(idle).toEqual([true, true, false]);
 	});

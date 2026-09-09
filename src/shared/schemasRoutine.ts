@@ -55,6 +55,11 @@ export const RoutineSchema = z
 		/** Complete at save, so nothing is asked at fire time. */
 		values: z.record(z.string(), z.string()),
 		target: RoutineTargetSchema,
+		/**
+		 * Vault entries the owner pre-authorized at save. Each is unrestricted while an occurrence is
+		 * live: the grant names the entry and claims nothing about what is run with it.
+		 */
+		linkedEntries: z.array(z.string().min(1).max(64)).max(16),
 		enabled: z.boolean(),
 		/** Bumped by the gateway on every save, so a stale editor cannot land on a moved record. */
 		revision: z.number().int().positive(),
@@ -81,6 +86,18 @@ export const RoutineMissSchema = z
 	})
 	.meta({ id: "RoutineMiss" });
 
+/**
+ * Secrets an occurrence asked for and never got. It says which run wanted them, so the owner can
+ * approve that one or link the entry so later runs stop asking.
+ */
+export const RoutineAttentionSchema = z
+	.object({
+		occurrenceId: z.string().min(1),
+		scheduledAt: z.number().int().nonnegative(),
+		entryIds: z.array(z.string().min(1)),
+	})
+	.meta({ id: "RoutineAttention" });
+
 /** What the phone draws a row from. It recomputes no instant of its own. */
 export const RoutineStateSchema = z
 	.object({
@@ -91,6 +108,7 @@ export const RoutineStateSchema = z
 		missed: RoutineMissSchema.optional(),
 		/** When it last refused a moved revision. Saving the routine again is what clears it. */
 		reviewAt: z.number().int().nonnegative().optional(),
+		attention: RoutineAttentionSchema.optional(),
 	})
 	.meta({ id: "RoutineState" });
 
@@ -121,6 +139,7 @@ export const ConsoleRoutineOccurrenceResultSchema = z
 	})
 	.meta({ id: "ConsoleRoutineOccurrenceResult" });
 
+export type RoutineAttention = z.infer<typeof RoutineAttentionSchema>;
 export type RoutineMiss = z.infer<typeof RoutineMissSchema>;
 export type RoutineState = z.infer<typeof RoutineStateSchema>;
 export type ConsoleRoutineListResult = z.infer<typeof ConsoleRoutineListResultSchema>;
@@ -135,6 +154,7 @@ export type ConsoleRoutineOccurrenceResult = z.infer<typeof ConsoleRoutineOccurr
 export function routineRefusal(routine: Routine): string | null {
 	if (routine.weekdays.length === 0) return "a routine with no weekday would never fire";
 	if (new Set(routine.weekdays).size !== routine.weekdays.length) return "a weekday is named twice";
+	if (new Set(routine.linkedEntries).size !== routine.linkedEntries.length) return "a secret is linked twice";
 	if (!parseLocalDate(routine.startDate)) return `${routine.startDate} is not a date`;
 	if (!parseLocalTime(routine.time)) return `${routine.time} is not a time`;
 	if (!knownZone(routine.zone)) return `${routine.zone} is not a zone this gateway knows`;

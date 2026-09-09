@@ -1,14 +1,16 @@
-// Grants are gateway-local and session-bound.
+// Grants are gateway-local, and each names the holder it was given to.
 
 import { z } from "zod";
 import type { Ambient } from "../../shared/ambient.js";
 import { type DurableStore, DurableStoreInstalledError } from "../../shared/durable-store.js";
 import {
+	holderOf,
 	VAULT_SESSION_GRANT_CAP_MS,
 	VAULT_WINDOW_MS,
 	type VaultDecision,
 	type VaultGrant,
 	VaultGrantSchema,
+	type VaultHolder,
 } from "../../shared/schemasVault.js";
 import { coveredBy, shapeFrom } from "./operationSet.js";
 
@@ -17,6 +19,11 @@ export interface VaultDecisionsDeps {
 	store: DurableStore;
 	ambient: Pick<Ambient, "newId">;
 	sessionCapMs?: number;
+	/**
+	 * The routine whose occurrence is live in this session right now, verified by provenance rather
+	 * than by the session's name. Absent means no standing grant covers anything.
+	 */
+	routineHolding?: (sessionTarget: string) => string | null;
 }
 
 /** Grant scope: entry, display shape, covered shapes, session. */
@@ -67,11 +74,19 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 		if (kept.length !== grants.length) commit(kept, false);
 	};
 
-	/** Session grants cover every shape; a window grant covers a request whose programs it all named. */
+	/**
+	 * Session and standing grants cover every shape; a window grant covers a request whose programs
+	 * it all named. A standing grant covers only while its routine is live in the asking session.
+	 */
 	const covers = (scope: GrantScope, now: number): VaultGrant | undefined => {
 		sweep(now);
+		const live = deps.routineHolding?.(scope.sessionTarget) ?? null;
 		return grants.find((grant) => {
-			if (grant.sessionTarget !== scope.sessionTarget || grant.entryId !== scope.entryId) return false;
+			if (grant.entryId !== scope.entryId) return false;
+			const holder = holderOf(grant);
+			if (!holder) return false;
+			if (holder.kind === "routine") return live !== null && holder.routineId === live;
+			if (holder.sessionTarget !== scope.sessionTarget) return false;
 			if (grant.tier === "session") return true;
 			// Read the old name until 2026-09-19.
 			const covered = grant.coveredShapes ?? grant.shapes;
@@ -82,6 +97,7 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 	/** Once leaves no grant. */
 	const grant = (decision: VaultDecision, scope: GrantScope, now: number): VaultGrant | null => {
 		if (decision !== "window" && decision !== "session") return null;
+		const holder: VaultHolder = { kind: "session", sessionTarget: scope.sessionTarget };
 		const granted: VaultGrant =
 			decision === "window"
 				? {
@@ -91,6 +107,7 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 						shape: scope.displayShape,
 						displayShape: scope.displayShape,
 						coveredShapes: scope.coveredShapes,
+						holder,
 						sessionTarget: scope.sessionTarget,
 						expiresAt: now + VAULT_WINDOW_MS,
 					}
@@ -98,11 +115,47 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 						grantId: deps.ambient.newId(),
 						tier: "session",
 						entryId: scope.entryId,
+						holder,
 						sessionTarget: scope.sessionTarget,
 						expiresAt: now + sessionCapMs,
 					};
 		commit([...grants, granted], false);
 		return granted;
+	};
+
+	/**
+	 * What a routine is authorized to reach, made to match its linked entries exactly. Only the owner
+	 * reaches this, through a routine save, so nothing inside a session can widen it.
+	 */
+	const setRoutineGrants = (routineId: string, entryIds: string[]): VaultGrant[] => {
+		const mine = (grant: VaultGrant) => {
+			const holder = holderOf(grant);
+			return holder?.kind === "routine" && holder.routineId === routineId;
+		};
+		const wanted = new Set(entryIds);
+		const kept = grants.filter((grant) => !mine(grant) || (grant.entryId && wanted.has(grant.entryId)));
+		const held = new Set(kept.filter(mine).map((grant) => grant.entryId));
+		const added: VaultGrant[] = entryIds
+			.filter((entryId) => !held.has(entryId))
+			.map((entryId) => ({
+				grantId: deps.ambient.newId(),
+				tier: "standing" as const,
+				entryId,
+				holder: { kind: "routine" as const, routineId },
+			}));
+		if (kept.length !== grants.length || added.length > 0) commit([...kept, ...added], true);
+		return grants.filter(mine);
+	};
+
+	/** Everything a routine held, when the routine itself goes. */
+	const routineEnded = (routineId: string): void => {
+		setRoutineGrants(routineId, []);
+	};
+
+	/** Every holder loses a grant on an entry that no longer exists. */
+	const entryDeleted = (entryId: string): void => {
+		const kept = grants.filter((grant) => grant.entryId !== entryId);
+		if (kept.length !== grants.length) commit(kept, true);
 	};
 
 	const list = (now: number): VaultGrant[] => {
@@ -116,11 +169,14 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 	};
 
 	const sessionEnded = (sessionTarget: string): void => {
-		const kept = grants.filter((grant) => grant.sessionTarget !== sessionTarget);
+		const kept = grants.filter((grant) => {
+			const holder = holderOf(grant);
+			return holder?.kind !== "session" || holder.sessionTarget !== sessionTarget;
+		});
 		if (kept.length !== grants.length) commit(kept, true);
 	};
 
-	return { covers, grant, list, revoke, sessionEnded };
+	return { covers, grant, list, revoke, sessionEnded, setRoutineGrants, routineEnded, entryDeleted };
 }
 
 export type VaultDecisions = ReturnType<typeof createVaultDecisions>;

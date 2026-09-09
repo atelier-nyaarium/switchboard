@@ -144,10 +144,25 @@ export const VaultRequestSchema = z
 /** The `vault:retract` payload: the request settled elsewhere, so the phone drops it. */
 export const VaultRetractSchema = z.object({ requestId }).meta({ id: "VaultRetract" });
 
+/**
+ * Who a grant is for. A session is the first kind and a routine the second; a remote will be the
+ * third. The subject is a holder rather than a session so the next kind extends this rather than
+ * copying what routines built.
+ */
+export const VaultHolderSchema = z
+	.discriminatedUnion("kind", [
+		z.object({ kind: z.literal("session"), sessionTarget: z.string().min(1).max(128) }),
+		z.object({ kind: z.literal("routine"), routineId: z.string().min(1).max(64) }),
+	])
+	.meta({ id: "VaultHolder" });
+
+export type VaultHolder = z.infer<typeof VaultHolderSchema>;
+
 export const VaultGrantSchema = z
 	.object({
 		grantId: z.string().min(1).max(128),
-		tier: z.enum(["window", "session"]).meta({ id: "VaultGrantTier", catalog: "tier" }),
+		/** A standing grant is a routine's, and dies with the routine rather than with a clock. */
+		tier: z.enum(["window", "session", "standing"]).meta({ id: "VaultGrantTier", catalog: "tier" }),
 		entryId: entryId.optional(),
 		// A session grant names no shape at all. `shape` goes on 2026-09-19.
 		shape: z.string().max(256).optional(),
@@ -156,10 +171,19 @@ export const VaultGrantSchema = z
 		coveredShapes: shapes.optional(),
 		// Read a grant written under the old name until 2026-09-19.
 		shapes: shapes.optional(),
-		sessionTarget: z.string().min(1).max(128),
+		// Required on 2026-09-22, once no stored grant predates holders.
+		holder: VaultHolderSchema.optional(),
+		// Read a grant written before the subject was a holder. Goes on 2026-09-22.
+		sessionTarget: z.string().min(1).max(128).optional(),
 		expiresAt: z.number().int().nonnegative().optional(),
 	})
 	.meta({ id: "VaultGrant" });
+
+/** The one place a grant's subject is read. A row written before holders is a session's. */
+export function holderOf(grant: z.infer<typeof VaultGrantSchema>): VaultHolder | null {
+	if (grant.holder) return grant.holder;
+	return grant.sessionTarget ? { kind: "session", sessionTarget: grant.sessionTarget } : null;
+}
 
 export const ConsoleVaultAnswerResultSchema = z
 	.object({ ok: z.boolean(), reason: z.string().optional() })
@@ -199,7 +223,7 @@ export const VaultCaptureRequestSchema = z.object({
 });
 // Optional until 2026-09-19 for helpers installed before 8.7.3; then require `asker` here. The request arms keep it optional: a session's own run has none.
 export const VaultAskpassRequestSchema = z.object({ cmdline: operation, waitMs, asker });
-export const VaultApprovedDecisionSchema = z.enum(["once", "window", "session"]);
+export const VaultApprovedDecisionSchema = z.enum(["once", "window", "session", "standing"]);
 /** What use, collect, and askpass answer: pending hands back the request; deny and timeout both refuse. */
 export const VaultValueAnswerSchema = z.discriminatedUnion("outcome", [
 	z.object({ outcome: z.literal("approved"), decision: VaultApprovedDecisionSchema, value: z.string() }),

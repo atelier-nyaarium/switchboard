@@ -24,17 +24,26 @@ export interface VaultStageDeps {
 	context: FederationContext;
 	routes: () => Pick<GatewayRoutes, "deliverToOwner">;
 	sessions: Pick<SessionsStage, "sessionAuthority" | "sessionStore">;
+	/** Read late, since the routine stage is composed after this one. */
+	workingRoutine: (sessionTarget: string) => string | null;
+	/** A secret nobody answered for, recorded against whatever occurrence wanted it. */
+	secretUnanswered: (sessionTarget: string, entryId: string) => void;
 }
 
 export interface VaultStage {
 	routes: Map<string, (req: Request, body: unknown) => Promise<Response>>;
 	console: VaultConsoleHandlers;
 	sessionEnded: (team: string) => void;
+	entryDeleted: (entryId: string) => void;
+	/** The one road to a routine's grants, reached from a routine save and from nowhere else. */
+	setRoutineGrants: (routineId: string, entryIds: string[]) => void;
 }
 
 export function composeVault(deps: VaultStageDeps): VaultStage {
 	const { ambient, context, localGatewayId, sessions } = deps;
-	const decisions = openDurable(deps.dataDir, "vault-decisions", (store) => createVaultDecisions({ store, ambient }));
+	const decisions = openDurable(deps.dataDir, "vault-decisions", (store) =>
+		createVaultDecisions({ store, ambient, routineHolding: (target) => deps.workingRoutine(target) }),
+	);
 	const helperTokens = openDurable(deps.dataDir, "vault-helper", (store) => createHelperTokens({ store, ambient }));
 	const ownerSignPub = () => context.slice()?.allowlist.ownerSignPub ?? null;
 	const localAddress = (sessionTarget: string): Address =>
@@ -91,6 +100,10 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		ambient,
 		deliver,
 		onSettled: retract,
+		onUnanswered: (request) => {
+			if (request.kind !== "entry") return;
+			deps.secretUnanswered(request.sessionTarget, request.entryId);
+		},
 		openTyped: (envelope, requestId) => context.slice()?.vaultClient.openTyped(envelope, requestId) ?? null,
 		onApproved: (request, decision) => {
 			if (request.kind !== "entry") return;
@@ -157,6 +170,10 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		sessionEnded: (team) => {
 			decisions.sessionEnded(team);
 			requests.sessionEnded(team);
+		},
+		entryDeleted: (entryId) => decisions.entryDeleted(entryId),
+		setRoutineGrants: (routineId, entryIds) => {
+			decisions.setRoutineGrants(routineId, entryIds);
 		},
 	};
 }
