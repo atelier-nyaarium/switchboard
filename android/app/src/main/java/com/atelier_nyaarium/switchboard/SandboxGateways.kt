@@ -28,7 +28,7 @@ import kotlinx.serialization.json.JsonObject
 /** Deliberately not a wire word: the residue fence reads this file for those. */
 private const val REFUSING_ID = "held-elsewhere"
 
-/** One answer repeated could not show a grouping bug, so these two differ from the first. */
+/** Each answers differently, or a grouping bug has nowhere to show. */
 private const val SECOND_GATEWAY = "parsing"
 
 private const val EMPTY_GATEWAY = "idle-box"

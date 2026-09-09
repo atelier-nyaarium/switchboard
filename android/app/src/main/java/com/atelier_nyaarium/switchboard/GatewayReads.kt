@@ -4,10 +4,9 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Which read of a gateway is the current one. The drain loop and a tap on the screen both start
- * reads, on different threads, so an older answer can land after a newer one and put back what the
- * owner just settled. One counter per gateway: a slow read of one never discards a fresh read of
- * another.
+ * Which read of a gateway is the current one. An older answer landing after a newer one would put
+ * back what the owner just settled. One counter per gateway, so a slow read of one never discards a
+ * fresh read of another.
  */
 internal class GatewayReadFence {
 	private val counters = ConcurrentHashMap<String, AtomicLong>()

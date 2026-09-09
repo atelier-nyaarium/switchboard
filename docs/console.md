@@ -80,9 +80,9 @@ Six jobs, each resolving or identifying:
 5. Deciding which Gateway claims a runbook library written before libraries were split per Gateway.
 6. Where an unassigned board entry's attachment blob is uploaded, since it has no session Gateway.
 
-**It is not a visibility filter, and a screen that reads it to decide what to draw is a bug.** Stating
-only how it is selected is what let it be borrowed as one, and the Routines and Runbooks tabs each
-drew one Gateway. They read `admittedGateways` and group by Gateway.
+**It is not a visibility filter, and a screen that reads it to decide what to draw is a bug.** A
+document that states only how it is selected invites exactly that, which is why the jobs are listed.
+The Routines and Runbooks tabs read `admittedGateways` and group by Gateway.
 
 One filter remains: `TrustOps.shareableSessions` offers only sessions on this Gateway, and the share
 it feeds sends `requesterGatewayId = homeGatewayId()`. Widening the list alone would offer sessions

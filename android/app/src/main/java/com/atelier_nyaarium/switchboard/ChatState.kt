@@ -165,10 +165,7 @@ private const val WAKE_NOTICE_TTL_MS = 10 * 60_000L
 internal fun ChatState.recomputeUnread(team: String, thread: List<Message>): ChatState =
 	copy(unread = unread + (team to unreadCount(thread, readAnchors[team])))
 
-/**
- * One gateway's copy, never whichever copy shares the id. Two gateways may hold one id and the two
- * records are unrelated, so a screen that reaches past its own group opens someone else's words.
- */
+/** One gateway's copy, never whichever copy shares the id. Two gateways' records are unrelated. */
 internal fun ChatState.runbooksOn(gatewayId: String): List<Runbook> =
 	runbooks.find { it.gatewayId == gatewayId }?.runbooks.orEmpty()
 

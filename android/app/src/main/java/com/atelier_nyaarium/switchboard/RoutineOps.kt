@@ -70,8 +70,7 @@ internal class RoutineOps(
 	/** Every gateway the keyring admits, asked together so a slow one does not hold up the rest. */
 	suspend fun refreshAll(gatewayIds: List<String>) {
 		coroutineScope { gatewayIds.map { id -> async { refresh(id) } }.awaitAll() }
-		// Membership as it stands now, not as it stood when this pass began, so a pass that started
-		// before a Gateway was admitted does not drop what a later one drew.
+		// Membership as it stands now, not as this pass captured it.
 		state.update { held ->
 			val admitted = held.admittedGateways.toSet()
 			held.copy(routines = held.routines.filter { it.gatewayId in admitted })

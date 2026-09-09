@@ -130,9 +130,8 @@ internal class RunbookOps(
 	/** Every gateway the keyring admits, asked together so a slow one does not hold up the rest. */
 	suspend fun refreshAll(gatewayIds: List<String>) {
 		coroutineScope { gatewayIds.map { id -> async { refresh(id) } }.awaitAll() }
-		// Membership as it stands now, not as it stood when this pass began, so a pass that started
-		// before a Gateway was admitted does not drop what a later one drew. The stored library is
-		// left alone: a lapsed keyring entry is not a reason to lose what the owner wrote.
+		// Membership as it stands now, not as this pass captured it. The stored library stays: a
+		// lapsed keyring entry is not a reason to lose what the owner wrote.
 		state.update { held ->
 			val admitted = held.admittedGateways.toSet()
 			held.copy(runbooks = held.runbooks.filter { it.gatewayId in admitted })

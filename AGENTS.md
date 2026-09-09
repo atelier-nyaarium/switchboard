@@ -177,11 +177,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **Every gateway is asked, concurrently, and one that cannot be read leaves the rest drawn:**
     `refreshAll` fans out, then prunes, so a Gateway the keyring no longer admits stops being drawn
     and stops being actionable with it.
-  - **`state.admittedGateways` is the ONE authority on membership, and the prune re-reads it:**
-    pruning to the list the pass began with let a pass started before a Gateway was admitted drop
-    what a later one had drawn, and a second source (a fresh keyring read in the drain) made those
-    two lists differ. Both callers read the published set now. The stored runbook library is never
-    pruned; a lapsed keyring entry is not a reason to lose what the owner wrote.
+  - **`state.admittedGateways` is the ONE authority on membership, and the prune re-reads it:** a
+    second source, such as a fresh keyring read, disagrees with the published set, and a pass that
+    pruned to the list it began with would drop what a later pass had drawn. The stored runbook
+    library is never pruned; a lapsed keyring entry is not a reason to lose what the owner wrote.
   - **A zone belongs to its gateway, and an instant belongs to the owner:** each group carries the
     zone its gateway keeps schedules in, which is what the editor converts a typed time into. The
     rows show instants, so they read in the owner's own zone.
@@ -195,8 +194,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **The later read of a gateway wins, and only of that gateway:** the drain loop and a tap both
     start reads, so an older answer can land after a newer one and put back what the owner just
     settled. One counter per gateway, or a slow read of one discards a fresh read of another. Each
-    ops class holds its own fence, since a routine read and a runbook read are different reads, but
-    there is one rule rather than a copy per class, which is how one of them came to have none.
+    ops class holds its own fence, since a routine read and a runbook read are different reads, and
+    the rule lives here rather than being written out once per class.
 - `android/.../AttachmentOps.kt` - attachment fetch-and-sweep state
 - `android/.../ScheduledSendOps.kt` - scheduled sends and single fire mutex
 - `android/.../GoalOps.kt` / `Goal.kt` - armed goals and `/goal` line production

@@ -357,11 +357,20 @@ Patched three times now, which makes it a design bug rather than three unlucky o
    named a list of one. Patched by taking the parameter away from everything that did not use it.
 3. `RoutineOps` gained a per-gateway read fence and `RunbookOps` did not, in the same change that
    made both plural. Patched by extracting `GatewayReadFence` so there is one.
+4. The prune I added to close the first round read the caller's captured list, and two callers had
+   two different sources for it. Patched by making `state.admittedGateways` the one authority and
+   re-reading it at prune time.
 
-The common cause is that "which gateway" is an ordinary `String` threaded by hand, so every new
-plural reader is a fresh chance to forget. The fix that would make the class inexpressible is an
-admitted-gateway value resolved from the keyring, which every op takes and no caller can invent. That
-is the same work as retiring `homeGatewayId`, and it is on the board rather than in this plan.
+**Four rounds is not bad luck.** The common cause is that "which gateway" is an ordinary `String`
+threaded by hand, so every new plural reader, and every new membership decision, is a fresh chance to
+disagree with its neighbour. Round 4 is the sharpest form of it: the fix for rounds 1 to 3 introduced
+round 4, because a `List<String>` argument and a state field both claimed to say which gateways
+exist.
+
+The change that would make the class inexpressible is an admitted-gateway value resolved from the
+keyring, which every op takes and no caller can invent or capture. That is the same work as retiring
+`homeGatewayId`, it is claimed on the board, and it is deliberately not attempted here: doing it in
+passing is how round 4 happened.
 
 ## Phase 2 - A run button on every row
 

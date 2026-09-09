@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 
 /**
  * A new record belongs to the Gateway that holds it, and no Gateway is the default one. One is taken
- * without asking; several are asked. No Gateway means no button, since a tap could do nothing.
+ * without asking, several are asked, and none draws no button.
  */
 @Composable
 fun NewOnGatewayFab(
