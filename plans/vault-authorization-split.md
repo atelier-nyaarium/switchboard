@@ -474,6 +474,8 @@ already use it for other things, qualify it: `authorizationPolicy`.
 
 ## Phase 0 - Wire truth
 
+✅ Complete. `cfb4f591` the wire, `9a83899c` the map and docs. Every gate green, CI green.
+
 - `src/shared/schemasPolicy.ts`: `id`, `name`, `binding: { kind: "entry", entryId }`,
   `selectorShapes`, `enabled`, `revision`. No `since`: nothing walks a policy's history. Bounds
   beside `RoutineSchema`'s and `VAULT_SHAPES_MAX`: id and name length, selector length and count,
@@ -523,17 +525,29 @@ already use it for other things, qualify it: `authorizationPolicy`.
   policy's keys, and the refusal names the holder. The binding stays a soft reference at save: a
   bound entry that is absent, valueless or not allowed here leaves the policy unresolved, never
   refused.
-- **The migration fence is inherited, and Phase 1 proves it.** `migration-fence.ts` says writers
-  enforce the fence, never callers, and the durable writer does. The residue test that pins fence
-  coverage names the policy store. No new check on the dispatcher.
-- **Composition.** `composePolicies.ts` builds the store and its console operations. `onChanged`
-  reaches vault decisions and requests, which `composeVault` builds, through `composeGateway`'s
-  late-bound stage pattern. The initial `policiesListed` reconciliation runs once both exist and
-  before the listener opens.
+- **The migration fence does not reach this store.** The fence holds Router-bound writes while the
+  Router moves. `saveChecked` writes the gateway's own disk at once, not through the fenced flush,
+  which is the standing the runbook, routine and capability stores have in the residue test. No
+  fence check on policy writes, nothing added to the residue test.
+- **Composition.** `composePolicies.ts` builds the store and its console operations, and exposes
+  `onPolicyMoved` as the seam the vault reads. Phase 1 leaves the seam unconnected. Phase 2 builds
+  `policyMoved`, `policyDeleted` and `policiesListed` on the vault and owns the wiring:
+  `composeGateway` hands `onPolicyMoved` to the vault through its late-bound stage pattern, and the
+  initial `policiesListed` reconciliation runs once both exist and before the listener opens.
 - Tests: overlap on save and on enable; disable, enable another over the freed key, re-enable
   refused; stale base on put, enable and delete; the deletion fence; canonicalization of typed
   examples. Key derivation, with its prefix, substring and case cases, is pinned by Phase 0's
   `schemas-policy.test.ts`; Phase 1 pins the resolver's exact-match lookup against stored keys.
+- **Restore validates what a put validates.** A file holding two enabled holders of one key, a
+  duplicate id, a non-canonical shape or more than the cap loads as if it were unparseable: the
+  store starts fresh and the next write heals the file. The runbook and routine stores load on the
+  schema alone; that class is under Painpoints, not fixed here.
+- **Set aside from the red team.** The deletion fence's non-durability needs the Router to redeliver
+  a settled `value_op` after a gateway restart; `inboxFrames.ts` sends one once and times it out,
+  so the delayed put cannot arrive. The stated limit stands. `selectorKey` and `askpassBrief` differ
+  on a path-prefixed or multi-word line, and the gateway keys the brief with `displayShape`, which
+  is `selectorKey`, so the resolver compares key against key. A test pins
+  `selectorKey(askpassBrief(line)) === selectorKey(line)`.
 
 ## Phase 2 - Grants and requests learn policies
 
@@ -646,3 +660,23 @@ revisit, but the plan never proposed it; a cross-version CI matrix is not a gate
 list ordering follows from the model; a docs-phrase gate would test wording, not truth; the word
 policy collides only locally. The Router-fence finding did not survive my own check either: the
 fence contract says writers enforce it, and the durable writer does, so it is inherited.
+
+## Painpoints
+
+Collected as the phases land. Not fixed here.
+
+- **The helper and the gateway agree by convention across the askpass seam.** The askpass flag walk
+  now lives in `selector-key.ts`, shared by `askpassBrief` and `selectorKey`. The class remains: the
+  `asker` format `askerOf` mints and `requests.ts` parses, and `secretPrompt`'s notion of which
+  prompts reach the phone, are conventions the two sides keep in separate files with no shared
+  declaration and no fixture pinning both.
+- **`dispatch` in `consoleHandler.ts` is a switch with no exhaustiveness guard.** An op kind added to
+  `ConsoleOpSchema` and `VALUE_OP_KINDS` with no case compiles, and the op answers `undefined`. The
+  answer side is fenced by `console-result-codegen.test.ts`; the dispatch side is fenced by nothing.
+  A `never` default would make the missing case a type error.
+- **The runbook and routine stores restore on the wire schema alone.** A file with a duplicate id,
+  or a record `runbookRefusal` or `routineRefusal` would refuse, loads, and an edit of a duplicated
+  id rewrites every record that shares it. The policy store validates on restore; its siblings do
+  not.
+- **`routine_enable` carries no base revision**, so a stale toggle wins where a stale put is refused.
+  On the board as bd_ee0449e2. The policy operations carry one.

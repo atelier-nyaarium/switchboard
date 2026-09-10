@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type AuthorizationPolicy, canonicalPolicy, policyRefusal } from "../shared/schemasPolicy.js";
 import { selectorKey } from "../shared/selector-key.js";
+import { askpassBrief } from "../vault-askpass/askpass.js";
 
 const policy = (selectorShapes: string[]): AuthorizationPolicy => ({
 	id: "p1",
@@ -29,6 +30,12 @@ describe("selectorKey", () => {
 		expect(selectorKey("ssh deploy@prod uptime")).toBe("ssh deploy@prod");
 		expect(selectorKey("ssh deploy@prod uptime")).not.toBe(selectorKey("ssh deploy"));
 		expect(selectorKey("ssh deploy@prod")).not.toBe(selectorKey("ssh deploy@production"));
+	});
+
+	it("keys the helper's brief as the typed line", () => {
+		for (const line of ["sudo -A apt update", "sudo\tapt\tinstall foo", "/usr/bin/sudo -AH -u root apt", "sudo"]) {
+			expect(selectorKey(askpassBrief(line, "/usr/bin/sudo"))).toBe(selectorKey(line));
+		}
 	});
 });
 

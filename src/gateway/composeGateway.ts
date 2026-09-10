@@ -12,6 +12,7 @@ import { composeFederation, type FederationStage } from "./compose/composeFedera
 import { composeHost } from "./compose/composeHost.js";
 import { composeListener } from "./compose/composeListener.js";
 import { composePersistence } from "./compose/composePersistence.js";
+import { composePolicies } from "./compose/composePolicies.js";
 import { composeRouterFrames, type RouterFramesBuild, type RouterFramesStage } from "./compose/composeRouterFrames.js";
 import {
 	composeRouterPresence,
@@ -210,6 +211,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			return record ? sessions.sessionStore.teamOf(record) : null;
 		},
 	});
+	const policies = composePolicies({ dataDir: bootstrap.dataDir });
 	routerFrames = composeRouterFrames({
 		localGatewayId: bootstrap.localGatewayId,
 		wakeTimeoutMs: config.wakeTimeoutMs,
@@ -222,6 +224,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		vault,
 		runbooks,
 		routines,
+		policies,
 	});
 
 	if (bootstrap.gatewayBoot.kind === "arming") enrollment.enterArming(bootstrap.gatewayBoot.nonce);

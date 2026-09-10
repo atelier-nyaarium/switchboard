@@ -35,6 +35,7 @@ export interface RouterFramesStageDeps {
 	vault: Pick<VaultStage, "console" | "sessionEnded">;
 	runbooks: Pick<RunbookStage, "console">;
 	routines: Pick<RoutineStage, "console" | "bindExecution" | "sessionEnded">;
+	policies: Pick<import("./composePolicies.js").PolicyStage, "console">;
 }
 
 export interface RouterFramesBuild extends RouterFrameHandlers {
@@ -111,6 +112,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			vault: deps.vault.console,
 			runbooks: deps.runbooks.console,
 			routines: deps.routines.console,
+			policies: deps.policies.console,
 			onSessionEnded: (team) => {
 				deps.vault.sessionEnded(team);
 				deps.routines.sessionEnded(team);
