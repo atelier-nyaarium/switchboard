@@ -31,7 +31,7 @@ export interface VaultStageDeps {
 	/** A secret nobody answered for, recorded against whatever occurrence wanted it. */
 	secretUnanswered: (sessionTarget: string, entryId: string) => void;
 	/** Read late. */
-	policies: () => Pick<PolicyStore, "get">;
+	policies: () => Pick<PolicyStore, "get" | "byKey">;
 }
 
 export interface VaultStage {
@@ -143,6 +143,7 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		decisions,
 		requests,
 		helperTokens,
+		policies: deps.policies,
 		ambient,
 		resolveCaller: (req) => {
 			const record = sessions.sessionAuthority.resolveConfirmedManagedSession(req);

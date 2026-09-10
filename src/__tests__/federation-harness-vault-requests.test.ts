@@ -259,15 +259,16 @@ describe("federation harness: vault requests", () => {
 		);
 	});
 
-	it("the helper asks with its own token: a title equal to the shape picks the entry, else the owner types", async () => {
-		const gatewayPost = (path: string, headers: Record<string, string>, body: Record<string, unknown>) =>
-			h.gateway.router(
-				new Request(`http://gateway.test${path}`, {
-					method: "POST",
-					headers: { "content-type": "application/json", ...headers },
-					body: JSON.stringify(body),
-				}),
-			);
+	const gatewayPost = (path: string, headers: Record<string, string>, body: Record<string, unknown>) =>
+		h.gateway.router(
+			new Request(`http://gateway.test${path}`, {
+				method: "POST",
+				headers: { "content-type": "application/json", ...headers },
+				body: JSON.stringify(body),
+			}),
+		);
+
+	it("the helper asks with its own token: a policy on the key picks the entry, else the owner types", async () => {
 		expect((await gatewayPost("/vault/helper-token", {}, {})).status).toBe(401);
 		// A withdraw of a request the caller did not open answers false.
 		expect(await (await post(alice, "/vault/withdraw", { requestId: "nothing-open" })).json).toEqual({
@@ -280,7 +281,7 @@ describe("federation harness: vault requests", () => {
 			(await gatewayPost("/vault/askpass", { "x-vault-helper-token": token }, { cmdline, waitMs })).json();
 		expect((await gatewayPost("/vault/askpass", {}, { cmdline: "sudo apt install foo" })).status).toBe(401);
 
-		// No matching title: typed request, collected by the helper after the wait ran out.
+		// No policy for the key: typed request, collected by the helper after the wait ran out.
 		const seen = (await requestRows()).length;
 		const typed = await askpass("sudo apt install foo", 200);
 		expect(typed).toMatchObject({ outcome: "pending" });
@@ -314,6 +315,7 @@ describe("federation harness: vault requests", () => {
 		);
 		expect(await collected.json()).toEqual({ outcome: "approved", decision: "once", value: "t0ps3cret" });
 
+		// Titles never select.
 		const id = "prod-ssh";
 		await h.phone.send({
 			kind: "vault_put",
@@ -326,13 +328,32 @@ describe("federation harness: vault requests", () => {
 				},
 			},
 		});
+		expect(await askpass("ssh deploy@prod -v", 200)).toMatchObject({ outcome: "pending" });
+		const titled = await nextRequest(seen + 1);
+		expect(titled.kind).toBe("typed");
+		await gatewayPost("/vault/withdraw", { "x-vault-helper-token": token }, { requestId: titled.requestId });
+
+		// A policy on the key opens an entry request that carries it.
+		const put = await h.phone.value({
+			kind: "policy_put",
+			policy: {
+				id: "prod-ssh-policy",
+				name: "Prod ssh",
+				binding: { kind: "entry", entryId: id },
+				selectorKeys: ["ssh deploy@prod"],
+				enabled: true,
+				revision: 1,
+			},
+		});
+		expect(put.result).toMatchObject({ stored: true, revision: 1 });
 		const entryRoad = askpass("ssh deploy@prod -v", 10_000);
-		const second = await nextRequest(seen + 1);
+		const second = await nextRequest(seen + 2);
 		expect(second).toMatchObject({
 			kind: "entry",
 			entryId: id,
 			displayShape: "ssh deploy@prod",
 			coveredShapes: ["ssh deploy@prod"],
+			policy: { policyId: "prod-ssh-policy", policyRevision: 1 },
 		});
 		await h.phone.value({ kind: "vault_answer", requestId: second.requestId, decision: "session" });
 		// A helper's session tap is a window: every process on the host shares its token.
@@ -342,12 +363,14 @@ describe("federation harness: vault requests", () => {
 			decision: "window",
 			value: "k3y",
 		});
-		expect((await requestRows()).length).toBe(seen + 2);
-		// Revoking the token ends its grants with it.
+		expect((await requestRows()).length).toBe(seen + 3);
+		// The grant the tap minted carries the policy that resolved it; revoking the token ends it.
 		const listed = (await h.phone.value({ kind: "vault_grants" })).result as {
-			grants: Array<{ sessionTarget: string }>;
+			grants: Array<{ sessionTarget: string; policy?: { policyId: string; policyRevision: number } }>;
 		};
-		expect(listed.grants.some((grant) => grant.sessionTarget === `helper.${tokenId}`)).toBe(true);
+		expect(listed.grants.find((grant) => grant.sessionTarget === `helper.${tokenId}`)).toMatchObject({
+			policy: { policyId: "prod-ssh-policy", policyRevision: 1 },
+		});
 		expect((await h.phone.value({ kind: "vault_revoke", grantId: tokenId })).result).toEqual({ revoked: true });
 		const after = (await h.phone.value({ kind: "vault_grants" })).result as {
 			grants: Array<{ sessionTarget: string }>;
@@ -362,7 +385,7 @@ describe("federation harness: vault requests", () => {
 		const askpassFresh = async (cmdline: string, waitMs: number) =>
 			(await gatewayPost("/vault/askpass", { "x-vault-helper-token": fresh }, { cmdline, waitMs })).json();
 
-		// Duplicate titles require typed input.
+		// A capture creates no policy.
 		const shadow = attachFakeSession(h.gateway, {
 			team: alice.team,
 			conversationId: alice.conversationId,
@@ -373,7 +396,13 @@ describe("federation harness: vault requests", () => {
 		const planted = await post(shadow, "/vault/capture", { publicTitle: "ssh deploy@prod", value: "planted" });
 		expect(planted.status).toBe(200);
 		expect(await askpassFresh("ssh deploy@prod uptime", 200)).toMatchObject({ outcome: "pending" });
-		expect((await nextRequest(seen + 2)).kind).toBe("typed");
+		const stillPolicy = await nextRequest(seen + 3);
+		expect(stillPolicy).toMatchObject({
+			kind: "entry",
+			entryId: id,
+			policy: { policyId: "prod-ssh-policy", policyRevision: 1 },
+		});
+		await h.phone.value({ kind: "vault_answer", requestId: stillPolicy.requestId, decision: "deny" });
 
 		// sudo inside a session hands the helper that session's token: the ask is the session's, in its
 		// thread, and the asker rides along. The helper's own collect under both credentials matches it.
@@ -384,7 +413,7 @@ describe("federation harness: vault requests", () => {
 			asker: "4242:100",
 		});
 		expect(await inSession.json()).toMatchObject({ outcome: "pending" });
-		const owned = await nextRequest(seen + 3);
+		const owned = await nextRequest(seen + 4);
 		expect(owned).toMatchObject({ kind: "typed", sessionTarget: alice.team, asker: "4242:100" });
 		const ownedRow = h.phone
 			.entries(await h.phone.inboxRead())
@@ -392,6 +421,85 @@ describe("federation harness: vault requests", () => {
 		expect(ownedRow?.session_id?.endsWith(`.${alice.team}`)).toBe(true);
 		expect(await (await gatewayPost("/vault/withdraw", both, { requestId: owned.requestId })).json()).toEqual({
 			withdrawn: true,
+		});
+	});
+
+	it("a policy that cannot answer opens a typed request, and the allowlist is read again at the tap", async () => {
+		const minted = await gatewayPost("/vault/helper-token", { "x-host-token": h.set.tokens.host }, {});
+		const { token } = (await minted.json()) as { token: string };
+		const helper = { "x-vault-helper-token": token };
+		const askpass = async (cmdline: string, waitMs: number) =>
+			(await gatewayPost("/vault/askpass", helper, { cmdline, waitMs })).json();
+		const seal = (id: string, kind: Parameters<typeof vaultAadKind>[0], text: string) =>
+			h.phone.seal(text, vaultAadKind(kind, id));
+		const putEntry = (id: string, expectedRevision: number, gateways?: string[]) =>
+			h.phone.send({
+				kind: "vault_put",
+				put: {
+					id,
+					expectedRevision,
+					sealed: {
+						publicTitle: seal(id, VAULT_PUBLIC_TITLE_KIND, id),
+						value: seal(id, VAULT_VALUE_KIND, "v"),
+						...(gateways ? { gateways: seal(id, VAULT_GATEWAYS_KIND, JSON.stringify(gateways)) } : {}),
+					},
+				},
+			});
+		const putPolicy = (policyId: string, entryId: string, key: string) =>
+			h.phone.value({
+				kind: "policy_put",
+				policy: {
+					id: policyId,
+					name: policyId,
+					binding: { kind: "entry", entryId },
+					selectorKeys: [key],
+					enabled: true,
+					revision: 1,
+				},
+			});
+
+		// One enabled holder per key.
+		expect((await putPolicy("clash", entryId, "ssh deploy@prod")).result).toMatchObject({ stored: false });
+
+		// Disabled, bound to nothing, or bound to an entry this Gateway may not use: typed.
+		const seen = (await requestRows()).length;
+		await putEntry("dis-entry", 0);
+		await putPolicy("dis", "dis-entry", "ssh dis");
+		const disabled = await h.phone.value({
+			kind: "policy_enable",
+			policyId: "dis",
+			enabled: false,
+			baseRevision: 1,
+		});
+		expect(disabled.result).toMatchObject({ stored: true, revision: 2 });
+		await putPolicy("missing", "nowhere", "ssh missing");
+		await putEntry("elsewhere", 0, ["other-gateway"]);
+		await putPolicy("else", "elsewhere", "ssh elsewhere");
+		for (const [i, line] of ["ssh dis x", "ssh missing x", "ssh elsewhere x"].entries()) {
+			expect(await askpass(line, 200)).toMatchObject({ outcome: "pending" });
+			const typed = await nextRequest(seen + i);
+			expect(typed.kind).toBe("typed");
+			await gatewayPost("/vault/withdraw", helper, { requestId: typed.requestId });
+		}
+
+		// The allowlist is read again as the value leaves, not when the request opened.
+		await putEntry("guarded", 0);
+		await putPolicy("guard", "guarded", "ssh guarded");
+		expect(await askpass("ssh guarded x", 200)).toMatchObject({ outcome: "pending" });
+		const opened = await nextRequest(seen + 3);
+		expect(opened).toMatchObject({
+			kind: "entry",
+			entryId: "guarded",
+			policy: { policyId: "guard", policyRevision: 1 },
+		});
+		expect(await putEntry("guarded", 1, ["other-gateway"])).toMatchObject({ outcome: "applied" });
+		const answered = await h.phone.value({ kind: "vault_answer", requestId: opened.requestId, decision: "once" });
+		expect(answered.result).toEqual({ ok: true });
+		const collected = await gatewayPost("/vault/collect", helper, { requestId: opened.requestId, waitMs: 5_000 });
+		expect(collected.status).toBe(403);
+		expect(await collected.json()).toMatchObject({
+			outcome: "refused",
+			reason: "this Gateway may not use the entry",
 		});
 	});
 

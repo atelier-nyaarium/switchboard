@@ -90,7 +90,7 @@ fun VaultRequestSheet(
 	val expired = request.deadlineAt <= now
 	val expiry = expiresIn(request.deadlineAt, now)
 
-	/** A saved typed value takes the shape as its title, which is what the helper matches next time. */
+	/** A saved typed value takes the shape as its title; a title selects nothing. */
 	fun answer(decision: String, save: Boolean = false) {
 		busy = true
 		scope.launch {

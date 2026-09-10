@@ -46,6 +46,7 @@ function bench() {
 		decisions,
 		requests,
 		helperTokens: { verify: () => null } as unknown as HelperTokens,
+		policies: () => ({ byKey: () => null }),
 		ambient,
 		resolveCaller: () => "host.alice",
 		notifyOwner: () => undefined,

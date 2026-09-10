@@ -54,6 +54,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     exist; the schema refuses a standing grant with one.
   - **The value is read as it leaves:** `release` resolves the entry through `usable` at settlement
     on every road. `decide` carries no value thunk, so a request-time snapshot cannot return.
+  - **A policy selects; a title is a label:** the askpass route looks the line's selector key up
+    with `byKey`, and the one enabled policy naming it, whose bound entry `usable` accepts, opens
+    an entry request carrying the policy at the revision held now. Anything else opens a typed
+    request. Nothing else builds a qualified scope, which is what lets `covers` trust the scope's
+    revision. A capture creates an entry and never a policy.
 - `src/gateway/vault/operationSet.ts` - the wrapper table read from each program's help, and the set a window grant covers
 - `src/shared/selector-key.ts` - the one shape rule, `shapeFrom`; `selectorKey`, what askpass presents and what a policy stores; `withoutAskpassFlags`, the one walk the helper's brief and a policy's keys both take, so `sudo -A apt` keys as `sudo apt`
 - `src/gateway/compose/composeVault.ts` - vault client, decisions, requests, routes, and console operations

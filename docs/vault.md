@@ -132,10 +132,13 @@ and the delta list are in `docs/federation.md` under Owner state.
 - `/vault/capture` (session): creates an entry from a value a session captured, trimming one
   trailing newline, and notifies the owner.
 - `/vault/askpass` (helper, or a session presented beside it): an askpass command line and an
-  optional `asker`. A lone entry whose public title equals the display shape goes through the grant
-  road, so the title is matched on the shape while the grant covers the set. Anything else opens a
-  typed request. A verified session token beside the helper token makes the session the asker, so
-  the request lands in its thread and its grants apply.
+  optional `asker`. **A policy selects; a title is a label.** The line's selector key is looked up
+  in the policy store, and the one enabled policy naming it, whose bound entry exists, holds a
+  value and is allowed here, opens an entry request carrying the policy and its revision; a
+  covering grant answers at once. No policy, a disabled one, or a binding this Gateway cannot use
+  opens a typed request. A capture creates an entry and never a policy. A verified session token
+  beside the helper token makes the session the asker, so the request lands in its thread and its
+  grants apply.
 - `/vault/helper-token`: gated by the host token. Mints a helper token, hashed at rest in
   `DATA_DIR/vault-helper.json`.
 - The answer is `VaultValueAnswer`: `approved` with the decision and the value, `refused` with a

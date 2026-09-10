@@ -69,11 +69,7 @@ function disqualified(grant: VaultGrant, current: AuthorizationPolicy | null): b
 	return qualificationRefusal(current, resolved) !== null;
 }
 
-/**
- * What the owner reads: the grants tab's line, and the title a saved typed value takes. It reads
- * the words as written, so it holds for text no parser accepts. `operationSet` is what a grant
- * covers.
- */
+/** The selector key: what the owner reads and what a policy selects on. */
 export function displayShape(operation: string): string {
 	return selectorKey(operation);
 }

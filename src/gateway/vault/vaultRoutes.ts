@@ -17,6 +17,7 @@ import {
 } from "../../shared/schemasVault.js";
 import { bindingTokensEqual } from "../../shared/session-tokens.js";
 import { jsonResponse as json } from "../agentRouteEnvelope.js";
+import type { PolicyStore } from "../policies/store.js";
 import type { VaultClient, VaultEntryView } from "../router/vaultClient.js";
 import { presentedByRequest } from "../sessionAuthority.js";
 import { displayShape, type GrantScope, type VaultDecisions } from "./decisions.js";
@@ -33,6 +34,8 @@ export interface VaultRoutesDeps {
 	decisions: VaultDecisions;
 	requests: VaultRequests;
 	helperTokens: HelperTokens;
+	/** Read late. */
+	policies: () => Pick<PolicyStore, "byKey">;
 	ambient: Pick<Ambient, "now" | "newId" | "setTimer" | "clearTimer">;
 	/** Resolve requests to session teams. */
 	resolveCaller: (req: Request) => string | null;
@@ -272,7 +275,7 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		return json({ id });
 	};
 
-	/** A unique title picks the entry; otherwise the owner types. */
+	/** The one enabled policy for the line's key selects its entry; otherwise the owner types. */
 	const askpass: Handler = async (req, body) => {
 		const who = principal(req, ["session", "helper"]);
 		if (who instanceof Response) return who;
@@ -284,23 +287,16 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		const sessionTarget = who.target;
 		const { asker } = parsed.data;
 		const waitMs = waitFor(parsed.data.waitMs);
-		// Duplicate titles require typed input.
-		const matches = client
-			.live()
-			.map((stored) => ({ stored, entry: client.view(stored) }))
-			.filter(
-				({ entry }) =>
-					entry.hasValue &&
-					client.allowedHere(entry) &&
-					entry.publicTitle?.toLowerCase() === shape.toLowerCase(),
-			);
-		const match = matches.length === 1 ? matches[0] : undefined;
-		if (match) {
-			const scope = {
-				entryId: match.entry.id,
+		// A binding this Gateway cannot use resolves nothing; a title never selects.
+		const policy = deps.policies().byKey(shape);
+		const bound = policy ? usable(client, policy.binding.entryId) : null;
+		if (policy && bound && !(bound instanceof Response)) {
+			const scope: GrantScope = {
+				entryId: policy.binding.entryId,
 				displayShape: shape,
 				coveredShapes: operationSet(parsed.data.cmdline),
 				sessionTarget,
+				policy: { policyId: policy.id, policyRevision: policy.revision },
 			};
 			return decide(req, scope, parsed.data.cmdline, waitMs, asker);
 		}

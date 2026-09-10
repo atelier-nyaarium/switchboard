@@ -37,7 +37,10 @@ export function withoutAskpassFlags(tokens: string[]): string[] {
 	return [...kept, ...tokens.slice(index)];
 }
 
-/** Case preserved; the host is case-sensitive. */
+/** Case preserved; the host is case-sensitive. The brief keeps sudo's `--`; the key does not. */
 export function selectorKey(example: string): string {
-	return shapeFrom(withoutAskpassFlags(example.trim().split(/\s+/).filter(Boolean)));
+	const words = withoutAskpassFlags(example.trim().split(/\s+/).filter(Boolean));
+	const mark = words.indexOf("--");
+	const keyed = mark > 0 && basenameOf(words[0] as string) === "sudo" ? words.filter((_, i) => i !== mark) : words;
+	return shapeFrom(keyed);
 }

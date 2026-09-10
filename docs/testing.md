@@ -95,7 +95,7 @@ bookkeeping:
 | `federation-harness-router.test.ts` | Router-only: tenant provision, first root, rename and its refusals, removal, deletion, replay across a restart, device approval, the trust rendezvous |
 | `federation-harness-codex.test.ts` | Codex through the gateway and the daemon: start, message, list, stop, replayed frames, gateway and daemon restarts |
 | `federation-harness-vault.test.ts` | A phone's sealed put read back by the gateway, the AAD binding, delta lists, the CAS conflict carrying the winner, delete and revive through the tombstone, the gateway's create-only road, the fence refusing a create, and the Router's sweep held under the fence |
-| `federation-harness-vault-requests.test.ts` | The loopback routes: search as a bound session, the sealed allowlist, a request row answered once, a window across a gateway restart and its revoke, a capture with its notice, the helper's askpass by title or typed value |
+| `federation-harness-vault-requests.test.ts` | The loopback routes: search as a bound session, the sealed allowlist, a request row answered once, a window across a gateway restart and its revoke, a capture with its notice, the helper's askpass resolved through a policy or typed, a title that selects nothing, a capture that changes nothing, and the allowlist read again at the tap |
 
 `startRouterOnly` composes the Router without a gateway, so a scenario can add an arming or active
 gateway itself. `restartRouter` replaces the Router on its port over a store reopened from disk.

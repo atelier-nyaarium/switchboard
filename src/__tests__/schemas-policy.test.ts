@@ -24,6 +24,7 @@ describe("selectorKey", () => {
 	it("keys a command typed with sudo's askpass flag as the helper will present it", () => {
 		expect(selectorKey("sudo -A apt update")).toBe("sudo apt");
 		expect(selectorKey("sudo -AH --askpass -u root apt update")).toBe("sudo -H -u root apt update");
+		expect(selectorKey("sudo -A -- apt update")).toBe("sudo apt");
 	});
 
 	it("derives distinct keys for a prefix and for a substring of a target", () => {
@@ -33,7 +34,13 @@ describe("selectorKey", () => {
 	});
 
 	it("keys the helper's brief as the typed line", () => {
-		for (const line of ["sudo -A apt update", "sudo\tapt\tinstall foo", "/usr/bin/sudo -AH -u root apt", "sudo"]) {
+		for (const line of [
+			"sudo -A apt update",
+			"sudo\tapt\tinstall foo",
+			"/usr/bin/sudo -AH -u root apt",
+			"sudo -A -- apt update",
+			"sudo",
+		]) {
 			expect(selectorKey(askpassBrief(line, "/usr/bin/sudo"))).toBe(selectorKey(line));
 		}
 	});

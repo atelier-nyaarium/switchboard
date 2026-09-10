@@ -639,16 +639,21 @@ Every gate green, CI green on the first.
 
 ## Phase 3 - The resolver, and the clean break
 
-- The askpass handler's `matches` block goes, with its comments at 261 and 273. In its place:
-  exactly one enabled policy for the selector key, whose bound entry exists, holds a value and is
-  `allowedHere`, opens an entry request carrying the policy and revision; no policy, a disabled
-  policy, an unresolved binding, or any unreadable state opens a typed request. Never a title.
-- `federation-harness-vault-requests`: 262 becomes no matching policy; 324 proves a matching title
-  alone selects nothing; 373 proves capture changes nothing, with its comment at 365 rewritten.
-  Add unique match, overlap, disabled, missing entry, `allowedHere` on a fresh use, and
-  `allowedHere` re-checked when a pending request is answered after the allowlist changed.
-- `docs/vault.md` 39 to 41, 108 to 112, 229 to 230; `docs/testing.md` 98; the `decisions.ts`
-  comment at 40. Titles are labels, policies select, capture never creates a policy.
+- The askpass handler's title match is gone. In its place: `byKey` on the line's selector key, and
+  the one enabled policy naming it, whose bound entry `usable` accepts (exists, holds a value, is
+  `allowedHere`), opens an entry request carrying the policy at the revision held now; no policy,
+  a disabled policy, an unresolved binding, or any unreadable state opens a typed request. Never a
+  title. The routes take the store through `composeVault`'s `policies` seam.
+- `federation-harness-vault-requests`: the helper case proves a title equal to the key selects
+  nothing, a policy selects and the minted grant carries it (the end-to-end proof), and a capture
+  under the title changes nothing. A second case proves a second holder is refused at the store,
+  that a disabled policy, a policy bound to nothing, and a policy bound to an entry this Gateway
+  may not use each open a typed request, and that the allowlist is read again at the tap: a
+  request opened through a policy is refused at collect once the phone shut the entry to this
+  Gateway.
+- `docs/vault.md`'s askpass route, `docs/testing.md`'s harness row, AGENTS.md's vault rule, and the
+  `displayShape` comment in `decisions.ts`. Titles are labels, policies select, capture never
+  creates a policy. The phone's Send and save wording is Phase 4's.
 - **`covers` trusts the scope, so the resolver must build it from the current record.** `covers`
   compares a grant's policy id and revision with the scope's and reads no policy itself; a scope
   carrying the store's current revision cannot match a grant a move left behind, whether or not the
@@ -658,6 +663,12 @@ Every gate green, CI green on the first.
   the resolver, answers it `window` from the phone, and reads `vault_grants` for a grant carrying
   the policy and revision. Phase 2 could not: only the resolver opens a qualified request, and its
   tests prove `onApproved`'s copy at the decisions layer alone.
+- **From the alignment audit and the red team.** The phone's `VaultRequestSheet` comment that
+  promised a title match is gone; the harness comment that said "no matching title" says "no
+  policy for the key". `sudo -- apt` keyed as `sudo -- apt` and missed the owner's `sudo apt`
+  policy: `selectorKey` drops sudo's end-of-options mark, while `askpassBrief` keeps it, since the
+  brief shows the owner what ran and the key says what was meant; the seam pin
+  `selectorKey(askpassBrief(line)) === selectorKey(line)` still holds.
 
 ## Phase 4 - Phone
 
