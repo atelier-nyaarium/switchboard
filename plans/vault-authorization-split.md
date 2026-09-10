@@ -775,6 +775,9 @@ it in all three editors.
 
 ## Phase 5 - Docs and map
 
+✅ Complete. `eb779c0c`, CI green. A Luna read of the doc against the code corrected seven
+sentences before the commit. The Q8 revisit is the owner's, on the board as bd_8e8baee9.
+
 - `docs/policies.md`: the record, the selector key and its one pipeline, the store's refusals and
   commit contract, the resolver's outcomes, what a grant carries and the holder invariant, the
   write order, and what "This session" now means.
@@ -868,3 +871,7 @@ Collected as the phases land. Not fixed here.
 - **`MainActivity` routes three editors by hand.** Three `rememberSaveable` pairs, one back chain
   whose order must mirror three `let` blocks, one `LaunchedEffect` per gated editor. The fourth
   editor will copy all four. On the board with bd_d4ba6683.
+- **No gate reads a doc against the code.** `docs/policies.md` was written from the code and still
+  carried seven sentences the code did not say until a Luna read caught them. The docs-phrase gate
+  was set aside as testing wording rather than truth, which holds, but it leaves a doc's truth to
+  whoever remembers to ask.
