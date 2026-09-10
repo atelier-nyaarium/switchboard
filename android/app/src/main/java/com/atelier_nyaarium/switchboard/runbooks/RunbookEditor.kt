@@ -128,7 +128,7 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, o
 				value = draft.body,
 				onValueChange = { draft = draft.copy(body = it) },
 				label = { Text("Body") },
-				supportingText = { Text("{{name}} makes a blank") },
+				supportingText = { Text("Create variables with {{name}}") },
 				modifier = Modifier.fillMaxWidth().heightIn(min = 220.dp),
 			)
 
@@ -159,7 +159,6 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, o
 				}
 			}
 
-			draft.refusal()?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
 			if (existing != null) {
 				TextButton(onClick = hapticClick { deleting = true }) { Text("Delete runbook") }
 			}
