@@ -212,6 +212,14 @@ no TTL.
   tmux-wrapped rows.
 - **Designer plugin** (`plugins/designer/`): owns design cards, live content-keyed rendering, and
   per-team `DesignStore`.
+- **Policies tab** (`PolicyOps.kt`, `policies/`): one group per Gateway, read on tab entry and
+  after every mutation, never held. `policyList` answers listed, refused or unreachable; a refusal
+  hides that Gateway's group, unreachable keeps what was drawn, and the fence drops a stale read.
+  The editor's draft lives in `PolicyOps` keyed by gateway and id; `PolicyDraft` holds every
+  decision the editor makes (the per-field refusals, a typed example, the id, the rebase a "Save
+  over revision N" tap performs). The binding picker offers only entries with a value that
+  `allowedOn` that Gateway. A row's toggle and a routine's carry the row's revision and show the
+  gateway's refusal under the row until a toggle of that row lands.
 - **Unread tracking** (`ReadAnchor.kt`, `thread.js`): anchors match inbox rows by epoch and
   sequence equality. Reads drain by scroll position.
 - **Idle pushback** (`IdlePushbackManager.kt`): owns aligned `AlarmManager` wakeups.

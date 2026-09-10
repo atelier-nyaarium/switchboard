@@ -676,6 +676,11 @@ scope) as later work.
 
 ## Phase 4 - Phone
 
+✅ Complete. `e869a0fc` the tab, the editor, the routine toggle on both sides and the sandbox;
+`d1287b89` the typed read fence, the draft in its ops class and the sandbox revision rule. Every
+gate green, CI green on both. Debug APK 583 on the phone; the emulator build walked the tab, the
+editor, a toggle refusal and a save over a moved revision.
+
 Prerequisite: fix bd_ee0449e2 first, both defects on the routine toggle, the refusal swallowed to
 a Boolean and no base revision on enable, so the policy toggle copies a corrected pattern. Do not
 repeat bd_26895814 in the policy editor; if the shared save-gate presentation is built here, adopt
@@ -811,8 +816,8 @@ Collected as the phases land. Not fixed here.
   or a record `runbookRefusal` or `routineRefusal` would refuse, loads, and an edit of a duplicated
   id rewrites every record that shares it. The policy store validates on restore; its siblings do
   not.
-- **`routine_enable` carries no base revision**, so a stale toggle wins where a stale put is refused.
-  On the board as bd_ee0449e2. The policy operations carry one.
+- **`routine_enable` carried no base revision**, so a stale toggle won where a stale put is refused.
+  Closed in the phone phase: it carries one, optional until 2026-09-24.
 - **Every read of a grant walks a fallback chain.** `displayShape ?? shape`, `coveredShapes ??
   shapes`, `holder ?? sessionTarget`: three dated compatibility fields on `VaultGrant`, due
   2026-09-19 and 2026-09-22, each read in three or four places. `covers`, `disqualified` and
@@ -829,3 +834,26 @@ Collected as the phases land. Not fixed here.
   through the federation harness, so a settlement rule was proved by booting a Router.
   `vault-routes.test.ts` builds the routes over a fake client; the next rule there costs a test,
   not a harness case.
+- **A phone tab is three copies of one shape and a fourth would be too.** `RunbookOps`,
+  `RoutineOps` and `PolicyOps` each spell `refreshAll` with its fan-out and prune, `show` and
+  `hide`, `attempt`, and now the per-row toggle fence with `toggleRefusals`; `RunbookOpsTest`,
+  `RoutineOpsTest` and `PolicyOpsTest` each carry a `FakeGateway`, a `Host`, an `admitting` helper
+  and a hold. The rules differ in three places (a refused policy list is feature absence, a
+  routine's failed read leaves the group, a runbook library is never pruned), and everything else
+  is the same text. On the board as bd_d4ba6683.
+- **A value op's answer is read through `valueResult`, which throws for everything that is not an
+  answer.** The gateway's own refusal, the Router's non-delivery and silence all reach the ops
+  class as one exception, so the one place that needed to tell them apart grew its own
+  `sendValueAnswer` beside the old road. Every other call still takes the old one.
+- **Nothing on this repo can see the sandbox's screen, and the sandbox forgot two things nobody
+  could see.** The seeded vault values sealed to nothing because no connect derives the content
+  epochs there, and a toggle snapped back because the fake gateway answered a fixed fixture. Both
+  passed every gate; both were found by installing the emulator build and reading the UI dump.
+  `SandboxIdentityTest` and `SandboxPolicyGatewayTest` now pin them, but the next one of that kind
+  is found the same slow way.
+- **The emulator's Add tap lands on the keyboard.** A `uiautomator` dump finds the button, and the
+  soft keyboard covers it after typing, so a scripted smoke test needs a keyboard dismiss between
+  a text entry and the next tap. Not a code defect; a cost of the only visual gate there is.
+- **`MainActivity` routes three editors by hand.** Three `rememberSaveable` pairs, one back chain
+  whose order must mirror three `let` blocks, one `LaunchedEffect` per gated editor. The fourth
+  editor will copy all four. On the board with bd_d4ba6683.
