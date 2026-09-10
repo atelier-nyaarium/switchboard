@@ -34,7 +34,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
@@ -157,8 +160,13 @@ fun PolicyEditor(
 			}
 
 			Text("Commands", style = MaterialTheme.typography.labelLarge)
-			// The cut is not visible in what you type.
-			Text("Kept as the program and its first argument.", style = MaterialTheme.typography.bodySmall)
+			Text(
+				buildAnnotatedString {
+					append("Example: ")
+					withStyle(SpanStyle(fontFamily = FontFamily.Monospace)) { append("sudo apt-get") }
+				},
+				style = MaterialTheme.typography.bodySmall,
+			)
 			Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
 				OutlinedTextField(
 					value = example,
