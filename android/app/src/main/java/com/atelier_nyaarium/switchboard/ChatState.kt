@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
+import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceEntry
 import com.atelier_nyaarium.switchboard.proto.GatewaySpawnPoints
 import com.atelier_nyaarium.switchboard.proto.RoutineState
@@ -17,6 +18,9 @@ data class GatewayRoutines(
 
 /** One gateway's runbooks, at that gateway's revisions. */
 data class GatewayRunbooks(val gatewayId: String, val runbooks: List<Runbook> = emptyList())
+
+/** One gateway's authorization policies, at that gateway's revisions. */
+data class GatewayPolicies(val gatewayId: String, val policies: List<AuthorizationPolicy> = emptyList())
 
 data class ChatState(
 	val provisioned: Boolean = false,
@@ -75,6 +79,7 @@ data class ChatState(
 	/** The phone's own library, one group per gateway. */
 	val runbooks: List<GatewayRunbooks> = emptyList(),
 	val routines: List<GatewayRoutines> = emptyList(),
+	val policies: List<GatewayPolicies> = emptyList(),
 ) {
 	/** Expiry belongs to the read, so stale wakes cannot persist. */
 	fun awaitingWake(team: String, now: Long = System.currentTimeMillis()): Boolean {
@@ -177,6 +182,12 @@ internal fun ChatState.routinesOn(gatewayId: String): List<RoutineState> =
 
 internal fun ChatState.routineOn(gatewayId: String, routineId: String): RoutineState? =
 	routinesOn(gatewayId).find { it.routine.id == routineId }
+
+internal fun ChatState.policiesOn(gatewayId: String): List<AuthorizationPolicy> =
+	policies.find { it.gatewayId == gatewayId }?.policies.orEmpty()
+
+internal fun ChatState.policyOn(gatewayId: String, policyId: String): AuthorizationPolicy? =
+	policiesOn(gatewayId).find { it.id == policyId }
 
 /** The soonest any gateway expects to answer, so a deeply idle phone wakes once for the earliest. */
 internal fun ChatState.soonestRoutineAt(): Long? =

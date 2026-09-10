@@ -152,7 +152,7 @@ export interface RoutineConsoleHandlers {
 	/** What a candidate would next run at, so recurrence stays in one implementation. */
 	nextAt: (routine: Routine) => ConsoleRoutineNextResult;
 	remove: (routineId: string) => ConsoleRoutineDeleteResult;
-	enable: (routineId: string, enabled: boolean) => ConsoleRoutinePutResult;
+	enable: (routineId: string, enabled: boolean, base?: number) => ConsoleRoutinePutResult;
 	runNow: (routineId: string, occurrenceId: string) => Promise<ConsoleRoutineOccurrenceResult>;
 	/** A fresh run at the gateway's `now`, which is why it answers the occurrence it opened. */
 	run: (routineId: string) => Promise<ConsoleRoutineRunResult>;

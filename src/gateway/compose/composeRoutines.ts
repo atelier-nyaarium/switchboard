@@ -221,8 +221,8 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 				settleGrants(routineId);
 				return removed;
 			},
-			enable: (routineId, enabled) => {
-				const result = store.setEnabled(routineId, enabled);
+			enable: (routineId, enabled, base) => {
+				const result = store.setEnabled(routineId, enabled, base);
 				if (result.stored) settleGrants(routineId);
 				return result;
 			},

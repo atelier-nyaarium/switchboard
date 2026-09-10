@@ -41,13 +41,27 @@ class SandboxApp : Application() {
 		fixtures.seedRunbooks(AppStateStore(this))
 		val repo = Repo.get(this)
 		val threads = fixtures.threads()
+		val gateways = fixtures.admittedGateways()
 		repo.seedSandbox(
 			fixtures.teams(),
 			threads,
 			fixtures.dirs(),
 			fixtures.drafts(),
 			fixtures.goals(),
-			fixtures.admittedGateways(),
+			gateways,
+		)
+		// Distinct allowlists, so every binding line shows.
+		repo.seedSandboxVault(
+			listOf(
+				com.atelier_nyaarium.switchboard.vault.VaultDraft(id = "deploy-key", publicTitle = "Deploy key", value = "hunter2"),
+				com.atelier_nyaarium.switchboard.vault.VaultDraft(
+					id = "elsewhere-key",
+					publicTitle = "Elsewhere key",
+					value = "k3y",
+					gateways = gateways.drop(1).ifEmpty { listOf("elsewhere") },
+				),
+				com.atelier_nyaarium.switchboard.vault.VaultDraft(id = "a-note", publicTitle = "A note, no value"),
+			),
 		)
 		// Seeding writes rows straight into state, bypassing the mailbox drain where the inbound
 		// handlers run, so the dock would stay empty however correct the ingest is. Run the same

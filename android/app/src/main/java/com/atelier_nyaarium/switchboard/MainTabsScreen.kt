@@ -97,10 +97,13 @@ fun MainTabsScreen(
 	runbooks: @Composable (Modifier) -> Unit = {},
 	routinesEnabled: Boolean = false,
 	routines: @Composable (Modifier) -> Unit = {},
+	policiesEnabled: Boolean = false,
+	policies: @Composable (Modifier) -> Unit = {},
 ) {
 	val tabs = listOf("Sessions") + (if (boardEnabled) listOf("Backlog") else emptyList()) +
 		(if (runbooksEnabled) listOf("Runbooks") else emptyList()) +
 		(if (routinesEnabled) listOf("Routines") else emptyList()) +
+		(if (policiesEnabled) listOf("Policies") else emptyList()) +
 		(if (vaultEnabled) listOf("Vault") else emptyList())
 	val pagerState = rememberPagerState(pageCount = { tabs.size })
 	val scope = rememberCoroutineScope()
@@ -162,6 +165,7 @@ fun MainTabsScreen(
 					"Backlog" -> board(Modifier.fillMaxSize()) { scope.launch { pagerState.animateScrollToPage(0) } }
 					"Runbooks" -> runbooks(Modifier.fillMaxSize())
 					"Routines" -> routines(Modifier.fillMaxSize())
+					"Policies" -> policies(Modifier.fillMaxSize())
 					"Vault" -> vault(Modifier.fillMaxSize())
 					else -> sessions(Modifier.fillMaxSize())
 				}

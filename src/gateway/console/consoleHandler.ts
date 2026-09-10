@@ -357,7 +357,7 @@ export function createConsoleDispatcher({
 				return requireRoutines().remove(op.routineId);
 
 			case "routine_enable":
-				return requireRoutines().enable(op.routineId, op.enabled);
+				return requireRoutines().enable(op.routineId, op.enabled, op.baseRevision);
 
 			case "routine_run_now":
 				return requireRoutines().runNow(op.routineId, op.occurrenceId);

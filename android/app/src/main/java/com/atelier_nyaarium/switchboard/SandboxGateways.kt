@@ -1,5 +1,9 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
+import com.atelier_nyaarium.switchboard.proto.ConsolePolicyDeleteResult
+import com.atelier_nyaarium.switchboard.proto.ConsolePolicyPutResult
+import com.atelier_nyaarium.switchboard.proto.PolicyBinding
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineNextResult
@@ -106,6 +110,65 @@ internal class SandboxRunbookGateway : RunbookGateway {
 	) = ConsoleRunbookFireResult(fired = true)
 }
 
+/** Differ per Gateway; a mutation stays. */
+internal class SandboxPolicyGateway : PolicyGateway {
+	private fun policy(id: String, name: String, entryId: String, keys: List<String>, enabled: Boolean = true) =
+		AuthorizationPolicy(
+			id = id,
+			name = name,
+			binding = PolicyBinding(entryId = entryId),
+			selectorKeys = keys,
+			enabled = enabled,
+			revision = 2L,
+		)
+
+	private val shelves = mutableMapOf(
+		EMPTY_GATEWAY to emptyList(),
+		SECOND_GATEWAY to listOf(policy("apt", "Package administration", "deploy-key", listOf("sudo apt"))),
+	)
+
+	private fun shelf(gatewayId: String) = shelves.getOrPut(gatewayId) {
+		listOf(
+			policy("apt", "Package administration", "deploy-key", listOf("sudo apt", "sudo systemctl")),
+			policy("docker", "Container restarts", "elsewhere-key", listOf("sudo docker"), enabled = false),
+			policy(REFUSING_ID, "Held elsewhere", "deploy-key", listOf("sudo held")),
+		)
+	}
+
+	private fun store(gatewayId: String, stored: AuthorizationPolicy): ConsolePolicyPutResult {
+		val held = shelf(gatewayId)
+		shelves[gatewayId] = if (held.any { it.id == stored.id }) held.map { if (it.id == stored.id) stored else it } else held + stored
+		return ConsolePolicyPutResult(stored = true, revision = stored.revision, policy = stored)
+	}
+
+	override suspend fun list(gatewayId: String) = PolicyListAnswer.Listed(shelf(gatewayId))
+
+	override suspend fun put(gatewayId: String, policy: AuthorizationPolicy, baseRevision: Long?) = when {
+		policy.id == REFUSING_ID ->
+			ConsolePolicyPutResult(stored = false, revision = 9L, reason = "revision 9 is stored; this edits ${baseRevision ?: 0}")
+		policy.id != "apt" && "sudo apt" in policy.selectorKeys ->
+			ConsolePolicyPutResult(stored = false, revision = baseRevision ?: 0L, reason = "sudo apt is already answered by Package administration")
+		else -> store(gatewayId, policy.copy(revision = (baseRevision ?: 0L) + 1))
+	}
+
+	override suspend fun delete(gatewayId: String, policyId: String, baseRevision: Long): ConsolePolicyDeleteResult {
+		if (policyId == REFUSING_ID) {
+			return ConsolePolicyDeleteResult(deleted = false, reason = "revision 9 is stored; this deletes $baseRevision")
+		}
+		shelves[gatewayId] = shelf(gatewayId).filterNot { it.id == policyId }
+		return ConsolePolicyDeleteResult(deleted = true)
+	}
+
+	override suspend fun enable(gatewayId: String, policyId: String, enabled: Boolean, baseRevision: Long): ConsolePolicyPutResult {
+		if (policyId == REFUSING_ID) {
+			return ConsolePolicyPutResult(stored = false, revision = 9L, reason = "revision 9 is stored; this edits $baseRevision")
+		}
+		val held = shelf(gatewayId).firstOrNull { it.id == policyId }
+			?: return ConsolePolicyPutResult(stored = false, revision = 0L, reason = "no policy with that id is stored")
+		return store(gatewayId, held.copy(enabled = enabled, revision = baseRevision + 1))
+	}
+}
+
 internal class SandboxRoutineGateway : RoutineGateway {
 	private fun routine(id: String, name: String, enabled: Boolean = true, zone: String = "America/Los_Angeles") = Routine(
 		id = id,
@@ -180,8 +243,13 @@ internal class SandboxRoutineGateway : RoutineGateway {
 
 	override suspend fun delete(gatewayId: String, routineId: String) = ConsoleRoutineDeleteResult(deleted = true)
 
-	override suspend fun enable(gatewayId: String, routineId: String, enabled: Boolean) =
-		ConsoleRoutinePutResult(stored = true, revision = 3L)
+	/** Refuses, so the row's reason is reachable. */
+	override suspend fun enable(gatewayId: String, routineId: String, enabled: Boolean, baseRevision: Long) =
+		if (routineId == REFUSING_ID) {
+			ConsoleRoutinePutResult(stored = false, revision = 9L, reason = "revision 9 is stored; this edits $baseRevision")
+		} else {
+			ConsoleRoutinePutResult(stored = true, revision = baseRevision + 1, routine = routine(routineId, routineId, enabled = enabled))
+		}
 
 	override suspend fun runNow(gatewayId: String, routineId: String, occurrenceId: String) =
 		ConsoleRoutineOccurrenceResult(applied = true)

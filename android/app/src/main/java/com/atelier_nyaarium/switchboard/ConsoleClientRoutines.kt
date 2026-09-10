@@ -41,9 +41,13 @@ suspend fun ConsoleClient.routineEnable(
 	gatewayId: String,
 	routineId: String,
 	enabled: Boolean,
+	baseRevision: Long,
 ): ConsoleRoutinePutResult =
 	valueResult(
-		sendValueOp(gatewayId, ConsoleOp.RoutineEnable(routineId = routineId, enabled = enabled)),
+		sendValueOp(
+			gatewayId,
+			ConsoleOp.RoutineEnable(routineId = routineId, enabled = enabled, baseRevision = baseRevision),
+		),
 		Protocol.Wire.ConsoleOpKind.ROUTINE_ENABLE,
 	)
 

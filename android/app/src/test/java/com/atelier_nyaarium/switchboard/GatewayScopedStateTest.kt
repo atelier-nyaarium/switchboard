@@ -1,5 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
+import com.atelier_nyaarium.switchboard.proto.PolicyBinding
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineState
 import com.atelier_nyaarium.switchboard.proto.RoutineTarget
@@ -42,6 +44,19 @@ class GatewayScopedStateTest {
 			GatewayRoutines("sakura", listOf(RoutineState(routine("triage", "Here"), nextAt = 900L)), "America/Los_Angeles"),
 			GatewayRoutines("mikan", listOf(RoutineState(routine("triage", "There"), nextAt = 300L)), "Europe/London"),
 		),
+		policies = listOf(
+			GatewayPolicies("sakura", listOf(policy("apt", "Here"))),
+			GatewayPolicies("mikan", listOf(policy("apt", "There"))),
+		),
+	)
+
+	private fun policy(id: String, name: String) = AuthorizationPolicy(
+		id = id,
+		name = name,
+		binding = PolicyBinding(entryId = "deploy"),
+		selectorKeys = listOf("sudo apt"),
+		enabled = true,
+		revision = 1L,
 	)
 
 	@Test
@@ -50,15 +65,19 @@ class GatewayScopedStateTest {
 		assertEquals("There", state.runbookOn("mikan", "shared")?.name)
 		assertEquals("Here", state.routineOn("sakura", "triage")?.routine?.name)
 		assertEquals("There", state.routineOn("mikan", "triage")?.routine?.name)
+		assertEquals("Here", state.policyOn("sakura", "apt")?.name)
+		assertEquals("There", state.policyOn("mikan", "apt")?.name)
 	}
 
 	@Test
 	fun aRecordOnAnotherGatewayIsNotFoundUnderThisOne() {
 		assertEquals(null, state.runbookOn("sakura", "only-there"))
 		assertEquals(null, state.routineOn("sakura", "nothing"))
+		assertEquals(null, state.policyOn("sakura", "nothing"))
 		// An unknown gateway answers nothing rather than whatever happens to be first.
 		assertEquals(emptyList<Runbook>(), state.runbooksOn("unknown"))
 		assertEquals(emptyList<RoutineState>(), state.routinesOn("unknown"))
+		assertEquals(emptyList<AuthorizationPolicy>(), state.policiesOn("unknown"))
 	}
 
 	@Test

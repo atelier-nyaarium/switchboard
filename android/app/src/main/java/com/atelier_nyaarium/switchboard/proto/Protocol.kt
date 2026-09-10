@@ -535,6 +535,7 @@ sealed class ConsoleOp {
 	data class RoutineEnable(
 		val routineId: String,
 		val enabled: Boolean,
+		val baseRevision: Long? = null,
 	) : ConsoleOp()
 
 	@Serializable

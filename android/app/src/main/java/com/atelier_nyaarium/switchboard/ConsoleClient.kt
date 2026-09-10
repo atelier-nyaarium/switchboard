@@ -170,10 +170,13 @@ class ConsoleClient internal constructor(
 		}
 	}
 
-	private fun failureAnswer(answer: JsonElement): JsonElement = wireJson.encodeToJsonElement(
-		OwnerOpAnswer.serializer(),
-		OwnerOpAnswer(ok = false, error = answer.jsonObject["reason"]?.jsonPrimitive?.content ?: "owner operation refused"),
-	)
+	private fun reasonOf(answer: JsonElement): String =
+		answer.jsonObject["reason"]?.jsonPrimitive?.content ?: "owner operation refused"
+
+	private fun failureAnswer(answer: JsonElement): JsonElement = failureAnswer(reasonOf(answer))
+
+	private fun failureAnswer(reason: String): JsonElement =
+		wireJson.encodeToJsonElement(OwnerOpAnswer.serializer(), OwnerOpAnswer(ok = false, error = reason))
 
 	private fun transportFailureAnswer(): JsonElement = wireJson.encodeToJsonElement(
 		OwnerOpAnswer.serializer(),
@@ -207,12 +210,29 @@ class ConsoleClient internal constructor(
 		return transport.resultOf(wireJson.decodeFromJsonElement<OwnerOpAnswer>(answer), op)
 	}
 
-internal suspend fun sendValueOp(gatewayId: String, op: ConsoleOp, opId: String = ambient.newOpId()): JsonElement? {
-		if (gatewayId.isBlank()) return null
+	/** The gateway's refusal is a fact about the gateway; the Router's, and silence, are not. */
+	internal sealed interface ValueAnswer {
+		data class Answered(val result: JsonElement) : ValueAnswer
+		data class Refused(val reason: String) : ValueAnswer
+		data class Undelivered(val reason: String) : ValueAnswer
+		data object Unreachable : ValueAnswer
+	}
+
+	internal suspend fun sendValueOp(gatewayId: String, op: ConsoleOp, opId: String = ambient.newOpId()): JsonElement? =
+		when (val answer = sendValueAnswer(gatewayId, op, opId)) {
+			is ValueAnswer.Answered ->
+				wireJson.encodeToJsonElement(OwnerOpAnswer.serializer(), OwnerOpAnswer(ok = true, result = answer.result))
+			is ValueAnswer.Refused -> failureAnswer(answer.reason)
+			is ValueAnswer.Undelivered -> failureAnswer(answer.reason)
+			ValueAnswer.Unreachable -> null
+		}
+
+	internal suspend fun sendValueAnswer(gatewayId: String, op: ConsoleOp, opId: String = ambient.newOpId()): ValueAnswer {
+		if (gatewayId.isBlank()) return ValueAnswer.Unreachable
 		val sealed = sealOwnerPayload(
 			wireJson.encodeToString(ConsoleOp.serializer(), op).toByteArray(Charsets.UTF_8),
 			opPayloadAadKind(),
-		) ?: return null
+		) ?: return ValueAnswer.Unreachable
 		val value = GatewayValueOp(gatewayId = gatewayId, value = sealed.second)
 		val ownerOp = collaborators.signOwnerOp(
 			buildJsonObject {
@@ -221,41 +241,42 @@ internal suspend fun sendValueOp(gatewayId: String, op: ConsoleOp, opId: String 
 				put("value", wireJson.encodeToJsonElement(ContentEnvelope.serializer(), value.value))
 			},
 			opId,
-		) ?: return null
-		val ownerAnswer = postOwnerOp(ownerOp)
-		if (ownerAnswer?.jsonObject?.get("outcome")?.jsonPrimitive?.content?.let { it != Protocol.Wire.OP_OUTCOME_ACCEPTED } == true) {
-			return failureAnswer(ownerAnswer)
+		) ?: return ValueAnswer.Unreachable
+		val ownerAnswer = postOwnerOp(ownerOp) ?: return ValueAnswer.Unreachable
+		if (ownerAnswer.jsonObject["outcome"]?.jsonPrimitive?.content?.let { it != Protocol.Wire.OP_OUTCOME_ACCEPTED } == true) {
+			return ValueAnswer.Undelivered(reasonOf(ownerAnswer))
 		}
-		val answer = ownerAnswer?.jsonObject?.get("result")
+		val answer = ownerAnswer.jsonObject["result"]
 			?: run {
 				DebugLog.log("Console", "value result missing opId=$opId")
-				return null
+				return ValueAnswer.Unreachable
 			}
 		// A refused value op answers in the clear; only an accepted one is sealed.
 		if ((answer as? JsonObject)?.get("kind")?.jsonPrimitive?.content == "refusal") {
 			DebugLog.log("Console", "value op refused opId=$opId")
-			return failureAnswer(answer)
+			return ValueAnswer.Refused(reasonOf(answer))
 		}
-			val envelope = runCatching { wireJson.decodeFromJsonElement(ContentEnvelope.serializer(), answer) }
-				.onFailure { DebugLog.log("Console", "value result envelope failed opId=$opId") }
-				.getOrNull() ?: return null
+		val envelope = runCatching { wireJson.decodeFromJsonElement(ContentEnvelope.serializer(), answer) }
+			.onFailure { DebugLog.log("Console", "value result envelope failed opId=$opId") }
+			.getOrNull() ?: return ValueAnswer.Unreachable
 		val domain = boot.domainId
-		val key = contentKey(envelope.epoch.toInt()) ?: return null
+		val key = contentKey(envelope.epoch.toInt()) ?: return ValueAnswer.Unreachable
 		return runCatching {
-			val plain = wireJson.parseToJsonElement(
-				com.atelier_nyaarium.switchboard.crypto.Crypto.openContent(
-					envelope,
-					key,
-					com.atelier_nyaarium.switchboard.crypto.Crypto.ContentAad(
-						domain,
-						boot.ownerSignPub,
-						envelope.epoch.toInt(),
-						valueResultAadKind(opId),
-					),
-				).toString(Charsets.UTF_8),
+			ValueAnswer.Answered(
+				wireJson.parseToJsonElement(
+					com.atelier_nyaarium.switchboard.crypto.Crypto.openContent(
+						envelope,
+						key,
+						com.atelier_nyaarium.switchboard.crypto.Crypto.ContentAad(
+							domain,
+							boot.ownerSignPub,
+							envelope.epoch.toInt(),
+							valueResultAadKind(opId),
+						),
+					).toString(Charsets.UTF_8),
+				),
 			)
-			wireJson.encodeToJsonElement(OwnerOpAnswer.serializer(), OwnerOpAnswer(ok = true, result = plain))
-		}.onFailure { DebugLog.log("Console", "value result open failed opId=$opId") }.getOrNull()
+		}.onFailure { DebugLog.log("Console", "value result open failed opId=$opId") }.getOrNull() ?: ValueAnswer.Unreachable
 	}
 
 	/** Connected Gateways, or unknown. */

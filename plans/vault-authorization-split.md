@@ -710,11 +710,45 @@ it in all three editors.
   an overlap refusal and a toggle refusal are all reachable.
 - `./scripts/kotlin-gate.sh`, regenerated wire fixtures, a debug APK on the phone.
 
+- **What shipped, where it differs from the bullets above.** The routine toggle carries the row's
+  revision and its refusal reaches the row (`RoutineOps.setEnabled` answers `RoutineSaved`,
+  `toggleRefusals` holds the reason until a toggle of that row lands, `RoutinesScreen` draws it
+  under the row); the gateway's `routine_enable` takes an optional `baseRevision`, required from
+  2026-09-24. The policy editor puts each draft refusal at its field (`nameRefusal`,
+  `bindingRefusal`, `commandsRefusal` on `PolicyDraft`) and the gateway's refusal in a card, so
+  its Save is never dead with nothing said. That shape is not adopted in the runbook and routine
+  editors here: the owner removed the runbook editor's bottom hint by hand, so what those two
+  editors show is their own UX call, and bd_26895814 stays open naming this editor as the
+  reference. The `PolicyGateway` port sits beside its ops class, as the routine and runbook ports
+  do, not in `RepositoryPorts`. The list answers three ways (`PolicyListAnswer`: listed, refused,
+  unreachable, told apart in `ConsoleClient.sendValueAnswer`, where only the gateway's own refusal
+  is a refusal): a refusal hides the group, unreachable keeps what was drawn, and the read fence
+  drops a stale answer; the tab's empty state says "No policies" whatever hid the groups. `show`
+  draws nothing for a gateway the keyring no longer admits, in PolicyOps and RoutineOps both,
+  since a read can land after the prune; the runbook library is never pruned, so RunbookOps keeps
+  drawing. A toggle is fenced per row, so an older toggle's answer never overwrites a newer one's.
+  A save refusal naming a newer revision offers "Save over revision N", an owner tap that rebases
+  the draft (`PolicyDraft.over`); the routine editor's same dead end is on the board
+  (bd_25780d07). The policy editor closes with the vault plugin, and back closes the editor drawn
+  last. The pager keeping a numeric page across a tab-set change is a class the Vault tab already
+  had, on the board (bd_7835f19b). `SandboxGateways` answers the policy calls per Gateway (three
+  on the default one: an enabled policy with two keys, a disabled one bound to an entry shut to
+  that Gateway, and the refusing id, which refuses its save, its toggle and its delete; one on the
+  second sharing `sudo apt`, so an overlap refusal is reachable; none on the empty one), one shelf
+  per Gateway that keeps a mutation so the read after a toggle shows it, and `SandboxApp` seeds
+  three vault entries through the phone's own sealing, which first derives the content epochs no
+  connect derives there: one for every Gateway, one shut to the first, one without a value. The
+  request sheet's split action reads "Send and save as a secret".
+
 ### Bug Classes
 
 - **A gateway answer flattened to a Boolean before the screen sees it.** Two instances on the
   routine toggle (bd_ee0449e2) and one across the editors (bd_26895814). Mechanism: the phone ops
   class. Phase 4 must not add a third.
+- **A null that means two things.** `GatewayReadFence.read` answers null for a stale read and for
+  a body that answered null, and `PolicyOps.refresh` hid the group on either; then it hid on a
+  refusal and a dead network alike. Mechanism: the fence's one null. Patched twice this phase: the
+  body never answers null now, and the list answer names its three cases.
 
 ## Phase 5 - Docs and map
 

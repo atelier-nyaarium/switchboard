@@ -16,25 +16,25 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-class RoutineOpsTest {
-	private fun routine(id: String, name: String = id) = Routine(
-		id = id,
-		name = name,
-		weekdays = listOf(1L),
-		weekInterval = 1L,
-		startDate = "2026-01-05",
-		time = "09:00",
-		zone = "America/Los_Angeles",
-		runbookId = "book",
-		approvedRevision = 1L,
-		values = kotlinx.serialization.json.JsonObject(emptyMap()),
-		target = RoutineTarget(spawn = "host"),
-		linkedEntries = emptyList(),
-		enabled = true,
-		revision = 1L,
-		since = 0L,
-	)
+private fun routine(id: String, name: String = id) = Routine(
+	id = id,
+	name = name,
+	weekdays = listOf(1L),
+	weekInterval = 1L,
+	startDate = "2026-01-05",
+	time = "09:00",
+	zone = "America/Los_Angeles",
+	runbookId = "book",
+	approvedRevision = 1L,
+	values = kotlinx.serialization.json.JsonObject(emptyMap()),
+	target = RoutineTarget(spawn = "host"),
+	linkedEntries = emptyList(),
+	enabled = true,
+	revision = 1L,
+	since = 0L,
+)
 
+class RoutineOpsTest {
 	/** Answers per gateway, and holds a list until the test releases it. */
 	private class FakeGateway : RoutineGateway {
 		val shelves = mutableMapOf<String, List<RoutineState>>()
@@ -62,8 +62,14 @@ class RoutineOpsTest {
 		override suspend fun delete(gatewayId: String, routineId: String) =
 			ConsoleRoutineDeleteResult(deleted = true)
 
-		override suspend fun enable(gatewayId: String, routineId: String, enabled: Boolean) =
-			ConsoleRoutinePutResult(stored = true, revision = 1L)
+		val refuseToggles = mutableSetOf<String>()
+
+		override suspend fun enable(gatewayId: String, routineId: String, enabled: Boolean, baseRevision: Long) =
+			if (routineId in refuseToggles) {
+				ConsoleRoutinePutResult(stored = false, revision = baseRevision + 1, reason = "revision ${baseRevision + 1} is stored; this edits $baseRevision")
+			} else {
+				ConsoleRoutinePutResult(stored = true, revision = baseRevision + 1, routine = routine(routineId).copy(enabled = enabled, revision = baseRevision + 1))
+			}
 
 		override suspend fun runNow(gatewayId: String, routineId: String, occurrenceId: String) =
 			ConsoleRoutineOccurrenceResult(applied = true)
@@ -124,7 +130,7 @@ class RoutineOpsTest {
 		fake.shelves["mikan"] = listOf(RoutineState(routine("quick")))
 		val gate = CompletableDeferred<Unit>()
 		fake.held["sakura"] = gate
-		val state = MutableStateFlow(ChatState())
+		val state = admitting("sakura", "mikan")
 		val ops = RoutineOps(state, Host(fake))
 
 		val slow = async { ops.refresh("sakura") }
@@ -143,7 +149,7 @@ class RoutineOpsTest {
 		fake.shelves["sakura"] = listOf(RoutineState(routine("old")))
 		val gate = CompletableDeferred<Unit>()
 		fake.held["sakura"] = gate
-		val state = MutableStateFlow(ChatState())
+		val state = admitting("sakura")
 		val ops = RoutineOps(state, Host(fake))
 
 		val stale = async { ops.refresh("sakura") }
@@ -203,6 +209,25 @@ class RoutineOpsTest {
 
 		assertEquals(true, runBlocking { ops.run("triage", "mikan") })
 		assertEquals(listOf("mikan"), fake.ranOn)
+	}
+
+	@Test
+	fun aRefusedToggleSaysWhyOnTheRowUntilOneLands() {
+		val fake = FakeGateway()
+		fake.shelves["sakura"] = listOf(RoutineState(routine("triage")))
+		fake.refuseToggles += "triage"
+		val state = admitting("sakura")
+		val ops = RoutineOps(state, Host(fake))
+
+		val refused = runBlocking { ops.setEnabled("triage", false, 1L, "sakura") }
+		assertEquals(true, refused is RoutineSaved.Refused)
+		assertEquals("revision 2 is stored; this edits 1", ops.toggleRefusalFor("sakura", "triage"))
+		// The gateway's own state is what the row draws after a refusal.
+		assertEquals(true, state.value.on("sakura")?.routines?.single()?.routine?.enabled)
+
+		fake.refuseToggles -= "triage"
+		assertEquals(true, runBlocking { ops.setEnabled("triage", false, 1L, "sakura") } is RoutineSaved.Stored)
+		assertEquals(null, ops.toggleRefusalFor("sakura", "triage"))
 	}
 
 	@Test

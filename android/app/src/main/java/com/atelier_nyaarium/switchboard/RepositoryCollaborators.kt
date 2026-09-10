@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import android.net.Uri
+import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.ConsolePeekResult
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.Runbook
@@ -133,8 +134,8 @@ internal class ConsoleRoutineGateway(private val client: ConsoleClient) : Routin
 
 	override suspend fun delete(gatewayId: String, routineId: String) = client.routineDelete(gatewayId, routineId)
 
-	override suspend fun enable(gatewayId: String, routineId: String, enabled: Boolean) =
-		client.routineEnable(gatewayId, routineId, enabled)
+	override suspend fun enable(gatewayId: String, routineId: String, enabled: Boolean, baseRevision: Long) =
+		client.routineEnable(gatewayId, routineId, enabled, baseRevision)
 
 	override suspend fun runNow(gatewayId: String, routineId: String, occurrenceId: String) =
 		client.routineRunNow(gatewayId, routineId, occurrenceId)
@@ -150,6 +151,28 @@ internal class ChatRepositoryRoutineHost(private val repo: ChatRepository) : Rou
 	// The sandbox answers as a Gateway would, so a screen that only appears on a refusal is reachable.
 	override val gateway: RoutineGateway? get() =
 		if (isSandbox) SandboxRoutineGateway() else repo.clientOrNull()?.let(::ConsoleRoutineGateway)
+}
+
+/** The port over the console client's policy calls. */
+internal class ConsolePolicyGateway(private val client: ConsoleClient) : PolicyGateway {
+	override suspend fun list(gatewayId: String) = client.policyList(gatewayId)
+
+	override suspend fun put(gatewayId: String, policy: AuthorizationPolicy, baseRevision: Long?) =
+		client.policyPut(gatewayId, policy, baseRevision)
+
+	override suspend fun delete(gatewayId: String, policyId: String, baseRevision: Long) =
+		client.policyDelete(gatewayId, policyId, baseRevision)
+
+	override suspend fun enable(gatewayId: String, policyId: String, enabled: Boolean, baseRevision: Long) =
+		client.policyEnable(gatewayId, policyId, enabled, baseRevision)
+}
+
+internal class ChatRepositoryPolicyHost(private val repo: ChatRepository) : PolicyHost {
+	// One shelf, so a mutation there survives the read after it.
+	private val sandbox by lazy { SandboxPolicyGateway() }
+
+	override val gateway: PolicyGateway? get() =
+		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsolePolicyGateway)
 }
 
 /** The port over the console client's runbook calls. */

@@ -26,7 +26,8 @@ internal interface RoutineGateway {
 
 	suspend fun delete(gatewayId: String, routineId: String): ConsoleRoutineDeleteResult
 
-	suspend fun enable(gatewayId: String, routineId: String, enabled: Boolean): ConsoleRoutinePutResult
+	/** Carries the row's revision; a stale toggle is refused. */
+	suspend fun enable(gatewayId: String, routineId: String, enabled: Boolean, baseRevision: Long): ConsoleRoutinePutResult
 
 	suspend fun runNow(gatewayId: String, routineId: String, occurrenceId: String): ConsoleRoutineOccurrenceResult
 
@@ -113,12 +114,46 @@ internal class RoutineOps(
 		return attempt { client.next(gatewayId, routine) }?.nextAt
 	}
 
-	suspend fun setEnabled(routineId: String, enabled: Boolean, gatewayId: String): Boolean {
-		val client = host.gateway ?: return false
-		if (gatewayId.isBlank()) return false
-		val answer = attempt { client.enable(gatewayId, routineId, enabled) }
-		refresh(gatewayId)
-		return answer?.stored == true
+	val toggleRefusals = androidx.compose.runtime.mutableStateOf<Map<Pair<String, String>, String>>(emptyMap())
+
+	fun toggleRefusalFor(gatewayId: String, routineId: String): String? = toggleRefusals.value[gatewayId to routineId]
+
+	/** One counter per row, keyed by gateway and id. */
+	private val toggles = GatewayReadFence()
+
+	/** The answer reaches the row; an older toggle's answer never overwrites a newer one's. */
+	suspend fun setEnabled(routineId: String, enabled: Boolean, baseRevision: Long, gatewayId: String): RoutineSaved {
+		val key = gatewayId to routineId
+		val client = host.gateway ?: return RoutineSaved.Unreachable.also { noteToggle(key, "This Gateway could not be reached") }
+		if (gatewayId.isBlank()) return RoutineSaved.Unreachable
+		var saved: RoutineSaved = RoutineSaved.Unreachable
+		val current = toggles.read("$gatewayId/$routineId") {
+			val answer = attempt { client.enable(gatewayId, routineId, enabled, baseRevision) }
+			refresh(gatewayId)
+			val stored = answer?.routine
+			saved = when {
+				answer == null -> RoutineSaved.Unreachable
+				!answer.stored || stored == null ->
+					RoutineSaved.Refused(answer.reason ?: "This Gateway holds a different copy", answer.revision)
+				else -> RoutineSaved.Stored(stored)
+			}
+			saved
+		}
+		if (current != null) {
+			noteToggle(
+				key,
+				when (val landed = saved) {
+					is RoutineSaved.Stored -> null
+					is RoutineSaved.Refused -> landed.reason
+					RoutineSaved.Unreachable -> "This Gateway could not be reached"
+				},
+			)
+		}
+		return saved
+	}
+
+	private fun noteToggle(key: Pair<String, String>, reason: String?) {
+		toggleRefusals.value = if (reason == null) toggleRefusals.value - key else toggleRefusals.value + (key to reason)
 	}
 
 	/** The gateway's own answer, so nothing says gone about a routine it still runs. */
@@ -159,6 +194,8 @@ internal class RoutineOps(
 	/** That gateway's group, replaced whole. Sorted by id, so no gateway holds a privileged place. */
 	private fun show(gatewayId: String, routines: List<RoutineState>, zone: String) {
 		state.update { held ->
+			// A read that lands after the keyring dropped its gateway draws nothing.
+			if (gatewayId !in held.admittedGateways) return@update held
 			val kept = held.routines.filterNot { it.gatewayId == gatewayId }
 			held.copy(routines = (kept + GatewayRoutines(gatewayId, routines, zone)).sortedBy { it.gatewayId })
 		}

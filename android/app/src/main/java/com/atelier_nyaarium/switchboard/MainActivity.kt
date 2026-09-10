@@ -132,6 +132,7 @@ fun App(
 	// Gateway and id. Null is closed, a blank id is a new one.
 	var editRunbook by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
 	var editRoutine by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
+	var editPolicy by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
 	// Clear reveal after handoff.
 	val revealAtState = remember { mutableStateOf<Pair<String, Long>?>(null) }
 	var revealAt by revealAtState
@@ -240,12 +241,13 @@ fun App(
 
 	// Back follows render order.
 	BackHandler(
-		enabled = editRunbook != null || editRoutine != null || overlays.isNotEmpty() || showSettings ||
-			openTeam != null,
+		enabled = editRunbook != null || editRoutine != null || editPolicy != null || overlays.isNotEmpty() ||
+			showSettings || openTeam != null,
 	) {
 		when {
-			editRunbook != null -> editRunbook = null
+			editPolicy != null -> editPolicy = null
 			editRoutine != null -> editRoutine = null
+			editRunbook != null -> editRunbook = null
 			overlays.isNotEmpty() -> closeOverlay()
 			// Mirrors SettingsScreen's own back: Federation was entered from Domain & Trust.
 			showSettings && settingsRoute == SettingsRoute.FEDERATION ->
@@ -483,6 +485,7 @@ fun App(
 				}.toMap()
 			}
 			val vaultOn = pluginManager.isActive("vault")
+			LaunchedEffect(vaultOn) { if (!vaultOn) editPolicy = null }
 			val vaultPending by repo.vault.pending.collectAsState()
 			// Grants re-read on the vault's own tick.
 			val vaultRevision by repo.vault.revision
@@ -519,6 +522,16 @@ fun App(
 						repo = repo,
 						state = state,
 						onEdit = { gatewayId, id -> editRoutine = gatewayId to id.orEmpty() },
+						modifier = modifier,
+					)
+				},
+				// Rides the vault plugin.
+				policiesEnabled = vaultOn,
+				policies = { modifier ->
+					com.atelier_nyaarium.switchboard.policies.PoliciesScreen(
+						repo = repo,
+						state = state,
+						onEdit = { gatewayId, id -> editPolicy = gatewayId to id.orEmpty() },
 						modifier = modifier,
 					)
 				},
@@ -625,6 +638,10 @@ fun App(
 	editRoutine?.let { (gatewayId, opened) ->
 		val id = opened.ifEmpty { null }
 		com.atelier_nyaarium.switchboard.routines.RoutineEditor(repo, state, gatewayId, id) { editRoutine = null }
+	}
+	editPolicy?.let { (gatewayId, opened) ->
+		val id = opened.ifEmpty { null }
+		com.atelier_nyaarium.switchboard.policies.PolicyEditor(repo, state, gatewayId, id) { editPolicy = null }
 	}
 }
 

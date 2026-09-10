@@ -179,7 +179,13 @@ export const ConsoleOpSchema = z
 		/** What a candidate would next run at, so the phone names an instant without holding a rule. */
 		z.object({ kind: z.literal("routine_next"), routine: RoutineSchema }),
 		z.object({ kind: z.literal("routine_delete"), routineId: z.string().min(1).max(64) }),
-		z.object({ kind: z.literal("routine_enable"), routineId: z.string().min(1).max(64), enabled: z.boolean() }),
+		z.object({
+			kind: z.literal("routine_enable"),
+			routineId: z.string().min(1).max(64),
+			enabled: z.boolean(),
+			// Optional until 2026-09-24 for phones that toggle without it; then required.
+			baseRevision: z.number().int().positive().optional(),
+		}),
 		// Run now and Dismiss answer an occurrence the owner is looking at, never the routine.
 		z.object({
 			kind: z.literal("routine_run_now"),

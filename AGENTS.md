@@ -211,8 +211,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     and stops being actionable with it.
   - **`state.admittedGateways` is the ONE authority on membership, and the prune re-reads it:** a
     second source, such as a fresh keyring read, disagrees with the published set, and a pass that
-    pruned to the list it began with would drop what a later pass had drawn. The stored runbook
-    library is never pruned; a lapsed keyring entry is not a reason to lose what the owner wrote.
+    pruned to the list it began with would drop what a later pass had drawn. A read that lands
+    after the prune draws nothing for a gateway it dropped. The stored runbook library is never
+    pruned; a lapsed keyring entry is not a reason to lose what the owner wrote.
   - **A zone belongs to its gateway, and an instant belongs to the owner:** each group carries the
     zone its gateway keeps schedules in, which is what the editor converts a typed time into. The
     rows show instants, so they read in the owner's own zone.
@@ -222,6 +223,23 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **Run and Run missed are different acts, and the row says which:** Run opens a fresh occurrence
     at the moment it is pressed, on every row including a disabled one. The miss panel's button runs
     the slot the rule named. Neither refuses while a run is already working.
+- `android/.../PolicyOps.kt` / `policies/PolicyDraft.kt` / `policies/PoliciesScreen.kt` / `policies/PolicyEditor.kt` /
+  `ConsoleClientPolicies.kt` - the gateway calls, the editor's model and its pure refusal, the tab, the editor
+  - **Nothing is held on the phone, and every method names its gateway,** as routines do. A
+    Gateway that refuses `policy_list` is drawn as nothing, since an older build refuses an unknown
+    op with no stable code; one that cannot be reached keeps what it drew. `ConsoleClient.sendValueAnswer`
+    tells the gateway's own refusal from the Router's and from silence, and `policyList` answers
+    listed, refused or unreachable, so the ops class never reads a null for two things.
+  - **A gateway answer is never flattened to a Boolean before the screen sees it:** `save`,
+    `delete` and `setEnabled` answer `PolicySaved` or `PolicyDeleted` with the reason, and a
+    refused toggle's reason sits on the row in `toggleRefusals` until a toggle of it lands. The
+    routine toggle follows the same rule, and carries the revision the row was drawn at. Both
+    toggles are fenced per row, so an older toggle's answer never overwrites a newer one's.
+  - **A save refusal naming a newer revision offers a save over it:** `PolicyDraft.over` rebases
+    the draft onto the revision the gateway named, and only an owner tap reaches it.
+  - **Examples go as typed; the gateway keeps keys.** `PolicyDraft` adopts the record the gateway
+    answers with, so the phone holds no twin of the key rule. The editor offers only entries
+    `allowedOn` that Gateway, and names a binding it cannot resolve.
 - `android/.../GatewayPick.kt` - the button a new record starts from
   - **A new record has no Gateway yet:** one is taken without asking, several are asked, and none
     draws no button. Nothing else on these tabs chooses a Gateway, since every row belongs to one.

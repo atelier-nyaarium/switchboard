@@ -90,7 +90,6 @@ fun VaultRequestSheet(
 	val expired = request.deadlineAt <= now
 	val expiry = expiresIn(request.deadlineAt, now)
 
-	/** A saved typed value takes the shape as its title; a title selects nothing. */
 	fun answer(decision: String, save: Boolean = false) {
 		busy = true
 		scope.launch {
@@ -196,7 +195,8 @@ fun VaultRequestSheet(
 							label = "Send",
 							enabled = !busy && !expired && typed.isNotEmpty(),
 							onMain = { answer(VAULT_DECISION_ONCE) },
-							more = listOf("Send and save" to { answer(VAULT_DECISION_ONCE, save = true) }),
+							// Saving makes a vault entry and nothing more; a policy is the owner's separate act.
+							more = listOf("Send and save as a secret" to { answer(VAULT_DECISION_ONCE, save = true) }),
 						)
 					} else {
 						SplitAnswer(

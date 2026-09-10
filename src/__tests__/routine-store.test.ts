@@ -102,6 +102,9 @@ describe("routine store", () => {
 		expect(store.get("morning")?.enabled).toBe(false);
 		// Already off, so there is nothing to write and no revision to spend.
 		expect(store.setEnabled("morning", false)).toMatchObject({ stored: true, revision: 2 });
+		// A toggle carries the revision the phone read, so a stale one is refused like a put.
+		expect(store.setEnabled("morning", true, 1)).toMatchObject({ stored: false, revision: 2 });
+		expect(store.setEnabled("morning", true, 2)).toMatchObject({ stored: true, revision: 3 });
 		expect(store.setEnabled("ghost", true).stored).toBe(false);
 	});
 

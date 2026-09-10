@@ -29,6 +29,9 @@ internal interface SandboxSeeder {
 		goals: Map<String, PendingGoal> = emptyMap(),
 		admittedGateways: List<String> = emptyList(),
 	)
+
+	/** Entries sealed by this phone. */
+	fun seedSandboxVault(drafts: List<com.atelier_nyaarium.switchboard.vault.VaultDraft>)
 }
 
 internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : SandboxSeeder {
@@ -61,6 +64,39 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 				goals = goals,
 				admittedGateways = admittedGateways,
 				homeGatewayId = repo.homeGatewayId,
+			)
+		}
+	}
+
+	override fun seedSandboxVault(drafts: List<com.atelier_nyaarium.switchboard.vault.VaultDraft>) {
+		if (!isSandbox) return
+		// No connect here derives the content keys, so a value would seal to nothing.
+		repo.readyOrNull()?.let(repo.identity::ensureContentEpochs)
+		val sealing = repo.vaultSealing() ?: return
+		val now = System.currentTimeMillis()
+		drafts.forEachIndexed { index, draft ->
+			val id = draft.id ?: return@forEachIndexed
+			if (repo.vault.stored(id) != null) return@forEachIndexed
+			val sealed = com.atelier_nyaarium.switchboard.vault.sealDraft(draft, id, null, null, sealing)
+			if (sealed == null) {
+				DebugLog.log("Sandbox", "vault seed $id did not seal")
+				return@forEachIndexed
+			}
+			val revision = index + 1L
+			repo.vault.applyWrite(
+				com.atelier_nyaarium.switchboard.proto.VaultStoredEntry(
+					clear = com.atelier_nyaarium.switchboard.proto.VaultEntryClear(
+						id = id,
+						revision = 1L,
+						tombstone = false,
+						changedAt = revision,
+						createdBy = "phone",
+						createdAt = now,
+						updatedAt = now,
+					),
+					sealed = sealed,
+				),
+				revision,
 			)
 		}
 	}

@@ -377,6 +377,7 @@ class ChatRepository(
 	)
 	internal val runbookOps = RunbookOps(state = _state, host = ChatRepositoryRunbookHost(this))
 	internal val routineOps = RoutineOps(state = _state, host = ChatRepositoryRoutineHost(this))
+	internal val policyOps = PolicyOps(state = _state, host = ChatRepositoryPolicyHost(this))
 	internal val attachments = AttachmentOps(
 		state = _state,
 		persistence = persistence,
@@ -447,6 +448,9 @@ class ChatRepository(
 		goals: Map<String, PendingGoal> = emptyMap(),
 		admittedGateways: List<String> = emptyList(),
 	) = sandboxSeeder.seedSandbox(teams, threads, dirs, drafts, goals, admittedGateways)
+
+	fun seedSandboxVault(drafts: List<com.atelier_nyaarium.switchboard.vault.VaultDraft>) =
+		sandboxSeeder.seedSandboxVault(drafts)
 
 	fun setBiometricLock(enabled: Boolean) {
 		store.biometricLock = enabled

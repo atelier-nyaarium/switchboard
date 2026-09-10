@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +47,7 @@ fun RoutinesScreen(
 	val scope = rememberCoroutineScope()
 	val groups = state.routines
 	val named = groups.size > 1
+	val toggleRefusals by repo.routineOps.toggleRefusals
 
 	Box(modifier.fillMaxSize()) {
 		if (groups.all { it.routines.isEmpty() }) {
@@ -86,9 +88,10 @@ fun RoutinesScreen(
 								onRun = {
 									scope.launch { repo.routineOps.run(row.routine.id, group.gatewayId) }
 								},
+								toggleRefusal = toggleRefusals[group.gatewayId to row.routine.id],
 								onEnable = { on ->
 									scope.launch {
-										repo.routineOps.setEnabled(row.routine.id, on, group.gatewayId)
+										repo.routineOps.setEnabled(row.routine.id, on, row.routine.revision, group.gatewayId)
 									}
 								},
 								onRunNow = { occurrenceId ->
@@ -124,6 +127,7 @@ private fun emptyTitle(groups: List<GatewayRoutines>): String =
 private fun RoutineRow(
 	row: RoutineState,
 	zone: java.time.ZoneId,
+	toggleRefusal: String?,
 	onEdit: () -> Unit,
 	onRun: () -> Unit,
 	onEnable: (Boolean) -> Unit,
@@ -155,6 +159,8 @@ private fun RoutineRow(
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
+			// Held state, and why it did not move.
+			toggleRefusal?.let { Panel(it) }
 			lastRunLine(row, zone)?.let {
 				Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			}

@@ -82,7 +82,9 @@ Six jobs, each resolving or identifying:
 
 **It is not a visibility filter, and a screen that reads it to decide what to draw is a bug.** A
 document that states only how it is selected invites exactly that, which is why the jobs are listed.
-The Routines and Runbooks tabs read `admittedGateways` and group by Gateway.
+The Routines, Runbooks and Policies tabs read `admittedGateways` and group by Gateway. The Policies
+tab rides the vault plugin, since a policy binds a secret. A Gateway that refuses `policy_list` is
+drawn as nothing, since an older build refuses an unknown op.
 
 One filter remains: `TrustOps.shareableSessions` offers only sessions on this Gateway, and the share
 it feeds sends `requesterGatewayId = homeGatewayId()`. Widening the list alone would offer sessions

@@ -126,6 +126,9 @@ data class VaultEntryView(
 	fun matches(query: String): Boolean =
 		listOfNotNull(publicTitle, privateTitle, publicDescription, privateDescription)
 			.any { it.contains(query, ignoreCase = true) }
+
+	/** Whether that Gateway may use this entry: everyone, listed, or an allowlist this phone cannot read. */
+	fun allowedOn(gatewayId: String): Boolean = !gatewaysUnreadable && (gateways == null || gatewayId in gateways)
 }
 
 const val VAULT_DECISION_ONCE = "once"
