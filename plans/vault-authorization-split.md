@@ -784,6 +784,17 @@ it in all three editors.
 - Revisit Q8 with the phone in hand, on a provisioned device against the real Router: does a rename
   ending approvals sting?
 
+- **What shipped.** `docs/policies.md`: the record and its bounds, the selector key's three-step
+  pipeline, the store's refusals, base rule and commit, the resolver's four outcomes, what a
+  qualified grant carries and the session-held invariant, the write order, what "This session"
+  means under a policy, the console operations, a file map. `AGENTS.md`: the docs table row and,
+  under the policies store, the commit-then-prune order and entry-wide over policy-scoped; the
+  other rules the bullet named were already on the map from the earlier phases (one enabled holder
+  per key, a policy grant is session-held, capture never creates a policy, the value is read as it
+  leaves). `docs/vault.md` points at the new file. The Q8 revisit needs the owner at a provisioned
+  phone against the real Router, which no gate or emulator here reaches; it is on my board as
+  bd_8e8baee9 with the steps to feel it and the narrowing to apply if a rename stings.
+
 ## What the lap set aside
 
 Sol's verdicts, adopted after checking: overwrite is not ambiguous, routines have none and policies

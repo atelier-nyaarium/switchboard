@@ -77,6 +77,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     enabled holders of one key, or more than the cap starts the store fresh, as an unparseable file
     does. The gateway is the only writer, so such a file is a hand edit or a bug, and fewer policies
     is the safe direction. The runbook and routine stores restore on the schema alone.
+  - **The policy commits first, then the vault prunes:** `onChanged` fires after the write is on
+    disk and reaches `onPolicyMoved`, which retracts the policy's requests and prunes its grants.
+    Reversed, a failed write would destroy valid grants. Entry-wide authority stays broader than a
+    policy's: an entry-wide grant covers a policy scope, and a qualified grant never covers a bare
+    use. `docs/policies.md` holds the whole of it.
 - `src/gateway/compose/composePolicies.ts` - the policy store, its console operations, and the `onPolicyMoved` seam the vault reads
 - `src/gateway/routines/store.ts` / `occurrences.ts` / `runner.ts` - routines, their occurrences, and
   the loop that walks one; `compose/composeRoutines.ts` arms it from federation activation
@@ -454,6 +459,7 @@ How each subsystem works lives in `docs/`:
 | `docs/agents.md` | Codex and Copilot delegation, local agent mode |
 | `docs/task-board.md` | Board, attachments, awareness |
 | `docs/vault.md` | Vault client, grants, request road, loopback routes |
+| `docs/policies.md` | The policy record, the selector key, the store's rules, the askpass resolver, what a qualified grant covers |
 | `docs/runbooks.md` | The `{{name}}` grammar, the gateway store, the fire, the tab, the editor, a refused push |
 | `docs/routines.md` | The routine record, recurrence in a recorded zone, the console operations, what a session asks back, and the manual pass no gate here can reach |
 | `docs/references.md` | `ref://` grammar and matchers |
