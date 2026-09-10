@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { deriveContentKey, wrapContentKey } from "../shared/content-envelope.js";
 import { type Identity, seal } from "../shared/crypto.js";
+import { signSetDisplayName } from "../shared/federation-tenants.js";
 import type { KeyRequest } from "../shared/schemasContentKey.js";
 import { attachFakeSession } from "../testing/fakeSession.js";
 import {
@@ -27,6 +28,12 @@ describe("federation harness cold start", () => {
 		const before = await h.phone.reach();
 		expect(before.domainId).toBe(h.set.domain.id);
 		expect(before.gateways).toEqual([]);
+		// Unadmitted signers get no Domain.
+		const stranger = await h.phone.console({ reach: { signerSignPub: "not-admitted" } });
+		expect(stranger.status).toBe(200);
+		expect(stranger.body).not.toHaveProperty("domainId");
+		const anonymous = await h.phone.console({ reach: {} });
+		expect(anonymous.body).not.toHaveProperty("domainId");
 
 		const gateway = h.composeGateway();
 		await h.waitFor(() => gateway.faults.routerRegistered() || undefined, "gateway registration");
@@ -36,6 +43,31 @@ describe("federation harness cold start", () => {
 		const answer = await h.phone.send({ kind: "consumer_register", incarnation: 0 });
 		expect(answer).toMatchObject({ cursor: expect.any(Number) });
 		await gateway.close();
+	});
+
+	it("states the owner's facts on the presence plane, and a rename reaches the phone with no Gateway", async () => {
+		const presenceOwner = async () => {
+			const { planes } = await h.phone.planesRead();
+			const plane = planes.find((candidate) => candidate.name === "presence");
+			return { version: plane?.version ?? -1, owner: (plane?.payload as { owner?: unknown } | undefined)?.owner };
+		};
+		const owner = h.set.domain.owner;
+		const rename = (displayName: string, nonce: string) =>
+			h.phone.enroll({
+				kind: "set_display_name",
+				rename: signSetDisplayName(
+					{ domainId: h.set.domain.id, displayName, issuedAt: h.now(), nonce },
+					owner.sign.priv,
+					owner.sign.pub,
+				),
+			});
+		expect((await rename("Alice", Buffer.from("rename-1").toString("base64"))).ok).toBe(true);
+		const first = await presenceOwner();
+		expect(first.owner).toEqual({ domainId: h.set.domain.id, displayName: "Alice", isAdminDomain: true });
+		expect((await rename("Alicia", Buffer.from("rename-2").toString("base64"))).ok).toBe(true);
+		const second = await presenceOwner();
+		expect(second.owner).toEqual({ domainId: h.set.domain.id, displayName: "Alicia", isAdminDomain: true });
+		expect(second.version).toBeGreaterThan(first.version);
 	});
 
 	it("installs a bounded bootstrap and requests the missing earlier epoch", async () => {

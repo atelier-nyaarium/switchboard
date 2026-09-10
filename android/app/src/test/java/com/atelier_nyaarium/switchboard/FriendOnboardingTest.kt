@@ -20,8 +20,8 @@ class FriendOnboardingTest {
 			deviceApprovalReach = null,
 		)
 
-	private fun team(name: String, domainId: String?, status: String = "online", displayName: String? = null) =
-		testTeam(name = name, status = status, mode = "channel", domainId = domainId, displayName = displayName)
+	private fun team(name: String, domainId: String?, status: String = "online") =
+		testTeam(name = name, status = status, mode = "channel", domainId = domainId)
 
 
 	@Test
@@ -167,14 +167,15 @@ class FriendOnboardingTest {
 
 
 	@Test
-	fun peersShowTheFriendsDisplayName() {
+	fun peersShowTheFriendsOwnLabel() {
 		val peers = CrossDomainLink.mergeLinkedDomains(
 			teams = listOf(
 				team("local-gw/app", "alice"),
-				team("carol-gw/lib", "carol", status = "online", displayName = "Carol"),
+				team("carol-gw/lib", "carol", status = "online"),
 			),
 			peerOwners = mapOf("carol" to "carol-owner"),
 			adminDomain = "alice",
+			labels = mapOf("carol" to "Carol"),
 		)
 		assertEquals(1, peers.size)
 		assertEquals("carol", peers[0].domainId)
@@ -187,6 +188,7 @@ class FriendOnboardingTest {
 			teams = emptyList(),
 			peerOwners = mapOf("dave" to "dave-owner"),
 			adminDomain = "alice",
+			labels = mapOf("dave" to ""),
 		)
 		assertEquals(1, peers.size)
 		assertNull(peers[0].displayName)

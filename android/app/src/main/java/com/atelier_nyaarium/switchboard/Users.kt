@@ -33,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -70,13 +71,12 @@ fun UsersScreen(
 	onAddGateway: () -> Unit,
 ) {
 	val scope = rememberCoroutineScope()
-	// Only the admin enrolls users + hosts guest networks; a guest sees neither.
-	val isAdmin = remember { repo.isAdmin() }
+	val chat = repo.state.collectAsState().value
+	val isAdmin = chat.owner?.isAdminDomain == true
 	var menuOpen by remember { mutableStateOf(false) }
-	// One-shot fetch on entry. Null = loading; a Result carries the rows or the Router's opaque reason.
+	// Null while loading.
 	var outcome by remember { mutableStateOf<Result<List<RosterMember>>?>(null) }
-	// Non-throwing read: a corrupt owner key degrades to empty (no row ever matches it) rather
-	// than crashing the roster. The connect path surfaces a corrupt key as a terminal cause.
+	// Corrupt keys match nothing.
 	val myOwnerKeys = remember { repo.ownerFacts.ownerKeysForDisplay() }
 	val myOwner = myOwnerKeys?.signPub.orEmpty()
 	// Bumped on an untrust/trust so the per-row Trusted badge re-reads the friend graph.
@@ -88,7 +88,7 @@ fun UsersScreen(
 	var activeTrust by remember { mutableStateOf<TrustLaunch?>(null) }
 	// The Sharing surface, opened from a row's "Manage shares"; overlays the roster.
 	var showSharing by remember { mutableStateOf(false) }
-	val myName = remember { repo.displayName() }
+	val myName = chat.displayName.ifEmpty { repo.displayName() }
 	val myFingerprint = myOwnerKeys?.sas?.replace("-", " · ").orEmpty()
 
 	// owner key -> how many of my sessions that trusted person can reach (the "N shared sessions" line).

@@ -220,9 +220,7 @@ data class ChannelFile(
 data class TeamInfo(
 	val team: String,
 	val gatewayId: String,
-	val domainId: String? = null,
-	val displayName: String? = null,
-	val isAdminDomain: Boolean? = null,
+	val domainId: String,
 	val status: String,
 	val mode: String? = null,
 	val kind: String,
@@ -624,6 +622,7 @@ data class SignedFirstRoot(
 @Serializable
 data class CrossDomainPresenceEntry(
 	val domainId: String,
+	val displayName: String? = null,
 	val version: CrossDomainPresenceVersion,
 	val sessions: List<CrossDomainPresenceSession>,
 	val lastRefreshedAt: Long,
@@ -1412,6 +1411,7 @@ data class OpResultEnvelope(
 @Serializable
 data class OwnerPresenceProjection(
 	val plane: PresencePlane,
+	val owner: OwnerFacts,
 	val rows: List<TeamInfo>,
 	val linked: List<CrossDomainPresenceEntry>,
 	val roster: List<RosterEntry>,
@@ -2343,6 +2343,13 @@ data class PresencePlane(
 )
 
 @Serializable
+data class OwnerFacts(
+	val domainId: String,
+	val displayName: String? = null,
+	val isAdminDomain: Boolean,
+)
+
+@Serializable
 data class DiscoverCoverage(
 	val rosterKnown: Boolean,
 	val asked: Long,
@@ -2353,7 +2360,7 @@ data class DiscoverCoverage(
 
 @Serializable
 data class GatewaySpawnPoints(
-	val domainId: String? = null,
+	val domainId: String,
 	val gatewayId: String,
 	val hostSpawns: List<String>,
 )

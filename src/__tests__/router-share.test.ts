@@ -27,6 +27,7 @@ const make = () => {
 	const links = new Set<string>();
 	const edgeIds = new Map<string, string>();
 	const retired: string[][] = [];
+	const changed: string[][] = [];
 	const pushed: Array<{ domainId: string; gatewayId: string; frame: Record<string, unknown> }> = [];
 	const ownerOps = new Map<string, ErasedOwnerOpHandler>();
 	const gatewayFrames = new Map<string, GatewayFrameHandler>();
@@ -54,6 +55,7 @@ const make = () => {
 		retireRevokedPeerRows: (domainId, sessionTarget, friendDomainId) =>
 			retired.push([domainId, sessionTarget, friendDomainId]),
 		connectedGateways: (domainId) => gateways.get(domainId) ?? [],
+		onChanged: (domainIds) => changed.push(domainIds),
 		now: () => now,
 	};
 	return {
@@ -65,6 +67,7 @@ const make = () => {
 		links,
 		edgeIds,
 		retired,
+		changed,
 		pushed,
 		dropGateway: (reg: GatewayRegistration) => gatewayDropped?.(reg),
 		setNow: (value: number) => (now = value),
@@ -183,6 +186,7 @@ describe("ShareService", () => {
 		);
 		ctx.setNow(100 + 30 * 24 * 60 * 60 * 1000 + 1);
 		expect(ctx.service.sweep("a")).toBe(3);
+		expect(ctx.changed.at(-1)).toEqual(["a"]);
 		expect(ctx.service.isSharedTo("a", "a.g.spawn.live", "b")).toBe(false);
 		expect(ctx.service.isSharedTo("a", "a.g.spawn.new", "b")).toBe(true);
 		expect(ctx.service.isSharedTo("a", "a.g.spawn.old", "b")).toBe(false);
@@ -235,6 +239,20 @@ describe("ShareService", () => {
 			gatewayId: "b-gateway",
 			frame: { type: "unlink", domainId: "a" },
 		});
+		ctx.registry.close();
+	});
+
+	it("names the Domains whose projection a share, an unshare and an unlink can change", () => {
+		const ctx = make();
+		ctx.links.add("a|b");
+		ctx.links.add("b|a");
+		ctx.registry.for("b");
+		ctx.service.share("a", "a.g.spawn.main", { kind: "domain", domainId: "b" });
+		ctx.service.share("a", "a.g.spawn.trusted", { kind: "everyone_trusted" });
+		ctx.service.unshare("a", "a.g.spawn.main", { kind: "domain", domainId: "b" });
+		ctx.service.unshare("a", "a.g.spawn.main", { kind: "domain", domainId: "b" });
+		ctx.service.unlink("a", "b");
+		expect(ctx.changed).toEqual([["a"], ["a"], ["a"], ["a", "b"]]);
 		ctx.registry.close();
 	});
 

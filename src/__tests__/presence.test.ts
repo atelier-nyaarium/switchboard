@@ -14,7 +14,14 @@ function makeRegistry(entries: Record<string, unknown>): TeamRegistry {
 	return registry;
 }
 
-function makeFacade(opts: { registry?: TeamRegistry; offlineCatalog?: Map<string, string>; now?: () => number } = {}) {
+function makeFacade(
+	opts: {
+		registry?: TeamRegistry;
+		offlineCatalog?: Map<string, string>;
+		now?: () => number;
+		domainId?: string | null;
+	} = {},
+) {
 	const sessionStore = new SessionStore({ ambient: { now: opts.now ?? Date.now } });
 	const registry = opts.registry ?? (new Map() as TeamRegistry);
 	const offlineCatalog = opts.offlineCatalog ?? new Map<string, string>();
@@ -23,9 +30,7 @@ function makeFacade(opts: { registry?: TeamRegistry; offlineCatalog?: Map<string
 		registry,
 		offlineCatalog,
 		localGatewayId: "gw-1",
-		localDomainId: () => "dom-1",
-		displayName: () => null,
-		isAdminDomain: () => null,
+		localDomainId: () => (opts.domainId === undefined ? "dom-1" : opts.domainId),
 	});
 	const planeRegistry = new PlaneRegistry(processAmbient());
 	facade.attach(planeRegistry);
@@ -296,5 +301,29 @@ describe("PresenceFacade ambient field exclusion", () => {
 		nowFn.value = 999_999; // record.lastSeen is frozen at creation time regardless (no mutator ran)
 		facade.markDirty(); // simulates a tripwire-style recheck with only the clock having moved
 		expect(planeRegistry.version("presence")!.counter).toBe(before);
+	});
+});
+
+describe("PresenceFacade without a Domain", () => {
+	it("sends no presence at all, since a row must name its Domain", () => {
+		const registry = makeRegistry({
+			"proj.main": { readyState: 1, data: { mode: "channel", handshakeConfirmed: true, version: "1.2.3" } },
+		});
+		const { facade } = makeFacade({
+			registry,
+			offlineCatalog: new Map([["catalog", "/tmp/catalog"]]),
+			domainId: null,
+		});
+		facade.adoptById("main", { spawn: "proj" });
+
+		expect(facade.snapshot()).toEqual([]);
+	});
+
+	it("stamps every row with the Domain once it has one", () => {
+		const { facade } = makeFacade({ offlineCatalog: new Map([["catalog", "/tmp/catalog"]]) });
+		facade.adoptById("main", { spawn: "proj" });
+
+		for (const row of facade.snapshot()) expect(row).toMatchObject({ gatewayId: "gw-1", domainId: "dom-1" });
+		expect(facade.snapshot().length).toBeGreaterThan(0);
 	});
 });

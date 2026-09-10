@@ -16,7 +16,6 @@ internal interface ConnectHost {
 	suspend fun firstRootIfPending(): Boolean
 	suspend fun submitConsoleAdmission()
 	fun reportCapabilities()
-	fun refreshDisplayName()
 
 	fun attachIngest()
 	fun flushIngest()
@@ -82,7 +81,6 @@ internal class ConnectCoordinator(
 			rosterDomainId(state.value.teams, host.homeGatewayId)?.let { identity.learnDomainId(it, blob) }
 			val boot = identity.readyOrNull()
 			boot?.let(identity::ensureContentEpochs)
-			host.refreshDisplayName()
 			DebugLog.log("Connect", "connected gateway=${host.homeGatewayId.ifEmpty { "?" }} domain=${boot?.domainId ?: "none"}")
 		} catch (e: Exception) {
 			// Preserve coroutine cancellation semantics.
@@ -142,7 +140,6 @@ internal class ChatRepositoryConnectHost(private val repo: ChatRepository) : Con
 		repo.pluginReportPending = false
 		repo.repoScope.launch { repo.reportCapabilitiesToRouter() }
 	}
-	override fun refreshDisplayName() = repo.presence.refreshDisplayNameFromTeams()
 
 	override fun attachIngest() {
 		runCatching {

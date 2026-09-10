@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceEntry
+import com.atelier_nyaarium.switchboard.proto.OwnerFacts
 import com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
@@ -24,13 +25,12 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 		lastReportedReadAnchors = emptyMap()
 	}
 
-	fun refreshDisplayNameFromTeams() {
-		val gw = host.homeGatewayId
-		val local = host.state.value.teams.firstOrNull {
-			(it.gatewayId.ifEmpty { gw }) == gw && !it.displayName.isNullOrEmpty()
-		}?.displayName ?: return
-		if (local != host.storedDisplayName) host.storedDisplayName = local
-		if (local != host.state.value.displayName) host.state.update { it.copy(displayName = local) }
+	/** Cached facts cannot overwrite names. */
+	private fun applyOwnerFacts(stated: OwnerFacts, live: Boolean) {
+		val name = if (live) stated.displayName.orEmpty() else host.storedDisplayName
+		if (name != host.storedDisplayName) host.storedDisplayName = name
+		val owner = stated.copy(displayName = name.ifEmpty { null })
+		host.state.update { if (it.owner == owner && it.displayName == name) it else it.copy(owner = owner, displayName = name) }
 	}
 
 	suspend fun applyLinkedPeers(peers: List<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry>) {
@@ -127,6 +127,7 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 
 	private suspend fun landProjection(projection: OwnerPresenceProjection, bypassFreshness: Boolean = false) {
 		if (!bypassFreshness && System.currentTimeMillis() < lastProjectionAt) return
+		applyOwnerFacts(projection.owner, live = !bypassFreshness)
 		applyPlanePresenceLocked(
 			projection.rows.map { teamInfoToTeam(it, host.homeGatewayId) },
 			projection.roster.mapTo(HashSet()) { it.gatewayId },
@@ -187,6 +188,5 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 			host.persistLabels(next.labels)
 			host.persistAbsenceStreaks(next.teamAbsenceStreaks)
 		}
-		refreshDisplayNameFromTeams()
 	}
 }

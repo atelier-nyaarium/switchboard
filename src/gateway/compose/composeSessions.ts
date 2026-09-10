@@ -111,8 +111,6 @@ export function composeSessions({ localGatewayId, ambient, stores, context }: Se
 		offlineCatalog,
 		localGatewayId,
 		localDomainId: () => context.domainId(),
-		displayName: () => context.slice()?.domainMeta?.displayName ?? null,
-		isAdminDomain: () => context.slice()?.domainMeta?.isAdminDomain ?? null,
 	});
 	const sessionAuthority = createSessionAuthority({
 		sessionStore,

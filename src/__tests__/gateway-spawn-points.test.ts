@@ -10,12 +10,23 @@ describe("gateway spawn point values", () => {
 		expect(resolveWindowsWorkdir("D:\\work", home)).toEqual({ workdir: "D:\\work" });
 	});
 
-	it("validates optional domains and bounded spawn lists", () => {
-		expect(GatewaySpawnPointsSchema.safeParse({ gatewayId: "g", hostSpawns: [] }).success).toBe(true);
-		expect(GatewaySpawnPointsSchema.safeParse({ gatewayId: "g", hostSpawns: ["windows"] }).success).toBe(true);
+	it("requires a Domain and bounds the spawn list", () => {
+		expect(GatewaySpawnPointsSchema.safeParse({ domainId: "d", gatewayId: "g", hostSpawns: [] }).success).toBe(
+			true,
+		);
 		expect(
-			GatewaySpawnPointsSchema.safeParse({ gatewayId: "g", hostSpawns: Array.from({ length: 9 }, () => "x") })
-				.success,
+			GatewaySpawnPointsSchema.safeParse({ domainId: "d", gatewayId: "g", hostSpawns: ["windows"] }).success,
+		).toBe(true);
+		expect(GatewaySpawnPointsSchema.safeParse({ gatewayId: "g", hostSpawns: [] }).success).toBe(false);
+		expect(GatewaySpawnPointsSchema.safeParse({ domainId: "", gatewayId: "g", hostSpawns: [] }).success).toBe(
+			false,
+		);
+		expect(
+			GatewaySpawnPointsSchema.safeParse({
+				domainId: "d",
+				gatewayId: "g",
+				hostSpawns: Array.from({ length: 9 }, () => "x"),
+			}).success,
 		).toBe(false);
 	});
 });

@@ -111,14 +111,14 @@ suspend fun ChatRepository.connect() = withContext(Dispatchers.IO) { connector.c
 /** This owner's display name. */
 fun ChatRepository.displayName(): String = state.value.displayName.ifEmpty { readyOrNull()?.domainId.orEmpty() }
 
-/** True when the local session owns the admin Domain. */
-fun ChatRepository.isAdmin(): Boolean {
-	val gw = homeGatewayId
-	return _state.value.teams.any { (it.gatewayId.ifEmpty { gw }) == gw && it.isAdminDomain }
-}
+/** Router-stated admin Domain. */
+fun ChatRepository.isAdmin(): Boolean = _state.value.owner?.isAdminDomain == true
 
-/** True for confirmed app-only users. */
-fun ChatRepository.canDeleteOwnDomain(): Boolean = !isAdmin() && readyOrNull()?.domainId != null
+/** True only for non-admin owner Domains. */
+fun ChatRepository.canDeleteOwnDomain(): Boolean {
+	val owner = _state.value.owner ?: return false
+	return !owner.isAdminDomain && owner.domainId == readyOrNull()?.domainId
+}
 
 // Display name.
 

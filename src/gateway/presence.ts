@@ -21,19 +21,15 @@ export interface PresenceFacadeDeps {
 	offlineCatalog: Map<string, string>;
 	localGatewayId: string;
 	localDomainId: () => string | null;
-	displayName: () => string | null | undefined;
-	isAdminDomain: () => boolean | null | undefined;
 }
 
 export class PresenceFacade {
-	// All presence mutations mark the shared plane dirty.
+	// Mutations dirty plane.
 	private readonly sessionStore: SessionStore;
 	private readonly registry: TeamRegistry;
 	private readonly offlineCatalog: Map<string, string>;
 	private readonly localGatewayId: string;
 	private readonly localDomainId: () => string | null;
-	private readonly displayName: () => string | null | undefined;
-	private readonly isAdminDomain: () => boolean | null | undefined;
 	private planeRegistry: PlaneRegistry | undefined;
 	private onDirty?: () => void;
 
@@ -47,12 +43,10 @@ export class PresenceFacade {
 		this.offlineCatalog = deps.offlineCatalog;
 		this.localGatewayId = deps.localGatewayId;
 		this.localDomainId = deps.localDomainId;
-		this.displayName = deps.displayName;
-		this.isAdminDomain = deps.isAdminDomain;
 	}
 
 	attach(planeRegistry: PlaneRegistry): void {
-		// Late attachment avoids the registry and facade constructor cycle.
+		// Late attachment breaks cycles.
 		this.planeRegistry = planeRegistry;
 	}
 
@@ -207,17 +201,13 @@ export class PresenceFacade {
 	}
 
 	snapshot(): PresenceRow[] {
-		// Include catalog spawn points without session rows.
+		// Include spawn points.
 		const rows: PresenceRow[] = [];
 		const seen = new Set<string>();
-		const ownDisplayName = this.displayName();
 		const domainId = this.localDomainId();
-		const commonFields = {
-			gatewayId: this.localGatewayId,
-			...(domainId ? { domainId } : {}),
-			...(ownDisplayName ? { displayName: ownDisplayName } : {}),
-			...(this.isAdminDomain() ? { isAdminDomain: true as const } : {}),
-		};
+		// No Domain, no presence.
+		if (!domainId) return rows;
+		const commonFields = { gatewayId: this.localGatewayId, domainId };
 
 		for (const record of this.sessionStore.list()) {
 			const name = this.sessionStore.teamOf(record);

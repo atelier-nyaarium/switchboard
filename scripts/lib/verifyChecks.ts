@@ -2,7 +2,7 @@ import { z } from "zod";
 import packageJson from "../../package.json";
 import { FEDERATION_PROTOCOL_VERSION } from "../../src/shared/router-protocol.js";
 import { CapabilityBundleSchema } from "../../src/shared/schemasCapability.js";
-import { DiscoverCoverageSchema } from "../../src/shared/schemasConsoleResults.js";
+import { DiscoverAnswerSchema } from "../../src/shared/schemasConsoleResults.js";
 import { TeamInfoSchema } from "../../src/shared/schemasPresence.js";
 import { OP_LEDGER_PROTOCOL } from "../../src/shared/schemasRegister.js";
 
@@ -61,13 +61,6 @@ export function summarize(results: VerifyCheckResult[]): { failed: number; summa
 	const failed = results.filter((result) => !result.ok).length;
 	return { failed, summary: failed ? `VERIFY FAILED (${failed} checks)` : null };
 }
-
-const DiscoverCoverageAnswerSchema = z.object({
-	teams: z.array(TeamInfoSchema),
-	coverage: DiscoverCoverageSchema,
-	localGatewayId: z.string(),
-	localDomainId: z.string(),
-});
 
 async function json(fetch_: (input: RequestInfo | URL) => Promise<Response>, url: string): Promise<unknown> {
 	const response = await fetch_(url);
@@ -139,9 +132,7 @@ export function createVerifyChecks(context: VerifyCheckContext): VerifyCheck[] {
 					CapabilityBundleSchema.parse(await json(context.fetch, `${context.gatewayUrl}/capabilities`));
 					const plain = await json(context.fetch, `${context.gatewayUrl}/discover`);
 					z.array(TeamInfoSchema).parse(plain);
-					DiscoverCoverageAnswerSchema.parse(
-						await json(context.fetch, `${context.gatewayUrl}/discover?coverage=1`),
-					);
+					DiscoverAnswerSchema.parse(await json(context.fetch, `${context.gatewayUrl}/discover?coverage=1`));
 					return { ok: true, detail: "" };
 				} catch (error) {
 					return { ok: false, detail: error instanceof Error ? error.message : "schema validation failed" };

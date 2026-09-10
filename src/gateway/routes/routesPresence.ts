@@ -22,20 +22,14 @@ export function createPresenceRoutes({
 }: PresenceRoutesDeps) {
 	const { localGatewayId, localDomainId } = config;
 
-	/** This machine's one row, empty `hostSpawns` and all: that says nothing beyond host. */
+	/** Local spawn point row. */
 	function localSpawnPoints(): GatewaySpawnPoints[] {
-		// No row until a daemon has answered, which is a different answer from an empty one.
-		if (!hostSpawnPoints?.known) return [];
-		return [
-			{
-				...(localDomainId ? { domainId: localDomainId } : {}),
-				gatewayId: localGatewayId,
-				hostSpawns: [...hostSpawnPoints.ids],
-			},
-		];
+		// Unknown differs from empty.
+		if (!hostSpawnPoints?.known || !localDomainId) return [];
+		return [{ domainId: localDomainId, gatewayId: localGatewayId, hostSpawns: [...hostSpawnPoints.ids] }];
 	}
 
-	/** Folds the Router projection. Coverage rides along: an unasked peer is not a silent one. */
+	/** Folds Router projection. */
 	async function discoverFull(): Promise<{
 		teams: TeamInfo[];
 		coverage: DiscoverCoverage;

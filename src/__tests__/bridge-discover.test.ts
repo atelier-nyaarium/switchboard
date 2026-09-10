@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
 	coverageCaveat,
-	type DiscoverEntry,
 	formatDiscoverLines,
 	groupDiscoverEntries,
 	relativeAge,
 } from "../mcp/bridge/bridgeDiscover.js";
+import type { TeamInfo } from "../shared/types.js";
+
+type DiscoverEntry = TeamInfo;
 
 function entry(overrides: Partial<DiscoverEntry> & Pick<DiscoverEntry, "team" | "kind">): DiscoverEntry {
 	return { status: "online", queue_depth: 0, gatewayId: "gw1", domainId: "alice", ...overrides };
@@ -51,22 +53,6 @@ describe("groupDiscoverEntries", () => {
 		expect(groups).toHaveLength(1);
 		expect(groups[0].project).toBe("my.app");
 	});
-
-	it("skips an entry with a missing or non-string team instead of throwing", () => {
-		const good = entry({ team: "coolapp.dev", kind: "loose" });
-		const missing = { ...entry({ team: "", kind: "loose" }), team: undefined } as unknown as DiscoverEntry;
-		const nonString = { ...entry({ team: "x", kind: "loose" }), team: 12345 } as unknown as DiscoverEntry;
-		const malformed = [missing, nonString, good, null as unknown as DiscoverEntry];
-		expect(() => groupDiscoverEntries(malformed)).not.toThrow();
-		const groups = groupDiscoverEntries(malformed);
-		expect(groups).toHaveLength(1);
-		expect(groups[0].sessions[0].team).toBe("coolapp.dev");
-	});
-
-	it("drops every entry when all of them are malformed, leaving nothing to group", () => {
-		const missing = { ...entry({ team: "", kind: "loose" }), team: undefined } as unknown as DiscoverEntry;
-		expect(groupDiscoverEntries([missing, null as unknown as DiscoverEntry])).toEqual([]);
-	});
 });
 
 describe("formatDiscoverLines", () => {
@@ -109,11 +95,6 @@ describe("formatDiscoverLines", () => {
 		const lines = formatDiscoverLines([entry({ team: "my.app", kind: "devcontainer", status: "available" })]);
 		expect(lines).toEqual(["- my.app"]);
 	});
-
-	it("renders no lines when every entry is malformed, so the caller falls back to its no-sessions message", () => {
-		const missing = { ...entry({ team: "", kind: "loose" }), team: undefined } as unknown as DiscoverEntry;
-		expect(formatDiscoverLines([missing, null as unknown as DiscoverEntry])).toEqual([]);
-	});
 });
 
 describe("relativeAge", () => {
@@ -133,8 +114,7 @@ describe("relativeAge", () => {
 });
 
 describe("coverageCaveat", () => {
-	it("is silent for a complete answer and for an older gateway that claims nothing", () => {
-		expect(coverageCaveat(undefined)).toBe("");
+	it("is silent for a complete answer", () => {
 		expect(coverageCaveat({ rosterKnown: true, asked: 2, answered: 2 })).toBe("");
 	});
 	it("names the machines whose sessions are missing", () => {

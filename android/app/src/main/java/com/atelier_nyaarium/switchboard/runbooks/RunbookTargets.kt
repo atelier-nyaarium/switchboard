@@ -15,7 +15,7 @@ private fun teamsOn(state: ChatState, gatewayId: String) =
 internal fun spawnTargets(state: ChatState, gatewayId: String): List<FireTarget> {
 	val domainId = state.domainId.orEmpty()
 	val key = GatewayGroupKey(domainId, gatewayId)
-	val hosts = hostSpawnChoices(state.gatewaySpawnPoints, key, domainId)
+	val hosts = hostSpawnChoices(state.gatewaySpawnPoints, key)
 	val containers = teamsOn(state, gatewayId)
 		.filter { it.kind == "devcontainer" }
 		.map { it.shortName }

@@ -35,12 +35,22 @@ export const RosterEntrySchema = z
 	.meta({ id: "RosterEntry" });
 
 export const PresencePlaneSchema = z
-	.object({ epoch: z.number().int().positive(), version: z.number().int().nonnegative() })
+	.object({ epoch: z.number().int().positive(), version: z.number().int().positive() })
 	.meta({ id: "PresencePlane" });
+
+/** Router-stated owner facts. */
+export const OwnerFactsSchema = z
+	.object({
+		domainId: z.string().min(1),
+		displayName: z.string().nullable(),
+		isAdminDomain: z.boolean(),
+	})
+	.meta({ id: "OwnerFacts" });
 
 export const OwnerPresenceProjectionSchema = z
 	.object({
 		plane: PresencePlaneSchema,
+		owner: OwnerFactsSchema,
 		rows: z.array(TeamInfoSchema),
 		linked: z.array(CrossDomainPresenceEntrySchema),
 		roster: z.array(RosterEntrySchema),

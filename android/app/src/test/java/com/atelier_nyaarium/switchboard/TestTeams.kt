@@ -18,8 +18,6 @@ internal fun testTeam(
 	limitDetail: String? = null,
 	kind: String = "loose",
 	domainId: String? = null,
-	displayName: String? = null,
-	isAdminDomain: Boolean = false,
 	sessionLabel: String? = null,
 ): Team = Team(
 	name = name,
@@ -36,7 +34,5 @@ internal fun testTeam(
 	),
 	kind = kind,
 	domainId = domainId,
-	displayName = displayName,
-	isAdminDomain = isAdminDomain,
 	sessionLabel = sessionLabel,
 )

@@ -180,6 +180,8 @@ export class RouterServer {
 				signPriv: this.domain.identity.sign.priv,
 			},
 			getDomain: (domainId) => this.coordinatorFor(domainId)?.getDomainSnapshot() ?? null,
+			domainDisplayName: (domainId) => this.coordinatorFor(domainId)?.displayName ?? null,
+			adminDomainId: () => params.store.adminDomainId(),
 			hasLinkEdge: (srcDomainId, dstDomainId) =>
 				this.coordinatorFor(srcDomainId)?.hasLinkEdge(srcDomainId, dstDomainId) ?? false,
 			linkEdgeId: (srcDomainId, dstDomainId) =>
@@ -199,6 +201,7 @@ export class RouterServer {
 					const domainId = op.firstRoot.domainId;
 					this.coordinatorFor(domainId);
 					this.bridge.broadcastDomainUpdate(domainId);
+					this.ownerServices.presence.refresh(domainId);
 				}
 				return result;
 			},
@@ -482,17 +485,29 @@ export class RouterServer {
 			const failed = await this.flushOrError(domainId);
 			if (failed) return failed;
 			this.bridge.broadcastDomainUpdate(domainId);
+			// Refresh roster changes.
+			this.ownerServices.presence.refresh(domainId);
 		} else if (op.kind === "submit_xdomain_link" || op.kind === "revoke_xdomain_link") {
 			// Persist link changes before acknowledging.
 			const failed = await this.flushOrError(domainId);
 			if (failed) return failed;
+			const edge = op.kind === "submit_xdomain_link" ? op.edge.edge : op.revocation.revocation;
+			this.ownerServices.presence.refresh(edge.srcDomainId);
+			this.ownerServices.presence.refresh(edge.dstDomainId);
 		} else if (op.kind === "set_display_name") {
 			this.coordinatorFor(op.rename.rename.domainId);
 			this.bridge.broadcastDomainUpdate(op.rename.rename.domainId);
+			this.ownerServices.presence.refresh(op.rename.rename.domainId);
 		} else if (op.kind === "remove_tenant" || op.kind === "delete_domain") {
 			const removed = op.kind === "remove_tenant" ? op.removal.removal.domainId : op.deletion.deletion.domainId;
+			// Refresh dependent projections.
+			const dependents = this.params.store
+				.listDomains()
+				.map((domain) => domain.domainId)
+				.filter((survivor) => this.coordinatorFor(survivor)?.hasLinkEdge(survivor, removed) ?? false);
 			this.coordinators.delete(removed);
 			this.bridge.evictDomain(removed, "Domain removed");
+			for (const dependent of dependents) this.ownerServices.presence.refresh(dependent);
 		}
 		return result;
 	}

@@ -220,14 +220,6 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 					console.log(`[federation] domain sync applied (${parsed.data.admissions.length} admissions)`);
 				}
 			},
-			onDomainMeta: (meta) => {
-				slice.domainMeta = meta;
-				sessions.presence.markDirty();
-			},
-			onDomainUpdate: (meta) => {
-				slice.domainMeta = { ...(slice.domainMeta ?? {}), displayName: meta.displayName };
-				sessions.presence.markDirty();
-			},
 			buildRegisterAuth: () =>
 				buildRegisterAuth({
 					gatewayId: localGatewayId,
@@ -414,7 +406,6 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 			vaultClient,
 			blobUploader,
 			replayPersist: () => replayDurable.save(replayGuard.snapshot()),
-			domainMeta: null,
 			handlers: null,
 		};
 		return slice;

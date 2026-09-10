@@ -19,6 +19,7 @@ import type { TeamInfo } from "../shared/types.js";
 const session = (team: string, over: Partial<TeamInfo> = {}): TeamInfo => ({
 	team,
 	gatewayId: "gateway",
+	domainId: "local",
 	status: "online",
 	kind: "devcontainer",
 	queue_depth: 2,

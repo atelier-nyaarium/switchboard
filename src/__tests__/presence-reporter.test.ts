@@ -7,6 +7,7 @@ import { PresenceBaselineParamsSchema, PresenceDeltaParamsSchema } from "../shar
 const row = (team: string, status: PresenceRow["status"] = "available"): PresenceRow => ({
 	team,
 	gatewayId: "gateway",
+	domainId: "domain",
 	status,
 	kind: "loose",
 	queue_depth: 0,
@@ -16,7 +17,7 @@ function setup(answers: Array<{ error?: string; result?: unknown }> = []) {
 	vi.useFakeTimers();
 	let rows = [row("one"), row("two")];
 	let incarnation: number | null = 1;
-	let spawnPoints = { gatewayId: "gateway", hostSpawns: [] as string[] };
+	let spawnPoints = { domainId: "domain", gatewayId: "gateway", hostSpawns: [] as string[] };
 	const frames: Array<{ action: string; params: Record<string, unknown> }> = [];
 	const reporter = createPresenceReporter({
 		ambient: processAmbient(),
@@ -36,7 +37,8 @@ function setup(answers: Array<{ error?: string; result?: unknown }> = []) {
 		frames,
 		setRows: (next: PresenceRow[]) => (rows = next),
 		setIncarnation: (next: number | null) => (incarnation = next),
-		setSpawnPoints: (hostSpawns: string[]) => (spawnPoints = { gatewayId: "gateway", hostSpawns }),
+		setSpawnPoints: (hostSpawns: string[]) =>
+			(spawnPoints = { domainId: "domain", gatewayId: "gateway", hostSpawns }),
 	};
 }
 

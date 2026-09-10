@@ -9,26 +9,12 @@ import { ConnectionModeSchema, TeamKindSchema } from "./schemasCore.js";
 //  the wire word verbatim; `kind` separates wakeable devcontainer projects from
 //  ad-hoc loose sessions.
 
-/**
- * Which host spawn points one Gateway's machine offers beyond the universal `host`.
- *
- * DISCOVERY metadata, deliberately not a presence row. A host spawn point is a shell on a machine,
- * and `host` has never had a presence row: every kind `TeamInfo` permits is shareable to a linked
- * friend Domain (`gatewayRelay`'s scope gate admits `devcontainer` and `loose`), so giving one a row
- * would make a machine's shell shareable, which `host` is not. A new `TeamKind` variant is worse
- * still - cross-Domain presence narrows kind to a strict two-value enum, so an older Gateway fails
- * validation on a relayed list and can drop the whole discovery answer.
- *
- * Gateway-scoped rather than per-row, because a Gateway with no sessions still needs to say what it
- * offers; the console renders a section for an admitted Gateway that has contributed no teams.
- */
+/** Discovery metadata, never a presence row: a row would make a machine's shell shareable. */
 export const GatewaySpawnPointsSchema = z
 	.object({
-		// Absent when the answering Gateway has not resolved a Domain yet, matching TeamInfo.
-		domainId: z.string().optional(),
-		gatewayId: z.string(),
-		// Detected points only. `host` is on every machine and is never announced, so an empty array
-		// is a complete and meaningful answer: "this machine offers nothing beyond the usual".
+		domainId: z.string().min(1),
+		gatewayId: z.string().min(1),
+		// Host is implicit.
 		hostSpawns: z.array(z.string().min(1).max(64)).max(8),
 	})
 	.meta({ id: "GatewaySpawnPoints" });
@@ -36,40 +22,17 @@ export const GatewaySpawnPointsSchema = z
 export const TeamInfoSchema = z
 	.object({
 		team: z.string(),
-		// The id of the Gateway that owns this session. `team` stays the bare local
-		// name; the console composes the qualified key `gateway/team` to keep two
-		// Gateways' identically-named sessions apart. Always stamped by the gateway.
-		gatewayId: z.string(),
-		// The Domain id of the Gateway that owns this session. A gateway id is unique only
-		// within a Domain, so the full (domainId, gatewayId) pair addresses a session
-		// unambiguously: two linked friend Domains may run a gateway with a colliding id.
-		// Absent when this gateway has not resolved a Domain yet (arming mode); a consumer
-		// then treats the session as belonging to the local Gateway's own Domain.
-		domainId: z.string().optional(),
-		// The friendly display name of the Domain that owns this session, propagated over the
-		// discovery roster so a linked friend Domain shows the owner's self-set label instead
-		// of a local alias. Null when the Domain has no owner-set label.
-		displayName: z.string().nullish(),
-		// True when the Domain that owns this session is the admin's own Domain (the Router operator
-		// who provisions others). The console reads it on its local session to decide whether to
-		// show the admin surfaces. Stamped only for the admin Domain, so absence means false.
-		isAdminDomain: z.boolean().optional(),
-		// online = a live incarnation that has confirmed its lead handshake; verifying = a live
-		// incarnation that has not (re)confirmed yet (e.g. re-registered after a gateway restart, still
-		// waiting on its LLM to answer); available = a record with no live incarnation (asleep, wakeable).
+		// Router-stamped row identity.
+		gatewayId: z.string().min(1),
+		domainId: z.string().min(1),
+		// Status reflects incarnation.
 		status: z.enum(["online", "verifying", "available"]),
 		mode: ConnectionModeSchema.optional(),
-		// loose | devcontainer | console. Always stamped by the gateway.
+		// Gateway-stamped team kind.
 		kind: TeamKindSchema,
-		// The free-form human label the board renders for a session record (typed at create, else the
-		// cwd basename, else the id). Distinct from `displayName` (the owning Domain's network name).
-		// Absent for spawn-points and sessions with no record.
+		// Board session label.
 		sessionLabel: z.string().optional(),
-		// INBOUND ONLY. No local row carries one: nothing writes a description any more, and a session
-		// card leads with the session's last reply headline instead. Kept on the wire to avoid a codegen
-		// run and the staggered-deploy window a required-field change opens, NOT to save the linked
-		// friend row - that row goes blank anyway once the friend's own Gateway updates, since theirs is
-		// what fills it. Retiring the field is a deploy-ordering decision, not a behavioural one.
+		// Inbound compatibility field.
 		description: z.string().optional(),
 		// The plugin version the agent's MCP process reported at register. Absent for
 		// consoles and offline-catalog entries (no plugin process behind them). The console
@@ -195,16 +158,12 @@ export const CrossDomainPresenceKnownVersionSchema = z
 	})
 	.meta({ id: "CrossDomainPresenceKnownVersion" });
 
-/** One linked Domain's current cross-Domain-presence content, piggybacked on the poll response only
- * for a Domain whose plane actually changed relative to what the Console presented (never a full
- * unconditional resend of every linked Domain - each is independently versioned). `lastRefreshedAt`
- * is refreshed by EITHER a landed push or a successful backstop pull (crossDomainPresence.ts),
- * delivered to the Console with up to a minute of coarsening (see `FRESHNESS_BUCKET_MS`) so an
- * unchanged-content reconfirmation does not bump the version on every single backstop tick; the
- * Console computes staleness display against it client-side, never a gateway-side boolean. */
+/** Domain-keyed friend presence. */
 export const CrossDomainPresenceEntrySchema = z
 	.object({
 		domainId: z.string(),
+		// Friend Domain label.
+		displayName: z.string().nullable(),
 		version: CrossDomainPresenceVersionSchema,
 		sessions: z.array(CrossDomainPresenceSessionSchema),
 		lastRefreshedAt: z.number().int().nonnegative(),

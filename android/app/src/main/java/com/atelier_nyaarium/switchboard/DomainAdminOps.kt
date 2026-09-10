@@ -7,7 +7,6 @@ import com.atelier_nyaarium.switchboard.proto.SignedSetDisplayName
 import com.atelier_nyaarium.switchboard.proto.EnrollOp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -41,8 +40,7 @@ internal class DomainAdminOps(
 			val signed = collaborators.signSetDisplayName(adminDomain, trimmed, System.currentTimeMillis())
 			val result = client.client().enroll(EnrollOp.SetDisplayName(signed))
 			if (!result.ok) error(result.error ?: "rename rejected")
-			store.displayName = trimmed
-			state.update { it.copy(displayName = trimmed) }
+			// Router projection owns names.
 		}
 	}
 

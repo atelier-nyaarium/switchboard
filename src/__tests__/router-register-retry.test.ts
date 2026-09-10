@@ -66,7 +66,7 @@ describe("routerClient pending-Domain re-register", () => {
 			sock.send(JSON.stringify({ type: "tool_result", callId: msg.callId, result: reply }));
 		});
 
-		let lastStatus: string | undefined;
+		let registered = 0;
 		client = startRouterClient({
 			ambient: processAmbient(),
 			url: `ws://localhost:${router.port}`,
@@ -74,15 +74,15 @@ describe("routerClient pending-Domain re-register", () => {
 			gatewayId: "test-host",
 			domainId: "alice",
 			pendingReregisterDelayMs: 25,
-			onDomainMeta: (m) => {
-				lastStatus = m.domainStatus;
+			onRegistered: () => {
+				registered += 1;
 			},
 		});
 
 		await waitFor(() => registers.length >= 2);
-		await waitFor(() => lastStatus === "rooted");
+		await waitFor(() => registered === 1);
 		expect(registers.length).toBe(2);
-		expect(lastStatus).toBe("rooted");
+		expect(registered).toBe(1);
 
 		await new Promise((r) => setTimeout(r, 120));
 		expect(registers.length).toBe(2);

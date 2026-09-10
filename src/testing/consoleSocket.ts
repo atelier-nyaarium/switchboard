@@ -20,6 +20,18 @@ export interface ConsoleSocketOptions {
 	planesOnly?: boolean;
 }
 
+/** Finds the first matching plane frame after `from`. */
+export function pushedPlane(
+	socket: ConsoleSocket,
+	name: string,
+	accept: (payload: unknown) => boolean,
+	from = 0,
+): Frame | undefined {
+	return socket.frames
+		.slice(from)
+		.find((frame) => frame.type === "plane" && frame.name === name && accept(frame.payload));
+}
+
 export function openConsoleSocket(options: ConsoleSocketOptions): Promise<ConsoleSocket> {
 	const frames: Frame[] = [];
 	const ws = new WebSocket(`wss://127.0.0.1:${options.port}/console`, {

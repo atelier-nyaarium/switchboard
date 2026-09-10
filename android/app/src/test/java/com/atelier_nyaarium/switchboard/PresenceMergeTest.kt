@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.DiscoverCoverage
+import com.atelier_nyaarium.switchboard.proto.OwnerFacts
 import com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection
 import com.atelier_nyaarium.switchboard.proto.PresencePlane
 import com.atelier_nyaarium.switchboard.proto.RosterEntry
@@ -46,6 +47,7 @@ class PresenceMergeTest {
 
 	private fun projection(version: Long, rows: List<TeamInfo>) = OwnerPresenceProjection(
 		plane = PresencePlane(1, version),
+		owner = OwnerFacts("dom1", null, false),
 		rows = rows,
 		linked = emptyList(),
 		roster = listOf(RosterEntry("sakura", true, 1, 1), RosterEntry("mikan", false, 1, 1)),

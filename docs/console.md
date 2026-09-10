@@ -185,6 +185,11 @@ no TTL.
   bridge state mutates in place and intentionally does not.
 - **Presence authority** (`Presence.kt`): the gateway's own presence is pushed; other machines are
   discovered by `/discover`. A bare presence value does not reveal which channel produced it.
+- **Owner facts** (`ChatState.owner`, `PresenceOps.applyOwnerFacts`): the Router states the owner's
+  Domain id, display name, and admin Domain on the presence projection. No session row carries
+  them. A live projection updates the stored display name. A restored cache shows the stored name.
+  Renames arrive in projections. The phone does not write them locally. `canDeleteOwnDomain` is
+  false until the facts arrive.
 - **Presence residue** (`presence-authority-residue.test.ts`): `status` is private, `Presence`
   construction is private, and consumers use authority-bearing members such as `isLive`, `isOnline`,
   `mayHavePane`, `authoritative`. Do not restore writable status strings.

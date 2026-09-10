@@ -83,6 +83,16 @@ export const DiscoverCoverageSchema = z
 	})
 	.meta({ id: "DiscoverCoverage" });
 
+/** `/discover?coverage=1` response. */
+export const DiscoverAnswerSchema = z
+	.object({
+		teams: z.array(TeamInfoSchema),
+		coverage: DiscoverCoverageSchema,
+		localGatewayId: z.string().min(1),
+		localDomainId: z.string().min(1),
+	})
+	.meta({ id: "DiscoverAnswer" });
+
 export const ConsoleListTeamsResultSchema = z
 	.object({
 		teams: z.array(TeamInfoSchema),

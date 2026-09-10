@@ -78,6 +78,7 @@ describe("Router owner state residue", () => {
 			dropLinkEdge: () => undefined,
 			retireRevokedPeerRows: (d, t, f) => inbox.retireRevokedPeerRows(d, t, f),
 			connectedGateways: () => [],
+			onChanged: () => undefined,
 			now: () => 100,
 		});
 		const gate = (dst: string, target: string, src: string) => share.admitPeerRow(dst, target, src);

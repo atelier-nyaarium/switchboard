@@ -50,6 +50,7 @@ export class RouterDomainBootstrap {
 		const ownerRegistry = new OwnerStoreRegistry({
 			dataDir: params.dataDir,
 			ownerOf: (domainId) => params.store.loadDomain(domainId)?.ownerSignPub ?? null,
+			knownDomains: () => params.store.listDomains().map((domain) => domain.domainId),
 			quotaFor: () => new DomainQuota({ dir: params.dataDir, limitBytes: quotaBytes }),
 			ambient: params.ambient,
 		});

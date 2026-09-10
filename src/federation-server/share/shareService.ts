@@ -50,6 +50,8 @@ export interface ShareServiceDeps {
 		friendDomainId: string,
 	) => number;
 	connectedGateways: (domainId: string) => string[];
+	/** Changed Domains refresh dependents. */
+	onChanged: (domainIds: string[]) => void;
 	now: () => number;
 }
 
@@ -171,6 +173,7 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 				[],
 				target.kind === "domain" ? { remove: [target.domainId] } : {},
 			);
+			if (written.applied) deps.onChanged([domainId]);
 			return written.applied ? { ok: true } : { ok: false, outcome: written.outcome };
 		},
 		// Bump generation only when no remaining record shares the pair.
@@ -193,6 +196,7 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 			);
 			if (written.applied && !deps.retireRevokedPeerRowsInBatch)
 				for (const friend of revoked) deps.retireRevokedPeerRows(domainId, sessionTarget, friend);
+			if (written.applied) deps.onChanged([domainId]);
 			return written.applied ? { ok: true } : { ok: false, outcome: written.outcome };
 		},
 		listShares(domainId) {
@@ -298,6 +302,7 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 			if (written.applied && !deps.retireRevokedPeerRowsInBatch)
 				for (const { sessionTarget, friendDomainId } of revoked)
 					deps.retireRevokedPeerRows(domainId, sessionTarget, friendDomainId);
+			if (written.applied && result.removed > 0) deps.onChanged([domainId]);
 			return result.removed;
 		},
 		// Tear down linked friends; unlinked names only drop stale explicit shares.
@@ -328,6 +333,7 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 					deps.retireRevokedPeerRows(domainId, sessionTarget, friendDomainId);
 			if (!isCurrentlyLinked) return { peersRemoved: 0, sharesDropped: dropped.removed, jobsExpired: 0 };
 			deps.dropLinkEdge(domainId, friendDomainId);
+			deps.onChanged([domainId, friendDomainId]);
 			if (registeredHooks) {
 				const localFrame = { type: "unlink", domainId: friendDomainId };
 				const friendFrame = { type: "unlink", domainId };

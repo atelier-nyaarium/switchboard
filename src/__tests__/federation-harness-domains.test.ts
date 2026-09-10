@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sha256Hex } from "../shared/canonical-json.js";
 import { parseSessionName } from "../shared/session-id.js";
+import { type ConsoleSocket, openConsoleSocket, pushedPlane } from "../testing/consoleSocket.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type DomainPeer, type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
 
@@ -19,6 +20,7 @@ describe("two linked Domains", () => {
 	let h: FederationHarness;
 	let bob: DomainPeer;
 	const sessions: FakeSession[] = [];
+	const sockets: ConsoleSocket[] = [];
 	let opCounter = 0;
 	const session = (peer: DomainPeer, team: string): FakeSession => {
 		const attached = attachFakeSession(peer.gateway, { team, conversationId: `conv-${team.replace(/\W/g, "-")}` });
@@ -66,6 +68,7 @@ describe("two linked Domains", () => {
 		bob = await h.addDomain({ domainId: "bob", gatewayId: "desk" });
 	}, 60_000);
 	afterAll(async () => {
+		for (const socket of sockets) await socket.close();
 		for (const attached of sessions) attached.close();
 		if (h) await h.close();
 	});
@@ -112,6 +115,34 @@ describe("two linked Domains", () => {
 		await h.waitFor(
 			async () => !(await linkedSessions(h, "bob")).includes("fixture-app.shared") || undefined,
 			"presence plane without the unshared session",
+		);
+	});
+
+	it("pushes the friend's share and unshare to this Domain's console socket", async () => {
+		const socket = await openConsoleSocket({
+			port: h.router.port,
+			token: h.set.tokens.console,
+			hello: h.phone.ownerOp({ kind: "hello" }),
+			planesOnly: true,
+		});
+		sockets.push(socket);
+		await h.waitFor(() => socket.frames.find((frame) => frame.type === "welcome"), "welcome frame");
+		const bobShares = (payload: unknown, team: string) =>
+			((payload as { linked?: LinkedEntry[] }).linked?.find((entry) => entry.domainId === "bob")?.sessions ?? [])
+				.map((s) => s.team)
+				.includes(team);
+		const pushed = session(bob, "fixture-app.pushed");
+		await pushed.ready();
+		await share(bob, pushed.team, h.set.domain.id);
+		await h.waitFor(
+			() => pushedPlane(socket, "presence", (payload) => bobShares(payload, pushed.team)),
+			"share pushed to the friend's socket",
+		);
+		const seen = socket.frames.length;
+		await share(bob, pushed.team, h.set.domain.id, "unshare");
+		await h.waitFor(
+			() => pushedPlane(socket, "presence", (payload) => !bobShares(payload, pushed.team), seen),
+			"unshare pushed to the friend's socket",
 		);
 	});
 

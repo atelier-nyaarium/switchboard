@@ -27,7 +27,6 @@ class ConnectCoordinatorTest {
 		var gatewayError: Throwable? = null
 		var savedGatewayId: String? = null
 		var capabilitiesReported = false
-		var displayNameRefreshed = false
 		var ingestAttached = false
 		var ingestFlushed = false
 
@@ -46,9 +45,6 @@ class ConnectCoordinatorTest {
 		}
 		override fun reportCapabilities() {
 			capabilitiesReported = true
-		}
-		override fun refreshDisplayName() {
-			displayNameRefreshed = true
 		}
 		override fun attachIngest() {
 			ingestAttached = true
@@ -91,7 +87,6 @@ class ConnectCoordinatorTest {
 		assertEquals(listOf("gw"), state.value.admittedGateways)
 		assertTrue(identity.bootState.value is BootState.Ready)
 		assertTrue(host.capabilitiesReported)
-		assertTrue(host.displayNameRefreshed)
 		assertTrue(host.ingestAttached)
 		assertTrue(host.ingestFlushed)
 		assertEquals(1, reach.calls)
@@ -112,7 +107,6 @@ class ConnectCoordinatorTest {
 		assertNull(identity.readyOrNull())
 		assertNull(host.savedGatewayId)
 		assertFalse(host.capabilitiesReported)
-		assertFalse(host.displayNameRefreshed)
 	}
 
 	@Test
@@ -130,7 +124,6 @@ class ConnectCoordinatorTest {
 		assertFalse(store.consoleAdmitted)
 		assertNull(host.savedGatewayId)
 		assertFalse(host.capabilitiesReported)
-		assertFalse(host.displayNameRefreshed)
 	}
 
 	@Test
@@ -147,7 +140,6 @@ class ConnectCoordinatorTest {
 		assertFalse(state.value.connected)
 		assertTrue(store.consoleAdmitted)
 		assertFalse(host.capabilitiesReported)
-		assertFalse(host.displayNameRefreshed)
 	}
 
 	@Test
@@ -166,7 +158,6 @@ class ConnectCoordinatorTest {
 		assertFalse(state.value.connected)
 		assertFalse(store.consoleAdmitted)
 		assertFalse(host.capabilitiesReported)
-		assertFalse(host.displayNameRefreshed)
 	}
 
 	@Test
@@ -182,7 +173,6 @@ class ConnectCoordinatorTest {
 		assertEquals(BootState.Missing(setOf(Need.PROVISIONING)), identity.bootState.value)
 		assertEquals(ChatState(), state.value)
 		assertFalse(host.capabilitiesReported)
-		assertFalse(host.displayNameRefreshed)
 		assertEquals(0, reach.calls)
 	}
 }

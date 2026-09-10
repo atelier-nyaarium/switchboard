@@ -318,7 +318,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/federation-server/inbox/inboxAppend.ts` / `inboxRetire.ts` / `inboxSweep.ts` / `inboxOpResult.ts` / `inboxCore.ts` - row append and admission, row retirement, the expiry sweep, router-authored result rows, and shared primitives (`recordId`, `guarded`, `ledgerTransaction`, `ownerAddress`, `floorOf`) behind `InboxService`
 - `src/federation-server/blobs/` - Router blob cache with leases and the reference-held store
 - `src/federation-server/ownerServices.ts` / `ownerServiceHooks.ts` - the owner-state services behind one hook surface: OwnerOp kinds, gateway frames, register and drop listeners, and the sweepers the fence holds
-- `src/federation-server/presence/` - presence rows per gateway incarnation, resync, roster, owner and friend projections
+- `src/federation-server/presence/` - presence rows per gateway incarnation, resync, roster, owner and friend projections. The owner projection states the owner's facts. `refresh` recomputes a Domain and every Domain that embeds it.
 - `src/federation-server/share/` - share records, generations, attestations, sweep, unlink; the peer-row gate
 - `src/federation-server/board/` - board records with sealed text, authority and cascade on the clear envelope, observation rows
 - `src/federation-server/vault/` - vault entries: sealed fields, revision CAS, phone writes, gateway creates, unopened fields

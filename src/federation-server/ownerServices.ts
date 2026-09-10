@@ -36,10 +36,12 @@ export interface OwnerServicesDeps {
 	referenceHeld: ReferenceHeldStore;
 	routerIdentity: { signPub: string; signPriv: string };
 	getDomain: (domainId: string) => DomainSnapshot | null;
+	domainDisplayName: (domainId: string) => string | null;
+	adminDomainId: () => string | null;
 	hasLinkEdge: (srcDomainId: string, dstDomainId: string) => boolean;
 	linkEdgeId: (srcDomainId: string, dstDomainId: string) => string | null;
 	dropLinkEdge: (srcDomainId: string, dstDomainId: string) => void;
-	/** Owner rows wait for the next read. */
+	/** Owner rows await reads. */
 	consoleSockets?: Pick<ConsoleSockets, "pushOwnerRow" | "pushPlane" | "forget" | "readPlanes">;
 	leases?: ReturnType<typeof createLeaseService>;
 	ambient: ChainTimers;
@@ -135,6 +137,9 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		retireRevokedPeerRowsInBatch: (store, tx, domainId, sessionTarget, friendDomainId) =>
 			inbox.retireRevokedPeerRowsInBatch(store, tx, domainId, sessionTarget, friendDomainId),
 		connectedGateways: connected,
+		onChanged: (domainIds) => {
+			for (const domainId of domainIds) presence.refresh(domainId);
+		},
 		now: () => registry.now(),
 	});
 	const peerGate = (dstDomainId: string, sessionTarget: string, srcDomainId: string): number | null => {
@@ -165,9 +170,17 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 
 	const isShared = (domainId: string, sessionTarget: string, toDomainId: string) =>
 		share.isSharedTo(domainId, sessionTarget, toDomainId);
+	const projectionDeps = {
+		admittedGateways,
+		linkedDomains,
+		isShared,
+		connected,
+		displayName: deps.domainDisplayName,
+		isAdminDomain: (domainId: string) => deps.adminDomainId() === domainId,
+	};
 	const presence = createPresenceService({
 		registry,
-		projection: { admittedGateways, linkedDomains, isShared, connected },
+		projection: projectionDeps,
 		friend: { isShared },
 		touch: (domainId, sessionTarget) => share.touch(domainId, sessionTarget),
 		pokeOwner: (domainId, version, projection) =>
@@ -260,12 +273,7 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		readAnchors,
 		vault,
 		planeVersions(domainId: string, _signerSignPub: string): Record<string, number> {
-			const projection = presence.ownerProjection(domainId, {
-				admittedGateways,
-				linkedDomains,
-				isShared,
-				connected,
-			});
+			const projection = presence.ownerProjection(domainId, projectionDeps);
 			return {
 				presence: "outcome" in projection ? 0 : projection.plane.version,
 				taskBoard: board.read(domainId).revision,
@@ -273,8 +281,7 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 			};
 		},
 		readPlane(domainId: string, _signerSignPub: string, name: string): unknown {
-			if (name === "presence")
-				return presence.ownerProjection(domainId, { admittedGateways, linkedDomains, isShared, connected });
+			if (name === "presence") return presence.ownerProjection(domainId, projectionDeps);
 			// Board and vault planes carry revisions.
 			return undefined;
 		},

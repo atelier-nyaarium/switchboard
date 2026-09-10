@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.DiscoverCoverage
 import com.atelier_nyaarium.switchboard.proto.GatewaySpawnPoints
+import com.atelier_nyaarium.switchboard.proto.OwnerFacts
 import com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection
 import com.atelier_nyaarium.switchboard.proto.PresencePlane
 import com.atelier_nyaarium.switchboard.proto.RosterEntry
@@ -43,7 +44,7 @@ class PresenceOpsTest {
 	private fun info(
 		name: String,
 		gatewayId: String = "local",
-		domainId: String? = null,
+		domainId: String = "d",
 		status: String = Presence.ONLINE,
 	) = TeamInfo(
 		team = name,
@@ -60,8 +61,10 @@ class PresenceOpsTest {
 		rows: List<TeamInfo> = listOf(info(name)),
 		roster: List<RosterEntry> = listOf(RosterEntry("local", true, 1, 1)),
 		spawnPoints: List<GatewaySpawnPoints> = emptyList(),
+		owner: OwnerFacts = OwnerFacts("d", null, false),
 	) = OwnerPresenceProjection(
 		plane = PresencePlane(epoch = 1, version = version),
+		owner = owner,
 		rows = rows,
 		linked = emptyList(),
 		roster = roster,
@@ -81,7 +84,7 @@ class PresenceOpsTest {
 		assertEquals(windowsOnMikan, host.state.value.gatewaySpawnPoints)
 		assertEquals(
 			listOf("windows", "host"),
-			hostSpawnChoices(host.state.value.gatewaySpawnPoints, GatewayGroupKey("d", "mikan"), "d"),
+			hostSpawnChoices(host.state.value.gatewaySpawnPoints, GatewayGroupKey("d", "mikan")),
 		)
 
 		ops.applyOwnerProjection(projection(2))
@@ -101,14 +104,30 @@ class PresenceOpsTest {
 		val held = projection(1, "host.held", spawnPoints = windowsOnMikan)
 		host.slot = RouterStateSlot(1, 1, wireJson.encodeToJsonElement(OwnerPresenceProjection.serializer(), held))
 		ops.restoreLastProjection()
-		assertEquals(listOf("local.local.host.held"), host.state.value.teams.map { it.name })
+		assertEquals(listOf("d.local.host.held"), host.state.value.teams.map { it.name })
 		assertEquals(windowsOnMikan, host.state.value.gatewaySpawnPoints)
 
 		ops.applyOwnerProjection(projection(2, "host.live"))
 		host.slot = RouterStateSlot(1, 1, wireJson.encodeToJsonElement(OwnerPresenceProjection.serializer(), held))
 		ops.restoreLastProjection()
 
-		assertEquals(listOf("local.local.host.live"), host.state.value.teams.map { it.name })
+		assertEquals(listOf("d.local.host.live"), host.state.value.teams.map { it.name })
+	}
+
+	@Test
+	fun aLiveProjectionRenamesTheOwnerAndACachedOneCannotUndoIt() = runBlocking {
+		val host = FakeHost()
+		PresenceOps(host).applyOwnerProjection(projection(2, owner = OwnerFacts("d", "Alicia", true)))
+		assertEquals("Alicia", host.storedDisplayName)
+		assertEquals("Alicia", host.state.value.displayName)
+		assertEquals(true, host.state.value.owner?.isAdminDomain)
+
+		val cached = projection(1, owner = OwnerFacts("d", "Alice", true))
+		host.slot = RouterStateSlot(1, 1, wireJson.encodeToJsonElement(OwnerPresenceProjection.serializer(), cached))
+		PresenceOps(host).restoreLastProjection()
+		assertEquals("Alicia", host.storedDisplayName)
+		assertEquals("Alicia", host.state.value.displayName)
+		assertEquals(OwnerFacts("d", "Alicia", true), host.state.value.owner)
 	}
 
 	@Test
@@ -117,7 +136,7 @@ class PresenceOpsTest {
 		val ops = PresenceOps(host)
 		ops.applyOwnerProjection(projection(2))
 		assertEquals(2L, host.slot?.version)
-		assertEquals(listOf("local.local.host.session"), host.state.value.teams.map { it.name })
+		assertEquals(listOf("d.local.host.session"), host.state.value.teams.map { it.name })
 	}
 
 	@Test
@@ -126,7 +145,7 @@ class PresenceOpsTest {
 		val ops = PresenceOps(host)
 		ops.applyOwnerProjection(projection(2, "host.new"))
 		ops.applyOwnerProjection(projection(1, "host.old"))
-		assertEquals("local.local.host.new", host.state.value.teams.single().name)
+		assertEquals("d.local.host.new", host.state.value.teams.single().name)
 		assertEquals(2L, host.slot?.version)
 	}
 

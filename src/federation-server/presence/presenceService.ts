@@ -2,7 +2,7 @@ import { mintEpoch } from "../../shared/epoch.js";
 import type { CrossDomainPresenceSession } from "../../shared/federation-protocol.js";
 import { type PresenceRow, presenceIdentityOf } from "../../shared/presence-identity.js";
 import { toCrossDomainPresenceSession } from "../../shared/presence-projection.js";
-import type { GatewaySpawnPointsSchema } from "../../shared/schemasPresence.js";
+import { type GatewaySpawnPointsSchema, TeamInfoSchema } from "../../shared/schemasPresence.js";
 import {
 	FriendPresenceProjectionSchema,
 	OwnerPresenceProjectionSchema,
@@ -26,10 +26,11 @@ type ProjectionDeps = {
 	linkedDomains: (domainId: string) => string[];
 	isShared: (domainId: string, sessionTarget: string, toDomainId: string) => boolean;
 	connected: (domainId: string) => string[];
+	displayName: (domainId: string) => string | null;
+	isAdminDomain: (domainId: string) => boolean;
 };
 type FriendDeps = Pick<ProjectionDeps, "isShared">;
 
-// Gateway IDs exclude ":" and ".".
 const rowId = (gatewayId: string, sessionId: string): string => `presence.row:${gatewayId}/${sessionId}`;
 const rowPrefix = (gatewayId: string): string => `presence.row:${gatewayId}/`;
 const gatewayRecordId = (gatewayId: string): string => `presence.gateway:${gatewayId}`;
@@ -57,14 +58,24 @@ export function createPresenceService(deps: {
 		return foldWriteResult(result);
 	};
 
-	const rowsFor = (domainId: string): PresenceRow[] =>
-		sortedRows(
-			deps.registry
-				.for(domainId)
-				.list("presence.row")
-				.filter((record) => record.id.startsWith("presence.row:"))
-				.map((record) => record.clear as PresenceRow),
-		);
+	const reportedDrops = new Set<string>();
+	const rowsFor = (domainId: string): PresenceRow[] => {
+		const rows: PresenceRow[] = [];
+		for (const record of deps.registry.for(domainId).list("presence.row")) {
+			if (!record.id.startsWith("presence.row:")) continue;
+			const parsed = TeamInfoSchema.safeParse(record.clear);
+			if (parsed.success) {
+				rows.push(parsed.data);
+				continue;
+			}
+			// Warn once per version.
+			const drop = `${domainId}/${record.id}@${record.version}`;
+			if (reportedDrops.has(drop)) continue;
+			reportedDrops.add(drop);
+			console.warn(`[presence] dropped ${record.id} in ${domainId}: ${parsed.error.issues[0]?.message}`);
+		}
+		return sortedRows(rows);
+	};
 
 	const gatewayRecords = (domainId: string) =>
 		deps.registry
@@ -82,7 +93,8 @@ export function createPresenceService(deps: {
 		const epoch = clear?.epoch ?? mintEpoch();
 		const versions = clear?.versions ?? {};
 		const identities = clear?.identities ?? {};
-		const version = identities[key] === identity ? (versions[key] ?? 0) : (versions[key] ?? -1) + 1;
+		// Plane versions start at 1.
+		const version = identities[key] === identity ? Math.max(1, versions[key] ?? 1) : (versions[key] ?? 0) + 1;
 		const changed = !clear || identities[key] !== identity;
 		return {
 			plane: { epoch, version },
@@ -118,7 +130,13 @@ export function createPresenceService(deps: {
 	};
 
 	const applyBaseline = (reg: GatewayRegistration, params: Baseline) => {
-		const parsed = PresenceBaselineParamsSchema.parse(params);
+		// Invalid shape marks gateway unreachable.
+		const shape = PresenceBaselineParamsSchema.safeParse(params);
+		if (!shape.success) {
+			markUnreachable(reg.domainId, reg.gatewayId);
+			return { resync: true as const };
+		}
+		const parsed = shape.data;
 		if (parsed.incarnation !== reg.incarnation) return { resync: true as const };
 		const store = deps.registry.for(reg.domainId);
 		for (const record of store.list("presence.row")) {
@@ -138,7 +156,9 @@ export function createPresenceService(deps: {
 	};
 
 	const applyDelta = (reg: GatewayRegistration, params: Delta) => {
-		const parsed = PresenceDeltaParamsSchema.parse(params);
+		const shape = PresenceDeltaParamsSchema.safeParse(params);
+		if (!shape.success) return { resync: true as const };
+		const parsed = shape.data;
 		if (parsed.incarnation !== reg.incarnation) return { resync: true as const };
 		const store = deps.registry.for(reg.domainId);
 		const record = store.get("presence.row", gatewayRecordId(reg.gatewayId));
@@ -233,11 +253,17 @@ export function createPresenceService(deps: {
 			projectionDeps.admittedGateways(domainId),
 			projectionDeps.connected(domainId),
 		);
+		const owner = {
+			domainId,
+			displayName: projectionDeps.displayName(domainId),
+			isAdminDomain: projectionDeps.isAdminDomain(domainId),
+		};
 		const linked = projectionDeps.linkedDomains(domainId).map((linkedDomain) => {
 			const projection = friendProjection(linkedDomain, domainId, projectionDeps);
 			if ("outcome" in projection) return projection as never;
 			return {
 				domainId: linkedDomain,
+				displayName: projectionDeps.displayName(linkedDomain),
 				version: projection.plane,
 				sessions: projection.sessions,
 				lastRefreshedAt: now(),
@@ -248,14 +274,21 @@ export function createPresenceService(deps: {
 			.map((record) => record.clear.spawnPoints as SpawnPoints | undefined)
 			.filter((points): points is SpawnPoints => points !== undefined);
 		const identity = JSON.stringify({
+			owner,
 			rows: presenceIdentityOf(rows),
-			linked: linked.map(({ domainId, version, sessions }) => ({ domainId, version, sessions })),
+			linked: linked.map(({ domainId, displayName, version, sessions }) => ({
+				domainId,
+				displayName,
+				version,
+				sessions,
+			})),
 			roster: rosterData.roster,
 			spawnPoints,
 		});
 		const plane = projectionPlane(domainId, "owner", identity);
 		const projection = OwnerPresenceProjectionSchema.parse({
 			plane: plane.plane,
+			owner,
 			rows,
 			linked,
 			...rosterData,
@@ -270,11 +303,26 @@ export function createPresenceService(deps: {
 		return projection;
 	};
 
-	/** Recompute and push the owner projection. */
-	const pushIfChanged = (domainId: string): void => {
-		if (!deps.pokeOwner || !deps.projection) return;
+	const pushOne = (domainId: string): void => {
+		if (!deps.pokeOwner || !deps.projection || !deps.registry.holds(domainId)) return;
 		const result = ownerProjection(domainId, deps.projection);
 		if ("outcome" in result) console.error(`[presence] projection failed for ${domainId}: ${result.outcome}`);
+	};
+
+	/** Held Domains embedding this one. */
+	const dependentsOf = (domainId: string): string[] => {
+		if (!deps.projection) return [];
+		const projection = deps.projection;
+		return deps.registry
+			.domains()
+			.filter((other) => other !== domainId && projection.linkedDomains(other).includes(domainId));
+	};
+
+	/** Refresh the changed Domain and its dependents. */
+	const pushIfChanged = (domainId: string): void => {
+		if (!deps.projection || !deps.registry.holds(domainId)) return;
+		pushOne(domainId);
+		for (const dependent of dependentsOf(domainId)) pushOne(dependent);
 	};
 
 	const register = (hooks: OwnerServiceHooks): void => {
@@ -339,6 +387,7 @@ export function createPresenceService(deps: {
 		onGatewayDropped,
 		forgetSession,
 		rearm,
+		refresh: pushIfChanged,
 		roster,
 		ownerProjection,
 		friendProjection,

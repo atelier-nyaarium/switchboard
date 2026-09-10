@@ -38,7 +38,8 @@ internal class TrustOps(
 	/** Linked peers remain visible when gateways are offline. */
 	fun linkedDomains(): List<LinkedDomain> {
 		val adminDomain = identity.readyOrNull()?.domainId ?: return emptyList()
-		return CrossDomainLink.mergeLinkedDomains(state.value.teams, state.value.linkedPeerOwners, adminDomain)
+		val s = state.value
+		return CrossDomainLink.mergeLinkedDomains(s.teams, s.linkedPeerOwners, adminDomain, s.friendLabels())
 	}
 
 	fun shareableSessions(): List<Team> {

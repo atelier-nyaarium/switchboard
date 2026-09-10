@@ -5,12 +5,13 @@ import type { PresenceRow } from "../shared/presence-identity.js";
 const row = (team: string, status: PresenceRow["status"] = "available"): PresenceRow => ({
 	team,
 	gatewayId: "gateway",
+	domainId: "domain",
 	status,
 	kind: "loose",
 	queue_depth: 0,
 });
 
-const spawnPoints = { gatewayId: "gateway", hostSpawns: [] };
+const spawnPoints = { domainId: "domain", gatewayId: "gateway", hostSpawns: [] };
 
 describe("presence protocol", () => {
 	it("builds a baseline from the required state", () => {

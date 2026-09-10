@@ -59,9 +59,11 @@ class CrossDomainLinkTest {
 			teams = listOf(team("local-gw/app", "alice")),
 			peerOwners = mapOf("bob" to "bob-owner"),
 			adminDomain = "alice",
+			labels = mapOf("bob" to "Bob"),
 		)
 		assertEquals(1, peers.size)
 		assertEquals("bob", peers[0].domainId)
+		assertEquals("Bob", peers[0].displayName)
 		assertEquals(0, peers[0].sessionCount)
 		assertFalse("a peer present only in the peer set must read offline", peers[0].online)
 	}
@@ -77,6 +79,7 @@ class CrossDomainLinkTest {
 			),
 			peerOwners = mapOf("carol" to "carol-owner", "dave" to "dave-owner"),
 			adminDomain = "alice",
+			labels = emptyMap(),
 		)
 		assertEquals(listOf("carol", "dave"), peers.map { it.domainId }) // sorted, no dupes
 		val carol = peers.first { it.domainId == "carol" }
@@ -94,6 +97,7 @@ class CrossDomainLinkTest {
 			teams = listOf(team("local-gw/app", "alice"), team("local-gw/api", null)),
 			peerOwners = mapOf("alice" to "local-owner"),
 			adminDomain = "alice",
+			labels = emptyMap(),
 		)
 		assertTrue("the local Domain is never a peer", peers.isEmpty())
 	}
@@ -105,6 +109,7 @@ class CrossDomainLinkTest {
 			teams = listOf(team("erin-gw/svc", "erin", status = "online")),
 			peerOwners = emptyMap(),
 			adminDomain = "alice",
+			labels = emptyMap(),
 		)
 		assertEquals(listOf("erin"), peers.map { it.domainId })
 		assertTrue(peers[0].online)

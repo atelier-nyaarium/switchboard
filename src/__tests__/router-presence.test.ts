@@ -20,6 +20,7 @@ const row = (team: string, lastActive = 1, status: "online" | "verifying" | "ava
 	TeamInfoSchema.parse({
 		team,
 		gatewayId: "gw",
+		domainId: "domain",
 		status,
 		kind: "devcontainer",
 		queue_depth: 1,
@@ -46,11 +47,14 @@ const make = (pokeOwner?: (domainId: string, version: number, projection: unknow
 	};
 };
 const reg: GatewayRegistration = { domainId: "domain", gatewayId: "gw", signPub: "pub", incarnation: 1 };
+const names = new Map<string, string | null>([["domain", "Alice"]]);
 const projectionDeps = {
 	admittedGateways: () => ["gw"],
 	linkedDomains: () => [],
 	isShared: () => false,
 	connected: () => ["gw"],
+	displayName: (domainId: string) => names.get(domainId) ?? null,
+	isAdminDomain: (domainId: string) => domainId === "domain",
 };
 
 afterEach(() => {
@@ -89,13 +93,78 @@ describe("router presence slice", () => {
 		expect(frames.get("presence_read")!(reg, {})).toEqual({ outcome: "durability_uncertain" });
 		registry.close();
 	});
+
+	it("answers resync through the dispatched frame to a baseline the schema refuses", () => {
+		const { registry } = make();
+		const service = createPresenceService({ registry, projection: projectionDeps });
+		const frames = new Map<string, GatewayFrameHandler>();
+		service.register({
+			ownerOp: () => undefined,
+			gatewayFrame: (name, _mutation, handler) => frames.set(name, handler),
+			onGatewayRegistered: () => undefined,
+			onGatewayDropped: () => undefined,
+			onSessionForgotten: () => undefined,
+			pushFrameTo: () => false,
+			gatewayIncarnation: () => 1,
+			connectedGateways: () => [],
+			onSweep: () => undefined,
+		});
+		service.applyBaseline(reg, {
+			incarnation: 1,
+			seq: 0,
+			rows: [row("proj.main")],
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
+		});
+		const oldRow = { team: "proj.main", gatewayId: "gw", status: "online", kind: "loose", queue_depth: 0 };
+		const oldSpawns = { gatewayId: "gw", hostSpawns: [] };
+		expect(
+			frames.get("presence_baseline")!(reg, { incarnation: 1, seq: 0, rows: [oldRow], spawnPoints: oldSpawns }),
+		).toEqual({ resync: true });
+		// Parked rows are inactive.
+		const served = frames.get("presence_read")!(reg, {}) as {
+			rows: Array<{ team: string; presenceFresh: string }>;
+		};
+		expect(served.rows.map((r) => [r.team, r.presenceFresh])).toEqual([["proj.main", "unreachable"]]);
+		registry.close();
+	});
+
+	it("refreshes the Domains linked to the one that changed, and skips a Domain it does not hold", () => {
+		const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "router-presence-"));
+		roots.push(dataDir);
+		const held = new Set(["domain", "friend"]);
+		const registry = new OwnerStoreRegistry({
+			dataDir,
+			ownerOf: (domainId) => (held.has(domainId) ? "owner" : null),
+			quotaFor: () =>
+				new DomainQuota({
+					dir: dataDir,
+					limitBytes: 10_000_000,
+					reserveBytes: 0,
+					statfs: () => ({ available: 10_000_000 }),
+				}),
+			ambient: { now: () => 100 },
+		});
+		const pokes: string[] = [];
+		const service = createPresenceService({
+			registry,
+			pokeOwner: (domainId) => pokes.push(domainId),
+			// Reverse edge not required.
+			projection: { ...projectionDeps, linkedDomains: (domainId) => (domainId === "friend" ? ["domain"] : []) },
+		});
+		registry.for("friend");
+		service.refresh("domain");
+		expect(pokes).toEqual(["domain", "friend"]);
+		expect(() => service.refresh("gone")).not.toThrow();
+		expect(pokes).toEqual(["domain", "friend"]);
+		registry.close();
+	});
 	it("applies ordered deltas and bumps the persisted projection version", () => {
 		const { registry, service } = make();
 		service.applyBaseline(reg, {
 			incarnation: 1,
 			seq: 0,
 			rows: [row("proj.main")],
-			spawnPoints: { gatewayId: "gw", hostSpawns: [] },
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
 		});
 		const before = service.ownerProjection("domain", projectionDeps).plane;
 		service.applyDelta(reg, { incarnation: 1, seq: 1, upserts: [row("proj.main", 2)], tombstones: [] });
@@ -119,11 +188,11 @@ describe("router presence slice", () => {
 			incarnation: 1,
 			seq: 0,
 			rows: [row("proj.main")],
-			spawnPoints: { gatewayId: "gw", hostSpawns: [] },
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
 		});
 
 		service.ownerProjection("domain", projectionDeps);
-		expect(pokes).toEqual([{ domainId: "domain", version: 0, teams: 1 }]);
+		expect(pokes).toEqual([{ domainId: "domain", version: 1, teams: 1 }]);
 		service.ownerProjection("domain", projectionDeps);
 		expect(pokes).toHaveLength(1);
 
@@ -135,8 +204,8 @@ describe("router presence slice", () => {
 		});
 		service.ownerProjection("domain", projectionDeps);
 		expect(pokes).toEqual([
-			{ domainId: "domain", version: 0, teams: 1 },
 			{ domainId: "domain", version: 1, teams: 1 },
+			{ domainId: "domain", version: 2, teams: 1 },
 		]);
 		registry.close();
 	});
@@ -147,7 +216,7 @@ describe("router presence slice", () => {
 			incarnation: 1,
 			seq: 0,
 			rows: [row("proj.main")],
-			spawnPoints: { gatewayId: "gw", hostSpawns: [] },
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
 		});
 		const store = registry.for("domain");
 		vi.spyOn(store, "put").mockReturnValue({ kind: "durability_failure", reason: "full" });
@@ -164,7 +233,7 @@ describe("router presence slice", () => {
 			incarnation: 1,
 			seq: 0,
 			rows: [row("proj.main")],
-			spawnPoints: { gatewayId: "gw", hostSpawns: [] },
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
 		});
 		expect(
 			service.applyDelta(reg, { incarnation: 1, seq: 3, upserts: [row("other.main")], tombstones: [] }),
@@ -182,7 +251,7 @@ describe("router presence slice", () => {
 			incarnation: 1,
 			seq: 0,
 			rows: [row("proj.main"), row("other.main")],
-			spawnPoints: { gatewayId: "gw", hostSpawns: [] },
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
 		});
 		service.onGatewayDropped(reg);
 		expect(registry.for("domain").get("presence.row", "presence.row:gw/proj.main")?.clear.presenceFresh).toBe(
@@ -200,7 +269,7 @@ describe("router presence slice", () => {
 				incarnation: 2,
 				seq: 0,
 				rows: [row("new.main")],
-				spawnPoints: { gatewayId: "gw", hostSpawns: ["shell"] },
+				spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: ["shell"] },
 			},
 		);
 		expect(registry.for("domain").get("presence.row", "presence.row:gw/proj.main")).toBeNull();
@@ -230,7 +299,7 @@ describe("router presence slice", () => {
 			incarnation: 1,
 			seq: 0,
 			rows: [row("proj.main")],
-			spawnPoints: { gatewayId: "gw", hostSpawns: [] },
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
 		});
 		registered[0](reg);
 
@@ -266,7 +335,7 @@ describe("router presence slice", () => {
 			incarnation: 1,
 			seq: 0,
 			rows: [row("proj.main")],
-			spawnPoints: { gatewayId: "gw", hostSpawns: [] },
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
 		});
 		service.rearm("domain");
 
@@ -296,7 +365,7 @@ describe("router presence slice", () => {
 			incarnation: 1,
 			seq: 0,
 			rows: [row("proj.main")],
-			spawnPoints: { gatewayId: "gw", hostSpawns: [] },
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
 		});
 		forget?.(reg, "proj.main");
 
@@ -312,7 +381,7 @@ describe("router presence slice", () => {
 			incarnation: 1,
 			seq: 0,
 			rows: [row("online.main"), row("available.main", 1, "available")],
-			spawnPoints: { gatewayId: "gw", hostSpawns: [] },
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
 		});
 
 		expect(touched).toEqual(["domain.gw.online.main"]);
@@ -326,13 +395,13 @@ describe("router presence slice", () => {
 			incarnation: 1,
 			seq: 0,
 			rows: [row("gw.main")],
-			spawnPoints: { gatewayId: "gw", hostSpawns: ["gw-shell"] },
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: ["gw-shell"] },
 		});
 		service.applyBaseline(gateway, {
 			incarnation: 1,
 			seq: 0,
 			rows: [row("gateway.main")],
-			spawnPoints: { gatewayId: "gateway", hostSpawns: ["gateway-shell"] },
+			spawnPoints: { gatewayId: "gateway", domainId: "domain", hostSpawns: ["gateway-shell"] },
 		});
 		service.applyBaseline(
 			{ ...reg, incarnation: 2 },
@@ -340,7 +409,7 @@ describe("router presence slice", () => {
 				incarnation: 2,
 				seq: 0,
 				rows: [row("gw.new")],
-				spawnPoints: { gatewayId: "gw", hostSpawns: ["gw-new-shell"] },
+				spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: ["gw-new-shell"] },
 			},
 		);
 
@@ -359,7 +428,7 @@ describe("router presence slice", () => {
 			incarnation: 1,
 			seq: 0,
 			rows: [row("proj.main")],
-			spawnPoints: { gatewayId: "gw", hostSpawns: [] },
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
 		});
 		const projection = service.friendProjection("domain", "friend", {
 			isShared: (_d, target) => target.includes("proj.main"),
@@ -408,23 +477,23 @@ describe("router presence slice", () => {
 				incarnation: 1,
 				seq: 0,
 				rows: [row("proj.main")],
-				spawnPoints: { gatewayId: "gw", hostSpawns: [] },
+				spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
 			}),
 		).toMatchObject({ ok: true });
 
-		expect(pokes).toEqual([0]);
+		expect(pokes).toEqual([1]);
 		// The gateway's protocol streams only after an `ok`; without it every frame is a retried baseline.
 		expect(
 			frames.get("presence_delta")!(reg, { incarnation: 1, seq: 1, upserts: [row("proj.main")], tombstones: [] }),
 		).toMatchObject({ ok: true });
-		expect(pokes).toEqual([0]);
+		expect(pokes).toEqual([1]);
 		frames.get("presence_delta")!(reg, {
 			incarnation: 1,
 			seq: 2,
 			upserts: [row("proj.main", 2, "available")],
 			tombstones: [],
 		});
-		expect(pokes).toEqual([0, 1]);
+		expect(pokes).toEqual([1, 2]);
 		registry.close();
 	});
 
@@ -452,7 +521,7 @@ describe("router presence slice", () => {
 			incarnation: 1,
 			seq: 0,
 			rows: [row("proj.main")],
-			spawnPoints: { gatewayId: "gw", hostSpawns: [] },
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
 		});
 		frames.get("presence_delta")!(reg, { incarnation: 1, seq: 2, upserts: [], tombstones: [] });
 		expect(pushed).toEqual([{ type: "presence_resync", incarnation: 1 }]);
@@ -469,6 +538,8 @@ describe("router presence slice", () => {
 				isShared: (domainId, target, toDomainId) =>
 					domainId === "b" && target.includes("b.main") && toDomainId === "a",
 				connected: (domainId) => (domainId === "a" ? ["gw"] : []),
+				displayName: () => null,
+				isAdminDomain: () => false,
 			},
 			friend: { isShared: (_domainId, target, toDomainId) => target.includes("b.main") && toDomainId === "a" },
 		});
@@ -478,7 +549,7 @@ describe("router presence slice", () => {
 				incarnation: 1,
 				seq: 0,
 				rows: [row("a.main")],
-				spawnPoints: { gatewayId: "gw", hostSpawns: [] },
+				spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
 			},
 		);
 		service.applyBaseline(
@@ -487,7 +558,7 @@ describe("router presence slice", () => {
 				incarnation: 1,
 				seq: 0,
 				rows: [row("b.main"), row("b.private")],
-				spawnPoints: { gatewayId: "gw", hostSpawns: [] },
+				spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
 			},
 		);
 		const handlers = new Map<string, ErasedOwnerOpHandler>();
@@ -515,16 +586,122 @@ describe("router presence slice", () => {
 		expect(handlers.get("presence_read_friend")!(op, { toDomainId: "b" })).not.toMatchObject({
 			sessions: [{ team: "b.private" }],
 		});
-		expect(
-			service
-				.ownerProjection("a", {
-					admittedGateways: () => ["gw"],
-					linkedDomains: () => [],
-					isShared: () => false,
-					connected: () => ["gw"],
-				})
-				.rows.map((r) => r.team),
-		).toEqual(["a.main"]);
+		expect(service.ownerProjection("a", projectionDeps).rows.map((r) => r.team)).toEqual(["a.main"]);
 		registry.close();
+	});
+});
+
+describe("what the Router states about the owner", () => {
+	it("carries the owner's facts on the projection, and a rename pushes a new plane", () => {
+		const pokes: Array<{ version: number; displayName: string | null }> = [];
+		const { registry, service } = make((_domainId, version, projection) =>
+			pokes.push({
+				version,
+				displayName: (projection as { owner: { displayName: string | null } }).owner.displayName,
+			}),
+		);
+		service.applyBaseline(reg, {
+			incarnation: 1,
+			seq: 0,
+			rows: [row("proj.main")],
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
+		});
+		service.refresh("domain");
+		expect(pokes).toEqual([{ version: 1, displayName: "Alice" }]);
+		expect(service.ownerProjection("domain", projectionDeps).owner).toEqual({
+			domainId: "domain",
+			displayName: "Alice",
+			isAdminDomain: true,
+		});
+
+		names.set("domain", "Alicia");
+		service.refresh("domain");
+		expect(pokes.at(-1)).toEqual({ version: 2, displayName: "Alicia" });
+		service.refresh("domain");
+		expect(pokes).toHaveLength(2);
+		names.set("domain", "Alice");
+		registry.close();
+	});
+
+	it("parks a gateway whose baseline or delta the schema refuses, and serves nothing for it", () => {
+		const { registry, service } = make();
+		const oldRow = { team: "proj.main", gatewayId: "gw", status: "online", kind: "loose", queue_depth: 0 };
+		expect(
+			service.applyBaseline(reg, {
+				incarnation: 1,
+				seq: 0,
+				rows: [oldRow] as never,
+				spawnPoints: { gatewayId: "gw", hostSpawns: [] } as never,
+			}),
+		).toEqual({ resync: true });
+		expect(service.ownerProjection("domain", projectionDeps).rows).toEqual([]);
+		expect(service.applyDelta(reg, { incarnation: 1, seq: 1, upserts: [oldRow] as never, tombstones: [] })).toEqual(
+			{
+				resync: true,
+			},
+		);
+		registry.close();
+	});
+
+	it("labels a linked friend Domain with its own name", () => {
+		const { registry, service } = make();
+		names.set("friend", "Bob");
+		service.applyBaseline(
+			{ ...reg, domainId: "friend", gatewayId: "fgw" },
+			{
+				incarnation: 1,
+				seq: 0,
+				rows: [row("lib.main")],
+				spawnPoints: { gatewayId: "fgw", domainId: "friend", hostSpawns: [] },
+			},
+		);
+		const projection = service.ownerProjection("domain", {
+			...projectionDeps,
+			linkedDomains: () => ["friend"],
+			isShared: () => true,
+		});
+		expect(projection.linked).toMatchObject([{ domainId: "friend", displayName: "Bob" }]);
+		names.delete("friend");
+		registry.close();
+	});
+
+	it("drops a stored row that fails the schema rather than serving it", () => {
+		const { registry, service } = make();
+		service.applyBaseline(reg, {
+			incarnation: 1,
+			seq: 0,
+			rows: [row("proj.main")],
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
+		});
+		registry.for("domain").put("presence.row", "presence.row:gw/bad.main", null, {
+			clear: {
+				team: "bad.main",
+				gatewayId: "",
+				domainId: "domain",
+				status: "online",
+				kind: "loose",
+				queue_depth: 0,
+			},
+		});
+		const kept = {
+			...row("kept.main"),
+			presenceFresh: "quiet",
+			working: true,
+			needsLogin: false,
+			limitBlocked: true,
+			limitDetail: "resets 5pm",
+		};
+		registry.for("domain").put("presence.row", "presence.row:gw/kept.main", null, { clear: kept });
+		const served = service.ownerProjection("domain", projectionDeps).rows;
+		expect(served.map((r) => r.team)).toEqual(["kept.main", "proj.main"]);
+		expect(served[0]).toEqual(kept);
+		registry.close();
+	});
+
+	it("refuses a row that names no Gateway or no Domain", () => {
+		expect(TeamInfoSchema.safeParse({ ...row("x.main"), gatewayId: "" }).success).toBe(false);
+		expect(TeamInfoSchema.safeParse({ ...row("x.main"), domainId: "" }).success).toBe(false);
+		const { domainId: _domainId, ...withoutDomain } = row("x.main");
+		expect(TeamInfoSchema.safeParse(withoutDomain).success).toBe(false);
 	});
 });

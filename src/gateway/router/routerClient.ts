@@ -36,8 +36,6 @@ export interface RouterClientConfig {
 	buildRegisterAuth?: () => Record<string, unknown> | null;
 	onDomainSync?: (domain: unknown) => void;
 	onRegistered?: () => void;
-	onDomainMeta?: (meta: { domainStatus?: string; displayName?: string | null; isAdminDomain?: boolean }) => void;
-	onDomainUpdate?: (meta: { displayName?: string | null }) => void;
 	onInboxDeliver?: (frame: unknown) => void;
 	onPresenceResync?: (frame: unknown) => void;
 	onUnlink?: (frame: unknown) => void;
@@ -191,7 +189,6 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 				}
 				case "domain_update": {
 					config.onDomainSync?.(frame.domain);
-					if (frame.displayName !== undefined) config.onDomainUpdate?.({ displayName: frame.displayName });
 					break;
 				}
 				case "inbox_deliver": {
@@ -277,9 +274,6 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 							error?: string;
 							gateways?: string[];
 							domain?: unknown;
-							domainStatus?: string;
-							displayName?: string | null;
-							isAdminDomain?: boolean;
 							reach?: RouterReach;
 							incarnation?: number;
 					  }
@@ -315,13 +309,6 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 				if (r?.reach && (r.reach.publicHost || r.reach.lanAddresses?.length)) {
 					reach = r.reach;
 					config.onReach?.(r.reach);
-				}
-				if (r?.domainStatus !== undefined || r?.displayName !== undefined || r?.isAdminDomain !== undefined) {
-					config.onDomainMeta?.({
-						domainStatus: r.domainStatus,
-						displayName: r.displayName,
-						isAdminDomain: r.isAdminDomain,
-					});
 				}
 			})
 			.catch((e) =>

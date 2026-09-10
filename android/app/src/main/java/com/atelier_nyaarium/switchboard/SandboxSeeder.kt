@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.OwnerFacts
 import kotlinx.coroutines.flow.update
 
 /** No Gateway, no Router, no network. */
@@ -64,6 +65,7 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 				goals = goals,
 				admittedGateways = admittedGateways,
 				homeGatewayId = repo.homeGatewayId,
+				owner = teams.firstOrNull()?.domainId?.let { OwnerFacts(it, null, false) },
 			)
 		}
 	}

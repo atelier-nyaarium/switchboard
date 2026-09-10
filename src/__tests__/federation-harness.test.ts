@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { rankBetween } from "../shared/board-rank.js";
 import { BOARD_TITLE_KIND, boardTextAadKind, wrapContentKey } from "../shared/content-envelope.js";
+import { signSetDisplayName } from "../shared/federation-tenants.js";
 import type { KeyRequest } from "../shared/schemasContentKey.js";
 import { InboxRowSchema } from "../shared/schemasInbox.js";
 import { composeSessionName } from "../shared/session-id.js";
-import { type ConsoleSocket, openConsoleSocket } from "../testing/consoleSocket.js";
+import { type ConsoleSocket, openConsoleSocket, pushedPlane } from "../testing/consoleSocket.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
 import { contentKeyOf } from "../testing/identitySet.js";
@@ -200,14 +201,40 @@ describe("federation harness", () => {
 		const pushed = session("fixture-app.pushed");
 		await pushed.ready();
 		const plane = await h.waitFor(
-			() =>
-				socket.frames.find(
-					(frame) =>
-						frame.type === "plane" && frame.name === "presence" && carries(frame.payload, pushed.team),
-				),
+			() => pushedPlane(socket, "presence", (payload) => carries(payload, pushed.team)),
 			"presence plane push",
 		);
 		expect(plane.version).toBeGreaterThan(0);
+	});
+
+	it("pushes the owner's new name to a console socket when the Router accepts a rename", async () => {
+		const socket = await consoleSocket(true);
+		const owner = h.set.domain.owner;
+		const renamed = await h.phone.enroll({
+			kind: "set_display_name",
+			rename: signSetDisplayName(
+				{
+					domainId: h.set.domain.id,
+					displayName: "Pushed Name",
+					issuedAt: h.now(),
+					nonce: btoa("rename-push"),
+				},
+				owner.sign.priv,
+				owner.sign.pub,
+			),
+		});
+		expect(renamed.ok).toBe(true);
+		const plane = await h.waitFor(
+			() =>
+				pushedPlane(
+					socket,
+					"presence",
+					(payload) =>
+						(payload as { owner?: { displayName?: string } })?.owner?.displayName === "Pushed Name",
+				),
+			"presence plane push after rename",
+		);
+		expect((plane.payload as { owner: { isAdminDomain: boolean } }).owner.isAdminDomain).toBe(true);
 	});
 
 	it("peeks a session's screen through the host daemon", async () => {

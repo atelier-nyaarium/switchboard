@@ -24,24 +24,10 @@ data class Team(
 	// See Presence.kt for the whole reasoning; the status string in there has no accessor on purpose.
 	val presence: Presence,
 	val kind: String = "loose",
-	// The owning Gateway's Domain id, kept a separate field rather than folded into the canonical
-	// address. A gateway id is unique only within a Domain, so the board groups by the
-	// (domainId, gatewayId) pair. Null for a pre-federation Gateway and for the
-	// locally-synthesized ended session.
+	// Domain/Gateway identify rows.
 	val domainId: String? = null,
-	// The owning Domain's display name, stamped by the gateway's discover. The Peers list shows
-	// this instead of the opaque domainId. Null for a gateway without the feature or a Domain
-	// that has not set a name yet.
-	val displayName: String? = null,
-	// True when the owning Domain is the admin's own, from the register reply via the gateway.
-	// The local session's value gates the admin surfaces.
-	val isAdminDomain: Boolean = false,
-	// The gateway-authoritative free-form label the board renders for this session. Distinct from
-	// displayName (the owning Domain's network name). Null for a spawn-point, a session with no
-	// record, or an older gateway that does not send it (the app falls back to a local label / leaf).
 	val sessionLabel: String? = null,
-	// Same-Domain federation freshness for a peer-gateway-sourced row; null for a local row (not a
-	// fourth "local" value - the field simply carries no federation freshness concept for one).
+	// Null for local rows.
 	val presenceFresh: String? = null,
 ) {
 	/** Short local field shown in the UI: `spawn` or `spawn.session` from the canonical address. */
@@ -88,10 +74,8 @@ internal fun Team.withAuthority(a: Authority): Team = copy(presence = presence.w
 /** Attach this device's own outstanding request for this session, or clear it. */
 internal fun Team.withReceipt(r: ActionReceipt?): Team = copy(presence = presence.withReceipt(r))
 
-/** The host spawn points one Gateway offers, keyed the way the console groups sessions. Domain is
- * nullable upstream, so an absent one folds onto the admin Domain exactly as a Team row's does. */
-internal fun GatewaySpawnPoints.groupKey(adminDomainId: String): GatewayGroupKey =
-	GatewayGroupKey(domainId.orEmpty().ifEmpty { adminDomainId }, gatewayId)
+/** Keyed by Gateway group. */
+internal fun GatewaySpawnPoints.groupKey(): GatewayGroupKey = GatewayGroupKey(domainId, gatewayId)
 
 /**
  * The (gateway, project) a spawn target names, for remembering what a Gateway was last spawned on.
@@ -143,24 +127,16 @@ internal fun keepPriorRow(row: Team, homeGatewayId: String, planeDomain: String?
 
 internal fun teamInfoToTeam(it: TeamInfo, homeGatewayId: String): Team {
 	val gatewayId = it.gatewayId.ifEmpty { homeGatewayId }
-	// Mirror the gateway's address minting: a spawn-point (kind devcontainer) is the
-	// non-addressable `domain.gateway.spawn` (arity 3); every chat is the full
-	// `domain.gateway.spawn.session` (arity 4), a bare team field defaulting its session to
-	// DEFAULT_SESSION exactly as the gateway's localAddress does, so a chat's Team.name is
-	// byte-equal to the address a session_id carries (no thread/team join mismatch).
-	val domain = it.domainId?.ifEmpty { null } ?: LOCAL_DOMAIN_SENTINEL
+	// Matches gateway address minting.
 	val parsed = parseSessionName(it.team)
 	val canonicalName = if (it.kind == "devcontainer") {
-		SpawnPoint.of(domain, gatewayId, parsed.project).canonical
+		SpawnPoint.of(it.domainId, gatewayId, parsed.project).canonical
 	} else {
-		Address.of(domain, gatewayId, parsed.project, parsed.session).canonical
+		Address.of(it.domainId, gatewayId, parsed.project, parsed.session).canonical
 	}
 	return Team(
 		name = canonicalName,
-		// Stamped POLLED here because this mapper serves BOTH channels and cannot tell them apart
-		// from the row alone. The caller that knows which channel it is holding re-stamps: the plane
-		// default of the three - it claims nothing, where LIVE would claim freshness this row may
-		// not have.
+		// Caller reapplies channel freshness.
 		presence = Presence.reported(
 			status = it.status,
 			authority = Authority.POLLED,
@@ -174,8 +150,6 @@ internal fun teamInfoToTeam(it: TeamInfo, homeGatewayId: String): Team {
 		),
 		kind = it.kind,
 		domainId = it.domainId,
-		displayName = it.displayName,
-		isAdminDomain = it.isAdminDomain ?: false,
 		sessionLabel = it.sessionLabel,
 		presenceFresh = it.presenceFresh,
 	)

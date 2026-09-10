@@ -78,12 +78,8 @@ internal fun hostSpawnLabel(id: String, offered: List<String>): String = when {
 	else -> id
 }
 
-internal fun hostSpawnChoices(
-	advertised: List<GatewaySpawnPoints>,
-	key: GatewayGroupKey,
-	adminDomainId: String,
-): List<String> {
-	val offered = advertised.filter { it.groupKey(adminDomainId) == key }.flatMap { it.hostSpawns }
+internal fun hostSpawnChoices(advertised: List<GatewaySpawnPoints>, key: GatewayGroupKey): List<String> {
+	val offered = advertised.filter { it.groupKey() == key }.flatMap { it.hostSpawns }
 	val detected = offered.filter { it in HOST_SPAWN_IDS && it != "host" }.distinct().sorted()
 	return detected + "host"
 }
@@ -206,7 +202,8 @@ fun SessionsScreen(
 			val adminDomainId = state.domainId.orEmpty()
 			val local = localSessions(sessions, adminDomainId)
 			// Linked peers remain visible before local Domain discovery.
-			val linkedDomains = CrossDomainLink.mergeLinkedDomains(state.teams, state.linkedPeerOwners, adminDomainId)
+			val linkedDomains =
+				CrossDomainLink.mergeLinkedDomains(state.teams, state.linkedPeerOwners, adminDomainId, state.friendLabels())
 			val byGateway = groupByGateway(local, state.admittedGateways, adminDomainId, state.homeGatewayId)
 			val onboarding = (byGateway.isEmpty() && linkedDomains.isEmpty()) ||
 				(local.isEmpty() && linkedDomains.isEmpty() && emptyBoardHasCause(state))
@@ -277,7 +274,7 @@ fun SessionsScreen(
 										domainId = key.domainId,
 										gatewayId = key.gatewayId,
 										isLocal = key.gatewayId == state.homeGatewayId,
-										projects = hostSpawnChoices(state.gatewaySpawnPoints, key, adminDomainId) +
+										projects = hostSpawnChoices(state.gatewaySpawnPoints, key) +
 											spawnPoints.map { localName(it) }.filterNot { it in HOST_SPAWN_IDS },
 									)
 								},

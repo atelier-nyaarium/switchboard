@@ -23,12 +23,6 @@ import type { VaultClient } from "./router/vaultClient.js";
 type BoardClient = ReturnType<typeof createBoardClient>;
 type BlobUploader = ReturnType<typeof createBlobUploader>;
 
-export interface DomainMeta {
-	domainStatus?: string;
-	displayName?: string | null;
-	isAdminDomain?: boolean;
-}
-
 export interface RouterFrameHandlers {
 	gatewayRelay: (frame: unknown) => void;
 	valueOp: (frame: unknown) => void;
@@ -57,7 +51,6 @@ export interface FederationSlice {
 	vaultClient: VaultClient;
 	blobUploader: BlobUploader;
 	replayPersist: () => void;
-	domainMeta: DomainMeta | null;
 	handlers: RouterHandlers | null;
 }
 

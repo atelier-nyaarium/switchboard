@@ -18,6 +18,8 @@ export class OwnerStoreRegistry {
 	private readonly opts: {
 		dataDir: string;
 		ownerOf: (domainId: string) => string | null;
+		/** Every rooted Domain, from the enrollment catalog; without it, the store directories. */
+		knownDomains?: () => string[];
 		quotaFor: (domainId: string) => DomainQuota;
 		ambient: Clock;
 	};
@@ -25,6 +27,7 @@ export class OwnerStoreRegistry {
 	constructor(opts: {
 		dataDir: string;
 		ownerOf: (domainId: string) => string | null;
+		knownDomains?: () => string[];
 		quotaFor: (domainId: string) => DomainQuota;
 		ambient: Clock;
 	}) {
@@ -37,19 +40,25 @@ export class OwnerStoreRegistry {
 		return { domainId, ownerSignPub };
 	}
 
+	holds(domainId: string): boolean {
+		return this.opts.ownerOf(domainId) !== null;
+	}
+
 	now(): number {
 		return this.opts.ambient.now();
 	}
 
 	domains(): string[] {
 		const ownerDir = path.join(this.opts.dataDir, "owner");
-		const persisted = fs.existsSync(ownerDir)
-			? fs
-					.readdirSync(ownerDir, { withFileTypes: true })
-					.filter((entry) => entry.isDirectory())
-					.map((entry) => entry.name)
-			: [];
-		return [...new Set([...this.stores.keys(), ...persisted])].filter((domainId) => this.opts.ownerOf(domainId));
+		const known =
+			this.opts.knownDomains?.() ??
+			(fs.existsSync(ownerDir)
+				? fs
+						.readdirSync(ownerDir, { withFileTypes: true })
+						.filter((entry) => entry.isDirectory())
+						.map((entry) => entry.name)
+				: []);
+		return [...new Set([...this.stores.keys(), ...known])].filter((domainId) => this.opts.ownerOf(domainId));
 	}
 
 	health(): { degraded: boolean; quarantined: { domainId: string; missing: { from: number; to: number } }[] } {

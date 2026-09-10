@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceEntry
 import com.atelier_nyaarium.switchboard.proto.GatewaySpawnPoints
+import com.atelier_nyaarium.switchboard.proto.OwnerFacts
 import com.atelier_nyaarium.switchboard.proto.RoutineState
 import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.parseTarget
@@ -63,6 +64,8 @@ data class ChatState(
 	val connectedGateways: List<String>? = null,
 	val linkedPeerOwners: Map<String, String> = emptyMap(),
 	val crossDomainPeerSessions: Map<String, CrossDomainPresenceEntry> = emptyMap(),
+	/** Router-stated owner facts. */
+	val owner: OwnerFacts? = null,
 	val displayName: String = "",
 	/** Distinguishes a rooted friend from an unadmitted administrator. */
 	val firstRooted: Boolean = false,
@@ -81,6 +84,9 @@ data class ChatState(
 	val routines: List<GatewayRoutines> = emptyList(),
 	val policies: List<GatewayPolicies> = emptyList(),
 ) {
+	/** Friend Domain labels. */
+	fun friendLabels(): Map<String, String?> = crossDomainPeerSessions.mapValues { it.value.displayName }
+
 	/** Expiry belongs to the read, so stale wakes cannot persist. */
 	fun awaitingWake(team: String, now: Long = System.currentTimeMillis()): Boolean {
 		val raisedAt = wakingTeams[team] ?: return false

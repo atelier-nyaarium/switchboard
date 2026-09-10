@@ -1,27 +1,18 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DiscoverCoverage } from "../../shared/console-protocol.js";
+import { DiscoverAnswerSchema } from "../../shared/schemasConsoleResults.js";
 import { Address, isComposite, parseSessionName, SpawnPoint } from "../../shared/session-id.js";
+import type { TeamInfo } from "../../shared/types.js";
 import { bridgeProjectName, routerGet } from "./helpers.js";
 
 ////////////////////////////////
 //  Interfaces & Types
 
-export interface DiscoverEntry {
-	team: string;
-	gatewayId?: string;
-	domainId?: string;
-	status: string;
-	queue_depth: number;
-	kind: string;
-	lastActive?: number;
-	sessionLabel?: string;
-}
-
 export interface DiscoverGroup {
-	domainId?: string;
-	gatewayId?: string;
+	domainId: string;
+	gatewayId: string;
 	project: string;
-	sessions: DiscoverEntry[];
+	sessions: TeamInfo[];
 }
 
 ////////////////////////////////
@@ -41,8 +32,7 @@ function displayTarget(domainId: string, gatewayId: string, team: string): strin
 }
 
 /** A team's spawn-point, whether or not a session exists under it. Display, not a trust boundary. */
-function displayHeader(domainId: string | undefined, gatewayId: string | undefined, project: string): string {
-	if (!domainId || !gatewayId) return project;
+function displayHeader(domainId: string, gatewayId: string, project: string): string {
 	try {
 		return SpawnPoint.of(domainId, gatewayId, project).canonical;
 	} catch {
@@ -63,13 +53,12 @@ export function relativeAge(lastActiveMs: number, nowMs: number = Date.now()): s
 
 /** Buckets by (domainId, gatewayId, project), so a spawn-point row and its session rows share one
  * header. Trusts the wire's `kind` rather than splitting on dots, since a project name may hold
- * one. Skips an entry with no usable `team`: a federated peer's shape is not locally guaranteed. */
-export function groupDiscoverEntries(entries: DiscoverEntry[]): DiscoverGroup[] {
+ * one. */
+export function groupDiscoverEntries(entries: TeamInfo[]): DiscoverGroup[] {
 	const groups = new Map<string, DiscoverGroup>();
 	for (const t of entries) {
-		if (!t || typeof t.team !== "string" || !t.team) continue;
 		const project = t.kind === "devcontainer" ? t.team : parseSessionName(t.team).project;
-		const key = `${t.domainId ?? ""} ${t.gatewayId ?? ""} ${project}`;
+		const key = `${t.domainId} ${t.gatewayId} ${project}`;
 		let group = groups.get(key);
 		if (!group) {
 			group = { domainId: t.domainId, gatewayId: t.gatewayId, project, sessions: [] };
@@ -80,9 +69,7 @@ export function groupDiscoverEntries(entries: DiscoverEntry[]): DiscoverGroup[] 
 	return [...groups.values()];
 }
 
-/** One caveat line when the answer is partial; empty when complete or unclaimed (older gateway). */
-export function coverageCaveat(coverage: DiscoverCoverage | undefined): string {
-	if (!coverage) return "";
+export function coverageCaveat(coverage: DiscoverCoverage): string {
 	if (!coverage.rosterKnown) {
 		return `\n\nCaveat: the peer roster could not be read (Router unreachable or this Gateway is not registered), so machines beyond this Gateway may be missing.`;
 	}
@@ -92,15 +79,15 @@ export function coverageCaveat(coverage: DiscoverCoverage | undefined): string {
 }
 
 /** One header per bucket, its active sessions nested below. Exported for tests. */
-export function formatDiscoverLines(entries: DiscoverEntry[]): string[] {
+export function formatDiscoverLines(entries: TeamInfo[]): string[] {
 	return groupDiscoverEntries(entries).flatMap(({ domainId, gatewayId, project, sessions }) => [
 		`- ${displayHeader(domainId, gatewayId, project)}`,
 		...sessions.map((t) => `  - ${formatSessionLine(t)}`),
 	]);
 }
 
-function formatSessionLine(t: DiscoverEntry): string {
-	const address = t.gatewayId && t.domainId ? displayTarget(t.domainId, t.gatewayId, t.team) : t.team;
+function formatSessionLine(t: TeamInfo): string {
+	const address = displayTarget(t.domainId, t.gatewayId, t.team);
 	const name = t.sessionLabel ? `${t.sessionLabel} (${address})` : address;
 	if (t.status === "available") {
 		const seen = t.lastActive ? `, last seen ${relativeAge(t.lastActive)}` : "";
@@ -131,25 +118,12 @@ export function registerBridgeDiscover(mcpServer: McpServer): void {
 		},
 		async () => {
 			try {
-				// An older gateway ignores the query and answers the bare array (no coverage claim).
-				const raw = await routerGet("/discover?coverage=1");
-				const teams = (
-					Array.isArray(raw) ? raw : ((raw as { teams?: DiscoverEntry[] }).teams ?? [])
-				) as DiscoverEntry[];
-				const coverage = Array.isArray(raw) ? undefined : (raw as { coverage?: DiscoverCoverage }).coverage;
-				const localGatewayId = Array.isArray(raw)
-					? undefined
-					: (raw as { localGatewayId?: string }).localGatewayId;
-				// A row is THIS session only when it is on this session's own Gateway: filtering by bare
-				// name alone hid a same-named session on every other machine. An older gateway names no
-				// gateway, so the bare-name filter stands there. "host" is filtered BY NAME either way: a
-				// catalog entry could share the literal team name.
-				const isSelf = (t: DiscoverEntry) =>
-					t.team === bridgeProjectName() &&
-					(!localGatewayId || !t.gatewayId || t.gatewayId === localGatewayId);
-				const others = teams.filter((t) => t && !isSelf(t) && t.team !== "host" && t.kind !== "console");
-
-				// Post-grouping: grouping can drop an entry, so a nonzero count renders no line.
+				const { teams, coverage, localGatewayId } = DiscoverAnswerSchema.parse(
+					await routerGet("/discover?coverage=1"),
+				);
+				// Self by Gateway; host by name.
+				const isSelf = (t: TeamInfo) => t.team === bridgeProjectName() && t.gatewayId === localGatewayId;
+				const others = teams.filter((t) => !isSelf(t) && t.team !== "host" && t.kind !== "console");
 				const lines = formatDiscoverLines(others);
 				const caveat = coverageCaveat(coverage);
 				if (lines.length === 0) {
