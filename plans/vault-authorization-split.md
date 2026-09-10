@@ -483,6 +483,12 @@ already use it for other things, qualify it: `authorizationPolicy`.
   refuses duplicate keys after canonicalization; stores keys only. `policyRefusal` refuses a record
   for what it means: no shapes, an example that yields no key, duplicate keys. The phone adopts the
   stored record, so it needs no Kotlin twin of the key rule.
+- **The key is what askpass presents.** The helper drops sudo's `-A` and `--askpass` before the
+  gateway shapes a line, so an owner typing `sudo -A apt update` as they run it must key as
+  `sudo apt`. `withoutAskpassFlags` in `selector-key.ts` is the one walk; `askpassBrief` and
+  `selectorKey` both call it. `shapeFrom` and `basenameOf` moved there from the gateway for the
+  same reason, and `displayShape` is now an alias of `selectorKey`, kept because it names the
+  askpass side of the seam and is a wire field name.
 - **Field ownership.** Create assigns revision 1. An edit increments from the held record. The
   incoming revision is a base to check, never a value to store. `REVISION_CEILING` refuses as the
   runbook store does.

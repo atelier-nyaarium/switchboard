@@ -45,7 +45,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/router/boardClient.ts` - Router-held task board client
 - `src/gateway/router/vaultClient.ts` - vault sealing/opening, delta-held Router list, approval-gated values, and the gateway write
 - `src/gateway/vault/decisions.ts` / `requests.ts` / `helperTokens.ts` / `vaultRoutes.ts` - grants and `displayShape`; request rows that settle once, admit a joining caller, and cap open requests per target; helper tokens; loopback routes
-- `src/gateway/vault/operationSet.ts` - the one shape rule, the wrapper table read from each program's help, and the set a window grant covers
+- `src/gateway/vault/operationSet.ts` - the wrapper table read from each program's help, and the set a window grant covers
+- `src/shared/selector-key.ts` - the one shape rule, `shapeFrom`; `selectorKey`, what askpass presents and what a policy stores; `withoutAskpassFlags`, the one walk the helper's brief and a policy's keys both take, so `sudo -A apt` keys as `sudo apt`
 - `src/gateway/compose/composeVault.ts` - vault client, decisions, requests, routes, and console operations
 - `src/gateway/runbooks/store.ts` - gateway-held runbooks; sole writer, so a stored record has passed the rules
 - `src/gateway/routines/store.ts` - gateway-held routines; sole writer, and it publishes `onChanged` so the runner cannot be left armed for what the store no longer says
@@ -281,6 +282,12 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     other, so no stored runbook carries a blank nothing can fill or a parameter nothing uses. It
     bounds nothing by size; a record is refused for what it means.
 - `src/shared/schemasRoutine.ts` - routine wire truth and `routineRefusal`
+- `src/shared/schemasPolicy.ts` - authorization policy wire truth: the record, its bounds, the three console answers, `canonicalPolicy` and `policyRefusal`
+  - **Examples in, keys stored:** the phone sends typed examples and adopts the stored record.
+    `canonicalPolicy` derives every key first, `policyRefusal` refuses anything that is not a key
+    or is named twice, so no stored policy holds an example and the phone needs no twin of the rule.
+  - **Every mutation carries the base revision it read**, delete and enable included. A routine's
+    enable carries none, and a stale toggle wins there; a policy's does not.
   - **A schedule is refused by asking the calculator:** whether a rule can ever come around is not
     something reading its fields answers, so `routineRefusal` calls `nextOccurrence` from the start
     date rather than judging the weekday set and interval by eye.
