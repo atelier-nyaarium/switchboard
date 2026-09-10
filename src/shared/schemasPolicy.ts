@@ -26,8 +26,8 @@ export const AuthorizationPolicySchema = z
 			.regex(/^[^/\r\n]+$/),
 		name: z.string().min(1).max(MAX_POLICY_NAME_LEN),
 		binding: PolicyBindingSchema,
-		/** Canonical selector keys, never `operationSet` members. */
-		selectorShapes: z.array(z.string().min(1).max(MAX_SELECTOR_LEN)).min(1).max(MAX_SELECTORS_PER_POLICY),
+		/** Canonical, never `operationSet` members. */
+		selectorKeys: z.array(z.string().min(1).max(MAX_SELECTOR_LEN)).min(1).max(MAX_SELECTORS_PER_POLICY),
 		enabled: z.boolean(),
 		/** Gateway-assigned on every write. */
 		revision: z.number().int().positive().max(REVISION_CEILING),
@@ -62,17 +62,17 @@ export type ConsolePolicyDeleteResult = z.infer<typeof ConsolePolicyDeleteResult
 
 /** Canonicalize before refusal. */
 export function canonicalPolicy(policy: AuthorizationPolicy): AuthorizationPolicy {
-	return { ...policy, selectorShapes: policy.selectorShapes.map(selectorKey) };
+	return { ...policy, selectorKeys: policy.selectorKeys.map(selectorKey) };
 }
 
 /** Expects canonical form. */
 export function policyRefusal(policy: AuthorizationPolicy): string | null {
-	if (policy.selectorShapes.length === 0) return "a policy with no selector would answer nothing";
-	for (const shape of policy.selectorShapes) {
-		const key = selectorKey(shape);
-		if (key === "") return "a selector names no command";
-		if (key !== shape) return `${shape} is not a selector key; the gateway derives keys`;
+	if (policy.selectorKeys.length === 0) return "a policy with no selector would answer nothing";
+	for (const key of policy.selectorKeys) {
+		const derived = selectorKey(key);
+		if (derived === "") return "a selector names no command";
+		if (derived !== key) return `${key} is not a selector key; the gateway derives keys`;
 	}
-	if (new Set(policy.selectorShapes).size !== policy.selectorShapes.length) return "a selector is named twice";
+	if (new Set(policy.selectorKeys).size !== policy.selectorKeys.length) return "a selector is named twice";
 	return null;
 }

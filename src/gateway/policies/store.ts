@@ -47,7 +47,7 @@ function frozen(policy: AuthorizationPolicy): AuthorizationPolicy {
 	return Object.freeze({
 		...policy,
 		binding: Object.freeze({ ...policy.binding }),
-		selectorShapes: Object.freeze([...policy.selectorShapes]) as string[],
+		selectorKeys: Object.freeze([...policy.selectorKeys]) as string[],
 	});
 }
 
@@ -66,7 +66,7 @@ function contextRefusal(candidate: AuthorizationPolicy, others: AuthorizationPol
 	if (!candidate.enabled) return null;
 	for (const other of rest) {
 		if (!other.enabled) continue;
-		const taken = candidate.selectorShapes.find((key) => other.selectorShapes.includes(key));
+		const taken = candidate.selectorKeys.find((key) => other.selectorKeys.includes(key));
 		if (taken !== undefined) return `${taken} is already answered by ${other.name}`;
 	}
 	return null;
@@ -123,7 +123,7 @@ export function createPolicyStore(deps: PolicyStoreDeps) {
 
 	/** The one enabled policy that answers a key, unique by construction. */
 	const byKey = (key: string): AuthorizationPolicy | null =>
-		policies.find((policy) => policy.enabled && policy.selectorShapes.includes(key)) ?? null;
+		policies.find((policy) => policy.enabled && policy.selectorKeys.includes(key)) ?? null;
 
 	const put = (incoming: AuthorizationPolicy, options: PolicyPutOptions = {}): PolicyPutResult => {
 		const current = held(incoming.id);

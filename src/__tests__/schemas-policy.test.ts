@@ -3,11 +3,11 @@ import { type AuthorizationPolicy, canonicalPolicy, policyRefusal } from "../sha
 import { selectorKey } from "../shared/selector-key.js";
 import { askpassBrief } from "../vault-askpass/askpass.js";
 
-const policy = (selectorShapes: string[]): AuthorizationPolicy => ({
+const policy = (selectorKeys: string[]): AuthorizationPolicy => ({
 	id: "p1",
 	name: "Package administration",
 	binding: { kind: "entry", entryId: "sudo-pw" },
-	selectorShapes,
+	selectorKeys,
 	enabled: true,
 	revision: 1,
 });
@@ -42,7 +42,7 @@ describe("selectorKey", () => {
 describe("a policy is stored in canonical form, and refused for what it means", () => {
 	it("canonicalizes examples to keys, then passes", () => {
 		const stored = canonicalPolicy(policy(["sudo apt install baz", "/usr/bin/systemctl restart x"]));
-		expect(stored.selectorShapes).toEqual(["sudo apt", "systemctl restart"]);
+		expect(stored.selectorKeys).toEqual(["sudo apt", "systemctl restart"]);
 		expect(policyRefusal(stored)).toBeNull();
 	});
 

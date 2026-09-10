@@ -379,6 +379,12 @@ export function createConsoleDispatcher({
 
 			case "policy_enable":
 				return requirePolicies().enable(op.policyId, op.enabled, op.baseRevision);
+
+			default: {
+				// Exhaustive by type.
+				const unhandled: never = op;
+				throw new Error(`unhandled console op ${(unhandled as ConsoleOp).kind}`);
+			}
 		}
 	}
 

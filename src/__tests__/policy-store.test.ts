@@ -22,7 +22,7 @@ const policy = (id: string, over: Partial<AuthorizationPolicy> = {}): Authorizat
 	id,
 	name: id,
 	binding: { kind: "entry", entryId: "sudo-pw" },
-	selectorShapes: ["sudo apt install foo"],
+	selectorKeys: ["sudo apt install foo"],
 	enabled: true,
 	revision: 1,
 	...over,
@@ -35,7 +35,7 @@ describe("policy store", () => {
 		const store = open(dataDir, moved);
 		const first = store.put(policy("apt", { revision: 97 }));
 		expect(first).toMatchObject({ stored: true, revision: 1 });
-		expect(first.policy?.selectorShapes).toEqual(["sudo apt"]);
+		expect(first.policy?.selectorKeys).toEqual(["sudo apt"]);
 		expect(store.put(policy("apt"))).toMatchObject({ stored: true, revision: 1 });
 
 		expect(store.put(policy("apt", { name: "Renamed" }), { base: 1 })).toMatchObject({ stored: true, revision: 2 });
@@ -52,22 +52,22 @@ describe("policy store", () => {
 
 	it("orders by name then id, and answers a no-op enable and an unknown id", () => {
 		const store = open(fresh());
-		store.put(policy("b", { name: "Zebra", selectorShapes: ["sudo b"] }));
-		store.put(policy("a", { name: "Apple", selectorShapes: ["sudo a"] }));
+		store.put(policy("b", { name: "Zebra", selectorKeys: ["sudo b"] }));
+		store.put(policy("a", { name: "Apple", selectorKeys: ["sudo a"] }));
 		expect(store.list().map((row) => row.id)).toEqual(["a", "b"]);
 		expect(store.setEnabled("a", true, 1)).toMatchObject({ stored: true, revision: 1 });
 		expect(store.setEnabled("nobody", true, 1)).toMatchObject({ stored: false, revision: 0 });
-		expect(Object.isFrozen(store.get("a")?.selectorShapes)).toBe(true);
+		expect(Object.isFrozen(store.get("a")?.selectorKeys)).toBe(true);
 	});
 
 	it("refuses a second enabled holder of a key, and a disabled one frees it", () => {
 		const store = open(fresh());
 		store.put(policy("apt", { name: "Package administration" }));
-		const clash = store.put(policy("other", { selectorShapes: ["sudo apt remove"] }));
+		const clash = store.put(policy("other", { selectorKeys: ["sudo apt remove"] }));
 		expect(clash.stored).toBe(false);
 		expect(clash.reason).toContain("Package administration");
 
-		expect(store.put(policy("other", { selectorShapes: ["sudo apt remove"], enabled: false }))).toMatchObject({
+		expect(store.put(policy("other", { selectorKeys: ["sudo apt remove"], enabled: false }))).toMatchObject({
 			stored: true,
 		});
 		expect(store.setEnabled("other", true, 1)).toMatchObject({ stored: false, revision: 1 });
@@ -102,22 +102,22 @@ describe("policy store", () => {
 	it("refuses an invalid edit and keeps the held record", () => {
 		const store = open(fresh());
 		store.put(policy("apt"));
-		expect(store.put(policy("apt", { selectorShapes: ["   "] }), { base: 1 })).toMatchObject({ stored: false });
+		expect(store.put(policy("apt", { selectorKeys: ["   "] }), { base: 1 })).toMatchObject({ stored: false });
 		expect(
-			store.put(policy("apt", { selectorShapes: ["sudo apt install", "sudo apt remove"] }), { base: 1 }),
+			store.put(policy("apt", { selectorKeys: ["sudo apt install", "sudo apt remove"] }), { base: 1 }),
 		).toMatchObject({ stored: false });
-		expect(store.get("apt")).toMatchObject({ revision: 1, selectorShapes: ["sudo apt"] });
+		expect(store.get("apt")).toMatchObject({ revision: 1, selectorKeys: ["sudo apt"] });
 	});
 
 	it("starts fresh from a file a put could not have written", () => {
 		const dataDir = fresh();
 		const file = path.join(dataDir, "policies.json");
-		const key = { selectorShapes: ["sudo apt"] };
+		const key = { selectorKeys: ["sudo apt"] };
 		const poisoned = [
 			[policy("a", key), policy("b", key)],
-			[policy("a", key), policy("a", { name: "twice", selectorShapes: ["sudo rm"] })],
+			[policy("a", key), policy("a", { name: "twice", selectorKeys: ["sudo rm"] })],
 			[policy("a")],
-			Array.from({ length: 257 }, (_, i) => policy(`p${i}`, { selectorShapes: [`sudo p${i}`] })),
+			Array.from({ length: 257 }, (_, i) => policy(`p${i}`, { selectorKeys: [`sudo p${i}`] })),
 		];
 		for (const records of poisoned) {
 			fs.writeFileSync(file, JSON.stringify(records));

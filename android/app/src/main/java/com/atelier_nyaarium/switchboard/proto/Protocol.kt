@@ -872,7 +872,7 @@ data class AuthorizationPolicy(
 	val id: String,
 	val name: String,
 	val binding: PolicyBinding,
-	val selectorShapes: List<String>,
+	val selectorKeys: List<String>,
 	val enabled: Boolean,
 	val revision: Long,
 )

@@ -37,7 +37,11 @@ and the delta list are in `docs/federation.md` under Owner state.
 - **The shape is the program plus its first argument:** `shapeFrom` in `src/shared/selector-key.ts`
   takes the program's basename. `selectorKey` applies it to a line with sudo's askpass flag dropped,
   as `askpassBrief` drops it, so what askpass presents and what an authorization policy stores are
-  one rule.
+  one rule. A policy's `selectorKeys` hold keys, never typed examples: `canonicalPolicy` derives
+  them and `policyRefusal` refuses anything that is not one. The Gateway keeps its policies in
+  `policies.json`, written only by `gateway/policies/store.ts`, one enabled holder per key, at a
+  revision the Gateway assigns; the four `policy_*` console operations carry the base revision they
+  read, delete and enable included.
   When the first argument is a flag, the whole line is the shape, since a flag's value could hide
   the target. `displayShape` applies it to the words as written, which is what the grants tab lists
   and what a saved typed value is titled, and it holds for text no parser accepts. On the wire it

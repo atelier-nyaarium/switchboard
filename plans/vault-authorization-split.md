@@ -268,7 +268,7 @@ credential.
 contains it. One shared `selectorKey` function serves both the store's normalization and the
 askpass lookup. A proposed enabled policy is refused when its keys intersect the union of every
 other enabled policy's keys, naming the conflicting policy and shapes. Duplicates inside one policy
-are refused after canonicalization. The field is `selectorShapes`, never `shapes`, so the next
+are refused after canonicalization. The field is `selectorKeys`, never `shapes`, so the next
 implementer cannot merge it with `operationSet`.
 
 **Case is preserved.** Verified: the old title matcher lowercased both sides; `shapeFrom` does not.
@@ -468,7 +468,7 @@ Router answers, so the Router does not deploy first. A phone whose Gateway answe
 to a policy operation treats that as feature absence for that Gateway: draws nothing, refuses
 nothing, keeps the Gateway's other groups.
 
-The record is a **policy**; its selector field is `selectorShapes`, never `shapes`, so
+The record is a **policy**; its selector field is `selectorKeys`, never `shapes`, so
 `operationSet` is never mistaken for it. Where the word crosses vault or routine code, which
 already use it for other things, qualify it: `authorizationPolicy`.
 
@@ -477,7 +477,7 @@ already use it for other things, qualify it: `authorizationPolicy`.
 ✅ Complete. `cfb4f591` the wire, `9a83899c` the map and docs. Every gate green, CI green.
 
 - `src/shared/schemasPolicy.ts`: `id`, `name`, `binding: { kind: "entry", entryId }`,
-  `selectorShapes`, `enabled`, `revision`. No `since`: nothing walks a policy's history. Bounds
+  `selectorKeys`, `enabled`, `revision`. No `since`: nothing walks a policy's history. Bounds
   beside `RoutineSchema`'s and `VAULT_SHAPES_MAX`: id and name length, selector length and count,
   policies per Gateway.
 - **One canonicalization pipeline.** The phone sends typed examples. The gateway derives each key
@@ -548,6 +548,14 @@ already use it for other things, qualify it: `authorizationPolicy`.
   on a path-prefixed or multi-word line, and the gateway keys the brief with `displayShape`, which
   is `selectorKey`, so the resolver compares key against key. A test pins
   `selectorKey(askpassBrief(line)) === selectorKey(line)`.
+- **From the architecture audit.** The field is `selectorKeys`; "shapes" sent every auditor to
+  `operationSet`. `dispatch` in `consoleHandler.ts` ends in a `never` default. Set aside: a salvage
+  restore that disables a poisoned file's conflicting records and keeps the rest, because the
+  gateway is the sole writer and a fresh start is loud and safe; required console stage deps,
+  because the harness builds partial ones; a typed moved-or-deleted event, because the vault reads
+  the store back as routines read runbooks. On the board, claimed: the commit, echo and fence
+  mechanism the three stores copy; restore validation for the runbook and routine stores, after the
+  owner's live files are checked.
 
 ## Phase 2 - Grants and requests learn policies
 

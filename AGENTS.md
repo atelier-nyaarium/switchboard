@@ -58,6 +58,12 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     `overwrite` replaces regardless, still at the next revision, because no revision arithmetic can
     tell a copy that descends from the held one from a divergent one. Only an owner tap reaches it.
 - `src/gateway/compose/composeRunbooks.ts` - the runbook store and its console operations
+- `src/gateway/policies/store.ts` - gateway-held authorization policies; sole writer, one enabled holder per selector key
+  - **Restore refuses what a put refuses:** a file with a duplicate id, a non-canonical key, two
+    enabled holders of one key, or more than the cap starts the store fresh, as an unparseable file
+    does. The gateway is the only writer, so such a file is a hand edit or a bug, and fewer policies
+    is the safe direction. The runbook and routine stores restore on the schema alone.
+- `src/gateway/compose/composePolicies.ts` - the policy store, its console operations, and the `onPolicyMoved` seam the vault reads
 - `src/gateway/routines/store.ts` / `occurrences.ts` / `runner.ts` - routines, their occurrences, and
   the loop that walks one; `compose/composeRoutines.ts` arms it from federation activation
   - **`advance` is the only door:** the timer, the reconcile tick, Run missed and a pressed Run all
