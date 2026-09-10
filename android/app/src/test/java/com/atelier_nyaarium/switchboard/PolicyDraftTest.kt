@@ -14,20 +14,13 @@ class PolicyDraftTest {
 
 	@Test
 	fun refusesWhatTheSchemaBoundsAndSendsTheRestAsTyped() {
-		assertNull(ready.refusal())
-		assertNotNull(ready.copy(name = " ").refusal())
-		assertNotNull(ready.copy(entryId = "").refusal())
-		assertNotNull(ready.copy(examples = emptyList()).refusal())
-		// Each refusal names its own field, so the editor can put it there.
-		assertNotNull(ready.copy(name = " ").nameRefusal())
-		assertNull(ready.copy(name = " ").bindingRefusal())
-		assertNotNull(ready.copy(entryId = "").bindingRefusal())
-		assertNotNull(ready.copy(examples = emptyList()).commandsRefusal())
-		assertNull(ready.copy(examples = emptyList()).nameRefusal())
-		assertNotNull(ready.copy(examples = listOf("sudo apt", "  ")).refusal())
-		assertNotNull(ready.copy(id = "a/b").refusal())
-		assertNotNull(ready.copy(examples = List(65) { "sudo x$it" }).refusal())
+		assertNotNull(ready.toPolicy())
 		assertNull(ready.copy(name = " ").toPolicy())
+		assertNull(ready.copy(entryId = "").toPolicy())
+		assertNull(ready.copy(examples = emptyList()).toPolicy())
+		assertNull(ready.copy(examples = listOf("sudo apt", "  ")).toPolicy())
+		assertNull(ready.copy(id = "a/b").toPolicy())
+		assertNull(ready.copy(examples = List(65) { "sudo x$it" }).toPolicy())
 
 		// The examples go as typed; the gateway derives the keys. The revision is the one read.
 		val sent = ready.copy(revision = 4L).toPolicy()

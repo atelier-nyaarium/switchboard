@@ -76,11 +76,6 @@ internal fun runbookChipLabel(name: String, id: String, names: List<String>): St
 /** A run already handed to its session is not recalled by any of the three. */
 internal const val VERBS_EXPLAIN = "A run already handed over carries on either way."
 
-/**
- * What each verb touches, said rather than implied. Only the two that can land while a run is in
- * flight say so: what Dismiss settles is a run that was missed, so it was never handed to anyone.
- */
+/** What each verb touches, before the tap. */
 internal const val DISMISS_EXPLAINS = "Settles this one run. The schedule keeps going."
-internal const val ENABLED_EXPLAINS = "The schedule runs. Turning this off keeps the routine and its runs. $VERBS_EXPLAIN"
-internal const val DISABLE_EXPLAINS = "The schedule is stopped. The routine and its runs stay. $VERBS_EXPLAIN"
 internal const val DELETE_EXPLAINS = "Removes the routine, its runs and its linked secrets."

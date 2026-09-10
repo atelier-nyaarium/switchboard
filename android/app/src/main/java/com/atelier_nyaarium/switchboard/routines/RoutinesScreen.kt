@@ -57,10 +57,6 @@ fun RoutinesScreen(
 				horizontalAlignment = Alignment.CenterHorizontally,
 			) {
 				Text(emptyTitle(groups), style = MaterialTheme.typography.titleMedium)
-				Text(
-					"A routine fires a runbook on a schedule, in a session of its own.",
-					style = MaterialTheme.typography.bodySmall,
-				)
 			}
 		} else {
 			LazyColumn(

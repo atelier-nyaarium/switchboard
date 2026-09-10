@@ -58,10 +58,6 @@ fun PoliciesScreen(
 			) {
 				// Refused is hidden, so empty is not broken.
 				Text("No policies", style = MaterialTheme.typography.titleMedium)
-				Text(
-					"A policy answers a command's password prompt from a secret, after one approval.",
-					style = MaterialTheme.typography.bodySmall,
-				)
 			}
 		} else {
 			LazyColumn(

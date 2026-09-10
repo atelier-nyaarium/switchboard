@@ -115,7 +115,7 @@ fun PolicyEditor(
 				actions = {
 					TextButton(onClick = hapticClick(close)) { Text("Cancel") }
 					Button(
-						enabled = draft.refusal() == null && !saving,
+						enabled = draft.toPolicy() != null && !saving,
 						onClick = hapticClick(commit),
 						modifier = Modifier.padding(end = 8.dp),
 					) { Text(if (saving) "Saving" else "Save") }
@@ -131,7 +131,6 @@ fun PolicyEditor(
 				value = draft.name,
 				onValueChange = { draft = draft.copy(name = it) },
 				label = { Text("Name") },
-				supportingText = draft.nameRefusal()?.let { { Text(it) } },
 				modifier = Modifier.fillMaxWidth(),
 			)
 
@@ -139,7 +138,6 @@ fun PolicyEditor(
 			if (entries.isEmpty()) {
 				Text("None usable on $gatewayId.", style = MaterialTheme.typography.bodySmall)
 			}
-			draft.bindingRefusal()?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 			FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
 				for (entry in entries) {
 					FilterChip(
@@ -159,10 +157,8 @@ fun PolicyEditor(
 			}
 
 			Text("Commands", style = MaterialTheme.typography.labelLarge)
-			Text(
-				draft.commandsRefusal() ?: "Kept as the program and its first argument.",
-				style = MaterialTheme.typography.bodySmall,
-			)
+			// The cut is not visible in what you type.
+			Text("Kept as the program and its first argument.", style = MaterialTheme.typography.bodySmall)
 			Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
 				OutlinedTextField(
 					value = example,
@@ -189,13 +185,11 @@ fun PolicyEditor(
 				horizontalArrangement = Arrangement.spacedBy(8.dp),
 				verticalAlignment = Alignment.CenterVertically,
 			) {
-				Column(Modifier.weight(1f)) {
-					Text(if (draft.enabled) "Enabled" else "Disabled", style = MaterialTheme.typography.bodyMedium)
-					Text(
-						if (draft.enabled) "Answers these commands from the secret." else "Answers nothing until enabled.",
-						style = MaterialTheme.typography.bodySmall,
-					)
-				}
+				Text(
+					if (draft.enabled) "Enabled" else "Disabled",
+					style = MaterialTheme.typography.bodyMedium,
+					modifier = Modifier.weight(1f),
+				)
 				Switch(checked = draft.enabled, onCheckedChange = { draft = draft.copy(enabled = it) })
 			}
 

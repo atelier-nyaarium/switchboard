@@ -242,15 +242,12 @@ fun RoutineEditor(
 				horizontalArrangement = Arrangement.spacedBy(8.dp),
 				verticalAlignment = Alignment.CenterVertically,
 			) {
-				Column(Modifier.weight(1f)) {
-					// The line describes the state the switch is in, not the one it would move to: a
-					// fixed "stops the schedule" under a switch that is on reads as if on stopped it.
-					Text(if (draft.enabled) "Enabled" else "Disabled", style = MaterialTheme.typography.bodyMedium)
-					Text(
-						if (draft.enabled) ENABLED_EXPLAINS else DISABLE_EXPLAINS,
-						style = MaterialTheme.typography.bodySmall,
-					)
-				}
+				// The state it is in, not the move.
+				Text(
+					if (draft.enabled) "Enabled" else "Disabled",
+					style = MaterialTheme.typography.bodyMedium,
+					modifier = Modifier.weight(1f),
+				)
 				Switch(checked = draft.enabled, onCheckedChange = { draft = draft.copy(enabled = it) })
 			}
 
