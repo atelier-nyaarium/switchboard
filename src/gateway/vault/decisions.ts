@@ -12,7 +12,8 @@ import {
 	VaultGrantSchema,
 	type VaultHolder,
 } from "../../shared/schemasVault.js";
-import { coveredBy, shapeFrom } from "./operationSet.js";
+import { selectorKey } from "../../shared/selector-key.js";
+import { coveredBy } from "./operationSet.js";
 
 export interface VaultDecisionsDeps {
 	/** Opened through `openDurable`, so a poisoned file starts this store fresh. */
@@ -42,7 +43,7 @@ const GrantsSchema = z.array(VaultGrantSchema);
  * covers.
  */
 export function displayShape(operation: string): string {
-	return shapeFrom(operation.trim().split(/\s+/).filter(Boolean));
+	return selectorKey(operation);
 }
 
 export function createVaultDecisions(deps: VaultDecisionsDeps) {

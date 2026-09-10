@@ -12,6 +12,7 @@ import {
 	type WordPart,
 } from "unbash";
 import { VAULT_SHAPES_MAX } from "../../shared/schemasVault.js";
+import { basenameOf, shapeFrom } from "../../shared/selector-key.js";
 
 interface Wrapper {
 	/** Options taking the next word. */
@@ -267,10 +268,6 @@ const WRAPPERS: Record<string, Wrapper> = {
 const ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
 /** A trailing slash keeps the whole spelling. */
-function basenameOf(program: string): string {
-	return program.slice(program.lastIndexOf("/") + 1) || program;
-}
-
 function isStatic(part: WordPart): boolean {
 	switch (part.type) {
 		case "Literal":
@@ -325,21 +322,6 @@ function wrapped(wrapper: Wrapper, program: string, rest: string[]): number | un
 		else return index;
 	}
 	return undefined;
-}
-
-/**
- * The one shape rule, which the display shape and every member of the set both take: the program's
- * basename and its first argument, or every argument once a flag leads, since a flag's value can
- * hide the target.
- */
-export function shapeFrom(words: string[]): string {
-	const program = words[0];
-	if (program === undefined) return "";
-	const name = basenameOf(program);
-	const rest = words.slice(1);
-	const first = rest[0];
-	if (first === undefined) return name;
-	return first.startsWith("-") ? [name, ...rest].join(" ") : `${name} ${first}`;
 }
 
 /** One command's shape, wrappers peeled. A `time` pipeline's command loses a leading `--`. */

@@ -4,6 +4,11 @@ import { BoardEntrySchema } from "./schemasBoard.js";
 import { CrossDomainShareTargetSchema, MailboxEntrySchema } from "./schemasConsoleOp.js";
 import { DomainStatusSchema } from "./schemasCore.js";
 import {
+	ConsolePolicyDeleteResultSchema,
+	ConsolePolicyListResultSchema,
+	ConsolePolicyPutResultSchema,
+} from "./schemasPolicy.js";
+import {
 	CrossDomainPeerEntrySchema,
 	CrossDomainPresenceEntrySchema,
 	GatewaySpawnPointsSchema,
@@ -489,6 +494,9 @@ export const ConsoleOpResultSchema = z.union([
 	ConsoleRoutineNextResultSchema,
 	ConsoleRoutineOccurrenceResultSchema,
 	ConsoleRoutineRunResultSchema,
+	ConsolePolicyListResultSchema,
+	ConsolePolicyPutResultSchema,
+	ConsolePolicyDeleteResultSchema,
 ]);
 
 ////////////////////////////////

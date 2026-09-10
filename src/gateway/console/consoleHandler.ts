@@ -54,6 +54,7 @@ export function createConsoleDispatcher({
 	vault,
 	runbooks,
 	routines,
+	policies,
 	onSessionEnded,
 }: ConsoleHandlerDeps) {
 	const targets = createConsoleTargets({ localDomainId, localGatewayId, isTrustedCatalogProject });
@@ -366,12 +367,29 @@ export function createConsoleDispatcher({
 
 			case "routine_dismiss":
 				return requireRoutines().dismiss(op.routineId, op.occurrenceId);
+
+			case "policy_list":
+				return requirePolicies().list();
+
+			case "policy_put":
+				return requirePolicies().put(op.policy, op.baseRevision);
+
+			case "policy_delete":
+				return requirePolicies().remove(op.policyId, op.baseRevision);
+
+			case "policy_enable":
+				return requirePolicies().enable(op.policyId, op.enabled, op.baseRevision);
 		}
 	}
 
 	function requireRoutines() {
 		if (!routines) throw new Error("routines are not available on this Gateway");
 		return routines;
+	}
+
+	function requirePolicies() {
+		if (!policies) throw new Error("policies are not available on this Gateway");
+		return policies;
 	}
 
 	function requireVault() {

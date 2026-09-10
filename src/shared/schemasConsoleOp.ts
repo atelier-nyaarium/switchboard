@@ -3,6 +3,7 @@ import { ChannelFilesSchema } from "./channel-file.js";
 import { SignedXDomainLinkSchema } from "./federation-protocol.js";
 import { BlobGetOpSchema, BlobPutOpSchema, BlobStatOpSchema } from "./schemasBlob.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
+import { AuthorizationPolicySchema } from "./schemasPolicy.js";
 import { RoutineSchema } from "./schemasRoutine.js";
 import { RunbookFireTargetSchema, RunbookSchema } from "./schemasRunbook.js";
 import { VaultDecisionSchema } from "./schemasVault.js";
@@ -196,6 +197,26 @@ export const ConsoleOpSchema = z
 			routineId: z.string().min(1).max(64),
 			occurrenceId: z.string().min(1).max(128),
 		}),
+		z.object({ kind: z.literal("policy_list") }),
+		// Whole record, never a patch.
+		z.object({
+			kind: z.literal("policy_put"),
+			policy: AuthorizationPolicySchema,
+			/** Absent on create. */
+			baseRevision: z.number().int().positive().optional(),
+		}),
+		// Base revision required.
+		z.object({
+			kind: z.literal("policy_delete"),
+			policyId: z.string().min(1).max(64),
+			baseRevision: z.number().int().positive(),
+		}),
+		z.object({
+			kind: z.literal("policy_enable"),
+			policyId: z.string().min(1).max(64),
+			enabled: z.boolean(),
+			baseRevision: z.number().int().positive(),
+		}),
 	])
 	.meta({ id: "ConsoleOp" });
 
@@ -246,6 +267,10 @@ export const VALUE_OP_KINDS = new Set([
 	"routine_run_now",
 	"routine_run",
 	"routine_dismiss",
+	"policy_list",
+	"policy_put",
+	"policy_delete",
+	"policy_enable",
 ]);
 
 export const MailboxEntrySchema = z

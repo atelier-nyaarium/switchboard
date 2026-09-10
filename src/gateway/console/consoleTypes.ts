@@ -18,6 +18,12 @@ import type { HostOp, HostOpResult } from "../../shared/host-op.js";
 import { MAX_POLL_HOLD_MS } from "../../shared/schemas.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
 import type {
+	AuthorizationPolicy,
+	ConsolePolicyDeleteResult,
+	ConsolePolicyListResult,
+	ConsolePolicyPutResult,
+} from "../../shared/schemasPolicy.js";
+import type {
 	ConsoleRoutineDeleteResult,
 	ConsoleRoutineListResult,
 	ConsoleRoutineNextResult,
@@ -115,7 +121,16 @@ export interface ConsoleHandlerDeps {
 	vault?: VaultConsoleHandlers;
 	runbooks?: RunbookConsoleHandlers;
 	routines?: RoutineConsoleHandlers;
+	policies?: PolicyConsoleHandlers;
 	onSessionEnded?: (team: string) => void;
+}
+
+export interface PolicyConsoleHandlers {
+	list: () => ConsolePolicyListResult;
+	/** `base` absent on create. */
+	put: (policy: AuthorizationPolicy, base?: number) => ConsolePolicyPutResult;
+	remove: (policyId: string, base: number) => ConsolePolicyDeleteResult;
+	enable: (policyId: string, enabled: boolean, base: number) => ConsolePolicyPutResult;
 }
 
 export interface RunbookConsoleHandlers {

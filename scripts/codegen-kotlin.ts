@@ -117,6 +117,13 @@ import {
 	ConsoleWelcomeFrameSchema,
 } from "../src/shared/schemasConsoleSocket.js";
 import {
+	AuthorizationPolicySchema,
+	ConsolePolicyDeleteResultSchema,
+	ConsolePolicyListResultSchema,
+	ConsolePolicyPutResultSchema,
+	PolicyBindingSchema,
+} from "../src/shared/schemasPolicy.js";
+import {
 	FriendPresenceProjectionSchema,
 	OwnerPresenceProjectionSchema,
 	RosterEntrySchema,
@@ -261,6 +268,11 @@ const ROOTS: z.ZodType[] = [
 	CrossDomainListSharesResultSchema,
 	CrossDomainListPeersResultSchema,
 	CrossDomainUnlinkResultSchema,
+	PolicyBindingSchema,
+	AuthorizationPolicySchema,
+	ConsolePolicyListResultSchema,
+	ConsolePolicyPutResultSchema,
+	ConsolePolicyDeleteResultSchema,
 	ProvisioningSchema,
 	SttsProvidersSchema,
 	AdmissionSchema,

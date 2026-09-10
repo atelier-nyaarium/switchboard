@@ -1,15 +1,13 @@
 // The askpass decision over ports; the entry point wires the real ones.
 
 import { VAULT_ROUTE_WAIT_CAP_MS, type VaultValueAnswer, VaultValueAnswerSchema } from "../shared/schemasVault.js";
+import { withoutAskpassFlags } from "../shared/selector-key.js";
 
 /** A tty race polls briefly; a hold without one is long. */
 export const RACE_WAIT_MS = 25_000;
 export const HOLD_WAIT_MS = VAULT_ROUTE_WAIT_CAP_MS;
 export const WITHDRAW_TIMEOUT_MS = 3_000;
 const DEFAULT_DEADLINE_MS = 10 * 60 * 1000;
-
-/** sudo options that take a value, so the value is never read as the command. */
-const SUDO_VALUED_FLAGS = new Set(["-C", "-D", "-g", "-h", "-p", "-r", "-t", "-T", "-u", "-U"]);
 
 export interface GatewayPort {
 	/** Null when the gateway cannot be reached or refuses the token. */
@@ -69,21 +67,7 @@ export function askpassBrief(cmdline: string, exe?: string): string {
 	const tokens = cmdline.trim().split(/\s+/).filter(Boolean);
 	if (tokens.length === 0) return "";
 	if (exe) tokens[0] = exe;
-	if (tokens[0].split("/").at(-1) !== "sudo") return tokens.join(" ");
-	const kept = [tokens[0]];
-	let index = 1;
-	for (; index < tokens.length && tokens[index].startsWith("-"); index += 1) {
-		const token = tokens[index];
-		if (token === "--") break;
-		if (token === "--askpass") continue;
-		const flag = token.startsWith("--") || !token.includes("A") ? token : token.replace("A", "");
-		if (flag !== "-") kept.push(flag);
-		if (SUDO_VALUED_FLAGS.has(`-${flag.at(-1)}`) && !flag.startsWith("--") && index + 1 < tokens.length) {
-			index += 1;
-			kept.push(tokens[index]);
-		}
-	}
-	return [...kept, ...tokens.slice(index)].join(" ");
+	return withoutAskpassFlags(tokens).join(" ");
 }
 
 /** The opening call asks for no wait, so the request id is known before anyone can win. */

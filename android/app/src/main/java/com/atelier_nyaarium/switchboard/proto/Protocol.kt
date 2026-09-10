@@ -145,6 +145,10 @@ object Protocol {
 			const val ROUTINE_RUN_NOW: String = "routine_run_now"
 			const val ROUTINE_RUN: String = "routine_run"
 			const val ROUTINE_DISMISS: String = "routine_dismiss"
+			const val POLICY_LIST: String = "policy_list"
+			const val POLICY_PUT: String = "policy_put"
+			const val POLICY_DELETE: String = "policy_delete"
+			const val POLICY_ENABLE: String = "policy_enable"
 		}
 
 		object SocketFrame {
@@ -552,6 +556,32 @@ sealed class ConsoleOp {
 		val routineId: String,
 		val occurrenceId: String,
 	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("policy_list")
+	data object PolicyList : ConsoleOp()
+
+	@Serializable
+	@SerialName("policy_put")
+	data class PolicyPut(
+		val policy: AuthorizationPolicy,
+		val baseRevision: Long? = null,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("policy_delete")
+	data class PolicyDelete(
+		val policyId: String,
+		val baseRevision: Long,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("policy_enable")
+	data class PolicyEnable(
+		val policyId: String,
+		val enabled: Boolean,
+		val baseRevision: Long,
+	) : ConsoleOp()
 }
 
 @Serializable
@@ -828,6 +858,42 @@ data class CrossDomainUnlinkResult(
 	val peersRemoved: Long,
 	val sharesDropped: Long,
 	val jobsExpired: Long,
+)
+
+@Serializable
+data class PolicyBinding(
+	@EncodeDefault
+	val kind: String = "entry",
+	val entryId: String,
+)
+
+@Serializable
+data class AuthorizationPolicy(
+	val id: String,
+	val name: String,
+	val binding: PolicyBinding,
+	val selectorShapes: List<String>,
+	val enabled: Boolean,
+	val revision: Long,
+)
+
+@Serializable
+data class ConsolePolicyListResult(
+	val policies: List<AuthorizationPolicy>,
+)
+
+@Serializable
+data class ConsolePolicyPutResult(
+	val stored: Boolean,
+	val revision: Long,
+	val policy: AuthorizationPolicy? = null,
+	val reason: String? = null,
+)
+
+@Serializable
+data class ConsolePolicyDeleteResult(
+	val deleted: Boolean,
+	val reason: String? = null,
 )
 
 @Serializable
