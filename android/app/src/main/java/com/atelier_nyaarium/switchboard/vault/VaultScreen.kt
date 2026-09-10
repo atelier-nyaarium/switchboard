@@ -109,7 +109,7 @@ fun VaultScreen(
 		if (shown.isEmpty()) {
 			item(key = "sect:empty") {
 				Text(
-					if (views.isEmpty()) "Nothing stored. New adds a secret or a note." else "No entry matches.",
+					if (views.isEmpty()) "Nothing stored" else "No entry matches",
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					modifier = Modifier.fillMaxWidth().padding(top = 24.dp),

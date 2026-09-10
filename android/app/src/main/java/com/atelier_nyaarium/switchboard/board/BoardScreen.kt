@@ -162,7 +162,7 @@ fun BoardScreen(
 		if (rows.unassigned.rows.isEmpty()) {
 			item(key = "sect:empty") {
 				Text(
-					"Nothing waiting. New captures a thought; a session's own tasks live on its thread.",
+					"Nothing waiting",
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					modifier = Modifier.fillMaxWidth().padding(top = 24.dp),

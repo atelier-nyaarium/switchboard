@@ -206,7 +206,7 @@ fun GatewaysScreen(
 		) {
 			Text("Computers that run your agents.", style = MaterialTheme.typography.bodyMedium)
 			if (gateways.isEmpty()) {
-				Text("No Gateways yet. Add one to get started.", style = MaterialTheme.typography.bodyMedium)
+				Text("No Gateways yet", style = MaterialTheme.typography.bodyMedium)
 			}
 			for (g in gateways) {
 				val gid = g.gatewayId ?: continue

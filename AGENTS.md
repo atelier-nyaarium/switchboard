@@ -540,6 +540,15 @@ adb install -r app/build/outputs/apk/debug/switchboard-debug.apk
 
 The phone stays on wireless adb; `adb devices` lists it. No push or CI round trip is needed.
 
+**Every phone iteration goes over adb, never through CI.** Two minutes, against ten for the
+Android release, and there is always more to do than watch a workflow. Push when the work settles,
+not per tweak. `assembleRelease` reads the same keystore env, so the phone can stay on the
+production variant; `assembleDebug` is for when the ingest log stream is wanted.
+
+The CI release takes its version code from `github.run_number`, so local builds walk ahead of it
+and a later release APK can read as a downgrade. Build that commit locally instead of waiting for
+the run number to catch up.
+
 ### Emulator build
 
 Use the `emulator` variant for visual inspection without onboarding or a real Gateway:
