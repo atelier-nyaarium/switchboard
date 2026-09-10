@@ -562,6 +562,10 @@ already use it for other things, qualify it: `authorizationPolicy`.
 
 ## Phase 2 - Grants and requests learn policies
 
+✅ Complete. `ef5067f5` the qualified grants and requests, the tap validation and the release;
+`faa4168e` the one `PolicyRef` shape, the named release result and the policy stage's publish.
+Every gate green, CI green on the first.
+
 - `GrantScope` and `VaultGrantSchema` gain `policy`, an optional `PolicyRef` of `policyId` and
   `policyRevision`. **Holder invariant, enforced in the schema and in `covers`:** a
   policy-qualified grant is session-held and `window` or `session` tier; a routine's standing
@@ -742,3 +746,14 @@ Collected as the phases land. Not fixed here.
   not.
 - **`routine_enable` carries no base revision**, so a stale toggle wins where a stale put is refused.
   On the board as bd_ee0449e2. The policy operations carry one.
+- **Every read of a grant walks a fallback chain.** `displayShape ?? shape`, `coveredShapes ??
+  shapes`, `holder ?? sessionTarget`: three dated compatibility fields on `VaultGrant`, due
+  2026-09-19 and 2026-09-22, each read in three or four places. `covers`, `disqualified` and
+  `grant` all spell the chain out. Removing the fields on their dates removes the chain.
+- **A refine cannot sit on a discriminated union without touching the codegen.** The request's
+  both-or-neither rule could not be written where the grant's was, which is part of why the
+  qualification became one object: the shape carries the rule the refine could not.
+- **`createVaultRoutes` had no bench until this phase.** The loopback routes were reachable only
+  through the federation harness, so a settlement rule was proved by booting a Router.
+  `vault-routes.test.ts` builds the routes over a fake client; the next rule there costs a test,
+  not a harness case.
