@@ -65,7 +65,7 @@ class VaultManagerTest {
 			requestId = id,
 			operation = "sudo apt install foo",
 			shape = "sudo apt",
-			sessionTarget = "helper.abc",
+			sessionTarget = "owner.claude",
 			deadlineAt = deadlineAt,
 			asker = asker,
 		)
@@ -171,7 +171,6 @@ class VaultManagerTest {
 		assertFalse(vault.addRequest("dom.gw.host.alice", entryRequest("late", 900L), now = 1_000L))
 		assertTrue(vault.addRequest("dom.gw.owner.claude", typedRequest("r2", 5_000L), now = 1_000L))
 		assertEquals(listOf("r1", "r2"), vault.pending.value.map { it.requestId })
-		assertTrue(vault.request("r2")!!.fromHelper)
 
 		assertTrue(vault.sweepRequests(now = 6_000L))
 		assertEquals(listOf("r1"), vault.pending.value.map { it.requestId })

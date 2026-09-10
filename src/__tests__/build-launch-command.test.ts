@@ -81,6 +81,23 @@ describe("buildLaunchCommand", () => {
 		expect(cmd.indexOf("export PATH=")).toBeLessThan(cmd.indexOf("export PROJECT_NAME"));
 	});
 
+	it("exports the askpass helper into a host and a devcontainer session, after the token and before claude", () => {
+		const host = { kind: "host" as const, name: "host", sessionName: "foo" };
+		for (const cmd of [buildLaunchCommand(host, { sessionToken: "0123456789abcdef" }), buildLaunchCommand(dc)]) {
+			for (const name of ["SUDO_ASKPASS", "SSH_ASKPASS", "GIT_ASKPASS"]) {
+				expect(cmd).toContain(`export ${name}="$HOME/.local/bin/vault-askpass"; `);
+			}
+			expect(cmd.indexOf("export PROJECT_NAME")).toBeLessThan(cmd.indexOf("SUDO_ASKPASS"));
+			expect(cmd.indexOf("SUDO_ASKPASS")).toBeLessThan(cmd.indexOf("claude "));
+		}
+		// PowerShell runs no bash wrapper.
+		const windows = buildLaunchCommand(
+			{ kind: "host", name: "windows", sessionName: "foo" },
+			{ workdir: "C:\\Users\\me\\projects" },
+		);
+		expect(windows).not.toContain("ASKPASS");
+	});
+
 	it("drops a PATH prefix that is not a plain absolute path, and never applies one to a devcontainer", () => {
 		const host = { kind: "host" as const, name: "host", sessionName: "foo" };
 		expect(buildLaunchCommand(host, { pathPrefix: "/home/it's/bin" })).not.toContain("export PATH=");

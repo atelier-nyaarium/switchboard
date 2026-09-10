@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { resolveWorkdir, type WorkdirContext, workdirOrFallback } from "../../shared/agent-workdir.js";
 import { type HostListDirsResult, isReservedHostSession, isTmuxName, type TmuxTarget } from "../../shared/host-op.js";
-import { buildHostLaunch, isHostSpawn } from "../../shared/host-spawn.js";
+import { ASKPASS_EXPORTS, buildHostLaunch, isHostSpawn } from "../../shared/host-spawn.js";
 import { composeSessionName, parseSessionName } from "../../shared/session-id.js";
 
 ////////////////////////////////
@@ -169,7 +169,7 @@ export function buildLaunchCommand(
 		});
 	}
 	// `exec bash` keeps the pane peekable after claude exits or never starts, as the host launch does.
-	return `bash -c 'source ~/.bashrc; export PROJECT_NAME=${composite}; ${exportToken}cd /workspace/${target.name}; claude ${claudeArgs}; exec bash'`;
+	return `bash -c 'source ~/.bashrc; export PROJECT_NAME=${composite}; ${exportToken}${ASKPASS_EXPORTS}cd /workspace/${target.name}; claude ${claudeArgs}; exec bash'`;
 }
 
 ////////////////////////////////

@@ -32,7 +32,6 @@ export const DATA_DIR_ENTRIES: ReadonlySet<string> = new Set([
 	"runbooks.json",
 	"session-resume.json",
 	"vault-decisions.json",
-	"vault-helper.json",
 ]);
 
 ////////////////////////////////

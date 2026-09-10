@@ -2,8 +2,6 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
-import os from "node:os";
-import path from "node:path";
 import {
 	askerOf,
 	askpassBrief,
@@ -17,9 +15,6 @@ import {
 
 // sudo, ssh, and git run this with the prompt as its one argument and read the value from stdout.
 
-/** The installer's wrapper names the token file; the default is the owner's home. */
-const TOKEN_FILE =
-	process.env.VAULT_ASKPASS_TOKEN_FILE ?? path.join(os.homedir(), ".config", "switchboard", "vault-askpass.token");
 /** Exit 0 with the line on Enter, empty or not; anything else is a closed tty. */
 const READ_SECRET =
 	'trap "stty echo" EXIT; trap "stty echo; exit 1" TERM INT; stty -echo; IFS= read -r line; printf %s "$line"';
@@ -108,32 +103,23 @@ function loopbackPost(url: string, init: RequestInit): Promise<Response> {
 	});
 }
 
-function readToken(): string | null {
-	try {
-		return fs.readFileSync(TOKEN_FILE, "utf8").trim() || null;
-	} catch {
-		return null;
-	}
-}
-
 async function main(): Promise<number> {
 	const prompt = process.argv[2] ?? "Password:";
-	const token = readToken();
-	if (!token) console.error(`[vault-askpass] no token at ${TOKEN_FILE}; run scripts/install-vault-askpass.ts`);
+	// sudo hands the helper the caller's environment, so a session's own sudo asks as that session.
+	const sessionToken = process.env.SWITCHBOARD_SESSION_TOKEN || undefined;
+	if (!sessionToken) console.error("[vault-askpass] no SWITCHBOARD_SESSION_TOKEN; only a session reaches the phone");
 	const baseUrl = (process.env.BRIDGE_ROUTER_URL ?? "http://127.0.0.1:20000").replace(/\/+$/, "");
 	const forSecret = secretPrompt(prompt);
 	if (!forSecret) console.error("[vault-askpass] not a secret prompt; the terminal answers it");
 	// A caller's abort withdraws the phone's request before exit.
 	const cancel = new AbortController();
 	for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.on(signal, () => cancel.abort());
-	// sudo hands the helper the caller's environment, so a session's own sudo asks as that session.
-	const sessionToken = process.env.SWITCHBOARD_SESSION_TOKEN || undefined;
 	const outcome = await runAskpass(
 		{ cmdline: readCmdline(prompt), prompt, asker: readAsker(), signal: cancel.signal },
 		{
 			gateway:
-				token && forSecret
-					? createGatewayPort({ baseUrl, token, sessionToken, fetch: loopbackPost })
+				sessionToken && forSecret
+					? createGatewayPort({ baseUrl, sessionToken, fetch: loopbackPost })
 					: closedGateway,
 			tty: openTty(),
 			now: () => Date.now(),

@@ -8,8 +8,9 @@
 // the committed version, which is why bumping and building are one command rather than two: a dist/
 // built at a version the manifests do not claim looks correct and is not.
 //
-// The MCP entrypoint and the askpass helper are bundled; the installer copies the helper out of
-// dist/. The gateway and the host daemon run under bun by construction and need no bundle.
+// The MCP entrypoint and the askpass helper are bundled; the host daemon and the plugin point the
+// askpass wrapper at the helper in dist/. The gateway and the host daemon run under bun by
+// construction and need no bundle.
 //
 // package.json is the source of truth. It is the one file that gets BUMPED; every other target is
 // SET to whatever it now says, so the targets can never drift apart or be bumped by different

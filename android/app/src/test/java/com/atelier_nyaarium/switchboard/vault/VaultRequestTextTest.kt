@@ -21,7 +21,7 @@ class VaultRequestTextTest {
 			requestId = "r",
 			operation = operation,
 			shape = "sudo apt",
-			sessionTarget = "helper.abc",
+			sessionTarget = "owner.claude",
 			deadlineAt = 10L,
 			asker = asker,
 		),
@@ -77,31 +77,6 @@ class VaultRequestTextTest {
 	}
 
 	@Test
-	fun aHelperAskingForAnEntryIsToldItsGrantIsAWindow() {
-		val helperEntry = VaultPendingRequest(
-			"dom.sakura.owner.claude",
-			VaultRequest.Entry(
-				entryId = "e1",
-				v = 1L,
-				requestId = "r",
-				operation = "ssh deploy@prod",
-				shape = "ssh deploy@prod",
-				sessionTarget = "helper.abc",
-				deadlineAt = 10L,
-			),
-			0L,
-		)
-		assertEquals(
-			"Every process here shares the helper's token, so a grant is 30 minutes.",
-			helperNotice(helperEntry),
-		)
-		// A session's own request grants a session.
-		assertNull(helperNotice(entry()))
-		// A typed value is answered once, whoever asked.
-		assertNull(helperNotice(typed("sudo apt install foo")))
-	}
-
-	@Test
 	fun aGrantNamesItsProgramsOrNothingAtAll() {
 		assertEquals("apt update, curl x", grantCovers(listOf("apt update", "curl x"), null))
 		assertEquals("apt update", grantCovers(null, listOf("apt update")))
@@ -142,7 +117,7 @@ class VaultRequestTextTest {
 		val state = ChatState(labels = mapOf("dom.hoshi.evie-bot.0713b7" to "Evie Auto Shutdown"))
 		assertEquals("hoshi · Evie Auto Shutdown", requester(state, entry()))
 		assertEquals("hoshi · 0713b7", requester(ChatState(), entry()))
-		assertEquals("sakura", requester(ChatState(), typed("sudo apt upgrade")))
+		assertEquals("sakura · claude", requester(ChatState(), typed("sudo apt upgrade")))
 	}
 
 	@Test

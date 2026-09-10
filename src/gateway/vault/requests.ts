@@ -13,10 +13,6 @@ import {
 import { displayShape } from "./decisions.js";
 import { operationSet } from "./operationSet.js";
 
-/** The helper's principal. */
-export const helperTarget = (tokenId: string): string => `helper.${tokenId}`;
-export const isHelperTarget = (target: string): boolean => target.startsWith("helper.");
-
 export type VaultRequestInput =
 	| { kind: "entry"; entryId: string; operation: string; sessionTarget: string; asker?: string; policy?: PolicyRef }
 	| { kind: "typed"; operation: string; sessionTarget: string; asker?: string };
@@ -185,10 +181,8 @@ export function createVaultRequests(deps: VaultRequestsDeps) {
 			entry.settle({ kind: "refused", note: refusal });
 			return { ok: false, reason: refusal };
 		}
-		// A helper's session tap is a window: the host shares its token.
-		const tier = decision === "session" && isHelperTarget(entry.request.sessionTarget) ? "window" : decision;
-		deps.onApproved?.(entry.request, tier);
-		entry.settle({ kind: "approved", decision: tier });
+		deps.onApproved?.(entry.request, decision);
+		entry.settle({ kind: "approved", decision });
 		return { ok: true };
 	};
 

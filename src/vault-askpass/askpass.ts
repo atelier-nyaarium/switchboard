@@ -154,18 +154,13 @@ export async function runAskpass(
 	return first.outcome;
 }
 
-/** The helper's HTTP door to the gateway's loopback routes. A session token beside the helper's names the session as the asker. */
+/** Asks as the session. */
 export function createGatewayPort(deps: {
 	baseUrl: string;
-	token: string;
-	sessionToken?: string;
+	sessionToken: string;
 	fetch: (url: string, init: RequestInit) => Promise<Response>;
 }): GatewayPort {
-	const headers = {
-		"content-type": "application/json",
-		"x-vault-helper-token": deps.token,
-		...(deps.sessionToken ? { "x-session-token": deps.sessionToken } : {}),
-	};
+	const headers = { "content-type": "application/json", "x-session-token": deps.sessionToken };
 	/** An abort answers null at once, whether or not the transport notices it. */
 	const send = (path: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<Response | null> =>
 		new Promise((resolve) => {
@@ -207,7 +202,7 @@ export function createGatewayPort(deps: {
 	};
 }
 
-/** A helper with no token, or a prompt that is not for a secret, has no gateway road. */
+/** No session, or no secret prompt. */
 export const closedGateway: GatewayPort = {
 	askpass: async () => null,
 	collect: async () => null,

@@ -242,7 +242,6 @@ private fun holderName(state: ChatState, gatewayId: String, grant: VaultGrant): 
 
 /** The session's label when this phone knows it, else the gateway's own name for it. */
 private fun sessionName(state: ChatState, gatewayId: String, sessionTarget: String): String {
-	if (sessionTarget.startsWith("helper.")) return "Askpass helper"
 	val team = state.teams.firstOrNull { it.gatewayId == gatewayId && it.shortName == sessionTarget }
 	return team?.let { state.label(it.name) } ?: sessionTarget
 }

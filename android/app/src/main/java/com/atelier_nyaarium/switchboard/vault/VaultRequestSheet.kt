@@ -144,9 +144,6 @@ fun VaultRequestSheet(
 					windowCovers(request)?.let {
 						Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 					}
-					helperNotice(request)?.let {
-						Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-					}
 					repeatNotice(request)?.let {
 						Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 					}
@@ -203,15 +200,10 @@ fun VaultRequestSheet(
 							label = "Approve",
 							enabled = !busy && !expired,
 							onMain = { answer(VAULT_DECISION_ONCE) },
-							// A helper's whole-session answer is recorded as a window, so it is not offered.
-							more = if (request.fromHelper) {
-								listOf("30 min" to { answer(VAULT_DECISION_WINDOW) })
-							} else {
-								listOf(
-									"30 min" to { answer(VAULT_DECISION_WINDOW) },
-									"This session" to { answer(VAULT_DECISION_SESSION) },
-								)
-							},
+							more = listOf(
+								"30 min" to { answer(VAULT_DECISION_WINDOW) },
+								"This session" to { answer(VAULT_DECISION_SESSION) },
+							),
 						)
 					}
 				}

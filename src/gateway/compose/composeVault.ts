@@ -5,14 +5,13 @@ import type { MIGRATING } from "../../shared/migration-fence.js";
 import { ownerKeyId } from "../../shared/owner-id.js";
 import type { AuthorizationPolicy } from "../../shared/schemasPolicy.js";
 import type { VaultRequest, VaultRetract } from "../../shared/schemasVault.js";
-import { Address, DEFAULT_SESSION, storeKey } from "../../shared/session-id.js";
+import { type Address, storeKey } from "../../shared/session-id.js";
 import type { VaultConsoleHandlers } from "../console/consoleTypes.js";
 import type { PolicyStore } from "../policies/store.js";
 import { createAddressing } from "../routes/addressing.js";
 import { createVaultDecisions, qualificationRefusal } from "../vault/decisions.js";
-import { createHelperTokens } from "../vault/helperTokens.js";
 import { operationSet } from "../vault/operationSet.js";
-import { createVaultRequests, helperTarget, isHelperTarget } from "../vault/requests.js";
+import { createVaultRequests } from "../vault/requests.js";
 import { createVaultRoutes } from "../vault/vaultRoutes.js";
 import type { GatewayRoutes } from "./composeRoutes.js";
 import type { SessionsStage } from "./composeSessions.js";
@@ -21,7 +20,6 @@ import type { FederationContext } from "./federationContext.js";
 export interface VaultStageDeps {
 	dataDir: string;
 	localGatewayId: string;
-	hostWsToken?: string;
 	ambient: Ambient;
 	context: FederationContext;
 	routes: () => Pick<GatewayRoutes, "deliverToOwner">;
@@ -52,21 +50,12 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 	const decisions = openDurable(deps.dataDir, "vault-decisions", (store) =>
 		createVaultDecisions({ store, ambient, routineHolding: (target) => deps.workingRoutine(target) }),
 	);
-	const helperTokens = openDurable(deps.dataDir, "vault-helper", (store) => createHelperTokens({ store, ambient }));
 	const ownerSignPub = () => context.slice()?.allowlist.ownerSignPub ?? null;
 	const localAddress = (sessionTarget: string): Address =>
 		createAddressing({ config: { localGatewayId, localDomainId: context.domainId() } }).localAddress(sessionTarget);
 
-	/** A helper's request lands in the console's own conversation. */
-	const threadKey = (sessionTarget: string, owner: string): string => {
-		const conversationId = ownerKeyId(owner);
-		const domainId = context.domainId();
-		if (!domainId) throw new Error("no Domain");
-		const address = isHelperTarget(sessionTarget)
-			? Address.local(domainId, localGatewayId, conversationId, DEFAULT_SESSION)
-			: localAddress(sessionTarget);
-		return storeKey({ kind: "conv", conversationId, address });
-	};
+	const threadKey = (sessionTarget: string, owner: string): string =>
+		storeKey({ kind: "conv", conversationId: ownerKeyId(owner), address: localAddress(sessionTarget) });
 
 	const action = (
 		request: VaultRequest,
@@ -142,7 +131,6 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		client: () => context.slice()?.vaultClient ?? null,
 		decisions,
 		requests,
-		helperTokens,
 		policies: deps.policies,
 		ambient,
 		resolveCaller: (req) => {
@@ -169,7 +157,6 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 				label: "vault",
 			});
 		},
-		hostToken: deps.hostWsToken,
 	});
 
 	return {
@@ -177,14 +164,7 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		console: {
 			answer: (requestId, decision, value, note) => requests.answer(requestId, decision, value, note),
 			grants: () => ({ grants: decisions.list(ambient.now()) }),
-			revoke: (grantId) => {
-				if (decisions.revoke(grantId)) return { revoked: true };
-				if (!helperTokens.revoke(grantId)) return { revoked: false };
-				// A revoked token ends its grants and open requests, as a session's end does.
-				decisions.sessionEnded(helperTarget(grantId));
-				requests.sessionEnded(helperTarget(grantId));
-				return { revoked: true };
-			},
+			revoke: (grantId) => ({ revoked: decisions.revoke(grantId) }),
 		},
 		sessionEnded: (team) => {
 			decisions.sessionEnded(team);

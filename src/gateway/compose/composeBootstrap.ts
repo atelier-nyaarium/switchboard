@@ -96,6 +96,8 @@ function wipeRetiredSchemas(dirs: { dataDir: string; logDir: string; federationD
 		},
 		// Nothing opens either store.
 		{ version: 3, files: [path.join(dirs.dataDir, "mailboxes.json"), path.join(dirs.dataDir, "task-board.json")] },
+		// Helper tokens are gone.
+		{ version: 4, files: [path.join(dirs.dataDir, "vault-helper.json")] },
 	];
 	const latest = steps[steps.length - 1]!.version;
 	try {

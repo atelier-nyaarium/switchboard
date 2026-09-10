@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import WebSocket from "ws";
 import { agentEnvPrefix, agentFrameType, CODEX_BACKEND, COPILOT_BACKEND } from "../../shared/agent-backend.js";
@@ -14,8 +16,10 @@ import {
 	type TmuxTarget,
 } from "../../shared/host-op.js";
 import { isHostSpawn, WINDOWS_SPAWN } from "../../shared/host-spawn.js";
+import { moduleDir, packageRoot } from "../../shared/plugin-root.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import { parseSessionName } from "../../shared/session-id.js";
+import { ASKPASS_BUNDLE, installAskpassWrapper, removeAskpassWrapper } from "../../shared/vault-askpass-wrapper.js";
 import { CodexDaemonService } from "./codexDaemonService.js";
 import { ExecutionTargetManager, targetLogger } from "./codexTargets.js";
 import { CopilotDaemonService } from "./copilotDaemonService.js";
@@ -143,6 +147,29 @@ export function stopSupervisedChildren(): void {
 export function stopHostDaemon(): void {
 	reconnector.cancel();
 	stopSupervisedChildren();
+	if (askpassReceipt) removeAskpassWrapper(os.homedir(), askpassReceipt);
+}
+
+/** What this process wrote, or nothing. */
+let askpassReceipt: string | null = null;
+
+function layDownAskpass(): void {
+	const bundle = path.join(packageRoot(moduleDir(import.meta.url)), "dist", ASKPASS_BUNDLE);
+	if (!fs.existsSync(bundle)) {
+		console.error(`[host-daemon] no askpass bundle at ${bundle}; sessions get no helper`);
+		return;
+	}
+	try {
+		const { bin, text } = installAskpassWrapper(os.homedir(), {
+			bun: process.execPath,
+			bundle,
+			gatewayUrl: process.env.BRIDGE_ROUTER_URL,
+		});
+		askpassReceipt = text;
+		console.error(`[host-daemon] askpass helper at ${bin}`);
+	} catch (err) {
+		console.error(`[host-daemon] askpass helper not written: ${err instanceof Error ? err.message : err}`);
+	}
 }
 
 export function startHostDaemon(dirs?: string[], onChannelPush?: ChannelPushHandler): void {
@@ -156,6 +183,7 @@ export function startHostDaemon(dirs?: string[], onChannelPush?: ChannelPushHand
 	if (envUrl) {
 		gatewayUrl = envUrl.replace(/^http/, "ws");
 	}
+	layDownAskpass();
 	connect();
 }
 

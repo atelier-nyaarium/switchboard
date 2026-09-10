@@ -4,7 +4,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { VaultClient } from "../gateway/router/vaultClient.js";
 import { createVaultDecisions } from "../gateway/vault/decisions.js";
-import type { HelperTokens } from "../gateway/vault/helperTokens.js";
 import { createVaultRequests } from "../gateway/vault/requests.js";
 import { createVaultRoutes } from "../gateway/vault/vaultRoutes.js";
 import { openDurable } from "../shared/durable-store.js";
@@ -45,7 +44,6 @@ function bench() {
 		client: () => client,
 		decisions,
 		requests,
-		helperTokens: { verify: () => null } as unknown as HelperTokens,
 		policies: () => ({ byKey: () => null }),
 		ambient,
 		resolveCaller: () => "host.alice",

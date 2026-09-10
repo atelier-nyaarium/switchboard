@@ -73,8 +73,7 @@ and the delta list are in `docs/federation.md` under Owner state.
 - The store opens through `openDurable`, so a poisoned file starts fresh. A revocation or a
   session-end drop is written with `saveChecked` and reported once the snapshot is installed.
   Grants and expiry sweeps are best effort.
-- `vault_grants` lists the live grants. `vault_revoke` drops a grant or a helper token by id; a
-  revoked token takes its grants and open requests with it.
+- `vault_grants` lists the live grants. `vault_revoke` drops a grant by id.
 
 ## Request road
 
@@ -84,9 +83,8 @@ and the delta list are in `docs/federation.md` under Owner state.
   session target, and a deadline nine minutes out. It names an entry, or it is `typed` and asks the
   owner for a value.
 - **It reaches the phone as a `plugin_action` row:** `pluginId` `vault`, `actionType` `request`,
-  delivered through `deliverToOwner` into the session's conversation thread, or the console's own
-  conversation for the helper. The row is volatile: a restart drops it, because the waiting answer
-  lived in the process that died.
+  delivered through `deliverToOwner` into the session's conversation thread. The row is volatile: a
+  restart drops it, because the waiting answer lived in the process that died.
 - The `vault_answer` value op carries the decision and, for a typed request, the value sealed to the
   request id. A typed answer settles as `once` whatever tier was named. Deny and the deadline refuse
   alike. A deny may carry a `note`, the owner's steering, which rides the refused answer to the
@@ -112,8 +110,8 @@ and the delta list are in `docs/federation.md` under Owner state.
 
 `gateway/vault/vaultRoutes.ts`, mounted on the gateway's loopback HTTP beside the agent routes.
 
-- **Each route resolves one principal:** A bound session by its session token, or the helper by
-  `x-vault-helper-token`. A route names the kinds it serves. An unknown token answers 404, none
+- **Each route resolves one principal:** a bound session by its session token. The askpass helper
+  inside a session carries that token, so it is that session. An unknown token answers 404, none
   answers 401, as the agent routes do.
 - `/vault/search` (session): public title, public description, and whether the entry holds a value,
   for the entries this gateway may use.
@@ -126,21 +124,17 @@ and the delta list are in `docs/federation.md` under Owner state.
   429, so a loop cannot bury the phone in notifications.
 - **A caller that leaves takes no answer:** every wait also ends when the request's signal aborts,
   and the answer stays for the next collector.
-- `/vault/collect` (session or helper): waits on a pending request the caller opened.
-- `/vault/withdraw` (session or helper): closes a pending request the caller opened. A late answer
-  from the phone then reads as expired and records no grant.
-- `/vault/capture` (session): creates an entry from a value a session captured, trimming one
-  trailing newline, and notifies the owner.
-- `/vault/askpass` (helper, or a session presented beside it): an askpass command line and an
-  optional `asker`. **A policy selects; a title is a label.** The line's selector key is looked up
-  in the policy store, and the one enabled policy naming it, whose bound entry exists, holds a
-  value and is allowed here, opens an entry request carrying the policy and its revision; a
-  covering grant answers at once. No policy, a disabled one, or a binding this Gateway cannot use
-  opens a typed request. A capture creates an entry and never a policy. A verified session token
-  beside the helper token makes the session the asker, so the request lands in its thread and its
-  grants apply.
-- `/vault/helper-token`: gated by the host token. Mints a helper token, hashed at rest in
-  `DATA_DIR/vault-helper.json`.
+- `/vault/collect`: waits on a pending request the caller opened.
+- `/vault/withdraw`: closes a pending request the caller opened. A late answer from the phone then
+  reads as expired and records no grant.
+- `/vault/capture`: creates an entry from a value a session captured, trimming one trailing
+  newline, and notifies the owner.
+- `/vault/askpass`: an askpass command line and an optional `asker`. **A policy selects; a title is
+  a label.** The line's selector key is looked up in the policy store, and the one enabled policy
+  naming it, whose bound entry exists, holds a value and is allowed here, opens an entry request
+  carrying the policy and its revision; a covering grant answers at once. No policy, a disabled
+  one, or a binding this Gateway cannot use opens a typed request. A capture creates an entry and
+  never a policy. The request lands in the session's thread and its grants apply.
 - The answer is `VaultValueAnswer`: `approved` with the decision and the value, `refused` with a
   reason, or `pending`.
 - **The value leaves the gateway only in an approved answer.**
@@ -158,11 +152,10 @@ and git run it with the prompt as its one argument and read the value from stdou
   does not authenticate the caller: a process may claim any command line, and any `asker`, so the
   retry line is guidance, never authorization.
 - **A session's own sudo asks as that session:** sudo hands the helper the caller's environment, so
-  the helper sends `SWITCHBOARD_SESSION_TOKEN` beside its own token when it has one, and the gateway
-  names the verified session as the requester. A terminal without one is the helper. The helper
-  also sends `asker`, its parent's pid and start ticks from `/proc/<ppid>/stat`, which names one run
-  of sudo, ssh, or git; a second ask under the same asker only follows a rejected value, and the
-  phone says so.
+  the helper sends `SWITCHBOARD_SESSION_TOKEN` and the gateway names the verified session as the
+  requester. A terminal without one has only the tty. The helper also sends `asker`, its parent's
+  pid and start ticks from `/proc/<ppid>/stat`, which names one run of sudo, ssh, or git; a second
+  ask under the same asker only follows a rejected value, and the phone says so.
 - **Only a secret prompt reaches the phone:** one naming a password, passphrase, secret, token, or
   PIN, or an empty one. ssh's host-key confirmation and git's username prompt are served at the tty
   alone, so a grant never answers a yes/no.
@@ -182,19 +175,20 @@ and git run it with the prompt as its one argument and read the value from stdou
   to stdout; notes go to stderr. Loopback calls go through `node:http`, so a proxy variable cannot
   divert them.
 - A withdrawn request is retracted from the phone; an answer that crosses it reads as expired. Any
-  local process holding the token can withdraw a helper request; that denies one prompt and diverts
-  nothing, since an answer is sealed to its request id.
-- The token file is `VAULT_ASKPASS_TOKEN_FILE`, which the wrapper sets, or
-  `~/.config/switchboard/vault-askpass.token`; the gateway is `BRIDGE_ROUTER_URL`, default
-  `http://127.0.0.1:20000`. The helper needs a token but no session.
-- `scripts/install-vault-askpass.ts` mints the token with the host token from `.env` (an unenrolled
-  gateway refuses), copies the bundle under `~/.local/share/switchboard/`, writes the token 0600
-  under `~/.config/switchboard/`, writes the `~/.local/bin/vault-askpass` wrapper with the bun that
-  ran the installer, the token path, and the gateway baked in, and prints the `SUDO_ASKPASS`,
-  `SSH_ASKPASS`, and `GIT_ASKPASS` exports. `--keep-token` lands a new bundle and wrapper under the
-  token already there. sudo asks the helper only under `-A`, so plain sudo is unchanged.
-  `SSH_ASKPASS_REQUIRE=force` is optional: without it ssh asks the helper only when it has no tty.
-  `vault_revoke` on the phone drops the token by id.
+  process in the session can withdraw its request; that denies one prompt and diverts nothing,
+  since an answer is sealed to its request id.
+- The gateway is `BRIDGE_ROUTER_URL`, default `http://127.0.0.1:20000`.
+- **Nothing is installed by hand.** `shared/vault-askpass-wrapper.ts` writes the
+  `~/.local/bin/vault-askpass` wrapper, which execs the writer's own bun on `dist/main-vault-askpass.js`.
+  The host daemon writes it at boot from the checkout's `dist/` and removes it on SIGINT, SIGTERM,
+  or SIGHUP, so `down.sh` leaves nothing behind. Inside a container the plugin writes it at start
+  from its own `dist/`, with `http://switchboard:20000` baked in. The write is atomic, and the
+  daemon removes only the exact text it wrote. The daemon's launch line exports `SUDO_ASKPASS`,
+  `SSH_ASKPASS`, and `GIT_ASKPASS` as that path into every bash session, host and container, so a
+  session has the helper without anyone remembering to install one; a Windows session gets none.
+  A wrapper that could not be written is logged, and `sudo -A` then fails to execute it. sudo asks
+  the helper only under `-A`, so plain sudo is unchanged. `SSH_ASKPASS_REQUIRE=force` is optional:
+  without it ssh asks the helper only when it has no tty.
 
 ## MCP tools
 
@@ -257,9 +251,6 @@ session holds a binding token. `vaultRun.ts` is the child run.
   The footer is Deny as text and a split button: `Approve` answers once, and the arrow holds 30 min
   and This session; for a typed value, `Send`, with Send and save behind the arrow, which stores the
   value under the shape as its title. Deny opens a `Steer` field whose note rides the refusal.
-- **A helper is offered no whole-session answer:** the gateway records one as a window anyway, since
-  every process on the host shares the helper's token, so the sheet drops the option and says why.
-  `fromHelper` is the phone's test and `isHelperTarget` the gateway's, and they are the same rule.
 - **The sheet names what a window would cover:** `windowCovers` in `VaultRequestText.kt` prints the
   request's `coveredShapes` under the operation, in full, since the content scrolls. It says nothing
   when the line already names the one shape, when the request is typed, since a typed value is
@@ -278,11 +269,11 @@ session holds a binding token. `vaultRun.ts` is the child run.
 
 - `src/gateway/compose/composeVault.ts` - the stage: stores, request delivery, routes, console handlers.
 - `src/gateway/router/vaultClient.ts` - sealing, opening, the delta copy, the create.
-- `src/gateway/vault/decisions.ts`, `requests.ts`, `helperTokens.ts`, `vaultRoutes.ts` - grants, requests, helper tokens, routes.
+- `src/gateway/vault/decisions.ts`, `requests.ts`, `vaultRoutes.ts` - grants, requests, routes.
 - `src/gateway/vault/operationSet.ts` - the shape rule, the wrapper table, and the set a window grant covers.
 - `src/mcp/vault/vaultTools.ts`, `vaultRun.ts` - the session's tools and the scrubbed child run.
 - `src/main-vault-askpass.ts`, `src/vault-askpass/askpass.ts` - the helper entry and its decision over ports.
-- `scripts/install-vault-askpass.ts` - the helper's installer.
+- `src/shared/vault-askpass-wrapper.ts` - the wrapper the daemon and the plugin lay down.
 - `src/shared/schemasVault.ts` - wire shapes, the request row, the loopback shapes, the constants.
 - `src/federation-server/vault/` - the Router service.
 - `android/.../vault/` - sealing, the held entry set, the writer, the tab, the editor, the request sheet.

@@ -44,7 +44,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/presence.ts` / `readAnchors.ts` / `hostOpCoordinator.ts` - presence, read anchors, host RPC correlation
 - `src/gateway/router/boardClient.ts` - Router-held task board client
 - `src/gateway/router/vaultClient.ts` - vault sealing/opening, delta-held Router list, approval-gated values, and the gateway write
-- `src/gateway/vault/decisions.ts` / `requests.ts` / `helperTokens.ts` / `vaultRoutes.ts` - grants and `displayShape`; request rows that settle once, admit a joining caller, and cap open requests per target; helper tokens; loopback routes
+- `src/gateway/vault/decisions.ts` / `requests.ts` / `vaultRoutes.ts` - grants and `displayShape`; request rows that settle once, admit a joining caller, and cap open requests per target; loopback routes, each resolving the one principal, a session by its token
   - **A grant resolved through a policy is qualified by it, and `qualificationRefusal` is the one
     reading of when the policy stops answering:** gone, disabled, rebound, selector dropped, or
     another revision. `covers` checks the policy before the holder and holds a qualified window to
@@ -413,7 +413,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/` - Gradle/Kotlin console app; `proto/Protocol.kt` generated
 - `scripts/` - build, Kotlin codegen, leaf sync, setup, federation start, residue checks, and voice import
 - `scripts/lib/routerStart.ts` - sole Router `.env` and startup owner
-- `scripts/install-vault-askpass.ts` - mints the helper token and lands the askpass helper under the owner's home
+- `src/shared/vault-askpass-wrapper.ts` - the `~/.local/bin/vault-askpass` wrapper; the host daemon lays it down at boot and removes the exact text it wrote on exit, the plugin lays it down inside a container, and `host-spawn.ts` exports its path into every bash session it spawns
 - `scripts/lib/verifyChecks.ts` - setup verification checks
 - `android/.../SelfMigration.kt` / `CursorTranslationOps.kt` - phone self-migration and consumer cursor translation
 - `android/.../ConsoleSocketClient.kt` - `ConsoleSocketMode`
@@ -440,7 +440,7 @@ in `docs/console.md`, and it moves with the share op it feeds.
 **`main-gateway.ts`** Docker gateway and central router.
 **`main-host-daemon.ts`** host `host` WS slot, devcontainer wake, session spawn, terminal view.
 **`main-federation.ts`** self-hosted federation relay.
-**`main-vault-askpass.ts`** askpass helper on the host; asks the phone through the gateway, falls back to the tty.
+**`main-vault-askpass.ts`** askpass helper in a session, host or container; asks the phone through the gateway as that session, falls back to the tty.
 
 | Port | Service |
 |---|---|

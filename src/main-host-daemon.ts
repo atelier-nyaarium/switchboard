@@ -18,7 +18,8 @@ process.on("uncaughtException", (err) => {
 	stopSupervisedChildren();
 	process.exit(1);
 });
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
+// SIGHUP is tmux kill-session.
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
 	process.on(signal, () => {
 		stopHostDaemon();
 		process.exit(0);

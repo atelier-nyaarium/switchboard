@@ -51,12 +51,14 @@ corresponding CLI is found on `PATH`. No environment variable is required.
 
 A delegated agent's model is a field on the request, never an environment variable.
 
-## Askpass helper (host)
+## Askpass helper
 
-`BRIDGE_ROUTER_URL` (default `http://127.0.0.1:20000`) and `VAULT_ASKPASS_TOKEN_FILE` (default
-`~/.config/switchboard/vault-askpass.token`). `scripts/install-vault-askpass.ts` bakes the token
-path into the wrapper always, and the gateway URL only when `--gateway` names a non-default one.
-`SUDO_ASKPASS`, `SSH_ASKPASS`, and `GIT_ASKPASS` are the callers'
-variables; the installer prints them. `SSH_ASKPASS_REQUIRE=force` is optional: without it ssh asks
-the helper only when it has no tty; with it every ssh prompt goes through the helper, which still
-offers the tty.
+`SWITCHBOARD_SESSION_TOKEN`, the session's own, is what the helper asks the gateway with; without it
+the helper has only the tty. `BRIDGE_ROUTER_URL` (default `http://127.0.0.1:20000`) is baked into
+the wrapper when the process laying it down runs under a non-default one, as the plugin does inside
+a container. The daemon exports `SUDO_ASKPASS`, `SSH_ASKPASS`, and `GIT_ASKPASS` into every bash
+session it spawns, host and devcontainer, as `$HOME/.local/bin/vault-askpass`. A Windows session gets
+none. Nothing is installed by hand; a daemon that cannot write the wrapper says so in its log, and
+`sudo -A` in its sessions then fails to execute it. `SSH_ASKPASS_REQUIRE=force` is optional: without
+it ssh asks the helper only when it has no tty; with it every ssh prompt goes through the helper,
+which still offers the tty.

@@ -232,7 +232,7 @@ describe("the askpass brief", () => {
 });
 
 describe("the gateway port", () => {
-	it("posts under the helper token, reads answers, and treats anything else as the road closed", async () => {
+	it("posts under the session token, reads answers, and treats anything else as the road closed", async () => {
 		const seen: Array<{ url: string; headers: Record<string, string>; body: unknown }> = [];
 		const answers: Array<() => Response> = [
 			() => Response.json({ outcome: "pending", requestId: "r", deadlineAt: 5 }),
@@ -244,7 +244,6 @@ describe("the gateway port", () => {
 		];
 		const port = createGatewayPort({
 			baseUrl: "http://gw",
-			token: "tok",
 			sessionToken: "sess",
 			fetch: async (url, init) => {
 				seen.push({
@@ -263,7 +262,7 @@ describe("the gateway port", () => {
 		});
 		expect(seen[0]).toMatchObject({
 			url: "http://gw/vault/askpass",
-			headers: { "x-vault-helper-token": "tok", "x-session-token": "sess" },
+			headers: { "x-session-token": "sess" },
 			body: { cmdline: "sudo apt", waitMs: 10, asker: "42:7" },
 		});
 		expect(await port.collect("r", 10, signal)).toBeNull();
@@ -275,7 +274,7 @@ describe("the gateway port", () => {
 	it("an abort answers null even when the transport never settles, and a withdraw is bounded", async () => {
 		const port = createGatewayPort({
 			baseUrl: "http://gw",
-			token: "tok",
+			sessionToken: "sess",
 			fetch: () => new Promise(() => undefined),
 		});
 		const abort = new AbortController();

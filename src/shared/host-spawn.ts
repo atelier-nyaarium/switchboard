@@ -100,6 +100,14 @@ export function encodePowerShellCommand(script: string): string {
  * flag or path fails at construction instead of as a half-created tmux session. */
 export const MAX_LAUNCH_COMMAND_LEN = 8192;
 
+/** Relative to home. */
+export const VAULT_ASKPASS_HOME_PATH = ".local/bin/vault-askpass";
+
+/** The session's shell expands `$HOME`. */
+export const ASKPASS_EXPORTS = ["SUDO_ASKPASS", "SSH_ASKPASS", "GIT_ASKPASS"]
+	.map((name) => `export ${name}="$HOME/${VAULT_ASKPASS_HOME_PATH}"; `)
+	.join("");
+
 const HOST: HostSpawnPoint = {
 	id: HOST_SPAWN,
 	alwaysAvailable: true,
@@ -110,7 +118,7 @@ const HOST: HostSpawnPoint = {
 		const cd = ctx.workdir ? `cd "${ctx.workdir}"; ` : "";
 		// ~/.bashrc returns early for a non-interactive shell, so it adds nothing to PATH here.
 		const path = ctx.pathPrefix ? `export PATH="${ctx.pathPrefix}:$PATH"; ` : "";
-		return `bash -c 'source ~/.bashrc; ${path}export PROJECT_NAME=${ctx.composite}; ${ctx.exportToken}${cd}claude ${ctx.claudeArgs}; exec bash'`;
+		return `bash -c 'source ~/.bashrc; ${path}export PROJECT_NAME=${ctx.composite}; ${ctx.exportToken}${ASKPASS_EXPORTS}${cd}claude ${ctx.claudeArgs}; exec bash'`;
 	},
 };
 

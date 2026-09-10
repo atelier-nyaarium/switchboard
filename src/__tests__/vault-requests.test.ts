@@ -59,7 +59,11 @@ describe("vault requests", () => {
 			operation: "ssh deploy@prod",
 			sessionTarget: "host.alice",
 		});
-		const expired = requests.open({ kind: "typed", operation: "sudo apt install foo", sessionTarget: "helper.h1" });
+		const expired = requests.open({
+			kind: "typed",
+			operation: "sudo apt install foo",
+			sessionTarget: "host.carol",
+		});
 		if (denied.kind !== "opened" || expired.kind !== "opened") throw new Error("the requests did not open");
 		expect(requests.answer(denied.request.requestId, "deny", undefined, "use the deploy user")).toEqual({
 			ok: true,
@@ -68,7 +72,7 @@ describe("vault requests", () => {
 
 		await ambient.advance(VAULT_REQUEST_DEADLINE_MS + 1);
 		await expect(expired.answer).resolves.toEqual({ kind: "refused" });
-		expect(requests.collect(expired.request.requestId, "helper.h1")).toBeUndefined();
+		expect(requests.collect(expired.request.requestId, "host.carol")).toBeUndefined();
 		expect(delivered).toHaveLength(2);
 		// Each settlement retracts once, whichever road it took.
 		expect(settled).toEqual([denied.request.requestId, expired.request.requestId]);
@@ -121,14 +125,14 @@ describe("vault requests", () => {
 
 	it("a typed request needs a value sealed to it, and collect answers only the asking session", async () => {
 		const { requests, approved } = bench();
-		const typed = requests.open({ kind: "typed", operation: "sudo apt install foo", sessionTarget: "helper.h1" });
+		const typed = requests.open({ kind: "typed", operation: "sudo apt install foo", sessionTarget: "host.carol" });
 		if (typed.kind !== "opened") throw new Error("the request did not open");
 		const { requestId } = typed.request;
 		expect(typed.request).toMatchObject({ displayShape: "sudo apt", coveredShapes: ["apt install"] });
 		expect(requests.answer(requestId, "once")).toMatchObject({ ok: false });
 		expect(requests.answer(requestId, "once", envelope("typed:other"))).toMatchObject({ ok: false });
 		expect(requests.collect(requestId, "host.alice")).toBeUndefined();
-		expect(requests.collect(requestId, "helper.h1")?.request.requestId).toBe(requestId);
+		expect(requests.collect(requestId, "host.carol")?.request.requestId).toBe(requestId);
 		// A typed value is once, whatever tier the phone named.
 		expect(requests.answer(requestId, "session", envelope(`typed:${requestId}`))).toEqual({ ok: true });
 		await expect(typed.answer).resolves.toEqual({ kind: "approved", decision: "once", typedValue: "hunter2" });
@@ -136,7 +140,7 @@ describe("vault requests", () => {
 		expect(approved).toEqual([]);
 		expect(requests.forget(requestId)).toBe(true);
 		expect(requests.forget(requestId)).toBe(false);
-		expect(requests.collect(requestId, "helper.h1")).toBeUndefined();
+		expect(requests.collect(requestId, "host.carol")).toBeUndefined();
 	});
 
 	it("only the opener withdraws, an answer already given stands, and a late answer grants nothing", async () => {
@@ -151,18 +155,18 @@ describe("vault requests", () => {
 			if (opened.kind !== "opened") throw new Error("the request did not open");
 			return opened;
 		};
-		const withdrawn = open("helper.h1");
+		const withdrawn = open("host.carol");
 		expect(requests.withdraw(withdrawn.request.requestId, "host.alice")).toBe(false);
-		expect(requests.withdraw(withdrawn.request.requestId, "helper.h1")).toBe(true);
+		expect(requests.withdraw(withdrawn.request.requestId, "host.carol")).toBe(true);
 		await expect(withdrawn.answer).resolves.toEqual({ kind: "refused" });
 		expect(settled).toEqual([withdrawn.request.requestId]);
 		expect(requests.answer(withdrawn.request.requestId, "session")).toMatchObject({ ok: false });
 		expect(approved).toEqual([]);
 
-		const answered = open("helper.h1");
+		const answered = open("host.carol");
 		expect(requests.answer(answered.request.requestId, "window")).toEqual({ ok: true });
-		expect(requests.withdraw(answered.request.requestId, "helper.h1")).toBe(false);
-		expect(requests.collect(answered.request.requestId, "helper.h1")?.request.requestId).toBe(
+		expect(requests.withdraw(answered.request.requestId, "host.carol")).toBe(false);
+		expect(requests.collect(answered.request.requestId, "host.carol")?.request.requestId).toBe(
 			answered.request.requestId,
 		);
 	});
@@ -230,27 +234,5 @@ describe("vault requests", () => {
 		expect(open("ssh prod other", "host.bob").kind).toBe("opened");
 		requests.answer(delivered[0].requestId, "once");
 		expect(open("ssh prod again").kind).toBe("opened");
-	});
-
-	it("a helper's session tap records a window, since every process on the host shares its token", async () => {
-		const { requests, approved } = bench();
-		const helper = requests.open({
-			kind: "entry",
-			entryId: "deploy",
-			operation: "ssh prod",
-			sessionTarget: "helper.h1",
-		});
-		const session = requests.open({
-			kind: "entry",
-			entryId: "deploy",
-			operation: "ssh prod",
-			sessionTarget: "host.alice",
-		});
-		if (helper.kind !== "opened" || session.kind !== "opened") throw new Error("the requests did not open");
-		expect(requests.answer(helper.request.requestId, "session")).toEqual({ ok: true });
-		expect(requests.answer(session.request.requestId, "session")).toEqual({ ok: true });
-		await expect(helper.answer).resolves.toEqual({ kind: "approved", decision: "window" });
-		await expect(session.answer).resolves.toEqual({ kind: "approved", decision: "session" });
-		expect(approved.map((grant) => grant.decision)).toEqual(["window", "session"]);
 	});
 });

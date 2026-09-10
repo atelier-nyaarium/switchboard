@@ -11,10 +11,10 @@ internal const val REPEAT_WINDOW_MS = 90_000L
 
 private const val SUDO_TRIES = 3
 
-/** Machine, then the board's name for the session; the helper has no session. */
+/** Gateway, then the session's label. */
 internal fun requester(state: ChatState, request: VaultPendingRequest): String {
 	val gateway = runCatching { gatewayOf(request.team) }.getOrNull() ?: "?"
-	return if (request.fromHelper) gateway else "$gateway · ${state.label(request.team)}"
+	return "$gateway · ${state.label(request.team)}"
 }
 
 /** The first token's basename. */
@@ -39,14 +39,6 @@ internal fun windowCovers(request: VaultPendingRequest): String? {
 	if (shapes.size == 1 && shapes.first() == request.operation.trim()) return null
 	return "30 min covers ${shapes.joinToString(", ")}"
 }
-
-/** Why a helper is offered no whole-session answer. A typed value is answered once and grants none. */
-internal fun helperNotice(request: VaultPendingRequest): String? =
-	if (request.fromHelper && request.entryId != null) {
-		"Every process here shares the helper's token, so a grant is 30 minutes."
-	} else {
-		null
-	}
 
 /** A window's own set. One recorded without it covers nothing. */
 internal fun grantCovers(coveredShapes: List<String>?, legacyShapes: List<String>?): String? =

@@ -1,4 +1,6 @@
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { RootsListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -11,7 +13,9 @@ import {
 } from "../shared/agent-backend.js";
 import { isAgentBackendInstalled } from "../shared/agent-binary.js";
 import { isInsideContainer } from "../shared/env.js";
+import { pluginRoot } from "../shared/plugin-root.js";
 import { isValidSessionName, parseSessionName } from "../shared/session-id.js";
+import { ASKPASS_BUNDLE, installAskpassWrapper } from "../shared/vault-askpass-wrapper.js";
 import type { AgentDispatch } from "./agentDispatch.js";
 import { registerBoardTools } from "./board/boardTools.js";
 import { closeRouter, connectToRouter } from "./bridge/helpers.js";
@@ -94,6 +98,16 @@ The conversation stays open. Reply as many times as you need; there is no finali
 💠 If this was your first received message, call \`switchboard_capabilities\` to learn the channel features. If you recently compacted, call it again immediately.
 `.trim();
 
+function layDownAskpass(gatewayUrl: string | undefined): void {
+	const bundle = path.join(pluginRoot(), "dist", ASKPASS_BUNDLE);
+	if (!fs.existsSync(bundle)) return;
+	try {
+		installAskpassWrapper(os.homedir(), { bun: process.execPath, bundle, gatewayUrl });
+	} catch (err) {
+		console.error(`[vault] askpass helper not written: ${err instanceof Error ? err.message : err}`);
+	}
+}
+
 export async function startMcp(): Promise<void> {
 	const inContainer = isInsideContainer();
 	const envPinned = Boolean(process.env.PROJECT_NAME);
@@ -108,6 +122,8 @@ export async function startMcp(): Promise<void> {
 	if (!process.env.BRIDGE_ROUTER_URL) {
 		process.env.BRIDGE_ROUTER_URL = inContainer ? "http://switchboard:20000" : "http://localhost:20000";
 	}
+	// A container has no daemon.
+	if (inContainer) layDownAskpass(process.env.BRIDGE_ROUTER_URL);
 
 	const agentType = process.env.AGENT_TYPE || detectAgentType();
 	const isChannel = agentType === "claude";

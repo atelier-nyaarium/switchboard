@@ -28,9 +28,6 @@ data class VaultPendingRequest(
 
 	val sessionTarget: String get() = request.sessionTarget
 
-	/** The askpass helper asks with no session behind it. */
-	val fromHelper: Boolean get() = request.sessionTarget.startsWith("helper.")
-
 	val entryId: String? get() = (request as? VaultRequest.Entry)?.entryId
 }
 

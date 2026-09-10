@@ -173,7 +173,6 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	vault = composeVault({
 		dataDir: bootstrap.dataDir,
 		localGatewayId: bootstrap.localGatewayId,
-		hostWsToken: config.hostWsToken,
 		ambient: bootstrap.ambient,
 		context,
 		routes: requireRoutes,
