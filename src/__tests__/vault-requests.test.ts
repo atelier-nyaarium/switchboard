@@ -194,7 +194,7 @@ describe("vault requests", () => {
 		};
 		const first = requests.open(input);
 		if (first.kind !== "opened") throw new Error("the request did not open");
-		expect(delivered[0]).toMatchObject({ policyId: "apt", policyRevision: 1 });
+		expect(delivered[0]).toMatchObject({ policy: { policyId: "apt", policyRevision: 1 } });
 		expect(requests.find(input)?.request.requestId).toBe(first.request.requestId);
 		expect(requests.find({ ...input, policy: { policyId: "apt", policyRevision: 2 } })).toBeUndefined();
 

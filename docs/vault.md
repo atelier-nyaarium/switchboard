@@ -60,16 +60,16 @@ and the delta list are in `docs/federation.md` under Owner state.
   is peeled like one, and what a program does with its arguments stays opaque. `ssh host` is one
   shape whatever runs on the far side, and `docker exec ctr curl x` and `docker exec ctr rm -rf /`
   are both `docker exec`.
-- **A grant resolved through a policy is qualified by it:** it carries `policyId` and
-  `policyRevision`, both or neither, and covers only a scope the same policy resolved at the same
-  revision, never a bare `vault_run`. A window under a policy covers only the one key it was
+- **A grant resolved through a policy is qualified by it:** it carries a `policy` reference, the
+  policy id and the revision that answered, and covers only a scope the same policy resolved at
+  the same revision, never a bare `vault_run`. A window under a policy covers only the one key it was
   given for, whatever else the line it came from ran. An entry-wide grant covers a policy scope as
   it covers any other. Only a session holds a qualified grant; a routine's standing grant is entry-wide, and the
   schema refuses the other shape. `qualificationRefusal` is the one reading of why a policy no
   longer answers for what it resolved: gone, disabled, rebound to another entry, no longer naming
-  the selector, or at another revision. `policyMoved` prunes the grants that policy qualified,
-  `policiesListed` does the same at startup over the store's whole list, and `vault_grants` shows
-  none the current record would refuse, whether or not the prune has landed.
+  the selector, or at another revision. `policyMoved` prunes the grants that policy qualified, and
+  `policiesListed` does the same at startup over the store's whole list. `vault_grants` shows what
+  is stored, so a prune that failed to write is visible rather than hidden.
 - The store opens through `openDurable`, so a poisoned file starts fresh. A revocation or a
   session-end drop is written with `saveChecked` and reported once the snapshot is installed.
   Grants and expiry sweeps are best effort.
@@ -92,8 +92,8 @@ and the delta list are in `docs/federation.md` under Owner state.
   alike. A deny may carry a `note`, the owner's steering, which rides the refused answer to the
   session's tool result and to the helper's stderr. An unknown or settled request answers
   `request expired`.
-- A request resolved through a policy carries `policyId` and `policyRevision`, and a retry joins
-  only a request open under the same policy. **The policy is read again at the tap:** an approval
+- An entry request resolved through a policy carries the same `policy` reference, and a retry
+  joins only a request open under the same policy. A typed request carries none. **The policy is read again at the tap:** an approval
   is validated against the store's current record before any grant is minted, and a policy that is
   gone, disabled, rebound, no longer naming the selector, or at another revision settles the
   request refused with that reason, which the phone's answer also carries. A policy that moves

@@ -4,12 +4,13 @@ import type { Ambient, TimerHandle } from "../../shared/ambient.js";
 import { MIGRATING } from "../../shared/migration-fence.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
 import {
+	type PolicyRef,
 	VAULT_REQUEST_DEADLINE_MS,
 	type VaultApprovedDecision,
 	type VaultDecision,
 	type VaultRequest,
 } from "../../shared/schemasVault.js";
-import { displayShape, type PolicyRef } from "./decisions.js";
+import { displayShape } from "./decisions.js";
 import { operationSet } from "./operationSet.js";
 
 /** The helper's principal. */
@@ -94,7 +95,12 @@ export function createVaultRequests(deps: VaultRequestsDeps) {
 		};
 		const request: VaultRequest =
 			input.kind === "entry"
-				? { kind: "entry", entryId: input.entryId, ...common, ...(input.policy ?? {}) }
+				? {
+						kind: "entry",
+						entryId: input.entryId,
+						...common,
+						...(input.policy ? { policy: input.policy } : {}),
+					}
 				: { kind: "typed", ...common };
 		const delivered = deps.deliver(request);
 		if (delivered !== true)
@@ -139,8 +145,8 @@ export function createVaultRequests(deps: VaultRequestsDeps) {
 			if (input.kind === "entry") {
 				if (request.kind !== "entry" || request.entryId !== input.entryId) continue;
 				if (
-					request.policyId !== input.policy?.policyId ||
-					request.policyRevision !== input.policy?.policyRevision
+					request.policy?.policyId !== input.policy?.policyId ||
+					request.policy?.policyRevision !== input.policy?.policyRevision
 				)
 					continue;
 			}
@@ -218,7 +224,8 @@ export function createVaultRequests(deps: VaultRequestsDeps) {
 	/** Refuses what the policy resolved. */
 	const policyMoved = (policyId: string): void => {
 		for (const [requestId, entry] of [...pending]) {
-			if (entry.settled || entry.request.policyId !== policyId) continue;
+			if (entry.settled || entry.request.kind !== "entry" || entry.request.policy?.policyId !== policyId)
+				continue;
 			entry.settle({ kind: "refused", note: "the policy changed; ask again" });
 			forget(requestId);
 		}

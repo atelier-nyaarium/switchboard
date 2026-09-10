@@ -6,6 +6,7 @@ import { type DurableStore, DurableStoreInstalledError } from "../../shared/dura
 import type { AuthorizationPolicy } from "../../shared/schemasPolicy.js";
 import {
 	holderOf,
+	type PolicyRef,
 	VAULT_SESSION_GRANT_CAP_MS,
 	VAULT_WINDOW_MS,
 	type VaultDecision,
@@ -26,12 +27,6 @@ export interface VaultDecisionsDeps {
 	 * than by the session's name. Absent means no standing grant covers anything.
 	 */
 	routineHolding?: (sessionTarget: string) => string | null;
-}
-
-/** The policy a scope was resolved through, at the revision that answered. */
-export interface PolicyRef {
-	policyId: string;
-	policyRevision: number;
 }
 
 /** Grant scope. */
@@ -62,13 +57,13 @@ export function qualificationRefusal(
 	return null;
 }
 
-/** A qualified grant is stale once its policy no longer answers for it. */
-function staleUnder(grant: VaultGrant, current: AuthorizationPolicy | null): boolean {
-	if (grant.policyId === undefined || grant.policyRevision === undefined || grant.entryId === undefined) return false;
+/** The policy no longer answers for this grant. */
+function disqualified(grant: VaultGrant, current: AuthorizationPolicy | null): boolean {
+	if (grant.policy === undefined || grant.entryId === undefined) return false;
 	// Only a window grant names a shape.
 	const resolved = {
 		entryId: grant.entryId,
-		policyRevision: grant.policyRevision,
+		policyRevision: grant.policy.policyRevision,
 		...(grant.tier === "window" ? { displayShape: grant.displayShape ?? grant.shape } : {}),
 	};
 	return qualificationRefusal(current, resolved) !== null;
@@ -123,8 +118,11 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 			if (grant.entryId !== scope.entryId) return false;
 			// Before the holder: a policy grant covers only what that policy, at that revision, resolved,
 			// and a window under it only the one key it was given for.
-			if (grant.policyId !== undefined) {
-				if (grant.policyId !== scope.policy?.policyId || grant.policyRevision !== scope.policy.policyRevision)
+			if (grant.policy !== undefined) {
+				if (
+					grant.policy.policyId !== scope.policy?.policyId ||
+					grant.policy.policyRevision !== scope.policy.policyRevision
+				)
 					return false;
 				if (grant.tier === "window" && (grant.displayShape ?? grant.shape) !== scope.displayShape) return false;
 			}
@@ -143,7 +141,7 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 	const grant = (decision: VaultDecision, scope: GrantScope, now: number): VaultGrant | null => {
 		if (decision !== "window" && decision !== "session") return null;
 		const holder: VaultHolder = { kind: "session", sessionTarget: scope.sessionTarget };
-		const qualified = scope.policy ?? {};
+		const qualified = scope.policy ? { policy: scope.policy } : {};
 		const granted: VaultGrant =
 			decision === "window"
 				? {
@@ -219,22 +217,21 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 
 	/** The policy store already holds the move; the grants it qualified follow. */
 	const policyMoved = (policyId: string, current: AuthorizationPolicy | null): void => {
-		const kept = grants.filter((grant) => grant.policyId !== policyId || !staleUnder(grant, current));
+		const kept = grants.filter((grant) => grant.policy?.policyId !== policyId || !disqualified(grant, current));
 		if (kept.length !== grants.length) commit(kept, true);
 	};
 
 	/** The store's whole list. */
 	const policiesListed = (policyOf: PolicyResolver): void => {
 		const kept = grants.filter(
-			(grant) => grant.policyId === undefined || !staleUnder(grant, policyOf(grant.policyId)),
+			(grant) => grant.policy === undefined || !disqualified(grant, policyOf(grant.policy.policyId)),
 		);
 		if (kept.length !== grants.length) commit(kept, true);
 	};
 
-	/** A qualified grant whose policy moved is not shown, whether or not the prune has landed. */
-	const list = (now: number, policyOf: PolicyResolver): VaultGrant[] => {
+	const list = (now: number): VaultGrant[] => {
 		sweep(now);
-		return grants.filter((grant) => grant.policyId === undefined || !staleUnder(grant, policyOf(grant.policyId)));
+		return [...grants];
 	};
 
 	const revoke = (grantId: string): boolean => {

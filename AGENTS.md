@@ -48,10 +48,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A grant resolved through a policy is qualified by it, and `qualificationRefusal` is the one
     reading of when the policy stops answering:** gone, disabled, rebound, selector dropped, or
     another revision. `covers` checks the policy before the holder and holds a qualified window to
-    the one key it was given for, `policyMoved` and `policiesListed` prune, `list` hides what it
-    would refuse, and `requests.answer` runs the same reading at the tap before any grant is
-    minted. The schema refuses a standing grant with policy fields; `GrantScope.policy` is one
-    optional `PolicyRef`, so half a qualification does not typecheck.
+    the one key it was given for, `policyMoved` and `policiesListed` prune, and `requests.answer`
+    runs the same reading at the tap before any grant is minted. A grant, an entry request and a
+    scope carry one optional `PolicyRef`, on the wire and in memory, so half a qualification cannot
+    exist; the schema refuses a standing grant with one.
   - **The value is read as it leaves:** `release` resolves the entry through `usable` at settlement
     on every road. `decide` carries no value thunk, so a request-time snapshot cannot return.
 - `src/gateway/vault/operationSet.ts` - the wrapper table read from each program's help, and the set a window grant covers

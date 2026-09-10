@@ -19,8 +19,6 @@ const fresh = () => {
 };
 let ids = 0;
 const ambient = { newId: () => `grant-${++ids}` };
-/** No policy resolver. */
-const none = () => null;
 const open = (dataDir: string) =>
 	openDurable(dataDir, "vault-decisions", (store) => createVaultDecisions({ store, ambient }));
 const scope = (operation: string, sessionTarget = "host.alice", entryId = "deploy") => ({
@@ -146,7 +144,7 @@ describe("vault decisions", () => {
 		decisions.routineEnded("triage");
 		expect(decisions.covers(scope("x", "host.routine-triage", "deploy"), 1_000)).toBeUndefined();
 		// Durable, so a reopen finds nothing either.
-		expect(withRoutine(dataDir, () => "triage").list(1_000, none)).toEqual([]);
+		expect(withRoutine(dataDir, () => "triage").list(1_000)).toEqual([]);
 	});
 
 	it("a deleted entry takes every holder's grant over it", () => {
@@ -156,7 +154,7 @@ describe("vault decisions", () => {
 
 		decisions.entryDeleted("deploy");
 
-		expect(decisions.list(2_000, none)).toEqual([]);
+		expect(decisions.list(2_000)).toEqual([]);
 	});
 
 	it("a full list of what the vault holds takes a grant over anything not in it", () => {
@@ -166,7 +164,7 @@ describe("vault decisions", () => {
 		// What a restart or a re-provision reads: no snapshot to compare against, so the list decides.
 		decisions.entriesListed(["deploy"]);
 
-		expect(decisions.list(2_000, none).map((grant) => grant.entryId)).toEqual(["deploy"]);
+		expect(decisions.list(2_000).map((grant) => grant.entryId)).toEqual(["deploy"]);
 	});
 
 	const recorded = (dataDir: string, grants: Record<string, unknown>[]) =>
@@ -225,14 +223,14 @@ describe("vault decisions", () => {
 		const reopened = open(dataDir);
 		expect(
 			reopened
-				.list(2_000, none)
+				.list(2_000)
 				.map((grant) => grant.tier)
 				.sort(),
 		).toEqual(["session", "window"]);
 		expect(reopened.revoke(window?.grantId ?? "")).toBe(true);
 		expect(reopened.revoke("missing")).toBe(false);
-		expect(reopened.list(1_000 + VAULT_SESSION_GRANT_CAP_MS, none)).toEqual([]);
-		expect(open(dataDir).list(2_000, none)).toEqual([]);
+		expect(reopened.list(1_000 + VAULT_SESSION_GRANT_CAP_MS)).toEqual([]);
+		expect(open(dataDir).list(2_000)).toEqual([]);
 	});
 
 	const policy = (revision: number, over: Partial<AuthorizationPolicy> = {}): AuthorizationPolicy => ({
@@ -252,7 +250,7 @@ describe("vault decisions", () => {
 	it("a policy grant covers what its policy resolved and never a bare use; an entry grant covers both", () => {
 		const decisions = open(fresh());
 		const qualified = decisions.grant("window", through("ssh deploy@prod", 1), 1_000);
-		expect(qualified).toMatchObject({ policyId: "apt", policyRevision: 1 });
+		expect(qualified).toMatchObject({ policy: { policyId: "apt", policyRevision: 1 } });
 		expect(decisions.covers(through("ssh deploy@prod", 1), 2_000)?.grantId).toBe(qualified?.grantId);
 		expect(decisions.covers(scope("ssh deploy@prod"), 2_000)).toBeUndefined();
 		expect(decisions.covers(through("ssh deploy@prod", 2), 2_000)).toBeUndefined();
@@ -278,7 +276,7 @@ describe("vault decisions", () => {
 		decisions.grant("window", through("ssh deploy@prod", 1), 1_000);
 		decisions.grant("session", scope("ssh deploy@prod", "host.carol"), 1_000);
 		decisions.setRoutineGrants("triage", ["deploy"]);
-		const shown = () => decisions.list(2_000, () => policy(1)).map((grant) => grant.tier);
+		const shown = () => decisions.list(2_000).map((grant) => grant.tier);
 
 		decisions.entriesListed(["deploy"]);
 		expect(shown().sort()).toEqual(["session", "standing", "window"]);
@@ -303,7 +301,7 @@ describe("vault decisions", () => {
 		expect(shown().sort()).toEqual(["session", "standing"]);
 	});
 
-	it("a restart prunes a grant whose policy moved while nothing listened, and lists none it cannot vouch for", () => {
+	it("a restart prunes a grant whose policy moved while nothing listened", () => {
 		const dataDir = fresh();
 		const stale = {
 			grantId: "stale",
@@ -313,18 +311,17 @@ describe("vault decisions", () => {
 			coveredShapes: ["ssh deploy@prod"],
 			holder: { kind: "session", sessionTarget: "host.alice" },
 			expiresAt: 9_000,
-			policyId: "apt",
-			policyRevision: 1,
+			policy: { policyId: "apt", policyRevision: 1 },
 		};
-		recorded(dataDir, [stale, { ...stale, grantId: "current", policyRevision: 2 }]);
+		recorded(dataDir, [stale, { ...stale, grantId: "current", policy: { policyId: "apt", policyRevision: 2 } }]);
 		const decisions = open(dataDir);
-		expect(decisions.list(1_000, () => null)).toEqual([]);
-		expect(decisions.list(1_000, () => policy(2)).map((grant) => grant.grantId)).toEqual(["current"]);
+		expect(decisions.list(1_000).map((grant) => grant.grantId)).toEqual(["stale", "current"]);
 
 		decisions.policiesListed(() => policy(2));
+		expect(decisions.list(1_000).map((grant) => grant.grantId)).toEqual(["current"]);
 		expect(
 			open(dataDir)
-				.list(1_000, () => policy(2))
+				.list(1_000)
 				.map((grant) => grant.grantId),
 		).toEqual(["current"]);
 		expect(decisions.covers(through("ssh deploy@prod", 1), 1_000)).toBeUndefined();
@@ -338,22 +335,21 @@ describe("vault decisions", () => {
 				tier: "standing",
 				entryId: "deploy",
 				holder: { kind: "routine", routineId: "t" },
-				policyId: "apt",
-				policyRevision: 1,
+				policy: { policyId: "apt", policyRevision: 1 },
 			},
 		]);
-		expect(open(dataDir).list(1_000, () => policy(1))).toEqual([]);
+		expect(open(dataDir).list(1_000)).toEqual([]);
 	});
 
 	it("a poisoned file starts the store fresh, and the next grant heals it", () => {
 		const dataDir = fresh();
 		fs.writeFileSync(path.join(dataDir, "vault-decisions.json"), JSON.stringify({ nope: 1 }));
 		const poisoned = open(dataDir);
-		expect(poisoned.list(1_000, none)).toEqual([]);
+		expect(poisoned.list(1_000)).toEqual([]);
 		const window = poisoned.grant("window", scope("ssh deploy@prod"), 1_000);
 		expect(
 			open(dataDir)
-				.list(2_000, none)
+				.list(2_000)
 				.map((grant) => grant.grantId),
 		).toEqual([window?.grantId]);
 	});

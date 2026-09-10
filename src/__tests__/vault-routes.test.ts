@@ -21,7 +21,7 @@ function bench() {
 	roots.push(root);
 	const ambient = fakeAmbient({ drive: "real", now: () => 1_000_000 });
 	const delivered: VaultRequest[] = [];
-	const vault = { refreshFailures: 0, allowed: true };
+	const vault = { refreshFailures: 0, allowed: true, opens: true };
 	const stored = { clear: { id: "deploy" } };
 	const client = {
 		refresh: async () =>
@@ -29,7 +29,7 @@ function bench() {
 		stored: (id: string) => (id === "deploy" ? stored : null),
 		view: () => ({ id: "deploy", hasValue: true, publicTitle: "Deploy", publicDescription: null }),
 		allowedHere: () => vault.allowed,
-		openValue: () => "hunter2",
+		openValue: () => (vault.opens ? "hunter2" : null),
 		live: () => [stored],
 	} as unknown as VaultClient;
 	const decisions = openDurable(root, "vault-decisions", (store) => createVaultDecisions({ store, ambient }));
@@ -75,6 +75,10 @@ describe("vault routes", () => {
 		expect(requests.answer(request.requestId, "once")).toEqual({ ok: true });
 		expect((await use).status).toBe(503);
 
+		// A key that has not arrived keeps it too.
+		vault.opens = false;
+		expect((await call("/vault/collect", { requestId: request.requestId, waitMs: 1_000 })).status).toBe(503);
+		vault.opens = true;
 		const collected = await call("/vault/collect", { requestId: request.requestId, waitMs: 1_000 });
 		expect(collected.json).toEqual({ outcome: "approved", decision: "once", value: "hunter2" });
 		const again = await call("/vault/collect", { requestId: request.requestId, waitMs: 1_000 });

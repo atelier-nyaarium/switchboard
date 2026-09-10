@@ -7,8 +7,9 @@ import type { AuthorizationPolicy } from "../../shared/schemasPolicy.js";
 import type { VaultRequest, VaultRetract } from "../../shared/schemasVault.js";
 import { Address, DEFAULT_SESSION, storeKey } from "../../shared/session-id.js";
 import type { VaultConsoleHandlers } from "../console/consoleTypes.js";
+import type { PolicyStore } from "../policies/store.js";
 import { createAddressing } from "../routes/addressing.js";
-import { createVaultDecisions, type PolicyResolver, qualificationRefusal } from "../vault/decisions.js";
+import { createVaultDecisions, qualificationRefusal } from "../vault/decisions.js";
 import { createHelperTokens } from "../vault/helperTokens.js";
 import { operationSet } from "../vault/operationSet.js";
 import { createVaultRequests, helperTarget, isHelperTarget } from "../vault/requests.js";
@@ -30,7 +31,7 @@ export interface VaultStageDeps {
 	/** A secret nobody answered for, recorded against whatever occurrence wanted it. */
 	secretUnanswered: (sessionTarget: string, entryId: string) => void;
 	/** Read late. */
-	currentPolicy: PolicyResolver;
+	policies: () => Pick<PolicyStore, "get">;
 }
 
 export interface VaultStage {
@@ -114,11 +115,10 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		openTyped: (envelope, requestId) => context.slice()?.vaultClient.openTyped(envelope, requestId) ?? null,
 		// The policy is read again at the tap, not trusted from when the request opened.
 		validate: (request) => {
-			if (request.kind !== "entry" || request.policyId === undefined || request.policyRevision === undefined)
-				return null;
-			return qualificationRefusal(deps.currentPolicy(request.policyId), {
+			if (request.kind !== "entry" || request.policy === undefined) return null;
+			return qualificationRefusal(deps.policies().get(request.policy.policyId), {
 				entryId: request.entryId,
-				policyRevision: request.policyRevision,
+				policyRevision: request.policy.policyRevision,
 				displayShape: request.displayShape ?? request.shape,
 			});
 		},
@@ -131,9 +131,7 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 					displayShape: request.displayShape ?? request.shape,
 					coveredShapes: request.coveredShapes ?? operationSet(request.operation),
 					sessionTarget: request.sessionTarget,
-					...(request.policyId !== undefined && request.policyRevision !== undefined
-						? { policy: { policyId: request.policyId, policyRevision: request.policyRevision } }
-						: {}),
+					...(request.policy ? { policy: request.policy } : {}),
 				},
 				ambient.now(),
 			);
@@ -177,7 +175,7 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		routes,
 		console: {
 			answer: (requestId, decision, value, note) => requests.answer(requestId, decision, value, note),
-			grants: () => ({ grants: decisions.list(ambient.now(), deps.currentPolicy) }),
+			grants: () => ({ grants: decisions.list(ambient.now()) }),
 			revoke: (grantId) => {
 				if (decisions.revoke(grantId)) return { revoked: true };
 				if (!helperTokens.revoke(grantId)) return { revoked: false };
@@ -195,7 +193,7 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		entriesListed: (entryIds) => decisions.entriesListed(entryIds),
 		// Policy first, then prune: the store has committed before it says so.
 		policyMoved: (policyId) => {
-			decisions.policyMoved(policyId, deps.currentPolicy(policyId));
+			decisions.policyMoved(policyId, deps.policies().get(policyId));
 			requests.policyMoved(policyId);
 		},
 		policiesListed: (policies) => {

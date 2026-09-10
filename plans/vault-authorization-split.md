@@ -562,16 +562,16 @@ already use it for other things, qualify it: `authorizationPolicy`.
 
 ## Phase 2 - Grants and requests learn policies
 
-- `GrantScope` and `VaultGrantSchema` gain `policyId` and `policyRevision`. **Holder invariant,
-  enforced in the schema and in `covers`:** a policy-qualified grant is session-held and `window`
-  or `session` tier; a routine's standing grant is entry-wide and never carries policy fields; the
-  policy check runs before the holder branch.
+- `GrantScope` and `VaultGrantSchema` gain `policy`, an optional `PolicyRef` of `policyId` and
+  `policyRevision`. **Holder invariant, enforced in the schema and in `covers`:** a
+  policy-qualified grant is session-held and `window` or `session` tier; a routine's standing
+  grant is entry-wide and never carries a policy; the policy check runs before the holder branch.
 - `covers`: after the entry check, a grant carrying a policy covers only a scope resolved through
   that policy at that revision. Entry-wide grants stay broader. A policy grant never covers a bare
   `vault_run`.
-- **`composeVault.onApproved` copies both policy fields from the request into the scope**, with a
-  test that the minted grant is still qualified.
-- `VaultRequestSchema` gains both fields. `requests.find` includes both in identity. **A
+- **`composeVault.onApproved` copies the request's `policy` into the scope**, with a test that the
+  minted grant is still qualified.
+- The entry variant of `VaultRequestSchema` gains `policy`. `requests.find` includes it in identity. **A
   synchronous validation callback runs in `requests.answer` before `onApproved`:** the policy
   exists, is enabled, is bound to the same entry, owns the selector, and is at the exact revision.
   Otherwise fail closed with no grant. The store's `onChanged` reaches requests through
@@ -584,8 +584,7 @@ already use it for other things, qualify it: `authorizationPolicy`.
   `policyMoved` beside `entryDeleted`, given the current record or null; each prunes only
   policy-qualified grants. `qualificationRefusal` is the one reading of why a policy no longer
   answers: gone, disabled, rebound, no longer naming the selector, or at another revision. `list`
-  takes a current-policy resolver and excludes a qualified grant it would refuse. Write order
-  everywhere: policy first, then prune.
+  shows what is stored. Write order everywhere: policy first, then prune.
 - Named tests in `vault-decisions.test.ts`: a policy grant excludes a bare `vault_run`; an entry
   grant covers a policy scope; a policy revision invalidates qualified grants and not entry-wide
   ones; rename, disable, rebind, delete and re-enable each invalidate. A value revision preserves
@@ -604,6 +603,19 @@ already use it for other things, qualify it: `authorizationPolicy`.
   end-to-end proof of a qualified grant, because only Phase 3's resolver opens a qualified request
   (a Phase 3 case).
 
+- **From the architecture audit.** The qualification is one shape: `PolicyRef` (`policyId`,
+  `policyRevision`) is a Zod object in `schemasVault.ts`, carried as `policy` on a grant, an entry
+  request and a scope, and one Kotlin class. A typed request has none. `release` answers
+  `released`, `refused` or `unavailable`, and `settle` forgets on anything but unavailable. `list`
+  shows what is stored, because `policyMoved` and `policiesListed` keep the file right and a prune
+  that failed to write should be seen. The vault reads the policy store late through one
+  `policies` seam; `composePolicies` publishes `onPolicyMoved` and, once, `onPoliciesListed`.
+  `staleUnder` is `disqualified`. Set aside because a sibling holds the name: `policyRefusal`
+  beside `runbookRefusal`, `policyMoved` beside `runbookMoved`. Set aside for Phase 3: a branded
+  resolved scope only the resolver can build. Set aside for the compatibility window: internal
+  renames of `displayShape` and `coveredShapes`. A grants file written by `ef5067f5`'s flat fields
+  would load as entry-wide grants; no gateway ran that commit, and no resolver exists to have
+  qualified a grant.
 - **From the red team.** A qualified window covers only the one key it was given for, because a
   window from a compound line carries every program the line ran and would otherwise cover the
   other one under the same policy. `GrantScope.policy` and the entry input's `policy` are one

@@ -27,8 +27,7 @@ describe("federation harness: authorization policies", () => {
 		holder: { kind: "session", sessionTarget: "host.alice" },
 		sessionTarget: "host.alice",
 		expiresAt: h.now() + 60_000,
-		policyId: "apt",
-		policyRevision,
+		policy: { policyId: "apt", policyRevision },
 	});
 	const listed = async (): Promise<string[]> => {
 		const { result } = await h.phone.value({ kind: "vault_grants" });

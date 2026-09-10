@@ -131,7 +131,7 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		asker?: string,
 	): Promise<Response> {
 		const covering = deps.decisions.covers(scope, deps.ambient.now());
-		if (covering) return release(covering.tier, scope.entryId);
+		if (covering) return (await release(covering.tier, scope.entryId)).response;
 		const input = {
 			kind: "entry" as const,
 			entryId: scope.entryId,
@@ -151,13 +151,19 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		return json({ outcome: "approved", decision, value } satisfies VaultValueAnswer);
 	}
 
+	/** Unavailable keeps an approval for a retry; refused and released settle it. */
+	type Release = { kind: "released" | "refused" | "unavailable"; response: Response };
+
 	/** The entry is resolved again as the value leaves, never from a snapshot taken when it was asked for. */
-	async function release(decision: VaultApprovedDecision, entryId: string): Promise<Response> {
+	async function release(decision: VaultApprovedDecision, entryId: string): Promise<Release> {
 		const client = await ready();
-		if (client instanceof Response) return client;
+		if (client instanceof Response) return { kind: "unavailable", response: client };
 		const found = usable(client, entryId);
-		if (found instanceof Response) return found;
-		return approved(decision, found.value());
+		if (found instanceof Response) return { kind: "refused", response: found };
+		const value = found.value();
+		// A key that has not arrived is as transient as a Router that has not.
+		if (value === null) return { kind: "unavailable", response: approved(decision, null) };
+		return { kind: "released", response: approved(decision, value) };
 	}
 
 	/**
@@ -182,9 +188,8 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 				: refused(REFUSAL);
 		}
 		const released = await release(answer.decision, request.entryId);
-		// A vault that could not be reached keeps the approval for a retry until the deadline.
-		if (released.status !== 503) deps.requests.forget(request.requestId);
-		return released;
+		if (released.kind !== "unavailable") deps.requests.forget(request.requestId);
+		return released.response;
 	}
 
 	const search: Handler = async (req, body) => {
