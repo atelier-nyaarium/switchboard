@@ -7,7 +7,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/main-mcp.ts` / `main-gateway.ts` / `main-host-daemon.ts` / `main-federation.ts` / `main-vault-askpass.ts` - five entry points
 - `src/vault-askpass/askpass.ts` - the askpass helper's decision over gateway, tty, and clock ports; the tty race and the no-tty hold
 - `src/gateway/` - Docker-side HTTP and WS router
-- `src/gateway/composeGateway.ts` - fifteen compose stages, fault port, and cycles; `index.ts` is the Bun adapter
+- `src/gateway/composeGateway.ts` - the compose stages in order, fault port, and cycles; `index.ts` is the Bun adapter
 - `src/gateway/compose/gatewayTypes.ts` - `GatewayConfig`, `GatewayDeps`, `GatewayGraph`, and the `GatewayFaultPort` the harness drives
 - `src/gateway/compose/federationContext.ts` - the one federation reader; activation publishes boot, Domain id, and slice together, and it posts the Router share record
 - `src/gateway/compose/composeBootstrap.ts` - directories, identity, keyring, boot decision, schema wipe

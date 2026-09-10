@@ -510,6 +510,9 @@ already use it for other things, qualify it: `authorizationPolicy`.
 
 ## Phase 1 - Gateway store
 
+✅ Complete. `51ebd608` the store, its composition and console dispatch; `233b2fa5` the
+`selectorKeys` rename, the exhaustive dispatch, the map and docs. Every gate green, CI green.
+
 - `src/gateway/policies/store.ts`, sole writer through `openDurable`, modelled on the routine
   store. Gateway-assigned revision; stale base refused with the held record; a lost answer's repeat
   idempotent. **No overwrite**, as routines have none; a stale save is refused and the phone
@@ -678,10 +681,15 @@ Collected as the phases land. Not fixed here.
   `asker` format `askerOf` mints and `requests.ts` parses, and `secretPrompt`'s notion of which
   prompts reach the phone, are conventions the two sides keep in separate files with no shared
   declaration and no fixture pinning both.
-- **`dispatch` in `consoleHandler.ts` is a switch with no exhaustiveness guard.** An op kind added to
-  `ConsoleOpSchema` and `VALUE_OP_KINDS` with no case compiles, and the op answers `undefined`. The
-  answer side is fenced by `console-result-codegen.test.ts`; the dispatch side is fenced by nothing.
-  A `never` default would make the missing case a type error.
+- **Three record stores, one mechanism, no seam.** `runbooks/store.ts`, `routines/store.ts` and
+  `policies/store.ts` each carry the revision assignment, the two echo rules, the commit with
+  rollback and `DurableStoreInstalledError`, frozen records, and (two of them) the buried fence. A
+  fourth store copies it again, and a correction to any of it lands three times. On the board as
+  bd_d57cb8610ec9dbf691178a481c33aa9f.
+- **`ConsoleHandlerDeps` types the four stage consoles as optional and `requireX()` throws when one
+  is absent**, while `composeRouterFrames` always passes all four. The harness builds partial deps,
+  which is the only reason the type is loose; a wiring omission compiles and fails on the owner's
+  first tap.
 - **The runbook and routine stores restore on the wire schema alone.** A file with a duplicate id,
   or a record `runbookRefusal` or `routineRefusal` would refuse, loads, and an edit of a duplicated
   id rewrites every record that shares it. The policy store validates on restore; its siblings do
