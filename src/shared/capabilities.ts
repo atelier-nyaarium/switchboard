@@ -72,6 +72,7 @@ The owner's secrets, approved per use from the phone. No tool ever answers a val
 - A run that outlives the wait (230 seconds per call) answers \`pending\` (the owner has not answered) or \`running\` (the command has not exited). \`vault_collect\` with the \`jobId\` continues it; \`vault_withdraw\` gives the request up.
 - A \`refused\` answer with a \`note\` is the owner steering you. Do what the note says instead of asking again.
 - \`capture\` on a run stores the command's stdout as a new entry the owner can edit on the phone. Use it to generate a secret that must never enter the transcript.
+- \`sudo -A\` forwards the password request through Switchboard to the owner; plain \`sudo\` refuses with no terminal and never asks.
 
 stdout and stderr come back with the value's bytes replaced by \`[vault]\`. Never echo a value into a file the transcript can read, and never put it on a command line: \`ps\` shows argv.
 `.trim();
