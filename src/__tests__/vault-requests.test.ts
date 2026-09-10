@@ -6,7 +6,7 @@ import { fakeAmbient } from "../testing/fakeAmbient.js";
 
 const envelope = (text: string): ContentEnvelope => ({ v: 1, epoch: 1, nonce: "AAAA", ciphertext: text });
 
-function bench(options: { deliverable?: boolean } = {}) {
+function bench(options: { deliverable?: boolean; validate?: (request: VaultRequest) => string | null } = {}) {
 	const ambient = fakeAmbient({ drive: "manual", now: () => 1_000_000 });
 	const delivered: VaultRequest[] = [];
 	const approved: Array<{ requestId: string; decision: string }> = [];
@@ -19,6 +19,7 @@ function bench(options: { deliverable?: boolean } = {}) {
 			return true;
 		},
 		openTyped: (value, requestId) => (value.ciphertext === `typed:${requestId}` ? "hunter2" : null),
+		validate: options.validate,
 		onApproved: (request, decision) => approved.push({ requestId: request.requestId, decision }),
 		onSettled: (request) => settled.push(request.requestId),
 	});
@@ -176,8 +177,47 @@ describe("vault requests", () => {
 		expect(requests.find({ ...input, operation: "ssh prod ls" })).toBeUndefined();
 		expect(requests.find({ ...input, sessionTarget: "host.bob" })).toBeUndefined();
 		expect(requests.find({ ...input, entryId: "other" })).toBeUndefined();
+		expect(requests.find({ ...input, policy: { policyId: "apt", policyRevision: 1 } })).toBeUndefined();
 		requests.answer(opened.request.requestId, "once");
 		expect(requests.find(input)).toBeUndefined();
+	});
+
+	it("a request resolved through a policy is validated at the tap, and a policy that moved refuses it", async () => {
+		let refusal: string | null = null;
+		const { requests, approved, delivered } = bench({ validate: () => refusal });
+		const input = {
+			kind: "entry" as const,
+			entryId: "deploy",
+			operation: "ssh prod",
+			sessionTarget: "host.alice",
+			policy: { policyId: "apt", policyRevision: 1 },
+		};
+		const first = requests.open(input);
+		if (first.kind !== "opened") throw new Error("the request did not open");
+		expect(delivered[0]).toMatchObject({ policyId: "apt", policyRevision: 1 });
+		expect(requests.find(input)?.request.requestId).toBe(first.request.requestId);
+		expect(requests.find({ ...input, policy: { policyId: "apt", policyRevision: 2 } })).toBeUndefined();
+
+		refusal = "the policy changed";
+		expect(requests.answer(first.request.requestId, "window")).toEqual({ ok: false, reason: "the policy changed" });
+		await expect(first.answer).resolves.toEqual({ kind: "refused", note: "the policy changed" });
+		expect(approved).toEqual([]);
+
+		refusal = null;
+		const second = requests.open(input);
+		const bare = requests.open({
+			kind: "entry",
+			entryId: "deploy",
+			operation: "ssh prod",
+			sessionTarget: "host.bob",
+		});
+		if (second.kind !== "opened" || bare.kind !== "opened") throw new Error("the requests did not open");
+		requests.policyMoved("apt");
+		await expect(second.answer).resolves.toMatchObject({ kind: "refused" });
+		expect(requests.collect(second.request.requestId, "host.alice")).toBeUndefined();
+		expect(requests.collect(bare.request.requestId, "host.bob")).toBeDefined();
+		expect(requests.answer(bare.request.requestId, "window")).toEqual({ ok: true });
+		expect(approved).toEqual([{ requestId: bare.request.requestId, decision: "window" }]);
 	});
 
 	it("one caller cannot bury the phone: past the cap the request does not open", () => {

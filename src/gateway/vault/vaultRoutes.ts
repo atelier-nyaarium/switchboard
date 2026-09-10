@@ -127,23 +127,23 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		req: Request,
 		scope: GrantScope,
 		operation: string,
-		value: () => string | null,
 		waitMs: number,
 		asker?: string,
 	): Promise<Response> {
 		const covering = deps.decisions.covers(scope, deps.ambient.now());
-		if (covering) return approved(covering.tier, value());
+		if (covering) return release(covering.tier, scope.entryId);
 		const input = {
 			kind: "entry" as const,
 			entryId: scope.entryId,
 			operation,
 			sessionTarget: scope.sessionTarget,
 			asker,
+			policy: scope.policy,
 		};
 		const existing = deps.requests.find(input);
 		const opened = existing ? { kind: "opened" as const, ...existing } : deps.requests.open(input);
 		if (opened.kind !== "opened") return unopened(opened.reason);
-		return settle(await waitAnswer(opened.answer, waitMs, req.signal), opened.request, value);
+		return settle(await waitAnswer(opened.answer, waitMs, req.signal), opened.request);
 	}
 
 	function approved(decision: VaultApprovedDecision, value: string | null): Response {
@@ -151,25 +151,40 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		return json({ outcome: "approved", decision, value } satisfies VaultValueAnswer);
 	}
 
+	/** The entry is resolved again as the value leaves, never from a snapshot taken when it was asked for. */
+	async function release(decision: VaultApprovedDecision, entryId: string): Promise<Response> {
+		const client = await ready();
+		if (client instanceof Response) return client;
+		const found = usable(client, entryId);
+		if (found instanceof Response) return found;
+		return approved(decision, found.value());
+	}
+
 	/**
 	 * An entry approval is shared: it named this caller's own operation, so every waiter joined to
 	 * the request takes the value. A typed value is delivered once, to whoever collects first.
 	 */
-	function settle(
-		answer: VaultRequestAnswer | null | "gone",
-		request: VaultRequest,
-		value: () => string | null,
-	): Response {
+	async function settle(answer: VaultRequestAnswer | null | "gone", request: VaultRequest): Promise<Response> {
 		if (answer === null || answer === "gone")
 			return json({
 				outcome: "pending",
 				requestId: request.requestId,
 				deadlineAt: request.deadlineAt,
 			} satisfies VaultValueAnswer);
-		const taken = deps.requests.forget(request.requestId);
-		if (answer.kind === "refused") return refused(REFUSAL, 403, answer.note);
-		if (!taken && answer.typedValue !== undefined) return refused(REFUSAL);
-		return approved(answer.decision, answer.typedValue ?? value());
+		if (answer.kind === "refused") {
+			deps.requests.forget(request.requestId);
+			return refused(REFUSAL, 403, answer.note);
+		}
+		if (request.kind === "typed") {
+			const taken = deps.requests.forget(request.requestId);
+			return taken && answer.typedValue !== undefined
+				? approved(answer.decision, answer.typedValue)
+				: refused(REFUSAL);
+		}
+		const released = await release(answer.decision, request.entryId);
+		// A vault that could not be reached keeps the approval for a retry until the deadline.
+		if (released.status !== 503) deps.requests.forget(request.requestId);
+		return released;
 	}
 
 	const search: Handler = async (req, body) => {
@@ -209,7 +224,7 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 			coveredShapes: operationSet(parsed.data.operation),
 			sessionTarget: who.target,
 		};
-		return decide(req, scope, parsed.data.operation, found.value, waitFor(parsed.data.waitMs));
+		return decide(req, scope, parsed.data.operation, waitFor(parsed.data.waitMs));
 	};
 
 	const collect: Handler = async (req, body) => {
@@ -219,13 +234,7 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		if (!parsed.success) return json({ error: "invalid vault collect request" }, 400);
 		const pending = deps.requests.collect(parsed.data.requestId, who.target);
 		if (!pending) return refused(REFUSAL);
-		const answer = await waitAnswer(pending.answer, waitFor(parsed.data.waitMs), req.signal);
-		if (answer === null || answer === "gone" || answer.kind !== "approved" || pending.request.kind !== "entry")
-			return settle(answer, pending.request, () => null);
-		const client = await ready();
-		if (client instanceof Response) return client;
-		const found = usable(client, pending.request.entryId);
-		return settle(answer, pending.request, found instanceof Response ? () => null : found.value);
+		return settle(await waitAnswer(pending.answer, waitFor(parsed.data.waitMs), req.signal), pending.request);
 	};
 
 	const withdraw: Handler = async (req, body) => {
@@ -288,11 +297,11 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 				coveredShapes: operationSet(parsed.data.cmdline),
 				sessionTarget,
 			};
-			return decide(req, scope, parsed.data.cmdline, () => client.openValue(match.stored), waitMs, asker);
+			return decide(req, scope, parsed.data.cmdline, waitMs, asker);
 		}
 		const opened = deps.requests.open({ kind: "typed", operation: parsed.data.cmdline, sessionTarget, asker });
 		if (opened.kind !== "opened") return unopened(opened.reason);
-		return settle(await waitAnswer(opened.answer, waitMs, req.signal), opened.request, () => null);
+		return settle(await waitAnswer(opened.answer, waitMs, req.signal), opened.request);
 	};
 
 	/** Host token gates helper minting; an unenrolled gateway has no vault to mint for. */

@@ -178,9 +178,10 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		context,
 		routes: requireRoutes,
 		sessions,
-		// Read late: the routine stage is composed below this one.
+		// Read late; composed below.
 		workingRoutine: (target) => routines.workingRoutine(target),
 		secretUnanswered: (target, entryId) => routines.secretUnanswered(target, entryId),
+		currentPolicy: (policyId) => policies.store.get(policyId),
 	});
 	routerPresence = composeRouterPresence({
 		ambient: bootstrap.ambient,
@@ -211,7 +212,12 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			return record ? sessions.sessionStore.teamOf(record) : null;
 		},
 	});
-	const policies = composePolicies({ dataDir: bootstrap.dataDir });
+	const policies = composePolicies({
+		dataDir: bootstrap.dataDir,
+		onPolicyMoved: (policyId) => vault?.policyMoved(policyId),
+	});
+	// Prunes what a crash left.
+	vault.policiesListed(policies.store.list());
 	routerFrames = composeRouterFrames({
 		localGatewayId: bootstrap.localGatewayId,
 		wakeTimeoutMs: config.wakeTimeoutMs,

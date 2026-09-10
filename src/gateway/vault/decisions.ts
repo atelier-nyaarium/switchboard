@@ -3,6 +3,7 @@
 import { z } from "zod";
 import type { Ambient } from "../../shared/ambient.js";
 import { type DurableStore, DurableStoreInstalledError } from "../../shared/durable-store.js";
+import type { AuthorizationPolicy } from "../../shared/schemasPolicy.js";
 import {
 	holderOf,
 	VAULT_SESSION_GRANT_CAP_MS,
@@ -27,15 +28,51 @@ export interface VaultDecisionsDeps {
 	routineHolding?: (sessionTarget: string) => string | null;
 }
 
-/** Grant scope: entry, display shape, covered shapes, session. */
+/** The policy a scope was resolved through, at the revision that answered. */
+export interface PolicyRef {
+	policyId: string;
+	policyRevision: number;
+}
+
+/** Grant scope. */
 export interface GrantScope {
 	entryId: string;
 	displayShape: string;
 	coveredShapes: string[];
 	sessionTarget: string;
+	policy?: PolicyRef;
 }
 
+/** Current record, read late. */
+export type PolicyResolver = (policyId: string) => AuthorizationPolicy | null;
+
 const GrantsSchema = z.array(VaultGrantSchema);
+
+/** Why a policy stopped answering. */
+export function qualificationRefusal(
+	current: AuthorizationPolicy | null,
+	resolved: { entryId: string; policyRevision: number; displayShape?: string },
+): string | null {
+	if (!current) return "the policy is gone";
+	if (!current.enabled) return "the policy is disabled";
+	if (current.binding.entryId !== resolved.entryId) return "the policy binds another entry";
+	if (resolved.displayShape !== undefined && !current.selectorKeys.includes(resolved.displayShape))
+		return "the policy no longer names this command";
+	if (current.revision !== resolved.policyRevision) return "the policy changed";
+	return null;
+}
+
+/** A qualified grant is stale once its policy no longer answers for it. */
+function staleUnder(grant: VaultGrant, current: AuthorizationPolicy | null): boolean {
+	if (grant.policyId === undefined || grant.policyRevision === undefined || grant.entryId === undefined) return false;
+	// Only a window grant names a shape.
+	const resolved = {
+		entryId: grant.entryId,
+		policyRevision: grant.policyRevision,
+		...(grant.tier === "window" ? { displayShape: grant.displayShape ?? grant.shape } : {}),
+	};
+	return qualificationRefusal(current, resolved) !== null;
+}
 
 /**
  * What the owner reads: the grants tab's line, and the title a saved typed value takes. It reads
@@ -84,6 +121,13 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 		const live = deps.routineHolding?.(scope.sessionTarget) ?? null;
 		return grants.find((grant) => {
 			if (grant.entryId !== scope.entryId) return false;
+			// Before the holder: a policy grant covers only what that policy, at that revision, resolved,
+			// and a window under it only the one key it was given for.
+			if (grant.policyId !== undefined) {
+				if (grant.policyId !== scope.policy?.policyId || grant.policyRevision !== scope.policy.policyRevision)
+					return false;
+				if (grant.tier === "window" && (grant.displayShape ?? grant.shape) !== scope.displayShape) return false;
+			}
 			const holder = holderOf(grant);
 			if (!holder) return false;
 			if (holder.kind === "routine") return live !== null && holder.routineId === live;
@@ -99,6 +143,7 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 	const grant = (decision: VaultDecision, scope: GrantScope, now: number): VaultGrant | null => {
 		if (decision !== "window" && decision !== "session") return null;
 		const holder: VaultHolder = { kind: "session", sessionTarget: scope.sessionTarget };
+		const qualified = scope.policy ?? {};
 		const granted: VaultGrant =
 			decision === "window"
 				? {
@@ -111,6 +156,7 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 						holder,
 						sessionTarget: scope.sessionTarget,
 						expiresAt: now + VAULT_WINDOW_MS,
+						...qualified,
 					}
 				: {
 						grantId: deps.ambient.newId(),
@@ -119,6 +165,7 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 						holder,
 						sessionTarget: scope.sessionTarget,
 						expiresAt: now + sessionCapMs,
+						...qualified,
 					};
 		commit([...grants, granted], false);
 		return granted;
@@ -170,9 +217,24 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 		if (kept.length !== grants.length) commit(kept, true);
 	};
 
-	const list = (now: number): VaultGrant[] => {
+	/** The policy store already holds the move; the grants it qualified follow. */
+	const policyMoved = (policyId: string, current: AuthorizationPolicy | null): void => {
+		const kept = grants.filter((grant) => grant.policyId !== policyId || !staleUnder(grant, current));
+		if (kept.length !== grants.length) commit(kept, true);
+	};
+
+	/** The store's whole list. */
+	const policiesListed = (policyOf: PolicyResolver): void => {
+		const kept = grants.filter(
+			(grant) => grant.policyId === undefined || !staleUnder(grant, policyOf(grant.policyId)),
+		);
+		if (kept.length !== grants.length) commit(kept, true);
+	};
+
+	/** A qualified grant whose policy moved is not shown, whether or not the prune has landed. */
+	const list = (now: number, policyOf: PolicyResolver): VaultGrant[] => {
 		sweep(now);
-		return [...grants];
+		return grants.filter((grant) => grant.policyId === undefined || !staleUnder(grant, policyOf(grant.policyId)));
 	};
 
 	const revoke = (grantId: string): boolean => {
@@ -198,6 +260,8 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 		routineEnded,
 		entryDeleted,
 		entriesListed,
+		policyMoved,
+		policiesListed,
 	};
 }
 

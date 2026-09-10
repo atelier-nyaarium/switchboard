@@ -575,20 +575,45 @@ already use it for other things, qualify it: `authorizationPolicy`.
   synchronous validation callback runs in `requests.answer` before `onApproved`:** the policy
   exists, is enabled, is bound to the same entry, owns the selector, and is at the exact revision.
   Otherwise fail closed with no grant. The store's `onChanged` reaches requests through
-  `policyMoved` and `policyDeleted`, which retract that policy's pending requests.
+  `policyMoved`, which retracts that policy's pending requests. A deleted policy is a move to
+  nothing: the vault reads the store back, as routines read runbooks, so one seam serves both.
 - **`settle` re-resolves the entry through `usable` at settlement, as `collect` already does:**
   existence, value, `allowedHere`, opening the current envelope. `decide` loses its request-time
   value thunk so the stale road cannot return. This closes bd_58e0ecbe in passing.
-- Decisions: `policiesListed(id -> revision)` at startup beside `entriesListed`; `policyMoved` and
-  `policyDeleted` beside `entryDeleted`; each prunes only policy-qualified grants. `list` takes a
-  current-policy resolver and excludes a qualified grant whose policy is gone, disabled, rebound or
-  at another revision. Write order everywhere: policy first, then prune.
+- Decisions: `policiesListed` at startup beside `entriesListed`, over the store's whole list;
+  `policyMoved` beside `entryDeleted`, given the current record or null; each prunes only
+  policy-qualified grants. `qualificationRefusal` is the one reading of why a policy no longer
+  answers: gone, disabled, rebound, no longer naming the selector, or at another revision. `list`
+  takes a current-policy resolver and excludes a qualified grant it would refuse. Write order
+  everywhere: policy first, then prune.
 - Named tests in `vault-decisions.test.ts`: a policy grant excludes a bare `vault_run`; an entry
-  grant covers a policy scope; a value revision preserves grants; a policy revision invalidates
-  qualified grants and not entry-wide ones; rename, disable and re-enable each invalidate.
-- **The crash window has a test.** A harness fault case commits a policy revision, dies before the
-  prune, reopens the gateway, and proves the old qualified grant cannot cover. Its twin proves a
-  failed policy commit leaves old grants intact.
+  grant covers a policy scope; a policy revision invalidates qualified grants and not entry-wide
+  ones; rename, disable, rebind, delete and re-enable each invalidate. A value revision preserves
+  grants by construction: grants key on the entry id and nothing about a rotation reaches
+  decisions, so the test is that a vault list still holding the entry prunes nothing.
+- **The crash window has a test.** `federation-harness-policies.test.ts` moves a policy through
+  console ops, writes the grants file a crash between the commit and the prune would leave, restarts
+  the gateway, and proves the stale grant is neither listed nor on disk while the current one is.
+  No fault hook: the state after such a crash is a file, and the test writes that file. The twin,
+  that a failed policy commit publishes nothing, is `policy-store.test.ts`'s disk-refusal case.
+
+- **From the alignment audit.** `staleUnder` hands a window grant's shape to
+  `qualificationRefusal`, so a selector dropped at an unchanged revision prunes; a session grant
+  names no shape and is held to the other four readings. Set aside: `covers` reading the current
+  policy itself, because the scope it is handed carries the current revision (a Phase 3 rule); the
+  end-to-end proof of a qualified grant, because only Phase 3's resolver opens a qualified request
+  (a Phase 3 case).
+
+- **From the red team.** A qualified window covers only the one key it was given for, because a
+  window from a compound line carries every program the line ran and would otherwise cover the
+  other one under the same policy. `GrantScope.policy` and the entry input's `policy` are one
+  optional `PolicyRef`, so half a qualification does not typecheck. `settle` forgets an entry
+  approval only once the vault answered, so a vault that cannot be reached at settlement keeps the
+  approval collectable until the deadline; `vault-routes.test.ts` proves the retry and the
+  definitive refusal. Set aside: a refine on `VaultRequestSchema` for both or neither, because the
+  gateway is its only writer and the input type carries the invariant; a value that will not open
+  answering 503 and keeping the approval too, because a key that has not arrived is as transient
+  as a Router that has not, and a settled request can mint nothing more.
 
 ### Bug Classes
 
@@ -608,6 +633,15 @@ already use it for other things, qualify it: `authorizationPolicy`.
   `allowedHere` re-checked when a pending request is answered after the allowlist changed.
 - `docs/vault.md` 39 to 41, 108 to 112, 229 to 230; `docs/testing.md` 98; the `decisions.ts`
   comment at 40. Titles are labels, policies select, capture never creates a policy.
+- **`covers` trusts the scope, so the resolver must build it from the current record.** `covers`
+  compares a grant's policy id and revision with the scope's and reads no policy itself; a scope
+  carrying the store's current revision cannot match a grant a move left behind, whether or not the
+  prune has landed. The resolver reads `byKey`, which answers only an enabled policy, at the
+  revision it holds now. Nothing else may build a qualified scope.
+- **The end-to-end proof of a qualified grant lands here:** a harness case opens a request through
+  the resolver, answers it `window` from the phone, and reads `vault_grants` for a grant carrying
+  the policy and revision. Phase 2 could not: only the resolver opens a qualified request, and its
+  tests prove `onApproved`'s copy at the decisions layer alone.
 
 ## Phase 4 - Phone
 

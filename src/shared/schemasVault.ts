@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
+import { MAX_POLICY_ID_LEN } from "./schemasPolicy.js";
+import { REVISION_CEILING } from "./schemasRunbook.js";
 
 /** Router stores fields without opening them. */
 export const VAULT_FIELD_NAMES = [
@@ -119,6 +121,10 @@ const shapes = z.array(z.string().min(1).max(512)).min(1).max(VAULT_SHAPES_MAX);
 
 const displayShape = z.string().min(1).max(256);
 
+/** The policy a request or grant was resolved through, at the one revision that answered. */
+const policyId = z.string().min(1).max(MAX_POLICY_ID_LEN);
+const policyRevision = z.number().int().positive().max(REVISION_CEILING);
+
 const requestFields = {
 	v: z.literal(1),
 	requestId,
@@ -131,6 +137,9 @@ const requestFields = {
 	sessionTarget: z.string().min(1).max(128),
 	deadlineAt: z.number().int().nonnegative(),
 	asker,
+	/** Both or neither; a bare request was resolved through no policy. */
+	policyId: policyId.optional(),
+	policyRevision: policyRevision.optional(),
 };
 
 /** The `vault:request` payload a phone renders; `typed` asks the owner for a value. */
@@ -158,32 +167,49 @@ export const VaultHolderSchema = z
 
 export type VaultHolder = z.infer<typeof VaultHolderSchema>;
 
-export const VaultGrantSchema = z
-	.object({
-		grantId: z.string().min(1).max(128),
-		/** A standing grant is a routine's, and dies with the routine rather than with a clock. */
-		tier: z.enum(["window", "session", "standing"]).meta({ id: "VaultGrantTier", catalog: "tier" }),
-		entryId: entryId.optional(),
-		// A session grant names no shape at all. `shape` goes on 2026-09-19.
-		shape: z.string().max(256).optional(),
-		displayShape: z.string().max(256).optional(),
-		// A window recorded without one covers nothing.
-		coveredShapes: shapes.optional(),
-		// Read a grant written under the old name until 2026-09-19.
-		shapes: shapes.optional(),
-		// Required on 2026-09-22, once no stored grant predates holders.
-		holder: VaultHolderSchema.optional(),
-		// Read a grant written before the subject was a holder. Goes on 2026-09-22.
-		sessionTarget: z.string().min(1).max(128).optional(),
-		expiresAt: z.number().int().nonnegative().optional(),
-	})
-	.meta({ id: "VaultGrant" });
+const VaultGrantRecordSchema = z.object({
+	grantId: z.string().min(1).max(128),
+	/** A standing grant is a routine's, and dies with the routine rather than with a clock. */
+	tier: z.enum(["window", "session", "standing"]).meta({ id: "VaultGrantTier", catalog: "tier" }),
+	entryId: entryId.optional(),
+	// A session grant names no shape at all. `shape` goes on 2026-09-19.
+	shape: z.string().max(256).optional(),
+	displayShape: z.string().max(256).optional(),
+	// A window recorded without one covers nothing.
+	coveredShapes: shapes.optional(),
+	// Read a grant written under the old name until 2026-09-19.
+	shapes: shapes.optional(),
+	// Required on 2026-09-22, once no stored grant predates holders.
+	holder: VaultHolderSchema.optional(),
+	// Read a grant written before the subject was a holder. Goes on 2026-09-22.
+	sessionTarget: z.string().min(1).max(128).optional(),
+	expiresAt: z.number().int().nonnegative().optional(),
+	/** Both or neither; an entry-wide grant carries none. */
+	policyId: policyId.optional(),
+	policyRevision: policyRevision.optional(),
+});
+
+type VaultGrantRecord = z.infer<typeof VaultGrantRecordSchema>;
 
 /** The one place a grant's subject is read. A row written before holders is a session's. */
-export function holderOf(grant: z.infer<typeof VaultGrantSchema>): VaultHolder | null {
+export function holderOf(grant: VaultGrantRecord): VaultHolder | null {
 	if (grant.holder) return grant.holder;
 	return grant.sessionTarget ? { kind: "session", sessionTarget: grant.sessionTarget } : null;
 }
+
+/** A routine's standing grant is entry-wide; only a session holds one qualified by a policy. */
+function policyGrantIsSessionHeld(grant: VaultGrantRecord): boolean {
+	if (grant.policyId === undefined) return true;
+	if (grant.tier === "standing") return false;
+	return holderOf(grant)?.kind === "session";
+}
+
+export const VaultGrantSchema = VaultGrantRecordSchema.refine(
+	(grant) => (grant.policyId === undefined) === (grant.policyRevision === undefined),
+	"a policy grant names its revision",
+)
+	.refine(policyGrantIsSessionHeld, "a policy grant is a session's window or session grant")
+	.meta({ id: "VaultGrant" });
 
 export const ConsoleVaultAnswerResultSchema = z
 	.object({ ok: z.boolean(), reason: z.string().optional() })

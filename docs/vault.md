@@ -60,6 +60,16 @@ and the delta list are in `docs/federation.md` under Owner state.
   is peeled like one, and what a program does with its arguments stays opaque. `ssh host` is one
   shape whatever runs on the far side, and `docker exec ctr curl x` and `docker exec ctr rm -rf /`
   are both `docker exec`.
+- **A grant resolved through a policy is qualified by it:** it carries `policyId` and
+  `policyRevision`, both or neither, and covers only a scope the same policy resolved at the same
+  revision, never a bare `vault_run`. A window under a policy covers only the one key it was
+  given for, whatever else the line it came from ran. An entry-wide grant covers a policy scope as
+  it covers any other. Only a session holds a qualified grant; a routine's standing grant is entry-wide, and the
+  schema refuses the other shape. `qualificationRefusal` is the one reading of why a policy no
+  longer answers for what it resolved: gone, disabled, rebound to another entry, no longer naming
+  the selector, or at another revision. `policyMoved` prunes the grants that policy qualified,
+  `policiesListed` does the same at startup over the store's whole list, and `vault_grants` shows
+  none the current record would refuse, whether or not the prune has landed.
 - The store opens through `openDurable`, so a poisoned file starts fresh. A revocation or a
   session-end drop is written with `saveChecked` and reported once the snapshot is installed.
   Grants and expiry sweeps are best effort.
@@ -82,8 +92,17 @@ and the delta list are in `docs/federation.md` under Owner state.
   alike. A deny may carry a `note`, the owner's steering, which rides the refused answer to the
   session's tool result and to the helper's stderr. An unknown or settled request answers
   `request expired`.
-- An approval on an entry request also records the grant. The answer waits for its collector until
-  the deadline, and the first collector takes it.
+- A request resolved through a policy carries `policyId` and `policyRevision`, and a retry joins
+  only a request open under the same policy. **The policy is read again at the tap:** an approval
+  is validated against the store's current record before any grant is minted, and a policy that is
+  gone, disabled, rebound, no longer naming the selector, or at another revision settles the
+  request refused with that reason, which the phone's answer also carries. A policy that moves
+  while a request is open refuses it; the asker resolves again.
+- An approval on an entry request also records the grant, qualified as the request was. The answer
+  waits for its collector until the deadline, and the first collector takes it.
+- **The value is read as it leaves, never from a snapshot taken when it was asked for:** `release`
+  runs `usable` again at settlement on every road, so an entry rotated, emptied, or closed to this
+  Gateway while the request waited answers with the current value or a refusal.
 - A session's end refuses its open requests and drops its grants.
 - **Every settlement sends a `retract` row:** an answer, a denial, the deadline, a withdraw, or a
   session's end. The phone drops the request and its notification on it, so a second console never

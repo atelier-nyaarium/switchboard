@@ -45,6 +45,15 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/router/boardClient.ts` - Router-held task board client
 - `src/gateway/router/vaultClient.ts` - vault sealing/opening, delta-held Router list, approval-gated values, and the gateway write
 - `src/gateway/vault/decisions.ts` / `requests.ts` / `helperTokens.ts` / `vaultRoutes.ts` - grants and `displayShape`; request rows that settle once, admit a joining caller, and cap open requests per target; helper tokens; loopback routes
+  - **A grant resolved through a policy is qualified by it, and `qualificationRefusal` is the one
+    reading of when the policy stops answering:** gone, disabled, rebound, selector dropped, or
+    another revision. `covers` checks the policy before the holder and holds a qualified window to
+    the one key it was given for, `policyMoved` and `policiesListed` prune, `list` hides what it
+    would refuse, and `requests.answer` runs the same reading at the tap before any grant is
+    minted. The schema refuses a standing grant with policy fields; `GrantScope.policy` is one
+    optional `PolicyRef`, so half a qualification does not typecheck.
+  - **The value is read as it leaves:** `release` resolves the entry through `usable` at settlement
+    on every road. `decide` carries no value thunk, so a request-time snapshot cannot return.
 - `src/gateway/vault/operationSet.ts` - the wrapper table read from each program's help, and the set a window grant covers
 - `src/shared/selector-key.ts` - the one shape rule, `shapeFrom`; `selectorKey`, what askpass presents and what a policy stores; `withoutAskpassFlags`, the one walk the helper's brief and a policy's keys both take, so `sudo -A apt` keys as `sudo apt`
 - `src/gateway/compose/composeVault.ts` - vault client, decisions, requests, routes, and console operations

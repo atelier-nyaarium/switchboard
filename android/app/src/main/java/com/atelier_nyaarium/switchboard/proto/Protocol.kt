@@ -1639,6 +1639,8 @@ sealed class VaultRequest {
 		val sessionTarget: String,
 		val deadlineAt: Long,
 		val asker: String? = null,
+		val policyId: String? = null,
+		val policyRevision: Long? = null,
 	) : VaultRequest()
 
 	@Serializable
@@ -1653,6 +1655,8 @@ sealed class VaultRequest {
 		val sessionTarget: String,
 		val deadlineAt: Long,
 		val asker: String? = null,
+		val policyId: String? = null,
+		val policyRevision: Long? = null,
 	) : VaultRequest()
 }
 
@@ -1673,6 +1677,8 @@ data class VaultGrant(
 	val holder: VaultHolder? = null,
 	val sessionTarget: String? = null,
 	val expiresAt: Long? = null,
+	val policyId: String? = null,
+	val policyRevision: Long? = null,
 )
 
 @Serializable

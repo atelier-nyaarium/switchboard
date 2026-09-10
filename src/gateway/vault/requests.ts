@@ -9,7 +9,7 @@ import {
 	type VaultDecision,
 	type VaultRequest,
 } from "../../shared/schemasVault.js";
-import { displayShape } from "./decisions.js";
+import { displayShape, type PolicyRef } from "./decisions.js";
 import { operationSet } from "./operationSet.js";
 
 /** The helper's principal. */
@@ -17,7 +17,7 @@ export const helperTarget = (tokenId: string): string => `helper.${tokenId}`;
 export const isHelperTarget = (target: string): boolean => target.startsWith("helper.");
 
 export type VaultRequestInput =
-	| { kind: "entry"; entryId: string; operation: string; sessionTarget: string; asker?: string }
+	| { kind: "entry"; entryId: string; operation: string; sessionTarget: string; asker?: string; policy?: PolicyRef }
 	| { kind: "typed"; operation: string; sessionTarget: string; asker?: string };
 
 export type VaultRequestAnswer =
@@ -37,6 +37,8 @@ export interface VaultRequestsDeps {
 	deliver: (request: VaultRequest) => boolean | typeof MIGRATING;
 	/** Opens typed values with request AAD. */
 	openTyped: (envelope: ContentEnvelope, requestId: string) => string | null;
+	/** Runs before `onApproved`; a refusal settles the request refused and mints no grant. */
+	validate?: (request: VaultRequest) => string | null;
 	onApproved?: (request: VaultRequest, decision: VaultDecision) => void;
 	/** Once per request, however it settled. */
 	onSettled?: (request: VaultRequest) => void;
@@ -92,7 +94,7 @@ export function createVaultRequests(deps: VaultRequestsDeps) {
 		};
 		const request: VaultRequest =
 			input.kind === "entry"
-				? { kind: "entry", entryId: input.entryId, ...common }
+				? { kind: "entry", entryId: input.entryId, ...common, ...(input.policy ?? {}) }
 				: { kind: "typed", ...common };
 		const delivered = deps.deliver(request);
 		if (delivered !== true)
@@ -128,13 +130,20 @@ export function createVaultRequests(deps: VaultRequestsDeps) {
 		return { kind: "opened", request, answer };
 	};
 
-	/** The request still open for the same caller, entry, and operation, so a retry joins it. */
+	/** A retry joins the open request. */
 	const find = (input: VaultRequestInput): Pick<Pending, "request" | "answer"> | undefined => {
 		for (const entry of pending.values()) {
 			const { request } = entry;
 			if (entry.settled || request.kind !== input.kind || request.sessionTarget !== input.sessionTarget) continue;
 			if (request.operation !== input.operation) continue;
-			if (input.kind === "entry" && (request.kind !== "entry" || request.entryId !== input.entryId)) continue;
+			if (input.kind === "entry") {
+				if (request.kind !== "entry" || request.entryId !== input.entryId) continue;
+				if (
+					request.policyId !== input.policy?.policyId ||
+					request.policyRevision !== input.policy?.policyRevision
+				)
+					continue;
+			}
 			return entry;
 		}
 		return undefined;
@@ -164,6 +173,11 @@ export function createVaultRequests(deps: VaultRequestsDeps) {
 			// A typed value is handed over once; no grant outlives it.
 			entry.settle({ kind: "approved", decision: "once", typedValue });
 			return { ok: true };
+		}
+		const refusal = deps.validate?.(entry.request) ?? null;
+		if (refusal !== null) {
+			entry.settle({ kind: "refused", note: refusal });
+			return { ok: false, reason: refusal };
 		}
 		// A helper's session tap is a window: the host shares its token.
 		const tier = decision === "session" && isHelperTarget(entry.request.sessionTarget) ? "window" : decision;
@@ -201,7 +215,16 @@ export function createVaultRequests(deps: VaultRequestsDeps) {
 		}
 	};
 
-	return { open, find, answer, collect, forget, withdraw, sessionEnded };
+	/** Refuses what the policy resolved. */
+	const policyMoved = (policyId: string): void => {
+		for (const [requestId, entry] of [...pending]) {
+			if (entry.settled || entry.request.policyId !== policyId) continue;
+			entry.settle({ kind: "refused", note: "the policy changed; ask again" });
+			forget(requestId);
+		}
+	};
+
+	return { open, find, answer, collect, forget, withdraw, sessionEnded, policyMoved };
 }
 
 export type VaultRequests = ReturnType<typeof createVaultRequests>;
