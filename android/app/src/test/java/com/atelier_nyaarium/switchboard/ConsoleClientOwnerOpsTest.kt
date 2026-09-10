@@ -11,6 +11,7 @@ import com.atelier_nyaarium.switchboard.proto.CrossDomainShareTarget
 import com.atelier_nyaarium.switchboard.proto.InboxRow
 import com.atelier_nyaarium.switchboard.proto.OpKey
 import com.atelier_nyaarium.switchboard.proto.OwnerOp
+import com.atelier_nyaarium.switchboard.proto.PlaneLineage
 import com.atelier_nyaarium.switchboard.proto.PlanesReadResult
 import com.atelier_nyaarium.switchboard.proto.PlaneRead
 import com.atelier_nyaarium.switchboard.proto.RowEnvelope
@@ -251,11 +252,11 @@ class ConsoleClientOwnerOpsTest {
 	@Test
 	fun backgroundTickReadsInboxThenPlanesWithAppliedVersions() = runBlocking {
 		val events = mutableListOf<String>()
-		val outcome = drainTick(client, coordinator, emptyMap(), { events += "rows" }, { name, version, _ -> events += "$name:$version"; true })
+		val outcome = drainTick(client, coordinator, emptyMap(), { 1L }, { events += "rows" }, { name, lineage, _ -> events += "$name:${lineage.version}"; true })
 
 		assertEquals(listOf("inbox_read", "inbox_advance", "planes_read"), sent.map { it.op["kind"]?.jsonPrimitive?.content })
 		assertEquals(listOf("rows", "board:3"), events)
-		assertEquals(3L, outcome.known["board"])
+		assertEquals(PlaneLineage(1, 3), outcome.known["board"]?.lineage)
 		assertTrue(outcome.inboxAdvanceSent)
 	}
 
@@ -272,9 +273,9 @@ class ConsoleClientOwnerOpsTest {
 			}
 		}
 
-		drainTick(retryClient, retryCoordinator, emptyMap(), {}, { _, _, _ -> true })
+		drainTick(retryClient, retryCoordinator, emptyMap(), { 1L }, {}, { _, _, _ -> true })
 		assertEquals(PendingInboxAdvance(2L, 0L), retryCoordinator.pendingAdvance())
-		drainTick(retryClient, retryCoordinator, emptyMap(), {}, { _, _, _ -> true })
+		drainTick(retryClient, retryCoordinator, emptyMap(), { 1L }, {}, { _, _, _ -> true })
 
 		assertEquals(
 			listOf("inbox_read", "inbox_advance", "planes_read", "inbox_advance", "inbox_read", "planes_read"),
@@ -296,8 +297,8 @@ class ConsoleClientOwnerOpsTest {
 			}
 		}
 
-		val first = drainTick(floorClient, floorCoordinator, emptyMap(), {}, { _, _, _ -> true })
-		drainTick(floorClient, floorCoordinator, first.known, {}, { _, _, _ -> true })
+		val first = drainTick(floorClient, floorCoordinator, emptyMap(), { 1L }, {}, { _, _, _ -> true })
+		drainTick(floorClient, floorCoordinator, first.known, { 2L }, {}, { _, _, _ -> true })
 
 		assertEquals(
 			listOf(1L, 5L),
@@ -309,13 +310,13 @@ class ConsoleClientOwnerOpsTest {
 	@Test
 	fun anAnsweredPlaneAppliesOnceThroughTheSocketReducer() = runBlocking {
 		var applied = 0
-		val first = drainTick(client, coordinator, emptyMap(), {}, { _, _, _ -> applied++; true })
-		val second = drainTick(client, coordinator, first.known, {}, { _, _, _ -> applied++; true })
+		val first = drainTick(client, coordinator, emptyMap(), { 1L }, {}, { _, _, _ -> applied++; true })
+		val second = drainTick(client, coordinator, first.known, { 2L }, {}, { _, _, _ -> applied++; true })
 
 		assertEquals(1, applied)
 		assertEquals(1, first.planesApplied)
 		assertEquals(0, second.planesApplied)
-		assertEquals(3L, second.known["board"])
+		assertEquals(PlaneLineage(1, 3), second.known["board"]?.lineage)
 		assertEquals(listOf("inbox_read", "inbox_advance", "planes_read", "inbox_read", "planes_read"), sent.map { it.op["kind"]?.jsonPrimitive?.content })
 	}
 
@@ -387,7 +388,7 @@ class ConsoleClientOwnerOpsTest {
 					"result",
 					wireJson.encodeToJsonElement(
 						PlanesReadResult.serializer(),
-						PlanesReadResult(listOf(PlaneRead("board", 3, buildJsonObject { put("value", true) }))),
+						PlanesReadResult(listOf(PlaneRead("board", PlaneLineage(1, 3), buildJsonObject { put("value", true) }))),
 					),
 				)
 			}

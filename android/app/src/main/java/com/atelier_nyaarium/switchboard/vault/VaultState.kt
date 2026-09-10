@@ -90,6 +90,8 @@ data class VaultAnswered(
 data class VaultBlob(
 	/** The vault revision the held entries reach; 0 asks for a full list. */
 	val revision: Long = 0,
+	/** The lineage the revision belongs to; 0 is unknown. */
+	val routerEpoch: Long = 0,
 	/** Sealed Router entries, tombstones included. */
 	val stored: List<VaultStoredEntry> = emptyList(),
 	val requests: List<VaultPendingRequest> = emptyList(),

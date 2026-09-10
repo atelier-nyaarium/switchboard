@@ -110,8 +110,10 @@ admission refusals, quarantine), `cross-domain-presence` (consumer, pusher, reco
 the fence), `vault-service` (caps, tombstones, the delta floor, quarantine), `vault-client` (the
 delta copy, the revision reset, unavailable answers), `vault-decisions` (shapes, tiers, reopen, a
 poisoned file), `vault-requests` (single-use answers, the deadline under manual drive, collect by
-session, session end), and `versioned-list` (the fold every Router-held list consumer applies, driven
-by `tests/fixtures/versioned-list/vectors.json` on both runtimes). The phone's own benches are
+session, session end), `versioned-list` (the fold every Router-held list consumer applies, driven
+by `tests/fixtures/versioned-list/vectors.json` on both runtimes), and `versioned-slot` (the fold
+every reader of a Router-held plane applies, driven by `tests/fixtures/versioned-slot/vectors.json`
+on both runtimes). The phone's own benches are
 `VaultManagerTest`, `VaultDraftTest`, and `ApprovalGateTest`. The host daemon's Codex service has its own bench in
 `codex-daemon-service.test.ts`: the real `ThreadLifecycle`, tracker, and JSONL transport over a
 scripted App Server child, with only the launcher as a double.

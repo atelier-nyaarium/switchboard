@@ -127,15 +127,9 @@ internal class RunbookOps(
 		host.library.placed().forEach { (gatewayId, library) -> show(gatewayId, library) }
 	}
 
-	/** Every gateway the keyring admits, asked together so a slow one does not hold up the rest. */
-	suspend fun refreshAll(gatewayIds: List<String>) {
-		coroutineScope { gatewayIds.map { id -> async { refresh(id) } }.awaitAll() }
-		// Membership as it stands now, not as this pass captured it. The stored library stays: a
-		// lapsed keyring entry is not a reason to lose what the owner wrote.
-		state.update { held ->
-			val admitted = held.admittedGateways.toSet()
-			held.copy(runbooks = held.runbooks.filter { it.gatewayId in admitted })
-		}
+	/** All roster Gateways, concurrently. */
+	suspend fun refreshAll() {
+		coroutineScope { state.value.gateways.ids().map { id -> async { refresh(id) } }.awaitAll() }
 	}
 
 	suspend fun refresh(gatewayId: String) {
@@ -211,12 +205,9 @@ internal class RunbookOps(
 		show(gatewayId, host.library.remove(gatewayId, runbookId))
 	}
 
-	/** That gateway's group, replaced whole. Sorted by id, so no gateway holds a privileged place. */
+	/** Gateway copy, replaced whole. */
 	private fun show(gatewayId: String, library: List<Runbook>) {
-		state.update { held ->
-			val kept = held.runbooks.filterNot { it.gatewayId == gatewayId }
-			held.copy(runbooks = (kept + GatewayRunbooks(gatewayId, library)).sortedBy { it.gatewayId })
-		}
+		state.update { held -> held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(runbooks = library) }) }
 	}
 
 	suspend fun preview(

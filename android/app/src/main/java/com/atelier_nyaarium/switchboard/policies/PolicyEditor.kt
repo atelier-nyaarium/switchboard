@@ -45,7 +45,6 @@ import com.atelier_nyaarium.switchboard.GATEWAY_UNREACHABLE
 import com.atelier_nyaarium.switchboard.PolicyDeleted
 import com.atelier_nyaarium.switchboard.PolicySaved
 import com.atelier_nyaarium.switchboard.hapticClick
-import com.atelier_nyaarium.switchboard.policyOn
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import kotlinx.coroutines.launch
 
@@ -58,8 +57,8 @@ fun PolicyEditor(
 	policyId: String?,
 	onClose: () -> Unit,
 ) {
-	val held: AuthorizationPolicy? = remember(gatewayId, policyId, state.policies) {
-		policyId?.let { state.policyOn(gatewayId, it) }
+	val held: AuthorizationPolicy? = remember(gatewayId, policyId, state.gateways) {
+		policyId?.let { state.gateways.policyOn(gatewayId, it) }
 	}
 	// The edit lives in the ops class, which outlives the activity.
 	val draftKey = policyId ?: "new"

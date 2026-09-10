@@ -189,12 +189,19 @@ export const OwnerOpSchema = z
 export type OwnerOp = z.infer<typeof OwnerOpSchema>;
 export type OwnerOpFields = Omit<OwnerOp, "signature">;
 
+/** Where a Router plane stands. `epoch` is a random tag compared for equality only; `version` orders inside it. */
+export const PlaneLineageSchema = z
+	.object({ epoch: z.number().int().positive(), version: z.number().int().nonnegative() })
+	.meta({ id: "PlaneLineage" });
+
+export type PlaneLineage = z.infer<typeof PlaneLineageSchema>;
+
 export const PlanesReadValueSchema = z
-	.object({ kind: z.literal("planes_read"), known: z.record(z.string(), z.number().int().nonnegative()) })
+	.object({ kind: z.literal("planes_read"), known: z.record(z.string(), PlaneLineageSchema) })
 	.meta({ id: "PlanesReadValue" });
 
 export const PlaneReadSchema = z
-	.object({ name: z.string(), version: z.number().int().nonnegative(), payload: z.unknown().optional() })
+	.object({ name: z.string(), lineage: PlaneLineageSchema, payload: z.unknown().optional() })
 	.meta({ id: "PlaneRead" });
 
 export const PlanesReadResultSchema = z

@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.GatewaySpawnPoints
 import com.atelier_nyaarium.switchboard.runbooks.sessionTargets
 import com.atelier_nyaarium.switchboard.runbooks.spawnTargets
 import org.junit.Assert.assertEquals
@@ -18,11 +17,7 @@ class RunbookTargetsTest {
 			team("d1.mikan.host.999"),
 			team("d1.mikan.nyaakube", kind = "devcontainer"),
 		),
-		gatewaySpawnPoints = listOf(
-			GatewaySpawnPoints(domainId = "d1", gatewayId = "sakura", hostSpawns = listOf("host")),
-			GatewaySpawnPoints(domainId = "d1", gatewayId = "mikan", hostSpawns = listOf("host")),
-		),
-		admittedGateways = listOf("mikan"),
+		gateways = testRegistry("sakura", "mikan").withEntry("mikan") { it.copy(hostSpawns = listOf("host")) },
 		homeGatewayId = "sakura",
 		domainId = "d1",
 	)

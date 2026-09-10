@@ -40,7 +40,6 @@ import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.StatusChip
 import com.atelier_nyaarium.switchboard.hapticClick
-import com.atelier_nyaarium.switchboard.policyOn
 import com.atelier_nyaarium.switchboard.proto.VaultGrant
 import com.atelier_nyaarium.switchboard.proto.VaultHolder
 import kotlinx.coroutines.launch
@@ -217,7 +216,7 @@ private fun GrantRow(
 					},
 					entryTitle,
 					// Names the policy that answered.
-					grant.policy?.let { ref -> "via ${state.policyOn(gatewayId, ref.policyId)?.name ?: ref.policyId}" },
+					grant.policy?.let { ref -> "via ${state.gateways.policyOn(gatewayId, ref.policyId)?.name ?: ref.policyId}" },
 					// Read the old name until 2026-09-19.
 					grantCovers(grant.coveredShapes, grant.shapes),
 					grant.expiresAt?.let { expiresIn(it).text },

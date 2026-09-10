@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.crypto.Keyring
 import com.atelier_nyaarium.switchboard.proto.ConsoleCreateSessionResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleListDirsResult
 import com.atelier_nyaarium.switchboard.proto.ConsolePeekResult
@@ -24,7 +23,6 @@ internal interface SessionHost {
 	fun canonicalTarget(team: String): String
 	fun forgetReadAnchor(team: String)
 	fun rememberProject(target: String)
-	fun keyringGateways(): List<String>
 	fun launchInBackground(block: suspend () -> Unit)
 
 	suspend fun peekTerminal(team: String, sinceHash: String?): ConsolePeekResult
@@ -72,7 +70,6 @@ internal class ChatRepositorySessionHost(private val repo: ChatRepository) : Ses
 		repo.store.lastProjectByGateway = repo.store.lastProjectByGateway + (gateway to project)
 		repo._state.update { it.copy(lastProjectByGateway = repo.store.lastProjectByGateway) }
 	}
-	override fun keyringGateways() = Keyring.parse(repo.store.loadDomain())?.admittedGatewayIds() ?: emptyList()
 	override fun launchInBackground(block: suspend () -> Unit) {
 		repo.repoScope.launch(Dispatchers.IO) { block() }
 	}

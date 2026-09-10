@@ -81,7 +81,7 @@ function setup(overrides: Partial<ConsoleSocketsDeps> = {}) {
 		readOwnerKeyRows: inbox.readOwnerKeyRows.bind(inbox),
 		advanceCursor: inbox.advanceCursor.bind(inbox),
 		ownerFloor: inbox.ownerFloor.bind(inbox),
-		planeVersions: () => ({ board: 4 }),
+		planeVersions: () => ({ board: { epoch: 1, version: 4 } }),
 		ambient: processAmbient(),
 		seenAt: () => now,
 		admittedConsoleSigners: () => admitted.map((item) => item.admission.signPub),
@@ -225,7 +225,7 @@ describe("console sockets", () => {
 			type: "welcome",
 			cursor: 0,
 			floor: 1,
-			versions: { board: 4 },
+			versions: { board: { epoch: 1, version: 4 } },
 		});
 		const welcome = client.frames[0] as { cursorEpoch: number };
 		const consumer = fixture.registry.for(domainA).get("consumer", `consumer:${fixture.consoleIdentity.sign.pub}`);
@@ -237,28 +237,24 @@ describe("console sockets", () => {
 	});
 
 	it("reads changed planes from the welcome versions source", () => {
+		const board = { epoch: 1, version: 4 };
 		const fixture = setup({
-			// Version 0 means absent.
-			planeVersions: (domainId): Record<string, number> =>
-				domainId === domainA ? { board: 4, presence: 0 } : {},
+			planeVersions: (domainId): Record<string, typeof board> => (domainId === domainA ? { board } : {}),
 			readPlane: (domainId, _signerSignPub, name) =>
 				domainId === domainA && name === "board" ? { title: "updated" } : undefined,
 		});
-		fixture.hub.pushPlane(domainA, "board", 4, { title: "updated" });
-		fixture.hub.pushPlane(domainB, "other", 9, { hidden: true });
+		fixture.hub.pushPlane(domainA, "board", board, { title: "updated" });
+		fixture.hub.pushPlane(domainB, "other", { epoch: 1, version: 9 }, { hidden: true });
 
-		expect(fixture.hub.readPlanes(domainA, fixture.consoleIdentity.sign.pub, {})).toEqual([
-			{ name: "board", version: 4, payload: { title: "updated" } },
-		]);
-		expect(fixture.hub.readPlanes(domainB, fixture.consoleIdentity.sign.pub, {})).toEqual([]);
-		expect(fixture.hub.readPlanes(domainA, fixture.consoleIdentity.sign.pub, { board: 4 })).toEqual([]);
-		expect(fixture.hub.readPlanes(domainA, fixture.consoleIdentity.sign.pub, { unknown: 99 })).toEqual([
-			{ name: "board", version: 4, payload: { title: "updated" } },
-		]);
-		fixture.hub.pushPlane(domainA, "presence", 3, { rows: [] });
-		expect(fixture.hub.readPlanes(domainA, fixture.consoleIdentity.sign.pub, {})).toEqual([
-			{ name: "board", version: 4, payload: { title: "updated" } },
-		]);
+		const served = [{ name: "board", lineage: board, payload: { title: "updated" } }];
+		const signer = fixture.consoleIdentity.sign.pub;
+		expect(fixture.hub.readPlanes(domainA, signer, {})).toEqual(served);
+		expect(fixture.hub.readPlanes(domainB, signer, {})).toEqual([]);
+		expect(fixture.hub.readPlanes(domainA, signer, { board })).toEqual([]);
+		expect(fixture.hub.readPlanes(domainA, signer, { board: { epoch: 1, version: 5 } })).toEqual([]);
+		// Another lineage is served whatever its version.
+		expect(fixture.hub.readPlanes(domainA, signer, { board: { epoch: 2, version: 9 } })).toEqual(served);
+		expect(fixture.hub.readPlanes(domainA, signer, { unknown: { epoch: 1, version: 99 } })).toEqual(served);
 		fixture.registry.close();
 	});
 
@@ -320,8 +316,12 @@ describe("console sockets", () => {
 		expect(client.frames.some((frame) => frame.type === "inbox_rows")).toBe(false);
 		fixture.hub.pushOwnerRow(domainA, null, row(fixture, domainA, "pushed"));
 		expect(client.frames.some((frame) => frame.type === "inbox_rows")).toBe(false);
-		fixture.hub.pushPlane(domainA, "presence", 3, { rows: [] });
-		expect(client.frames.at(-1)).toMatchObject({ type: "plane", name: "presence", version: 3 });
+		fixture.hub.pushPlane(domainA, "presence", { epoch: 1, version: 3 }, { rows: [] });
+		expect(client.frames.at(-1)).toMatchObject({
+			type: "plane",
+			name: "presence",
+			lineage: { epoch: 1, version: 3 },
+		});
 		fixture.registry.close();
 	});
 
@@ -521,10 +521,10 @@ describe("console sockets", () => {
 		const pushed = row(fixture, domainA, "push");
 
 		fixture.hub.pushOwnerRow(domainA, null, pushed);
-		fixture.hub.pushPlane(domainA, "board", 5, { changed: true });
+		fixture.hub.pushPlane(domainA, "board", { epoch: 1, version: 5 }, { changed: true });
 
 		expect(a.frames.at(-2)).toMatchObject({ type: "inbox_rows", rows: [pushed] });
-		expect(a.frames.at(-1)).toMatchObject({ type: "plane", name: "board", version: 5 });
+		expect(a.frames.at(-1)).toMatchObject({ type: "plane", name: "board", lineage: { epoch: 1, version: 5 } });
 		expect(b.frames).not.toContainEqual(expect.objectContaining({ type: "plane" }));
 		expect(b.frames).not.toContainEqual(expect.objectContaining({ type: "inbox_rows" }));
 		fixture.registry.close();

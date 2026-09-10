@@ -18,7 +18,7 @@ import org.junit.Test
 
 class SessionOpsTest {
 	private class FakeHost : SessionHost {
-		override val state = MutableStateFlow(ChatState())
+		override val state = MutableStateFlow(ChatState(gateways = testRegistry("gw")))
 		override val homeGatewayId = "gw"
 		override val localDomain = "dom"
 		override val forgottenUntil = mutableMapOf<String, Long>()
@@ -40,7 +40,6 @@ class SessionOpsTest {
 		override fun canonicalTarget(team: String) = parseTarget(team, localDomain, homeGatewayId).canonical
 		override fun forgetReadAnchor(team: String) = Unit
 		override fun rememberProject(target: String) { remembered += target }
-		override fun keyringGateways() = listOf(homeGatewayId)
 		override fun launchInBackground(block: suspend () -> Unit) { CoroutineScope(Dispatchers.Unconfined).launch { block() } }
 		override suspend fun peekTerminal(team: String, sinceHash: String?) = ConsolePeekResult(hash = "hash")
 		override suspend fun createSession(
@@ -115,6 +114,7 @@ class SessionOpsTest {
 		val host = FakeHost()
 		val team = "dom.gw.host.session"
 		host.state.value = ChatState(
+			gateways = testRegistry("gw"),
 			teams = listOf(Team(name = team, presence = Presence.reported(Presence.ONLINE, Authority.LIVE))),
 			threads = mapOf(team to listOf(Message(false, "hello", 1L))),
 			labels = mapOf(team to "label"),
@@ -135,6 +135,18 @@ class SessionOpsTest {
 		// Confirmed: the journal entry goes and the tombstone is the bounded window.
 		assertTrue(MutationJournal(dir).entries("forget").isEmpty())
 		assertTrue(host.forgottenUntil.getValue(team) < Long.MAX_VALUE)
+	}
+
+	@Test
+	fun aForgetOnACachedRosterTombstonesWithoutJournaling() {
+		val dir = journalDir()
+		val host = FakeHost()
+		host.state.value = ChatState(gateways = testRegistry("gw", provenance = RegistryProvenance.Cached))
+		SessionOps(host, IdlePresencePort, MutationJournal(dir)).forget("dom.gw.host.session")
+
+		assertTrue(host.forgotten.isEmpty())
+		assertTrue(MutationJournal(dir).entries("forget").isEmpty())
+		assertTrue(host.forgottenUntil.getValue("dom.gw.host.session") < Long.MAX_VALUE)
 	}
 
 	@Test

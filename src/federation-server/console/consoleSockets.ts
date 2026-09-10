@@ -8,7 +8,7 @@ import {
 	ConsoleSocketInboundSchema,
 	type ConsoleSocketOutbound,
 } from "../../shared/schemasConsoleSocket.js";
-import type { InboxRow } from "../../shared/schemasInbox.js";
+import type { InboxRow, PlaneLineage } from "../../shared/schemasInbox.js";
 import { CONSOLE_REASON_CURSOR_STALE } from "../../shared/wire-vocabulary.js";
 import { readRouterMigrationWindow } from "../migration/leaseService.js";
 
@@ -51,8 +51,8 @@ export interface ConsoleSocketsDeps {
 	) => { outcome: "ok" } | { outcome: typeof CONSOLE_REASON_CURSOR_STALE; floor: number; dropped: number };
 	/** Lowest retained sequence. */
 	ownerFloor: (domainId: string) => number;
-	/** Current plane versions. */
-	planeVersions?: (domainId: string, signerSignPub: string) => Record<string, number>;
+	/** Where every servable plane stands. */
+	planeVersions?: (domainId: string, signerSignPub: string) => Record<string, PlaneLineage>;
 	readPlane?: (domainId: string, signerSignPub: string, name: string) => unknown;
 	admittedConsoleSigners?: (domainId: string) => string[];
 }
@@ -165,9 +165,7 @@ export function createConsoleSockets(deps: ConsoleSocketsDeps) {
 			cursor: consumer.cursor,
 			cursorEpoch: consumer.cursorEpoch,
 			floor: deps.ownerFloor(identity.domainId),
-			versions: Object.fromEntries(
-				readPlanes(identity.domainId, identity.signerSignPub, {}).map(({ name, version }) => [name, version]),
-			),
+			versions: deps.planeVersions?.(identity.domainId, identity.signerSignPub) ?? {},
 			migrationEpoch: readRouterMigrationWindow().epoch ?? 0,
 		});
 		if (!planesOnly) drain(socket, at, consumer.cursor);
@@ -239,18 +237,22 @@ export function createConsoleSockets(deps: ConsoleSocketsDeps) {
 		}
 	}
 
-	function pushPlane(domainId: string, name: string, version: number, payload: unknown): void {
+	function pushPlane(domainId: string, name: string, lineage: PlaneLineage, payload: unknown): void {
 		for (const [socket, at] of bound) {
 			if (at.domainId !== domainId) continue;
-			send(socket, { type: "plane", incarnation: at.incarnation, name, version, payload });
+			send(socket, { type: "plane", incarnation: at.incarnation, name, lineage, payload });
 		}
 	}
 
-	function readPlanes(domainId: string, signerSignPub: string, known: Record<string, number>) {
+	/** Served unless the console holds this lineage at this version or past it. */
+	function readPlanes(domainId: string, signerSignPub: string, known: Record<string, PlaneLineage>) {
 		const versions = deps.planeVersions?.(domainId, signerSignPub) ?? {};
 		return Object.entries(versions)
-			.filter(([name, version]) => version > (known[name] ?? 0))
-			.map(([name, version]) => ({ name, version, payload: deps.readPlane?.(domainId, signerSignPub, name) }));
+			.filter(([name, lineage]) => {
+				const held = known[name];
+				return !held || held.epoch !== lineage.epoch || lineage.version > held.version;
+			})
+			.map(([name, lineage]) => ({ name, lineage, payload: deps.readPlane?.(domainId, signerSignPub, name) }));
 	}
 
 	/** Revoked consoles keep no socket. */

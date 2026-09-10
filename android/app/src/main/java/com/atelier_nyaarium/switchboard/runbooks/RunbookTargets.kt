@@ -1,7 +1,6 @@
 package com.atelier_nyaarium.switchboard.runbooks
 
 import com.atelier_nyaarium.switchboard.ChatState
-import com.atelier_nyaarium.switchboard.GatewayGroupKey
 import com.atelier_nyaarium.switchboard.HOST_SPAWN_IDS
 import com.atelier_nyaarium.switchboard.hostSpawnChoices
 import com.atelier_nyaarium.switchboard.hostSpawnLabel
@@ -13,9 +12,7 @@ private fun teamsOn(state: ChatState, gatewayId: String) =
 	localSessions(state.sessions(), state.domainId.orEmpty()).filter { it.gatewayId == gatewayId }
 
 internal fun spawnTargets(state: ChatState, gatewayId: String): List<FireTarget> {
-	val domainId = state.domainId.orEmpty()
-	val key = GatewayGroupKey(domainId, gatewayId)
-	val hosts = hostSpawnChoices(state.gatewaySpawnPoints, key)
+	val hosts = hostSpawnChoices(state.gateways.hostSpawns(gatewayId))
 	val containers = teamsOn(state, gatewayId)
 		.filter { it.kind == "devcontainer" }
 		.map { it.shortName }

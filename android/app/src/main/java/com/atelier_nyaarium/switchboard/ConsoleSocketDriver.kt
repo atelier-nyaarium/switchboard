@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.PlaneLineage
 import com.atelier_nyaarium.switchboard.proto.Protocol
 
 /** Generation-routed frames and durable acknowledgements. */
@@ -8,7 +9,7 @@ internal class ConsoleSocketDriver(
 	private val newClient: (ConsoleSocketListener) -> ConsoleSocketClient,
 	private val onRows: (List<com.atelier_nyaarium.switchboard.proto.InboxRow>, Long) -> Unit,
 	/** Null payload means re-read. */
-	private val onPlane: (String, Long, kotlinx.serialization.json.JsonElement?) -> Unit = { _, _, _ -> },
+	private val onPlane: (String, PlaneLineage, kotlinx.serialization.json.JsonElement?) -> Unit = { _, _, _ -> },
 	private val onGap: (Long) -> Unit = {},
 	private val kick: () -> Unit = {},
 	/** Fires for pre-welcome connection failure. */
@@ -121,7 +122,7 @@ internal class ConsoleSocketDriver(
 				}
 				is ConsoleSocketFrame.Plane -> {
 					if (!coordinator.owns(gen)) return
-					onPlane(frame.value.name, frame.value.version, frame.value.payload)
+					onPlane(frame.value.name, frame.value.lineage, frame.value.payload)
 				}
 				is ConsoleSocketFrame.Refused -> {
 					DebugLog.log("Socket", "refused ${frame.value.reason} floor=${frame.value.floor} dropped=${frame.value.dropped}")

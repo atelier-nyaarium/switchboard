@@ -56,11 +56,11 @@ internal class BoardOps(
 		}.onFailure { DebugLog.log("Board", "router read/drain failed: ${it.message?.take(80)}") }
 	}
 
-	/** Assignable live sessions with sealable keys. */
+	/** Assignable sessions on member Gateways; an assignment is intent the Router holds. */
 	fun boardAssignTargets(): List<Team> {
-		val reachable = collaborators.sessions.keyringGateways().toSet()
+		val members = state.value.gateways.ids().toSet()
 		return state.value.teams.filter {
-			it.kind != "console" && it.kind != "devcontainer" && (it.gatewayId.isEmpty() || it.gatewayId in reachable)
+			it.kind != "console" && it.kind != "devcontainer" && (it.gatewayId.isEmpty() || it.gatewayId in members)
 		}
 	}
 

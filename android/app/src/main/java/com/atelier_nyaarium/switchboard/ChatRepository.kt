@@ -98,7 +98,6 @@ class ChatRepository(
 			labels = persistence.loadPersistedLabels(),
 			teamAbsenceStreaks = persistence.loadPersistedAbsenceStreaks(),
 			homeGatewayId = homeGatewayId,
-			displayName = store.displayName,
 			firstRooted = store.firstRooted,
 			lastProjectByGateway = store.lastProjectByGateway,
 			scheduledSends = persistence.loadPersistedScheduledSends(),
@@ -191,8 +190,9 @@ class ChatRepository(
 				}
 			}
 		},
-		onPlane = { name, version, payload ->
-			repoScope.launch(Dispatchers.IO) { drain.applyPlane(name, version, payload) }
+		onPlane = { name, lineage, payload ->
+			val observedAt = drain.observe()
+			repoScope.launch(Dispatchers.IO) { drain.applyPlane(name, lineage, payload, observedAt) }
 		},
 		onGapDetailed = { floor, dropped ->
 			gapFloor = floor
@@ -259,7 +259,11 @@ class ChatRepository(
 	internal fun applyDomainSync(snapshot: com.atelier_nyaarium.switchboard.proto.DomainSnapshot, version: String) =
 		provisioningHost.applyDomainSync(snapshot, version)
 
-	internal fun refreshAdmittedGateways() = provisioningHost.refreshAdmittedGateways()
+	internal fun adoptHomeGateway() = provisioningHost.adoptHomeGateway()
+
+	/** Keyring admission, not roster membership. */
+	internal fun keyringGateways(): List<String> =
+		com.atelier_nyaarium.switchboard.crypto.Keyring.parse(store.loadDomain())?.admittedGatewayIds() ?: emptyList()
 	internal val ownerFacts = OwnerFacts(this)
 	internal val gatewayEnroll = GatewayEnrollment(this)
 	internal val connector = ConnectCoordinator(identity, ::transport, _state, ChatRepositoryConnectHost(this))
@@ -290,6 +294,7 @@ class ChatRepository(
 		keyDeliveryValue = null
 		homeGatewayId = ""
 		mailboxSync.clearInMemory()
+		planeFetchedAt.clear()
 		forgottenUntil.clear()
 		reconciled.clear()
 		enrollInvites.clear()
@@ -446,8 +451,8 @@ class ChatRepository(
 		dirs: Map<String, List<String>> = emptyMap(),
 		drafts: Map<String, Draft> = emptyMap(),
 		goals: Map<String, PendingGoal> = emptyMap(),
-		admittedGateways: List<String> = emptyList(),
-	) = sandboxSeeder.seedSandbox(teams, threads, dirs, drafts, goals, admittedGateways)
+		gateways: GatewayRegistry = GatewayRegistry(),
+	) = sandboxSeeder.seedSandbox(teams, threads, dirs, drafts, goals, gateways)
 
 	fun seedSandboxVault(drafts: List<com.atelier_nyaarium.switchboard.vault.VaultDraft>) =
 		sandboxSeeder.seedSandboxVault(drafts)

@@ -24,6 +24,7 @@ import {
 	OpResultEnvelopeSchema,
 	type OwnerOp,
 	type OwnerOpFields,
+	type PlaneLineage,
 	signOwnerOp,
 	signRowEnvelope,
 } from "../shared/schemasInbox.js";
@@ -69,8 +70,8 @@ export interface PhoneDriver {
 	inboxRead(fromSeq?: number, limit?: number): Promise<InboxRow[]>;
 	inboxAdvance(cursor: number): Promise<unknown>;
 	planesRead(
-		known?: Record<string, number>,
-	): Promise<{ planes: Array<{ name: string; version: number; payload?: unknown }> }>;
+		known?: Record<string, PlaneLineage>,
+	): Promise<{ planes: Array<{ name: string; lineage: PlaneLineage; payload?: unknown }> }>;
 	seal(plaintext: string, kind: ContentAad["kind"]): ContentEnvelope;
 	openText(envelope: ContentEnvelope, kind: ContentAad["kind"]): string;
 	open(row: InboxRow): unknown;
@@ -249,7 +250,7 @@ export function createPhoneDriver(deps: PhoneDriverDeps): PhoneDriver {
 		},
 		planesRead: async (known = {}) => {
 			const envelope = OpResultEnvelopeSchema.parse(await send({ kind: "planes_read", known }));
-			return envelope.result as { planes: Array<{ name: string; version: number; payload?: unknown }> };
+			return envelope.result as { planes: Array<{ name: string; lineage: PlaneLineage; payload?: unknown }> };
 		},
 		seal,
 		openText,

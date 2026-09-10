@@ -91,7 +91,10 @@ class PolicyOpsTest {
 
 	private class Host(override val gateway: PolicyGateway?) : PolicyHost
 
-	private fun admitting(vararg gatewayIds: String) = MutableStateFlow(ChatState(admittedGateways = gatewayIds.toList()))
+	private fun admitting(vararg gatewayIds: String) = MutableStateFlow(ChatState(gateways = testRegistry(*gatewayIds)))
+
+	/** Drawn Gateway answers. */
+	private fun ChatState.drawn() = gateways.gateways.filter { it.policies != null }.map { it.id }
 
 	@Test
 	fun everyAdmittedGatewayIsDrawnAndOneThatRefusesTheListIsDrawnAsNothing() {
@@ -102,16 +105,16 @@ class PolicyOpsTest {
 		val state = admitting("sakura", "mikan", "old-box")
 		val ops = PolicyOps(state, Host(fake))
 
-		runBlocking { ops.refreshAll(listOf("sakura", "mikan", "old-box")) }
+		runBlocking { ops.refreshAll() }
 
-		assertEquals(listOf("mikan", "sakura"), state.value.policies.map { it.gatewayId })
-		assertEquals("Elsewhere", state.value.policyOn("mikan", "apt")?.name)
+		assertEquals(listOf("mikan", "sakura"), state.value.drawn())
+		assertEquals("Elsewhere", state.value.gateways.policyOn("mikan", "apt")?.name)
 		// One that cannot be reached keeps what it drew; one that refuses now stops being drawn.
 		fake.unreachable += "sakura"
 		fake.refusing += "mikan"
-		runBlocking { ops.refreshAll(listOf("sakura", "mikan", "old-box")) }
-		assertEquals(listOf("sakura"), state.value.policies.map { it.gatewayId })
-		assertEquals(listOf("apt"), state.value.policiesOn("sakura").map { it.id })
+		runBlocking { ops.refreshAll() }
+		assertEquals(listOf("sakura"), state.value.drawn())
+		assertEquals(listOf("apt"), state.value.gateways.policiesOn("sakura").map { it.id })
 	}
 
 	@Test
@@ -125,15 +128,15 @@ class PolicyOpsTest {
 		runBlocking {
 			val hold = Hold()
 			fake.holds["mikan"] = hold
-			val slow = launch { ops.refreshAll(listOf("sakura", "mikan")) }
+			val slow = launch { ops.refreshAll() }
 			hold.entered.await()
-			state.value = state.value.copy(admittedGateways = listOf("sakura"))
-			ops.refreshAll(listOf("sakura"))
+			state.value = state.value.copy(gateways = testRegistry("sakura"))
+			ops.refreshAll()
 			hold.gate.complete(Unit)
 			slow.join()
 		}
 
-		assertEquals(listOf("sakura"), state.value.policies.map { it.gatewayId })
+		assertEquals(listOf("sakura"), state.value.drawn())
 	}
 
 	@Test
@@ -150,12 +153,12 @@ class PolicyOpsTest {
 			hold.entered.await()
 			fake.shelves["sakura"] = listOf(policy("apt", name = "New"))
 			ops.refresh("sakura")
-			assertEquals("New", state.value.policyOn("sakura", "apt")?.name)
+			assertEquals("New", state.value.gateways.policyOn("sakura", "apt")?.name)
 			hold.gate.complete(Unit)
 			slow.join()
 		}
 
-		assertEquals("New", state.value.policyOn("sakura", "apt")?.name)
+		assertEquals("New", state.value.gateways.policyOn("sakura", "apt")?.name)
 	}
 
 	@Test
@@ -166,11 +169,11 @@ class PolicyOpsTest {
 		val state = admitting("sakura", "mikan")
 		val ops = PolicyOps(state, Host(fake))
 
-		runBlocking { ops.refreshAll(listOf("sakura", "mikan")) }
-		state.value = state.value.copy(admittedGateways = listOf("sakura"))
-		runBlocking { ops.refreshAll(listOf("sakura")) }
+		runBlocking { ops.refreshAll() }
+		state.value = state.value.copy(gateways = testRegistry("sakura"))
+		runBlocking { ops.refreshAll() }
 
-		assertEquals(listOf("sakura"), state.value.policies.map { it.gatewayId })
+		assertEquals(listOf("sakura"), state.value.drawn())
 	}
 
 	@Test
@@ -182,7 +185,7 @@ class PolicyOpsTest {
 		val stored = runBlocking { ops.save(policy("apt", examples = listOf("sudo apt update")), null, "sakura") }
 		// What the gateway stored is what the phone holds, not what it sent.
 		assertEquals(listOf("sudo apt"), (stored as PolicySaved.Stored).policy.selectorKeys)
-		assertEquals(policy("apt", examples = listOf("sudo apt")), state.value.policyOn("sakura", "apt"))
+		assertEquals(policy("apt", examples = listOf("sudo apt")), state.value.gateways.policyOn("sakura", "apt"))
 
 		val edited = runBlocking { ops.save(policy("apt", name = "Renamed"), 1L, "sakura") }
 		assertEquals("Renamed", (edited as PolicySaved.Stored).policy.name)
@@ -201,17 +204,17 @@ class PolicyOpsTest {
 		fake.shelves["sakura"] = listOf(policy("apt", revision = 2L))
 		val state = admitting("sakura")
 		val ops = PolicyOps(state, Host(fake))
-		runBlocking { ops.refreshAll(listOf("sakura")) }
+		runBlocking { ops.refreshAll() }
 
 		val stale = runBlocking { ops.setEnabled("apt", false, 1L, "sakura") }
 		assertEquals("revision 2 is stored; this edits 1", (stale as PolicySaved.Refused).reason)
 		assertEquals("revision 2 is stored; this edits 1", ops.toggleRefusalFor("sakura", "apt"))
 		// The row draws what the gateway holds after a refusal.
-		assertEquals(true, state.value.policyOn("sakura", "apt")?.enabled)
+		assertEquals(true, state.value.gateways.policyOn("sakura", "apt")?.enabled)
 
 		assertEquals(true, runBlocking { ops.setEnabled("apt", false, 2L, "sakura") } is PolicySaved.Stored)
 		assertEquals(null, ops.toggleRefusalFor("sakura", "apt"))
-		assertEquals(false, state.value.policyOn("sakura", "apt")?.enabled)
+		assertEquals(false, state.value.gateways.policyOn("sakura", "apt")?.enabled)
 	}
 
 	@Test
@@ -220,7 +223,7 @@ class PolicyOpsTest {
 		fake.shelves["sakura"] = listOf(policy("apt", revision = 2L))
 		val state = admitting("sakura")
 		val ops = PolicyOps(state, Host(fake))
-		runBlocking { ops.refreshAll(listOf("sakura")) }
+		runBlocking { ops.refreshAll() }
 
 		runBlocking {
 			val hold = Hold()
@@ -233,7 +236,7 @@ class PolicyOpsTest {
 		}
 
 		assertEquals(null, ops.toggleRefusalFor("sakura", "apt"))
-		assertEquals(false, state.value.policyOn("sakura", "apt")?.enabled)
+		assertEquals(false, state.value.gateways.policyOn("sakura", "apt")?.enabled)
 	}
 
 	@Test
@@ -243,13 +246,13 @@ class PolicyOpsTest {
 		fake.staleIds += "held"
 		val state = admitting("sakura")
 		val ops = PolicyOps(state, Host(fake))
-		runBlocking { ops.refreshAll(listOf("sakura")) }
+		runBlocking { ops.refreshAll() }
 
 		val refused = runBlocking { ops.delete("held", 1L, "sakura") }
 		assertEquals("revision 5 is stored", (refused as PolicyDeleted.Refused).reason)
-		assertEquals(listOf("apt", "held"), state.value.policiesOn("sakura").map { it.id })
+		assertEquals(listOf("apt", "held"), state.value.gateways.policiesOn("sakura").map { it.id })
 		assertEquals(PolicyDeleted.Deleted, runBlocking { ops.delete("apt", 1L, "sakura") })
-		assertEquals(listOf("held"), state.value.policiesOn("sakura").map { it.id })
+		assertEquals(listOf("held"), state.value.gateways.policiesOn("sakura").map { it.id })
 	}
 
 	@Test

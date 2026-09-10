@@ -16,7 +16,7 @@ internal object FailingClientPort : ClientPort {
 
 internal object IdlePresencePort : PresencePort {
 	override suspend fun refreshAfterAction() = Unit
-	override fun refreshAdmittedGateways() = Unit
+	override fun adoptHomeGateway() = Unit
 	override suspend fun reapplyCachedTeams() = Unit
 	override suspend fun restoreLastProjection() = Unit
 }
@@ -28,7 +28,18 @@ internal class RecordingPresencePort : PresencePort {
 	var restores = 0
 
 	override suspend fun refreshAfterAction() { refreshes++ }
-	override fun refreshAdmittedGateways() = Unit
+	override fun adoptHomeGateway() = Unit
 	override suspend fun reapplyCachedTeams() { reapplies++ }
 	override suspend fun restoreLastProjection() { restores++ }
 }
+
+/** Current roster of connected Gateways. */
+internal fun testRegistry(
+	vararg ids: String,
+	provenance: RegistryProvenance = RegistryProvenance.Current,
+): GatewayRegistry = GatewayRegistry(
+	provenance = provenance,
+	epoch = 1,
+	version = 1,
+	gateways = ids.map { GatewayEntry(it, connected = true, incarnation = 1, lastRegisteredAt = 1) }.sortedBy { it.id },
+)

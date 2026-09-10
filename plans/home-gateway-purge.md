@@ -416,7 +416,7 @@ Rules:
   dirty set at the end of a gateway frame, owner op, or enrollment op. Add events for display name,
   admin Domain, link edges, and registration.
 
-## Phase 1 - One owner of membership on the phone
+## Phase 1 - One owner of membership on the phone ✅
 
 - `GatewayRegistry` is one immutable value in `ChatState`, written only by
   `PresenceOps.landProjection` from the projection's roster. Per Gateway: `id`, `connected`,
@@ -465,12 +465,99 @@ Rules:
   Gateway disappears only when a `Current` roster omits it; a never-registered Gateway draws as a
   group with create disabled; `Cached` draws and refuses a membership mutation.
 
+- As built: `GatewayEntry` holds `id`, `connected`, `incarnation`, `lastRegisteredAt`,
+  `hostSpawns`, and the nullable answers `routines` (with `routineZone`), `runbooks`, `policies`;
+  null means the Gateway has not answered, so a tab still tells "could not be read" from "holds
+  nothing". `GatewayRegistry.landed` builds the roster from the projection and keeps a staying
+  Gateway's answers; `withEntry` is the one write for an answer, and it drops an answer for a
+  Gateway the roster does not name. The stored runbook library fills a new entry through
+  `PresenceHost.storedRunbooks`. `refreshAll()` takes no list on all three ops classes.
+  `RepositoryProvisioningHost.refreshAdmittedGateways` became `adoptHomeGateway`, which keeps the
+  home id only; `ChatRepository.keyringGateways` is read by it and by `ConnectCoordinator`.
+  `hostSpawnChoices` takes one Gateway's `hostSpawns`. `GatewayRegistry.reachable` is the one
+  rule for an action that needs membership: the roster is `Current` and the Router holds that
+  Gateway's connection. Create on the Sessions tab, `NewOnGatewayFab` (which takes the registry),
+  board assignment targets, and the journaled forget read it; `VaultOps.revoke` and
+  `canDeleteOwnDomain` wait for `Current`; `GatewayHeader` marks `Cached` as stale. A record action
+  on an answer already drawn (run, fire, save, toggle) names its Gateway and lets the Router refuse.
+  An accepted owner fact pulls the presence plane. `landProjection` trusts the slot's version check
+  and keeps no wall clock of its own. `ConsoleClient.fetchConnectedGateways` and its wire fixture
+  are gone. The sandbox seeds a `GatewayRegistry` built by `sandboxRegistry`, with `shelved` as the
+  never-registered one; the seed is the one write outside `landProjection`. `landed` keeps a
+  Gateway's answers only at the same incarnation, and the three tabs key their re-ask on
+  `incarnations()`, so a restarted Gateway is re-read. `keepPriorRow` takes the projection's
+  Domain only: every own-Domain row is the projection's to drop, and a friend Domain's rows keep
+  their last state. A tab on a `NeverLoaded` roster says so rather than "no Gateway could be
+  read". `AppStateStore.clearProvisioning` drops the Router slots with the Domain, so a new Domain
+  cannot restore the old one's roster as `Cached`. `applyOwnerProjection` compares nothing: the
+  plane cursor in `PollDrain` decides through `foldVersionedSlot`, and the land rewrites the slot,
+  so an unchanged Router's plane after a restart promotes the restore and repairs a slot the phone
+  could not read. `restoreLastProjection` runs once per provisioning and every caller awaits it.
+
 Rules:
 
 - The keyring says who may sign. The Router's roster says who is a Gateway on this phone. No
   screen reads the first.
 - A membership list is never a parameter.
 - `NeverLoaded` is not an empty roster.
+
+### Bug Classes
+
+- **Mechanism:** the versioned presence plane's comparator, on both ends.
+  **Class:** a plane the reader should land is hidden by a version compare that only asks "newer".
+  **Rounds:** one, the Router's `projectionPlane` started at version 0, which `readPlanes` hides
+  behind `version > known`, so a first projection never left the Router; two, the phone's
+  `applyOwnerProjection` refused a live plane equal to the slot, so a restart on an unchanged Router
+  held the roster at `Cached`; three, an unreadable slot was matched by version and never
+  rewritten, so one schema change to the projection killed the cached roster on every later boot.
+  Each round patched its own end. The comparator answers only "newer"; nothing says what a reader
+  does with "same" or "unreadable", and `newerRouterState` answers true for any epoch difference
+  in either direction, although an epoch is a random tag, so a plane from a lost epoch still in
+  flight lands over the minted one as `Current`. A third reader of a versioned slot (the board and
+  vault revision planes read the same shape) can repeat all of it.
+  **Follow-up:** `architecture-fan-out`, whether a versioned-slot reader should be one fold on the
+  phone (`versioned-list.ts` already names it for lists) that takes same, unreadable, and
+  unrelated-epoch as inputs. In the same pass: `Current` is minted and never demoted, so
+  `reachable` reads a roster the phone may not have verified since it lost its link; decide
+  whether provenance expires on link loss or the consumers say "last known" instead.
+  **Decided (architecture, lap 2):** the Router's console planes carried a bare integer, so
+  every reader between the socket and the fold compared integers and "unrelated lineage" had no
+  representation; the presence plane saw its epoch only because the payload repeats it, and the
+  board and vault planes had none. The lineage `{epoch, version}` now crosses the wire on
+  `planes_read`'s `known`, `PlaneRead`, the welcome's `versions` and the `plane` frame, one
+  Domain epoch shared by the three planes. `foldVersionedSlot` (`src/shared/versioned-slot.ts`,
+  `VersionedSlot.kt`, `tests/fixtures/versioned-slot/vectors.json`) is the one reader rule:
+  within a lineage the Router's version orders, across lineages the reader's own observation order
+  does, and a durable value carries none, so it takes any other lineage. `PollDrain` holds the
+  in-memory cursor and stamps observations at receipt; `PresenceOps.applyOwnerProjection` lands
+  and saves without comparing; `revisionPlaneDecision` folds a board or vault plane against the
+  manager's durable lineage, and another lineage drops the held list and fetches from zero. The
+  Router mints one epoch per Domain slice (`presenceService.lineageEpoch`) and serves no board or
+  vault plane until it is durable. Deleted: `newerRouterState`, `sameRouterState`, the two
+  open-coded copies of `mayApplyPlane`'s compare, `revisionPlane`'s `held >= version`, the `0`
+  that meant "could not be built", `RouterStateSlotTest` (which asserted the cross-epoch defect as
+  intended), and the `ConsoleTransportPlan` fields nothing read. Landed in the Phase 1 commit; the
+  class is closed.
+  **Deploy:** the wire is a clean break (`known`, `PlaneRead`, the welcome's `versions` and the
+  `plane` frame all carry a lineage and nothing optional), as the owner asked. Router first, then
+  the Gateway, then the APK over adb in the same sitting: a phone on the old build against the new
+  Router loses its plane frames until it updates.
+
+### Architecture findings carried forward
+
+- **Per-Gateway answer slot** (`GatewayAnswer<T>` / `GatewaySlot`): `RoutineOps`, `RunbookOps`,
+  `PolicyOps` write one read-model projection three times (fan-out, fence, `withEntry`,
+  refusals, drafts, `attempt`, empty state) and have drifted (only `PolicyOps` hides a refusal;
+  `RunbookOpsTest` has no fence case); vault grants bypass the registry and are never pruned;
+  the mechanics keyed `(gateway, id)` outlive an incarnation. Lands before Phase 6, whose `peers`
+  projection needs "with the read outcome". Board `bd_9784d356`, claimed.
+- **`Current` promises liveness and delivers provenance:** consumers sort into three buckets:
+  an action sends and lets the answer say, a display composes provenance with the Router link,
+  membership reads `ids()`/`has()`. Needs a `RouterLink` folded by `ConsoleTransportCoordinator`
+  from the reach outcomes both transports already produce and discard, published into
+  `ChatState`, and a `GatewayStanding` read beside the registry. Lands with Phase 2's Sessions
+  tab bullet, which already rewrites `showCreate` and the header's reachable flag. Board
+  `bd_f81c19f3`, claimed. Until then `reachable` is documented as what it is.
 
 ## Phase 2 - Every home reader the projection or the registry makes redundant
 
@@ -736,11 +823,10 @@ Collected after Phase 0. Not fixed here.
   `safeParse` plus a `resync` answer by hand; `shareService` (`cross_domain_share` frame),
   `vaultService` and `boardService` still throw. `ownerOpRegistry.ts` already parses the value
   before the handler sees it. The frame catalog should do the same.
-- **Plane version 0 is a silent convention.** `consoleSockets.readPlanes` (`known ?? 0`) and
+- **Plane version 0 was a silent convention.** `consoleSockets.readPlanes` (`known ?? 0`) and
   `PollDrain.mayApplyPlane` both read 0 as "nothing yet", while `presenceService.projectionPlane`
-  minted 0 as the first real version. Nothing named the rule until a fresh Domain's owner facts
-  never reached the phone. The floor is now 1 and one test pins it; the rule still lives in two
-  readers with no shared constant.
+  minted 0 as the first real version. Closed in Phase 1: the lineage crosses the wire and
+  `foldVersionedSlot` is the one reader.
 - **A dead result schema and a hand-written twin.** `ConsoleListTeamsResultSchema` has no
   consumer outside the codegen and carries optional `coverage` and `spawnPoints` "absent from an
   older gateway". `presenceExchange.ListTeamsRelayResultSchema` is an optional-field twin of the
@@ -761,3 +847,32 @@ Collected after Phase 0. Not fixed here.
 - **`teamInfoToTeam` still reads the relic.** `Team.gatewayId.ifEmpty { homeGatewayId }` and the
   nullable `Team.domainId` survive Phase 0 by design (Phase 2), and every Kotlin fixture that
   builds a `Team` carries the nullable parameter with them.
+
+Collected after Phase 1. Not fixed here.
+
+- **`ChatRepository` extensions are out of every gate's reach.** `applyPlane` and `revisionPlane`
+  are extensions on the whole repository, and `PollDrainTest` stubs `applyPlane` to `true`, so a
+  plane that was never acknowledged passed every gate until the red team traced it by hand. The
+  decision had to be lifted into `revisionPlaneDecision` to be pinned at all. Every extension file
+  (`ChatRepositoryInbox`, `ChatRepositoryThreads`, `ChatRepositoryDomainLink`) has the same shape.
+- **The tabs' empty state is written three ways inside composables.** `RoutinesScreen.emptyTitle`
+  is file-private, `RunbooksScreen` spells it inline, `PoliciesScreen` drops the middle case. No
+  JVM test can reach any of them. Goes with the per-Gateway answer slot (board `bd_9784d356`).
+- **The sandbox seeds only `Current`.** The stale mark, the `NeverLoaded` copy and every gate
+  refusal have no emulator route, so Phase 1 shipped UI states nothing here can draw.
+- **A served lineage can trail its payload.** `readPlanes` calls `planeVersions` and then
+  `readPlane`, which recomputes the presence projection; a delta between the two bumps the payload
+  past the wrapper. The cursor stamps the wrapper, the slot saves the payload. Self-heals next
+  tick; the two should be one computation.
+- **Two lineage folds per plane.** The in-memory cursor decides delivery, and behind it the
+  presence slot and the board and vault managers hold their own durable lineage and fold again
+  with no observation. Right today, but "the one cursor" is only the in-memory half.
+- **Records reach Kotlin as `JsonObject`.** The codegen cannot type `z.record`, so `known`,
+  `versions` and every lineage map is decoded by hand (`PollDrain.lineageOf`); a record-valued
+  field is a decode the compiler cannot check.
+- **Two callers for a once-only restore.** `ChatRepository.init` and `PollDrain.start` both call
+  `restoreLastProjection`; the idempotence sits inside `PresenceOps` behind a flag and a mutex
+  rather than one owner.
+- **Codex quota ran out mid-lap.** The Phase 1 architecture and red-team fan-outs ran on Opus and
+  Sonnet, and Sol was not available for the checkpoint read; the drain-until time was not visible
+  before the first refusal.

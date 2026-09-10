@@ -134,8 +134,18 @@ internal fun GatewayHeader(
 	// Whether the Router currently holds a connection for this machine. NULL means it did not say, and
 	// nothing is drawn: a machine is only ever called offline on an answer that arrived.
 	reachable: Boolean? = null,
+	// Roster may be stale.
+	stale: Boolean = false,
 ) {
 	CollapsibleSectionHeader(name, collapsed, onToggle) {
+		if (stale) {
+			Text(
+				"stale",
+				style = MaterialTheme.typography.labelSmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			Spacer(Modifier.width(8.dp))
+		}
 		// Shown BESIDE Create, not instead of it. This label used to be the else-branch of the Create
 		// button, which was fine while only one Gateway could offer one; once every own-Domain machine
 		// did, the label vanished from exactly the machines whose reachability is worth knowing, and a
@@ -149,9 +159,6 @@ internal fun GatewayHeader(
 			Spacer(Modifier.width(8.dp))
 		}
 		if (showCreate && onCreate != null) {
-			// A contained button (not a bare icon) reads as tappable on sight. Its own click region wins
-			// over the row's collapse-toggle for taps landing inside it. Still offered while offline: the
-			// op refuses and says so, which beats a machine whose controls quietly disappear.
 			Button(onClick = hapticClick(onCreate)) {
 				Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
 				Spacer(Modifier.width(6.dp))

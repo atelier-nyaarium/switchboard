@@ -40,24 +40,26 @@ fun PoliciesScreen(
 	onEdit: (String, String?) -> Unit,
 	modifier: Modifier = Modifier,
 ) {
-	val gateways = state.admittedGateways
-	LaunchedEffect(gateways) { repo.policyOps.refreshAll(gateways) }
+	LaunchedEffect(state.gateways.incarnations()) { repo.policyOps.refreshAll() }
 	val scope = rememberCoroutineScope()
-	val groups = state.policies
+	val groups = state.gateways.gateways.filter { it.policies != null }
 	val named = groups.size > 1
 	val toggleRefusals by repo.policyOps.toggleRefusals
 	val vaultRevision by repo.vault.revision
 	val entries = remember(vaultRevision) { repo.vaultOps.views() }
 
 	Box(modifier.fillMaxSize()) {
-		if (groups.all { it.policies.isEmpty() }) {
+		if (groups.all { it.policies.orEmpty().isEmpty() }) {
 			Column(
 				Modifier.fillMaxSize().padding(24.dp),
 				verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
 				horizontalAlignment = Alignment.CenterHorizontally,
 			) {
 				// Refused is hidden, so empty is not broken.
-				Text("No policies", style = MaterialTheme.typography.titleMedium)
+				Text(
+					if (state.gateways.loaded) "No policies" else "No roster yet",
+					style = MaterialTheme.typography.titleMedium,
+				)
 			}
 		} else {
 			LazyColumn(
@@ -68,24 +70,24 @@ fun PoliciesScreen(
 				for (group in groups) {
 					// Named only with several gateways.
 					if (named) {
-						item(key = "gateway:${group.gatewayId}") {
+						item(key = "gateway:${group.id}") {
 							Text(
-								group.gatewayId,
+								group.id,
 								style = MaterialTheme.typography.labelLarge,
 								modifier = Modifier.padding(top = 6.dp),
 							)
 						}
 					}
-					for (policy in group.policies) {
-						item(key = "policy:${group.gatewayId}:${policy.id}") {
+					for (policy in group.policies.orEmpty()) {
+						item(key = "policy:${group.id}:${policy.id}") {
 							PolicyRow(
 								policy = policy,
-								binding = bindingLine(policy, entries, group.gatewayId),
-								toggleRefusal = toggleRefusals[group.gatewayId to policy.id],
-								onEdit = { onEdit(group.gatewayId, policy.id) },
+								binding = bindingLine(policy, entries, group.id),
+								toggleRefusal = toggleRefusals[group.id to policy.id],
+								onEdit = { onEdit(group.id, policy.id) },
 								onEnable = { on ->
 									scope.launch {
-										repo.policyOps.setEnabled(policy.id, on, policy.revision, group.gatewayId)
+										repo.policyOps.setEnabled(policy.id, on, policy.revision, group.id)
 									}
 								},
 							)
@@ -95,7 +97,7 @@ fun PoliciesScreen(
 			}
 		}
 		NewOnGatewayFab(
-			gateways = gateways,
+			registry = state.gateways,
 			description = "New policy",
 			onNew = { onEdit(it, null) },
 			modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),

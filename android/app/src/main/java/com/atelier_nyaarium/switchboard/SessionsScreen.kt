@@ -22,7 +22,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.board.BoardLiveLine
 import com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceSession
-import com.atelier_nyaarium.switchboard.proto.GatewaySpawnPoints
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.proto.isComposite
 import com.atelier_nyaarium.switchboard.proto.parseSessionName
@@ -47,16 +46,15 @@ internal data class GatewayGroupKey(val domainId: String, val gatewayId: String)
 
 internal fun groupByGateway(
 	local: List<Team>,
-	admittedGateways: List<String>,
+	registry: GatewayRegistry,
 	adminDomainId: String,
 	homeGatewayId: String,
 ): List<Pair<GatewayGroupKey, List<Team>>> {
-	// Admit headless Gateways so idle machines remain actionable.
+	// Roster-only Gateways remain actionable.
 	val grouped = local.groupBy {
 		GatewayGroupKey(it.domainId.orEmpty().ifEmpty { adminDomainId }, it.gatewayId.ifEmpty { homeGatewayId })
 	}
-	val admitted =
-		admittedGateways.filter { it.isNotEmpty() && (adminDomainId.isNotEmpty() || it == homeGatewayId) }
+	val admitted = registry.ids().filter { adminDomainId.isNotEmpty() || it == homeGatewayId }
 	val empties =
 		admitted
 			.map { GatewayGroupKey(adminDomainId, it) }
@@ -78,9 +76,9 @@ internal fun hostSpawnLabel(id: String, offered: List<String>): String = when {
 	else -> id
 }
 
-internal fun hostSpawnChoices(advertised: List<GatewaySpawnPoints>, key: GatewayGroupKey): List<String> {
-	val offered = advertised.filter { it.groupKey() == key }.flatMap { it.hostSpawns }
-	val detected = offered.filter { it in HOST_SPAWN_IDS && it != "host" }.distinct().sorted()
+/** Advertised spawns beyond `host`. */
+internal fun hostSpawnChoices(hostSpawns: List<String>): List<String> {
+	val detected = hostSpawns.filter { it in HOST_SPAWN_IDS && it != "host" }.distinct().sorted()
 	return detected + "host"
 }
 
@@ -204,7 +202,7 @@ fun SessionsScreen(
 			// Linked peers remain visible before local Domain discovery.
 			val linkedDomains =
 				CrossDomainLink.mergeLinkedDomains(state.teams, state.linkedPeerOwners, adminDomainId, state.friendLabels())
-			val byGateway = groupByGateway(local, state.admittedGateways, adminDomainId, state.homeGatewayId)
+			val byGateway = groupByGateway(local, state.gateways, adminDomainId, state.homeGatewayId)
 			val onboarding = (byGateway.isEmpty() && linkedDomains.isEmpty()) ||
 				(local.isEmpty() && linkedDomains.isEmpty() && emptyBoardHasCause(state))
 			if (!onboarding) HealthHeader(state)
@@ -254,9 +252,8 @@ fun SessionsScreen(
 						val collapsed = composite in collapsedGateways.value
 						val isPeer = key.domainId.isNotEmpty() && adminDomainId.isNotEmpty() && key.domainId != adminDomainId
 						val headerName = if (isPeer) composite else key.gatewayId
-						// Peer Gateways cannot be local spawn targets.
-						val showCreate =
-							!isPeer && (key.gatewayId == state.homeGatewayId || key.gatewayId in state.admittedGateways)
+						// Only connected local Gateways offer spawns.
+						val showCreate = !isPeer && state.gateways.reachable(key.gatewayId)
 						fun localName(t: Team) = t.shortName
 						val spawnPoints = group.filter { it.kind == "devcontainer" }.sortedWith(order)
 						item(key = "sw:$composite") {
@@ -274,11 +271,12 @@ fun SessionsScreen(
 										domainId = key.domainId,
 										gatewayId = key.gatewayId,
 										isLocal = key.gatewayId == state.homeGatewayId,
-										projects = hostSpawnChoices(state.gatewaySpawnPoints, key) +
+										projects = hostSpawnChoices(state.gateways.hostSpawns(key.gatewayId)) +
 											spawnPoints.map { localName(it) }.filterNot { it in HOST_SPAWN_IDS },
 									)
 								},
-								reachable = if (isPeer) null else state.connectedGateways?.contains(key.gatewayId),
+								reachable = if (isPeer) null else state.gateways.connected(key.gatewayId),
+								stale = !isPeer && state.gateways.provenance == RegistryProvenance.Cached,
 							)
 						}
 						if (!collapsed) {

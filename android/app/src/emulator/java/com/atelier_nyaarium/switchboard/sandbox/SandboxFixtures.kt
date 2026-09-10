@@ -82,7 +82,7 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 		Presence.reported(status = Presence.ONLINE, authority = Authority.LIVE, mode = "channel")
 
 	/** Three admitted machines for two with sessions, so the board's idle-Gateway section is reachable. */
-	fun admittedGateways(): List<String> = listOf(GATEWAY, "parsing", "idle-box")
+	fun roster(): List<String> = listOf(GATEWAY, "parsing", "idle-box")
 
 	fun threads(): Map<String, List<Message>> = mapOf(SESSION to buildThread())
 

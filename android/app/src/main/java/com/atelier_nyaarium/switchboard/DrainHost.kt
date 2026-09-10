@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.ChannelFile
 import com.atelier_nyaarium.switchboard.proto.InboxRow
+import com.atelier_nyaarium.switchboard.proto.PlaneLineage
 import com.atelier_nyaarium.switchboard.proto.PlaneRead
 import com.atelier_nyaarium.switchboard.proto.SyncAdvance
 import com.atelier_nyaarium.switchboard.proto.SyncCursor
@@ -20,7 +21,7 @@ internal interface DrainHost {
 	val autoGenerate: Boolean
 
 	fun link(): ConsoleLink
-	fun plan(visible: Boolean, socket: Boolean, failed: Boolean): ConsoleTransportPlan
+	fun plan(visible: Boolean, failed: Boolean): ConsoleTransportPlan
 
 	/** Reads the gateway's routines, so a background pass learns a miss with no tab open. */
 	suspend fun refreshRoutines()
@@ -40,11 +41,11 @@ internal interface DrainHost {
 	fun decodeAttachments(files: List<ChannelFile>?): List<MessageFile>
 	fun fetchPendingAttachments()
 	suspend fun dispatchInboxRows(rows: List<InboxRow>)
-	/** True acknowledges `version`. */
-	suspend fun applyPlane(name: String, version: Long, payload: JsonElement?): Boolean
+	/** True acknowledges the lineage. */
+	suspend fun applyPlane(name: String, lineage: PlaneLineage, payload: JsonElement?): Boolean
 
-	suspend fun poll(known: Map<String, Long>): TickOutcome
-	/** Planes newer than the held versions. */
+	suspend fun poll(known: Map<String, HeldLineage>, observe: () -> Long): TickOutcome
+	/** Planes past the held lineages. */
 	suspend fun readPlanes(held: JsonObject): List<PlaneRead>?
 }
 
@@ -54,10 +55,9 @@ internal class ChatRepositoryDrainHost(private val repo: ChatRepository) : Drain
 	override val isVisible get() = repo.isVisible
 	override val autoGenerate get() = repo.sttsAutoGen
 	override fun link() = repo.transportCoordinator.link()
-	// The published set the tabs read. Membership has one source.
-	override suspend fun refreshRoutines() = repo.routineOps.refreshAll(repo.state.value.admittedGateways)
-	override fun plan(visible: Boolean, socket: Boolean, failed: Boolean) =
-		repo.transportCoordinator.plan(visible, socket, failed, repo.state.value.soonestRoutineAt())
+	override suspend fun refreshRoutines() = repo.routineOps.refreshAll()
+	override fun plan(visible: Boolean, failed: Boolean) =
+		repo.transportCoordinator.plan(visible, failed, repo.state.value.gateways.soonestRoutineAt())
 	override fun thisDeviceAddress() = repo.thisDeviceAddress()
 	override fun fromCanonical(value: String) = repo.fromCanonical(value)
 	override fun advanceMailbox(result: SyncPollResult<Drained>) = repo.mailboxSync.advance(result)
@@ -77,14 +77,16 @@ internal class ChatRepositoryDrainHost(private val repo: ChatRepository) : Drain
 	override fun decodeAttachments(files: List<ChannelFile>?) = Attachments.decode(files)
 	override fun fetchPendingAttachments() { repo.attachments.fetchPendingAttachments() }
 	override suspend fun dispatchInboxRows(rows: List<InboxRow>) { repo.dispatchInboxRows(rows) }
-	override suspend fun applyPlane(name: String, version: Long, payload: JsonElement?) = repo.applyPlane(name, version, payload)
+	override suspend fun applyPlane(name: String, lineage: PlaneLineage, payload: JsonElement?) =
+		repo.applyPlane(name, lineage, payload)
 
-	override suspend fun poll(known: Map<String, Long>) = drainTick(
+	override suspend fun poll(known: Map<String, HeldLineage>, observe: () -> Long) = drainTick(
 		repo.client(),
 		repo.transportCoordinator,
 		known,
+		observe,
 		onRows = { dispatchInboxRows(it) },
-		onPlane = { name, version, payload -> applyPlane(name, version, payload) },
+		onPlane = { name, lineage, payload -> applyPlane(name, lineage, payload) },
 	)
 
 	override suspend fun readPlanes(held: JsonObject) = repo.client().planesRead(held)?.planes

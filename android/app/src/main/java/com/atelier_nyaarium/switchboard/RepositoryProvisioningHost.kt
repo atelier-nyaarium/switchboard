@@ -17,7 +17,8 @@ internal interface RepositoryProvisioningHost {
 	fun clientOrNull(): ConsoleClient?
 	fun invalidateClient()
 	fun applyDomainSync(snapshot: DomainSnapshot, version: String)
-	fun refreshAdmittedGateways()
+	/** Keep home id on an admitted Gateway. */
+	fun adoptHomeGateway()
 	fun localDomain(): String
 	fun boardSealing(): BoardSealing?
 	fun vaultSealing(): VaultSealing?
@@ -66,18 +67,16 @@ internal class ChatRepositoryProvisioningHost(private val repo: ChatRepository) 
 	override fun applyDomainSync(snapshot: DomainSnapshot, version: String) {
 		repo.identity.applyDomainSync(snapshot, version)
 		invalidateClient()
-		refreshAdmittedGateways()
+		adoptHomeGateway()
 	}
 
-	override fun refreshAdmittedGateways() {
-		val ids = repo.sessions.keyringGateways()
-		val nextHome = selectHomeGateway(repo.homeGatewayId, ids)
+	override fun adoptHomeGateway() {
+		val nextHome = selectHomeGateway(repo.homeGatewayId, repo.keyringGateways())
 		if (nextHome != repo.homeGatewayId) {
 			repo.homeGatewayId = nextHome
 			repo.store.saveGatewayId(nextHome)
 		}
-		if (ids != repo._state.value.admittedGateways || nextHome != repo._state.value.homeGatewayId)
-			repo._state.update { it.copy(admittedGateways = ids, homeGatewayId = nextHome) }
+		if (nextHome != repo._state.value.homeGatewayId) repo._state.update { it.copy(homeGatewayId = nextHome) }
 	}
 
 	override fun localDomain(): String = repo.readyOrNull()?.domainId.orEmpty()

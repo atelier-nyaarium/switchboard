@@ -1,6 +1,10 @@
 {
 	"planes": [
-		{ "name": "taskBoard", "version": 147 },
-		{ "name": "presence", "version": 1432, "payload": { "plane": { "epoch": 771061653, "version": 1432 } } }
+		{ "name": "taskBoard", "lineage": { "epoch": 771061653, "version": 147 } },
+		{
+			"name": "presence",
+			"lineage": { "epoch": 771061653, "version": 1432 },
+			"payload": { "plane": { "epoch": 771061653, "version": 1432 } }
+		}
 	]
 }

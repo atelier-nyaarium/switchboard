@@ -84,7 +84,6 @@ class WireFixtureGenerator {
 		return listOf(
 			transportCase("postOwnerOp", "ConsoleRouterTransport.buildOwnerOpRequest", client.transport.buildOwnerOpRequest("https://router.test", ownerOp), expect = "{\"outcome\":\"complete\"}"),
 			transportCase("apiReachable", "ConsoleRouterTransport.buildHealthRequest", client.transport.buildHealthRequest("https://router.test"), expect = "{\"ok\":true,\"protocolVersion\":2}"),
-			transportCase("connectedGateways", "ConsoleClient.buildConnectedGatewaysRequest", client.buildConnectedGatewaysRequest("https://router.test"), expect = "{\"gateways\":[{\"gatewayId\":\"laptop\"}]}"),
 			transportCase("reach", "ConsoleRouterTransport.buildReachRequest", client.transport.buildReachRequest("https://router.test"), expect = "{\"domainId\":\"fixture-domain\"}"),
 			transportCase("socketUpgrade", "ConsoleSocketClient.buildSocketRequest", buildSocketRequest("https://router.test", world.consoleToken), "router.upgrade"),
 		)

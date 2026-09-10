@@ -74,8 +74,6 @@ internal class ConnectCoordinator(
 					pollFailStreak = 0,
 					homeGatewayId = host.homeGatewayId,
 					enrollingSince = 0L,
-					// Publish sessions and roster as one state update.
-					admittedGateways = host.keyringGateways(),
 				)
 			}
 			rosterDomainId(state.value.teams, host.homeGatewayId)?.let { identity.learnDomainId(it, blob) }
@@ -131,7 +129,7 @@ internal class ChatRepositoryConnectHost(private val repo: ChatRepository) : Con
 	override val consoleAdmitted get() = repo.store.consoleAdmitted
 
 	override fun saveGatewayId(id: String) = repo.store.saveGatewayId(id)
-	override fun keyringGateways() = repo.sessions.keyringGateways()
+	override fun keyringGateways() = repo.keyringGateways()
 	override fun withoutTombstoned(teams: List<Team>) = with(repo) { teams.withoutTombstoned() }
 
 	override suspend fun firstRootIfPending() = repo.ownerFacts.firstRootIfPending()

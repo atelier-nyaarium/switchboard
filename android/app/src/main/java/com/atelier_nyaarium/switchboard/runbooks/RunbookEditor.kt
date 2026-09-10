@@ -170,9 +170,7 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, o
 		// Named rather than counted: a routine pinning this stops, and only the owner can decide
 		// whether that is what they meant.
 		// This Gateway's routines only. Another Gateway's copy of the id is another runbook.
-		val pinning = repo.state.value.routines
-			.filter { it.gatewayId == gatewayId }
-			.flatMap { group -> group.routines }
+		val pinning = repo.state.value.gateways.routinesOn(gatewayId)
 			.filter { it.routine.runbookId == draft.id }
 			.map { it.routine.name }
 		AlertDialog(

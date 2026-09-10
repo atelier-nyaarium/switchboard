@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.crypto.opResultAadKind
 import com.atelier_nyaarium.switchboard.crypto.scheduledBodyAadKind
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
 import com.atelier_nyaarium.switchboard.proto.MailboxEntry
+import com.atelier_nyaarium.switchboard.proto.PlaneLineage
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -27,10 +28,10 @@ internal suspend fun ChatRepository.reportConsumerCapabilities() {
 	client().postOwnerOp(signed)
 }
 
-/** True acknowledges the version; a revision plane is acknowledged only once the list has landed. */
-internal suspend fun ChatRepository.applyPlane(name: String, version: Long, payload: JsonElement?): Boolean {
-	if (name == "taskBoard") return revisionPlane(name, version, board.routerRevision) { boardOps.refreshBoard() }
-	if (name == "vault") return revisionPlane(name, version, vault.routerRevision) { vaultOps.refresh() }
+/** True acknowledges the lineage; a revision plane is acknowledged only once the list has landed. */
+internal suspend fun ChatRepository.applyPlane(name: String, lineage: PlaneLineage, payload: JsonElement?): Boolean {
+	if (name == "taskBoard") return revisionPlane(name, lineage, board.planeLineage(), board::adoptEpoch) { boardOps.refreshBoard() }
+	if (name == "vault") return revisionPlane(name, lineage, vault.planeLineage(), vault::adoptEpoch) { vaultOps.refresh() }
 	if (name != "presence" || payload == null) return false
 	val projection = runCatching {
 		wireJson.decodeFromJsonElement(com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection.serializer(), payload)
@@ -39,19 +40,27 @@ internal suspend fun ChatRepository.applyPlane(name: String, version: Long, payl
 	return true
 }
 
-// A plane the list never reaches is fetched at most once a minute.
-private const val PLANE_FETCH_RETRY_MS = 60_000L
-
-private fun ChatRepository.revisionPlane(name: String, version: Long, held: Long, fetch: () -> Unit): Boolean {
-	if (held >= version) {
-		planeFetchedAt.remove(name)
-		return true
-	}
+private fun ChatRepository.revisionPlane(
+	name: String,
+	incoming: PlaneLineage,
+	held: HeldLineage,
+	adopt: (Long) -> Unit,
+	fetch: () -> Unit,
+): Boolean {
 	val now = System.currentTimeMillis()
-	if (now - (planeFetchedAt[name] ?: 0L) < PLANE_FETCH_RETRY_MS) return false
-	planeFetchedAt[name] = now
-	fetch()
-	return false
+	return when (val decision = revisionPlaneDecision(held, incoming, planeFetchedAt[name], now)) {
+		RevisionPlaneDecision.Acknowledge -> {
+			planeFetchedAt.remove(name)
+			true
+		}
+		RevisionPlaneDecision.Wait -> false
+		is RevisionPlaneDecision.Fetch -> {
+			planeFetchedAt[name] = now
+			adopt(decision.epoch)
+			fetch()
+			false
+		}
+	}
 }
 
 private suspend fun ChatRepository.dispatchKeyRows(rows: List<com.atelier_nyaarium.switchboard.proto.InboxRow>) {

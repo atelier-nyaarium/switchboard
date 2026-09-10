@@ -85,11 +85,14 @@ class RoutineOpsTest {
 
 	private class Host(override val gateway: RoutineGateway?) : RoutineHost
 
-	private fun ChatState.on(gatewayId: String) = routines.find { it.gatewayId == gatewayId }
+	private fun ChatState.on(gatewayId: String) = gateways.entry(gatewayId)
 
-	/** What the keyring published, which is the one authority on which groups may be drawn. */
+	/** Drawn Gateway answers. */
+	private fun ChatState.drawn() = gateways.gateways.filter { it.routines != null }.map { it.id }
+
+	/** Roster controls drawn groups. */
 	private fun admitting(vararg gatewayIds: String) =
-		MutableStateFlow(ChatState(admittedGateways = gatewayIds.toList()))
+		MutableStateFlow(ChatState(gateways = testRegistry(*gatewayIds)))
 
 	@Test
 	fun everyAdmittedGatewayIsDrawnRatherThanOneOfThem() {
@@ -101,12 +104,12 @@ class RoutineOpsTest {
 		val state = admitting("sakura", "mikan")
 		val ops = RoutineOps(state, Host(fake))
 
-		runBlocking { ops.refreshAll(listOf("sakura", "mikan")) }
+		runBlocking { ops.refreshAll() }
 
-		assertEquals(listOf("mikan", "sakura"), state.value.routines.map { it.gatewayId })
+		assertEquals(listOf("mikan", "sakura"), state.value.drawn())
 		// Each gateway's own zone, since a schedule read against another's is a wrong time on screen.
-		assertEquals("America/Los_Angeles", state.value.on("sakura")?.zone)
-		assertEquals("Europe/London", state.value.on("mikan")?.zone)
+		assertEquals("America/Los_Angeles", state.value.on("sakura")?.routineZone)
+		assertEquals("Europe/London", state.value.on("mikan")?.routineZone)
 		assertEquals("Elsewhere", state.value.on("mikan")?.routines?.single()?.routine?.name)
 	}
 
@@ -118,9 +121,9 @@ class RoutineOpsTest {
 		val state = admitting("sakura", "mikan")
 		val ops = RoutineOps(state, Host(fake))
 
-		runBlocking { ops.refreshAll(listOf("sakura", "mikan")) }
+		runBlocking { ops.refreshAll() }
 
-		assertEquals(listOf("sakura"), state.value.routines.map { it.gatewayId })
+		assertEquals(listOf("sakura"), state.value.drawn())
 	}
 
 	@Test
@@ -170,12 +173,12 @@ class RoutineOpsTest {
 		val state = admitting("sakura", "mikan")
 		val ops = RoutineOps(state, Host(fake))
 
-		runBlocking { ops.refreshAll(listOf("sakura", "mikan")) }
-		state.value = state.value.copy(admittedGateways = listOf("sakura"))
-		runBlocking { ops.refreshAll(listOf("sakura")) }
+		runBlocking { ops.refreshAll() }
+		state.value = state.value.copy(gateways = testRegistry("sakura"))
+		runBlocking { ops.refreshAll() }
 
 		// Revoked, so its rows go rather than lingering as something the owner can still act on.
-		assertEquals(listOf("sakura"), state.value.routines.map { it.gatewayId })
+		assertEquals(listOf("sakura"), state.value.drawn())
 	}
 
 	@Test
@@ -190,14 +193,14 @@ class RoutineOpsTest {
 			// A second Gateway is admitted and drawn while this pass is still running.
 			val gate = CompletableDeferred<Unit>()
 			fake.held["sakura"] = gate
-			val old = async { ops.refreshAll(listOf("sakura")) }
-			state.value = state.value.copy(admittedGateways = listOf("sakura", "mikan"))
+			val old = async { ops.refreshAll() }
+			state.value = state.value.copy(gateways = testRegistry("sakura", "mikan"))
 			ops.refresh("mikan")
 			gate.complete(Unit)
 			old.await()
 		}
 
-		assertEquals(listOf("mikan", "sakura"), state.value.routines.map { it.gatewayId })
+		assertEquals(listOf("mikan", "sakura"), state.value.drawn())
 	}
 
 	@Test

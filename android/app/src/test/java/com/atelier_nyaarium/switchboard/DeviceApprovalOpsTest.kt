@@ -39,7 +39,7 @@ class DeviceApprovalOpsTest {
 		) = true
 		override fun invalidateClients() = Unit
 		override suspend fun submitOwnerAdmission(signed: SignedAdmission) = true
-		override fun refreshAdmittedGateways() = Unit
+		override fun adoptHomeGateway() = Unit
 		override fun reportError() = null
 	}
 }

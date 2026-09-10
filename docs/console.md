@@ -82,9 +82,49 @@ Six jobs, each resolving or identifying:
 
 **It is not a visibility filter, and a screen that reads it to decide what to draw is a bug.** A
 document that states only how it is selected invites exactly that, which is why the jobs are listed.
-The Routines, Runbooks and Policies tabs read `admittedGateways` and group by Gateway. The Policies
+The Routines, Runbooks and Policies tabs read `ChatState.gateways` and group by Gateway. The Policies
 tab rides the vault plugin, since a policy binds a secret. A Gateway that refuses `policy_list` is
 drawn as nothing, since an older build refuses an unknown op.
+
+### `GatewayRegistry`, the one owner of membership
+
+The Router's presence projection carries the Domain's roster, and `PresenceOps.landProjection` is
+the only writer of `ChatState.gateways`. The keyring says who may sign; the roster says who is a
+Gateway on this phone, and no screen reads the keyring. Each entry carries what the Router said
+(`connected`, `incarnation`, `lastRegisteredAt`, `hostSpawns`) and what that Gateway answered
+(`routines`, `runbooks`, `policies`), written through `withEntry`, which drops an answer for a
+Gateway the roster does not name. A restarted Gateway is re-asked: `landed` keeps answers only at
+the same incarnation, and the tabs key their re-read on `incarnations()`.
+
+The registry has a provenance. `NeverLoaded` is not an empty roster; `Cached` is the last slot on
+disk, landed once before the first poll and drawn with a stale mark; `Current` is a live
+projection. `reachable(id)` says the roster is `Current` and the Router holds that Gateway's
+connection; Create and the new-record button read it. Board assignment targets read membership
+alone, since an assignment is intent the Router holds. A journaled forget, a vault revoke, and
+deleting the own Domain wait for a `Current` roster.
+`PollDrain`'s plane cursor decides what lands (below); `applyOwnerProjection` lands and rewrites
+the slot without comparing, so an unchanged Router's plane after a restart promotes the restore and
+repairs a slot the phone could not read. `clearProvisioning` drops the Router slots with the Domain.
+
+### Plane lineage, the one reader rule
+
+Every Router-held plane the console reads (`presence`, `taskBoard`, `vault`) stands at a
+`PlaneLineage { epoch, version }`: the epoch is a random tag minted once per Domain slice and
+compared for equality only, the version orders inside it. It travels on `planes_read`'s `known`,
+on each `PlaneRead`, on the socket welcome's `versions`, and on the `plane` frame. The Router serves
+a plane unless the console holds that lineage at that version or past it.
+
+`foldVersionedSlot` (`src/shared/versioned-slot.ts`, `VersionedSlot.kt`, pinned by
+`tests/fixtures/versioned-slot/vectors.json`) is the one comparison on the phone: within a lineage
+the Router's version orders; across lineages the reader's own observation order does, since a random
+epoch cannot be ranked; a durable value carries no observation, so it takes any other lineage.
+`PollDrain` holds the in-memory cursor for every plane, stamps each arrival as it enters the process,
+and never persists it, so a cold boot re-reads every plane; behind it, the presence slot and the
+board and vault managers hold their own durable lineage. A board or vault plane past the manager's
+list fetches, at most once a minute; one held or behind is acknowledged. Another lineage drops the
+held list and fetches from zero; the first lineage a manager sees keeps its entries and fetches from
+zero. Pull-to-refresh asks the Router for every plane and lets the fold decide, so nothing is
+re-landed that the phone already holds.
 
 One filter remains: `TrustOps.shareableSessions` offers only sessions on this Gateway, and the share
 it feeds sends `requesterGatewayId = homeGatewayId()`. Widening the list alone would offer sessions

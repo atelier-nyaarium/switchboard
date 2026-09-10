@@ -66,7 +66,7 @@ class ProtocolFixturesTest {
 		val owner = wireJson.decodeFromString<OwnerOp>(fixture("owner-op.json"))
 		assertTrue(owner.at > Int.MAX_VALUE.toLong())
 		val planes = wireJson.decodeFromString<PlanesReadValue>(fixture("planes-read-value.json"))
-		assertEquals(4294967296L, planes.known["presence"]!!.jsonPrimitive.long)
+		assertEquals(4294967296L, planes.known["presence"]!!.jsonObject["version"]!!.jsonPrimitive.long)
 	}
 
 	@Test

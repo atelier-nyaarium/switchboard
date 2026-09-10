@@ -108,22 +108,19 @@ suspend fun ChatRepository.setEndpoint(host: String, port: Int, certFp: String) 
 
 suspend fun ChatRepository.connect() = withContext(Dispatchers.IO) { connector.connect() }
 
-/** This owner's display name. */
-fun ChatRepository.displayName(): String = state.value.displayName.ifEmpty { readyOrNull()?.domainId.orEmpty() }
+/** Router name, then stored name, then Domain id. */
+fun ChatRepository.displayName(): String =
+	state.value.owner?.displayName ?: store.displayName.ifEmpty { readyOrNull()?.domainId.orEmpty() }
 
 /** Router-stated admin Domain. */
 fun ChatRepository.isAdmin(): Boolean = _state.value.owner?.isAdminDomain == true
 
 /** True only for non-admin owner Domains. */
 fun ChatRepository.canDeleteOwnDomain(): Boolean {
-	val owner = _state.value.owner ?: return false
-	return !owner.isAdminDomain && owner.domainId == readyOrNull()?.domainId
+	val held = _state.value
+	val owner = held.owner ?: return false
+	return held.gateways.current && !owner.isAdminDomain && owner.domainId == readyOrNull()?.domainId
 }
-
-// Display name.
-
-/** Cached display name. */
-fun ChatRepository.localDisplayName(): String = _state.value.displayName
 
 suspend fun ChatRepository.setDeviceName(name: String) = withContext(Dispatchers.IO) {
 	val blob = store.load() ?: return@withContext

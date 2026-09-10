@@ -113,9 +113,6 @@ internal class SessionOps(
 			.getOrElse { DirListing(emptyList(), error = dirListError(it)) }
 	}
 
-	// Keyring gateways include admitted owner machines, never linked friends.
-	fun keyringGateways(): List<String> = host.keyringGateways()
-
 	val terminalRefreshMs: Long get() = host.terminalRefreshMs
 
 	fun setTerminalRefreshMs(ms: Long) {
@@ -204,7 +201,10 @@ internal class SessionOps(
 	fun forget(team: String, boardDisposition: String? = null, onForgotten: (() -> Unit)? = null) {
 		val key = host.canonicalTarget(team)
 		val t = runCatching { parseTarget(team, host.localDomain, host.state.value.homeGatewayId) }.getOrNull()
-		val pending = if (t is Address && t.isLocalTo(host.localDomain, keyringGateways().toSet())) journalForget(key, boardDisposition) else null
+		// Journaled for a Gateway the current roster names; a stale roster tombstones only.
+		val registry = host.state.value.gateways
+		val local = t is Address && registry.current && t.isLocalTo(host.localDomain, registry.ids().toSet())
+		val pending = if (local) journalForget(key, boardDisposition) else null
 		host.forgottenUntil[key] = if (pending?.journaled == true) FORGET_HELD else System.currentTimeMillis() + host.forgetTombstoneMs
 		var dropped: List<Message> = emptyList()
 		val priorDraft = host.state.value.drafts[key]

@@ -204,7 +204,7 @@ describe("federation harness", () => {
 			() => pushedPlane(socket, "presence", (payload) => carries(payload, pushed.team)),
 			"presence plane push",
 		);
-		expect(plane.version).toBeGreaterThan(0);
+		expect((plane.lineage as { version: number }).version).toBeGreaterThan(0);
 	});
 
 	it("pushes the owner's new name to a console socket when the Router accepts a rename", async () => {

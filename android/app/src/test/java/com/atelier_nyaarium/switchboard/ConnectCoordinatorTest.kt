@@ -84,7 +84,8 @@ class ConnectCoordinatorTest {
 		assertNull(state.value.error)
 		assertEquals("gw", state.value.homeGatewayId)
 		assertEquals("gw", host.savedGatewayId)
-		assertEquals(listOf("gw"), state.value.admittedGateways)
+		// Connect publishes no roster.
+		assertEquals(GatewayRegistry(), state.value.gateways)
 		assertTrue(identity.bootState.value is BootState.Ready)
 		assertTrue(host.capabilitiesReported)
 		assertTrue(host.ingestAttached)

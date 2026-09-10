@@ -88,7 +88,7 @@ fun UsersScreen(
 	var activeTrust by remember { mutableStateOf<TrustLaunch?>(null) }
 	// The Sharing surface, opened from a row's "Manage shares"; overlays the roster.
 	var showSharing by remember { mutableStateOf(false) }
-	val myName = chat.displayName.ifEmpty { repo.displayName() }
+	val myName = chat.owner?.displayName ?: repo.displayName()
 	val myFingerprint = myOwnerKeys?.sas?.replace("-", " · ").orEmpty()
 
 	// owner key -> how many of my sessions that trusted person can reach (the "N shared sessions" line).

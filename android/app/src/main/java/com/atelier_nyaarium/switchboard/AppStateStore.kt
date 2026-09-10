@@ -127,7 +127,8 @@ class AppStateStore internal constructor(
 
 	/** Wipes provisioning-owned keys only. */
 	fun clearProvisioning() {
-		prefs.edit().apply { PROVISIONING_KEYS.forEach { remove(it) } }.apply()
+		val routerState = prefs.all.keys.filter { it.startsWith(KEY_ROUTER_STATE_PREFIX) }
+		prefs.edit().apply { (PROVISIONING_KEYS + routerState).forEach { remove(it) } }.apply()
 	}
 
 	var biometricLock: Boolean

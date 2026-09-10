@@ -12,7 +12,6 @@ import kotlinx.coroutines.withContext
 
 internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision {
 	private val projectionMutex = Mutex()
-	private var lastProjectionAt = 0L
 
 	// Raw rows remain available for tombstone expiry recovery.
 	@Volatile var lastRawTeams: List<Team>? = null
@@ -21,8 +20,8 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 
 	override suspend fun clearInMemory() {
 		lastRawTeams = null
-		lastProjectionAt = 0L
 		lastReportedReadAnchors = emptyMap()
+		restoreMutex.withLock { restored = false }
 	}
 
 	/** Cached facts cannot overwrite names. */
@@ -30,7 +29,7 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 		val name = if (live) stated.displayName.orEmpty() else host.storedDisplayName
 		if (name != host.storedDisplayName) host.storedDisplayName = name
 		val owner = stated.copy(displayName = name.ifEmpty { null })
-		host.state.update { if (it.owner == owner && it.displayName == name) it else it.copy(owner = owner, displayName = name) }
+		host.state.update { if (it.owner == owner) it else it.copy(owner = owner) }
 	}
 
 	suspend fun applyLinkedPeers(peers: List<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry>) {
@@ -78,80 +77,55 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 	}
 
 	suspend fun refreshTeams() = withContext(Dispatchers.IO) {
-		host.resetPlaneCursors()
-		refreshPresencePlane()
+		runCatchingCancellable { host.pullPlanes(everything = true) }
 	}
 
-	private suspend fun refreshPresencePlane() {
-		runCatchingCancellable { host.fetchPresencePlanes() }
-			.onSuccess { result ->
-				val payload = result?.planes?.firstOrNull { it.name == "presence" }?.payload ?: return@onSuccess
-				val projection = wireJson.decodeFromJsonElement(
-					com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection.serializer(),
-					payload,
-				)
-				applyOwnerProjection(projection)
-			}
-	}
+	private val restoreMutex = Mutex()
+	private var restored = false
 
-	suspend fun restoreLastProjection() {
-		val slot = runCatching { host.loadRouterState("presence") }.getOrNull() ?: return
+	/** Once per provisioning; every caller may await it. */
+	suspend fun restoreLastProjection() = restoreMutex.withLock {
+		if (restored) return@withLock
+		restored = true
+		val slot = runCatching { host.loadRouterState("presence") }.getOrNull() ?: return@withLock
 		val projection = runCatching {
 			wireJson.decodeFromJsonElement(OwnerPresenceProjection.serializer(), slot.payload)
-		}.getOrNull() ?: return
+		}.getOrNull() ?: return@withLock
 		host.withDrainMutex {
 			projectionMutex.withLock {
 				if (lastRawTeams != null) return@withLock
-				landProjection(projection, bypassFreshness = true)
+				landProjection(projection, live = false)
 			}
 		}
 	}
 
+	/** The cursor's fold has already decided; the slot follows the land. */
 	suspend fun applyOwnerProjection(projection: OwnerPresenceProjection) = host.withDrainMutex { projectionMutex.withLock {
-		// Version check, save, and apply share one lock.
-		val stale = runCatching {
-			val slot = RouterStateSlot(
-				epoch = projection.plane.epoch,
-				version = projection.plane.version,
-				payload = wireJson.encodeToJsonElement(OwnerPresenceProjection.serializer(), projection),
+		landProjection(projection, live = true)
+		runCatching {
+			host.saveRouterState(
+				"presence",
+				RouterStateSlot(
+					epoch = projection.plane.epoch,
+					version = projection.plane.version,
+					payload = wireJson.encodeToJsonElement(OwnerPresenceProjection.serializer(), projection),
+				),
 			)
-			if (!newerRouterState(slot, host.loadRouterState("presence"))) return@runCatching true
-			host.saveRouterState("presence", slot)
-			false
-		}.getOrDefault(false)
-		if (!stale) {
-			lastProjectionAt = System.currentTimeMillis()
-			landProjection(projection)
 		}
 	} }
 
-	private suspend fun landProjection(projection: OwnerPresenceProjection, bypassFreshness: Boolean = false) {
-		if (!bypassFreshness && System.currentTimeMillis() < lastProjectionAt) return
-		applyOwnerFacts(projection.owner, live = !bypassFreshness)
-		applyPlanePresenceLocked(
-			projection.rows.map { teamInfoToTeam(it, host.homeGatewayId) },
-			projection.roster.mapTo(HashSet()) { it.gatewayId },
-		)
+	private suspend fun landProjection(projection: OwnerPresenceProjection, live: Boolean) {
+		applyOwnerFacts(projection.owner, live)
+		val provenance = if (live) RegistryProvenance.Current else RegistryProvenance.Cached
+		host.state.update { it.copy(gateways = it.gateways.landed(projection, provenance, host::storedRunbooks)) }
+		applyPlanePresenceLocked(projection.rows.map { teamInfoToTeam(it, host.homeGatewayId) }, projection.owner.domainId)
 		applyCrossDomainPresence(projection.linked)
-		if (projection.spawnPoints != host.state.value.gatewaySpawnPoints) {
-			host.state.update { it.copy(gatewaySpawnPoints = projection.spawnPoints) }
-		}
 	}
 
-	private suspend fun applyPlanePresenceLocked(planeRows: List<Team>, coveredGateways: Set<String>) {
-		// Only pushed rows become live.
-		val local = host.homeGatewayId
+	private suspend fun applyPlanePresenceLocked(planeRows: List<Team>, planeDomain: String) {
 		val fresh = planeRows.map { it.withAuthority(Authority.LIVE) }
-		val planeDomain = fresh.firstOrNull()?.domainId
-		val merged = mergePresence(lastRawTeams ?: emptyList(), fresh) { row ->
-			keepPriorRow(row, local, planeDomain, coveredGateways)
-		}
+		val merged = mergePresence(lastRawTeams ?: emptyList(), fresh) { row -> keepPriorRow(row, planeDomain) }
 		applyPresenceLocked(merged)
-	}
-
-	suspend fun refreshConnectedGateways() {
-		val ids = runCatchingCancellable { host.fetchConnectedGateways() }.getOrNull() ?: return
-		if (ids != host.state.value.connectedGateways) host.state.update { it.copy(connectedGateways = ids) }
 	}
 
 	private suspend fun applyPresenceLocked(fresh: List<Team>) {
@@ -176,7 +150,7 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 		val now = System.currentTimeMillis()
 		if (now - lastActionPullAt < ACTION_PULL_DEBOUNCE_MS) return
 		lastActionPullAt = now
-		refreshPresencePlane()
+		runCatchingCancellable { host.pullPlanes() }
 	}
 
 	suspend fun reapplyCachedTeams() {

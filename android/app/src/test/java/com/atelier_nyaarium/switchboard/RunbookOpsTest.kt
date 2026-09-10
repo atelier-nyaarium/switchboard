@@ -104,11 +104,10 @@ class RunbookOpsTest {
 		revision = revision,
 	)
 
-	private fun ChatState.books(gatewayId: String = GW) =
-		runbooks.find { it.gatewayId == gatewayId }?.runbooks.orEmpty()
+	private fun ChatState.books(gatewayId: String = GW) = gateways.runbooksOn(gatewayId)
 
 	private fun opsOver(library: List<Runbook>): Pair<RunbookOps, MutableStateFlow<ChatState>> {
-		val state = MutableStateFlow(ChatState())
+		val state = MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER)))
 		val host = NoGateway()
 		host.library.merge(GW, library)
 		return RunbookOps(state, host) to state
@@ -141,7 +140,7 @@ class RunbookOpsTest {
 	@Test
 	fun aSaveSendsTheBaseItReadAndKeepsTheRevisionTheGatewayNamed() {
 		val host = WithGateway()
-		val state = MutableStateFlow(ChatState())
+		val state = MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER)))
 		val ops = RunbookOps(state, host)
 
 		val first = kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L), GW) }
@@ -161,7 +160,7 @@ class RunbookOpsTest {
 	@Test
 	fun aRetryOfAnAnswerThatWasLostIsNotASecondEdit() {
 		val host = WithGateway()
-		val ops = RunbookOps(MutableStateFlow(ChatState()), host)
+		val ops = RunbookOps(MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER))), host)
 		kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L), GW) }
 
 		// The editor never heard, so it names the base it read rather than the one now stored.
@@ -175,7 +174,7 @@ class RunbookOpsTest {
 	@Test
 	fun aSaveTheGatewayRefusesLeavesTheLibraryAlone() {
 		val host = WithGateway()
-		val state = MutableStateFlow(ChatState())
+		val state = MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER)))
 		val ops = RunbookOps(state, host)
 		kotlinx.coroutines.runBlocking { ops.save(book("a", revision = 1L), GW) }
 
@@ -214,7 +213,7 @@ class RunbookOpsTest {
 	@Test
 	fun oneGatewaysGroupIsReplacedWithoutDisturbingAnother() {
 		val host = WithGateway()
-		val state = MutableStateFlow(ChatState())
+		val state = MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER)))
 		val ops = RunbookOps(state, host)
 
 		kotlinx.coroutines.runBlocking {
@@ -230,7 +229,7 @@ class RunbookOpsTest {
 	@Test
 	fun refreshingOneGatewayDoesNotReopenTheSyncOnAnother() {
 		val host = WithGateway()
-		val ops = RunbookOps(MutableStateFlow(ChatState()), host)
+		val ops = RunbookOps(MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER))), host)
 
 		kotlinx.coroutines.runBlocking {
 			ops.save(book("a"), OTHER)
@@ -246,7 +245,7 @@ class RunbookOpsTest {
 	@Test
 	fun aGatewayThatKeepsItKeepsThePhonesCopyToo() {
 		val host = WithGateway()
-		val state = MutableStateFlow(ChatState())
+		val state = MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER)))
 		val ops = RunbookOps(state, host)
 		host.library.merge(GW, listOf(book("a")))
 
@@ -275,7 +274,7 @@ class RunbookOpsTest {
 	@Test
 	fun aRefusalOnOneGatewayLeavesTheEditorOnAnotherUnblocked() {
 		val host = WithGateway()
-		val ops = RunbookOps(MutableStateFlow(ChatState()), host)
+		val ops = RunbookOps(MutableStateFlow(ChatState(gateways = testRegistry(GW, OTHER))), host)
 
 		kotlinx.coroutines.runBlocking {
 			ops.save(book("a", revision = 1L), GW)

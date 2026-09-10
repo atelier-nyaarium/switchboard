@@ -33,15 +33,15 @@ import androidx.compose.ui.unit.dp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NewOnGatewayFab(
-	gateways: List<String>,
+	registry: GatewayRegistry,
 	description: String,
 	onNew: (String) -> Unit,
 	modifier: Modifier = Modifier,
 ) {
 	var picking by remember { mutableStateOf(false) }
-	if (gateways.isEmpty()) return
-	// By id, as the tab does. The keyring leads with home.
-	val offered = remember(gateways) { gateways.sorted() }
+	// Only a Gateway the current roster can reach takes a new record.
+	val offered = remember(registry) { registry.reachableIds().sorted() }
+	if (offered.isEmpty()) return
 
 	FloatingActionButton(
 		onClick = hapticClick { if (offered.size > 1) picking = true else onNew(offered.first()) },

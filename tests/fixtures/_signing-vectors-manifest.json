@@ -20,6 +20,7 @@
 		"sync-cursor",
 		"transport-request",
 		"versioned-list",
+		"versioned-slot",
 		"xdomain-link"
 	]
 }

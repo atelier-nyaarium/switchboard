@@ -35,20 +35,23 @@ class GatewayScopedStateTest {
 		since = 0L,
 	)
 
-	private val state = ChatState(
-		runbooks = listOf(
-			GatewayRunbooks("sakura", listOf(book("shared", "Here"))),
-			GatewayRunbooks("mikan", listOf(book("shared", "There"), book("only-there", "Only there"))),
-		),
-		routines = listOf(
-			GatewayRoutines("sakura", listOf(RoutineState(routine("triage", "Here"), nextAt = 900L)), "America/Los_Angeles"),
-			GatewayRoutines("mikan", listOf(RoutineState(routine("triage", "There"), nextAt = 300L)), "Europe/London"),
-		),
-		policies = listOf(
-			GatewayPolicies("sakura", listOf(policy("apt", "Here"))),
-			GatewayPolicies("mikan", listOf(policy("apt", "There"))),
-		),
-	)
+	private val state = testRegistry("sakura", "mikan")
+		.withEntry("sakura") {
+			it.copy(
+				runbooks = listOf(book("shared", "Here")),
+				routines = listOf(RoutineState(routine("triage", "Here"), nextAt = 900L)),
+				routineZone = "America/Los_Angeles",
+				policies = listOf(policy("apt", "Here")),
+			)
+		}
+		.withEntry("mikan") {
+			it.copy(
+				runbooks = listOf(book("shared", "There"), book("only-there", "Only there")),
+				routines = listOf(RoutineState(routine("triage", "There"), nextAt = 300L)),
+				routineZone = "Europe/London",
+				policies = listOf(policy("apt", "There")),
+			)
+		}
 
 	private fun policy(id: String, name: String) = AuthorizationPolicy(
 		id = id,
@@ -91,6 +94,30 @@ class GatewayScopedStateTest {
 	fun thePhoneWakesForTheSoonestRunOnAnyGateway() {
 		assertEquals(300L, state.soonestRoutineAt())
 		// Nothing scheduled anywhere leaves the wake to whatever else asks for one.
-		assertEquals(null, ChatState().soonestRoutineAt())
+		assertEquals(null, GatewayRegistry().soonestRoutineAt())
+	}
+
+	@Test
+	fun aNewRecordGoesOnlyToAGatewayTheCurrentRosterReaches() {
+		val shelved = GatewayEntry("shelved", connected = false, incarnation = 0, lastRegisteredAt = 0)
+		val away = GatewayEntry("away", connected = false, incarnation = 3, lastRegisteredAt = 9)
+		val current = state.copy(gateways = state.gateways + shelved + away)
+		// Drawn as groups, offered nothing.
+		assertEquals(listOf("mikan", "sakura", "shelved", "away"), current.ids())
+		assertEquals(listOf("mikan", "sakura"), current.reachableIds())
+		assertEquals(false, current.reachable("shelved"))
+		assertEquals(false, current.reachable("away"))
+		// A cached roster draws and offers nothing.
+		val cached = current.copy(provenance = RegistryProvenance.Cached)
+		assertEquals(current.ids(), cached.ids())
+		assertEquals(emptyList<String>(), cached.reachableIds())
+		assertEquals(false, cached.reachable("sakura"))
+	}
+
+	@Test
+	fun anAnswerForAGatewayTheRosterDoesNotNameDrawsNothing() {
+		val written = state.withEntry("gone") { it.copy(runbooks = listOf(book("x", "X"))) }
+		assertEquals(state, written)
+		assertEquals(emptyList<Runbook>(), written.runbooksOn("gone"))
 	}
 }

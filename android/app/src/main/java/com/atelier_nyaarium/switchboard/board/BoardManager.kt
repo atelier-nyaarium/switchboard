@@ -5,12 +5,14 @@ import androidx.compose.runtime.mutableStateListOf
 import com.atelier_nyaarium.switchboard.Attachments
 import com.atelier_nyaarium.switchboard.ClearsOnReprovision
 import com.atelier_nyaarium.switchboard.DebugLog
+import com.atelier_nyaarium.switchboard.HeldLineage
 import com.atelier_nyaarium.switchboard.VersionedFold
 import com.atelier_nyaarium.switchboard.VersionedList
 import com.atelier_nyaarium.switchboard.foldVersionedList
 import com.atelier_nyaarium.switchboard.localFieldOrSelf
 import com.atelier_nyaarium.switchboard.proto.BoardEntry
 import com.atelier_nyaarium.switchboard.proto.BoardStoredEntry
+import com.atelier_nyaarium.switchboard.proto.PlaneLineage
 import kotlinx.serialization.json.Json
 
 interface BoardStore {
@@ -106,6 +108,23 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 
 	val routerRevision: Long
 		get() = snapshot().routerRevision
+
+	/** What the plane fold compares against; durable, so never observed. */
+	fun planeLineage(): HeldLineage {
+		val current = snapshot()
+		return HeldLineage(current.routerEpoch.takeIf { it != 0L }?.let { PlaneLineage(it, current.routerRevision) }, null)
+	}
+
+	/** Another lineage drops the held list; an unknown one keeps it and lists from zero. */
+	fun adoptEpoch(epoch: Long) {
+		mutate { current ->
+			when (current.routerEpoch) {
+				epoch -> current
+				0L -> current.copy(routerEpoch = epoch, routerRevision = 0)
+				else -> current.copy(routerEpoch = epoch, routerRevision = 0, stored = emptyList())
+			}
+		}
+	}
 
 	fun storedById(): Map<String, BoardStoredEntry> = snapshot().stored.associateBy { it.clear.id }
 

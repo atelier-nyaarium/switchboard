@@ -68,7 +68,7 @@ describe("protocol fixtures", () => {
 
 	it("preserves large integer fields", () => {
 		expect(OwnerOpSchema.parse(fixture("owner-op.json")).at).toBeGreaterThan(2 ** 31);
-		expect(PlanesReadValueSchema.parse(fixture("planes-read-value.json")).known.presence).toBe(4294967296);
+		expect(PlanesReadValueSchema.parse(fixture("planes-read-value.json")).known.presence.version).toBe(4294967296);
 	});
 
 	it("accepts additive fields without exposing them", () => {

@@ -21,6 +21,8 @@ enum class BoardNoticeKind {
 data class BoardBlob(
 	/** Router revision used for CAS. */
 	val routerRevision: Long = 0,
+	/** The lineage the revision belongs to; 0 is unknown. */
+	val routerEpoch: Long = 0,
 	/** Sealed Router entries. */
 	val stored: List<BoardStoredEntry> = emptyList(),
 	/** Cached text survives epoch rotation. */

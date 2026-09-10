@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { InboxRowSchema, OwnerOpSchema } from "./schemasInbox.js";
+import { InboxRowSchema, OwnerOpSchema, PlaneLineageSchema } from "./schemasInbox.js";
 
 export const ConsoleRefusalReasonSchema = z
 	.enum(["cursor_stale"])
@@ -40,7 +40,7 @@ export const ConsoleWelcomeFrameSchema = z
 		cursor: z.number().int().nonnegative(),
 		cursorEpoch: z.number().int().nonnegative(),
 		floor: z.number().int().nonnegative(),
-		versions: z.record(z.string(), z.number().int().nonnegative()),
+		versions: z.record(z.string(), PlaneLineageSchema),
 		// Zero outside migration.
 		migrationEpoch: z.number().int().nonnegative().optional(),
 	})
@@ -60,7 +60,7 @@ export const ConsolePlaneFrameSchema = z
 		type: z.literal("plane"),
 		incarnation: z.number().int().positive(),
 		name: z.string().min(1).max(64),
-		version: z.number().int().nonnegative(),
+		lineage: PlaneLineageSchema,
 		payload: z.unknown().optional(),
 	})
 	.meta({ id: "ConsolePlaneFrame" });

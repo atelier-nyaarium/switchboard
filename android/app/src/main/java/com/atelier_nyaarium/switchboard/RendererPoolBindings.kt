@@ -42,7 +42,7 @@ internal fun rememberBoundRendererPool(
 	// Reads the live state at render time so a rename reflects without rebuilding the pool.
 	rendererPool.resolveFrom = { addr -> repo.state.value.label(addr) }
 	// Attribute the local user's own messages by their account display name instead of "you".
-	rendererPool.selfLabel = { repo.state.value.displayName }
+	rendererPool.selfLabel = { repo.displayName() }
 	// Attachment taps open the in-app viewer; the path is re-validated against the
 	// attachments root before any file is touched. The wire mime (what the agent
 	// declared) is preferred over extension guessing.

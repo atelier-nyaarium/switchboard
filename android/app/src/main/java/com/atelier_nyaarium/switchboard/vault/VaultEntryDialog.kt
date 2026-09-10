@@ -162,7 +162,7 @@ fun VaultEntryDialog(
 					) {
 						// Every gateway is the one chip that clears the scope; an empty scope admits none.
 						ScopeChip("Every gateway", gateways == null && existing?.gatewaysUnreadable != true) { gateways = null }
-						for (id in (state.admittedGateways + gateways.orEmpty()).distinct().sorted()) {
+						for (id in (state.gateways.ids() + gateways.orEmpty()).distinct().sorted()) {
 							val on = gateways?.contains(id) == true
 							ScopeChip(id, on) {
 								val current = gateways.orEmpty()

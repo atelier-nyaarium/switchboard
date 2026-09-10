@@ -7,6 +7,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleWelcomeFrame
 import com.atelier_nyaarium.switchboard.proto.InboxRow
 import com.atelier_nyaarium.switchboard.proto.OpKey
 import com.atelier_nyaarium.switchboard.proto.OwnerOp
+import com.atelier_nyaarium.switchboard.proto.PlaneLineage
 import com.atelier_nyaarium.switchboard.proto.RowEnvelope
 import com.atelier_nyaarium.switchboard.proto.RowOrigin
 import java.lang.reflect.Proxy
@@ -83,7 +84,7 @@ class ConsoleSocketDriverTest {
 	fun planeIsDeliveredAndSupersededPlaneIsDropped() {
 		val coordinator = newCoordinator()
 		val planes = mutableListOf<Pair<String, Long>>()
-		val h = harness(coordinator, onPlane = { name, version, _ -> planes += name to version })
+		val h = harness(coordinator, onPlane = { name, lineage, _ -> planes += name to lineage.version })
 		h.driver.connect()
 		val first = h.listenerListeners.single()
 		h.driver.connect()
@@ -96,12 +97,12 @@ class ConsoleSocketDriverTest {
 
 		first.onFrame(
 			ConsoleSocketFrame.Plane(
-				ConsolePlaneFrame(incarnation = 1L, name = "presence", version = 7L, payload = JsonObject(emptyMap())),
+				ConsolePlaneFrame(incarnation = 1L, name = "presence", lineage = PlaneLineage(1L, 7L), payload = JsonObject(emptyMap())),
 			),
 		)
 		second.onFrame(
 			ConsoleSocketFrame.Plane(
-				ConsolePlaneFrame(incarnation = 2L, name = "presence", version = 8L, payload = JsonObject(emptyMap())),
+				ConsolePlaneFrame(incarnation = 2L, name = "presence", lineage = PlaneLineage(1L, 8L), payload = JsonObject(emptyMap())),
 			),
 		)
 
@@ -265,11 +266,14 @@ class ConsoleSocketDriverTest {
 	fun aPokeShapedPlaneDecodesWithoutAPayload() {
 		val coordinator = newCoordinator()
 		val seen = mutableListOf<Triple<String, Long, Boolean>>()
-		val h = harness(coordinator, onPlane = { name, version, payload -> seen += Triple(name, version, payload == null) })
+		val h = harness(coordinator, onPlane = { name, lineage, payload -> seen += Triple(name, lineage.version, payload == null) })
 		h.driver.connect()
 		h.wireListeners.single().onMessage(h.socket, welcomeJson(cursor = 0L, epoch = 1L, floor = 1L))
 
-		h.wireListeners.single().onMessage(h.socket, """{"type":"plane","incarnation":8,"name":"taskBoard","version":4}""")
+		h.wireListeners.single().onMessage(
+			h.socket,
+			"""{"type":"plane","incarnation":8,"name":"taskBoard","lineage":{"epoch":1,"version":4}}""",
+		)
 
 		assertEquals(listOf(Triple("taskBoard", 4L, true)), seen)
 	}
@@ -373,7 +377,7 @@ class ConsoleSocketDriverTest {
 		coordinator: ConsoleTransportCoordinator,
 		clientMode: ConsoleSocketMode = ConsoleSocketMode.PLANES,
 		onRows: (List<InboxRow>, Long) -> Unit = { _, _ -> },
-		onPlane: (String, Long, kotlinx.serialization.json.JsonElement?) -> Unit = { _, _, _ -> },
+		onPlane: (String, PlaneLineage, kotlinx.serialization.json.JsonElement?) -> Unit = { _, _, _ -> },
 		onGap: (Long) -> Unit = {},
 		onGapDetailed: (Long, Long) -> Unit = { _, _ -> },
 		onAck: () -> Unit = {},

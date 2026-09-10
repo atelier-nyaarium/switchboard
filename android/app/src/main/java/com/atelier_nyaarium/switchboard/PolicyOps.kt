@@ -65,14 +65,9 @@ internal class PolicyOps(
 
 	fun toggleRefusalFor(gatewayId: String, policyId: String): String? = toggleRefusals.value[gatewayId to policyId]
 
-	/** Every admitted gateway, concurrently. */
-	suspend fun refreshAll(gatewayIds: List<String>) {
-		coroutineScope { gatewayIds.map { id -> async { refresh(id) } }.awaitAll() }
-		// Membership as it stands now.
-		state.update { held ->
-			val admitted = held.admittedGateways.toSet()
-			held.copy(policies = held.policies.filter { it.gatewayId in admitted })
-		}
+	/** All roster Gateways, concurrently. */
+	suspend fun refreshAll() {
+		coroutineScope { state.value.gateways.ids().map { id -> async { refresh(id) } }.awaitAll() }
 	}
 
 	/** Refused hides; unreachable keeps what was drawn. */
@@ -146,18 +141,13 @@ internal class PolicyOps(
 		toggleRefusals.value = if (reason == null) toggleRefusals.value - key else toggleRefusals.value + (key to reason)
 	}
 
-	/** That gateway's group, replaced whole. */
+	/** Gateway answer, replaced whole. */
 	private fun show(gatewayId: String, policies: List<AuthorizationPolicy>) {
-		state.update { held ->
-			// A read that lands after the keyring dropped its gateway draws nothing.
-			if (gatewayId !in held.admittedGateways) return@update held
-			val kept = held.policies.filterNot { it.gatewayId == gatewayId }
-			held.copy(policies = (kept + GatewayPolicies(gatewayId, policies)).sortedBy { it.gatewayId })
-		}
+		state.update { held -> held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(policies = policies) }) }
 	}
 
 	private fun hide(gatewayId: String) {
-		state.update { held -> held.copy(policies = held.policies.filterNot { it.gatewayId == gatewayId }) }
+		state.update { held -> held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(policies = null) }) }
 	}
 
 	private suspend fun <T> attempt(call: suspend () -> T): T? = try {

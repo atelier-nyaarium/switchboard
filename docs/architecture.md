@@ -128,6 +128,10 @@ whose reach answer names the Domain; the signed client exists only for a Ready b
 
 ## Versioned state planes
 
+These are the Gateway's own planes. The Router's console planes (`presence`, `taskBoard`, `vault`
+over `planes_read` and the console socket) stand at a `PlaneLineage` and are read by one fold;
+`docs/console.md` holds that rule.
+
 The console reads versioned server-state snapshots through OwnerOps. `shared/plane-registry.ts`
 owns version identity, hash-gated bumps, held reads, and the 60s recovery tripwire.
 

@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.DiscoverCoverage
 import com.atelier_nyaarium.switchboard.proto.OwnerFacts
 import kotlinx.coroutines.flow.update
 
@@ -10,6 +11,26 @@ internal const val SANDBOX_UNREACHABLE = "no Gateway in the sandbox"
 
 internal fun sandboxHomeGateway(firstTeam: String?, current: String): String =
 	firstTeam?.split(".")?.getOrNull(1) ?: current
+
+/** Unregistered Gateway has no port. */
+internal const val SANDBOX_NEVER_REGISTERED = "shelved"
+
+/** Sandbox roster includes one unregistered Gateway. */
+internal fun sandboxRegistry(roster: List<String>, now: Long): GatewayRegistry =
+	GatewayRegistry(
+		provenance = RegistryProvenance.Current,
+		epoch = 1,
+		version = 1,
+		coverage = DiscoverCoverage(
+			rosterKnown = true,
+			asked = roster.size + 1L,
+			answered = roster.size.toLong(),
+			unreachable = listOf(SANDBOX_NEVER_REGISTERED),
+		),
+		gateways = (roster.map { GatewayEntry(it, connected = true, incarnation = 1, lastRegisteredAt = now) } +
+			GatewayEntry(SANDBOX_NEVER_REGISTERED, connected = false, incarnation = 0, lastRegisteredAt = 0))
+			.sortedBy { it.id },
+	)
 
 private val SANDBOX_PROVISIONING =
 	"""{"transport":"direct","routerUrl":"https://router.sandbox.invalid:20001",""" +
@@ -28,7 +49,7 @@ internal interface SandboxSeeder {
 		dirs: Map<String, List<String>> = emptyMap(),
 		drafts: Map<String, Draft> = emptyMap(),
 		goals: Map<String, PendingGoal> = emptyMap(),
-		admittedGateways: List<String> = emptyList(),
+		gateways: GatewayRegistry = GatewayRegistry(),
 	)
 
 	/** Entries sealed by this phone. */
@@ -45,7 +66,7 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 		dirs: Map<String, List<String>>,
 		drafts: Map<String, Draft>,
 		goals: Map<String, PendingGoal>,
-		admittedGateways: List<String>,
+		gateways: GatewayRegistry,
 	) {
 		if (!isSandbox) return
 		repo.homeGatewayId = sandboxHomeGateway(teams.firstOrNull()?.name, repo.homeGatewayId)
@@ -63,7 +84,7 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 				error = null,
 				drafts = drafts,
 				goals = goals,
-				admittedGateways = admittedGateways,
+				gateways = gateways,
 				homeGatewayId = repo.homeGatewayId,
 				owner = teams.firstOrNull()?.domainId?.let { OwnerFacts(it, null, false) },
 			)

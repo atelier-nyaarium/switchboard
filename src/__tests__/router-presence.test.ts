@@ -13,6 +13,7 @@ import type {
 	OwnerOpMutation,
 } from "../federation-server/ownerOpRegistry.js";
 import { createPresenceService } from "../federation-server/presence/presenceService.js";
+import type { PlaneLineage } from "../shared/schemasInbox.js";
 import { TeamInfoSchema } from "../shared/schemasPresence.js";
 
 const roots: string[] = [];
@@ -26,7 +27,7 @@ const row = (team: string, lastActive = 1, status: "online" | "verifying" | "ava
 		queue_depth: 1,
 		lastActive,
 	});
-const make = (pokeOwner?: (domainId: string, version: number, projection: unknown) => void) => {
+const make = (pokeOwner?: (domainId: string, lineage: PlaneLineage, projection: unknown) => void) => {
 	const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "router-presence-"));
 	roots.push(dataDir);
 	const registry = new OwnerStoreRegistry({
@@ -181,8 +182,12 @@ describe("router presence slice", () => {
 
 	it("pushes the whole projection to the owner only when it actually changed", () => {
 		const pokes: Array<{ domainId: string; version: number; teams: number }> = [];
-		const { registry, service } = make((domainId, version, projection) =>
-			pokes.push({ domainId, version, teams: ((projection as { rows: unknown[] }).rows ?? []).length }),
+		const { registry, service } = make((domainId, lineage, projection) =>
+			pokes.push({
+				domainId,
+				version: lineage.version,
+				teams: ((projection as { rows: unknown[] }).rows ?? []).length,
+			}),
 		);
 		service.applyBaseline(reg, {
 			incarnation: 1,
@@ -224,6 +229,25 @@ describe("router presence slice", () => {
 		expect(result).toEqual({ outcome: "durability_failure" });
 		expect(store.get("presence.row", "presence.plane")).toBeNull();
 		expect(pokes).toEqual([]);
+		registry.close();
+	});
+
+	it("mints the plane lineage once, and answers none while the mint is not durable", () => {
+		const { registry, service } = make();
+		const store = registry.for("domain");
+		const refused = vi.spyOn(store, "put").mockReturnValue({ kind: "durability_failure", reason: "full" });
+		expect(service.lineageEpoch("domain")).toBeNull();
+		refused.mockRestore();
+		const epoch = service.lineageEpoch("domain");
+		expect(epoch).toBeGreaterThan(0);
+		expect(service.lineageEpoch("domain")).toBe(epoch);
+		service.applyBaseline(reg, {
+			incarnation: 1,
+			seq: 0,
+			rows: [row("proj.main")],
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
+		});
+		expect(service.ownerProjection("domain", projectionDeps).plane.epoch).toBe(epoch);
 		registry.close();
 	});
 
@@ -457,7 +481,7 @@ describe("router presence slice", () => {
 	// Push from writes.
 	it("pushes to the owner when a gateway frame changes presence", () => {
 		const pokes: number[] = [];
-		const { registry, service } = make((_domainId, version) => pokes.push(version));
+		const { registry, service } = make((_domainId, lineage) => pokes.push(lineage.version));
 		const frames = new Map<string, GatewayFrameHandler>();
 		service.register({
 			ownerOp: () => undefined,
@@ -594,9 +618,9 @@ describe("router presence slice", () => {
 describe("what the Router states about the owner", () => {
 	it("carries the owner's facts on the projection, and a rename pushes a new plane", () => {
 		const pokes: Array<{ version: number; displayName: string | null }> = [];
-		const { registry, service } = make((_domainId, version, projection) =>
+		const { registry, service } = make((_domainId, lineage, projection) =>
 			pokes.push({
-				version,
+				version: lineage.version,
 				displayName: (projection as { owner: { displayName: string | null } }).owner.displayName,
 			}),
 		);

@@ -1,7 +1,10 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.board.BoardStore
+import kotlinx.serialization.json.JsonNull
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Clear and re-provision may hand the device to a different owner, and the process is not
@@ -35,5 +38,16 @@ class ClearsOnReprovisionTest {
 			.toSet()
 		// playback: the run names the previous owner's messages and every transport surface draws it.
 		assertEquals(setOf("board", "vault", "runbooks", "presence", "trust", "drain", "playback"), declared)
+	}
+
+	/** A new Domain must not restore the old one's roster from the slot. */
+	@Test
+	fun clearingProvisioningDropsTheRouterSlotsAndKeepsDeviceSettings() {
+		val store = testStore()
+		store.saveRouterState("presence", RouterStateSlot(7, 3, JsonNull))
+		store.biometricLock = true
+		store.clearProvisioning()
+		assertNull(store.loadRouterState("presence"))
+		assertTrue(store.biometricLock)
 	}
 }

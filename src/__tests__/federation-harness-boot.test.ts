@@ -49,7 +49,10 @@ describe("federation harness cold start", () => {
 		const presenceOwner = async () => {
 			const { planes } = await h.phone.planesRead();
 			const plane = planes.find((candidate) => candidate.name === "presence");
-			return { version: plane?.version ?? -1, owner: (plane?.payload as { owner?: unknown } | undefined)?.owner };
+			return {
+				version: plane?.lineage.version ?? -1,
+				owner: (plane?.payload as { owner?: unknown } | undefined)?.owner,
+			};
 		};
 		const owner = h.set.domain.owner;
 		const rename = (displayName: string, nonce: string) =>

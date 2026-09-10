@@ -7,6 +7,7 @@ import {
 	type InboxAddress,
 	type InboxRow,
 	type OpKey,
+	type PlaneLineage,
 	parseInboxAddress,
 	signRowEnvelope,
 } from "../shared/schemasInbox.js";
@@ -183,8 +184,8 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		projection: projectionDeps,
 		friend: { isShared },
 		touch: (domainId, sessionTarget) => share.touch(domainId, sessionTarget),
-		pokeOwner: (domainId, version, projection) =>
-			deps.consoleSockets?.pushPlane(domainId, "presence", version, projection),
+		pokeOwner: (domainId, lineage, projection) =>
+			deps.consoleSockets?.pushPlane(domainId, "presence", lineage, projection),
 	});
 
 	const board = createBoardService({
@@ -195,7 +196,11 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 			applyRefs: (domainId, sets) => referenceHeld.applyRefs(domainId, sets),
 		},
 		deliver,
-		pokeOwner: (domainId, revision) => deps.consoleSockets?.pushPlane(domainId, "taskBoard", revision, undefined),
+		pokeOwner: (domainId, revision) => {
+			const epoch = presence.lineageEpoch(domainId);
+			if (epoch !== null)
+				deps.consoleSockets?.pushPlane(domainId, "taskBoard", { epoch, version: revision }, undefined);
+		},
 	});
 
 	const appendScheduledMessage = (
@@ -244,7 +249,11 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 	const readAnchors = createReadAnchorsService({ registry });
 	const vault = createVaultService({
 		registry,
-		pokeOwner: (domainId, revision) => deps.consoleSockets?.pushPlane(domainId, "vault", revision, undefined),
+		pokeOwner: (domainId, revision) => {
+			const epoch = presence.lineageEpoch(domainId);
+			if (epoch !== null)
+				deps.consoleSockets?.pushPlane(domainId, "vault", { epoch, version: revision }, undefined);
+		},
 	});
 
 	const cursors = createCursorService({ registry, migrationEpoch: () => readRouterMigrationWindow().epoch ?? 0 });
@@ -272,12 +281,18 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		capabilities,
 		readAnchors,
 		vault,
-		planeVersions(domainId: string, _signerSignPub: string): Record<string, number> {
+		planeVersions(domainId: string, _signerSignPub: string): Record<string, PlaneLineage> {
 			const projection = presence.ownerProjection(domainId, projectionDeps);
+			const epoch = presence.lineageEpoch(domainId);
+			// A plane whose lineage is not durable is not served.
 			return {
-				presence: "outcome" in projection ? 0 : projection.plane.version,
-				taskBoard: board.read(domainId).revision,
-				vault: vault.revision(domainId),
+				...("outcome" in projection ? {} : { presence: projection.plane }),
+				...(epoch === null
+					? {}
+					: {
+							taskBoard: { epoch, version: board.read(domainId).revision },
+							vault: { epoch, version: vault.revision(domainId) },
+						}),
 			};
 		},
 		readPlane(domainId: string, _signerSignPub: string, name: string): unknown {

@@ -37,20 +37,23 @@ fun RunbooksScreen(
 	onEdit: (String, String?) -> Unit,
 	modifier: Modifier = Modifier,
 ) {
-	val gateways = state.admittedGateways
-	LaunchedEffect(gateways) { repo.runbookOps.refreshAll(gateways) }
-	val groups = state.runbooks
+	LaunchedEffect(state.gateways.incarnations()) { repo.runbookOps.refreshAll() }
+	val groups = state.gateways.gateways.filter { it.runbooks != null }
 	val named = groups.size > 1
 
 	Box(modifier.fillMaxSize()) {
-		if (groups.all { it.runbooks.isEmpty() }) {
+		if (groups.all { it.runbooks.orEmpty().isEmpty() }) {
 			Column(
 				Modifier.fillMaxSize().padding(24.dp),
 				verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
 				horizontalAlignment = Alignment.CenterHorizontally,
 			) {
 				// A gateway that answered and holds nothing is not one that could not be read.
-				val title = if (groups.isEmpty()) "No Gateway could be read" else "No runbooks"
+				val title = when {
+					!state.gateways.loaded -> "No roster yet"
+					groups.isEmpty() -> "No Gateway could be read"
+					else -> "No runbooks"
+				}
 				Text(title, style = MaterialTheme.typography.titleMedium)
 			}
 		} else {
@@ -62,20 +65,20 @@ fun RunbooksScreen(
 				for (group in groups) {
 					// Named only when there is more than one, so a single-gateway phone gains no words.
 					if (named) {
-						item(key = "gateway:${group.gatewayId}") {
+						item(key = "gateway:${group.id}") {
 							Text(
-								group.gatewayId,
+								group.id,
 								style = MaterialTheme.typography.labelLarge,
 								modifier = Modifier.padding(top = 6.dp),
 							)
 						}
 					}
-					for (runbook in group.runbooks) {
-						item(key = "runbook:${group.gatewayId}:${runbook.id}") {
+					for (runbook in group.runbooks.orEmpty()) {
+						item(key = "runbook:${group.id}:${runbook.id}") {
 							RunbookRow(
 								runbook,
-								onFire = { onFire(group.gatewayId, runbook.id) },
-								onEdit = { onEdit(group.gatewayId, runbook.id) },
+								onFire = { onFire(group.id, runbook.id) },
+								onEdit = { onEdit(group.id, runbook.id) },
 							)
 						}
 					}
@@ -83,7 +86,7 @@ fun RunbooksScreen(
 			}
 		}
 		NewOnGatewayFab(
-			gateways = gateways,
+			registry = state.gateways,
 			description = "New runbook",
 			onNew = { onEdit(it, null) },
 			modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),

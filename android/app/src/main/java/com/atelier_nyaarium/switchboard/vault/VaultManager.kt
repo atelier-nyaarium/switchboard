@@ -4,6 +4,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import com.atelier_nyaarium.switchboard.ClearsOnReprovision
 import com.atelier_nyaarium.switchboard.DebugLog
+import com.atelier_nyaarium.switchboard.HeldLineage
 import com.atelier_nyaarium.switchboard.VersionedFold
 import com.atelier_nyaarium.switchboard.VersionedList
 import com.atelier_nyaarium.switchboard.foldVersionedList
@@ -14,6 +15,7 @@ import com.atelier_nyaarium.switchboard.crypto.VAULT_PUBLIC_DESCRIPTION_KIND
 import com.atelier_nyaarium.switchboard.crypto.VAULT_PUBLIC_TITLE_KIND
 import com.atelier_nyaarium.switchboard.crypto.VAULT_VALUE_KIND
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
+import com.atelier_nyaarium.switchboard.proto.PlaneLineage
 import com.atelier_nyaarium.switchboard.proto.VaultGrant
 import com.atelier_nyaarium.switchboard.proto.VaultListResult
 import com.atelier_nyaarium.switchboard.proto.VaultRequest
@@ -80,6 +82,23 @@ class VaultManager(private val store: VaultStore) : ClearsOnReprovision {
 	fun snapshot(): VaultBlob = synchronized(stateLock) { blob }
 
 	val routerRevision: Long get() = snapshot().revision
+
+	/** What the plane fold compares against; durable, so never observed. */
+	fun planeLineage(): HeldLineage {
+		val current = snapshot()
+		return HeldLineage(current.routerEpoch.takeIf { it != 0L }?.let { PlaneLineage(it, current.revision) }, null)
+	}
+
+	/** Another lineage drops the held list; an unknown one keeps it and lists from zero. */
+	fun adoptEpoch(epoch: Long) {
+		mutate { current ->
+			when (current.routerEpoch) {
+				epoch -> current
+				0L -> current.copy(routerEpoch = epoch, revision = 0L)
+				else -> current.copy(routerEpoch = epoch, revision = 0L, stored = emptyList())
+			}
+		}
+	}
 
 	/** The shared fold decides; a restart asks for a full list next. */
 	fun applyList(result: VaultListResult, at: Long = System.currentTimeMillis(), generation: Long = this.generation): Boolean {

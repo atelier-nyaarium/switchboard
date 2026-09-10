@@ -11,11 +11,7 @@ internal sealed interface ConsoleAdoption {
 	data class Adopted(val cursor: Long, val cursorEpoch: Long, val dropped: Long) : ConsoleAdoption
 }
 
-internal data class ConsoleTransportPlan(
-	val wait: PollWait,
-	val reconnectSocket: Boolean,
-	val pullDiscovery: Boolean,
-)
+internal data class ConsoleTransportPlan(val wait: PollWait)
 
 internal data class PendingInboxAdvance(val cursor: Long, val cursorEpoch: Long)
 
@@ -168,17 +164,8 @@ internal class ConsoleTransportCoordinator(
 
 	fun onActivity(visible: Boolean) = pushback.onCommsActivity(now(), visible)
 
-	fun plan(
-		visible: Boolean,
-		linkUp: Boolean,
-		lastPassFailed: Boolean,
-		soonestAnswer: Long? = null,
-	): ConsoleTransportPlan =
-		ConsoleTransportPlan(
-			wait = nextWait(visible, lastPassFailed, false, soonestAnswer),
-			reconnectSocket = visible && !linkUp,
-			pullDiscovery = !linkUp,
-		)
+	fun plan(visible: Boolean, lastPassFailed: Boolean, soonestAnswer: Long? = null): ConsoleTransportPlan =
+		ConsoleTransportPlan(wait = nextWait(visible, lastPassFailed, false, soonestAnswer))
 
 	fun clearDropped() {
 		synchronized(lock) { dropped = 0 }

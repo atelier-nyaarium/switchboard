@@ -116,12 +116,6 @@
 			"peer": "router.handle"
 		},
 		{
-			"file": "transport/connectedGateways.json",
-			"composer": "ConsoleClient.buildConnectedGatewaysRequest",
-			"case": "connectedGateways",
-			"peer": "router.handle"
-		},
-		{
 			"file": "transport/reach.json",
 			"composer": "ConsoleRouterTransport.buildReachRequest",
 			"case": "reach",

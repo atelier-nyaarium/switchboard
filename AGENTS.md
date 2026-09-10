@@ -142,7 +142,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/console/consoleTerminal.ts` - pane peek, key send, directory listing, and plugin reload
 - `src/gateway/consolePushOps.ts` - phone-bound rows, `deliverToOwner`, and durable `OwnerRowOutbox`
 - S8 retained endpoints: `/capabilities`, `/discover`, `/task-board`
-- `android/.../ChatRepository.kt` - console process singleton, OwnerOp client, and home Gateway state
+- `android/.../ChatRepository.kt` - console process singleton and OwnerOp client
+- `android/.../GatewayRegistry.kt` - the Router's roster as the phone holds it: provenance, per-Gateway answers, and the reads the tabs use; `docs/console.md` holds the rules
 - `android/.../PhoneIdentity.kt` / `PhoneBootstrap.kt` / `PhoneAmbient.kt` - the one door for identity facts, the boot value it publishes, and the ambient record (clock, entropy, ids, timer)
 - `android/.../SandboxSeeder.kt` - the emulator build's seam: `isSandbox`, the identity facts a
   sandbox boot needs, and the canned state it publishes
@@ -212,18 +213,19 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **Nothing is held on the phone:** a routine's record, its next run, its misses and its reviews
     are the gateway's, so a change re-reads rather than guessing.
   - **Every gateway is asked, concurrently, and one that cannot be read leaves the rest drawn:**
-    `refreshAll` fans out, then prunes, so a Gateway the keyring no longer admits stops being drawn
-    and stops being actionable with it.
-  - **`state.admittedGateways` is the ONE authority on membership, and the prune re-reads it:** a
-    second source, such as a fresh keyring read, disagrees with the published set, and a pass that
-    pruned to the list it began with would drop what a later pass had drawn. A read that lands
-    after the prune draws nothing for a gateway it dropped. The stored runbook library is never
-    pruned; a lapsed keyring entry is not a reason to lose what the owner wrote.
+    `refreshAll` fans out over the roster, and an answer for a Gateway the roster no longer names
+    is dropped at the write.
+  - **`ChatState.gateways` is the ONE authority on membership, and `PresenceOps.landProjection`
+    its only writer:** the Router's roster, with a provenance. A refresh takes no list, since a
+    list passed in is a second source that disagrees with the published one. `withEntry` is the one
+    write for an answer and refuses a Gateway the roster does not name, so a read that lands after
+    a revocation draws nothing. The stored runbook library is never pruned; a lapsed entry is not a
+    reason to lose what the owner wrote.
   - **A zone belongs to its gateway, and an instant belongs to the owner:** each group carries the
     zone its gateway keeps schedules in, which is what the editor converts a typed time into. The
     rows show instants, so they read in the owner's own zone.
-  - **The per-gateway reads are `ChatState` extensions, not screen expressions:** `runbookOn`,
-    `routineOn`, `runbooksOn`, `routinesOn` and `soonestRoutineAt` are what stops a screen reaching
+  - **The per-gateway reads are `GatewayRegistry` methods, not screen expressions:** `runbookOn`,
+    `routineOn`, `policyOn`, `reachable` and `soonestRoutineAt` are what stops a screen reaching
     past its own group, so they sit where a JVM test can call them.
   - **Run and Run missed are different acts, and the row says which:** Run opens a fresh occurrence
     at the moment it is pressed, on every row including a disabled one. The miss panel's button runs
@@ -363,6 +365,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/shared/board-authority.ts` / `board-cascade.ts` / `board-structure.ts` / `board-observations.ts` - pure board rules shared by the gateway and the Router
 - `src/shared/share-rules.ts` / `presence-projection.ts` / `presence-identity.ts` / `read-anchor-rules.ts` / `capability-fold.ts` - pure state rules shared by the gateway and the Router
 - `src/shared/versioned-list.ts` - the fold every Router-held list consumer applies (a full list replaces, a delta merges, a stale answer restarts or is ignored); `android/.../VersionedList.kt` is the twin, pinned by `tests/fixtures/versioned-list/vectors.json`
+- `src/shared/versioned-slot.ts` - the fold every reader of a Router-held plane applies over a `PlaneLineage { epoch, version }`: within a lineage the version orders, across lineages the reader's observation order does, a durable value takes any other lineage; `android/.../VersionedSlot.kt` is the twin, pinned by `tests/fixtures/versioned-slot/vectors.json`; `docs/console.md` holds the rule
+  - **A plane is compared nowhere else:** `PollDrain` holds the in-memory cursor and stamps
+    arrivals as they enter the process; `PresenceOps.applyOwnerProjection` lands what the cursor
+    took; `revisionPlaneDecision` (`RevisionPlane.kt`) folds a board or vault plane against the
+    manager's durable lineage, and another lineage drops the held list.
   - **A mailbox epoch is a random tag, never a counter:** `mintEpoch` draws it. Compare epochs for
     EQUALITY only. Sequence orders rows within an epoch. Across epochs, the later report wins. The
     receiver stamps `at`; it decides cross-epoch merges. `ReadAnchor.kt` is the phone twin and

@@ -74,7 +74,8 @@ internal class OwnerFacts(private val repo: ChatRepository) {
 			return false
 		}
 		merge(signed)
-		repo.refreshAdmittedGateways()
+		repo.adoptHomeGateway()
+		runCatchingCancellable { repo.presence.refreshAfterAction() }
 		return true
 	}
 

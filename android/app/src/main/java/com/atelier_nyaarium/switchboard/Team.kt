@@ -1,7 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
-import com.atelier_nyaarium.switchboard.proto.GatewaySpawnPoints
 import com.atelier_nyaarium.switchboard.proto.LOCAL_DOMAIN_SENTINEL
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.proto.TeamInfo
@@ -74,9 +73,6 @@ internal fun Team.withAuthority(a: Authority): Team = copy(presence = presence.w
 /** Attach this device's own outstanding request for this session, or clear it. */
 internal fun Team.withReceipt(r: ActionReceipt?): Team = copy(presence = presence.withReceipt(r))
 
-/** Keyed by Gateway group. */
-internal fun GatewaySpawnPoints.groupKey(): GatewayGroupKey = GatewayGroupKey(domainId, gatewayId)
-
 /**
  * The (gateway, project) a spawn target names, for remembering what a Gateway was last spawned on.
  *
@@ -111,19 +107,9 @@ internal fun mergePresence(prior: List<Team>, fresh: List<Team>, keepPrior: (Tea
 	return fresh + prior.filter { it.name !in freshNames && keepPrior(it) }
 }
 
-/**
- * Whether a row the last fold held survives a projection that no longer carries it.
- *
- * The roster names every Gateway the projection speaks for, and the Router KEEPS a disconnected
- * Gateway's rows, marking them unreachable rather than dropping them. So an absent row on a named
- * Gateway is a session that is gone, and holding it draws a session no forget can ever remove.
- * Only a Gateway the projection does not name, which is a linked friend Domain, keeps its last rows.
- */
-internal fun keepPriorRow(row: Team, homeGatewayId: String, planeDomain: String?, coveredGateways: Set<String>): Boolean {
-	val gateway = row.gatewayId.ifEmpty { homeGatewayId }
-	val foreignDomain = row.domainId != null && planeDomain != null && row.domainId != planeDomain
-	return foreignDomain || (gateway != homeGatewayId && gateway !in coveredGateways)
-}
+/** Keep linked-domain rows. */
+internal fun keepPriorRow(row: Team, planeDomain: String): Boolean =
+	row.domainId != null && row.domainId != planeDomain
 
 internal fun teamInfoToTeam(it: TeamInfo, homeGatewayId: String): Team {
 	val gatewayId = it.gatewayId.ifEmpty { homeGatewayId }

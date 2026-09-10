@@ -24,8 +24,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.Serializable
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import kotlinx.coroutines.withTimeoutOrNull
 
 @Serializable
@@ -278,26 +276,6 @@ class ConsoleClient internal constructor(
 			)
 		}.onFailure { DebugLog.log("Console", "value result open failed opId=$opId") }.getOrNull() ?: ValueAnswer.Unreachable
 	}
-
-	/** Connected Gateways, or unknown. */
-	fun fetchConnectedGateways(): List<String>? {
-		if (isSandbox) return null
-		val req = buildConnectedGatewaysRequest(transport.proxyBase)
-		transport.client.newCall(req).execute().use { resp ->
-			if (!resp.isSuccessful) return null
-			val body = resp.body?.string() ?: return null
-			return runCatching {
-				val arr = org.json.JSONObject(body).optJSONArray("gateways") ?: return null
-				(0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optString("gatewayId")?.takeIf(String::isNotEmpty) }
-			}.getOrNull()
-		}
-	}
-
-	internal fun buildConnectedGatewaysRequest(base: String): Request = Request.Builder()
-		.url(base + Protocol.Wire.ROUTER_PATH_CONSOLE)
-		.header(Protocol.Wire.CONSOLE_TOKEN_HEADER, Protocol.Wire.BEARER_PREFIX + transport.credentials.appToken)
-		.post("""{"gateways":{}}""".toRequestBody(ConsoleHttp.JSON))
-		.build()
 
 	/** Send a message. */
 	suspend fun send(

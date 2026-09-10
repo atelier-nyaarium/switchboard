@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.MailboxEntry
+import com.atelier_nyaarium.switchboard.proto.PlaneLineage
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.SessionKey
 import com.atelier_nyaarium.switchboard.proto.SyncPollResult
@@ -28,16 +29,23 @@ internal data class TickOutcome(
 	val rowsDrained: Int,
 	val planesApplied: Int,
 	val inboxAdvanceSent: Boolean,
-	val known: Map<String, Long>,
+	val known: Map<String, HeldLineage>,
 	val cursorStale: Boolean = false,
 )
+
+internal fun knownPlanesJson(known: Map<String, HeldLineage>): JsonObject = buildJsonObject {
+	known.forEach { (name, held) ->
+		held.lineage?.let { put(name, wireJson.encodeToJsonElement(PlaneLineage.serializer(), it)) }
+	}
+}
 
 internal suspend fun drainTick(
 	client: ConsoleClient,
 	coordinator: ConsoleTransportCoordinator,
-	known: Map<String, Long>,
+	known: Map<String, HeldLineage>,
+	observe: () -> Long,
 	onRows: suspend (List<com.atelier_nyaarium.switchboard.proto.InboxRow>) -> Unit,
-	onPlane: suspend (String, Long, kotlinx.serialization.json.JsonElement?) -> Boolean,
+	onPlane: suspend (String, PlaneLineage, kotlinx.serialization.json.JsonElement?) -> Boolean,
 ): TickOutcome {
 	var rowsDrained = 0
 	var inboxAdvanceSent = false
@@ -111,10 +119,13 @@ internal suspend fun drainTick(
 	}
 	var nextKnown = known
 	var planesApplied = 0
-	val knownJson = buildJsonObject { nextKnown.forEach { (name, version) -> put(name, version) } }
-	client.planesRead(knownJson)?.planes?.forEach { plane ->
-		if (plane.version > (nextKnown[plane.name] ?: 0L) && onPlane(plane.name, plane.version, plane.payload)) {
-			nextKnown = nextKnown + (plane.name to plane.version)
+	val planes = client.planesRead(knownPlanesJson(nextKnown))?.planes.orEmpty()
+	// Stamped at receipt, so a slower fetch cannot outrank a later one at apply time.
+	val observedAt = observe()
+	for (plane in planes) {
+		val fold = foldVersionedSlot(nextKnown[plane.name] ?: HeldLineage.NONE, plane.lineage, observedAt)
+		if (fold is SlotFold.Take && onPlane(plane.name, plane.lineage, plane.payload)) {
+			nextKnown = nextKnown + (plane.name to HeldLineage(plane.lineage, observedAt))
 			planesApplied++
 		}
 	}
@@ -157,7 +168,13 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 
 	private val kick = Channel<Unit>(Channel.CONFLATED)
 
-	@Volatile private var knownPlaneVersions: Map<String, Long> = emptyMap()
+	// Never persist: boot re-reads planes.
+	@Volatile private var knownPlanes: Map<String, HeldLineage> = emptyMap()
+
+	private val observations = java.util.concurrent.atomic.AtomicLong()
+
+	/** Stamp a plane as it arrives, before any dispatch. */
+	fun observe(): Long = observations.incrementAndGet()
 
 	internal suspend fun <T> withDrainMutex(block: suspend () -> T): T = host.drainGate.withDrainMutex(block)
 
@@ -196,36 +213,44 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 	/** Clear in-memory cursors. */
 	override suspend fun clearInMemory() = resetPlaneCursors()
 
-	/** Reset cursors for cold boot. */
-	suspend fun resetPlaneCursors() {
-		knownPlaneVersions = emptyMap()
+	/** Reset cursors on reprovision. */
+	suspend fun resetPlaneCursors() = withDrainMutex { knownPlanes = emptyMap() }
+
+	internal fun notePlane(name: String, lineage: PlaneLineage, observedAt: Long) {
+		knownPlanes = knownPlanes + (name to HeldLineage(lineage, observedAt))
 	}
 
-	internal fun notePlane(name: String, version: Long) {
-		knownPlaneVersions = knownPlaneVersions + (name to maxOf(version, knownPlaneVersions[name] ?: 0L))
-	}
+	internal fun knownPlanesJson(): JsonObject = knownPlanesJson(knownPlanes)
 
-	/** Planes newer than these are fetched on welcome. */
-	internal fun knownPlanesJson(): JsonObject =
-		buildJsonObject { knownPlaneVersions.forEach { (name, version) -> put(name, version) } }
+	internal fun mayApplyPlane(name: String, lineage: PlaneLineage, observedAt: Long): Boolean =
+		foldVersionedSlot(knownPlanes[name] ?: HeldLineage.NONE, lineage, observedAt) is SlotFold.Take
 
-	internal fun mayApplyPlane(name: String, version: Long): Boolean = version > (knownPlaneVersions[name] ?: 0L)
+	private fun lineageOf(value: JsonElement): PlaneLineage? =
+		runCatching { wireJson.decodeFromJsonElement(PlaneLineage.serializer(), value) }.getOrNull()
 
-	/** Welcome carries versions only. */
+	/** Welcome carries lineages only. */
 	internal suspend fun applyWelcomePlanes(welcome: JsonObject) {
+		// A would-be stamp: the peek consumes none.
+		val peek = observations.get() + 1
+		val newer = welcome.any { (name, value) -> lineageOf(value)?.let { mayApplyPlane(name, it, peek) } ?: false }
+		if (newer) pullPlanes()
+	}
+
+	/** Reads then lands planes past the cursor; `everything` asks for all of them and the fold still decides. */
+	suspend fun pullPlanes(everything: Boolean = false) {
 		withDrainMutex {
-			val newer = welcome.any { (name, value) -> mayApplyPlane(name, value.jsonPrimitive.content.toLongOrNull() ?: 0L) }
-			if (!newer) return@withDrainMutex
-			host.readPlanes(knownPlanesJson())?.forEach { plane ->
-				if (!mayApplyPlane(plane.name, plane.version)) return@forEach
-				if (host.applyPlane(plane.name, plane.version, plane.payload)) notePlane(plane.name, plane.version)
+			val planes = host.readPlanes(if (everything) buildJsonObject {} else knownPlanesJson()) ?: return@withDrainMutex
+			val observedAt = observe()
+			for (plane in planes) {
+				if (!mayApplyPlane(plane.name, plane.lineage, observedAt)) continue
+				if (host.applyPlane(plane.name, plane.lineage, plane.payload)) notePlane(plane.name, plane.lineage, observedAt)
 			}
 		}
 	}
 
-	internal suspend fun applyPlane(name: String, version: Long, payload: JsonElement?) {
+	internal suspend fun applyPlane(name: String, lineage: PlaneLineage, payload: JsonElement?, observedAt: Long = observe()) {
 		withDrainMutex {
-			if (mayApplyPlane(name, version) && host.applyPlane(name, version, payload)) notePlane(name, version)
+			if (mayApplyPlane(name, lineage, observedAt) && host.applyPlane(name, lineage, payload)) notePlane(name, lineage, observedAt)
 		}
 	}
 
@@ -308,8 +333,8 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 
 	private suspend fun drainOwnerInbox() {
 		withDrainMutex {
-			val outcome = host.poll(knownPlaneVersions)
-			knownPlaneVersions = outcome.known
+			val outcome = host.poll(knownPlanes, ::observe)
+			knownPlanes = outcome.known
 			if (outcome.cursorStale) host.setGap(true)
 		}
 	}
@@ -336,7 +361,7 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 						host.refreshRoutines()
 						// Through the coordinator, which is what arms the alarm. Waiting on a bare tick
 						// here left a backgrounded phone with no wake at all once doze suspended it.
-						park(host.plan(false, false, false).wait, kick, ChatRepository.BACKGROUND_TICK_MS)
+						park(host.plan(false, false).wait, kick, ChatRepository.BACKGROUND_TICK_MS)
 						continue@pollLoop
 					}
 					} catch (e: Exception) {
@@ -367,11 +392,7 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 					DebugLog.flushToIngest()
 				}
 				if (!host.isVisible) host.refreshRoutines()
-				val plan = host.plan(
-					host.isVisible,
-					host.link() == ConsoleLink.SOCKET,
-					failed,
-				)
+				val plan = host.plan(host.isVisible, failed)
 				park(plan.wait, kick, ChatRepository.POLL_INTERVAL_MS.takeIf { failed || heldEmpty })
 			}
 		}

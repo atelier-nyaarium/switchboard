@@ -88,7 +88,8 @@ internal fun PluginsSettings(plugins: PluginManager, repo: ChatRepository) {
 @Composable
 internal fun ProfileSettings(state: ChatState, repo: ChatRepository, onSetDeviceName: (String) -> Unit) {
 	val scope = rememberCoroutineScope()
-	var displayName by remember(state.displayName) { mutableStateOf(state.displayName) }
+	val currentName = repo.displayName()
+	var displayName by remember(currentName) { mutableStateOf(currentName) }
 	var opStatus by remember { mutableStateOf("") }
 	var opBusy by remember { mutableStateOf(false) }
 	// Rename stays gated until the rooted Domain is discovered.
@@ -107,7 +108,7 @@ internal fun ProfileSettings(state: ChatState, repo: ChatRepository, onSetDevice
 			modifier = Modifier.weight(1f),
 		)
 		Button(
-			enabled = displayName.isNotBlank() && displayName.trim() != state.displayName && !opBusy && !domainResolving,
+			enabled = displayName.isNotBlank() && displayName.trim() != currentName && !opBusy && !domainResolving,
 			onClick = hapticClick {
 				opBusy = true
 				opStatus = ""

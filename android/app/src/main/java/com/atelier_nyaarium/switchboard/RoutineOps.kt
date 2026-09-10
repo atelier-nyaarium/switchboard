@@ -72,14 +72,9 @@ internal class RoutineOps(
 		drafts.remove(gatewayId to key)
 	}
 
-	/** Every gateway the keyring admits, asked together so a slow one does not hold up the rest. */
-	suspend fun refreshAll(gatewayIds: List<String>) {
-		coroutineScope { gatewayIds.map { id -> async { refresh(id) } }.awaitAll() }
-		// Membership as it stands now, not as this pass captured it.
-		state.update { held ->
-			val admitted = held.admittedGateways.toSet()
-			held.copy(routines = held.routines.filter { it.gatewayId in admitted })
-		}
+	/** All roster Gateways, concurrently. */
+	suspend fun refreshAll() {
+		coroutineScope { state.value.gateways.ids().map { id -> async { refresh(id) } }.awaitAll() }
 		host.onRoutinesChanged()
 	}
 
@@ -192,13 +187,10 @@ internal class RoutineOps(
 		return answer?.applied == true
 	}
 
-	/** That gateway's group, replaced whole. Sorted by id, so no gateway holds a privileged place. */
+	/** Gateway answer, replaced whole. */
 	private fun show(gatewayId: String, routines: List<RoutineState>, zone: String) {
 		state.update { held ->
-			// A read that lands after the keyring dropped its gateway draws nothing.
-			if (gatewayId !in held.admittedGateways) return@update held
-			val kept = held.routines.filterNot { it.gatewayId == gatewayId }
-			held.copy(routines = (kept + GatewayRoutines(gatewayId, routines, zone)).sortedBy { it.gatewayId })
+			held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(routines = routines, routineZone = zone) })
 		}
 	}
 

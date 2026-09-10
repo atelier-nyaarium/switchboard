@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.ChannelFile
 import com.atelier_nyaarium.switchboard.proto.InboxRow
 import com.atelier_nyaarium.switchboard.proto.OpKey
+import com.atelier_nyaarium.switchboard.proto.PlaneLineage
 import com.atelier_nyaarium.switchboard.proto.PlaneRead
 import com.atelier_nyaarium.switchboard.proto.RowEnvelope
 import com.atelier_nyaarium.switchboard.proto.RowOrigin
@@ -15,13 +16,12 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class PollDrainTest {
-	private class FakeHost(private val router: Map<String, PlaneRead>) : DrainHost {
+	private class FakeHost(var router: Map<String, PlaneRead>) : DrainHost {
 		override val drainGate = DrainGate()
 		override val state = MutableStateFlow(ChatState())
 		override val isVisible = false
@@ -34,7 +34,7 @@ class PollDrainTest {
 		override suspend fun refreshRoutines() {
 			routineRefreshes += 1
 		}
-		override fun plan(visible: Boolean, socket: Boolean, failed: Boolean): ConsoleTransportPlan = error("unused")
+		override fun plan(visible: Boolean, failed: Boolean): ConsoleTransportPlan = error("unused")
 		override fun thisDeviceAddress() = null
 		override fun fromCanonical(value: String) = value
 		override fun advanceMailbox(result: SyncPollResult<Drained>): SyncAdvance<Drained> = error("unused")
@@ -51,15 +51,26 @@ class PollDrainTest {
 		override fun decodeAttachments(files: List<ChannelFile>?) = emptyList<MessageFile>()
 		override fun fetchPendingAttachments() = Unit
 		override suspend fun dispatchInboxRows(rows: List<InboxRow>) { dispatched += rows.size }
-		override suspend fun applyPlane(name: String, version: Long, payload: JsonElement?): Boolean {
-			drainGate.withDrainMutex { applied += name }
+		override suspend fun applyPlane(name: String, lineage: PlaneLineage, payload: JsonElement?): Boolean {
+			drainGate.withDrainMutex { applied += "$name@${lineage.epoch}/${lineage.version}" }
 			return true
 		}
-		override suspend fun poll(known: Map<String, Long>): TickOutcome = error("unused")
+		override suspend fun poll(known: Map<String, HeldLineage>, observe: () -> Long): TickOutcome = error("unused")
+
+		/** The Router's rule: served unless held at this lineage and version or past it. */
 		override suspend fun readPlanes(held: JsonObject): List<PlaneRead> {
 			reads += held
-			return router.values.filter { it.version > (held[it.name]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L) }
+			return router.values.filter { plane ->
+				val known = held[plane.name]?.let { wireJson.decodeFromJsonElement(PlaneLineage.serializer(), it) }
+				known == null || known.epoch != plane.lineage.epoch || plane.lineage.version > known.version
+			}
 		}
+	}
+
+	private fun lineage(epoch: Long, version: Long) = PlaneLineage(epoch, version)
+
+	private fun welcome(vararg planes: Pair<String, PlaneLineage>) = buildJsonObject {
+		planes.forEach { (name, it) -> put(name, wireJson.encodeToJsonElement(PlaneLineage.serializer(), it)) }
 	}
 
 	@Test
@@ -68,35 +79,66 @@ class PollDrainTest {
 		val drain = PollDrain(host, IdlePresencePort)
 		val row = InboxRow(RowEnvelope(RowOrigin("owner", "domain"), OpKey("team", "op"), JsonPrimitive("clear"), "kind", emptyList()), "sig", JsonPrimitive("body"), 1L, 1L, 1L)
 		drain.withDrainMutex {
-			drain.applyPlane("presence", 1L, JsonPrimitive("payload"))
+			drain.applyPlane("presence", lineage(1, 1), JsonPrimitive("payload"))
 			host.dispatchInboxRows(listOf(row))
 		}
-		assertEquals(listOf("presence"), host.applied)
+		assertEquals(listOf("presence@1/1"), host.applied)
 		assertEquals(1, host.dispatched)
 	}
 
 	@Test
-	fun welcomeFetchesOnlyWhenItNamesANewerPlane() = runBlocking {
+	fun welcomeFetchesOnlyWhenItNamesAPlanePastTheCursor() = runBlocking {
 		val host = FakeHost(
 			mapOf(
-				"presence" to PlaneRead("presence", 2L, JsonPrimitive("roster")),
-				"taskBoard" to PlaneRead("taskBoard", 1L, JsonPrimitive("board")),
+				"presence" to PlaneRead("presence", lineage(1, 2), JsonPrimitive("roster")),
+				"taskBoard" to PlaneRead("taskBoard", lineage(1, 1), JsonPrimitive("board")),
 			),
 		)
 		val drain = PollDrain(host, IdlePresencePort)
-		drain.applyWelcomePlanes(buildJsonObject { put("presence", 2L); put("taskBoard", 1L) })
-		drain.applyWelcomePlanes(buildJsonObject { put("presence", 2L); put("taskBoard", 0L) })
+		drain.applyWelcomePlanes(welcome("presence" to lineage(1, 2), "taskBoard" to lineage(1, 1)))
+		drain.applyWelcomePlanes(welcome("presence" to lineage(1, 2), "taskBoard" to lineage(1, 0)))
 		assertEquals(listOf(buildJsonObject {}), host.reads)
-		assertEquals(listOf("presence", "taskBoard"), host.applied)
-		assertEquals(buildJsonObject { put("presence", 2L); put("taskBoard", 1L) }, drain.knownPlanesJson())
+		assertEquals(listOf("presence@1/2", "taskBoard@1/1"), host.applied)
+		assertEquals(welcome("presence" to lineage(1, 2), "taskBoard" to lineage(1, 1)), drain.knownPlanesJson())
 
-		drain.applyWelcomePlanes(buildJsonObject { put("presence", 3L) })
+		drain.applyWelcomePlanes(welcome("presence" to lineage(1, 3)))
 		assertEquals(2, host.reads.size)
-		assertEquals(listOf("presence", "taskBoard"), host.applied)
+		assertEquals(listOf("presence@1/2", "taskBoard@1/1"), host.applied)
+
+		// Asking for everything re-reads; the cursor still holds what it landed.
+		drain.pullPlanes(everything = true)
+		assertEquals(3, host.reads.size)
+		assertEquals(buildJsonObject {}, host.reads.last())
+		assertEquals(listOf("presence@1/2", "taskBoard@1/1"), host.applied)
 
 		drain.resetPlaneCursors()
-		drain.applyWelcomePlanes(buildJsonObject { put("presence", 2L); put("taskBoard", 1L) })
-		assertEquals(3, host.reads.size)
-		assertEquals(listOf("presence", "taskBoard", "presence", "taskBoard"), host.applied)
+		drain.applyWelcomePlanes(welcome("presence" to lineage(1, 2), "taskBoard" to lineage(1, 1)))
+		assertEquals(4, host.reads.size)
+		assertEquals(listOf("presence@1/2", "taskBoard@1/1", "presence@1/2", "taskBoard@1/1"), host.applied)
+	}
+
+	@Test
+	fun aPlaneFromAnotherLineageLandsWhateverItsVersion() = runBlocking {
+		val host = FakeHost(mapOf("presence" to PlaneRead("presence", lineage(1, 9), JsonPrimitive("roster"))))
+		val drain = PollDrain(host, IdlePresencePort)
+		drain.applyWelcomePlanes(welcome("presence" to lineage(1, 9)))
+		drain.applyPlane("presence", lineage(1, 4), JsonPrimitive("late"))
+		assertEquals(listOf("presence@1/9"), host.applied)
+
+		host.router = mapOf("presence" to PlaneRead("presence", lineage(2, 1), JsonPrimitive("reborn")))
+		drain.applyWelcomePlanes(welcome("presence" to lineage(2, 1)))
+		assertEquals(listOf("presence@1/9", "presence@2/1"), host.applied)
+		assertEquals(welcome("presence" to lineage(2, 1)), drain.knownPlanesJson())
+	}
+
+	@Test
+	fun aPlaneObservedBeforeTheOneThatLandedIsBehind() = runBlocking {
+		val host = FakeHost(emptyMap())
+		val drain = PollDrain(host, IdlePresencePort)
+		val early = drain.observe()
+		val late = drain.observe()
+		drain.applyPlane("presence", lineage(2, 1), JsonPrimitive("new"), late)
+		drain.applyPlane("presence", lineage(1, 50), JsonPrimitive("old"), early)
+		assertEquals(listOf("presence@2/1"), host.applied)
 	}
 }

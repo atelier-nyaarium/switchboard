@@ -4,6 +4,7 @@ import android.app.Application
 import com.atelier_nyaarium.switchboard.AppStateStore
 import com.atelier_nyaarium.switchboard.Repo
 import com.atelier_nyaarium.switchboard.plugins.designer.DesignStore
+import com.atelier_nyaarium.switchboard.sandboxRegistry
 import com.atelier_nyaarium.switchboard.plugins.designer.storedCardFrom
 
 /**
@@ -41,14 +42,14 @@ class SandboxApp : Application() {
 		fixtures.seedRunbooks(AppStateStore(this))
 		val repo = Repo.get(this)
 		val threads = fixtures.threads()
-		val gateways = fixtures.admittedGateways()
+		val gateways = fixtures.roster()
 		repo.seedSandbox(
 			fixtures.teams(),
 			threads,
 			fixtures.dirs(),
 			fixtures.drafts(),
 			fixtures.goals(),
-			gateways,
+			sandboxRegistry(gateways, System.currentTimeMillis()),
 		)
 		// Distinct allowlists, so every binding line shows.
 		repo.seedSandboxVault(

@@ -2,6 +2,7 @@ import { mintEpoch } from "../../shared/epoch.js";
 import type { CrossDomainPresenceSession } from "../../shared/federation-protocol.js";
 import { type PresenceRow, presenceIdentityOf } from "../../shared/presence-identity.js";
 import { toCrossDomainPresenceSession } from "../../shared/presence-projection.js";
+import type { PlaneLineage } from "../../shared/schemasInbox.js";
 import { type GatewaySpawnPointsSchema, TeamInfoSchema } from "../../shared/schemasPresence.js";
 import {
 	FriendPresenceProjectionSchema,
@@ -46,7 +47,7 @@ export function createPresenceService(deps: {
 	/** Keep live shares alive. */
 	touch?: (domainId: string, sessionTarget: string) => void;
 	/** Push changed projections. */
-	pokeOwner?: (domainId: string, version: number, projection: unknown) => void;
+	pokeOwner?: (domainId: string, lineage: PlaneLineage, projection: unknown) => void;
 }) {
 	const now = deps.now ?? (() => deps.registry.now());
 	const pokePending = new Map<string, boolean>();
@@ -82,6 +83,15 @@ export function createPresenceService(deps: {
 			.for(domainId)
 			.list("presence.row")
 			.filter((record) => record.id.startsWith("presence.gateway:"));
+
+	/** The Domain's plane lineage, minted once and shared by every plane the console reads; null until it is durable. */
+	const lineageEpoch = (domainId: string): number | null => {
+		const store = deps.registry.for(domainId);
+		const clear = store.get("presence.row", planeRecordId)?.clear as { epoch?: number } | undefined;
+		if (clear?.epoch) return clear.epoch;
+		const epoch = mintEpoch();
+		return write(domainId, planeRecordId, { epoch, versions: {}, identities: {} }).applied ? epoch : null;
+	};
 
 	// One version per audience.
 	const projectionPlane = (domainId: string, key: string, identity: string) => {
@@ -298,7 +308,7 @@ export function createPresenceService(deps: {
 		if (!result.applied) return { outcome: result.outcome } as never;
 		if (pokePending.get(domainId)) {
 			pokePending.delete(domainId);
-			deps.pokeOwner?.(domainId, plane.plane.version, projection);
+			deps.pokeOwner?.(domainId, plane.plane, projection);
 		}
 		return projection;
 	};
@@ -388,6 +398,7 @@ export function createPresenceService(deps: {
 		forgetSession,
 		rearm,
 		refresh: pushIfChanged,
+		lineageEpoch,
 		roster,
 		ownerProjection,
 		friendProjection,

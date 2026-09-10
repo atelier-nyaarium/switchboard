@@ -1,33 +1,15 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
-import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceEntry
-import com.atelier_nyaarium.switchboard.proto.GatewaySpawnPoints
 import com.atelier_nyaarium.switchboard.proto.OwnerFacts
-import com.atelier_nyaarium.switchboard.proto.RoutineState
-import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.parseTarget
-
-
-/** One gateway's routines, in the zone that gateway keeps schedules in. */
-data class GatewayRoutines(
-	val gatewayId: String,
-	val routines: List<RoutineState> = emptyList(),
-	val zone: String = "",
-)
-
-/** One gateway's runbooks, at that gateway's revisions. */
-data class GatewayRunbooks(val gatewayId: String, val runbooks: List<Runbook> = emptyList())
-
-/** One gateway's authorization policies, at that gateway's revisions. */
-data class GatewayPolicies(val gatewayId: String, val policies: List<AuthorizationPolicy> = emptyList())
 
 data class ChatState(
 	val provisioned: Boolean = false,
 	val teams: List<Team> = emptyList(),
-	/** Spawn points persist across presence pushes. */
-	val gatewaySpawnPoints: List<GatewaySpawnPoints> = emptyList(),
+	/** Router roster and Gateway answers. */
+	val gateways: GatewayRegistry = GatewayRegistry(),
 	/** Used only as a stale-safe create-dialog suggestion. */
 	val lastProjectByGateway: Map<String, String> = emptyMap(),
 	val threads: Map<String, List<Message>> = emptyMap(),
@@ -58,15 +40,10 @@ data class ChatState(
 	val domainId: String? = null,
 	/** Nonzero while enrollment admits the device before sync completes. */
 	val enrollingSince: Long = 0L,
-	/** Keyring membership is the actionable Gateway set. */
-	val admittedGateways: List<String> = emptyList(),
-	/** Null means connectivity has not been reported. */
-	val connectedGateways: List<String>? = null,
 	val linkedPeerOwners: Map<String, String> = emptyMap(),
 	val crossDomainPeerSessions: Map<String, CrossDomainPresenceEntry> = emptyMap(),
 	/** Router-stated owner facts. */
 	val owner: OwnerFacts? = null,
-	val displayName: String = "",
 	/** Distinguishes a rooted friend from an unadmitted administrator. */
 	val firstRooted: Boolean = false,
 	/** Snackbar messages do not drive sticky health state. */
@@ -79,10 +56,6 @@ data class ChatState(
 	val pendingSpawns: Set<Pair<String, String>> = emptySet(),
 	/** Wake notices expire on read and are not persisted. */
 	val wakingTeams: Map<String, Long> = emptyMap(),
-	/** The phone's own library, one group per gateway. */
-	val runbooks: List<GatewayRunbooks> = emptyList(),
-	val routines: List<GatewayRoutines> = emptyList(),
-	val policies: List<GatewayPolicies> = emptyList(),
 ) {
 	/** Friend Domain labels. */
 	fun friendLabels(): Map<String, String?> = crossDomainPeerSessions.mapValues { it.value.displayName }
@@ -175,29 +148,6 @@ private const val WAKE_NOTICE_TTL_MS = 10 * 60_000L
 
 internal fun ChatState.recomputeUnread(team: String, thread: List<Message>): ChatState =
 	copy(unread = unread + (team to unreadCount(thread, readAnchors[team])))
-
-/** One gateway's copy, never whichever copy shares the id. Two gateways' records are unrelated. */
-internal fun ChatState.runbooksOn(gatewayId: String): List<Runbook> =
-	runbooks.find { it.gatewayId == gatewayId }?.runbooks.orEmpty()
-
-internal fun ChatState.runbookOn(gatewayId: String, runbookId: String): Runbook? =
-	runbooksOn(gatewayId).find { it.id == runbookId }
-
-internal fun ChatState.routinesOn(gatewayId: String): List<RoutineState> =
-	routines.find { it.gatewayId == gatewayId }?.routines.orEmpty()
-
-internal fun ChatState.routineOn(gatewayId: String, routineId: String): RoutineState? =
-	routinesOn(gatewayId).find { it.routine.id == routineId }
-
-internal fun ChatState.policiesOn(gatewayId: String): List<AuthorizationPolicy> =
-	policies.find { it.gatewayId == gatewayId }?.policies.orEmpty()
-
-internal fun ChatState.policyOn(gatewayId: String, policyId: String): AuthorizationPolicy? =
-	policiesOn(gatewayId).find { it.id == policyId }
-
-/** The soonest any gateway expects to answer, so a deeply idle phone wakes once for the earliest. */
-internal fun ChatState.soonestRoutineAt(): Long? =
-	routines.flatMap { group -> group.routines.mapNotNull { it.nextAt } }.minOrNull()
 
 internal fun sessionLeaf(canonical: String): String =
 	runCatching {

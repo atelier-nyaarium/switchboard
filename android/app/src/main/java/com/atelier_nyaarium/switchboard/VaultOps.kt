@@ -36,7 +36,6 @@ internal interface VaultOpsCollaborators {
 	val writer: VaultRouterWriter
 	fun sealing(): VaultSealing?
 	val client: ConsoleClient?
-	fun admittedGateways(): List<String>
 	val gate: ApprovalGate
 }
 
@@ -182,7 +181,7 @@ internal class VaultOps(
 
 	suspend fun refreshGrantsNow(only: String? = null) {
 		val client = collaborators.client ?: return
-		for (gatewayId in collaborators.admittedGateways().filter { only == null || it == only }) {
+		for (gatewayId in state.value.gateways.ids().filter { only == null || it == only }) {
 			val result = runCatchingCancellable {
 				client.valueResult<ConsoleVaultGrantsResult>(client.sendValueOp(gatewayId, ConsoleOp.VaultGrants), "vault_grants")
 			}.getOrNull() ?: continue
@@ -192,7 +191,9 @@ internal class VaultOps(
 
 	suspend fun revoke(gatewayId: String, grantId: String): Boolean {
 		val client = collaborators.client ?: return false
-		if (gatewayId !in collaborators.admittedGateways()) return false
+		// Revocation requires the current roster.
+		val registry = state.value.gateways
+		if (!registry.current || !registry.has(gatewayId)) return false
 		val result = runCatchingCancellable {
 			client.valueResult<ConsoleVaultRevokeResult>(client.sendValueOp(gatewayId, ConsoleOp.VaultRevoke(grantId)), "vault_revoke")
 		}.getOrNull() ?: return false

@@ -9,10 +9,11 @@ internal interface PresenceHost {
 	val forgottenUntil: MutableMap<String, Long>
 
 	suspend fun <T> withDrainMutex(block: suspend () -> T): T
-	suspend fun resetPlaneCursors()
 	suspend fun reportRead(team: String, anchor: ReadAnchor)
-	suspend fun fetchPresencePlanes(): com.atelier_nyaarium.switchboard.proto.PlanesReadResult?
-	fun fetchConnectedGateways(): List<String>?
+	/** Reads the planes past the cursor and lands them; `everything` asks for all of them. */
+	suspend fun pullPlanes(everything: Boolean = false)
+	/** Stored runbooks for a Gateway, or null. */
+	fun storedRunbooks(gatewayId: String): List<com.atelier_nyaarium.switchboard.proto.Runbook>?
 
 	fun loadRouterState(kind: String): RouterStateSlot?
 	fun saveRouterState(kind: String, slot: RouterStateSlot)
@@ -32,12 +33,11 @@ internal class ChatRepositoryPresenceHost(private val repo: ChatRepository) : Pr
 	override val forgottenUntil get() = repo.forgottenUntil
 
 	override suspend fun <T> withDrainMutex(block: suspend () -> T): T = repo.drainGate.withDrainMutex(block)
-	override suspend fun resetPlaneCursors() = repo.drain.resetPlaneCursors()
 	override suspend fun reportRead(team: String, anchor: ReadAnchor) {
 		repo.client().reportRead(team, anchor)
 	}
-	override suspend fun fetchPresencePlanes() = repo.client().planesRead(kotlinx.serialization.json.buildJsonObject {})
-	override fun fetchConnectedGateways(): List<String>? = repo.client().fetchConnectedGateways()
+	override suspend fun pullPlanes(everything: Boolean) = repo.drain.pullPlanes(everything)
+	override fun storedRunbooks(gatewayId: String) = repo.runbooks.placed()[gatewayId]
 	override fun loadRouterState(kind: String) = repo.store.loadRouterState(kind)
 	override fun saveRouterState(kind: String, slot: RouterStateSlot) = repo.store.saveRouterState(kind, slot)
 	override fun persistLabels(labels: Map<String, String>) = repo.persistence.persistLabels(labels)

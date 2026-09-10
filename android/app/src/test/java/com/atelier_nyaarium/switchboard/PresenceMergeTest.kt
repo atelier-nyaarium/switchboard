@@ -23,10 +23,9 @@ class PresenceMergeTest {
 		var savedLabels: Map<String, String>? = null
 
 		override suspend fun <T> withDrainMutex(block: suspend () -> T): T = block()
-		override suspend fun resetPlaneCursors() = Unit
 		override suspend fun reportRead(team: String, anchor: ReadAnchor) = Unit
-		override suspend fun fetchPresencePlanes() = null
-		override fun fetchConnectedGateways(): List<String>? = null
+		override suspend fun pullPlanes(everything: Boolean) = Unit
+		override fun storedRunbooks(gatewayId: String): List<com.atelier_nyaarium.switchboard.proto.Runbook>? = null
 		override fun loadRouterState(kind: String) = slot
 		override fun saveRouterState(kind: String, slot: RouterStateSlot) { this.slot = slot }
 		override fun persistLabels(labels: Map<String, String>) { savedLabels = labels }
@@ -66,32 +65,23 @@ class PresenceMergeTest {
 		assertEquals(emptyMap<String, String>(), host.savedLabels)
 	}
 
-	private val home = "sakura"
 	private val domain = "dom1"
-	private val roster = setOf("sakura", "mikan")
 
 	private fun prior(gateway: String, session: String, rowDomain: String? = domain) =
 		testTeam(name = "$rowDomain.$gateway.host.$session", domainId = rowDomain)
 
 	@Test
-	fun theRosterDecidesWhichPriorRowsAProjectionSpeaksFor() {
-		assertFalse(keepPriorRow(prior("mikan", "c2fe43"), home, domain, roster))
-		assertFalse(keepPriorRow(prior("sakura", "82d560"), home, domain, roster))
-		assertTrue(keepPriorRow(prior("elderberry", "aa11", rowDomain = "dom2"), home, domain, roster))
-		assertTrue(keepPriorRow(prior("yuzu", "bb22"), home, domain, roster))
-	}
-
-	@Test
-	fun anEmptyProjectionStillSweepsARosteredGateway() {
-		assertFalse(keepPriorRow(prior("mikan", "c2fe43"), home, null, roster))
-		assertTrue(keepPriorRow(prior("yuzu", "bb22"), home, null, roster))
+	fun theProjectionSpeaksForEveryOwnDomainRowAndNoFriendRow() {
+		assertFalse(keepPriorRow(prior("mikan", "c2fe43"), domain))
+		assertFalse(keepPriorRow(prior("yuzu", "bb22"), domain))
+		assertTrue(keepPriorRow(prior("elderberry", "aa11", rowDomain = "dom2"), domain))
 	}
 
 	@Test
 	fun mergeKeepsAFreshRowOverThePriorOneAndDropsWhatTheRuleRefuses() {
-		val kept = listOf(prior("mikan", "c2fe43"), prior("mikan", "01f24f"), prior("yuzu", "bb22"))
+		val kept = listOf(prior("mikan", "c2fe43"), prior("mikan", "01f24f"), prior("elderberry", "aa11", rowDomain = "dom2"))
 		val fresh = listOf(prior("mikan", "01f24f"))
-		val merged = mergePresence(kept, fresh) { keepPriorRow(it, home, domain, roster) }
-		assertEquals(listOf("$domain.mikan.host.01f24f", "$domain.yuzu.host.bb22"), merged.map { it.name })
+		val merged = mergePresence(kept, fresh) { keepPriorRow(it, domain) }
+		assertEquals(listOf("$domain.mikan.host.01f24f", "dom2.elderberry.host.aa11"), merged.map { it.name })
 	}
 }

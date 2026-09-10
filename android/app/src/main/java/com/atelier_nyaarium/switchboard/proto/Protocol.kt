@@ -690,7 +690,7 @@ data class ConsolePlaneFrame(
 	val type: String = "plane",
 	val incarnation: Long,
 	val name: String,
-	val version: Long,
+	val lineage: PlaneLineage,
 	val payload: JsonElement? = null,
 )
 
@@ -1346,9 +1346,15 @@ data class GatewayValueOp(
 )
 
 @Serializable
+data class PlaneLineage(
+	val epoch: Long,
+	val version: Long,
+)
+
+@Serializable
 data class PlaneRead(
 	val name: String,
-	val version: Long,
+	val lineage: PlaneLineage,
 	val payload: JsonElement? = null,
 )
 

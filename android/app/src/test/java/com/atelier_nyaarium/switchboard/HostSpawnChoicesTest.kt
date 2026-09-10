@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.GatewaySpawnPoints
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -12,45 +11,35 @@ import org.junit.Test
  * exists only in the picker, and only where it is true.
  */
 class HostSpawnChoicesTest {
-	private val key = GatewayGroupKey("alice", "mikan")
-
-	private fun advertised(vararg spawns: String, gateway: String = "mikan", domain: String = "alice") =
-		listOf(GatewaySpawnPoints(domainId = domain, gatewayId = gateway, hostSpawns = spawns.toList()))
-
-	// No advertisement means host.
+	// Silence and an affirmative "nothing beyond host" both mean the machine offers only its own shell.
 	@Test
-	fun `no advertisement yields exactly host`() {
-		assertEquals(listOf("host"), hostSpawnChoices(emptyList(), key))
-	}
-
-	// An affirmative "nothing beyond host" must land the same as silence, since both mean the machine
-	// offers only its own shell.
-	@Test
-	fun `an empty advertisement yields exactly host`() {
-		assertEquals(listOf("host"), hostSpawnChoices(advertised(), key))
+	fun `no advertisement and an empty one both yield exactly host`() {
+		assertEquals(listOf("host"), hostSpawnChoices(GatewayRegistry().hostSpawns("mikan")))
+		assertEquals(listOf("host"), hostSpawnChoices(emptyList()))
 	}
 
 	@Test
 	fun `windows is offered before host`() {
-		assertEquals(listOf("windows", "host"), hostSpawnChoices(advertised("windows"), key))
+		assertEquals(listOf("windows", "host"), hostSpawnChoices(listOf("windows")))
 	}
 
 	// Another machine's answer must not leak into this Gateway's picker: spawning is per machine.
 	@Test
 	fun `another gateway's advertisement is ignored`() {
-		assertEquals(listOf("host"), hostSpawnChoices(advertised("windows", gateway = "sakura"), key))
+		val registry = testRegistry("sakura", "mikan").withEntry("sakura") { it.copy(hostSpawns = listOf("windows")) }
+		assertEquals(listOf("host"), hostSpawnChoices(registry.hostSpawns("mikan")))
 	}
 
 	// A newer gateway may advertise something this console cannot label or reason about. Offering it
 	// would put a target in the picker that this build does not understand.
 	@Test
 	fun `an unknown spawn id is dropped rather than offered`() {
-		assertEquals(listOf("host"), hostSpawnChoices(advertised("plan9"), key))
+		assertEquals(listOf("host"), hostSpawnChoices(listOf("plan9")))
 	}
 
 	@Test
 	fun `host is never duplicated even if advertised`() {
-		assertEquals(listOf("host"), hostSpawnChoices(advertised("host"), key))
+		assertEquals(listOf("host"), hostSpawnChoices(listOf("host")))
 	}
 }
 

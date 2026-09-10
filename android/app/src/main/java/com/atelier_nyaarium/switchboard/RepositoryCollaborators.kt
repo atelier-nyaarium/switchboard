@@ -49,7 +49,7 @@ internal class ChatRepositoryDeviceApprovalCollaborators(private val repo: ChatR
 		 repo.identity::mergeAdmission,
 		"Approve failed",
 	)
-	override fun refreshAdmittedGateways() = repo.refreshAdmittedGateways()
+	override fun adoptHomeGateway() = repo.adoptHomeGateway()
 	override fun reportError() = repo._state.value.error
 }
 
@@ -205,7 +205,6 @@ internal class ChatRepositoryVaultCollaborators(private val repo: ChatRepository
 	override val writer: com.atelier_nyaarium.switchboard.vault.VaultRouterWriter get() = repo.vaultRouter
 	override fun sealing() = repo.vaultSealing()
 	override val client: ConsoleClient? get() = repo.clientOrNull()
-	override fun admittedGateways() = repo.sessions.keyringGateways()
 	override val gate: com.atelier_nyaarium.switchboard.vault.ApprovalGate get() = repo.approvalGate
 }
 

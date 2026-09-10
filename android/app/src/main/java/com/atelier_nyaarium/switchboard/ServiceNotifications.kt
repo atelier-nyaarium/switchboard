@@ -92,7 +92,7 @@ internal class ServiceNotifications(private val context: Context) {
 		val active = context.getSystemService(NotificationManager::class.java)
 			.activeNotifications
 			.mapTo(HashSet()) { it.id }
-		val rows = repo.state.value.routines.flatMap { group -> group.routines.map { group.gatewayId to it } }
+		val rows = repo.state.value.gateways.gateways.flatMap { entry -> entry.routines.orEmpty().map { entry.id to it } }
 		// A routine that is gone is named by nothing in the list, so its own range is swept for it.
 		val live = rows.mapTo(HashSet()) { (gatewayId, row) -> routineNotificationId(gatewayId, row.routine.id) }
 		for (id in active) {

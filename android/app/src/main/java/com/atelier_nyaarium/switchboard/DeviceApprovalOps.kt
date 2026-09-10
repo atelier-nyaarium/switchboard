@@ -27,7 +27,7 @@ internal interface DeviceApprovalOpsCollaborators {
 	): Boolean
 	fun invalidateClients()
 	suspend fun submitOwnerAdmission(signed: SignedAdmission): Boolean
-	fun refreshAdmittedGateways()
+	fun adoptHomeGateway()
 	fun reportError(): String?
 }
 
@@ -221,7 +221,7 @@ internal class DeviceApprovalOps(
 		}
 		gatewayId?.let { collaborators.setHomeGatewayId(it) }
 		collaborators.invalidateClients()
-		if (transport.domain != null) collaborators.refreshAdmittedGateways()
+		if (transport.domain != null) collaborators.adoptHomeGateway()
 		DebugLog.log(
 			"AddDevice",
 			"installed approved-device transport; consoleAdmitted+firstRooted set, " +

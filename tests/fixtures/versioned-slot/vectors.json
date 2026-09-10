@@ -1,0 +1,68 @@
+{
+	"_comment": "Cross-runtime vectors for the Router-held slot fold. Read by src/__tests__/versioned-slot.test.ts and android/.../VersionedSlotVectorsTest.kt, so the Kotlin twin cannot drift from src/shared/versioned-slot.ts. held.lineage null means nothing landed; held.observed null means a durable value with no receipt stamp.",
+	"cases": [
+		{
+			"name": "nothing held takes whatever arrives",
+			"held": { "lineage": null, "observed": null },
+			"incoming": { "epoch": 7, "version": 3 },
+			"observedAt": 1,
+			"expected": { "kind": "take", "lineageChanged": false }
+		},
+		{
+			"name": "a higher version inside the held lineage lands",
+			"held": { "lineage": { "epoch": 7, "version": 3 }, "observed": 2 },
+			"incoming": { "epoch": 7, "version": 4 },
+			"observedAt": 3,
+			"expected": { "kind": "take", "lineageChanged": false }
+		},
+		{
+			"name": "a lower version inside the held lineage is behind",
+			"held": { "lineage": { "epoch": 7, "version": 3 }, "observed": 2 },
+			"incoming": { "epoch": 7, "version": 2 },
+			"observedAt": 3,
+			"expected": { "kind": "behind" }
+		},
+		{
+			"name": "the same version over a durable value is held",
+			"held": { "lineage": { "epoch": 7, "version": 3 }, "observed": null },
+			"incoming": { "epoch": 7, "version": 3 },
+			"observedAt": 1,
+			"expected": { "kind": "held" }
+		},
+		{
+			"name": "the same version over an observed value is held",
+			"held": { "lineage": { "epoch": 7, "version": 3 }, "observed": 2 },
+			"incoming": { "epoch": 7, "version": 3 },
+			"observedAt": 3,
+			"expected": { "kind": "held" }
+		},
+		{
+			"name": "another lineage observed later lands and says the old one is gone",
+			"held": { "lineage": { "epoch": 7, "version": 50 }, "observed": 3 },
+			"incoming": { "epoch": 9, "version": 1 },
+			"observedAt": 4,
+			"expected": { "kind": "take", "lineageChanged": true }
+		},
+		{
+			"name": "another lineage observed earlier is behind",
+			"held": { "lineage": { "epoch": 9, "version": 1 }, "observed": 5 },
+			"incoming": { "epoch": 7, "version": 50 },
+			"observedAt": 4,
+			"expected": { "kind": "behind" }
+		},
+		{
+			"name": "another lineage with the same observation is behind",
+			"held": { "lineage": { "epoch": 9, "version": 1 }, "observed": 5 },
+			"incoming": { "epoch": 7, "version": 50 },
+			"observedAt": 5,
+			"expected": { "kind": "behind" }
+		},
+		{
+			"name": "another lineage over a durable value lands",
+			"held": { "lineage": { "epoch": 7, "version": 50 }, "observed": null },
+			"incoming": { "epoch": 9, "version": 1 },
+			"observedAt": 1,
+			"expected": { "kind": "take", "lineageChanged": true }
+		}
+	]
+}
