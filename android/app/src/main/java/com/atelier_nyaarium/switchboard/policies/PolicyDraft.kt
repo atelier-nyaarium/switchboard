@@ -23,6 +23,9 @@ internal data class PolicyDraft(
 	/** Rebased onto the revision a refusal named, so a save over it is an owner tap. */
 	fun over(held: Long): PolicyDraft? = if (held > revision) copy(revision = held) else null
 
+	/** A flip writes at once only while nothing else is edited. */
+	fun flipsAtOnce(held: AuthorizationPolicy?): Boolean = held != null && this == of(held)
+
 	/** Trimmed, once; blank adds nothing. */
 	fun withExample(typed: String): PolicyDraft {
 		val example = typed.trim()

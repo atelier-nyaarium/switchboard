@@ -130,6 +130,15 @@ class RoutineTextTest {
 	}
 
 	@Test
+	fun theSwitchWritesOnItsOwnOnlyWhileTheFormIsWhatTheGatewayHolds() {
+		val held = routine(zone = "America/Los_Angeles")
+		val shown = RoutineDraft.of(held).shown("Asia/Tokyo")
+		assertTrue(shown.flipsAtOnce(held, "Asia/Tokyo"))
+		assertFalse(shown.copy(name = "Other").flipsAtOnce(held, "Asia/Tokyo"))
+		assertFalse(shown.flipsAtOnce(null, "Asia/Tokyo"))
+	}
+
+	@Test
 	fun theOwnerEditsTheirOwnTimeAndTheGatewayKeepsIts() {
 		// Monday 09:00 in Los Angeles is the small hours of Tuesday in Tokyo. Which hour depends on
 		// daylight saving, so the weekday moving is what this pins rather than the clock face.

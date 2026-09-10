@@ -91,6 +91,29 @@ fun PolicyEditor(
 		draft = draft.withExample(example)
 		example = ""
 	}
+	// On an untouched form the switch is the row's, so it writes without a Save.
+	val flip: (Boolean) -> Unit = { on ->
+		val opened = draft
+		draft = draft.copy(enabled = on)
+		if (opened.flipsAtOnce(held)) {
+			refused = null
+			refusedAt = null
+			scope.launch {
+				when (val saved = repo.policyOps.setEnabled(opened.id, on, opened.revision, gatewayId)) {
+					is PolicySaved.Stored -> draft = PolicyDraft.of(saved.policy)
+					is PolicySaved.Refused -> {
+						draft = opened
+						refused = saved.reason
+						refusedAt = saved.heldRevision
+					}
+					PolicySaved.Unreachable -> {
+						draft = opened
+						refused = GATEWAY_UNREACHABLE
+					}
+				}
+			}
+		}
+	}
 	val commit: () -> Unit = {
 		val candidate = draft.toPolicy()
 		if (candidate != null) {
@@ -130,6 +153,34 @@ fun PolicyEditor(
 			Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
 			verticalArrangement = Arrangement.spacedBy(12.dp),
 		) {
+			Row(
+				Modifier.fillMaxWidth(),
+				horizontalArrangement = Arrangement.spacedBy(8.dp),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				Text(
+					if (draft.enabled) "Enabled" else "Disabled",
+					style = MaterialTheme.typography.bodyMedium,
+					modifier = Modifier.weight(1f),
+				)
+				Switch(checked = draft.enabled, onCheckedChange = flip)
+			}
+
+			refused?.let { reason ->
+				Card(Modifier.fillMaxWidth()) {
+					Column(Modifier.padding(12.dp)) {
+						Text(reason, style = MaterialTheme.typography.bodyMedium)
+						// An owner tap, as a runbook's overwrite is.
+						val over = refusedAt?.let { draft.over(it) }
+						if (over != null) {
+							TextButton(onClick = hapticClick { draft = over; commit() }) {
+								Text("Save over revision ${over.revision}")
+							}
+						}
+					}
+				}
+			}
+
 			OutlinedTextField(
 				value = draft.name,
 				onValueChange = { draft = draft.copy(name = it) },
@@ -185,34 +236,6 @@ fun PolicyEditor(
 						label = { Text(key, fontFamily = FontFamily.Monospace) },
 						trailingIcon = { Icon(Icons.Default.Close, contentDescription = "Remove") },
 					)
-				}
-			}
-
-			Row(
-				Modifier.fillMaxWidth(),
-				horizontalArrangement = Arrangement.spacedBy(8.dp),
-				verticalAlignment = Alignment.CenterVertically,
-			) {
-				Text(
-					if (draft.enabled) "Enabled" else "Disabled",
-					style = MaterialTheme.typography.bodyMedium,
-					modifier = Modifier.weight(1f),
-				)
-				Switch(checked = draft.enabled, onCheckedChange = { draft = draft.copy(enabled = it) })
-			}
-
-			refused?.let { reason ->
-				Card(Modifier.fillMaxWidth()) {
-					Column(Modifier.padding(12.dp)) {
-						Text(reason, style = MaterialTheme.typography.bodyMedium)
-						// An owner tap, as a runbook's overwrite is.
-						val over = refusedAt?.let { draft.over(it) }
-						if (over != null) {
-							TextButton(onClick = hapticClick { draft = over; commit() }) {
-								Text("Save over revision ${over.revision}")
-							}
-						}
-					}
 				}
 			}
 

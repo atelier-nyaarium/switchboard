@@ -78,6 +78,27 @@ fun RoutineEditor(
 	var confirming by remember(routineId) { mutableStateOf(false) }
 	var confirmingDelete by remember(routineId) { mutableStateOf(false) }
 
+	// On an untouched form the switch is the row's, so it writes without a Save.
+	val flip: (Boolean) -> Unit = { on ->
+		val opened = draft
+		draft = draft.copy(enabled = on)
+		if (opened.flipsAtOnce(held, zone.id)) {
+			refused = null
+			scope.launch {
+				when (val saved = repo.routineOps.setEnabled(opened.id, on, opened.revision, gatewayId)) {
+					is RoutineSaved.Stored -> draft = RoutineDraft.of(saved.routine).shown(zone.id)
+					is RoutineSaved.Refused -> {
+						draft = opened
+						refused = saved.reason
+					}
+					RoutineSaved.Unreachable -> {
+						draft = opened
+						refused = com.atelier_nyaarium.switchboard.GATEWAY_UNREACHABLE
+					}
+				}
+			}
+		}
+	}
 	val commit: () -> Unit = {
 		// Converted here and nowhere else: what the gateway stores is its own zone's wall clock.
 		val candidate = draft.asKept(gatewayZone).toRoutine()
@@ -114,6 +135,26 @@ fun RoutineEditor(
 			Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
 			verticalArrangement = Arrangement.spacedBy(12.dp),
 		) {
+			Row(
+				Modifier.fillMaxWidth(),
+				horizontalArrangement = Arrangement.spacedBy(8.dp),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				// The state it is in, not the move.
+				Text(
+					if (draft.enabled) "Enabled" else "Disabled",
+					style = MaterialTheme.typography.bodyMedium,
+					modifier = Modifier.weight(1f),
+				)
+				Switch(checked = draft.enabled, onCheckedChange = flip)
+			}
+
+			refused?.let {
+				Card(Modifier.fillMaxWidth()) {
+					Text(it, Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+				}
+			}
+
 			OutlinedTextField(
 				value = draft.name,
 				onValueChange = { draft = draft.copy(name = it) },
@@ -234,26 +275,6 @@ fun RoutineEditor(
 						},
 						label = { Text(entry.title) },
 					)
-				}
-			}
-
-			Row(
-				Modifier.fillMaxWidth(),
-				horizontalArrangement = Arrangement.spacedBy(8.dp),
-				verticalAlignment = Alignment.CenterVertically,
-			) {
-				// The state it is in, not the move.
-				Text(
-					if (draft.enabled) "Enabled" else "Disabled",
-					style = MaterialTheme.typography.bodyMedium,
-					modifier = Modifier.weight(1f),
-				)
-				Switch(checked = draft.enabled, onCheckedChange = { draft = draft.copy(enabled = it) })
-			}
-
-			refused?.let {
-				Card(Modifier.fillMaxWidth()) {
-					Text(it, Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
 				}
 			}
 
