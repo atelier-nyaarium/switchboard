@@ -639,6 +639,10 @@ Every gate green, CI green on the first.
 
 ## Phase 3 - The resolver, and the clean break
 
+✅ Complete. `c67885bc`. Every gate green. The architecture pass was skipped: the resolver is ten
+lines behind `decide`, and the Phase 2 pass already named its one open shape (a branded resolved
+scope) as later work.
+
 - The askpass handler's title match is gone. In its place: `byKey` on the line's selector key, and
   the one enabled policy naming it, whose bound entry `usable` accepts (exists, holds a value, is
   `allowedHere`), opens an entry request carrying the policy at the revision held now; no policy,
@@ -764,6 +768,11 @@ Collected as the phases land. Not fixed here.
 - **A refine cannot sit on a discriminated union without touching the codegen.** The request's
   both-or-neither rule could not be written where the grant's was, which is part of why the
   qualification became one object: the shape carries the rule the refine could not.
+- **The vault-requests harness counts request rows by index.** `nextRequest(seen + n)` names the
+  nth row after a baseline, so every request a case adds shifts the arithmetic of everything after
+  it, and a withdrawn request still counts. Rewriting the helper case meant renumbering three
+  later reads. A request row keyed by its own request id, or a per-case baseline taken after each
+  step, would not.
 - **`createVaultRoutes` had no bench until this phase.** The loopback routes were reachable only
   through the federation harness, so a settlement rule was proved by booting a Router.
   `vault-routes.test.ts` builds the routes over a fake client; the next rule there costs a test,
