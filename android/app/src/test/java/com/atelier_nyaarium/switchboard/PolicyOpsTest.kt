@@ -53,10 +53,12 @@ class PolicyOpsTest {
 		val enableHolds = mutableMapOf<String, Hold>()
 
 		override suspend fun list(gatewayId: String): PolicyListAnswer {
+			// Read before the hold, so a held answer is the older one.
+			val listed = shelves[gatewayId].orEmpty()
 			holds.remove(gatewayId)?.pass()
 			if (gatewayId in refusing) return PolicyListAnswer.Refused
 			if (gatewayId in unreachable) throw IllegalStateException("timed out")
-			return PolicyListAnswer.Listed(shelves[gatewayId].orEmpty())
+			return PolicyListAnswer.Listed(listed)
 		}
 
 		override suspend fun put(gatewayId: String, policy: AuthorizationPolicy, baseRevision: Long?): ConsolePolicyPutResult {
@@ -135,9 +137,9 @@ class PolicyOpsTest {
 	}
 
 	@Test
-	fun aSlowerReadLandingAfterANewerOneDoesNotHideWhatTheNewerDrew() {
+	fun aSlowerReadLandingAfterANewerOneDoesNotPutBackWhatTheNewerReplaced() {
 		val fake = FakeGateway()
-		fake.shelves["sakura"] = listOf(policy("apt"))
+		fake.shelves["sakura"] = listOf(policy("apt", name = "Old"))
 		val state = admitting("sakura")
 		val ops = PolicyOps(state, Host(fake))
 
@@ -146,13 +148,14 @@ class PolicyOpsTest {
 			fake.holds["sakura"] = hold
 			val slow = launch { ops.refresh("sakura") }
 			hold.entered.await()
+			fake.shelves["sakura"] = listOf(policy("apt", name = "New"))
 			ops.refresh("sakura")
-			assertEquals(listOf("apt"), state.value.policiesOn("sakura").map { it.id })
+			assertEquals("New", state.value.policyOn("sakura", "apt")?.name)
 			hold.gate.complete(Unit)
 			slow.join()
 		}
 
-		assertEquals(listOf("apt"), state.value.policiesOn("sakura").map { it.id })
+		assertEquals("New", state.value.policyOn("sakura", "apt")?.name)
 	}
 
 	@Test

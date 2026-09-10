@@ -39,8 +39,6 @@ internal sealed interface PolicyDeleted {
 	data object Unreachable : PolicyDeleted
 }
 
-private const val UNREACHABLE = "This Gateway could not be reached"
-
 /** Nothing held on the phone; a change re-reads. */
 internal class PolicyOps(
 	private val state: MutableStateFlow<ChatState>,
@@ -81,9 +79,9 @@ internal class PolicyOps(
 	suspend fun refresh(gatewayId: String) {
 		val client = host.gateway ?: return
 		if (gatewayId.isBlank()) return
-		// The fence answers null only for a stale read.
-		val answer = reads.read(gatewayId) { attempt { client.list(gatewayId) } ?: PolicyListAnswer.Unreachable } ?: return
-		when (answer) {
+		val read = reads.read(gatewayId) { attempt { client.list(gatewayId) } ?: PolicyListAnswer.Unreachable }
+		if (read !is GatewayRead.Fresh) return
+		when (val answer = read.value) {
 			is PolicyListAnswer.Listed -> show(gatewayId, answer.policies)
 			PolicyListAnswer.Refused -> hide(gatewayId)
 			PolicyListAnswer.Unreachable -> {}
@@ -113,7 +111,7 @@ internal class PolicyOps(
 		val key = gatewayId to policyId
 		val client = host.gateway
 		if (client == null || gatewayId.isBlank()) {
-			noteToggle(key, UNREACHABLE)
+			noteToggle(key, GATEWAY_UNREACHABLE)
 			return PolicySaved.Unreachable
 		}
 		var saved: PolicySaved = PolicySaved.Unreachable
@@ -123,13 +121,13 @@ internal class PolicyOps(
 			saved = if (answer == null) PolicySaved.Unreachable else saved(answer)
 			saved
 		}
-		if (current != null) {
+		if (current is GatewayRead.Fresh) {
 			noteToggle(
 				key,
 				when (val landed = saved) {
 					is PolicySaved.Stored -> null
 					is PolicySaved.Refused -> landed.reason
-					PolicySaved.Unreachable -> UNREACHABLE
+					PolicySaved.Unreachable -> GATEWAY_UNREACHABLE
 				},
 			)
 		}

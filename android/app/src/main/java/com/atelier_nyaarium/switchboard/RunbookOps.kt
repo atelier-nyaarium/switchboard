@@ -143,7 +143,8 @@ internal class RunbookOps(
 		if (gatewayId.isBlank()) return
 		// One gateway's failure, whatever raised it, must not take down the pass around it.
 		attempt {
-			val held = reads.read(gatewayId) { attempt { client.list(gatewayId) } } ?: return@attempt
+			val read = reads.read(gatewayId) { attempt { client.list(gatewayId) } }
+			val held = (read as? GatewayRead.Fresh)?.value ?: return@attempt
 			// This gateway's markers only. Clearing every gateway's would push again for nothing.
 			synced.removeAll { it.first == gatewayId }
 			show(gatewayId, host.library.merge(gatewayId, held.runbooks))

@@ -745,10 +745,28 @@ it in all three editors.
 - **A gateway answer flattened to a Boolean before the screen sees it.** Two instances on the
   routine toggle (bd_ee0449e2) and one across the editors (bd_26895814). Mechanism: the phone ops
   class. Phase 4 must not add a third.
-- **A null that means two things.** `GatewayReadFence.read` answers null for a stale read and for
+- **A null that means two things.** `GatewayReadFence.read` answered null for a stale read and for
   a body that answered null, and `PolicyOps.refresh` hid the group on either; then it hid on a
   refusal and a dead network alike. Mechanism: the fence's one null. Patched twice this phase: the
-  body never answers null now, and the list answer names its three cases.
+  policy body answered a named case instead of null, then the list answer named its three cases. Redesigned at the
+  architecture step: the fence answers `GatewayRead.Fresh(value)` or `Stale`, so the body's own
+  null rides inside and the three ops classes read one answer.
+
+- **From the architecture audit.** The policy editor's draft lives in `PolicyOps` across the
+  activity, keyed by gateway and id, as a runbook's does; a typed example goes through
+  `PolicyDraft.withExample` and a new record's id through `PolicyDraft.fresh`, so the screen decides
+  nothing a JVM test cannot reach. A system back or the vault plugin going off keeps the draft, as
+  the runbook editor's does; only Cancel, a stored save and a delete drop it. The sandbox policy
+  gateway refuses a stale base with the held revision, as the store does, and its refusing id is a
+  record that moved to 9 after the phone read it, ordinary again once a save over it lands; the
+  sandbox routine and runbook gateways are held once each. One
+  `GATEWAY_UNREACHABLE` literal. The claim that a mutation's refusal is flattened to an exception
+  was set aside: a stale revision answers as a typed result (`stored: false` with the reason), and
+  only an unknown op kind refuses the frame, on a Gateway whose tab is already hidden. The rest is
+  on the board: the per-gateway read coordinator and the row-toggle helper spelled three and two
+  times, the editor routing sum type and one vault gate, the `ConsoleClient` split and the
+  migration of the other value ops onto `ValueAnswer`, sandbox mutations for routines and runbooks
+  (bd_d4ba6683); `allowedOn` and `allowedHere` without shared vectors (bd_68eab0ce).
 
 ## Phase 5 - Docs and map
 

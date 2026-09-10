@@ -88,7 +88,8 @@ internal class RoutineOps(
 		if (gatewayId.isBlank()) return
 		// One gateway's failure, whatever raised it, must not take down the pass around it.
 		attempt {
-			val held = reads.read(gatewayId) { attempt { client.list(gatewayId) } } ?: return@attempt
+			val read = reads.read(gatewayId) { attempt { client.list(gatewayId) } }
+			val held = (read as? GatewayRead.Fresh)?.value ?: return@attempt
 			show(gatewayId, held.routines, held.zone)
 			host.onRoutinesChanged()
 		}
@@ -124,7 +125,7 @@ internal class RoutineOps(
 	/** The answer reaches the row; an older toggle's answer never overwrites a newer one's. */
 	suspend fun setEnabled(routineId: String, enabled: Boolean, baseRevision: Long, gatewayId: String): RoutineSaved {
 		val key = gatewayId to routineId
-		val client = host.gateway ?: return RoutineSaved.Unreachable.also { noteToggle(key, "This Gateway could not be reached") }
+		val client = host.gateway ?: return RoutineSaved.Unreachable.also { noteToggle(key, GATEWAY_UNREACHABLE) }
 		if (gatewayId.isBlank()) return RoutineSaved.Unreachable
 		var saved: RoutineSaved = RoutineSaved.Unreachable
 		val current = toggles.read("$gatewayId/$routineId") {
@@ -139,13 +140,13 @@ internal class RoutineOps(
 			}
 			saved
 		}
-		if (current != null) {
+		if (current is GatewayRead.Fresh) {
 			noteToggle(
 				key,
 				when (val landed = saved) {
 					is RoutineSaved.Stored -> null
 					is RoutineSaved.Refused -> landed.reason
-					RoutineSaved.Unreachable -> "This Gateway could not be reached"
+					RoutineSaved.Unreachable -> GATEWAY_UNREACHABLE
 				},
 			)
 		}

@@ -249,6 +249,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     settled. One counter per gateway, or a slow read of one discards a fresh read of another. Each
     ops class holds its own fence, since a routine read and a runbook read are different reads, and
     the rule lives here rather than being written out once per class.
+  - **A fenced read answers `Fresh` or `Stale`, never a null that means two things:** the body's
+    own null (a failed call) rides inside `Fresh`, so a caller that leaves the group alone on a
+    failure and one that hides it on a refusal both read the same answer without guessing.
 - `android/.../AttachmentOps.kt` - attachment fetch-and-sweep state
 - `android/.../ScheduledSendOps.kt` - scheduled sends and single fire mutex
 - `android/.../GoalOps.kt` / `Goal.kt` - armed goals and `/goal` line production

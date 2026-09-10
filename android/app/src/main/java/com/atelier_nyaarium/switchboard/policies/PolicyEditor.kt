@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,6 +38,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.GATEWAY_UNREACHABLE
 import com.atelier_nyaarium.switchboard.PolicyDeleted
 import com.atelier_nyaarium.switchboard.PolicySaved
 import com.atelier_nyaarium.switchboard.hapticClick
@@ -56,11 +58,19 @@ fun PolicyEditor(
 	val held: AuthorizationPolicy? = remember(gatewayId, policyId, state.policies) {
 		policyId?.let { state.policyOn(gatewayId, it) }
 	}
-	var draft by remember(policyId) {
+	// The edit lives in the ops class, which outlives the activity.
+	val draftKey = policyId ?: "new"
+	var draft by remember(gatewayId, policyId) {
 		mutableStateOf(
-			held?.let { PolicyDraft.of(it) }
-				?: PolicyDraft(id = "policy-${java.util.UUID.randomUUID().toString().take(8)}"),
+			repo.policyOps.draftFor(gatewayId, draftKey)
+				?: held?.let { PolicyDraft.of(it) }
+				?: PolicyDraft.fresh(),
 		)
+	}
+	LaunchedEffect(draft) { repo.policyOps.keepDraft(gatewayId, draftKey, draft) }
+	val close = {
+		repo.policyOps.dropDraft(gatewayId, draftKey)
+		onClose()
 	}
 	val vaultRevision by repo.vault.revision
 	// Only what this Gateway may use.
@@ -68,15 +78,14 @@ fun PolicyEditor(
 		repo.vaultOps.views().filter { it.hasValue && it.allowedOn(gatewayId) }
 	}
 	val scope = rememberCoroutineScope()
-	var example by remember(policyId) { mutableStateOf("") }
-	var saving by remember(policyId) { mutableStateOf(false) }
-	var refused by remember(policyId) { mutableStateOf<String?>(null) }
-	var refusedAt by remember(policyId) { mutableStateOf<Long?>(null) }
-	var confirmingDelete by remember(policyId) { mutableStateOf(false) }
+	var example by remember(gatewayId, policyId) { mutableStateOf("") }
+	var saving by remember(gatewayId, policyId) { mutableStateOf(false) }
+	var refused by remember(gatewayId, policyId) { mutableStateOf<String?>(null) }
+	var refusedAt by remember(gatewayId, policyId) { mutableStateOf<Long?>(null) }
+	var confirmingDelete by remember(gatewayId, policyId) { mutableStateOf(false) }
 
 	val addExample = {
-		val typed = example.trim()
-		if (typed.isNotEmpty() && typed !in draft.examples) draft = draft.copy(examples = draft.examples + typed)
+		draft = draft.withExample(example)
 		example = ""
 	}
 	val commit: () -> Unit = {
@@ -91,8 +100,8 @@ fun PolicyEditor(
 						refused = saved.reason
 						refusedAt = saved.heldRevision
 					}
-					PolicySaved.Unreachable -> refused = "This Gateway could not be reached"
-					is PolicySaved.Stored -> onClose()
+					PolicySaved.Unreachable -> refused = GATEWAY_UNREACHABLE
+					is PolicySaved.Stored -> close()
 				}
 				saving = false
 			}
@@ -104,7 +113,7 @@ fun PolicyEditor(
 			TopAppBar(
 				title = { Text(if (held == null) "New policy" else "Edit policy") },
 				actions = {
-					TextButton(onClick = hapticClick(onClose)) { Text("Cancel") }
+					TextButton(onClick = hapticClick(close)) { Text("Cancel") }
 					Button(
 						enabled = draft.refusal() == null && !saving,
 						onClick = hapticClick(commit),
@@ -222,9 +231,9 @@ fun PolicyEditor(
 						confirmingDelete = false
 						scope.launch {
 							when (val deleted = repo.policyOps.delete(draft.id, draft.revision, gatewayId)) {
-								PolicyDeleted.Deleted -> onClose()
+								PolicyDeleted.Deleted -> close()
 								is PolicyDeleted.Refused -> refused = deleted.reason
-								PolicyDeleted.Unreachable -> refused = "This Gateway could not be reached"
+								PolicyDeleted.Unreachable -> refused = GATEWAY_UNREACHABLE
 							}
 						}
 					},

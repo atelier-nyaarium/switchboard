@@ -135,34 +135,40 @@ internal class SandboxPolicyGateway : PolicyGateway {
 		)
 	}
 
+	/** A record that moved after the phone read it, until a save over it lands. */
+	private val movedTo = mutableMapOf(REFUSING_ID to 9L)
+
 	private fun store(gatewayId: String, stored: AuthorizationPolicy): ConsolePolicyPutResult {
 		val held = shelf(gatewayId)
 		shelves[gatewayId] = if (held.any { it.id == stored.id }) held.map { if (it.id == stored.id) stored else it } else held + stored
+		movedTo.remove(stored.id)
 		return ConsolePolicyPutResult(stored = true, revision = stored.revision, policy = stored)
 	}
 
 	override suspend fun list(gatewayId: String) = PolicyListAnswer.Listed(shelf(gatewayId))
 
+	/** A base off the held revision is refused with it. */
+	private fun stale(gatewayId: String, policyId: String, baseRevision: Long?): ConsolePolicyPutResult? {
+		val held = shelf(gatewayId).firstOrNull { it.id == policyId }
+		val holds = movedTo[policyId] ?: held?.revision
+		if (holds == null || holds == baseRevision) return null
+		return ConsolePolicyPutResult(stored = false, revision = holds, reason = "revision $holds is stored; this edits ${baseRevision ?: "nothing"}")
+	}
+
 	override suspend fun put(gatewayId: String, policy: AuthorizationPolicy, baseRevision: Long?) = when {
-		policy.id == REFUSING_ID ->
-			ConsolePolicyPutResult(stored = false, revision = 9L, reason = "revision 9 is stored; this edits ${baseRevision ?: 0}")
 		policy.id != "apt" && "sudo apt" in policy.selectorKeys ->
 			ConsolePolicyPutResult(stored = false, revision = baseRevision ?: 0L, reason = "sudo apt is already answered by Package administration")
-		else -> store(gatewayId, policy.copy(revision = (baseRevision ?: 0L) + 1))
+		else -> stale(gatewayId, policy.id, baseRevision) ?: store(gatewayId, policy.copy(revision = (baseRevision ?: 0L) + 1))
 	}
 
 	override suspend fun delete(gatewayId: String, policyId: String, baseRevision: Long): ConsolePolicyDeleteResult {
-		if (policyId == REFUSING_ID) {
-			return ConsolePolicyDeleteResult(deleted = false, reason = "revision 9 is stored; this deletes $baseRevision")
-		}
+		stale(gatewayId, policyId, baseRevision)?.let { return ConsolePolicyDeleteResult(deleted = false, reason = it.reason) }
 		shelves[gatewayId] = shelf(gatewayId).filterNot { it.id == policyId }
 		return ConsolePolicyDeleteResult(deleted = true)
 	}
 
 	override suspend fun enable(gatewayId: String, policyId: String, enabled: Boolean, baseRevision: Long): ConsolePolicyPutResult {
-		if (policyId == REFUSING_ID) {
-			return ConsolePolicyPutResult(stored = false, revision = 9L, reason = "revision 9 is stored; this edits $baseRevision")
-		}
+		stale(gatewayId, policyId, baseRevision)?.let { return it }
 		val held = shelf(gatewayId).firstOrNull { it.id == policyId }
 			?: return ConsolePolicyPutResult(stored = false, revision = 0L, reason = "no policy with that id is stored")
 		return store(gatewayId, held.copy(enabled = enabled, revision = baseRevision + 1))

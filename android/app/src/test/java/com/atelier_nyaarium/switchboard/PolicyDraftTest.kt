@@ -38,6 +38,15 @@ class PolicyDraftTest {
 	}
 
 	@Test
+	fun aTypedExampleIsKeptTrimmedOnceAndAFreshDraftHasAnIdTheSchemaTakes() {
+		assertEquals(listOf("sudo apt update", "sudo docker"), ready.withExample("  sudo docker ").examples)
+		assertEquals(ready, ready.withExample(" sudo apt update"))
+		assertEquals(ready, ready.withExample("   "))
+		val fresh = PolicyDraft.fresh().copy(name = "x", entryId = "e", examples = listOf("sudo x"))
+		assertEquals(fresh.id, fresh.toPolicy()?.id)
+	}
+
+	@Test
 	fun aRefusalNamingANewerRevisionIsTheOnlyOneASaveOverItRebasesOnto() {
 		val opened = ready.copy(revision = 2L)
 		assertEquals(opened.copy(revision = 5L), opened.over(5L))

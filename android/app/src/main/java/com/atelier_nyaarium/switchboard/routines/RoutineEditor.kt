@@ -87,7 +87,7 @@ fun RoutineEditor(
 			scope.launch {
 				when (val saved = repo.routineOps.save(candidate, draft.revision.takeIf { it > 0L }, gatewayId)) {
 					is RoutineSaved.Refused -> refused = saved.reason
-					RoutineSaved.Unreachable -> refused = "This Gateway could not be reached"
+					RoutineSaved.Unreachable -> refused = com.atelier_nyaarium.switchboard.GATEWAY_UNREACHABLE
 					is RoutineSaved.Stored -> onClose()
 				}
 				saving = false

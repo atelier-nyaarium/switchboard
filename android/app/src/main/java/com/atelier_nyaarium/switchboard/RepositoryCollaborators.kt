@@ -118,8 +118,10 @@ internal class ChatRepositoryBoardCollaborators(private val repo: ChatRepository
 }
 
 internal class ChatRepositoryRunbookHost(private val repo: ChatRepository) : RunbookHost {
+	private val sandbox by lazy { SandboxRunbookGateway() }
+
 	override val gateway: RunbookGateway? get() =
-		if (isSandbox) SandboxRunbookGateway() else repo.clientOrNull()?.let(::ConsoleRunbookGateway)
+		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsoleRunbookGateway)
 	override val library get() = repo.runbooks
 }
 
@@ -149,8 +151,10 @@ internal class ConsoleRoutineGateway(private val client: ConsoleClient) : Routin
 internal class ChatRepositoryRoutineHost(private val repo: ChatRepository) : RoutineHost {
 	override fun onRoutinesChanged() = repo.notifyRoutinesChanged()
 	// The sandbox answers as a Gateway would, so a screen that only appears on a refusal is reachable.
+	private val sandbox by lazy { SandboxRoutineGateway() }
+
 	override val gateway: RoutineGateway? get() =
-		if (isSandbox) SandboxRoutineGateway() else repo.clientOrNull()?.let(::ConsoleRoutineGateway)
+		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsoleRoutineGateway)
 }
 
 /** The port over the console client's policy calls. */

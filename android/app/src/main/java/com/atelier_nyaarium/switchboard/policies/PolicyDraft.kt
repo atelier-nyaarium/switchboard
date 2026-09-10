@@ -44,6 +44,12 @@ internal data class PolicyDraft(
 	/** Rebased onto the revision a refusal named, so a save over it is an owner tap. */
 	fun over(held: Long): PolicyDraft? = if (held > revision) copy(revision = held) else null
 
+	/** Trimmed, once; blank adds nothing. */
+	fun withExample(typed: String): PolicyDraft {
+		val example = typed.trim()
+		return if (example.isEmpty() || example in examples) this else copy(examples = examples + example)
+	}
+
 	fun toPolicy(): AuthorizationPolicy? {
 		if (refusal() != null) return null
 		return AuthorizationPolicy(
@@ -58,6 +64,9 @@ internal data class PolicyDraft(
 	}
 
 	companion object {
+		/** A new record's id; the gateway keeps whatever the phone sends. */
+		fun fresh(): PolicyDraft = PolicyDraft(id = "policy-${java.util.UUID.randomUUID().toString().take(8)}")
+
 		fun of(policy: AuthorizationPolicy): PolicyDraft = PolicyDraft(
 			id = policy.id,
 			name = policy.name,
