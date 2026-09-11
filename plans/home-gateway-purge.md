@@ -1508,3 +1508,21 @@ Collected after Phase 7. Not fixed here.
   against the code before it was believed.
 - **`cd android` in a Bash line moves the harness's working directory** for every later command,
   so a Gradle invocation has to be undone with an absolute path afterwards.
+
+Collected after Phase 8. Not fixed here.
+
+- **A words phase found the code the plan missed.** The end-of-plan read, not any phase's audit,
+  named the Gateway-to-Gateway presence road; the plan's own Painpoints had said "Phase 6 touches
+  it" and nobody re-read the Painpoints at Phase 6. A pain point that names future work is a task,
+  and belongs on the board when it is written.
+- **The Codex quota ran out under the one read that mattered most.** Sol's end-of-plan read
+  failed on the usage limit (reset 2026-09-14) after nine Luna and Sol reads that lap; Opus took
+  the brief. The quota is not visible before the refusal, as Phase 1 recorded.
+- **The cycle's phase list is fixed at start.** Adding Phase 9 mid-run means finishing this run
+  `done` and starting another for one phase; the plan file has the phase but the run cannot take it.
+- **A prose reader told to find violations finds them in rule comments.** Five of Luna's seven
+  prose notes were rule comments or the plan's own record; the two-line class doc and the
+  four-word fragment were both "violations". The brief has to say what a rule comment looks like.
+- **A test fixture written for one coroutine and reached by several.** Second round of the class
+  (Phase 6 synchronized the recorders, Phase 8 the draw source); the third goes to the board
+  (bd_131ab84c).
