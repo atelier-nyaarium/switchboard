@@ -1389,3 +1389,36 @@ Collected after Phase 6. Not fixed here.
   policies, and the replica is a second `versioned-list.ts`. On the board as bd_9784d356 and
   bd_1909406b, with the atomic audience op (bd_a55276c4), the Router peer binding (bd_ffbf2891)
   and the session baseline (bd_43f0e245).
+
+Collected after Phase 7. Not fixed here.
+
+- **The "old" registration case never reached the floor.** `federation-router-registration.socket`
+  sent `protocolVersion: 0`, which the params schema refuses as non-positive, so the floor branch
+  was untested for as long as it existed. A negative case chosen to look invalid rather than to
+  land on its branch; the fix was `FEDERATION_PROTOCOL_FLOOR - 1`.
+- **The Router client's teardown had two doors.** `stop()` and the socket close handler each
+  cleared the same seven things, and only one of them told the gateway; the bridge's
+  `dropConnection` clears three collections and a set the same way. Every teardown that is written
+  twice drifts once.
+- **The value-protocol shim was three checks in three files behind one seam.** `inboxFrames`,
+  `gatewayBridge.pushInboxRows` and `ownerOpIntake` each compared a registration's version to
+  `FEDERATION_VALUE_PROTOCOL_VERSION`, the intake through a `setGatewayProtocol` seam that
+  existed for that one line, and the `Remove-by` comment named no date.
+- **A preference key's lifecycle is four hand-kept lists.** The constant, `PROVISIONING_KEYS`,
+  `SCHEMA_WIPE_KEYS` and now `RETIRED_KEYS`, with `ClearProvisioningPartitionTest` re-listing the
+  keys by string. A key declared once with its partition would make the lists derived.
+- **The old client's backoff resets on every open,** so a Gateway refused for its version
+  reconnects every five seconds rather than backing off to thirty; the reconnector counts socket
+  opens, not registrations. Mikan nags its log at that cadence until it is restarted.
+- **A terminal denial leaves the client connected and unregistered,** and
+  `router-register-retry.test` pins it. The version road now closes the socket from the Router;
+  the missing-admission road does not (bd_ea4b1d76).
+- **A doc section built around the symbol being purged** (`docs/console.md`'s jobs list) had to
+  be rewritten in Phases 2, 6 and 7. A rule reads the same whatever is deleted; a job list does not.
+- **The comment cleaner flattened a rule to a label** ("Cross-Domain target lookup") with the
+  keep-list in its brief; a cleaner that is told to shorten will shorten a rule. Restored by hand.
+- **Codex severities are not calibrated.** Of four "blockers" this lap, three were real and one
+  needed the bearer holder to do something that gains nothing; every one had to be re-derived
+  against the code before it was believed.
+- **`cd android` in a Bash line moves the harness's working directory** for every later command,
+  so a Gradle invocation has to be undone with an absolute path afterwards.
