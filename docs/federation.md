@@ -2,7 +2,7 @@
 
 The self-hosted Router, how a Gateway reaches it, and the trust model.
 
-**Compatibility:** Protocol version 3, and the floor is 3. A Gateway below it is refused at registration with `version_too_old`; its Router client logs the floor and stops, and the Gateway serves nothing through the Router until it is restarted on a current build.
+**Compatibility:** Protocol version 3, and the floor is 3. A Gateway below it is refused at registration with `version_too_old` and the Router closes the socket after the answer; a current client logs the floor and stops, an older one reconnects and is refused again, and either way the Gateway serves nothing through the Router until it is restarted on a current build. A gateway id that is not a slug is refused before it is logged.
 
 ## Self-hosted Router
 

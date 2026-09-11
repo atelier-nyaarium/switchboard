@@ -1188,6 +1188,13 @@ for a Gateway behind the floor (bd_b020d3e2); Add Device installing before it va
   close window succeeded (red team); closed by marking the connection `closing` at the refusal and
   answering nothing else on it, the same door `dropConnection` clears.
 
+### Architecture findings carried forward
+
+- The bridge's connection lifecycle is three collections and a set (`connGateways`,
+  `gatewayConnections`, `closing`), each written by a different road and all cleared by
+  `dropConnection`. A per-connection state record would make the next refusal kind one arm. On the
+  board (bd_9d4856cd), not built: a purge phase is the wrong place for a state machine. No fan-out this lap; the phase is deletion and the reads above covered the code.
+
 ## Phase 8 - Words
 
 - `docs/testing.md` "the home gateway" (the harness rename below); `AGENTS.md` ChatRepository

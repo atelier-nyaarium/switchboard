@@ -145,7 +145,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/router/blobMigrationRoute.ts` - the loopback `/migration/router-blobs` route: binds what the Router's records name, holds every other local blob, retires local bytes the Router holds; removed with `scripts/migrate-router-blobs.ts` on 2026-09-25
 - `src/gateway/console/` - Android OwnerOp dispatch and capability store
 - `src/gateway/console/consoleTargets.ts` - every console target, `domain.gateway.spawn[.session]` by contract; the bare-name and foreign-Gateway refusals live here alone
-- `src/gateway/console/consoleCrossDomain.ts` - the console's link, share, unlink and untrust handlers
+- `src/gateway/console/consoleCrossDomain.ts` - the console's link, unlink and untrust handlers
 - `src/gateway/console/consoleSessionLifecycle.ts` - create, wake, close, forget, and rename
 - `src/gateway/console/consoleTerminal.ts` - pane peek, key send, directory listing, and plugin reload
 - `src/gateway/consolePushOps.ts` - phone-bound rows, `deliverToOwner`, and durable `OwnerRowOutbox`
