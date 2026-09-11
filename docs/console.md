@@ -66,19 +66,18 @@ Phone-bound rows are appended by the Gateway through `deliverToOwner`.
 `src/gateway/consolePushOps.ts` owns the durable `OwnerRowOutbox` for disconnected or uncertain
 appends.
 
-### `homeGatewayId`, and the six things it is for
+### `homeGatewayId`, and the five things it is for
 
 `adoptHomeGateway` keeps the stored id while the Domain keyring still admits it, and otherwise takes
 `admitted.firstOrNull()`. The owner never picks it and there is no control for it.
 
-Six jobs, each resolving or identifying:
+Five jobs, each resolving or identifying:
 
 1. Completing an unqualified name, so a bare `sandbox` means that spawn on this Gateway.
 2. Filling the Gateway segment of this phone's own local address.
-3. Reading the Domain id off that Gateway's signed roster.
-4. Naming which of the owner's Gateways is asking, on a cross-domain trust request.
-5. Deciding which Gateway claims a runbook library written before libraries were split per Gateway.
-6. Where an unassigned board entry's attachment blob is uploaded, since it has no session Gateway.
+3. Naming which of the owner's Gateways is asking, on a cross-domain trust request.
+4. Deciding which Gateway claims a runbook library written before libraries were split per Gateway.
+5. Where an unassigned board entry's attachment blob is uploaded, since it has no session Gateway.
 
 **It is not a visibility filter, and a screen that reads it to decide what to draw is a bug.** A
 document that states only how it is selected invites exactly that, which is why the jobs are listed.
@@ -98,10 +97,13 @@ the same incarnation, and the tabs key their re-read on `incarnations()`.
 
 The registry has a provenance. `NeverLoaded` is not an empty roster; `Cached` is the last slot on
 disk, landed once before the first poll and drawn with a stale mark; `Current` is a live
-projection. `reachable(id)` says the roster is `Current` and the Router holds that Gateway's
-connection; Create and the new-record button read it. Board assignment targets read membership
-alone, since an assignment is intent the Router holds. A journaled forget, a vault revoke, and
-deleting the own Domain wait for a `Current` roster.
+projection. `offersSpawn(id)` is the Sessions tab's Create rule: the roster is loaded, the Router
+holds that Gateway's connection, and the Gateway projected its spawn points (`hostSpawns` is null
+until it does). `standing(id)` answers `Unknown`, `NeverSeen`, `Offline` or `Online` for the
+section header. `reachable(id)` says the roster is `Current` and the connection is held; the
+new-record button reads it. Board assignment targets and a journaled forget read membership
+alone (`owns`), since an assignment is intent the Router holds and the journal exists for what
+cannot be delivered now. A vault revoke and deleting the own Domain wait for a `Current` roster.
 `PollDrain`'s plane cursor decides what lands (below); `applyOwnerProjection` lands and rewrites
 the slot without comparing, so an unchanged Router's plane after a restart promotes the restore and
 repairs a slot the phone could not read. `clearProvisioning` drops the Router slots with the Domain.

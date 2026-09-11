@@ -17,7 +17,6 @@ internal fun testTeam(
 	limitBlocked: Boolean? = null,
 	limitDetail: String? = null,
 	kind: String = "loose",
-	domainId: String? = null,
 	sessionLabel: String? = null,
 ): Team = Team(
 	name = name,
@@ -33,6 +32,5 @@ internal fun testTeam(
 		limitDetail = limitDetail,
 	),
 	kind = kind,
-	domainId = domainId,
 	sessionLabel = sessionLabel,
 )

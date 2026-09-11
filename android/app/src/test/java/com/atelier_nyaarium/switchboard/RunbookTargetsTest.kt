@@ -6,8 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class RunbookTargetsTest {
-	private fun team(name: String, kind: String = "loose") =
-		Team(name = name, presence = Presence.ended(), kind = kind, domainId = "d1")
+	private fun team(name: String, kind: String = "loose") = Team(name = name, presence = Presence.ended(), kind = kind)
 
 	private val state = ChatState(
 		teams = listOf(
@@ -17,7 +16,9 @@ class RunbookTargetsTest {
 			team("d1.mikan.host.999"),
 			team("d1.mikan.nyaakube", kind = "devcontainer"),
 		),
-		gateways = testRegistry("sakura", "mikan").withEntry("mikan") { it.copy(hostSpawns = listOf("host")) },
+		gateways = testRegistry("sakura", "mikan")
+			.withEntry("sakura") { it.copy(hostSpawns = emptyList()) }
+			.withEntry("mikan") { it.copy(hostSpawns = listOf("host")) },
 		homeGatewayId = "sakura",
 		domainId = "d1",
 	)

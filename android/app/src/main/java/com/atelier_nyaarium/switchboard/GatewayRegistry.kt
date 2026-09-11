@@ -9,12 +9,16 @@ import com.atelier_nyaarium.switchboard.proto.Runbook
 /** `NeverLoaded` differs from empty. */
 enum class RegistryProvenance { NeverLoaded, Cached, Current }
 
+/** What the roster says about one Gateway. */
+enum class GatewayStanding { Unknown, NeverSeen, Offline, Online }
+
 data class GatewayEntry(
 	val id: String,
 	val connected: Boolean,
 	val incarnation: Long,
 	val lastRegisteredAt: Long,
-	val hostSpawns: List<String> = emptyList(),
+	/** Null until the Gateway projects its spawn points. */
+	val hostSpawns: List<String>? = null,
 	val routines: List<RoutineState>? = null,
 	/** Schedule zone from answer. */
 	val routineZone: String = "",
@@ -43,12 +47,25 @@ data class GatewayRegistry(
 	/** Null means roster unknown. */
 	fun connected(gatewayId: String): Boolean? = entry(gatewayId)?.connected
 
-	fun hostSpawns(gatewayId: String): List<String> = entry(gatewayId)?.hostSpawns.orEmpty()
+	fun hostSpawns(gatewayId: String): List<String>? = entry(gatewayId)?.hostSpawns
 
 	/** Roster live, Router-held. */
 	fun reachable(gatewayId: String): Boolean = current && connected(gatewayId) == true
 
 	fun reachableIds(): List<String> = if (current) gateways.filter { it.connected }.map { it.id } else emptyList()
+
+	/** May offer a spawn: roster loaded, connection held, spawn points projected. */
+	fun offersSpawn(gatewayId: String): Boolean = loaded && connected(gatewayId) == true && hostSpawns(gatewayId) != null
+
+	fun standing(gatewayId: String): GatewayStanding {
+		val entry = if (loaded) entry(gatewayId) else null
+		return when {
+			entry == null -> GatewayStanding.Unknown
+			!entry.seen -> GatewayStanding.NeverSeen
+			entry.connected -> GatewayStanding.Online
+			else -> GatewayStanding.Offline
+		}
+	}
 
 	/** Re-ask on incarnation change. */
 	fun incarnations(): List<Pair<String, Long>> = gateways.map { it.id to it.incarnation }
@@ -94,7 +111,7 @@ data class GatewayRegistry(
 						connected = row.connected,
 						incarnation = row.incarnation,
 						lastRegisteredAt = row.lastRegisteredAt,
-						hostSpawns = spawns[row.gatewayId].orEmpty(),
+						hostSpawns = spawns[row.gatewayId],
 						routines = prior?.routines,
 						routineZone = prior?.routineZone.orEmpty(),
 						runbooks = prior?.runbooks ?: storedRunbooks(row.gatewayId),

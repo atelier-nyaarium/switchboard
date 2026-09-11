@@ -67,8 +67,8 @@ class PresenceMergeTest {
 
 	private val domain = "dom1"
 
-	private fun prior(gateway: String, session: String, rowDomain: String? = domain) =
-		testTeam(name = "$rowDomain.$gateway.host.$session", domainId = rowDomain)
+	private fun prior(gateway: String, session: String, rowDomain: String = domain) =
+		testTeam(name = "$rowDomain.$gateway.host.$session")
 
 	@Test
 	fun theProjectionSpeaksForEveryOwnDomainRowAndNoFriendRow() {

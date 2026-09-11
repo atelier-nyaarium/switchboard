@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.board.BoardLiveLine
 import com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceSession
+import com.atelier_nyaarium.switchboard.proto.LOCAL_DOMAIN_SENTINEL
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.proto.isComposite
 import com.atelier_nyaarium.switchboard.proto.parseSessionName
@@ -35,7 +36,7 @@ internal fun sessionOrder(state: ChatState): Comparator<Team> =
 
 // Peer rows render in the linked-friends section.
 internal fun localSessions(sessions: List<Team>, adminDomainId: String): List<Team> =
-	sessions.filter { it.domainId.isNullOrEmpty() || it.domainId == adminDomainId }
+	sessions.filter { it.domainId == LOCAL_DOMAIN_SENTINEL || it.domainId == adminDomainId }
 
 // Peer presence is untrusted and may duplicate keys.
 internal fun dedupedFriendSessions(sessions: List<CrossDomainPresenceSession>): List<CrossDomainPresenceSession> =
@@ -44,25 +45,23 @@ internal fun dedupedFriendSessions(sessions: List<CrossDomainPresenceSession>): 
 // Gateway IDs are unique only within a Domain.
 internal data class GatewayGroupKey(val domainId: String, val gatewayId: String)
 
+/** Every roster Gateway gets a section; own Domain first, then by id. */
 internal fun groupByGateway(
 	local: List<Team>,
 	registry: GatewayRegistry,
 	adminDomainId: String,
-	homeGatewayId: String,
 ): List<Pair<GatewayGroupKey, List<Team>>> {
-	// Roster-only Gateways remain actionable.
 	val grouped = local.groupBy {
-		GatewayGroupKey(it.domainId.orEmpty().ifEmpty { adminDomainId }, it.gatewayId.ifEmpty { homeGatewayId })
+		GatewayGroupKey(it.domainId.takeIf { d -> d != LOCAL_DOMAIN_SENTINEL } ?: adminDomainId, it.gatewayId)
 	}
-	val admitted = registry.ids().filter { adminDomainId.isNotEmpty() || it == homeGatewayId }
 	val empties =
-		admitted
+		registry.ids()
 			.map { GatewayGroupKey(adminDomainId, it) }
 			.filterNot { it in grouped }
 			.associateWith { emptyList<Team>() }
-	return (grouped + empties).toList().sortedBy { (key, _) ->
-		if (key.domainId == adminDomainId && key.gatewayId == homeGatewayId) "" else "${key.domainId}/${key.gatewayId}"
-	}
+	return (grouped + empties).toList().sortedWith(
+		compareBy({ (key, _) -> key.domainId != adminDomainId }, { (key, _) -> key.domainId }, { (key, _) -> key.gatewayId }),
+	)
 }
 
 internal val HOST_SPAWN_IDS = setOf("host", "windows")
@@ -76,24 +75,29 @@ internal fun hostSpawnLabel(id: String, offered: List<String>): String = when {
 	else -> id
 }
 
-/** Advertised spawns beyond `host`. */
-internal fun hostSpawnChoices(hostSpawns: List<String>): List<String> {
+/** Advertised spawns beyond `host`; nothing for a Gateway that projected none. */
+internal fun hostSpawnChoices(hostSpawns: List<String>?): List<String> {
+	if (hostSpawns == null) return emptyList()
 	val detected = hostSpawns.filter { it in HOST_SPAWN_IDS && it != "host" }.distinct().sorted()
 	return detected + "host"
 }
 
+/** Every offered project qualifies on this Gateway; one that cannot is not offered. */
 internal data class CreateDialogTarget(
 	val domainId: String,
 	val gatewayId: String,
-	val isLocal: Boolean,
 	val projects: List<String>,
 ) {
-	fun targetFor(project: String): String =
-		if (isLocal || domainId.isEmpty() || gatewayId.isEmpty()) {
-			project
-		} else {
-			runCatching { SpawnPoint.of(domainId, gatewayId, project).canonical }.getOrDefault(project)
-		}
+	fun targetFor(project: String): String = SpawnPoint.of(domainId, gatewayId, project).canonical
+
+	companion object {
+		fun of(domainId: String, gatewayId: String, candidates: List<String>): CreateDialogTarget =
+			CreateDialogTarget(
+				domainId,
+				gatewayId,
+				candidates.filter { runCatching { SpawnPoint.of(domainId, gatewayId, it) }.isSuccess },
+			)
+	}
 }
 
 
@@ -202,7 +206,7 @@ fun SessionsScreen(
 			// Linked peers remain visible before local Domain discovery.
 			val linkedDomains =
 				CrossDomainLink.mergeLinkedDomains(state.teams, state.linkedPeerOwners, adminDomainId, state.friendLabels())
-			val byGateway = groupByGateway(local, state.gateways, adminDomainId, state.homeGatewayId)
+			val byGateway = groupByGateway(local, state.gateways, adminDomainId)
 			val onboarding = (byGateway.isEmpty() && linkedDomains.isEmpty()) ||
 				(local.isEmpty() && linkedDomains.isEmpty() && emptyBoardHasCause(state))
 			if (!onboarding) HealthHeader(state)
@@ -252,8 +256,7 @@ fun SessionsScreen(
 						val collapsed = composite in collapsedGateways.value
 						val isPeer = key.domainId.isNotEmpty() && adminDomainId.isNotEmpty() && key.domainId != adminDomainId
 						val headerName = if (isPeer) composite else key.gatewayId
-						// Only connected local Gateways offer spawns.
-						val showCreate = !isPeer && state.gateways.reachable(key.gatewayId)
+						val showCreate = !isPeer && state.gateways.offersSpawn(key.gatewayId)
 						fun localName(t: Team) = t.shortName
 						val spawnPoints = group.filter { it.kind == "devcontainer" }.sortedWith(order)
 						item(key = "sw:$composite") {
@@ -267,15 +270,14 @@ fun SessionsScreen(
 							},
 								showCreate = showCreate,
 								onCreate = {
-									createDialogFor = CreateDialogTarget(
-										domainId = key.domainId,
-										gatewayId = key.gatewayId,
-										isLocal = key.gatewayId == state.homeGatewayId,
-										projects = hostSpawnChoices(state.gateways.hostSpawns(key.gatewayId)) +
+									createDialogFor = CreateDialogTarget.of(
+										key.domainId,
+										key.gatewayId,
+										hostSpawnChoices(state.gateways.hostSpawns(key.gatewayId)) +
 											spawnPoints.map { localName(it) }.filterNot { it in HOST_SPAWN_IDS },
 									)
 								},
-								reachable = if (isPeer) null else state.gateways.connected(key.gatewayId),
+								standing = if (isPeer) null else state.gateways.standing(key.gatewayId),
 								stale = !isPeer && state.gateways.provenance == RegistryProvenance.Cached,
 							)
 						}

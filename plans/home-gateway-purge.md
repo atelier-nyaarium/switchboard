@@ -579,6 +579,22 @@ Rules:
   optimism and journaling.
 - `SandboxSeeder.sandboxHomeGateway` deleted.
 
+- As built: `Team.domainId` is derived from the canonical name, as `gatewayId` already was, so
+  no row carries a nullable Domain and `teamInfoToTeam` takes no home id. A thread keyed before
+  the Domain was known still parses as the `local` sentinel and reads as own-Domain until Phase
+  3. `keepPriorRow(row, planeDomain)` compares the row's Domain alone. `rosterDomainId` and its
+  `learnDomainId` call are gone; reach names the Domain. `groupByGateway(local, registry,
+  adminDomainId)` sections every roster Gateway, own Domain first then by Domain and id.
+  `GatewayRegistry.offersSpawn(id)` is the Create rule: the roster is loaded, the Router holds the
+  connection, and the Gateway projected its spawn points (`GatewayEntry.hostSpawns` is null until
+  it does, and `hostSpawnChoices(null)` offers nothing). `GatewayRegistry.standing(id)` answers
+  `Unknown`, `NeverSeen`, `Offline` or `Online`; `GatewayHeader` takes it in place of the reachable
+  flag and says "never seen" beside no Create. `CreateDialogTarget.of` keeps only projects that
+  qualify on the Gateway and `targetFor` is always `SpawnPoint.of`. `GatewayRegistry.owns(target,
+  domainId)` replaces `isLocalTo` for `RenameOps` and `SessionOps.forget`; the forget journals for
+  any Gateway the roster names, cached or current. The sandbox seeds `homeGatewayId` from the
+  roster's first id.
+
 ## Phase 3 - No unqualified name leaves the phone
 
 - The phone gets its own parser, `parseQualifiedTarget(wire)`: arity 3 or 4, nothing else, with

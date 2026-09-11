@@ -48,8 +48,9 @@ class CrossDomainLinkTest {
 
 	// -- The PEERS roster union (Fix: a freshly-linked peer is otherwise invisible) --
 
-	private fun team(name: String, domainId: String?, status: String = "online") =
-		testTeam(name = name, status = status, mode = "channel", domainId = domainId)
+	// The Domain rides the qualified name.
+	private fun team(name: String, domainId: String, status: String = "online") =
+		testTeam(name = "$domainId.${name.replace('/', '.')}", status = status, mode = "channel")
 
 	@Test
 	fun mergeListsALinkedButOfflinePeerWithNoDiscoverySessions() {
@@ -94,7 +95,7 @@ class CrossDomainLinkTest {
 	fun mergeExcludesLocalFromBothInputs() {
 		// A local-tagged session and the local Domain id in the peer set must never list as a peer.
 		val peers = CrossDomainLink.mergeLinkedDomains(
-			teams = listOf(team("local-gw/app", "alice"), team("local-gw/api", null)),
+			teams = listOf(team("local-gw/app", "alice"), team("local-gw/api", "local")),
 			peerOwners = mapOf("alice" to "local-owner"),
 			adminDomain = "alice",
 			labels = emptyMap(),

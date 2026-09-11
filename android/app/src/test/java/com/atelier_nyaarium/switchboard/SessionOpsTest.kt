@@ -138,10 +138,10 @@ class SessionOpsTest {
 	}
 
 	@Test
-	fun aForgetOnACachedRosterTombstonesWithoutJournaling() {
+	fun aForgetOnAGatewayTheRosterDoesNotNameTombstonesWithoutJournaling() {
 		val dir = journalDir()
 		val host = FakeHost()
-		host.state.value = ChatState(gateways = testRegistry("gw", provenance = RegistryProvenance.Cached))
+		host.state.value = ChatState(gateways = testRegistry("other"))
 		SessionOps(host, IdlePresencePort, MutationJournal(dir)).forget("dom.gw.host.session")
 
 		assertTrue(host.forgotten.isEmpty())

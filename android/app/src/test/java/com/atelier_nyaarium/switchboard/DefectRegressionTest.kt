@@ -67,8 +67,9 @@ class DefectRegressionTest {
 	@Test
 	fun localityRequiresDomainAndGateway() {
 		val address = com.atelier_nyaarium.switchboard.proto.Address.local("domain-a", "gateway-a", "session", "main")
-		assertTrue(address.isLocalTo("domain-a", setOf("gateway-a")))
-		assertEquals(false, address.isLocalTo("domain-b", setOf("gateway-a")))
+		assertTrue(testRegistry("gateway-a").owns(address, "domain-a"))
+		assertEquals(false, testRegistry("gateway-a").owns(address, "domain-b"))
+		assertEquals(false, testRegistry("gateway-b").owns(address, "domain-a"))
 	}
 
 	@Test

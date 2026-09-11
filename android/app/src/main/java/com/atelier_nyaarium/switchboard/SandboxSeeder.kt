@@ -9,9 +9,6 @@ internal val isSandbox: Boolean get() = BuildConfig.BUILD_TYPE == "emulator"
 
 internal const val SANDBOX_UNREACHABLE = "no Gateway in the sandbox"
 
-internal fun sandboxHomeGateway(firstTeam: String?, current: String): String =
-	firstTeam?.split(".")?.getOrNull(1) ?: current
-
 /** Unregistered Gateway has no port. */
 internal const val SANDBOX_NEVER_REGISTERED = "shelved"
 
@@ -69,7 +66,7 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 		gateways: GatewayRegistry,
 	) {
 		if (!isSandbox) return
-		repo.homeGatewayId = sandboxHomeGateway(teams.firstOrNull()?.name, repo.homeGatewayId)
+		gateways.ids().firstOrNull()?.let { repo.homeGatewayId = it }
 		seedSandboxIdentity(repo.identity, teams.firstOrNull()?.domainId)
 		this.dirs = dirs
 		repo._state.update { s ->

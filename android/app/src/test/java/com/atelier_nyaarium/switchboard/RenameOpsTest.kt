@@ -28,7 +28,7 @@ class RenameOpsTest {
 	}
 
 	private class FakeRenameHost(private val renamed: Boolean = true) : RenameHost {
-		override val state = MutableStateFlow(ChatState(homeGatewayId = "home"))
+		override val state = MutableStateFlow(ChatState(homeGatewayId = "home", gateways = testRegistry("home")))
 		var presenceRefreshes = 0
 
 		override fun localDomain() = "domain"

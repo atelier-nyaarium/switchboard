@@ -9,34 +9,32 @@ import org.junit.Test
  */
 class LocalSessionsTest {
 
-	private fun team(name: String, domainId: String?) = testTeam(name, status = Presence.AVAILABLE, domainId = domainId)
+	private fun team(name: String) = testTeam(name, status = Presence.AVAILABLE)
 
 	@Test
-	fun sessionsWithNoDomainIdAreLocal() {
-		// The common case pre-enrollment, or a synthesized ended-thread entry.
-		val t = team("local.gw.claude", domainId = null)
+	fun sessionsOnTheOwnDomainAreLocal() {
+		val t = team("alice.gw.claude")
 		assertEquals(listOf(t), localSessions(listOf(t), adminDomainId = "alice"))
 	}
 
 	@Test
-	fun sessionsMatchingTheAdminDomainAreLocal() {
-		val t = team("local.gw.claude", domainId = "alice")
+	fun aSessionStillNamedByTheLocalSentinelIsLocal() {
+		// A thread keyed before the Domain was known.
+		val t = team("local.gw.claude")
 		assertEquals(listOf(t), localSessions(listOf(t), adminDomainId = "alice"))
 	}
 
 	@Test
 	fun sessionsFromAnotherDomainAreExcluded() {
-		val mine = team("local.gw.claude", domainId = "alice")
-		val peer = team("peer.gw.claude", domainId = "bob")
+		val mine = team("alice.gw.claude")
+		val peer = team("bob.gw.claude")
 		assertEquals(listOf(mine), localSessions(listOf(mine, peer), adminDomainId = "alice"))
 	}
 
 	@Test
 	fun emptyAdminDomainExcludesAnyDomainTaggedSession() {
-		// The admin domain isn't resolved yet - a domain-tagged session can't be classified as
-		// "mine" (it doesn't match ""), so it's excluded rather than wrongly treated as local.
-		val untagged = team("local.gw.claude", domainId = null)
-		val tagged = team("other.gw.claude", domainId = "bob")
+		val untagged = team("local.gw.claude")
+		val tagged = team("bob.gw.claude")
 		assertEquals(listOf(untagged), localSessions(listOf(untagged, tagged), adminDomainId = ""))
 	}
 }

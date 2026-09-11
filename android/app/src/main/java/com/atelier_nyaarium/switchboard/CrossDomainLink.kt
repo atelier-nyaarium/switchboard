@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.CrossDomainRequestResult
+import com.atelier_nyaarium.switchboard.proto.LOCAL_DOMAIN_SENTINEL
 
 /**
  * Pure helpers for the cross-Domain link pairing UI: the SAS type-to-match check and the
@@ -84,8 +85,8 @@ object CrossDomainLink {
 		labels: Map<String, String?>,
 	): List<LinkedDomain> {
 		val byDomain = teams
-			.filter { !it.domainId.isNullOrEmpty() && it.domainId != adminDomain }
-			.groupBy { it.domainId!! }
+			.filter { it.domainId != LOCAL_DOMAIN_SENTINEL && it.domainId != adminDomain }
+			.groupBy { it.domainId }
 		val domains = byDomain.keys + peerOwners.keys.filter { it != adminDomain }
 		return domains
 			.map { domainId ->

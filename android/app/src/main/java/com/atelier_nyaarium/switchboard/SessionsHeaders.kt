@@ -131,9 +131,8 @@ internal fun GatewayHeader(
 	onToggle: () -> Unit,
 	showCreate: Boolean = false,
 	onCreate: (() -> Unit)? = null,
-	// Whether the Router currently holds a connection for this machine. NULL means it did not say, and
-	// nothing is drawn: a machine is only ever called offline on an answer that arrived.
-	reachable: Boolean? = null,
+	// Null for a peer, whose sessions say whether it is online.
+	standing: GatewayStanding? = null,
 	// Roster may be stale.
 	stale: Boolean = false,
 ) {
@@ -146,16 +145,18 @@ internal fun GatewayHeader(
 			)
 			Spacer(Modifier.width(8.dp))
 		}
-		// Shown BESIDE Create, not instead of it. This label used to be the else-branch of the Create
-		// button, which was fine while only one Gateway could offer one; once every own-Domain machine
-		// did, the label vanished from exactly the machines whose reachability is worth knowing, and a
-		// switched-off one looked identical to an idle one.
-		if (reachable == false) {
-			Text(
-				"offline",
-				style = MaterialTheme.typography.labelSmall,
-				color = MaterialTheme.colorScheme.error,
-			)
+		val word = when (standing) {
+			GatewayStanding.NeverSeen -> "never seen"
+			GatewayStanding.Offline -> "offline"
+			GatewayStanding.Online -> "online"
+			// An unloaded roster is not an offline Gateway.
+			GatewayStanding.Unknown -> if (online) "online" else null
+			null -> if (online) "online" else "offline"
+		}
+		val alarming = standing == GatewayStanding.NeverSeen || standing == GatewayStanding.Offline
+		// Beside Create, never instead of it.
+		if (alarming) {
+			Text(word!!, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
 			Spacer(Modifier.width(8.dp))
 		}
 		if (showCreate && onCreate != null) {
@@ -164,15 +165,8 @@ internal fun GatewayHeader(
 				Spacer(Modifier.width(6.dp))
 				Text("Create")
 			}
-		} else if (reachable != false) {
-			// Every section without a Create button keeps a status word. Gating this on `reachable ==
-			// null` instead left a section with no Create and a known-reachable Gateway showing nothing
-			// at all, which is the one combination that says least about a machine.
-			Text(
-				if (reachable ?: online) "online" else "offline",
-				style = MaterialTheme.typography.labelSmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-			)
+		} else if (!alarming && word != null) {
+			Text(word, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
 	}
 }

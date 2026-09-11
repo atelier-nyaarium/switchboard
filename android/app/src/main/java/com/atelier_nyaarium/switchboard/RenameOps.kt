@@ -38,7 +38,7 @@ internal class RenameOps(private val host: RenameHost) {
 		}
 		val home = host.state.value.homeGatewayId
 		val t = runCatching { parseTarget(team, host.localDomain(), home) }.getOrNull()
-		val isLocal = t is Address && t.isLocalTo(host.localDomain(), setOf(home))
+		val isLocal = t is Address && host.state.value.gateways.owns(t, host.localDomain())
 		val previous = host.state.value.labels[team]
 		if (isLocal) host.setLabel(team, trimmed)
 		val reply = withContext(Dispatchers.IO) { host.renameSession(team, trimmed) }

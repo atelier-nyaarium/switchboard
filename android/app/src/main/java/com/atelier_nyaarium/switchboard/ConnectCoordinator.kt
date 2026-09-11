@@ -76,7 +76,6 @@ internal class ConnectCoordinator(
 					enrollingSince = 0L,
 				)
 			}
-			rosterDomainId(state.value.teams, host.homeGatewayId)?.let { identity.learnDomainId(it, blob) }
 			val boot = identity.readyOrNull()
 			boot?.let(identity::ensureContentEpochs)
 			DebugLog.log("Connect", "connected gateway=${host.homeGatewayId.ifEmpty { "?" }} domain=${boot?.domainId ?: "none"}")
@@ -116,10 +115,6 @@ internal class ConnectCoordinator(
 		}
 	}
 }
-
-internal fun rosterDomainId(teams: List<Team>, homeGatewayId: String): String? =
-	// Read the Domain id from the signed home-Gateway roster.
-	teams.firstOrNull { (it.gatewayId.ifEmpty { homeGatewayId }) == homeGatewayId && !it.domainId.isNullOrEmpty() }?.domainId
 
 internal class ChatRepositoryConnectHost(private val repo: ChatRepository) : ConnectHost {
 	override var homeGatewayId: String

@@ -87,7 +87,7 @@ class PresenceOpsTest {
 		assertEquals(listOf("windows", "host"), hostSpawnChoices(host.state.value.gateways.hostSpawns("mikan")))
 
 		ops.applyOwnerProjection(projection(2, roster = withMikan))
-		assertEquals(listOf("host"), hostSpawnChoices(host.state.value.gateways.hostSpawns("mikan")))
+		assertEquals(emptyList<String>(), hostSpawnChoices(host.state.value.gateways.hostSpawns("mikan")))
 
 		val restoredHost = FakeHost()
 		val stored = projection(1, roster = withMikan, spawnPoints = windowsOnMikan)

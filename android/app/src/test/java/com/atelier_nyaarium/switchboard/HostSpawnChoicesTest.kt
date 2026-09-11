@@ -11,11 +11,12 @@ import org.junit.Test
  * exists only in the picker, and only where it is true.
  */
 class HostSpawnChoicesTest {
-	// Silence and an affirmative "nothing beyond host" both mean the machine offers only its own shell.
+	// An affirmative "nothing beyond host" offers the machine's own shell; no projection offers nothing.
 	@Test
-	fun `no advertisement and an empty one both yield exactly host`() {
-		assertEquals(listOf("host"), hostSpawnChoices(GatewayRegistry().hostSpawns("mikan")))
+	fun `an empty advertisement yields exactly host and no projection yields nothing`() {
 		assertEquals(listOf("host"), hostSpawnChoices(emptyList()))
+		assertEquals(emptyList<String>(), hostSpawnChoices(GatewayRegistry().hostSpawns("mikan")))
+		assertEquals(emptyList<String>(), hostSpawnChoices(testRegistry("mikan").hostSpawns("mikan")))
 	}
 
 	@Test
@@ -26,7 +27,9 @@ class HostSpawnChoicesTest {
 	// Another machine's answer must not leak into this Gateway's picker: spawning is per machine.
 	@Test
 	fun `another gateway's advertisement is ignored`() {
-		val registry = testRegistry("sakura", "mikan").withEntry("sakura") { it.copy(hostSpawns = listOf("windows")) }
+		val registry = testRegistry("sakura", "mikan")
+			.withEntry("sakura") { it.copy(hostSpawns = listOf("windows")) }
+			.withEntry("mikan") { it.copy(hostSpawns = emptyList()) }
 		assertEquals(listOf("host"), hostSpawnChoices(registry.hostSpawns("mikan")))
 	}
 

@@ -23,8 +23,6 @@ data class Team(
 	// See Presence.kt for the whole reasoning; the status string in there has no accessor on purpose.
 	val presence: Presence,
 	val kind: String = "loose",
-	// Domain/Gateway identify rows.
-	val domainId: String? = null,
 	val sessionLabel: String? = null,
 	// Null for local rows.
 	val presenceFresh: String? = null,
@@ -34,6 +32,9 @@ data class Team(
 
 	/** Owning Gateway id (the gateway segment of the canonical address). */
 	val gatewayId: String get() = gatewayOf(name)
+
+	/** Owning Domain id (the domain segment of the canonical address). */
+	val domainId: String get() = domainOf(name)
 
 	/** A live socket serves this session. Forwarded rather than reached through `presence` because
 	 * it is the single most-read question on the board; everything else goes through [presence] so
@@ -64,6 +65,13 @@ internal fun gatewayOf(canonical: String): String =
 	when (val t = parseTarget(canonical, "", "")) {
 		is Address -> t.gateway
 		is SpawnPoint -> t.gateway
+	}
+
+/** The Domain segment of a canonical address string. */
+internal fun domainOf(canonical: String): String =
+	when (val t = parseTarget(canonical, "", "")) {
+		is Address -> t.domain
+		is SpawnPoint -> t.domain
 	}
 
 /** Re-stamp what this row's report is worth. [teamInfoToTeam] stamps POLLED because it serves both
@@ -108,17 +116,15 @@ internal fun mergePresence(prior: List<Team>, fresh: List<Team>, keepPrior: (Tea
 }
 
 /** Keep linked-domain rows. */
-internal fun keepPriorRow(row: Team, planeDomain: String): Boolean =
-	row.domainId != null && row.domainId != planeDomain
+internal fun keepPriorRow(row: Team, planeDomain: String): Boolean = row.domainId != planeDomain
 
-internal fun teamInfoToTeam(it: TeamInfo, homeGatewayId: String): Team {
-	val gatewayId = it.gatewayId.ifEmpty { homeGatewayId }
+internal fun teamInfoToTeam(it: TeamInfo): Team {
 	// Matches gateway address minting.
 	val parsed = parseSessionName(it.team)
 	val canonicalName = if (it.kind == "devcontainer") {
-		SpawnPoint.of(it.domainId, gatewayId, parsed.project).canonical
+		SpawnPoint.of(it.domainId, it.gatewayId, parsed.project).canonical
 	} else {
-		Address.of(it.domainId, gatewayId, parsed.project, parsed.session).canonical
+		Address.of(it.domainId, it.gatewayId, parsed.project, parsed.session).canonical
 	}
 	return Team(
 		name = canonicalName,
@@ -135,7 +141,6 @@ internal fun teamInfoToTeam(it: TeamInfo, homeGatewayId: String): Team {
 			limitDetail = it.limitDetail,
 		),
 		kind = it.kind,
-		domainId = it.domainId,
 		sessionLabel = it.sessionLabel,
 		presenceFresh = it.presenceFresh,
 	)

@@ -20,8 +20,9 @@ class FriendOnboardingTest {
 			deviceApprovalReach = null,
 		)
 
-	private fun team(name: String, domainId: String?, status: String = "online") =
-		testTeam(name = name, status = status, mode = "channel", domainId = domainId)
+	// The Domain rides the qualified name.
+	private fun team(name: String, domainId: String, status: String = "online") =
+		testTeam(name = "$domainId.${name.replace('/', '.')}", status = status, mode = "channel")
 
 
 	@Test

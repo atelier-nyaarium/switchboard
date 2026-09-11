@@ -5,85 +5,68 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Unit tests for the sessions board's machine list: which Gateways get a section, and what a picked
- * project resolves to once one is pressed.
+ * Unit tests for the sessions board's machine list: which Gateways get a section, in what order, and
+ * what a picked project resolves to once one is pressed.
  */
 class GroupByGatewayTest {
 
-	// gatewayId derives from the qualified name, so the fixtures spell it there.
-	private fun team(name: String, domainId: String? = "alice") = testTeam(name, status = Presence.AVAILABLE, domainId = domainId)
+	// domainId and gatewayId derive from the qualified name, so the fixtures spell them there.
+	private fun team(name: String) = testTeam(name, status = Presence.AVAILABLE)
 
 	private fun keys(groups: List<Pair<GatewayGroupKey, List<Team>>>) = groups.map { it.first.gatewayId }
 
 	@Test
-	fun anAdmittedGatewayWithNoSessionsStillGetsASection() {
-		// The reported bug: a second machine registers, relays, and draws nothing, because the roster
-		// it contributes to is built from session rows and it has none.
+	fun aRosterGatewayWithNoSessionsStillGetsASection() {
+		// A second machine registers, relays, and would draw nothing, because the sections were built
+		// from session rows and it has none.
 		val rows = listOf(team("alice.sakura.claude"))
-		val groups = groupByGateway(rows, testRegistry("sakura", "ql-2815"), adminDomainId = "alice", homeGatewayId = "sakura")
-		assertEquals(listOf("sakura", "ql-2815"), keys(groups))
-		assertEquals(emptyList<Team>(), groups.last().second)
+		val groups = groupByGateway(rows, testRegistry("sakura", "ql-2815"), adminDomainId = "alice")
+		assertEquals(listOf("ql-2815", "sakura"), keys(groups))
+		assertEquals(emptyList<Team>(), groups.first().second)
 	}
 
 	@Test
-	fun anAdmittedGatewayWithSessionsIsNotDrawnTwice() {
+	fun aRosterGatewayWithSessionsIsNotDrawnTwice() {
 		val rows = listOf(team("alice.ql-2815.claude"))
-		val groups = groupByGateway(rows, testRegistry("sakura", "ql-2815"), adminDomainId = "alice", homeGatewayId = "sakura")
+		val groups = groupByGateway(rows, testRegistry("sakura", "ql-2815"), adminDomainId = "alice")
 		assertEquals(1, groups.count { it.first.gatewayId == "ql-2815" })
 		assertEquals(rows, groups.first { it.first.gatewayId == "ql-2815" }.second)
 	}
 
 	@Test
-	fun theRouteGatewaySortsFirst() {
-		val rows = listOf(team("alice.aaa.claude"), team("alice.sakura.claude"))
-		val groups = groupByGateway(rows, testRegistry("zzz"), adminDomainId = "alice", homeGatewayId = "sakura")
-		assertEquals("sakura", keys(groups).first())
+	fun ownDomainSortsFirstThenById() {
+		val rows = listOf(team("bob.aaa.claude"), team("alice.zzz.claude"), team("alice.mmm.claude"))
+		val groups = groupByGateway(rows, testRegistry("sakura"), adminDomainId = "alice")
+		assertEquals(
+			listOf("alice/mmm", "alice/sakura", "alice/zzz", "bob/aaa"),
+			groups.map { "${it.first.domainId}/${it.first.gatewayId}" },
+		)
 	}
 
 	@Test
-	fun beforeTheDomainIsKnownOnlyTheRouteGatewayIsNamed() {
-		// A machine can only be named through its Domain, and nothing here acts on a guessed one. The
-		// route Gateway needs none, since a bare target already names it.
-		val rows = listOf(team("local.sakura.claude", domainId = null))
-		val groups = groupByGateway(rows, testRegistry("sakura", "ql-2815"), adminDomainId = "", homeGatewayId = "sakura")
-		assertEquals(listOf("sakura"), keys(groups))
-	}
-
-	@Test
-	fun theRouteGatewayIsDrawnWithNoSessionsAnywhere() {
-		// A machine whose daemon is up but which holds no devcontainers and no sessions contributes no
-		// rows at all, and its owner had nothing to press.
-		val groups = groupByGateway(emptyList(), testRegistry("sakura"), adminDomainId = "", homeGatewayId = "sakura")
-		assertEquals(listOf("sakura"), keys(groups))
-		assertEquals(emptyList<Team>(), groups.single().second)
+	fun aSessionStillNamedByTheLocalSentinelJoinsTheOwnDomain() {
+		val rows = listOf(team("local.sakura.claude"))
+		val groups = groupByGateway(rows, testRegistry("sakura"), adminDomainId = "alice")
+		assertEquals(listOf(GatewayGroupKey("alice", "sakura")), groups.map { it.first })
 	}
 
 	@Test
 	fun anEmptyRosterInventsNothing() {
-		val groups = groupByGateway(emptyList(), GatewayRegistry(), adminDomainId = "alice", homeGatewayId = "sakura")
+		val groups = groupByGateway(emptyList(), GatewayRegistry(), adminDomainId = "alice")
 		assertEquals(emptyList<String>(), keys(groups))
 	}
 
 	@Test
-	fun aPickedProjectStaysBareOnTheRouteGateway() {
-		// A bare name means the route Gateway everywhere else; re-spelling it would change what every
-		// target that works today resolves to.
-		val opened = CreateDialogTarget("alice", "sakura", isLocal = true, projects = listOf("host"))
-		assertEquals("host", opened.targetFor("host"))
-	}
-
-	@Test
-	fun aPickedProjectIsQualifiedOnAnotherGateway() {
-		val opened = CreateDialogTarget("alice", "ql-2815", isLocal = false, projects = listOf("host"))
+	fun aPickedProjectIsQualifiedOnItsGateway() {
+		val opened = CreateDialogTarget.of("alice", "ql-2815", listOf("host"))
 		assertEquals("alice.ql-2815.host", opened.targetFor("host"))
 	}
 
 	@Test
-	fun anUnqualifiableProjectFallsBackToBareRatherThanACorruptAddress() {
-		// A separator in the spawn segment cannot make an Address; a bare target then fails against the
-		// route Gateway, which is visible, rather than being sent as something no parser accepts.
-		val opened = CreateDialogTarget("alice", "ql-2815", isLocal = false, projects = listOf("a.b"))
-		assertEquals("a.b", opened.targetFor("a.b"))
+	fun anUnqualifiableProjectIsNotOffered() {
+		// A separator in the spawn segment cannot make a spawn point, so it is not a choice.
+		val opened = CreateDialogTarget.of("alice", "ql-2815", listOf("a.b", "recipe-app"))
+		assertEquals(listOf("recipe-app"), opened.projects)
 	}
 
 	@Test

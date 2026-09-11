@@ -5,11 +5,6 @@ import org.junit.Test
 
 class SandboxSeederTest {
 	@Test
-	fun sandboxSeedCarriesTheHomeGatewayFromTheTeamIntoStateInput() {
-		assertEquals("home", sandboxHomeGateway("domain.home.session", "old"))
-	}
-
-	@Test
 	fun theSandboxRosterHoldsOneAdmittedGatewayThatNeverRegistered() {
 		val registry = sandboxRegistry(listOf("sandbox", "parsing", "idle-box"), now = 5)
 		assertEquals(RegistryProvenance.Current, registry.provenance)
