@@ -3,7 +3,6 @@
 import type { Ambient } from "../../shared/ambient.js";
 import { reportUnrecognizedDataEntries } from "../dataDirInventory.js";
 import { createHttpRouter } from "../httpRouter.js";
-import { createBlobMigrationRoute } from "../router/blobMigrationRoute.js";
 import { unenrolledHealth } from "../routes/routesStatus.js";
 import type { AgentsStage } from "./composeAgents.js";
 import type { AwarenessStage } from "./composeAwareness.js";
@@ -23,8 +22,6 @@ export interface ListenerStageDeps {
 	dataDir: string;
 	localGatewayId: string;
 	enrollNonce?: string;
-	// Remove-by: 2026-09-25, with the blob migration route.
-	routerBlobMigrationToken?: string;
 	ambient: Pick<Ambient, "clearInterval">;
 	context: FederationContext;
 	stores: Pick<StoresStage, "blobStore" | "jobs" | "jobsDurable" | "sessionResumeDurable">;
@@ -35,7 +32,7 @@ export interface ListenerStageDeps {
 	awareness: Pick<AwarenessStage, "awareness" | "awarenessTimer">;
 	federation: Pick<FederationStage, "stop">;
 	enrollment: Pick<EnrollmentStage, "handleEnrollPost" | "stop">;
-	websockets: Pick<WebSocketsStage, "wsHandlers" | "channelDeliveries">;
+	websockets: Pick<WebSocketsStage, "wsHandlers">;
 	routes: Pick<RoutesStage, "current" | "stop">;
 	/** Required: an omitted stage leaves a routine's own session with no door, and typechecks. */
 	routines: Pick<RoutineStage, "stop" | "routes">;
@@ -50,35 +47,13 @@ export interface ListenerStage {
 export function composeListener(deps: ListenerStageDeps): ListenerStage {
 	const { ambient, context, stores, sessions, persistence, host, awareness, websockets, routes } = deps;
 
-	// Remove-by: 2026-09-25, with the blob migration route.
-	const migration = createBlobMigrationRoute({
-		token: deps.routerBlobMigrationToken,
-		blobs: stores.blobStore,
-		slice: () => {
-			const slice = context.slice();
-			return slice
-				? {
-						call: (action, params) => slice.routerClient.callInboxTool(action, params),
-						uploader: slice.blobUploader,
-					}
-				: null;
-		},
-		namedHere: (blobId) => routes.current()?.namesBlob(blobId) ?? true,
-		sweepDeliveries: () => websockets.channelDeliveries.sweep(),
-	});
-
 	const router = createHttpRouter({
 		handleEnrollPost: deps.enrollment.handleEnrollPost,
 		enrollNonce: deps.enrollNonce,
 		admitPayload: () => context.arming()?.admitPayload,
 		blobStore: stores.blobStore,
 		sessionAuthority: sessions.sessionAuthority,
-		loopbackRoutes: new Map([
-			...deps.agents.agentRoutes,
-			...deps.vault.routes,
-			...(deps.routines?.routes ?? []),
-			...migration,
-		]),
+		loopbackRoutes: new Map([...deps.agents.agentRoutes, ...deps.vault.routes, ...(deps.routines?.routes ?? [])]),
 		routes: routes.current,
 		unenrolledHealth: () => unenrolledHealth(deps.localGatewayId),
 	});

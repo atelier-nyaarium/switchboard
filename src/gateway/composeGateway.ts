@@ -114,8 +114,6 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		reservedByRoutine: (team) => routines.reserves(team),
 		sweepDeliveries: () => websockets?.channelDeliveries.sweep(),
 		namesBlob: (blobId) => routes?.current()?.namesBlob(blobId) ?? true,
-		// Remove-by: 2026-09-25, with the blob migration route.
-		ageStaging: !config.routerBlobMigrationToken,
 	});
 	const host = composeHost({ sessions, wakeTimeoutMs: config.wakeTimeoutMs, ambient: bootstrap.ambient });
 	const agents = composeAgents({ sessions, host, ambient: bootstrap.ambient });
@@ -237,7 +235,6 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		dataDir: bootstrap.dataDir,
 		localGatewayId: bootstrap.localGatewayId,
 		enrollNonce: config.enrollNonce,
-		routerBlobMigrationToken: config.routerBlobMigrationToken,
 		ambient: bootstrap.ambient,
 		context,
 		stores,

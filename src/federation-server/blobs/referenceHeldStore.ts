@@ -5,7 +5,7 @@ import { type BlobReference, formatBlobReference, parseBlobReference } from "../
 import { BlobStore } from "../../shared/blob-store.js";
 import { MAX_BLOB_BYTES } from "../../shared/router-protocol.js";
 import type { BlobLease } from "../../shared/schemasBlob.js";
-import { formatInboxAddress, parseInboxAddress } from "../../shared/schemasInbox.js";
+import { formatInboxAddress } from "../../shared/schemasInbox.js";
 import { ciphertextRangeForPlaintext, sealedBlobSize } from "../../shared/sealed-blob.js";
 import { appliedOrUncertain, landed } from "../../shared/write-result.js";
 import type { OwnerStoreRegistry } from "../inbox/ownerStoreRegistry.js";
@@ -126,40 +126,6 @@ export class ReferenceHeldStore {
 		const write = store.put("blob", blobId, existing?.version ?? null, { clear: { ...next } });
 		if (!appliedOrUncertain(write)) return { outcome: "refused", reason: write.kind };
 		return { outcome: "lease", lease, have: blobs.stat(blobId).have };
-	}
-
-	/** References named by records. */
-	inventory(domainId: string, rowTtlMs: number): Array<{ ref: string; blobIds: string[]; expiresAt?: number }> {
-		const store = this.options.registry.for(domainId);
-		const out: Array<{ ref: string; blobIds: string[]; expiresAt?: number }> = [];
-		for (const record of store.list("board.entry")) {
-			const attachments = record.clear.attachments as Array<{ blobId: string }> | undefined;
-			if (attachments?.length)
-				out.push({
-					ref: formatBlobReference({ kind: "entry", entryId: record.clear.id as string }),
-					blobIds: attachments.map((attachment) => attachment.blobId),
-				});
-		}
-		for (const record of store.list("scheduled")) {
-			const files = record.clear.files as string[] | undefined;
-			const target = record.clear.target as { domainId: string; gatewayId: string; sessionId: string };
-			if (files?.length) out.push({ ref: formatBlobReference({ kind: "scheduled", target }), blobIds: files });
-		}
-		for (const addressText of store.addresses()) {
-			const address = parseInboxAddress(addressText);
-			if (!address) continue;
-			for (const item of store.rows(addressText, 1, Number.MAX_SAFE_INTEGER)) {
-				const row = item.row as { envelope?: { contentRefs?: string[] }; acceptedAt?: number };
-				const refs = row.envelope?.contentRefs ?? [];
-				if (refs.length)
-					out.push({
-						ref: formatBlobReference({ kind: "row", address, seq: item.seq }),
-						blobIds: refs,
-						expiresAt: Number(row.acceptedAt ?? 0) + rowTtlMs,
-					});
-			}
-		}
-		return out;
 	}
 
 	chunk(

@@ -82,22 +82,11 @@ export function createBlobUploader(deps: BlobUploaderDeps) {
 		return { kind: "staged" };
 	}
 
-	/** Router-held blob ids. */
-	async function stageAll(blobIds: readonly string[]): Promise<string[]> {
-		const held: string[] = [];
-		for (const blobId of blobIds) {
-			const outcome = await stage(blobId);
-			if (outcome.kind === "staged" || outcome.kind === "already_held") held.push(blobId);
-			else if (outcome.kind === "failed") console.warn(`[blob-stage] ${blobId}: ${outcome.error}`);
-		}
-		return held;
-	}
-
 	/** A time-bound reference under this Gateway's name, for bytes no record names yet. */
 	async function hold(blobId: string, holdId: string, ttlMs: number): Promise<boolean> {
 		const answer = await deps.call("blob_hold", { blobId, holdId, ttlMs });
 		return !answer.error && (answer.result as { outcome?: string } | undefined)?.outcome === "accepted";
 	}
 
-	return { stage, stageAll, hold };
+	return { stage, hold };
 }

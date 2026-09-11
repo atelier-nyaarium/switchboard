@@ -355,20 +355,4 @@ describe("ReferenceHeldStore", () => {
 		expect(registry.for(DOMAIN).get("blob", `sha256-${"c".repeat(64)}`)).toBeNull();
 		expect(store.has(DOMAIN, blob.blobId)).toBe(true);
 	});
-
-	it("lists every reference the Domain's records name", () => {
-		const { store, registry } = make();
-		const owner = registry.ownerKey(DOMAIN).ownerSignPub;
-		const s = registry.for(DOMAIN);
-		s.put("board.entry", "e1", null, { clear: { id: "e1", attachments: [{ blobId: "sha256-a" }] } });
-		s.put("scheduled", "d/g/s", null, {
-			clear: { target: { domainId: "d", gatewayId: "g", sessionId: "s" }, files: ["sha256-b"] },
-		});
-		s.append(`owner:${DOMAIN}/${owner}`, { envelope: { contentRefs: ["sha256-c"] }, acceptedAt: 10, seq: 1 });
-		expect(store.inventory(DOMAIN, 100)).toEqual([
-			{ ref: "entry:e1", blobIds: ["sha256-a"] },
-			{ ref: "scheduled:d/g/s", blobIds: ["sha256-b"] },
-			{ ref: `row:owner:${DOMAIN}/${owner}:1`, blobIds: ["sha256-c"], expiresAt: 110 },
-		]);
-	});
 });

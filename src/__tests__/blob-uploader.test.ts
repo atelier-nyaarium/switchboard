@@ -24,20 +24,6 @@ function blobStub(bytes: Buffer, complete = true) {
 	};
 }
 
-function blobMapStub(entries: Record<string, Buffer>) {
-	return {
-		stat: vi.fn((blobId: string) => ({
-			have: entries[blobId].length,
-			size: entries[blobId].length,
-			complete: true,
-		})),
-		read: vi.fn((blobId: string, offset: number, length: number) => ({
-			bytes: entries[blobId].subarray(offset, offset + length),
-			eof: offset + length >= entries[blobId].length,
-		})),
-	};
-}
-
 function uploader(
 	bytes: Buffer,
 	call: (action: string, params: Record<string, unknown>) => Promise<{ error?: string; result?: unknown }>,
@@ -165,31 +151,6 @@ describe("blob uploader", () => {
 		expect(await value.stage(blobIdFor(bytes))).toMatchObject({ kind: "failed" });
 		expect(call).not.toHaveBeenCalled();
 		expect(blobs.stat).not.toHaveBeenCalled();
-	});
-
-	it("stageAll answers the ids the Router holds and skips failures and unverified uploads", async () => {
-		const entries = {
-			staged: Buffer.from("staged"),
-			held: Buffer.from("held"),
-			failed: Buffer.from("failed"),
-			unverified: Buffer.from("unverified"),
-		};
-		const call = vi.fn(async (action: string, params: Record<string, unknown>) => {
-			if (action === "blob_begin" && params.blobId === "held") return { result: { outcome: "complete" } };
-			if (action === "blob_begin" && params.blobId === "failed")
-				return { result: { outcome: "refused", reason: "quota" } };
-			if (action === "blob_begin") return leased();
-			return accepted(!(params.blobId === "unverified"));
-		});
-		const value = createBlobUploader({
-			call,
-			blobs: blobMapStub(entries),
-			incarnation: () => 1,
-			domainId,
-			ownerSignPub: () => ownerSignPub,
-			keys: { epochs: () => [3], keyFor: () => key },
-		});
-		expect(await value.stageAll(Object.keys(entries))).toEqual(["staged", "held"]);
 	});
 
 	it("holds a staged blob under this Gateway's name for the time asked", async () => {

@@ -9,7 +9,6 @@ import {
 	type PlaneLineage,
 	signRowEnvelope,
 } from "../shared/schemasInbox.js";
-import { registerBlobMigrationFrames } from "./blobs/blobMigrationFrames.js";
 import { createBlobService } from "./blobs/blobService.js";
 import type { ReferenceHeldStore } from "./blobs/referenceHeldStore.js";
 import { createBoardService } from "./board/boardService.js";
@@ -243,7 +242,6 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		blobs,
 	])
 		service.register(hooks);
-	registerBlobMigrationFrames(hooks, { registry, held: referenceHeld });
 	// A catalogued kind nothing serves refuses at runtime, so construction refuses first.
 	const unserved = deps.intake.unregisteredKinds();
 	if (unserved.length) throw new Error(`owner op kinds without a handler: ${unserved.join(", ")}`);

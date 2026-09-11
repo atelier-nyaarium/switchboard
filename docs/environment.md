@@ -20,7 +20,6 @@ hand-edited, so there is no `.env.example`. The compose files and the tuning ove
 | `MAX_BLOB_STORE_BYTES` | Blob sweep ceiling, default sixteen times the single-blob maximum. Tuning override |
 | `WAKE_TIMEOUT_MS` | How long a wake may take before it is given up on, default 600000. Tuning override |
 | `ALLOW_FIXTURE_IDENTITY` | `1` lets the gateway start on the committed test identity (`src/shared/fixture-identity.ts`). Only `check:boot` sets it |
-| `ROUTER_BLOB_MIGRATION_TOKEN` | Arms the loopback `/migration/router-blobs` route that `scripts/migrate-router-blobs.ts` drives. Unset, the route does not exist. Removed with the route on 2026-09-25 |
 
 ## Federation Router (Docker, its own compose project)
 

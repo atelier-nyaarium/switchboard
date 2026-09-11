@@ -138,7 +138,6 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/router/boardClient.ts` - sole sealer of board text and sole local-key mapper; CAS writes
 - `src/gateway/router/blobUploader.ts` - stages this Gateway's bytes on the Router as sealed chunks, resuming from the Router's cursor, and holds relayed bytes under this Gateway's name
 - `src/gateway/router/routerBlobReader.ts` - the Router range read a session's `/blob/get` falls through to once local staging is gone
-- `src/gateway/router/blobMigrationRoute.ts` - the loopback `/migration/router-blobs` route: binds what the Router's records name, holds every other local blob, retires local bytes the Router holds; removed with `scripts/migrate-router-blobs.ts` on 2026-09-25
 - `src/gateway/console/` - Android OwnerOp dispatch and capability store
 - `src/gateway/console/consoleTargets.ts` - every console target, `domain.gateway.spawn[.session]` by contract; the bare-name and foreign-Gateway refusals live here alone
 - `src/gateway/console/consoleCrossDomain.ts` - the console's link, unlink and untrust handlers
@@ -338,7 +337,6 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/federation-server/inbox/inboxAppend.ts` / `inboxRetire.ts` / `inboxSweep.ts` / `inboxOpResult.ts` / `inboxCore.ts` - row append and admission, row retirement, the expiry sweep, router-authored result rows, and shared primitives (`recordId`, `guarded`, `ledgerTransaction`, `ownerAddress`, `floorOf`) behind `InboxService`
 - `src/federation-server/blobs/referenceHeldStore.ts` - the one blob holder: staged bytes under a lease, reference sets in the owner journal, `publish` binding a record write and its references in one line, the staged sweep, and boot reconcile
 - `src/federation-server/blobs/blobService.ts` - the four blob owner ops and the four gateway blob frames over the held store, with the per-process chunk ledger
-- `src/federation-server/blobs/blobMigrationFrames.ts` - `blob_migration_inventory` and `blob_migration_bind`, the two frames the one-time Gateway migration uses; removed 2026-09-25
 - `src/federation-server/ownerServices.ts` / `ownerServiceHooks.ts` - the owner-state services behind one hook surface: OwnerOp kinds, gateway frames, register and drop listeners, and the sweepers the fence holds
 - `src/federation-server/presence/` - presence rows per gateway incarnation, resync, roster, owner and friend projections. The owner projection states the owner's facts. `refresh` recomputes a Domain and every Domain that embeds it.
 - `src/federation-server/share/` - share records, generations, attestations, sweep, unlink, and per-Gateway mirror revisions
@@ -433,7 +431,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/shared/durable-store.ts` - atomic snapshots and per-file quarantine boundaries
 - `src/shared/write-result.ts` - the two readings of an owner-store write: `landed` before anything irreversible, `appliedOrUncertain` before anything a caller retries; no site spells the pair
   - **An uncertain write is not a landed one:** a `durability_uncertain` line may or may not be on
-    disk. Bytes, holds and migration retirements wait for `landed`; a record write a caller can
+    disk. Bytes and holds wait for `landed`; a record write a caller can
     repeat idempotently takes `appliedOrUncertain` and passes the word on in its answer.
 - `src/shared/session-store.ts` - authoritative gateway sessions keyed by `spawn.id`
 - `src/shared/session-sanitize.ts` / `session-tokens.ts` - normalization, session ids, and bind tokens

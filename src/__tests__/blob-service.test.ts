@@ -3,7 +3,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { registerBlobMigrationFrames } from "../federation-server/blobs/blobMigrationFrames.js";
 import { createBlobService } from "../federation-server/blobs/blobService.js";
 import { ReferenceHeldStore, STAGED_BLOB_TTL_MS } from "../federation-server/blobs/referenceHeldStore.js";
 import { OwnerStoreRegistry } from "../federation-server/inbox/ownerStoreRegistry.js";
@@ -56,7 +55,6 @@ function make() {
 		connectedGateways: () => [],
 	} satisfies OwnerServiceHooks;
 	createBlobService({ held, now: () => now }).register(hooks);
-	registerBlobMigrationFrames(hooks, { registry, held });
 	let opCounter = 0;
 	const owned = async (kind: string, value: Record<string, unknown>, opId = `op-${++opCounter}`) =>
 		ownerOps.get(kind)?.({ domainId: DOMAIN, conversationId: "conv", opId, device: "phone" } as OwnerOp, {
@@ -65,7 +63,7 @@ function make() {
 		});
 	const frame = async (name: string, params: Record<string, unknown>) =>
 		frames.get(name)?.(reg, { incarnation: 1, ...params });
-	return { registry, held, owned, frame, sweeps, setNow: (value: number) => (now = value), now: () => now, owner };
+	return { held, owned, frame, sweeps, setNow: (value: number) => (now = value), now: () => now };
 }
 
 function seal(plain: Buffer, epoch = 1) {
@@ -228,38 +226,6 @@ describe("blob service", () => {
 		expect(await owned("blob_upload_status", { blobId: blob.blobId })).toMatchObject({
 			outcome: "staged",
 			have: blob.frames[0].length,
-		});
-	});
-
-	it("the migration frames list what the records name and bind staged bytes to it", async () => {
-		const { registry, held, frame, sweeps, now } = make();
-		const store = registry.for(DOMAIN);
-		const blob = seal(Buffer.from("legacy attachment"));
-		store.put("board.entry", "e1", null, { clear: { id: "e1", attachments: [{ blobId: blob.blobId }] } });
-		expect(await frame("blob_migration_inventory", {})).toEqual({
-			references: [{ ref: "entry:e1", blobIds: [blob.blobId] }],
-		});
-		expect(await frame("blob_migration_bind", { ref: "entry:e1", blobIds: [blob.blobId] })).toEqual({
-			outcome: "refused",
-			reason: "blob_missing",
-			blobId: blob.blobId,
-		});
-		const begun = (await frame("blob_begin", blob.declared)) as { lease: unknown };
-		await frame("blob_chunk", {
-			blobId: blob.blobId,
-			lease: begun.lease,
-			offset: 0,
-			bytes: blob.frames[0].toString("base64"),
-			final: true,
-		});
-		expect(await frame("blob_migration_bind", { ref: "entry:e1", blobIds: [blob.blobId] })).toEqual({
-			outcome: "accepted",
-		});
-		for (const sweep of sweeps) sweep(DOMAIN, now() + STAGED_BLOB_TTL_MS * 2);
-		expect(held.refs(DOMAIN, blob.blobId)).toEqual([{ kind: "entry", entryId: "e1" }]);
-		expect(await frame("blob_migration_bind", { ref: "row:gateway:domain/g:9", blobIds: [blob.blobId] })).toEqual({
-			outcome: "refused",
-			reason: "row_gone",
 		});
 	});
 });

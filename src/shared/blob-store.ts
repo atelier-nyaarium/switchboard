@@ -148,13 +148,6 @@ export class BlobStore {
 		return blobId;
 	}
 
-	ids(): string[] {
-		return this.entries()
-			.filter((entry) => !entry.partial)
-			.map((entry) => `sha256-${path.basename(entry.path)}`)
-			.filter((blobId) => BLOB_ID_RE.test(blobId));
-	}
-
 	/** Drop a blob and its partial. */
 	remove(blobId: string): void {
 		this.assertId(blobId);
