@@ -682,7 +682,7 @@ Rules:
   tab on a bare name. Board entries keep the local session field beside `domainId` and
   `gatewayId` by design, and a vault request's `sessionTarget` is the gateway's local field.
 
-## Phase 4 - The phantom mirror rows
+## Phase 4 - The phantom mirror rows ✅
 
 - `routesRespond` runs the asker and replier mirror block only when `reply.kind == "conversation"`.
   `LocalReply` has exactly two kinds, so the gate is type-complete. The inbound-contract mirror
@@ -990,3 +990,16 @@ Collected after Phases 2 and 3. Not fixed here.
 - **A relayed Codex report can vanish.** The Sonnet relay that carried Sol's read finished and
   went idle without its result reaching the session; it had to be asked again by name. A relay
   should write its report to disk before it answers, which the later relays did.
+
+Collected after Phase 4. Not fixed here.
+
+- **`mirrorPeer(addr, from, to, payload)` is called eight times with positional canonicals.**
+  Four in `routesRespond` and four in `routesSend`, each choosing by hand whose thread the row lands
+  in and which way the attribution reads. Nothing in the signature says which argument is the
+  thread and which two are the header, so a swapped pair reads correctly and mints a row in the
+  wrong thread. A `MirrorRow { thread, from, to }` value, or one `mirrorThread(asker, replier)`
+  that writes both sides, would make the pairing a type.
+- **The cursor-stale banner on a restart.** The console socket advances the Router's consumer
+  cursor and the poll path persists its own `SyncCursor`; a restart that opens the poll first
+  answers `cursor_stale` and the phone shows "Some messages were dropped" for one tick with nothing
+  dropped. Two cursors for one consumer. On the board as bd_63a20a15.

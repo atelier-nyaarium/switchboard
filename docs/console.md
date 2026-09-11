@@ -66,6 +66,11 @@ Phone-bound rows are appended by the Gateway through `deliverToOwner`.
 `src/gateway/consolePushOps.ts` owns the durable `OwnerRowOutbox` for disconnected or uncertain
 appends.
 
+**A reply reaches the owner once.** `routesRespond` answers an owner-anchored reply with one `reply`
+row, and mirrors a thread as `peer` rows only when the asker is a session, which `LocalReply`
+names. The phone threads a drained row by its store key: a conv row under its own address, a
+notice row under its sender. Nothing on either side compares an address to the phone's own.
+
 ### `homeGatewayId`, and the four things it is for
 
 `adoptHomeGateway` keeps the stored id while the Domain keyring still admits it, and otherwise takes

@@ -130,8 +130,8 @@ The phone reaches the Router through signed OwnerOps. `deliver` carries a `conso
 `capabilities_report`. Results are sealed under `opResultAadKind` or `valueResultAadKind`.
 
 `ConsoleSocketMode.INBOX` selects the inbox socket. `PollDrain.drainTick` reads the owner inbox and
-planes, then advances the inbox once when rows drain. `homeGatewayId` selects the home Gateway from
-the admitted gateways. A Domain-less phone reaches the Router through the token-only transport,
+planes, then advances the inbox once when rows drain; `processEntries` threads each row by its
+store key. `homeGatewayId` selects the home Gateway from the admitted gateways. A Domain-less phone reaches the Router through the token-only transport,
 whose reach answer names the Domain; the signed client exists only for a Ready boot.
 
 ## Versioned state planes
