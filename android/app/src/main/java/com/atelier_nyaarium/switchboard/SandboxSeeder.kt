@@ -66,7 +66,6 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 		gateways: GatewayRegistry,
 	) {
 		if (!isSandbox) return
-		gateways.ids().firstOrNull()?.let { repo.homeGatewayId = it }
 		seedSandboxIdentity(repo.identity, teams.firstOrNull()?.domainId)
 		this.dirs = dirs
 		repo._state.update { s ->
@@ -82,7 +81,6 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 				drafts = drafts,
 				goals = goals,
 				gateways = gateways,
-				homeGatewayId = repo.homeGatewayId,
 				owner = teams.firstOrNull()?.domainId?.let { OwnerFacts(it, null, false) },
 			)
 		}

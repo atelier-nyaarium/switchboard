@@ -15,20 +15,25 @@ import org.json.JSONObject
 
 internal interface DeviceApprovalOpsCollaborators {
 	fun approvalNonces(): MutableMap<String, String>
-	fun homeGatewayId(): String
-	fun setHomeGatewayId(value: String)
 	fun installApprovedDevice(
 		blob: String,
 		domainJson: String?,
 		domainVersion: String?,
-		gatewayId: String?,
 		contentKeys: Map<Int, ByteArray>,
 		domainId: String?,
 	): Boolean
 	fun invalidateClients()
 	suspend fun submitOwnerAdmission(signed: SignedAdmission): Boolean
-	fun adoptHomeGateway()
 	fun reportError(): String?
+}
+
+/** The unsealed join bundle, refused when a build that carried a home Gateway sealed it. */
+internal fun parseConsoleTransport(plain: String): ConsoleTransport {
+	val transport = wireJson.decodeFromString(ConsoleTransport.serializer(), plain)
+	require(transport.version == ConsoleTransport.VERSION) {
+		"The held device runs an older build; update it and approve again."
+	}
+	return transport
 }
 
 internal fun verifyDeviceJoin(approvalId: String, nonce: String, join: ConsoleApprovalJoin): Boolean {
@@ -126,12 +131,12 @@ internal class DeviceApprovalOps(
 		val domainId = boot.domainId
 		identity.ensureContentEpochs(boot)
 		return ConsoleTransport(
+			version = ConsoleTransport.VERSION,
 			routerUrl = prov.routerUrl,
 			routerCertFp = prov.routerCertFp,
 			appToken = prov.appToken,
 			domainId = domainId,
-				gatewayId = collaborators.homeGatewayId().takeIf { it.isNotEmpty() } ?: store.loadGatewayId().takeIf { it.isNotEmpty() },
-				domainVersion = store.loadDomainVersion().ifEmpty { null },
+			domainVersion = store.loadDomainVersion().ifEmpty { null },
 			domain = boot.keyring().snapshot,
 			contentKeys = boot.contentKeyring.wrapAllFor(
 				recipientBoxPub,
@@ -189,7 +194,7 @@ internal class DeviceApprovalOps(
 			val sealed = result.sealed ?: return@runCatching false
 			// The QR owner key authenticates the sealed transport.
 			val plain = identity.federation.unsealConsoleTransport(sealed, scan.ownerSignPub)
-			val transport = wireJson.decodeFromString(ConsoleTransport.serializer(), plain.toString(Charsets.UTF_8))
+			val transport = parseConsoleTransport(plain.toString(Charsets.UTF_8))
 			installApprovedDevice(transport)
 			true
 		}
@@ -215,17 +220,14 @@ internal class DeviceApprovalOps(
 		val domainJson = transport.domain?.let {
 			wireJson.encodeToString(com.atelier_nyaarium.switchboard.proto.DomainSnapshot.serializer(), it)
 		}
-		val gatewayId = transport.gatewayId?.takeIf { it.isNotEmpty() }
-		check(collaborators.installApprovedDevice(blob, domainJson, transport.domainVersion, gatewayId, contentKeys, transport.domainId)) {
+		check(collaborators.installApprovedDevice(blob, domainJson, transport.domainVersion, contentKeys, transport.domainId)) {
 			"approved-device install could not be committed"
 		}
-		gatewayId?.let { collaborators.setHomeGatewayId(it) }
 		collaborators.invalidateClients()
-		if (transport.domain != null) collaborators.adoptHomeGateway()
 		DebugLog.log(
 			"AddDevice",
 			"installed approved-device transport; consoleAdmitted+firstRooted set, " +
-				"keyring=${if (transport.domain != null) "adopted" else "absent"} gateway=${transport.gatewayId ?: "none"}",
+				"keyring=${if (transport.domain != null) "adopted" else "absent"}",
 		)
 		val parsed = ConsoleCredentials.parse(blob, store)
 		state.update { it.copy(provisioned = true, error = null, deviceName = parsed.device, firstRooted = true) }

@@ -38,14 +38,6 @@ class Keyring(val snapshot: DomainSnapshot) {
 	fun signedConsoleAdmission(subjectSignPub: String): SignedAdmission? =
 		resolveSigned { it.signPub == subjectSignPub }?.takeIf { it.admission.kind == "console" }
 
-	/** Every Gateway this owner has admitted and not revoked. The roster of sessions is a WEAKER
-	 * source: a Gateway with no sessions listed is still one this console must reach. */
-	fun admittedGatewayIds(): List<String> =
-		snapshot.admissions
-			.mapNotNull { it.admission.gatewayId?.takeIf { id -> it.admission.kind == "gateway" && id.isNotEmpty() } }
-			.distinct()
-			.filter { resolveGateway(it) != null }
-
 	private fun resolve(match: (Admission) -> Boolean): Admission? = resolveSigned(match)?.admission
 
 	private fun resolveSigned(match: (Admission) -> Boolean): SignedAdmission? {

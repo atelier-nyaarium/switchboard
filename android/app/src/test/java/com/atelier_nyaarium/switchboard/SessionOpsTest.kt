@@ -18,7 +18,6 @@ import org.junit.Test
 class SessionOpsTest {
 	private class FakeHost : SessionHost {
 		override val state = MutableStateFlow(ChatState(gateways = testRegistry("gw")))
-		override val homeGatewayId = "gw"
 		override val localDomain = "dom"
 		override val forgottenUntil = mutableMapOf<String, Long>()
 		override val sandboxDirs: Map<String, List<String>>? = null

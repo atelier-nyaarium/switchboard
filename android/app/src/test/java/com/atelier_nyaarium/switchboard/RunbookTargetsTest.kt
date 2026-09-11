@@ -19,7 +19,6 @@ class RunbookTargetsTest {
 		gateways = testRegistry("sakura", "mikan")
 			.withEntry("sakura") { it.copy(hostSpawns = emptyList()) }
 			.withEntry("mikan") { it.copy(hostSpawns = listOf("host")) },
-		homeGatewayId = "sakura",
 		domainId = "d1",
 	)
 

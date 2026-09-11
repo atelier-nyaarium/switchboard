@@ -6,7 +6,7 @@ import { GatewayBridge } from "../federation-server/gatewayBridge.js";
 import { type SignedRevocation, signAdmission, signRegister, signRevocation } from "../shared/admission.js";
 import { processAmbient } from "../shared/ambient.js";
 import { generateIdentity } from "../shared/crypto.js";
-import { FEDERATION_PROTOCOL_VERSION } from "../shared/router-protocol.js";
+import { FEDERATION_PROTOCOL_FLOOR, FEDERATION_PROTOCOL_VERSION } from "../shared/router-protocol.js";
 import { formatInboxAddress, signRowEnvelope } from "../shared/schemasInbox.js";
 import {
 	GATEWAY_ERROR_INBOX_UNAVAILABLE,
@@ -44,7 +44,7 @@ const fakeInbox = (overrides: Record<string, unknown> = {}) =>
 		...overrides,
 	}) as never;
 
-async function registered(inbox: never, hasLinkEdge = false, protocolVersion = 1) {
+async function registered(inbox: never, hasLinkEdge = false, protocolVersion = FEDERATION_PROTOCOL_VERSION) {
 	const owner = generateIdentity();
 	const gateway = generateIdentity();
 	const admission = signAdmission(
@@ -126,7 +126,7 @@ describe("GatewayBridge inbox", () => {
 		await bridge.handleCall("c1", "gateway_register", {
 			domainId: "domain",
 			gatewayId: "gateway",
-			protocolVersion: 1,
+			protocolVersion: FEDERATION_PROTOCOL_VERSION,
 			signPub: gateway.sign.pub,
 			boxPub: gateway.box.pub,
 			admission: JSON.stringify(admission),
@@ -141,7 +141,7 @@ describe("GatewayBridge inbox", () => {
 		await bridge.handleCall("c2", "gateway_register", {
 			domainId: "domain",
 			gatewayId: "gateway",
-			protocolVersion: 1,
+			protocolVersion: FEDERATION_PROTOCOL_VERSION,
 			signPub: gateway.sign.pub,
 			boxPub: gateway.box.pub,
 			admission: JSON.stringify(admission),
@@ -235,8 +235,34 @@ describe("GatewayBridge inbox", () => {
 		expect(dropped).toEqual([]);
 	});
 
-	it("refuses gateway_value for a protocol-1 gateway", async () => {
-		const { bridge } = await registered(fakeInbox());
+	it("refuses to register a gateway below the floor, and takes nothing more on that socket", async () => {
+		const { bridge, reply, gateway, admission } = await registered(
+			fakeInbox(),
+			false,
+			FEDERATION_PROTOCOL_FLOOR - 1,
+		);
+		expect(reply).toEqual({ ok: false, error: "version_too_old", floor: FEDERATION_PROTOCOL_FLOOR });
+		const proofAt = Date.now();
+		expect(
+			await bridge.handleCall("c1", "gateway_register", {
+				domainId: "domain",
+				gatewayId: "gateway",
+				protocolVersion: FEDERATION_PROTOCOL_VERSION,
+				signPub: gateway.sign.pub,
+				boxPub: gateway.box.pub,
+				admission: JSON.stringify(admission),
+				proofAt,
+				proofNonce: "again",
+				proof: signRegister("gateway", proofAt, "again", gateway.sign.priv),
+			}),
+		).toEqual({ ok: false, error: GATEWAY_ERROR_NOT_REGISTERED });
+		expect(
+			await bridge.handleCall("c2", "gateway_register", {
+				domainId: "domain",
+				gatewayId: "Not a slug",
+				protocolVersion: FEDERATION_PROTOCOL_VERSION,
+			}),
+		).toMatchObject({ ok: false, error: expect.stringContaining("gateway id") });
 		await expect(
 			bridge.forwardGatewayValue("domain", {
 				opId: "op",
@@ -246,7 +272,7 @@ describe("GatewayBridge inbox", () => {
 				gatewayId: "gateway",
 				value: { kind: "list_dirs", path: "/" },
 			}),
-		).resolves.toEqual({ outcome: "unsupported" });
+		).resolves.toEqual({ outcome: "unreachable" });
 	});
 
 	it("settles a forwarded value with the gateway's answer, which carries no type of its own", async () => {
@@ -533,7 +559,7 @@ describe("GatewayBridge inbox", () => {
 			await bridge.handleCall("c1", "gateway_register", {
 				domainId: "domain",
 				gatewayId: "gateway",
-				protocolVersion: 1,
+				protocolVersion: FEDERATION_PROTOCOL_VERSION,
 			}),
 		).not.toHaveProperty("incarnation");
 		expect(await bridge.handleCall("c1", "inbox_append", {})).toMatchObject({
@@ -678,7 +704,7 @@ describe("GatewayBridge inbox", () => {
 		const reply = await bridge.handleCall("c2", "gateway_register", {
 			domainId: "domain",
 			gatewayId: "gateway",
-			protocolVersion: 1,
+			protocolVersion: FEDERATION_PROTOCOL_VERSION,
 			signPub: gateway.sign.pub,
 			boxPub: gateway.box.pub,
 			admission: JSON.stringify(admission),

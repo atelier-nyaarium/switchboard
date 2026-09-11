@@ -2,7 +2,7 @@
 
 The self-hosted Router, how a Gateway reaches it, and the trust model.
 
-**Compatibility:** Protocol version 3. A Gateway below it registers but receives `unsupported` for value and delivery ops, and learns no shares.
+**Compatibility:** Protocol version 3, and the floor is 3. A Gateway below it is refused at registration with `version_too_old`; its Router client logs the floor and stops, and the Gateway serves nothing through the Router until it is restarted on a current build.
 
 ## Self-hosted Router
 
@@ -93,8 +93,8 @@ Gateway, so revocation still applies while the Router is unreachable.
 - A row is `{ seq, acceptedAt, size, envelope, producerSig, body }`. The producer signs the envelope; the Router adds seq, acceptedAt, and size.
 - The op ledger keys on `(owner, conversationId, opId)`. A repeat with the same hash answers the recorded result; a different hash answers `conflict`.
 - **A retry is one operation:** The producer mints `opId` once per invocation, and every retry carries it. The identity hash covers the CLEAR operation.
-- The Router and the current Gateway speak protocol version 3. An older Gateway still registers but
-  receives `unsupported` for value ops and delivery ops.
+- The Router and the current Gateway speak protocol version 3, which is also the floor. An older
+  Gateway is refused at registration, so every registered Gateway takes value ops and delivery ops.
 - Capacity refuses before storage: the row cap answers `refused`, the Domain quota answers `durability_failure`, a failed fsync answers `durability_uncertain`.
 - Gateway frames name only themselves. The Router takes the Domain and gateway from the connection; a session origin must be in the session registry; a peer row into another Domain needs a link edge.
 - `gateway_register` returns an incarnation. Every inbox frame carries it; a stale one is refused.

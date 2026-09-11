@@ -37,7 +37,6 @@ internal data class OwnerOpAnswer(
 
 internal class ConsoleClientCollaborators(
 	val signOwnerOp: (JsonObject, String) -> OwnerOp?,
-	val homeGatewayId: () -> String?,
 	val saveProvisioning: (String) -> Unit,
 	val postOwnerOpSender: (suspend (OwnerOp) -> JsonElement?)? = null,
 	val rowSigner: ((RowEnvelope) -> String?)? = null,
@@ -198,9 +197,6 @@ class ConsoleClient internal constructor(
 		val body = wireJson.decodeFromJsonElement<OwnerOpAnswer>(answer)
 		if (!body.ok) throw OwnerOpFailure(body.outcome, "$op failed: ${body.error ?: "unknown error"}")
 	}
-
-	internal fun defaultGatewayId(): String = collaborators.homeGatewayId()?.takeIf { it.isNotEmpty() }
-		?: error("No home Gateway admitted yet")
 
 	internal fun localDomainId(): String = boot.domainId
 

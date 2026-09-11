@@ -59,12 +59,21 @@ describe("federation router registration", () => {
 		});
 		const valid = await callTool(socket, "gateway_register", params);
 		const replay = await callTool(socket, "gateway_register", params);
-		const old = await callTool(socket, "gateway_register", { ...params, proofNonce: "new", protocolVersion: 0 });
+		const closed = new Promise<void>((resolve) =>
+			socket.addEventListener("close", () => resolve(), { once: true }),
+		);
+		const old = await callTool(socket, "gateway_register", {
+			...params,
+			proofNonce: "new",
+			protocolVersion: FEDERATION_PROTOCOL_FLOOR - 1,
+		});
 		expect((forged.result as { ok: boolean }).ok).toBe(false);
 		expect((corrupted.result as { ok: boolean }).ok).toBe(false);
 		expect((valid.result as { ok: boolean }).ok).toBe(true);
 		expect((replay.result as { ok: boolean }).ok).toBe(false);
-		expect((old.result as { ok: boolean }).ok).toBe(false);
+		expect(old.result).toEqual({ ok: false, error: "version_too_old", floor: FEDERATION_PROTOCOL_FLOOR });
+		// Below-floor sockets close.
+		await closed;
 
 		await fixture.stop();
 		fixture = await startRouter({ pendingTenant: true });
@@ -87,7 +96,7 @@ describe("federation router registration", () => {
 		const result = await callTool(socket, "gateway_register", {
 			domainId: "admin",
 			gatewayId: "bootstrap",
-			protocolVersion: 1,
+			protocolVersion: FEDERATION_PROTOCOL_VERSION,
 		});
 		expect(result.result).toMatchObject({ ok: true, isAdminDomain: true });
 	});

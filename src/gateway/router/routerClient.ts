@@ -1,7 +1,11 @@
 import type WebSocket from "ws";
 import type { Ambient, IntervalHandle, TimerHandle } from "../../shared/ambient.js";
 import { createReconnector } from "../../shared/reconnect.js";
-import { RouterInboundFrameSchema, type ToolCallFrame } from "../../shared/router-protocol.js";
+import {
+	FEDERATION_PROTOCOL_VERSION,
+	RouterInboundFrameSchema,
+	type ToolCallFrame,
+} from "../../shared/router-protocol.js";
 import {
 	DEFAULT_ROUTER_PORT,
 	isPrivateHost,
@@ -235,20 +239,9 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 		const socket = ws;
 		ws.on("close", () => {
 			if (ws !== socket) return;
-			ws = null;
 			ambient.clearTimer(connectTimer);
-			stopHeartbeat();
-			registered = false;
-			gatewayIncarnation = null;
-			opLedgerProtocol = null;
 			if (!opened) candidateIndex = (candidateIndex + 1) % Math.max(1, ring.length);
-			clearPendingRetry();
-			for (const [callId, pending] of pendingCalls) {
-				ambient.clearTimer(pending.timer);
-				pending.resolve({ callId, error: `Disconnected from the federation Router` });
-			}
-			pendingCalls.clear();
-			config.onDisconnect?.();
+			dropConnection(`Disconnected from the federation Router`);
 			if (!stopped) {
 				console.error(`[router-client] disconnected, reconnecting with backoff...`);
 				reconnector.schedule();
@@ -272,6 +265,7 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 							ok?: boolean;
 							pending?: boolean;
 							error?: string;
+							floor?: number;
 							gateways?: string[];
 							domain?: unknown;
 							reach?: RouterReach;
@@ -290,7 +284,12 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 					gatewayIncarnation = null;
 					opLedgerProtocol = null;
 					if (r.pending) schedulePendingRetry(r.error);
-					else console.error(`[router-client] Router rejected registration: ${r.error}`);
+					else if (r.error === "version_too_old") {
+						console.error(
+							`[router-client] this Gateway speaks protocol ${FEDERATION_PROTOCOL_VERSION} and the Router's floor is ${r.floor ?? "higher"}; restart it on a current build`,
+						);
+						stop();
+					} else console.error(`[router-client] Router rejected registration: ${r.error}`);
 					return;
 				}
 				clearPendingRetry();
@@ -398,20 +397,30 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 		return ws !== null && ws.readyState === RealWebSocket.OPEN;
 	}
 
-	function stop(): void {
-		stopped = true;
+	/** Disconnect cleanup runs once. */
+	function dropConnection(reason: string): void {
+		ws = null;
 		stopHeartbeat();
+		registered = false;
+		gatewayIncarnation = null;
+		opLedgerProtocol = null;
 		clearPendingRetry();
-		reconnector.cancel();
-		for (const [, pending] of pendingCalls) {
+		for (const [callId, pending] of pendingCalls) {
 			ambient.clearTimer(pending.timer);
-			pending.resolve({ callId: "", error: `Client stopped` });
+			pending.resolve({ callId, error: reason });
 		}
 		pendingCalls.clear();
-		if (ws) {
-			ws.close();
-			ws = null;
-		}
+		config.onDisconnect?.();
+	}
+
+	function stop(): void {
+		stopped = true;
+		reconnector.cancel();
+		const socket = ws;
+		if (socket) {
+			dropConnection(`Client stopped`);
+			socket.close();
+		} else clearPendingRetry();
 		console.log(`[router-client] stopped`);
 	}
 

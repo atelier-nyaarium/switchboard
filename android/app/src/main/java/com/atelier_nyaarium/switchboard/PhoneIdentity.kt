@@ -53,13 +53,12 @@ internal class PhoneIdentity(private val store: AppStateStore, private val feder
 		blob: String,
 		domainJson: String?,
 		domainVersion: String?,
-		gatewayId: String?,
 		contentKeys: Map<Int, ByteArray>,
 		domainId: String?,
 	): Boolean = write {
 		rememberConversationId(blob)
 		domainId?.takeIf { it.isNotEmpty() }?.let(store::saveDomainId)
-		store.installApprovedDevice(blob, domainJson, domainVersion, gatewayId, contentKeys)
+		store.installApprovedDevice(blob, domainJson, domainVersion, contentKeys)
 	}
 
 	fun importOwnerBackup(blob: String, passphrase: String): OwnerRestoreResult =

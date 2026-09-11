@@ -15,11 +15,7 @@ interface RunbookStore {
  * One copy per gateway. A revision describes one gateway's record, so a single library would carry
  * one gateway's numbers into another and call the two the same runbook.
  */
-class RunbookManager(
-	private val store: RunbookStore,
-	/** Which gateway claims a library written before the copies were split. */
-	private val homeGatewayId: () -> String = { "" },
-) : ClearsOnReprovision {
+class RunbookManager(private val store: RunbookStore) : ClearsOnReprovision {
 	private val json = Json { ignoreUnknownKeys = true }
 
 	private val stateLock = Any()
@@ -29,36 +25,16 @@ class RunbookManager(
 	private fun load(): Map<String, List<Runbook>> {
 		val raw = store.loadRunbooks() ?: return emptyMap()
 		runCatching { json.decodeFromString<Map<String, List<Runbook>>>(raw) }.getOrNull()?.let { return it }
-		// A library written before the copies were split. Remove after 2026-11-01.
-		runCatching { json.decodeFromString<List<Runbook>>(raw) }
-			.getOrNull()
-			?.let { return if (it.isEmpty()) emptyMap() else mapOf(UNPLACED to it) }
 		DebugLog.log("Runbook", "stored library could not be decoded; starting empty")
 		return emptyMap()
 	}
 
-	/**
-	 * Where a library written before the split waits. The home gateway claims it, since a phone that
-	 * held one copy held the home gateway's. Naming which one rather than taking whoever reads first
-	 * is what stops two concurrent syncs each pushing that copy to a different gateway.
-	 */
-	private fun libraryOf(gatewayId: String): List<Runbook> {
-		val held = libraries[gatewayId]
-		if (held != null) return held
-		val home = homeGatewayId()
-		return if (gatewayId == home && home.isNotBlank()) libraries[UNPLACED].orEmpty() else emptyList()
-	}
+	private fun libraryOf(gatewayId: String): List<Runbook> = libraries[gatewayId].orEmpty()
 
 	fun all(gatewayId: String): List<Runbook> = libraryOf(gatewayId)
 
-	/** Every gateway with a library, the pre-split copy under whichever gateway claims it. */
-	fun placed(): Map<String, List<Runbook>> {
-		val named = libraries - UNPLACED
-		val home = homeGatewayId()
-		val unplaced = libraries[UNPLACED].orEmpty()
-		if (unplaced.isEmpty() || home.isBlank() || named.containsKey(home)) return named
-		return named + (home to unplaced)
-	}
+	/** Every gateway with a library. */
+	fun placed(): Map<String, List<Runbook>> = libraries
 
 	fun find(gatewayId: String, runbookId: String): Runbook? = libraryOf(gatewayId).find { it.id == runbookId }
 
@@ -88,7 +64,7 @@ class RunbookManager(
 	private fun Collection<Runbook>.sorted(): List<Runbook> = sortedWith(compareBy({ it.name }, { it.id }))
 
 	private fun commit(gatewayId: String, next: List<Runbook>): List<Runbook> {
-		val candidate = (libraries - UNPLACED) + (gatewayId to next)
+		val candidate = libraries + (gatewayId to next)
 		val written = runCatching { store.saveRunbooks(json.encodeToString(candidate)) }
 		if (written.isFailure) {
 			DebugLog.log("Runbook", "library could not be written: ${written.exceptionOrNull()?.message}")
@@ -104,9 +80,5 @@ class RunbookManager(
 			runCatching { store.saveRunbooks(json.encodeToString(emptyMap<String, List<Runbook>>())) }
 				.onFailure { DebugLog.log("Runbook", "library could not be cleared: ${it.message}") }
 		}
-	}
-
-	private companion object {
-		const val UNPLACED = ""
 	}
 }

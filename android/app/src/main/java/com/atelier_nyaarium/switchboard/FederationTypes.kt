@@ -44,20 +44,25 @@ data class ScannedDeviceApproval(
 	val sas: String,
 )
 
-/** The console transport a held device seals to a freshly-approved one: the provisioning creds, plus
- * Gateway without holding the owner key. */
+/** The console transport a held device seals to a freshly-approved one: the provisioning creds and
+ * the Domain, without the owner key. */
 @kotlinx.serialization.Serializable
 data class ConsoleTransport(
+	/** Absent on a bundle from a build that carried a home Gateway. */
+	val version: Int = 0,
 	/** The Router endpoint and the leaf fingerprint pinned against it. */
 	val routerUrl: String = "",
 	val routerCertFp: String = "",
 	val appToken: String,
 	val domainId: String? = null,
-	val gatewayId: String? = null,
 	val domainVersion: String? = null,
 	val domain: DomainSnapshot? = null,
 	val contentKeys: List<KeyEnvelope> = emptyList(),
-)
+) {
+	companion object {
+		const val VERSION = 2
+	}
+}
 
 /** Outcome of "Revoke and Delete Domain". */
 sealed class DeleteDomainOutcome {

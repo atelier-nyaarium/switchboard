@@ -4,7 +4,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 
 internal interface PresenceHost {
 	val state: MutableStateFlow<ChatState>
-	val homeGatewayId: String
 	var storedDisplayName: String
 	val forgottenUntil: MutableMap<String, Long>
 
@@ -26,7 +25,6 @@ internal interface PresenceHost {
 
 internal class ChatRepositoryPresenceHost(private val repo: ChatRepository) : PresenceHost {
 	override val state get() = repo._state
-	override val homeGatewayId get() = repo.homeGatewayId
 	override var storedDisplayName
 		get() = repo.store.displayName
 		set(value) { repo.store.displayName = value }

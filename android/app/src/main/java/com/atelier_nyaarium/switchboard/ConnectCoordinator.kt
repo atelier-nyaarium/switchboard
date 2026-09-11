@@ -5,12 +5,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 internal interface ConnectHost {
-	var homeGatewayId: String
 	val firstRooted: Boolean
 	val consoleAdmitted: Boolean
 
-	fun saveGatewayId(id: String)
-	fun keyringGateways(): List<String>
 	fun withoutTombstoned(teams: List<Team>): List<Team>
 
 	suspend fun firstRootIfPending(): Boolean
@@ -29,7 +26,7 @@ internal class ConnectCoordinator(
 ) {
 	suspend fun connect() {
 		host.attachIngest()
-		DebugLog.log("Connect", "start gateway=${host.homeGatewayId.ifEmpty { "?" }} admitted=${host.consoleAdmitted}")
+		DebugLog.log("Connect", "start admitted=${host.consoleAdmitted}")
 		// Fence learned facts to the starting provisioning blob.
 		val blob = identity.blob() ?: return
 		try {
@@ -62,7 +59,6 @@ internal class ConnectCoordinator(
 				}
 				return
 			}
-			adoptHomeGateway()
 			host.reportCapabilities()
 			val teams = state.value.teams
 			state.update {
@@ -72,13 +68,12 @@ internal class ConnectCoordinator(
 					error = null,
 					connected = true,
 					pollFailStreak = 0,
-					homeGatewayId = host.homeGatewayId,
 					enrollingSince = 0L,
 				)
 			}
 			val boot = identity.readyOrNull()
 			boot?.let(identity::ensureContentEpochs)
-			DebugLog.log("Connect", "connected gateway=${host.homeGatewayId.ifEmpty { "?" }} domain=${boot?.domainId ?: "none"}")
+			DebugLog.log("Connect", "connected domain=${boot?.domainId ?: "none"}")
 		} catch (e: Exception) {
 			// Preserve coroutine cancellation semantics.
 			e.rethrowIfCancellation()
@@ -104,27 +99,12 @@ internal class ConnectCoordinator(
 			host.flushIngest()
 		}
 	}
-
-	private fun adoptHomeGateway() {
-		// Keep only a Gateway still admitted by the keyring.
-		val admitted = host.keyringGateways()
-		val id = state.value.homeGatewayId.takeIf { it in admitted } ?: admitted.firstOrNull().orEmpty()
-		if (id != host.homeGatewayId) {
-			host.homeGatewayId = id
-			host.saveGatewayId(id)
-		}
-	}
 }
 
 internal class ChatRepositoryConnectHost(private val repo: ChatRepository) : ConnectHost {
-	override var homeGatewayId: String
-		get() = repo.homeGatewayId
-		set(value) { repo.homeGatewayId = value }
 	override val firstRooted get() = repo.store.firstRooted
 	override val consoleAdmitted get() = repo.store.consoleAdmitted
 
-	override fun saveGatewayId(id: String) = repo.store.saveGatewayId(id)
-	override fun keyringGateways() = repo.keyringGateways()
 	override fun withoutTombstoned(teams: List<Team>) = with(repo) { teams.withoutTombstoned() }
 
 	override suspend fun firstRootIfPending() = repo.ownerFacts.firstRootIfPending()

@@ -66,6 +66,11 @@ class AppStateStore internal constructor(
 
 	constructor(context: Context) : this(context.applicationContext, securePreferences(context.applicationContext))
 
+	init {
+		val held = RETIRED_KEYS.filter(prefs::contains)
+		if (held.isNotEmpty()) prefs.edit().apply { held.forEach { remove(it) } }.apply()
+	}
+
 	/** Durable state directory. */
 	fun save(blob: String) = prefs.edit().putString(KEY_BLOB, blob).apply()
 
@@ -74,7 +79,6 @@ class AppStateStore internal constructor(
 	/** A new blob, with nothing remembered from the old one. */
 	fun replaceProvisioning(blob: String): Boolean = prefs.edit().apply {
 		putString(KEY_BLOB, blob)
-		putString(KEY_GATEWAY_ID, "")
 		putString(KEY_DOMAIN_ID, "")
 		putBoolean(KEY_CONSOLE_ADMITTED, false)
 		putBoolean(KEY_FIRST_ROOTED, false)
@@ -85,7 +89,6 @@ class AppStateStore internal constructor(
 		blob: String,
 		domainJson: String?,
 		domainVersion: String?,
-		gatewayId: String?,
 		contentKeys: Map<Int, ByteArray>,
 	): Boolean {
 		check(encrypted) { "secure storage unavailable; refusing to persist content keys in cleartext" }
@@ -98,7 +101,6 @@ class AppStateStore internal constructor(
 				putString(KEY_DOMAIN, domainJson)
 				if (domainVersion != null) putString(KEY_DOMAIN_VERSION, domainVersion)
 			}
-			if (gatewayId != null) putString(KEY_GATEWAY_ID, gatewayId)
 			putString(KEY_CONTENT_KEYS, encodeContentKeys(contentKeys))
 		}.commit()
 	}
@@ -297,11 +299,6 @@ class AppStateStore internal constructor(
 
 	override fun loadRunbooks(): String? = prefs.getString(KEY_RUNBOOKS, null)
 
-	/** Connected Gateway id. */
-	fun saveGatewayId(id: String) = prefs.edit().putString(KEY_GATEWAY_ID, id).apply()
-
-	fun loadGatewayId(): String = prefs.getString(KEY_GATEWAY_ID, "") ?: ""
-
 	/** Console conversation id. */
 	fun saveConversationId(id: String) = prefs.edit().putString(KEY_CONVERSATION_ID, id).apply()
 
@@ -480,7 +477,6 @@ class AppStateStore internal constructor(
 		const val KEY_DRAFTS = "drafts"
 		const val KEY_SCHEDULED_SENDS = "scheduled_sends"
 		const val KEY_GOALS = "goals"
-		const val KEY_GATEWAY_ID = "gateway_id"
 		const val KEY_CONVERSATION_ID = "conversation_id"
 		const val KEY_IDENTITY = "federation_identity"
 		const val KEY_OWNER_IDENTITY = "federation_owner_identity"
@@ -539,6 +535,9 @@ class AppStateStore internal constructor(
 			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_TASK_BOARD, KEY_VAULT, KEY_RUNBOOKS,
 		)
 
+		/** Keys an older build wrote that nothing reads; dropped on open. Remove after 2026-11-01. */
+		val RETIRED_KEYS = listOf("gateway_id")
+
 		/** Keep every provisioning key here. */
 		val PROVISIONING_KEYS = listOf(
 			KEY_BLOB, KEY_ROUTER_REACH, KEY_IDENTITY, KEY_OWNER_IDENTITY, KEY_CONTENT_KEYS, KEY_CONTENT_KEYS_CORRUPT,
@@ -547,7 +546,7 @@ class AppStateStore internal constructor(
 			KEY_PENDING_ENROLLS,
 			KEY_TRUSTED_OWNERS,
 			KEY_PENDING_UNTRUST,
-			KEY_THREADS, KEY_READ_ANCHORS, KEY_LABELS, KEY_DRAFTS, KEY_SCHEDULED_SENDS, KEY_GOALS, KEY_GATEWAY_ID,
+			KEY_THREADS, KEY_READ_ANCHORS, KEY_LABELS, KEY_DRAFTS, KEY_SCHEDULED_SENDS, KEY_GOALS,
 			KEY_CONVERSATION_ID,
 			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_ABSENCE_STREAKS, KEY_TASK_BOARD, KEY_VAULT,
 			KEY_RUNBOOKS, KEY_LAST_PROJECT,

@@ -18,26 +18,19 @@ class ConnectCoordinatorTest {
 	}
 
 	private class FakeHost : ConnectHost {
-		override var homeGatewayId = ""
 		override var firstRooted = false
 		override var consoleAdmitted = false
-		var gateways = listOf("gw")
 		var rootPending = true
 		var admissionError: Throwable? = null
-		var gatewayError: Throwable? = null
-		var savedGatewayId: String? = null
+		var rosterError: Throwable? = null
 		var capabilitiesReported = false
 		var ingestAttached = false
 		var ingestFlushed = false
 
-		override fun saveGatewayId(id: String) {
-			savedGatewayId = id
+		override fun withoutTombstoned(teams: List<Team>): List<Team> {
+			rosterError?.let { throw it }
+			return teams
 		}
-		override fun keyringGateways(): List<String> {
-			gatewayError?.let { throw it }
-			return gateways
-		}
-		override fun withoutTombstoned(teams: List<Team>) = teams
 
 		override suspend fun firstRootIfPending(): Boolean = rootPending
 		override suspend fun submitConsoleAdmission() {
@@ -82,8 +75,6 @@ class ConnectCoordinatorTest {
 		assertEquals("connected", state.value.status)
 		assertTrue(state.value.connected)
 		assertNull(state.value.error)
-		assertEquals("gw", state.value.homeGatewayId)
-		assertEquals("gw", host.savedGatewayId)
 		// Connect publishes no roster.
 		assertEquals(GatewayRegistry(), state.value.gateways)
 		assertTrue(identity.bootState.value is BootState.Ready)
@@ -106,7 +97,6 @@ class ConnectCoordinatorTest {
 		assertEquals("connecting", state.value.status)
 		assertFalse(state.value.connected)
 		assertNull(identity.readyOrNull())
-		assertNull(host.savedGatewayId)
 		assertFalse(host.capabilitiesReported)
 	}
 
@@ -123,7 +113,6 @@ class ConnectCoordinatorTest {
 		assertEquals("learned", identity.readyOrNull()?.domainId)
 		assertFalse(state.value.connected)
 		assertFalse(store.consoleAdmitted)
-		assertNull(host.savedGatewayId)
 		assertFalse(host.capabilitiesReported)
 	}
 
@@ -152,13 +141,12 @@ class ConnectCoordinatorTest {
 		assertTrue(store.consoleAdmitted)
 
 		val state = MutableStateFlow(ChatState())
-		val host = FakeHost().also { it.gatewayError = IllegalStateException("console is not admitted to the Domain") }
+		val host = FakeHost().also { it.rosterError = IllegalStateException("console is not admitted to the Domain") }
 		coordinator(identity, host, state, FakeReach { RouterReach(domainId = "learned") }).connect()
 
 		assertEquals("connecting", state.value.status)
 		assertFalse(state.value.connected)
 		assertFalse(store.consoleAdmitted)
-		assertFalse(host.capabilitiesReported)
 	}
 
 	@Test

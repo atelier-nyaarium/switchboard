@@ -12,6 +12,7 @@ import { createShareService } from "../federation-server/share/shareService.js";
 import { signAdmission, signRegister } from "../shared/admission.js";
 import { processAmbient } from "../shared/ambient.js";
 import { generateIdentity } from "../shared/crypto.js";
+import { FEDERATION_PROTOCOL_VERSION } from "../shared/router-protocol.js";
 import { type InboxRow, signRowEnvelope } from "../shared/schemasInbox.js";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -118,7 +119,7 @@ describe("Router owner state residue", () => {
 		await bridge.handleCall("c1", "gateway_register", {
 			domainId: "friend",
 			gatewayId: "fgw",
-			protocolVersion: 1,
+			protocolVersion: FEDERATION_PROTOCOL_VERSION,
 			signPub: gateway.sign.pub,
 			boxPub: gateway.box.pub,
 			admission: JSON.stringify(admission),

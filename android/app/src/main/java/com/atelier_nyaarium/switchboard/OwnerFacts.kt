@@ -74,7 +74,6 @@ internal class OwnerFacts(private val repo: ChatRepository) {
 			return false
 		}
 		merge(signed)
-		repo.adoptHomeGateway()
 		runCatchingCancellable { repo.presence.refreshAfterAction() }
 		return true
 	}
@@ -100,10 +99,6 @@ internal class OwnerFacts(private val repo: ChatRepository) {
 			val signed = repo.federation.admitGateway(gatewayId, signPub, boxPub, System.currentTimeMillis())
 			if (!submitOwnerFact(signed, { repo.client().enroll(EnrollOp.SubmitAdmission(it)) }, repo.identity::mergeAdmission, "Admit failed")) {
 				return@withContext null
-			}
-			if (repo.store.loadGatewayId().isEmpty()) {
-				repo.store.saveGatewayId(gatewayId)
-				repo.homeGatewayId = gatewayId
 			}
 			signed
 		}

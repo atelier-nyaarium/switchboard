@@ -172,36 +172,15 @@ describe("fetchCapabilities", () => {
 		expect(capabilities.find((c) => c.id === "notes")?.instructions).toEqual(expect.any(String));
 	});
 
-	it("reads a gateway that has not been restarted since the sources were split", async () => {
-		// The plugin and the gateway update on separate triggers and the plugin usually leads, so this
-		// is the ordinary rollout order rather than an edge case.
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async () =>
-				jsonResponse({
-					known: true,
-					capabilities: [{ id: "designer" }, { id: "references" }],
-					clientVersions: [],
-				}),
-			),
-		);
-
-		expect((await fetchCapabilities(ROUTER)).map((c) => c.id)).toEqual(["designer", "references"]);
-	});
-
-	it("reads a cache file written before the sources were split", async () => {
-		// The old writer persisted two fields, so the legacy shape on disk differs from the legacy shape
-		// on the wire and a lift that only handles one of them still loses the fallback.
+	it("reads nothing from a gateway or a cache file in the shape from before the sources were split", async () => {
 		fs.mkdirSync(path.dirname(cachePath()), { recursive: true });
 		fs.writeFileSync(cachePath(), JSON.stringify({ known: true, capabilities: [{ id: "designer" }] }));
 		vi.stubGlobal(
 			"fetch",
-			vi.fn(async () => {
-				throw new Error("gateway down");
-			}),
+			vi.fn(async () => jsonResponse({ known: true, capabilities: [{ id: "references" }], clientVersions: [] })),
 		);
 
-		expect(hasCapability(await fetchCapabilities(ROUTER), "designer")).toBe(true);
+		expect(await fetchCapabilities(ROUTER)).toEqual([]);
 	});
 
 	it("keeps a silent source's last answer while taking the one that spoke", async () => {

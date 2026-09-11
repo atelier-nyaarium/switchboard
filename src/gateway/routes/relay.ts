@@ -38,13 +38,10 @@ export function createRelay(deps: RelayDeps) {
 	} = deps;
 	const { localGatewayId, localDomainId } = config;
 
+	/** The friend Domain, or null for this Domain's own and for nothing resolved. */
 	function targetDomainId(targetGateway: string, targetDomain?: string): string | null {
-		try {
-			const target = sealTargetFor({ resolvesLocalGateway, crossDomainPeers }, targetGateway, targetDomain);
-			return typeof target === "string" ? null : target.domainId;
-		} catch {
-			return null;
-		}
+		const answer = sealTargetFor({ resolvesLocalGateway, crossDomainPeers }, targetGateway, targetDomain);
+		return answer.ok && typeof answer.target !== "string" ? answer.target.domainId : null;
 	}
 
 	/** Same Domain: staged and held under the op, so a retry renews. Cross Domain: metadata only. */
@@ -78,11 +75,12 @@ export function createRelay(deps: RelayDeps) {
 		if (!routerClient?.isConnected())
 			return { ok: false, error: `Router unavailable; cannot reach Gateway "${dstGateway}"` };
 		if (!sealer) return { ok: false, error: `federation crypto is not configured` };
-		let target: import("../federation/sealer.js").SealTarget;
+		const resolved = sealTargetFor({ resolvesLocalGateway, crossDomainPeers }, dstGateway, dstDomain);
+		if (!resolved.ok) return { ok: false, error: resolved.reason };
+		const target = resolved.target;
 		let sealed: SealedEnvelope;
 		const opId = producerOpId ?? ambient.newId();
 		try {
-			target = sealTargetFor({ resolvesLocalGateway, crossDomainPeers }, dstGateway, dstDomain);
 			const carried = await prepareFilesForTarget(op, typeof target === "string", opId);
 			if (!carried.ok) return carried;
 			sealed = sealer.seal(target, carried.op);

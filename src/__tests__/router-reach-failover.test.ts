@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { type WebSocket, WebSocketServer } from "ws";
 import { type RouterClient, startRouterClient } from "../gateway/router/routerClient.js";
 import { processAmbient } from "../shared/ambient.js";
+import { FEDERATION_PROTOCOL_VERSION } from "../shared/router-protocol.js";
 import type { RouterReach } from "../shared/router-reach.js";
 
 interface FakeRouter {
@@ -34,7 +35,7 @@ function startFakeRouter(reach?: RouterReach): Promise<FakeRouter> {
 							callId: msg.callId,
 							result: {
 								ok: true,
-								protocolVersion: 1,
+								protocolVersion: FEDERATION_PROTOCOL_VERSION,
 								domainId: "d",
 								gateways: [],
 								...(reach ? { reach } : {}),

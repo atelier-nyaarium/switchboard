@@ -16,7 +16,6 @@ import org.junit.Test
 class PresenceMergeTest {
 	private class FakeHost : PresenceHost {
 		override val state = MutableStateFlow(ChatState())
-		override val homeGatewayId = "sakura"
 		override var storedDisplayName = ""
 		override val forgottenUntil = mutableMapOf<String, Long>()
 		var slot: RouterStateSlot? = null

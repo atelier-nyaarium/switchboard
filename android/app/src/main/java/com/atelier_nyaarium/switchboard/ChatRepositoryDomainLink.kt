@@ -35,12 +35,11 @@ suspend fun ChatRepository.provision(blob: String) = withContext(Dispatchers.IO)
 		return@withContext
 	}
 	identity.provision(blob)
-	homeGatewayId = ""
 	invalidateClient()
 	sttsClient = null
 	// Mirror the reset in UI state.
 	_state.update {
-		it.copy(provisioned = true, error = null, deviceName = prov.device, firstRooted = false, homeGatewayId = "", teams = emptyList())
+		it.copy(provisioned = true, error = null, deviceName = prov.device, firstRooted = false, teams = emptyList())
 	}
 }
 

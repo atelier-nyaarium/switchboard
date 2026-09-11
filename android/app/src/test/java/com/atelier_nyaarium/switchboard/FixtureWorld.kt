@@ -68,7 +68,7 @@ internal class FixtureWorld private constructor(
 		coordinator: ConsoleTransportCoordinator? = null,
 	): ConsoleClient {
 		check(contentKey.contentEquals(Crypto.deriveContentKey(ownerIdentity.sign.priv, domainId, 1)))
-		val store = testStore().also { it.saveGatewayId(gatewayId) }
+		val store = testStore()
 		val boot = bootstrap(store)
 		val ambient = ambient(draws)
 		val signer = OwnerOps(boot, ambient)
@@ -79,7 +79,6 @@ internal class FixtureWorld private constructor(
 			coordinator = coordinator,
 			collaborators = ConsoleClientCollaborators(
 				signOwnerOp = { op, opId -> signer.sign(op, opId).also { onSign?.invoke(it) } },
-				homeGatewayId = { gatewayId },
 				saveProvisioning = store::save,
 				postOwnerOpSender = sender,
 			),

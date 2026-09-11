@@ -8,7 +8,6 @@ import { OwnerStoreRegistry } from "../federation-server/inbox/ownerStoreRegistr
 import { DomainQuota } from "../federation-server/owner/domainQuota.js";
 import { signAdmission } from "../shared/admission.js";
 import { fingerprint, generateIdentity } from "../shared/crypto.js";
-import { FEDERATION_VALUE_PROTOCOL_VERSION } from "../shared/router-protocol.js";
 import { ConsoleOpSchema } from "../shared/schemas.js";
 import { signOwnerOp, signRowEnvelope } from "../shared/schemasInbox.js";
 import { mintIdentitySet } from "../testing/identitySet.js";
@@ -138,7 +137,7 @@ describe("OwnerOp intake", () => {
 		expect(await fixture.intake.handle(signedOp(fixture, counted, { opId: "a" }))).toEqual({ run: 5 });
 	});
 
-	it("refuses a foreign Domain, foreign device, clear row, and an old gateway protocol", async () => {
+	it("refuses a foreign Domain, a foreign device, and a clear row", async () => {
 		const fixture = localIntake();
 		const foreignDomain = await fixture.intake.handle(
 			signedOp(fixture, { kind: "consumer_register" }, { domainId: "other" }),
@@ -166,17 +165,6 @@ describe("OwnerOp intake", () => {
 			{ opId: "clear" },
 		);
 		expect(await fixture.intake.handle(clearOp)).toMatchObject({ outcome: "refused" });
-		fixture.intake.setGatewayProtocol(() => FEDERATION_VALUE_PROTOCOL_VERSION - 1);
-		const old = signedOp(
-			fixture,
-			{
-				kind: "deliver",
-				address: "session:domain/gateway/session",
-				row: rowFor(signedOp(fixture, { kind: "x" }, { opId: "old" }), 1),
-			},
-			{ opId: "old" },
-		);
-		expect(await fixture.intake.handle(old)).toMatchObject({ outcome: "refused", reason: "unsupported" });
 	});
 
 	it("returns durability uncertainty while the owner store is quarantined", async () => {

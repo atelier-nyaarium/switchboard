@@ -54,7 +54,7 @@ class ChatRepository(
 
 	val vault = com.atelier_nyaarium.switchboard.vault.VaultManager(store)
 
-	val runbooks = com.atelier_nyaarium.switchboard.runbooks.RunbookManager(store) { homeGatewayId }
+	val runbooks = com.atelier_nyaarium.switchboard.runbooks.RunbookManager(store)
 
 	internal val approvalGate = com.atelier_nyaarium.switchboard.vault.ApprovalGate(
 		policy = { store.vaultUnlock },
@@ -62,7 +62,6 @@ class ChatRepository(
 		authenticate = { activity -> requireOwnerPresent(true, activity) },
 	)
 
-	@Volatile internal var homeGatewayId: String = store.loadGatewayId()
 	@Volatile internal var gapFloor: Long = 0L
 	@Volatile internal var gapDropped: Long = 0L
 	internal val planeFetchedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -95,7 +94,6 @@ class ChatRepository(
 			deviceName = currentDeviceName(),
 			labels = persistence.loadPersistedLabels(),
 			teamAbsenceStreaks = persistence.loadPersistedAbsenceStreaks(),
-			homeGatewayId = homeGatewayId,
 			firstRooted = store.firstRooted,
 			lastProjectByGateway = store.lastProjectByGateway,
 			scheduledSends = persistence.loadPersistedScheduledSends(),
@@ -256,11 +254,6 @@ class ChatRepository(
 	internal fun applyDomainSync(snapshot: com.atelier_nyaarium.switchboard.proto.DomainSnapshot, version: String) =
 		provisioningHost.applyDomainSync(snapshot, version)
 
-	internal fun adoptHomeGateway() = provisioningHost.adoptHomeGateway()
-
-	/** Keyring admission, not roster membership. */
-	internal fun keyringGateways(): List<String> =
-		com.atelier_nyaarium.switchboard.crypto.Keyring.parse(store.loadDomain())?.admittedGatewayIds() ?: emptyList()
 	internal val ownerFacts = OwnerFacts(this)
 	internal val gatewayEnroll = GatewayEnrollment(this)
 	internal val connector = ConnectCoordinator(identity, ::transport, _state, ChatRepositoryConnectHost(this))
@@ -289,7 +282,6 @@ class ChatRepository(
 		ownerOpsValue = null
 		keyDeliveryBoot = null
 		keyDeliveryValue = null
-		homeGatewayId = ""
 		mailboxSync.clearInMemory()
 		planeFetchedAt.clear()
 		forgottenUntil.clear()

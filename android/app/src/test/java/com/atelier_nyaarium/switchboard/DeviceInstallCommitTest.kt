@@ -63,7 +63,7 @@ class DeviceInstallCommitTest {
 		val keys = (ContentKeyring(recipient.box.priv, store).classify(listOf(signedEnvelope()), keyring())
 			as ContentKeyring.Merge.Installed).next
 
-		assertTrue(store.installApprovedDevice("blob", "domain", "version", "gateway", keys))
+		assertTrue(store.installApprovedDevice("blob", "domain", "version", keys))
 
 		assertEquals("blob", store.load())
 		assertTrue(store.consoleAdmitted)
@@ -71,7 +71,6 @@ class DeviceInstallCommitTest {
 		assertTrue(store.enrollCeremonyDone)
 		assertEquals("domain", store.loadDomain())
 		assertEquals("version", store.loadDomainVersion())
-		assertEquals("gateway", store.loadGatewayId())
 		assertArrayEquals(ByteArray(32) { 7 }, (store.loadContentKeys() as ContentKeysLoad.Loaded).keys.getValue(1))
 	}
 }

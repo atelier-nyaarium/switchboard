@@ -157,10 +157,9 @@ export const ValueResultParamsSchema = z.object({
 	incarnation: z.number().int().positive(),
 });
 
-export const FEDERATION_PROTOCOL_FLOOR = 1;
 /** Below 3 a Gateway keeps a share copy nothing writes. */
+export const FEDERATION_PROTOCOL_FLOOR = 3;
 export const FEDERATION_PROTOCOL_VERSION = 3;
-export const FEDERATION_VALUE_PROTOCOL_VERSION = FEDERATION_PROTOCOL_VERSION;
 
 export const GatewayRegisterParamsSchema = z.object({
 	gatewayId: z.string().min(1).max(64),

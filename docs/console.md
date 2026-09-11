@@ -71,26 +71,23 @@ row, and mirrors a thread as `peer` rows only when the asker is a session, which
 names. The phone threads a drained row by its store key: a conv row under its own address, a
 notice row under its sender. Nothing on either side compares an address to the phone's own.
 
-### `homeGatewayId`, and the two things it is for
+### No Gateway is the phone's own
 
-`adoptHomeGateway` keeps the stored id while the Domain keyring still admits it, and otherwise takes
-`admitted.firstOrNull()`. The owner never picks it and there is no control for it.
+The phone holds no home Gateway and no default for one. Every console call names its Gateway, a
+cross-Domain pairing names the Gateway the wizard picked, and the runbook library is keyed by
+Gateway, so a library written before the copies were split decodes as empty. A phone target is
+`domain.gateway.spawn` or `domain.gateway.spawn.session`, parsed by `parseQualifiedTarget`, and the
+gateway's console handler refuses anything shorter. `home-gateway-residue.test.ts` refuses the old
+words on the phone.
 
-Two jobs, each identifying:
+**No screen reads an identity default to decide what to draw.** The Routines, Runbooks and
+Policies tabs read `ChatState.gateways` and group by Gateway. The Policies tab rides the vault
+plugin, since a policy binds a secret. A Gateway that refuses `policy_list` is drawn as nothing,
+since an older build refuses an unknown op.
 
-1. Filling the Gateway segment of this phone's own local address.
-2. Deciding which Gateway claims a runbook library written before libraries were split per Gateway.
-
-A cross-Domain pairing names its Gateway itself: the wizard picks one and `TrustOps` holds it.
-
-It completes no name. A phone target is `domain.gateway.spawn` or `domain.gateway.spawn.session`,
-parsed by `parseQualifiedTarget`, and the gateway's console handler refuses anything shorter.
-
-**It is not a visibility filter, and a screen that reads it to decide what to draw is a bug.** A
-document that states only how it is selected invites exactly that, which is why the jobs are listed.
-The Routines, Runbooks and Policies tabs read `ChatState.gateways` and group by Gateway. The Policies
-tab rides the vault plugin, since a policy binds a secret. A Gateway that refuses `policy_list` is
-drawn as nothing, since an older build refuses an unknown op.
+A join bundle sealed for a freshly approved device carries `version: 2`; `parseConsoleTransport`
+refuses one from a build that still carried a home Gateway, and the new device tells the owner to
+update the held one.
 
 ### `GatewayRegistry`, the one owner of membership
 
@@ -156,7 +153,8 @@ owner's Domains first, then asks every Gateway whose peers name the owner to for
 local trust; with the Router unreachable nothing is revoked, trust stays, and the owner is marked
 pending until the next welcome retries.
 
-A Gateway below protocol 3 receives `unsupported` for value and delivery ops.
+A Gateway below protocol 3 is refused at registration, so the roster shows it offline until it is
+restarted on a current build.
 
 ## Add Device
 

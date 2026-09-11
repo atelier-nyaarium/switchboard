@@ -1,6 +1,5 @@
 import { type DomainSnapshot, resolveAdmitted, type SignedAdmission } from "../shared/admission.js";
 import type { Ambient } from "../shared/ambient.js";
-import { FEDERATION_VALUE_PROTOCOL_VERSION } from "../shared/router-protocol.js";
 import { type InboxRow, parseInboxAddress } from "../shared/schemasInbox.js";
 import {
 	GATEWAY_ERROR_INBOX_UNAVAILABLE,
@@ -70,6 +69,8 @@ export class GatewayBridge implements ToolProvider {
 	private connGateways = new Map<ConnectionId, ConnGatewayRecord>();
 	private readonly inbox: InboxService | null;
 	private readonly registrationHandler: RegistrationHandler;
+	/** Answered a refusal that closes the socket; nothing else is taken from it. */
+	private readonly closing = new Set<ConnectionId>();
 	private readonly relayRouter: RelayRouter;
 	private readonly inboxFrames: InboxFrames;
 	private readonly port: number;
@@ -125,6 +126,15 @@ export class GatewayBridge implements ToolProvider {
 			getConnectionId: (domainId, gatewayId) => this.gatewayConnections.get(domainId)?.get(gatewayId),
 			getIncarnation: (connId) => this.connGateways.get(connId)?.incarnation,
 			send: (domainId, gatewayId, frame) => this.pushToGatewayInDomain(domainId, gatewayId, frame),
+			closeConnection: (connId, reason) => {
+				this.closing.add(connId);
+				// The answer leaves first.
+				ambient.setTimer(() => {
+					try {
+						this.transport?.getConnection(connId)?.close(1000, reason);
+					} catch {}
+				}, 0);
+			},
 		});
 		this.inboxFrames = new InboxFrames({
 			inbox: this.inbox,
@@ -209,11 +219,6 @@ export class GatewayBridge implements ToolProvider {
 		return out.sort((a, b) => a.gatewayId.localeCompare(b.gatewayId));
 	}
 
-	public gatewayProtocol(domainId: string, gatewayId: string): number | null {
-		const connId = this.gatewayConnections.get(domainId)?.get(gatewayId);
-		return connId ? (this.connGateways.get(connId)?.protocolVersion ?? null) : null;
-	}
-
 	/** Shutdown skips drop listeners while stores flush. */
 	public stop(): void {
 		this.transport?.stop();
@@ -270,12 +275,6 @@ export class GatewayBridge implements ToolProvider {
 		const connId = this.gatewayConnections.get(domainId)?.get(address.gatewayId);
 		const reg = connId ? this.connGateways.get(connId) : undefined;
 		if (!reg || reg.incarnation === null) return false;
-		// An unreported protocol is an old gateway, which cannot take a console op.
-		if (
-			(reg.protocolVersion ?? 0) < FEDERATION_VALUE_PROTOCOL_VERSION &&
-			rows.some((row) => row.envelope.kind === "console_op")
-		)
-			return false;
 		return this.pushToGatewayInDomain(domainId, address.gatewayId, {
 			type: "inbox_deliver",
 			address: addressText,
@@ -399,6 +398,7 @@ export class GatewayBridge implements ToolProvider {
 	}
 
 	public async handleCall(connId: ConnectionId, name: string, params: Record<string, unknown>): Promise<unknown> {
+		if (this.closing.has(connId)) return { ok: false, error: GATEWAY_ERROR_NOT_REGISTERED };
 		if (name === "gateway_register") return this.registrationHandler.handle(connId, params);
 		const frame = this.frames.get(name);
 		if (!frame) throw new Error(`unsupported gateway action: ${name}`);
@@ -440,6 +440,7 @@ export class GatewayBridge implements ToolProvider {
 
 	/** All connection teardown uses one path. */
 	private dropConnection(connId: ConnectionId): void {
+		this.closing.delete(connId);
 		this.inboxFrames.dropConnection(connId);
 		const reg = this.connGateways.get(connId);
 		const wasCurrent = reg ? this.gatewayConnections.get(reg.domainId)?.get(reg.gatewayId) === connId : false;

@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.proto.SignedAdmission
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class DeviceApprovalOpsTest {
@@ -25,21 +26,28 @@ class DeviceApprovalOpsTest {
 		assertEquals("approval", scan?.approvalId)
 	}
 
+	@Test
+	fun aJoinBundleFromABuildThatCarriedAHomeGatewayIsRefused() {
+		val current = parseConsoleTransport("""{"version":2,"appToken":"token","domainId":"domain"}""")
+		assertEquals("domain", current.domainId)
+
+		val refused = assertThrows(IllegalArgumentException::class.java) {
+			parseConsoleTransport("""{"appToken":"token","domainId":"domain","gatewayId":"sakura"}""")
+		}
+		assertEquals("The held device runs an older build; update it and approve again.", refused.message)
+	}
+
 	private class TestDeviceCollaborators : DeviceApprovalOpsCollaborators {
 		override fun approvalNonces() = mutableMapOf<String, String>()
-		override fun homeGatewayId() = "gateway"
-		override fun setHomeGatewayId(value: String) = Unit
 		override fun installApprovedDevice(
 			blob: String,
 			domainJson: String?,
 			domainVersion: String?,
-			gatewayId: String?,
 			contentKeys: Map<Int, ByteArray>,
 			domainId: String?,
 		) = true
 		override fun invalidateClients() = Unit
 		override suspend fun submitOwnerAdmission(signed: SignedAdmission) = true
-		override fun adoptHomeGateway() = Unit
 		override fun reportError() = null
 	}
 }

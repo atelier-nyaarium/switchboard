@@ -26,26 +26,27 @@ describe("seal target rules", () => {
 			"desktop",
 			"friend",
 		);
-		expect(result).toBe("desktop");
+		expect(result).toEqual({ ok: true, target: "desktop" });
 	});
 
-	it("selects an explicit peer and rejects an ambiguous bare id", () => {
+	it("selects an explicit peer and refuses an ambiguous bare id", () => {
 		const crossDomainPeers = peers([
 			["aria", "desktop"],
 			["briar", "desktop"],
 		]);
 		expect(sealTargetFor({ crossDomainPeers }, "desktop", "briar")).toEqual({
-			domainId: "briar",
-			gatewayId: "desktop",
+			ok: true,
+			target: { domainId: "briar", gatewayId: "desktop" },
 		});
-		expect(() => sealTargetFor({ crossDomainPeers }, "desktop")).toThrow();
+		expect(sealTargetFor({ crossDomainPeers }, "desktop")).toMatchObject({ ok: false });
 	});
 
-	it("falls through to the only peer or the bare target", () => {
+	it("falls through to the only peer, and refuses a gateway nothing resolves", () => {
 		expect(sealTargetFor({ crossDomainPeers: peers([["aria", "desktop"]]) }, "desktop", "missing")).toEqual({
-			domainId: "aria",
-			gatewayId: "desktop",
+			ok: true,
+			target: { domainId: "aria", gatewayId: "desktop" },
 		});
-		expect(sealTargetFor({}, "unknown")).toBe("unknown");
+		expect(sealTargetFor({}, "unknown")).toMatchObject({ ok: false });
+		expect(sealTargetFor({ resolvesLocalGateway: () => false }, "unknown")).toMatchObject({ ok: false });
 	});
 });

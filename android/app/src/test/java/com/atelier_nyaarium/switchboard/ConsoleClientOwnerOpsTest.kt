@@ -316,7 +316,7 @@ class ConsoleClientOwnerOpsTest {
 		coordinator: ConsoleTransportCoordinator?,
 		sender: suspend (OwnerOp) -> JsonElement? = { op -> answer(op, coordinator) },
 	): ConsoleClient {
-		val store = testStore().also { it.saveGatewayId("gateway") }
+		val store = testStore()
 		val boot = testBootstrap(store, "domain", identity, owner, ring, device = "device", conversationId = "conversation")
 		return ConsoleClient(
 		boot,
@@ -325,7 +325,6 @@ class ConsoleClientOwnerOpsTest {
 		coordinator = coordinator,
 		collaborators = ConsoleClientCollaborators(
 			signOwnerOp = { op, opId -> OwnerOp(1, "domain", "owner", "conversation", "device", opId, 1, "nonce", op, "sig") },
-			homeGatewayId = { "gateway" },
 			saveProvisioning = store::save,
 		postOwnerOpSender = sender,
 		rowSigner = { "row-sig" },

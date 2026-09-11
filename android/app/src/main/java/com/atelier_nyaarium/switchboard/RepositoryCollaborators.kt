@@ -33,18 +33,13 @@ internal class ChatRepositoryEnrollCeremonyCollaborators(private val repo: ChatR
 
 internal class ChatRepositoryDeviceApprovalCollaborators(private val repo: ChatRepository) : DeviceApprovalOpsCollaborators {
 	override fun approvalNonces() = repo.approvalNonces
-	override fun homeGatewayId() = repo.homeGatewayId
-	override fun setHomeGatewayId(value: String) {
-		repo.homeGatewayId = value
-	}
 	override fun installApprovedDevice(
 		blob: String,
 		domainJson: String?,
 		domainVersion: String?,
-		gatewayId: String?,
 		contentKeys: Map<Int, ByteArray>,
 		domainId: String?,
-	) = repo.identity.installApproved(blob, domainJson, domainVersion, gatewayId, contentKeys, domainId)
+	) = repo.identity.installApproved(blob, domainJson, domainVersion, contentKeys, domainId)
 	override fun invalidateClients() {
 		repo.invalidateClient()
 		repo.sttsClient = null
@@ -56,7 +51,6 @@ internal class ChatRepositoryDeviceApprovalCollaborators(private val repo: ChatR
 		 repo.identity::mergeAdmission,
 		"Approve failed",
 	)
-	override fun adoptHomeGateway() = repo.adoptHomeGateway()
 	override fun reportError() = repo._state.value.error
 }
 

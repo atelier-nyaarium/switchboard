@@ -1074,7 +1074,7 @@ sessions cannot be reached from the phone until then.
   audience modes are several posts, not one (bd_a55276c4). The session registry has no baseline
   (bd_43f0e245). All three claimed, none built here.
 
-## Phase 7 - The symbol dies, and the shims with it
+## Phase 7 - The symbol dies, and the shims with it ✅
 
 - `homeGatewayId` everywhere: `ChatRepository`, `ChatState`, `ConnectCoordinator.adoptHomeGateway`,
   `selectHomeGateway`, `ConsoleClient.defaultGatewayId`, `ConsoleClientCollaborators`,
@@ -1103,11 +1103,97 @@ sessions cannot be reached from the phone until then.
   `sandbox-network-residue`, `coroutine-scope-residue`, `fire-and-forget-residue`,
   `migration-fence-residue`, `wire-vocabulary-residue`, `protocol-fixtures`, `router-protocol`.
 
+### As built
+
+Phone:
+
+- `homeGatewayId` is gone from `ChatRepository`, `ChatState`, `ConnectHost` (with `saveGatewayId`
+  and `keyringGateways`, whose only reader was the adopt pass), `RepositoryProvisioningHost`
+  (`selectHomeGateway`, `adoptHomeGateway`), `ConsoleClientCollaborators` and
+  `ConsoleClient.defaultGatewayId` (no caller was left), `DeviceApprovalOpsCollaborators`,
+  `OwnerFacts.admitGateway`'s write, `PresenceHost`, `SessionHost`, `PresencePort`, the sandbox
+  seeder, `provision` and `clearInMemory`. `Keyring.admittedGatewayIds` went with its last reader.
+- `AppStateStore`: `KEY_GATEWAY_ID`, `saveGatewayId`, `loadGatewayId` gone; `installApprovedDevice`
+  and `PhoneIdentity.installApproved` lost the parameter; `RETIRED_KEYS` (remove after
+  2026-11-01) names `gateway_id` and the `init` block drops every entry on open, nothing else
+  (`AppStateStoreRelicKeyTest` seeds each entry and a sentinel). `SCHEMA_WIPE_KEYS` and
+  `GRAMMAR_VERSION` untouched.
+- `RunbookManager(store)`: `UNPLACED`, the list-form decode and the claim went; `placed()` is the
+  map. A list-form store decodes as empty and the next commit overwrites it (pinned).
+- `ConsoleTransport` lost `gatewayId` and gained `version: Int = 0` with `VERSION = 2`; the held
+  device writes 2, `parseConsoleTransport` refuses anything else with an owner-readable message,
+  and `newDeviceFetch` reads through it (`DeviceApprovalOpsTest`).
+- Tests: `RepositoryProvisioningHostTest` deleted; the sync-lag coordinator case throws from the
+  roster fold now that the adopt pass is gone; `ClearProvisioningPartitionTest` no longer lists the
+  key.
+
+Router and gateway:
+
+- `FEDERATION_PROTOCOL_FLOOR = 3`. A `version_too_old` answer makes `routerClient` log the floor
+  and `stop()`; one `dropConnection` serves the close handler and `stop()`, so `onDisconnect`
+  fires once on every road and the share copy goes unready with the socket. The Router answers
+  and then closes the connection on a zero-delay timer (`closeConnection` dep), so the Gateway
+  already running the old client loses its socket and nags its log about every five seconds (each
+  open resets its backoff) instead of sitting connected and unregistered. Every test registration is pinned to
+  `FEDERATION_PROTOCOL_VERSION`, the admin carve-out included; the socket test's "old" case now
+  registers at the floor minus one (protocol 0 never reached the floor; the params schema refused
+  it) and awaits the close.
+- The value-protocol shim died with the floor: `FEDERATION_VALUE_PROTOCOL_VERSION`, the
+  `unsupported` branches in `inboxFrames.forwardGatewayValue`, `gatewayBridge.pushInboxRows` and
+  `ownerOpIntake` (with its `gatewayProtocol` seam and the `ownerServices` wiring). A registered
+  Gateway is at the floor by construction; a `deliver` to an unregistered Gateway is held, as any
+  row is.
+- `LegacyCapabilitiesSchema` deleted; a pre-split cache or gateway answer reads as nothing reported
+  until the next report (pinned).
+- `sealTargetFor` answers `{ ok, target } | { ok: false, reason }`; the relay refuses with the
+  reason instead of throwing, and `targetDomainId` answers null for both this Domain's own and an
+  unresolvable id (`relay-refusal.test.ts`, with a sealer that throws if reached).
+- `home-gateway-residue.test.ts` reads every phone `.kt` (main, test, emulator) for the retired
+  words outside comments; strings are read, since a wire key is one.
+- `ownerServices` no longer maps `unsupported` as a value failure; `WireFixtureGenerator` reads the
+  protocol constant.
+
+Docs: `docs/console.md` (the section is now "No Gateway is the phone's own", and the floor
+sentence), `docs/federation.md` (compatibility line and the inbox bullet), `docs/architecture.md`,
+`AGENTS.md` Architecture paragraph.
+
+Audits: Sol before the fixes and after; four Luna alignment reads (Router, phone, tests,
+behavior); four Luna red teams (Add Device, the floor, the phone after the symbol, relay and
+wildcard). Sol's two blockers were real: `stop()` skipped `onDisconnect` because it nulled the
+socket before the close event, and the floor could not stop the Gateway already running the old
+client. The red team's one blocker was real: a socket refused for its version could still register
+before the zero-delay close, so the bridge now marks it `closing` and answers `not_registered` to
+everything after the refusal; a registration whose gateway id is not a slug is refused before it
+is logged (`sanitizeGatewayId`); `pullPresenceFromDomain` names the Domain it pulls from, so two
+friend Gateways sharing a name no longer make the pull ambiguous. Refuted: an error row for a send
+to a Gateway that does not exist keyed under the address the owner typed is the honest thread, not
+a fabrication. Out of this phase: a `Cached` roster offering Create (the RouterLink item,
+bd_f81c19f3). Not built, on the board: the roster saying "update required" rather than "offline"
+for a Gateway behind the floor (bd_b020d3e2); Add Device installing before it validates
+(bd_b53795c7) and telling the held phone "Device added" before the new one installed
+(bd_fd66f58a); how a Gateway denied for a missing admission learns it was admitted (bd_ea4b1d76).
+
+### Bug Classes
+
+- **Mechanism:** the Router client's teardown. **Class:** two doors to one state, one of which
+  skips a listener. **Rounds:** one, `stop()` nulled the socket and the close handler's guard then
+  skipped `onDisconnect`, so a stopped client left the share copy ready (Sol); closed by one
+  `dropConnection` that both doors call.
+- **Mechanism:** a protocol floor enforced by the side that is current. **Class:** a rule the
+  stale party cannot execute. **Rounds:** one, the new client's `stop()` could not reach the
+  Gateway already running the old client (Sol, behavior read); closed by the Router closing the
+  socket after the answer, which every client version obeys.
+- **Mechanism:** what the bridge takes from a connection it has refused. **Class:** a refusal that
+  leaves the door open until a timer fires. **Rounds:** one, a second `gateway_register` in the
+  close window succeeded (red team); closed by marking the connection `closing` at the refusal and
+  answering nothing else on it, the same door `dropConnection` clears.
+
 ## Phase 8 - Words
 
-- `docs/console.md` `homeGatewayId` section (two jobs left) deleted; `docs/architecture.md` phone path;
-  `docs/testing.md`; `AGENTS.md` ChatRepository entry, the Architecture paragraph, the RoutineOps
-  and BoardOps entries; `docs/policies.md` where it names membership.
+- `docs/testing.md` "the home gateway" (the harness rename below); `AGENTS.md` ChatRepository
+  entry, the RoutineOps and BoardOps entries; `docs/policies.md` where it names membership. The
+  `docs/console.md` section, `docs/architecture.md` and the Architecture paragraph were rewritten in
+  Phase 7.
 - `federationHarness.ts` `home: DomainPeer` renamed. Test names that go with their road:
   `aNewDomainClearsTheOldHomeGateway`, `sandboxSeedCarriesTheHomeGatewayFromTheTeamIntoStateInput`,
   `aLibraryWrittenBeforeTheCopiesWereSplitIsTheHomeGatewaysAndNobodyElses`,

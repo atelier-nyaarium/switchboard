@@ -50,7 +50,6 @@ export interface OwnerServicesDeps {
 
 export function createOwnerServices(deps: OwnerServicesDeps) {
 	const { registry, inbox, bridge, referenceHeld, ambient } = deps;
-	deps.intake.setGatewayProtocol((domainId, gatewayId) => bridge.gatewayProtocol(domainId, gatewayId));
 	const connected = (domainId: string): string[] => bridge.registeredGateways(domainId).map((g) => g.gatewayId);
 	const admittedGateways = (domainId: string): string[] => {
 		const snapshot = deps.getDomain(domainId);
@@ -105,7 +104,7 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 					result && typeof result === "object" && "outcome" in result && typeof result.outcome === "string"
 						? result.outcome
 						: null;
-				if (outcome === "unreachable" || outcome === "timeout" || outcome === "unsupported")
+				if (outcome === "unreachable" || outcome === "timeout")
 					return { opKey, outcome: "failed" as const, reason: outcome };
 				return { opKey, outcome: "accepted" as const, result };
 			});

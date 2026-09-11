@@ -11,7 +11,6 @@ import kotlinx.coroutines.launch
 /** What session control reaches on the repository. */
 internal interface SessionHost {
 	val state: MutableStateFlow<ChatState>
-	val homeGatewayId: String
 	val localDomain: String
 	val forgottenUntil: MutableMap<String, Long>
 	val sandboxDirs: Map<String, List<String>>?
@@ -49,7 +48,6 @@ internal interface SessionHost {
 
 internal class ChatRepositorySessionHost(private val repo: ChatRepository) : SessionHost {
 	override val state get() = repo._state
-	override val homeGatewayId get() = repo.homeGatewayId
 	override val localDomain get() = repo.localDomain()
 	override val forgottenUntil get() = repo.forgottenUntil
 	override val sandboxDirs get() = repo.sandboxDirs

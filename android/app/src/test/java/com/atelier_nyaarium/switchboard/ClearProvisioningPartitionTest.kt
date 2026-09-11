@@ -39,7 +39,6 @@ class ClearProvisioningPartitionTest {
 			"drafts",
 			"scheduled_sends",
 			"goals",
-			"gateway_id",
 			"conversation_id",
 			"sync_epoch",
 			"sync_acked",

@@ -36,7 +36,6 @@ data class ChatState(
 	/** Mirrors repository visibility for Compose observation. */
 	val foreground: Boolean = false,
 	val pollFailStreak: Int = 0,
-	val homeGatewayId: String = "",
 	val domainId: String? = null,
 	/** Nonzero while enrollment admits the device before sync completes. */
 	val enrollingSince: Long = 0L,

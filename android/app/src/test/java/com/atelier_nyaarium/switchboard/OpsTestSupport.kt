@@ -16,7 +16,6 @@ internal object FailingClientPort : ClientPort {
 
 internal object IdlePresencePort : PresencePort {
 	override suspend fun refreshAfterAction() = Unit
-	override fun adoptHomeGateway() = Unit
 	override suspend fun reapplyCachedTeams() = Unit
 	override suspend fun restoreLastProjection() = Unit
 }
@@ -28,7 +27,6 @@ internal class RecordingPresencePort : PresencePort {
 	var restores = 0
 
 	override suspend fun refreshAfterAction() { refreshes++ }
-	override fun adoptHomeGateway() = Unit
 	override suspend fun reapplyCachedTeams() { reapplies++ }
 	override suspend fun restoreLastProjection() { restores++ }
 }

@@ -18,7 +18,6 @@ import org.junit.Test
 class PresenceOpsTest {
 	private class FakeHost : PresenceHost {
 		override val state = MutableStateFlow(ChatState())
-		override val homeGatewayId = "local"
 		override var storedDisplayName = ""
 		override val forgottenUntil = mutableMapOf<String, Long>()
 		var slot: RouterStateSlot? = null

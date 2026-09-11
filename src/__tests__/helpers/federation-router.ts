@@ -10,6 +10,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 import { signAdmission, signRegister } from "../../shared/admission.js";
 import { processAmbient } from "../../shared/ambient.js";
 import { generateIdentity, type Identity } from "../../shared/crypto.js";
+import { FEDERATION_PROTOCOL_VERSION } from "../../shared/router-protocol.js";
 
 export const FEDERATION_TOKEN = "federation-test-token";
 export const CONSOLE_TOKEN = "console-test-token";
@@ -130,7 +131,7 @@ export function registerParams(
 	return {
 		domainId,
 		gatewayId,
-		protocolVersion: 1,
+		protocolVersion: FEDERATION_PROTOCOL_VERSION,
 		signPub: fixture.host.sign.pub,
 		boxPub: fixture.host.box.pub,
 		admission: JSON.stringify(admission),

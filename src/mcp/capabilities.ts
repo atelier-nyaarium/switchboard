@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { z } from "zod";
 import {
 	type Capability,
 	type CapabilityBundle,
@@ -10,7 +9,7 @@ import {
 	UNREPORTED_CAPABILITIES,
 	unionCapabilities,
 } from "../shared/capabilities.js";
-import { CapabilityBundleSchema, EnabledPluginSchema } from "../shared/schemas.js";
+import { CapabilityBundleSchema } from "../shared/schemas.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -22,25 +21,9 @@ export type { Capability };
 
 const NOTHING_REPORTED: CapabilityBundle = { console: UNREPORTED_CAPABILITIES, daemon: UNREPORTED_CAPABILITIES };
 
-/**
- * LEGACY, remove after 2026-11-01: the pre-split answer, from a gateway or a cache file.
- *
- * The plugin usually leads the gateway, so a session regularly starts against one several releases
- * behind. Rejecting its answer costs that session every gated tool for its whole life.
- *
- * `clientVersions` is optional because the old cache carried two fields and the old wire three.
- */
-const LegacyCapabilitiesSchema = z.object({
-	known: z.boolean(),
-	capabilities: z.array(EnabledPluginSchema),
-	clientVersions: z.array(z.string()).optional().default([]),
-});
-
 function toBundle(raw: unknown): CapabilityBundle | null {
 	const bundle = CapabilityBundleSchema.safeParse(raw);
-	if (bundle.success) return bundle.data;
-	const legacy = LegacyCapabilitiesSchema.safeParse(raw);
-	return legacy.success ? { console: legacy.data, daemon: UNREPORTED_CAPABILITIES } : null;
+	return bundle.success ? bundle.data : null;
 }
 
 // An unreachable gateway must cost a beat, not the session's whole startup.

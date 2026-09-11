@@ -107,7 +107,7 @@ export function createPresenceExchange({
 			seenGateways.add(peer.friendGatewayId);
 			return true;
 		});
-		const results = await Promise.all(toQuery.map((peer) => relayListTeams(peer.friendGatewayId)));
+		const results = await Promise.all(toQuery.map((peer) => relayListTeams(peer.friendGatewayId, fromDomainId)));
 		const rows: TeamInfo[] = [];
 		let anyOk = false;
 		for (const r of results) {

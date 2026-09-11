@@ -58,7 +58,6 @@ class PhoneIdentityTest {
 		val identity = identity(store)
 		identity.provision(blob())
 		val old = identity.blob()!!
-		store.saveGatewayId("gw")
 
 		identity.provision(blob(device = "replacement"))
 
@@ -66,7 +65,6 @@ class PhoneIdentityTest {
 		assertFalse(identity.markFirstRooted(old))
 		assertEquals(BootState.Missing(setOf(Need.DOMAIN_ID)), identity.bootState.value)
 		assertFalse(store.firstRooted)
-		assertEquals("", store.loadGatewayId())
 		assertTrue(identity.markFirstRooted(identity.blob()!!))
 		assertTrue(store.firstRooted)
 	}

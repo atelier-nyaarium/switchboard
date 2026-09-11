@@ -21,7 +21,7 @@ import kotlinx.serialization.json.JsonObject
 
 object Protocol {
 	const val CONSOLE_PROTOCOL_VERSION: Int = 3
-	const val FEDERATION_PROTOCOL_FLOOR: Int = 1
+	const val FEDERATION_PROTOCOL_FLOOR: Int = 3
 	const val FEDERATION_PROTOCOL_VERSION: Int = 3
 
 	object Wire {

@@ -4,11 +4,7 @@ import com.atelier_nyaarium.switchboard.board.BoardSealing
 import com.atelier_nyaarium.switchboard.proto.DomainSnapshot
 import com.atelier_nyaarium.switchboard.vault.VaultSealing
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-
-internal fun selectHomeGateway(current: String, admitted: List<String>): String =
-	current.takeIf { it in admitted } ?: admitted.firstOrNull().orEmpty()
 
 internal interface RepositoryProvisioningHost {
 	fun transport(): ConsoleRouterTransport
@@ -17,8 +13,6 @@ internal interface RepositoryProvisioningHost {
 	fun clientOrNull(): ConsoleClient?
 	fun invalidateClient()
 	fun applyDomainSync(snapshot: DomainSnapshot, version: String)
-	/** Keep home id on an admitted Gateway. */
-	fun adoptHomeGateway()
 	fun localDomain(): String
 	fun boardSealing(): BoardSealing?
 	fun vaultSealing(): VaultSealing?
@@ -55,7 +49,6 @@ internal class ChatRepositoryProvisioningHost(private val repo: ChatRepository) 
 			coordinator = repo.transportCoordinator,
 			collaborators = ConsoleClientCollaborators(
 				signOwnerOp = { op, opId -> repo.ownerOpsOrNull()?.sign(op, opId) },
-				homeGatewayId = { repo.homeGatewayId },
 				saveProvisioning = repo.identity::saveBlob,
 			),
 		).also {
@@ -67,16 +60,6 @@ internal class ChatRepositoryProvisioningHost(private val repo: ChatRepository) 
 	override fun applyDomainSync(snapshot: DomainSnapshot, version: String) {
 		repo.identity.applyDomainSync(snapshot, version)
 		invalidateClient()
-		adoptHomeGateway()
-	}
-
-	override fun adoptHomeGateway() {
-		val nextHome = selectHomeGateway(repo.homeGatewayId, repo.keyringGateways())
-		if (nextHome != repo.homeGatewayId) {
-			repo.homeGatewayId = nextHome
-			repo.store.saveGatewayId(nextHome)
-		}
-		if (nextHome != repo._state.value.homeGatewayId) repo._state.update { it.copy(homeGatewayId = nextHome) }
 	}
 
 	override fun localDomain(): String = repo.readyOrNull()?.domainId.orEmpty()

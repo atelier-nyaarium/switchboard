@@ -1,5 +1,6 @@
 import { type DomainSnapshot, REGISTER_MAX_SKEW_MS, type SignedAdmission } from "../../shared/admission.js";
 import type { Ambient } from "../../shared/ambient.js";
+import { sanitizeGatewayId } from "../../shared/gateway-id.js";
 import {
 	FEDERATION_PROTOCOL_FLOOR,
 	FEDERATION_PROTOCOL_VERSION,
@@ -29,6 +30,7 @@ export interface RegistrationDeps {
 	getConnectionId: (domainId: string, gatewayId: string) => ConnectionId | undefined;
 	getIncarnation: (connId: ConnectionId) => number | null | undefined;
 	send: (domainId: string, gatewayId: string, frame: Record<string, unknown>) => boolean;
+	closeConnection: (connId: ConnectionId, reason: string) => void;
 }
 
 /** Gateway identity bootstrap: trust, incarnation, and held-row redelivery. */
@@ -42,8 +44,16 @@ export class RegistrationHandler {
 		if (!parsed.success)
 			return { ok: false, error: `invalid gateway_register: ${parsed.error.issues[0]?.message}` };
 		const { gatewayId, protocolVersion } = parsed.data;
+		// A gateway id is a slug, and it is about to be logged and keyed on.
+		if (sanitizeGatewayId(gatewayId) !== gatewayId)
+			return { ok: false, error: "invalid gateway_register: gateway id" };
 		const domainId = sanitizeDomainId(parsed.data.domainId);
 		if (protocolVersion < FEDERATION_PROTOCOL_FLOOR) {
+			console.warn(
+				`[BridgeServer] refused ${domainId}/${gatewayId} at protocol ${protocolVersion}; the floor is ${FEDERATION_PROTOCOL_FLOOR}`,
+			);
+			// A client that cannot register has no use for the socket.
+			this.deps.closeConnection(connId, "version_too_old");
 			return { ok: false, error: "version_too_old", floor: FEDERATION_PROTOCOL_FLOOR };
 		}
 		const meta = this.deps.getDomainMeta(domainId);

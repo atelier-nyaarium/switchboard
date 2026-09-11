@@ -71,24 +71,10 @@ class RunbookManagerTest {
 	}
 
 	@Test
-	fun aLibraryWrittenBeforeTheCopiesWereSplitIsTheHomeGatewaysAndNobodyElses() {
-		val store = MemoryStore()
-		store.blob = """[{"id":"deploy","name":"deploy","body":"do it","parameters":[],"revision":3}]"""
-
-		val manager = RunbookManager(store) { GW }
-		assertEquals(listOf("deploy"), manager.all(GW).map { it.id })
-		// Named rather than raced: two syncs cannot each push that copy to a different gateway.
-		assertEquals(emptyList<Runbook>(), manager.all("laptop"))
-
-		manager.merge(GW, listOf(book("deploy", revision = 4L)))
-		assertEquals(4L, manager.find(GW, "deploy")?.revision)
-		assertEquals(emptyList<Runbook>(), manager.all("laptop"))
-	}
-
-	@Test
 	fun aLibraryOnDiskThatNoLongerDecodesStartsEmptyRatherThanCrashing() {
-		val store = MemoryStore().also { it.blob = "{not json" }
-		assertEquals(emptyList<Runbook>(), RunbookManager(store).all(GW))
+		assertEquals(emptyList<Runbook>(), RunbookManager(MemoryStore().also { it.blob = "{not json" }).all(GW))
+		val single = MemoryStore().also { it.blob = """[{"id":"deploy","name":"deploy","body":"do it","parameters":[],"revision":3}]""" }
+		assertEquals(emptyList<Runbook>(), RunbookManager(single).all(GW))
 	}
 
 	@Test

@@ -3,7 +3,6 @@ import type { SignedAdmission, SignedRevocation } from "../../shared/admission.j
 import { REGISTER_MAX_SKEW_MS, resolveAdmittedConsole } from "../../shared/admission.js";
 import type { Clock } from "../../shared/ambient.js";
 import { canonicalJson, sha256Hex } from "../../shared/canonical-json.js";
-import { FEDERATION_VALUE_PROTOCOL_VERSION } from "../../shared/router-protocol.js";
 import {
 	formatInboxAddress,
 	type InboxRow,
@@ -60,7 +59,6 @@ export class OwnerOpIntake {
 	private readonly registry = new OwnerOpRegistry();
 	private readonly now: () => number;
 	private readonly maxCachedAnswers: number;
-	private gatewayProtocol: ((domainId: string, gatewayId: string) => number | null) | undefined;
 
 	constructor(private readonly params: OwnerOpIntakeParams) {
 		this.now = () => params.ambient.now();
@@ -96,10 +94,6 @@ export class OwnerOpIntake {
 		this.register("op_result", (op, value) =>
 			this.params.inbox.opResult(op.domainId, { conversationId: value.conversationId, opId: value.opId }),
 		);
-	}
-
-	setGatewayProtocol(gatewayProtocol: (domainId: string, gatewayId: string) => number | null): void {
-		this.gatewayProtocol = gatewayProtocol;
 	}
 
 	async handle(raw: unknown): Promise<unknown> {
@@ -216,14 +210,6 @@ export class OwnerOpIntake {
 			row.data.envelope.origin.device !== op.device
 		)
 			throw new OwnerOpRefused("row");
-		if (
-			address.kind === "session" &&
-			row.data.envelope.kind === "console_op" &&
-			(this.gatewayProtocol?.(op.domainId, address.gatewayId) ?? 0) < FEDERATION_VALUE_PROTOCOL_VERSION
-		) {
-			// Older gateways cannot open console-op envelopes.
-			throw new OwnerOpRefused("unsupported");
-		}
 		const result = this.params.inbox.appendRow({
 			address,
 			row: row.data,

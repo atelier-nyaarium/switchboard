@@ -2,7 +2,6 @@ import { z } from "zod";
 import type { DomainSnapshot } from "../../shared/admission.js";
 import type { Ambient, TimerHandle } from "../../shared/ambient.js";
 import {
-	FEDERATION_VALUE_PROTOCOL_VERSION,
 	InboxAckParamsSchema,
 	InboxAppendParamsSchema,
 	SessionForgetParamsSchema,
@@ -182,10 +181,6 @@ export class InboxFrames {
 		const connId = this.deps.getConnectionId(domainId, params.gatewayId);
 		const reg = connId ? this.deps.getRegistration(connId) : undefined;
 		const ws = connId ? this.deps.getConnection(connId) : null;
-		if (reg && (reg.protocolVersion ?? 0) < FEDERATION_VALUE_PROTOCOL_VERSION) {
-			// Remove-by: every registered gateway reports protocol 2.
-			return Promise.resolve({ outcome: "unsupported" });
-		}
 		if (!connId || !reg || reg.incarnation === null || !ws) return Promise.resolve({ outcome: "unreachable" });
 		const key = `${domainId}/${params.gatewayId}/${params.conversationId}/${params.opId}`;
 		return new Promise((resolve) => {

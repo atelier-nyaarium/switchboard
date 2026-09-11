@@ -32,11 +32,9 @@ class ChatStateSessionsTest {
 	private fun stateWith(
 		teams: List<Team>,
 		threads: Map<String, List<Message>>,
-		homeGatewayId: String = "",
 	) = ChatState(
 		teams = teams,
 		threads = threads,
-		homeGatewayId = homeGatewayId,
 	)
 
 	// -- Presence join --
@@ -49,7 +47,6 @@ class ChatStateSessionsTest {
 		val state = stateWith(
 			teams = listOf(makeTeam(canonical, "online")),
 			threads = mapOf(canonical to listOf(makeMsg())),
-			homeGatewayId = "sakura",
 		)
 		val sessions = state.sessions()
 		assertEquals(1, sessions.size)
@@ -66,7 +63,6 @@ class ChatStateSessionsTest {
 		val state = stateWith(
 			teams = emptyList(),
 			threads = mapOf("local.sakura.gone.claude" to listOf(makeMsg())),
-			homeGatewayId = "sakura",
 		)
 		val sessions = state.sessions()
 		assertEquals(1, sessions.size)
@@ -87,7 +83,6 @@ class ChatStateSessionsTest {
 		val state = stateWith(
 			teams = listOf(makeTeam(addr.canonical, "online")),
 			threads = mapOf(threadKey to listOf(makeMsg())),
-			homeGatewayId = "sakura",
 		)
 		val sessions = state.sessions()
 		assertEquals("must be exactly 1 session (no phantom ended)", 1, sessions.size)
