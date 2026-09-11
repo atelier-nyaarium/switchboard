@@ -1,6 +1,9 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { slugField } from "../shared/crypto.js";
-import { resolveLocalDomainId, sanitizeDomainId } from "../shared/domain-id.js";
+import { DOMAIN_ID_FILE, resolveLocalDomainId, sanitizeDomainId } from "../shared/domain-id.js";
 
 describe("sanitizeDomainId", () => {
 	it("slugs to lower-case alphanumerics with single dashes", () => {
@@ -43,28 +46,45 @@ describe("slugField / sanitizeDomainId alignment", () => {
 
 describe("resolveLocalDomainId", () => {
 	let prev: string | undefined;
+	let dir: string;
 
 	beforeEach(() => {
 		prev = process.env.FEDERATION_DOMAIN_ID;
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "domid-"));
 	});
 
 	afterEach(() => {
 		if (prev === undefined) delete process.env.FEDERATION_DOMAIN_ID;
 		else process.env.FEDERATION_DOMAIN_ID = prev;
+		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
-	it("returns null when neither an installed id nor the env is set", () => {
+	it("returns null when no source names a Domain", () => {
 		delete process.env.FEDERATION_DOMAIN_ID;
-		expect(resolveLocalDomainId()).toBeNull();
+		expect(resolveLocalDomainId(dir)).toBeNull();
 	});
 
-	it("falls back to FEDERATION_DOMAIN_ID, sanitized, when nothing is installed", () => {
+	/**
+	 * The regression this pins: an install enrolled before the allowlist carried the id has the file
+	 * and nothing else, and dropping this reader boots it standalone, off the Router. It took Mikan
+	 * off on 2026-09-11.
+	 */
+	it("resolves from the file alone, which is all an older install has", () => {
+		delete process.env.FEDERATION_DOMAIN_ID;
+		fs.writeFileSync(path.join(dir, DOMAIN_ID_FILE), "a95dd4e979aa3be5\n");
+		expect(resolveLocalDomainId(dir)).toBe("a95dd4e979aa3be5");
+		expect(resolveLocalDomainId(dir, null)).toBe("a95dd4e979aa3be5");
+	});
+
+	it("falls back to FEDERATION_DOMAIN_ID, sanitized, when there is no file", () => {
 		process.env.FEDERATION_DOMAIN_ID = "Acme Corp";
-		expect(resolveLocalDomainId()).toBe("acme-corp");
+		expect(resolveLocalDomainId(dir)).toBe("acme-corp");
 	});
 
-	it("prefers the installed id over the env", () => {
+	it("orders the three sources: installed, then the file, then the env", () => {
 		process.env.FEDERATION_DOMAIN_ID = "from-env";
-		expect(resolveLocalDomainId("Installed Id")).toBe("installed-id");
+		fs.writeFileSync(path.join(dir, DOMAIN_ID_FILE), "From File\n");
+		expect(resolveLocalDomainId(dir)).toBe("from-file");
+		expect(resolveLocalDomainId(dir, "Installed Id")).toBe("installed-id");
 	});
 });

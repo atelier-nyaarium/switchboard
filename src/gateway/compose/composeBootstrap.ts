@@ -25,8 +25,8 @@ export interface BootstrapStage {
 	/** The boot decision made at construction. */
 	gatewayBoot: GatewayBoot;
 	initialDomainId: string | null;
-	/** The environment's Domain id, after any install. */
-	domainIdFromEnv: () => string | null;
+	/** The Domain id on disk right now, after any install. */
+	domainIdOnDisk: () => string | null;
 	/** Re-reads the federation directory after an enrollment install. */
 	resolveBoot: (enrollNonce: string | null) => GatewayBoot;
 }
@@ -61,7 +61,8 @@ export function composeBootstrap(deps: GatewayDeps): BootstrapStage {
 		);
 
 	const gatewayBoot = resolveBoot(config.enrollNonce ?? null);
-	const initialDomainId = gatewayBoot.kind === "active" ? gatewayBoot.boot.domainId : resolveLocalDomainId();
+	const initialDomainId =
+		gatewayBoot.kind === "active" ? gatewayBoot.boot.domainId : resolveLocalDomainId(federationDir);
 	console.log(`[gateway] Domain id: ${initialDomainId ?? "(none - not yet enrolled)"}`);
 
 	wipeRetiredSchemas({ dataDir, logDir, federationDir });
@@ -76,7 +77,7 @@ export function composeBootstrap(deps: GatewayDeps): BootstrapStage {
 		contentKeyStore,
 		gatewayBoot,
 		initialDomainId,
-		domainIdFromEnv: () => resolveLocalDomainId(),
+		domainIdOnDisk: () => resolveLocalDomainId(federationDir),
 		resolveBoot,
 	};
 }
