@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.LOCAL_DOMAIN_SENTINEL
 import com.atelier_nyaarium.switchboard.proto.TrustHandshakeOp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -48,7 +47,7 @@ internal class TrustOps(
 		val gw = homeGatewayId()
 		val s = state.value
 		return s.teams
-			.filter { (it.domainId == LOCAL_DOMAIN_SENTINEL || it.domainId == adminDomain) && it.gatewayId == gw }
+			.filter { it.domainId == adminDomain && it.gatewayId == gw }
 			.filter { it.kind == "devcontainer" || it.kind == "loose" }
 			.sortedBy { s.label(it.name) }
 	}

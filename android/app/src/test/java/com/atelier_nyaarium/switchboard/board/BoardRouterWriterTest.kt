@@ -169,6 +169,24 @@ class BoardRouterWriterTest {
 	}
 
 	@Test
+	fun anAnswerThatLandsAfterAnotherLineageChangesNothing() = runBlocking {
+		val board = board().also { it.adoptEpoch(1L) }
+		val posts = mutableListOf<JsonObject>()
+		val stale = BoardWriteResult("applied", 41L, listOf(stored("id", title("id", "title"))))
+		val writer = writer(board, ArrayDeque(listOf(stale)), posts) { body, _ ->
+			// The Router moved to another lineage while the write was on the wire.
+			board.adoptEpoch(2L)
+			body
+		}
+
+		val outcome = writer.write(listOf(BoardIntent.Create("id", "title", state = "open", rank = "m")), "op", sealing())
+		assertEquals(BoardWriteOutcome.Applied, outcome)
+		assertEquals(0L, board.routerRevision)
+		assertTrue(board.storedById().isEmpty())
+		assertTrue(board.pendingWrites().none { it.opId == "op" })
+	}
+
+	@Test
 	fun missingEditReturnsEmptyWithoutPosting() = runBlocking {
 		val board = board()
 		val posts = mutableListOf<JsonObject>()

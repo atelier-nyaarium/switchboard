@@ -37,7 +37,8 @@ function setup() {
 			isLinkedDomain: () => true,
 		},
 	});
-	const share = () => handlers.share({ kind: "cross_domain_share", sessionTarget: "app.dev", target: TARGET });
+	const share = () =>
+		handlers.share({ kind: "cross_domain_share", sessionTarget: "home.gw.app.dev", target: TARGET });
 	return { mirror, posted, router, share };
 }
 

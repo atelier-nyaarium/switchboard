@@ -55,7 +55,7 @@ describe("federation harness", () => {
 		const before = sessions.length;
 		const { envelope, result } = await h.phone.value({
 			kind: "create_session",
-			target: "host",
+			target: h.target("host"),
 			displayLabel: "Scratch",
 		});
 		expect(envelope.outcome).toBe("accepted");
@@ -129,7 +129,11 @@ describe("federation harness", () => {
 
 	it("wakes a sleeping devcontainer session for a phone send", async () => {
 		h.host.handlers.onWake = (frame) => session(String(frame.team), frame.sessionToken as string | undefined);
-		const created = await h.phone.value({ kind: "create_session", target: "fixture-app", displayLabel: "Woken" });
+		const created = await h.phone.value({
+			kind: "create_session",
+			target: h.target("fixture-app"),
+			displayLabel: "Woken",
+		});
 		expect(created.result, JSON.stringify(created.result)).toMatchObject({ created: true });
 		const woken = sessions.at(-1);
 		if (!woken) throw new Error("the daemon was never asked to wake");
@@ -239,7 +243,7 @@ describe("federation harness", () => {
 
 	it("peeks a session's screen through the host daemon", async () => {
 		const live = await ensureLive();
-		const { envelope, result } = await h.phone.value({ kind: "peek", target: live.team });
+		const { envelope, result } = await h.phone.value({ kind: "peek", target: h.target(live.team) });
 		expect(envelope.outcome).toBe("accepted");
 		expect(result).toMatchObject({ kind: "tmux" });
 	});

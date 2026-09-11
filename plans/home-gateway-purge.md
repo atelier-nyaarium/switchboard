@@ -543,6 +543,23 @@ Rules:
   the Gateway, then the APK over adb in the same sitting: a phone on the old build against the new
   Router loses its plane frames until it updates.
 
+- **Mechanism:** the board and vault managers' generation fence.
+  **Class:** an answer begun before a reset lands after it and repopulates what the reset emptied.
+  **Rounds:** one, `VaultManager.wipe` bumped `generation` and `applyList`/`applyWrite` refused an
+  older one, with no twin on the board; two (Phase 2 lap red team), `adoptEpoch` emptied the list
+  under a new lineage while a board read or CAS answer from the old one was in flight, and
+  `landed(revision, entries)` re-applied it because the revision compare had been reset to zero,
+  after which the phone held the old list under the new epoch and acknowledged the Router's
+  version as behind. Patched by bumping the generation on another lineage in both managers,
+  `BoardManager` gaining the fence, its `clearInMemory` bumping it as the vault's `wipe` does,
+  and `BoardRouterWriter` capturing it before each Router call. The `GatewaySlot` follow-up
+  (`bd_9784d356`) is where a per-Router-answer fence becomes one declaration instead of two
+  hand-written ones.
+- **Mechanism:** `revisionPlaneDecision`'s fetch throttle.
+  **Class:** a throttle keyed by plane name alone outlived the lineage it was protecting, so a
+  new epoch inside the window waited a minute before its first fetch. One round; the fold's
+  `lineageChanged` now skips the window.
+
 ### Architecture findings carried forward
 
 - **Per-Gateway answer slot** (`GatewayAnswer<T>` / `GatewaySlot`): `RoutineOps`, `RunbookOps`,
@@ -582,8 +599,10 @@ Rules:
 - As built: `Team.domainId` is derived from the canonical name, as `gatewayId` already was, so
   no row carries a nullable Domain and `teamInfoToTeam` takes no home id. A thread keyed before
   the Domain was known still parses as the `local` sentinel and reads as own-Domain until Phase
-  3. `keepPriorRow(row, planeDomain)` compares the row's Domain alone. `rosterDomainId` and its
-  `learnDomainId` call are gone; reach names the Domain. `groupByGateway(local, registry,
+  3. `keepPriorRow(row, planeDomain)` compares the row's Domain alone. `rosterDomainId` and the
+  `learnDomainId` call it fed are gone; reach names the Domain, through the `learnDomainId` call
+  that stays. The two home reads left in `BoardOps` (`boardGatewayOf`, `boardGatewayOfKey`) are
+  job 5, the unassigned entry's blob Gateway, and go with the symbol in Phase 7. `groupByGateway(local, registry,
   adminDomainId)` sections every roster Gateway, own Domain first then by Domain and id.
   `GatewayRegistry.offersSpawn(id)` is the Create rule: the roster is loaded, the Router holds the
   connection, and the Gateway projected its spawn points (`GatewayEntry.hostSpawns` is null until
@@ -629,6 +648,28 @@ Rules:
 
 - A phone target is `domain.gateway.spawn` or `domain.gateway.spawn.session`. Anything else is
   refused where it is made, not resolved.
+
+- As built: `parseQualifiedTarget` exists on both runtimes, pinned by the `parseQualifiedTarget`
+  and `parseQualifiedTargetReject` vectors; the phone's `parseTarget`, `Address.local`,
+  `Address.remote` and `LOCAL_DOMAIN_SENTINEL` are gone, and so are the TS `Address.local`,
+  `Address.remote` and the sentinel. The gateway's `parseTarget` fills a real Domain or throws.
+  `consoleTargets.parse` is `parseQualifiedTarget`, so every console method refuses a bare name
+  ahead of its own check; `console-target-residue.test.ts` bans `parseTarget` under `console/`
+  outright. `consoleHandler.reserveRoutineSession` qualifies the routine's spawn on this Gateway
+  before it reaches the lifecycle, the one gateway-internal caller of a console target.
+  `GatewayConfig.localDomainId` is a string; `composeRoutes.current()` is null until a Domain is
+  active and `httpRouter` answers `unenrolledHealth` on `/health` and `503 NOT_ENROLLED` on every
+  other route, the enrollment posts excepted (`http-router.test.ts`). The roads that only run
+  active read `FederationContext.activeDomainId()`, which throws rather than filling a blank.
+  `sessionAuthority.localTeamKey` answers null with no Domain. `localSessions` with no admin
+  Domain lists nothing. The harness gained `DomainPeer.target(team)`; every console op it sends
+  is qualified, and a bare `tmux_send` is asserted refused. `check-boot-runtime` creates
+  `${domain}.${gateway}.host`. Carriers: `RunbookTargets` offers qualified spawn points and
+  `Team.name` addresses with the short label beside them, since the fire sheet sent bare ones;
+  `canonicalTarget` and its fallback to the input are gone, `openThread` answers null for an
+  unqualified key and `closeTab` ignores one, so a notification extra or deep link cannot open a
+  tab on a bare name. Board entries keep the local session field beside `domainId` and
+  `gatewayId` by design, and a vault request's `sessionTarget` is the gateway's local field.
 
 ## Phase 4 - The phantom mirror rows
 

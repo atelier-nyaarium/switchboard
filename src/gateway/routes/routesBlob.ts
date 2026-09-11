@@ -45,7 +45,7 @@ export function createBlobRoutes({
 					return { ok: !answer.error, result: answer.result, error: answer.error };
 				}
 			: undefined,
-		domainId: config.localDomainId ?? undefined,
+		domainId: config.localDomainId,
 		ownerSignPub: ownerSignPub ?? undefined,
 		contentKeys: contentKeyStore,
 	});

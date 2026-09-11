@@ -36,7 +36,8 @@ export interface RoutesStageDeps {
 }
 
 export interface RoutesStage {
-	current: () => GatewayRoutes;
+	/** Null until a Domain is active: no route mints an address before then. */
+	current: () => GatewayRoutes | null;
 	/** Stops the live routes and builds them again over the current federation state. */
 	rebuild: () => void;
 	stop: () => void;
@@ -46,7 +47,9 @@ export function composeRoutes(deps: RoutesStageDeps): RoutesStage {
 	const { context, stores, sessions, host, websockets } = deps;
 	const carryOver = createRoutesCarryOver();
 
-	function build(): GatewayRoutes {
+	function build(): GatewayRoutes | null {
+		const localDomainId = context.domainId();
+		if (localDomainId === null) return null;
 		const f = context.slice();
 		return createRoutes({
 			dataDir: deps.dataDir,
@@ -62,7 +65,7 @@ export function composeRoutes(deps: RoutesStageDeps): RoutesStage {
 			contentKeyStore: f?.contentKeyStore,
 			ownerSignPub: f ? () => f.allowlist.ownerSignPub : null,
 			auth: sessions.sessionAuthority,
-			config: { localGatewayId: deps.localGatewayId, localDomainId: context.domainId() },
+			config: { localGatewayId: deps.localGatewayId, localDomainId },
 			producerSignPriv: f ? deps.identity().sign.priv : undefined,
 			tryWakeTeam: (team, createOpts) => host.wakeService.tryWakeTeam(team, createOpts),
 			sessionStore: sessions.sessionStore,
@@ -95,9 +98,9 @@ export function composeRoutes(deps: RoutesStageDeps): RoutesStage {
 	return {
 		current: () => routes,
 		rebuild: () => {
-			routes.stop();
+			routes?.stop();
 			routes = build();
 		},
-		stop: () => routes.stop(),
+		stop: () => routes?.stop(),
 	};
 }

@@ -320,7 +320,9 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 		const before = creations;
 		// Forget is a delivery op, not a value one, and it lands as a result row in the inbox.
 		const opId = "forget-triage";
-		expect((await h.phone.deliver(TEAM, { kind: "forget", target: TEAM }, opId)).outcome).toBe("accepted");
+		expect((await h.phone.deliver(TEAM, { kind: "forget", target: h.target(TEAM) }, opId)).outcome).toBe(
+			"accepted",
+		);
 		await h.waitFor(
 			async () => h.gateway.faults.sessionRecord(TEAM) === undefined || undefined,
 			"the session record gone",

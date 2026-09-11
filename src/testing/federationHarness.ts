@@ -59,6 +59,8 @@ export interface DomainPeer {
 	gateway: GatewayGraph;
 	host: FakeHost;
 	phone: PhoneDriver;
+	/** The console target for a local team field (`spawn` or `spawn.session`) on this Gateway. */
+	target(team: string): string;
 	restartGateway(): Promise<void>;
 	restartHost(restart?: { newDaemon?: boolean }): void;
 	close(): Promise<void>;
@@ -140,6 +142,7 @@ export async function startFederationHarness(options: FederationHarnessOptions =
 			return home.host;
 		},
 		phone: home.phone,
+		target: home.target,
 		phoneFor: base.phoneFor,
 		waitFor,
 		restartGateway: () => home.restartGateway(),
@@ -234,6 +237,7 @@ async function attachDomain(
 			return host;
 		},
 		phone: base.phoneFor(set),
+		target: (team) => [set.domain.id, set.gateway.id, team].join("."),
 		restartGateway: async () => {
 			host.close();
 			await currentGateway.close();

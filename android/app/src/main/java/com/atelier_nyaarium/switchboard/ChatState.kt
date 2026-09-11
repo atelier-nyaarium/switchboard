@@ -3,7 +3,7 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceEntry
 import com.atelier_nyaarium.switchboard.proto.OwnerFacts
-import com.atelier_nyaarium.switchboard.proto.parseTarget
+import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 
 data class ChatState(
 	val provisioned: Boolean = false,
@@ -151,7 +151,7 @@ internal fun ChatState.recomputeUnread(team: String, thread: List<Message>): Cha
 
 internal fun sessionLeaf(canonical: String): String =
 	runCatching {
-		when (val t = parseTarget(canonical, "", "")) {
+		when (val t = parseQualifiedTarget(canonical)) {
 			is Address -> t.session
 			else -> canonical.substringAfterLast('.')
 		}

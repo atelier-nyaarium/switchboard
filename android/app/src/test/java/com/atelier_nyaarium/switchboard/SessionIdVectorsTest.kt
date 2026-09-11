@@ -5,9 +5,9 @@ import com.atelier_nyaarium.switchboard.proto.SessionKey
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.proto.composeSessionName
 import com.atelier_nyaarium.switchboard.proto.isComposite
+import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 import com.atelier_nyaarium.switchboard.proto.parseSessionName
 import com.atelier_nyaarium.switchboard.proto.parseStoreKey
-import com.atelier_nyaarium.switchboard.proto.parseTarget
 import com.atelier_nyaarium.switchboard.proto.storeKey
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
@@ -21,7 +21,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Drives the hand-authored unified-address twin (Address / SpawnPoint / parseTarget / SessionKey /
+ * Drives the hand-authored address twin (Address / SpawnPoint / parseQualifiedTarget / SessionKey /
  * storeKey) through the same vectors the vitest suite reads (tests/fixtures/session-id/vectors.json),
  * so the twin cannot drift from the TS source: a differing canonical string fails one of the two
  * runtimes.
@@ -50,28 +50,19 @@ class SessionIdVectorsTest {
 		}
 	}
 
+	/** The phone's contract has no local forms to fill. */
 	@Test
-	fun parseTargetVectors() {
-		for (v in vectors()["parseTarget"]!!.jsonArray) {
+	fun parseQualifiedTargetVectors() {
+		for (v in vectors()["parseQualifiedTarget"]!!.jsonArray) {
 			val o = v.jsonObject
 			val input = o["input"]!!.jsonPrimitive.content
-			val localDomain = o["localDomain"]!!.jsonPrimitive.content
-			val localGateway = o["localGateway"]!!.jsonPrimitive.content
-			val t = parseTarget(input, localDomain, localGateway)
-			val expectedKind = o["kind"]!!.jsonPrimitive.content
-			val actualKind = if (t is Address) "address" else "spawn"
-			assertEquals(input, expectedKind, actualKind)
+			val t = parseQualifiedTarget(input)
+			assertEquals(input, o["kind"]!!.jsonPrimitive.content, if (t is Address) "address" else "spawn")
 			assertEquals(input, o["canonical"]!!.jsonPrimitive.content, t.canonical)
 		}
-	}
-
-	@Test
-	fun parseTargetRejects() {
-		for (s in vectors()["parseTargetReject"]!!.jsonArray) {
+		for (s in vectors()["parseQualifiedTargetReject"]!!.jsonArray) {
 			val str = s.jsonPrimitive.content
-			assertThrows(str, IllegalArgumentException::class.java) {
-				parseTarget(str, "a95dd4e979aa3be5", "sakura")
-			}
+			assertThrows(str, IllegalArgumentException::class.java) { parseQualifiedTarget(str) }
 		}
 	}
 
@@ -141,6 +132,6 @@ class SessionIdVectorsTest {
 		assertEquals(SessionKey.Conv("c", a), b)
 		assertEquals(SessionKey.Conv("c", a).hashCode().toLong(), b.hashCode().toLong())
 		// Address equality is by value, independent of construction path.
-		assertEquals(a, parseTarget("dom.gwb.api.claude", "other", "other"))
+		assertEquals(a, parseQualifiedTarget("dom.gwb.api.claude"))
 	}
 }

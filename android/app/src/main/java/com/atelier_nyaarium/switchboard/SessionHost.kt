@@ -20,7 +20,6 @@ internal interface SessionHost {
 	val forgetTombstoneMs: Long
 	val forgetRetryMs: Long
 
-	fun canonicalTarget(team: String): String
 	fun forgetReadAnchor(team: String)
 	fun rememberProject(target: String)
 	fun launchInBackground(block: suspend () -> Unit)
@@ -61,12 +60,11 @@ internal class ChatRepositorySessionHost(private val repo: ChatRepository) : Ses
 	override val forgetTombstoneMs get() = ChatRepository.FORGET_TOMBSTONE_MS
 	override val forgetRetryMs get() = ChatRepository.FORGET_RETRY_MS
 
-	override fun canonicalTarget(team: String) = repo.canonicalTarget(team)
 	override fun forgetReadAnchor(team: String) {
 		repo.presence.lastReportedReadAnchors = repo.presence.lastReportedReadAnchors - team
 	}
 	override fun rememberProject(target: String) {
-		val (gateway, project) = spawnTargetKey(target, repo.homeGatewayId) ?: return
+		val (gateway, project) = spawnTargetKey(target) ?: return
 		repo.store.lastProjectByGateway = repo.store.lastProjectByGateway + (gateway to project)
 		repo._state.update { it.copy(lastProjectByGateway = repo.store.lastProjectByGateway) }
 	}

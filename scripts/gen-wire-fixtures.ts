@@ -226,7 +226,7 @@ const ownerPush = createConsolePushOps({
 	contentKeyStore: keys,
 	localAddress: (name) => {
 		const { project, session } = parseSessionName(name);
-		return Address.local(set.domain.id, set.gateway.id, project, session);
+		return Address.of(set.domain.id, set.gateway.id, project, session);
 	},
 	refuseImpersonation: () => null,
 	ambient: { ...fixtureAmbient(ownerContext), newId: () => ownerContext.newId() },

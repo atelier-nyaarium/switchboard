@@ -16,14 +16,14 @@ sealed interface RevisionPlaneDecision {
 	data object Wait : RevisionPlaneDecision
 }
 
-/** The held lineage is durable and carries no observation, so another lineage always fetches. */
+/** The held lineage is durable and carries no observation, so another lineage always fetches, throttle or not. */
 internal fun revisionPlaneDecision(
 	held: HeldLineage,
 	incoming: PlaneLineage,
 	fetchedAt: Long?,
 	now: Long,
 ): RevisionPlaneDecision {
-	if (foldVersionedSlot(held, incoming, 1L) !is SlotFold.Take) return RevisionPlaneDecision.Acknowledge
-	if (fetchedAt != null && now - fetchedAt < PLANE_FETCH_RETRY_MS) return RevisionPlaneDecision.Wait
+	val fold = foldVersionedSlot(held, incoming, 1L) as? SlotFold.Take ?: return RevisionPlaneDecision.Acknowledge
+	if (!fold.lineageChanged && fetchedAt != null && now - fetchedAt < PLANE_FETCH_RETRY_MS) return RevisionPlaneDecision.Wait
 	return RevisionPlaneDecision.Fetch(incoming.epoch)
 }

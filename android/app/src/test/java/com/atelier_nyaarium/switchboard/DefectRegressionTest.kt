@@ -66,7 +66,7 @@ class DefectRegressionTest {
 
 	@Test
 	fun localityRequiresDomainAndGateway() {
-		val address = com.atelier_nyaarium.switchboard.proto.Address.local("domain-a", "gateway-a", "session", "main")
+		val address = com.atelier_nyaarium.switchboard.proto.Address.of("domain-a", "gateway-a", "session", "main")
 		assertTrue(testRegistry("gateway-a").owns(address, "domain-a"))
 		assertEquals(false, testRegistry("gateway-a").owns(address, "domain-b"))
 		assertEquals(false, testRegistry("gateway-b").owns(address, "domain-a"))
@@ -74,7 +74,7 @@ class DefectRegressionTest {
 
 	@Test
 	fun qualifiedRemoteAddressIsAnEligibleCloseTarget() {
-		val target = com.atelier_nyaarium.switchboard.proto.parseTarget("domain-b.gateway-a.spawn.session", "domain-a", "gateway-a")
+		val target = com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget("domain-b.gateway-a.spawn.session")
 		assertTrue(target.isCloseTabTarget())
 	}
 

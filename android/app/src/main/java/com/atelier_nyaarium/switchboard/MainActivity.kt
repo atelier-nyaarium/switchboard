@@ -207,7 +207,7 @@ fun App(
 	}
 	LaunchedEffect(openTeamRequest.value) {
 		openTeamRequest.value?.let { team ->
-			val opened = repo.openThread(team)
+			val opened = repo.openThread(team) ?: return@let
 			// Clear overlays before notification navigation.
 			showSettings = false
 			settingsRoute = SettingsRoute.HUB
@@ -567,8 +567,10 @@ fun App(
 						onAddGateway = { openOverlay(Overlay.AddGateway) },
 						onHostHelp = { openOverlay(Overlay.HostHelp) },
 						onOpen = { team ->
-							openTeam = repo.openThread(team)
-							openNonce++
+							repo.openThread(team)?.let {
+								openTeam = it
+								openNonce++
+							}
 						},
 						onRename = { team, name -> repo.command { rename(team, name) } },
 						onForget = { team ->

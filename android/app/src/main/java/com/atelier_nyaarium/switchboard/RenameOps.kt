@@ -2,7 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.ConsoleRenameSessionResult
-import com.atelier_nyaarium.switchboard.proto.parseTarget
+import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -36,8 +36,7 @@ internal class RenameOps(private val host: RenameHost) {
 			host.setLabel(team, "")
 			return
 		}
-		val home = host.state.value.homeGatewayId
-		val t = runCatching { parseTarget(team, host.localDomain(), home) }.getOrNull()
+		val t = runCatching { parseQualifiedTarget(team) }.getOrNull()
 		val isLocal = t is Address && host.state.value.gateways.owns(t, host.localDomain())
 		val previous = host.state.value.labels[team]
 		if (isLocal) host.setLabel(team, trimmed)

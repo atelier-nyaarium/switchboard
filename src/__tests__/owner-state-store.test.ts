@@ -589,7 +589,7 @@ describe("OwnerRowOutbox", () => {
 			producerSignPriv: producer.sign.priv,
 			ownerSignPub: () => key.ownerSignPub,
 			contentKeyStore: { seal: () => ({ kind: "no_key" as const }) },
-			localAddress: () => Address.local("domain", "gateway", "spawn", "session"),
+			localAddress: () => Address.of("domain", "gateway", "spawn", "session"),
 			refuseImpersonation: () => null,
 		});
 		push.deliverToOwner({ entry: { kind: "notice", session_id: "notice.one", body: "one" }, dedupeKey: "same" });
@@ -617,11 +617,11 @@ describe("OwnerRowOutbox", () => {
 			producerSignPriv: producer.sign.priv,
 			ownerSignPub: () => key.ownerSignPub,
 			contentKeyStore: { seal: () => ({ kind: "no_key" as const }) },
-			localAddress: () => Address.local("domain", "gateway", "spawn", "session"),
+			localAddress: () => Address.of("domain", "gateway", "spawn", "session"),
 			refuseImpersonation: () => null,
 		});
 		push.mirrorPeer(
-			Address.local("domain", "gateway", "spawn", "session"),
+			Address.of("domain", "gateway", "spawn", "session"),
 			"from",
 			"to",
 			{ body: "peer" },

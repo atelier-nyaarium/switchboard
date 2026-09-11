@@ -58,7 +58,7 @@ export function createGatewayRelayHandler({
 }: GatewayRelayHandlerDeps) {
 	function localShareTarget(name: string): string {
 		const { project, session } = parseSessionName(name);
-		return Address.local(localDomainId, localGatewayId, project, session).canonical;
+		return Address.of(localDomainId, localGatewayId, project, session).canonical;
 	}
 	async function localKind(bareName: string): Promise<TeamInfo["kind"] | undefined> {
 		const teams = (await routes.teams().json()) as TeamInfo[];
@@ -69,7 +69,7 @@ export function createGatewayRelayHandler({
 		const parts = from.split(".");
 		if (parts.length === 4) {
 			try {
-				return Address.remote(srcDomainId, srcGateway, parts[2], parts[3]).canonical;
+				return Address.of(srcDomainId, srcGateway, parts[2], parts[3]).canonical;
 			} catch {
 				// Invalid sender falls back.
 			}

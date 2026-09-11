@@ -33,8 +33,6 @@ class HostSpawnChoicesTest {
 		assertEquals(listOf("host"), hostSpawnChoices(registry.hostSpawns("mikan")))
 	}
 
-	// A newer gateway may advertise something this console cannot label or reason about. Offering it
-	// would put a target in the picker that this build does not understand.
 	@Test
 	fun `an unknown spawn id is dropped rather than offered`() {
 		assertEquals(listOf("host"), hostSpawnChoices(listOf("plan9")))
@@ -82,45 +80,21 @@ class InitialProjectTest {
 	}
 }
 
-/**
- * Which (gateway, project) a spawn target names.
- *
- * The bare case is the whole reason this is a function rather than two lines inside `rememberProject`.
- * `CreateDialogTarget.targetFor` returns a BARE project for the route Gateway, so reading an empty
- * gateway segment as "no gateway" silently disabled remembering for the machine most likely to be
- * spawned on, while working fine for every other machine. That is a defect that tests itself away
- * only if the bare shape is one of the cases.
- */
+/** Which (gateway, project) a spawn target names. */
 class SpawnTargetKeyTest {
 	@Test
-	fun `a bare project is the route gateway's`() {
-		assertEquals("sakura" to "recipe-app", spawnTargetKey("recipe-app", "sakura"))
-		assertEquals("sakura" to "host", spawnTargetKey("host", "sakura"))
-	}
-
-	@Test
 	fun `a qualified spawn point names its own gateway`() {
-		assertEquals("mikan" to "windows", spawnTargetKey("alice.mikan.windows", "sakura"))
-		assertEquals("mikan" to "host", spawnTargetKey("alice.mikan.host", "sakura"))
+		assertEquals("mikan" to "windows", spawnTargetKey("alice.mikan.windows"))
+		assertEquals("mikan" to "host", spawnTargetKey("alice.mikan.host"))
 	}
 
-	// A session address names a session, not a spawn point, and is not what the create dialog builds.
+	// A bare project names no Gateway, and a session address names a session, not a spawn point.
 	@Test
-	fun `a full session address is not a spawn target`() {
-		assertEquals(null, spawnTargetKey("alice.mikan.windows.f7a906", "sakura"))
-	}
-
-	@Test
-	fun `an unparseable target is not remembered`() {
-		assertEquals(null, spawnTargetKey("", "sakura"))
-		assertEquals(null, spawnTargetKey("   ", "sakura"))
-	}
-
-	// Without a local gateway id there is nothing to attribute a bare target to, and guessing would
-	// file it under the empty string where nothing can ever match it.
-	@Test
-	fun `a bare target with no local gateway is not remembered`() {
-		assertEquals(null, spawnTargetKey("recipe-app", ""))
+	fun `a bare or unparseable target is not remembered`() {
+		assertEquals(null, spawnTargetKey("recipe-app"))
+		assertEquals(null, spawnTargetKey("alice.mikan.windows.f7a906"))
+		assertEquals(null, spawnTargetKey(""))
+		assertEquals(null, spawnTargetKey("   "))
 	}
 }
 

@@ -81,7 +81,7 @@ internal class ChatRepositoryGoalCollaborators(private val repo: ChatRepository)
 
 internal class ChatRepositoryScheduledSendCollaborators(private val repo: ChatRepository) : ScheduledSendOpsCollaborators {
 	override fun admitPicked(uris: List<Uri>, bucket: String) = repo.admitPicked(uris, bucket)
-	override fun canonicalTarget(team: String) = repo.canonicalTarget(team)
+	override fun fromCanonical(team: String) = repo.fromCanonical(team)
 	override fun scheduleAttachmentDelete(srcs: List<String>) = repo.attachments.scheduleAttachmentDelete(srcs)
 	override fun takeBackIntoDraft(team: String, text: String, files: List<MessageFile>) = repo.takeBackIntoDraft(team, text, files)
 	override fun append(team: String, message: Message) = repo.append(team, message)

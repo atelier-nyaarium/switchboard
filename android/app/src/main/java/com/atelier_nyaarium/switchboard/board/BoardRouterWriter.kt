@@ -48,20 +48,21 @@ class BoardRouterWriter(
 			val current = ops.map { it.kind() to it.id() }
 			if (signature == null) signature = current else if (signature != current) return BoardWriteOutcome.Exhausted
 			val write = BoardWrite(ops = ops, expectedRevision = snapshot.routerRevision)
+			val generation = board.generation
 			val result = runCatching { decode(signAndPost(body(write), opId)) }
 				.getOrElse { return BoardWriteOutcome.Unreachable(it) }
 			when (result.outcome) {
 				Protocol.Wire.BOARD_OUTCOME_APPLIED -> {
-					board.settleWrite(opId, result.revision, result.entries)
+					board.settleWrite(opId, result.revision, result.entries, generation = generation)
 					return BoardWriteOutcome.Applied
 				}
 				Protocol.Wire.SocketFrame.REFUSED -> {
 					val reason = result.refusal ?: Protocol.Wire.SocketFrame.REFUSED
-					board.settleWrite(opId, result.revision, result.entries)
+					board.settleWrite(opId, result.revision, result.entries, generation = generation)
 					board.noticeRefusal(intents.singleOrNull()?.id, reason)
 					return BoardWriteOutcome.Refused(reason)
 				}
-				else -> board.applyRouterBoard(result.revision, result.entries)
+				else -> board.applyRouterBoard(result.revision, result.entries, generation = generation)
 			}
 		}
 		return BoardWriteOutcome.Exhausted
@@ -90,9 +91,10 @@ class BoardRouterWriter(
 
 	/** Router revision seeds the next CAS. */
 	suspend fun read(opId: String, decodeRead: (JsonElement) -> BoardReadResult): Boolean {
+		val generation = board.generation
 		val result = runCatching { decodeRead(signAndPost(buildJsonObject { put("kind", JsonPrimitive(Protocol.Wire.OWNER_OP_BOARD_READ)) }, opId)) }
 			.getOrNull() ?: return false
-		return board.applyRouterBoard(result.revision, result.entries)
+		return board.applyRouterBoard(result.revision, result.entries, generation = generation)
 	}
 
 	private fun body(write: BoardWrite): JsonObject = buildJsonObject {

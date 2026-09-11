@@ -21,7 +21,7 @@ internal fun scheduledSendJournalDecision(committed: Boolean): Boolean = committ
 /** Scheduled-send state and firing. */
 internal interface ScheduledSendOpsCollaborators {
 	fun admitPicked(uris: List<Uri>, bucket: String): Pair<List<OutgoingFile>, Admission.Refused?>
-	fun canonicalTarget(team: String): String
+	fun fromCanonical(team: String): String?
 	fun scheduleAttachmentDelete(srcs: List<String>)
 	fun takeBackIntoDraft(team: String, text: String, files: List<MessageFile>)
 	fun append(team: String, message: Message): Long
@@ -69,7 +69,7 @@ internal class ScheduledSendOps(
 			val opId = java.util.UUID.randomUUID().toString()
 			val fileRefs = Attachments.storeOutgoing(filesDir, "sched-$opId", picked)
 			val adminDomain = identity.readyOrNull()?.domainId
-			val canonical = collaborators.canonicalTarget(team)
+			val canonical = collaborators.fromCanonical(team)
 			val targetDomainId = state.value.teams
 				.firstOrNull { it.name == canonical }
 				?.domainId

@@ -22,9 +22,6 @@ fun assertSlug(s: String) {
 /** A conversationId is the slug charset but a looser length (a key component, not a tmux name). */
 private fun isConvId(s: String): Boolean = s.isNotEmpty() && s.length <= Protocol.MAX_CONV_ID_LEN && SLUG_REGEX.matches(s)
 
-/** Domain segment for an address minted before enrollment learns the real Domain id. */
-const val LOCAL_DOMAIN_SENTINEL = "local"
-
 ////////////////////////////////
 //  Local team-field codec
 //
@@ -71,14 +68,6 @@ class Address private constructor(
 			assertSlug(session)
 			return Address(domain, gateway, spawn, session)
 		}
-
-		/** A local target; a blank local domain (arming mode) resolves to the sentinel. */
-		fun local(localDomain: String, localGateway: String, spawn: String, session: String): Address =
-			of(localDomain.ifEmpty { LOCAL_DOMAIN_SENTINEL }, localGateway, spawn, session)
-
-		/** A cross-gateway/cross-domain target where the DESTINATION's domain is known. */
-		fun remote(domain: String, gateway: String, spawn: String, session: String): Address =
-			of(domain, gateway, spawn, session)
 	}
 
 	override val canonical: String
@@ -111,17 +100,13 @@ class SpawnPoint private constructor(val domain: String, val gateway: String, va
 	override fun hashCode(): Int = listOf(domain, gateway, spawn).hashCode()
 }
 
-/** Parse a wire target by ARITY: 1 = local spawn-point, 2 = local chat, 3 = remote spawn-point,
- * 4 = remote chat. Local forms fill (localDomain, localGateway). Injective by construction. */
-fun parseTarget(wire: String, localDomain: String, localGateway: String): Target {
+/** The phone's contract: a target names its Domain and Gateway, arity 3 or 4, nothing else. */
+fun parseQualifiedTarget(wire: String): Target {
 	val segs = wire.split(Protocol.ADDRESS_SEP)
-	val dom = localDomain.ifEmpty { LOCAL_DOMAIN_SENTINEL }
 	return when (segs.size) {
-		1 -> SpawnPoint.of(dom, localGateway, segs[0])
-		2 -> Address.of(dom, localGateway, segs[0], segs[1])
 		3 -> SpawnPoint.of(segs[0], segs[1], segs[2])
 		4 -> Address.of(segs[0], segs[1], segs[2], segs[3])
-		else -> throw IllegalArgumentException("invalid address arity (${segs.size}) in \"$wire\"")
+		else -> throw IllegalArgumentException("unqualified target (${segs.size} segments) in \"$wire\"")
 	}
 }
 

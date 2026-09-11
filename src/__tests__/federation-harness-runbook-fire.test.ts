@@ -143,7 +143,7 @@ describe("federation harness: firing a runbook", () => {
 
 	it("creates a session, waits for it to listen, then lands the runbook in it", async () => {
 		const launched = launchesInto(true);
-		const fired = await fire({ level: "patch", repo: "evie-bot" }, { kind: "new", target: "host" });
+		const fired = await fire({ level: "patch", repo: "evie-bot" }, { kind: "new", target: h.target("host") });
 		expect(fired.fired).toBe(true);
 		expect(fired.sessionId).toBeTruthy();
 
@@ -154,7 +154,7 @@ describe("federation harness: firing a runbook", () => {
 
 	it("does not fire when the session it created never starts listening", async () => {
 		launchesInto(false);
-		const answer = await fire({ level: "patch", repo: "quiet" }, { kind: "new", target: "host" });
+		const answer = await fire({ level: "patch", repo: "quiet" }, { kind: "new", target: h.target("host") });
 		expect(answer.fired).toBe(false);
 		expect(answer.sessionId).toBeTruthy();
 		expect(h.gateway.faults.sessionRecord(composeSessionName("host", answer.sessionId as string))).toBeTruthy();
@@ -189,7 +189,7 @@ describe("federation harness: firing a runbook", () => {
 					kind: "runbook_fire",
 					runbookId: release.id,
 					values: { level: "minor", repo: "switchboard" },
-					into: { kind: "session", target: "fixture-app.release" },
+					into: { kind: "session", target: h.target("fixture-app.release") },
 					expectedRevision: release.revision + 1,
 				})
 			).result,
@@ -205,7 +205,7 @@ describe("federation harness: firing a runbook", () => {
 					kind: "runbook_fire",
 					runbookId: "absent",
 					values: {},
-					into: { kind: "session", target: "fixture-app.release" },
+					into: { kind: "session", target: h.target("fixture-app.release") },
 				})
 			).result,
 		);

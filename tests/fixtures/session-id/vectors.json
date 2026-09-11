@@ -49,6 +49,18 @@
 		}
 	],
 	"parseTargetReject": ["", "a.b.c.d.e", "Bad.gateway.spawn.session", "a..b.c"],
+	"parseQualifiedTarget": [
+		{ "input": "other.gw.proj", "kind": "spawn", "canonical": "other.gw.proj" },
+		{ "input": "other.gw.proj.sess", "kind": "address", "canonical": "other.gw.proj.sess" }
+	],
+	"parseQualifiedTargetReject": [
+		"",
+		"nyaadot",
+		"nyaadot.ik-tracking",
+		"a.b.c.d.e",
+		"Bad.gateway.spawn.session",
+		"a..b.c"
+	],
 	"storeKey": [
 		{
 			"kind": "conv",

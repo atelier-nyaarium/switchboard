@@ -23,7 +23,11 @@ describe("federation harness: a create the launch fails", () => {
 
 	it("keeps the record when nothing inside the container ever registers, and lists it asleep", async () => {
 		const team = "halo.explorer";
-		const { result } = await h.phone.value({ kind: "create_session", target: "halo", sessionName: "explorer" });
+		const { result } = await h.phone.value({
+			kind: "create_session",
+			target: h.target("halo"),
+			sessionName: "explorer",
+		});
 		expect(result).toMatchObject({ kind: "refusal" });
 		expect(h.host.wakes.map((frame) => frame.team)).toContain(team);
 
@@ -35,7 +39,11 @@ describe("federation harness: a create the launch fails", () => {
 		}, "the asleep row in the roster");
 
 		// A retry reattaches to the record instead of minting a second one.
-		const again = await h.phone.value({ kind: "create_session", target: "halo", sessionName: "explorer" });
+		const again = await h.phone.value({
+			kind: "create_session",
+			target: h.target("halo"),
+			sessionName: "explorer",
+		});
 		expect(again.result).toMatchObject({ kind: "refusal" });
 		expect(h.gateway.faults.sessionRecord(team)).toBe(record);
 	});

@@ -1,6 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.parseTarget
+import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -10,10 +10,10 @@ import org.json.JSONObject
 /** A persisted thread/label/draft key is a canonical 4-segment address (domain.gateway.spawn.session).
  * Anything else - a key with a device name substituted for a segment, or any non-canonical shorter
  * form - is dropped on load so it cannot resurface as an unsendable ghost chat; re-saving the cleaned
- * map drops it for good. The exact-3-dots check enforces arity 4 (parseTarget alone also accepts
- * arity 1/2/3), and at arity 4 parseTarget ignores both locality args, so this is a pure function. */
+ * map drops it for good. The exact-3-dots check enforces arity 4 (the qualified parser also accepts
+ * arity 3). */
 private fun isAddressKey(rawKey: String): Boolean =
-	rawKey.count { it == '.' } == 3 && runCatching { parseTarget(rawKey, "", "") }.isSuccess
+	rawKey.count { it == '.' } == 3 && runCatching { parseQualifiedTarget(rawKey) }.isSuccess
 
 ////////////////////////////////
 //  Interfaces & Types

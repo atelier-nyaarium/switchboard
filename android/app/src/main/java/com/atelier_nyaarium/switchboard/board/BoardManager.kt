@@ -70,6 +70,7 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 	override suspend fun clearInMemory() {
 		// Clear the durable key before dependent in-memory state.
 		synchronized(stateLock) {
+			generation++
 			blob = BoardBlob()
 			memo = null
 			loadedCleanly = true
@@ -115,13 +116,21 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 		return HeldLineage(current.routerEpoch.takeIf { it != 0L }?.let { PlaneLineage(it, current.routerRevision) }, null)
 	}
 
+	/** Bumps on another lineage and on reprovision, so an answer begun before either lands nothing. */
+	@Volatile var generation: Long = 0L
+		private set
+
 	/** Another lineage drops the held list; an unknown one keeps it and lists from zero. */
 	fun adoptEpoch(epoch: Long) {
-		mutate { current ->
+		synchronized(stateLock) {
+			val current = blob
 			when (current.routerEpoch) {
-				epoch -> current
-				0L -> current.copy(routerEpoch = epoch, routerRevision = 0)
-				else -> current.copy(routerEpoch = epoch, routerRevision = 0, stored = emptyList())
+				epoch -> return
+				0L -> persist(current.copy(routerEpoch = epoch, routerRevision = 0))
+				else -> {
+					generation++
+					persist(current.copy(routerEpoch = epoch, routerRevision = 0, stored = emptyList()))
+				}
 			}
 		}
 	}
@@ -166,10 +175,16 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 		foldVersionedList(blob.routerRevision, blob.stored, VersionedList(revision, 0L, entries), { it.clear.id }, { it.clear.version })
 
 	// Settle and retire the pending write atomically.
-	fun settleWrite(opId: String, revision: Long, entries: List<BoardStoredEntry>, at: Long = System.currentTimeMillis()) {
+	fun settleWrite(
+		opId: String,
+		revision: Long,
+		entries: List<BoardStoredEntry>,
+		at: Long = System.currentTimeMillis(),
+		generation: Long = this.generation,
+	) {
 		val next = renderIncoming(entries)
 		synchronized(stateLock) {
-			val fold = landed(revision, entries)
+			val fold = if (generation == this.generation) landed(revision, entries) else VersionedFold.Ignore
 			val landed = if (fold is VersionedFold.Apply) {
 				blob.copy(
 					routerRevision = fold.revision,
@@ -195,9 +210,15 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 		}
 	}
 
-	fun applyRouterBoard(revision: Long, entries: List<BoardStoredEntry>, at: Long = System.currentTimeMillis()): Boolean {
+	fun applyRouterBoard(
+		revision: Long,
+		entries: List<BoardStoredEntry>,
+		at: Long = System.currentTimeMillis(),
+		generation: Long = this.generation,
+	): Boolean {
 		val next = renderIncoming(entries)
 		synchronized(stateLock) {
+			if (generation != this.generation) return false
 			val fold = landed(revision, entries) as? VersionedFold.Apply ?: return false
 			persist(
 				blob.copy(

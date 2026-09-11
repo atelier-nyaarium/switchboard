@@ -89,7 +89,7 @@ internal suspend fun ChatRepository.deliver(
 		val targetDomain = targetDomainOverride ?: run {
 			// Scheduled sends use their banked domain while the restored team list is empty.
 			val adminDomain = readyOrNull()?.domainId
-			val canonical = canonicalTarget(team)
+			val canonical = fromCanonical(team)
 			_state.value.teams
 				.firstOrNull { it.name == canonical }
 				?.domainId

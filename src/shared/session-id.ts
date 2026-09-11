@@ -79,10 +79,6 @@ function isConvId(s: string): boolean {
 	return s.length >= 1 && s.length <= MAX_CONV_ID_LEN && SLUG_RE.test(s);
 }
 
-/** Domain segment for an address minted before enrollment learns the real Domain id. A real domain
- * id is lowercase hex, so this sentinel never collides. */
-export const LOCAL_DOMAIN_SENTINEL = "local";
-
 /** A chat target: the fully-qualified `domain.gateway.spawn.session` address (arity 4). */
 export class Address {
 	private constructor(
@@ -98,16 +94,6 @@ export class Address {
 		assertSlug(spawn);
 		assertSlug(session);
 		return new Address(domain, gateway, spawn, session);
-	}
-
-	/** A local target; a null/empty local domain (arming mode) resolves to the sentinel. */
-	static local(localDomain: string, localGateway: string, spawn: string, session: string): Address {
-		return Address.of(localDomain || LOCAL_DOMAIN_SENTINEL, localGateway, spawn, session);
-	}
-
-	/** A cross-gateway/cross-domain target where the DESTINATION's domain is known. */
-	static remote(domain: string, gateway: string, spawn: string, session: string): Address {
-		return Address.of(domain, gateway, spawn, session);
 	}
 
 	get canonical(): string {
@@ -152,23 +138,37 @@ export class SpawnPoint {
 	}
 }
 
-/** Parse a wire target by ARITY: 1 = local spawn-point, 2 = local chat, 3 = remote spawn-point,
- * 4 = remote chat. Local forms fill (localDomain, localGateway). Injective by construction (dotless
- * segments, fixed arity); send/console paths branch on the returned type for the spawn-point fail-fast. */
+/** Parse a session's wire target by ARITY: 1 = local spawn-point, 2 = local chat, 3 = remote
+ * spawn-point, 4 = remote chat. Local forms fill (localDomain, localGateway). Injective by
+ * construction (dotless segments, fixed arity). The MCP door's grammar; the console's is
+ * [parseQualifiedTarget]. */
 export function parseTarget(wire: string, localDomain: string, localGateway: string): Address | SpawnPoint {
 	const segs = wire.split(ADDRESS_SEP);
-	const dom = localDomain || LOCAL_DOMAIN_SENTINEL;
 	switch (segs.length) {
 		case 1:
-			return SpawnPoint.of(dom, localGateway, segs[0]);
+			return SpawnPoint.of(localDomain, localGateway, segs[0]);
 		case 2:
-			return Address.of(dom, localGateway, segs[0], segs[1]);
+			return Address.of(localDomain, localGateway, segs[0], segs[1]);
 		case 3:
 			return SpawnPoint.of(segs[0], segs[1], segs[2]);
 		case 4:
 			return Address.of(segs[0], segs[1], segs[2], segs[3]);
 		default:
 			throw new Error(`invalid address arity (${segs.length}) in "${wire}"`);
+	}
+}
+
+/** The console's contract: a target names its Domain and Gateway, arity 3 or 4, nothing else.
+ * `SessionId.kt` holds the phone twin; `tests/fixtures/session-id/vectors.json` pins both. */
+export function parseQualifiedTarget(wire: string): Address | SpawnPoint {
+	const segs = wire.split(ADDRESS_SEP);
+	switch (segs.length) {
+		case 3:
+			return SpawnPoint.of(segs[0], segs[1], segs[2]);
+		case 4:
+			return Address.of(segs[0], segs[1], segs[2], segs[3]);
+		default:
+			throw new Error(`unqualified target (${segs.length} segments) in "${wire}"`);
 	}
 }
 

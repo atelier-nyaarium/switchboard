@@ -42,7 +42,7 @@ describe("two creates for one session", () => {
 			sent.push(op);
 			return held.promise;
 		});
-		const op = { kind: "create_session", target: "host", sessionName: "twin" } as const;
+		const op = { kind: "create_session", target: "d1.gw.host", sessionName: "twin" } as const;
 
 		const first = lifecycle.createSession(op, "conv-a", "op-1");
 		const second = lifecycle.createSession(op, "conv-b", "op-2");

@@ -52,7 +52,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 
 	function build(slice: FederationSlice, presence: RouterPresenceBuild): RouterFramesBuild {
 		const routes = deps.routes();
-		const localDomainId = context.domainId() ?? "";
+		const localDomainId = context.activeDomainId();
 		const isLinkedDomain = (domainId: string) => context.isLinkedDomain(domainId);
 
 		const consoleHandler = createConsoleDispatcher({

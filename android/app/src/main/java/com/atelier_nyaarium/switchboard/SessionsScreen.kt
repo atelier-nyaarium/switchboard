@@ -22,7 +22,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.board.BoardLiveLine
 import com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceSession
-import com.atelier_nyaarium.switchboard.proto.LOCAL_DOMAIN_SENTINEL
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.proto.isComposite
 import com.atelier_nyaarium.switchboard.proto.parseSessionName
@@ -36,7 +35,7 @@ internal fun sessionOrder(state: ChatState): Comparator<Team> =
 
 // Peer rows render in the linked-friends section.
 internal fun localSessions(sessions: List<Team>, adminDomainId: String): List<Team> =
-	sessions.filter { it.domainId == LOCAL_DOMAIN_SENTINEL || it.domainId == adminDomainId }
+	sessions.filter { it.domainId == adminDomainId }
 
 // Peer presence is untrusted and may duplicate keys.
 internal fun dedupedFriendSessions(sessions: List<CrossDomainPresenceSession>): List<CrossDomainPresenceSession> =
@@ -51,9 +50,7 @@ internal fun groupByGateway(
 	registry: GatewayRegistry,
 	adminDomainId: String,
 ): List<Pair<GatewayGroupKey, List<Team>>> {
-	val grouped = local.groupBy {
-		GatewayGroupKey(it.domainId.takeIf { d -> d != LOCAL_DOMAIN_SENTINEL } ?: adminDomainId, it.gatewayId)
-	}
+	val grouped = local.groupBy { GatewayGroupKey(it.domainId, it.gatewayId) }
 	val empties =
 		registry.ids()
 			.map { GatewayGroupKey(adminDomainId, it) }

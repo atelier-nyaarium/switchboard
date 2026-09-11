@@ -25,7 +25,7 @@ export function createPresenceRoutes({
 	/** Local spawn point row. */
 	function localSpawnPoints(): GatewaySpawnPoints[] {
 		// Unknown differs from empty.
-		if (!hostSpawnPoints?.known || !localDomainId) return [];
+		if (!hostSpawnPoints?.known) return [];
 		return [{ domainId: localDomainId, gatewayId: localGatewayId, hostSpawns: [...hostSpawnPoints.ids] }];
 	}
 

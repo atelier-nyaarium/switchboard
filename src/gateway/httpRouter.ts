@@ -37,9 +37,13 @@ export interface HttpRouterDeps {
 	blobStore: BlobStore;
 	sessionAuthority: Pick<SessionAuthority, "mayUseLocalPlane">;
 	loopbackRoutes: Map<string, (req: Request, body: unknown) => Promise<Response>>;
-	/** Read per request: federation activating mid-session rebuilds the routes object. */
-	routes: () => HttpRoutes;
+	/** Read per request: federation activating mid-session rebuilds the routes object. Null before
+	 * a Domain is active, when only health and enrollment answer. */
+	routes: () => HttpRoutes | null;
+	unenrolledHealth: () => Response;
 }
+
+export const NOT_ENROLLED = "this Gateway is not enrolled in a Domain; run ./setup.sh";
 
 export function createHttpRouter({
 	handleEnrollPost,
@@ -49,6 +53,7 @@ export function createHttpRouter({
 	sessionAuthority,
 	loopbackRoutes,
 	routes,
+	unenrolledHealth,
 }: HttpRouterDeps) {
 	function serveAdmitPayload(req: Request): Response {
 		// Admit payloads require the armed enrollment nonce.
@@ -72,6 +77,7 @@ export function createHttpRouter({
 		req: Request,
 		body: Record<string, unknown>,
 		schema: (typeof BLOB_ROUTE_SCHEMAS)[keyof typeof BLOB_ROUTE_SCHEMAS],
+		r: HttpRoutes,
 	): Promise<Response> {
 		if (!sessionAuthority.mayUseLocalPlane(presentedByRequest(req))) {
 			return Response.json({ error: "blob transfer is not open to this caller" }, { status: 403 });
@@ -84,7 +90,7 @@ export function createHttpRouter({
 			);
 		}
 		try {
-			return Response.json(await answerBlobOp(blobStore, parsed.data, routes().fetchBlobFromGateway));
+			return Response.json(await answerBlobOp(blobStore, parsed.data, r.fetchBlobFromGateway));
 		} catch (err) {
 			if (!(err instanceof BlobTooLarge)) throw err;
 			return Response.json({ error: err.message }, { status: 413 });
@@ -114,6 +120,10 @@ export function createHttpRouter({
 			return serveAdmitPayload(req);
 		}
 		const r = routes();
+		if (!r) {
+			if (method === "GET" && url.pathname === "/health") return unenrolledHealth();
+			return Response.json({ error: NOT_ENROLLED }, { status: 503 });
+		}
 		if (method === "GET" && url.pathname === "/pending") return r.pending(req);
 		if (method === "GET" && url.pathname === "/teams") return r.teams();
 		if (method === "GET" && url.pathname === "/capabilities") return r.capabilities();
@@ -132,7 +142,7 @@ export function createHttpRouter({
 
 		const blobRoute = BLOB_ROUTE_SCHEMAS[url.pathname as keyof typeof BLOB_ROUTE_SCHEMAS];
 		if (method === "POST" && blobRoute) {
-			return serveBlobOp(req, body, blobRoute);
+			return serveBlobOp(req, body, blobRoute, r);
 		}
 
 		return new Response("Not Found", { status: 404 });

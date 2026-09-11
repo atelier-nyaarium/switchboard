@@ -52,7 +52,9 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 	);
 	const ownerSignPub = () => context.slice()?.allowlist.ownerSignPub ?? null;
 	const localAddress = (sessionTarget: string): Address =>
-		createAddressing({ config: { localGatewayId, localDomainId: context.domainId() } }).localAddress(sessionTarget);
+		createAddressing({ config: { localGatewayId, localDomainId: context.activeDomainId() } }).localAddress(
+			sessionTarget,
+		);
 
 	const threadKey = (sessionTarget: string, owner: string): string =>
 		storeKey({ kind: "conv", conversationId: ownerKeyId(owner), address: localAddress(sessionTarget) });

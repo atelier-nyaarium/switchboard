@@ -11,7 +11,7 @@ import com.atelier_nyaarium.switchboard.proto.OpKey
 import com.atelier_nyaarium.switchboard.proto.RowEnvelope
 import com.atelier_nyaarium.switchboard.proto.RowOrigin
 import com.atelier_nyaarium.switchboard.proto.GatewayValueOp
-import com.atelier_nyaarium.switchboard.proto.parseTarget
+import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 import com.atelier_nyaarium.switchboard.crypto.Crypto
 import com.atelier_nyaarium.switchboard.crypto.canonicalJson
 import com.atelier_nyaarium.switchboard.crypto.opPayloadAadKind
@@ -198,7 +198,7 @@ class ConsoleClient internal constructor(
 	internal fun localDomainId(): String = boot.domainId
 
 	internal fun sessionAddressOf(target: String): String {
-		val parsed = parseTarget(target, "", defaultGatewayId()) as? com.atelier_nyaarium.switchboard.proto.Address
+		val parsed = parseQualifiedTarget(target) as? com.atelier_nyaarium.switchboard.proto.Address
 			?: error("\"$target\" names a spawn-point, not a session")
 		return "session:${parsed.domain}/${parsed.gateway}/${parsed.spawn}.${parsed.session}"
 	}

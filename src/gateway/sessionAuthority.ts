@@ -23,7 +23,7 @@ export interface SessionAuthorityDeps {
 		sessionStore: SessionStore | undefined,
 		team: string,
 	) => { data: WsData } | undefined;
-	localDomainId: () => string;
+	localDomainId: () => string | null;
 	localGatewayId: string;
 }
 
@@ -111,13 +111,16 @@ export function createSessionAuthority(deps: SessionAuthorityDeps): SessionAutho
 	}
 
 	function localTeamKey(name: string): string | null {
+		// No Domain, no local session.
+		const domain = localDomainId();
+		if (domain === null) return null;
 		let target: ReturnType<typeof parseTarget>;
 		try {
-			target = parseTarget(name, localDomainId(), localGatewayId);
+			target = parseTarget(name, domain, localGatewayId);
 		} catch {
 			return null;
 		}
-		if (target.domain !== localDomainId() || target.gateway !== localGatewayId) return null;
+		if (target.domain !== domain || target.gateway !== localGatewayId) return null;
 		// Bare spawns resolve to their default session, matching delivery.
 		return target instanceof Address
 			? composeSessionName(target.spawn, target.session)

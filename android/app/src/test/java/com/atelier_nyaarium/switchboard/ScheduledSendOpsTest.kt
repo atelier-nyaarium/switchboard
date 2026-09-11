@@ -16,7 +16,7 @@ class ScheduledSendOpsTest {
 		val appended = mutableListOf<Message>()
 		val delivered = mutableListOf<String>()
 		override fun admitPicked(uris: List<Uri>, bucket: String) = emptyList<OutgoingFile>() to null
-		override fun canonicalTarget(team: String) = team
+		override fun fromCanonical(team: String) = team
 		override fun scheduleAttachmentDelete(srcs: List<String>) = Unit
 		override fun takeBackIntoDraft(team: String, text: String, files: List<MessageFile>) = Unit
 		override fun append(team: String, message: Message): Long { appended += message; return 9L }

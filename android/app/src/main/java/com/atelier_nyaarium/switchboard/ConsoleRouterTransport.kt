@@ -4,7 +4,7 @@ import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.OwnerOp
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
-import com.atelier_nyaarium.switchboard.proto.parseTarget
+import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
@@ -188,14 +188,11 @@ internal class ConsoleRouterTransport(
 		return wireJson.decodeFromJsonElement(result)
 	}
 
-	internal fun gatewayOfTarget(to: String, localGateway: String): String =
-		when (val t = parseTarget(to, "", localGateway)) {
+	internal fun gatewayOf(target: String): String =
+		when (val t = parseQualifiedTarget(target)) {
 			is Address -> t.gateway
 			is SpawnPoint -> t.gateway
 		}
-
-	internal fun targetGatewayOf(target: String): String =
-		gatewayOfTarget(target, homeGatewayId?.invoke()?.takeIf { it.isNotEmpty() } ?: store.loadGatewayId())
 }
 
 internal fun buildOwnerOpRequest(base: String, ownerOp: OwnerOp, appToken: String): Request =

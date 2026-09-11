@@ -5,9 +5,8 @@ import {
 	Address,
 	composeSessionName,
 	DEFAULT_SESSION,
-	LOCAL_DOMAIN_SENTINEL,
+	parseQualifiedTarget,
 	parseSessionName,
-	parseTarget,
 	SpawnPoint,
 } from "../../shared/session-id.js";
 import type { TrustedCatalogProject } from "./consoleTypes.js";
@@ -16,7 +15,7 @@ import type { TrustedCatalogProject } from "./consoleTypes.js";
 //  Interfaces & Types
 
 export interface ConsoleTargetsDeps {
-	localDomainId: string | null;
+	localDomainId: string;
 	localGatewayId: string;
 	isTrustedCatalogProject?: TrustedCatalogProject;
 }
@@ -41,16 +40,14 @@ export type ConsoleTargets = ReturnType<typeof createConsoleTargets>;
 /**
  * Every console-named target resolves through this one object, and the foreign-Gateway refusal
  * lives here alone: a session on another Gateway is refused, never folded onto a same-named local
- * one. The residue test pins parseTarget to this module within console/.
+ * one. A bare name is refused, never resolved: the console names its Domain and Gateway.
  */
 export function createConsoleTargets({ localDomainId, localGatewayId, isTrustedCatalogProject }: ConsoleTargetsDeps) {
-	// The local Domain segment for every canonical address minted here. Null (arming mode) maps to
-	// the sentinel, so a key still forms.
-	const localDomain = localDomainId || LOCAL_DOMAIN_SENTINEL;
+	const localDomain = localDomainId;
 
 	/** Parse WITHOUT the local gate, for the ops that legitimately route cross-Gateway (send). */
 	function parse(named: string): Address | SpawnPoint {
-		return parseTarget(named, localDomain, localGatewayId);
+		return parseQualifiedTarget(named);
 	}
 
 	function requireLocal(named: string, foreignError: () => Error): Address | SpawnPoint {
@@ -64,7 +61,7 @@ export function createConsoleTargets({ localDomainId, localGatewayId, isTrustedC
 	 * share key matches the gate byte-for-byte). */
 	function localAddress(name: string): Address {
 		const { project, session } = parseSessionName(name);
-		return Address.local(localDomain, localGatewayId, project, session);
+		return Address.of(localDomain, localGatewayId, project, session);
 	}
 
 	/** The bare local team field for a name that resolves to THIS Gateway, else null. The tolerant

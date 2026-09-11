@@ -2,7 +2,6 @@ import {
 	Address,
 	composeSessionName,
 	DEFAULT_SESSION,
-	LOCAL_DOMAIN_SENTINEL,
 	parseSessionName,
 	parseTarget,
 	SpawnPoint,
@@ -16,19 +15,17 @@ export interface AddressingDeps {
 export type Addressing = ReturnType<typeof createAddressing>;
 
 export function createAddressing({ config }: AddressingDeps) {
-	const { localGatewayId, localDomainId } = config;
-	// Null domain ids use the arming sentinel until enrollment.
-	const localDomain = localDomainId ?? LOCAL_DOMAIN_SENTINEL;
+	const { localGatewayId, localDomainId: localDomain } = config;
 
 	function localAddress(name: string): Address {
 		// This is the sole producer of local session canonical addresses.
 		const { project, session } = parseSessionName(name);
-		return Address.local(localDomain, localGatewayId, project, session);
+		return Address.of(localDomain, localGatewayId, project, session);
 	}
 
 	function consoleSelfAddress(ownerId: string): Address {
 		// Owner id is the address segment; device names are display-only.
-		return Address.local(localDomain, localGatewayId, ownerId, DEFAULT_SESSION);
+		return Address.of(localDomain, localGatewayId, ownerId, DEFAULT_SESSION);
 	}
 
 	function tryLocalAddress(name: string): Address | null {

@@ -47,6 +47,14 @@ keeps it across reconnects.
 **`shared/session-id.ts`** owns session/team key production, separators, slug validation, `Address`,
 `SpawnPoint`, and target parsing. Kotlin mirrors it through the shared fixture vectors.
 
+Two target grammars, one per door. A session at the MCP door names a local team field (`spawn` or
+`spawn.session`) or a qualified address, and `parseTarget` fills this Gateway's Domain and id into
+the local forms. The console names its Domain and Gateway on every target, `domain.gateway.spawn`
+or `domain.gateway.spawn.session`, and `parseQualifiedTarget` refuses anything else. Equal Gateways
+make a bare name ambiguous, so the phone never sends one and `consoleTargets` never resolves one.
+Neither grammar has a placeholder Domain: a Gateway without a Domain builds no routes, and its
+listener answers only `/health` and enrollment until one is active.
+
 A bare project is a spawn point by catalog membership, not by dot detection. `my.app` may still be a
 project. Sending to a spawn point without a session fails.
 

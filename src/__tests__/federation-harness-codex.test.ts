@@ -32,7 +32,11 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			);
 		};
 		const before = sessions.length;
-		const { result } = await h.phone.value({ kind: "create_session", target: "host", displayLabel: label });
+		const { result } = await h.phone.value({
+			kind: "create_session",
+			target: h.target("host"),
+			displayLabel: label,
+		});
 		expect(result).toMatchObject({ created: true });
 		const created = await h.waitFor(() => sessions[before], "the daemon's launch");
 		await created.ready();

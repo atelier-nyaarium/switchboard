@@ -25,31 +25,35 @@ describe("createConsoleTargets", () => {
 		expect(t.gateway).toBe("gw");
 	});
 
-	it("resolves local names in every accepted spelling to one bare key", () => {
-		expect(targets.boardSessionKey("app.dev")).toBe("app.dev");
+	it("refuses a bare name at every method, so nothing resolves it onto this Gateway", () => {
+		for (const bare of ["app.dev", "app"]) {
+			expect(() => targets.parse(bare)).toThrow("unqualified");
+			expect(() => targets.boardSessionKey(bare)).toThrow("unqualified");
+			expect(() => targets.requireLocalComposite(bare, "close")).toThrow("unqualified");
+			expect(() => targets.tmuxTarget(bare)).toThrow("unqualified");
+			expect(targets.tryLocalName(bare)).toBeNull();
+		}
+	});
+
+	it("resolves a qualified local name to the bare key the board stores", () => {
 		expect(targets.boardSessionKey("home.gw.app.dev")).toBe("app.dev");
-		expect(targets.boardSessionKey("app")).toBe(`app.${DEFAULT_SESSION}`);
+		expect(targets.boardSessionKey("home.gw.app")).toBe(`app.${DEFAULT_SESSION}`);
+		expect(targets.tryLocalName("home.gw.app.dev")).toBe("app.dev");
 	});
 
 	it("checks foreign before spawn-point, so a foreign spawn-point hears the refusal no session name could fix", () => {
 		expect(() => targets.requireLocalComposite("other.gw.app", "close")).toThrow("another Gateway");
-		expect(() => targets.requireLocalComposite("app", "close")).toThrow("spawn-point");
-	});
-
-	it("maps a null Domain (arming mode) to the sentinel so local keys still form", () => {
-		const arming = createConsoleTargets({ localDomainId: null, localGatewayId: "gw" });
-		expect(arming.boardSessionKey("app.dev")).toBe("app.dev");
-		expect(arming.localAddress("app.dev").canonical).toContain("app.dev");
+		expect(() => targets.requireLocalComposite("home.gw.app", "close")).toThrow("spawn-point");
 	});
 
 	it("resolves tmux targets by kind and refuses what has no pane", () => {
-		expect(targets.tmuxTarget("host.abc")).toEqual({ kind: "host", name: "host", sessionName: "abc" });
-		expect(targets.tmuxTarget("recipe-app.dev")).toEqual({
+		expect(targets.tmuxTarget("home.gw.host.abc")).toEqual({ kind: "host", name: "host", sessionName: "abc" });
+		expect(targets.tmuxTarget("home.gw.recipe-app.dev")).toEqual({
 			kind: "devcontainer",
 			name: "recipe-app",
 			sessionName: "dev",
 		});
-		expect(() => targets.tmuxTarget("stranger.dev")).toThrow("only the host and devcontainers");
+		expect(() => targets.tmuxTarget("home.gw.stranger.dev")).toThrow("only the host and devcontainers");
 	});
 
 	it("does not classify a name known only through discovery", () => {
@@ -62,6 +66,6 @@ describe("createConsoleTargets", () => {
 		});
 
 		expect(knownTeamPaths.has("untrusted")).toBe(true);
-		expect(() => trustedTargets.tmuxTarget("untrusted.dev")).toThrow("only the host and devcontainers");
+		expect(() => trustedTargets.tmuxTarget("home.gw.untrusted.dev")).toThrow("only the host and devcontainers");
 	});
 });

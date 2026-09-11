@@ -24,19 +24,28 @@ class RunbookTargetsTest {
 	)
 
 	@Test
-	fun aNewSessionOffersSpawnPointsAndAnExistingOneOffersSessions() {
-		assertEquals(listOf("host", "evie-bot"), spawnTargets(state, "sakura").map { it.address })
-		assertEquals(listOf("host.567375", "host.abc"), sessionTargets(state, "sakura").map { it.address }.sorted())
+	fun aNewSessionOffersQualifiedSpawnPointsAndAnExistingOneOffersQualifiedSessions() {
+		assertEquals(listOf("d1.sakura.host", "d1.sakura.evie-bot"), spawnTargets(state, "sakura").map { it.address })
+		assertEquals(listOf("host", "evie-bot"), spawnTargets(state, "sakura").map { it.label })
+		assertEquals(
+			listOf("d1.sakura.host.567375", "d1.sakura.host.abc"),
+			sessionTargets(state, "sakura").map { it.address }.sorted(),
+		)
 	}
 
 	@Test
 	fun aDevcontainerIsASpawnPointRatherThanSomethingToFireInto() {
-		assertEquals(false, sessionTargets(state, "sakura").any { it.address == "evie-bot" })
+		assertEquals(false, sessionTargets(state, "sakura").any { it.address == "d1.sakura.evie-bot" })
 	}
 
 	@Test
 	fun anotherGatewaysTargetsNeverAppearUnderThisOne() {
-		assertEquals(listOf("host", "nyaakube"), spawnTargets(state, "mikan").map { it.address })
-		assertEquals(listOf("host.999"), sessionTargets(state, "mikan").map { it.address })
+		assertEquals(listOf("d1.mikan.host", "d1.mikan.nyaakube"), spawnTargets(state, "mikan").map { it.address })
+		assertEquals(listOf("d1.mikan.host.999"), sessionTargets(state, "mikan").map { it.address })
+	}
+
+	@Test
+	fun noDomainYetOffersNothingToFireInto() {
+		assertEquals(emptyList<String>(), spawnTargets(state.copy(domainId = null), "sakura").map { it.address })
 	}
 }

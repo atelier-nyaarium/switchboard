@@ -60,7 +60,11 @@ describe("sessions, bindings, and console operations", () => {
 		h.host.handlers.onCreateSession = (op) =>
 			session(composeSessionName(op.target.name, op.target.sessionName), { sessionToken: op.sessionToken });
 		const before = sessions.length;
-		const { result } = await h.phone.value({ kind: "create_session", target: "host", displayLabel: "Bound" });
+		const { result } = await h.phone.value({
+			kind: "create_session",
+			target: h.target("host"),
+			displayLabel: "Bound",
+		});
 		expect(result).toMatchObject({ created: true });
 		const created = await h.waitFor(() => sessions[before], "the daemon's launch");
 		await created.ready();
@@ -177,7 +181,7 @@ describe("sessions, bindings, and console operations", () => {
 		expect(h.host.ops.length).toBe(opsBefore);
 
 		const wakes = h.host.wakes.length;
-		const refused = await dispatch("fixture-app", { kind: "wake", target: "fixture-app" });
+		const refused = await dispatch("fixture-app", { kind: "wake", target: h.target("fixture-app") });
 		expect(refused.ok).toBe(false);
 		expect(h.host.wakes.length).toBe(wakes);
 	});
@@ -185,7 +189,7 @@ describe("sessions, bindings, and console operations", () => {
 	it("wakes with the catalog path even when a register named a competing one", async () => {
 		session("fixture-app", { projectPath: "/attacker/path" });
 		h.host.handlers.onWake = (frame) => session(String(frame.team), { sessionToken: frame.sessionToken as string });
-		const woken = await dispatch("fixture-app.trusted", { kind: "wake", target: "fixture-app.trusted" });
+		const woken = await dispatch("fixture-app.trusted", { kind: "wake", target: h.target("fixture-app.trusted") });
 		expect(woken.ok, JSON.stringify(woken)).toBe(true);
 		const wake = h.host.wakes.find((frame) => frame.team === "fixture-app.trusted");
 		expect(wake?.projectPath).toBe(path.join(h.root, "fixture-app"));
@@ -195,7 +199,7 @@ describe("sessions, bindings, and console operations", () => {
 		const owned = await ensureBound();
 		const renamed = await dispatch(owned.team, {
 			kind: "rename_session",
-			target: owned.team,
+			target: h.target(owned.team),
 			sessionLabel: "Renamed",
 		});
 		expect(renamed.result).toMatchObject({ renamed: true, sessionLabel: "Renamed" });
@@ -208,48 +212,54 @@ describe("sessions, bindings, and console operations", () => {
 		});
 		expect(foreign.ok).toBe(false);
 
-		const closed = await dispatch(owned.team, { kind: "close_session", target: owned.team });
+		const closed = await dispatch(owned.team, { kind: "close_session", target: h.target(owned.team) });
 		expect(closed.result, JSON.stringify(closed)).toMatchObject({ closed: true });
 		expect(h.host.ops.at(-1)).toMatchObject({ kind: "killSession" });
 		expect(h.gateway.faults.sessionRecord(owned.team)).toBeDefined();
 
 		// The answer has no session address left to land on; the record's absence is the result.
-		await dispatch(owned.team, { kind: "forget", target: owned.team });
+		await dispatch(owned.team, { kind: "forget", target: h.target(owned.team) });
 		expect(h.gateway.faults.sessionRecord(owned.team)).toBeUndefined();
 		expect(h.host.ops.at(-1)).toMatchObject({ kind: "killSession" });
 		bound = undefined;
 
 		const opsBefore = h.host.ops.length;
-		expect((await dispatch("fixture-app", { kind: "forget", target: "fixture-app" })).ok).toBe(false);
+		expect((await dispatch("fixture-app", { kind: "forget", target: h.target("fixture-app") })).ok).toBe(false);
 		expect(h.host.ops.length).toBe(opsBefore);
 	});
 
 	it("drives a session's pane through the daemon and refuses what the daemon must not see", async () => {
 		const owned = await ensureBound();
-		const typed = await dispatch(owned.team, { kind: "tmux_send", target: owned.team, text: "ls" });
+		const target = h.target(owned.team);
+		const typed = await dispatch(owned.team, { kind: "tmux_send", target, text: "ls" });
 		expect(typed.result).toMatchObject({ sent: true });
 		expect(h.host.ops.at(-1)).toMatchObject({ kind: "sendText", text: "ls", target: { kind: "host" } });
-		const keyed = await dispatch(owned.team, { kind: "tmux_send", target: owned.team, key: "Enter" });
+		const keyed = await dispatch(owned.team, { kind: "tmux_send", target, key: "Enter" });
 		expect(keyed.result).toMatchObject({ sent: true });
 		expect(h.host.ops.at(-1)).toMatchObject({ kind: "sendKey", key: "Enter" });
 
 		const opsBefore = h.host.ops.length;
-		expect((await dispatch(owned.team, { kind: "tmux_send", target: owned.team, key: "F13" })).ok).toBe(false);
-		expect((await dispatch(owned.team, { kind: "tmux_send", target: owned.team })).ok).toBe(false);
+		expect((await dispatch(owned.team, { kind: "tmux_send", target, key: "F13" })).ok).toBe(false);
+		expect((await dispatch(owned.team, { kind: "tmux_send", target })).ok).toBe(false);
 		expect((await dispatch(owned.team, { kind: "tmux_send", target: `far.gw.${owned.team}`, text: "x" })).ok).toBe(
 			false,
 		);
+		expect((await dispatch(owned.team, { kind: "tmux_send", target: owned.team, text: "x" })).ok).toBe(false);
 		expect(h.host.ops.length).toBe(opsBefore);
 
-		const first = await h.phone.value({ kind: "peek", target: owned.team });
+		const first = await h.phone.value({ kind: "peek", target });
 		expect(first.result).toMatchObject({ kind: "tmux", hash: "h1" });
-		const again = await h.phone.value({ kind: "peek", target: owned.team, sinceHash: "h1" });
+		const again = await h.phone.value({ kind: "peek", target, sinceHash: "h1" });
 		expect(again.result).toMatchObject({ unchanged: true });
 	});
 
 	it("refuses a create with a bad workdir or a foreign target before the daemon hears of it", async () => {
 		const opsBefore = h.host.ops.length;
-		const badDir = await h.phone.value({ kind: "create_session", target: "host", workdir: "relative/dir" });
+		const badDir = await h.phone.value({
+			kind: "create_session",
+			target: h.target("host"),
+			workdir: "relative/dir",
+		});
 		expect(badDir.result).toMatchObject({ kind: "refusal" });
 		const foreign = await h.phone.value({ kind: "create_session", target: "other.gw.host" });
 		expect(foreign.result).toMatchObject({ kind: "refusal" });

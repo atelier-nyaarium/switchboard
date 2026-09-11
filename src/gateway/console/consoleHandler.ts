@@ -4,6 +4,7 @@ import { fenced, MIGRATING } from "../../shared/migration-fence.js";
 import { ownerKeyId } from "../../shared/owner-id.js";
 import { DELIVERY_OP_KINDS, TOLERATED_DELIVERY_OP_KINDS, VALUE_OP_KINDS } from "../../shared/schemasConsoleOp.js";
 import { type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
+import { SpawnPoint } from "../../shared/session-id.js";
 import { answerBlobOp } from "../blobOps.js";
 import {
 	RESERVE_OP,
@@ -450,10 +451,11 @@ export function createConsoleDispatcher({
 		// Adopting a session somebody else made would run the routine, and later its grant, inside
 		// one the owner opened for something else.
 		if (!routineOwns(sessionStore?.getByTeam(team), routine)) return { kind: "taken" };
+		// The routine is this Gateway's, so its spawn is qualified here.
 		const made = await sessionLifecycle.createSession(
 			{
 				kind: "create_session",
-				target: routine.target.spawn,
+				target: SpawnPoint.of(localDomainId, localGatewayId, routine.target.spawn).canonical,
 				sessionName: routineSessionName(routine.id),
 				...(routine.target.workdir ? { workdir: routine.target.workdir } : {}),
 			},

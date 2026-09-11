@@ -3,7 +3,7 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.SessionKey
 import com.atelier_nyaarium.switchboard.proto.parseStoreKey
-import com.atelier_nyaarium.switchboard.proto.parseTarget
+import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 import com.atelier_nyaarium.switchboard.proto.storeKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -128,14 +128,11 @@ class ChatStateSessionsTest {
 		assertNotEquals(device, fromAgent.address)
 	}
 
-	// -- The spawn dialog's local `spawn.session` canonicalizes to the same key the board/threads use --
-
 	@Test
-	fun localTeamFieldResolvesToBoardCanonical() {
-		val t = parseTarget("api.claude", "local", "sakura")
+	fun qualifiedTargetResolvesToBoardCanonical() {
+		val t = parseQualifiedTarget("alice.sakura.api.claude")
 		assertTrue(t is Address)
-		assertEquals("local.sakura.api.claude", t.canonical)
-		// Idempotent: re-parsing the canonical (arity 4) yields the same value.
-		assertEquals("local.sakura.api.claude", parseTarget("local.sakura.api.claude", "other", "other").canonical)
+		assertEquals("alice.sakura.api.claude", t.canonical)
+		assertEquals(t, parseQualifiedTarget(t.canonical))
 	}
 }

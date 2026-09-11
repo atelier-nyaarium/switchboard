@@ -116,7 +116,7 @@ export function composeSessions({ localGatewayId, ambient, stores, context }: Se
 		sessionStore,
 		registry,
 		resolveLive: resolveLiveIncarnation,
-		localDomainId: () => context.domainId() ?? "",
+		localDomainId: () => context.domainId(),
 		localGatewayId,
 	});
 

@@ -3,6 +3,7 @@
 import type { Ambient } from "../../shared/ambient.js";
 import { reportUnrecognizedDataEntries } from "../dataDirInventory.js";
 import { createHttpRouter } from "../httpRouter.js";
+import { unenrolledHealth } from "../routes/routesStatus.js";
 import type { AgentsStage } from "./composeAgents.js";
 import type { AwarenessStage } from "./composeAwareness.js";
 import type { EnrollmentStage } from "./composeEnrollment.js";
@@ -20,6 +21,7 @@ import type { FederationContext } from "./federationContext.js";
 
 export interface ListenerStageDeps {
 	dataDir: string;
+	localGatewayId: string;
 	enrollNonce?: string;
 	ambient: Pick<Ambient, "clearInterval">;
 	context: FederationContext;
@@ -55,6 +57,7 @@ export function composeListener(deps: ListenerStageDeps): ListenerStage {
 		sessionAuthority: sessions.sessionAuthority,
 		loopbackRoutes: new Map([...deps.agents.agentRoutes, ...deps.vault.routes, ...(deps.routines?.routes ?? [])]),
 		routes: routes.current,
+		unenrolledHealth: () => unenrolledHealth(deps.localGatewayId),
 	});
 
 	reportUnrecognizedDataEntries(deps.dataDir);

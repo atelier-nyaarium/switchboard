@@ -23,7 +23,8 @@ describe("cross-Domain gateway admission and relay", () => {
 	/** One value op; the gateway writes the Router record and its own mirror. */
 	const share = async (peer: DomainPeer, team: string, domainId: string) => {
 		const target = { kind: "domain" as const, domainId };
-		expect(await peer.phone.value({ kind: "cross_domain_share", sessionTarget: team, target })).toMatchObject({
+		const sessionTarget = peer.target(team);
+		expect(await peer.phone.value({ kind: "cross_domain_share", sessionTarget, target })).toMatchObject({
 			result: { ok: true },
 		});
 	};
@@ -110,7 +111,11 @@ describe("cross-Domain gateway admission and relay", () => {
 		const target = { kind: "domain" as const, domainId: h.set.domain.id };
 		setMigrationEpoch(7);
 		try {
-			const refused = await bob.phone.value({ kind: "cross_domain_share", sessionTarget: fenced.team, target });
+			const refused = await bob.phone.value({
+				kind: "cross_domain_share",
+				sessionTarget: bob.target(fenced.team),
+				target,
+			});
 			expect(refused.result).toMatchObject({ kind: "refusal", reason: "migrating" });
 		} finally {
 			setMigrationEpoch(null);

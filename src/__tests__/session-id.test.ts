@@ -7,7 +7,7 @@ import {
 	composeSessionName,
 	isComposite,
 	isSlug,
-	LOCAL_DOMAIN_SENTINEL,
+	parseQualifiedTarget,
 	parseSessionName,
 	parseStoreKey,
 	parseTarget,
@@ -38,6 +38,11 @@ interface ParseTargetVector {
 	kind: "spawn" | "address";
 	canonical: string;
 }
+interface QualifiedTargetVector {
+	input: string;
+	kind: "spawn" | "address";
+	canonical: string;
+}
 interface StoreKeyVector {
 	kind: "conv" | "notice";
 	conversationId?: string;
@@ -61,6 +66,8 @@ const vectors = JSON.parse(
 	address: AddressVector[];
 	parseTarget: ParseTargetVector[];
 	parseTargetReject: string[];
+	parseQualifiedTarget: QualifiedTargetVector[];
+	parseQualifiedTargetReject: string[];
 	storeKey: StoreKeyVector[];
 	parseStoreKeyReject: string[];
 	sessionName: SessionNameVector[];
@@ -81,6 +88,18 @@ describe("address vectors", () => {
 
 	it.each(vectors.parseTargetReject.map((s) => [JSON.stringify(s), s] as const))("parseTarget rejects %s", (_, s) => {
 		expect(() => parseTarget(s, "local", "gw")).toThrow();
+	});
+
+	it.each(vectors.parseQualifiedTarget.map((v) => [v.input, v] as const))("parseQualifiedTarget %s", (_, v) => {
+		const t = parseQualifiedTarget(v.input);
+		expect(t instanceof SpawnPoint ? "spawn" : "address").toBe(v.kind);
+		expect(t.canonical).toBe(v.canonical);
+	});
+
+	it.each(
+		vectors.parseQualifiedTargetReject.map((s) => [JSON.stringify(s), s] as const),
+	)("parseQualifiedTarget rejects %s", (_, s) => {
+		expect(() => parseQualifiedTarget(s)).toThrow();
 	});
 
 	it.each(vectors.storeKey.map((v) => [v.key, v] as const))("storeKey %s", (_, v) => {
@@ -132,11 +151,8 @@ describe("address grammar invariants", () => {
 		expect(() => Address.of("d", "g", "my.app", "s")).toThrow();
 	});
 
-	it("local fills the sentinel domain in arming mode", () => {
-		expect(Address.local("", "sakura", "host", "cooking").canonical).toBe(
-			`${LOCAL_DOMAIN_SENTINEL}.sakura.host.cooking`,
-		);
-		expect(Address.local("a95dd4e979aa3be5", "sakura", "host", "cooking").domain).toBe("a95dd4e979aa3be5");
+	it("a local form needs a Domain to fill", () => {
+		expect(() => parseTarget("host.cooking", "", "sakura")).toThrow();
 	});
 
 	it("spawnPoint projects an address down to its 3-layer spawn-point", () => {

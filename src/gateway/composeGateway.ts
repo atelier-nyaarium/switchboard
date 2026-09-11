@@ -58,7 +58,9 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 
 	const requireRoutes = (): GatewayRoutes => {
 		if (!routes) throw new Error("the routes stage is not composed yet");
-		return routes.current();
+		const current = routes.current();
+		if (!current) throw new Error("no Domain is active, so no route is built");
+		return current;
 	};
 	const requireDeliveries = (): ChannelDeliveryCoordinator => {
 		if (!websockets) throw new Error("the websockets stage is not composed yet");
@@ -236,6 +238,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 
 	const listener = composeListener({
 		dataDir: bootstrap.dataDir,
+		localGatewayId: bootstrap.localGatewayId,
 		enrollNonce: config.enrollNonce,
 		ambient: bootstrap.ambient,
 		context,

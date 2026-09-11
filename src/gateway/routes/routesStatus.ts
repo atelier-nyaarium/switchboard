@@ -80,3 +80,15 @@ export function createStatusRoutes({
 
 	return { pending, teams, health };
 }
+
+/** What /health answers before this Gateway belongs to a Domain. */
+export function unenrolledHealth(localGatewayId: string): Response {
+	return jsonResponse({
+		ok: true,
+		version: packageJson.version,
+		gatewayId: localGatewayId,
+		domainId: null,
+		router_connected: false,
+		router_registered: false,
+	});
+}

@@ -55,7 +55,7 @@ class VaultManager(private val store: VaultStore) : ClearsOnReprovision {
 	/** Active grants per gateway, as last read through `vault_grants`. */
 	val grants = mutableStateOf<Map<String, List<VaultGrant>>>(emptyMap())
 
-	/** Bumps on wipe, so work begun before it lands nothing after. */
+	/** Bumps on wipe and on another lineage, so work begun before either lands nothing after. */
 	@Volatile var generation: Long = 0L
 		private set
 
@@ -91,11 +91,15 @@ class VaultManager(private val store: VaultStore) : ClearsOnReprovision {
 
 	/** Another lineage drops the held list; an unknown one keeps it and lists from zero. */
 	fun adoptEpoch(epoch: Long) {
-		mutate { current ->
+		synchronized(stateLock) {
+			val current = blob
 			when (current.routerEpoch) {
-				epoch -> current
-				0L -> current.copy(routerEpoch = epoch, revision = 0L)
-				else -> current.copy(routerEpoch = epoch, revision = 0L, stored = emptyList())
+				epoch -> return
+				0L -> persist(current.copy(routerEpoch = epoch, revision = 0L))
+				else -> {
+					generation++
+					persist(current.copy(routerEpoch = epoch, revision = 0L, stored = emptyList()))
+				}
 			}
 		}
 	}

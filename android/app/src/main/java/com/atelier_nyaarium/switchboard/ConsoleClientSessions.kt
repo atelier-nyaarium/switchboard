@@ -41,7 +41,7 @@ suspend fun ConsoleClient.reloadPlugins(gatewayId: String, opId: String = ambien
 	)
 
 suspend fun ConsoleClient.peek(target: String, sinceHash: String? = null): ConsolePeekResult =
-	valueResult(sendValueOp(transport.targetGatewayOf(target), ConsoleOp.Peek(target = target, sinceHash = sinceHash)), Protocol.Wire.ConsoleOpKind.PEEK)
+	valueResult(sendValueOp(transport.gatewayOf(target), ConsoleOp.Peek(target = target, sinceHash = sinceHash)), Protocol.Wire.ConsoleOpKind.PEEK)
 
 suspend fun ConsoleClient.tmuxSend(
 	target: String,
@@ -76,11 +76,11 @@ suspend fun ConsoleClient.createSession(
 	workdir: String? = null,
 	opId: String = ambient.newOpId(),
 ): ConsoleCreateSessionResult =
-	valueResult(sendValueOp(transport.targetGatewayOf(target), ConsoleOp.CreateSession(target = target, sessionName = sessionName, displayLabel = displayLabel, workdir = workdir), opId), Protocol.Wire.ConsoleOpKind.CREATE_SESSION)
+	valueResult(sendValueOp(transport.gatewayOf(target), ConsoleOp.CreateSession(target = target, sessionName = sessionName, displayLabel = displayLabel, workdir = workdir), opId), Protocol.Wire.ConsoleOpKind.CREATE_SESSION)
 
 // Resolve paths on the host target.
 suspend fun ConsoleClient.listDirs(path: String, hostTarget: String, spawn: String): ConsoleListDirsResult =
-	valueResult(sendValueOp(transport.targetGatewayOf(hostTarget), ConsoleOp.ListDirs(path = path, spawn = spawn)), Protocol.Wire.ConsoleOpKind.LIST_DIRS)
+	valueResult(sendValueOp(transport.gatewayOf(hostTarget), ConsoleOp.ListDirs(path = path, spawn = spawn)), Protocol.Wire.ConsoleOpKind.LIST_DIRS)
 
 suspend fun ConsoleClient.renameSession(
 	target: String,

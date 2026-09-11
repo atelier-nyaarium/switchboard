@@ -2,7 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
-import com.atelier_nyaarium.switchboard.proto.parseTarget
+import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
@@ -151,7 +151,7 @@ internal class SessionOps(
 	}
 
 	fun wakeSession(team: String) {
-		val target = wakeTargetOf(team, host.localDomain, host.state.value.homeGatewayId) ?: return
+		val target = wakeTargetOf(team) ?: return
 		val opId = UUID.randomUUID().toString()
 		noteReceipt(team, ActionReceipt(opId, System.currentTimeMillis()))
 		// Republish cached teams immediately so the receipt appears on this frame.
@@ -173,7 +173,7 @@ internal class SessionOps(
 
 	suspend fun relaunchSession(team: String) {
 		withContext(Dispatchers.IO) {
-			val t = runCatching { parseTarget(team, host.localDomain, host.state.value.homeGatewayId) }.getOrNull()
+			val t = runCatching { parseQualifiedTarget(team) }.getOrNull()
 			if (t !is Address) error("not an addressable session")
 			val opId = UUID.randomUUID().toString()
 			// Keep one receipt across close and create while the roster reports asleep.
@@ -199,8 +199,8 @@ internal class SessionOps(
 	}
 
 	fun forget(team: String, boardDisposition: String? = null, onForgotten: (() -> Unit)? = null) {
-		val key = host.canonicalTarget(team)
-		val t = runCatching { parseTarget(team, host.localDomain, host.state.value.homeGatewayId) }.getOrNull()
+		val t = runCatching { parseQualifiedTarget(team) }.getOrNull() ?: return
+		val key = t.canonical
 		// Journaled for a Gateway the roster names; any other tombstones only.
 		val local = t is Address && host.state.value.gateways.owns(t, host.localDomain)
 		val pending = if (local) journalForget(key, boardDisposition) else null
@@ -328,5 +328,5 @@ internal class SessionOps(
 	}
 }
 
-internal fun wakeTargetOf(team: String, localDomain: String, homeGatewayId: String): String? =
-	(runCatching { parseTarget(team, localDomain, homeGatewayId) }.getOrNull() as? Address)?.canonical
+internal fun wakeTargetOf(team: String): String? =
+	(runCatching { parseQualifiedTarget(team) }.getOrNull() as? Address)?.canonical

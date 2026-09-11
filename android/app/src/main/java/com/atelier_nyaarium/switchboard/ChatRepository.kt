@@ -8,7 +8,7 @@ import com.atelier_nyaarium.switchboard.proto.BoardWriteResult
 import com.atelier_nyaarium.switchboard.proto.MailboxEntry
 import com.atelier_nyaarium.switchboard.proto.SyncEntry
 import com.atelier_nyaarium.switchboard.proto.Protocol
-import com.atelier_nyaarium.switchboard.proto.parseTarget
+import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 import java.io.File
 import java.time.ZoneId
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -112,15 +112,12 @@ class ChatRepository(
 
 	internal fun transport(): ConsoleRouterTransport = provisioningHost.transport()
 
-	internal fun canonicalTarget(team: String): String =
-		runCatching { parseTarget(team, localDomain(), homeGatewayId).canonical }.getOrDefault(team)
-
-	internal fun fromCanonical(from: String): String? =
-		runCatching { parseTarget(from, localDomain(), homeGatewayId).canonical }.getOrNull()
+	/** Null for anything but a qualified target; nothing here resolves a bare name. */
+	internal fun fromCanonical(from: String): String? = runCatching { parseQualifiedTarget(from).canonical }.getOrNull()
 
 	internal fun thisDeviceAddress(): Address? =
 		runCatching {
-			Address.local(localDomain(), homeGatewayId, ownerKeyId(federation.ownerSignPub()), Protocol.DEFAULT_SESSION)
+			Address.of(localDomain(), homeGatewayId, ownerKeyId(federation.ownerSignPub()), Protocol.DEFAULT_SESSION)
 		}.getOrNull()
 
 	internal val provisioningHost: RepositoryProvisioningHost = ChatRepositoryProvisioningHost(this)

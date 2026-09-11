@@ -46,6 +46,12 @@ export class FederationContext {
 		return this.domain;
 	}
 
+	/** The Domain id, on a road that only runs once one is active. */
+	activeDomainId(): string {
+		if (this.domain === null) throw new Error("no Domain is active on this Gateway");
+		return this.domain;
+	}
+
 	boot(): GatewayBootstrap | null {
 		return this.activeBoot;
 	}

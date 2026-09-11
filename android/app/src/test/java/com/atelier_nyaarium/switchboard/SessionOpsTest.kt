@@ -3,7 +3,6 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.ConsoleCreateSessionResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleListDirsResult
 import com.atelier_nyaarium.switchboard.proto.ConsolePeekResult
-import com.atelier_nyaarium.switchboard.proto.parseTarget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,7 +36,6 @@ class SessionOpsTest {
 		var playback = 0
 		var persisted = 0
 
-		override fun canonicalTarget(team: String) = parseTarget(team, localDomain, homeGatewayId).canonical
 		override fun forgetReadAnchor(team: String) = Unit
 		override fun rememberProject(target: String) { remembered += target }
 		override fun launchInBackground(block: suspend () -> Unit) { CoroutineScope(Dispatchers.Unconfined).launch { block() } }
@@ -69,15 +67,15 @@ class SessionOpsTest {
 
 	@Test
 	fun wakeTargetIsTheQualifiedSessionAddress() {
-		assertEquals("dom.gw.host.82d560", wakeTargetOf("dom.gw.host.82d560", "dom", "gw"))
-		assertEquals("dom.gw.host.82d560", wakeTargetOf("host.82d560", "dom", "gw"))
+		assertEquals("dom.gw.host.82d560", wakeTargetOf("dom.gw.host.82d560"))
+		assertNull(wakeTargetOf("host.82d560"))
 	}
 
 	@Test
 	fun wakeTargetRefusesASpawnPointOrGarbage() {
-		assertNull(wakeTargetOf("dom.gw.host", "dom", "gw"))
-		assertNull(wakeTargetOf("host", "dom", "gw"))
-		assertNull(wakeTargetOf("a.b.c.d.e", "dom", "gw"))
+		assertNull(wakeTargetOf("dom.gw.host"))
+		assertNull(wakeTargetOf("host"))
+		assertNull(wakeTargetOf("a.b.c.d.e"))
 	}
 
 	private fun journalDir() = Files.createTempDirectory("forget-journal").toFile()
@@ -135,6 +133,18 @@ class SessionOpsTest {
 		// Confirmed: the journal entry goes and the tombstone is the bounded window.
 		assertTrue(MutationJournal(dir).entries("forget").isEmpty())
 		assertTrue(host.forgottenUntil.getValue(team) < Long.MAX_VALUE)
+	}
+
+	@Test
+	fun aForgetOnAnotherRosterGatewayJournalsLikeTheHomeOne() {
+		val dir = journalDir()
+		val host = FakeHost().apply { forgetFails = true }
+		host.state.value = ChatState(gateways = testRegistry("gw", "other"))
+		SessionOps(host, IdlePresencePort, MutationJournal(dir)).forget("dom.other.host.session", "cancel")
+
+		assertEquals(listOf("dom.other.host.session"), host.forgotten.map { it.first })
+		assertEquals(1, MutationJournal(dir).entries("forget").size)
+		assertEquals(Long.MAX_VALUE, host.forgottenUntil["dom.other.host.session"])
 	}
 
 	@Test

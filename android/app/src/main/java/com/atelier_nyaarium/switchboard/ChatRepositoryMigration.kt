@@ -2,7 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.ScheduledTarget
-import com.atelier_nyaarium.switchboard.proto.parseTarget
+import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 import kotlinx.coroutines.flow.update
 
 // Cursor translation and self-migration wiring.
@@ -28,7 +28,7 @@ internal fun ChatRepository.wireMigration() {
 		conversationId = { client().transport.credentials.conversationId },
 		contentKeyring = { federation.contentKeyring() },
 		target = { team, _ ->
-			val parsed = parseTarget(team, localDomain(), homeGatewayId) as Address
+			val parsed = parseQualifiedTarget(team) as Address
 			ScheduledTarget(parsed.domain, parsed.gateway, parsed.spawn + "." + parsed.session)
 		},
 		uploadFile = { file -> client().uploadBlob(Attachments.fileFor(filesDir, file.src) ?: error("missing scheduled file")) },

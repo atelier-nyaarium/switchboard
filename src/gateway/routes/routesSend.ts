@@ -4,7 +4,6 @@ import type { JobContract, LocalReply, PendingJobStore, Reservation } from "../.
 import {
 	Address,
 	composeSessionName,
-	LOCAL_DOMAIN_SENTINEL,
 	parseSessionName,
 	parseTarget,
 	SpawnPoint,
@@ -131,7 +130,7 @@ export function createSendRoutes({
 		}
 		const resolvedDomain = targetDomainId(targetGateway, targetDomain);
 		const { project: tSpawn, session: tSession } = parseSessionName(targetName);
-		const targetAddr = Address.remote(resolvedDomain ?? localDomain, targetGateway, tSpawn, tSession);
+		const targetAddr = Address.of(resolvedDomain ?? localDomain, targetGateway, tSpawn, tSession);
 		const qualifiedTo = targetAddr.canonical;
 		const srcSession = storeKey({ kind: "conv", conversationId: fromConversationId, address: targetAddr });
 		const senderAddr = fromAddress ? null : localAddress(from);
@@ -238,10 +237,7 @@ export function createSendRoutes({
 		}
 		if (parsedTarget && (parsedTarget.domain !== localDomain || parsedTarget.gateway !== localGatewayId)) {
 			// Foreign targets route through the federation Router.
-			const realDomain =
-				parsedTarget.domain !== localDomain && parsedTarget.domain !== LOCAL_DOMAIN_SENTINEL
-					? parsedTarget.domain
-					: targetDomain;
+			const realDomain = parsedTarget.domain !== localDomain ? parsedTarget.domain : targetDomain;
 			return await sendCrossGateway({
 				targetGateway: parsedTarget.gateway,
 				targetName: composeSessionName(parsedTarget.spawn, parsedTarget.session),
@@ -465,9 +461,8 @@ export function createSendRoutes({
 		const parsed = parseTarget(to, localDomain, localGatewayId);
 		if (!parsed || parsed instanceof SpawnPoint) return "";
 		if (parsed.domain !== localDomain || parsed.gateway !== localGatewayId) {
-			const realDomain =
-				parsed.domain !== localDomain && parsed.domain !== LOCAL_DOMAIN_SENTINEL ? parsed.domain : targetDomain;
-			const address = Address.remote(
+			const realDomain = parsed.domain !== localDomain ? parsed.domain : targetDomain;
+			const address = Address.of(
 				targetDomainId(parsed.gateway, realDomain) ?? localDomain,
 				parsed.gateway,
 				parsed.spawn,

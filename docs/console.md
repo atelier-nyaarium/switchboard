@@ -66,18 +66,20 @@ Phone-bound rows are appended by the Gateway through `deliverToOwner`.
 `src/gateway/consolePushOps.ts` owns the durable `OwnerRowOutbox` for disconnected or uncertain
 appends.
 
-### `homeGatewayId`, and the five things it is for
+### `homeGatewayId`, and the four things it is for
 
 `adoptHomeGateway` keeps the stored id while the Domain keyring still admits it, and otherwise takes
 `admitted.firstOrNull()`. The owner never picks it and there is no control for it.
 
-Five jobs, each resolving or identifying:
+Four jobs, each identifying:
 
-1. Completing an unqualified name, so a bare `sandbox` means that spawn on this Gateway.
-2. Filling the Gateway segment of this phone's own local address.
-3. Naming which of the owner's Gateways is asking, on a cross-domain trust request.
-4. Deciding which Gateway claims a runbook library written before libraries were split per Gateway.
-5. Where an unassigned board entry's attachment blob is uploaded, since it has no session Gateway.
+1. Filling the Gateway segment of this phone's own local address.
+2. Naming which of the owner's Gateways is asking, on a cross-domain trust request.
+3. Deciding which Gateway claims a runbook library written before libraries were split per Gateway.
+4. Where an unassigned board entry's attachment blob is uploaded, since it has no session Gateway.
+
+It completes no name. A phone target is `domain.gateway.spawn` or `domain.gateway.spawn.session`,
+parsed by `parseQualifiedTarget`, and the gateway's console handler refuses anything shorter.
 
 **It is not a visibility filter, and a screen that reads it to decide what to draw is a bug.** A
 document that states only how it is selected invites exactly that, which is why the jobs are listed.
@@ -123,10 +125,11 @@ epoch cannot be ranked; a durable value carries no observation, so it takes any 
 `PollDrain` holds the in-memory cursor for every plane, stamps each arrival as it enters the process,
 and never persists it, so a cold boot re-reads every plane; behind it, the presence slot and the
 board and vault managers hold their own durable lineage. A board or vault plane past the manager's
-list fetches, at most once a minute; one held or behind is acknowledged. Another lineage drops the
-held list and fetches from zero; the first lineage a manager sees keeps its entries and fetches from
-zero. Pull-to-refresh asks the Router for every plane and lets the fold decide, so nothing is
-re-landed that the phone already holds.
+list fetches, at most once a minute within a lineage; one held or behind is acknowledged. Another
+lineage drops the held list and fetches from zero at once, and bumps the manager's generation so an
+answer begun under the old lineage lands nothing; the first lineage a manager sees keeps its entries
+and fetches from zero. Pull-to-refresh asks the Router for every plane and lets the fold decide, so
+nothing is re-landed that the phone already holds.
 
 One filter remains: `TrustOps.shareableSessions` offers only sessions on this Gateway, and the share
 it feeds sends `requesterGatewayId = homeGatewayId()`. Widening the list alone would offer sessions

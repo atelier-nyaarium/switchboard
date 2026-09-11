@@ -122,7 +122,7 @@ export interface GatewayConfig {
 	localGatewayId: string;
 	// This Gateway's Domain id, or null until enrollment delivers it (arming mode). Resolved from
 	// the enrollment-delivered domain-id file, else the FEDERATION_DOMAIN_ID env.
-	localDomainId: string | null;
+	localDomainId: string;
 }
 
 export interface WebSocketConfig {

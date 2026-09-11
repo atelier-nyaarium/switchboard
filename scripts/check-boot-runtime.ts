@@ -369,7 +369,11 @@ async function main(): Promise<void> {
 				return new Response(answer.text, { status: answer.status });
 			},
 		});
-		const made = await driver.value({ kind: "create_session", target: "host", sessionName: "boot-mcp" });
+		const made = await driver.value({
+			kind: "create_session",
+			target: `${set.domain.id}.${set.gateway.id}.host`,
+			sessionName: "boot-mcp",
+		});
 		if (made.envelope.outcome !== "accepted") throw new Error(`create_session outcome: ${made.envelope.outcome}`);
 		if (!sessionToken) throw new Error("the host was never asked to create a session");
 

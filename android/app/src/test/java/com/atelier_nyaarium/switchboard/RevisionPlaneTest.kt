@@ -21,8 +21,9 @@ class RevisionPlaneTest {
 	}
 
 	@Test
-	fun anotherLineageFetchesWhateverItsVersion() {
+	fun anotherLineageFetchesWhateverItsVersionAndInsideTheWindow() {
 		assertEquals(RevisionPlaneDecision.Fetch(9), revisionPlaneDecision(held, PlaneLineage(9, 1), null, 1_000L))
+		assertEquals(RevisionPlaneDecision.Fetch(9), revisionPlaneDecision(held, PlaneLineage(9, 1), 1_000L, 30_000L))
 		assertEquals(RevisionPlaneDecision.Fetch(9), revisionPlaneDecision(HeldLineage.NONE, PlaneLineage(9, 0), null, 1_000L))
 	}
 }

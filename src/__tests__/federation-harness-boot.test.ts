@@ -226,7 +226,11 @@ describe("federation harness routing and restart", () => {
 				sessionToken: op.sessionToken,
 			});
 		};
-		const created = await h.phone.value({ kind: "create_session", target: "host", displayLabel: "Outage" });
+		const created = await h.phone.value({
+			kind: "create_session",
+			target: h.target("host"),
+			displayLabel: "Outage",
+		});
 		expect(created.result).toMatchObject({ created: true });
 		const bound = await h.waitFor(() => launched, "the daemon's launch");
 		await bound.ready();

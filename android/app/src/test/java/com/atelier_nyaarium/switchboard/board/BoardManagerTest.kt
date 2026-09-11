@@ -1,7 +1,9 @@
 package com.atelier_nyaarium.switchboard.board
 
+import com.atelier_nyaarium.switchboard.HeldLineage
 import com.atelier_nyaarium.switchboard.PhoneAmbient
 import com.atelier_nyaarium.switchboard.PhoneBootstrap
+import com.atelier_nyaarium.switchboard.proto.PlaneLineage
 import com.atelier_nyaarium.switchboard.testAmbient
 import com.atelier_nyaarium.switchboard.testBootstrap
 import com.atelier_nyaarium.switchboard.crypto.ContentKeyring
@@ -183,5 +185,44 @@ class BoardManagerTest {
 
 		assertEquals(listOf("t-one"), restored.routerEntries().map { it.title })
 		assertEquals(1, emptySealing.openCount)
+	}
+
+	@Test
+	fun anotherLineageDropsTheListAndAnAnswerBegunUnderTheOldOneLandsNothing() {
+		val identity = Crypto.generateIdentity()
+		val keyring = ContentKeyring(store = null).also { it.deriveOwned(identity, "domain", 1) }
+		val sealing = sealing(identity, keyring)
+		val board = BoardManager(storeStub()).also { it.sealing = { sealing } }
+		board.adoptEpoch(1L)
+		board.applyRouterBoard(40L, listOf(stored(entry("old"), sealing)))
+		val begun = board.generation
+
+		board.adoptEpoch(2L)
+		assertEquals(emptyList<String>(), board.snapshot().stored.map { it.clear.id })
+		assertEquals(0L, board.routerRevision)
+		// The old lineage's answer arrives after the change.
+		assertFalse(board.applyRouterBoard(41L, listOf(stored(entry("old"), sealing)), generation = begun))
+		board.settleWrite("op", 42L, listOf(stored(entry("old"), sealing)), generation = begun)
+		assertEquals(emptyList<String>(), board.snapshot().stored.map { it.clear.id })
+
+		assertTrue(board.applyRouterBoard(1L, listOf(stored(entry("new"), sealing))))
+		assertEquals(listOf("new"), board.snapshot().stored.map { it.clear.id })
+		// The same lineage again changes nothing.
+		board.adoptEpoch(2L)
+		assertEquals(listOf("new"), board.snapshot().stored.map { it.clear.id })
+	}
+
+	@Test
+	fun anUnknownLineageKeepsTheStoredListAndListsFromZero() {
+		val identity = Crypto.generateIdentity()
+		val keyring = ContentKeyring(store = null).also { it.deriveOwned(identity, "domain", 1) }
+		val sealing = sealing(identity, keyring)
+		val board = BoardManager(storeStub()).also { it.sealing = { sealing } }
+		board.applyRouterBoard(7L, listOf(stored(entry("kept"), sealing)))
+
+		board.adoptEpoch(5L)
+		assertEquals(listOf("kept"), board.snapshot().stored.map { it.clear.id })
+		assertEquals(0L, board.routerRevision)
+		assertEquals(HeldLineage(PlaneLineage(5L, 0L), null), board.planeLineage())
 	}
 }

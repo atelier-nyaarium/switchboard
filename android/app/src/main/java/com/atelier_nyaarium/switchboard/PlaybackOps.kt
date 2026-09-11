@@ -20,7 +20,7 @@ internal interface PlaybackPort {
 }
 
 internal interface PlaybackOpsCollaborators {
-	fun openThread(team: String): String
+	fun openThread(team: String): String?
 }
 
 internal class PlaybackOps(
@@ -351,7 +351,7 @@ internal class PlaybackOps(
 		playback.stts.seekTo(snap.owner, ms)
 	}
 
-	fun jumpTo(entry: QueueEntry): String = collaborators.openThread(entry.team)
+	fun jumpTo(entry: QueueEntry): String? = collaborators.openThread(entry.team)
 
 	fun queueCounts(): Triple<Int, Boolean, Int> = reads.queueCounts()
 

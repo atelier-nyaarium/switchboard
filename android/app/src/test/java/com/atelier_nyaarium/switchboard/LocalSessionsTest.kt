@@ -18,13 +18,6 @@ class LocalSessionsTest {
 	}
 
 	@Test
-	fun aSessionStillNamedByTheLocalSentinelIsLocal() {
-		// A thread keyed before the Domain was known.
-		val t = team("local.gw.claude")
-		assertEquals(listOf(t), localSessions(listOf(t), adminDomainId = "alice"))
-	}
-
-	@Test
 	fun sessionsFromAnotherDomainAreExcluded() {
 		val mine = team("alice.gw.claude")
 		val peer = team("bob.gw.claude")
@@ -32,9 +25,8 @@ class LocalSessionsTest {
 	}
 
 	@Test
-	fun emptyAdminDomainExcludesAnyDomainTaggedSession() {
-		val untagged = team("local.gw.claude")
+	fun noDomainYetMeansNoLocalSessions() {
 		val tagged = team("bob.gw.claude")
-		assertEquals(listOf(untagged), localSessions(listOf(untagged, tagged), adminDomainId = ""))
+		assertEquals(emptyList<Team>(), localSessions(listOf(tagged), adminDomainId = ""))
 	}
 }

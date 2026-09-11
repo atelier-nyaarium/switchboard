@@ -59,7 +59,7 @@ describe("two linked Domains", () => {
 	const share = async (peer: DomainPeer, team: string, toDomainId: string, kind: "share" | "unshare" = "share") => {
 		const op = kind === "share" ? "cross_domain_share" : "cross_domain_unshare";
 		const target = { kind: "domain" as const, domainId: toDomainId };
-		const mirrored = await peer.phone.value({ kind: op, sessionTarget: team, target });
+		const mirrored = await peer.phone.value({ kind: op, sessionTarget: peer.target(team), target });
 		expect(mirrored.result, JSON.stringify(mirrored.result)).toMatchObject({ ok: true });
 	};
 

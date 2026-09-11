@@ -37,7 +37,7 @@ export function createHumanNotifyRoutes({
 		dataDir,
 		ownerId,
 		routerClient,
-		localDomainId: config.localDomainId ?? undefined,
+		localDomainId: config.localDomainId,
 		producerSignPriv,
 		ownerSignPub,
 		contentKeyStore,

@@ -247,4 +247,31 @@ class VaultManagerTest {
 		reopened.wipe()
 		assertTrue(reopened.live().isEmpty())
 	}
+
+	@Test
+	fun anotherLineageDropsTheListAndAnAnswerBegunUnderTheOldOneLandsNothing() {
+		val vault = VaultManager(FakeStore())
+		vault.adoptEpoch(1L)
+		vault.applyList(list(40L, 0L, entry("old")))
+		val begun = vault.generation
+
+		vault.adoptEpoch(2L)
+		assertTrue(vault.live().isEmpty())
+		assertEquals(0L, vault.routerRevision)
+		assertFalse(vault.applyList(list(41L, 0L, entry("old")), generation = begun))
+		vault.applyWrite(entry("old", revision = 2L), 42L, generation = begun)
+		assertTrue(vault.live().isEmpty())
+
+		assertTrue(vault.applyList(list(1L, 0L, entry("new"))))
+		assertEquals(listOf("new"), vault.live().map { it.clear.id })
+	}
+
+	@Test
+	fun anUnknownLineageKeepsTheStoredListAndListsFromZero() {
+		val vault = VaultManager(FakeStore())
+		vault.applyList(list(7L, 0L, entry("kept")))
+		vault.adoptEpoch(5L)
+		assertEquals(listOf("kept"), vault.live().map { it.clear.id })
+		assertEquals(0L, vault.routerRevision)
+	}
 }

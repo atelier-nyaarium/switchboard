@@ -17,8 +17,6 @@ class GroupByGatewayTest {
 
 	@Test
 	fun aRosterGatewayWithNoSessionsStillGetsASection() {
-		// A second machine registers, relays, and would draw nothing, because the sections were built
-		// from session rows and it has none.
 		val rows = listOf(team("alice.sakura.claude"))
 		val groups = groupByGateway(rows, testRegistry("sakura", "ql-2815"), adminDomainId = "alice")
 		assertEquals(listOf("ql-2815", "sakura"), keys(groups))
@@ -41,13 +39,6 @@ class GroupByGatewayTest {
 			listOf("alice/mmm", "alice/sakura", "alice/zzz", "bob/aaa"),
 			groups.map { "${it.first.domainId}/${it.first.gatewayId}" },
 		)
-	}
-
-	@Test
-	fun aSessionStillNamedByTheLocalSentinelJoinsTheOwnDomain() {
-		val rows = listOf(team("local.sakura.claude"))
-		val groups = groupByGateway(rows, testRegistry("sakura"), adminDomainId = "alice")
-		assertEquals(listOf(GatewayGroupKey("alice", "sakura")), groups.map { it.first })
 	}
 
 	@Test

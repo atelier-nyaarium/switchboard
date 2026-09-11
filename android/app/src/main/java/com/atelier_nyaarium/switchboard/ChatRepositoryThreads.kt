@@ -2,7 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.Target
-import com.atelier_nyaarium.switchboard.proto.parseTarget
+import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
@@ -41,8 +41,8 @@ fun ChatRepository.markRead(team: String) {
  * canonicalize before adding or the same session lands as two tabs. Returns the canonical key so
  * the caller can point its active-tab pointer at the same value. Does NOT clear unread - reading
  * a thread is what clears it now (the scroll-driven receipt model), not the act of opening it. */
-fun ChatRepository.openThread(team: String): String {
-	val key = canonicalTarget(team)
+fun ChatRepository.openThread(team: String): String? {
+	val key = fromCanonical(team) ?: return null
 	_state.update { s ->
 		s.copy(
 			openTabs = if (key in s.openTabs) s.openTabs else s.openTabs + key,
@@ -98,14 +98,14 @@ fun ChatRepository.closeTab(team: String) {
 	// Canonicalize before touching openTabs/closedTeams (matching openThread's own key), so a
 	// non-canonical spelling of an already-open team can't silently miss the removal and mute
 	// the wrong (uncanonicalized) key instead.
-	val key = canonicalTarget(team)
+	val key = fromCanonical(team) ?: return
 	// Muted until reopened: full notification treatment (banner + TTS) downgrades to a
 	// quiet mailbox/unread-count bump for this team.
 	_state.update { it.copy(openTabs = it.openTabs - key, closedTeams = it.closedTeams + key) }
 	// Stop speaking a thread the user just closed, but KEEP its cache: a close is reopenable and
 	// the audio was already paid for. Only `forget` deletes.
 	repoScope.launch { playback.dropQueuedFor(key) }
-	val t = runCatching { parseTarget(team, localDomain(), _state.value.homeGatewayId) }.getOrNull()
+	val t = runCatching { parseQualifiedTarget(team) }.getOrNull()
 	if (t?.isCloseTabTarget() == true) {
 		drain.scope?.launch(Dispatchers.IO) {
 			runCatchingCancellable { client().closeSession(team) }

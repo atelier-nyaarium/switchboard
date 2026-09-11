@@ -93,9 +93,9 @@ class CrossDomainLinkTest {
 
 	@Test
 	fun mergeExcludesLocalFromBothInputs() {
-		// A local-tagged session and the local Domain id in the peer set must never list as a peer.
+		// The own Domain never lists as a peer, whether it arrives as a session or in the peer set.
 		val peers = CrossDomainLink.mergeLinkedDomains(
-			teams = listOf(team("local-gw/app", "alice"), team("local-gw/api", "local")),
+			teams = listOf(team("local-gw/app", "alice"), team("local-gw/api", "alice")),
 			peerOwners = mapOf("alice" to "local-owner"),
 			adminDomain = "alice",
 			labels = emptyMap(),

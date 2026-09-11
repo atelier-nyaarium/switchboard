@@ -26,7 +26,7 @@ const session = (team: string, over: Partial<TeamInfo> = {}): TeamInfo => ({
 	...over,
 });
 
-const address = (team: string) => Address.local("local", "gateway", ...(team.split(".") as [string, string]));
+const address = (team: string) => Address.of("local", "gateway", ...(team.split(".") as [string, string]));
 
 const landed = (team: string, over: Partial<CrossDomainPresenceSession> = {}): CrossDomainPresenceSession => ({
 	team,
