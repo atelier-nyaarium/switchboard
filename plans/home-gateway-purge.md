@@ -1282,8 +1282,19 @@ is the Router presence dirty hook plus the unlink and untrust teardown, and no l
 `respond` and `teams`; `RelayShareState` is `isSharedTo`. `CrossDomainPresenceEntrySchema`,
 `CrossDomainPresenceVersionSchema` and `toCrossDomainPresenceSession` stay for the Router's
 projection and the phone's reading of it. Lint, 2699 tests, the Kotlin gate, fixtures and boot
-green; `Protocol.kt` regenerated (`ConsoleListTeamsResult` and `CrossDomainPresenceKnownVersion`
-gone, the poll result's field gone).
+green; `Protocol.kt` regenerated (the poll result's field gone; the two schemas were never
+generated, one sat on the codegen allowlist).
+
+Audits (Codex spent; Opus took alignment and red team, Sonnet the prose): no runtime loss, since
+the phone already read the Router's `linked` and the landed state had no reader. Fixed from them:
+the map line, plane list and harness timer list that still described the road; a federation.md
+sentence naming `linked` as the one cross-Domain presence; `CrossDomainShareState.sharesFor`,
+`createRoutes`'s `localSpawnPoints` re-export and the label and description code-unit slices in
+`toCrossDomainPresenceSession` (now `sanitizeDescription` and a code-point cap, so the sanitizer
+has its caller back); the Router's friend cap reads `MAX_CROSSDOMAIN_PRESENCE_SESSIONS`; the
+residue fence names every deleted unit. On the board: the gateway `PlaneRegistry` and
+`ConsolePollResultSchema` with no reader (bd_9464aaac), and the friend freshness chip's meaning
+(bd_c6019853).
 
 - Deleted: `crossDomainPresenceSource.ts`, `crossDomainPresencePusher.ts`,
   `crossDomainPresenceConsumer.ts`, `crossDomainPresenceReconciler.ts`, `presenceExchange.ts`,

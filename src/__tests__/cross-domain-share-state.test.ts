@@ -35,13 +35,12 @@ describe("CrossDomainShareState", () => {
 		expect(reloaded.revision()).toBe(3);
 		expect(reloaded.all()).toEqual([]);
 		expect(reloaded.isSharedTo("alpha.gw.app.dev", "carol", () => true)).toBe(false);
-		expect(reloaded.sharesFor("carol", () => true)).toEqual([]);
 		expect(reloaded.apply({ revision: 4, put: [record("alpha.gw.next.dev")], del: [] })).toBe("applied");
 		expect(reloaded.isSharedTo("alpha.gw.next.dev", "carol", () => true)).toBe(false);
 		reloaded.replace({ revision: 4, shares: [record("alpha.gw.app.dev"), record("alpha.gw.next.dev")] });
-		expect(reloaded.sharesFor("carol", () => true)).toEqual(["alpha.gw.app.dev", "alpha.gw.next.dev"]);
+		expect(reloaded.all().map((s) => s.sessionTarget)).toEqual(["alpha.gw.app.dev", "alpha.gw.next.dev"]);
 		reloaded.unready();
-		expect(reloaded.sharesFor("carol", () => true)).toEqual([]);
+		expect(reloaded.all()).toEqual([]);
 	});
 
 	it("applies only the next revision and names a gap for anything else", () => {

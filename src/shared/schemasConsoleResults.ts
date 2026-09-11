@@ -10,7 +10,6 @@ import {
 } from "./schemasPolicy.js";
 import {
 	CrossDomainPeerEntrySchema,
-	GatewaySpawnPointsSchema,
 	LinkedPeersVersionSchema,
 	PresenceVersionSchema,
 	ReadAnchorsVersionSchema,

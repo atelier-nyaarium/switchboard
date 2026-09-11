@@ -30,7 +30,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/routes/addressing.ts` / `callerGuards.ts` / `relay.ts` - local address minting, the refusal gates, cross-Gateway relay
 - `src/gateway/routes/routesStatus.ts` / `routesCapabilities.ts` / `routesPresence.ts` - health, pending and teams; the capability fold; discovery
 - `src/gateway/routes/routesSend.ts` / `routesRespond.ts` / `routesBoard.ts` - the send, the reply and its poll, the task board
-- `src/gateway/routes/routesHumanNotify.ts` / `routesBlob.ts` / `routesFederationPresence.ts` - console push, the local-then-Router blob read, and presence exchange bindings
+- `src/gateway/routes/routesHumanNotify.ts` / `routesBlob.ts` - console push, and the local-then-Router blob read
 - `src/gateway/boot.ts` - `GatewayBootstrap.resolve`, the boot phase decision, the federation slice types, and `RouterHandlers` split into frames and presence
 - `src/gateway/router/registerAuth.ts` / `valueResult.ts` - the `gateway_register` frame and the `value_result` settlement, pure
 - `src/gateway/wake.ts` - container/session wake decisions

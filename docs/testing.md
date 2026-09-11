@@ -57,7 +57,7 @@ harness `now`, and its entropy is a per-instance stream seeded from a fresh draw
 one scenario never mint the same nonce. Its timers have two drives:
 
 - **"real"**, the harness default. Timers ride the process ones, so the persist tick, the presence
-  watch, the awareness tick, the inbox pump, and the reconciler fire on their own cadence and every
+  watch, the awareness tick, and the inbox pump fire on their own cadence and every
   scenario makes progress with no sleeps.
 - **"manual"**, per scenario. Nothing fires until `advance(ms)`, which runs each timer at its own
   deadline (intervals repeating) and yields to the event loop between firings, so the I/O and

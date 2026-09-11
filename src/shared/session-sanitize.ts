@@ -46,9 +46,9 @@ const DESCRIPTION_MAX = 120;
 // still stripped so an LLM answer cannot render blank or spoofed on the board.
 const DESCRIPTION_STRIP = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]/gu;
 
-/** Normalize a session description arriving from a friend's Gateway: controls/invisibles
- * STRIPPED rather than rejected (an LLM phrase with a stray newline should survive as one line, not
- * vanish), whitespace collapsed, capped on code points. Returns null when nothing remains. */
+/** Normalize a session description shown to a friend Domain: controls and invisibles STRIPPED
+ * rather than rejected (an LLM phrase with a stray newline survives as one line), whitespace
+ * collapsed, capped on code points. Returns null when nothing remains. */
 export function sanitizeDescription(raw: string | undefined | null): string | null {
 	const cleaned = (raw ?? "").replace(DESCRIPTION_STRIP, " ").replace(/\s+/g, " ").trim();
 	const capped = [...cleaned].slice(0, DESCRIPTION_MAX).join("").trim();

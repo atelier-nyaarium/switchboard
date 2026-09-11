@@ -143,8 +143,9 @@ over `planes_read` and the console socket) stand at a `PlaneLineage` and are rea
 The console reads versioned server-state snapshots through OwnerOps. `shared/plane-registry.ts`
 owns version identity, hash-gated bumps, held reads, and the 60s recovery tripwire.
 
-Planes: **presence**, **linked-peers**, **read-anchors** per owner, and **cross-domain-presence** per
-linked Domain.
+Planes: **presence**, **linked-peers**, **read-anchors** per owner. A linked friend's sessions ride
+the Router's presence projection as its `linked` field; no Gateway pushes or pulls presence to
+another.
 
 **Wire rule:** flat, hand-named optional fields. Kotlin codegen cannot reliably type generic maps or
 decode-side unions. An absent known-version ships nothing; an empty array ships current truth.

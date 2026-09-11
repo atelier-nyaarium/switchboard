@@ -12,7 +12,7 @@ const RETIRED =
 
 /** The Gateway-to-Gateway presence road; the Router's `linked` projection is the one cross-Domain presence. */
 const RETIRED_TS =
-	/\b(?:crossDomainPresenceConsumer|pullPresenceFromDomain|pushPresenceToDomain|presence_push|list_teams)\b/;
+	/\b(?:crossDomainPresence(?:Consumer|Source|Pusher|Reconciler)|presenceExchange|routesFederationPresence|presenceForDomain|pullPresenceFromDomain|pushPresenceToDomain|landCrossDomainPresence|stopPresencePushes|ListTeamsRelayResult|ConsoleListTeamsResult|presence_push|list_teams)\b/;
 
 /** Comments go; strings stay, since a wire key is one. */
 function code(file: string): string {

@@ -1,5 +1,8 @@
 import { mintEpoch } from "../../shared/epoch.js";
-import type { CrossDomainPresenceSession } from "../../shared/federation-protocol.js";
+import {
+	type CrossDomainPresenceSession,
+	MAX_CROSSDOMAIN_PRESENCE_SESSIONS,
+} from "../../shared/federation-protocol.js";
 import { type PresenceRow, presenceIdentityOf } from "../../shared/presence-identity.js";
 import { toCrossDomainPresenceSession } from "../../shared/presence-projection.js";
 import type { PlaneLineage } from "../../shared/schemasInbox.js";
@@ -247,7 +250,7 @@ export function createPresenceService(deps: {
 			});
 			if (session) sessions.push(session);
 		}
-		const bounded = sessions.slice(0, 200);
+		const bounded = sessions.slice(0, MAX_CROSSDOMAIN_PRESENCE_SESSIONS);
 		const identity = JSON.stringify(bounded.map(({ lastActive: _lastActive, ...rest }) => rest));
 		const plane = projectionPlane(domainId, `friend:${toDomainId}`, identity);
 		const projection = FriendPresenceProjectionSchema.parse({ plane: plane.plane, sessions: bounded });

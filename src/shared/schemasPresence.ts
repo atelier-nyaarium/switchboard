@@ -62,10 +62,8 @@ export const TeamInfoSchema = z
 	})
 	.meta({ id: "TeamInfo" });
 
-/** One source gateway's presence-plane version, as carried on the wire: an array of these (never
- * a map - codegen has no typed map, only an untyped JsonObject fallback outside the fixture
- * gates). `gateway` is the source gateway's id; today the array holds exactly one entry, this
- * gateway's own, until cross-Gateway presence exchange is implemented. */
+/** One source gateway's presence-plane version, as carried on the wire: an array of these, never a
+ * map, since codegen has no typed map. `gateway` is the source gateway's id. */
 export const PresenceVersionSchema = z
 	.object({
 		gateway: z.string(),

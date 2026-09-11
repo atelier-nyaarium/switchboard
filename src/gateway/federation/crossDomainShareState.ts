@@ -8,7 +8,6 @@ import {
 	isSharedTo as isShareSharedTo,
 	type ShareRecord,
 	type ShareState,
-	sharesFor as sharesForRule,
 	targetKey,
 } from "../../shared/share-rules.js";
 
@@ -112,10 +111,6 @@ export class CrossDomainShareState {
 	/** An unlinked Domain is shared nothing, whatever the Router holds. */
 	isSharedTo(sessionTarget: string, toDomainId: string, isLinked: (domainId: string) => boolean): boolean {
 		return this.ready && isLinked(toDomainId) && isShareSharedTo(this.state, sessionTarget, toDomainId, isLinked);
-	}
-
-	sharesFor(toDomainId: string, isLinked: (domainId: string) => boolean): string[] {
-		return this.ready && isLinked(toDomainId) ? sharesForRule(this.state, toDomainId, isLinked) : [];
 	}
 
 	all(): ShareRecord[] {

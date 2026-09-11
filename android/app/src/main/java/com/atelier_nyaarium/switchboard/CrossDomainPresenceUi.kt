@@ -18,14 +18,14 @@ enum class CrossDomainFreshness {
 	/** Refreshed once, but not recently enough to trust as current. */
 	STALE,
 
-	/** Nothing has landed for this Domain yet (linked, but no push/pull has arrived this session). */
+	/** No projection has landed for this Domain yet. */
 	UNKNOWN,
 }
 
 ////////////////////////////////
 //  Functions & Helpers
 
-/** Well above the Router projection's cadence, so ordinary timing never flashes a stale chip. */
+/** Well above the console poll interval; `lastRefreshedAt` moves only when the projection changes. */
 const val CROSS_DOMAIN_STALE_THRESHOLD_MS = 5 * 60_000L
 
 /** FRESH if `lastRefreshedAt` is within `staleThresholdMs` of `now`; STALE if older; UNKNOWN if there

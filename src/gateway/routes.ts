@@ -151,7 +151,7 @@ export function createRoutes(deps: RoutesDeps) {
 		routerClient: deps.routerClient,
 		ambient,
 	});
-	const { localSpawnPoints, discoverFull, discover } = createPresenceRoutes({
+	const { discoverFull, discover } = createPresenceRoutes({
 		config,
 		localDomain,
 		hostSpawnPoints: deps.hostSpawnPoints,
@@ -217,7 +217,6 @@ export function createRoutes(deps: RoutesDeps) {
 		teams,
 		discover,
 		discoverFull,
-		localSpawnPoints,
 		sendFromOwner,
 		sendFromSession,
 		acceptGatewaySend,

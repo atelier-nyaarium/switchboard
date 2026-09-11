@@ -1,4 +1,4 @@
-// The teardown an unlink or untrust runs on this Gateway.
+// The Router presence dirty hook, and the teardown an unlink or untrust runs on this Gateway.
 
 import type { CrossDomainUnlinkResult } from "../../shared/console-protocol.js";
 import type { FederationSlice } from "../boot.js";
