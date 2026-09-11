@@ -1225,6 +1225,11 @@ residue test's own name, or the sentence saying the phone has none. Test Domain 
 (`addressing.test.ts`, `console-targets.test.ts`, `ChatPersistenceTest`, `ChatStateWorkingTest`)
 stay: a Domain id is not a Gateway.
 
+Audits: one Luna word read (the Codex quota ran out under Sol's end-of-plan read, which ran on
+Opus instead). Luna found one test name still carrying the idea (`DeviceApprovalOpsTest`, renamed)
+and two history sentences (the retired-key comment, the console doc's runbook line), all
+rewritten; its other prose notes were rule comments and the plan's own record.
+
 ### Bug Classes
 
 - **Mechanism:** the phone's test fakes under concurrent coroutines. **Class:** shared test state

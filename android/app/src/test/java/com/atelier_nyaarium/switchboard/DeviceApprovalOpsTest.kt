@@ -27,7 +27,7 @@ class DeviceApprovalOpsTest {
 	}
 
 	@Test
-	fun aJoinBundleFromABuildThatCarriedAHomeGatewayIsRefused() {
+	fun aJoinBundleOfAnotherVersionIsRefused() {
 		val current = parseConsoleTransport("""{"version":2,"appToken":"token","domainId":"domain"}""")
 		assertEquals("domain", current.domainId)
 

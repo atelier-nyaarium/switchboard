@@ -74,8 +74,8 @@ notice row under its sender. Nothing on either side compares an address to the p
 ### No Gateway is the phone's own
 
 The phone holds no home Gateway and no default for one. Every console call names its Gateway, a
-cross-Domain pairing names the Gateway the wizard picked, and the runbook library is keyed by
-Gateway, so a library written before the copies were split decodes as empty. A phone target is
+cross-Domain pairing names the Gateway the wizard picked, and the runbook library is a map keyed by
+Gateway, so a library stored as one list decodes as empty. A phone target is
 `domain.gateway.spawn` or `domain.gateway.spawn.session`, parsed by `parseQualifiedTarget`, and the
 gateway's console handler refuses anything shorter. `home-gateway-residue.test.ts` refuses the old
 words on the phone.

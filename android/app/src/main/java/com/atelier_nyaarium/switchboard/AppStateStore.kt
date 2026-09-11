@@ -535,7 +535,7 @@ class AppStateStore internal constructor(
 			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_TASK_BOARD, KEY_VAULT, KEY_RUNBOOKS,
 		)
 
-		/** Keys an older build wrote that nothing reads; dropped on open. Remove after 2026-11-01. */
+		/** Dropped on open. Remove after 2026-11-01. */
 		val RETIRED_KEYS = listOf("gateway_id")
 
 		/** Keep every provisioning key here. */
