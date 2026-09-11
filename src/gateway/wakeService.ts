@@ -148,7 +148,12 @@ export class WakeService {
 		// Dropped wakes never answer.
 		if (!reached(requested)) return { ok: false, errorKind: "disconnected" };
 
-		console.log(`[wake] requesting ${wakeTeam} startup${projectPath ? ` (${projectPath})` : " (convention)"}`);
+		// The id asked for, so a record that comes back repointed can be paired with the request.
+		console.log(
+			`[wake] requesting ${wakeTeam} startup${projectPath ? ` (${projectPath})` : " (convention)"}${
+				resumeSessionId ? `, resuming ${resumeSessionId}` : ", no transcript to resume"
+			}`,
+		);
 
 		const result = await this.deps.wakeCoordinator.waitFor(wakeTeam, this.deps.wakeTimeoutMs);
 		console.log(`[wake] ${wakeTeam} ${result.ok ? "is now online" : "failed to come online"}`);

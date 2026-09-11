@@ -34,6 +34,7 @@ import { registerDesignerTools } from "./designer/designerTools.js";
 import { registerCompactSession } from "./devcontainer/compactSession.js";
 import { registerReloadPlugins } from "./devcontainer/reloadPlugins.js";
 import { registerSetEffortLevel } from "./devcontainer/setEffortLevel.js";
+import { bringUpLine, readResumeArg } from "./launchFacts.js";
 import type { LocalAgentBackend } from "./local/localAgentHost.js";
 import { createLocalAgentBackend } from "./local/localAgentHost.js";
 import { closeReferenceSession, setReferencesEnabled } from "./references/attachRefs.js";
@@ -117,7 +118,12 @@ export async function startMcp(): Promise<void> {
 	}
 	// A session launched without the daemon's env pin registers under a DERIVED name.
 	console.error(
-		`[bridge] identity ${process.env.PROJECT_NAME} (${envPinned ? "env-pinned" : "derived - manual launch?"})`,
+		bringUpLine({
+			team: process.env.PROJECT_NAME,
+			envPinned,
+			sessionId: process.env.CLAUDE_CODE_SESSION_ID,
+			resumedFrom: readResumeArg(process.ppid),
+		}),
 	);
 	if (!process.env.BRIDGE_ROUTER_URL) {
 		process.env.BRIDGE_ROUTER_URL = inContainer ? "http://switchboard:20000" : "http://localhost:20000";

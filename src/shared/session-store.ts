@@ -488,7 +488,15 @@ export class SessionStore {
 	}
 
 	private bind(record: SessionRecord, extra: { claudeSessionId?: string; live?: LiveRef }): SessionRecord {
-		if (extra.claudeSessionId) record.claudeSessionId = extra.claudeSessionId;
+		if (extra.claudeSessionId) {
+			// `--resume` mints a fresh id, so the record is repointed and the previous transcript is
+			// left with nothing naming it. Said out loud: it is the only trace of the fork.
+			const previous = record.claudeSessionId;
+			if (previous && previous !== extra.claudeSessionId) {
+				console.log(`[session] ${this.teamOf(record)} transcript ${previous} -> ${extra.claudeSessionId}`);
+			}
+			record.claudeSessionId = extra.claudeSessionId;
+		}
 		if (extra.live) record.liveTeam = extra.live;
 		record.lastSeen = this.now();
 		return record;
