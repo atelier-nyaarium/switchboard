@@ -1240,6 +1240,62 @@ rewritten; its other prose notes were rule comments and the plan's own record.
   (`next` is `@Synchronized` now). The class is a fixture built for one coroutine and reached by
   several; the third instance goes to the architecture pass as one thread-safe fixture base.
 
+## End-of-plan read
+
+Sol's quota was gone, so Opus took the brief (reports/final-read.md). Verdict: the home Gateway
+is dead and the Router holds every plane the plan moved; two things stand in the way of the ask
+as written.
+
+- **The cross-Domain presence road is still Gateway-to-Gateway, and nothing reads what it lands.**
+  `composeRouterPresence` arms a ten-second reconciler that pulls `list_teams` from every linked
+  Gateway, and a source and pusher that push `presence_push` to them; the friend's
+  `CrossDomainPresenceConsumer` lands it, and its state has two exits: the session-resume snapshot
+  and a plane dirty mark nothing waits on. The phone and `discoverFull` read the Router's
+  `linked` block, which `presenceService.friendProjection` builds from rows the Router holds.
+  Phase 6 touched the road and left it; the Painpoints said it would go. Phase 9 below.
+- **The blob migration one-off is armed in the live `.env`, and it holds the age sweep off.**
+  `ROUTER_BLOB_MIGRATION_TOKEN` is set, so `ageStaging` is false and a complete blob nothing names
+  never ages out on Sakura; the loopback door is open. Mikan's run is the owner's hand; the removal
+  is bd_f1e674ec (2026-09-25).
+- Fourteen dated or undated shims sit in the tree with one owner between them. Now owned:
+  the vault field flips of 2026-09-19 and 2026-09-22 (bd_f2bc8afc), the two 2026-11-01 shims
+  including this plan's own `RETIRED_KEYS` (bd_1cf7b2b8), and the eight undated compatibility
+  readers with the two result fields optional below the floor (bd_f4d2ddea).
+- Every claim in "Other non-centralized legacy found" and "What the audits refuted" matches the
+  code, but for the two above. One gate hole named: `home-gateway-residue.test.ts` reads the phone
+  only; Phase 9 extends it to `src/`.
+
+## Phase 9 - The Gateway-to-Gateway presence road dies
+
+The last state the plan set out to centralize that still travels Gateway to Gateway. A purge, not
+a redesign: the Router's `linked` projection is the one cross-Domain presence.
+
+- Deleted: `crossDomainPresenceSource.ts`, `crossDomainPresencePusher.ts`,
+  `crossDomainPresenceConsumer.ts`, `crossDomainPresenceReconciler.ts`, `presenceExchange.ts`,
+  `routesFederationPresence.ts`; `composeRouterPresence`'s source, pusher and reconciler (the
+  `onMarkDirty` hook keeps `federation.markPresenceDirty`, the Router road; `unlinkDomain` and
+  `untrustOwner` keep their peer, share and job teardown); `RouterPresenceHandlers.presenceSource`
+  and `stopPresencePushes` in `boot.ts`; the consumer in `composeSessions` and the
+  `crossDomainPresence` slot of the session-resume snapshot (`composeStores` restore reads it no
+  more); `presenceForDomain`, `pushPresenceToDomain`, `pullPresenceFromDomain` and
+  `crossDomainPresenceConsumer` from `routes.ts`, `composeRoutes.ts` and `GatewayRoutes`;
+  `presence_push` and `list_teams` from `FederatedOpSchema` and their arms in `gatewayRelay.ts`
+  (`landCrossDomainPresence` with them); `ListTeamsRelayResultSchema`;
+  `ConsoleListTeamsResultSchema` from `schemasConsoleResults.ts` and the result union.
+- Kept: `presence-projection.ts` and `CrossDomainPresenceSessionSchema`, which the Router's
+  `friendProjection` and the presence plane use; `crossDomainPeers`, `sharesFor`, the share copy.
+- Tests: `cross-domain-presence.test.ts` keeps the projection cases and loses the landing, pusher,
+  reconciler and source cases; the `list_teams` relay case in `inbox-delivery-pump.test.ts` and
+  `relay-refusal.test.ts` move to another op kind; harness scenarios that read a friend's sessions
+  read `presence_read`'s `linked`.
+- `BoardOps.kt`'s `gatewayId.isEmpty()` disjunct goes: a parsed address has no empty segment.
+- `home-gateway-residue.test.ts` also reads `src/` for the phone's retired words and for
+  `crossDomainPresenceConsumer`, `pullPresenceFromDomain`, `presence_push` and `list_teams`.
+- Docs: `AGENTS.md` map entries for the four federation files, `composeRouterPresence`,
+  `routesFederationPresence` and `presenceExchange`; `docs/federation.md` and `docs/architecture.md`
+  where they describe the push and pull.
+- Deploy: Router unchanged; Gateway (`./start-gateway.sh`) after the push; no phone change.
+
 ## Painpoints
 
 Collected after Phase 0. Not fixed here.
