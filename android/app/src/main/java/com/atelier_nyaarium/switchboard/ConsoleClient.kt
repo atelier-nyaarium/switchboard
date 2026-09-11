@@ -51,7 +51,7 @@ class ConsoleClient internal constructor(
 	private val coordinator: ConsoleTransportCoordinator? = null,
 	private val collaborators: ConsoleClientCollaborators,
 ) {
-	internal val transport = ConsoleRouterTransport(boot.credentials, store, collaborators.homeGatewayId, collaborators.saveProvisioning)
+	internal val transport = ConsoleRouterTransport(boot.credentials, store, collaborators.saveProvisioning)
 
 	/** Content-addressed blob staging. */
 	internal val blobs = BlobStore(BlobStore.root(store.filesDir))

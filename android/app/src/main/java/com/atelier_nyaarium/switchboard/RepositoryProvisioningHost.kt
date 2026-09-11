@@ -40,7 +40,7 @@ internal class ChatRepositoryProvisioningHost(private val repo: ChatRepository) 
 	override fun transport(): ConsoleRouterTransport {
 		cachedTransport?.let { return it }
 		val blob = repo.store.load() ?: error("not provisioned")
-		return ConsoleRouterTransport(ConsoleCredentials.parse(blob, repo.store), repo.store, { repo.homeGatewayId }, repo.identity::saveBlob).also {
+		return ConsoleRouterTransport(ConsoleCredentials.parse(blob, repo.store), repo.store, repo.identity::saveBlob).also {
 			cachedTransport = it
 		}
 	}

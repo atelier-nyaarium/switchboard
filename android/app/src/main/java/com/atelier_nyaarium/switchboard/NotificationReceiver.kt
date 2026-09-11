@@ -35,7 +35,7 @@ class NotificationReceiver : BroadcastReceiver() {
 			if (intent.action != ACTION_VAULT_DENY) return
 			return repo.command { vaultOps.answerById(requestId, com.atelier_nyaarium.switchboard.vault.VAULT_DECISION_DENY) }
 		}
-		val team = intent.getStringExtra(SwitchboardService.EXTRA_OPEN_TEAM) ?: return
+		val team = intent.getStringExtra(SwitchboardService.EXTRA_OPEN_TEAM)?.let(repo::fromCanonical) ?: return
 		val at = intent.getLongExtra(SwitchboardService.EXTRA_MESSAGE_AT, -1L)
 		when (intent.action) {
 			ACTION_MARK_READ -> repo.markRead(team)

@@ -31,7 +31,6 @@ internal interface ConsoleReach {
 internal class ConsoleRouterTransport(
 	internal val credentials: ConsoleCredentials,
 	internal val store: AppStateStore,
-	private val homeGatewayId: (() -> String?)?,
 	private val saveProvisioning: (String) -> Unit,
 ) : ConsoleSocketTransport, ConsoleReach {
 	internal val client = ConsoleHttp.buildLeafPinnedClient(credentials.routerCertFp)

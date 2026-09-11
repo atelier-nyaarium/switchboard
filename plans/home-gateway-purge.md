@@ -663,13 +663,17 @@ Rules:
   `consoleTargets.parse` is `parseQualifiedTarget`, so every console method refuses a bare name
   ahead of its own check; `console-target-residue.test.ts` bans `parseTarget` under `console/`
   outright. `consoleHandler.reserveRoutineSession` qualifies the routine's spawn on this Gateway
-  before it reaches the lifecycle, the one gateway-internal caller of a console target.
-  `GatewayConfig.localDomainId` is a string; `composeRoutes.current()` is null until a Domain is
+  before it reaches the lifecycle, the one gateway-internal caller of a console target. The
+  routes' `GatewayConfig` (`src/shared/types.ts`, not the compose deps' namesake in
+  `gatewayTypes.ts`) carries `localDomainId` as a string; `composeRoutes.current()` is null until a Domain is
   active and `httpRouter` answers `unenrolledHealth` on `/health` and `503 NOT_ENROLLED` on every
   other route, the enrollment posts excepted (`http-router.test.ts`). The roads that only run
   active read `FederationContext.activeDomainId()`, which throws rather than filling a blank.
   `sessionAuthority.localTeamKey` answers null with no Domain. `localSessions` with no admin
-  Domain lists nothing. The harness gained `DomainPeer.target(team)`; every console op it sends
+  Domain lists nothing. On the phone `localDomain()` still answers empty before the boot is
+  Ready rather than refusing; every caller runs after Ready, `Address.of` refuses an empty
+  segment, and the one reader that minted on it (`thisDeviceAddress`) goes in Phase 4.
+  `NotificationReceiver` and `scheduleSend` refuse an unqualified key at their door. The harness gained `DomainPeer.target(team)`; every console op it sends
   is qualified, and a bare `tmux_send` is asserted refused. `check-boot-runtime` creates
   `${domain}.${gateway}.host`. Carriers: `RunbookTargets` offers qualified spawn points and
   `Team.name` addresses with the short label beside them, since the fire sheet sent bare ones;

@@ -70,6 +70,10 @@ internal class ScheduledSendOps(
 			val fileRefs = Attachments.storeOutgoing(filesDir, "sched-$opId", picked)
 			val adminDomain = identity.readyOrNull()?.domainId
 			val canonical = collaborators.fromCanonical(team)
+			if (canonical == null) {
+				state.update { it.copy(error = "That session has no address to send to.") }
+				return@withContext false
+			}
 			val targetDomainId = state.value.teams
 				.firstOrNull { it.name == canonical }
 				?.domainId

@@ -14,14 +14,14 @@ function socket(boundToken?: string): { data: WsData } {
 	return { readyState: 1, data: { boundToken, handshakeConfirmed: true } as WsData } as { data: WsData };
 }
 
-function setup() {
+function setup(localDomainId: () => string | null = () => "alice") {
 	const sessionStore = new SessionStore({ ambient: processAmbient() });
 	const registry: TeamRegistry = new Map();
 	const auth = createSessionAuthority({
 		sessionStore,
 		registry,
 		resolveLive: resolveLiveIncarnation,
-		localDomainId: () => "alice",
+		localDomainId,
 		localGatewayId: "sakura",
 	});
 	return { auth, sessionStore, registry };
@@ -166,6 +166,13 @@ describe("resolving a caller-supplied name", () => {
 		expect(auth.localTeamKey("recipe-app.abc123 ")).toBeNull();
 		expect(auth.localTeamKey("RECIPE-APP.ABC123")).toBeNull();
 		expect(auth.localTeamKey("bob.othergw.recipe-app.abc123")).toBeNull();
+	});
+
+	it("resolves nothing before a Domain exists, whatever the spelling", () => {
+		const { auth } = setup(() => null);
+
+		expect(auth.localTeamKey("recipe-app.abc123")).toBeNull();
+		expect(auth.localTeamKey("alice.sakura.recipe-app.abc123")).toBeNull();
 	});
 });
 
