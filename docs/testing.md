@@ -105,7 +105,7 @@ The phone driver's `reach()` is the token-gated reach and gateway roster. A frie
 The coordinators and services behind the scenarios keep pure-rule suites beside them:
 `cross-domain-handshake` (limits, cancellation, mismatch refusals), `router-coordinators`
 (rendezvous, approval, and tenant limits), `owner-op-intake` (in-flight duplicates, caps,
-admission refusals, quarantine), `cross-domain-presence` (consumer, pusher, reconciler, source),
+admission refusals, quarantine), `cross-domain-presence` (the projection a friend is shown),
 `share-rules`, `cross-domain-share-state` (the copy fails closed until a snapshot lands, a delta at
 the next revision only, a snapshot replacing an older copy), `vault-service` (caps, tombstones, the delta floor, quarantine), `vault-client` (the
 delta copy, the revision reset, unavailable answers), `vault-decisions` (shapes, tiers, reopen, a

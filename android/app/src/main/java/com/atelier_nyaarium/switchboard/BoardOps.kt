@@ -59,7 +59,7 @@ internal class BoardOps(
 	fun boardAssignTargets(): List<Team> {
 		val members = state.value.gateways.ids().toSet()
 		return state.value.teams.filter {
-			it.kind != "console" && it.kind != "devcontainer" && (it.gatewayId.isEmpty() || it.gatewayId in members)
+			it.kind != "console" && it.kind != "devcontainer" && it.gatewayId in members
 		}
 	}
 

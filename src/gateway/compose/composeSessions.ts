@@ -8,7 +8,6 @@ import type { HostSpawnState } from "../../shared/host-spawn.js";
 import { PlaneRegistry } from "../../shared/plane-registry.js";
 import { type CodexCatalogWriter, type CopilotCatalogWriter, SessionStore } from "../../shared/session-store.js";
 import type { TrustedCatalogProject } from "../console/consoleTypes.js";
-import { CrossDomainPresenceConsumer } from "../federation/crossDomainPresenceConsumer.js";
 import { IntentTracker } from "../intent.js";
 import { PresenceFacade } from "../presence.js";
 import { ReadAnchors } from "../readAnchors.js";
@@ -42,7 +41,6 @@ export interface SessionsStage {
 	sessionAuthority: SessionAuthority;
 	intentTracker: IntentTracker;
 	readAnchors: ReadAnchors;
-	crossDomainPresenceConsumer: CrossDomainPresenceConsumer;
 	tripwireTimer: IntervalHandle;
 	sessionResumeSnapshot: (cleanShutdown: boolean) => Record<string, unknown>;
 }
@@ -128,14 +126,10 @@ export function composeSessions({ localGatewayId, ambient, stores, context }: Se
 	const intentTracker = new IntentTracker({ ambient });
 	const readAnchors = new ReadAnchors(planeRegistry, stores.restored.planes);
 	readAnchors.restore(stores.restored.readAnchors);
-	const crossDomainPresenceConsumer = new CrossDomainPresenceConsumer(planeRegistry, stores.restored.planes, ambient);
-	crossDomainPresenceConsumer.restore(stores.restored.crossDomainPresence);
-
 	const sessionResumeSnapshot = (cleanShutdown: boolean) => ({
 		sessions: sessionStore.snapshot(),
 		planes: planeRegistry.persistedState(cleanShutdown),
 		readAnchors: readAnchors.snapshot(),
-		crossDomainPresence: crossDomainPresenceConsumer.snapshot(),
 	});
 	persistAgentCatalogChecked = () => stores.sessionResumeDurable.saveChecked(sessionResumeSnapshot(false));
 	if (!codexCatalogWriter || !copilotCatalogWriter) throw new Error("Agent catalog writers were not initialized");
@@ -157,7 +151,6 @@ export function composeSessions({ localGatewayId, ambient, stores, context }: Se
 		sessionAuthority,
 		intentTracker,
 		readAnchors,
-		crossDomainPresenceConsumer,
 		tripwireTimer,
 		sessionResumeSnapshot,
 	};

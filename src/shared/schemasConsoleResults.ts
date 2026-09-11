@@ -10,7 +10,6 @@ import {
 } from "./schemasPolicy.js";
 import {
 	CrossDomainPeerEntrySchema,
-	CrossDomainPresenceEntrySchema,
 	GatewaySpawnPointsSchema,
 	LinkedPeersVersionSchema,
 	PresenceVersionSchema,
@@ -93,18 +92,6 @@ export const DiscoverAnswerSchema = z
 	})
 	.meta({ id: "DiscoverAnswer" });
 
-export const ConsoleListTeamsResultSchema = z
-	.object({
-		teams: z.array(TeamInfoSchema),
-		// Optional: absent from an older gateway, which claims nothing about completeness.
-		coverage: DiscoverCoverageSchema.optional(),
-		// What each Gateway's machine offers beyond `host`. Absent from an older gateway, and absent
-		// for a peer reached through an older ROUTE gateway, whose relay schema strips it. So absence
-		// means "not advertised", never "this machine has no Windows side".
-		spawnPoints: z.array(GatewaySpawnPointsSchema).max(64).optional(),
-	})
-	.meta({ id: "ConsoleListTeamsResult" });
-
 export const ConsoleSendResultSchema = z
 	.object({
 		session_id: z.string(),
@@ -155,26 +142,12 @@ export const ConsolePollResultSchema = z
 		taskBoard: z.array(BoardEntrySchema).optional(),
 		taskBoardVersion: TaskBoardVersionSchema.optional(),
 		taskBoardTruncated: z.boolean().optional(),
-		// Cross-Domain presence: unlike every plane above, genuinely N independently-versioned
-		// planes (one per linked Domain), so this carries only the SUBSET of linked Domains whose
-		// plane actually changed relative to knownCrossDomainPresenceVersions - never a full resend
-		// of every linked Domain the way presence's single-plane piggyback above does.
-		crossDomainPresence: z.array(CrossDomainPresenceEntrySchema).optional(),
 		// Why this poll settled: which plane's bump woke it (or a mailbox append, or the hold simply
 		// elapsing). The Console's instant-empty-response heuristic (its old-gateway degradation
 		// signal) reads this so a plane-only settle - empty mailbox entries, no gap - is never
 		// misread as a broken gateway and does not trip its backoff.
 		settled: z
-			.enum([
-				"mailbox",
-				"presence",
-				"crossDomainPresence",
-				"linkedPeers",
-				"readAnchors",
-				"taskBoard",
-				"domain",
-				"timeout",
-			])
+			.enum(["mailbox", "presence", "linkedPeers", "readAnchors", "taskBoard", "domain", "timeout"])
 			.optional(),
 	})
 	.meta({ id: "ConsolePollResult" });
@@ -434,7 +407,6 @@ export const CrossDomainUnlinkResultSchema = z
  * ok=false + error on the reply body, so the console's queue can tell "retire" from "retry". */
 export const ConsoleOpResultSchema = z.union([
 	ConsoleRegisterResultSchema,
-	ConsoleListTeamsResultSchema,
 	ConsoleSendResultSchema,
 	ConsoleRespondResultSchema,
 	ConsolePollResultSchema,

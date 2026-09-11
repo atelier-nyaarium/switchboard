@@ -22,7 +22,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/compose/composeWebSockets.ts` - session sockets and held-delivery handover
 - `src/gateway/compose/composeRoutes.ts` - the route surface, built once a Domain is active and rebuilt when federation activates; null before, so no route mints an address
 - `src/gateway/compose/composeRouterFrames.ts` - Router frame dispatch and the console dispatcher
-- `src/gateway/compose/composeRouterPresence.ts` - cross-Domain presence pipeline, unlink and untrust teardown
+- `src/gateway/compose/composeRouterPresence.ts` - the Router presence dirty hook, unlink and untrust teardown
 - `src/gateway/compose/composeListener.ts` - the HTTP entry point and the shutdown flush
 - `src/gateway/compose/composeFaults.ts` - the fault port's construction
 - `src/gateway/httpRouter.ts` - HTTP dispatch, the enrollment routes, and the blob routes; before a Domain it answers health and enrollment alone
@@ -121,10 +121,6 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     again. No sweep, no touch, no drop lives here.
 - `src/gateway/federation/contentKeyStore.ts` - gateway keyring, sole rule owner, sole writer of `content-keys.json`
 - `src/gateway/federation/bootstrapInstall.ts` - staged bootstrap install and re-enrollment merge
-- `src/gateway/federation/crossDomainPresenceSource.ts` - source-side change detection and its outbound plane
-- `src/gateway/federation/crossDomainPresencePusher.ts` - per-destination push coalescing and retry
-- `src/gateway/federation/crossDomainPresenceConsumer.ts` - landed state from a linked friend's push
-- `src/gateway/federation/crossDomainPresenceReconciler.ts` - backstop pull, decoupled from the console poll loop
 - `src/gateway/codexAgentService.ts` / `codexRelay.ts` / `codexRoute.ts` - Codex catalog orchestration, relay folding, authenticated route
 - `src/gateway/codexAgentReducers.ts` - Codex pure decision functions: acceptance verdicts, activity and terminal folds
 - `src/gateway/codexAgentApply.ts` - Codex daemon event and receipt folding, with its fence checks

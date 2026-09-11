@@ -550,7 +550,7 @@ describe("inbox delivery pump", () => {
 		const handled: unknown[] = [];
 		await peer
 			.pump({
-				sealer: { openWithSource: () => ({ body: { kind: "list_teams" }, srcDomainId: "friend" }) },
+				sealer: { openWithSource: () => ({ body: { kind: "wake", team: "app.chat" }, srcDomainId: "friend" }) },
 				peerHandler: async (op: unknown, srcGateway: string, srcDomainId: string | null) =>
 					handled.push([op, srcGateway, srcDomainId]),
 			})
@@ -559,7 +559,7 @@ describe("inbox delivery pump", () => {
 				rows: [row("peer", { ephemeralPub: "YQ==", nonce: "Yg==", ciphertext: "Yw==", signature: "ZA==" })],
 				deliveryEpoch: 1,
 			});
-		expect(handled).toEqual([[{ kind: "list_teams" }, "origin", "friend"]]);
+		expect(handled).toEqual([[{ kind: "wake", team: "app.chat" }, "origin", "friend"]]);
 		expect(peer.calls.at(-1)).toMatchObject({ action: "inbox_ack", params: { outcome: "delivered" } });
 	});
 

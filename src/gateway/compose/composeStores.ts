@@ -27,7 +27,6 @@ export interface RestoredState {
 	sessions: unknown;
 	planes: Record<string, PlanePersistedState> | undefined;
 	readAnchors: unknown;
-	crossDomainPresence: unknown;
 }
 
 export interface StoresStage {
@@ -94,17 +93,15 @@ export function composeStores(deps: StoresStageDeps): StoresStage {
 function readRestoredState(sessionResumeDurable: DurableStore): RestoredState {
 	const raw = sessionResumeDurable.load();
 	const wrapped = raw !== null && typeof raw === "object" && "sessions" in raw;
-	if (!wrapped) return { sessions: raw, planes: undefined, readAnchors: undefined, crossDomainPresence: undefined };
+	if (!wrapped) return { sessions: raw, planes: undefined, readAnchors: undefined };
 	const record = raw as {
 		sessions?: unknown;
 		planes?: Record<string, PlanePersistedState>;
 		readAnchors?: unknown;
-		crossDomainPresence?: unknown;
 	};
 	return {
 		sessions: record.sessions,
 		planes: record.planes,
 		readAnchors: record.readAnchors,
-		crossDomainPresence: record.crossDomainPresence,
 	};
 }

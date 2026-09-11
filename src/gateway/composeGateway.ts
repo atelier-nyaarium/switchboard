@@ -82,7 +82,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			routes.rebuild();
 			presenceHandlers = routerPresence.build(slice);
 			frames = routerFrames.build(slice, presenceHandlers);
-			slice.handlers = { frames, presence: presenceHandlers };
+			slice.handlers = { frames };
 			// Here rather than beside the active boot, so enrolling into an arming one arms this too.
 			routines?.start();
 		},
@@ -188,14 +188,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		secretUnanswered: (target, entryId) => routines.secretUnanswered(target, entryId),
 		policies: () => policies.store,
 	});
-	routerPresence = composeRouterPresence({
-		ambient: bootstrap.ambient,
-		context,
-		stores,
-		sessions,
-		federation,
-		routes: requireRoutes,
-	});
+	routerPresence = composeRouterPresence({ stores, sessions, federation });
 	const runbooks = composeRunbooks({
 		dataDir: bootstrap.dataDir,
 		onRunbookMoved: (runbookId) => routines.runbookMoved(runbookId),
@@ -258,7 +251,6 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		enrollment,
 		websockets,
 		routes,
-		routerPresence,
 		vault,
 	});
 

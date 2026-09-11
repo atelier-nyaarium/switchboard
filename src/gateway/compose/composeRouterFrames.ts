@@ -192,7 +192,6 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			shareState: {
 				isSharedTo: (sessionTarget, domainId) =>
 					slice.shareState.isSharedTo(sessionTarget, domainId, isLinkedDomain),
-				sharesFor: (domainId) => slice.shareState.sharesFor(domainId, isLinkedDomain),
 			},
 			crossDomainBinding: (sessionId) => stores.jobs.crossDomainBinding(sessionId),
 		});

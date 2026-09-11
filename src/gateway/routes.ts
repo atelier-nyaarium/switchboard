@@ -11,7 +11,6 @@ import { createRelay } from "./routes/relay.js";
 import { createBlobRoutes } from "./routes/routesBlob.js";
 import { createBoardRoutes } from "./routes/routesBoard.js";
 import { createCapabilityRoutes } from "./routes/routesCapabilities.js";
-import { createFederationPresenceRoutes } from "./routes/routesFederationPresence.js";
 import { createHumanNotifyRoutes } from "./routes/routesHumanNotify.js";
 import { createPresenceRoutes } from "./routes/routesPresence.js";
 import { createRespondRoutes } from "./routes/routesRespond.js";
@@ -54,12 +53,6 @@ export interface RoutesDeps {
 	resolvesLocalGateway?: ((gatewayId: string) => boolean) | null;
 	// Whether a local session is still shared to a friend Domain.
 	isSharedToForReply?: ((sessionTarget: string, domainId: string) => boolean) | null;
-	// The session targets shared to a friend Domain.
-	sharesFor?: ((domainId: string) => string[]) | null;
-	// Where landed cross-Domain presence goes.
-	crossDomainPresenceConsumer?:
-		| import("./federation/crossDomainPresenceConsumer.js").CrossDomainPresenceConsumer
-		| null;
 	resolveHandshake?: (
 		sessionId: string,
 		replyAsJson?: Record<string, unknown>,
@@ -141,21 +134,6 @@ export function createRoutes(deps: RoutesDeps) {
 		ownerSignPub: deps.ownerSignPub,
 		routerClient: deps.routerClient,
 	});
-	const {
-		presenceForDomain,
-		pushPresenceToDomain,
-		pullPresenceFromDomain,
-		landCrossDomainPresence,
-		invalidatePresenceSnapshotCache,
-	} = createFederationPresenceRoutes({
-		presence: deps.presence,
-		sharesFor: deps.sharesFor,
-		crossDomainPeers: deps.crossDomainPeers,
-		crossDomainPresenceConsumer: deps.crossDomainPresenceConsumer,
-		tryLocalAddress,
-		relayToGateway,
-	});
-
 	const { pending, teams, health } = createStatusRoutes({
 		config,
 		registry: deps.registry,
@@ -252,11 +230,6 @@ export function createRoutes(deps: RoutesDeps) {
 		deliverToOwner,
 		pluginAction,
 		taskBoard,
-		presenceForDomain,
-		landCrossDomainPresence,
-		pushPresenceToDomain,
-		pullPresenceFromDomain,
-		invalidatePresenceSnapshotCache,
 		namesBlob: consolePush.namesBlob,
 		retireStaging: consolePush.retireStaging,
 		stop: consolePush.stop,

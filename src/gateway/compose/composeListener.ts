@@ -11,7 +11,6 @@ import type { EnrollmentStage } from "./composeEnrollment.js";
 import type { FederationStage } from "./composeFederation.js";
 import type { HostStage } from "./composeHost.js";
 import type { PersistenceStage } from "./composePersistence.js";
-import type { RouterPresenceStage } from "./composeRouterPresence.js";
 import type { RoutesStage } from "./composeRoutes.js";
 import type { RoutineStage } from "./composeRoutines.js";
 import type { SessionsStage } from "./composeSessions.js";
@@ -38,7 +37,6 @@ export interface ListenerStageDeps {
 	enrollment: Pick<EnrollmentStage, "handleEnrollPost" | "stop">;
 	websockets: Pick<WebSocketsStage, "wsHandlers" | "channelDeliveries">;
 	routes: Pick<RoutesStage, "current" | "stop">;
-	routerPresence: Pick<RouterPresenceStage, "stop">;
 	/** Required: an omitted stage leaves a routine's own session with no door, and typechecks. */
 	routines: Pick<RoutineStage, "stop" | "routes">;
 	vault: Pick<VaultStage, "routes">;
@@ -100,16 +98,13 @@ export function composeListener(deps: ListenerStageDeps): ListenerStage {
 		ambient.clearInterval(host.presenceWatchTimer);
 		ambient.clearInterval(awareness.awarenessTimer);
 		ambient.clearInterval(websockets.wsHandlers.heartbeatInterval);
-		deps.routerPresence.stop();
 		deps.enrollment.stop();
 		routes.stop();
 		stores.jobs.stopCleanup();
 		awareness.awareness.stop();
 		deps.federation.stop();
 		sessions.sessionReporter.detach();
-		const slice = context.slice();
-		slice?.handlers?.presence.stopPresencePushes();
-		slice?.routerClient.stop();
+		context.slice()?.routerClient.stop();
 	}
 
 	return { router, close };

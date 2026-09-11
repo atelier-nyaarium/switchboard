@@ -26,7 +26,6 @@ const PROTOCOL = path.join(
  */
 /** Answers no phone code asks for, so no phone type is missing. */
 const ALLOWLIST = new Map([
-	["ConsoleListTeamsResult", "the phone reads teams from presence, never from this op"],
 	["ConsoleRegisterResult", "registration is answered over the socket, and no phone code parses this"],
 ]);
 

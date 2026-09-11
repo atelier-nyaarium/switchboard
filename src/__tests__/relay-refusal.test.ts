@@ -37,7 +37,7 @@ describe("relay target refusal", () => {
 	it("refuses a Gateway nothing resolves, with the reason and without sealing", async () => {
 		const relay = relayWith([["aria", "desktop"]]);
 		expect(relay.targetDomainId("nobody")).toBeNull();
-		await expect(relay.relayToGateway("nobody", { kind: "list_teams" })).resolves.toEqual({
+		await expect(relay.relayToGateway("nobody", { kind: "wake", team: "app.chat" })).resolves.toEqual({
 			ok: false,
 			error: expect.stringContaining("nobody"),
 		});
@@ -50,7 +50,7 @@ describe("relay target refusal", () => {
 		]);
 		expect(relay.targetDomainId("desktop")).toBeNull();
 		expect(relay.targetDomainId("desktop", "briar")).toBe("briar");
-		await expect(relay.relayToGateway("desktop", { kind: "list_teams" })).resolves.toEqual({
+		await expect(relay.relayToGateway("desktop", { kind: "wake", team: "app.chat" })).resolves.toEqual({
 			ok: false,
 			error: expect.stringContaining("ambiguous"),
 		});

@@ -74,7 +74,6 @@ export const FederatedOpSchema = z.discriminatedUnion("kind", [
 		disposition: z.enum(["asking", "informing", "closing"]).optional(),
 		returnRoute: ReturnRouteSchema,
 	}),
-	z.object({ kind: z.literal("list_teams") }),
 	z.object({ kind: z.literal("wake"), team: z.string().min(1).max(MAX_ADDRESS_LEN) }),
 	z.object({
 		kind: z.literal("response_push"),
@@ -86,10 +85,6 @@ export const FederatedOpSchema = z.discriminatedUnion("kind", [
 		question: z.string().optional(),
 		reason: z.string().optional(),
 		files: ChannelFilesSchema.optional(),
-	}),
-	z.object({
-		kind: z.literal("presence_push"),
-		sessions: z.array(CrossDomainPresenceSessionSchema).max(MAX_CROSSDOMAIN_PRESENCE_SESSIONS),
 	}),
 ]);
 

@@ -1,20 +1,16 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceEntry
-
 /**
- * Pure helpers for the cross-Domain-presence UI (a linked friend's live sessions, pushed/pulled via
- * the Gateway's crossDomainPresence poll plane - see PresenceOps.applyCrossDomainPresence). Kept
- * Android-free so a JVM unit test can pin the upsert and freshness rules without a full repository.
+ * Pure helpers for the cross-Domain-presence UI: a linked friend's sessions, as the Router's
+ * projection carries them (see PresenceOps.applyCrossDomainPresence). Android-free, so a JVM unit
+ * test pins the freshness rule.
  */
 
 ////////////////////////////////
 //  Interfaces & Types
 
-/** How recently a Domain's cross-Domain-presence entry was confirmed accurate by the Gateway (a
- * landed push OR a successful backstop pull - either refreshes `lastRefreshedAt` identically, see
- * AGENTS.md's own doc on the wire field). Computed client-side against a threshold, never shipped as
- * a boolean on the wire. */
+/** How recently a Domain's entry was refreshed (`lastRefreshedAt`). Judged on the phone against a
+ * threshold, never shipped as a boolean on the wire. */
 enum class CrossDomainFreshness {
 	/** Refreshed within the threshold - shown as the friend's live state. */
 	FRESH,
@@ -29,10 +25,7 @@ enum class CrossDomainFreshness {
 ////////////////////////////////
 //  Functions & Helpers
 
-/** How long since a Domain's last confirmed refresh before its entry is shown as STALE rather than
- * FRESH. Comfortably above both the Gateway's ~10s backstop-pull cadence and its own up-to-60s
- * freshness-bucketing delay (see crossDomainPresence.ts's FRESHNESS_BUCKET_MS), so ordinary backstop
- * timing never flashes a falsely-stale chip. */
+/** Well above the Router projection's cadence, so ordinary timing never flashes a stale chip. */
 const val CROSS_DOMAIN_STALE_THRESHOLD_MS = 5 * 60_000L
 
 /** FRESH if `lastRefreshedAt` is within `staleThresholdMs` of `now`; STALE if older; UNKNOWN if there
@@ -47,19 +40,3 @@ fun crossDomainFreshness(
 		now - lastRefreshedAt <= staleThresholdMs -> CrossDomainFreshness.FRESH
 		else -> CrossDomainFreshness.STALE
 	}
-
-/** Fold a batch of CHANGED cross-Domain-presence entries into the existing known-versions list via a
- * per-domainId upsert (replace if present, else append) - never a wholesale replace, since a poll
- * response only ever carries the SUBSET of linked Domains whose plane actually changed. Replacing
- * the whole list on one response would forget every OTHER already-known Domain's version, making the
- * Gateway needlessly re-ship them as "unknown" on the next poll. */
-fun upsertKnownCrossDomainPresenceVersions(
-	current: Map<String, Long>,
-	entries: List<CrossDomainPresenceEntry>,
-): Map<String, Long> {
-	val byDomain = current.toMutableMap()
-	for (e in entries) {
-		byDomain[e.domainId] = e.version.version
-	}
-	return byDomain
-}

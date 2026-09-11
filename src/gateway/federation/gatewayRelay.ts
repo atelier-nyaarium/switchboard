@@ -1,15 +1,10 @@
-import {
-	type CrossDomainPresenceSession,
-	type FederatedOp,
-	FederatedOpSchema,
-	GatewayRelayFrameSchema,
-} from "../../shared/federation-protocol.js";
+import { type FederatedOp, FederatedOpSchema, GatewayRelayFrameSchema } from "../../shared/federation-protocol.js";
 import { fenced, MIGRATING } from "../../shared/migration-fence.js";
 import { pickTiers } from "../../shared/notice.js";
 import type { CrossDomainBinding } from "../../shared/pending-job-store.js";
 import type { GatewayRelayReplyParams } from "../../shared/router-protocol.js";
 import { Address, parseSessionName } from "../../shared/session-id.js";
-import type { GatewaySpawnPoints, TeamInfo } from "../../shared/types.js";
+import type { TeamInfo } from "../../shared/types.js";
 import type { WakeResult } from "../wake.js";
 import type { Sealer } from "./sealer.js";
 
@@ -17,13 +12,10 @@ export interface FederationRoutes {
 	acceptGatewaySend: (body: Record<string, unknown>) => Promise<Response>;
 	respond: (req: Request, body: Record<string, unknown>, opts?: { trustedInbound?: boolean }) => Response;
 	teams: () => Response;
-	localSpawnPoints: () => GatewaySpawnPoints[];
-	landCrossDomainPresence: (srcDomainId: string, sessions: CrossDomainPresenceSession[]) => void;
 }
 
 export interface RelayShareState {
 	isSharedTo(sessionTarget: string, domainId: string): boolean;
-	sharesFor(domainId: string): string[];
 }
 
 export interface GatewayRelayHandlerDeps {
@@ -124,16 +116,6 @@ export function createGatewayRelayHandler({
 				if (!res.ok) throw new Error(json.error ?? `send from Gateway ${srcGateway} failed`);
 				return { session_id: json.session_id ?? op.returnRoute.srcSession, status: json.status ?? "running" };
 			}
-			case "list_teams": {
-				const teams = (await routes.teams().json()) as TeamInfo[];
-				if (srcDomainId !== null) {
-					const shared = new Set(shareState?.sharesFor(srcDomainId) ?? []);
-					return {
-						teams: teams.filter((t) => shared.has(localShareTarget(t.team))),
-					};
-				}
-				return { teams, spawnPoints: routes.localSpawnPoints() };
-			}
 			case "wake": {
 				if (srcDomainId !== null) await gateCrossDomainTarget(op.team, srcDomainId);
 				const { ok } = await tryWakeTeam(op.team);
@@ -168,13 +150,6 @@ export function createGatewayRelayHandler({
 				);
 				const json = (await res.json()) as { error?: string };
 				if (!res.ok) throw new Error(json.error ?? "response_push delivery failed");
-				return { ok: true };
-			}
-			case "presence_push": {
-				if (srcDomainId === null) {
-					throw new Error("presence_push requires a cross-Domain sender");
-				}
-				routes.landCrossDomainPresence(srcDomainId, op.sessions);
 				return { ok: true };
 			}
 		}

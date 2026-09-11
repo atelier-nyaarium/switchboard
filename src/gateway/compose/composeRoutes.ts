@@ -22,13 +22,7 @@ export interface RoutesStageDeps {
 	stores: Pick<StoresStage, "jobs" | "capabilityStore" | "daemonCapabilityStore" | "blobStore" | "boardReplays">;
 	sessions: Pick<
 		SessionsStage,
-		| "registry"
-		| "conversationRegistry"
-		| "sessionAuthority"
-		| "sessionStore"
-		| "presence"
-		| "hostSpawnPoints"
-		| "crossDomainPresenceConsumer"
+		"registry" | "conversationRegistry" | "sessionAuthority" | "sessionStore" | "presence" | "hostSpawnPoints"
 	>;
 	host: Pick<HostStage, "wakeService">;
 	awareness: Pick<AwarenessStage, "awareness">;
@@ -79,8 +73,6 @@ export function composeRoutes(deps: RoutesStageDeps): RoutesStage {
 				? (sessionTarget, domainId) =>
 						f.shareState.isSharedTo(sessionTarget, domainId, (id) => context.isLinkedDomain(id))
 				: null,
-			sharesFor: f ? (domainId) => f.shareState.sharesFor(domainId, (id) => context.isLinkedDomain(id)) : null,
-			crossDomainPresenceConsumer: sessions.crossDomainPresenceConsumer,
 			resolveHandshake: websockets.wsHandlers.resolveHandshake,
 			findPendingHandshake: websockets.wsHandlers.findPendingHandshakeId,
 			repushHandshake: websockets.wsHandlers.repushHandshake,

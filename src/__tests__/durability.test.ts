@@ -155,8 +155,6 @@ describe("migration fence durability", () => {
 				acceptGatewaySend: async () => new Response("{}"),
 				respond: () => new Response("{}"),
 				teams: () => new Response("[]"),
-				localSpawnPoints: () => [],
-				landCrossDomainPresence: () => {},
 			},
 			tryWakeTeam: async () => ({ ok: true }),
 			localGatewayId: "gateway",

@@ -101,7 +101,6 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 		const allowlist = gatewayBootstrap.allowlist;
 		const crossDomainPeers = new CrossDomainPeers(federationDir, () => {
 			sessions.planeRegistry.markDirty("linked-peers");
-			slice.handlers?.presence.presenceSource.recomputeAll();
 		});
 		sessions.planeRegistry.registerPlane(
 			{
@@ -120,9 +119,7 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 			stores.restored.planes?.["linked-peers"],
 		);
 		const isLinked = (friend: string) => context.isLinkedDomain(friend);
-		const shareState = new CrossDomainShareState(federationDir, ({ reason, removed }) => {
-			if (reason.kind === "domain") slice.handlers?.presence.presenceSource.recomputeDomain(reason.domainId);
-			else slice.handlers?.presence.presenceSource.recomputeAll();
+		const shareState = new CrossDomainShareState(federationDir, ({ removed }) => {
 			// Expire unreachable destination jobs.
 			for (const record of removed) {
 				const domains = record.target.kind === "domain" ? [record.target.domainId] : context.linkedDomainIds();

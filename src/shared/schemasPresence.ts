@@ -5,7 +5,7 @@ import { ConnectionModeSchema, TeamKindSchema } from "./schemasCore.js";
 ////////////////////////////////
 //  Team Info Schema
 //
-//  The per-team record in list_teams results and the /teams route. `status` is
+//  The per-team record on the /teams route and the presence planes. `status` is
 //  the wire word verbatim; `kind` separates wakeable devcontainer projects from
 //  ad-hoc loose sessions.
 
@@ -134,29 +134,13 @@ export const TaskBoardVersionSchema = z
 	})
 	.meta({ id: "TaskBoardVersion" });
 
-/** A single linked Domain's cross-Domain-presence plane version - unlike linked-peers/read-anchors
- * (one scalar for the whole plane), cross-Domain presence is genuinely N independently-versioned
- * planes, one per linked Domain (crossDomainPresence.ts), so this is nested inside
- * CrossDomainPresenceEntry rather than standing alone as a single top-level field. */
+/** One linked Domain's presence version; each linked Domain has its own. */
 export const CrossDomainPresenceVersionSchema = z
 	.object({
 		epoch: z.number().int(),
 		version: z.number().int().nonnegative(),
 	})
 	.meta({ id: "CrossDomainPresenceVersion" });
-
-/** One linked Domain's cross-Domain-presence version, as the CLIENT reports what it already holds
- * on a poll op - flat (domainId alongside epoch/version), mirroring PresenceVersion's own per-source
- * shape rather than CrossDomainPresenceEntry's nested one, since the client has no content to echo
- * back here. Named (.meta id) so codegen emits a real Kotlin class instead of erroring on an inline
- * array-of-object (see CrossDomainPeerEntry's own comment for the same reason). */
-export const CrossDomainPresenceKnownVersionSchema = z
-	.object({
-		domainId: z.string(),
-		epoch: z.number().int(),
-		version: z.number().int().nonnegative(),
-	})
-	.meta({ id: "CrossDomainPresenceKnownVersion" });
 
 /** Domain-keyed friend presence. */
 export const CrossDomainPresenceEntrySchema = z

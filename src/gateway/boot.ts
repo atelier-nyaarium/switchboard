@@ -9,7 +9,6 @@ import { Allowlist } from "./federation/allowlist.js";
 import { ContentKeyStore } from "./federation/contentKeyStore.js";
 import type { CrossDomainHandshakeCoordinator } from "./federation/crossDomainHandshake.js";
 import type { CrossDomainPeers } from "./federation/crossDomainPeers.js";
-import type { CrossDomainPresenceSource } from "./federation/crossDomainPresenceSource.js";
 import type { CrossDomainShareState } from "./federation/crossDomainShareState.js";
 import type { AdmitGatewayPayload } from "./federation/enrollQr.js";
 import { loadOrCreateIdentity } from "./federation/identity.js";
@@ -29,14 +28,8 @@ export interface RouterFrameHandlers {
 	crossDomainHandshake: (frame: unknown) => void;
 }
 
-export interface RouterPresenceHandlers {
-	presenceSource: CrossDomainPresenceSource;
-	stopPresencePushes: () => void;
-}
-
 export interface RouterHandlers {
 	frames: RouterFrameHandlers;
-	presence: RouterPresenceHandlers;
 }
 
 export interface FederationSlice {

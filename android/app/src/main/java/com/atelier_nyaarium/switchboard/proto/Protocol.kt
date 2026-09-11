@@ -552,7 +552,6 @@ data class ConsolePollResult(
 	val taskBoard: List<BoardEntry>? = null,
 	val taskBoardVersion: TaskBoardVersion? = null,
 	val taskBoardTruncated: Boolean? = null,
-	val crossDomainPresence: List<CrossDomainPresenceEntry>? = null,
 	val settled: String? = null,
 )
 

@@ -1,4 +1,4 @@
-import { type CrossDomainPresenceSession, MAX_CROSSDOMAIN_PRESENCE_SESSIONS } from "./federation-protocol.js";
+import type { CrossDomainPresenceSession } from "./federation-protocol.js";
 import type { Address } from "./session-id.js";
 import type { TeamInfo } from "./types.js";
 
@@ -21,23 +21,4 @@ export function toCrossDomainPresenceSession(
 		working: t.working,
 		needsLogin: t.needsLogin,
 	};
-}
-
-/** Projects this Gateway's sessions shared with a linked Domain. */
-export function presenceForDomain(
-	toDomainId: string,
-	local: TeamInfo[],
-	sharesFor: (domainId: string) => string[],
-	tryLocalAddress: (name: string) => Address | null,
-): CrossDomainPresenceSession[] {
-	const shared = new Set(sharesFor(toDomainId));
-	const out: CrossDomainPresenceSession[] = [];
-	for (const t of local) {
-		if (out.length >= MAX_CROSSDOMAIN_PRESENCE_SESSIONS) break;
-		const addr = tryLocalAddress(t.team);
-		if (!addr || !shared.has(addr.canonical)) continue;
-		const session = toCrossDomainPresenceSession(t, tryLocalAddress);
-		if (session) out.push(session);
-	}
-	return out;
 }

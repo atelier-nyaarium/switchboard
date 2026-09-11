@@ -1265,10 +1265,25 @@ as written.
   code, but for the two above. One gate hole named: `home-gateway-residue.test.ts` reads the phone
   only; Phase 9 extends it to `src/`.
 
-## Phase 9 - The Gateway-to-Gateway presence road dies
+## Phase 9 - The Gateway-to-Gateway presence road dies ✅
 
 The last state the plan set out to centralize that still travels Gateway to Gateway. A purge, not
 a redesign: the Router's `linked` projection is the one cross-Domain presence.
+
+### As built
+
+Everything the list below names went, and the road's wire residue with it: the console poll
+result's `crossDomainPresence` field and `settled: "crossDomainPresence"` (nothing produced them),
+`CrossDomainPresenceKnownVersionSchema` (nothing sent it), `presenceForDomain` in
+`presence-projection.ts` (the Router selects by its own share records), and the phone's
+`upsertKnownCrossDomainPresenceVersions` with its three tests (no caller). `composeRouterPresence`
+is the Router presence dirty hook plus the unlink and untrust teardown, and no longer has a `stop`;
+`RouterHandlers` carries frames only; `FederationRoutes` for the relay is `acceptGatewaySend`,
+`respond` and `teams`; `RelayShareState` is `isSharedTo`. `CrossDomainPresenceEntrySchema`,
+`CrossDomainPresenceVersionSchema` and `toCrossDomainPresenceSession` stay for the Router's
+projection and the phone's reading of it. Lint, 2699 tests, the Kotlin gate, fixtures and boot
+green; `Protocol.kt` regenerated (`ConsoleListTeamsResult` and `CrossDomainPresenceKnownVersion`
+gone, the poll result's field gone).
 
 - Deleted: `crossDomainPresenceSource.ts`, `crossDomainPresencePusher.ts`,
   `crossDomainPresenceConsumer.ts`, `crossDomainPresenceReconciler.ts`, `presenceExchange.ts`,
