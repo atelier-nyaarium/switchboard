@@ -20,12 +20,12 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/compose/composeFederation.ts` - `buildSlice`, the Router client, and the share sweep
 - `src/gateway/compose/composeEnrollment.ts` - the enrollment window, its TLS door, and the install
 - `src/gateway/compose/composeWebSockets.ts` - session sockets and held-delivery handover
-- `src/gateway/compose/composeRoutes.ts` - the route surface, rebuilt when federation activates
+- `src/gateway/compose/composeRoutes.ts` - the route surface, built once a Domain is active and rebuilt when federation activates; null before, so no route mints an address
 - `src/gateway/compose/composeRouterFrames.ts` - Router frame dispatch and the console dispatcher
 - `src/gateway/compose/composeRouterPresence.ts` - cross-Domain presence pipeline, unlink and untrust teardown
 - `src/gateway/compose/composeListener.ts` - the HTTP entry point and the shutdown flush
 - `src/gateway/compose/composeFaults.ts` - the fault port's construction
-- `src/gateway/httpRouter.ts` - HTTP dispatch, the enrollment routes, and the blob routes
+- `src/gateway/httpRouter.ts` - HTTP dispatch, the enrollment routes, and the blob routes; before a Domain it answers health and enrollment alone
 - `src/gateway/routes.ts` - `RoutesDeps`, `RoutesCarryOver`, and the composer that wires the route modules
 - `src/gateway/routes/addressing.ts` / `callerGuards.ts` / `relay.ts` - local address minting, the refusal gates, cross-Gateway relay
 - `src/gateway/routes/routesStatus.ts` / `routesCapabilities.ts` / `routesPresence.ts` - health, pending and teams; the capability fold; discovery
@@ -137,6 +137,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/router/boardClient.ts` - sole sealer of board text and sole local-key mapper; CAS writes
 - `src/gateway/router/blobUploader.ts` - blob copy to the Router cache or reference-held store; unwired, and the Router refuses both upload frames
 - `src/gateway/console/` - Android OwnerOp dispatch and capability store
+- `src/gateway/console/consoleTargets.ts` - every console target, `domain.gateway.spawn[.session]` by contract; the bare-name and foreign-Gateway refusals live here alone
 - `src/gateway/console/consoleCrossDomain.ts` - the console's link, share, unlink and untrust handlers
 - `src/gateway/console/consoleSessionLifecycle.ts` - create, wake, close, forget, and rename
 - `src/gateway/console/consoleTerminal.ts` - pane peek, key send, directory listing, and plugin reload
@@ -369,7 +370,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A plane is compared nowhere else:** `PollDrain` holds the in-memory cursor and stamps
     arrivals as they enter the process; `PresenceOps.applyOwnerProjection` lands what the cursor
     took; `revisionPlaneDecision` (`RevisionPlane.kt`) folds a board or vault plane against the
-    manager's durable lineage, and another lineage drops the held list.
+    manager's durable lineage, and another lineage drops the held list, fetches at once whatever
+    the throttle says, and bumps the manager's generation so an answer begun under the old
+    lineage lands nothing.
   - **A mailbox epoch is a random tag, never a counter:** `mintEpoch` draws it. Compare epochs for
     EQUALITY only. Sequence orders rows within an epoch. Across epochs, the later report wins. The
     receiver stamps `at`; it decides cross-epoch merges. `ReadAnchor.kt` is the phone twin and

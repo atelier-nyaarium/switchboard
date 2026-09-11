@@ -583,7 +583,7 @@ Rules:
   tab bullet, which already rewrites `showCreate` and the header's reachable flag. Board
   `bd_f81c19f3`, claimed. Until then `reachable` is documented as what it is.
 
-## Phase 2 - Every home reader the projection or the registry makes redundant
+## Phase 2 - Every home reader the projection or the registry makes redundant ✅
 
 - `isAdmin()` reads `state.owner.isAdminDomain` and `Users.kt` observes it.
   `refreshDisplayNameFromTeams` and `rosterDomainId` deleted; display name and Domain id come from
@@ -621,7 +621,7 @@ Rules:
   any Gateway the roster names, cached or current. The sandbox seeds `homeGatewayId` from the
   roster's first id.
 
-## Phase 3 - No unqualified name leaves the phone
+## Phase 3 - No unqualified name leaves the phone ✅
 
 - The phone gets its own parser, `parseQualifiedTarget(wire)`: arity 3 or 4, nothing else, with
   its own vectors in `tests/fixtures/session-id/` and its own `SessionIdVectorsTest` cases. The
@@ -940,3 +940,37 @@ Collected after Phase 1. Not fixed here.
 - **Codex quota ran out mid-lap.** The Phase 1 architecture and red-team fan-outs ran on Opus and
   Sonnet, and Sol was not available for the checkpoint read; the drain-until time was not visible
   before the first refusal.
+
+Collected after Phases 2 and 3. Not fixed here.
+
+- **An owner op's failure is a string.** `OwnerOpAnswer(ok, result, error)` flattened every
+  non-accepted Router outcome into `error`, and a reasonless outcome (`conflict`,
+  `durability_uncertain`) read as "owner operation refused" on the phone. Nothing could tell a
+  settled answer from a lost one, which is how three journaled forgets replayed on every connect
+  for days. `OwnerOpFailure(outcome)` now carries the outcome, but the op-outcome vocabulary
+  itself (`refused`, `conflict`, `durability_uncertain`, `migrating`) is declared nowhere shared:
+  the residue test protects `refused` in Kotlin through the socket frame's constant, `conflict` is
+  a bare literal in `SelfMigration`, `VaultOps` and `ConsoleClientTypes`, and TS spells `"refused"
+  as const` in seven places. An `OP_OUTCOME_*` set beside `OP_OUTCOME_ACCEPTED` is the fix.
+- **A replayed delivery op can never match its first row.** The journal replays a forget under its
+  opId, but `ConsoleClient.sendDeliveryOp` re-seals the row with a fresh nonce, so the Router's
+  `opHash` compare answers `conflict` forever. The replay contract wants the sealed row journaled,
+  or the Router's `op_result` read on a conflict; retiring the journal on a settled answer is the
+  patch, not the design.
+- **Every repository port is declared four times.** `canonicalTarget` lived on `ChatRepository`,
+  `SessionHost`, `ScheduledSendOpsCollaborators` and `RepositoryCollaborators`, plus every test
+  fake. Removing one method touched seven files; adding one is the same walk. The ops classes'
+  role ports are hand-copied slices of one object.
+- **Seven compose stages take `routes: () => GatewayRoutes`.** Making the routes null before a
+  Domain meant a throwing accessor rather than a nullable type, because the closure shape is
+  repeated in every stage's deps and none of them can say when it may be called.
+- **The harness wrote bare targets by hand in nine files.** `DomainPeer.target(team)` exists now,
+  but `PhoneDriver.value({ kind: "create_session", target })` still takes any string; the driver
+  could qualify a local field itself and refuse a bare one, as the console does.
+- **Gradle cannot run in the background here.** The harness kills a backgrounded
+  `kotlin-gate.sh` as "low memory" with twenty gigabytes free, so every Kotlin gate is a
+  foreground wait of a minute or two, and a killed run corrupts the test results until they are
+  deleted by hand.
+- **A relayed Codex report can vanish.** The Sonnet relay that carried Sol's read finished and
+  went idle without its result reaching the session; it had to be asked again by name. A relay
+  should write its report to disk before it answers, which the later relays did.
