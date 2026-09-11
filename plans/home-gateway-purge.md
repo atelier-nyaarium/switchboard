@@ -1552,3 +1552,21 @@ Collected after Phase 8. Not fixed here.
 - **A test fixture written for one coroutine and reached by several.** Second round of the class
   (Phase 6 synchronized the recorders, Phase 8 the draw source); the third goes to the board
   (bd_131ab84c).
+
+Collected after Phase 9. Not fixed here.
+
+- **A writer with no reader survives every gate.** The consumer's landed state, the console poll
+  result's presence field, `CrossDomainPresenceKnownVersionSchema`, `presenceForDomain`,
+  `sanitizeDescription`, `CrossDomainShareState.sharesFor` and the `localSpawnPoints` re-export
+  each had a definition, a test or both, and no production caller; `tsc` and Biome flag an unused
+  import, never an unused export. The gateway `PlaneRegistry` is the same shape one layer down
+  (bd_9464aaac). A dead-export gate, or a periodic read of exports with no importer, would have
+  named the road before an end-of-plan read did.
+- **The road's own comments described a cadence and a plane that did not exist,** and the
+  rewrite reproduced the error once ("the Router projection's cadence"). A comment about timing
+  needs the timer it names.
+- **The relay's `FederationRoutes` interface listed what one arm used,** so deleting the arm meant
+  editing the interface and two test fakes; the fakes were found by `tsc`, the docs by a reader.
+- **Three doc files described the road in prose no gate reads** (`AGENTS.md`, `docs/architecture.md`,
+  `docs/testing.md`); the alignment read found them, the deletion did not. A map entry for a file
+  could be checked against the tree.
