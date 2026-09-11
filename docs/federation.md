@@ -156,9 +156,9 @@ stay fenced on reconnect. Non-active leases do not block authority.
 ### Phone
 
 The Router welcome carries `migrationEpoch`. The phone runs self-migration once per epoch, on any
-accepted welcome. Scheduled sends upload under their own opId. Read anchors re-report. An unanswered
-upload retries on the next welcome. A refused record keeps its local alarm. A local record is
-released only after the Router accepts it.
+accepted welcome. Read anchors re-report. Every accepted scheduled send goes back to pending, and
+the drain re-posts it under its own op id; a Router that still holds it answers `accepted` with
+the record it has.
 
 ### Recovery
 

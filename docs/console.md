@@ -33,8 +33,8 @@ that must keep working for one more console build goes into `TOLERATED_DELIVERY_
 - `PollDrain.drainTick` calls `inbox_read` and `planes_read`. It sends one `inbox_advance` after
   rows drain.
 - `OwnerOps` signs every op from its injected identity, clock, nonce, and op id. The bodies of
-  `report_read`, `capabilities_report`, and a scheduled send come from the pure composers
-  `composeReportRead`, `composeCapabilitiesReport`, and `composeScheduledSend`.
+  `report_read` and `capabilities_report` come from the pure composers `composeReportRead` and
+  `composeCapabilitiesReport`.
 
 **Identity:** `PhoneIdentity` is the one door for identity facts (the provisioning blob, the
 conversation id, the Domain id, the owner identity, the Domain snapshot, the content keys, the
@@ -319,5 +319,9 @@ no TTL.
   by file, not position. `Draft.locations` preserves source metadata and every writer must copy it.
 - **Thumbnail sizing** (`ImageThumbs.kt`): bound both short and long edges. Extreme aspect ratios
   otherwise decode at full size.
-- **Scheduled send** (`ScheduledSend.kt`, `ScheduledSendOps.kt`): one banked record per team and one
-  shared earliest alarm; firing is mutex-guarded.
+- **Scheduled send** (`ScheduledSend.kt`, `ScheduledSendOps.kt`): one record per team, held by the
+  Router. The local record is an intent until the Router accepts it: the drain uploads its files,
+  posts `schedule_send` under the record's own op id, and stamps the accepted version. The Router
+  fires it and writes a `scheduled_result` row, which the phone echoes into the thread. A cancel of
+  an accepted record is an intent too, re-posted until answered; a reschedule is a fresh intent
+  naming the version it replaces. Every transition runs under one mutex beside the ops class.

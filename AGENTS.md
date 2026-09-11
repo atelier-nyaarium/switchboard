@@ -159,7 +159,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../ChatPersistence.kt` - JSON codec between repository state and AppStateStore
 - `android/.../PollDrain.kt` - owner-inbox tick, four plane cursors, and drain-gate subscribers
 - `android/.../DrainGate.kt` / `DrainHost.kt` / `SessionHost.kt` / `PresenceHost.kt` - the re-entrant drain gate and one host interface per ops class, each with its repository adapter beside it
-- `android/.../ReportReadCompose.kt` / `ScheduledSendCompose.kt` / `CapabilitiesCompose.kt` - pure phone composers
+- `android/.../ReportReadCompose.kt` / `CapabilitiesCompose.kt` - pure phone composers
 - `android/.../PlaybackOps.kt` / `PlaybackReadModels.kt` - playback serialization and lock-free read models
 - `android/.../BoardOps.kt` - repository board operations
   - **The board is one Router-held board, so no read and no write names a Gateway:** entries, the
@@ -266,7 +266,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     own null (a failed call) rides inside `Fresh`, so a caller that leaves the group alone on a
     failure and one that hides it on a refusal both read the same answer without guessing.
 - `android/.../AttachmentOps.kt` - attachment fetch-and-sweep state
-- `android/.../ScheduledSendOps.kt` - scheduled sends and single fire mutex
+- `android/.../ScheduledSendOps.kt` - scheduled sends as Router-held intents: the drain, the cancel intent, and the Router's result rows, all under one mutex
+  - **The Router fires; the phone intends:** a record is pending until `schedule_send` is accepted,
+    a cancel of an accepted record is pending until `schedule_cancel` is, and a reschedule is a
+    fresh intent naming the version it replaces. `drainPending`, `cancelNow`, `rescheduleNow` and
+    `applyRouterResult` are the only transitions, so a JVM test drives every one.
 - `android/.../GoalOps.kt` / `Goal.kt` - armed goals and `/goal` line production
 - `android/.../PresenceOps.kt` - team presence and read-anchor reporting
 - `android/.../SessionOps.kt` - terminal and session controls
@@ -416,6 +420,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/shared/ambient.ts` - the clock, entropy, ids, and timers as one injected record; `processAmbient` is the sole reader of the globals and unrefs every timer it hands back. `composeGateway` and `RouterServerParams` take one and thread it everywhere; `ambient-residue.test.ts` fences the three directories and names the reason for each allowed file. Vocabulary shared with the phone's `PhoneAmbient`, not a type
 - `src/shared/atomic-write.ts` - sole write-then-rename and temp-suffix owner; residue-tested
 - `src/shared/durable-store.ts` - atomic snapshots and per-file quarantine boundaries
+- `src/shared/write-result.ts` - the two readings of an owner-store write: `landed` before anything irreversible, `appliedOrUncertain` before anything a caller retries; no site spells the pair
+  - **An uncertain write is not a landed one:** a `durability_uncertain` line may or may not be on
+    disk. Bytes, holds and migration retirements wait for `landed`; a record write a caller can
+    repeat idempotently takes `appliedOrUncertain` and passes the word on in its answer.
 - `src/shared/session-store.ts` - authoritative gateway sessions keyed by `spawn.id`
 - `src/shared/session-sanitize.ts` / `session-tokens.ts` - normalization, session ids, and bind tokens
 - `src/shared/board-rank.ts` - sibling ordering and asserted fractional ranks

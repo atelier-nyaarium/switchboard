@@ -713,7 +713,7 @@ Rules:
   restarted before the APK installs. A row drained before the change never re-enters the drain
   (`SyncCursor.advance` hands over only rows past the acked seq), so nothing re-threads it.
 
-## Phase 5 - Router-held blobs
+## Phase 5 - Router-held blobs ✅
 
 Router-first.
 
@@ -1100,3 +1100,32 @@ Collected after Phase 4. Not fixed here.
   cursor and the poll path persists its own `SyncCursor`; a restart that opens the poll first
   answers `cursor_stale` and the phone shows "Some messages were dropped" for one tick with nothing
   dropped. Two cursors for one consumer. On the board as bd_63a20a15.
+
+Collected after Phase 5. Not fixed here.
+
+- **A new sweep and a one-time migration shipped in one deploy, and the sweep ran first.** The
+  persistence tick fires three seconds after boot with no notion of "an operator still has to run
+  something"; the guard that keeps the age sweep off while the migration credential is set was
+  written after the loss. The class is a deploy with an irreversible step and no ordering owner.
+  `composePersistence` should have a way to hold destructive sweepers until the gateway is told
+  the deploy is settled, or a migration should run from inside the boot before the first tick.
+- **Every phone slice came back uncompiled.** The Codex sandbox cannot write `~/.gradle`, so both
+  Luna slices skipped the Kotlin gate and each needed a compile-and-repair pass here (a dozen
+  errors between them, two of them semantic). A writable `GRADLE_USER_HOME` for Codex, or a
+  gradle wrapper the sandbox can run, would let the fan-out prove its own work.
+- **Scheduled sends carry four independent lifecycle fields** (`routerVersion`, `replacesVersion`,
+  `cancelRequested`, `draftTaken`) and every transition guards their combinations by hand. On the
+  board as bd_c0383b1c, with the codegen's `String` for every `z.enum`.
+- **Who keeps a blob alive is answered in six places.** The Router's `refs`, the gateway's
+  `namesBlob` over two queues, the sweep's `keep`, the relay's holds, the receiver's re-hold, the
+  migration's `namedHere`, and the MCP's own store each answer it alone; five red-team findings
+  were the same omission. On the board as bd_aeda1e46.
+- **Two confident wrong findings came from indirection with no signpost.** `withHeldFiles`
+  stripped blob ids for a cross-Domain target and nothing at the call site said so; `append`
+  returned a `Long` and nothing said it published synchronously. Both renamed; the class is a
+  name that describes one branch of a function.
+- **The routine-schedule harness suite measured its three seconds of headroom from module load**,
+  so a slow CI boot ate it and the whole suite cascaded red. Fixed by rewinding after the harness
+  is up; the class is a real-clock test whose margin starts before the thing under test exists.
+- **The `write-result` fold called an uncertain write `applied`.** The vocabulary invited the bug
+  class this phase recorded. Two named readings replace it.

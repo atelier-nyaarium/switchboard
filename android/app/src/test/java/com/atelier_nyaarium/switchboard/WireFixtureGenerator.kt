@@ -275,8 +275,7 @@ class WireFixtureGenerator {
 		var captured: OwnerOp? = null
 		val client = world.client(draws, sender = { buildJsonObject { put("ok", true) } }, onSign = { captured = it })
 		val rec = ScheduledSend("fixture delivery", emptyList(), world.clock, opId, null, world.clock)
-		val plan = composeScheduledSend(rec, world.clock)
-		runBlocking { client.send("fixture-domain.laptop.fixture-app.abc123", plan.text, emptyList(), plan.opId, plan.targetDomainId) }
+		runBlocking { client.send("fixture-domain.laptop.fixture-app.abc123", rec.text, emptyList(), rec.opId, rec.targetDomainId) }
 		return ownerCase(
 			root,
 			"ConsoleClient.send",
