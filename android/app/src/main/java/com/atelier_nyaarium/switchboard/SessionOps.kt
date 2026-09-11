@@ -307,11 +307,11 @@ internal class SessionOps(
 			.getOrElse { e ->
 				DebugLog.log("Forget", "team=${p.team} failed: ${e.message?.take(160)}")
 				if (announce) host.state.update { it.copy(transientMessages = it.transientMessages + (e.message ?: "Forget failed")) }
-				scheduleForgetRetry()
+				// The Router holds it or refused it; replaying the row again changes nothing.
+				if (e is OwnerOpFailure && e.settled) retireForget(p) else scheduleForgetRetry()
 				return
 			}
-		runCatching { journal.remove(p.opId) }
-		host.forgottenUntil[p.team] = System.currentTimeMillis() + host.forgetTombstoneMs
+		retireForget(p)
 		refreshAfterAction()
 		if (p.boardDisposition != null && applied != p.boardDisposition) {
 			host.state.update {
@@ -319,6 +319,11 @@ internal class SessionOps(
 			}
 		}
 		onForgotten?.let { withContext(Dispatchers.Main) { it() } }
+	}
+
+	private fun retireForget(p: PendingForget) {
+		runCatching { journal.remove(p.opId) }
+		host.forgottenUntil[p.team] = System.currentTimeMillis() + host.forgetTombstoneMs
 	}
 
 	private companion object {

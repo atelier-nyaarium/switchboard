@@ -542,6 +542,13 @@ Rules:
   `plane` frame all carry a lineage and nothing optional), as the owner asked. Router first, then
   the Gateway, then the APK over adb in the same sitting: a phone on the old build against the new
   Router loses its plane frames until it updates.
+  **Sol's read (lap 3):** two of its four highs were the fence and the throttle above, already
+  patched; the other two were a deleted Domain leaving its owner store cached and its console
+  sockets bound, reachable only through a Domain id the product never reuses (ids are random and
+  the Router refuses re-rooting), closed anyway by `ownerRegistry.evict` and
+  `consoleSockets.forgetDomain` on removal. The mediums are recorded as the fold's assumptions in
+  `docs/console.md`: 31-bit epochs, no durable rollback, decode-time observation stamps repaired by
+  the next welcome or pull, and the presence payload's `plane` matching its `PlaneRead`.
 
 - **Mechanism:** the board and vault managers' generation fence.
   **Class:** an answer begun before a reset lands after it and repopulates what the reset emptied.

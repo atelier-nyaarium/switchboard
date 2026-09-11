@@ -507,6 +507,8 @@ export class RouterServer {
 				.filter((survivor) => this.coordinatorFor(survivor)?.hasLinkEdge(survivor, removed) ?? false);
 			this.coordinators.delete(removed);
 			this.bridge.evictDomain(removed, "Domain removed");
+			this.consoleSockets.forgetDomain(removed);
+			this.domain.ownerRegistry.evict(removed);
 			for (const dependent of dependents) this.ownerServices.presence.refresh(dependent);
 		}
 		return result;

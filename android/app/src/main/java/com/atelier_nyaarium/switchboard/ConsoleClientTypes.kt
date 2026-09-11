@@ -6,6 +6,7 @@ import com.atelier_nyaarium.switchboard.proto.EnrollHandshakeOp
 import com.atelier_nyaarium.switchboard.proto.EnrollHandshakeRef
 import com.atelier_nyaarium.switchboard.proto.EnrollOp
 import com.atelier_nyaarium.switchboard.proto.PendingTenantRef
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Provisioning
 import com.atelier_nyaarium.switchboard.proto.RosterRequest
 import com.atelier_nyaarium.switchboard.proto.SealedEnvelope
@@ -105,6 +106,12 @@ const val BOARD_REFUSED_PREFIX = "refused:"
 
 /** A refusal retires the queued action; other failures retry. */
 class BoardRefused(val reason: String) : Exception(reason)
+
+/** An owner op the Router answered with something other than accepted, or that never reached it. */
+class OwnerOpFailure(val outcome: String?, message: String) : Exception(message) {
+	/** The Router holds or refused the op; a journaled replay has nothing left to deliver. */
+	val settled: Boolean get() = outcome == Protocol.Wire.SocketFrame.REFUSED || outcome == "conflict"
+}
 
 internal fun Crypto.SealedEnvelope.toProto(): SealedEnvelope =
 	SealedEnvelope(ephemeralPub, nonce, ciphertext, signature)

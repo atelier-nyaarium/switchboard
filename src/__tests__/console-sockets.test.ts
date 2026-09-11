@@ -543,6 +543,25 @@ describe("console sockets", () => {
 		fixture.registry.close();
 	});
 
+	it("closes every console of a removed Domain and leaves the others bound", async () => {
+		const fixture = setup();
+		const removed = socket();
+		const kept = socket();
+		fixture.hub.open(removed);
+		fixture.hub.open(kept);
+		await fixture.hub.message(removed, JSON.stringify({ type: "hello", ownerOp: hello(fixture, domainA) }));
+		await fixture.hub.message(kept, JSON.stringify({ type: "hello", ownerOp: hello(fixture, domainB) }));
+
+		fixture.hub.forgetDomain(domainA);
+
+		expect(removed.frames.at(-1)).toEqual({ type: "refused", reason: "domain_removed" });
+		expect(removed.closeCount).toBe(1);
+		expect(kept.closeCount).toBe(0);
+		fixture.hub.pushPlane(domainB, "board", { epoch: 1, version: 5 }, { rows: [] });
+		expect(kept.frames.at(-1)).toMatchObject({ type: "plane", name: "board" });
+		fixture.registry.close();
+	});
+
 	it.each([
 		["not JSON", "malformed"],
 		[JSON.stringify({ type: "unknown" }), "malformed"],

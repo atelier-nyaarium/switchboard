@@ -86,6 +86,14 @@ export class OwnerStoreRegistry {
 		return store;
 	}
 
+	/** A removed Domain's store closes and leaves the cache, so nothing serves its old lineage. */
+	evict(domainId: string): void {
+		const store = this.stores.get(domainId);
+		if (!store) return;
+		store.close();
+		this.stores.delete(domainId);
+	}
+
 	close(): void {
 		for (const store of this.stores.values()) store.close();
 		this.stores.clear();

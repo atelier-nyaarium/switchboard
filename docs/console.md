@@ -131,6 +131,15 @@ answer begun under the old lineage lands nothing; the first lineage a manager se
 and fetches from zero. Pull-to-refresh asks the Router for every plane and lets the fold decide, so
 nothing is re-landed that the phone already holds.
 
+What the fold assumes, and nothing checks: an epoch is 31 random bits, so a collision on a
+re-provision returns that one lineage to a bare version compare; the Router's durable state never
+rolls back, so a restored backup is a new provision, not an older version of the same epoch; the
+observation stamp is taken when an answer is decoded, so a socket frame that lands inside the
+dispatch gap of an HTTP answer orders before it, and the next welcome or pull repairs it; the
+presence payload's own `plane` equals the `PlaneRead` lineage around it because `readPlanes`
+computes both in one synchronous pass. A removed Domain's console sockets are refused and its
+owner store leaves the Router's cache, so nothing serves its old lineage.
+
 One filter remains: `TrustOps.shareableSessions` offers only sessions on this Gateway, and the share
 it feeds sends `requesterGatewayId = homeGatewayId()`. Widening the list alone would offer sessions
 the share then names wrongly, so the two move together or not at all.

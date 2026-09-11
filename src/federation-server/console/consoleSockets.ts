@@ -263,6 +263,16 @@ export function createConsoleSockets(deps: ConsoleSocketsDeps) {
 		incarnations.delete(`${domainId}/${signerSignPub}`);
 	}
 
+	/** A removed Domain keeps no socket and no incarnation. */
+	function forgetDomain(domainId: string): void {
+		for (const [socket, at] of bound) {
+			if (at.domainId === domainId) refuse(socket, "domain_removed");
+		}
+		for (const key of incarnations.keys()) {
+			if (key.startsWith(`${domainId}/`)) incarnations.delete(key);
+		}
+	}
+
 	return {
 		open,
 		message,
@@ -271,6 +281,7 @@ export function createConsoleSockets(deps: ConsoleSocketsDeps) {
 		pushPlane,
 		readPlanes,
 		forget,
+		forgetDomain,
 		get boundCount() {
 			return bound.size;
 		},

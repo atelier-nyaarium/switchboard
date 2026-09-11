@@ -183,7 +183,7 @@ internal class ConsoleRouterTransport(
 		buildOwnerOpRequest(base, ownerOp, credentials.appToken)
 
 	internal inline fun <reified T> resultOf(body: OwnerOpAnswer, op: String): T {
-		if (!body.ok) error("$op failed: ${body.error ?: "unknown error"}")
+		if (!body.ok) throw OwnerOpFailure(body.outcome, "$op failed: ${body.error ?: "unknown error"}")
 		val result = body.result ?: error("$op: no result")
 		return wireJson.decodeFromJsonElement(result)
 	}

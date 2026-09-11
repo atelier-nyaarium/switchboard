@@ -27,7 +27,13 @@ import kotlinx.serialization.Serializable
 import kotlinx.coroutines.withTimeoutOrNull
 
 @Serializable
-internal data class OwnerOpAnswer(val ok: Boolean, val result: JsonElement? = null, val error: String? = null)
+internal data class OwnerOpAnswer(
+	val ok: Boolean,
+	val result: JsonElement? = null,
+	val error: String? = null,
+	/** The Router's outcome when it was not accepted; null for a transport failure. */
+	val outcome: String? = null,
+)
 
 internal class ConsoleClientCollaborators(
 	val signOwnerOp: (JsonObject, String) -> OwnerOp?,
@@ -171,10 +177,11 @@ class ConsoleClient internal constructor(
 	private fun reasonOf(answer: JsonElement): String =
 		answer.jsonObject["reason"]?.jsonPrimitive?.content ?: "owner operation refused"
 
-	private fun failureAnswer(answer: JsonElement): JsonElement = failureAnswer(reasonOf(answer))
+	private fun failureAnswer(answer: JsonElement): JsonElement =
+		failureAnswer(reasonOf(answer), answer.jsonObject["outcome"]?.jsonPrimitive?.content)
 
-	private fun failureAnswer(reason: String): JsonElement =
-		wireJson.encodeToJsonElement(OwnerOpAnswer.serializer(), OwnerOpAnswer(ok = false, error = reason))
+	private fun failureAnswer(reason: String, outcome: String? = null): JsonElement =
+		wireJson.encodeToJsonElement(OwnerOpAnswer.serializer(), OwnerOpAnswer(ok = false, error = reason, outcome = outcome))
 
 	private fun transportFailureAnswer(): JsonElement = wireJson.encodeToJsonElement(
 		OwnerOpAnswer.serializer(),
@@ -189,7 +196,7 @@ class ConsoleClient internal constructor(
 	internal fun requireDelivery(answer: JsonElement?, op: String) {
 		if (answer == null) error("$op timed out")
 		val body = wireJson.decodeFromJsonElement<OwnerOpAnswer>(answer)
-		if (!body.ok) error("$op failed: ${body.error ?: "unknown error"}")
+		if (!body.ok) throw OwnerOpFailure(body.outcome, "$op failed: ${body.error ?: "unknown error"}")
 	}
 
 	internal fun defaultGatewayId(): String = collaborators.homeGatewayId()?.takeIf { it.isNotEmpty() }

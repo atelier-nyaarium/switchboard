@@ -31,6 +31,7 @@ class SessionOpsTest {
 		val wakes = mutableListOf<String>()
 		val forgotten = mutableListOf<Triple<String, String?, String>>()
 		var forgetFails = false
+		var forgetSettled: String? = null
 		var scheduled = 0
 		var goals = 0
 		var playback = 0
@@ -54,6 +55,7 @@ class SessionOpsTest {
 		override suspend fun forget(team: String, boardDisposition: String?, opId: String): String? {
 			forgotten += Triple(team, boardDisposition, opId)
 			if (forgetFails) error("offline")
+			forgetSettled?.let { throw OwnerOpFailure(it, "forget failed: $it") }
 			return boardDisposition
 		}
 		override fun persistThreads(threads: Map<String, List<Message>>, anchors: Map<String, ReadAnchor>) { persisted++ }
@@ -180,6 +182,19 @@ class SessionOpsTest {
 		assertEquals(listOf(Triple(team, "cancel", opId)), host.forgotten)
 		assertTrue(MutationJournal(dir).entries("forget").isEmpty())
 		assertTrue(host.forgottenUntil.getValue(team) < Long.MAX_VALUE)
+	}
+
+	@Test
+	fun aForgetTheRouterAlreadyHoldsOrRefusedRetiresItsJournalEntry() {
+		for (outcome in listOf("conflict", "refused")) {
+			val dir = journalDir()
+			val host = FakeHost().apply { forgetSettled = outcome }
+			SessionOps(host, IdlePresencePort, MutationJournal(dir)).forget("dom.gw.host.session", "cancel")
+
+			assertEquals(1, host.forgotten.size)
+			assertTrue(MutationJournal(dir).entries("forget").isEmpty())
+			assertTrue(host.forgottenUntil.getValue("dom.gw.host.session") < Long.MAX_VALUE)
+		}
 	}
 
 	@Test
