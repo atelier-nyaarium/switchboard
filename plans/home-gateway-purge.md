@@ -1195,7 +1195,7 @@ for a Gateway behind the floor (bd_b020d3e2); Add Device installing before it va
   `dropConnection`. A per-connection state record would make the next refusal kind one arm. On the
   board (bd_9d4856cd), not built: a purge phase is the wrong place for a state machine. No fan-out this lap; the phase is deletion and the reads above covered the code.
 
-## Phase 8 - Words
+## Phase 8 - Words ✅
 
 - `docs/testing.md` "the home gateway" (the harness rename below); `AGENTS.md` ChatRepository
   entry, the RoutineOps and BoardOps entries; `docs/policies.md` where it names membership. The
@@ -1209,6 +1209,31 @@ for a Gateway behind the floor (bd_b020d3e2); Add Device installing before it va
   kept where they mean a Gateway's own locality: `SessionCard` and `Presence` "this device's own"
   (the phone's own action, correct), `session-id.ts`, `domain-id.ts`, `gateway-id.ts`,
   `schemasPresence.ts` "local Gateway" (gateway-side, correct).
+
+### As built
+
+Most of the list had already gone with its code: the three Kotlin test names died with the
+functions they named (Phases 2 and 7), `GatewayPick`'s and `BoardOps.blobGatewayFor`'s comments
+went in Phase 2, the AGENTS.md entries and `docs/policies.md` carried no home word by Phase 7, and
+the `docs/console.md` section, `docs/architecture.md` and the Architecture paragraph were rewritten
+in Phase 7. Left for this phase and done: `federationHarness.ts` `home: DomainPeer` is `own`;
+`docs/testing.md` says "the harness's own Gateway"; `RenameOpsTest`'s Gateway is `gw`; the join
+bundle's version comment and `parseConsoleTransport`'s KDoc state the rule without the history;
+`docs/console.md` says the parser refuses any other version. A sweep of `src`, `android`, `docs`,
+`scripts` and `AGENTS.md` leaves the word only where it means a home directory, a home router, the
+residue test's own name, or the sentence saying the phone has none. Test Domain ids named `home`
+(`addressing.test.ts`, `console-targets.test.ts`, `ChatPersistenceTest`, `ChatStateWorkingTest`)
+stay: a Domain id is not a Gateway.
+
+### Bug Classes
+
+- **Mechanism:** the phone's test fakes under concurrent coroutines. **Class:** shared test state
+  with no lock. **Rounds:** one, `TrustOpsTest`'s recording list and set were unsynchronized
+  (Phase 6, synchronized); two, `FixtureDraws.next` bumped its index and two sets unlocked while
+  `refreshPeers` signed two ops at once, so a draw collided, the sign threw, the read was dropped
+  and `untrustStaysPendingWhileAGatewayCouldNotBeReadThisRound` failed one gate run in six
+  (`next` is `@Synchronized` now). The class is a fixture built for one coroutine and reached by
+  several; the third instance goes to the architecture pass as one thread-safe fixture base.
 
 ## Painpoints
 

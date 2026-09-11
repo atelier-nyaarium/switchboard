@@ -7,7 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class RenameOpsTest {
-	private val team = "domain.home.spawn.session"
+	private val team = "domain.gw.spawn.session"
 
 	@Test
 	fun renameEndsWithAPresenceRefreshAndKeepsTheAppliedLabel() = runBlocking {
@@ -28,7 +28,7 @@ class RenameOpsTest {
 	}
 
 	private class FakeRenameHost(private val renamed: Boolean = true) : RenameHost {
-		override val state = MutableStateFlow(ChatState(gateways = testRegistry("home")))
+		override val state = MutableStateFlow(ChatState(gateways = testRegistry("gw")))
 		var presenceRefreshes = 0
 
 		override fun localDomain() = "domain"

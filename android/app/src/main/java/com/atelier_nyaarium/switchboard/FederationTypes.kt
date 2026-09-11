@@ -48,7 +48,7 @@ data class ScannedDeviceApproval(
  * the Domain, without the owner key. */
 @kotlinx.serialization.Serializable
 data class ConsoleTransport(
-	/** Absent on a bundle from a build that carried a home Gateway. */
+	/** The bundle's shape; a receiver refuses any other. */
 	val version: Int = 0,
 	/** The Router endpoint and the leaf fingerprint pinned against it. */
 	val routerUrl: String = "",

@@ -13,6 +13,8 @@ internal class FixtureDraws private constructor(
 	private val seen = mutableSetOf<String>()
 	private val recorded = linkedMapOf<String, String>()
 
+	// Ops signed concurrently draw concurrently.
+	@Synchronized
 	fun next(size: Int): ByteArray {
 		require(size in 1..32) { "fixture draws require 1 to 32 bytes" }
 		val n = index++

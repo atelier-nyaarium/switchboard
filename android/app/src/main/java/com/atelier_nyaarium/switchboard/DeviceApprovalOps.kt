@@ -27,7 +27,7 @@ internal interface DeviceApprovalOpsCollaborators {
 	fun reportError(): String?
 }
 
-/** The unsealed join bundle, refused when a build that carried a home Gateway sealed it. */
+/** The unsealed join bundle, refused unless its version is the one this build reads. */
 internal fun parseConsoleTransport(plain: String): ConsoleTransport {
 	val transport = wireJson.decodeFromString(ConsoleTransport.serializer(), plain)
 	require(transport.version == ConsoleTransport.VERSION) {

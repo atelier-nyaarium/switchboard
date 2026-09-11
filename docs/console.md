@@ -86,8 +86,7 @@ plugin, since a policy binds a secret. A Gateway that refuses `policy_list` is d
 since an older build refuses an unknown op.
 
 A join bundle sealed for a freshly approved device carries `version: 2`; `parseConsoleTransport`
-refuses one from a build that still carried a home Gateway, and the new device tells the owner to
-update the held one.
+refuses any other version, and the new device tells the owner to update the held one.
 
 ### `GatewayRegistry`, the one owner of membership
 

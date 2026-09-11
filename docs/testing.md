@@ -63,7 +63,7 @@ one scenario never mint the same nonce. Its timers have two drives:
   deadline (intervals repeating) and yields to the event loop between firings, so the I/O and
   promises a real elapsed second would have settled do settle. A timer that throws still lets the
   rest of that move's due timers run, then rejects the `advance`. `startFederationHarness({ drive:
-  "manual" })` selects it; the fake is exposed as `h.ambient` for the home gateway,
+  "manual" })` selects it; the fake is exposed as `h.ambient` for the harness's own Gateway,
   `h.routerAmbient` for the Router, and `peer.ambient` for a Domain added with `addDomain`.
 
 Only a scenario that must move a deadline needs manual drive. The handshake re-send window and the

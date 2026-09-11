@@ -116,9 +116,9 @@ export async function startFederationHarness(options: FederationHarnessOptions =
 		wakeTimeoutMs: options.wakeTimeoutMs,
 	});
 	const peers: DomainPeer[] = [];
-	let home: DomainPeer;
+	let own: DomainPeer;
 	try {
-		home = await attachDomain(base, base.set, path.join(base.root, "gateway"), {
+		own = await attachDomain(base, base.set, path.join(base.root, "gateway"), {
 			host: options.host,
 			seedContentKey: options.seedContentKey,
 		});
@@ -130,23 +130,23 @@ export async function startFederationHarness(options: FederationHarnessOptions =
 		root: base.root,
 		now: base.now,
 		router: base.router,
-		set: home.set,
-		world: home.world,
-		federationDir: home.federationDir,
-		ambient: home.ambient,
+		set: own.set,
+		world: own.world,
+		federationDir: own.federationDir,
+		ambient: own.ambient,
 		routerAmbient: base.ambient,
 		get gateway() {
-			return home.gateway;
+			return own.gateway;
 		},
 		get host() {
-			return home.host;
+			return own.host;
 		},
-		phone: home.phone,
-		target: home.target,
+		phone: own.phone,
+		target: own.target,
 		phoneFor: base.phoneFor,
 		waitFor,
-		restartGateway: () => home.restartGateway(),
-		restartHost: (restart) => home.restartHost(restart),
+		restartGateway: () => own.restartGateway(),
+		restartHost: (restart) => own.restartHost(restart),
 		restartRouter: async () => {
 			await base.router.server.stop();
 			// Restart reloads Router state from disk.
@@ -169,7 +169,7 @@ export async function startFederationHarness(options: FederationHarnessOptions =
 			}
 			base.router.server = server;
 			base.router.store = store;
-			await registered(home.gateway);
+			await registered(own.gateway);
 			for (const peer of peers) await registered(peer.gateway);
 		},
 		addDomain: async (domainOptions) => {
@@ -190,7 +190,7 @@ export async function startFederationHarness(options: FederationHarnessOptions =
 		link: (receiver, requester) => linkDomains(receiver, requester, base.now),
 		close: async () => {
 			for (const peer of peers.splice(0)) await peer.close();
-			await home.close();
+			await own.close();
 			await base.close();
 		},
 	};
