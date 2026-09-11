@@ -39,6 +39,9 @@ export interface PersistenceStageDeps {
 	sweepDeliveries?: () => number | undefined;
 	/** Queued data names bytes. */
 	namesBlob?: (blobId: string) => boolean;
+	// Remove-by: 2026-09-25, with the blob migration route; the age sweep then always runs.
+	/** False while a migration may still need every local blob. */
+	ageStaging?: boolean;
 }
 
 /** Unreferenced staging lifetime. */
@@ -59,6 +62,7 @@ export function composePersistence({
 	reservedByRoutine,
 	sweepDeliveries,
 	namesBlob,
+	ageStaging = true,
 }: PersistenceStageDeps): PersistenceStage {
 	const runPersistSteps = createPersistRunner();
 	const persistDelivery = (cleanShutdown: boolean) =>
@@ -103,7 +107,7 @@ export function composePersistence({
 				run: () => {
 					const freed = stores.blobStore.sweep({
 						maxBytes: stores.maxBlobStoreBytes,
-						completeMaxAgeMs: STAGED_BLOB_MAX_AGE_MS,
+						...(ageStaging ? { completeMaxAgeMs: STAGED_BLOB_MAX_AGE_MS } : {}),
 						keep: (blobId) => namesBlob?.(blobId) ?? true,
 					});
 					if (freed > 0) console.error(`[blobs] swept ${freed} bytes`);

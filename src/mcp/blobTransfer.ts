@@ -21,7 +21,7 @@ const MAX_STAGING_BYTES = MAX_BLOB_BYTES * 4;
 /** A copy nothing read in a week is not coming back for. */
 const STAGING_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** On every transfer, since an MCP process has no tick. Eviction is free: anything swept refetches. */
+/** On every transfer, since an MCP process has no tick. A swept download refetches. */
 export function sweepStaging(): void {
 	try {
 		localBlobStore().sweep({ maxBytes: MAX_STAGING_BYTES, completeMaxAgeMs: STAGING_MAX_AGE_MS });

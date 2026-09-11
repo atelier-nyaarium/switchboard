@@ -14,6 +14,7 @@ import {
 	type VaultStoredEntry,
 	type VaultWriteResult,
 } from "../../shared/schemasVault.js";
+import { appliedOrUncertain } from "../../shared/write-result.js";
 import type { OwnerStoreRegistry } from "../inbox/ownerStoreRegistry.js";
 import { OwnerQuarantined, type StateRecord } from "../owner/ownerStateStore.js";
 import type { GatewayRegistration, OwnerServiceHooks } from "../ownerServiceHooks.js";
@@ -78,7 +79,7 @@ export function createVaultService(deps: Deps) {
 		});
 		if (result.kind === "conflict") return "conflict";
 		// Durability uncertainty still applied.
-		if (result.kind !== "ok" && result.kind !== "durability_uncertain") return "failed";
+		if (!appliedOrUncertain(result)) return "failed";
 		return "ok";
 	};
 

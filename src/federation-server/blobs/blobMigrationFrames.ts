@@ -2,6 +2,7 @@
 import { z } from "zod";
 import { parseBlobReference } from "../../shared/blob-reference.js";
 import { formatInboxAddress, INBOX_ROW_TTL_MS } from "../../shared/schemasInbox.js";
+import { landed } from "../../shared/write-result.js";
 import type { OwnerStoreRegistry } from "../inbox/ownerStoreRegistry.js";
 import { OwnerQuarantined } from "../owner/ownerStateStore.js";
 import type { OwnerServiceHooks } from "../ownerServiceHooks.js";
@@ -41,8 +42,7 @@ export function registerBlobMigrationFrames(
 				expiresAt = Number(row.acceptedAt ?? 0) + INBOX_ROW_TTL_MS;
 			}
 			const write = deps.held.publish(reg.domainId, [{ ref, blobIds: parsed.data.blobIds, expiresAt }], () => {});
-			// Uncertain writes are retried.
-			if (write.kind === "ok") return { outcome: "accepted" };
+			if (landed(write)) return { outcome: "accepted" };
 			if (write.kind === "blob_missing")
 				return { outcome: "refused", reason: "blob_missing", blobId: write.blobId };
 			return { outcome: "refused", reason: write.kind };

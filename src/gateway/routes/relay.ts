@@ -47,8 +47,8 @@ export function createRelay(deps: RelayDeps) {
 		}
 	}
 
-	/** Stages local files for relay; a retry renews the same holds. */
-	async function withHeldFiles(
+	/** Same Domain: staged and held under the op, so a retry renews. Cross Domain: metadata only. */
+	async function prepareFilesForTarget(
 		op: FederatedOp,
 		sameDomain: boolean,
 		opId: string,
@@ -83,7 +83,7 @@ export function createRelay(deps: RelayDeps) {
 		const opId = producerOpId ?? ambient.newId();
 		try {
 			target = sealTargetFor({ resolvesLocalGateway, crossDomainPeers }, dstGateway, dstDomain);
-			const carried = await withHeldFiles(op, typeof target === "string", opId);
+			const carried = await prepareFilesForTarget(op, typeof target === "string", opId);
 			if (!carried.ok) return carried;
 			sealed = sealer.seal(target, carried.op);
 		} catch (err) {

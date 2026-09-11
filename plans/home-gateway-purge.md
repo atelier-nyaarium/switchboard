@@ -887,6 +887,17 @@ Router half as planned, with these deviations:
 - Accepted gaps: scheduled acceptance and its bind are one line, but the fire's `done` put and the
   echo row are two.
 
+Deployed to the Router and to Sakura at `fcf8a477`. The Router's inventory named no blob: every
+row that had named one was already compacted, so the whole of Sakura's staging was unreferenced.
+The Gateway's new age sweep ran on its first tick, a minute before the migration, and dropped the
+397 unnamed blobs older than a day; the migration then held the 8 that were left. The September 1
+backup of the Gateway's data restored 325 of the dropped ones, and a second run held them all
+(333 on the Router under thirty-day holds, none left in staging). About 72 staged attachments from
+between September 1 and the deploy are gone from the Gateway; each had been delivered to the phone
+when its message landed, so the phone's thread buckets hold them. While the migration credential
+is set the age sweep stays off, so Mikan's restart cannot repeat this; Mikan is not reachable from
+here and still needs `./start-gateway.sh` and the migration script by hand.
+
 ### Bug Classes
 
 - **Mechanism:** what the Router answers when an owner-store write is `durability_uncertain`.
@@ -894,8 +905,9 @@ Router half as planned, with these deviations:
   **Rounds:** one, `ReferenceHeldStore.sweep` removed bytes on an uncertain `del` (align); two,
   `blob_hold` and `blob_migration_bind` answered `accepted` on an uncertain `publish` and the
   migration retired local bytes on it (red team). Both patches say the same rule at the answer:
-  uncertain is not accepted. The mechanism that should own it is the store's `WriteResult`: an
-  `ok`-only predicate every consumer reads, rather than each site spelling the pair.
+  uncertain is not accepted. Owned now by `src/shared/write-result.ts`: `landed(write)` for what
+  irreversible follows, `appliedOrUncertain(write)` for what a caller retries, and no site spells
+  the pair.
 
 ## Phase 6 - Gateway-specific pairing and sharing (track two)
 

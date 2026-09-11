@@ -8,9 +8,19 @@ export type WriteResultLike =
 export type WriteOutcome = "accepted" | "conflict" | "durability_failure" | "durability_uncertain";
 
 export interface FoldedWrite {
-	/** Applied writes trigger effects. */
+	/** In memory; not proof the line landed. */
 	applied: boolean;
 	outcome: WriteOutcome;
+}
+
+/** The line is on disk. What follows may be irreversible. */
+export function landed(result: { kind: string }): boolean {
+	return result.kind === "ok";
+}
+
+/** The write took effect here, perhaps durably. What follows must be retryable. */
+export function appliedOrUncertain(result: { kind: string }): boolean {
+	return result.kind === "ok" || result.kind === "durability_uncertain";
 }
 
 // Preserve applied writes; quarantine is uncertain.

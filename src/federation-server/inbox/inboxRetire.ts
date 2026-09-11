@@ -7,6 +7,7 @@ import {
 	type OpResultEnvelope,
 	signRowEnvelope,
 } from "../../shared/schemasInbox.js";
+import { appliedOrUncertain, landed } from "../../shared/write-result.js";
 import type { ReferenceHeldStore } from "../blobs/referenceHeldStore.js";
 import type { OwnerStateStore } from "../owner/ownerStateStore.js";
 import { ledgerTransaction, ownerAddress, recordId } from "./inboxCore.js";
@@ -92,7 +93,7 @@ export function retireRow(
 	const floorRecord = addressText === ownerAddressText ? store.get("inbox.address", ownerAddressText) : undefined;
 	if (sender && resultRow && senderStore && senderStore !== store) {
 		const senderWrite = ledgerTransaction(senderStore, (tx) => tx.append(sender.address, resultRow));
-		if (senderWrite.kind !== "ok" && senderWrite.kind !== "durability_uncertain") {
+		if (!appliedOrUncertain(senderWrite)) {
 			console.warn(`[inbox] result for ${sender.address} seq ${row.seq} not written`);
 			return null;
 		}
@@ -113,7 +114,7 @@ export function retireRow(
 		refs && row.envelope.contentRefs.length
 			? refs.publish(domainId, [{ ref: { kind: "row", address, seq: row.seq }, blobIds: [] }], mutate)
 			: ledgerTransaction(store, mutate);
-	if (write.kind !== "ok") return null;
+	if (!landed(write)) return null;
 	notifyRetired(domainId, addressText, row);
 	return result;
 }

@@ -8,6 +8,7 @@ import {
 	type OpResultEnvelope,
 	parseInboxAddress,
 } from "../../shared/schemasInbox.js";
+import { landed } from "../../shared/write-result.js";
 import type { ReferenceHeldStore } from "../blobs/referenceHeldStore.js";
 import type { OwnerStateStore } from "../owner/ownerStateStore.js";
 import { appendInboxRow, sessionExists } from "./inboxAppend.js";
@@ -161,7 +162,7 @@ export class InboxService {
 			if (ledger) tx.put("op", opId, ledger.version, { clear: { ...ledger.clear, state: input.outcome } });
 			if (input.outcome === "delivered") tx.remove(formatInboxAddress(address), input.seq);
 		});
-		if (write.kind !== "ok") return { opKey: row.envelope.opKey, outcome: durabilityOutcome(write.kind) };
+		if (!landed(write)) return { opKey: row.envelope.opKey, outcome: durabilityOutcome(write.kind) };
 		if (input.outcome === "delivered") this.rowRetired(address.domainId, formatInboxAddress(address), row);
 		return { opKey: row.envelope.opKey, outcome: input.outcome, seq: input.seq };
 	}
@@ -271,7 +272,7 @@ export class InboxService {
 		const result = store.put("consumer", id, current.version, {
 			clear: { cursor, cursorEpoch, lastSeen: this.now(), incarnation: Number(current.clear.incarnation ?? 0) },
 		});
-		return result.kind === "ok" ? { outcome: "ok" } : { outcome: "cursor_stale", floor, dropped: 0 };
+		return landed(result) ? { outcome: "ok" } : { outcome: "cursor_stale", floor, dropped: 0 };
 	}
 
 	compactOwnerInbox(domainId: string): void {
@@ -346,7 +347,7 @@ export class InboxService {
 			const current = store.get("gateway", id);
 			const incarnation = Number(current?.clear.incarnation ?? 0) + 1;
 			const write = store.put("gateway", id, current?.version ?? null, { clear: { incarnation } });
-			return write.kind === "ok" ? incarnation : null;
+			return landed(write) ? incarnation : null;
 		}, null);
 	}
 	currentIncarnation(domainId: string, gatewayId: string): number | null {

@@ -21,6 +21,7 @@ import {
 } from "../../shared/schemasBoardState.js";
 import type { InboxAddress, InboxRow } from "../../shared/schemasInbox.js";
 import { BOARD_OUTCOME_APPLIED, OP_OUTCOME_ACCEPTED } from "../../shared/wire-vocabulary.js";
+import { appliedOrUncertain } from "../../shared/write-result.js";
 import type { ReferenceHeldStore } from "../blobs/referenceHeldStore.js";
 import type { InboxService } from "../inbox/inboxService.js";
 import { OwnerOpRefused } from "../inbox/ownerOpIntake.js";
@@ -331,8 +332,7 @@ export function createBoardService(deps: Deps) {
 		if (result.kind === "conflict")
 			return { outcome: "conflict" as const, revision: before.revision, entries: answerBefore(), cascaded: [] };
 		// Durability uncertainty still applied.
-		if (result.kind !== "ok" && result.kind !== "durability_uncertain")
-			return rememberRefusal("durability_failure");
+		if (!appliedOrUncertain(result)) return rememberRefusal("durability_failure");
 		for (const o of observationsFor(before, next, touched, a)) {
 			const s = parseKey(o.sessionKey);
 			if (!deps.inbox.hasSession(domainId, s.gatewayId, s.sessionId)) continue;

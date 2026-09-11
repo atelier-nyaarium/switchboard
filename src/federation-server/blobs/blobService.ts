@@ -7,6 +7,7 @@ import {
 	BlobHoldParamsSchema,
 } from "../../shared/router-protocol.js";
 import type { BlobFetchAnswer, BlobLease } from "../../shared/schemasBlob.js";
+import { landed } from "../../shared/write-result.js";
 import { OwnerQuarantined } from "../owner/ownerStateStore.js";
 import type { OwnerServiceHooks } from "../ownerServiceHooks.js";
 import type { HeldChunk, ReferenceHeldStore } from "./referenceHeldStore.js";
@@ -99,8 +100,7 @@ export function createBlobService(deps: { held: ReferenceHeldStore; now: () => n
 					const ref = { kind: "hold" as const, gatewayId: reg.gatewayId, holdId: parsed.data.holdId };
 					const set = { ref, blobIds: [parsed.data.blobId], expiresAt: deps.now() + parsed.data.ttlMs };
 					const write = held.publish(reg.domainId, [set], () => {});
-					// Uncertain writes are retried.
-					if (write.kind === "ok") return { outcome: "accepted" };
+					if (landed(write)) return { outcome: "accepted" };
 					return { outcome: "refused", reason: write.kind };
 				});
 			});

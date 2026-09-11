@@ -161,6 +161,7 @@ export function createSendRoutes({
 		if (reserved.kind === "conflict") return jsonResponse({ error: reserved.reason }, 409);
 		let relay: { ok: boolean; error?: string };
 		try {
+			// The relay strips blob ids for a cross-Domain target.
 			relay = await relayToGateway(targetGateway, op, targetDomain, opId);
 		} catch (err) {
 			store.abort(reserved.reservation);

@@ -16,7 +16,7 @@ export interface BlobUploaderDeps {
 	};
 }
 
-/** A hold name bounded to the wire, one per scope and blob. */
+/** The one hold id for a scope and a blob. */
 export function holdIdFor(scope: string, blobId: string): string {
 	return crypto.createHash("sha256").update(`${scope}/${blobId}`).digest("hex");
 }
@@ -93,7 +93,7 @@ export function createBlobUploader(deps: BlobUploaderDeps) {
 		return held;
 	}
 
-	/** Temporary relay reference. */
+	/** A time-bound reference under this Gateway's name, for bytes no record names yet. */
 	async function hold(blobId: string, holdId: string, ttlMs: number): Promise<boolean> {
 		const answer = await deps.call("blob_hold", { blobId, holdId, ttlMs });
 		return !answer.error && (answer.result as { outcome?: string } | undefined)?.outcome === "accepted";

@@ -10,6 +10,7 @@ import {
 	KeyRequestFrameSchema,
 } from "../shared/schemasContentKey.js";
 import { type InboxAddress, type InboxRow, signRowEnvelope } from "../shared/schemasInbox.js";
+import { landed } from "../shared/write-result.js";
 import type { GatewayRegistration } from "./gatewayBridge.js";
 import type { InboxService } from "./inbox/inboxService.js";
 import type { OwnerOpIntake } from "./inbox/ownerOpIntake.js";
@@ -79,7 +80,7 @@ export function createKeyDeliveryService(params: {
 		const write = store.put("keyReceipt", id, current?.version ?? null, {
 			clear: { recipientSignPub: value.recipientSignPub, epoch: value.epoch, at: value.at, nonce: value.nonce },
 		});
-		if (write.kind !== "ok")
+		if (!landed(write))
 			return {
 				opKey,
 				outcome:

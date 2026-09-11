@@ -32,6 +32,7 @@ internal interface ScheduledSendOpsCollaborators {
 	fun fromCanonical(team: String): String?
 	fun scheduleAttachmentDelete(srcs: List<String>)
 	fun takeBackIntoDraft(team: String, text: String, files: List<MessageFile>)
+	/** In the thread state before it returns. */
 	fun append(team: String, message: Message): Long
 	suspend fun postOwnerOp(op: JsonObject, opId: String): kotlinx.serialization.json.JsonElement?
 	fun sealScheduledBody(plaintext: ByteArray, opId: String): ContentEnvelope?
@@ -104,7 +105,7 @@ internal class ScheduledSendOps(
 		if (edit && !rec.draftTaken) collaborators.takeBackIntoDraft(team, rec.text, withSources(rec))
 		if (rec.routerVersion == null) {
 			remove(team, rec)
-			if (!edit) deleteIfFree(team, rec)
+			if (!edit) deleteSourcesIfUnreferenced(team, rec)
 			return@withLock
 		}
 		val marked = rec.copy(cancelRequested = true, draftTaken = rec.draftTaken || edit)
@@ -122,7 +123,7 @@ internal class ScheduledSendOps(
 		when {
 			answer.jsonObject["outcome"]?.jsonPrimitive?.content == Protocol.Wire.OP_OUTCOME_ACCEPTED -> {
 				remove(team, rec)
-				if (!rec.draftTaken) deleteIfFree(team, rec)
+				if (!rec.draftTaken) deleteSourcesIfUnreferenced(team, rec)
 			}
 			reason == "settled" -> {
 				put(team, rec.copy(cancelRequested = false))
@@ -192,7 +193,7 @@ internal class ScheduledSendOps(
 			"sent" -> found?.let { (team, rec) ->
 				collaborators.append(team, Message(true, rec.text, System.currentTimeMillis(), files = rec.fileRefs, opId = rec.opId))
 				remove(team, rec)
-				if (!rec.draftTaken) deleteIfFree(team, rec)
+				if (!rec.draftTaken) deleteSourcesIfUnreferenced(team, rec)
 			}
 			"failed" -> found?.let { (team, rec) -> remove(team, rec); onScheduledSendFailed?.invoke(team, rec.opId) }
 		}
@@ -250,6 +251,6 @@ internal class ScheduledSendOps(
 
 	private fun put(team: String, rec: ScheduledSend) { state.update { it.copy(scheduledSends = it.scheduledSends + (team to rec)) }; persistence.persistScheduledSends(state.value.scheduledSends) }
 	private fun remove(team: String, rec: ScheduledSend) { if (state.value.scheduledSends[team]?.opId != rec.opId) return; state.update { it.copy(scheduledSends = it.scheduledSends - team) }; persistence.persistScheduledSends(state.value.scheduledSends) }
-	private fun deleteIfFree(team: String, rec: ScheduledSend) { if (state.value.threads[team]?.any { it.opId == rec.opId } != true) collaborators.scheduleAttachmentDelete(rec.fileRefs.mapNotNull(MessageFile::src)) }
+	private fun deleteSourcesIfUnreferenced(team: String, rec: ScheduledSend) { if (state.value.threads[team]?.any { it.opId == rec.opId } != true) collaborators.scheduleAttachmentDelete(rec.fileRefs.mapNotNull(MessageFile::src)) }
 	private fun setError(reason: String?) { state.update { it.copy(error = "Scheduled send: ${reason ?: "unavailable"}") } }
 }

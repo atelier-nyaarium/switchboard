@@ -7,6 +7,7 @@ import { MAX_BLOB_BYTES } from "../../shared/router-protocol.js";
 import type { BlobLease } from "../../shared/schemasBlob.js";
 import { formatInboxAddress, parseInboxAddress } from "../../shared/schemasInbox.js";
 import { ciphertextRangeForPlaintext, sealedBlobSize } from "../../shared/sealed-blob.js";
+import { appliedOrUncertain, landed } from "../../shared/write-result.js";
 import type { OwnerStoreRegistry } from "../inbox/ownerStoreRegistry.js";
 import type { OwnerStateStore, StateRecord, WriteResult } from "../owner/ownerStateStore.js";
 
@@ -123,8 +124,7 @@ export class ReferenceHeldStore {
 			stagedAt: this.options.ambient.now(),
 		};
 		const write = store.put("blob", blobId, existing?.version ?? null, { clear: { ...next } });
-		if (write.kind !== "ok" && write.kind !== "durability_uncertain")
-			return { outcome: "refused", reason: write.kind };
+		if (!appliedOrUncertain(write)) return { outcome: "refused", reason: write.kind };
 		return { outcome: "lease", lease, have: blobs.stat(blobId).have };
 	}
 
@@ -279,7 +279,7 @@ export class ReferenceHeldStore {
 			}
 			mutate(tx);
 		});
-		if (write.kind === "ok") for (const blobId of emptied) blobs.remove(blobId);
+		if (landed(write)) for (const blobId of emptied) blobs.remove(blobId);
 		return write;
 	}
 
@@ -299,7 +299,7 @@ export class ReferenceHeldStore {
 			const released = refs.length === 0 && current.refs.length > 0;
 			if (expiredStage || released) {
 				const write = store.del("blob", record.id, record.version);
-				if (write.kind === "ok") blobs.remove(record.id);
+				if (landed(write)) blobs.remove(record.id);
 				continue;
 			}
 			if (refs.length !== current.refs.length) {

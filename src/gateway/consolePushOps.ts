@@ -192,12 +192,12 @@ export function createConsolePushOps({
 		return { ...item, entry: { ...item.entry, files } };
 	}
 
-	/** Queued data names bytes. */
+	/** A queued row or a held delivery names the bytes; a bare put is nobody's. */
 	const namesBlob = (blobId: string): boolean =>
 		outbox.values().some((item) => blobIdsOf(item.entry).includes(blobId)) ||
 		deliveries?.namesBlob(blobId) === true;
 
-	/** Staging belongs to its row. */
+	/** Bytes nothing here names any more leave; the Router holds them. */
 	function retireStaging(blobIds: readonly string[]): void {
 		for (const blobId of blobIds) if (!namesBlob(blobId)) blobStore?.remove(blobId);
 	}

@@ -56,7 +56,7 @@ async function inventory(call: Call): Promise<z.infer<typeof InventorySchema>["r
 	return parsed.data.references;
 }
 
-/** Restartable blob binding. */
+/** Binds what the Router names, holds the rest, retires what the Router now holds. */
 export async function migrateRouterBlobs(
 	deps: Pick<BlobMigrationRouteDeps, "blobs" | "namedHere" | "sweepDeliveries">,
 	{ call, uploader }: BlobMigrationSlice,

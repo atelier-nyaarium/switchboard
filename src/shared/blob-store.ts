@@ -46,7 +46,7 @@ export function isBlobId(value: string): boolean {
 	return BLOB_ID_RE.test(value);
 }
 
-/** Content-addressed, bounded chunk store. */
+/** Content-addressed chunk store; `sweep` is its only bound. */
 export class BlobStore {
 	// The MCP process builds one without a graph, so its ambient is the process one.
 	constructor(
