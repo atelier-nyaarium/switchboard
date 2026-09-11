@@ -22,7 +22,7 @@ import kotlinx.serialization.json.JsonObject
 object Protocol {
 	const val CONSOLE_PROTOCOL_VERSION: Int = 3
 	const val FEDERATION_PROTOCOL_FLOOR: Int = 1
-	const val FEDERATION_PROTOCOL_VERSION: Int = 2
+	const val FEDERATION_PROTOCOL_VERSION: Int = 3
 
 	object Wire {
 		const val ROUTER_PATH_CONSOLE: String = "/console"
@@ -123,9 +123,6 @@ object Protocol {
 			const val CROSS_DOMAIN_CONFIRM: String = "cross_domain_confirm"
 			const val CROSS_DOMAIN_LISTEN_STATE: String = "cross_domain_listen_state"
 			const val CROSS_DOMAIN_CANCEL: String = "cross_domain_cancel"
-			const val CROSS_DOMAIN_SHARE: String = "cross_domain_share"
-			const val CROSS_DOMAIN_UNSHARE: String = "cross_domain_unshare"
-			const val CROSS_DOMAIN_LIST_SHARES: String = "cross_domain_list_shares"
 			const val CROSS_DOMAIN_LIST_PEERS: String = "cross_domain_list_peers"
 			const val CROSS_DOMAIN_UNLINK: String = "cross_domain_unlink"
 			const val CROSS_DOMAIN_UNTRUST: String = "cross_domain_untrust"
@@ -369,7 +366,6 @@ sealed class ConsoleOp {
 		val pin: String,
 		val requesterOwnerSignPub: String,
 		val requesterDomainId: String,
-		val requesterGatewayId: String,
 	) : ConsoleOp()
 
 	@Serializable
@@ -391,24 +387,6 @@ sealed class ConsoleOp {
 		val listeningToken: String? = null,
 		val pin: String? = null,
 	) : ConsoleOp()
-
-	@Serializable
-	@SerialName("cross_domain_share")
-	data class CrossDomainShare(
-		val sessionTarget: String,
-		val target: CrossDomainShareTarget,
-	) : ConsoleOp()
-
-	@Serializable
-	@SerialName("cross_domain_unshare")
-	data class CrossDomainUnshare(
-		val sessionTarget: String,
-		val target: CrossDomainShareTarget,
-	) : ConsoleOp()
-
-	@Serializable
-	@SerialName("cross_domain_list_shares")
-	data object CrossDomainListShares : ConsoleOp()
 
 	@Serializable
 	@SerialName("cross_domain_list_peers")

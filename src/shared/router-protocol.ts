@@ -70,6 +70,10 @@ export const RouterInboundFrameSchema = z.discriminatedUnion("type", [
 		domainId: z.string().min(1),
 		incarnation: z.number().int().positive(),
 	}),
+	z.looseObject({
+		type: z.literal("share_delta"),
+		incarnation: z.number().int().positive(),
+	}),
 ]);
 
 export const ToolCallFrameSchema = z.object({
@@ -154,7 +158,8 @@ export const ValueResultParamsSchema = z.object({
 });
 
 export const FEDERATION_PROTOCOL_FLOOR = 1;
-export const FEDERATION_PROTOCOL_VERSION = 2;
+/** Below 3 a Gateway keeps a share copy nothing writes. */
+export const FEDERATION_PROTOCOL_VERSION = 3;
 export const FEDERATION_VALUE_PROTOCOL_VERSION = FEDERATION_PROTOCOL_VERSION;
 
 export const GatewayRegisterParamsSchema = z.object({

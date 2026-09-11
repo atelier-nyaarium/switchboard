@@ -91,7 +91,7 @@ bookkeeping:
 | `federation-harness-sessions.test.ts` | Session bindings and impostors, worker answers, transcript handover, duplicated deliveries, reply authority, the wake boundary, the console's create, rename, close, forget, tmux, peek, and notify rules, daemon capabilities |
 | `federation-harness-handshake.test.ts` | A session verifying before its lead confirms, a reconnect within retention, a stale close under a newer registration; under manual drive, the re-send throttle window and the expiry sweep |
 | `federation-harness-domains.test.ts` | Two and three Domains: the handshake, shares and the Router record, cross-Domain send and reply, opaque refusal, unshare, unlink, colliding gateway ids, forged replies, a repeated send opId |
-| `federation-harness-xdomain.test.ts` | The share gate, the gateway's own share frames, a share under the migration fence, a cross-Domain wake, return-route authentication, a relay retried across a Router restart, unlink of in-flight work, share auto-forget |
+| `federation-harness-xdomain.test.ts` | The share gate, a share refused for a session the Gateway never reported, the Gateway's copy learning a share and its withdrawal by revision and reading the whole set after a restart, a cross-Domain wake, return-route authentication, a relay retried across a Router restart, unlink of in-flight work, share auto-forget |
 | `federation-harness-router.test.ts` | Router-only: tenant provision, first root, rename and its refusals, removal, deletion, replay across a restart, device approval, the trust rendezvous |
 | `federation-harness-codex.test.ts` | Codex through the gateway and the daemon: start, message, list, stop, replayed frames, gateway and daemon restarts |
 | `federation-harness-vault.test.ts` | A phone's sealed put read back by the gateway, the AAD binding, delta lists, the CAS conflict carrying the winner, delete and revive through the tombstone, the gateway's create-only road, the fence refusing a create, and the Router's sweep held under the fence |
@@ -106,8 +106,8 @@ The coordinators and services behind the scenarios keep pure-rule suites beside 
 `cross-domain-handshake` (limits, cancellation, mismatch refusals), `router-coordinators`
 (rendezvous, approval, and tenant limits), `owner-op-intake` (in-flight duplicates, caps,
 admission refusals, quarantine), `cross-domain-presence` (consumer, pusher, reconciler, source),
-`share-rules`, `console-cross-domain-share` (the mirror before the record, a refused record,
-the fence), `vault-service` (caps, tombstones, the delta floor, quarantine), `vault-client` (the
+`share-rules`, `cross-domain-share-state` (the copy fails closed until a snapshot lands, a delta at
+the next revision only, a snapshot replacing an older copy), `vault-service` (caps, tombstones, the delta floor, quarantine), `vault-client` (the
 delta copy, the revision reset, unavailable answers), `vault-decisions` (shapes, tiers, reopen, a
 poisoned file), `vault-requests` (single-use answers, the deadline under manual drive, collect by
 session, session end), `versioned-list` (the fold every Router-held list consumer applies, driven

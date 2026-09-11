@@ -55,12 +55,22 @@ describe("two linked Domains", () => {
 		);
 		return peer.phone.open(row) as DispatchResult;
 	};
-	/** One value op; the gateway writes the Router record and its own mirror. */
+	/** Share through the Router and Gateway. */
 	const share = async (peer: DomainPeer, team: string, toDomainId: string, kind: "share" | "unshare" = "share") => {
 		const op = kind === "share" ? "cross_domain_share" : "cross_domain_unshare";
 		const target = { kind: "domain" as const, domainId: toDomainId };
-		const mirrored = await peer.phone.value({ kind: op, sessionTarget: peer.target(team), target });
-		expect(mirrored.result, JSON.stringify(mirrored.result)).toMatchObject({ ok: true });
+		const sessionTarget = peer.target(team);
+		const recorded = await h.waitFor(async () => {
+			const answer = (await peer.phone.send({ kind: op, sessionTarget, target })) as { reason?: string };
+			return answer.reason === "session" ? undefined : answer;
+		}, `${op} of ${team}`);
+		expect(recorded, JSON.stringify(recorded)).toMatchObject({ ok: true });
+		await h.waitFor(
+			() =>
+				peer.gateway.faults.sharesHeld().sessionTargets.includes(sessionTarget) === (kind === "share") ||
+				undefined,
+			`the Gateway's copy after the ${op} of ${team}`,
+		);
 	};
 
 	beforeAll(async () => {

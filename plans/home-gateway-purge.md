@@ -909,7 +909,7 @@ here and still needs `./start-gateway.sh` and the migration script by hand.
   irreversible follows, `appliedOrUncertain(write)` for what a caller retries, and no site spells
   the pair.
 
-## Phase 6 - Gateway-specific pairing and sharing (track two)
+## Phase 6 - Gateway-specific pairing and sharing (track two) ✅
 
 - `crossDomainHandshake.request` stamps `this.self.gatewayId`. `requesterGatewayId` leaves
   `cross_domain_request`, `consoleCrossDomain.request`, the handshake request type, `Protocol.kt`,
@@ -948,6 +948,98 @@ Rules:
 - A pairing is a Gateway's. The owner names which, once, and it holds.
 - A share is the Router's record. A Gateway learns it by revision and never writes it.
 
+### As built
+
+Router and Gateway half as planned, with these deviations, most of them Sol's:
+
+- The snapshot is pulled, not pushed. `onGatewayRegistered` fires before the register answer is
+  written, so a pushed snapshot would precede `registered` on the wire and be dropped or applied
+  to an incarnation the client had not settled. The gateway reads `share_mirror_read` (a read
+  frame, so it passes the migration fence) from `onRegistered`, beside the presence baseline, and
+  again on any delta that is not held plus one. A failed read retries every ten seconds while
+  registered.
+- The copy fails closed. The file on disk may predate an unshare the gateway was not connected to
+  hear, and the Router routes relays to a registered gateway before its read lands, so
+  `isSharedTo`, `sharesFor` and `all` answer nothing shared until a snapshot of the current
+  registration has landed, and `unready` on a disconnect closes them again. The window is one
+  round trip after each registration; a relay in it is refused, not admitted from stale state.
+- A snapshot replaces whatever is held, older revision included. Within one registration the
+  socket orders a read's answer against the deltas the Router computes under the same store, so a
+  snapshot is never older than a delta that preceded it; across registrations the Router is the
+  authority, a Router restored from a backup included. `docs/federation.md` states that policy
+  rather than building revocation tombstones for it.
+- `land` writes the file before the memory, so a failed write leaves the copy where it was.
+- The Router refuses a share whose session its Gateway has not reported (`OwnerOpRefused("session")`),
+  existence only; the session's kind stays at the gateway's delivery gate, which already reads it,
+  and the reporter still reports every session as `kind: "session"`. A share posted in the second
+  after a session is created is refused once and the phone retries. The harness helpers wait for
+  the report and then for the Gateway's copy, since an in-process phone gets its answer before the
+  Gateway has read the delta from its socket.
+- `ok` on the share and unshare answers says the line landed; an uncertain write answers `ok:
+  false` with its outcome and the delta still goes out, so the Router's memory and the Gateway's
+  copy agree while the phone retries (`answerOf`).
+- A removed record expires a session's jobs for a Domain only when the session is no longer
+  effectively shared to it, on a delta and on a snapshot alike; a domain record removed while
+  `everyone_trusted` stays revokes nothing.
+- A signed `revoke_xdomain_link` runs `shareService.unlink`, which it never had. The phone's untrust
+  road revokes edges through it, and before this the explicit shares stayed on the Router and would
+  have reactivated on a relink.
+- `confirm` on the handshake peeks the pairing, validates, writes the peer, and only then takes it,
+  so a refused confirm can be retried with the same signed link.
+- The gateway's hourly share sweep, its `touch` on relay admission and on session polls, and
+  `dropDomain` on unlink and untrust are gone; the Router sweeps, touches on admission, and pushes
+  the drops. `unlinkDomain` and `untrustOwner` keep the peer removal, the job expiry and the
+  presence teardown; their `sharesDropped` counts the copy's records naming the Domain.
+- `FEDERATION_PROTOCOL_VERSION` is 3, so a Gateway on the old build receives `unsupported` for value
+  and delivery ops. The floor stays 1 until Phase 7 raises it to 3; until then an old Gateway still
+  registers and a friend's relay to its stale copy is still admitted there. Mikan is that Gateway
+  until the owner restarts it.
+- Not built, named: Sol's Router-side peer-binding check (a share is dormant until its Gateway holds
+  a pairing with the Domain, and `docs/federation.md` says so), an atomic audience replacement for the
+  sheet's modes (two phones can interleave a Private and an Everyone change), and a session-registry
+  baseline that deletes Router rows a Gateway no longer reports.
+
+Phone half as planned (Luna's slice, compiled and repaired here), with these deviations:
+
+- `TrustOps.Pairing(gatewayId, role, linkNonce, listeningToken?, pin?)` holds the nonce too, so a
+  confirm retry signs the same link bytes (Sol); the wizard no longer holds one. The wizard offers
+  the reachable Gateways as chips when there are several, takes the one when there is one, and
+  disables the two buttons until one is picked. `crossDomainCancel` takes no arguments and clears
+  the held pairing.
+- `GatewayEntry.peers` is the per-Gateway projection; `refreshPeers()` reads every roster Gateway
+  behind the read fence, keeps a Gateway that could not be read as it was, and derives
+  `linkedPeerOwners` as the union, dropping a Domain two Gateways name with different owners.
+  `PresenceOps.applyLinkedPeers` is gone; it had no caller. The refresh runs on every welcome, on
+  opening the share sheet, and on the Users screen.
+- `canShareTo(team, domainId)` reads the session's own Gateway; never-read peers answer true, a
+  Gateway the roster no longer names answers false, and `shareableSessions` lists no session on
+  such a Gateway (align). The sheet disables a person's row for a session whose Gateway holds no
+  pairing with them and says so. The audience modes moved out of the sheet into
+  `TrustOps.setShareMode` with `ShareAudience`, where a JVM test reaches them (align).
+- `refreshPeers()` answers which Gateways it read this round, and an untrust stays pending while any
+  roster Gateway was not (align: a Gateway read earlier may hold a pairing this round missed).
+- `crossDomainShares()` reads the list once and answers both sets (Sol's two-read race).
+- `untrustOwner` asks a `routerReachable` collaborator first; away, it marks the owner pending and
+  changes nothing. Reachable, it reads every Gateway's peers, revokes each of the owner's Domain
+  edges and stops with the owner still trusted and pending if the Router did not take one (red
+  team: the Boolean was ignored), then asks every Gateway whose peers name the owner, then drops
+  local trust, and keeps the owner pending when a Gateway could not be told or was never read.
+  The pending set lives in the store beside the trusted owners (`FederationManager.pendingUntrust`),
+  so a process death keeps it, and `retryPendingUntrust` runs the same road on every welcome.
+- `confirmWithMyLink` asks the Gateway to confirm before it trusts the owner locally (red team),
+  so a refused confirm leaves nothing behind and the held pairing can be retried.
+- The rendezvous pin is minted with `java.util.Base64`, since `android.util.Base64` is a stub on
+  the JVM the tests run on.
+- Owner-op answers are read by `ownerResult`: a refusal envelope raises its reason, an unlanded
+  write raises its outcome, and the sheet shows either as "Couldn't update sharing".
+
+### Bug Classes
+
+- **Mechanism:** what a Gateway admits from a copy of a Router record. **Class:** a replica served
+  before it is known to be current. **Rounds:** one, the first replica served its file until the
+  registration read landed (Sol); fixed by the ready gate, which every read of the copy passes. The
+  same class was Phase 1's `Cached` provenance on the phone's roster; the gate is the same answer.
+
 ## Phase 7 - The symbol dies, and the shims with it
 
 - `homeGatewayId` everywhere: `ChatRepository`, `ChatState`, `ConnectCoordinator.adoptHomeGateway`,
@@ -957,9 +1049,10 @@ Rules:
   `PresenceHost`, `SessionHost`, `RunbookHost`, and the tests that only covered them.
 - `RunbookManager.UNPLACED` and the list-form decode (a list-form store decodes as empty and is
   overwritten on the next commit); `LegacyCapabilitiesSchema` (an old cache reads as
-  `NOTHING_REPORTED` until the next report, tested); `FEDERATION_PROTOCOL_FLOOR` to 2 with the
-  `unsupported` road, the admin bootstrap carve-out test raised to protocol 2, and a refused gateway
-  stopping with a named error rather than staying connected unregistered; `sealTargetFor`'s
+  `NOTHING_REPORTED` until the next report, tested); `FEDERATION_PROTOCOL_FLOOR` to 3 (the version
+  Phase 6 set, since a Gateway below it keeps a share copy nothing writes) with the `unsupported`
+  road, every registration fixture and the admin bootstrap carve-out test raised to protocol 3, and
+  a refused gateway stopping with a named error rather than staying connected unregistered; `sealTargetFor`'s
   bare-string fallback becomes a refusal, with `federation-pure-rules.test.ts` and the relay and
   presence-pull callers asserting a refusal, not a throw.
 - The old state goes by a narrow one-off, not a grammar bump: `AppStateStore` removes

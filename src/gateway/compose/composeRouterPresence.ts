@@ -71,10 +71,14 @@ export function composeRouterPresence(deps: RouterPresenceStageDeps): RouterPres
 			reconciler.cancel(domainId);
 		};
 
+		// Count shares before unlink.
+		const sharesNaming = (domainId: string): number =>
+			slice.shareState.all().filter((s) => s.target.kind === "domain" && s.target.domainId === domainId).length;
+
 		const unlinkDomain = (domainId: string): CrossDomainUnlinkResult => {
 			const result = {
 				peersRemoved: slice.crossDomainPeers.removeByDomain(domainId),
-				sharesDropped: slice.shareState.dropDomain(domainId),
+				sharesDropped: sharesNaming(domainId),
 				jobsExpired: stores.jobs.expireByDomain(domainId),
 			};
 			forgetDomain(domainId);
@@ -86,7 +90,7 @@ export function composeRouterPresence(deps: RouterPresenceStageDeps): RouterPres
 			let sharesDropped = 0;
 			let jobsExpired = 0;
 			for (const domainId of domains) {
-				sharesDropped += slice.shareState.dropDomain(domainId);
+				sharesDropped += sharesNaming(domainId);
 				jobsExpired += stores.jobs.expireByDomain(domainId);
 				forgetDomain(domainId);
 			}

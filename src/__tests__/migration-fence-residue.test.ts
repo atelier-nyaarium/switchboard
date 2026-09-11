@@ -6,7 +6,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { DurableOpStore } from "../gateway/console/durableOpStore.js";
-import { CrossDomainShareState } from "../gateway/federation/crossDomainShareState.js";
 import { ReadAnchors } from "../gateway/readAnchors.js";
 import { processAmbient } from "../shared/ambient.js";
 import type { DurableStore } from "../shared/durable-store.js";
@@ -206,26 +205,5 @@ describe("migration fence residue", () => {
 
 		expect(store.get("conv", "done")).toMatchObject({ state: "complete" });
 		expect(store.get("conv", "caught")).toBeUndefined();
-	});
-
-	it("the share sweep removes nothing under the fence", () => {
-		const state = new CrossDomainShareState(tempDir(), undefined, processAmbient());
-		setMigrationEpoch(7);
-
-		expect(state.sweep(Date.now(), 0, () => false)).toBe(0);
-	});
-
-	it("a share is neither taken nor withdrawn under the fence", () => {
-		const state = new CrossDomainShareState(tempDir(), undefined, processAmbient());
-		const target = { kind: "domain", domainId: "beta" } as never;
-		expect(state.share("alpha.gw.spawn.session", target)).toBe(true);
-		setMigrationEpoch(7);
-
-		expect(state.share("alpha.gw.other.session", target)).toBe(false);
-
-		expect(state.unshare("alpha.gw.spawn.session", target)).toBe("fenced");
-		setMigrationEpoch(null);
-		expect(state.unshare("alpha.gw.spawn.session", target)).toBe("removed");
-		expect(state.unshare("alpha.gw.other.session", target)).toBe("absent");
 	});
 });

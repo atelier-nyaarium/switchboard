@@ -91,18 +91,6 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 					})),
 				}),
 			},
-			crossDomainShare: {
-				postRecord: (action, sessionTarget, target) => context.postShareRecord(action, sessionTarget, target),
-				share: (sessionTarget, target) => slice.shareState.share(sessionTarget, target),
-				unshare: (sessionTarget, target) => slice.shareState.unshare(sessionTarget, target),
-				expireSessionJobsForTarget: (sessionTarget, target) => {
-					const domains = target.kind === "domain" ? [target.domainId] : context.linkedDomainIds();
-					for (const d of domains) stores.jobs.expireBySession(sessionTarget, d);
-				},
-				listShares: () =>
-					slice.shareState.all().map((s) => ({ sessionTarget: s.sessionTarget, target: s.target })),
-				isLinkedDomain,
-			},
 			unlinkDomain: presence.unlinkDomain,
 			untrustOwner: presence.untrustOwner,
 			durableOpStore: stores.durableOpStore,
@@ -205,7 +193,6 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 				isSharedTo: (sessionTarget, domainId) =>
 					slice.shareState.isSharedTo(sessionTarget, domainId, isLinkedDomain),
 				sharesFor: (domainId) => slice.shareState.sharesFor(domainId, isLinkedDomain),
-				touch: (sessionTarget) => slice.shareState.touch(sessionTarget),
 			},
 			crossDomainBinding: (sessionId) => stores.jobs.crossDomainBinding(sessionId),
 		});

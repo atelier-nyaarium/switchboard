@@ -88,7 +88,6 @@ export const ConsoleOpSchema = z
 			pin: z.string().min(1),
 			requesterOwnerSignPub: z.string().min(1),
 			requesterDomainId: z.string().min(1).max(64),
-			requesterGatewayId: z.string().min(1).max(64),
 		}),
 		z.object({
 			kind: z.literal("cross_domain_confirm"),
@@ -104,17 +103,6 @@ export const ConsoleOpSchema = z
 			listeningToken: z.string().optional(),
 			pin: z.string().optional(),
 		}),
-		z.object({
-			kind: z.literal("cross_domain_share"),
-			sessionTarget: z.string().min(1).max(128),
-			target: CrossDomainShareTargetSchema,
-		}),
-		z.object({
-			kind: z.literal("cross_domain_unshare"),
-			sessionTarget: z.string().min(1).max(128),
-			target: CrossDomainShareTargetSchema,
-		}),
-		z.object({ kind: z.literal("cross_domain_list_shares") }),
 		z.object({ kind: z.literal("cross_domain_list_peers") }),
 		z.object({
 			kind: z.literal("cross_domain_unlink"),
@@ -244,9 +232,6 @@ export const VALUE_OP_KINDS = new Set([
 	"cross_domain_confirm",
 	"cross_domain_listen_state",
 	"cross_domain_cancel",
-	"cross_domain_share",
-	"cross_domain_unshare",
-	"cross_domain_list_shares",
 	"cross_domain_list_peers",
 	"cross_domain_unlink",
 	"cross_domain_untrust",

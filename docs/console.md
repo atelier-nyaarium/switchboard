@@ -26,9 +26,9 @@ that must keep working for one more console build goes into `TOLERATED_DELIVERY_
   `capabilities_report`, and the vault's `vault_list`, `vault_put`, and `vault_delete`. The value
   kinds `vault_answer`, `vault_grants`, and `vault_revoke` are answered by the Gateway's vault stage
   (`docs/vault.md`); a request to approve arrives as a `plugin_action` row with `pluginId`
-  `vault`. Sharing a session with a friend Domain is the Gateway's
-  `cross_domain_share` value op alone; the Gateway writes its mirror and posts the Router record
-  itself. Unsharing works the same way, record first.
+  `vault`. Sharing a session with a friend Domain is the Router's `cross_domain_share` owner op;
+  `cross_domain_unshare` and `cross_domain_list_shares` are the other two. No Gateway is named. The
+  session's Gateway learns the record by revision (`docs/federation.md`).
 - The phone socket uses `ConsoleSocketMode.INBOX`.
 - `PollDrain.drainTick` calls `inbox_read` and `planes_read`. It sends one `inbox_advance` after
   rows drain.
@@ -144,11 +144,18 @@ presence payload's own `plane` equals the `PlaneRead` lineage around it because 
 computes both in one synchronous pass. A removed Domain's console sockets are refused and its
 owner store leaves the Router's cache, so nothing serves its old lineage.
 
-One filter remains: `TrustOps.shareableSessions` offers only sessions on this Gateway, and the share
-it feeds sends `requesterGatewayId = homeGatewayId()`. Widening the list alone would offer sessions
-the share then names wrongly, so the two move together or not at all.
+No screen filters by a home Gateway. `TrustOps.shareableSessions` offers every shareable session on
+every Gateway, and a session can be shared to a Domain only when its own Gateway's `peers` projection
+holds a pairing with that Domain; a Gateway whose peers were never read is drawn as stale, not as
+having none. A pairing is a Gateway's: the wizard names one at listen or request, `TrustOps` holds
+that `Pairing` with its link nonce for the pairing's lifetime, and every poll, confirm, retry and
+cancel reads it. A pairing does not survive the process; the Gateway's rendezvous window is the
+authority and a fresh wizard starts a fresh one. Untrust revokes the Router edge for each of the
+owner's Domains first, then asks every Gateway whose peers name the owner to forget them, then drops
+local trust; with the Router unreachable nothing is revoked, trust stays, and the owner is marked
+pending until the next welcome retries.
 
-Protocol-1 gateways receive `unsupported` for value and delivery ops.
+A Gateway below protocol 3 receives `unsupported` for value and delivery ops.
 
 ## Add Device
 

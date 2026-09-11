@@ -118,6 +118,7 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 
 	const share = createShareService({
 		registry,
+		hasSession: (domainId, gatewayId, sessionId) => inbox.hasSession(domainId, gatewayId, sessionId),
 		isLinked: (domainId, friendDomainId) => deps.hasLinkEdge(domainId, friendDomainId),
 		linkEdgeId: (domainId, friendDomainId) => deps.linkEdgeId(domainId, friendDomainId),
 		dropLinkEdge: (domainId, friendDomainId) => deps.dropLinkEdge(domainId, friendDomainId),

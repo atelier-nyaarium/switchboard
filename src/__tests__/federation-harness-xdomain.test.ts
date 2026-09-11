@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { setMigrationEpoch } from "../shared/migration-fence.js";
 import { SHARE_TTL_MS, share, sharesFor, sweep } from "../shared/share-rules.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type DomainPeer, type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
@@ -20,13 +19,22 @@ describe("cross-Domain gateway admission and relay", () => {
 		sessions.push(attached);
 		return attached;
 	};
-	/** One value op; the gateway writes the Router record and its own mirror. */
-	const share = async (peer: DomainPeer, team: string, domainId: string) => {
+	/** Post and await mirror. */
+	const share = async (peer: DomainPeer, team: string, domainId: string, kind: "share" | "unshare" = "share") => {
 		const target = { kind: "domain" as const, domainId };
 		const sessionTarget = peer.target(team);
-		expect(await peer.phone.value({ kind: "cross_domain_share", sessionTarget, target })).toMatchObject({
-			result: { ok: true },
-		});
+		const op = kind === "share" ? "cross_domain_share" : "cross_domain_unshare";
+		const recorded = await h.waitFor(async () => {
+			const answer = (await peer.phone.send({ kind: op, sessionTarget, target })) as { reason?: string };
+			return answer.reason === "session" ? undefined : answer;
+		}, `${op} of ${team}`);
+		expect(recorded).toMatchObject({ ok: true });
+		await h.waitFor(
+			() =>
+				peer.gateway.faults.sharesHeld().sessionTargets.includes(sessionTarget) === (kind === "share") ||
+				undefined,
+			`the Gateway's copy after the ${op} of ${team}`,
+		);
 	};
 	const sendFrom = async (peer: DomainPeer, to: string, domainId: string, body: string, id?: string) => {
 		const operationId = id ?? `xd-${++opId}`;
@@ -82,50 +90,43 @@ describe("cross-Domain gateway admission and relay", () => {
 		]);
 	});
 
-	it("writes the Router share record from a gateway frame, for that gateway's own sessions only", async () => {
+	it("records a share only for a session its Gateway reported, and lists it", async () => {
 		const owned = session(bob, "fixture-app.framed");
 		await owned.ready();
 		const target = { kind: "domain" as const, domainId: h.set.domain.id };
 		const sessionTarget = remote(bob, owned.team);
-		expect(
-			(await bob.gateway.faults.routerInboxCall("cross_domain_share", { sessionTarget, target })).result,
-		).toMatchObject({ ok: true });
+		await share(bob, owned.team, h.set.domain.id);
 		expect(await bob.phone.send({ kind: "cross_domain_list_shares" })).toMatchObject({
 			shares: [{ sessionTarget, target }],
 		});
-		const foreign = `${bob.set.domain.id}.not-this-gateway.fixture-app.framed`;
-		const refused = await bob.gateway.faults.routerInboxCall("cross_domain_share", {
-			sessionTarget: foreign,
+		const unreported = await bob.phone.send({
+			kind: "cross_domain_share",
+			sessionTarget: `${bob.set.domain.id}.not-this-gateway.fixture-app.framed`,
 			target,
 		});
-		expect(refused.error).toMatch(/session/);
-		expect(
-			(await bob.gateway.faults.routerInboxCall("cross_domain_unshare", { sessionTarget, target })).result,
-		).toMatchObject({ ok: true });
+		expect(unreported).toMatchObject({ outcome: "refused", reason: "session" });
+		await share(bob, owned.team, h.set.domain.id, "unshare");
 		expect(await bob.phone.send({ kind: "cross_domain_list_shares" })).toMatchObject({ shares: [] });
 	});
 
-	it("refuses a share under the gateway's migration fence before any Router record", async () => {
-		const fenced = session(bob, "fixture-app.fenced");
-		await fenced.ready();
-		const target = { kind: "domain" as const, domainId: h.set.domain.id };
-		setMigrationEpoch(7);
-		try {
-			const refused = await bob.phone.value({
-				kind: "cross_domain_share",
-				sessionTarget: bob.target(fenced.team),
-				target,
-			});
-			expect(refused.result).toMatchObject({ kind: "refusal", reason: "migrating" });
-		} finally {
-			setMigrationEpoch(null);
-		}
-		expect(await bob.phone.send({ kind: "cross_domain_list_shares" })).toMatchObject({ shares: [] });
-		expect(await bob.phone.value({ kind: "cross_domain_list_shares" })).toMatchObject({ result: { shares: [] } });
-		await share(bob, fenced.team, h.set.domain.id);
-		expect(await bob.phone.send({ kind: "cross_domain_list_shares" })).toMatchObject({
-			shares: [{ sessionTarget: remote(bob, fenced.team), target }],
-		});
+	it("the Gateway learns a share and its withdrawal by revision, and reads the whole set again on registration", async () => {
+		const mirrored = session(bob, "fixture-app.mirrored");
+		await mirrored.ready();
+		await share(bob, mirrored.team, h.set.domain.id);
+		expect(await sendFrom(h, remote(bob, mirrored.team), "bob", "while shared")).toMatchObject({ ok: true });
+		await share(bob, mirrored.team, h.set.domain.id, "unshare");
+		expect(await sendFrom(h, remote(bob, mirrored.team), "bob", "after unshare")).toMatchObject({ ok: false });
+		expect(mirrored.inbound.map((frame) => frame.body)).toEqual(["while shared"]);
+
+		await share(bob, mirrored.team, h.set.domain.id);
+		await bob.restartGateway();
+		const again = session(bob, "fixture-app.mirrored");
+		await again.ready();
+		await h.waitFor(
+			async () => ((await sendFrom(h, remote(bob, mirrored.team), "bob", "after restart")).ok ? true : undefined),
+			"the restarted Gateway's copy of the share",
+			20_000,
+		);
 	});
 
 	it("rejects a cross-Domain wake for an unshared session before it reaches the session", async () => {

@@ -6,9 +6,7 @@ import type {
 	CrossDomainListenResult,
 	CrossDomainListenStateResult,
 	CrossDomainListPeersResult,
-	CrossDomainListSharesResult,
 	CrossDomainRequestResult,
-	CrossDomainShareTarget,
 	CrossDomainUnlinkResult,
 	DiscoverCoverage,
 } from "../../shared/console-protocol.js";
@@ -36,7 +34,6 @@ import type { VaultDecision, VaultGrant } from "../../shared/schemasVault.js";
 import type { SessionStore } from "../../shared/session-store.js";
 import type { GatewaySpawnPoints, TeamInfo } from "../../shared/types.js";
 import type { DeliverToOwner } from "../consolePushOps.js";
-import type { ShareMirrorOutcome } from "../federation/crossDomainShareState.js";
 import type { WakeResult } from "../wake.js";
 import type { ConversationRegistry, TeamRegistry } from "../wsTypes.js";
 import type { DurableOpStore } from "./durableOpStore.js";
@@ -111,7 +108,6 @@ export interface ConsoleHandlerDeps {
 	) => { launch: Promise<HostOpResult>; release: (() => void) | null };
 	awaitRegister?: (team: string) => Promise<WakeResult>;
 	crossDomain?: CrossDomainConsoleHandlers;
-	crossDomainShare?: CrossDomainShareHandlers;
 	unlinkDomain?: (domainId: string) => CrossDomainUnlinkResult;
 	untrustOwner?: (ownerSignPub: string) => CrossDomainUnlinkResult;
 	durableOpStore?: DurableOpStore;
@@ -174,27 +170,11 @@ export interface CrossDomainConsoleHandlers {
 		pin: string;
 		requesterOwnerSignPub: string;
 		requesterDomainId: string;
-		requesterGatewayId: string;
 	}) => Promise<CrossDomainRequestResult>;
 	confirm: (args: { pin: string; mySignedLink: SignedXDomainLink }) => CrossDomainConfirmResult;
 	cancel: (args: { listeningToken?: string; pin?: string }) => boolean;
 	listenState: (listeningToken: string) => CrossDomainListenStateResult;
 	listPeers: () => CrossDomainListPeersResult;
-}
-
-export interface CrossDomainShareHandlers {
-	postRecord: (
-		action: "cross_domain_share" | "cross_domain_unshare",
-		sessionTarget: string,
-		target: CrossDomainShareTarget,
-	) => Promise<void>;
-	share: (sessionTarget: string, target: CrossDomainShareTarget) => boolean;
-	unshare: (sessionTarget: string, target: CrossDomainShareTarget) => ShareMirrorOutcome;
-	listShares: () => CrossDomainListSharesResult["shares"];
-	// Withdrawals settle jobs so replies stop at the destination.
-	expireSessionJobsForTarget: (sessionTarget: string, target: CrossDomainShareTarget) => void;
-	// Shares target linked Domains only.
-	isLinkedDomain: (domainId: string) => boolean;
 }
 
 export function friendlyPeekError(error?: string, kind?: HostOpResult["errorKind"]): string {

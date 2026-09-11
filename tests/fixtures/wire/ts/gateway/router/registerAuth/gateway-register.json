@@ -18,7 +18,7 @@
 		"params": {
 			"gatewayId": "laptop",
 			"domainId": "fixture-domain",
-			"protocolVersion": 2,
+			"protocolVersion": 3,
 			"signPub": "MXCo4mPj6sJdP9TnM34sP3ZPawSzPEIj5kJtJCkZ02Q=",
 			"boxPub": "GfSHcs+oJgYnhkKtJSg6YkoZeVnmB71RIqLOQPx03wk=",
 			"admission": "{\"admission\":{\"kind\":\"gateway\",\"signPub\":\"MXCo4mPj6sJdP9TnM34sP3ZPawSzPEIj5kJtJCkZ02Q=\",\"boxPub\":\"GfSHcs+oJgYnhkKtJSg6YkoZeVnmB71RIqLOQPx03wk=\",\"gatewayId\":\"laptop\",\"issuedAt\":1757000000000,\"nonce\":\"fixture-gateway-admission\"},\"ownerSignPub\":\"s1H7W7bG7tz0kA+qDERSO9pCIZ3USsFnGLpqFZ13m28=\",\"signature\":\"vJ7NYDTb1giPcPW50X3SbFulgqLxS6j1SqfvRMvxs0/2R6erQ9r/TI0ApmF/E0YX9fdirnrzx+8hvRFkba4YAg==\"}",

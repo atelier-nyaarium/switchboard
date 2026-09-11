@@ -24,6 +24,7 @@ data class GatewayEntry(
 	val routineZone: String = "",
 	val runbooks: List<Runbook>? = null,
 	val policies: List<AuthorizationPolicy>? = null,
+	val peers: List<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry>? = null,
 ) {
 	val seen: Boolean get() = incarnation > 0
 }
@@ -85,6 +86,10 @@ data class GatewayRegistry(
 	fun policyOn(gatewayId: String, policyId: String): AuthorizationPolicy? =
 		policiesOn(gatewayId).find { it.id == policyId }
 
+	fun peersOn(gatewayId: String): List<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry> = entry(gatewayId)?.peers.orEmpty()
+
+	fun hasPeer(gatewayId: String, domainId: String): Boolean = entry(gatewayId)?.peers?.any { it.domainId == domainId } == true
+
 	/** Wake at earliest routine. */
 	fun soonestRoutineAt(): Long? =
 		gateways.flatMap { entry -> entry.routines.orEmpty().mapNotNull { it.nextAt } }.minOrNull()
@@ -116,6 +121,7 @@ data class GatewayRegistry(
 						routineZone = prior?.routineZone.orEmpty(),
 						runbooks = prior?.runbooks ?: storedRunbooks(row.gatewayId),
 						policies = prior?.policies,
+						peers = prior?.peers,
 					)
 				}
 				.sortedBy { it.id },

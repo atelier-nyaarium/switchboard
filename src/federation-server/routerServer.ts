@@ -473,6 +473,11 @@ export class RouterServer {
 		if (!domainId) return { ok: false, error: "admin Domain not rooted" };
 		const coordinator = this.coordinatorFor(domainId);
 		if (!coordinator) return { ok: false, error: "admin Domain unavailable" };
+		// Read before the revocation removes it.
+		const revokedEdgeId =
+			op.kind === "revoke_xdomain_link"
+				? coordinator.linkEdgeId(op.revocation.revocation.srcDomainId, op.revocation.revocation.dstDomainId)
+				: null;
 		const result = await dispatchEnrollOp(coordinator, op, this.tenantAdmin);
 		if (!result.ok) return result;
 		if (op.kind === "submit_revocation") {
@@ -491,6 +496,9 @@ export class RouterServer {
 			const failed = await this.flushOrError(domainId);
 			if (failed) return failed;
 			const edge = op.kind === "submit_xdomain_link" ? op.edge.edge : op.revocation.revocation;
+			// A revoked edge takes its shares, so a relink starts private.
+			if (op.kind === "revoke_xdomain_link")
+				this.ownerServices.share.unlink(edge.srcDomainId, edge.dstDomainId, { id: revokedEdgeId });
 			this.ownerServices.presence.refresh(edge.srcDomainId);
 			this.ownerServices.presence.refresh(edge.dstDomainId);
 		} else if (op.kind === "set_display_name") {

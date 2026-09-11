@@ -208,6 +208,10 @@ class ChatRepository(
 				}
 				attachments.forgetFailures()
 				boardOps.forgetAbsent()
+				repoScope.launch {
+					trust.refreshPeers()
+					trust.retryPendingUntrust()
+				}
 			},
 			onConsumerWelcome = { _, _ ->
 				repoScope.launch {
@@ -352,7 +356,6 @@ class ChatRepository(
 		clientPort = ports,
 		identity = ports,
 		presence = ports,
-		homeGatewayId = { homeGatewayId },
 		collaborators = trustCollaborators,
 	)
 	internal val playback = PlaybackOps(

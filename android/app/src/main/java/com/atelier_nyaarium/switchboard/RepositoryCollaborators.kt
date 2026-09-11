@@ -232,6 +232,7 @@ internal class ChatRepositoryTrustCollaborators(private val repo: ChatRepository
 		repo.ownerFacts.submitXdomainLink(srcDomainId, dstDomainId)
 	override suspend fun revokeXdomainLink(srcDomainId: String, dstDomainId: String) =
 		repo.ownerFacts.revokeXdomainLink(srcDomainId, dstDomainId)
+	override suspend fun routerReachable() = runCatchingCancellable { repo.client().transport.apiReachable() }.getOrNull() != null
 }
 
 internal class ChatRepositoryPlaybackPort(private val repo: ChatRepository) : PlaybackPort {

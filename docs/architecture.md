@@ -26,8 +26,7 @@ what the Router's constructor builds. The phone's `PhoneIdentity` publishes `Pho
 order (bootstrap, stores, sessions, persistence, host, agents, awareness, federation, enrollment,
 websockets, routes, router presence, router frames, listener), then builds the fault port; a stage
 that needs a later one takes a thunk. `FederationContext` is the one reader of the boot: activation after a bootstrap install
-publishes the boot, the Domain id, and the slice together, so nothing holds a stale copy, and it
-posts the Router share record when the console writes the gateway's mirror. `GatewayGraph` is
+publishes the boot, the Domain id, and the slice together, so nothing holds a stale copy. `GatewayGraph` is
 `router`, `wsHandlers`, `close`, and `faults`, the port the harness and the boot smoke drive
 instead of reaching into the graph.
 

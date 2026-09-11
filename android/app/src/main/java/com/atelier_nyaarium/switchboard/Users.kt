@@ -93,8 +93,10 @@ fun UsersScreen(
 
 	// owner key -> how many of my sessions that trusted person can reach (the "N shared sessions" line).
 	var sharedCounts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+	val pendingUntrust by repo.trust.pendingUntrust.collectAsState()
 
 	suspend fun refresh() {
+		repo.trust.refreshPeers()
 		outcome = repo.trust.fetchRoster()
 		// Keep the prior values on a failed read: replacing with empty shows zero pending invites and
 		// zero shared sessions, which reads as fact rather than as a read that did not land.
@@ -222,6 +224,7 @@ fun UsersScreen(
 					}
 					for (m in members) {
 						val trusted = remember(m.ownerSignPub, trustVersion) { repo.trust.isOwnerTrusted(m.ownerSignPub) }
+						val untrustPending = m.ownerSignPub in pendingUntrust
 						val armedRendezvous = pending[m.ownerSignPub]
 						UserRow(
 							member = m,
@@ -229,6 +232,7 @@ fun UsersScreen(
 							isTrusted = trusted,
 							sharedCount = if (trusted) sharedCounts[m.ownerSignPub] ?: 0 else 0,
 							isPending = !trusted && armedRendezvous != null,
+							untrustPending = untrustPending,
 							onTrust = if (!trusted) {
 								{
 									// Respond to an arm aimed at me (join its rendezvous), or start a fresh one.
@@ -274,6 +278,7 @@ private fun UserRow(
 	isTrusted: Boolean,
 	sharedCount: Int = 0,
 	isPending: Boolean,
+	untrustPending: Boolean,
 	onTrust: (() -> Unit)?,
 	onManageShares: (() -> Unit)? = null,
 	onUntrust: (() -> Unit)?,
@@ -310,6 +315,7 @@ private fun UserRow(
 						color = MaterialTheme.colorScheme.onSecondaryContainer,
 					)
 				}
+				if (untrustPending) Text("untrust pending", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				Text(
 					presenceLine,
 					style = MaterialTheme.typography.bodySmall,

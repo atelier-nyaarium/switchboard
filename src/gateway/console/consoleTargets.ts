@@ -27,11 +27,6 @@ export interface LocalComposite {
 	session: string;
 }
 
-export interface ShareTarget {
-	name: string;
-	canonical: string;
-}
-
 export type ConsoleTargets = ReturnType<typeof createConsoleTargets>;
 
 ////////////////////////////////
@@ -104,14 +99,6 @@ export function createConsoleTargets({ localDomainId, localGatewayId, isTrustedC
 			.spawn;
 	}
 
-	/** The canonical `domain.gateway.spawn.session` key a session is shared under, the single form
-	 * every read path (the relay gate, the sweep, discovery) compares against. */
-	function shareTarget(named: string, foreignError: () => Error): ShareTarget {
-		const t = requireLocal(named, foreignError);
-		const name = t instanceof SpawnPoint ? t.spawn : composeSessionName(t.spawn, t.session);
-		return { name, canonical: localAddress(name).canonical };
-	}
-
 	/** Resolve a console terminal target to the host tmux it maps to. The target is a local team
 	 * field (`spawn` -> default session, or `spawn.session`) or its fully-qualified Address;
 	 * `explicitSession` (create_session) overrides the derived session. */
@@ -143,7 +130,6 @@ export function createConsoleTargets({ localDomainId, localGatewayId, isTrustedC
 		boardSessionKey,
 		requireLocalComposite,
 		localSpawn,
-		shareTarget,
 		tmuxTarget,
 	};
 }

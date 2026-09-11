@@ -16,7 +16,6 @@ describe("createConsoleTargets", () => {
 		expect(() => targets.requireLocalComposite(FOREIGN, "forget")).toThrow("another Gateway");
 		expect(() => targets.localSpawn(FOREIGN)).toThrow("another Gateway");
 		expect(() => targets.tmuxTarget(FOREIGN)).toThrow("another Gateway");
-		expect(() => targets.shareTarget(FOREIGN, () => new Error("only local"))).toThrow("only local");
 	});
 
 	it("parse alone passes a foreign address through, for the ops that route cross-Gateway", () => {

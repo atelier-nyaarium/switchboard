@@ -158,7 +158,6 @@ export class CrossDomainHandshakeCoordinator {
 		pin: string;
 		requesterOwnerSignPub: string;
 		requesterDomainId: string;
-		requesterGatewayId: string;
 	}): Promise<CrossDomainRequestResult> {
 		this.sweep();
 		if (!this.route) throw new Error("cross-Domain routing is not available on this Gateway");
@@ -173,7 +172,7 @@ export class CrossDomainHandshakeCoordinator {
 			gatewaySignPub: this.self.gatewaySignPub,
 			gatewayBoxPub: this.self.gatewayBoxPub,
 			domainId: args.requesterDomainId,
-			gatewayId: args.requesterGatewayId,
+			gatewayId: this.self.gatewayId,
 		};
 		const requesterSalt = this.ambient.randomBytes(SALT_RANDOM_BYTES).toString("base64url");
 		const requesterCommitment = crossDomainCommitment(requesterParty, requesterSalt);
@@ -233,7 +232,7 @@ export class CrossDomainHandshakeCoordinator {
 		const ownerSignPub = this.self.ownerSignPub();
 		if (!ownerSignPub) throw new Error("this Gateway has no Domain owner yet");
 
-		const pairing = this.takePairing(args.pin);
+		const pairing = this.peekPairing(args.pin);
 		if (!pairing) throw new Error("no pending pairing for this pin");
 
 		const mine = args.mySignedLink;
@@ -260,6 +259,8 @@ export class CrossDomainHandshakeCoordinator {
 			link: mine,
 		};
 		if (!this.peers.add(peer)) throw new Error("failed to store the cross-Domain peer");
+		// Consume pairing after persistence.
+		this.takePairing(args.pin);
 
 		return { ok: true };
 	}
@@ -319,6 +320,13 @@ export class CrossDomainHandshakeCoordinator {
 			domainId: this.self.domainId,
 			gatewayId: this.self.gatewayId,
 		};
+	}
+
+	private peekPairing(pin: string): Pairing | null {
+		const requester = this.requesterPairings.get(pin);
+		if (requester) return requester;
+		const token = this.tokenByPin.get(pin);
+		return token ? (this.listening.get(token)?.pairing ?? null) : null;
 	}
 
 	private takePairing(pin: string): Pairing | null {

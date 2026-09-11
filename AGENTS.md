@@ -9,7 +9,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/` - Docker-side HTTP and WS router
 - `src/gateway/composeGateway.ts` - the compose stages in order, fault port, and cycles; `index.ts` is the Bun adapter
 - `src/gateway/compose/gatewayTypes.ts` - `GatewayConfig`, `GatewayDeps`, `GatewayGraph`, and the `GatewayFaultPort` the harness drives
-- `src/gateway/compose/federationContext.ts` - the one federation reader; activation publishes boot, Domain id, and slice together, and it posts the Router share record
+- `src/gateway/compose/federationContext.ts` - the one federation reader; activation publishes boot, Domain id, and slice together
 - `src/gateway/compose/composeBootstrap.ts` - directories, identity, keyring, boot decision, schema wipe
 - `src/gateway/compose/composeStores.ts` - every durable writer and the restored session-resume payload
 - `src/gateway/compose/composeSessions.ts` - registries, `SessionStore`, planes, presence, session authority
@@ -17,7 +17,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/compose/composeHost.ts` - the host socket, wake service, host relay, presence watch
 - `src/gateway/compose/composeAgents.ts` - Codex and Copilot services, relays, and HTTP routes
 - `src/gateway/compose/composeAwareness.ts` - the awareness bank and its tick
-- `src/gateway/compose/composeFederation.ts` - `buildSlice`, the Router client, and the share sweep
+- `src/gateway/compose/composeFederation.ts` - `buildSlice`, the Router client, and the share mirror's registration read and delta apply
 - `src/gateway/compose/composeEnrollment.ts` - the enrollment window, its TLS door, and the install
 - `src/gateway/compose/composeWebSockets.ts` - session sockets and held-delivery handover
 - `src/gateway/compose/composeRoutes.ts` - the route surface, built once a Domain is active and rebuilt when federation activates; null before, so no route mints an address
@@ -114,6 +114,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/boardAwareness.ts` - board awareness recipients and net-change classification
 - `src/gateway/awarenessBank.ts` - subscriber state, deadlines, and liveness reads
 - `src/gateway/daemonCapabilities.ts` - daemon capability answer
+- `src/gateway/federation/crossDomainShareState.ts` - this Gateway's copy of the Router's shares for its own sessions; a snapshot replaces it, a delta moves it one revision
+  - **The Router writes; this reads, and reads nothing until a snapshot of this registration
+    lands:** the file may predate a withdrawal the Gateway was not connected to hear, so every read
+    answers nothing shared until `replace` runs, and `unready` on a disconnect or a gap closes them
+    again. No sweep, no touch, no drop lives here.
 - `src/gateway/federation/contentKeyStore.ts` - gateway keyring, sole rule owner, sole writer of `content-keys.json`
 - `src/gateway/federation/bootstrapInstall.ts` - staged bootstrap install and re-enrollment merge
 - `src/gateway/federation/crossDomainPresenceSource.ts` - source-side change detection and its outbound plane
@@ -278,6 +283,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../ConnectCoordinator.kt` - the connect sequence over the identity door and the Router reach; `ChatRepository.connect()` delegates to it
 - `android/.../RouterReach.kt` / `ConsoleRouterTransport.kt` / `ConsoleSocketMode` - Router addresses, the OwnerOp post with reach failover and pinning, socket mode
 - `android/.../OwnerFacts.kt` / `GatewayEnrollment.kt` / `EnrollCeremonyOps.kt` / `DeviceApprovalOps.kt` / `DomainAdminOps.kt` / `TrustOps.kt` - federation delegates
+  - **A pairing is a Gateway's, and `TrustOps` holds the one in flight:** the wizard names the
+    Gateway at listen or request; every poll, confirm, retry and cancel reads the held `Pairing`,
+    nonce included. No pairing call defaults its Gateway.
+  - **A share is the Router's record:** `TrustOps` posts and lists shares as owner ops, offers every
+    shareable session on every Gateway, and lets a session be shared to a Domain only when its own
+    Gateway's `peers` projection holds that Domain. An untrust revokes the Router edges first and
+    keeps the owner trusted and pending until every one landed.
 - `android/.../SasExchange.kt` / `EnrollCeremony.kt` - shared SAS exchange and commitment core for FLOW-1 and FLOW-2
 - `android/.../crypto/ContentKeyring.kt` - phone keyring, classify then commit
 - `android/.../crypto/ContentAadKinds.kt` - sole AAD kind builders, twins of `content-envelope.ts`; `aad-kinds-residue.test.ts` pins both to one vector each
@@ -333,7 +345,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/federation-server/blobs/blobMigrationFrames.ts` - `blob_migration_inventory` and `blob_migration_bind`, the two frames the one-time Gateway migration uses; removed 2026-09-25
 - `src/federation-server/ownerServices.ts` / `ownerServiceHooks.ts` - the owner-state services behind one hook surface: OwnerOp kinds, gateway frames, register and drop listeners, and the sweepers the fence holds
 - `src/federation-server/presence/` - presence rows per gateway incarnation, resync, roster, owner and friend projections. The owner projection states the owner's facts. `refresh` recomputes a Domain and every Domain that embeds it.
-- `src/federation-server/share/` - share records, generations, attestations, sweep, unlink; the peer-row gate
+- `src/federation-server/share/` - share records, generations, attestations, sweep, unlink, and per-Gateway mirror revisions
+  - **A share names a session its Gateway reported:** `share` refuses `session` otherwise, so the
+    phone retries rather than believing a record for a session the Router never heard of. `ok`
+    says the line landed; an uncertain write answers `ok: false` with its outcome.
 - `src/federation-server/board/` - board records with sealed text, authority and cascade on the clear envelope, observation rows
 - `src/federation-server/vault/` - vault entries: sealed fields, revision CAS, phone writes, gateway creates, unopened fields
 - `src/shared/schemasVault.ts` - vault wire truth: entries, puts, results, requests, grants, console answers

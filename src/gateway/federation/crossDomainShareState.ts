@@ -1,21 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import type { Clock } from "../../shared/ambient.js";
-import { fenced } from "../../shared/migration-fence.js";
 import { CrossDomainShareTargetSchema } from "../../shared/schemas.js";
+import type { ShareMirrorDelta, ShareMirrorSnapshot } from "../../shared/schemasShare.js";
 import {
 	all as allShares,
-	type CrossDomainShareTarget,
-	dropDomain as dropShareDomain,
 	isSharedTo as isShareSharedTo,
 	type ShareRecord,
 	type ShareState,
-	share as shareRule,
 	sharesFor as sharesForRule,
-	sweep as sweepShares,
-	touch as touchShares,
-	unshare as unshareRule,
+	targetKey,
 } from "../../shared/share-rules.js";
 
 export type { ShareRecord } from "../../shared/share-rules.js";
@@ -25,104 +19,115 @@ const ShareRecordSchema = z.object({
 	target: CrossDomainShareTargetSchema,
 	lastSeenAt: z.number().int(),
 });
-const CrossDomainShareFileSchema = z.object({ shares: z.array(ShareRecordSchema) });
-type CrossDomainShareFile = ShareState;
+const CrossDomainShareFileSchema = z.object({
+	revision: z.number().int().nonnegative(),
+	shares: z.array(ShareRecordSchema),
+});
 
 export type ShareChangeReason = { kind: "domain"; domainId: string } | { kind: "sweep" };
-export type ShareMirrorOutcome = "removed" | "absent" | "fenced";
+/** What a snapshot or delta changed, once on disk. */
+export type ShareMirrorChange = { reason: ShareChangeReason; removed: ShareRecord[] };
 
 export const XDOMAIN_SHARE_FILE = "cross-domain-share-state.json";
 
+const recordKey = (record: { sessionTarget: string; target: ShareRecord["target"] }): string =>
+	`${record.sessionTarget}|${targetKey(record.target)}`;
+
+/** The Router writes; this reads, and reads nothing until a snapshot of this registration lands. */
 export class CrossDomainShareState {
 	private file: string;
-	private state: CrossDomainShareFile;
-	private readonly onChange?: (reason: ShareChangeReason) => void;
+	private state: ShareState;
+	private held: number;
+	private ready = false;
+	private readonly onChange?: (change: ShareMirrorChange) => void;
 
-	constructor(
-		dataDir: string,
-		onChange: ((reason: ShareChangeReason) => void) | undefined,
-		private readonly ambient: Clock,
-	) {
+	constructor(dataDir: string, onChange?: (change: ShareMirrorChange) => void) {
 		this.file = path.join(dataDir, XDOMAIN_SHARE_FILE);
-		this.state = this.read();
+		const read = this.read();
+		this.state = { shares: read.shares };
+		this.held = read.revision;
 		this.onChange = onChange;
 	}
 
-	private read(): CrossDomainShareFile {
+	private read(): { revision: number; shares: ShareRecord[] } {
 		try {
 			const parsed = CrossDomainShareFileSchema.safeParse(JSON.parse(fs.readFileSync(this.file, "utf8")));
 			if (parsed.success) return parsed.data;
 		} catch {
 			// Unreadable state starts empty.
 		}
-		return { shares: [] };
+		return { revision: 0, shares: [] };
 	}
 
-	private persist(): void {
+	/** On disk before memory, so a failed write changes nothing. */
+	private land(revision: number, shares: ShareRecord[]): void {
 		fs.mkdirSync(path.dirname(this.file), { recursive: true });
-		fs.writeFileSync(this.file, JSON.stringify(this.state), { mode: 0o600 });
+		fs.writeFileSync(this.file, JSON.stringify({ revision, shares }), { mode: 0o600 });
+		this.state = { shares };
+		this.held = revision;
 	}
 
-	/** False while the migration fence holds. */
-	share(sessionTarget: string, target: CrossDomainShareTarget): boolean {
-		if (fenced()) return false;
-		this.state = shareRule(this.state, sessionTarget, target, this.ambient.now());
-		this.persist();
-		this.onChange?.(target.kind === "domain" ? { kind: "domain", domainId: target.domainId } : { kind: "sweep" });
-		return true;
+	revision(): number {
+		return this.held;
 	}
 
-	unshare(sessionTarget: string, target: CrossDomainShareTarget): ShareMirrorOutcome {
-		if (fenced()) return "fenced";
-		const result = unshareRule(this.state, sessionTarget, target);
-		this.state = result.state;
-		if (!result.removed) return "absent";
-		this.persist();
-		this.onChange?.(target.kind === "domain" ? { kind: "domain", domainId: target.domainId } : { kind: "sweep" });
-		return "removed";
+	/** True once a snapshot of this registration landed. */
+	isReady(): boolean {
+		return this.ready;
 	}
 
+	/** Nothing is shared until the next snapshot. */
+	unready(): void {
+		this.ready = false;
+	}
+
+	/** The Router's answer stands, whatever was held. */
+	replace(snapshot: ShareMirrorSnapshot): void {
+		const before = this.state.shares;
+		const next = new Set(snapshot.shares.map(recordKey));
+		const removed = before.filter((record) => !next.has(recordKey(record)));
+		const added = snapshot.shares.filter((record) => !before.some((held) => recordKey(held) === recordKey(record)));
+		this.land(snapshot.revision, [...snapshot.shares]);
+		const wasReady = this.ready;
+		this.ready = true;
+		if (removed.length || added.length || !wasReady)
+			this.onChange?.({ reason: reasonOf([...removed, ...added]), removed });
+	}
+
+	/** Only the next revision applies; anything else is a gap. */
+	apply(delta: ShareMirrorDelta): "applied" | "gap" {
+		if (delta.revision !== this.held + 1) return "gap";
+		const dropped = new Set(delta.del.map(recordKey));
+		const put = new Map(delta.put.map((record) => [recordKey(record), record]));
+		const removed = this.state.shares.filter((record) => dropped.has(recordKey(record)));
+		const kept = this.state.shares.filter(
+			(record) => !dropped.has(recordKey(record)) && !put.has(recordKey(record)),
+		);
+		this.land(delta.revision, [...kept, ...delta.put]);
+		if (removed.length || delta.put.length)
+			this.onChange?.({ reason: reasonOf([...removed, ...delta.put]), removed });
+		return "applied";
+	}
+
+	/** An unlinked Domain is shared nothing, whatever the Router holds. */
 	isSharedTo(sessionTarget: string, toDomainId: string, isLinked: (domainId: string) => boolean): boolean {
-		return isShareSharedTo(this.state, sessionTarget, toDomainId, isLinked);
+		return this.ready && isLinked(toDomainId) && isShareSharedTo(this.state, sessionTarget, toDomainId, isLinked);
 	}
 
 	sharesFor(toDomainId: string, isLinked: (domainId: string) => boolean): string[] {
-		return sharesForRule(this.state, toDomainId, isLinked);
-	}
-
-	touch(sessionTarget: string): void {
-		if (fenced()) return;
-		const before = this.state.shares;
-		this.state = touchShares(this.state, sessionTarget, this.ambient.now());
-		const changed = this.state.shares.some((s, i) => s.lastSeenAt !== before[i]?.lastSeenAt);
-		if (changed) this.persist();
-	}
-
-	dropDomain(toDomainId: string): number {
-		if (fenced()) return 0;
-		const result = dropShareDomain(this.state, toDomainId);
-		this.state = result.state;
-		const removed = result.removed;
-		if (removed > 0) {
-			this.persist();
-			this.onChange?.({ kind: "domain", domainId: toDomainId });
-		}
-		return removed;
+		return this.ready && isLinked(toDomainId) ? sharesForRule(this.state, toDomainId, isLinked) : [];
 	}
 
 	all(): ShareRecord[] {
-		return allShares(this.state);
+		return this.ready ? allShares(this.state) : [];
 	}
+}
 
-	sweep(now: number, ttlMs: number, isLive: (sessionTarget: string) => boolean): number {
-		if (fenced()) return 0;
-		const result = sweepShares(this.state, now, ttlMs, isLive);
-		this.state = result.state;
-		const removed = result.removed;
-		if (removed > 0) {
-			this.persist();
-			this.onChange?.({ kind: "sweep" });
-		}
-		return removed;
-	}
+/** One Domain when every record names it, else all. */
+function reasonOf(records: ShareRecord[]): ShareChangeReason {
+	const domains = new Set(records.map((record) => (record.target.kind === "domain" ? record.target.domainId : "*")));
+	const [only] = [...domains];
+	return domains.size === 1 && only !== "*" && only !== undefined
+		? { kind: "domain", domainId: only }
+		: { kind: "sweep" };
 }

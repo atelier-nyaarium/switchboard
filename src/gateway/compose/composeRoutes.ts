@@ -75,7 +75,6 @@ export function composeRoutes(deps: RoutesStageDeps): RoutesStage {
 			sealer: f?.sealer ?? null,
 			crossDomainPeers: f?.crossDomainPeers ?? null,
 			resolvesLocalGateway: f ? (gatewayId) => f.allowlist.resolveGateway(gatewayId) !== null : null,
-			touchShares: f ? (sessionTarget) => f.shareState.touch(sessionTarget) : null,
 			isSharedToForReply: f
 				? (sessionTarget, domainId) =>
 						f.shareState.isSharedTo(sessionTarget, domainId, (id) => context.isLinkedDomain(id))

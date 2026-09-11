@@ -1,13 +1,10 @@
 // The gateway's one federation reader.
 
-import type { CrossDomainShareTarget } from "../../shared/console-protocol.js";
 import type { GatewayBootstrap } from "../boot.js";
 import { type ArmingSlice, armingOf, type BootState, type FederationSlice, federationOf } from "../boot.js";
 import type { Allowlist } from "../federation/allowlist.js";
 import type { ContentKeyStore } from "../federation/contentKeyStore.js";
 import type { RouterTransport } from "../router/transport.js";
-
-export type ShareRecordAction = "cross_domain_share" | "cross_domain_unshare";
 
 export interface FederationContextDeps {
 	/** The keyring, live before enrollment and shared with the active slice. */
@@ -105,21 +102,5 @@ export class FederationContext {
 		this.domain = boot.domainId;
 		this.state = { phase: "federationActive", federation: slice };
 		this.deps.onActivate(slice);
-	}
-
-	/** Writes the Router's share record. A refusal throws. */
-	async postShareRecord(
-		action: ShareRecordAction,
-		sessionTarget: string,
-		target: CrossDomainShareTarget,
-	): Promise<void> {
-		const slice = this.slice();
-		if (!slice) throw new Error("cross-Domain sharing is not available on this Gateway");
-		const answer = await slice.routerClient.callInboxTool(action, { sessionTarget, target });
-		if (answer.error) throw new Error(answer.error);
-		const result = answer.result as { ok?: boolean; outcome?: string; reason?: string; error?: string } | undefined;
-		if (result?.ok === false || result?.outcome === "refused") {
-			throw new Error(result.reason ?? result.error ?? `the Router refused the ${action} record`);
-		}
 	}
 }

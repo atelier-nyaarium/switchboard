@@ -57,6 +57,8 @@ export interface GatewayFaultPort {
 	routerInboxCall(name: string, params: Record<string, unknown>): Promise<RouterToolCallResult>;
 	/** One routine sweep now, off the clock. */
 	sweepRoutines(): Promise<void>;
+	/** Empty until a snapshot landed. */
+	sharesHeld(): { revision: number; ready: boolean; sessionTargets: string[] };
 }
 
 export interface GatewayGraph {

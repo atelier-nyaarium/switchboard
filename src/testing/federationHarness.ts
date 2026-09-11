@@ -268,7 +268,6 @@ async function linkDomains(receiver: DomainPeer, requester: DomainPeer, now: () 
 		pin,
 		requesterOwnerSignPub: requester.set.domain.owner.sign.pub,
 		requesterDomainId: requester.set.domain.id,
-		requesterGatewayId: requester.set.gateway.id,
 	});
 	const pairing = requested.result as CrossDomainRequestResult;
 	if (typeof pairing.sas !== "string") throw new Error(`request refused: ${JSON.stringify(requested.result)}`);

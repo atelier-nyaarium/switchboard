@@ -6,6 +6,7 @@ import { GatewayBridge } from "../federation-server/gatewayBridge.js";
 import { type SignedRevocation, signAdmission, signRegister, signRevocation } from "../shared/admission.js";
 import { processAmbient } from "../shared/ambient.js";
 import { generateIdentity } from "../shared/crypto.js";
+import { FEDERATION_PROTOCOL_VERSION } from "../shared/router-protocol.js";
 import { formatInboxAddress, signRowEnvelope } from "../shared/schemasInbox.js";
 import {
 	GATEWAY_ERROR_INBOX_UNAVAILABLE,
@@ -203,7 +204,7 @@ describe("GatewayBridge inbox", () => {
 		const registered = await bridge.handleCall("c1", "gateway_register", {
 			domainId: "domain",
 			gatewayId: "gateway",
-			protocolVersion: 2,
+			protocolVersion: FEDERATION_PROTOCOL_VERSION,
 			signPub: gateway.sign.pub,
 			boxPub: gateway.box.pub,
 			admission: JSON.stringify(admission),
@@ -249,7 +250,7 @@ describe("GatewayBridge inbox", () => {
 	});
 
 	it("settles a forwarded value with the gateway's answer, which carries no type of its own", async () => {
-		const { bridge, ws } = await registered(fakeInbox(), false, 2);
+		const { bridge, ws } = await registered(fakeInbox(), false, FEDERATION_PROTOCOL_VERSION);
 		const forwarded = bridge.forwardGatewayValue("domain", {
 			opId: "op",
 			conversationId: "conversation",
@@ -349,8 +350,7 @@ describe("GatewayBridge inbox", () => {
 
 	it("holds every frame but a read under the Router migration window", async () => {
 		const { bridge } = await registered(fakeInbox());
-		for (const name of ["board_op", "cross_domain_share", "cross_domain_unshare"])
-			bridge.registerGatewayFrame(name, "value", () => ({ ok: true }));
+		for (const name of ["board_op", "blob_hold"]) bridge.registerGatewayFrame(name, "value", () => ({ ok: true }));
 		bridge.registerGatewayFrame("board_session_end", "delivery", () => ({ ok: true }));
 		bridge.registerGatewayFrame("board_read", "read", () => ({ ok: true }));
 		bridge.setMigrationReady(() => false);
@@ -360,7 +360,7 @@ describe("GatewayBridge inbox", () => {
 		process.env.DATA_DIR = dir;
 		process.env.ROUTER_MIGRATION_EPOCH = "9";
 		try {
-			for (const name of ["board_op", "cross_domain_share", "cross_domain_unshare", "board_session_end"])
+			for (const name of ["board_op", "blob_hold", "board_session_end"])
 				expect(await bridge.handleCall("c1", name, { incarnation: 1 })).toEqual({
 					outcome: "refused",
 					reason: "migrating",

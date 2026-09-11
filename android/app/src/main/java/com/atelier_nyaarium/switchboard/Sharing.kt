@@ -38,22 +38,6 @@ import kotlinx.coroutines.launch
 ////////////////////////////////
 //  Sharing (per-session audience: Private / Everyone I trust / Specific people)
 
-private enum class ShareMode {
-	PRIVATE,
-	EVERYONE,
-	SPECIFIC,
-}
-
-/** A snapshot of one session's current share state, derived from the gateway's share list. */
-private data class SessionShares(val everyone: Boolean, val domains: Set<String>) {
-	val mode: ShareMode
-		get() = when {
-			everyone -> ShareMode.EVERYONE
-			domains.isNotEmpty() -> ShareMode.SPECIFIC
-			else -> ShareMode.PRIVATE
-		}
-}
-
 /**
  * The Sharing surface (the share-control mockup): your sessions + who each one reaches. Each session
  * is Private (no one), Everyone-I-trust (any trusted person, now or later), or Specific people (the
@@ -73,23 +57,23 @@ fun SharingScreen(repo: ChatRepository, gatewayId: String? = null, onBack: () ->
 	// you can only share with someone you have a cross-Domain link to.
 	var trustFirst by remember { mutableStateOf<List<String>>(emptyList()) }
 	// (session -> {everyone, domains}) rebuilt on each refresh from the gateway's share list.
-	var shares by remember { mutableStateOf<Map<String, SessionShares>>(emptyMap()) }
+	var shares by remember { mutableStateOf<Map<String, ShareAudience>>(emptyMap()) }
 	var loaded by remember { mutableStateOf(false) }
 	var active by remember { mutableStateOf<String?>(null) }
 	var note by remember { mutableStateOf<String?>(null) }
 
 	suspend fun refresh() {
 		// A failed read must not paint every checkbox unchecked: keep the sheet unloaded and say so.
-		val everyoneRead = repo.trust.sessionsSharedToEveryone()
-		val specificRead = repo.trust.crossDomainShares()
-		if (everyoneRead.isFailure || specificRead.isFailure) {
+		val read = repo.trust.crossDomainShares()
+		if (read.isFailure) {
 			note = "Couldn't read the current shares. Pull to retry."
 			return
 		}
-		val everyone = everyoneRead.getOrDefault(emptySet())
-		val specific = specificRead.getOrDefault(emptySet())
+		val held = read.getOrThrow()
+		val everyone = held.everyone
+		val specific = held.specific
 		val byName = sessions.associate { s ->
-			s.name to SessionShares(
+			s.name to ShareAudience(
 				everyone = s.name in everyone,
 				domains = specific.filter { it.first == s.name }.map { it.second }.toSet(),
 			)
@@ -97,6 +81,8 @@ fun SharingScreen(repo: ChatRepository, gatewayId: String? = null, onBack: () ->
 		shares = byName
 		loaded = true
 	}
+	// Load peer projections once.
+	LaunchedEffect(Unit) { repo.trust.refreshPeers() }
 	LaunchedEffect(sessions, people) {
 		refresh()
 		// People on the roster I have not linked (by owner key) become "trust first" rows.
@@ -112,13 +98,14 @@ fun SharingScreen(repo: ChatRepository, gatewayId: String? = null, onBack: () ->
 		SessionShareScreen(
 			sessionName = sessions.find { it.name == focus }?.let { state.label(it.name) } ?: focus,
 			people = people,
+			shareableDomains = sessions.find { it.name == focus }?.let { team -> people.filter { repo.trust.canShareTo(team, it.domainId) }.map { it.domainId }.toSet() }.orEmpty(),
 			trustFirst = trustFirst,
-			current = shares[focus] ?: SessionShares(false, emptySet()),
+			current = shares[focus] ?: ShareAudience(false, emptySet()),
 			onBack = { active = null },
 			onSetMode = { mode ->
 				scope.launch {
 					note = null
-					applyMode(repo, focus, shares[focus] ?: SessionShares(false, emptySet()), mode)
+					repo.trust.setShareMode(focus, shares[focus] ?: ShareAudience(false, emptySet()), mode)
 						.onFailure { note = it.message?.take(120) }
 					refresh()
 				}
@@ -170,7 +157,7 @@ fun SharingScreen(repo: ChatRepository, gatewayId: String? = null, onBack: () ->
 				)
 			}
 			for (s in sessions) {
-				val st = shares[s.name] ?: SessionShares(false, emptySet())
+				val st = shares[s.name] ?: ShareAudience(false, emptySet())
 				Card(Modifier.fillMaxWidth().hapticClickable { active = s.name }) {
 					Column(Modifier.padding(16.dp)) {
 						Text(state.label(s.name), style = MaterialTheme.typography.titleMedium)
@@ -192,8 +179,9 @@ fun SharingScreen(repo: ChatRepository, gatewayId: String? = null, onBack: () ->
 private fun SessionShareScreen(
 	sessionName: String,
 	people: List<LinkedDomain>,
+	shareableDomains: Set<String>,
 	trustFirst: List<String>,
-	current: SessionShares,
+	current: ShareAudience,
 	onBack: () -> Unit,
 	onSetMode: (ShareMode) -> Unit,
 	onToggleDomain: (String, Boolean) -> Unit,
@@ -208,6 +196,9 @@ private fun SessionShareScreen(
 			)
 		},
 	) { pad ->
+		// Specific with nobody picked yet reads as Private on the Router; the picker stays open until someone is.
+		var picking by remember(sessionName) { mutableStateOf(false) }
+		val shown = if (picking && current.mode == ShareMode.PRIVATE) ShareMode.SPECIFIC else current.mode
 		Column(
 			Modifier.padding(pad).padding(16.dp).fillMaxSize().verticalScroll(rememberScrollState()),
 			verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -218,14 +209,19 @@ private fun SessionShareScreen(
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
-			ModeRow("Private", "No one but you.", current.mode == ShareMode.PRIVATE) { onSetMode(ShareMode.PRIVATE) }
-			ModeRow("Everyone I trust", "Anyone you trust now or later.", current.mode == ShareMode.EVERYONE) {
+			ModeRow("Private", "No one but you.", shown == ShareMode.PRIVATE) {
+				picking = false
+				onSetMode(ShareMode.PRIVATE)
+			}
+			ModeRow("Everyone I trust", "Anyone you trust now or later.", shown == ShareMode.EVERYONE) {
+				picking = false
 				onSetMode(ShareMode.EVERYONE)
 			}
-			ModeRow("Specific people", "Only the people you pick.", current.mode == ShareMode.SPECIFIC) {
+			ModeRow("Specific people", "Only the people you pick.", shown == ShareMode.SPECIFIC) {
+				picking = true
 				onSetMode(ShareMode.SPECIFIC)
 			}
-			if (current.mode == ShareMode.SPECIFIC) {
+			if (shown == ShareMode.SPECIFIC) {
 				HorizontalDivider(Modifier.padding(vertical = 8.dp))
 				if (people.isEmpty()) {
 					Text(
@@ -235,17 +231,20 @@ private fun SessionShareScreen(
 					)
 				}
 				for (p in people) {
+					val enabled = p.domainId in shareableDomains
 					Row(
-						Modifier.fillMaxWidth().hapticClickable {
+						Modifier.fillMaxWidth().then(if (enabled) Modifier.hapticClickable {
 							onToggleDomain(p.domainId, p.domainId !in current.domains)
-						}.padding(vertical = 4.dp),
+						} else Modifier).padding(vertical = 4.dp),
 						verticalAlignment = Alignment.CenterVertically,
 					) {
 						Checkbox(
 							checked = p.domainId in current.domains,
-							onCheckedChange = { onToggleDomain(p.domainId, it) },
+							enabled = enabled,
+							onCheckedChange = if (enabled) { checked -> onToggleDomain(p.domainId, checked) } else null,
 						)
 						Text(p.displayName ?: p.domainId, Modifier.padding(start = 4.dp))
+						if (!enabled) Text("  pair this Gateway first", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 					}
 				}
 				// People you have not linked: shown disabled, since sharing needs a trust link first.
@@ -283,7 +282,7 @@ private fun ModeRow(title: String, subtitle: String, selected: Boolean, onSelect
 }
 
 /** A one-line summary of a session's current audience, for the list row. */
-private fun modeSummary(st: SessionShares, people: List<LinkedDomain>): String =
+private fun modeSummary(st: ShareAudience, people: List<LinkedDomain>): String =
 	when (st.mode) {
 		ShareMode.PRIVATE -> "Private"
 		ShareMode.EVERYONE -> "Everyone I trust"
@@ -295,30 +294,3 @@ private fun modeSummary(st: SessionShares, people: List<LinkedDomain>): String =
 			}
 		}
 	}
-
-/** Apply a top-level mode change (the radio rows). Specific is entered by then picking people, so it
- * only clears the everyone share here; Private clears both, Everyone sets everyone + clears specifics. */
-private suspend fun applyMode(
-	repo: ChatRepository,
-	session: String,
-	current: SessionShares,
-	mode: ShareMode,
-): Result<Unit> = runCatching {
-	when (mode) {
-		ShareMode.PRIVATE -> {
-			if (current.everyone) repo.trust.setShareEveryoneTrusted(session, false).getOrThrow()
-			for (d in current.domains) repo.trust.setCrossDomainShare(session, d, false).getOrThrow()
-		}
-
-		ShareMode.EVERYONE -> {
-			// Everyone supersedes specific shares; clear them so the two never overlap.
-			for (d in current.domains) repo.trust.setCrossDomainShare(session, d, false).getOrThrow()
-			repo.trust.setShareEveryoneTrusted(session, true).getOrThrow()
-		}
-
-		ShareMode.SPECIFIC -> {
-			// Leaving everyone for specific: drop everyone; the people checklist adds the specifics.
-			if (current.everyone) repo.trust.setShareEveryoneTrusted(session, false).getOrThrow()
-		}
-	}
-}

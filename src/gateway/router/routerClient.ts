@@ -39,6 +39,7 @@ export interface RouterClientConfig {
 	onInboxDeliver?: (frame: unknown) => void;
 	onPresenceResync?: (frame: unknown) => void;
 	onUnlink?: (frame: unknown) => void;
+	onShareDelta?: (frame: unknown) => void;
 	onValueOp?: (frame: unknown) => void;
 	onDisconnect?: () => void;
 	pendingReregisterDelayMs?: number;
@@ -196,6 +197,10 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 				}
 				case "unlink": {
 					config.onUnlink?.(frame);
+					break;
+				}
+				case "share_delta": {
+					config.onShareDelta?.(frame);
 					break;
 				}
 				case "tool_result": {

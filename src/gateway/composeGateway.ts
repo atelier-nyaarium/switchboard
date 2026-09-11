@@ -83,7 +83,6 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			presenceHandlers = routerPresence.build(slice);
 			frames = routerFrames.build(slice, presenceHandlers);
 			slice.handlers = { frames, presence: presenceHandlers };
-			federation.startShareSweep(slice);
 			// Here rather than beside the active boot, so enrolling into an arming one arms this too.
 			routines?.start();
 		},

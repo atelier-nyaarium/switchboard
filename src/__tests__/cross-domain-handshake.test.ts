@@ -159,7 +159,6 @@ describe("cross-Domain handshake coordinator", () => {
 			pin: PIN,
 			requesterOwnerSignPub: requester.owner.sign.pub,
 			requesterDomainId: requester.domainId,
-			requesterGatewayId: requester.gatewayId,
 		});
 		expect(requesterCoordinator.cancel({ pin: PIN })).toBe(true);
 		expect(() => requesterCoordinator.confirm({ pin: PIN, mySignedLink: linkSide(requester, receiver) })).toThrow();
@@ -182,7 +181,6 @@ describe("cross-Domain handshake coordinator", () => {
 			pin: PIN,
 			requesterOwnerSignPub: value.owner.sign.pub,
 			requesterDomainId: value.domainId,
-			requesterGatewayId: value.gatewayId,
 		};
 		await expect(coordinator.request({ ...args, listeningToken: "bad" })).rejects.toThrow();
 		await expect(coordinator.request({ ...args, listeningToken: "alice-gw.token" })).rejects.toThrow();
@@ -259,7 +257,6 @@ describe("cross-Domain handshake coordinator", () => {
 				pin: PIN,
 				requesterOwnerSignPub: requester.owner.sign.pub,
 				requesterDomainId: requester.domainId,
-				requesterGatewayId: requester.gatewayId,
 			}),
 		).rejects.toThrow();
 
@@ -282,7 +279,6 @@ describe("cross-Domain handshake coordinator", () => {
 				pin: PIN,
 				requesterOwnerSignPub: requester.owner.sign.pub,
 				requesterDomainId: requester.domainId,
-				requesterGatewayId: requester.gatewayId,
 			}),
 		).rejects.toThrow();
 
@@ -303,7 +299,6 @@ describe("cross-Domain handshake coordinator", () => {
 				pin: PIN,
 				requesterOwnerSignPub: requester.owner.sign.pub,
 				requesterDomainId: requester.domainId,
-				requesterGatewayId: requester.gatewayId,
 			}),
 		).rejects.toThrow();
 	});
@@ -423,7 +418,6 @@ describe("cross-Domain handshake harness", () => {
 			pin: PIN,
 			requesterOwnerSignPub: friend.set.domain.owner.sign.pub,
 			requesterDomainId: friend.set.domain.id,
-			requesterGatewayId: friend.set.gateway.id,
 		});
 		expect(refused.result).toMatchObject({ kind: "refusal" });
 	});

@@ -452,6 +452,11 @@ class AppStateStore internal constructor(
 
 	fun loadTrustedOwners(): String? = prefs.getString(KEY_TRUSTED_OWNERS, null)
 
+	/** Pending untrust owners. */
+	fun savePendingUntrust(json: String) = prefs.edit().putString(KEY_PENDING_UNTRUST, json).apply()
+
+	fun loadPendingUntrust(): String? = prefs.getString(KEY_PENDING_UNTRUST, null)
+
 	/** Per-plugin setting. */
 	fun pluginEnabled(id: String): Boolean = prefs.getBoolean(KEY_PLUGIN_ENABLED_PREFIX + id, true)
 
@@ -491,6 +496,7 @@ class AppStateStore internal constructor(
 		const val KEY_HOSTED_TENANTS = "federation_hosted_tenants"
 		const val KEY_PENDING_ENROLLS = "federation_pending_enrolls"
 		const val KEY_TRUSTED_OWNERS = "federation_trusted_owners"
+		const val KEY_PENDING_UNTRUST = "federation_pending_untrust"
 		const val KEY_STTS_URL = "stts_url"
 		const val KEY_STTS_KEY = "stts_key"
 		const val DEFAULT_STTS_URL = "https://vrcsttapi.azurewebsites.net"
@@ -540,6 +546,7 @@ class AppStateStore internal constructor(
 			KEY_CONSOLE_ADMITTED, KEY_FIRST_ROOTED, KEY_ENROLL_CEREMONY_DONE, KEY_PROFILE_NAME, KEY_HOSTED_TENANTS,
 			KEY_PENDING_ENROLLS,
 			KEY_TRUSTED_OWNERS,
+			KEY_PENDING_UNTRUST,
 			KEY_THREADS, KEY_READ_ANCHORS, KEY_LABELS, KEY_DRAFTS, KEY_SCHEDULED_SENDS, KEY_GOALS, KEY_GATEWAY_ID,
 			KEY_CONVERSATION_ID,
 			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_ABSENCE_STREAKS, KEY_TASK_BOARD, KEY_VAULT,

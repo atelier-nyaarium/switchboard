@@ -17,7 +17,6 @@ export interface StatusRoutesDeps {
 	routerCertFp?: string;
 	presence?: { snapshot(): TeamInfo[] };
 	sessionStore?: Pick<import("../../shared/session-store.js").SessionStore, "touchLive">;
-	touchShares?: ((sessionTarget: string) => void) | null;
 	tryLocalAddress: (name: string) => Address | null;
 	provedLocalSession: (req: Request) => boolean;
 }
@@ -30,7 +29,6 @@ export function createStatusRoutes({
 	routerCertFp,
 	presence,
 	sessionStore,
-	touchShares,
 	tryLocalAddress,
 	provedLocalSession,
 }: StatusRoutesDeps) {
@@ -54,8 +52,6 @@ export function createStatusRoutes({
 		const rows = presence?.snapshot() ?? [];
 		for (const row of rows) {
 			if (row.status !== "online" && row.status !== "verifying") continue;
-			const selfAddr = tryLocalAddress(row.team);
-			if (selfAddr) touchShares?.(selfAddr.canonical);
 			sessionStore?.touchLive(row.team);
 		}
 		return jsonResponse(rows);

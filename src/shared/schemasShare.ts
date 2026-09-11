@@ -33,4 +33,19 @@ export const CrossDomainUnlinkValueSchema = z.object({ domainId }).meta({ id: "C
 
 export const CrossDomainListSharesValueSchema = z.object({}).meta({ id: "CrossDomainListSharesValue" });
 
+const shareRecord = z.object({ sessionTarget, target: CrossDomainShareTargetSchema, lastSeenAt: z.number().int() });
+const revision = z.number().int().nonnegative();
+
+/** Gateway share set. */
+export const ShareMirrorSnapshotSchema = z.object({ revision, shares: z.array(shareRecord) });
+
+/** Gateway share delta. */
+export const ShareMirrorDeltaSchema = z.object({
+	revision,
+	put: z.array(shareRecord),
+	del: z.array(z.object({ sessionTarget, target: CrossDomainShareTargetSchema })),
+});
+
 export type ShareJobLiveParams = z.infer<typeof ShareJobLiveParamsSchema>;
+export type ShareMirrorSnapshot = z.infer<typeof ShareMirrorSnapshotSchema>;
+export type ShareMirrorDelta = z.infer<typeof ShareMirrorDeltaSchema>;

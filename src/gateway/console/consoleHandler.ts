@@ -45,7 +45,6 @@ export function createConsoleDispatcher({
 	joinCreate,
 	awaitRegister,
 	crossDomain,
-	crossDomainShare,
 	unlinkDomain,
 	untrustOwner,
 	durableOpStore,
@@ -71,11 +70,8 @@ export function createConsoleDispatcher({
 		sessionStore,
 	});
 	const crossDomainOps = createCrossDomainHandlers({
-		routes,
-		targets,
 		domain,
 		crossDomain,
-		crossDomainShare,
 		unlinkDomain,
 		untrustOwner,
 	});
@@ -269,15 +265,6 @@ export function createConsoleDispatcher({
 
 			case "cross_domain_cancel":
 				return crossDomainOps.cancel(op);
-
-			case "cross_domain_share":
-				return crossDomainOps.share(op);
-
-			case "cross_domain_unshare":
-				return crossDomainOps.unshare(op);
-
-			case "cross_domain_list_shares":
-				return crossDomainOps.listShares(op);
 
 			case "cross_domain_list_peers":
 				return crossDomainOps.listPeers(op);

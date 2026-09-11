@@ -52,8 +52,6 @@ export interface RoutesDeps {
 	crossDomainPeers?: import("./federation/crossDomainPeers.js").CrossDomainPeers | null;
 	// Whether a gateway id is a LOCAL (single-owner allowlist) peer.
 	resolvesLocalGateway?: ((gatewayId: string) => boolean) | null;
-	// Refreshes a live local session's share lastSeenAt.
-	touchShares?: ((sessionTarget: string) => void) | null;
 	// Whether a local session is still shared to a friend Domain.
 	isSharedToForReply?: ((sessionTarget: string, domainId: string) => boolean) | null;
 	// The session targets shared to a friend Domain.
@@ -166,7 +164,6 @@ export function createRoutes(deps: RoutesDeps) {
 		routerCertFp: deps.routerCertFp,
 		presence: deps.presence,
 		sessionStore: deps.sessionStore,
-		touchShares: deps.touchShares,
 		tryLocalAddress,
 		provedLocalSession,
 	});

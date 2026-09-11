@@ -74,6 +74,7 @@ describe("Router owner state residue", () => {
 		const inbox = new InboxService(registry, { signPub: router.sign.pub, signPriv: router.sign.priv });
 		const share = createShareService({
 			registry,
+			hasSession: () => true,
 			isLinked: () => true,
 			dropLinkEdge: () => undefined,
 			retireRevokedPeerRows: (d, t, f) => inbox.retireRevokedPeerRows(d, t, f),

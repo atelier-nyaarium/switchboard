@@ -352,6 +352,21 @@ class FederationManager(private val store: AppStateStore) {
 		persistTrustedOwners(trustedOwners() - ownerSignPub)
 	}
 
+	/** Pending untrust owners. */
+	fun pendingUntrust(): Set<String> {
+		val raw = store.loadPendingUntrust() ?: return emptySet()
+		return runCatching {
+			val arr = org.json.JSONArray(raw)
+			(0 until arr.length()).map { arr.getString(it) }.toSet()
+		}.getOrDefault(emptySet())
+	}
+
+	@Synchronized
+	fun markUntrustPending(ownerSignPub: String, pending: Boolean) {
+		val next = if (pending) pendingUntrust() + ownerSignPub else pendingUntrust() - ownerSignPub
+		store.savePendingUntrust(org.json.JSONArray(next.sorted()).toString())
+	}
+
 	fun signUntrust(peerOwnerSignPub: String, nowMs: Long): com.atelier_nyaarium.switchboard.proto.SignedXDomainUntrust {
 		val owner = ownerIdentity()
 		val untrust = com.atelier_nyaarium.switchboard.proto.XDomainUntrust(

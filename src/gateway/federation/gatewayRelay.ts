@@ -24,7 +24,6 @@ export interface FederationRoutes {
 export interface RelayShareState {
 	isSharedTo(sessionTarget: string, domainId: string): boolean;
 	sharesFor(domainId: string): string[];
-	touch(sessionTarget: string): void;
 }
 
 export interface GatewayRelayHandlerDeps {
@@ -83,7 +82,6 @@ export function createGatewayRelayHandler({
 		if (!shareable || !shareState?.isSharedTo(sessionTarget, srcDomainId)) {
 			throw new Error(XDOMAIN_TARGET_DENIED);
 		}
-		shareState.touch(sessionTarget);
 	}
 
 	/** Return routes match verified senders. */

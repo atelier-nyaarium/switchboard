@@ -37,6 +37,7 @@ const make = () => {
 		["a", ["a-gateway"]],
 		["b", ["b-gateway"]],
 	]);
+	const unreported = new Set<string>();
 	const registry = new OwnerStoreRegistry({
 		dataDir,
 		ownerOf: (domainId) => owners.get(domainId) ?? null,
@@ -46,6 +47,7 @@ const make = () => {
 	});
 	const deps: ShareServiceDeps = {
 		registry,
+		hasSession: (domainId, gatewayId, sessionId) => !unreported.has(`${domainId}.${gatewayId}.${sessionId}`),
 		isLinked: (domainId, friendDomainId) => links.has(`${domainId}|${friendDomainId}`),
 		linkEdgeId: (domainId, friendDomainId) =>
 			links.has(`${domainId}|${friendDomainId}`)
@@ -69,6 +71,7 @@ const make = () => {
 		retired,
 		changed,
 		pushed,
+		unreported,
 		dropGateway: (reg: GatewayRegistration) => gatewayDropped?.(reg),
 		setNow: (value: number) => (now = value),
 		hooks: {
@@ -284,7 +287,7 @@ describe("ShareService", () => {
 		ctx.service.share("a", "a.gw.spawn.main", { kind: "domain", domainId: "b" });
 		ctx.service.register(ctx.hooks);
 		expect(ctx.service.unlink("a", "b")).toEqual({ peersRemoved: 0, sharesDropped: 1, jobsExpired: 0 });
-		expect(ctx.pushed).toEqual([]);
+		expect(ctx.pushed.map((push) => push.frame.type)).toEqual(["share_delta"]);
 		expect(ctx.links.has("a|b")).toBe(false);
 		ctx.registry.close();
 	});
@@ -343,22 +346,62 @@ describe("ShareService", () => {
 		ctx.registry.close();
 	});
 
-	it("shares and unshares from a gateway frame, for that gateway's own sessions only", () => {
+	it("refuses a share of a session the Gateway did not report, or another owner's", () => {
+		const ctx = make();
+		ctx.links.add("a|b");
+		const target = { kind: "domain" as const, domainId: "b" };
+		ctx.unreported.add("a.gw.spawn.ghost");
+		expect(() => ctx.service.share("a", "a.gw.spawn.ghost", target)).toThrow(/session/);
+		expect(() => ctx.service.share("a", "z.gw.spawn.main", target)).toThrow(/session/);
+		expect(() => ctx.service.share("a", "a.gw", target)).toThrow(/session/);
+		expect(ctx.service.share("a", "a.gw.spawn.main", target)).toEqual({ ok: true });
+		expect(ctx.service.unshare("a", "a.gw.spawn.ghost", target)).toEqual({ ok: false });
+		ctx.registry.close();
+	});
+
+	it("moves one Gateway's mirror revision per membership change and pushes it the delta", () => {
 		const ctx = make();
 		ctx.links.add("a|b");
 		ctx.service.register(ctx.hooks);
-		const reg: GatewayRegistration = { domainId: "a", gatewayId: "gw", signPub: "p", incarnation: 1 };
 		const target = { kind: "domain" as const, domainId: "b" };
-		const share = ctx.gatewayFrames.get("cross_domain_share")!;
-		const unshare = ctx.gatewayFrames.get("cross_domain_unshare")!;
-		expect(share(reg, { sessionTarget: "a.gw.spawn.main", target })).toEqual({ ok: true });
-		expect(ctx.service.isSharedTo("a", "a.gw.spawn.main", "b")).toBe(true);
-		expect(() => share(reg, { sessionTarget: "a.other.spawn.main", target })).toThrow(/session/);
-		expect(() => share(reg, { sessionTarget: "z.gw.spawn.main", target })).toThrow(/session/);
-		expect(() => share(reg, { sessionTarget: "a.gw.spawn.main" })).toThrow();
-		expect(unshare(reg, { sessionTarget: "a.gw.spawn.main", target })).toEqual({ ok: true });
-		expect(ctx.service.isSharedTo("a", "a.gw.spawn.main", "b")).toBe(false);
-		expect(() => unshare(reg, { sessionTarget: "a.other.spawn.main", target })).toThrow(/session/);
+		const everyone = { kind: "everyone_trusted" as const };
+		expect(ctx.service.mirror("a", "gw")).toEqual({ revision: 0, shares: [] });
+
+		ctx.service.share("a", "a.gw.spawn.main", target);
+		ctx.service.share("a", "a.other.spawn.main", everyone);
+		ctx.setNow(200);
+		ctx.service.touch("a", "a.gw.spawn.main");
+		ctx.service.share("a", "a.gw.spawn.main", target);
+		expect(ctx.pushed.map((push) => [push.gatewayId, push.frame.revision])).toEqual([
+			["gw", 1],
+			["other", 1],
+		]);
+		expect(ctx.pushed[0]?.frame).toEqual({
+			type: "share_delta",
+			revision: 1,
+			put: [{ sessionTarget: "a.gw.spawn.main", target, lastSeenAt: 100 }],
+			del: [],
+		});
+		expect(ctx.service.mirror("a", "gw")).toEqual({
+			revision: 1,
+			shares: [{ sessionTarget: "a.gw.spawn.main", target, lastSeenAt: 200 }],
+		});
+
+		ctx.service.unlink("a", "b");
+		expect(ctx.pushed.filter((push) => push.frame.type === "share_delta").at(-1)?.frame).toEqual({
+			type: "share_delta",
+			revision: 2,
+			put: [],
+			del: [{ sessionTarget: "a.gw.spawn.main", target }],
+		});
+		expect(ctx.service.mirror("a", "gw")).toEqual({ revision: 2, shares: [] });
+		expect(ctx.service.mirror("a", "other").revision).toBe(1);
+
+		const reg: GatewayRegistration = { domainId: "a", gatewayId: "other", signPub: "p", incarnation: 1 };
+		expect(ctx.gatewayFrames.get("share_mirror_read")!(reg, {})).toEqual({
+			revision: 1,
+			shares: [{ sessionTarget: "a.other.spawn.main", target: everyone, lastSeenAt: 100 }],
+		});
 		ctx.registry.close();
 	});
 
@@ -402,11 +445,10 @@ describe("ShareService", () => {
 			"cross_domain_unlink",
 			"cross_domain_list_shares",
 		]);
-		expect([...ctx.gatewayFrames.keys()]).toEqual(["share_job_live", "cross_domain_share", "cross_domain_unshare"]);
+		expect([...ctx.gatewayFrames.keys()]).toEqual(["share_job_live", "share_mirror_read"]);
 		expect([...ctx.classes]).toEqual([
 			["share_job_live", "read"],
-			["cross_domain_share", "value"],
-			["cross_domain_unshare", "value"],
+			["share_mirror_read", "read"],
 		]);
 		const op = { domainId: "a" } as Parameters<ErasedOwnerOpHandler>[0];
 		const target = { kind: "domain" as const, domainId: "b" };
@@ -427,12 +469,7 @@ describe("ShareService", () => {
 		});
 
 		const reg: GatewayRegistration = { domainId: "a", gatewayId: "g", signPub: "p", incarnation: 1 };
-		expect(ctx.gatewayFrames.get("cross_domain_share")!(reg, { sessionTarget: "a.g.spawn.main", target })).toEqual({
-			ok: true,
-		});
-		expect(
-			ctx.gatewayFrames.get("cross_domain_unshare")!(reg, { sessionTarget: "a.g.spawn.main", target }),
-		).toEqual({ ok: true });
+		expect(ctx.gatewayFrames.get("share_mirror_read")!(reg, {})).toEqual({ revision: 2, shares: [] });
 		ctx.gatewayFrames.get("share_job_live")!(reg, {
 			sessionTarget: "a.g.spawn.main",
 			jobIds: ["job"],

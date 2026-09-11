@@ -1,9 +1,10 @@
 // Everything the FederationActive phase owns, built from one bootstrap.
 
 import { DomainSnapshotSchema } from "../../shared/admission.js";
-import type { Ambient, IntervalHandle } from "../../shared/ambient.js";
+import type { Ambient, TimerHandle } from "../../shared/ambient.js";
 import { DurableStore, restoreDurable } from "../../shared/durable-store.js";
 import { stableHash } from "../../shared/plane-registry.js";
+import { ShareMirrorDeltaSchema, ShareMirrorSnapshotSchema } from "../../shared/schemasShare.js";
 import { WIRE_NONCE_BYTES } from "../../shared/wire-vocabulary.js";
 import type { FederationSlice, GatewayBootstrap } from "../boot.js";
 import type { ChannelDeliveryCoordinator } from "../channelDelivery.js";
@@ -38,6 +39,7 @@ import type { StoresStage } from "./composeStores.js";
 import type { FederationContext } from "./federationContext.js";
 
 const SHARE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const SHARE_MIRROR_RETRY_MS = 10_000;
 
 type ConsoleDeliveryHandler = (
 	op: import("../../shared/console-protocol.js").ConsoleOp,
@@ -78,7 +80,6 @@ export interface FederationStageDeps {
 
 export interface FederationStage {
 	buildSlice: (boot: GatewayBootstrap) => FederationSlice;
-	startShareSweep: (slice: FederationSlice) => void;
 	/** Re-attests the live cross-Domain job set. */
 	attest: () => void;
 	markPresenceDirty: () => void;
@@ -93,7 +94,6 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 	let shareAttestor: ReturnType<typeof createShareAttestor> | null = null;
 	let keyRequester: ReturnType<typeof createKeyRequester> | null = null;
 	let inboxPump: ReturnType<typeof createInboxDeliveryPump> | null = null;
-	let shareSweepTimer: IntervalHandle | null = null;
 
 	function buildSlice(gatewayBootstrap: GatewayBootstrap): FederationSlice {
 		let slice: FederationSlice;
@@ -119,15 +119,53 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 			},
 			stores.restored.planes?.["linked-peers"],
 		);
-		const shareState = new CrossDomainShareState(
-			federationDir,
-			(reason) => {
-				if (reason.kind === "domain") slice.handlers?.presence.presenceSource.recomputeDomain(reason.domainId);
-				else slice.handlers?.presence.presenceSource.recomputeAll();
-				shareAttestor?.attest();
-			},
-			ambient,
-		);
+		const isLinked = (friend: string) => context.isLinkedDomain(friend);
+		const shareState = new CrossDomainShareState(federationDir, ({ reason, removed }) => {
+			if (reason.kind === "domain") slice.handlers?.presence.presenceSource.recomputeDomain(reason.domainId);
+			else slice.handlers?.presence.presenceSource.recomputeAll();
+			// Expire unreachable destination jobs.
+			for (const record of removed) {
+				const domains = record.target.kind === "domain" ? [record.target.domainId] : context.linkedDomainIds();
+				for (const friend of domains)
+					if (!shareState.isSharedTo(record.sessionTarget, friend, isLinked))
+						stores.jobs.expireBySession(record.sessionTarget, friend);
+			}
+			shareAttestor?.attest();
+		});
+		let shareMirrorRetry: TimerHandle | null = null;
+		let shareMirrorRead: Promise<void> | null = null;
+		/** The Router's whole answer replaces the copy. */
+		function readShareMirror(): Promise<void> {
+			if (shareMirrorRead) return shareMirrorRead;
+			if (shareMirrorRetry) ambient.clearTimer(shareMirrorRetry);
+			shareMirrorRetry = null;
+			shareMirrorRead = (async () => {
+				const asked = routerClient.incarnation();
+				const answer = await routerClient.callInboxTool("share_mirror_read", {});
+				// Ignore stale registration answers.
+				if (routerClient.incarnation() !== asked) return;
+				const parsed = answer.error ? null : ShareMirrorSnapshotSchema.safeParse(answer.result);
+				let failure = answer.error ?? (parsed?.success ? null : "answered off its schema");
+				if (parsed?.success) {
+					try {
+						shareState.replace(parsed.data);
+					} catch (error) {
+						failure = `could not be written: ${(error as Error).message}`;
+					}
+				}
+				if (failure === null) return;
+				// Retry while registered.
+				console.warn(`[federation] share mirror read failed: ${failure}`);
+				if (routerClient.isRegistered())
+					shareMirrorRetry = ambient.setTimer(
+						() => fireAndForget("share mirror read", readShareMirror()),
+						SHARE_MIRROR_RETRY_MS,
+					);
+			})().finally(() => {
+				shareMirrorRead = null;
+			});
+			return shareMirrorRead;
+		}
 		const federationIdentity = gatewayBootstrap.identity;
 		const replayDurable = new DurableStore(dataDir, "replay-guard");
 		const replayGuard = new ReplayGuard(ambient);
@@ -227,11 +265,13 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 				}),
 			onDisconnect: () => {
 				console.error(`[router] disconnected from the Router`);
+				shareState.unready();
 			},
 			onRegistered: () => {
 				sessions.sessionReporter.reconcile();
 				presenceReporter?.baseline();
-				shareAttestor?.attest();
+				// The snapshot's landing attests; the copy answers nothing until then.
+				fireAndForget("share mirror read", readShareMirror());
 				const resent = inboxPump?.resendReceipts();
 				if (resent) fireAndForget("inbox receipt resend", resent);
 				// Older rows are sealed under the epochs below the oldest held one.
@@ -245,6 +285,13 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 			onUnlink: (frame) => {
 				const unlinked = (frame as { domainId?: unknown }).domainId;
 				if (typeof unlinked === "string") deps.unlinkDomain()?.(unlinked);
+			},
+			onShareDelta: (frame) => {
+				const parsed = ShareMirrorDeltaSchema.safeParse(frame);
+				if (parsed.success && shareState.apply(parsed.data) === "applied") return;
+				// Gaps require a snapshot.
+				shareState.unready();
+				fireAndForget("share mirror read", readShareMirror());
 			},
 			onInboxDeliver: (frame) => {
 				const pumped = inboxPump?.onFrame(
@@ -378,28 +425,12 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 		return slice;
 	}
 
-	function startShareSweep(slice: FederationSlice): void {
-		const isLive = (sessionTarget: string): boolean =>
-			stores.jobs.hasLiveCrossDomainThread(
-				sessionTarget,
-				(gatewayId) => slice.crossDomainPeers.all().some((p) => p.friendGatewayId === gatewayId),
-				SHARE_TTL_MS,
-				now(),
-			);
-		shareSweepTimer = ambient.setInterval(() => {
-			const dropped = slice.shareState.sweep(now(), SHARE_TTL_MS, isLive);
-			if (dropped > 0) console.log(`[federation] auto-forgot ${dropped} stale cross-Domain share(s)`);
-		}, 3_600_000);
-	}
-
 	return {
 		buildSlice,
-		startShareSweep,
 		attest: () => shareAttestor?.attest(),
 		markPresenceDirty: () => presenceReporter?.markDirty(),
 		channelDeliveryAck: (team, deliveryId) => void inboxPump?.onChannelDeliveryAck(team, deliveryId),
 		stop: () => {
-			if (shareSweepTimer) ambient.clearInterval(shareSweepTimer);
 			shareAttestor?.stop();
 			presenceReporter?.stop();
 			keyRequester?.stop();

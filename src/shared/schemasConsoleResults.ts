@@ -418,13 +418,12 @@ export const CrossDomainListPeersResultSchema = z
 	})
 	.meta({ id: "CrossDomainListPeersResult" });
 
-// The local unlink cleanup counts, so the console can confirm what was forgotten
-// (and render a clean zero-count result when the Domain was already unlinked).
+// Counts local teardown effects.
 export const CrossDomainUnlinkResultSchema = z
 	.object({
 		// Peer gateways of the Domain dropped from the cross-Domain peer set.
 		peersRemoved: z.number().int().nonnegative(),
-		// Per-session shares to the Domain forgotten.
+		// Shares held during teardown.
 		sharesDropped: z.number().int().nonnegative(),
 		// In-flight jobs bound to the Domain settled (failed fast) instead of stalling to TTL.
 		jobsExpired: z.number().int().nonnegative(),

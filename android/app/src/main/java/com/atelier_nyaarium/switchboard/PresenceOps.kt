@@ -32,16 +32,6 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 		host.state.update { if (it.owner == owner) it else it.copy(owner = owner) }
 	}
 
-	suspend fun applyLinkedPeers(peers: List<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry>) {
-		val owners = peers.filter { it.domainId.isNotEmpty() }.associate { it.domainId to it.ownerSignPub }
-		host.state.update {
-			it.copy(
-				linkedPeerOwners = owners,
-				crossDomainPeerSessions = it.crossDomainPeerSessions.filterKeys { domainId -> domainId in owners },
-			)
-		}
-	}
-
 	suspend fun applyCrossDomainPresence(entries: List<CrossDomainPresenceEntry>) {
 		host.state.update { it.copy(crossDomainPeerSessions = it.crossDomainPeerSessions + entries.associateBy { e -> e.domainId }) }
 	}

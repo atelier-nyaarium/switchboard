@@ -4,7 +4,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { DurableOpStore } from "../gateway/console/durableOpStore.js";
 import { createConsolePushOps } from "../gateway/consolePushOps.js";
-import { CrossDomainShareState } from "../gateway/federation/crossDomainShareState.js";
 import { createGatewayRelayHandler } from "../gateway/federation/gatewayRelay.js";
 import { ReadAnchors } from "../gateway/readAnchors.js";
 import { processAmbient } from "../shared/ambient.js";
@@ -143,7 +142,6 @@ describe("migration fence durability", () => {
 		const pending = openDurable(dir, "pending-deliveries", (store) => new PendingDeliveryStore(store, ambient));
 		const ops = new DurableOpStore(new DurableStore(dir, "console-ops"), ambient);
 		const anchors = new ReadAnchors(new PlaneRegistry(ambient), undefined);
-		const shares = new CrossDomainShareState(dir, undefined, ambient);
 		const push = createConsolePushOps({
 			dataDir: dir,
 			ownerId: () => "owner",
@@ -164,7 +162,6 @@ describe("migration fence durability", () => {
 			localGatewayId: "gateway",
 			localDomainId: "domain",
 		});
-		const target = { kind: "domain", domainId: "other" } as never;
 		const file = path.join(dir, "migration-epoch");
 		fs.writeFileSync(file, "8\n");
 		useMigrationEpochFile(dir);
@@ -183,8 +180,6 @@ describe("migration fence durability", () => {
 		).toBe("migrating");
 		expect(ops.markInFlight("conversation", "fenced")).toBeNull();
 		expect(anchors.report("owner", "team", { epoch: 1, seq: 1, at: 1 })).toBe(false);
-		expect(shares.share("session", target)).toBe(false);
-		expect(shares.unshare("session", target)).toBe("fenced");
 		expect(push.deliverToOwner({ entry: { kind: "notice" } as never, dedupeKey: "fenced" })).toBe(MIGRATING);
 		expect(await relay.handleOp({ kind: "wake", team: "team" }, "peer", null)).toEqual({
 			ok: false,
@@ -205,8 +200,6 @@ describe("migration fence durability", () => {
 		).toBe("enqueued");
 		expect(ops.markInFlight("conversation", "live")).toEqual(expect.any(Number));
 		expect(anchors.report("owner", "team", { epoch: 1, seq: 1, at: 1 })).toBe(true);
-		expect(shares.share("session", target)).toBe(true);
-		expect(shares.all()).toEqual([expect.objectContaining({ sessionTarget: "session" })]);
 		expect(push.deliverToOwner({ entry: { kind: "notice" } as never, dedupeKey: "live" })).toBe(true);
 		expect(await relay.handleOp({ kind: "wake", team: "team" }, "peer", null)).toEqual({ ok: true });
 	});

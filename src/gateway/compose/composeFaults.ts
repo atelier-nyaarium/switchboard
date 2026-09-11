@@ -46,5 +46,13 @@ export function composeFaults({ context, sessions, routines }: FaultsStageDeps):
 		routerCall: (name, params) => federated().routerClient.callTool(name, params),
 		routerInboxCall: (name, params) => federated().routerClient.callInboxTool(name, params),
 		sweepRoutines: () => routines.reconcile(),
+		sharesHeld: () => {
+			const shares = federated().shareState;
+			return {
+				revision: shares.revision(),
+				ready: shares.isReady(),
+				sessionTargets: shares.all().map((share) => share.sessionTarget),
+			};
+		},
 	};
 }

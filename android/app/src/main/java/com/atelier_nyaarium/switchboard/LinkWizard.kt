@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -26,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +56,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun LinkWizard(repo: ChatRepository, onDone: () -> Unit, onCancel: () -> Unit) {
 	val scope = rememberCoroutineScope()
+	val chat by repo.state.collectAsState()
+	val gateways = chat.gateways.reachableIds().sorted()
+	var gatewayId by remember(gateways) { mutableStateOf(gateways.singleOrNull()) }
 
 	// Wizard state.
 	var role by remember { mutableStateOf<LinkRole?>(null) }
@@ -65,9 +70,6 @@ fun LinkWizard(repo: ChatRepository, onDone: () -> Unit, onCancel: () -> Unit) {
 	// Requester: the friend's listening token (entered) and the pairing once the exchange runs.
 	var enteredToken by remember { mutableStateOf("") }
 	var pairing by remember { mutableStateOf<CrossDomainPairing?>(null) }
-	// Pinned for the life of this pairing so a confirm retry reuses the same signed link bytes.
-	val linkNonce = remember { repo.trust.freshLinkNonce() }
-
 	var typed by remember { mutableStateOf("") }
 	var busy by remember { mutableStateOf(false) }
 	var note by remember { mutableStateOf("") }
@@ -76,14 +78,10 @@ fun LinkWizard(repo: ChatRepository, onDone: () -> Unit, onCancel: () -> Unit) {
 	// complete after the owner walked away.
 	androidx.compose.runtime.DisposableEffect(Unit) {
 		onDispose {
-			val tok = listening?.listeningToken
-			val pin = pairing?.pin
 			// The close must outlive this composable, so it runs on a detached scope. The gateway
 			// also sweeps on its TTL, so a dropped cancel is bounded.
-			if (tok != null || pin != null) {
-				@Suppress("OPT_IN_USAGE")
-				repo.repoScope.launch { runCatchingCancellable { repo.trust.crossDomainCancel(tok, pin) } }
-			}
+			@Suppress("OPT_IN_USAGE")
+			repo.repoScope.launch { repo.trust.crossDomainCancel() }
 		}
 	}
 
@@ -94,11 +92,10 @@ fun LinkWizard(repo: ChatRepository, onDone: () -> Unit, onCancel: () -> Unit) {
 	// RECEIVER poll: while the listening window is open on the rendezvous step, poll the gateway
 	// for the requester's pairing. On arrival, stash the friend keys + SAS and move to verify.
 	// Keyed by the token so a fresh listen restarts the loop.
-	val openToken = listening?.listeningToken
-	LaunchedEffect(openToken, step) {
-		if (role != LinkRole.RECEIVER || openToken == null || step !is LinkStep.Rendezvous) return@LaunchedEffect
+	LaunchedEffect(listening, step) {
+		if (role != LinkRole.RECEIVER || listening == null || step !is LinkStep.Rendezvous) return@LaunchedEffect
 		while (step is LinkStep.Rendezvous) {
-			val outcome = repo.trust.crossDomainListenState(openToken)
+			val outcome = repo.trust.crossDomainListenState()
 			val arrived = outcome.getOrNull()
 			if (arrived != null) {
 				receiverPairing = arrived
@@ -128,16 +125,19 @@ fun LinkWizard(repo: ChatRepository, onDone: () -> Unit, onCancel: () -> Unit) {
 			when (val s = step) {
 				is LinkStep.Rendezvous -> RendezvousPanel(
 					role = role,
+					gatewayIds = gateways,
+					selectedGatewayId = gatewayId,
+					onGatewaySelected = { gatewayId = it },
 					listening = listening,
 					enteredToken = enteredToken,
 					busy = busy,
 					note = note,
-					onPickReceiver = {
+					onPickReceiver = { selected ->
 						role = LinkRole.RECEIVER
 						busy = true
 						note = ""
 						scope.launch {
-							repo.trust.crossDomainListen()
+							repo.trust.crossDomainListen(selected)
 								.onSuccess { listening = it }
 								.onFailure { fail("Could not open a listening window: ${it.message?.take(140)}") }
 							busy = false
@@ -148,11 +148,11 @@ fun LinkWizard(repo: ChatRepository, onDone: () -> Unit, onCancel: () -> Unit) {
 						note = ""
 					},
 					onTokenChange = { enteredToken = it },
-					onRequest = {
+					onRequest = { selected ->
 						busy = true
 						note = ""
 						scope.launch {
-							repo.trust.crossDomainRequest(enteredToken)
+							repo.trust.crossDomainRequest(selected, enteredToken)
 								.onSuccess { p ->
 									pairing = p
 									step = LinkStep.Verify(CrossDomainLink.requesterSas(p.result))
@@ -179,16 +179,15 @@ fun LinkWizard(repo: ChatRepository, onDone: () -> Unit, onCancel: () -> Unit) {
 								LinkRole.REQUESTER -> {
 									val p = pairing
 									if (p == null) Result.failure(IllegalStateException("The pairing was lost; start over."))
-									else repo.trust.crossDomainConfirmRequester(p, linkNonce)
+									else repo.trust.crossDomainConfirmRequester(p)
 								}
 
 								LinkRole.RECEIVER -> {
-									val token = listening?.listeningToken
 									val friend = receiverPairing
-									if (token == null || friend == null) {
+									if (friend == null) {
 										Result.failure(IllegalStateException("The pairing was lost; start over."))
 									} else {
-										repo.trust.crossDomainConfirmReceiver(token, friend, linkNonce)
+										repo.trust.crossDomainConfirmReceiver(friend)
 									}
 								}
 
@@ -254,15 +253,29 @@ fun LinkWizard(repo: ChatRepository, onDone: () -> Unit, onCancel: () -> Unit) {
 @Composable
 private fun RendezvousPanel(
 	role: LinkRole?,
+	gatewayIds: List<String>,
+	selectedGatewayId: String?,
+	onGatewaySelected: (String) -> Unit,
 	listening: CrossDomainListenResult?,
 	enteredToken: String,
 	busy: Boolean,
 	note: String,
-	onPickReceiver: () -> Unit,
+	onPickReceiver: (String) -> Unit,
 	onPickRequester: () -> Unit,
 	onTokenChange: (String) -> Unit,
-	onRequest: () -> Unit,
+	onRequest: (String) -> Unit,
 ) {
+	if (gatewayIds.isEmpty()) {
+		Text("No Gateway can be reached.", style = MaterialTheme.typography.bodyMedium)
+		return
+	}
+	// One Gateway per pairing.
+	if (gatewayIds.size > 1) {
+		Text("Pair on", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+			for (id in gatewayIds) FilterChip(selected = id == selectedGatewayId, onClick = { onGatewaySelected(id) }, label = { Text(id) })
+		}
+	}
 	Text(
 		"One of you shares a code; the other enters it. Send it however works (text, etc).",
 		style = MaterialTheme.typography.bodyMedium,
@@ -272,8 +285,16 @@ private fun RendezvousPanel(
 	when (role) {
 		null -> {
 			Spacer(Modifier.height(8.dp))
-			Button(onClick = hapticClick(onPickReceiver), modifier = Modifier.fillMaxWidth()) { Text("Show my code") }
-			OutlinedButton(onClick = hapticClick(onPickRequester), modifier = Modifier.fillMaxWidth()) { Text("Enter my friend's code") }
+			Button(
+				onClick = hapticClick { selectedGatewayId?.let(onPickReceiver) },
+				enabled = selectedGatewayId != null,
+				modifier = Modifier.fillMaxWidth(),
+			) { Text("Show my code") }
+			OutlinedButton(
+				onClick = hapticClick(onPickRequester),
+				enabled = selectedGatewayId != null,
+				modifier = Modifier.fillMaxWidth(),
+			) { Text("Enter my friend's code") }
 		}
 
 		LinkRole.RECEIVER -> {
@@ -300,8 +321,8 @@ private fun RendezvousPanel(
 				modifier = Modifier.fillMaxWidth(),
 			)
 			Button(
-				onClick = hapticClick(onRequest),
-				enabled = enteredToken.isNotBlank() && !busy,
+				onClick = hapticClick { selectedGatewayId?.let(onRequest) },
+				enabled = enteredToken.isNotBlank() && !busy && selectedGatewayId != null,
 				modifier = Modifier.fillMaxWidth(),
 			) { Text(if (busy) "Pairing..." else "Pair") }
 			if (busy) Busy("Exchanging keys securely...")

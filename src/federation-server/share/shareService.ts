@@ -1,7 +1,7 @@
 import {
-	CrossDomainShareValueSchema,
-	CrossDomainUnshareValueSchema,
 	ShareJobLiveParamsSchema,
+	type ShareMirrorDelta,
+	type ShareMirrorSnapshot,
 } from "../../shared/schemasShare.js";
 import type { CrossDomainShareTarget } from "../../shared/share-rules.js";
 import {
@@ -35,9 +35,14 @@ const shareId = (sessionTarget: string, target: CrossDomainShareTarget): string 
 const generationId = (sessionTarget: string, friendDomainId: string): string =>
 	`share.generation:${sessionTarget}|${friendDomainId}`;
 const unlinkedId = (friendDomainId: string): string => `share.unlinked:${friendDomainId}`;
+const mirrorId = (gatewayId: string): string => `share.mirror:${gatewayId}`;
+/** A share belongs to its session's Gateway. */
+const gatewayOf = (sessionTarget: string): string => sessionTarget.split(".")[1] ?? "";
 
 export interface ShareServiceDeps {
 	registry: OwnerStoreRegistry;
+	/** Whether the Gateway reported this `spawn.session`. */
+	hasSession: (domainId: string, gatewayId: string, sessionId: string) => boolean;
 	isLinked: (domainId: string, friendDomainId: string) => boolean;
 	linkEdgeId?: (domainId: string, friendDomainId: string) => string | null;
 	dropLinkEdge: (domainId: string, friendDomainId: string) => void;
@@ -59,9 +64,12 @@ export interface ShareServiceDeps {
 type Attestation = { incarnation: number; jobIds: string[]; observedAt: number; receivedAt: number };
 
 export interface ShareService {
+	/** Reject unreported sessions. */
 	share(domainId: string, sessionTarget: string, target: CrossDomainShareTarget): { ok: boolean };
 	unshare(domainId: string, sessionTarget: string, target: CrossDomainShareTarget): { ok: boolean };
 	listShares(domainId: string): { shares: Array<{ sessionTarget: string; target: CrossDomainShareTarget }> };
+	/** Shares at the revision the last membership change wrote. */
+	mirror(domainId: string, gatewayId: string): ShareMirrorSnapshot;
 	isSharedTo(domainId: string, sessionTarget: string, toDomainId: string): boolean;
 	sharesFor(domainId: string, toDomainId: string): string[];
 	generation(domainId: string, sessionTarget: string, friendDomainId: string): number;
@@ -69,9 +77,11 @@ export interface ShareService {
 	touch(domainId: string, sessionTarget: string): void;
 	attest(reg: GatewayRegistration, params: unknown): void;
 	sweep(domainId: string, now?: number): number;
+	/** `edge` names a link a signed revocation already removed, so the teardown runs as linked. */
 	unlink(
 		domainId: string,
 		friendDomainId: string,
+		edge?: { id: string | null },
 	): { peersRemoved: number; sharesDropped: number; jobsExpired: number; outcome?: WriteOutcome };
 	register(hooks: OwnerServiceHooks): void;
 }
@@ -80,11 +90,21 @@ function state(records: ShareRecord[], unlinkedDomains: UnlinkedDomainMark[] = [
 	return { shares: records, ...(unlinkedDomains.length ? { unlinkedDomains } : {}) };
 }
 
-/** A gateway names only sessions on itself. */
-function ownSession(reg: GatewayRegistration, sessionTarget: string): string {
-	const [domainId, gatewayId, ...rest] = sessionTarget.split(".");
-	if (domainId !== reg.domainId || gatewayId !== reg.gatewayId || !rest.length) throw new OwnerOpRefused("session");
-	return sessionTarget;
+/** `ok` means landed; an uncertain write answers retryable. */
+function answerOf(written: ReturnType<typeof foldWriteResult>): { ok: boolean; outcome?: WriteOutcome } {
+	return written.outcome === "accepted" ? { ok: true } : { ok: false, outcome: written.outcome };
+}
+
+/** The owner's session, reported by its Gateway. */
+function reportedSession(deps: Pick<ShareServiceDeps, "hasSession">, domainId: string, sessionTarget: string): void {
+	const [sessionDomainId, gatewayId, ...rest] = sessionTarget.split(".");
+	if (
+		sessionDomainId !== domainId ||
+		!gatewayId ||
+		!rest.length ||
+		!deps.hasSession(domainId, gatewayId, rest.join("."))
+	)
+		throw new OwnerOpRefused("session");
 }
 
 export function createShareService(deps: ShareServiceDeps): ShareService {
@@ -103,7 +123,9 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 			.list("share")
 			.filter((record) => record.id.startsWith("share.unlinked:"))
 			.map((record) => record.clear as unknown as UnlinkedDomainMark);
-	/** Batch the share change with all implied generation bumps. */
+	const mirrorRevision = (domainId: string, gatewayId: string): number =>
+		Number(deps.registry.for(domainId).get("share", mirrorId(gatewayId))?.clear.revision ?? 0);
+	/** Batch share and mirror changes. */
 	const putState = (
 		domainId: string,
 		before: ShareRecord[],
@@ -124,12 +146,33 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 			!marks.remove?.length
 		)
 			return { applied: true, outcome: "accepted" };
+		// Membership changes advance revisions.
+		const deltas = new Map<string, ShareMirrorDelta>();
+		const deltaFor = (gatewayId: string): ShareMirrorDelta => {
+			let delta = deltas.get(gatewayId);
+			if (!delta) {
+				delta = { revision: mirrorRevision(domainId, gatewayId) + 1, put: [], del: [] };
+				deltas.set(gatewayId, delta);
+			}
+			return delta;
+		};
+		for (const [id, record] of changed)
+			if (!previous.has(id)) deltaFor(gatewayOf(record.sessionTarget)).put.push(record);
+		for (const [, record] of removed)
+			deltaFor(gatewayOf(record.sessionTarget)).del.push({
+				sessionTarget: record.sessionTarget,
+				target: record.target,
+			});
 		const result = store.batch((tx) => {
 			for (const [id, record] of changed) {
 				const current = store.get("share", id);
 				tx.put("share", id, current?.version ?? null, { clear: record as unknown as Record<string, unknown> });
 			}
 			for (const [id] of removed) tx.del("share", id, store.get("share", id)?.version ?? 0);
+			for (const [gatewayId, delta] of deltas) {
+				const current = store.get("share", mirrorId(gatewayId));
+				tx.put("share", mirrorId(gatewayId), current?.version ?? null, { clear: { revision: delta.revision } });
+			}
 			for (const { sessionTarget, friendDomainId } of bumps) {
 				const id = generationId(sessionTarget, friendDomainId);
 				const current = store.get("share", id);
@@ -148,7 +191,12 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 			for (const { sessionTarget, friendDomainId } of bumps)
 				deps.retireRevokedPeerRowsInBatch?.(store, tx, domainId, sessionTarget, friendDomainId);
 		});
-		return foldWriteResult(result);
+		const written = foldWriteResult(result);
+		// Failed pushes need a reread.
+		if (written.applied)
+			for (const [gatewayId, delta] of deltas)
+				registeredHooks?.pushFrameTo(domainId, gatewayId, { type: "share_delta", ...delta });
+		return written;
 	};
 	const sharedTo = (records: ShareRecord[], domainId: string, sessionTarget: string, friend: string): boolean =>
 		deps.isLinked(domainId, friend) &&
@@ -165,6 +213,7 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 
 	return {
 		share(domainId, sessionTarget, target) {
+			reportedSession(deps, domainId, sessionTarget);
 			const before = records(domainId);
 			const written = putState(
 				domainId,
@@ -174,7 +223,7 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 				target.kind === "domain" ? { remove: [target.domainId] } : {},
 			);
 			if (written.applied) deps.onChanged([domainId]);
-			return written.applied ? { ok: true } : { ok: false, outcome: written.outcome };
+			return answerOf(written);
 		},
 		// Bump generation only when no remaining record shares the pair.
 		unshare(domainId, sessionTarget, target) {
@@ -197,11 +246,17 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 			if (written.applied && !deps.retireRevokedPeerRowsInBatch)
 				for (const friend of revoked) deps.retireRevokedPeerRows(domainId, sessionTarget, friend);
 			if (written.applied) deps.onChanged([domainId]);
-			return written.applied ? { ok: true } : { ok: false, outcome: written.outcome };
+			return answerOf(written);
 		},
 		listShares(domainId) {
 			return {
 				shares: all(state(records(domainId))).map(({ sessionTarget, target }) => ({ sessionTarget, target })),
+			};
+		},
+		mirror(domainId, gatewayId) {
+			return {
+				revision: mirrorRevision(domainId, gatewayId),
+				shares: records(domainId).filter((record) => gatewayOf(record.sessionTarget) === gatewayId),
 			};
 		},
 		isSharedTo(domainId, sessionTarget, toDomainId) {
@@ -306,15 +361,21 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 			return result.removed;
 		},
 		// Tear down linked friends; unlinked names only drop stale explicit shares.
-		unlink(domainId, friendDomainId) {
+		unlink(domainId, friendDomainId, edge) {
 			const before = records(domainId);
-			const isCurrentlyLinked = deps.isLinked(domainId, friendDomainId);
+			const isCurrentlyLinked = edge ? edge.id !== null : deps.isLinked(domainId, friendDomainId);
+			const edgeId = edge ? edge.id : deps.linkEdgeId?.(domainId, friendDomainId);
+			const wasSharedTo = (sessionTarget: string): boolean =>
+				isCurrentlyLinked &&
+				ruleIsSharedTo(
+					state(before, unlinked(domainId)),
+					sessionTarget,
+					friendDomainId,
+					(id) => (id === friendDomainId ? isCurrentlyLinked : deps.isLinked(domainId, id)),
+					(id) => (id === friendDomainId ? (edgeId ?? null) : (deps.linkEdgeId?.(domainId, id) ?? null)),
+				);
 			const affected = [
-				...new Set(
-					before
-						.filter((record) => sharedTo(before, domainId, record.sessionTarget, friendDomainId))
-						.map((record) => record.sessionTarget),
-				),
+				...new Set(before.filter((r) => wasSharedTo(r.sessionTarget)).map((r) => r.sessionTarget)),
 			];
 			const dropped = dropDomain(state(before, unlinked(domainId)), friendDomainId);
 			const written = putState(
@@ -322,9 +383,7 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 				before,
 				dropped.state.shares,
 				affected.map((sessionTarget) => ({ sessionTarget, friendDomainId })),
-				isCurrentlyLinked
-					? { add: [{ domainId: friendDomainId, edgeId: deps.linkEdgeId?.(domainId, friendDomainId) ?? "" }] }
-					: {},
+				isCurrentlyLinked ? { add: [{ domainId: friendDomainId, edgeId: edgeId ?? "" }] } : {},
 			);
 			if (!written.applied)
 				return { peersRemoved: 0, sharesDropped: 0, jobsExpired: 0, outcome: written.outcome };
@@ -361,14 +420,7 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 			hooks.ownerOp("cross_domain_list_shares", (op) => this.listShares(op.domainId));
 			// An attestation lives in memory, so nothing waits for the window.
 			hooks.gatewayFrame("share_job_live", "read", (reg, params) => this.attest(reg, params));
-			hooks.gatewayFrame("cross_domain_share", "value", (reg, params) => {
-				const value = CrossDomainShareValueSchema.parse(params);
-				return this.share(reg.domainId, ownSession(reg, value.sessionTarget), value.target);
-			});
-			hooks.gatewayFrame("cross_domain_unshare", "value", (reg, params) => {
-				const value = CrossDomainUnshareValueSchema.parse(params);
-				return this.unshare(reg.domainId, ownSession(reg, value.sessionTarget), value.target);
-			});
+			hooks.gatewayFrame("share_mirror_read", "read", (reg) => this.mirror(reg.domainId, reg.gatewayId));
 			// A dropped gateway attests nothing until its next incarnation.
 			hooks.onGatewayDropped((reg) => {
 				const prefix = attestationsOf(reg);

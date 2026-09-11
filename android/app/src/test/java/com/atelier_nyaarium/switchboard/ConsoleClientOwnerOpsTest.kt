@@ -170,7 +170,7 @@ class ConsoleClientOwnerOpsTest {
 	@Test
 	fun reloadPluginsAndACrossDomainOpRideGatewayValue() = runBlocking {
 		val reload = client.reloadPlugins("gateway", opId = "reload-op")
-		val crossDomain = client.crossDomainListen()
+		val crossDomain = client.crossDomainListen("gateway")
 		val reloadOp = openConsoleOp(sent[0])
 		val crossDomainOp = openConsoleOp(sent[1])
 
@@ -186,11 +186,11 @@ class ConsoleClientOwnerOpsTest {
 	}
 
 	@Test
-	fun aShareRidesGatewayValueAlone() = runBlocking {
+	fun aSharePostsAnOwnerOp() = runBlocking {
 		val result = client.crossDomainShare("domain.gateway.spawn.session", CrossDomainShareTarget.Domain("friend"))
 
 		assertTrue(result.ok)
-		assertEquals(listOf("gateway_value"), sent.map { it.op["kind"]?.jsonPrimitive?.content })
+		assertEquals("cross_domain_share", sent.single().op["kind"]?.jsonPrimitive?.content)
 	}
 
 	@Test
@@ -336,6 +336,8 @@ class ConsoleClientOwnerOpsTest {
 	private suspend fun answer(op: OwnerOp, coordinator: ConsoleTransportCoordinator?): JsonElement? {
 		sent += op
 		return when (op.op["kind"]?.jsonPrimitive?.content) {
+			"cross_domain_share", "cross_domain_unshare" -> buildJsonObject { put("ok", true) }
+			"cross_domain_list_shares" -> buildJsonObject { put("shares", buildJsonArray {}) }
 			"deliver" -> {
 				val body = when (kindOf(openConsoleOp(op))) {
 					"send" -> reply(com.atelier_nyaarium.switchboard.proto.ConsoleSendResult.serializer(), com.atelier_nyaarium.switchboard.proto.ConsoleSendResult("session", "sent"))
