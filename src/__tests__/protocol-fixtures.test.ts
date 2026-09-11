@@ -85,7 +85,6 @@ describe("protocol fixtures", () => {
 		expect(ConsoleCloseSessionResultSchema.parse(fixture("close-session-result.json"))).toBeDefined();
 		expect(ConsoleForgetResultSchema.parse(fixture("forget-result-release.json")).boardDisposition).toBe("release");
 		expect(ConsoleListDirsResultSchema.parse(fixture("list-dirs-result.json"))).toBeDefined();
-		expect(ConsolePeekResultSchema.parse(fixture("peek-result-legacy.json")).ansi).toBeDefined();
 		expect(InboxRowSchema.parse(fixture("inbox-row.json")).seq).toBe(1);
 	});
 });

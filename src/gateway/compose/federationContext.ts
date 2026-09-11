@@ -9,10 +9,10 @@ import type { RouterTransport } from "../router/transport.js";
 export interface FederationContextDeps {
 	/** The keyring, live before enrollment and shared with the active slice. */
 	contentKeys: ContentKeyStore;
-	/** The Domain id read from disk, before any enrollment delivers one. */
+	/** The Domain id before any enrollment delivers one. */
 	initialDomainId: string | null;
-	/** The Domain id on disk right now, read again after an install. */
-	domainIdOnDisk: () => string | null;
+	/** The environment's Domain id, read again after an install. */
+	domainIdFromEnv: () => string | null;
 	buildSlice: (boot: GatewayBootstrap) => FederationSlice;
 	/** Runs once the slice is published, never before. */
 	onActivate: (slice: FederationSlice) => void;
@@ -87,11 +87,11 @@ export class FederationContext {
 		this.state = { phase: "arming", arming };
 	}
 
-	/** Drops the boot and the slice; the Domain id falls back to what disk holds now. */
+	/** Drops the boot and the slice; the Domain id falls back to the environment's. */
 	standalone(): void {
 		this.state = { phase: "standalone" };
 		this.activeBoot = null;
-		this.domain = this.deps.domainIdOnDisk();
+		this.domain = this.deps.domainIdFromEnv();
 	}
 
 	/** Builds the slice first, so a failed build leaves the phase untouched. */

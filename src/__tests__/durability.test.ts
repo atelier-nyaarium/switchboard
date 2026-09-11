@@ -87,50 +87,14 @@ describe("delivery-state durability", () => {
 		expect(report).toMatchObject({ restored: 0, rejected: 1 });
 	});
 
-	const legacyRow = (id: string, conversationId: string, extra: Record<string, unknown> = {}) => ({
-		id,
-		from: "a",
-		to: "b",
-		state: "waiting",
-		createdAt: 0,
-		storedResult: null,
-		fromConversationId: conversationId,
-		returnRoute: null,
-		dstDomainId: null,
-		...extra,
-	});
-
-	it("migrates legacy rows, telling the owner's thread from a session's by the owner id", () => {
-		const routed = jobId("c1", "team");
-		const ownerThread = jobId("owner-key", "team");
-		const sessionThread = jobId("c3", "team");
+	it("restores nothing from a file of another version", () => {
 		const store = new PendingJobStore<string>(600_000, processAmbient());
-
-		const report = store.restore(
-			[
-				legacyRow(routed, "c1", {
-					dstDomainId: "alice",
-					returnRoute: { srcGateway: "alice-gw", srcConversationId: "c1", srcSession: routed },
-				}),
-				legacyRow(ownerThread, "owner-key"),
-				legacyRow(sessionThread, "c3"),
-			],
-			"owner-key",
-		);
-
-		expect(report).toMatchObject({ restored: 3, rejected: 0, legacy: true });
-		const contracts = store.snapshot().jobs.map((job) => job.contract);
-		expect(contracts).toContainEqual({ kind: "local", reply: { kind: "owner", ownerId: "owner-key" } });
-		expect(contracts).toContainEqual({ kind: "local", reply: { kind: "conversation", conversationId: "c3" } });
-	});
-
-	it("quarantines a legacy local row when no owner id can classify it", () => {
-		const store = new PendingJobStore<string>(600_000, processAmbient());
-		const id = jobId("c2", "team");
-		const report = store.restore([legacyRow(id, "c2")], null);
-
-		expect(report).toMatchObject({ restored: 0, rejected: 1, legacy: true });
-		expect(store.has(id)).toBe(false);
+		expect(store.restore([{ id: jobId("c2", "team"), from: "a", to: "b" }])).toEqual({ restored: 0, rejected: 0 });
+		expect(store.restore({ version: 1, jobs: [{ id: jobId("c2", "team") }] })).toEqual({
+			restored: 0,
+			rejected: 0,
+		});
+		expect(store.snapshot().jobs).toEqual([]);
 	});
 });
 

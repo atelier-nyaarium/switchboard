@@ -19,7 +19,7 @@ class GoalOpsTest {
 			state.value = state.value.copy(threads = mapOf(team to listOf(Message(true, text, 1L, status = "pending", opId = "op"))))
 			return "op"
 		}
-		override suspend fun peekTerminal(team: String) = Result.success(ConsolePeekResult(hash = "h", ansi = "Claude Code\n❯ "))
+		override suspend fun peekTerminal(team: String) = Result.success(ConsolePeekResult(kind = "tmux", hash = "h", ansi = "Claude Code\n❯ "))
 		override suspend fun tmuxSend(team: String, text: String?, key: String?, submit: Boolean) { typed += text to key }
 	}
 

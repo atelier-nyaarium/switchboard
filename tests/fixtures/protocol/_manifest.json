@@ -14,11 +14,16 @@
 		{ "file": "planes-read-result.json", "schema": "PlanesReadResult", "expect": "pass" },
 		{ "file": "send-result.json", "schema": "ConsoleSendResult", "expect": "pass" },
 		{ "file": "create-session-result-pending.json", "schema": "ConsoleCreateSessionResult", "expect": "pass" },
+		{
+			"file": "invalid-create-session-result-missing-id.json",
+			"schema": "ConsoleCreateSessionResult",
+			"expect": "fail"
+		},
 		{ "file": "close-session-result.json", "schema": "ConsoleCloseSessionResult", "expect": "pass" },
 		{ "file": "forget-result-release.json", "schema": "ConsoleForgetResult", "expect": "pass" },
 		{ "file": "list-dirs-result.json", "schema": "ConsoleListDirsResult", "expect": "pass" },
 		{ "file": "peek-result-container-logs.json", "schema": "ConsolePeekResult", "expect": "pass" },
-		{ "file": "peek-result-legacy.json", "schema": "ConsolePeekResult", "expect": "pass" },
+		{ "file": "peek-result-unchanged.json", "schema": "ConsolePeekResult", "expect": "pass" },
 		{ "file": "owner-row-reply.json", "schema": "MailboxEntry", "expect": "pass" },
 		{ "file": "owner-row-notice.json", "schema": "MailboxEntry", "expect": "pass" },
 		{ "file": "invalid-owner-row-bare-entry.json", "schema": "MailboxEntry", "expect": "fail" },

@@ -1,8 +1,6 @@
-import fs from "node:fs";
-import path from "node:path";
 import type { Ambient } from "../shared/ambient.js";
 import type { Identity } from "../shared/crypto.js";
-import { DOMAIN_ID_FILE, sanitizeDomainId } from "../shared/domain-id.js";
+import { sanitizeDomainId } from "../shared/domain-id.js";
 import { refuseFixtureIdentity } from "../shared/fixture-identity.js";
 import type { RouterReach } from "../shared/router-reach.js";
 import { Allowlist } from "./federation/allowlist.js";
@@ -77,7 +75,7 @@ export class GatewayBootstrap {
 	): GatewayBoot {
 		const allowlist = new Allowlist(paths.federationDir, io.ambient);
 		const transport = loadRouterTransport(paths.federationDir);
-		const domainId = resolveDomainId(paths.federationDir, allowlist, env.domainIdEnv);
+		const domainId = resolveDomainId(allowlist, env.domainIdEnv);
 		const decision = decideBootPhase({
 			hasTransport: transport !== null,
 			hasDomainId: domainId !== null,
@@ -113,16 +111,8 @@ export type GatewayBoot =
 	| { kind: "arming"; nonce: string }
 	| { kind: "standalone"; missing: Array<"transport" | "domainId"> };
 
-function readDomainIdFile(federationDir: string): string | null {
-	try {
-		return fs.readFileSync(path.join(federationDir, DOMAIN_ID_FILE), "utf8").trim() || null;
-	} catch {
-		return null;
-	}
-}
-
-function resolveDomainId(federationDir: string, allowlist: Allowlist, domainIdEnv?: string): string | null {
-	const raw = allowlist.domainId ?? readDomainIdFile(federationDir) ?? domainIdEnv ?? null;
+function resolveDomainId(allowlist: Allowlist, domainIdEnv?: string): string | null {
+	const raw = allowlist.domainId ?? domainIdEnv ?? null;
 	return raw ? sanitizeDomainId(raw) : null;
 }
 

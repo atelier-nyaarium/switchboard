@@ -21,27 +21,6 @@ class SttsCache(
 	private val requests: PlaybackRequests,
 	private val warmExec: Executor,
 ) {
-	init {
-		purgeLegacyCacheOnce()
-	}
-
-	private fun purgeLegacyCacheOnce() {
-		synchronized(cacheVersionLock) {
-			val cacheRoot = File(root, "stts")
-			val marker = File(cacheRoot, CACHE_VERSION_MARKER)
-			if (marker.isFile) return
-			cacheRoot.listFiles()?.forEach { it.deleteRecursively() }
-			if (cacheRoot.walkTopDown().any { it.isFile && it.extension == "audio" }) return
-			cacheRoot.mkdirs()
-			marker.createNewFile()
-		}
-	}
-
-	private companion object {
-		const val CACHE_VERSION_MARKER = ".cache-version-2"
-		val cacheVersionLock = Any()
-	}
-
 	/** Pre-synthesize every tier of one message into the cache without playing, so a later Play is a
 	 * cache hit. Blocking - call off the main thread. Dedups tiers that speak the same text:
 	 * synthesize once and copy. Never throws; a failed tier just synthesizes on demand at Play. */

@@ -43,12 +43,8 @@ export class HandshakeGate {
 		});
 	}
 
-	static leadClaim(replyAsJson?: Record<string, unknown>, response?: string): boolean | undefined {
-		if (replyAsJson && typeof replyAsJson.isMainOrLead === "boolean") return replyAsJson.isMainOrLead;
-		const legacy = response?.trim().toLowerCase();
-		if (legacy === "true") return true;
-		if (legacy === "false") return false;
-		return undefined;
+	static leadClaim(replyAsJson?: Record<string, unknown>): boolean | undefined {
+		return typeof replyAsJson?.isMainOrLead === "boolean" ? replyAsJson.isMainOrLead : undefined;
 	}
 
 	mint(team: string, subId: string): { hsId: string; push: string } {

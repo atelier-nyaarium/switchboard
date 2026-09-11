@@ -299,16 +299,10 @@ class ChatPersistenceTest {
 	//  Drafts
 
 	@Test
-	fun aLegacyBareStringDraftLoadsBesideACurrentShapeOne() {
+	fun aBareStringRowAndANonCanonicalKeyDropWhileAnObjectRowLoads() {
 		store.slots["drafts"] =
 			"""{"$team":"typed on the old app","$peerTeam":{"text":"current","files":[]},"home.gw.x":{"text":"short key"}}"""
-		val loaded = codec.loadPersistedDrafts()
-
-		// The two shapes coexist in one file; an empty legacy row and a non-canonical key drop.
-		assertEquals(
-			mapOf(team to Draft(text = "typed on the old app"), peerTeam to Draft(text = "current")),
-			loaded,
-		)
+		assertEquals(mapOf(peerTeam to Draft(text = "current")), codec.loadPersistedDrafts())
 	}
 
 	@Test

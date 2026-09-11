@@ -240,7 +240,6 @@ export function createWebSocketHandlers({
 			ws.data.conversationId = conversationId;
 			ws.data.mode = mode;
 			ws.data.version = reg.data.version;
-			ws.data.deliveryProtocol = reg.data.deliveryProtocol;
 			ws.data.claudeSessionId = reg.data.claudeSessionId;
 			ws.data.cwdName = reg.data.cwdName;
 			subs.set(subId, ws);
@@ -463,7 +462,6 @@ export function createWebSocketHandlers({
 	function resolveHandshake(
 		sessionId: string,
 		replyAsJson?: Record<string, unknown>,
-		response?: string,
 		responderToken?: Presented,
 	): boolean {
 		const pending = handshakeGate.pendingOf(sessionId);
@@ -482,7 +480,7 @@ export function createWebSocketHandlers({
 		if (!ws) return true;
 		if (ws.readyState !== 1) return true;
 
-		const claim = HandshakeGate.leadClaim(replyAsJson, response);
+		const claim = HandshakeGate.leadClaim(replyAsJson);
 		if (claim === undefined) {
 			console.log(`[ws] ignored malformed handshake answer: ${pending.team}/${pending.subId}`);
 			return true;

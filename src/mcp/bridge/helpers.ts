@@ -219,9 +219,6 @@ export async function routerGet(
 	return routerRequest(`${ROUTER_URL}${path}`, { headers: sessionTokenHeader() }, retries, retryDelayMs, "routerGet");
 }
 
-/** Delivery acknowledgement contract. */
-export const DELIVERY_PROTOCOL = 1;
-
 let opLedgerProtocol = 0;
 
 /** Refuse sends without op-ledger support. */
@@ -243,7 +240,6 @@ export function buildRegisterMsg(
 		subId,
 		conversationId: CONVERSATION_ID,
 		version: packageJson.version,
-		deliveryProtocol: DELIVERY_PROTOCOL,
 	};
 	if (process.env.PROJECT_HOST_PATH) {
 		registerMsg.projectPath = process.env.PROJECT_HOST_PATH;

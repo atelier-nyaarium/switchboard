@@ -10,7 +10,7 @@ interface FakeSocket {
 	ws: ServerWebSocket<WsData>;
 }
 
-function socket(deliveryProtocol?: number): FakeSocket {
+function socket(): FakeSocket {
 	const sent: string[] = [];
 	const ws = {
 		readyState: 1,
@@ -23,7 +23,6 @@ function socket(deliveryProtocol?: number): FakeSocket {
 			missedPings: 0,
 			isStale: false,
 			handshakeConfirmed: true,
-			deliveryProtocol,
 		} as WsData,
 	} as unknown as ServerWebSocket<WsData>;
 	return { sent, ws };
@@ -51,7 +50,7 @@ describe("ChannelDeliveryCoordinator", () => {
 		let now = 10_000;
 		const store = new PendingDeliveryStore(undefined, { now: () => now }, 5_000);
 		const retired: string[][] = [];
-		const s = socket(1);
+		const s = socket();
 		const c = new ChannelDeliveryCoordinator({
 			store,
 			registry: registryWith(s),
@@ -85,7 +84,7 @@ describe("ChannelDeliveryCoordinator", () => {
 
 	it("delivers to a live session and keeps the row until that session says it landed", () => {
 		const store = new PendingDeliveryStore(undefined, processAmbient());
-		const s = socket(1);
+		const s = socket();
 		const c = new ChannelDeliveryCoordinator({ store, registry: registryWith(s) });
 
 		expect(c.accept(delivery("d1"))).toBe("delivered");
@@ -99,30 +98,9 @@ describe("ChannelDeliveryCoordinator", () => {
 
 	it("carries the delivery id on the wire, since that is what the receiver acknowledges", () => {
 		const store = new PendingDeliveryStore(undefined, processAmbient());
-		const s = socket(1);
+		const s = socket();
 		new ChannelDeliveryCoordinator({ store, registry: registryWith(s) }).accept(delivery("d1"));
 		expect(JSON.parse(s.sent[0])).toMatchObject({ type: "channel_push", delivery_id: "d1", session_id: "job-1" });
-	});
-
-	it("retires immediately for a plugin that cannot acknowledge, rather than re-sending forever", () => {
-		const store = new PendingDeliveryStore(undefined, processAmbient());
-		// Legacy listeners cannot provide acknowledgement proof.
-		const legacy = socket(undefined);
-		const c = new ChannelDeliveryCoordinator({ store, registry: registryWith(legacy) });
-
-		expect(c.accept(delivery("d1"))).toBe("delivered");
-		expect(legacy.sent).toHaveLength(1);
-		expect(store.listForTeam("proj.alpha")).toHaveLength(0);
-	});
-
-	it("keeps the row when even one listener can acknowledge", () => {
-		const store = new PendingDeliveryStore(undefined, processAmbient());
-		const legacy = socket(undefined);
-		const modern = socket(1);
-		const c = new ChannelDeliveryCoordinator({ store, registry: registryWith(legacy, modern) });
-
-		c.accept(delivery("d1"));
-		expect(store.listForTeam("proj.alpha")).toHaveLength(1);
 	});
 
 	it("hands a session everything it missed when it finally arrives, oldest first", () => {
@@ -134,7 +112,7 @@ describe("ChannelDeliveryCoordinator", () => {
 		c.accept(delivery("d2"));
 		expect(store.listForTeam("proj.alpha")).toHaveLength(2);
 
-		const s = socket(1);
+		const s = socket();
 		registry.set("proj.alpha", new Map([["s0", s.ws]]));
 		expect(c.drain("proj.alpha")).toBe(2);
 		expect(s.sent.map((p) => JSON.parse(p).delivery_id)).toEqual(["d1", "d2"]);
@@ -142,7 +120,7 @@ describe("ChannelDeliveryCoordinator", () => {
 
 	it("re-offers an unacknowledged message on the next drain, so a lost notification is not a loss", () => {
 		const store = new PendingDeliveryStore(undefined, processAmbient());
-		const s = socket(1);
+		const s = socket();
 		const c = new ChannelDeliveryCoordinator({ store, registry: registryWith(s) });
 
 		c.accept(delivery("d1"));
@@ -159,7 +137,7 @@ describe("ChannelDeliveryCoordinator", () => {
 
 	it("nudges an unconfirmed recipient's handshake ahead of the message", () => {
 		const store = new PendingDeliveryStore(undefined, processAmbient());
-		const s = socket(1);
+		const s = socket();
 		s.ws.data.handshakeConfirmed = false;
 		const nudged: string[] = [];
 		const c = new ChannelDeliveryCoordinator({

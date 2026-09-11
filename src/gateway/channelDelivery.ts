@@ -1,8 +1,7 @@
-import type { ServerWebSocket } from "bun";
 import { fenced, MIGRATING } from "../shared/migration-fence.js";
 import type { PendingDelivery, PendingDeliveryStore } from "../shared/pending-delivery-store.js";
 import { reached, sendOn } from "./wsSend.js";
-import { getAllActiveWs, type TeamRegistry, type WsData } from "./wsTypes.js";
+import { getAllActiveWs, type TeamRegistry } from "./wsTypes.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -36,9 +35,6 @@ const blobIdsOf = (deliveries: readonly PendingDelivery[]): string[] => [
  * Acceptance is a promise: once this says `delivered` or `queued`, the message is either with the
  * session or on disk waiting for it. It is retired only when the receiver says it emitted the
  * notification - a socket write proves the bytes left, not that anything read them.
- *
- * A peer too old to acknowledge is retired on the write instead, which is exactly the guarantee that
- * peer has today. It is not given a promise its plugin cannot keep.
  */
 export class ChannelDeliveryCoordinator {
 	constructor(private readonly deps: ChannelDeliveryDeps) {}
@@ -57,8 +53,7 @@ export class ChannelDeliveryCoordinator {
 	drain(team: string): number | "migrating" {
 		if (fenced()) return MIGRATING;
 		let offered = 0;
-		// A copy: offering can retire rows for a legacy peer, which mutates the queue underneath.
-		for (const delivery of [...this.deps.store.listForTeam(team)]) {
+		for (const delivery of this.deps.store.listForTeam(team)) {
 			const result = this.offer(delivery);
 			if (result === MIGRATING) return MIGRATING;
 			if (result) offered++;
@@ -107,25 +102,12 @@ export class ChannelDeliveryCoordinator {
 			}
 			if (reached(sendOn(ws, payload, `channel_push to ${delivery.team}`))) took = true;
 		}
-		if (!took) return false;
-
-		// Nobody here can acknowledge, so holding the row would re-offer it on every reconnect and
-		// duplicate the message. Retiring now gives an old plugin precisely today's behaviour.
-		if (!sockets.some(canAcknowledge)) {
-			const acknowledged = this.acknowledge(delivery.deliveryId);
-			if (acknowledged === "migrating") return MIGRATING;
-		}
-		return true;
+		return took;
 	}
 }
 
 ////////////////////////////////
 //  Functions & Helpers
-
-/** Whether this peer's plugin will send `channel_delivery_ack`. */
-function canAcknowledge(ws: ServerWebSocket<WsData>): boolean {
-	return (ws.data.deliveryProtocol ?? 0) >= 1;
-}
 
 /** The wire shape, built from the stored row rather than from live state, so a message delivered
  * after a restart is byte-for-byte the one that was accepted. */

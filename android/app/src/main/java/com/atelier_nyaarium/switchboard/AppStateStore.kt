@@ -111,14 +111,8 @@ class AppStateStore internal constructor(
 		}
 	}
 
-	internal fun loadRouterState(kind: String, legacy: String? = null): RouterStateSlot? {
-		val stored = prefs.getString(KEY_ROUTER_STATE_PREFIX + kind, null)
-		if (stored != null) return wireJson.decodeFromString<JsonObject>(stored).decodeRouterStateSlot()
-		if (legacy == null) return null
-		val slot = RouterStateSlot(0L, 0L, wireJson.parseToJsonElement(legacy))
-		saveRouterState(kind, slot)
-		return slot
-	}
+	internal fun loadRouterState(kind: String): RouterStateSlot? =
+		prefs.getString(KEY_ROUTER_STATE_PREFIX + kind, null)?.let { wireJson.decodeFromString<JsonObject>(it).decodeRouterStateSlot() }
 
 	fun clear() = prefs.edit().clear().apply()
 

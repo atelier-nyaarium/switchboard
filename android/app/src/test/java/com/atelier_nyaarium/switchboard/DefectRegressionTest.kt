@@ -45,26 +45,6 @@ class DefectRegressionTest {
 	}
 
 	@Test
-	fun oldCacheFilesArePurgedOnce() {
-		val root = java.io.File.createTempFile("stts", "test").apply { delete(); mkdirs() }
-		try {
-			val old = java.io.File(root, "stts/team/10-full-p-voice-1.audio").apply { parentFile!!.mkdirs(); writeText("old") }
-			SttsCache(root, PlaybackRequests(), java.util.concurrent.Executor { it.run() })
-			assertTrue(!old.exists())
-			assertTrue(java.io.File(root, "stts/.cache-version-2").isFile)
-			val current =
-				java.io.File(root, "stts/team/current.audio").apply {
-					parentFile!!.mkdirs()
-					writeText("current")
-				}
-			SttsCache(root, PlaybackRequests(), java.util.concurrent.Executor { it.run() })
-			assertTrue(current.exists())
-		} finally {
-			root.deleteRecursively()
-		}
-	}
-
-	@Test
 	fun localityRequiresDomainAndGateway() {
 		val address = com.atelier_nyaarium.switchboard.proto.Address.of("domain-a", "gateway-a", "session", "main")
 		assertTrue(testRegistry("gateway-a").owns(address, "domain-a"))

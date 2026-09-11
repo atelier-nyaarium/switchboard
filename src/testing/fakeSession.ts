@@ -83,7 +83,6 @@ export function attachFakeSession(graph: GatewayGraph, options: FakeSessionOptio
 		mode: "channel",
 		conversationId: options.conversationId,
 		version: "harness",
-		deliveryProtocol: 1,
 		cwdName: options.cwdName ?? options.team,
 		...(options.sessionToken ? { sessionToken: options.sessionToken } : {}),
 		...(options.projectPath ? { projectPath: options.projectPath } : {}),

@@ -18,7 +18,6 @@ function registerRaw(h: FederationHarness, sockets: FakeSocket[], team: string, 
 			mode: "channel",
 			conversationId: `conv-${team}-${subId}`.replace(/\W/g, "-"),
 			version: "harness",
-			deliveryProtocol: 1,
 		}),
 	);
 	return socket;
@@ -79,7 +78,6 @@ describe("gateway session handshake lifecycle", () => {
 				mode: "channel",
 				conversationId: `conv-raw-${team}-${subId}`.replace(/\W/g, "-"),
 				version: "harness",
-				deliveryProtocol: 1,
 				...(isMainOrLead === undefined ? {} : { isMainOrLead }),
 			}),
 		);

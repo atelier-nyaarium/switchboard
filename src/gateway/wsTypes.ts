@@ -62,8 +62,6 @@ export interface WsData {
 	proxyProject?: string;
 	proxyAuth?: string;
 	virtual?: boolean;
-	// Protocol 1 requires delivery acknowledgements.
-	deliveryProtocol?: number;
 }
 
 export const RESERVED_TEAM_NAMES = new Set(["host"]);

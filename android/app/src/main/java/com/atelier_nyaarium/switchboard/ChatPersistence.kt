@@ -347,11 +347,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 		}
 	}
 
-	/** A pre-Draft persisted row is a bare JSON string (just the text); real users have saved
-	 * drafts under that shape, so it loads as `Draft(text = it)` rather than being dropped. A
-	 * current-shape row is an object with "text" + "files", read the same way a ScheduledSend's
-	 * fileRefs are (loadFiles). Either way an entry that comes back unoccupied (empty legacy text)
-	 * is dropped, matching withDraft's own sparse-map invariant. */
+	/** Unoccupied rows drop. */
 	internal fun loadPersistedDrafts(): Map<String, Draft> {
 		val json = store.loadDrafts() ?: return emptyMap()
 		val root = runCatching { JSONObject(json) }.getOrNull()
@@ -363,12 +359,8 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 			for (rawKey in root.keys()) {
 				if (!isAddressKey(rawKey)) continue
 				runCatching {
-					val obj = root.optJSONObject(rawKey)
-					if (obj != null) {
-						Draft(text = obj.optString("text"), files = loadFiles(obj), locations = loadLocations(obj))
-					} else {
-						Draft(text = root.getString(rawKey))
-					}
+					val obj = root.getJSONObject(rawKey)
+					Draft(text = obj.optString("text"), files = loadFiles(obj), locations = loadLocations(obj))
 				}.getOrNull()?.takeIf { it.isOccupied }?.let { put(rawKey, it) }
 			}
 		}

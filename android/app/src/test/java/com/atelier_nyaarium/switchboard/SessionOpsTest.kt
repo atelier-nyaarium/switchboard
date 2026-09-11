@@ -39,14 +39,14 @@ class SessionOpsTest {
 		override fun forgetReadAnchor(team: String) = Unit
 		override fun rememberProject(target: String) { remembered += target }
 		override fun launchInBackground(block: suspend () -> Unit) { CoroutineScope(Dispatchers.Unconfined).launch { block() } }
-		override suspend fun peekTerminal(team: String, sinceHash: String?) = ConsolePeekResult(hash = "hash")
+		override suspend fun peekTerminal(team: String, sinceHash: String?) = ConsolePeekResult(kind = "tmux", hash = "hash")
 		override suspend fun createSession(
 			target: String,
 			sessionName: String?,
 			displayLabel: String?,
 			workdir: String?,
 			opId: String,
-		) = ConsoleCreateSessionResult(created = true).also { created += target }
+		) = ConsoleCreateSessionResult(created = true, id = sessionName ?: "minted").also { created += target }
 		override suspend fun tmuxSend(team: String, text: String?, key: String?, submit: Boolean) = Unit
 		override suspend fun listDirs(path: String, hostTarget: String, spawn: String) = ConsoleListDirsResult(emptyList())
 		override suspend fun wake(target: String, opId: String) { wakes += target }

@@ -120,8 +120,7 @@ export interface GatewayConfig {
 	// This Gateway's id, qualifying every local session name on the wire (GATEWAY_ID
 	// env override, else the sanitized machine hostname).
 	localGatewayId: string;
-	// This Gateway's Domain id, or null until enrollment delivers it (arming mode). Resolved from
-	// the enrollment-delivered domain-id file, else the FEDERATION_DOMAIN_ID env.
+	// The installed allowlist record's Domain id, else the FEDERATION_DOMAIN_ID env.
 	localDomainId: string;
 }
 

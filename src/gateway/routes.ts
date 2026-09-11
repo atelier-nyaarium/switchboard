@@ -56,7 +56,6 @@ export interface RoutesDeps {
 	resolveHandshake?: (
 		sessionId: string,
 		replyAsJson?: Record<string, unknown>,
-		response?: string,
 		responderToken?: Presented,
 	) => boolean;
 	// The pending hs-* id owed by a (team, subId), if any.

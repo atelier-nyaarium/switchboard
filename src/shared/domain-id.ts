@@ -1,15 +1,4 @@
-import fs from "node:fs";
-import path from "node:path";
 import { isSlug, MAX_SLUG_LEN } from "./session-id.js";
-
-////////////////////////////////
-//  Constants
-
-/** Enrollment writes the delivered Domain id here, alongside transport.json. */
-export const DOMAIN_ID_FILE = "domain-id";
-
-////////////////////////////////
-//  Functions & Helpers
 
 /** Sanitize a raw Domain id into a stable address segment: lower case, non-alphanumerics collapse to
  * single dashes, ends trimmed, capped at the slug length. The output is a dotless slug, so a Domain
@@ -26,19 +15,8 @@ export function sanitizeDomainId(raw: string): string {
 	return slug;
 }
 
-/** The local Gateway's Domain id, or null when it has not been enrolled yet. Resolution order: the
- * id the caller read from the installed allowlist record, then the legacy `domain-id` file, then the
- * `FEDERATION_DOMAIN_ID` env (the admin box's own record). Null means the gateway boots standalone
- * and opens its enrollment listener; a Domain is required only to connect to the Router. */
-export function resolveLocalDomainId(federationDir: string, installed?: string | null): string | null {
-	const id = installed ?? readDomainIdFile(federationDir) ?? process.env.FEDERATION_DOMAIN_ID;
+/** The installed allowlist id, else `FEDERATION_DOMAIN_ID`; null boots standalone. */
+export function resolveLocalDomainId(installed?: string | null): string | null {
+	const id = installed ?? process.env.FEDERATION_DOMAIN_ID;
 	return id ? sanitizeDomainId(id) : null;
-}
-
-function readDomainIdFile(federationDir: string): string | null {
-	try {
-		return fs.readFileSync(path.join(federationDir, DOMAIN_ID_FILE), "utf8").trim() || null;
-	} catch {
-		return null;
-	}
 }

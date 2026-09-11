@@ -91,7 +91,7 @@ class ProtocolFixturesTest {
 			wireJson.decodeFromString<ConsoleForgetResult>(fixture("forget-result-release.json")).boardDisposition,
 		)
 		assertNotNull(wireJson.decodeFromString<ConsoleListDirsResult>(fixture("list-dirs-result.json")).entries)
-		assertNotNull(wireJson.decodeFromString<ConsolePeekResult>(fixture("peek-result-legacy.json")).ansi)
+		assertTrue(wireJson.decodeFromString<ConsolePeekResult>(fixture("peek-result-unchanged.json")).unchanged == true)
 		assertEquals(1L, wireJson.decodeFromString<InboxRow>(fixture("inbox-row.json")).seq)
 	}
 }

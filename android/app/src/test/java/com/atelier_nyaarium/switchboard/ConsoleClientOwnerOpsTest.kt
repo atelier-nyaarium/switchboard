@@ -341,7 +341,7 @@ class ConsoleClientOwnerOpsTest {
 				val body = when (kindOf(openConsoleOp(op))) {
 					"send" -> reply(com.atelier_nyaarium.switchboard.proto.ConsoleSendResult.serializer(), com.atelier_nyaarium.switchboard.proto.ConsoleSendResult("session", "sent"))
 					"respond" -> reply(com.atelier_nyaarium.switchboard.proto.ConsoleRespondResult.serializer(), com.atelier_nyaarium.switchboard.proto.ConsoleRespondResult(true))
-					"peek" -> reply(com.atelier_nyaarium.switchboard.proto.ConsolePeekResult.serializer(), com.atelier_nyaarium.switchboard.proto.ConsolePeekResult(hash = "hash"))
+					"peek" -> reply(com.atelier_nyaarium.switchboard.proto.ConsolePeekResult.serializer(), com.atelier_nyaarium.switchboard.proto.ConsolePeekResult(kind = "tmux", hash = "hash"))
 					"rename_session" -> reply(com.atelier_nyaarium.switchboard.proto.ConsoleRenameSessionResult.serializer(), com.atelier_nyaarium.switchboard.proto.ConsoleRenameSessionResult(true, "new"))
 					"forget" -> reply(com.atelier_nyaarium.switchboard.proto.ConsoleForgetResult.serializer(), com.atelier_nyaarium.switchboard.proto.ConsoleForgetResult(true, "keep"))
 					else -> wireJson.encodeToJsonElement(OwnerOpAnswer.serializer(), OwnerOpAnswer(true))

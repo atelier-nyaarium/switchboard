@@ -160,8 +160,8 @@ export const ConsolePeekResultSchema = z
 		// pane does not exist yet (still booting). Read-only (no pane to send input to).
 		text: z.string().optional(),
 		// Which payload this frame carries: "tmux" (a live pane in `ansi`) or "container-logs" (a
-		// boot-log snapshot in `text`). A flat optional field, NOT a discriminated union: the Kotlin
-		// codegen silently drops a decode-side union root. Absent from an older gateway (treat as tmux).
+		// boot-log snapshot in `text`). A flat field, not a discriminated union: the Kotlin codegen
+		// silently drops a decode-side union root. Absent on an unchanged frame.
 		kind: z.enum(["tmux", "container-logs"]).optional(),
 		// Short content hash of the frame; the console sends it back as sinceHash next cycle.
 		hash: z.string(),
@@ -191,8 +191,7 @@ export const ConsoleCreateSessionResultSchema = z
 		created: z.boolean(),
 		// The session id the gateway recorded (minted for a displayLabel create, else the adopted
 		// sessionName) and the label it stored, so the console opens the thread keyed on the id.
-		// Absent from an older gateway that only reported `created`.
-		id: z.string().optional(),
+		id: z.string(),
 		sessionLabel: z.string().optional(),
 		// True iff a caller-supplied displayLabel could not be used as-is (sanitizeLabel rejected it -
 		// invisible/forbidden characters) and sessionLabel fell back to the id instead. Computed once,

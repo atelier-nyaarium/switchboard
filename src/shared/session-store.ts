@@ -456,35 +456,32 @@ export class SessionStore {
 
 	restore(raw: unknown): void {
 		if (!raw || typeof raw !== "object") return;
-		// TODO(post-upgrade cleanup): drop the `!persisted` legacy branch once every gateway re-writes session-resume.json in the new shape.
 		for (const [team, value] of Object.entries(raw as Record<string, unknown>)) {
 			if (!value || typeof value !== "object") continue;
 			if (!isComposite(team) || this.records.has(team)) continue;
 			const { project: spawn, session: segment } = parseSessionName(team);
 			if (!isSlug(spawn) || !isSlug(segment)) continue;
 			const v = value as Partial<PersistedSessionRecord> & { claudeSessionId?: string; lastSeen?: number };
+			if (typeof v.id !== "string") continue;
 			const lastSeen = typeof v.lastSeen === "number" ? v.lastSeen : this.now();
-			const persisted = typeof v.id === "string";
-			if (!persisted && typeof v.claudeSessionId !== "string") continue;
-			const label = (persisted ? sanitizeLabel(v.sessionLabel) : segment) ?? segment;
 			const record: SessionRecord = {
 				id: segment,
-				sessionLabel: this.dedupLabel(spawn, label),
+				sessionLabel: this.dedupLabel(spawn, sanitizeLabel(v.sessionLabel) ?? segment),
 				spawn,
-				workdirHint: persisted ? (sanitizeLabel(v.workdirHint) ?? undefined) : segment,
-				workdirPath: persisted ? (sanitizeWorkdirPath(v.workdirPath) ?? undefined) : undefined,
+				workdirHint: sanitizeLabel(v.workdirHint) ?? undefined,
+				workdirPath: sanitizeWorkdirPath(v.workdirPath) ?? undefined,
 				claudeSessionId: typeof v.claudeSessionId === "string" ? v.claudeSessionId : undefined,
-				mintedFrom: persisted && typeof v.mintedFrom === "string" ? v.mintedFrom : undefined,
+				mintedFrom: typeof v.mintedFrom === "string" ? v.mintedFrom : undefined,
 				// Restored records never mint a token for an unbound session.
-				bindToken: persisted && typeof v.bindToken === "string" ? v.bindToken : undefined,
-				bindActiveAt: persisted && typeof v.bindActiveAt === "number" ? v.bindActiveAt : undefined,
-				confirmedAt: persisted ? (typeof v.confirmedAt === "number" ? v.confirmedAt : undefined) : lastSeen,
+				bindToken: typeof v.bindToken === "string" ? v.bindToken : undefined,
+				bindActiveAt: typeof v.bindActiveAt === "number" ? v.bindActiveAt : undefined,
+				confirmedAt: typeof v.confirmedAt === "number" ? v.confirmedAt : undefined,
 				lastSeen,
 			};
 			this.records.set(team, record);
-			const codexCatalog = persisted ? restoreCodexAgentCatalog(v.codexCatalog) : undefined;
+			const codexCatalog = restoreCodexAgentCatalog(v.codexCatalog);
 			if (codexCatalog) this.codexCatalogStore.install(record, codexCatalog);
-			const copilotCatalog = persisted ? restoreCopilotAgentCatalog(v.copilotCatalog) : undefined;
+			const copilotCatalog = restoreCopilotAgentCatalog(v.copilotCatalog);
 			if (copilotCatalog) this.copilotCatalogStore.install(record, copilotCatalog);
 			this.claimLabel(record);
 		}

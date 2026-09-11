@@ -1,7 +1,6 @@
 // The whole gateway graph, one stage at a time.
 
 import { hostSpawnPoint } from "../shared/host-spawn.js";
-import { ownerKeyId } from "../shared/owner-id.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
 import { composeAgents } from "./compose/composeAgents.js";
 import { composeAwareness } from "./compose/composeAwareness.js";
@@ -28,7 +27,6 @@ import { composeVault, type VaultStage } from "./compose/composeVault.js";
 import { composeWebSockets, type WebSocketsStage } from "./compose/composeWebSockets.js";
 import { FederationContext } from "./compose/federationContext.js";
 import type { GatewayDeps, GatewayGraph } from "./compose/gatewayTypes.js";
-import { readOwnerSignPub } from "./federation/allowlist.js";
 import { routineOwns, routineTeam } from "./routines/reservation.js";
 
 export { createProjectPredicates } from "./compose/composeSessions.js";
@@ -70,7 +68,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	const context = new FederationContext({
 		contentKeys: bootstrap.contentKeyStore,
 		initialDomainId: bootstrap.initialDomainId,
-		domainIdOnDisk: bootstrap.domainIdOnDisk,
+		domainIdFromEnv: bootstrap.domainIdFromEnv,
 		buildSlice: (boot) => {
 			if (!federation) throw new Error("the federation stage is not composed yet");
 			return federation.buildSlice(boot);
@@ -88,13 +86,11 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		},
 	});
 
-	const ownerSignPubOnDisk = readOwnerSignPub(bootstrap.federationDir);
 	const stores = composeStores({
 		dataDir: bootstrap.dataDir,
 		maxBlobStoreBytes: config.maxBlobStoreBytes,
 		ambient: bootstrap.ambient,
 		onJobChange: () => federation?.attest(),
-		legacyOwnerId: ownerSignPubOnDisk ? ownerKeyId(ownerSignPubOnDisk) : null,
 	});
 	const sessions = composeSessions({
 		localGatewayId: bootstrap.localGatewayId,

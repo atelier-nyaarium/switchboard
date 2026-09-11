@@ -156,11 +156,10 @@ describe("HandshakeGate", () => {
 		expect(gate.confirmedBy("app.dev")).toBe(binding);
 	});
 
-	it("accepts structured claims and exact legacy tokens only", () => {
+	it("accepts only a structured boolean claim", () => {
 		expect(HandshakeGate.leadClaim({ isMainOrLead: true })).toBe(true);
-		expect(HandshakeGate.leadClaim({ isMainOrLead: false }, "true")).toBe(false);
-		expect(HandshakeGate.leadClaim(undefined, " true ")).toBe(true);
-		expect(HandshakeGate.leadClaim(undefined, "I am the lead: TRUE")).toBeUndefined();
+		expect(HandshakeGate.leadClaim({ isMainOrLead: false })).toBe(false);
+		expect(HandshakeGate.leadClaim({ isMainOrLead: "true" })).toBeUndefined();
 		expect(HandshakeGate.leadClaim()).toBeUndefined();
 	});
 });

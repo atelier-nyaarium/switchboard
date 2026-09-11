@@ -678,7 +678,7 @@ data class ConsoleTmuxSendResult(
 @Serializable
 data class ConsoleCreateSessionResult(
 	val created: Boolean,
-	val id: String? = null,
+	val id: String,
 	val sessionLabel: String? = null,
 	val labelSanitized: Boolean? = null,
 	val status: String? = null,

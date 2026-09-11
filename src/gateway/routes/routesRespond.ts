@@ -27,7 +27,6 @@ export interface RespondRoutesDeps {
 	resolveHandshake?: (
 		sessionId: string,
 		replyAsJson?: Record<string, unknown>,
-		response?: string,
 		responderToken?: Presented,
 	) => boolean;
 	// The pending hs-* id owed by a (team, subId), if any.
@@ -100,9 +99,7 @@ export function createRespondRoutes({
 
 		// Check if this is a handshake response (handshakes never carry files). The caller's own.
 		const responderToken = presentedByRequest(req);
-		if (
-			resolveHandshake?.(respondSessionId, replyAsJson ?? undefined, rest.response ?? undefined, responderToken)
-		) {
+		if (resolveHandshake?.(respondSessionId, replyAsJson ?? undefined, responderToken)) {
 			return jsonResponse({ delivered: true, handshake: true });
 		}
 

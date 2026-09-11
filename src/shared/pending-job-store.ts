@@ -117,7 +117,6 @@ export interface RestoreReport {
 	restored: number;
 	/** Rejected rows lacked origins. */
 	rejected: number;
-	legacy: boolean;
 }
 
 function readContract(raw: unknown): JobContract | null {
@@ -148,30 +147,6 @@ function readReply(raw: unknown): LocalReply | null {
 	if (r.kind === "conversation" && typeof r.conversationId === "string")
 		return { kind: "conversation", conversationId: r.conversationId };
 	return null;
-}
-
-/** Without an owner id a local row is quarantined, never defaulted to a conversation. */
-function migrateLegacyContract(row: Record<string, unknown>, ownerId: string | null): JobContract | null {
-	const route = row.returnRoute as Record<string, unknown> | null | undefined;
-	if (route) {
-		if (typeof route.srcGateway !== "string" || typeof route.srcSession !== "string") return null;
-		if (typeof route.srcConversationId !== "string") return null;
-		return {
-			kind: "inbound",
-			route: {
-				srcGateway: route.srcGateway,
-				srcConversationId: route.srcConversationId,
-				srcSession: route.srcSession,
-			},
-			dstDomainId: typeof row.dstDomainId === "string" ? row.dstDomainId : null,
-		};
-	}
-	const conversationId = row.fromConversationId;
-	if (typeof conversationId !== "string" || ownerId === null) return null;
-	const reply: LocalReply =
-		conversationId === ownerId ? { kind: "owner", ownerId } : { kind: "conversation", conversationId };
-	const dstDomainId = typeof row.dstDomainId === "string" ? row.dstDomainId : null;
-	return dstDomainId ? { kind: "outbound", reply, dstDomainId } : { kind: "local", reply };
 }
 
 function readState(raw: unknown): JobState | null {
@@ -497,12 +472,11 @@ export class PendingJobStore<T> {
 	}
 
 	/** Reject unverifiable origins. */
-	restore(raw: unknown, legacyOwnerId: string | null = null): RestoreReport {
-		const legacy = Array.isArray(raw);
-		const rows: unknown[] = legacy
-			? raw
-			: raw !== null && typeof raw === "object" && Array.isArray((raw as { jobs?: unknown[] }).jobs)
-				? ((raw as { jobs: unknown[] }).jobs ?? [])
+	restore(raw: unknown): RestoreReport {
+		const file = raw as { version?: unknown; jobs?: unknown } | null;
+		const rows: unknown[] =
+			file !== null && typeof file === "object" && file.version === 2 && Array.isArray(file.jobs)
+				? file.jobs
 				: [];
 		let restored = 0;
 		let rejected = 0;
@@ -513,7 +487,7 @@ export class PendingJobStore<T> {
 			}
 			const r = row as Record<string, unknown>;
 			const state = readState(r.state);
-			const contract = legacy ? migrateLegacyContract(r, legacyOwnerId) : readContract(r.contract);
+			const contract = readContract(r.contract);
 			if (
 				typeof r.id !== "string" ||
 				typeof r.from !== "string" ||
@@ -543,7 +517,7 @@ export class PendingJobStore<T> {
 			});
 			restored++;
 		}
-		return { restored, rejected, legacy };
+		return { restored, rejected };
 	}
 
 	private sweep(): void {

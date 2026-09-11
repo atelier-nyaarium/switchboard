@@ -10,9 +10,9 @@ function scriptedIds(...ids: string[]) {
 	return () => ids.shift() ?? `fill${extra++}`;
 }
 
-const LEGACY_FILE = {
-	"host.switchboard": { claudeSessionId: "16aa1d0d-aaaa", lastSeen: 1000 },
-	"host.story-telling": { claudeSessionId: "c1fa7689-bbbb", lastSeen: 2000 },
+const RESUME_FILE = {
+	"host.switchboard": { id: "switchboard", spawn: "host", claudeSessionId: "16aa1d0d-aaaa", lastSeen: 1000 },
+	"host.story-telling": { id: "story-telling", spawn: "host", claudeSessionId: "c1fa7689-bbbb", lastSeen: 2000 },
 };
 
 const COPILOT_OPERATION_ID = "123e4567-e89b-42d3-a456-426614174000";
@@ -42,16 +42,14 @@ function requestedCopilotAgent() {
 }
 
 describe("SessionStore migration", () => {
-	it("migrates a legacy resume map into full records seeded from the segment", () => {
+	it("restores a record from its persisted shape and skips a row with no id", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
-		store.restore(LEGACY_FILE);
+		store.restore({ ...RESUME_FILE, "host.bare": { claudeSessionId: "16aa1d0d-cccc", lastSeen: 3000 } });
 		expect(store.getByTeam("host.switchboard")).toMatchObject({
 			id: "switchboard",
 			sessionLabel: "switchboard",
 			spawn: "host",
-			workdirHint: "switchboard",
 			claudeSessionId: "16aa1d0d-aaaa",
-			confirmedAt: 1000,
 			lastSeen: 1000,
 		});
 		expect(store.size).toBe(2);
@@ -59,7 +57,7 @@ describe("SessionStore migration", () => {
 
 	it("a rename survives any number of snapshot/restore round-trips (a loaded record is not re-derived)", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
-		store.restore(LEGACY_FILE);
+		store.restore(RESUME_FILE);
 		expect(store.rename("host.switchboard", "My Main Session")).toBe("My Main Session");
 
 		let snap = store.snapshot();
@@ -74,8 +72,8 @@ describe("SessionStore migration", () => {
 	it("keeps same-segment sessions across spawns distinct (composite keys never collide)", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
 		store.restore({
-			"host.claude": { claudeSessionId: "a-1", lastSeen: 1 },
-			"recipe-app.claude": { claudeSessionId: "b-2", lastSeen: 2 },
+			"host.claude": { id: "claude", spawn: "host", claudeSessionId: "a-1", lastSeen: 1 },
+			"recipe-app.claude": { id: "claude", spawn: "recipe-app", claudeSessionId: "b-2", lastSeen: 2 },
 		});
 		expect(store.size).toBe(2);
 		expect(store.getByTeam("host.claude")?.claudeSessionId).toBe("a-1");
@@ -85,8 +83,8 @@ describe("SessionStore migration", () => {
 	it("skips keys that were never valid chats (the read-guard)", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
 		store.restore({
-			host: { claudeSessionId: "x", lastSeen: 1 },
-			"host.UPPER": { claudeSessionId: "x", lastSeen: 1 },
+			host: { id: "host", spawn: "host", lastSeen: 1 },
+			"host.UPPER": { id: "UPPER", spawn: "host", lastSeen: 1 },
 			"host.ok": { lastSeen: 1 },
 		});
 		expect(store.size).toBe(0);
@@ -94,7 +92,7 @@ describe("SessionStore migration", () => {
 
 	it("never restores a live pointer (a stamp cannot outlive its sockets)", () => {
 		const store = new SessionStore({ ambient: processAmbient() });
-		store.restore(LEGACY_FILE);
+		store.restore(RESUME_FILE);
 		store.bindBySegment("host.switchboard", { live: { team: "host.switchboard", subId: "s1" } });
 		expect(store.resolveLive("host.switchboard")).toBeDefined();
 
