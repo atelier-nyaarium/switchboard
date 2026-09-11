@@ -285,10 +285,11 @@ describe("sessions, bindings, and console operations", () => {
 		);
 	});
 
-	it("answers the capability union of the daemon that registered", async () => {
-		const before = (await (await h.gateway.router(new Request("http://gateway.test/capabilities"))).json()) as {
-			plugins?: unknown[];
-		};
+	it("keeps a refused daemon's capabilities out of the union", async () => {
+		const before = (await (
+			await h.gateway.router(new Request("http://gateway.test/capabilities"))
+		).json()) as Record<string, unknown>;
+		expect(Object.keys(before).sort()).toEqual(["console", "daemon"]);
 		const impostor = createFakeSocket();
 		h.gateway.wsHandlers.open(impostor.ws);
 		h.gateway.wsHandlers.message(
@@ -302,10 +303,8 @@ describe("sessions, bindings, and console operations", () => {
 			}),
 		);
 		await h.waitFor(() => impostor.sent.find((frame) => frame.type === "register_reject"), "reject");
-		const after = (await (await h.gateway.router(new Request("http://gateway.test/capabilities"))).json()) as {
-			plugins?: unknown[];
-		};
-		expect(JSON.stringify(after)).toBe(JSON.stringify(before));
+		const after = await (await h.gateway.router(new Request("http://gateway.test/capabilities"))).json();
+		expect(after).toEqual(before);
 		expect(JSON.stringify(after)).not.toContain("evil.plugin");
 	});
 });

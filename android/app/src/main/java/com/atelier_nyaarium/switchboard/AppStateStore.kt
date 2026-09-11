@@ -66,11 +66,6 @@ class AppStateStore internal constructor(
 
 	constructor(context: Context) : this(context.applicationContext, securePreferences(context.applicationContext))
 
-	init {
-		val held = RETIRED_KEYS.filter(prefs::contains)
-		if (held.isNotEmpty()) prefs.edit().apply { held.forEach { remove(it) } }.apply()
-	}
-
 	/** Durable state directory. */
 	fun save(blob: String) = prefs.edit().putString(KEY_BLOB, blob).apply()
 
@@ -534,9 +529,6 @@ class AppStateStore internal constructor(
 			KEY_THREADS, KEY_READ_ANCHORS, KEY_LABELS, KEY_DRAFTS, KEY_SCHEDULED_SENDS, KEY_GOALS, KEY_ABSENCE_STREAKS,
 			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_TASK_BOARD, KEY_VAULT, KEY_RUNBOOKS,
 		)
-
-		/** Dropped on open. Remove after 2026-11-01. */
-		val RETIRED_KEYS = listOf("gateway_id")
 
 		/** Keep every provisioning key here. */
 		val PROVISIONING_KEYS = listOf(

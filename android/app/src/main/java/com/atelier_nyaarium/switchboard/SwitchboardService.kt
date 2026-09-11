@@ -213,10 +213,7 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 		repo.enabledPlugins = { plugins.reportable() }
 		// Keep the CPU awake for the poll loop while the bridge runs (background delivery).
 		acquireWakeLock()
-		// connect() runs register (setting the Gateway id, cursor, epoch) and the
-		// gateway-id migration; start the poll loop only after it, so the loop never
-		// qualifies an inbound team under an unknown Gateway id and strands a bare-keyed
-		// thread beside its migrated twin. connect() never throws, so polling starts.
+		// connect() registers (cursor, epoch) before the poll loop starts, and never throws.
 		// sweepOrphanAttachments() must finish strictly before the drain starts: concurrently with a
 		// drain it could delete a bucket a crash re-drain is about to re-reference (see its doc).
 		// fireDueScheduledSends() is its own unconditional step, same reason: connect() swallows its

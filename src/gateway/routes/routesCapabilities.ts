@@ -54,8 +54,6 @@ export function createCapabilityRoutes({
 			if (!result.error && parsed.success && parsed.data.known) consoleSnapshot = parsed.data;
 		}
 		return jsonResponse({
-			// Remove-by: 2026-11-01. An older plugin reads the console fold at the top level.
-			...consoleSnapshot,
 			console: consoleSnapshot,
 			daemon: daemonCapabilityStore?.snapshot() ?? UNREPORTED_CAPABILITIES,
 		});

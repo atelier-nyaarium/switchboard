@@ -211,10 +211,9 @@ A session's tools use separate console and daemon capability sources. The MCP re
 creating `McpServer`. The console source has a 14-day TTL and 500-device cap; the daemon source has
 no TTL.
 
-- **`/capabilities` keeps sources separate:** `enabledPlugins` and `daemonCapabilities` are disjoint
-  sections. Absent means no report, empty means affirmative none.
-- **A flat capability answer lifts into `console`,** and the route serves flat fields beside
-  sections.
+- **`/capabilities` keeps sources separate:** `console` and `daemon` are disjoint sections, and the
+  answer carries nothing beside them. `known: false` means no report; `known: true` with an empty
+  list means affirmative none.
 - A daemon declaration counts only after the `HOST_WS_TOKEN` gate.
 - Offline fallback is the last answer that actually arrived. `GATED_CAPABILITY_IDS` drives both
   gates; the daemon id is pinned separately.
