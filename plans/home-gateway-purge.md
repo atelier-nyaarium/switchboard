@@ -709,7 +709,9 @@ Rules:
   `from` consulted only for a row whose key does not parse. `PollDrainTest` pins a peer row and a
   notice each landing on their own address; the harness asserts one `reply` row and zero `peer`
   rows for an owner-anchored reply on the local road, the runbook-fire road and the cross-Domain
-  return through `gatewayRelay`.
+  return through `gatewayRelay`. Both sides ship in one commit; the order is the deploy's, Gateway
+  restarted before the APK installs. A row drained before the change never re-enters the drain
+  (`SyncCursor.advance` hands over only rows past the acked seq), so nothing re-threads it.
 
 ## Phase 5 - Router-held blobs
 

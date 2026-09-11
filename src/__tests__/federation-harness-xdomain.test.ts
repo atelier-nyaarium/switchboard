@@ -199,7 +199,6 @@ describe("cross-Domain gateway admission and relay", () => {
 			20_000,
 		);
 		expect(replies.filter((entry) => entry.body === "answer")).toHaveLength(1);
-		// The owner asked, so the returning reply is one row and no peer mirror.
 		const peers = h.phone.entries(await h.phone.inboxRead()).filter((entry) => entry.kind === "peer");
 		expect(peers).toHaveLength(0);
 	});

@@ -281,8 +281,7 @@ export function createRespondRoutes({
 			}
 		}
 
-		// An owner-anchored reply has one reader, the owner inbox row above; only a session asker
-		// gets its thread mirrored.
+		// Only a session asker gets its thread mirrored.
 		const askerAddr =
 			opts.consoleSender || reply.kind !== "conversation" ? null : tryLocalAddress(deliverResult.from);
 		if (askerAddr && provedLocalSession(req)) {

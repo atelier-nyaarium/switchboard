@@ -261,7 +261,6 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 		val burst = mutableMapOf<String, MutableList<Message>>()
 		for (drained in advanced.fresh) {
 			val entry = drained.entry
-			// A conv row threads under its own address.
 			val team = when (val key = parseStoreKey(entry.session_id)) {
 				is SessionKey.Notice -> key.sender.canonical
 				is SessionKey.Conv -> key.address.canonical
