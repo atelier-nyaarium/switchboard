@@ -31,7 +31,7 @@ internal data class OwnerOpAnswer(
 	val ok: Boolean,
 	val result: JsonElement? = null,
 	val error: String? = null,
-	/** The Router's outcome when it was not accepted; null for a transport failure. */
+	/** Null for a transport failure. */
 	val outcome: String? = null,
 )
 

@@ -107,9 +107,8 @@ const val BOARD_REFUSED_PREFIX = "refused:"
 /** A refusal retires the queued action; other failures retry. */
 class BoardRefused(val reason: String) : Exception(reason)
 
-/** An owner op the Router answered with something other than accepted, or that never reached it. */
 class OwnerOpFailure(val outcome: String?, message: String) : Exception(message) {
-	/** The Router holds or refused the op; a journaled replay has nothing left to deliver. */
+	/** A replay changes nothing. */
 	val settled: Boolean get() = outcome == Protocol.Wire.SocketFrame.REFUSED || outcome == "conflict"
 }
 

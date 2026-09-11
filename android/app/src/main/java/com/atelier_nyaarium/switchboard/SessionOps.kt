@@ -307,7 +307,6 @@ internal class SessionOps(
 			.getOrElse { e ->
 				DebugLog.log("Forget", "team=${p.team} failed: ${e.message?.take(160)}")
 				if (announce) host.state.update { it.copy(transientMessages = it.transientMessages + (e.message ?: "Forget failed")) }
-				// The Router holds it or refused it; replaying the row again changes nothing.
 				if (e is OwnerOpFailure && e.settled) retireForget(p) else scheduleForgetRetry()
 				return
 			}
