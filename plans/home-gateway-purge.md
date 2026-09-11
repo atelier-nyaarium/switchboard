@@ -1105,7 +1105,7 @@ sessions cannot be reached from the phone until then.
 
 ## Phase 8 - Words
 
-- `docs/console.md` six-jobs section deleted; `docs/architecture.md` phone path;
+- `docs/console.md` `homeGatewayId` section (two jobs left) deleted; `docs/architecture.md` phone path;
   `docs/testing.md`; `AGENTS.md` ChatRepository entry, the Architecture paragraph, the RoutineOps
   and BoardOps entries; `docs/policies.md` where it names membership.
 - `federationHarness.ts` `home: DomainPeer` renamed. Test names that go with their road:
@@ -1256,3 +1256,43 @@ Collected after Phase 5. Not fixed here.
   is up; the class is a real-clock test whose margin starts before the thing under test exists.
 - **The `write-result` fold called an uncertain write `applied`.** The vocabulary invited the bug
   class this phase recorded. Two named readings replace it.
+
+Collected after Phase 6. Not fixed here.
+
+- **`router-protocol.ts` cannot name the share schemas.** `RouterInboundFrameSchema` takes
+  `share_delta` as a loose object because importing `schemasShare.ts` closes a cycle through
+  `federation-protocol`; the gateway parses the payload a second time in `onShareDelta`. Every
+  Router-pushed frame with a typed payload will meet the same wall until the frame vocabulary and
+  the payload schemas live apart from the protocol constants.
+- **The protocol version is a literal in three fixtures.** Raising `FEDERATION_PROTOCOL_VERSION`
+  broke `check:fixtures`, the Kotlin wire fixture and `WireFixtureGenerator.kt` separately, and
+  raising the floor broke every harness registration pinned at 1 or 2. The floor waits for Phase 7
+  for that reason alone. The generators should read the constant.
+- **The harness phone answers before the Gateway reads its socket.** A share owner op is accepted
+  by the Router before the delta reaches the Gateway, and the fake session is not yet reported when
+  the test shares it, so `federation-harness-xdomain` helpers wait on `reason === "session"` and
+  then on `faults.sharesHeld()`. A harness `settled()` that waits for the Gateway's copy to reach
+  the Router's revision would replace both waits.
+- **The Specific picker was unreachable, and only the phone could show it.** `SessionShareScreen`
+  derived the mode from the audience, so choosing Specific with no Domain snapped back to Private.
+  No JVM test draws a composable and the sandbox seeds no peers, so the first time the screen was
+  drawn with a real pairing was the first time anyone could see it.
+- **A brief file shared by several relays is edited by the first.** One brief with a `SLICE`
+  placeholder was rewritten in place by the first Sonnet relay, and the later relays read its
+  slice. One brief file per slice from then on.
+- **Comment cleaners narrate when told to shorten.** Told to cut comments to four words, both
+  cleaners replaced rule comments with narration of the code beside them and dropped two AGENTS.md
+  entries; each pass needed a hand restore. The instruction needs the list of comments that stay.
+- **The Codex sandbox cannot bind localhost.** Every harness test fails there, so a Luna slice
+  that touches the harness cannot run its own gate and reports an unverified diff.
+- **`android.util.Base64` is a stub on the JVM.** The rendezvous pin used it and the unit test
+  threw a NullPointerException; `java.util.Base64` runs on both. Nothing lists which Android
+  classes the test JVM stubs.
+- **Kotlin test fakes are plain collections.** `TrustOpsTest` runs untrust across Gateways
+  concurrently and its fakes recorded calls in an unsynchronized list, so one case failed one run
+  in five until the fakes were synchronized. The fake ports in `RepositoryPorts` tests have the
+  same shape.
+- **Sharing is the fourth Gateway-scoped read written by hand,** after runbooks, routines and
+  policies, and the replica is a second `versioned-list.ts`. On the board as bd_9784d356 and
+  bd_1909406b, with the atomic audience op (bd_a55276c4), the Router peer binding (bd_ffbf2891)
+  and the session baseline (bd_43f0e245).
