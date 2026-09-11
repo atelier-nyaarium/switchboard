@@ -701,6 +701,16 @@ Rules:
 - `addressing.consoleSelfAddress` stays: it is the owner's from-address as a session sees it, per
   Gateway, attribution only, never routing; a reply routes by `LocalReply` and the return route.
 
+- As built: `routesRespond` computes `askerAddr` only for a conversation-anchored reply, so the
+  asker and replier mirror block never runs for an owner-anchored one; the cross-Gateway relay
+  block above it mirrors the local replier's own thread as before. `thisDeviceAddress` is gone
+  from `ChatRepository` and `DrainHost`, and `PollDrain.processEntries` threads every row under
+  the address in its store key (a notice under its sender, a conv row under its address) with
+  `from` consulted only for a row whose key does not parse. `PollDrainTest` pins a peer row and a
+  notice each landing on their own address; the harness asserts one `reply` row and zero `peer`
+  rows for an owner-anchored reply on the local road, the runbook-fire road and the cross-Domain
+  return through `gatewayRelay`.
+
 ## Phase 5 - Router-held blobs
 
 Router-first.

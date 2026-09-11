@@ -90,6 +90,9 @@ describe("federation harness: firing a runbook", () => {
 			return entries.find((entry) => entry.kind === "reply" && entry.body === "answered");
 		}, "the owner inbox row");
 		expect(reply.kind).toBe("reply");
+		const entries = h.phone.entries(await h.phone.inboxRead());
+		expect(entries.filter((entry) => entry.body === "answered")).toHaveLength(1);
+		expect(entries.filter((entry) => entry.kind === "peer")).toHaveLength(0);
 	});
 
 	it("refuses by name rather than shipping a placeholder as instruction", async () => {

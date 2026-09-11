@@ -2,8 +2,6 @@ package com.atelier_nyaarium.switchboard
 
 import android.content.ContentResolver
 import com.atelier_nyaarium.switchboard.board.BoardRouterWriter
-import com.atelier_nyaarium.switchboard.crypto.ownerKeyId
-import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.BoardWriteResult
 import com.atelier_nyaarium.switchboard.proto.MailboxEntry
 import com.atelier_nyaarium.switchboard.proto.SyncEntry
@@ -114,11 +112,6 @@ class ChatRepository(
 
 	/** Null for anything but a qualified target; nothing here resolves a bare name. */
 	internal fun fromCanonical(from: String): String? = runCatching { parseQualifiedTarget(from).canonical }.getOrNull()
-
-	internal fun thisDeviceAddress(): Address? =
-		runCatching {
-			Address.of(localDomain(), homeGatewayId, ownerKeyId(federation.ownerSignPub()), Protocol.DEFAULT_SESSION)
-		}.getOrNull()
 
 	internal val provisioningHost: RepositoryProvisioningHost = ChatRepositoryProvisioningHost(this)
 	internal val attachmentHost: AttachmentHost = ChatRepositoryAttachmentHost(this)

@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.ChannelFile
 import com.atelier_nyaarium.switchboard.proto.InboxRow
 import com.atelier_nyaarium.switchboard.proto.PlaneLineage
@@ -25,7 +24,6 @@ internal interface DrainHost {
 
 	/** Reads the gateway's routines, so a background pass learns a miss with no tab open. */
 	suspend fun refreshRoutines()
-	fun thisDeviceAddress(): Address?
 	fun fromCanonical(value: String): String?
 	fun advanceMailbox(result: SyncPollResult<Drained>): SyncAdvance<Drained>
 	fun setGap(value: Boolean)
@@ -58,7 +56,6 @@ internal class ChatRepositoryDrainHost(private val repo: ChatRepository) : Drain
 	override suspend fun refreshRoutines() = repo.routineOps.refreshAll()
 	override fun plan(visible: Boolean, failed: Boolean) =
 		repo.transportCoordinator.plan(visible, failed, repo.state.value.gateways.soonestRoutineAt())
-	override fun thisDeviceAddress() = repo.thisDeviceAddress()
 	override fun fromCanonical(value: String) = repo.fromCanonical(value)
 	override fun advanceMailbox(result: SyncPollResult<Drained>) = repo.mailboxSync.advance(result)
 	override fun setGap(value: Boolean) { repo._state.update { it.copy(gap = value) } }

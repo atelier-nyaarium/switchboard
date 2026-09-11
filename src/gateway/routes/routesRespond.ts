@@ -281,7 +281,10 @@ export function createRespondRoutes({
 			}
 		}
 
-		const askerAddr = opts.consoleSender ? null : tryLocalAddress(deliverResult.from);
+		// An owner-anchored reply has one reader, the owner inbox row above; only a session asker
+		// gets its thread mirrored.
+		const askerAddr =
+			opts.consoleSender || reply.kind !== "conversation" ? null : tryLocalAddress(deliverResult.from);
 		if (askerAddr && provedLocalSession(req)) {
 			const key = parseStoreKey(respondSessionId);
 			const isRemoteAnchor =

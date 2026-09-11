@@ -1,15 +1,19 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.ChannelFile
 import com.atelier_nyaarium.switchboard.proto.InboxRow
+import com.atelier_nyaarium.switchboard.proto.MailboxEntry
 import com.atelier_nyaarium.switchboard.proto.OpKey
 import com.atelier_nyaarium.switchboard.proto.PlaneLineage
 import com.atelier_nyaarium.switchboard.proto.PlaneRead
 import com.atelier_nyaarium.switchboard.proto.RowEnvelope
 import com.atelier_nyaarium.switchboard.proto.RowOrigin
+import com.atelier_nyaarium.switchboard.proto.SessionKey
 import com.atelier_nyaarium.switchboard.proto.SyncAdvance
 import com.atelier_nyaarium.switchboard.proto.SyncCursor
 import com.atelier_nyaarium.switchboard.proto.SyncPollResult
+import com.atelier_nyaarium.switchboard.proto.storeKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
@@ -35,13 +39,16 @@ class PollDrainTest {
 			routineRefreshes += 1
 		}
 		override fun plan(visible: Boolean, failed: Boolean): ConsoleTransportPlan = error("unused")
-		override fun thisDeviceAddress() = null
 		override fun fromCanonical(value: String) = value
-		override fun advanceMailbox(result: SyncPollResult<Drained>): SyncAdvance<Drained> = error("unused")
+		override fun advanceMailbox(result: SyncPollResult<Drained>) = SyncAdvance(SyncCursor.initial(), result.entries, false)
 		override fun setGap(value: Boolean) = Unit
 		override fun markCommsActivity(now: Long) = Unit
 		override fun reconcileSent(team: String, message: Message) = Unit
-		override fun appendInbound(team: String, message: Message, beforeCommit: () -> Unit) = false
+		val appended = mutableListOf<Pair<String, Message>>()
+		override fun appendInbound(team: String, message: Message, beforeCommit: () -> Unit): Boolean {
+			appended += team to message
+			return true
+		}
 		override fun autoPlayTier(): SttsPlayer.Tier? = null
 		override fun isSttsReady() = false
 		override fun onInbound(team: String, messages: List<Message>) = Unit
@@ -71,6 +78,32 @@ class PollDrainTest {
 
 	private fun welcome(vararg planes: Pair<String, PlaneLineage>) = buildJsonObject {
 		planes.forEach { (name, it) -> put(name, wireJson.encodeToJsonElement(PlaneLineage.serializer(), it)) }
+	}
+
+	@Test
+	fun aRowThreadsUnderItsOwnAddressWhoeverSentIt() = runBlocking {
+		val host = FakeHost(emptyMap())
+		val drain = PollDrain(host, IdlePresencePort)
+		val session = Address.of("dom", "gw", "host", "abc")
+		val peer = MailboxEntry(
+			seq = 1L,
+			at = 1L,
+			kind = "peer",
+			session_id = storeKey(SessionKey.Conv("owner", session)),
+			from = "dom.gw.other.x",
+			to = session.canonical,
+			body = "hello",
+		)
+		val notice = MailboxEntry(
+			seq = 2L,
+			at = 2L,
+			kind = "notice",
+			session_id = storeKey(SessionKey.Notice(Address.of("dom", "gw", "host", "def"))),
+			body = "done",
+		)
+		drain.processEntries(listOf(peer, notice), cursor = 2L, epoch = 1L, dropped = 0L)
+		assertEquals(listOf(session.canonical, "dom.gw.host.def"), host.appended.map { it.first })
+		assertEquals(true, host.appended.first().second.isPeer)
 	}
 
 	@Test

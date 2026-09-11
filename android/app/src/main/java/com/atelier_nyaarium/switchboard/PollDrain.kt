@@ -259,18 +259,13 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 		host.setGap(advanced.gap)
 		if (advanced.fresh.isNotEmpty()) host.markCommsActivity(System.currentTimeMillis())
 		val burst = mutableMapOf<String, MutableList<Message>>()
-		val deviceAddr = host.thisDeviceAddress()
 		for (drained in advanced.fresh) {
 			val entry = drained.entry
-			val team = if (entry.kind == "notice") {
-				(parseStoreKey(entry.session_id) as? SessionKey.Notice)?.sender?.canonical ?: entry.from?.let(host::fromCanonical)
-			} else {
-				when (val key = parseStoreKey(entry.session_id)) {
-					is SessionKey.Conv -> if (deviceAddr != null && key.address == deviceAddr) {
-						entry.from?.let(host::fromCanonical) ?: key.address.canonical
-					} else key.address.canonical
-					else -> entry.from?.let(host::fromCanonical)
-				}
+			// A conv row threads under its own address.
+			val team = when (val key = parseStoreKey(entry.session_id)) {
+				is SessionKey.Notice -> key.sender.canonical
+				is SessionKey.Conv -> key.address.canonical
+				null -> entry.from?.let(host::fromCanonical)
 			}
 			if (team == null) continue
 			val files = host.decodeAttachments(entry.files)

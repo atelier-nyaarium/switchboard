@@ -98,6 +98,10 @@ describe("federation harness", () => {
 			return entries.find((entry) => entry.kind === "reply" && entry.body === "all green");
 		}, "owner reply row");
 		expect(reply.kind).toBe("reply");
+		// The owner's own reply is not mirrored back as a peer row.
+		const entries = h.phone.entries(await h.phone.inboxRead());
+		expect(entries.filter((entry) => entry.body === "all green")).toHaveLength(1);
+		expect(entries.filter((entry) => entry.kind === "peer")).toHaveLength(0);
 	});
 
 	it("creates a host session the daemon launches, then takes its bound notify_human", async () => {
