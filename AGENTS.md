@@ -470,12 +470,12 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 
 **Every Gateway is an equal, and the Router is the node between them.** `homeGatewayId` is a relic
 of the era before the Router and is on its way out. Build nothing new on it, and prefer taking a
-gateway id per call, which the runbook and routine clients already do. It survives today for four
-jobs, listed in `docs/console.md`, and none of them resolves a name: a phone target is qualified,
-`domain.gateway.spawn` or `domain.gateway.spawn.session`, because equal gateways make a bare name
-genuinely ambiguous, and the gateway's console handler refuses anything shorter. Using it to decide
-what a screen may SHOW is always wrong: it is an identity default, never a permission. One such
-filter is left, named in `docs/console.md`, and it moves with the share op it feeds.
+gateway id per call, which the runbook, routine, policy and pairing clients already do. It survives
+today for two jobs, listed in `docs/console.md`, and neither resolves a name: a phone target is
+qualified, `domain.gateway.spawn` or `domain.gateway.spawn.session`, because equal gateways make a
+bare name genuinely ambiguous, and the gateway's console handler refuses anything shorter. Using it
+to decide what a screen may SHOW is always wrong: it is an identity default, never a permission, and
+no screen reads it for that any more.
 
 **`main-mcp.ts`** MCP plugin, user process.
 **`main-gateway.ts`** Docker gateway and central router.

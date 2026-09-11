@@ -1032,13 +1032,47 @@ Phone half as planned (Luna's slice, compiled and repaired here), with these dev
   the JVM the tests run on.
 - Owner-op answers are read by `ownerResult`: a refusal envelope raises its reason, an unlanded
   write raises its outcome, and the sheet shows either as "Couldn't update sharing".
+- The Specific picker was unreachable before this phase: the mode was derived from the Router's
+  audience, so Specific with nobody picked read as Private and hid the people list. The sheet now
+  keeps the picker open until someone is picked (found on the phone, not by any audit).
+
+Deployed to the Router and Sakura at `11e96d65`, phone on build 596. On the phone: the Users
+screen reads peers from every Gateway; the share sheet lists Sakura's sessions from the Router's
+list; sharing the Test session to everyone trusted moved Sakura's copy to revision 1 with the
+record, and Private moved it to revision 2 with none, both read from
+`/app/data/federation/cross-domain-share-state.json` in the container. Sakura holds no pairing
+(no `cross-domain-peers.json`), so Kashia is "trust first" on Sakura's sessions until a pairing is
+made there; her pairing is Mikan's. Mikan registered at protocol 2 and now receives `unsupported`
+for value and delivery ops until the owner restarts it, so its peers cannot be read and its
+sessions cannot be reached from the phone until then.
 
 ### Bug Classes
 
 - **Mechanism:** what a Gateway admits from a copy of a Router record. **Class:** a replica served
   before it is known to be current. **Rounds:** one, the first replica served its file until the
-  registration read landed (Sol); fixed by the ready gate, which every read of the copy passes. The
-  same class was Phase 1's `Cached` provenance on the phone's roster; the gate is the same answer.
+  registration read landed (Sol); two, a gap left the old copy ready while the re-read was in
+  flight (align); both closed by the ready gate, which every read of the copy passes and which a
+  gap and a disconnect reopen. The same class was Phase 1's `Cached` provenance on the phone's
+  roster; the gate is the same answer, and the architecture read names the missing owner.
+- **Mechanism:** what the phone does with a Router answer it did not check. **Class:** a Boolean
+  answered and ignored. **Rounds:** one, `revokeXdomainLink`'s answer was dropped and local trust
+  removed regardless (red team); closed by requiring every revocation before local trust goes and
+  keeping the owner pending otherwise.
+
+### Architecture findings carried forward
+
+- The share copy is `versioned-list.ts`'s fold plus registration readiness and durable landing,
+  written once more by hand across seven files; the next Router-held record replicated per
+  Gateway would repeat them. One replica primitive, the share copy its first user, is on the board
+  (bd_a55276c4 names the audience op; the primitive is its own entry). Not built here: Phases 7
+  and 8 are the purge and the words, and the copy is correct as it stands.
+- `GatewayEntry.peers` is the fourth nullable per-Gateway answer beside routines, runbooks and
+  policies, and `refreshPeers` the fourth copy of the read-fence-write pattern; the per-Gateway
+  answer slot (bd_9784d356) now has a fourth caller waiting.
+- The Router validates a share against the Domain link and the reported session, not the
+  session's Gateway's pairing; a share is dormant until that Gateway pairs (bd_ffbf2891). The
+  audience modes are several posts, not one (bd_a55276c4). The session registry has no baseline
+  (bd_43f0e245). All three claimed, none built here.
 
 ## Phase 7 - The symbol dies, and the shims with it
 

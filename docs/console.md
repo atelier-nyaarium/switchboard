@@ -71,16 +71,17 @@ row, and mirrors a thread as `peer` rows only when the asker is a session, which
 names. The phone threads a drained row by its store key: a conv row under its own address, a
 notice row under its sender. Nothing on either side compares an address to the phone's own.
 
-### `homeGatewayId`, and the three things it is for
+### `homeGatewayId`, and the two things it is for
 
 `adoptHomeGateway` keeps the stored id while the Domain keyring still admits it, and otherwise takes
 `admitted.firstOrNull()`. The owner never picks it and there is no control for it.
 
-Three jobs, each identifying:
+Two jobs, each identifying:
 
 1. Filling the Gateway segment of this phone's own local address.
-2. Naming which of the owner's Gateways is asking, on a cross-domain trust request.
-3. Deciding which Gateway claims a runbook library written before libraries were split per Gateway.
+2. Deciding which Gateway claims a runbook library written before libraries were split per Gateway.
+
+A cross-Domain pairing names its Gateway itself: the wizard picks one and `TrustOps` holds it.
 
 It completes no name. A phone target is `domain.gateway.spawn` or `domain.gateway.spawn.session`,
 parsed by `parseQualifiedTarget`, and the gateway's console handler refuses anything shorter.
