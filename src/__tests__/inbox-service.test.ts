@@ -1,14 +1,18 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ReferenceHeldStore } from "../federation-server/blobs/referenceHeldStore.js";
 import { InboxService } from "../federation-server/inbox/inboxService.js";
 import { OwnerStoreRegistry } from "../federation-server/inbox/ownerStoreRegistry.js";
 import { DomainQuota } from "../federation-server/owner/domainQuota.js";
 import { OwnerQuarantined } from "../federation-server/owner/ownerStateStore.js";
 import { processAmbient } from "../shared/ambient.js";
+import { blobIdFor } from "../shared/blob-store.js";
 import { generateIdentity } from "../shared/crypto.js";
 import { INBOX_ROW_TTL_MS, type InboxAddress, type InboxRowInput, signRowEnvelope } from "../shared/schemasInbox.js";
+import { sealBlobChunk } from "../shared/sealed-blob.js";
 
 const roots: string[] = [];
 const domainId = "domain-a";
@@ -30,6 +34,7 @@ const make = (options: { now?: () => number; ownerOf?: (domainId: string) => str
 	return {
 		service: new InboxService(registry, { signPub: router.sign.pub, signPriv: router.sign.priv }),
 		registry,
+		dataDir,
 		owner,
 		producer,
 		producer2,
@@ -519,6 +524,87 @@ describe("InboxService", () => {
 			throw new OwnerQuarantined({ from: 1, to: 1 });
 		});
 		expect(fixture.service.registerGateway(domainId, "gateway")).toBeNull();
+		fixture.registry.close();
+	});
+});
+
+describe("InboxService content references", () => {
+	const stage = (held: ReferenceHeldStore, plain: Buffer) => {
+		const blobId = blobIdFor(plain);
+		const frame = sealBlobChunk(
+			plain,
+			Buffer.alloc(32, 2),
+			{ domainId, ownerSignPub: "owner", epoch: 1, blobId },
+			0,
+			true,
+		);
+		const begun = held.begin(domainId, {
+			blobId,
+			size: plain.length,
+			ciphertextSize: frame.length,
+			ciphertextDigest: `sha256-${crypto.createHash("sha256").update(frame).digest("hex")}`,
+			epoch: 1,
+		});
+		if (begun.outcome !== "lease") throw new Error("expected lease");
+		held.chunk(domainId, blobId, begun.lease, 0, frame, true);
+		return blobId;
+	};
+	const naming = (producer: ReturnType<typeof generateIdentity>, opId: string, contentRefs: string[]) => {
+		const envelope = {
+			origin: { kind: "console" as const, domainId, device: "phone" },
+			opKey: { conversationId: "conversation", opId },
+			epoch: 1,
+			kind: "message" as const,
+			contentRefs,
+		};
+		return {
+			envelope,
+			producerSig: signRowEnvelope(envelope, producer.sign.priv),
+			body: {
+				v: 1 as const,
+				epoch: 1,
+				nonce: Buffer.alloc(12).toString("base64"),
+				ciphertext: Buffer.alloc(16).toString("base64"),
+			},
+		};
+	};
+
+	it("a row binds the bytes it names in its own line and is refused while they are not held", () => {
+		const now = 5_000;
+		const fixture = make({ now: () => now });
+		const held = new ReferenceHeldStore({
+			dataDir: fixture.dataDir,
+			registry: fixture.registry,
+			ambient: { now: () => now, newId: () => "lease" },
+		});
+		const service = new InboxService(
+			fixture.registry,
+			{ signPub: fixture.router.sign.pub, signPriv: fixture.router.sign.priv },
+			held,
+		);
+		const address = ownerAddress(fixture.owner);
+		const blobId = blobIdFor(Buffer.from("named"));
+		expect(
+			service.appendRow({
+				address,
+				row: naming(fixture.producer, "op-1", [blobId]),
+				producerSignPub: fixture.producer.sign.pub,
+			}),
+		).toMatchObject({ outcome: "refused", reason: "blob_missing" });
+		expect(service.rows(address, 1, 10)).toEqual([]);
+		stage(held, Buffer.from("named"));
+		const accepted = service.appendRow({
+			address,
+			row: naming(fixture.producer, "op-1", [blobId]),
+			producerSignPub: fixture.producer.sign.pub,
+		});
+		expect(accepted).toMatchObject({ outcome: "accepted", seq: 1 });
+		expect(held.refs(domainId, blobId)).toEqual([{ kind: "row", address, seq: 1 }]);
+		fixture.registry.for(domainId).retire(`owner:${domainId}/${fixture.owner.sign.pub}`, 1);
+		held.sweep(domainId, now + INBOX_ROW_TTL_MS - 1);
+		expect(held.has(domainId, blobId)).toBe(true);
+		held.sweep(domainId, now + INBOX_ROW_TTL_MS + 1);
+		expect(held.has(domainId, blobId)).toBe(false);
 		fixture.registry.close();
 	});
 });

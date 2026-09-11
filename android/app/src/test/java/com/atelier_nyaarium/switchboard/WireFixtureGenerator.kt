@@ -445,7 +445,6 @@ class WireFixtureGenerator {
 	private fun fixtureBoard(): BoardStore = object : BoardStore {
 		override fun loadTaskBoard(): String? = null
 		override fun saveTaskBoard(json: String) = Unit
-		override fun loadGatewayId(): String = "fixture-gateway"
 	}
 
 	private fun transportCase(

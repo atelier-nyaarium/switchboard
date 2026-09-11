@@ -25,7 +25,6 @@ class ClearsOnReprovisionTest {
 			blob = json
 		}
 
-		override fun loadGatewayId(): String = "gw-route"
 	}
 
 	/** The roster is instance-side, so pin the field set it has to name. A delegate that states its

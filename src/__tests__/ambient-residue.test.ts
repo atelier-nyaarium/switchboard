@@ -12,7 +12,6 @@ const TIMERS = /(^|[^.\w])(setTimeout|setInterval|clearTimeout|clearInterval)\s*
 const ALLOWED: ReadonlyArray<{ file: string; why: string }> = [
 	{ file: "shared/crypto.ts", why: "seals and key generation draw from the platform CSPRNG" },
 	{ file: "shared/content-envelope.ts", why: "content nonces draw from the platform CSPRNG" },
-	{ file: "shared/sealed-blob.ts", why: "blob chunk nonces draw from the platform CSPRNG" },
 	{ file: "shared/session-tokens.ts", why: "session ids and bind tokens draw from the platform CSPRNG" },
 	{ file: "shared/epoch.ts", why: "a mailbox epoch is a random tag, drawn outside any graph" },
 	{ file: "shared/migration-fence.ts", why: "process-global fence with its own useMigrationClock seam" },

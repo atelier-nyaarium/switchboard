@@ -71,17 +71,16 @@ row, and mirrors a thread as `peer` rows only when the asker is a session, which
 names. The phone threads a drained row by its store key: a conv row under its own address, a
 notice row under its sender. Nothing on either side compares an address to the phone's own.
 
-### `homeGatewayId`, and the four things it is for
+### `homeGatewayId`, and the three things it is for
 
 `adoptHomeGateway` keeps the stored id while the Domain keyring still admits it, and otherwise takes
 `admitted.firstOrNull()`. The owner never picks it and there is no control for it.
 
-Four jobs, each identifying:
+Three jobs, each identifying:
 
 1. Filling the Gateway segment of this phone's own local address.
 2. Naming which of the owner's Gateways is asking, on a cross-domain trust request.
 3. Deciding which Gateway claims a runbook library written before libraries were split per Gateway.
-4. Where an unassigned board entry's attachment blob is uploaded, since it has no session Gateway.
 
 It completes no name. A phone target is `domain.gateway.spawn` or `domain.gateway.spawn.session`,
 parsed by `parseQualifiedTarget`, and the gateway's console handler refuses anything shorter.

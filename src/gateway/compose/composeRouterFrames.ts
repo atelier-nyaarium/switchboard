@@ -5,7 +5,6 @@ import { opPayloadAadKind } from "../../shared/content-envelope.js";
 import { ValueOpFrameSchema } from "../../shared/router-protocol.js";
 import { ConsoleOpSchema } from "../../shared/schemasConsoleOp.js";
 import { ContentEnvelopeSchema } from "../../shared/schemasContentKey.js";
-import { readBlobRange } from "../blobOps.js";
 import type { FederationSlice, RouterFrameHandlers } from "../boot.js";
 import { createConsoleDispatcher } from "../console/consoleHandler.js";
 import { createCrossDomainHandshakePump } from "../federation/crossDomainHandshake.js";
@@ -28,7 +27,7 @@ export interface RouterFramesStageDeps {
 	wakeTimeoutMs: number;
 	ambient: Ambient;
 	context: FederationContext;
-	stores: Pick<StoresStage, "blobStore" | "jobs" | "durableOpStore">;
+	stores: Pick<StoresStage, "jobs" | "durableOpStore">;
 	sessions: Pick<SessionsStage, "registry" | "conversationRegistry" | "isTrustedCatalogProject" | "presence">;
 	host: Pick<HostStage, "relayToHost" | "wakeService" | "wakeCoordinator">;
 	routes: () => GatewayRoutes;
@@ -56,8 +55,6 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 		const isLinkedDomain = (domainId: string) => context.isLinkedDomain(domainId);
 
 		const consoleHandler = createConsoleDispatcher({
-			blobStore: stores.blobStore,
-			fetchBlobFromGateway: routes.fetchBlobFromGateway,
 			registry: sessions.registry,
 			conversationRegistry: sessions.conversationRegistry,
 			routes,
@@ -211,10 +208,6 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 				touch: (sessionTarget) => slice.shareState.touch(sessionTarget),
 			},
 			crossDomainBinding: (sessionId) => stores.jobs.crossDomainBinding(sessionId),
-			serveBlobRange: (blobId, offset, length) => {
-				const r = readBlobRange(stores.blobStore, blobId, offset, length);
-				return { ...(r.bytes.length > 0 ? { chunk: r.bytes.toString("base64") } : {}), eof: r.eof };
-			},
 		});
 		const gatewayRelay = createGatewayRelayPump({
 			sealer: slice.sealer,

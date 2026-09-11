@@ -50,9 +50,13 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 	 * Real time, moved to wherever the scenario says. It has to flow rather than stand still: a timer
 	 * the runner arms fires against a real clock, and a frozen one would never reach its own instant.
 	 * It starts a few seconds before the first slot, wide enough that the routine is saved before the
-	 * slot passes, since a routine is never handed a run from before it existed.
+	 * slot passes, since a routine is never handed a run from before it existed. The headroom is
+	 * measured from the harness being up, not from this file loading, or a slow boot eats it.
 	 */
 	let offset = FIRST - 3_000 - Date.now();
+	const rewind = (): void => {
+		offset = FIRST - 3_000 - Date.now();
+	};
 	const now = (): number => Date.now() + offset;
 	/** Minted per launch. A reconnecting plugin presents the one its record still holds. */
 	let token: string | undefined;
@@ -83,6 +87,7 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 				},
 			},
 		});
+		rewind();
 	}, 30_000);
 
 	afterAll(async () => {

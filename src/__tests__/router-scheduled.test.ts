@@ -45,9 +45,6 @@ function make(
 		ambient: { now: () => now },
 	});
 	const router = generateIdentity();
-	const realInbox = options.durableInbox
-		? new InboxService(registry, { signPub: router.sign.pub, signPriv: router.sign.priv })
-		: undefined;
 	const timers = new Map<number, () => void>();
 	const timerDelays = new Map<number, number>();
 	let nextTimer = 1;
@@ -60,11 +57,33 @@ function make(
 		if (ref.kind === "entry") return { kind: ref.kind, id: ref.entryId };
 		if (ref.kind === "scheduled")
 			return { kind: ref.kind, id: formatBlobReference(ref).slice("scheduled:".length) };
+		if (ref.kind === "hold") return { kind: ref.kind, id: ref.holdId };
 		return {
 			kind: ref.kind,
 			id: `${formatInboxAddress(ref.address).slice("session:".length)}:${ref.seq}`,
 		};
 	};
+	const referenceHeld: ScheduledDeps["referenceHeld"] = {
+		has: () => options.held ?? true,
+		publish: (domainId, sets, mutate) => {
+			if (!(options.held ?? true))
+				for (const set of sets) if (set.blobIds.length) return { kind: "blob_missing", blobId: set.blobIds[0] };
+			const write = registry.for(domainId).batch(mutate);
+			if (write.kind !== "ok" && write.kind !== "durability_uncertain") return write;
+			for (const set of sets) {
+				const key = formatBlobReference(set.ref);
+				const next = new Set(set.blobIds);
+				const prior = memberships.get(key) ?? new Set<string>();
+				for (const blobId of prior) if (!next.has(blobId)) released.push({ blobId, ref: legacyRef(set.ref) });
+				for (const blobId of next) if (!prior.has(blobId)) held.push({ blobId, ref: legacyRef(set.ref) });
+				memberships.set(key, next);
+			}
+			return write;
+		},
+	};
+	const realInbox = options.durableInbox
+		? new InboxService(registry, { signPub: router.sign.pub, signPriv: router.sign.priv }, referenceHeld)
+		: undefined;
 	const deps: ScheduledDeps = {
 		registry,
 		inbox: realInbox ?? {
@@ -98,20 +117,7 @@ function make(
 				seq: 7,
 			};
 		},
-		referenceHeld: {
-			has: () => options.held ?? true,
-			applyRefs: (_domainId, sets) => {
-				for (const set of sets) {
-					const key = formatBlobReference(set.ref);
-					const next = new Set(set.blobIds);
-					const prior = memberships.get(key) ?? new Set<string>();
-					for (const blobId of prior)
-						if (!next.has(blobId)) released.push({ blobId, ref: legacyRef(set.ref) });
-					for (const blobId of next) if (!prior.has(blobId)) held.push({ blobId, ref: legacyRef(set.ref) });
-					memberships.set(key, next);
-				}
-			},
-		},
+		referenceHeld,
 		scheduler: {
 			set: (ms, fn) => {
 				const handle = nextTimer++;
@@ -325,10 +331,18 @@ describe("scheduled service", () => {
 			{ kind: "schedule_send", target, fireAt: 200, opId: "op-1", files: ["blob-1"], body },
 		);
 		const store = registry.for("domain-a");
-		const put = store.put.bind(store);
-		vi.spyOn(store, "put").mockImplementation((kind, id, expected, record) => {
-			if (record.clear.state === "fired") return { kind: "conflict", current: store.get(kind, id) };
-			return put(kind, id, expected, record);
+		const batch = store.batch.bind(store);
+		vi.spyOn(store, "batch").mockImplementation((fn) => {
+			let fired = false;
+			fn({
+				put: (kind, _id, _expected, record) => {
+					if (kind === "scheduled" && record.clear.state === "fired") fired = true;
+				},
+				del: () => undefined,
+				append: () => undefined,
+				remove: () => undefined,
+			});
+			return fired ? { kind: "conflict", current: null } : batch(fn);
 		});
 		await service.fire("domain-a", target);
 		expect(released).toEqual([]);
@@ -436,26 +450,21 @@ describe("scheduled service", () => {
 		second.registry.close();
 	});
 
-	it("transfers references after an uncertain fired write", async () => {
-		const { service, registry, held, released, rows } = make();
+	it("releases the scheduled hold with an uncertain fired write", async () => {
+		const { service, registry, released, rows } = make();
 		service.schedule(
 			"domain-a",
 			{ conversationId: "conversation", device: "phone", opId: "op-1" },
 			{ kind: "schedule_send", target, fireAt: 200, opId: "op-1", files: ["blob-1"], body },
 		);
 		const store = registry.for("domain-a");
-		const put = store.put.bind(store);
-		vi.spyOn(store, "put").mockImplementation((kind, id, expected, record) => {
-			const result = put(kind, id, expected, record);
-			if (kind === "scheduled" && record.clear.state === "fired")
-				return { kind: "durability_uncertain", reason: "fsync" };
-			return result;
+		const batch = store.batch.bind(store);
+		vi.spyOn(store, "batch").mockImplementation((fn) => {
+			const result = batch(fn);
+			const fired = store.get("scheduled", "domain-a/gateway-a/spawn.session")?.clear.state === "fired";
+			return fired && result.kind === "ok" ? { kind: "durability_uncertain", reason: "fsync" } : result;
 		});
 		await service.fire("domain-a", target);
-		expect(held).toContainEqual({
-			blobId: "blob-1",
-			ref: { kind: "row", id: "domain-a/gateway-a/spawn.session:7" },
-		});
 		expect(released).toContainEqual({
 			blobId: "blob-1",
 			ref: { kind: "scheduled", id: "domain-a/gateway-a/spawn.session" },
@@ -465,25 +474,28 @@ describe("scheduled service", () => {
 		registry.close();
 	});
 
-	it("holds each file for the message row and releases the scheduled hold on fire", async () => {
-		const { service, registry, held, released } = make();
+	it("the message row holds each file from its own line, and the scheduled hold goes with the fired record", async () => {
+		const { service, registry, held, released, owner } = make({ durableInbox: true });
 		service.schedule(
 			"domain-a",
 			{ conversationId: "conversation", device: "phone", opId: "op-1" },
 			{ kind: "schedule_send", target, fireAt: 200, opId: "op-1", files: ["blob-1"], body },
 		);
 		await service.fire("domain-a", target);
-		expect(held.at(-1)).toEqual({
+		const rowRefs = held.filter((item) => (item as { ref: { kind: string } }).ref.kind === "row");
+		expect(rowRefs).toContainEqual({
 			blobId: "blob-1",
-			ref: { kind: "row", id: "domain-a/gateway-a/spawn.session:7" },
+			ref: { kind: "row", id: "domain-a/gateway-a/spawn.session:1" },
 		});
+		expect(rowRefs).toHaveLength(3);
+		expect(owner.sign.pub).toBeTruthy();
 		expect(released).toEqual([
 			{ blobId: "blob-1", ref: { kind: "scheduled", id: "domain-a/gateway-a/spawn.session" } },
 		]);
 		registry.close();
 	});
 
-	it("keeps the scheduled hold when the sent result is refused", async () => {
+	it("a refused sent result re-arms the record without holding the files twice", async () => {
 		const options: { resultOutcome?: "accepted" | "refused" } = {};
 		const { service, registry, memberships } = make(options);
 		service.schedule(
@@ -493,7 +505,8 @@ describe("scheduled service", () => {
 		);
 		options.resultOutcome = "refused";
 		await service.fire("domain-a", target);
-		expect(memberships.get(formatBlobReference({ kind: "scheduled", target }))).toEqual(new Set(["blob-1"]));
+		expect(service.list("domain-a")[0]).toMatchObject({ state: "armed", attempts: 1 });
+		expect(memberships.get(formatBlobReference({ kind: "scheduled", target }))).toEqual(new Set());
 		registry.close();
 	});
 
@@ -652,6 +665,10 @@ describe("scheduled service", () => {
 		const service = createScheduledService({
 			...make().deps,
 			registry,
+			referenceHeld: {
+				has: () => true,
+				publish: (domainId, _sets, mutate) => registry.for(domainId).batch(mutate),
+			},
 		});
 		service.schedule(
 			"domain-a",

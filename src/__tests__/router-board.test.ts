@@ -10,7 +10,7 @@ import { OwnerStoreRegistry } from "../federation-server/inbox/ownerStoreRegistr
 import { DomainQuota } from "../federation-server/owner/domainQuota.js";
 import { OwnerQuarantined } from "../federation-server/owner/ownerStateStore.js";
 import { processAmbient } from "../shared/ambient.js";
-import { type BlobReference, formatBlobReference } from "../shared/blob-reference.js";
+import { formatBlobReference } from "../shared/blob-reference.js";
 import { blobIdFor } from "../shared/blob-store.js";
 import { BOARD_BODY_KIND, BOARD_NAME_KIND, BOARD_TITLE_KIND, type BoardTextKind } from "../shared/content-envelope.js";
 import { generateIdentity } from "../shared/crypto.js";
@@ -25,11 +25,12 @@ const envelope = (kind: BoardTextKind = BOARD_TITLE_KIND) => ({
 	ciphertext: Buffer.alloc(16).toString("base64"),
 	kind,
 });
-type ReferenceHeld = {
-	has(domainId: string, blobId: string): boolean;
-	applyRefs(domainId: string, sets: readonly { ref: BlobReference; blobIds: readonly string[] }[]): void;
-};
-const make = (sessionExists = true, referenceHeld?: ReferenceHeld, useRealInbox = false) => {
+type ReferenceHeld = Pick<ReferenceHeldStore, "has" | "publish">;
+const make = (
+	sessionExists = true,
+	referenceHeld?: ReferenceHeld | ((registry: OwnerStoreRegistry, dataDir: string) => ReferenceHeld),
+	useRealInbox = false,
+) => {
 	const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "router-board-"));
 	roots.push(dataDir);
 	const owners = new Map([
@@ -49,6 +50,36 @@ const make = (sessionExists = true, referenceHeld?: ReferenceHeld, useRealInbox 
 	const delivered: Array<{ address: InboxAddress; row: InboxRow }> = [];
 	const references = new Set<string>();
 	const memberships = new Map<string, Set<string>>();
+	const fakeHeld: ReferenceHeld = {
+		has: (_domainId, blobId) => blobId !== "missing" && references.has(blobId),
+		publish: (domainId, sets, mutate) => {
+			const desired = new Map<string, Set<string>>();
+			for (const set of sets) {
+				for (const blobId of set.blobIds)
+					if (blobId === "missing" || !references.has(blobId)) return { kind: "blob_missing", blobId };
+				desired.set(formatBlobReference(set.ref), new Set(set.blobIds));
+			}
+			const write = registry.for(domainId).batch(mutate);
+			if (write.kind !== "ok" && write.kind !== "durability_uncertain") return write;
+			const affected = new Set<string>(desired.values().flatMap((blobIds) => [...blobIds]));
+			for (const [blobId, refs] of memberships) {
+				if ([...desired.keys()].some((entryId) => refs.has(entryId))) affected.add(blobId);
+			}
+			for (const blobId of affected) {
+				const refs = memberships.get(blobId) ?? new Set<string>();
+				for (const entryId of desired.keys()) refs.delete(entryId);
+				for (const [entryId, blobIds] of desired) if (blobIds.has(blobId)) refs.add(entryId);
+				if (refs.size === 0) {
+					memberships.delete(blobId);
+					references.delete(blobId);
+				} else {
+					memberships.set(blobId, refs);
+					references.add(blobId);
+				}
+			}
+			return write;
+		},
+	};
 	const service = createBoardService({
 		registry,
 		inbox: {
@@ -76,31 +107,31 @@ const make = (sessionExists = true, referenceHeld?: ReferenceHeld, useRealInbox 
 			},
 		},
 		deliver: (domainId, address, row) => delivered.push({ address: { ...address, domainId }, row }),
-		referenceHeld: referenceHeld ?? {
-			has: (_domainId, blobId) => blobId !== "missing" && references.has(blobId),
-			applyRefs: (_domainId, sets) => {
-				const desired = new Map<string, Set<string>>();
-				for (const set of sets) desired.set(formatBlobReference(set.ref), new Set(set.blobIds));
-				const affected = new Set<string>(desired.values().flatMap((blobIds) => [...blobIds]));
-				for (const [blobId, refs] of memberships) {
-					if ([...desired.keys()].some((entryId) => refs.has(entryId))) affected.add(blobId);
-				}
-				for (const blobId of affected) {
-					const refs = memberships.get(blobId) ?? new Set<string>();
-					for (const entryId of desired.keys()) refs.delete(entryId);
-					for (const [entryId, blobIds] of desired) if (blobIds.has(blobId)) refs.add(entryId);
-					if (refs.size === 0) {
-						memberships.delete(blobId);
-						references.delete(blobId);
-					} else {
-						memberships.set(blobId, refs);
-						references.add(blobId);
-					}
-				}
-			},
-		},
+		referenceHeld:
+			typeof referenceHeld === "function" ? referenceHeld(registry, dataDir) : (referenceHeld ?? fakeHeld),
 	});
 	return { service, registry, rows, delivered, references, inbox };
+};
+const stageHeld = (held: ReferenceHeldStore, domainId: string, bytes: Buffer): string => {
+	const blobId = blobIdFor(bytes);
+	const ciphertext = sealBlobChunk(
+		bytes,
+		Buffer.alloc(32, 1),
+		{ domainId, ownerSignPub: "owner", epoch: 1, blobId },
+		0,
+		true,
+	);
+	const digest = `sha256-${crypto.createHash("sha256").update(ciphertext).digest("hex")}`;
+	const lease = held.begin(domainId, {
+		blobId,
+		size: bytes.length,
+		ciphertextSize: ciphertext.length,
+		ciphertextDigest: digest,
+		epoch: 1,
+	});
+	if (lease.outcome !== "lease") throw new Error("expected lease");
+	held.chunk(domainId, blobId, lease.lease, 0, ciphertext, true);
+	return blobId;
 };
 const entry = (id: string, extra: Record<string, unknown> = {}) => ({
 	kind: "upsert" as const,
@@ -271,42 +302,24 @@ describe("router board service", () => {
 		registry.close();
 	});
 
-	it("keeps attachment bytes when membership overlaps", () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "router-board-held-"));
-		roots.push(root);
-		const held = new ReferenceHeldStore({ dataDir: root, ambient: processAmbient() });
-		const wrap: ReferenceHeld = {
-			has: (domainId, blobId) => held.has(domainId, blobId),
-			applyRefs: (domainId, sets) => held.applyRefs(domainId, sets),
-		};
-		const { service, registry } = make(true, wrap);
-		const bytesA = Buffer.from("A");
-		const bytesB = Buffer.from("B");
-		const blobA = blobIdFor(bytesA);
-		const blobB = blobIdFor(bytesB);
-		held.applyRefs("a", [{ ref: { kind: "entry", entryId: "one" }, blobIds: [blobA, blobB] }]);
-		for (const [blobId, bytes] of [
-			[blobA, bytesA],
-			[blobB, bytesB],
-		] as const) {
-			const ciphertext = sealBlobChunk(
-				bytes,
-				Buffer.alloc(32, 1),
-				{ domainId: "a", ownerSignPub: "owner", epoch: 1, blobId },
-				0,
-				true,
-			);
-			const digest = `sha256-${crypto.createHash("sha256").update(ciphertext).digest("hex")}`;
-			const lease = held.begin("a", blobId, bytes.length, ciphertext.length, digest, 1);
-			if (lease.kind !== "lease") throw new Error("expected lease");
-			held.commitChunk("a", blobId, lease.lease, 0, ciphertext, true);
-		}
-		const attachment = (blobId: string) => ({ blobId, size: 1, mime: "text/plain", blobGateway: "g" });
-		service.write(
-			"a",
-			{ expectedRevision: 0, ops: [entry("one", { attachments: [attachment(blobA)] })] },
-			{ kind: "owner" },
-		);
+	it("binds staged bytes to the entry in the entry's own line, and keeps them while any entry names them", () => {
+		let held: ReferenceHeldStore | undefined;
+		const { service, registry } = make(true, (registry, dataDir) => {
+			held = new ReferenceHeldStore({ dataDir, registry, ambient: processAmbient() });
+			return held;
+		});
+		if (!held) throw new Error("no store");
+		const blobA = stageHeld(held, "a", Buffer.from("A"));
+		const blobB = stageHeld(held, "a", Buffer.from("B"));
+		const attachment = (blobId: string) => ({ blobId, size: 1, mime: "text/plain" });
+		expect(
+			service.write(
+				"a",
+				{ expectedRevision: 0, ops: [entry("one", { attachments: [attachment(blobA)] })] },
+				{ kind: "owner" },
+			).outcome,
+		).toBe("applied");
+		expect(held.refs("a", blobA)).toEqual([{ kind: "entry", entryId: "one" }]);
 		service.write(
 			"a",
 			{
@@ -316,33 +329,38 @@ describe("router board service", () => {
 			{ kind: "owner" },
 		);
 		expect(held.has("a", blobA)).toBe(true);
+		expect(held.has("a", blobB)).toBe(true);
+		service.write(
+			"a",
+			{ expectedRevision: 2, ops: [{ kind: "set_attachments", id: "one", attachments: [attachment(blobB)] }] },
+			{ kind: "owner" },
+		);
+		expect(held.has("a", blobA)).toBe(false);
+		expect(held.has("a", blobB)).toBe(true);
+		const unstaged = blobIdFor(Buffer.from("never uploaded"));
+		expect(
+			service.write(
+				"a",
+				{
+					expectedRevision: 3,
+					ops: [{ kind: "set_attachments", id: "one", attachments: [attachment(unstaged)] }],
+				},
+				{ kind: "owner" },
+			),
+		).toMatchObject({ outcome: "refused", refusal: "attachment_missing" });
+		expect(held.has("a", blobB)).toBe(true);
 		registry.close();
 	});
 
 	it("keeps attachment bytes when one blob moves between entries in a single write", () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "router-board-move-"));
-		roots.push(root);
-		const held = new ReferenceHeldStore({ dataDir: root, ambient: processAmbient() });
-		const wrap: ReferenceHeld = {
-			has: (domainId, blobId) => held.has(domainId, blobId),
-			applyRefs: (domainId, sets) => held.applyRefs(domainId, sets),
-		};
-		const { service, registry } = make(true, wrap);
-		const bytes = Buffer.from("moved");
-		const blob = blobIdFor(bytes);
-		held.applyRefs("a", [{ ref: { kind: "entry", entryId: "one" }, blobIds: [blob] }]);
-		const ciphertext = sealBlobChunk(
-			bytes,
-			Buffer.alloc(32, 1),
-			{ domainId: "a", ownerSignPub: "owner", epoch: 1, blobId: blob },
-			0,
-			true,
-		);
-		const digest = `sha256-${crypto.createHash("sha256").update(ciphertext).digest("hex")}`;
-		const lease = held.begin("a", blob, bytes.length, ciphertext.length, digest, 1);
-		if (lease.kind !== "lease") throw new Error("expected lease");
-		held.commitChunk("a", blob, lease.lease, 0, ciphertext, true);
-		const attachment = { blobId: blob, size: bytes.length, mime: "text/plain", blobGateway: "g" };
+		let held: ReferenceHeldStore | undefined;
+		const { service, registry } = make(true, (registry, dataDir) => {
+			held = new ReferenceHeldStore({ dataDir, registry, ambient: processAmbient() });
+			return held;
+		});
+		if (!held) throw new Error("no store");
+		const blob = stageHeld(held, "a", Buffer.from("moved"));
+		const attachment = { blobId: blob, size: 5, mime: "text/plain" };
 		service.write(
 			"a",
 			{ expectedRevision: 0, ops: [entry("one", { attachments: [attachment] }), entry("two")] },
@@ -362,6 +380,7 @@ describe("router board service", () => {
 		);
 
 		expect(held.has("a", blob)).toBe(true);
+		expect(held.refs("a", blob)).toEqual([{ kind: "entry", entryId: "two" }]);
 		registry.close();
 	});
 
@@ -661,7 +680,7 @@ describe("router board service", () => {
 		const { service, registry, references } = make();
 		references.add("keep");
 		references.add("drop");
-		const attachments = (blobId: string) => ({ blobId, size: 1, mime: "text/plain", blobGateway: "g" });
+		const attachments = (blobId: string) => ({ blobId, size: 1, mime: "text/plain" });
 		const names = { keep: envelope(BOARD_NAME_KIND), drop: envelope(BOARD_NAME_KIND) };
 		service.write(
 			"a",
@@ -691,9 +710,7 @@ describe("router board service", () => {
 			"a",
 			{
 				expectedRevision: 0,
-				ops: [
-					entry("one", { attachments: [{ blobId: "old", size: 1, mime: "text/plain", blobGateway: "g" }] }),
-				],
+				ops: [entry("one", { attachments: [{ blobId: "old", size: 1, mime: "text/plain" }] })],
 			},
 			{ kind: "owner" },
 		);
@@ -705,7 +722,7 @@ describe("router board service", () => {
 					{
 						kind: "set_attachments",
 						id: "one",
-						attachments: [{ blobId: "missing", size: 1, mime: "text/plain", blobGateway: "g" }],
+						attachments: [{ blobId: "missing", size: 1, mime: "text/plain" }],
 					},
 				],
 			},
@@ -721,7 +738,7 @@ describe("router board service", () => {
 					{
 						kind: "set_attachments",
 						id: "one",
-						attachments: [{ blobId: "new", size: 2, mime: "text/plain", blobGateway: "g" }],
+						attachments: [{ blobId: "new", size: 2, mime: "text/plain" }],
 					},
 				],
 			},
@@ -741,7 +758,7 @@ describe("router board service", () => {
 			{
 				expectedRevision: 0,
 				ops: [
-					entry("one", { attachments: [{ blobId: "blob", size: 1, mime: "text/plain", blobGateway: "g" }] }),
+					entry("one", { attachments: [{ blobId: "blob", size: 1, mime: "text/plain" }] }),
 					{ kind: "remove", id: "missing" },
 				],
 			},
@@ -763,8 +780,8 @@ describe("router board service", () => {
 				ops: [
 					entry("one", {
 						attachments: [
-							{ blobId: "one", size: 1, mime: "text/plain", blobGateway: "g" },
-							{ blobId: "two", size: 2, mime: "text/plain", blobGateway: "g" },
+							{ blobId: "one", size: 1, mime: "text/plain" },
+							{ blobId: "two", size: 2, mime: "text/plain" },
 						],
 					}),
 				],
@@ -910,9 +927,7 @@ describe("router board service", () => {
 			"a",
 			{
 				expectedRevision: 0,
-				ops: [
-					entry("one", { attachments: [{ blobId: "blob", size: 1, mime: "text/plain", blobGateway: "g" }] }),
-				],
+				ops: [entry("one", { attachments: [{ blobId: "blob", size: 1, mime: "text/plain" }] })],
 			},
 			{ kind: "owner" },
 		);

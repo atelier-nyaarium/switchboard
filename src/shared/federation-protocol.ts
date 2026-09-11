@@ -3,7 +3,6 @@ import { ChannelFilesSchema } from "./channel-file.js";
 import { SealedEnvelopeSchema, sign, verify } from "./crypto.js";
 import { CONVERSATION_ID_RE, MAX_CONVERSATION_ID_LEN } from "./host-op.js";
 import { NOTICE_TITLE_MAX, NoticeTierWireFields } from "./notice.js";
-import { BLOB_CHUNK_BYTES } from "./router-protocol.js";
 import { isSlug } from "./session-id.js";
 import { SIGNING_TAGS } from "./wire-vocabulary.js";
 
@@ -76,12 +75,6 @@ export const FederatedOpSchema = z.discriminatedUnion("kind", [
 		returnRoute: ReturnRouteSchema,
 	}),
 	z.object({ kind: z.literal("list_teams") }),
-	z.object({
-		kind: z.literal("blob_fetch"),
-		blobId: z.string().regex(/^sha256-[0-9a-f]{64}$/),
-		offset: z.number().int().nonnegative(),
-		length: z.number().int().positive().max(BLOB_CHUNK_BYTES),
-	}),
 	z.object({ kind: z.literal("wake"), team: z.string().min(1).max(MAX_ADDRESS_LEN) }),
 	z.object({
 		kind: z.literal("response_push"),

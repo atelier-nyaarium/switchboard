@@ -29,7 +29,6 @@ class BoardManagerTest {
 			blob = json
 		}
 
-		override fun loadGatewayId(): String = "gw-route"
 	}
 
 	private fun storeStub(): BoardStore = FakeStore()

@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.crypto.openSealedBlobRange
 import com.atelier_nyaarium.switchboard.crypto.opResultAadKind
 import com.atelier_nyaarium.switchboard.crypto.scheduledBodyAadKind
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
@@ -11,8 +10,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 // Owner-inbox rows and the Router blob read.
@@ -173,60 +170,4 @@ internal suspend fun ChatRepository.dispatchInboxRows(rows: List<com.atelier_nya
 	}
 	val last = rows.maxByOrNull { it.seq } ?: return
 	drain.processEntries(entries, last.seq, transportCoordinator.cursorEpoch(), 0L)
-}
-
-/** Read one opened Router blob chunk. */
-internal suspend fun ChatRepository.routerBlobRange(
-	domainId: String,
-	blobId: String,
-	offset: Long,
-	originGateway: String? = null,
-): Pair<ByteArray, Boolean>? {
-	val op = buildJsonObject {
-		put("kind", JsonPrimitive(Protocol.Wire.OWNER_OP_BLOB_FETCH))
-		put("opId", JsonPrimitive(java.util.UUID.randomUUID().toString()))
-		put("blobId", JsonPrimitive(blobId))
-		put(
-			"range",
-			buildJsonObject {
-				put("offset", JsonPrimitive(offset))
-				put("length", JsonPrimitive(Protocol.BLOB_CHUNK_BYTES))
-			},
-		)
-		// Permit forwarding on cache miss.
-		if (originGateway != null) {
-			put(
-				"origin",
-				buildJsonObject {
-					put("domainId", JsonPrimitive(domainId))
-					put("gatewayId", JsonPrimitive(originGateway))
-				},
-			)
-		}
-	}
-	val signed = ownerOps.sign(op) ?: return null
-	val answer = runCatching { client().postOwnerOp(signed)?.jsonObject }.getOrNull() ?: return null
-	if (answer["outcome"]?.jsonPrimitive?.content != "fetched") return null
-	val bytes = answer["bytes"]?.jsonPrimitive?.content
-		?.let { android.util.Base64.decode(it, android.util.Base64.DEFAULT) } ?: return null
-	val eof = answer["eof"]?.jsonPrimitive?.content == "true"
-	if (answer["sealed"]?.jsonPrimitive?.content != "true") return bytes to eof
-	val epoch = answer["epoch"]?.jsonPrimitive?.content?.toIntOrNull() ?: return null
-	val size = answer["size"]?.jsonPrimitive?.content?.toLongOrNull() ?: return null
-	val at = answer["offset"]?.jsonPrimitive?.content?.toLongOrNull() ?: return null
-	val key = federation.contentKeyring().keyFor(epoch) ?: return null
-	return runCatching {
-		openSealedBlobRange(
-			bytes,
-			at,
-			size,
-			epoch,
-			offset,
-			Protocol.BLOB_CHUNK_BYTES.toLong(),
-			key,
-			domainId,
-			federation.ownerSignPub(),
-			blobId,
-		)
-	}.getOrNull()
 }

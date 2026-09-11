@@ -39,9 +39,6 @@ export const BOARD_AUTO_DOWNLOAD_MAX_BYTES = 25_000_000;
 export const BoardAttachmentSchema = z
 	.object({
 		blobId: z.string().min(1).max(128),
-		// The Gateway holding the bytes. A blob lives only where it landed, and an entry can be homed
-		// on a different machine than the console's route, so a reference without a WHERE is dead.
-		blobGateway: z.string().min(1).max(64),
 		// Carried for CONTEXT, never for keying: it is how the owner says "look at mellisa-render.png"
 		// and how an agent asks which of two screenshots is meant. The stored path is the content hash.
 		filename: z.string().min(1).max(255),

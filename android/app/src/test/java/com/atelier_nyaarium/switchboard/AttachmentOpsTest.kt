@@ -23,7 +23,6 @@ class AttachmentOpsTest {
 			{ null },
 			object : AttachmentOpsCollaborators {
 				override fun clientOrNull(): ConsoleClient? = null
-				override suspend fun routerBlobRange(domainId: String, blobId: String, offset: Long, originGateway: String?) = null
 				override fun attachmentBuckets() = emptySet<String>()
 			},
 		)

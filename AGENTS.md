@@ -30,7 +30,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/routes/addressing.ts` / `callerGuards.ts` / `relay.ts` - local address minting, the refusal gates, cross-Gateway relay
 - `src/gateway/routes/routesStatus.ts` / `routesCapabilities.ts` / `routesPresence.ts` - health, pending and teams; the capability fold; discovery
 - `src/gateway/routes/routesSend.ts` / `routesRespond.ts` / `routesBoard.ts` - the send, the reply and its poll, the task board
-- `src/gateway/routes/routesHumanNotify.ts` / `routesBlob.ts` / `routesFederationPresence.ts` - console push, blob fetch, and presence exchange bindings
+- `src/gateway/routes/routesHumanNotify.ts` / `routesBlob.ts` / `routesFederationPresence.ts` - console push, the local-then-Router blob read, and presence exchange bindings
 - `src/gateway/boot.ts` - `GatewayBootstrap.resolve`, the boot phase decision, the federation slice types, and `RouterHandlers` split into frames and presence
 - `src/gateway/router/registerAuth.ts` / `valueResult.ts` - the `gateway_register` frame and the `value_result` settlement, pure
 - `src/gateway/wake.ts` - container/session wake decisions
@@ -135,13 +135,19 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/router/presenceReporter.ts` / `presenceProtocol.ts` - presence pump and pure protocol; `applyAnswer` cannot reach the sender, so answers do not start frames
 - `src/gateway/router/shareAttestor.ts` - share liveness attestation, coalesced
 - `src/gateway/router/boardClient.ts` - sole sealer of board text and sole local-key mapper; CAS writes
-- `src/gateway/router/blobUploader.ts` - blob copy to the Router cache or reference-held store; unwired, and the Router refuses both upload frames
+- `src/gateway/router/blobUploader.ts` - stages this Gateway's bytes on the Router as sealed chunks, resuming from the Router's cursor, and holds relayed bytes under this Gateway's name
+- `src/gateway/router/routerBlobReader.ts` - the Router range read a session's `/blob/get` falls through to once local staging is gone
+- `src/gateway/router/blobMigrationRoute.ts` - the loopback `/migration/router-blobs` route: binds what the Router's records name, holds every other local blob, retires local bytes the Router holds; removed with `scripts/migrate-router-blobs.ts` on 2026-09-25
 - `src/gateway/console/` - Android OwnerOp dispatch and capability store
 - `src/gateway/console/consoleTargets.ts` - every console target, `domain.gateway.spawn[.session]` by contract; the bare-name and foreign-Gateway refusals live here alone
 - `src/gateway/console/consoleCrossDomain.ts` - the console's link, share, unlink and untrust handlers
 - `src/gateway/console/consoleSessionLifecycle.ts` - create, wake, close, forget, and rename
 - `src/gateway/console/consoleTerminal.ts` - pane peek, key send, directory listing, and plugin reload
 - `src/gateway/consolePushOps.ts` - phone-bound rows, `deliverToOwner`, and durable `OwnerRowOutbox`
+  - **The Router holds every byte a row names before the row lands:** the drain stages each blob
+    and only then appends; a `blob_missing` refusal re-stages. Local bytes are staging for that
+    row, retired once no queued row or held delivery names them. A blob that left staging before
+    the row went leaves its name only.
 - S8 retained endpoints: `/capabilities`, `/discover`, `/task-board`
 - `android/.../ChatRepository.kt` - console process singleton and OwnerOp client
 - `android/.../GatewayRegistry.kt` - the Router's roster as the phone holds it: provenance, per-Gateway answers, and the reads the tabs use; `docs/console.md` holds the rules
@@ -157,9 +163,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../PlaybackOps.kt` / `PlaybackReadModels.kt` - playback serialization and lock-free read models
 - `android/.../BoardOps.kt` - repository board operations
   - **The board is one Router-held board, so no read and no write names a Gateway:** entries, the
-    read time and every intent are owner-scoped. The one exception is where an attachment's blob
-    lives, and `blobGatewayFor` decides that from the entry rather than from the caller, since an
-    unassigned entry has no session Gateway and a caller passing its row's would upload to nothing.
+    read time and every intent are owner-scoped. An attachment's bytes are the Router's, uploaded
+    through the blob owner ops before the intent that names them is posted.
 - `android/.../VaultOps.kt` - repository vault operations: refresh, save, delete, reveal, answer, grants
 - `android/.../RunbookOps.kt` - the gateway calls, `pushDecision`, and the refusal a save answers with
   - **A save is pushed before it answers:** stored takes it into the library and closes the editor,
@@ -317,9 +322,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/federation-server/routerDomainBootstrap.ts` - what the Router constructor builds, assembled once
 - `src/federation-server/fileSecretStore.ts` - durable federation state and bounded atomic CAS
 - `src/federation-server/owner/` - per-owner state layer: fsync'd journal, CAS records, per-address rows, quarantine, lock, Domain quota
-- `src/federation-server/inbox/` - inbox service, op ledger, consumer and session registries, gateway incarnation, OwnerOp intake, blob fetch route
+- `src/federation-server/inbox/` - inbox service, op ledger, consumer and session registries, gateway incarnation, OwnerOp intake
 - `src/federation-server/inbox/inboxAppend.ts` / `inboxRetire.ts` / `inboxSweep.ts` / `inboxOpResult.ts` / `inboxCore.ts` - row append and admission, row retirement, the expiry sweep, router-authored result rows, and shared primitives (`recordId`, `guarded`, `ledgerTransaction`, `ownerAddress`, `floorOf`) behind `InboxService`
-- `src/federation-server/blobs/` - Router blob cache with leases and the reference-held store
+- `src/federation-server/blobs/referenceHeldStore.ts` - the one blob holder: staged bytes under a lease, reference sets in the owner journal, `publish` binding a record write and its references in one line, the staged sweep, and boot reconcile
+- `src/federation-server/blobs/blobService.ts` - the four blob owner ops and the four gateway blob frames over the held store, with the per-process chunk ledger
+- `src/federation-server/blobs/blobMigrationFrames.ts` - `blob_migration_inventory` and `blob_migration_bind`, the two frames the one-time Gateway migration uses; removed 2026-09-25
 - `src/federation-server/ownerServices.ts` / `ownerServiceHooks.ts` - the owner-state services behind one hook surface: OwnerOp kinds, gateway frames, register and drop listeners, and the sweepers the fence holds
 - `src/federation-server/presence/` - presence rows per gateway incarnation, resync, roster, owner and friend projections. The owner projection states the owner's facts. `refresh` recomputes a Domain and every Domain that embeds it.
 - `src/federation-server/share/` - share records, generations, attestations, sweep, unlink; the peer-row gate

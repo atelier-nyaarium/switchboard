@@ -273,35 +273,6 @@ export const ConsoleRenameSessionResultSchema = z
 	})
 	.meta({ id: "ConsoleRenameSessionResult" });
 
-/** Answers to the three blob ops. `have` is the contiguous prefix, so a client resumes by sending
- * from it rather than tracking its own progress. Flat optional fields, per the wire rule. */
-export const ConsoleBlobStatResultSchema = z
-	.object({
-		have: z.number().int().nonnegative(),
-		size: z.number().int().nonnegative().optional(),
-		complete: z.boolean(),
-	})
-	.meta({ id: "ConsoleBlobStatResult" });
-
-export const ConsoleBlobPutResultSchema = z
-	.object({
-		have: z.number().int().nonnegative(),
-		complete: z.boolean(),
-	})
-	.meta({ id: "ConsoleBlobPutResult" });
-
-export const ConsoleBlobGetResultSchema = z
-	.object({
-		// One chunk, base64'd; absent when the range was empty.
-		chunk: z.string().optional(),
-		eof: z.boolean(),
-		// True only when the pull PROVED the bytes exist nowhere: every named holder answered and had
-		// nothing, and the asked Gateway holds nothing either. What lets a client retire a fetch that
-		// can never succeed. Optional so an older Gateway simply never says it.
-		absent: z.boolean().optional(),
-	})
-	.meta({ id: "ConsoleBlobGetResult" });
-
 export const ConsoleListDirsResultSchema = z
 	.object({
 		// Immediate subdirectory names (dirs and dir symlinks only), sorted. Empty for a missing or
@@ -477,9 +448,6 @@ export const ConsoleOpResultSchema = z.union([
 	ConsoleCloseSessionResultSchema,
 	ConsoleRenameSessionResultSchema,
 	ConsoleListDirsResultSchema,
-	ConsoleBlobStatResultSchema,
-	ConsoleBlobPutResultSchema,
-	ConsoleBlobGetResultSchema,
 	CrossDomainListenResultSchema,
 	CrossDomainRequestResultSchema,
 	CrossDomainConfirmResultSchema,

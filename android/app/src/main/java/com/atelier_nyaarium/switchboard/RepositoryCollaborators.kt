@@ -12,6 +12,13 @@ import com.atelier_nyaarium.switchboard.proto.SignedRemoveTenant
 import com.atelier_nyaarium.switchboard.proto.SignedSetDisplayName
 import com.atelier_nyaarium.switchboard.proto.SignedAdmission
 import com.atelier_nyaarium.switchboard.proto.SttsProvider
+import com.atelier_nyaarium.switchboard.proto.ScheduledTarget
+import com.atelier_nyaarium.switchboard.proto.Address
+import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
+import com.atelier_nyaarium.switchboard.crypto.Crypto
+import com.atelier_nyaarium.switchboard.crypto.scheduledBodyAadKind
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonElement
 import com.atelier_nyaarium.switchboard.board.BoardManager
 import com.atelier_nyaarium.switchboard.board.BoardRouterWriter
 
@@ -85,23 +92,35 @@ internal class ChatRepositoryScheduledSendCollaborators(private val repo: ChatRe
 	override fun scheduleAttachmentDelete(srcs: List<String>) = repo.attachments.scheduleAttachmentDelete(srcs)
 	override fun takeBackIntoDraft(team: String, text: String, files: List<MessageFile>) = repo.takeBackIntoDraft(team, text, files)
 	override fun append(team: String, message: Message) = repo.append(team, message)
-	override fun rebuildFiles(files: List<MessageFile>) = repo.rebuildFiles(files)
-	override suspend fun deliver(
-		team: String,
-		echoId: Long,
-		text: String,
-		files: List<OutgoingFile>,
-		opId: String,
-		targetDomainId: String?,
-	) = repo.deliver(team, echoId, text, files, opId, false, targetDomainId)
-	override suspend fun retrySend(team: String, messageId: Long, targetDomainId: String?) =
-		repo.retrySend(team, messageId, targetDomainId)
+	override suspend fun postOwnerOp(op: JsonObject, opId: String): JsonElement? = repo.client().postOwnerOp(repo.ownerOps.sign(op, opId))
+	override fun sealScheduledBody(plaintext: ByteArray, opId: String): ContentEnvelope? {
+		val boot = repo.readyOrNull() ?: return null
+		val epoch = boot.contentKeyring.epochs().maxOrNull() ?: return null
+		val key = boot.contentKeyring.keyFor(epoch) ?: return null
+		return Crypto.sealContent(plaintext, key, Crypto.ContentAad(boot.domainId, boot.ownerSignPub, epoch, scheduledBodyAadKind(boot.conversationId, opId)))
+	}
+	override fun openScheduledBody(body: ContentEnvelope, opId: String): ByteArray? = runCatching {
+		val boot = repo.readyOrNull() ?: return null
+		val key = boot.contentKeyring.keyFor(body.epoch.toInt()) ?: return null
+		Crypto.openContent(body, key, Crypto.ContentAad(boot.domainId, boot.ownerSignPub, body.epoch.toInt(), scheduledBodyAadKind(boot.conversationId, opId)))
+	}.getOrNull()
+	override fun targetOf(team: String): ScheduledTarget? {
+		val parsed = runCatching { com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget(team) as Address }.getOrNull() ?: return null
+		return ScheduledTarget(parsed.domain, parsed.gateway, parsed.spawn + "." + parsed.session)
+	}
+	override fun teamOf(target: ScheduledTarget): String? = repo.state.value.teams.firstOrNull { targetOf(it.name) == target }?.name
+	override suspend fun uploadFile(file: MessageFile): String = repo.client().uploadSealedBlob(Attachments.fileFor(repo.filesDir, file.src) ?: error("missing scheduled file"))
+	override suspend fun fetchFile(file: MessageFile, bucket: String): MessageFile? = runCatching {
+		val blobId = file.blobId ?: return null
+		val client = repo.client()
+		val src = Attachments.land(repo.filesDir, bucket, file.name, client.downloadBlob(blobId)) ?: return null
+		client.forgetBlob(blobId)
+		file.copy(src = src)
+	}.getOrNull()
 }
 
 internal class ChatRepositoryAttachmentCollaborators(private val repo: ChatRepository) : AttachmentOpsCollaborators {
 	override fun clientOrNull() = repo.clientOrNull()
-	override suspend fun routerBlobRange(domainId: String, blobId: String, offset: Long, originGateway: String?) =
-		repo.routerBlobRange(domainId, blobId, offset, originGateway)
 	override fun attachmentBuckets() = repo.boardOps.attachmentBuckets()
 }
 
@@ -114,7 +133,7 @@ internal class ChatRepositoryBoardCollaborators(private val repo: ChatRepository
 	override fun admitPicked(uris: List<Uri>, name: String) = repo.admitPicked(uris, name)
 	override fun localDomain() = repo.localDomain()
 	override val client: ConsoleClient? get() = repo.clientOrNull()
-	override fun command(block: () -> Unit) = repo.command { block() }
+	override fun command(block: suspend () -> Unit) = repo.command { block() }
 }
 
 internal class ChatRepositoryRunbookHost(private val repo: ChatRepository) : RunbookHost {

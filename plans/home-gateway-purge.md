@@ -812,6 +812,91 @@ Rules:
   delivery. After publication, the Router is the source and a local copy cannot rescue a Router
   absence.
 
+### As built
+
+Router half as planned, with these deviations:
+
+- Reference metadata is a `"blob"` record per blob id in the owner journal, not a `staged` state on
+  the reference. A record with no refs and no lease is `staged`; "complete" is the disk's word.
+  `publish(domainId, sets, mutate)` is the one primitive, the caller's mutate last in the batch so
+  the line's answer is the caller's. Bytes leave only on `kind === "ok"`; `durability_uncertain`
+  deletes nothing (Sol).
+- Retention is by expiry, not by row lifetime: a row ref carries `acceptedAt + INBOX_ROW_TTL_MS`,
+  entry and scheduled refs none, and `retireRow` releases in the same line on a terminal outcome or
+  expiry. `ack delivered` and compaction release nothing, since a reader may open the row late.
+- A fourth reference kind, `hold:<gatewayId>/<holdId>`, expires only. `relay.ts` stages and holds
+  for thirty days on a same-Domain cross-Gateway send; a cross-Domain send carries files as metadata
+  only, blob ids stripped. `stripFileRefs` stays for that and strips only the blob id.
+- The chunk ledger is in-process, keyed `conversationId/opId` with a value hash, cleared on `begin`
+  and completion; derived nonces (`blobChunkNonce`, HMAC over the chunk AAD) make a repeated chunk
+  byte-identical, so the ledger's job is the conflict refusal, not durability.
+- `begin` never replaces referenced bytes and answers `complete`; a different digest on a staged
+  blob restarts from zero. The quota counts held bytes plus leased declarations.
+- `/blob/get` on the gateway answers local staging first, else the Router; `/blob/stat` and
+  `/blob/put` stage locally. `blobOps.ts` and `routesBlob.ts` stay for that, with gateway-local
+  schemas; the console blob ops and every `blobGateway` field are gone.
+- Peer rows with content refs are refused at the bridge; only the owner's rows name blobs.
+- `fsync` before the rename in `BlobStore.seal`, and of the directory after (Sol).
+- Migration: `scripts/migrate-router-blobs.ts` drives the loopback route under
+  `ROUTER_BLOB_MIGRATION_TOKEN`; the route binds every inventory set whose blobs it can stage, holds
+  every other local blob for thirty days under a hold named by the blob id, retires local bytes the
+  Router now holds unless an outbox row or a held delivery names them, and ends by fetching one byte
+  of every referenced blob. Restartable. The owner-row outbox needs no separate drain: the live
+  drain stages before it appends.
+- A chunk's identity is its bytes: the value carries the sealed frame and the ledger hashes the whole
+  value, so no second digest field rides beside it.
+- `deliverToOwner` is not awaited; it enqueues on the durable outbox and the drain stages before it
+  appends, so a restart resumes where an awaited call would have lost the row.
+- The gateway's local-first `/blob/get` is bounded to the staging window: bytes are retired when the
+  row lands, when the delivery that named them is acknowledged, and when it expires unread. The
+  delivery sweep runs on the persistence tick and before the migration judges what is named.
+- The phone's `blobs` dir is upload staging (removed on every `complete`) and download scratch; a
+  complete local copy answers a read before the Router is asked, since it is content-addressed.
+- A cancel of an accepted send is an intent: `cancelRequested` persists, the dock draws
+  "Cancelling", the drain re-posts `schedule_cancel` until the Router answers. `settled` clears the
+  intent and waits for the sent result; `conflict` drops the record; an edit-cancel takes the draft
+  back at once and never deletes its files.
+- A `begin` that restarts a staged blob under a new digest removes the old bytes only after every
+  refusal, so a quota refusal leaves the staged upload in place.
+- Two sets naming one reference in a single `publish` merge their blob ids; no caller passes two.
+- A relay's hold is named by the relay's op id and the blob, so a retry renews one hold rather than
+  minting another; the receiving Gateway holds the same blob again under its delivery id, so the
+  receiver's thirty days start when its delivery does.
+- `blob_hold` and `blob_migration_bind` answer `accepted` only for a line known to have landed; an
+  uncertain write is a refusal the caller retries, and the migration keeps its local bytes.
+- The Gateway's blob sweep never evicts a blob a queued row or a held delivery names, and drops a
+  complete blob nothing names after a day, so a `/blob/put` nobody followed with a row does not
+  outlive the ceiling.
+- The phone seals one chunk at a time on both passes, since derived nonces make the digest pass
+  and the send pass agree; a `complete` status is taken only under an epoch the keyring can open.
+  Every given-up or absent attachment is asked again on the next Router welcome.
+- `scheduleSend` takes the mutex and names the accepted record it replaces; an acceptance is
+  stamped only onto the record that posted it, and one the Router reports `fired` is echoed from
+  the local text and dropped, `cancelled` or `error` dropped. A replacement the Router calls
+  `conflict` adopts the armed record the Router still holds instead of taking the text back. A
+  take-back carries only files still on disk.
+- A hold name is the digest of its scope and blob, so a long producer op id cannot push it past the
+  wire's bound. The receiving Gateway's renewal is best effort: the relay arrives over its live
+  Router link, and a renewal that still fails leaves the sender's thirty days standing.
+- A pending send the Router reports `cancelled` goes back to the composer with a line saying so;
+  one it reports `error` raises the failed-send notice. An edit of an adopted record fetches its
+  Router-only files back into the composer's bucket, and names any it could not.
+- Absent and given-up attachments are re-asked on a welcome at most once an hour, so a lost blob
+  costs a bounded retry rather than one per reconnect. The MCP's staging copies age out after a
+  week; a Gateway before its Domain has no routes and so no staging to judge.
+- Accepted gaps: scheduled acceptance and its bind are one line, but the fire's `done` put and the
+  echo row are two.
+
+### Bug Classes
+
+- **Mechanism:** what the Router answers when an owner-store write is `durability_uncertain`.
+  **Class:** an uncertain write treated as a landed one, so a caller deletes the only other copy.
+  **Rounds:** one, `ReferenceHeldStore.sweep` removed bytes on an uncertain `del` (align); two,
+  `blob_hold` and `blob_migration_bind` answered `accepted` on an uncertain `publish` and the
+  migration retired local bytes on it (red team). Both patches say the same rule at the answer:
+  uncertain is not accepted. The mechanism that should own it is the store's `WriteResult`: an
+  `ok`-only predicate every consumer reads, rather than each site spelling the pair.
+
 ## Phase 6 - Gateway-specific pairing and sharing (track two)
 
 - `crossDomainHandshake.request` stamps `this.self.gatewayId`. `requesterGatewayId` leaves

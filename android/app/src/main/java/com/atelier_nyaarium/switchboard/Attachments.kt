@@ -88,7 +88,6 @@ object Attachments {
 				f.size,
 				f.modifiedAt,
 				f.blobId,
-				f.blobGateway,
 				role = f.role,
 				ref = f.ref,
 				cardTitle = f.cardTitle,

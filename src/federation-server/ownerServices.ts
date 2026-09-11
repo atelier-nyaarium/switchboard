@@ -1,5 +1,4 @@
 import type { DomainSnapshot } from "../shared/admission.js";
-import type { BlobReference } from "../shared/blob-reference.js";
 import { type ChainTimers, chainedTimer } from "../shared/chained-timer.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
 import {
@@ -8,9 +7,10 @@ import {
 	type InboxRow,
 	type OpKey,
 	type PlaneLineage,
-	parseInboxAddress,
 	signRowEnvelope,
 } from "../shared/schemasInbox.js";
+import { registerBlobMigrationFrames } from "./blobs/blobMigrationFrames.js";
+import { createBlobService } from "./blobs/blobService.js";
 import type { ReferenceHeldStore } from "./blobs/referenceHeldStore.js";
 import { createBoardService } from "./board/boardService.js";
 import type { ConsoleSockets } from "./console/consoleSockets.js";
@@ -51,16 +51,6 @@ export interface OwnerServicesDeps {
 export function createOwnerServices(deps: OwnerServicesDeps) {
 	const { registry, inbox, bridge, referenceHeld, ambient } = deps;
 	deps.intake.setGatewayProtocol((domainId, gatewayId) => bridge.gatewayProtocol(domainId, gatewayId));
-	referenceHeld.setReferenceExists((domainId, ref) => {
-		const store = registry.for(domainId);
-		if (ref.kind === "entry") return store.get("board.entry", ref.entryId) !== null;
-		if (ref.kind === "scheduled")
-			return (
-				store.get("scheduled", `${ref.target.domainId}/${ref.target.gatewayId}/${ref.target.sessionId}`) !==
-				null
-			);
-		return store.rows(formatInboxAddress(ref.address), ref.seq, 1).some((row) => row.seq === ref.seq);
-	});
 	const connected = (domainId: string): string[] => bridge.registeredGateways(domainId).map((g) => g.gatewayId);
 	const admittedGateways = (domainId: string): string[] => {
 		const snapshot = deps.getDomain(domainId);
@@ -100,7 +90,6 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		hello: { domainId: op.domainId, signerSignPub: op.signerSignPub },
 	}));
 
-	deps.intake.register("blob_fetch", (op, value) => bridge.fetchBlobForOwner(op.domainId, value));
 	deps.intake.register("gateway_value", (op, value) => {
 		return bridge
 			.forwardGatewayValue(op.domainId, {
@@ -158,17 +147,6 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		if (window.fenced && window.epoch !== null && leases.read(domainId, gatewayId)?.epoch !== window.epoch)
 			leases.put(domainId, gatewayId, "active");
 	});
-	inbox.onRowRetired((domainId, addressText, row) => {
-		const address = parseInboxAddress(addressText);
-		if (address?.kind !== "session") return;
-		const ref: BlobReference = { kind: "row", address, seq: row.seq };
-		try {
-			referenceHeld.applyRefs(domainId, [{ ref, blobIds: [] }]);
-		} catch (error) {
-			console.warn(`[router] row reference release failed: ${(error as Error).message}`);
-		}
-	});
-
 	const isShared = (domainId: string, sessionTarget: string, toDomainId: string) =>
 		share.isSharedTo(domainId, sessionTarget, toDomainId);
 	const projectionDeps = {
@@ -191,10 +169,7 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 	const board = createBoardService({
 		registry,
 		inbox,
-		referenceHeld: {
-			has: (domainId, blobId) => referenceHeld.has(domainId, blobId),
-			applyRefs: (domainId, sets) => referenceHeld.applyRefs(domainId, sets),
-		},
+		referenceHeld,
 		deliver,
 		pokeOwner: (domainId, revision) => {
 			const epoch = presence.lineageEpoch(domainId);
@@ -234,10 +209,7 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		registry,
 		inbox,
 		appendScheduledMessage,
-		referenceHeld: {
-			has: (domainId, blobId) => referenceHeld.has(domainId, blobId),
-			applyRefs: (domainId, sets) => referenceHeld.applyRefs(domainId, sets),
-		},
+		referenceHeld,
 		scheduler: {
 			set: (ms, fn) => chainedTimer(ambient, ms, fn),
 			clear: (handle) => ambient.clearTimer((handle as ReturnType<typeof chainedTimer>).handle()),
@@ -257,8 +229,21 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 	});
 
 	const cursors = createCursorService({ registry, migrationEpoch: () => readRouterMigrationWindow().epoch ?? 0 });
-	for (const service of [share, presence, board, scheduled, capabilities, readAnchors, cursors, keyDelivery, vault])
+	const blobs = createBlobService({ held: referenceHeld, now: () => registry.now() });
+	for (const service of [
+		share,
+		presence,
+		board,
+		scheduled,
+		capabilities,
+		readAnchors,
+		cursors,
+		keyDelivery,
+		vault,
+		blobs,
+	])
 		service.register(hooks);
+	registerBlobMigrationFrames(hooks, { registry, held: referenceHeld });
 	// A catalogued kind nothing serves refuses at runtime, so construction refuses first.
 	const unserved = deps.intake.unregisteredKinds();
 	if (unserved.length) throw new Error(`owner op kinds without a handler: ${unserved.join(", ")}`);
@@ -301,20 +286,7 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 			return undefined;
 		},
 		reconcileReferences(): void {
-			perDomain("reference reconcile", (domainId) => {
-				const store = registry.for(domainId);
-				referenceHeld.reconcile(domainId, (ref) => {
-					if (ref.kind === "entry") return store.get("board.entry", ref.entryId) !== null;
-					if (ref.kind === "scheduled")
-						return (
-							store.get(
-								"scheduled",
-								`${ref.target.domainId}/${ref.target.gatewayId}/${ref.target.sessionId}`,
-							) !== null
-						);
-					return store.rows(formatInboxAddress(ref.address), ref.seq, 1).some((row) => row.seq === ref.seq);
-				});
-			});
+			perDomain("reference reconcile", (domainId) => referenceHeld.reconcile(domainId));
 		},
 		sweep(now = registry.now()): void {
 			// Migration fences hold all writers.

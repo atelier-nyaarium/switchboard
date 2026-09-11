@@ -68,12 +68,20 @@ fun ScheduledSendDock(rec: ScheduledSend, onEdit: () -> Unit, onCancel: () -> Un
 			Icon(Icons.Default.Schedule, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
 			Column(Modifier.weight(1f)) {
 				Text(
-					"Sending at ${absoluteTimeText(rec.fireAtMillis, zone)}",
+					when {
+						rec.cancelRequested -> "Cancelling"
+						rec.routerVersion == null -> "Waiting for the Router"
+						else -> "Sending at ${absoluteTimeText(rec.fireAtMillis, zone)}"
+					},
 					style = MaterialTheme.typography.bodyMedium,
 					color = MaterialTheme.colorScheme.onSecondaryContainer,
 				)
 				Text(
-					countdownText(rec.fireAtMillis - now),
+					when {
+						rec.cancelRequested -> "Waiting for the Router"
+						rec.routerVersion == null -> "Edit or cancel anytime"
+						else -> countdownText(rec.fireAtMillis - now)
+					},
 					style = MaterialTheme.typography.labelSmall,
 					color = MaterialTheme.colorScheme.onSecondaryContainer,
 				)

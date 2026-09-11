@@ -15,7 +15,16 @@ class BoardRowsTest {
 		sessionId: String? = null,
 		session: BoardSession? = null,
 		trashedAt: Long? = null,
-	) = BoardEntry(id = id, title = "t-$id", state = state, parent = parent, rank = rank, sessionId = sessionId, session = session, trashedAt = trashedAt)
+	) = BoardEntry(
+		id = id,
+		title = "t-$id",
+		state = state,
+		parent = parent,
+		rank = rank,
+		sessionId = sessionId,
+		session = session ?: sessionId?.let { BoardSession("domain", "gw", it) },
+		trashedAt = trashedAt,
+	)
 
 	private fun allIds(rows: BoardRows): List<String> {
 		val groups = listOf(rows.unassigned) + rows.sessions
@@ -50,10 +59,21 @@ class BoardRowsTest {
 		)
 		assertEquals(2, rows.sessions.size)
 		assertEquals(
-			setOf(GroupKey("gw-a", "recipe.claude"), GroupKey("gw-b", "recipe.claude")),
+			setOf(GroupKey("domain", "gw-a", "recipe.claude"), GroupKey("domain", "gw-b", "recipe.claude")),
 			rows.sessions.mapNotNull { it.key }.toSet(),
 		)
 		assertEquals(listOf("a1"), rows.sessions.single { it.key?.gatewayId == "gw-a" }.rows.map { it.entry.id })
+	}
+
+	@Test
+	fun twoDomainsRunningTheSameGatewaySessionStayTwoGroups() {
+		val rows = flattenBoard(
+			listOf(
+				entry("a1", sessionId = "recipe.claude", session = BoardSession("domain-a", "gw", "recipe.claude")),
+				entry("b1", sessionId = "recipe.claude", session = BoardSession("domain-b", "gw", "recipe.claude")),
+			),
+		)
+		assertEquals(2, rows.sessions.size)
 	}
 
 	@Test

@@ -8,6 +8,7 @@ import {
 	type OpResultEnvelope,
 	parseInboxAddress,
 } from "../../shared/schemasInbox.js";
+import type { ReferenceHeldStore } from "../blobs/referenceHeldStore.js";
 import type { OwnerStateStore } from "../owner/ownerStateStore.js";
 import { appendInboxRow, sessionExists } from "./inboxAppend.js";
 import { durabilityOutcome, floorOf, guarded, ledgerTransaction, ownerAddress, recordId } from "./inboxCore.js";
@@ -45,6 +46,8 @@ export class InboxService {
 	constructor(
 		private readonly registry: OwnerStoreRegistry,
 		private readonly routerIdentity: { signPub: string; signPriv: string },
+		/** Binds row references. */
+		private readonly refs?: Pick<ReferenceHeldStore, "publish">,
 	) {}
 
 	/** Gate peer rows. */
@@ -60,7 +63,7 @@ export class InboxService {
 		shareGeneration?: number;
 		nonce?: { signerSignPub: string; nonce: string; at: number };
 	}): OpResultEnvelope & { row?: InboxRow } {
-		return appendInboxRow(this.registry, input);
+		return appendInboxRow(this.registry, input, this.refs);
 	}
 
 	ownerOpNonce(domainId: string, signerSignPub: string, nonce: string): { at: number } | null {
@@ -187,7 +190,7 @@ export class InboxService {
 		body: Record<string, unknown>;
 		contentRefs?: string[];
 	}): OpResultEnvelope & { row?: InboxRow } {
-		return appendRouterOpResultRow(this.registry, this.routerIdentity, input);
+		return appendRouterOpResultRow(this.registry, this.routerIdentity, input, this.refs);
 	}
 
 	pendingFor(domainId: string, gatewayId: string): Array<{ address: string; rows: InboxRow[] }> {
@@ -383,6 +386,7 @@ export class InboxService {
 			(domainId, address, row) => this.rowRetired(domainId, address, row),
 			(domainId, signerSignPub) => this.forgetConsumer(domainId, signerSignPub),
 			now,
+			this.refs,
 		);
 	}
 
@@ -420,6 +424,7 @@ export class InboxService {
 			outcome,
 			reason,
 			(d, a, r) => this.rowRetired(d, a, r),
+			this.refs,
 		);
 	}
 }

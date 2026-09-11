@@ -35,7 +35,14 @@ export interface PersistenceStageDeps {
 	 * session whose shell is still there, holding a token this gateway no longer knows.
 	 */
 	reservedByRoutine?: (team: string) => boolean;
+	/** After sockets; reports expiries. */
+	sweepDeliveries?: () => number | undefined;
+	/** Queued data names bytes. */
+	namesBlob?: (blobId: string) => boolean;
 }
+
+/** Unreferenced staging lifetime. */
+const STAGED_BLOB_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export interface PersistenceStage {
 	/** Runs every writer's step in order. A clean shutdown writes checked snapshots. */
@@ -50,6 +57,8 @@ export function composePersistence({
 	context,
 	sessionEnded,
 	reservedByRoutine,
+	sweepDeliveries,
+	namesBlob,
 }: PersistenceStageDeps): PersistenceStage {
 	const runPersistSteps = createPersistRunner();
 	const persistDelivery = (cleanShutdown: boolean) =>
@@ -83,9 +92,20 @@ export function composePersistence({
 			{ name: "board-idempotency-sweep", run: () => stores.boardReplays.sweep() },
 			{ name: "console-capabilities-sweep", run: () => stores.capabilityStore.sweep() },
 			{
+				name: "delivery-sweep",
+				run: () => {
+					const expired = sweepDeliveries?.() ?? 0;
+					if (expired > 0) console.log(`[delivery] ${expired} held message(s) expired unread`);
+				},
+			},
+			{
 				name: "blob-sweep",
 				run: () => {
-					const freed = stores.blobStore.sweep({ maxBytes: stores.maxBlobStoreBytes });
+					const freed = stores.blobStore.sweep({
+						maxBytes: stores.maxBlobStoreBytes,
+						completeMaxAgeMs: STAGED_BLOB_MAX_AGE_MS,
+						keep: (blobId) => namesBlob?.(blobId) ?? true,
+					});
 					if (freed > 0) console.error(`[blobs] swept ${freed} bytes`);
 				},
 			},

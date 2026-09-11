@@ -30,6 +30,8 @@ export interface WebSocketsStageDeps {
 	host: Pick<HostStage, "wakeCoordinator" | "hostOpCoordinator" | "pushPresenceWatch">;
 	agents: Pick<AgentsStage, "codexRelay" | "copilotRelay">;
 	federation: Pick<FederationStage, "channelDeliveryAck">;
+	/** Composes after routes. */
+	retireStaging?: (blobIds: string[]) => void;
 }
 
 export interface WebSocketsStage {
@@ -43,6 +45,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		store: stores.pendingDeliveries,
 		registry: sessions.registry,
 		repushHandshake: (team, subId) => wsHandlers.repushHandshake(team, subId),
+		retireStaging: deps.retireStaging,
 	});
 
 	const wsHandlers = createWebSocketHandlers({

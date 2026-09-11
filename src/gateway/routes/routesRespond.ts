@@ -10,7 +10,6 @@ import {
 	MAX_RESPONSE_FILE_BYTES,
 	PollRequestSchema,
 	RespondBodySchema,
-	stampBlobHolder,
 	stripFileRefs,
 } from "../routeSchemas.js";
 import { type Presented, presentedByRequest } from "../sessionAuthority.js";
@@ -86,11 +85,7 @@ export function createRespondRoutes({
 			return jsonResponse({ error: `Invalid request: ${parsed.error.message}` }, 400);
 		}
 
-		const { session_id: respondSessionId, replyAsJson, files: rawFiles, opId: producerOpId, ...rest } = parsed.data;
-		// Only a local agent's own upload gets this Gateway's holder stamp.
-		const files =
-			rawFiles &&
-			(opts.trustedInbound || opts.consoleSender ? rawFiles : stampBlobHolder(rawFiles, localGatewayId));
+		const { session_id: respondSessionId, replyAsJson, files, opId: producerOpId, ...rest } = parsed.data;
 
 		// Raw-bytes backstop before anything is stored or pushed.
 		if (files && files.length > 0) {

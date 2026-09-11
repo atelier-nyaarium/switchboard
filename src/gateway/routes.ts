@@ -43,7 +43,7 @@ export interface RoutesDeps {
 	routerCertFp?: string;
 	// E2E seal/open for cross-Gateway frames; absent when federation crypto is off.
 	sealer?: import("./federation/sealer.js").Sealer | null;
-	/** Absent turns a cross-Gateway blob fetch into a refusal. */
+	/** Gateway delivery staging. */
 	blobStore?: import("../shared/blob-store.js").BlobStore;
 	blobUploader?: ReturnType<typeof import("./router/blobUploader.js").createBlobUploader>;
 	contentKeyStore?: Pick<import("./federation/contentKeyStore.js").ContentKeyStore, "keyFor" | "seal">;
@@ -91,12 +91,10 @@ export interface RoutesDeps {
 export interface RoutesCarryOver {
 	/** Losing this turns a retried absolute write into a second write. */
 	boardOperationReplies: Map<string, Record<string, unknown>>;
-	/** Losing this un-coalesces running fetches, so the same bytes are pulled twice. */
-	blobFetches: Map<string, Promise<import("./blobOps.js").BlobFetchOutcome>>;
 }
 
 export function createRoutesCarryOver(): RoutesCarryOver {
-	return { boardOperationReplies: new Map(), blobFetches: new Map() };
+	return { boardOperationReplies: new Map() };
 }
 
 export function createRoutes(deps: RoutesDeps) {
@@ -132,21 +130,18 @@ export function createRoutes(deps: RoutesDeps) {
 		routerClient: deps.routerClient,
 		contentKeyStore: deps.contentKeyStore,
 		blobUploader: deps.blobUploader,
+		blobStore: deps.blobStore,
+		deliveries: deps.deliveries,
 		localAddress,
 		refuseImpersonation,
 	});
 	const { mirrorPeer, humanNotify, pluginAction, deliverToOwner } = consolePush;
 
-	const { fetchBlobFromGateway } = createBlobRoutes({
+	const { readBlob } = createBlobRoutes({
 		config,
-		ambient,
-		blobStore: deps.blobStore,
-		crossDomainPeers: deps.crossDomainPeers,
 		contentKeyStore: deps.contentKeyStore,
 		ownerSignPub: deps.ownerSignPub,
 		routerClient: deps.routerClient,
-		relayToGateway,
-		inFlight: carryOver.blobFetches,
 	});
 	const {
 		presenceForDomain,
@@ -203,6 +198,7 @@ export function createRoutes(deps: RoutesDeps) {
 		auth,
 		awareness: deps.awareness,
 		deliveries: deps.deliveries,
+		blobUploader: deps.blobUploader,
 		localAddress,
 		consoleSelfAddress,
 		tryLocalAddress,
@@ -253,7 +249,7 @@ export function createRoutes(deps: RoutesDeps) {
 		ownerSessionKey,
 		respond,
 		poll,
-		fetchBlobFromGateway,
+		readBlob,
 		health,
 		humanNotify,
 		deliverToOwner,
@@ -264,6 +260,8 @@ export function createRoutes(deps: RoutesDeps) {
 		pushPresenceToDomain,
 		pullPresenceFromDomain,
 		invalidatePresenceSnapshotCache,
+		namesBlob: consolePush.namesBlob,
+		retireStaging: consolePush.retireStaging,
 		stop: consolePush.stop,
 	};
 }

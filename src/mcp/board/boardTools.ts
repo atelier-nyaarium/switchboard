@@ -214,7 +214,7 @@ export function boardRequestBody(
 async function fetchAttachments(args: { id: string; filenames?: string[] }): Promise<string> {
 	// Not in MUTATING, so this mints no operation id, or a replay would hand back stale blobIds.
 	const answer = (await postBoard(boardRequestBody("attachments", { id: args.id }))) as {
-		attachments?: Array<{ blobId: string; blobGateway: string; filename: string; mime: string; size: number }>;
+		attachments?: Array<{ blobId: string; filename: string; mime: string; size: number }>;
 	};
 	const all = answer.attachments ?? [];
 	const wanted = args.filenames ? all.filter((a) => args.filenames?.includes(a.filename)) : all;
@@ -236,7 +236,6 @@ async function fetchAttachments(args: { id: string; filenames?: string[] }): Pro
 			size: a.size,
 			descriptiveKey: a.filename,
 			blobId: a.blobId,
-			blobGateway: a.blobGateway,
 			role: "attachment" as const,
 		})),
 	});

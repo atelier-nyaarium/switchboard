@@ -45,7 +45,7 @@ internal class ConsoleClientCollaborators(
 
 /** Signed OwnerOp client for the Router console surface. */
 class ConsoleClient internal constructor(
-	private val boot: PhoneBootstrap,
+	internal val boot: PhoneBootstrap,
 	internal val ambient: PhoneAmbient,
 	store: AppStateStore,
 	private val coordinator: ConsoleTransportCoordinator? = null,
@@ -292,17 +292,13 @@ class ConsoleClient internal constructor(
 		opId: String = ambient.newOpId(),
 		domainId: String? = null,
 	): SendResult {
-		// Blob holder Gateway.
-		val local = defaultGatewayId()
 		val wireFiles = files.map { f ->
 			ChannelFile(
 				filename = f.name,
 				mime = f.mime,
 				size = f.size,
 				descriptiveKey = f.name,
-				blobId = uploadBlob(f.source),
-				// Identify the blob holder.
-				blobGateway = local,
+				blobId = uploadSealedBlob(f.source),
 				role = "attachment",
 			)
 		}

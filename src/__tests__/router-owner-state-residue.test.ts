@@ -200,7 +200,10 @@ describe("Router owner state residue", () => {
 					producerSignPub: router.sign.pub,
 				});
 			},
-			referenceHeld: { has: () => true, applyRefs: () => undefined },
+			referenceHeld: {
+				has: () => true,
+				publish: (domainId, _sets, mutate) => registry.for(domainId).batch(mutate),
+			},
 			scheduler: { set: (_ms, fn) => timers.push(fn) - 1, clear: () => undefined },
 			now: () => 100,
 		});

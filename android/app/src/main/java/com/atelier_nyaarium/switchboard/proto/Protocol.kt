@@ -65,6 +65,9 @@ object Protocol {
 		const val OWNER_OP_VAULT_LIST: String = "vault_list"
 		const val OWNER_OP_VAULT_PUT: String = "vault_put"
 		const val OWNER_OP_VAULT_DELETE: String = "vault_delete"
+		const val OWNER_OP_BLOB_BEGIN: String = "blob_begin"
+		const val OWNER_OP_BLOB_CHUNK: String = "blob_chunk"
+		const val OWNER_OP_BLOB_UPLOAD_STATUS: String = "blob_upload_status"
 		const val SIGNING_TAG_ADMISSION: String = "ADMISSION_V1"
 		const val SIGNING_TAG_REVOCATION: String = "REVOCATION_V1"
 		const val SIGNING_TAG_REGISTER: String = "REGISTER_V1"
@@ -115,9 +118,6 @@ object Protocol {
 			const val RENAME_SESSION: String = "rename_session"
 			const val WAKE: String = "wake"
 			const val LIST_DIRS: String = "list_dirs"
-			const val BLOB_STAT: String = "blob_stat"
-			const val BLOB_PUT: String = "blob_put"
-			const val BLOB_GET: String = "blob_get"
 			const val CROSS_DOMAIN_LISTEN: String = "cross_domain_listen"
 			const val CROSS_DOMAIN_REQUEST: String = "cross_domain_request"
 			const val CROSS_DOMAIN_CONFIRM: String = "cross_domain_confirm"
@@ -207,7 +207,6 @@ data class ChannelFile(
 	val descriptiveKey: String,
 	val modifiedAt: Long? = null,
 	val blobId: String? = null,
-	val blobGateway: String? = null,
 	val role: String,
 	val ref: RefFileMeta? = null,
 	val cardTitle: String? = null,
@@ -357,31 +356,6 @@ sealed class ConsoleOp {
 	data class ListDirs(
 		val path: String,
 		val spawn: String? = null,
-	) : ConsoleOp()
-
-	@Serializable
-	@SerialName("blob_stat")
-	data class BlobStat(
-		val blobId: String,
-		val fromGateway: String? = null,
-	) : ConsoleOp()
-
-	@Serializable
-	@SerialName("blob_put")
-	data class BlobPut(
-		val blobId: String,
-		val offset: Long,
-		val chunk: String,
-		val final: Boolean,
-	) : ConsoleOp()
-
-	@Serializable
-	@SerialName("blob_get")
-	data class BlobGet(
-		val blobId: String,
-		val offset: Long,
-		val length: Long,
-		val fromGateway: String? = null,
 	) : ConsoleOp()
 
 	@Serializable
@@ -768,23 +742,83 @@ data class ConsoleListDirsResult(
 )
 
 @Serializable
-data class ConsoleBlobStatResult(
-	val have: Long,
+data class BlobLease(
+	val id: String,
+	val generation: Long,
+)
+
+@Serializable
+data class BlobBeginValue(
+	val blobId: String,
+	val size: Long,
+	val ciphertextSize: Long,
+	val ciphertextDigest: String,
+	val epoch: Long,
+	@EncodeDefault
+	val kind: String = "blob_begin",
+)
+
+@Serializable
+data class BlobChunkValue(
+	@EncodeDefault
+	val kind: String = "blob_chunk",
+	val blobId: String,
+	val lease: BlobLease,
+	val offset: Long,
+	val bytes: String,
+	val final: Boolean,
+)
+
+@Serializable
+data class BlobUploadStatusValue(
+	@EncodeDefault
+	val kind: String = "blob_upload_status",
+	val blobId: String,
+)
+
+@Serializable
+data class BlobFetchValue(
+	@EncodeDefault
+	val kind: String = "blob_fetch",
+	val blobId: String,
+	val range: BlobRange? = null,
+)
+
+@Serializable
+data class BlobBeginAnswer(
+	val outcome: String,
+	val lease: BlobLease? = null,
+	val have: Long? = null,
+	val reason: String? = null,
+)
+
+@Serializable
+data class BlobChunkAnswer(
+	val outcome: String,
+	val have: Long? = null,
+	val complete: Boolean? = null,
+	val reason: String? = null,
+)
+
+@Serializable
+data class BlobUploadStatusAnswer(
+	val outcome: String,
+	val have: Long? = null,
+	val lease: BlobLease? = null,
 	val size: Long? = null,
-	val complete: Boolean,
+	val ciphertextSize: Long? = null,
+	val ciphertextDigest: String? = null,
+	val epoch: Long? = null,
 )
 
 @Serializable
-data class ConsoleBlobPutResult(
-	val have: Long,
-	val complete: Boolean,
-)
-
-@Serializable
-data class ConsoleBlobGetResult(
-	val chunk: String? = null,
-	val eof: Boolean,
-	val absent: Boolean? = null,
+data class BlobFetchAnswer(
+	val outcome: String,
+	val bytes: String? = null,
+	val eof: Boolean? = null,
+	val epoch: Long? = null,
+	val offset: Long? = null,
+	val size: Long? = null,
 )
 
 @Serializable
@@ -2131,7 +2165,6 @@ data class BoardSession(
 @Serializable
 data class BoardAttachment(
 	val blobId: String,
-	val blobGateway: String,
 	val filename: String,
 	val mime: String,
 	val size: Long,
@@ -2161,6 +2194,12 @@ data class CrossDomainPresenceSession(
 	val queueDepth: Long,
 	val working: Boolean? = null,
 	val needsLogin: Boolean? = null,
+)
+
+@Serializable
+data class BlobRange(
+	val offset: Long,
+	val length: Long,
 )
 
 @Serializable
@@ -2388,7 +2427,6 @@ data class BoardStateAttachment(
 	val blobId: String,
 	val size: Long,
 	val mime: String,
-	val blobGateway: String,
 )
 
 @Serializable

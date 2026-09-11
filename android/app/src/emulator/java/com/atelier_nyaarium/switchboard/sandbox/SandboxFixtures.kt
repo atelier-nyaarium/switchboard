@@ -57,22 +57,19 @@ import kotlinx.serialization.json.Json
  */
 class SandboxFixtures(private val filesDir: File, private val assets: AssetManager) {
 	/** Two sessions: one carries every seeded surface, the second only exists so the tab row draws.
-	 * Both carry a domainId, which is what lets the sessions board qualify a spawn target and so
-	 * exercise the create-on-another-machine path rather than falling back to a bare name. */
+	 * Both names are fully qualified. */
 	fun teams(): List<Team> = listOf(
 		Team(
 			name = SESSION,
 			presence = sandboxPresence(),
 			kind = "loose",
 			sessionLabel = "Sandbox",
-			domainId = DOMAIN,
 		),
 		Team(
 			name = SESSION_2,
 			presence = sandboxPresence(),
 			kind = "loose",
 			sessionLabel = "Second",
-			domainId = DOMAIN,
 		),
 	)
 
@@ -418,7 +415,6 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 		val present = writeBoardBytes(entryId, "shot", 4_000)
 		val huge = BoardAttachment(
 			blobId = "sha256-${"c".repeat(64)}",
-			blobGateway = gatewayId,
 			filename = "capture.bin",
 			mime = "application/octet-stream",
 			size = 340_000_000,
@@ -481,7 +477,7 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 			rank = rank,
 			session = sessionId?.let { BoardSession(domainId = DOMAIN, gatewayId = gatewayId, sessionId = it) },
 			attachments = attachments?.map {
-				BoardStateAttachment(blobId = it.blobId, size = it.size, mime = it.mime, blobGateway = it.blobGateway)
+				BoardStateAttachment(blobId = it.blobId, size = it.size, mime = it.mime)
 			},
 			version = 1L,
 		),
@@ -562,6 +558,6 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 			it.parentFile?.mkdirs()
 			it.writeBytes(png)
 		}
-		return BoardAttachment(blobId, "sandbox-gw", "$label.png", "image/png", png.size.toLong())
+		return BoardAttachment(blobId, "$label.png", "image/png", png.size.toLong())
 	}
 }

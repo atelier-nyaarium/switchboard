@@ -30,7 +30,7 @@ internal interface BoardOpsCollaborators {
 	fun admitPicked(uris: List<Uri>, name: String): Pair<List<OutgoingFile>, Admission.Refused?>
 	fun localDomain(): String
 	val client: ConsoleClient?
-	fun command(block: () -> Unit)
+	fun command(block: suspend () -> Unit)
 }
 
 /** Repository-side board operations. */
@@ -38,7 +38,6 @@ internal class BoardOps(
 	private val state: MutableStateFlow<ChatState>,
 	private val repoScope: CoroutineScope,
 	private val filesDir: File,
-	private val homeGatewayId: () -> String,
 	private val collaborators: BoardOpsCollaborators,
 ) {
 	/** Reads and drains the Router board. */
@@ -70,27 +69,17 @@ internal class BoardOps(
 		collaborators.sessions.forget(team, asked, onForgotten)
 	}
 
-	/** Resolves the board Gateway from the address. */
-	fun boardGatewayOf(team: String?): String {
-		val fromName = team?.let { runCatching { gatewayOf(it) }.getOrNull() }?.ifEmpty { null }
-		return fromName ?: homeGatewayId()
-	}
-
-	/** Resolves the board Gateway for a session key. */
-	fun boardGatewayOfKey(sessionKey: String): String? {
-		if (sessionKey.isEmpty()) return null
-		val gw = state.value.teams.firstOrNull { localFieldOrSelf(it.name) == sessionKey }?.gatewayId
-		return gw?.ifEmpty { homeGatewayId() }
-	}
-
 	fun boardEntriesFor(team: String?): List<BoardEntry> = collaborators.board.routerEntries()
 
 	fun boardLiveLineFor(team: String): BoardLiveLine? = collaborators.board.liveLine(team)
 
 	fun boardUndoneCountFor(team: String): Int = collaborators.board.undoneCount(team)
 
-	fun boardCardBranchFor(team: String, currentId: String?): CardBranch =
-		collaborators.board.cardBranch(boardGatewayOf(team), team, currentId)
+	fun boardCardBranchFor(team: String, currentId: String?): CardBranch {
+		val row = state.value.teams.firstOrNull { it.name == team } ?: return CardBranch(emptyList(), 0)
+		val key = com.atelier_nyaarium.switchboard.board.GroupKey(row.domainId, row.gatewayId, collaborators.board.sessionKeyOf(team))
+		return collaborators.board.cardBranch(key, currentId)
+	}
 
 	fun boardSessionKeyOf(team: String): String = collaborators.board.sessionKeyOf(team)
 
@@ -145,14 +134,7 @@ internal class BoardOps(
 	fun boardSetAttachments(id: String, keep: List<BoardAttachment>, add: List<Uri>) =
 		collaborators.command { boardSetAttachmentsNow(id, keep, add) }
 
-	/** Where an entry's blobs live: its own session's Gateway, or this phone's route. */
-	private fun blobGatewayFor(id: String): String {
-		val held = collaborators.board.routerEntries().firstOrNull { it.id == id }?.session?.gatewayId
-		return held?.ifEmpty { null } ?: boardGatewayOf(null)
-	}
-
-	private fun boardSetAttachmentsNow(id: String, keep: List<BoardAttachment>, add: List<Uri>) {
-		val gatewayId = blobGatewayFor(id)
+	private suspend fun boardSetAttachmentsNow(id: String, keep: List<BoardAttachment>, add: List<Uri>) {
 		val bucket = Attachments.boardBucket(id)
 		// Keep staged files outside the destination bucket.
 		val (staged, refused) =
@@ -168,6 +150,13 @@ internal class BoardOps(
 			return
 		}
 		val client = collaborators.attachmentHost.clientOrReject(staged) ?: return
+		try {
+			staged.forEach { client.uploadSealedBlob(it.source) }
+		} catch (e: Exception) {
+			e.rethrowIfCancellation()
+			state.update { it.copy(error = e.message ?: "Attachment upload failed") }
+			return
+		}
 		val sources = mutableMapOf<String, String>()
 		val added = staged.mapNotNull { picked ->
 			// Land under the blob name.
@@ -179,7 +168,6 @@ internal class BoardOps(
 			sources[blobId] = target.absolutePath
 			BoardAttachment(
 				blobId = blobId,
-				blobGateway = gatewayId,
 				filename = picked.name,
 				mime = picked.mime,
 				size = picked.size,
@@ -200,11 +188,9 @@ internal class BoardOps(
 		intend(
 			BoardIntent.SetAttachments(
 				id,
-				(keep + added).map { BoardStateAttachment(it.blobId, it.size, it.mime, it.blobGateway) },
+				(keep + added).map { BoardStateAttachment(it.blobId, it.size, it.mime) },
 			),
 		)
-		// Upload outside the single-flight drain.
-		for ((_, source) in sources) kickBoardUpload(source, gatewayId)
 	}
 
 	/** Returns or starts fetching an attachment. */
@@ -219,18 +205,30 @@ internal class BoardOps(
 	/** Explicitly downloads an attachment. */
 	fun boardDownloadAttachment(entryId: String, a: BoardAttachment) {
 		boardFetchFailures.remove(a.blobId)
+		boardFetchAbsent.remove(a.blobId)
 		kickBoardDownload(entryId, a)
+	}
+
+	private var lastForgetAt = 0L
+
+	/** Re-asks absent attachments, at most once an hour. */
+	fun forgetAbsent(now: Long = System.currentTimeMillis()) {
+		if (now - lastForgetAt < AttachmentOps.ABSENT_RETRY_INTERVAL_MS) return
+		lastForgetAt = now
+		boardFetchFailures.clear()
+		boardFetchAbsent.clear()
+		collaborators.board.revision.longValue++
 	}
 
 	/** Attachment fetch state. */
 	private val boardFetchFailures = java.util.Collections.synchronizedMap(mutableMapOf<String, Int>())
 	private val boardDownloadsInFlight = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
-	// Proven absence is separate from ordinary failure.
-	private val boardFetchAbsent = java.util.Collections.synchronizedMap(mutableMapOf<Pair<String, String>, Int>())
+	private val boardFetchAbsent = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
 	fun boardAttachmentState(a: BoardAttachment): String = when {
 		a.blobId in boardDownloadsInFlight -> "downloading"
+		a.blobId in boardFetchAbsent -> "absent"
 		(boardFetchFailures[a.blobId] ?: 0) >= ChatRepository.BOARD_FETCH_GIVE_UP -> "failed"
 		a.size > Protocol.BOARD_AUTO_DOWNLOAD_MAX_BYTES -> "manual"
 		else -> "pending"
@@ -240,13 +238,11 @@ internal class BoardOps(
 		// Prefer this entry's pending wait.
 		if ((boardFetchFailures[a.blobId] ?: 0) >= ChatRepository.BOARD_FETCH_GIVE_UP) return
 		if (!boardDownloadsInFlight.add(a.blobId)) return
-		// The queued action identifies the holder.
-		val holder = a.blobGateway
 		repoScope.launch {
 			try {
 				val target = Attachments.boardFile(filesDir, entryId, a.blobId)
 				val c = collaborators.client ?: error("Domain not yet confirmed by a local session")
-				val staged = c.downloadBlob(a.blobId, holder)
+				val staged = c.downloadBlob(a.blobId)
 				target.parentFile?.mkdirs()
 				// Land atomically through a temporary file.
 				val tmp = File(target.parentFile, "${target.name}.landing")
@@ -260,23 +256,16 @@ internal class BoardOps(
 				// Discard the transfer buffer.
 				c.forgetBlob(a.blobId)
 				boardFetchFailures.remove(a.blobId)
-				boardFetchAbsent.keys.removeAll { it.second == a.blobId }
+				boardFetchAbsent.remove(a.blobId)
 				collaborators.board.revision.longValue++
 			} catch (e: BlobAbsent) {
-				// Gateway-confirmed absence.
-				val key = entryId to a.blobId
-				val proven = (boardFetchAbsent[key] ?: 0) + 1
-				boardFetchAbsent[key] = proven
-				boardFetchFailures[a.blobId] = (boardFetchFailures[a.blobId] ?: 0) + 1
-				DebugLog.log("Board", "attachment ${a.blobId.take(16)} proven absent ($proven) for ${key.first}")
-				if (proven >= ChatRepository.BOARD_FETCH_DEAD_AFTER) {
-					boardFetchAbsent.remove(key)
-				}
+				boardFetchAbsent.add(a.blobId)
+				DebugLog.log("Board", "attachment ${a.blobId.take(16)} absent")
 				collaborators.board.revision.longValue++
 			} catch (e: Exception) {
 				e.rethrowIfCancellation()
 				// Ordinary failures do not prove absence.
-				boardFetchAbsent.keys.removeAll { it.second == a.blobId }
+				boardFetchAbsent.remove(a.blobId)
 				// Bound repeated failures.
 				boardFetchFailures[a.blobId] = (boardFetchFailures[a.blobId] ?: 0) + 1
 				DebugLog.log("Board", "attachment fetch failed: ${e.message?.take(80)}")
@@ -301,27 +290,6 @@ internal class BoardOps(
 	/** Live board attachment buckets. */
 	internal fun attachmentBuckets(): Set<String>? = collaborators.board.attachmentBuckets()
 
-	/** Restarts pending transfers. */
-	internal fun resumeBoardUploads() {
-	}
-
-	/** One upload per source. */
-	private val boardUploadsInFlight = java.util.Collections.synchronizedSet(mutableSetOf<String>())
-
-	private fun kickBoardUpload(source: String, gatewayId: String) {
-		if (!boardUploadsInFlight.add(source)) return
-		repoScope.launch {
-			try {
-				collaborators.client?.uploadBlob(File(source), gatewayId)
-			} catch (e: Exception) {
-				e.rethrowIfCancellation()
-				DebugLog.log("Board", "attachment upload failed: ${e.message?.take(80)}")
-			} finally {
-				boardUploadsInFlight.remove(source)
-			}
-		}
-	}
-
 	/** Assign an entry and its subtree to a session, or null back to the backlog. */
 	fun boardAssign(id: String, team: String?) {
 		// Assignment changes fields on one board.
@@ -329,7 +297,7 @@ internal class BoardOps(
 			val row = state.value.teams.firstOrNull { it.name == name }
 			BoardSession(
 				domainId = row?.domainId ?: collaborators.localDomain(),
-				gatewayId = boardGatewayOf(name),
+				gatewayId = row?.gatewayId ?: return,
 				sessionId = collaborators.board.sessionKeyOf(name),
 			)
 		}

@@ -31,25 +31,21 @@ clear structure with sealed title, body and attachment filenames. It never opens
 
 ## Attachments
 
-Attachment bytes live on the Router; the gateway keeps no copy. A Router-held entry may name only blobs
-the Router's reference-held store already holds; a write naming anything else is refused
-`attachment_missing`.
+Attachment bytes live on the Router; no Gateway keeps a copy and no attachment names one. A
+Router-held entry may name only blobs the Router already holds; the write and the entry's reference
+set land in one journal line, and a write naming anything else is refused `attachment_missing`.
 
 - **`set_attachments` replaces the field:** Other writes preserve stored attachments.
-- **The phone picks the blob's Gateway from the entry, never from the row that was tapped:** an
-  unassigned entry has no session Gateway, and a row carries `""` for one. Every other board write is
-  owner-scoped and names no Gateway at all.
-- The op declares `supplied`. Durable or cached members are retained, uploading members cause retry,
-  and unresolved members are dropped and reported.
-- Presence checks are durable-first, and every member resolves before any is adopted.
-- **All three byte-serving doors use `readBlobRange`:** `answerBlobOp`, the HTTP route, and
-  federation `serveBlobRange`.
-- `/task-board` exposes display facts only. Blob ids and gateways travel through the separate
-  attachment fetch action; route-side stripping prevents bearer-token leakage.
-- Cross-Gateway moves chain destination upsert, attachment writes, then origin delete. Records are
-  restamped; unavailable local bytes use `fetchFrom`.
-- `remove()` reclaims nothing until the destination is proven to hold the bytes. Per-move directories
-  may leak.
+- **The phone uploads first and intends once:** every new blob goes up through the blob owner ops,
+  and `set_attachments` is posted only when all of them are held. The staged source stays for a
+  retry.
+- **A read reaches the Router only:** `AttachmentOps` fetches through `blob_fetch`; `absent` is a
+  proven Router absence, drawn as such and retried by tap. Failures, not absence, count toward the
+  give-up.
+- `/task-board` exposes display facts only. Blob ids travel through the separate attachment fetch
+  action.
+- A cross-Gateway move rewrites the entry's Gateway; the bytes do not move, since nothing holds them
+  but the Router.
 
 **File map:**
 

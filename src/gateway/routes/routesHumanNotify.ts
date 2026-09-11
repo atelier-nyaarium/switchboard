@@ -15,6 +15,8 @@ export interface HumanNotifyRoutesDeps {
 	routerClient?: import("../router/routerClient.js").RouterClient | null;
 	contentKeyStore?: Pick<import("../federation/contentKeyStore.js").ContentKeyStore, "keyFor" | "seal">;
 	blobUploader?: ReturnType<typeof import("../router/blobUploader.js").createBlobUploader>;
+	blobStore?: import("../../shared/blob-store.js").BlobStore;
+	deliveries?: import("../channelDelivery.js").ChannelDeliveryCoordinator;
 	localAddress: (name: string) => Address;
 	refuseImpersonation: (req: Request, claimed: string, scope: CallerScope) => Response | null;
 }
@@ -29,6 +31,8 @@ export function createHumanNotifyRoutes({
 	routerClient,
 	contentKeyStore,
 	blobUploader,
+	blobStore,
+	deliveries,
 	localAddress,
 	refuseImpersonation,
 }: HumanNotifyRoutesDeps) {
@@ -44,16 +48,9 @@ export function createHumanNotifyRoutes({
 		localGatewayId: config.localGatewayId,
 		localAddress,
 		ambient,
-		// Caught here, or a failed copy surfaces as a bare unhandledRejection instead of the uploader's.
-		cacheBlobs: blobUploader
-			? (blobIds) => {
-					blobUploader
-						.uploadAll(blobIds, "cache")
-						.catch((error) =>
-							console.warn(`[blob-cache] ${error instanceof Error ? error.message : String(error)}`),
-						);
-				}
-			: null,
+		blobUploader,
+		blobStore,
+		deliveries,
 		refuseImpersonation,
 	});
 }

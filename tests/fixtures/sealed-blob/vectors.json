@@ -1,5 +1,5 @@
 {
-	"_comment": "Cross-runtime vectors for sealed blob framing. Read by BOTH src/__tests__/sealed-blob.test.ts and android/.../SealedBlobTest.kt, so the hand-authored Kotlin twin cannot drift from src/shared/sealed-blob.ts. The AAD binds the blob id, the chunk index and the final flag; a single character of difference means nothing decrypts, and a test inside one runtime cannot catch that because both its halves would share the mistake.",
+	"_comment": "Cross-runtime vectors for sealed blob framing. Read by BOTH src/__tests__/sealed-blob.test.ts and android/.../SealedBlobTest.kt, so the hand-authored Kotlin twin cannot drift from src/shared/sealed-blob.ts. The AAD binds the blob id, the chunk index and the final flag; a single character of difference means nothing decrypts, and a test inside one runtime cannot catch that because both its halves would share the mistake. derivedNonces and derivedFrames pin the nonce an uploader derives from the key and the AAD, so a resumed upload on either runtime seals the same bytes.",
 	"key": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
 	"context": {
 		"domainId": "domain-a",
@@ -12,18 +12,26 @@
 		{
 			"size": 0,
 			"ciphertextSize": 28,
-			"frames": ["AQEBAQEBAQEBAQEBnbYOh+3H9d+GPcXV+wj1lQ=="]
+			"frames": ["AQEBAQEBAQEBAQEBnbYOh+3H9d+GPcXV+wj1lQ=="],
+			"derivedNonces": ["r5rdvgfCuU9uIaGf"],
+			"derivedFrames": ["r5rdvgfCuU9uIaGfWU5Mpx6opaXsAD7SU5ccXQ=="]
 		},
 		{
 			"size": 1,
 			"ciphertextSize": 29,
-			"frames": ["AQEBAQEBAQEBAQEBN+kp+FYUXB32cbjXj01o65g="]
+			"frames": ["AQEBAQEBAQEBAQEBN+kp+FYUXB32cbjXj01o65g="],
+			"derivedNonces": ["r5rdvgfCuU9uIaGf"],
+			"derivedFrames": ["r5rdvgfCuU9uIaGfw0bZ0r0PYJezxKP2KTE58XI="]
 		},
 		{
 			"size": 100,
 			"ciphertextSize": 128,
 			"frames": [
 				"AQEBAQEBAQEBAQEBN6DI9tH+rU+QlZ1gMXYxcOm6VbVZ1npSGXACIyf1d/qD80nx3VLEwR8zCUqAP6/Yz1qoQxz/vh7jA+ZJl2PE1OimH3FPjXdsIhlYIeplQNkSziJ2QotabG1wWLD52Z5PTJ1e1lGKiA/5BKf/o+BXvI2UMZg="
+			],
+			"derivedNonces": ["r5rdvgfCuU9uIaGf"],
+			"derivedFrames": [
+				"r5rdvgfCuU9uIaGfw/9hyNMINvoA1tPmuqshhycieMHhTlCLFfKJ6gyfbldX/bif2rY4ZU14uS4mlAfSzyjyOBQdVZ9BGUW81n8bJK3ML2c+dFtdRxPqROG2wWcFkeV+8HcYWOYSuUFtaL/nB7AB3I1rj+tz14/UULTtbD/KK9M="
 			]
 		}
 	]

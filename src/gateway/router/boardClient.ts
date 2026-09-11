@@ -329,9 +329,4 @@ export function createBoardClient(deps: BoardClientDeps) {
 	return { read, mutate, openEntry, sessionEnded };
 }
 
-const clearAttachment = ({ blobId, size, mime, blobGateway }: BoardAttachment) => ({
-	blobId,
-	size,
-	mime,
-	blobGateway,
-});
+const clearAttachment = ({ blobId, size, mime }: BoardAttachment) => ({ blobId, size, mime });

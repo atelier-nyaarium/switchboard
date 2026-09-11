@@ -17,7 +17,6 @@ class BoardOpsTest {
 		var board: String? = null
 		override fun loadTaskBoard() = board
 		override fun saveTaskBoard(json: String) { board = json }
-		override fun loadGatewayId() = "gw"
 	}
 
 	private class FakeCollaborators(store: FakeBoardStore) : BoardOpsCollaborators {
@@ -29,13 +28,13 @@ class BoardOpsTest {
 		override fun admitPicked(uris: List<Uri>, name: String) = emptyList<OutgoingFile>() to null
 		override fun localDomain() = "dom"
 		override val client: ConsoleClient? = null
-		override fun command(block: () -> Unit) = block()
+		override fun command(block: suspend () -> Unit) = kotlinx.coroutines.runBlocking { block() }
 	}
 
 	@Test
 	fun capturesShowOnTheBoardBeforeTheRouterAnswers() {
 		val collaborators = FakeCollaborators(FakeBoardStore())
-		val ops = BoardOps(MutableStateFlow(ChatState()), CoroutineScope(Dispatchers.Unconfined), File("/tmp/board-ops"), { "gw" }, collaborators)
+		val ops = BoardOps(MutableStateFlow(ChatState()), CoroutineScope(Dispatchers.Unconfined), File("/tmp/board-ops"), collaborators)
 
 		ops.boardCapture("first", null)
 		ops.boardCapture("second", "why")

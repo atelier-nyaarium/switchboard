@@ -35,6 +35,8 @@ services:
       # Only the first door: the Router's advertised addresses lead the ring after the first register.
       - FEDERATION_ROUTER_HOST=${FEDERATION_ROUTER_HOST:-}
       - FEDERATION_ROUTER_PORT=${FEDERATION_ROUTER_PORT:-}
+      # Remove-by: 2026-09-25, with the blob migration route.
+      - ROUTER_BLOB_MIGRATION_TOKEN=${ROUTER_BLOB_MIGRATION_TOKEN:-}
     networks:
       - switchboard-network
       - switchboard-federation

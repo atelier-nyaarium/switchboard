@@ -47,6 +47,35 @@ function delivery(id: string): PendingDelivery {
 }
 
 describe("ChannelDeliveryCoordinator", () => {
+	it("lets go of the bytes a message named once it is acknowledged, or once it expires unread", () => {
+		let now = 10_000;
+		const store = new PendingDeliveryStore(undefined, { now: () => now }, 5_000);
+		const retired: string[][] = [];
+		const s = socket(1);
+		const c = new ChannelDeliveryCoordinator({
+			store,
+			registry: registryWith(s),
+			retireStaging: (blobIds) => retired.push(blobIds),
+		});
+		const named = (id: string, blobId: string): PendingDelivery => ({
+			...delivery(id),
+			enqueuedAt: now,
+			files: [{ filename: "a.png", mime: "image/png", size: 1, descriptiveKey: "a", role: "attachment", blobId }],
+		});
+
+		expect(c.accept(named("d1", "sha256-a"))).toBe("delivered");
+		expect(c.acknowledge("d1")).toBe(true);
+		expect(retired).toEqual([["sha256-a"]]);
+
+		expect(c.accept(named("d2", "sha256-b"))).toBe("delivered");
+		now += 4_999;
+		expect(c.sweep()).toBe(0);
+		now += 2;
+		expect(c.sweep()).toBe(1);
+		expect(retired).toEqual([["sha256-a"], ["sha256-b"]]);
+		expect(store.listForTeam("proj.alpha")).toHaveLength(0);
+	});
+
 	it("holds a message when nothing is listening, instead of losing it", () => {
 		const store = new PendingDeliveryStore(undefined, processAmbient());
 		const c = new ChannelDeliveryCoordinator({ store, registry: new Map() });

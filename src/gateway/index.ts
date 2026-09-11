@@ -25,6 +25,7 @@ function configFromEnv(): GatewayConfig {
 		enrollLanHost: process.env.ENROLL_LAN_HOST || "0.0.0.0",
 		enrollNonce: process.env.ENROLL_NONCE,
 		hostWsToken: process.env.HOST_WS_TOKEN,
+		routerBlobMigrationToken: process.env.ROUTER_BLOB_MIGRATION_TOKEN || undefined,
 		routerBootstrapUrl: routerBootstrapOverride(
 			process.env.FEDERATION_ROUTER_HOST,
 			process.env.FEDERATION_ROUTER_PORT,

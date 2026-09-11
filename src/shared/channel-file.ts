@@ -97,13 +97,6 @@ export const ChannelFileSchema = z
 			.string()
 			.regex(/^sha256-[0-9a-f]{64}$/)
 			.optional(),
-		// WHICH Gateway holds those bytes. A blob lives on the one Gateway it was uploaded to, while
-		// the message naming it routes by its own rules and regularly lands somewhere else, so a
-		// reference that says only WHAT is unfetchable the moment the two differ. A receiver still
-		// asks its OWN Gateway for the bytes; this tells that Gateway where to go and get them.
-		// Absent means "wherever you are", which is correct for every same-Gateway transfer and is
-		// what a peer predating this field implies.
-		blobGateway: z.string().min(1).max(64).optional(),
 		// What this file IS, declared by the SENDER at compose time and never re-derived by a
 		// receiver from bytes, filename, array position, or message direction. REQUIRED: absence is
 		// not a state anyone interprets, it is a malformed message the edge rejects, so no receiver

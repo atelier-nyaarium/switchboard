@@ -300,7 +300,7 @@ class AppStateStore internal constructor(
 	/** Connected Gateway id. */
 	fun saveGatewayId(id: String) = prefs.edit().putString(KEY_GATEWAY_ID, id).apply()
 
-	override fun loadGatewayId(): String = prefs.getString(KEY_GATEWAY_ID, "") ?: ""
+	fun loadGatewayId(): String = prefs.getString(KEY_GATEWAY_ID, "") ?: ""
 
 	/** Console conversation id. */
 	fun saveConversationId(id: String) = prefs.edit().putString(KEY_CONVERSATION_ID, id).apply()

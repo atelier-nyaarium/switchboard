@@ -54,12 +54,7 @@ const stored = (id: string, title: string, extra: Partial<BoardStoredEntry["clea
 	sealed: { title: sealed(title, boardTextAadKind(BOARD_TITLE_KIND, id)) },
 });
 
-const clearAttachment = ({ blobId, size, mime, blobGateway }: BoardAttachment) => ({
-	blobId,
-	size,
-	mime,
-	blobGateway,
-});
+const clearAttachment = ({ blobId, size, mime }: BoardAttachment) => ({ blobId, size, mime });
 
 const storedWithText = (id: string, title: string, body: string, attachment?: BoardAttachment): BoardStoredEntry => ({
 	...stored(id, title, attachment ? { attachments: [clearAttachment(attachment)] } : {}),
@@ -88,7 +83,6 @@ describe("board client", () => {
 			filename: "report.txt",
 			mime: "text/plain",
 			size: 12,
-			blobGateway: "gateway",
 		};
 		const call = vi.fn().mockResolvedValue(readAnswer(3, [storedWithText("one", "Title", "Body", attachment)]));
 

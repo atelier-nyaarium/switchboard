@@ -18,11 +18,13 @@ function localBlobStore(): BlobStore {
 /** A MULTIPLE of the largest attachment, never equal to it: a store holding exactly one max blob
  * evicts it the moment a second transfer starts, so the two fight instead of queueing. */
 const MAX_STAGING_BYTES = MAX_BLOB_BYTES * 4;
+/** A copy nothing read in a week is not coming back for. */
+const STAGING_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** On every transfer, since an MCP process has no tick. Eviction is free: anything swept refetches. */
 export function sweepStaging(): void {
 	try {
-		localBlobStore().sweep({ maxBytes: MAX_STAGING_BYTES });
+		localBlobStore().sweep({ maxBytes: MAX_STAGING_BYTES, completeMaxAgeMs: STAGING_MAX_AGE_MS });
 	} catch {
 		// Reclaim is never worth failing a transfer over.
 	}
@@ -79,7 +81,7 @@ async function pushStaged(blobId: string): Promise<string> {
 }
 
 /** The store seal-verifies the digest, so a truncated or tampered transfer never produces a path. */
-export async function downloadBlob(blobId: string, fromGateway?: string): Promise<string> {
+export async function downloadBlob(blobId: string): Promise<string> {
 	const local = localBlobStore();
 	const held = local.path(blobId);
 	if (held) return held;
@@ -88,13 +90,12 @@ export async function downloadBlob(blobId: string, fromGateway?: string): Promis
 	for (;;) {
 		// A peer that never sets `eof` would otherwise stream onto this disk until it filled.
 		if (offset > MAX_BLOB_BYTES) throw new Error(`blob ${blobId} exceeded ${MAX_BLOB_BYTES} bytes`);
-		// This process only ever talks to its own gateway, which pulls a foreign holder's bytes in.
-		const res = (await routerPost("/blob/get", {
-			blobId,
-			offset,
-			length: BLOB_CHUNK_BYTES,
-			...(fromGateway ? { fromGateway } : {}),
-		})) as { chunk?: string; eof: boolean };
+		const res = (await routerPost("/blob/get", { blobId, offset, length: BLOB_CHUNK_BYTES })) as {
+			chunk?: string;
+			eof: boolean;
+			absent?: boolean;
+		};
+		if (res.absent) throw new Error(`blob ${blobId} is held nowhere`);
 		const bytes = Buffer.from(res.chunk ?? "", "base64");
 		// A short non-final read would otherwise spin forever asking for the same offset.
 		if (bytes.length === 0 && !res.eof) throw new Error(`blob ${blobId} stalled at offset ${offset}`);

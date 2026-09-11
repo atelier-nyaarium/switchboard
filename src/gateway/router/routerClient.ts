@@ -39,7 +39,6 @@ export interface RouterClientConfig {
 	onInboxDeliver?: (frame: unknown) => void;
 	onPresenceResync?: (frame: unknown) => void;
 	onUnlink?: (frame: unknown) => void;
-	onBlobFetch?: (frame: unknown) => void;
 	onValueOp?: (frame: unknown) => void;
 	onDisconnect?: () => void;
 	pendingReregisterDelayMs?: number;
@@ -166,10 +165,6 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 				console.warn(
 					`[router-client] dropped foreign incarnation=${frame.incarnation} (${droppedFrames} dropped total)`,
 				);
-				return;
-			}
-			if ((frame as { type?: string }).type === "blob_fetch") {
-				config.onBlobFetch?.(frame);
 				return;
 			}
 			if ((frame as { type?: string }).type === "value_op") {

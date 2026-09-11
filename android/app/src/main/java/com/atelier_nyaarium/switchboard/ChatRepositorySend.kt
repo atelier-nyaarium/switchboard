@@ -187,7 +187,6 @@ internal fun ChatRepository.admitPicked(uris: List<Uri>, bucket: String): Pair<L
 
 suspend fun ChatRepository.reconcilePending() = withContext(Dispatchers.IO) {
 	// Reuse the original opId so landed sends cannot duplicate.
-	boardOps.resumeBoardUploads()
 	val stillPending = _state.value.threads.flatMapTo(mutableSetOf()) { (team, msgs) ->
 		msgs.filter { it.fromMe && it.status == "pending" }.map { "$team:${it.id}" }
 	}

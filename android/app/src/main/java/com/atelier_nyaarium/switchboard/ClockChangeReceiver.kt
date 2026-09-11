@@ -36,6 +36,6 @@ class ClockChangeReceiver : BroadcastReceiver() {
 		} catch (e: Exception) {
 			DebugLog.log("ClockChange", "service start refused: $e")
 		}
-		Repo.get(context).scheduled.kickScheduledSendFire()
+		Repo.get(context).scheduled.kickDrain()
 	}
 }

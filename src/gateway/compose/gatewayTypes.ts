@@ -17,6 +17,8 @@ export interface GatewayConfig {
 	enrollNonce?: string;
 	hostWsToken?: string;
 	routerBootstrapUrl: string | null;
+	// Remove-by: 2026-09-25, with the blob migration route.
+	routerBlobMigrationToken?: string;
 }
 
 export interface EnrollTlsListener {

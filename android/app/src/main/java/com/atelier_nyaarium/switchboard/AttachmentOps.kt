@@ -22,7 +22,6 @@ internal fun shedDeadAttachmentFailures(
 /** Fetches attachment bytes and sweeps residue. */
 internal interface AttachmentOpsCollaborators {
 	fun clientOrNull(): ConsoleClient?
-	suspend fun routerBlobRange(domainId: String, blobId: String, offset: Long, originGateway: String?): Pair<ByteArray, Boolean>?
 	fun attachmentBuckets(): Set<String>?
 }
 
@@ -35,20 +34,6 @@ internal class AttachmentOps(
 	private val scope: () -> CoroutineScope?,
 	private val collaborators: AttachmentOpsCollaborators,
 ) {
-	/** Range answers declare whether bytes are sealed. */
-	private suspend fun fromRouterCache(blobId: String, originGateway: String?): java.io.File? {
-		val domain = identity.readyOrNull()?.domainId ?: return null
-		val activeClient = client.client()
-		var offset = activeClient.blobs.stat(blobId).have
-		while (true) {
-			val answer = collaborators.routerBlobRange(domain, blobId, offset, originGateway) ?: return null
-			val written = activeClient.blobs.write(blobId, offset, answer.first, answer.second)
-			if (answer.second) return if (written.complete) activeClient.blobs.path(blobId) else null
-			if (written.have <= offset) return null
-			offset = written.have
-		}
-	}
-
 	// Single-flight fetch guard.
 	private val fetchingAttachments = java.util.concurrent.atomic.AtomicBoolean(false)
 
@@ -64,6 +49,20 @@ internal class AttachmentOps(
 		attachmentFetchFailures.remove(blobId)
 		_failedAttachmentFetches.update { it - blobId }
 		fetchPendingAttachments()
+	}
+
+	private var lastForgetAt = 0L
+
+	/** Re-asks abandoned fetches, at most once an hour. */
+	fun forgetFailures(now: Long = System.currentTimeMillis()) {
+		if (now - lastForgetAt < ABSENT_RETRY_INTERVAL_MS) return
+		lastForgetAt = now
+		attachmentFetchFailures.clear()
+		_failedAttachmentFetches.value = emptySet()
+	}
+
+	companion object {
+		const val ABSENT_RETRY_INTERVAL_MS = 60 * 60 * 1000L
 	}
 
 	/** Cold-start orphan sweep. Run before polling. */
@@ -117,9 +116,8 @@ internal class AttachmentOps(
 				for ((team, message, file) in pending) {
 					val blobId = file.blobId ?: continue
 					if (attachmentFetchFailures.getOrDefault(blobId, 0) >= ChatRepository.MAX_ATTACHMENT_FETCH_TRIES) continue
-						// Prefer the Router cache.
 					val source = runCatchingCancellable {
-						fromRouterCache(blobId, file.blobGateway) ?: activeClient.downloadBlob(blobId, file.blobGateway)
+						activeClient.downloadBlob(blobId)
 					}
 						.onFailure {
 							// Count failures per blob.

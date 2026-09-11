@@ -56,7 +56,6 @@ fun renderBoard(
 /** Blob id stands in for the missing filename. */
 private fun BoardStateAttachment.toUi() = BoardAttachment(
 	blobId = blobId,
-	blobGateway = blobGateway,
 	filename = blobId,
 	mime = mime,
 	size = size,

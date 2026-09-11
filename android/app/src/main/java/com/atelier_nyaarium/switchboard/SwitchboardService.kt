@@ -34,7 +34,6 @@ import java.util.concurrent.TimeUnit
  */
 internal enum class PassOwner {
 	POLL,
-	SCHEDULED_SEND,
 }
 
 /**
@@ -47,7 +46,7 @@ internal enum class PassOwner {
  * Deep doze still gates network unless the user grants the battery-optimization
  * exemption (Settings row); the service only guarantees process lifetime.
  */
-class SwitchboardService : Service(), DeepIdleScheduler, ScheduledSendAlarmScheduler {
+class SwitchboardService : Service(), DeepIdleScheduler {
 	// Without this, an uncaught throw in any coroutine launched on this scope (e.g. notifyBurst's
 	// oversized-notification RuntimeException, or the state-collect notification reconciler) has
 	// no handler in its context and crashes the whole foreground-service process. SupervisorJob
@@ -70,10 +69,7 @@ class SwitchboardService : Service(), DeepIdleScheduler, ScheduledSendAlarmSched
 	// rethrow discipline can fix (see console-hardening.md Phase D). This flag closes the narrower
 	// residual: decide() can still latch this instance as the scheduler a few instructions before
 	// that null-write lands, then invoke a method on it after onDestroy has already cancelled the
-	// alarm and released both locks. Checked first in every DeepIdleScheduler AND
-	// ScheduledSendAlarmScheduler method (both interfaces this Service implements have the identical
-	// stale-scheduler exposure), so that stale call can no longer re-acquire an un-timed wakelock
-	// nothing would ever release, or re-arm an alarm this instance just cancelled.
+	// Check both locks first.
 	@Volatile private var destroyed = false
 
 	// Held for the FOREGROUND/MINUTE tiers so the poll loop's wall-clock sleep resumes through
@@ -156,61 +152,6 @@ class SwitchboardService : Service(), DeepIdleScheduler, ScheduledSendAlarmSched
 			.notify(STATUS_NOTIFICATION_ID, notifications.buildStatusNotification("Idle - next check $at", unread))
 	}
 
-	private fun scheduledSendAlarmPi(): PendingIntent =
-		PendingIntent.getBroadcast(
-			this,
-			SCHEDULED_SEND_ALARM_RC,
-			Intent(this, ScheduledSendAlarmReceiver::class.java).setAction(ScheduledSendAlarmReceiver.ACTION_FIRE_DUE),
-			PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-		)
-
-	/** Each (team, opId) pair's bounded retry gets its OWN request code (never a single shared slot,
-	 * and never team-only) - two DIFFERENT teams failing around the same time must not clobber each
-	 * other's retry, and neither must two SEQUENTIAL failures for the SAME team: a record is cleared
-	 * at fire time regardless of outcome, so a fresh schedule (and fresh opId) for a team already
-	 * mid-retry-window is possible, and hashing on team alone would let the second retry's arm
-	 * silently replace the first's still-pending one via FLAG_UPDATE_CURRENT (extras are not part of
-	 * PendingIntent identity). Mirrors teamNotificationId's own per-key hashed range, offset well
-	 * past every other request code here. */
-	private fun scheduledSendRetryPi(team: String, opId: String, targetDomainId: String?): PendingIntent =
-		PendingIntent.getBroadcast(
-			this,
-			scheduledSendRetryRc(team, opId),
-			Intent(this, ScheduledSendAlarmReceiver::class.java)
-				.setAction(ScheduledSendAlarmReceiver.ACTION_RETRY)
-				.putExtra(ScheduledSendAlarmReceiver.EXTRA_TEAM, team)
-				.putExtra(ScheduledSendAlarmReceiver.EXTRA_OP_ID, opId)
-				.putExtra(ScheduledSendAlarmReceiver.EXTRA_TARGET_DOMAIN, targetDomainId),
-			PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-		)
-
-	private fun setScheduledSendAlarm(pi: PendingIntent, atMillis: Long) {
-		val am = alarmManager()
-		if (am.canScheduleExactAlarms()) {
-			am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMillis, pi)
-		} else {
-			am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMillis, pi)
-		}
-	}
-
-	/** Arm the single shared "next-due" scheduled-send alarm - always re-armed to the earliest
-	 * pending record across every team (see ScheduledSendOps.rearmScheduledSendAlarm), never a
-	 * per-team alarm the way the retry below is. */
-	override fun scheduleNext(atMillis: Long) {
-		if (destroyed) return
-		setScheduledSendAlarm(scheduledSendAlarmPi(), atMillis)
-	}
-
-	override fun cancelNext() {
-		if (destroyed) return
-		alarmManager().cancel(scheduledSendAlarmPi())
-	}
-
-	override fun scheduleRetry(atMillis: Long, team: String, opId: String, targetDomainId: String?) {
-		if (destroyed) return
-		setScheduledSendAlarm(scheduledSendRetryPi(team, opId, targetDomainId), atMillis)
-	}
-
 	override fun onBind(intent: Intent?): IBinder? = null
 
 	override fun onCreate() {
@@ -263,7 +204,6 @@ class SwitchboardService : Service(), DeepIdleScheduler, ScheduledSendAlarmSched
 		)
 		repo.playback.onTransportChanged = { publishTransport() }
 		repo.pushback.scheduler = this
-		repo.scheduled.scheduledSendScheduler = this
 		// Boot the plugin framework BEFORE the poll loop starts: booting wires the data-plane bridge
 		// onto the repo (once per process), so no inbound message is drained-and-committed before a
 		// subscriber exists (the cursor never re-delivers). Idempotent - the Activity may also boot it.
@@ -289,7 +229,7 @@ class SwitchboardService : Service(), DeepIdleScheduler, ScheduledSendAlarmSched
 			repo.reconcilePending()
 			repo.sessions.replayPendingForgets()
 			repo.attachments.sweepOrphanAttachments()
-			repo.scheduled.fireDueScheduledSends()
+			repo.scheduled.drainPending()
 			repo.drain.start(scope)
 		}
 
@@ -472,7 +412,6 @@ class SwitchboardService : Service(), DeepIdleScheduler, ScheduledSendAlarmSched
 		// lifecycle callbacks - a newer instance's onCreate can never run concurrently with this
 		// one's onDestroy, so an unconditional null here can never race a live registration either.
 		repo.pushback.scheduler = null
-		repo.scheduled.scheduledSendScheduler = null
 		// A deliberate stop (unprovision) kills the pending alarm; a system process kill skips
 		// onDestroy entirely, so the alarm PendingIntent survives and revives the service on its
 		// own - the split this design relies on. Same story for the scheduled-send alarm: a
@@ -482,7 +421,6 @@ class SwitchboardService : Service(), DeepIdleScheduler, ScheduledSendAlarmSched
 		// currently have one outstanding) - it re-checks state fresh at fire time and no-ops
 		// harmlessly if nothing still matches, so it is safe, not just unhandled.
 		alarmManager().cancel(pollAlarmPi())
-		alarmManager().cancel(scheduledSendAlarmPi())
 		releaseWakeLock()
 		releaseAllPassLocks()
 		scope.cancel()
@@ -554,27 +492,6 @@ class SwitchboardService : Service(), DeepIdleScheduler, ScheduledSendAlarmSched
 		 * (PollAlarmReceiver, otherwise unused) already rules out any collision with an existing
 		 * notification PendingIntent, so a single fixed code is enough. */
 		private const val POLL_ALARM_RC = 1
-
-		/** Request code for the single shared "next-due" scheduled-send alarm's PendingIntent -
-		 * distinct component (ScheduledSendAlarmReceiver) AND action (ACTION_FIRE_DUE) from every
-		 * other PendingIntent in this file, so the numeric value only needs to avoid other codes on
-		 * the SAME component/action pairing (none exist), not the whole file's codes. */
-		private const val SCHEDULED_SEND_ALARM_RC = 2
-
-		/** Each (team, opId) pair's bounded retry gets its own request code, hashed into a range well
-		 * clear of every fixed code above - hashing on team ALONE would let two sequential failures
-		 * for the SAME team (a fresh schedule reuses the team the moment the prior one fires, cleared
-		 * regardless of outcome) silently replace each other's still-pending retry via
-		 * FLAG_UPDATE_CURRENT, since extras are not part of PendingIntent identity. opId is unique per
-		 * schedule, so folding it into the hash disambiguates both that case and two different teams
-		 * failing together. Mirrors teamNotificationId's own hashed-range shape. */
-		internal const val SCHEDULED_SEND_RETRY_RC_START = 10_000
-		internal const val SCHEDULED_SEND_RETRY_RC_SIZE = 1_000_000
-
-		// Internal (not private): a pure Int-hash function, unit-tested without Android or a live
-		// Service instance the same way IdlePushbackManager's own pure functions are.
-		internal fun scheduledSendRetryRc(team: String, opId: String): Int =
-			SCHEDULED_SEND_RETRY_RC_START + ("$team $opId".hashCode() and 0x7FFFFFFF) % SCHEDULED_SEND_RETRY_RC_SIZE
 
 		// Deep-tier PASS wakelock, shared by the receiver, holdPass, and enterDeepSleep/
 		// exitDeepSleep as ONE companion-object lock, never a service-instance field:

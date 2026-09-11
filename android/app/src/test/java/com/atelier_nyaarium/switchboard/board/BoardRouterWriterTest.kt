@@ -30,7 +30,6 @@ class BoardRouterWriterTest {
 			blob = json
 		}
 
-		override fun loadGatewayId(): String = "gw-route"
 	}
 
 	private val owner = Crypto.generateIdentity()

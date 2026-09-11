@@ -1,56 +1,97 @@
 import { z } from "zod";
-import { BLOB_CHUNK_BYTES } from "./router-protocol.js";
+import { BLOB_CIPHERTEXT_CHUNK_BYTES, MAX_BLOB_BYTES, MAX_BLOB_CIPHERTEXT_BYTES } from "./router-protocol.js";
 
 ////////////////////////////////
-//  Channel File Schema (inbound from the Router bridge)
-//
-//  ChannelFile lives in channel-file.ts (zod-only, NOT a synced leaf - the Router
-//  never reads it); the blob constants stay in the router-protocol leaf. Both
-//  re-export here so the console-protocol schemas and existing importers keep
-//  one import surface.
 
-/** `sha256-<64 hex>`. A blob is named by the digest of its own bytes and by nothing else. */
-const BlobIdField = z.string().regex(/^sha256-[0-9a-f]{64}$/);
+/** Plaintext digest identifier. */
+export const BlobIdField = z.string().regex(/^sha256-[0-9a-f]{64}$/);
 
-////////////////////////////////
-//  Blob transfer ops
-//
-//  Bytes move here, in bounded chunks keyed by their own digest, rather than as a base64 field on a
-//  message. `have` is the contiguous prefix the store holds, which is both the answer to "how much
-//  got there" and the offset to resume from, so a retry needs no separate bookkeeping and a re-sent
-//  chunk is a no-op.
-//
-//  Named rather than inlined into ConsoleOpSchema because these three ops have TWO doors: the sealed
-//  console plane and the gateway's plain HTTP routes. `answerBlobOp` already made the handling
-//  single; this makes the validation single too, so a bound cannot exist at one door and not the
-//  other. A bare type cast at either door would skip that bound silently, with nothing to catch it.
+const rangeField = z
+	.object({ offset: z.number().int().nonnegative(), length: z.number().int().positive() })
+	.meta({ id: "BlobRange" });
 
-/** Which Gateway holds the bytes, when it is not the one being asked. Absent means "you have them
- * or nobody does", which is every same-Gateway transfer. */
-const FromGatewayField = z.string().min(1).max(64).optional();
+export const BlobLeaseSchema = z
+	.object({ id: z.string().min(1), generation: z.number().int().positive() })
+	.meta({ id: "BlobLease" });
 
-export const BlobStatOpSchema = z.object({
-	kind: z.literal("blob_stat"),
+/** Declared blob metadata. */
+export const BlobDeclarationSchema = z.object({
 	blobId: BlobIdField,
-	fromGateway: FromGatewayField,
+	size: z.number().int().nonnegative().max(MAX_BLOB_BYTES),
+	ciphertextSize: z.number().int().positive().max(MAX_BLOB_CIPHERTEXT_BYTES),
+	ciphertextDigest: BlobIdField,
+	epoch: z.number().int().min(1).max(2147483647),
 });
 
-export const BlobPutOpSchema = z.object({
-	kind: z.literal("blob_put"),
-	blobId: BlobIdField,
-	offset: z.number().int().nonnegative(),
-	// One chunk, base64'd. Bounded by BLOB_CHUNK_BYTES before encoding; the generous ceiling here is
-	// the encoded form plus slack, not a second opinion on chunk size.
-	chunk: z.string().max(BLOB_CHUNK_BYTES * 2),
-	final: z.boolean(),
+export const BlobBeginValueSchema = BlobDeclarationSchema.extend({ kind: z.literal("blob_begin") }).meta({
+	id: "BlobBeginValue",
 });
 
-export const BlobGetOpSchema = z.object({
-	kind: z.literal("blob_get"),
-	blobId: BlobIdField,
-	offset: z.number().int().nonnegative(),
-	length: z.number().int().positive().max(BLOB_CHUNK_BYTES),
-	fromGateway: FromGatewayField,
-});
+export const BlobChunkValueSchema = z
+	.object({
+		kind: z.literal("blob_chunk"),
+		blobId: BlobIdField,
+		lease: BlobLeaseSchema,
+		offset: z.number().int().nonnegative(),
+		bytes: z.string().max(BLOB_CIPHERTEXT_CHUNK_BYTES * 2),
+		final: z.boolean(),
+	})
+	.meta({ id: "BlobChunkValue" });
+
+export const BlobUploadStatusValueSchema = z
+	.object({ kind: z.literal("blob_upload_status"), blobId: BlobIdField })
+	.meta({ id: "BlobUploadStatusValue" });
+
+export const BlobFetchValueSchema = z
+	.object({ kind: z.literal("blob_fetch"), blobId: BlobIdField, range: rangeField.optional() })
+	.meta({ id: "BlobFetchValue" });
+
+export const BlobBeginAnswerSchema = z
+	.object({
+		outcome: z.enum(["lease", "complete", "refused"]),
+		lease: BlobLeaseSchema.optional(),
+		have: z.number().int().nonnegative().optional(),
+		reason: z.string().optional(),
+	})
+	.meta({ id: "BlobBeginAnswer" });
+
+export const BlobChunkAnswerSchema = z
+	.object({
+		outcome: z.enum(["accepted", "refused"]),
+		have: z.number().int().nonnegative().optional(),
+		complete: z.boolean().optional(),
+		reason: z.string().optional(),
+	})
+	.meta({ id: "BlobChunkAnswer" });
+
+export const BlobUploadStatusAnswerSchema = z
+	.object({
+		outcome: z.enum(["absent", "staged", "complete"]),
+		have: z.number().int().nonnegative().optional(),
+		lease: BlobLeaseSchema.optional(),
+		size: z.number().int().nonnegative().optional(),
+		ciphertextSize: z.number().int().nonnegative().optional(),
+		ciphertextDigest: z.string().optional(),
+		epoch: z.number().int().optional(),
+	})
+	.meta({ id: "BlobUploadStatusAnswer" });
+
+export const BlobFetchAnswerSchema = z
+	.object({
+		outcome: z.enum(["fetched", "absent"]),
+		bytes: z.string().optional(),
+		eof: z.boolean().optional(),
+		epoch: z.number().int().optional(),
+		offset: z.number().int().nonnegative().optional(),
+		size: z.number().int().nonnegative().optional(),
+	})
+	.meta({ id: "BlobFetchAnswer" });
 
 export { ChannelFileSchema, ChannelFilesSchema } from "./channel-file.js";
+
+export type BlobLease = z.infer<typeof BlobLeaseSchema>;
+export type BlobDeclaration = z.infer<typeof BlobDeclarationSchema>;
+export type BlobBeginAnswer = z.infer<typeof BlobBeginAnswerSchema>;
+export type BlobChunkAnswer = z.infer<typeof BlobChunkAnswerSchema>;
+export type BlobUploadStatusAnswer = z.infer<typeof BlobUploadStatusAnswerSchema>;
+export type BlobFetchAnswer = z.infer<typeof BlobFetchAnswerSchema>;

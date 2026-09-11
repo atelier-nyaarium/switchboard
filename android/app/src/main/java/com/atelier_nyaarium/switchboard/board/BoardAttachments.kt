@@ -61,7 +61,7 @@ fun BoardAttachments(
 							Modifier.fillMaxWidth()
 								// One tap does the obvious thing for whichever state the row is in: open
 								// what is here, or start the fetch the gallery deliberately did not.
-								.clickable(enabled = file != null || status == "manual" || status == "failed") {
+						.clickable(enabled = file != null || status == "manual" || status == "failed" || status == "absent") {
 									if (file != null) {
 										onOpen(OpenAttachment(file, a.filename, a.mime, "", a.size))
 									} else {
@@ -78,6 +78,7 @@ fun BoardAttachments(
 									when (status) {
 										"downloading" -> "downloading..."
 										"failed" -> "could not download, tap to retry"
+										"absent" -> "not available, tap to retry"
 										"manual" -> "${describeSize(a.size)}, tap to download"
 										null -> describeSize(a.size)
 										else -> "not downloaded yet"

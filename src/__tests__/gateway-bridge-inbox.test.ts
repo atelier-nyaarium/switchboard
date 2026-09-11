@@ -1,18 +1,12 @@
-import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ReferenceHeldStore } from "../federation-server/blobs/referenceHeldStore.js";
-import { RouterBlobCache } from "../federation-server/blobs/routerBlobCache.js";
 import { GatewayBridge } from "../federation-server/gatewayBridge.js";
-import { OwnerQuarantined } from "../federation-server/owner/ownerStateStore.js";
 import { type SignedRevocation, signAdmission, signRegister, signRevocation } from "../shared/admission.js";
 import { processAmbient } from "../shared/ambient.js";
-import { blobIdFor } from "../shared/blob-store.js";
 import { generateIdentity } from "../shared/crypto.js";
 import { formatInboxAddress, signRowEnvelope } from "../shared/schemasInbox.js";
-import { sealBlobChunk, sealedBlobSize } from "../shared/sealed-blob.js";
 import {
 	GATEWAY_ERROR_INBOX_UNAVAILABLE,
 	GATEWAY_ERROR_NOT_ADMITTED,
@@ -49,13 +43,7 @@ const fakeInbox = (overrides: Record<string, unknown> = {}) =>
 		...overrides,
 	}) as never;
 
-async function registered(
-	inbox: never,
-	hasLinkEdge = false,
-	blobCache?: never,
-	referenceHeld?: ReferenceHeldStore,
-	protocolVersion = 1,
-) {
+async function registered(inbox: never, hasLinkEdge = false, protocolVersion = 1) {
 	const owner = generateIdentity();
 	const gateway = generateIdentity();
 	const admission = signAdmission(
@@ -79,8 +67,6 @@ async function registered(
 		hasLinkEdge: () => hasLinkEdge,
 		adminDomainId: () => "domain",
 		inbox,
-		blobCache,
-		referenceHeld,
 	});
 	bridge.attach();
 	const ws = socket();
@@ -263,7 +249,7 @@ describe("GatewayBridge inbox", () => {
 	});
 
 	it("settles a forwarded value with the gateway's answer, which carries no type of its own", async () => {
-		const { bridge, ws } = await registered(fakeInbox(), false, undefined, undefined, 2);
+		const { bridge, ws } = await registered(fakeInbox(), false, 2);
 		const forwarded = bridge.forwardGatewayValue("domain", {
 			opId: "op",
 			conversationId: "conversation",
@@ -284,98 +270,6 @@ describe("GatewayBridge inbox", () => {
 
 		expect(answer).toEqual({ settled: true });
 		await expect(forwarded).resolves.toEqual({ entries: [] });
-	});
-
-	it("refuses a held blob begin for a missing record", async () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-held-"));
-		try {
-			const held = new ReferenceHeldStore({ dataDir: root, ambient: processAmbient() });
-			held.setReferenceExists(() => false);
-			const { bridge } = await registered(fakeInbox(), false, undefined, held);
-			const answer = await bridge.handleCall("c1", "blob_begin", {
-				blobId: "blob",
-				size: 1,
-				ciphertextSize: sealedBlobSize(1),
-				ciphertextDigest: `sha256-${"0".repeat(64)}`,
-				epoch: 1,
-				store: "held",
-				ref: { kind: "entry", id: "entry:missing" },
-				incarnation: 1,
-			});
-			expect(answer).toEqual({ ok: false, error: "reference missing" });
-		} finally {
-			fs.rmSync(root, { recursive: true, force: true });
-		}
-	});
-
-	it("refuses a held blob begin when the owner is quarantined", async () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-held-"));
-		try {
-			const held = new ReferenceHeldStore({ dataDir: root, ambient: processAmbient() });
-			held.setReferenceExists(() => {
-				throw new OwnerQuarantined({ from: 1, to: 2 });
-			});
-			const { bridge } = await registered(fakeInbox(), false, undefined, held);
-			const answer = await bridge.handleCall("c1", "blob_begin", {
-				blobId: "blob",
-				size: 1,
-				ciphertextSize: sealedBlobSize(1),
-				ciphertextDigest: `sha256-${"0".repeat(64)}`,
-				epoch: 1,
-				store: "held",
-				ref: { kind: "entry", id: "entry:missing" },
-				incarnation: 1,
-			});
-			expect(answer).toEqual({ ok: false, error: "refused", reason: "durability_uncertain" });
-		} finally {
-			fs.rmSync(root, { recursive: true, force: true });
-		}
-	});
-
-	it("accepts sealed cache begin and chunk frames", async () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-blob-"));
-		try {
-			const cache = new RouterBlobCache({
-				dataDir: root,
-				quotaBytesPerDomain: 1_000,
-				ambient: processAmbient(),
-			});
-			const { bridge } = await registered(fakeInbox(), false, cache as never);
-			const plain = Buffer.from("bridge blob");
-			const blobId = blobIdFor(plain);
-			const ciphertext = sealBlobChunk(
-				plain,
-				Buffer.alloc(32, 2),
-				{ domainId: "domain", ownerSignPub: "owner", epoch: 1, blobId },
-				0,
-				true,
-			);
-			const ciphertextDigest = `sha256-${crypto.createHash("sha256").update(ciphertext).digest("hex")}`;
-			const begun = (await bridge.handleCall("c1", "blob_begin", {
-				blobId,
-				size: plain.length,
-				ciphertextSize: ciphertext.length,
-				ciphertextDigest,
-				epoch: 1,
-				store: "cache",
-				incarnation: 1,
-			})) as { kind: string; lease: { id: string; generation: number } };
-			expect(begun.kind).toBe("lease");
-			expect(
-				await bridge.handleCall("c1", "blob_chunk", {
-					blobId,
-					store: "cache",
-					lease: begun.lease,
-					offset: 0,
-					bytes: ciphertext.toString("base64"),
-					final: true,
-					incarnation: 1,
-				}),
-			).toMatchObject({ complete: true });
-			expect(cache.read("domain", blobId, 0, ciphertext.length)).toEqual(ciphertext);
-		} finally {
-			fs.rmSync(root, { recursive: true, force: true });
-		}
 	});
 
 	it("registers an incarnation, enforces it, appends a session row, and retires it on ack", async () => {
@@ -602,6 +496,22 @@ describe("GatewayBridge inbox", () => {
 				incarnation: 1,
 			}),
 		).toMatchObject({ outcome: "accepted" });
+		const naming = signedRow(
+			{
+				origin: { kind: "gateway" as const, domainId: "domain", gatewayId: "gateway" },
+				opKey: { conversationId: "c", opId: "o2" },
+				epoch: "peer" as const,
+				kind: "message" as const,
+				contentRefs: [`sha256-${"a".repeat(64)}`],
+			},
+			linked.gateway.sign.priv,
+			sealed,
+		);
+		expect(await linked.bridge.handleCall("c1", "inbox_append", { address, row: naming, incarnation: 1 })).toEqual({
+			ok: false,
+			error: "refused",
+			reason: "blob",
+		});
 	});
 
 	it("gives an identity-less registration no incarnation and refuses inbox frames", async () => {
@@ -692,28 +602,11 @@ describe("GatewayBridge inbox", () => {
 		).toMatchObject({ ok: false, error: "refused" });
 	});
 
-	it("does not route a blob fetch through an unlinked Domain", async () => {
-		const cache = { stat: () => ({ kind: "miss" }) };
-		const { bridge } = await registered(fakeInbox(), false, cache as never);
-		expect(
-			await bridge.handleCall("c1", "blob_fetch", {
-				opId: "blob",
-				blobId: "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-				origin: { domainId: "friend", gatewayId: "gateway" },
-				incarnation: 1,
-			}),
-		).toEqual({ outcome: "unreachable" });
-	});
-
 	// A name the catalog does not hold reaches no handler, and a name it holds cannot be claimed twice.
 	it("catalogues every frame it dispatches beside the register handshake", async () => {
 		const { bridge } = await registered(fakeInbox());
 		expect(bridge.frameNames().sort()).toEqual(
 			[
-				"blob_begin",
-				"blob_chunk",
-				"blob_fetch",
-				"blob_fetch_reply",
 				"cross_domain_handshake",
 				"cross_domain_handshake_reply",
 				"cross_domain_handshake_reveal",
@@ -745,8 +638,7 @@ describe("GatewayBridge inbox", () => {
 	});
 
 	it("holds every gated built-in writer under the Router migration window and lets every built-in read through", async () => {
-		const cache = { stat: () => ({ kind: "miss" }) };
-		const { bridge } = await registered(fakeInbox(), false, cache as never);
+		const { bridge } = await registered(fakeInbox());
 		bridge.setMigrationReady(() => false);
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-builtin-fence-"));
 		const previousDataDir = process.env.DATA_DIR;
@@ -754,34 +646,12 @@ describe("GatewayBridge inbox", () => {
 		process.env.DATA_DIR = dir;
 		process.env.ROUTER_MIGRATION_EPOCH = "9";
 		try {
-			const writers = [
-				"inbox_append",
-				"inbox_ack",
-				"session_upsert",
-				"session_forget",
-				"blob_begin",
-				"blob_chunk",
-			];
+			const writers = ["inbox_append", "inbox_ack", "session_upsert", "session_forget"];
 			for (const name of writers)
 				expect(await bridge.handleCall("c1", name, { incarnation: 1 })).toEqual({
 					outcome: "refused",
 					reason: "migrating",
 				});
-			expect(
-				await bridge.handleCall("c1", "blob_fetch", {
-					opId: "op",
-					blobId: `sha256-${"0".repeat(64)}`,
-					incarnation: 1,
-				}),
-			).toEqual({ outcome: "absent" });
-			expect(
-				await bridge.handleCall("c1", "blob_fetch_reply", {
-					opId: "op",
-					outcome: "absent",
-					sealed: false,
-					incarnation: 1,
-				}),
-			).toEqual({ ok: false });
 			// Settling a waiter this Router already holds writes nothing of the owner's.
 			expect(
 				await bridge.handleCall("c1", "value_result", {

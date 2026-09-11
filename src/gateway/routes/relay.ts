@@ -2,11 +2,13 @@ import type { Ambient } from "../../shared/ambient.js";
 import { canonicalJson, sha256Hex } from "../../shared/canonical-json.js";
 import type { SealedEnvelope } from "../../shared/crypto.js";
 import type { FederatedOp } from "../../shared/federation-protocol.js";
+import { BLOB_HOLD_MAX_MS } from "../../shared/router-protocol.js";
 import { signRowEnvelope } from "../../shared/schemasInbox.js";
 import { parseSessionName } from "../../shared/session-id.js";
 import type { GatewayConfig } from "../../shared/types.js";
 import { OP_OUTCOME_ACCEPTED } from "../../shared/wire-vocabulary.js";
 import { sealTargetFor } from "../federation/sealTarget.js";
+import { holdIdFor } from "../router/blobUploader.js";
 
 export interface RelayDeps {
 	config: GatewayConfig;
@@ -45,6 +47,28 @@ export function createRelay(deps: RelayDeps) {
 		}
 	}
 
+	/** Stages local files for relay; a retry renews the same holds. */
+	async function withHeldFiles(
+		op: FederatedOp,
+		sameDomain: boolean,
+		opId: string,
+	): Promise<{ ok: true; op: FederatedOp } | { ok: false; error: string }> {
+		if ((op.kind !== "send" && op.kind !== "response_push") || !op.files?.length) return { ok: true, op };
+		if (!sameDomain) return { ok: true, op: { ...op, files: op.files.map(({ blobId: _gone, ...file }) => file) } };
+		const blobIds = [...new Set(op.files.flatMap((file) => (file.blobId ? [file.blobId] : [])))];
+		if (!blobIds.length) return { ok: true, op };
+		if (!blobUploader) return { ok: false, error: "blob staging is not available on this Gateway" };
+		for (const blobId of blobIds) {
+			const staged = await blobUploader.stage(blobId);
+			if (staged.kind === "failed")
+				return { ok: false, error: `attachment could not be staged: ${staged.error}` };
+			if (staged.kind === "absent") return { ok: false, error: `attachment ${blobId} is no longer staged here` };
+			if (!(await blobUploader.hold(blobId, holdIdFor(opId, blobId), BLOB_HOLD_MAX_MS)))
+				return { ok: false, error: `attachment ${blobId} could not be held on the Router` };
+		}
+		return { ok: true, op };
+	}
+
 	async function relayToGateway(
 		dstGateway: string,
 		op: FederatedOp,
@@ -56,22 +80,14 @@ export function createRelay(deps: RelayDeps) {
 		if (!sealer) return { ok: false, error: `federation crypto is not configured` };
 		let target: import("../federation/sealer.js").SealTarget;
 		let sealed: SealedEnvelope;
+		const opId = producerOpId ?? ambient.newId();
 		try {
 			target = sealTargetFor({ resolvesLocalGateway, crossDomainPeers }, dstGateway, dstDomain);
-			sealed = sealer.seal(target, op);
+			const carried = await withHeldFiles(op, typeof target === "string", opId);
+			if (!carried.ok) return carried;
+			sealed = sealer.seal(target, carried.op);
 		} catch (err) {
 			return { ok: false, error: (err as Error).message };
-		}
-		// Cache blobs under this Domain's key only.
-		if (blobUploader && (op.kind === "send" || op.kind === "response_push")) {
-			const blobIds = [...new Set(op.files?.flatMap((file) => (file.blobId ? [file.blobId] : [])) ?? [])];
-			try {
-				await blobUploader.uploadAll(blobIds, "cache");
-			} catch (error) {
-				console.warn(
-					`[blob-cache] failed to warm ${blobIds.join(",")}: ${error instanceof Error ? error.message : String(error)}`,
-				);
-			}
 		}
 		if (typeof target !== "string" && (op.kind === "send" || op.kind === "response_push") && producerSignPriv) {
 			const contentRefs: string[] = [];
@@ -79,7 +95,7 @@ export function createRelay(deps: RelayDeps) {
 				origin: { kind: "gateway" as const, domainId: localDomain, gatewayId: localGatewayId },
 				opKey: {
 					conversationId: sha256Hex(op.kind === "send" ? op.returnRoute.srcConversationId : op.session_id),
-					opId: producerOpId ?? ambient.newId(),
+					opId,
 				},
 				epoch: "peer" as const,
 				kind: op.kind === "send" ? ("message" as const) : ("reply" as const),

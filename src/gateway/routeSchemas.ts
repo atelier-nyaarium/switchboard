@@ -119,12 +119,7 @@ export function fileBytes(files: ChannelFile[]): number {
 
 // Persistent entries retain metadata but lose fetchable references.
 export function stripFileRefs(files: ChannelFile[]): ChannelFile[] {
-	return files.map(({ blobId: _omit, blobGateway: _also, ...meta }) => meta);
-}
-
-export function stampBlobHolder(files: ChannelFile[], gatewayId: string): ChannelFile[] {
-	// Never overwrite the Gateway that already holds the blob.
-	return files.map((f) => (f.blobId && !f.blobGateway ? { ...f, blobGateway: gatewayId } : f));
+	return files.map(({ blobId: _omit, ...meta }) => meta);
 }
 
 export function payloadBytes(payload: Record<string, unknown>): number {

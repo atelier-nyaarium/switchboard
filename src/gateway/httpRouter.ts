@@ -1,7 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import type { BlobStore } from "../shared/blob-store.js";
-import { BlobGetOpSchema, BlobPutOpSchema, BlobStatOpSchema } from "../shared/schemas.js";
-import { answerBlobOp, BlobTooLarge } from "./blobOps.js";
+import { answerBlobOp, BlobGetOpSchema, BlobPutOpSchema, BlobStatOpSchema, BlobTooLarge } from "./blobOps.js";
 import type { createRoutes } from "./routes.js";
 import { presentedByRequest, type SessionAuthority } from "./sessionAuthority.js";
 
@@ -26,7 +25,7 @@ export type HttpRoutes = Pick<
 	| "humanNotify"
 	| "pluginAction"
 	| "taskBoard"
-	| "fetchBlobFromGateway"
+	| "readBlob"
 >;
 
 export interface HttpRouterDeps {
@@ -90,7 +89,7 @@ export function createHttpRouter({
 			);
 		}
 		try {
-			return Response.json(await answerBlobOp(blobStore, parsed.data, r.fetchBlobFromGateway));
+			return Response.json(await answerBlobOp(blobStore, parsed.data, r.readBlob));
 		} catch (err) {
 			if (!(err instanceof BlobTooLarge)) throw err;
 			return Response.json({ error: err.message }, { status: 413 });

@@ -7,6 +7,7 @@ import {
 	type InboxRow,
 	parseInboxAddress,
 } from "../../shared/schemasInbox.js";
+import type { ReferenceHeldStore } from "../blobs/referenceHeldStore.js";
 import { OwnerQuarantined, type OwnerStateStore } from "../owner/ownerStateStore.js";
 import { floorOf, ledgerTransaction, ownerAddress } from "./inboxCore.js";
 import { retireRow } from "./inboxRetire.js";
@@ -54,6 +55,7 @@ function sweepDomain(
 	forgetConsumer: (domainId: string, signerSignPub: string) => void,
 	domainId: string,
 	now: number,
+	refs?: Pick<ReferenceHeldStore, "publish">,
 ): void {
 	const store = registry.for(domainId);
 	if (store.health().quarantined) return;
@@ -74,6 +76,7 @@ function sweepDomain(
 					"expired",
 					undefined,
 					notifyRetired,
+					refs,
 				);
 		}
 	compactInbox(registry, domainId);
@@ -86,10 +89,11 @@ export function sweepInbox(
 	notifyRetired: (domainId: string, address: string, row: InboxRow) => void,
 	forgetConsumer: (domainId: string, signerSignPub: string) => void,
 	now: number,
+	refs?: Pick<ReferenceHeldStore, "publish">,
 ): void {
 	for (const domainId of registry.domains()) {
 		try {
-			sweepDomain(registry, routerIdentity, notifyRetired, forgetConsumer, domainId, now);
+			sweepDomain(registry, routerIdentity, notifyRetired, forgetConsumer, domainId, now, refs);
 		} catch (error) {
 			if (error instanceof OwnerQuarantined) continue;
 			console.warn(`[inbox] sweep skipped ${domainId}: ${(error as Error).message}`);

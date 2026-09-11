@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { BlobReference } from "../../shared/blob-reference.js";
 import { type BoardActor, mayTake, mayWrite } from "../../shared/board-authority.js";
 import { applyCascade } from "../../shared/board-cascade.js";
 import { observationsFor } from "../../shared/board-observations.js";
@@ -22,21 +21,17 @@ import {
 } from "../../shared/schemasBoardState.js";
 import type { InboxAddress, InboxRow } from "../../shared/schemasInbox.js";
 import { BOARD_OUTCOME_APPLIED, OP_OUTCOME_ACCEPTED } from "../../shared/wire-vocabulary.js";
+import type { ReferenceHeldStore } from "../blobs/referenceHeldStore.js";
 import type { InboxService } from "../inbox/inboxService.js";
 import { OwnerOpRefused } from "../inbox/ownerOpIntake.js";
 import type { OwnerStoreRegistry } from "../inbox/ownerStoreRegistry.js";
 import { OwnerQuarantined } from "../owner/ownerStateStore.js";
 import type { GatewayRegistration, OwnerServiceHooks } from "../ownerServiceHooks.js";
 
-type RefHeld = {
-	has(domainId: string, blobId: string): boolean;
-	applyRefs?(domainId: string, sets: readonly { ref: BlobReference; blobIds: readonly string[] }[]): void;
-	[key: string]: unknown;
-};
 type Deps = {
 	registry: OwnerStoreRegistry;
 	inbox: Pick<InboxService, "appendRouterRow" | "hasSession">;
-	referenceHeld: RefHeld;
+	referenceHeld: Pick<ReferenceHeldStore, "has" | "publish">;
 	deliver?: (domainId: string, address: InboxAddress, row: InboxRow) => void;
 	pokeOwner?: (domainId: string, revision: number) => void;
 	now?: () => number;
@@ -90,14 +85,7 @@ export function createBoardService(deps: Deps) {
 			...(e.sessionId ? { session: parseKey(e.sessionId) } : {}),
 			...(e.trashedAt === undefined ? {} : { trashedAt: e.trashedAt }),
 			...(e.attachments
-				? {
-						attachments: e.attachments.map(({ blobId, size, mime, blobGateway }) => ({
-							blobId,
-							size,
-							mime,
-							blobGateway,
-						})),
-					}
+				? { attachments: e.attachments.map(({ blobId, size, mime }) => ({ blobId, size, mime })) }
 				: {}),
 			version: Number((e as Versioned).version ?? 1),
 		},
@@ -316,7 +304,11 @@ export function createBoardService(deps: Deps) {
 			const e = next.entries.get(id) as Versioned | undefined;
 			if (e) e.version = Number(store.get("board.entry", id)?.version ?? 0) + 1;
 		}
-		const result = store.batch((tx) => {
+		const refSets = [...touched].map((id) => ({
+			ref: { kind: "entry" as const, entryId: id },
+			blobIds: next.entries.get(id)?.attachments?.map((attachment) => attachment.blobId) ?? [],
+		}));
+		const result = deps.referenceHeld.publish(domainId, refSets, (tx) => {
 			for (const id of touched) {
 				const old = store.get("board.entry", id);
 				const e = next.entries.get(id);
@@ -335,16 +327,12 @@ export function createBoardService(deps: Deps) {
 					},
 				});
 		});
+		if (result.kind === "blob_missing") return rememberRefusal("attachment_missing");
 		if (result.kind === "conflict")
 			return { outcome: "conflict" as const, revision: before.revision, entries: answerBefore(), cascaded: [] };
 		// Durability uncertainty still applied.
 		if (result.kind !== "ok" && result.kind !== "durability_uncertain")
 			return rememberRefusal("durability_failure");
-		const refSets = [...touched].map((id) => ({
-			ref: { kind: "entry" as const, entryId: id },
-			blobIds: next.entries.get(id)?.attachments?.map((attachment) => attachment.blobId) ?? [],
-		}));
-		if (deps.referenceHeld.applyRefs) deps.referenceHeld.applyRefs(domainId, refSets);
 		for (const o of observationsFor(before, next, touched, a)) {
 			const s = parseKey(o.sessionKey);
 			if (!deps.inbox.hasSession(domainId, s.gatewayId, s.sessionId)) continue;

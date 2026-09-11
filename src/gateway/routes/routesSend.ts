@@ -1,6 +1,7 @@
 import type { Ambient } from "../../shared/ambient.js";
 import type { FederatedOp } from "../../shared/federation-protocol.js";
 import type { JobContract, LocalReply, PendingJobStore, Reservation } from "../../shared/pending-job-store.js";
+import { BLOB_HOLD_MAX_MS } from "../../shared/router-protocol.js";
 import {
 	Address,
 	composeSessionName,
@@ -11,6 +12,8 @@ import {
 } from "../../shared/session-id.js";
 import type { ChannelFile, GatewayConfig, ResponsePayload, RidingAwareness } from "../../shared/types.js";
 import type { ChannelDeliveryCoordinator } from "../channelDelivery.js";
+import { fireAndForget } from "../fireAndForget.js";
+import { holdIdFor } from "../router/blobUploader.js";
 import {
 	fileBytes,
 	getTeamMode,
@@ -18,7 +21,6 @@ import {
 	MAX_RESPONSE_FILE_BYTES,
 	POST_WAKE_SETTLE_MS,
 	SendRequestSchema,
-	stampBlobHolder,
 } from "../routeSchemas.js";
 import { presentedByRequest, type SessionAuthority } from "../sessionAuthority.js";
 import type { WakeResult } from "../wake.js";
@@ -50,6 +52,8 @@ export interface SendRoutesDeps {
 	auth?: SessionAuthority;
 	awareness?: { takeFor(sessionKey: string): RidingAwareness | null };
 	deliveries?: ChannelDeliveryCoordinator;
+	/** Renews relay blob hold. */
+	blobUploader?: Pick<ReturnType<typeof import("../router/blobUploader.js").createBlobUploader>, "hold"> | null;
 	localAddress: (name: string) => Address;
 	consoleSelfAddress: (ownerId: string) => Address;
 	tryLocalAddress: (name: string) => Address | null;
@@ -81,6 +85,7 @@ export function createSendRoutes({
 	auth,
 	awareness,
 	deliveries,
+	blobUploader,
 	localAddress,
 	consoleSelfAddress,
 	tryLocalAddress,
@@ -186,17 +191,13 @@ export function createSendRoutes({
 			to,
 			targetDomainId: targetDomain,
 			body: msgBody,
-			files: rawSendFiles,
+			files,
 			channelOnly,
 			displayLabel,
 			disposition,
 			opId: producerOpId,
 		} = parsed.data;
 		const fromConversationId = ingress.kind === "owner" ? ingress.ownerId : parsed.data.fromConversationId;
-		const files =
-			rawSendFiles &&
-			// Only trusted inbound data keeps its existing blob holder.
-			(ingress.kind === "session" ? stampBlobHolder(rawSendFiles, localGatewayId) : rawSendFiles);
 		if (ingress.kind === "session") {
 			// Session callers prove identity.
 			const refused = refuseImpersonation(ingress.req, from, "session");
@@ -361,9 +362,11 @@ export function createSendRoutes({
 				const riding = awareness?.takeFor(localName) ?? undefined;
 
 				if (deliveries) {
+					// Owners name delivery rows.
+					const deliveryId =
+						(ingress.kind === "owner" ? parsed.data.deliveryId : undefined) ?? ambient.newId();
 					const outcome = deliveries.accept({
-						// Only the owner names a row, since a session could otherwise pick one already spent.
-						deliveryId: (ingress.kind === "owner" ? parsed.data.deliveryId : undefined) ?? ambient.newId(),
+						deliveryId,
 						team: targetWs?.data.teamName ?? localName,
 						channelJobId,
 						from,
@@ -386,6 +389,15 @@ export function createSendRoutes({
 						return jsonResponse({ error: `this Gateway is migrating; nothing was accepted` }, 503);
 					}
 					console.log(`[send] channel_push ${outcome} for ${qualifiedTo} [${channelJobId}] from ${from}`);
+					// Renews the delivery hold.
+					if (ingress.kind === "gateway" && hasFiles && blobUploader) {
+						for (const blobId of new Set(files.flatMap((file) => (file.blobId ? [file.blobId] : [])))) {
+							fireAndForget(
+								"relay hold",
+								blobUploader.hold(blobId, holdIdFor(deliveryId, blobId), BLOB_HOLD_MAX_MS),
+							);
+						}
+					}
 				} else {
 					const channelPayload: Record<string, unknown> = {
 						type: "channel_push",

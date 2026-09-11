@@ -34,7 +34,6 @@ export interface GatewayRelayHandlerDeps {
 	localDomainId: string;
 	shareState?: RelayShareState;
 	crossDomainBinding?: (sessionId: string) => CrossDomainBinding | undefined;
-	serveBlobRange?: (blobId: string, offset: number, length: number) => { chunk?: string; eof: boolean };
 }
 
 export interface GatewayRelayPumpDeps {
@@ -54,7 +53,6 @@ export function createGatewayRelayHandler({
 	localDomainId,
 	shareState,
 	crossDomainBinding,
-	serveBlobRange,
 }: GatewayRelayHandlerDeps) {
 	function localShareTarget(name: string): string {
 		const { project, session } = parseSessionName(name);
@@ -142,10 +140,6 @@ export function createGatewayRelayHandler({
 				if (srcDomainId !== null) await gateCrossDomainTarget(op.team, srcDomainId);
 				const { ok } = await tryWakeTeam(op.team);
 				return { ok };
-			}
-			case "blob_fetch": {
-				if (!serveBlobRange) throw new Error("blob transfer unavailable on this Gateway");
-				return serveBlobRange(op.blobId, op.offset, op.length);
 			}
 			case "response_push": {
 				if (srcDomainId !== null) {

@@ -2,12 +2,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createBlobFetcher } from "../gateway/blobFetch.js";
-import { processAmbient } from "../shared/ambient.js";
+import { answerBlobOp } from "../gateway/blobOps.js";
+import { createRouterBlobReader } from "../gateway/router/routerBlobReader.js";
 import { BlobStore, blobIdFor } from "../shared/blob-store.js";
 import { contentAad } from "../shared/content-envelope.js";
 import { BLOB_CHUNK_BYTES } from "../shared/router-protocol.js";
-import { blobChunkAad, openSealedBlobRange, sealBlobChunk, sealedBlobSize } from "../shared/sealed-blob.js";
+import {
+	blobChunkAad,
+	blobChunkNonce,
+	openSealedBlobRange,
+	sealBlobChunk,
+	sealedBlobSize,
+} from "../shared/sealed-blob.js";
 
 const key = Buffer.alloc(32, 6);
 const roots: string[] = [];
@@ -96,37 +102,73 @@ describe("sealed blob framing", () => {
 		expect(opened.eof).toBe(false);
 	});
 
-	it("rejects valid sealed bytes whose plaintext digest is wrong", async () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "sealed-reader-"));
-		roots.push(root);
-		const store = new BlobStore(root);
-		const claimed = blobIdFor(Buffer.from("right"));
-		const wrong = Buffer.from("wrong");
-		const frame = sealBlobChunk(wrong, key, { ...base, blobId: claimed }, 0, true);
-		const fetcher = createBlobFetcher({
-			blobStore: store,
-			ambient: processAmbient(),
-			localGatewayId: "reader",
-			relayToGateway: async () => ({ ok: false }),
-			inFlight: new Map(),
-			routerFetch: async () => ({
-				ok: true,
+	it("the Gateway reader opens a Router range with the epoch it names, and says absent or unreachable otherwise", async () => {
+		const plain = Buffer.from("router held");
+		const blobId = blobIdFor(plain);
+		const frame = sealBlobChunk(plain, key, { ...base, blobId }, 0, true);
+		const answers: Array<{ error?: string; result?: unknown }> = [
+			{
 				result: {
 					outcome: "fetched",
 					bytes: frame.toString("base64"),
 					eof: true,
-					sealed: true,
 					epoch: 5,
 					offset: 0,
-					size: wrong.length,
+					size: plain.length,
 				},
-			}),
+			},
+			{ result: { outcome: "absent" } },
+			{
+				result: {
+					outcome: "fetched",
+					bytes: frame.toString("base64"),
+					eof: true,
+					epoch: 9,
+					offset: 0,
+					size: plain.length,
+				},
+			},
+			{ error: "unreachable" },
+		];
+		const read = createRouterBlobReader({
+			call: async () => answers.shift() ?? { error: "spent" },
 			domainId: base.domainId,
 			ownerSignPub: () => base.ownerSignPub,
-			contentKeys: { keyFor: () => key },
+			keys: { keyFor: (epoch) => (epoch === 5 ? key : null) },
 		});
-		expect(await fetcher.fetchBlobFromGateway(claimed, "origin")).toBe("unreachable");
-		expect(store.path(claimed)).toBeNull();
+		expect(await read(blobId, 2, 4)).toEqual({ bytes: Buffer.from("uter"), eof: false });
+		expect(await read(blobId, 0, 4)).toBe("absent");
+		expect(await read(blobId, 0, 4)).toBe("unreachable");
+		expect(await read(blobId, 0, 4)).toBe("unreachable");
+	});
+
+	it("the staging door answers local bytes first and a Router absence as proof", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "sealed-reader-"));
+		roots.push(root);
+		const store = new BlobStore(root);
+		const local = Buffer.from("local");
+		const localId = blobIdFor(local);
+		store.write(localId, 0, local, true);
+		const reads: string[] = [];
+		const read = async (blobId: string) => {
+			reads.push(blobId);
+			return "absent" as const;
+		};
+		expect(await answerBlobOp(store, { kind: "blob_get", blobId: localId, offset: 0, length: 10 }, read)).toEqual({
+			chunk: local.toString("base64"),
+			eof: true,
+		});
+		expect(
+			await answerBlobOp(
+				store,
+				{ kind: "blob_get", blobId: blobIdFor(Buffer.from("elsewhere")), offset: 0, length: 10 },
+				read,
+			),
+		).toEqual({
+			eof: false,
+			absent: true,
+		});
+		expect(reads).toHaveLength(1);
 	});
 
 	// Shared Kotlin vectors.
@@ -140,7 +182,13 @@ describe("sealed blob framing", () => {
 			key: string;
 			context: { domainId: string; ownerSignPub: string; epoch: number; blobId: string };
 			aadSample: string;
-			cases: Array<{ size: number; ciphertextSize: number; frames: string[] }>;
+			cases: Array<{
+				size: number;
+				ciphertextSize: number;
+				frames: string[];
+				derivedNonces: string[];
+				derivedFrames: string[];
+			}>;
 		};
 		const key = Buffer.from(vectors.key, "base64");
 		expect(contentAad(blobChunkAad(vectors.context, 0, true)).toString("base64")).toBe(vectors.aadSample);
@@ -155,6 +203,20 @@ describe("sealed blob framing", () => {
 				vectors.context,
 			);
 			expect(opened.bytes).toEqual(Buffer.alloc(value.size, 65));
+			const chunks = value.derivedFrames.length;
+			for (let index = 0; index < chunks; index++) {
+				const final = index + 1 === chunks;
+				expect(blobChunkNonce(key, vectors.context, index, final).toString("base64")).toBe(
+					value.derivedNonces[index],
+				);
+				const slice = Buffer.alloc(value.size, 65).subarray(
+					index * BLOB_CHUNK_BYTES,
+					(index + 1) * BLOB_CHUNK_BYTES,
+				);
+				expect(sealBlobChunk(slice, key, vectors.context, index, final).toString("base64")).toBe(
+					value.derivedFrames[index],
+				);
+			}
 		}
 	});
 });

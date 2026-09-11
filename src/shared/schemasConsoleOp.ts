@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { ChannelFilesSchema } from "./channel-file.js";
 import { SignedXDomainLinkSchema } from "./federation-protocol.js";
-import { BlobGetOpSchema, BlobPutOpSchema, BlobStatOpSchema } from "./schemasBlob.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
 import { AuthorizationPolicySchema } from "./schemasPolicy.js";
 import { RoutineSchema } from "./schemasRoutine.js";
@@ -82,9 +81,6 @@ export const ConsoleOpSchema = z
 			path: z.string().max(512),
 			spawn: z.string().min(1).max(64).optional(),
 		}),
-		BlobStatOpSchema,
-		BlobPutOpSchema,
-		BlobGetOpSchema,
 		z.object({ kind: z.literal("cross_domain_listen") }),
 		z.object({
 			kind: z.literal("cross_domain_request"),
@@ -242,9 +238,6 @@ export const VALUE_OP_KINDS = new Set([
 	"peek",
 	"list_dirs",
 	"create_session",
-	"blob_stat",
-	"blob_put",
-	"blob_get",
 	"reload_plugins",
 	"cross_domain_listen",
 	"cross_domain_request",

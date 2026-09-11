@@ -30,7 +30,8 @@ export type RecordKind =
 	| "migration"
 	| "keyReceipt"
 	| "nonce"
-	| "gateway";
+	| "gateway"
+	| "blob";
 export interface StateRecord {
 	kind: RecordKind;
 	id: string;

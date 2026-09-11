@@ -1,12 +1,7 @@
 import { z } from "zod";
 import type { DomainSnapshot } from "../../shared/admission.js";
 import type { Ambient, TimerHandle } from "../../shared/ambient.js";
-import { parseBlobReference } from "../../shared/blob-reference.js";
 import {
-	BlobBeginParamsSchema,
-	BlobChunkParamsSchema,
-	BlobFetchParamsSchema,
-	BlobFetchReplyParamsSchema,
 	FEDERATION_VALUE_PROTOCOL_VERSION,
 	InboxAckParamsSchema,
 	InboxAppendParamsSchema,
@@ -22,13 +17,9 @@ import {
 	parseInboxAddress,
 } from "../../shared/schemasInbox.js";
 import { GATEWAY_REASON_NO_WAITER } from "../../shared/wire-vocabulary.js";
-import type { ReferenceHeldStore } from "../blobs/referenceHeldStore.js";
-import type { RouterBlobCache } from "../blobs/routerBlobCache.js";
 import type { ConnGatewayRecord, GatewayRegistration } from "../gatewayBridge.js";
 import type { ConnectionId, GatewayTransport } from "../gatewayTransport.js";
-import type { BlobFetchRoute } from "../inbox/blobFetchRoute.js";
 import { type InboxService, type PeerRowGate, sessionTargetOf } from "../inbox/inboxService.js";
-import { OwnerQuarantined } from "../owner/ownerStateStore.js";
 import { GATEWAY_RELAY_TIMEOUT_MS } from "../relayTimeouts.js";
 
 /** Stable producer identity deduplicates retries. */
@@ -41,9 +32,6 @@ export interface InboxFramesDeps {
 	ambient: Pick<Ambient, "setTimer" | "clearTimer">;
 	hasLinkEdge: (srcDomainId: string, dstDomainId: string) => boolean;
 	getDomain: (domainId: string) => DomainSnapshot | null;
-	blobCache: RouterBlobCache | null;
-	referenceHeld: ReferenceHeldStore | null;
-	blobFetch: BlobFetchRoute | null;
 	isMigrationFenced: (domainId: string, gatewayId: string) => boolean;
 	getRegistration: (connId: ConnectionId) => ConnGatewayRecord | undefined;
 	getConnectionId: (domainId: string, gatewayId: string) => ConnectionId | undefined;
@@ -52,7 +40,7 @@ export interface InboxFramesDeps {
 	notifySessionForgotten: (identity: GatewayRegistration, sessionId: string) => void;
 }
 
-/** Inbox append/ack, session bookkeeping, blob transfer, and value forwarding. */
+/** Inbox operations and forwarding. */
 export class InboxFrames {
 	private peerRowGate: PeerRowGate | null = null;
 	private ownerRowPush: ((domainId: string, row: InboxRow) => void) | null = null;
@@ -103,6 +91,7 @@ export class InboxFrames {
 					!!origin.sessionId &&
 					this.deps.inbox.hasSession(reg.domainId, reg.gatewayId, origin.sessionId)));
 		if (!allowedDomain || !addressOwned || !originAllowed) return { ok: false, error: "refused" };
+		if (peerRow && row.data.envelope.contentRefs.length > 0) return { ok: false, error: "refused", reason: "blob" };
 		// Share state authorizes friend rows and supplies generation.
 		let shareGeneration: number | undefined;
 		if (address.domainId !== reg.domainId && this.peerRowGate && !peerReply) {
@@ -153,88 +142,6 @@ export class InboxFrames {
 		this.deps.inbox?.forgetSession(reg.domainId, reg.gatewayId, parsed.data.sessionId);
 		this.deps.notifySessionForgotten(reg, parsed.data.sessionId);
 		return { ok: true };
-	}
-
-	async fetchBlob(reg: GatewayRegistration, params: Record<string, unknown>): Promise<unknown> {
-		const parsed = BlobFetchParamsSchema.safeParse(params);
-		if (!parsed.success || !this.deps.blobFetch) return { ok: false, error: "invalid blob_fetch" };
-		const origin = parsed.data.origin;
-		if (origin && origin.domainId !== reg.domainId && !this.deps.hasLinkEdge(reg.domainId, origin.domainId))
-			return { outcome: "unreachable" };
-		return this.deps.blobFetch.fetch(reg.domainId, parsed.data);
-	}
-
-	beginBlob(reg: GatewayRegistration, params: Record<string, unknown>): unknown {
-		const parsed = BlobBeginParamsSchema.safeParse(params);
-		if (!parsed.success) return { ok: false, error: "invalid blob_begin" };
-		const value = parsed.data;
-		if (value.store === "cache") {
-			if (!this.deps.blobCache) return { ok: false, error: "blob cache unavailable" };
-			return this.deps.blobCache.begin(
-				reg.domainId,
-				value.blobId,
-				{ domainId: reg.domainId, gatewayId: reg.gatewayId },
-				value.size,
-				value.ciphertextSize,
-				value.ciphertextDigest,
-				value.epoch,
-			);
-		}
-		if (!this.deps.referenceHeld || !value.ref) return { ok: false, error: "held blob requires a reference" };
-		const ref = parseBlobReference(value.ref.id);
-		if (!ref || ref.kind !== value.ref.kind) return { ok: false, error: "reference missing" };
-		let referenceExists = false;
-		try {
-			referenceExists = this.deps.referenceHeld.hasReference(reg.domainId, ref);
-		} catch (error) {
-			if (error instanceof OwnerQuarantined)
-				return { ok: false, error: "refused", reason: "durability_uncertain" };
-			throw error;
-		}
-		if (!referenceExists) return { ok: false, error: "reference missing" };
-		const begun = this.deps.referenceHeld.begin(
-			reg.domainId,
-			value.blobId,
-			value.size,
-			value.ciphertextSize,
-			value.ciphertextDigest,
-			value.epoch,
-		);
-		if (begun.kind !== "quota") this.deps.referenceHeld.applyRefs(reg.domainId, [{ ref, blobIds: [value.blobId] }]);
-		return begun;
-	}
-
-	chunkBlob(reg: GatewayRegistration, params: Record<string, unknown>): unknown {
-		const parsed = BlobChunkParamsSchema.safeParse(params);
-		if (!parsed.success) return { ok: false, error: "invalid blob_chunk" };
-		const value = parsed.data;
-		const bytes = Buffer.from(value.bytes, "base64");
-		const renewed =
-			value.store === "cache" ? this.deps.blobCache?.renew(reg.domainId, value.blobId, value.lease.id) : null;
-		if (value.store === "cache" && (!renewed || renewed.kind === "lease_expired"))
-			return { ok: false, error: "lease_expired" };
-		return value.store === "cache"
-			? (this.deps.blobCache?.commitChunk(
-					reg.domainId,
-					value.blobId,
-					value.lease,
-					value.offset,
-					bytes,
-					value.final,
-				) ?? { ok: false, error: "blob cache unavailable" })
-			: (this.deps.referenceHeld?.commitChunk(
-					reg.domainId,
-					value.blobId,
-					value.lease,
-					value.offset,
-					bytes,
-					value.final,
-				) ?? { ok: false, error: "held blob store unavailable" });
-	}
-
-	settleBlobFetch(connId: ConnectionId, params: Record<string, unknown>): unknown {
-		const parsed = BlobFetchReplyParamsSchema.safeParse(params);
-		return parsed.success && this.deps.blobFetch?.settle(connId, parsed.data) ? { ok: true } : { ok: false };
 	}
 
 	private pushRow(address: InboxAddress, row: InboxRow): boolean {

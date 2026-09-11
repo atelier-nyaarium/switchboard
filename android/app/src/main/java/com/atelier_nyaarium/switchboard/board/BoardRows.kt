@@ -4,12 +4,10 @@ import com.atelier_nyaarium.switchboard.proto.BoardEntry
 
 data class BoardRow(val entry: BoardEntry, val gatewayId: String, val depth: Int)
 
-private fun gatewayOf(entry: BoardEntry): String = entry.session?.gatewayId ?: ""
-
-private fun groupOf(entry: BoardEntry): GroupKey? = entry.sessionId?.let { GroupKey(gatewayOf(entry), it) }
+private fun groupOf(entry: BoardEntry): GroupKey? = entry.session?.let { GroupKey(it.domainId, it.gatewayId, it.sessionId) }
 
 /** Session ids are scoped by gateway. */
-data class GroupKey(val gatewayId: String, val sessionId: String)
+data class GroupKey(val domainId: String, val gatewayId: String, val sessionId: String)
 
 data class BoardGroup(val key: GroupKey?, val rows: List<BoardRow>)
 
@@ -85,7 +83,7 @@ fun flattenBoard(entries: List<BoardEntry>): BoardRows {
 	val trash = entries
 		.filter { it.trashedAt != null }
 		.sortedByDescending { it.trashedAt }
-		.map { BoardRow(it, gatewayOf(it), depth = 0) }
+		.map { BoardRow(it, it.session?.gatewayId ?: "", depth = 0) }
 
 	val liveById = live.associateBy { it.id }
 	val childrenOf = HashMap<String, MutableList<BoardEntry>>()
@@ -118,7 +116,7 @@ fun flattenBoard(entries: List<BoardEntry>): BoardRows {
 
 		fun walk(e: BoardEntry, depth: Int) {
 			if (!visited.add(e.id)) return
-			rows.add(BoardRow(e, gatewayOf(e), depth))
+			rows.add(BoardRow(e, e.session?.gatewayId ?: "", depth))
 			for (kid in kidsIn(e.id, group)) walk(kid, depth + 1)
 		}
 
@@ -129,7 +127,7 @@ fun flattenBoard(entries: List<BoardEntry>): BoardRows {
 	val unassigned = buildGroup(null, groups[null] ?: emptyList())
 	val sessions = groups.entries
 		.mapNotNull { (key, value) -> key?.let { it to value } }
-		.sortedWith(compareBy({ it.first.gatewayId }, { it.first.sessionId }))
+		.sortedWith(compareBy({ it.first.domainId }, { it.first.gatewayId }, { it.first.sessionId }))
 		.map { buildGroup(it.first, it.second) }
 	return BoardRows(unassigned, sessions, trash)
 }

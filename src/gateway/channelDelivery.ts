@@ -17,7 +17,15 @@ export interface ChannelDeliveryDeps {
 	/** Nudges an unconfirmed recipient's handshake ahead of the message, so its reply does not burn a
 	 * turn on the reply gate. */
 	repushHandshake?: (team: string, subId: string) => unknown;
+	/** Retired delivery bytes. */
+	retireStaging?: (blobIds: string[]) => void;
 }
+
+const blobIdsOf = (deliveries: readonly PendingDelivery[]): string[] => [
+	...new Set(
+		deliveries.flatMap((delivery) => (delivery.files ?? []).flatMap((file) => (file.blobId ? [file.blobId] : []))),
+	),
+];
 
 ////////////////////////////////
 //  Class
@@ -60,7 +68,25 @@ export class ChannelDeliveryCoordinator {
 
 	/** The receiver confirmed it emitted this one. */
 	acknowledge(deliveryId: string): boolean | "migrating" {
-		return this.deps.store.acknowledge(deliveryId);
+		const held = this.deps.store.snapshot().deliveries.find((delivery) => delivery.deliveryId === deliveryId);
+		const retired = this.deps.store.acknowledge(deliveryId);
+		if (retired === true && held) this.deps.retireStaging?.(blobIdsOf([held]));
+		return retired;
+	}
+
+	/** Drops expired delivery staging. */
+	sweep(): number {
+		const expired = this.deps.store.sweep();
+		if (expired === MIGRATING) return 0;
+		if (expired.length) this.deps.retireStaging?.(blobIdsOf(expired));
+		return expired.length;
+	}
+
+	/** Held message names bytes. */
+	namesBlob(blobId: string): boolean {
+		return this.deps.store
+			.snapshot()
+			.deliveries.some((delivery) => delivery.files?.some((file) => file.blobId === blobId));
 	}
 
 	/**
@@ -86,7 +112,7 @@ export class ChannelDeliveryCoordinator {
 		// Nobody here can acknowledge, so holding the row would re-offer it on every reconnect and
 		// duplicate the message. Retiring now gives an old plugin precisely today's behaviour.
 		if (!sockets.some(canAcknowledge)) {
-			const acknowledged = this.deps.store.acknowledge(delivery.deliveryId);
+			const acknowledged = this.acknowledge(delivery.deliveryId);
 			if (acknowledged === "migrating") return MIGRATING;
 		}
 		return true;

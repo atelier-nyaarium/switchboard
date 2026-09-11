@@ -25,7 +25,6 @@ class MessageFileRoundTripTest {
 			4096L,
 			1785179969544L,
 			blobId = "sha256-${"a".repeat(64)}",
-			blobGateway = "sakura",
 			role = "attachment",
 			cardTitle = "Editor",
 			cardGroup = "Kit",

@@ -113,6 +113,8 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			routines.sessionEnded(team);
 		},
 		reservedByRoutine: (team) => routines.reserves(team),
+		sweepDeliveries: () => websockets?.channelDeliveries.sweep(),
+		namesBlob: (blobId) => routes?.current()?.namesBlob(blobId) ?? true,
 	});
 	const host = composeHost({ sessions, wakeTimeoutMs: config.wakeTimeoutMs, ambient: bootstrap.ambient });
 	const agents = composeAgents({ sessions, host, ambient: bootstrap.ambient });
@@ -159,6 +161,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		host,
 		agents,
 		federation,
+		retireStaging: (blobIds) => routes?.current()?.retireStaging(blobIds),
 	});
 	routes = composeRoutes({
 		dataDir: bootstrap.dataDir,
@@ -240,6 +243,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		dataDir: bootstrap.dataDir,
 		localGatewayId: bootstrap.localGatewayId,
 		enrollNonce: config.enrollNonce,
+		routerBlobMigrationToken: config.routerBlobMigrationToken,
 		ambient: bootstrap.ambient,
 		context,
 		stores,

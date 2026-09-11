@@ -16,7 +16,7 @@ const session = z
 	.object({ domainId: z.string(), gatewayId: z.string(), sessionId: z.string() })
 	.meta({ id: "BoardSession" });
 const attachment = z
-	.object({ blobId: z.string(), size: z.number().int().nonnegative(), mime: z.string(), blobGateway: z.string() })
+	.object({ blobId: z.string(), size: z.number().int().nonnegative(), mime: z.string() })
 	.meta({ id: "BoardStateAttachment" });
 
 export const BoardEntryClearSchema = z

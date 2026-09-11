@@ -4,9 +4,7 @@ import { DomainSnapshotSchema } from "../../shared/admission.js";
 import type { Ambient, IntervalHandle } from "../../shared/ambient.js";
 import { DurableStore, restoreDurable } from "../../shared/durable-store.js";
 import { stableHash } from "../../shared/plane-registry.js";
-import { MAX_BLOB_BYTES } from "../../shared/router-protocol.js";
 import { WIRE_NONCE_BYTES } from "../../shared/wire-vocabulary.js";
-import { readBlobRange } from "../blobOps.js";
 import type { FederationSlice, GatewayBootstrap } from "../boot.js";
 import type { ChannelDeliveryCoordinator } from "../channelDelivery.js";
 import {
@@ -254,36 +252,6 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 				);
 				if (pumped) fireAndForget("inbox deliver", pumped);
 			},
-			onBlobFetch: (frame) => {
-				const request = frame as { opId: string; blobId: string; range?: { offset: number; length: number } };
-				try {
-					const read = readBlobRange(
-						stores.blobStore,
-						request.blobId,
-						request.range?.offset ?? 0,
-						request.range?.length ?? MAX_BLOB_BYTES,
-					);
-					fireAndForget(
-						`blob_fetch_reply for ${request.opId}`,
-						routerClient.callInboxTool("blob_fetch_reply", {
-							opId: request.opId,
-							outcome: "fetched",
-							bytes: read.bytes.toString("base64"),
-							eof: read.eof,
-							sealed: false,
-						}),
-					);
-				} catch {
-					fireAndForget(
-						`blob_fetch_reply for ${request.opId}`,
-						routerClient.callInboxTool("blob_fetch_reply", {
-							opId: request.opId,
-							outcome: "absent",
-							sealed: false,
-						}),
-					);
-				}
-			},
 		});
 		presenceReporter = createPresenceReporter({
 			rows: () => sessions.presence.snapshot(),
@@ -316,7 +284,6 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 			incarnation: () => routerClient.incarnation(),
 			domainId,
 			ownerSignPub: () => allowlist.ownerSignPub,
-			ambient,
 			keys: gatewayBootstrap.contentKeys,
 		});
 		const boardClient = createBoardClient({

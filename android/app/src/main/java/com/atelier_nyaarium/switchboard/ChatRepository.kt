@@ -204,7 +204,10 @@ class ChatRepository(
 						cursorTranslation.onWelcome(gen, epoch, welcome.cursor, welcome.cursorEpoch)
 					}
 					selfMigration.run(epoch)
+					scheduled.kickDrain()
 				}
+				attachments.forgetFailures()
+				boardOps.forgetAbsent()
 			},
 			onConsumerWelcome = { _, _ ->
 				repoScope.launch {
@@ -362,7 +365,6 @@ class ChatRepository(
 		state = _state,
 		repoScope = repoScope,
 		filesDir = filesDir,
-		homeGatewayId = { homeGatewayId },
 		collaborators = boardCollaborators,
 	)
 	internal val vaultOps = VaultOps(
@@ -387,12 +389,12 @@ class ChatRepository(
 		persistence = persistence,
 		filesDir = filesDir,
 		repoScope = repoScope,
-		mutationJournal = mutationJournal,
-		identity = ports,
-		pushback = pushback,
-		isVisible = { isVisible },
 		collaborators = scheduledSendCollaborators,
 	)
+
+	init {
+		onScheduledResult = scheduled::onRouterResult
+	}
 	internal val goals = GoalOps(
 		state = _state,
 		persistence = persistence,
@@ -536,11 +538,6 @@ class ChatRepository(
 
 		internal const val BOARD_FETCH_GIVE_UP = 3
 
-		internal const val BOARD_FETCH_DEAD_AFTER = 3
-
-		internal const val SCHEDULED_SEND_RETRY_DELAY_MS = 5 * 60_000L
-
-		internal const val SCHEDULER_WIRE_WAIT_MS = 5_000L
 
 		internal const val SCHEDULED_SEND_MAX_HORIZON_MS = 30L * 24 * 60 * 60_000L
 

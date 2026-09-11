@@ -20,6 +20,7 @@ hand-edited, so there is no `.env.example`. The compose files and the tuning ove
 | `MAX_BLOB_STORE_BYTES` | Blob sweep ceiling, default sixteen times the single-blob maximum. Tuning override |
 | `WAKE_TIMEOUT_MS` | How long a wake may take before it is given up on, default 600000. Tuning override |
 | `ALLOW_FIXTURE_IDENTITY` | `1` lets the gateway start on the committed test identity (`src/shared/fixture-identity.ts`). Only `check:boot` sets it |
+| `ROUTER_BLOB_MIGRATION_TOKEN` | Arms the loopback `/migration/router-blobs` route that `scripts/migrate-router-blobs.ts` drives. Unset, the route does not exist. Removed with the route on 2026-09-25 |
 
 ## Federation Router (Docker, its own compose project)
 
@@ -32,7 +33,6 @@ hand-edited, so there is no `.env.example`. The compose files and the tuning ove
 | `CONSOLE_BRIDGE_TOKEN` | App token every console presents on the op surface. Fail-closed. Minted into `.env` by `start-federation.sh` |
 | `FEDERATION_ROUTER_CERT_FP` | Persisted Router fingerprint. `setup.sh --verify` pins against it. Written at Router start and during provision |
 | `ROUTER_DOMAIN_QUOTA_BYTES` | Owner state and inbox bytes per data dir, default 2 GiB. A 64 MB reserve is kept free |
-| `ROUTER_BLOB_CACHE_BYTES` | Blob cache bytes per Domain, default 1 GiB. The LRU sweep skips live transfers |
 | `ROUTER_MIGRATION_EPOCH` | Fallback migration epoch when the Router has no `migration-epoch` file. A positive integer raises the Router migration window |
 | `ALLOW_FIXTURE_IDENTITY` | `1` lets the Router start on the committed test identity. Only `check:boot` sets it |
 

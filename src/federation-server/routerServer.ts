@@ -87,7 +87,6 @@ export class RouterServer {
 			ambient,
 			tls: params.tls,
 			quotaBytes: Number(process.env.ROUTER_DOMAIN_QUOTA_BYTES ?? 2 * 1024 * 1024 * 1024),
-			blobCacheBytes: Number(process.env.ROUTER_BLOB_CACHE_BYTES ?? 1024 * 1024 * 1024),
 		});
 		this.wsServer.on("error", () => {});
 		this.deviceApproval = new DeviceApprovalCoordinator(ambient);
@@ -518,7 +517,6 @@ export class RouterServer {
 	public sweep(now?: number): void {
 		try {
 			this.domain.inbox.sweep();
-			this.domain.blobCache.sweep();
 			this.ownerServices.sweep(now);
 		} catch (error) {
 			console.warn(`[router] sweep failed: ${(error as Error).message}`);

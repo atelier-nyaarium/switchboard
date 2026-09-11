@@ -54,7 +54,7 @@ class BoardIntentTest {
 	@Test
 	fun setTitleCopiesClearFieldsAndPassesThroughBody() {
 		val session = BoardSession(domainId, "gateway", "session")
-		val attachments = listOf(BoardStateAttachment("blob", 4L, "text/plain", "gateway"))
+		val attachments = listOf(BoardStateAttachment("blob", 4L, "text/plain"))
 		val entry = stored("id", title("id", "old"), body("id", "old body"), "done", "parent", "rank", session, 42L, attachments)
 		val op = upsert(BoardIntent.SetTitle("id", "new"), entry)
 
@@ -110,7 +110,7 @@ class BoardIntentTest {
 	@Test
 	fun passThroughIntentsBecomeTheirOwnOperations() {
 		val session = BoardSession(domainId, "gateway", "session")
-		val attachments = listOf(BoardStateAttachment("blob", 4L, "text/plain", "gateway"))
+		val attachments = listOf(BoardStateAttachment("blob", 4L, "text/plain"))
 		val stored = emptyMap<String, BoardStoredEntry>()
 
 		assertEquals(BoardOp.SetState("id", "done"), materialize(BoardIntent.SetState("id", "done"), stored, sealing()))

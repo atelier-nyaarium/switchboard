@@ -6,14 +6,12 @@ import kotlinx.serialization.json.JsonObject
 //  Interfaces & Types
 
 /**
- * A banked send waiting for its wall-clock time, at most one per team.
+ * A send the Router fires at its wall-clock time, at most one per team.
  *
- * `opId` is minted at schedule time and carried all the way to `deliver()`, so the gateway's
- * idempotency cache covers this fire like any live send. `targetDomainId` is resolved once at
- * schedule time because `deliver()`'s own resolution reads `state.teams`, which is empty on a cold
- * fire until `connect()` completes, so re-deriving it would silently break a cross-Domain target.
- * `fileRefs` point at an eagerly-copied bucket so a transient `content://` grant need not outlive
- * the wait.
+ * Until the Router accepts it, `routerVersion` is null and the record is an intent the drain keeps
+ * posting under the same `opId`. `replacesVersion` names the accepted record a reschedule supersedes.
+ * `cancelRequested` is a cancel the Router has not answered yet; `draftTaken` says the composer
+ * already holds the text and files, so a settled cancel must not delete them.
  */
 data class ScheduledSend(
 	val text: String,
@@ -22,24 +20,11 @@ data class ScheduledSend(
 	val opId: String,
 	val targetDomainId: String?,
 	val createdAt: Long,
+	val routerVersion: Long? = null,
+	val replacesVersion: Long? = null,
+	val cancelRequested: Boolean = false,
+	val draftTaken: Boolean = false,
 )
-
-/**
- * The service-owned alarm side effects a scheduled send needs, mirroring [DeepIdleScheduler]'s seam
- * so [ChatRepository] never needs a raw Context.
- *
- * [scheduleNext] and [cancelNext] arm the single shared next-due wakeup, always the earliest pending
- * record across every team. [scheduleRetry] arms one team's bounded one-shot retry after a failed
- * fire, keyed per team rather than in a shared slot, so two teams failing at once cannot clobber
- * each other.
- */
-interface ScheduledSendAlarmScheduler {
-	fun scheduleNext(atMillis: Long)
-
-	fun cancelNext()
-
-	fun scheduleRetry(atMillis: Long, team: String, opId: String, targetDomainId: String?)
-}
 
 /** A data-plane consumer of new inbound messages, invoked once per message at the drain gate. */
 fun interface InboundSubscriber {

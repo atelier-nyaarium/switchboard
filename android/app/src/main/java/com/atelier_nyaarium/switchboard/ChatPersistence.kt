@@ -217,6 +217,11 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 					.putOpt("targetDomainId", rec.targetDomainId)
 					.put("createdAt", rec.createdAt),
 			)
+			root.getJSONObject(team)
+				.putOpt("routerVersion", rec.routerVersion)
+				.putOpt("replacesVersion", rec.replacesVersion)
+				.put("cancelRequested", rec.cancelRequested)
+				.put("draftTaken", rec.draftTaken)
 		}
 		return root.toString()
 	}
@@ -225,15 +230,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 		runCatching { store.saveScheduledSends(scheduledSendsJson(records)) }
 	}
 
-	/** Same disposable storage class as drafts/labels, with no special re-provisioning survival.
-	 * A corrupt or legacy-grammar row is dropped rather than risked as a
-	 * bogus immediate fire (a blank opId or a non-positive fireAt reads as "already due"). Each row
-	 * parses under its OWN runCatching, not one wrapping the whole loop - a single malformed team
-	 * entry (a torn/partial SharedPreferences write, a future schema mismatch) must not throw away
-	 * every OTHER team's still-good record too. That would not just lose data quietly: the next cold
-	 * start's unconditional fireDueScheduledSends() would find nothing due and call
-	 * rearmScheduledSendAlarm(), which cancels the real, still-armed AlarmManager alarm for every
-	 * affected team when the map comes back smaller than it should be. */
+	/** Drops malformed rows individually. */
 	internal fun loadPersistedScheduledSends(): Map<String, ScheduledSend> {
 		val json = store.loadScheduledSends() ?: return emptyMap()
 		val root = runCatching { JSONObject(json) }.getOrNull()
@@ -257,6 +254,10 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 						opId = opId,
 						targetDomainId = obj.optString("targetDomainId").takeIf { it.isNotEmpty() },
 						createdAt = obj.optLong("createdAt"),
+						routerVersion = obj.longOrNull("routerVersion"),
+						replacesVersion = obj.longOrNull("replacesVersion"),
+						cancelRequested = obj.optBoolean("cancelRequested"),
+						draftTaken = obj.optBoolean("draftTaken"),
 					)
 				}.getOrNull()?.let { put(rawKey, it) }
 			}

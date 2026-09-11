@@ -60,13 +60,6 @@ export const RouterInboundFrameSchema = z.discriminatedUnion("type", [
 		incarnation: z.number().int().positive(),
 		deliveryEpoch: z.number().int().positive(),
 	}),
-	z.object({
-		type: z.literal("blob_fetch"),
-		opId: z.string().min(1),
-		blobId: z.string().min(1),
-		range: z.object({ offset: z.number().int().nonnegative(), length: z.number().int().positive() }).optional(),
-		incarnation: z.number().int().positive(),
-	}),
 	ValueOpFrameSchema,
 	z.object({
 		type: z.literal("presence_resync"),
@@ -115,36 +108,26 @@ export const SessionForgetParamsSchema = z.object({
 	incarnation: z.number().int().positive(),
 });
 
+const blobIdField = z.string().regex(/^sha256-[0-9a-f]{64}$/);
+
+// Avoids importing schemasBlob.ts.
 export const BlobFetchParamsSchema = z.object({
-	opId: z.string(),
-	blobId: z.string(),
+	blobId: blobIdField,
 	range: z.object({ offset: z.number().int().nonnegative(), length: z.number().int().positive() }).optional(),
-	origin: z.object({ domainId: z.string().min(1), gatewayId: z.string().min(1) }).optional(),
 	incarnation: z.number().int().positive(),
 });
 
-export const OwnerBlobFetchParamsSchema = z.object({
-	kind: z.literal("blob_fetch"),
-	opId: z.string().min(1),
-	blobId: z.string().min(1),
-	range: z.object({ offset: z.number().int().nonnegative(), length: z.number().int().positive() }).optional(),
-	origin: z.object({ domainId: z.string().min(1), gatewayId: z.string().min(1) }).optional(),
-});
-
 export const BlobBeginParamsSchema = z.object({
-	blobId: z.string().min(1),
+	blobId: blobIdField,
 	size: z.number().int().nonnegative().max(MAX_BLOB_BYTES),
 	ciphertextSize: z.number().int().positive().max(MAX_BLOB_CIPHERTEXT_BYTES),
-	ciphertextDigest: z.string().regex(/^sha256-[0-9a-f]{64}$/),
+	ciphertextDigest: blobIdField,
 	epoch: z.number().int().min(1).max(2147483647),
-	store: z.enum(["cache", "held"]),
-	ref: z.object({ kind: z.enum(["entry", "row", "scheduled"]), id: z.string().min(1).max(256) }).optional(),
 	incarnation: z.number().int().positive(),
 });
 
 export const BlobChunkParamsSchema = z.object({
-	blobId: z.string().min(1),
-	store: z.enum(["cache", "held"]),
+	blobId: blobIdField,
 	lease: z.object({ id: z.string().min(1), generation: z.number().int().positive() }),
 	offset: z.number().int().nonnegative(),
 	bytes: z.string().max(BLOB_CIPHERTEXT_CHUNK_BYTES * 2),
@@ -152,12 +135,13 @@ export const BlobChunkParamsSchema = z.object({
 	incarnation: z.number().int().positive(),
 });
 
-export const BlobFetchReplyParamsSchema = z.object({
-	opId: z.string().min(1),
-	outcome: z.enum(["fetched", "absent"]),
-	bytes: z.string().optional(),
-	eof: z.boolean().optional(),
-	sealed: z.literal(false),
+export const BLOB_HOLD_MAX_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Temporary reference for relayed bytes. */
+export const BlobHoldParamsSchema = z.object({
+	blobId: blobIdField,
+	holdId: z.string().min(1).max(128),
+	ttlMs: z.number().int().positive().max(BLOB_HOLD_MAX_MS),
 	incarnation: z.number().int().positive(),
 });
 
@@ -241,7 +225,9 @@ export type InboxAckParams = z.infer<typeof InboxAckParamsSchema>;
 export type SessionUpsertParams = z.infer<typeof SessionUpsertParamsSchema>;
 export type SessionForgetParams = z.infer<typeof SessionForgetParamsSchema>;
 export type BlobFetchParams = z.infer<typeof BlobFetchParamsSchema>;
-export type BlobFetchReplyParams = z.infer<typeof BlobFetchReplyParamsSchema>;
+export type BlobBeginParams = z.infer<typeof BlobBeginParamsSchema>;
+export type BlobChunkParams = z.infer<typeof BlobChunkParamsSchema>;
+export type BlobHoldParams = z.infer<typeof BlobHoldParamsSchema>;
 export type GatewayRegisterParams = z.infer<typeof GatewayRegisterParamsSchema>;
 export type GatewayRelayRoute = z.infer<typeof GatewayRelayRouteSchema>;
 export type GatewayRelayReplyParams = z.infer<typeof GatewayRelayReplyParamsSchema>;

@@ -82,7 +82,7 @@ export async function materializeFiles({
 		// Presence, not truthiness: a zero-byte file still has to land.
 		if (file.blobId !== undefined) {
 			try {
-				const source = await downloadBlob(file.blobId, file.blobGateway);
+				const source = await downloadBlob(file.blobId);
 				mkdirSync(bucket, { recursive: true });
 				const targetPath = resolveCollisionFreePath(bucket, file.filename, claimedLeaves);
 				landAtomic(

@@ -27,6 +27,10 @@ export interface BlobSweepOptions {
 	maxBytes: number;
 	/** Maximum idle age for partials. */
 	partMaxAgeMs?: number;
+	/** Unkept blob age limit. */
+	completeMaxAgeMs?: number;
+	/** Kept blobs bypass limits. */
+	keep?: (blobId: string) => boolean;
 	now?: number;
 }
 
@@ -144,6 +148,13 @@ export class BlobStore {
 		return blobId;
 	}
 
+	ids(): string[] {
+		return this.entries()
+			.filter((entry) => !entry.partial)
+			.map((entry) => `sha256-${path.basename(entry.path)}`)
+			.filter((blobId) => BLOB_ID_RE.test(blobId));
+	}
+
 	/** Drop a blob and its partial. */
 	remove(blobId: string): void {
 		this.assertId(blobId);
@@ -152,13 +163,28 @@ export class BlobStore {
 	}
 
 	/** Reclaim space under the byte ceiling. */
-	sweep({ maxBytes, partMaxAgeMs = 3_600_000, now = this.ambient.now() }: BlobSweepOptions): number {
+	sweep({
+		maxBytes,
+		partMaxAgeMs = 3_600_000,
+		completeMaxAgeMs,
+		keep,
+		now = this.ambient.now(),
+	}: BlobSweepOptions): number {
 		const entries = this.entries();
 		let freed = 0;
 		const live: typeof entries = [];
+		const kept = (entry: (typeof entries)[number]): boolean => {
+			const name = path.basename(entry.path);
+			const blobId = `sha256-${entry.partial ? name.slice(0, -".part".length) : name}`;
+			return keep !== undefined && BLOB_ID_RE.test(blobId) && keep(blobId);
+		};
 
 		for (const entry of entries) {
-			if (entry.partial && now - entry.mtimeMs >= partMaxAgeMs) {
+			const idle = now - entry.mtimeMs;
+			const aged = entry.partial
+				? idle >= partMaxAgeMs
+				: completeMaxAgeMs !== undefined && idle >= completeMaxAgeMs;
+			if (aged && !kept(entry)) {
 				fs.rmSync(entry.path, { force: true });
 				freed += entry.size;
 				continue;
@@ -171,6 +197,7 @@ export class BlobStore {
 		let total = ordered.reduce((n, e) => n + e.size, 0);
 		for (const entry of ordered) {
 			if (total <= maxBytes) break;
+			if (kept(entry)) continue;
 			fs.rmSync(entry.path, { force: true });
 			total -= entry.size;
 			freed += entry.size;
@@ -223,14 +250,22 @@ export class BlobStore {
 				if (n <= 0) break;
 				hash.update(buf.subarray(0, n));
 			}
+			if (`sha256-${hash.digest("hex")}` !== expectedDigest) {
+				fs.rmSync(part, { force: true });
+				return false;
+			}
+			fs.fsyncSync(fd);
 		} finally {
 			fs.closeSync(fd);
 		}
-		if (`sha256-${hash.digest("hex")}` !== expectedDigest) {
-			fs.rmSync(part, { force: true });
-			return false;
+		const final = this.finalPath(blobId);
+		fs.renameSync(part, final);
+		const dir = fs.openSync(path.dirname(final), "r");
+		try {
+			fs.fsyncSync(dir);
+		} finally {
+			fs.closeSync(dir);
 		}
-		fs.renameSync(part, this.finalPath(blobId));
 		return true;
 	}
 

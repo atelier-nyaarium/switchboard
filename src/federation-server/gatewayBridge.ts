@@ -8,15 +8,12 @@ import {
 	GATEWAY_ERROR_NOT_REGISTERED,
 	GATEWAY_ERROR_STALE_INCARNATION,
 } from "../shared/wire-vocabulary.js";
-import type { ReferenceHeldStore } from "./blobs/referenceHeldStore.js";
-import type { BlobOrigin, RouterBlobCache } from "./blobs/routerBlobCache.js";
 import { type GatedFrameHandler, GatewayFrameCatalog, type OpenFrameHandler } from "./bridge/frameDispatch.js";
 import { InboxFrames } from "./bridge/inboxFrames.js";
 import { RegistrationHandler } from "./bridge/registrationHandler.js";
 import { RelayRouter } from "./bridge/relayRouter.js";
 import type { DomainMeta } from "./enrollmentCoordinator.js";
 import { type ConnectionId, GatewayTransport, type ToolProvider } from "./gatewayTransport.js";
-import { BlobFetchRoute } from "./inbox/blobFetchRoute.js";
 import type { InboxService, PeerRowGate } from "./inbox/inboxService.js";
 import { readRouterMigrationWindow } from "./migration/leaseService.js";
 import type { OwnerOpMutation } from "./ownerOpRegistry.js";
@@ -32,8 +29,6 @@ export interface GatewayBridgeParams {
 	/** Registration carries reach because `reach` is gated. */
 	reach?: () => { publicHost?: string | null; publicPort?: number | null; lanAddresses?: string[] };
 	inbox?: InboxService;
-	blobCache?: RouterBlobCache;
-	referenceHeld?: ReferenceHeldStore;
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">;
 }
 
@@ -74,9 +69,6 @@ export class GatewayBridge implements ToolProvider {
 	private gatewayConnections = new Map<string, Map<string, ConnectionId>>();
 	private connGateways = new Map<ConnectionId, ConnGatewayRecord>();
 	private readonly inbox: InboxService | null;
-	private readonly blobCache: RouterBlobCache | null;
-	private readonly referenceHeld: ReferenceHeldStore | null;
-	private readonly blobFetch: BlobFetchRoute | null;
 	private readonly registrationHandler: RegistrationHandler;
 	private readonly relayRouter: RelayRouter;
 	private readonly inboxFrames: InboxFrames;
@@ -96,8 +88,6 @@ export class GatewayBridge implements ToolProvider {
 		adminDomainId,
 		reach,
 		inbox,
-		blobCache,
-		referenceHeld,
 		ambient,
 	}: GatewayBridgeParams) {
 		this.port = port;
@@ -107,18 +97,6 @@ export class GatewayBridge implements ToolProvider {
 		this.hasLinkEdge = hasLinkEdge;
 		this.adminDomainIdGetter = adminDomainId;
 		this.inbox = inbox ?? null;
-		this.blobCache = blobCache ?? null;
-		this.referenceHeld = referenceHeld ?? null;
-		this.blobFetch = blobCache
-			? new BlobFetchRoute(blobCache, ambient, (domainId, gatewayId) => {
-					const connId = this.gatewayConnections.get(domainId)?.get(gatewayId);
-					const ws = connId ? this.transport?.getConnection(connId) : null;
-					const incarnation = connId ? this.connGateways.get(connId)?.incarnation : null;
-					return connId && ws && incarnation !== null && incarnation !== undefined
-						? { connId, incarnation, send: (frame) => ws.send(JSON.stringify(frame)) }
-						: null;
-				})
-			: null;
 		this.relayRouter = new RelayRouter({
 			hasLinkEdge: this.hasLinkEdge,
 			ambient,
@@ -153,9 +131,6 @@ export class GatewayBridge implements ToolProvider {
 			ambient,
 			hasLinkEdge: this.hasLinkEdge,
 			getDomain: this.getDomain,
-			blobCache: this.blobCache,
-			referenceHeld: this.referenceHeld,
-			blobFetch: this.blobFetch,
 			isMigrationFenced: (domainId, gatewayId) => this.migrationFenced?.(domainId, gatewayId) ?? false,
 			getRegistration: (connId) => this.connGateways.get(connId),
 			getConnectionId: (domainId, gatewayId) => this.gatewayConnections.get(domainId)?.get(gatewayId),
@@ -181,11 +156,6 @@ export class GatewayBridge implements ToolProvider {
 		gated("inbox_ack", "value", (reg, params) => this.inboxFrames.ack(reg, params));
 		gated("session_upsert", "value", (reg, params) => this.inboxFrames.upsertSession(reg, params));
 		gated("session_forget", "value", (reg, params) => this.inboxFrames.forgetSession(reg, params));
-		gated("blob_begin", "value", (reg, params) => this.inboxFrames.beginBlob(reg, params));
-		gated("blob_chunk", "value", (reg, params) => this.inboxFrames.chunkBlob(reg, params));
-		gated("blob_fetch", "read", (reg, params) => this.inboxFrames.fetchBlob(reg, params));
-		// The replies settle a waiter this Router is already holding, so they write nothing of the owner's.
-		gated("blob_fetch_reply", "read", (_reg, params, connId) => this.inboxFrames.settleBlobFetch(connId, params));
 		gated("value_result", "read", (reg, params, connId) => this.inboxFrames.settleValue(reg, params, connId));
 		open("gateway_relay", (connId, params) => this.relayRouter.handleGatewayRelay(connId, params));
 		open("gateway_relay_reply", (connId, params) => this.relayRouter.handleGatewayRelayReply(connId, params));
@@ -250,7 +220,6 @@ export class GatewayBridge implements ToolProvider {
 		this.transport = null;
 		this.relayRouter.stop();
 		this.inboxFrames.stop();
-		this.blobFetch?.stop();
 		this.gatewayConnections.clear();
 		this.connGateways.clear();
 	}
@@ -482,7 +451,6 @@ export class GatewayBridge implements ToolProvider {
 			for (const [gatewayId, held] of [...(domainMap ?? [])]) if (held === connId) domainMap?.delete(gatewayId);
 			if (domainMap?.size === 0) this.gatewayConnections.delete(reg.domainId);
 		}
-		this.blobFetch?.failConnection(connId);
 		// Removed Domains cannot recreate owner stores.
 		if (reg && wasCurrent && reg.signPub && reg.incarnation !== null && this.getDomain(reg.domainId)) {
 			const dropped = {
@@ -515,18 +483,6 @@ export class GatewayBridge implements ToolProvider {
 
 	public setMigrationLease(put: (domainId: string, gatewayId: string) => void): void {
 		this.migrationLease = put;
-	}
-
-	/** Owner reads use the same cross-Domain gate. */
-	public fetchBlobForOwner(
-		domainId: string,
-		params: { opId: string; blobId: string; range?: { offset: number; length: number }; origin?: BlobOrigin },
-	): Promise<unknown> {
-		if (!this.blobFetch) return Promise.resolve({ outcome: "unreachable" });
-		const origin = params.origin;
-		if (origin && origin.domainId !== domainId && !this.hasLinkEdge(domainId, origin.domainId))
-			return Promise.resolve({ outcome: "unreachable" });
-		return this.blobFetch.fetch(domainId, { ...params, incarnation: 1 });
 	}
 
 	public forwardGatewayValue(

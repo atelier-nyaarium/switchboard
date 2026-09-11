@@ -3,6 +3,8 @@ package com.atelier_nyaarium.switchboard.crypto
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import java.util.Base64
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 import kotlin.math.ceil
 import kotlin.math.floor
 
@@ -43,6 +45,30 @@ fun blobChunkAad(context: BlobSealContext, index: Long, final: Boolean): Crypto.
 		context.epoch,
 		"blob\n${context.blobId}\n$index\n${if (final) 1 else 0}",
 	)
+
+private val BLOB_NONCE_TAG = "switchboard-blob-nonce-v1\n".toByteArray(Charsets.UTF_8)
+
+/** Matches TypeScript nonce. */
+fun blobChunkNonce(key: ByteArray, context: BlobSealContext, index: Long, final: Boolean): ByteArray {
+	val mac = Mac.getInstance("HmacSHA256")
+	mac.init(SecretKeySpec(key, "HmacSHA256"))
+	mac.update(BLOB_NONCE_TAG)
+	mac.update(blobChunkAad(context, index, final).bytes())
+	return mac.doFinal().copyOfRange(0, BLOB_NONCE_BYTES)
+}
+
+/** One sealed frame. */
+fun sealBlobChunk(
+	plaintext: ByteArray,
+	key: ByteArray,
+	context: BlobSealContext,
+	index: Long,
+	final: Boolean,
+	nonce: ByteArray = blobChunkNonce(key, context, index, final),
+): ByteArray {
+	val envelope = Crypto.sealContent(plaintext, key, blobChunkAad(context, index, final), nonce)
+	return Base64.getDecoder().decode(envelope.nonce) + Base64.getDecoder().decode(envelope.ciphertext)
+}
 
 fun openBlobChunk(
 	frame: ByteArray,

@@ -20,7 +20,6 @@ interface BoardStore {
 
 	fun saveTaskBoard(json: String)
 
-	fun loadGatewayId(): String
 }
 
 data class BoardLiveLine(
@@ -270,8 +269,7 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 		return BoardLiveLine(current?.title ?: "", current?.state ?: "open", finished, mine.size, current?.id)
 	}
 
-	fun cardBranch(gatewayId: String, team: String, currentId: String?, max: Int = CARD_BRANCH_MAX): CardBranch {
-		val key = GroupKey(gatewayId, sessionKeyOf(team))
+	fun cardBranch(key: GroupKey, currentId: String?, max: Int = CARD_BRANCH_MAX): CardBranch {
 		val group = flattenBoard(routerEntries())
 			.sessions.firstOrNull { it.key == key }
 			?: return CardBranch(emptyList(), 0)

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Ambient } from "../shared/ambient.js";
+import type { BlobStore } from "../shared/blob-store.js";
 import { canonicalJson, sha256Hex } from "../shared/canonical-json.js";
 import { inboxBodyAadKind } from "../shared/content-envelope.js";
 import { DurableOutbox } from "../shared/durable-outbox.js";
@@ -10,7 +11,9 @@ import { type NoticeTierWire, pickTiers } from "../shared/notice.js";
 import { formatInboxAddress, OpResultEnvelopeSchema, signRowEnvelope } from "../shared/schemasInbox.js";
 import { type Address, storeKey } from "../shared/session-id.js";
 import type { ChannelFile } from "../shared/types.js";
+import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
 import { fireAndForget } from "./fireAndForget.js";
+import type { createBlobUploader } from "./router/blobUploader.js";
 import {
 	fileBytes,
 	HumanNotifySchema,
@@ -19,7 +22,6 @@ import {
 	MAX_RESPONSE_FILE_BYTES,
 	PluginActionRequestSchema,
 	payloadBytes,
-	stampBlobHolder,
 } from "./routeSchemas.js";
 import type { CallerScope } from "./routes/callerGuards.js";
 
@@ -47,10 +49,18 @@ export interface ConsolePushOpsDeps {
 	ownerSignPub?: (() => string | null) | null;
 	contentKeyStore?: Pick<import("./federation/contentKeyStore.js").ContentKeyStore, "seal">;
 	localAddress: (name: string) => Address;
-	cacheBlobs?: ((blobIds: readonly string[]) => void) | null;
+	/** Stages row bytes first. */
+	blobUploader?: Pick<ReturnType<typeof createBlobUploader>, "stage"> | null;
+	/** Gateway row staging. */
+	blobStore?: Pick<BlobStore, "remove"> | null;
+	deliveries?: Pick<ChannelDeliveryCoordinator, "namesBlob"> | null;
 	refuseImpersonation: (req: Request, claimed: string, scope: CallerScope) => Response | null;
 	ambient: Pick<Ambient, "now" | "newId" | "setInterval" | "clearInterval">;
 }
+
+const blobIdsOf = (entry: ConsolePushEntry): string[] => [
+	...new Set((entry.files ?? []).flatMap((file) => (file.blobId ? [file.blobId] : []))),
+];
 
 type OwnerRowOutboxItem = {
 	entry: ConsolePushEntry;
@@ -60,6 +70,8 @@ type OwnerRowOutboxItem = {
 	at?: number;
 	volatile?: boolean;
 };
+
+const withoutBytes = ({ blobId: _gone, ...file }: ChannelFile): ChannelFile => file;
 
 export function ownerRowBody(entry: ConsolePushEntry, at: number): Record<string, unknown> {
 	// Placeholder seq satisfies the phone mailbox schema.
@@ -76,7 +88,9 @@ export function createConsolePushOps({
 	ownerSignPub,
 	contentKeyStore,
 	localAddress,
-	cacheBlobs,
+	blobUploader,
+	blobStore,
+	deliveries,
 	refuseImpersonation,
 	ambient,
 }: ConsolePushOpsDeps) {
@@ -156,6 +170,38 @@ export function createConsolePushOps({
 		console.log(`[owner-outbox] waiting: ${line}`);
 	}
 
+	/** Stages bytes before row. */
+	async function staged(item: OwnerRowOutboxItem): Promise<OwnerRowOutboxItem | null> {
+		const blobIds = blobIdsOf(item.entry);
+		if (!blobIds.length) return item;
+		if (!blobUploader) return { ...item, entry: { ...item.entry, files: item.entry.files?.map(withoutBytes) } };
+		const dropped = new Set<string>();
+		for (const blobId of blobIds) {
+			const outcome = await blobUploader.stage(blobId);
+			if (outcome.kind === "absent") dropped.add(blobId);
+			else if (outcome.kind === "failed") {
+				waiting(`blob staging: ${outcome.error}`);
+				return null;
+			}
+		}
+		if (!dropped.size) return item;
+		console.warn(`[${item.label}] ${dropped.size} attachment(s) left staging before the row was sent`);
+		const files = item.entry.files?.map((file) =>
+			file.blobId && dropped.has(file.blobId) ? withoutBytes(file) : file,
+		);
+		return { ...item, entry: { ...item.entry, files } };
+	}
+
+	/** Queued data names bytes. */
+	const namesBlob = (blobId: string): boolean =>
+		outbox.values().some((item) => blobIdsOf(item.entry).includes(blobId)) ||
+		deliveries?.namesBlob(blobId) === true;
+
+	/** Staging belongs to its row. */
+	function retireStaging(blobIds: readonly string[]): void {
+		for (const blobId of blobIds) if (!namesBlob(blobId)) blobStore?.remove(blobId);
+	}
+
 	async function drainOutbox(): Promise<void> {
 		if (
 			!routerClient ||
@@ -166,7 +212,9 @@ export function createConsolePushOps({
 			if (outbox.size > 0) waiting("router link down");
 			return;
 		}
-		await outbox.drain(async (item) => {
+		await outbox.drain(async (queued) => {
+			const item = await staged(queued);
+			if (!item) return;
 			const sealed = sealOwnerRow(item);
 			if (!sealed) {
 				waiting("no content key");
@@ -193,6 +241,10 @@ export function createConsolePushOps({
 				return;
 			}
 			if (parsed.outcome === "refused") {
+				if (parsed.reason === "blob_missing") {
+					waiting("blob staging: swept");
+					return;
+				}
 				console.warn(`[${item.label}] owner row ${item.opId} refused: ${parsed.reason ?? "refused"}`);
 			}
 			try {
@@ -203,6 +255,7 @@ export function createConsolePushOps({
 				);
 				return;
 			}
+			retireStaging(blobIdsOf(queued.entry));
 			lastWait = "";
 		});
 	}
@@ -230,10 +283,7 @@ export function createConsolePushOps({
 			);
 			return false;
 		}
-		if (!appendOwnerRow(entry, entry.opId ?? dedupeKey, label, volatile)) return false;
-		const blobIds = [...new Set((entry.files ?? []).flatMap((file) => (file.blobId ? [file.blobId] : [])))];
-		if (blobIds.length > 0) cacheBlobs?.(blobIds);
-		return true;
+		return appendOwnerRow(entry, entry.opId ?? dedupeKey, label, volatile);
 	}
 
 	function appendOwnerRow(entry: ConsolePushEntry, opId: string, label: string, volatile = false): boolean {
@@ -275,8 +325,7 @@ export function createConsolePushOps({
 		if (!parsed.success) {
 			return jsonResponse({ error: `Invalid request: ${parsed.error.message}` }, 400);
 		}
-		const { from, title, summary, full, fullSpoken, files: rawNoticeFiles } = parsed.data;
-		const files = rawNoticeFiles && stampBlobHolder(rawNoticeFiles, localGatewayId);
+		const { from, title, summary, full, fullSpoken, files } = parsed.data;
 		const refused = refuseImpersonation(req, from, "owner-data");
 		if (refused) return refused;
 		if (files && files.length > 0) {
@@ -350,5 +399,5 @@ export function createConsolePushOps({
 		return jsonResponse({ delivered: true });
 	}
 
-	return { mirrorPeer, humanNotify, pluginAction, deliverToOwner, drainOutbox, stop };
+	return { mirrorPeer, humanNotify, pluginAction, deliverToOwner, drainOutbox, namesBlob, retireStaging, stop };
 }

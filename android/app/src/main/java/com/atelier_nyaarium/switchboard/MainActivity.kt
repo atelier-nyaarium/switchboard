@@ -332,22 +332,22 @@ fun App(
 				if (openTeam == forgotten) openTeam = null
 			}
 			val boardOn = pluginManager.isActive("taskboard")
-			val boardGateway = repo.boardOps.boardGatewayOf(openTeam)
-				// Key board gateway for notification opens.
-			LaunchedEffect(openTeam, boardOn, boardGateway) {
+			val boardTeam = state.teams.firstOrNull { it.name == openTeam }
+			val boardKey = boardTeam?.let { GroupKey(it.domainId, it.gatewayId, repo.boardOps.boardSessionKeyOf(openTeam!!)) }
+			LaunchedEffect(openTeam, boardOn, boardKey) {
 				if (boardOn) repo.boardOps.refreshBoard()
 			}
 			val boardRevision by repo.boardOps.boardRevision
 				// Failed reads do not advance revision.
-			val boardStripFor = remember(openTeam, boardRevision, boardOn, boardGateway) {
+			val boardStripFor = remember(openTeam, boardRevision, boardOn, boardKey) {
 				if (!boardOn) null
 				else {
-					val key = GroupKey(boardGateway, repo.boardOps.boardSessionKeyOf(openTeam!!))
+					val key = boardKey ?: return@remember null
 					flattenBoard(repo.boardOps.boardEntriesFor(openTeam))
 						.sessions.firstOrNull { it.key == key }
 				}
 			}
-			val boardLiveLineFor = remember(openTeam, boardRevision, boardOn, boardGateway) {
+			val boardLiveLineFor = remember(openTeam, boardRevision, boardOn, boardKey) {
 				if (boardOn) repo.boardOps.boardLiveLineFor(openTeam!!) else null
 			}
 			ThreadScreen(

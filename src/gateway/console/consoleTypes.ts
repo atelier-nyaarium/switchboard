@@ -1,6 +1,5 @@
 import type { DomainSnapshot } from "../../shared/admission.js";
 import type { Ambient } from "../../shared/ambient.js";
-import type { BlobStore } from "../../shared/blob-store.js";
 import type { BoardDisposition } from "../../shared/board-authority.js";
 import type {
 	CrossDomainConfirmResult,
@@ -100,8 +99,6 @@ export interface ConsoleHandlerDeps {
 	>;
 	// Keyring snapshots send only when the version changes.
 	domain?: () => { version: string; snapshot: DomainSnapshot } | null;
-	blobStore?: BlobStore;
-	fetchBlobFromGateway?: (blobId: string, fromGateway: string) => Promise<import("../blobOps.js").BlobFetchOutcome>;
 	relayToHost?: (op: HostOp) => Promise<HostOpResult>;
 	// Devcontainer creation wakes before host relay.
 	tryWakeTeam?: (team: string) => Promise<WakeResult>;

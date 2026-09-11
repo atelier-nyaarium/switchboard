@@ -1,5 +1,14 @@
 import { z } from "zod";
-import { OwnerBlobFetchParamsSchema } from "../shared/router-protocol.js";
+import {
+	BlobBeginAnswerSchema,
+	BlobBeginValueSchema,
+	BlobChunkAnswerSchema,
+	BlobChunkValueSchema,
+	BlobFetchAnswerSchema,
+	BlobFetchValueSchema,
+	BlobUploadStatusAnswerSchema,
+	BlobUploadStatusValueSchema,
+} from "../shared/schemasBlob.js";
 import { BoardReadResultSchema, BoardWriteResultSchema, BoardWriteSchema } from "../shared/schemasBoardState.js";
 import {
 	KeyGrantOpSchema,
@@ -104,7 +113,7 @@ export const OWNER_OP_CATALOG = [
 		mutation: "read",
 		answer: HelloAnswerSchema,
 	},
-	{ kind: "blob_fetch", value: OwnerBlobFetchParamsSchema, mutation: "read" },
+	{ kind: "blob_fetch", value: BlobFetchValueSchema, mutation: "read", answer: BlobFetchAnswerSchema },
 	{ kind: "gateway_value", value: GatewayValueOpSchema, mutation: "read" },
 	{
 		kind: "planes_read",
@@ -190,6 +199,14 @@ export const OWNER_OP_CATALOG = [
 	{ kind: "vault_list", value: VaultListValueSchema, mutation: "read", answer: VaultListResultSchema },
 	{ kind: "vault_put", value: VaultPutValueSchema, mutation: "value", answer: VaultWriteResultSchema },
 	{ kind: "vault_delete", value: VaultDeleteValueSchema, mutation: "value", answer: VaultWriteResultSchema },
+	{ kind: "blob_begin", value: BlobBeginValueSchema, mutation: "value", answer: BlobBeginAnswerSchema },
+	{ kind: "blob_chunk", value: BlobChunkValueSchema, mutation: "value", answer: BlobChunkAnswerSchema },
+	{
+		kind: "blob_upload_status",
+		value: BlobUploadStatusValueSchema,
+		mutation: "read",
+		answer: BlobUploadStatusAnswerSchema,
+	},
 ] as const satisfies readonly OwnerOpCatalogEntry[];
 
 type Catalog = (typeof OWNER_OP_CATALOG)[number];

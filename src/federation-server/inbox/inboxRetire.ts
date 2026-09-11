@@ -7,6 +7,7 @@ import {
 	type OpResultEnvelope,
 	signRowEnvelope,
 } from "../../shared/schemasInbox.js";
+import type { ReferenceHeldStore } from "../blobs/referenceHeldStore.js";
 import type { OwnerStateStore } from "../owner/ownerStateStore.js";
 import { ledgerTransaction, ownerAddress, recordId } from "./inboxCore.js";
 import type { OwnerStoreRegistry } from "./ownerStoreRegistry.js";
@@ -64,7 +65,7 @@ function storeOrNull(registry: OwnerStoreRegistry, domainId: string): OwnerState
 	}
 }
 
-/** Retire atomically. */
+/** Retires row, frees bytes. */
 export function retireRow(
 	registry: OwnerStoreRegistry,
 	routerIdentity: { signPub: string; signPriv: string },
@@ -75,6 +76,7 @@ export function retireRow(
 	outcome: Terminal,
 	reason: string | undefined,
 	notifyRetired: (domainId: string, address: string, row: InboxRow) => void,
+	refs?: Pick<ReferenceHeldStore, "publish">,
 ): OpResultEnvelope | null {
 	const opKey = row.envelope.opKey;
 	const ledger = store.get("op", recordId(opKey, registry.ownerKey(domainId).ownerSignPub));
@@ -95,7 +97,7 @@ export function retireRow(
 			return null;
 		}
 	}
-	const write = ledgerTransaction(store, (tx) => {
+	const mutate: Parameters<typeof ledgerTransaction>[1] = (tx) => {
 		if (ledger) tx.put("op", ledger.id, ledger.version, { clear: { ...ledger.clear, state: outcome, result } });
 		if (sender && resultRow && senderStore === store) tx.append(sender.address, resultRow);
 		tx.remove(addressText, row.seq);
@@ -106,7 +108,11 @@ export function retireRow(
 					floor: Math.max(Number(floorRecord?.clear.floor ?? 1), row.seq + 1),
 				},
 			});
-	});
+	};
+	const write =
+		refs && row.envelope.contentRefs.length
+			? refs.publish(domainId, [{ ref: { kind: "row", address, seq: row.seq }, blobIds: [] }], mutate)
+			: ledgerTransaction(store, mutate);
 	if (write.kind !== "ok") return null;
 	notifyRetired(domainId, addressText, row);
 	return result;

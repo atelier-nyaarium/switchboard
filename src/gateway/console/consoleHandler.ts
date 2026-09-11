@@ -5,7 +5,6 @@ import { ownerKeyId } from "../../shared/owner-id.js";
 import { DELIVERY_OP_KINDS, TOLERATED_DELIVERY_OP_KINDS, VALUE_OP_KINDS } from "../../shared/schemasConsoleOp.js";
 import { type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
 import { SpawnPoint } from "../../shared/session-id.js";
-import { answerBlobOp } from "../blobOps.js";
 import {
 	RESERVE_OP,
 	type ReserveResult,
@@ -40,8 +39,6 @@ export function createConsoleDispatcher({
 	dropSessionResume,
 	sessionStore,
 	domain,
-	blobStore,
-	fetchBlobFromGateway,
 	relayToHost,
 	tryWakeTeam,
 	isWakeInFlight,
@@ -239,12 +236,6 @@ export function createConsoleDispatcher({
 
 			case "list_dirs":
 				return terminalOps.listDirs(op);
-
-			case "blob_stat":
-			case "blob_put":
-			case "blob_get":
-				// Fetch Router cache before the source machine.
-				return answerBlobOp(blobStore, op, fetchBlobFromGateway);
 
 			case "create_session":
 				return sessionLifecycle.createSession(op, conversationId, opId);

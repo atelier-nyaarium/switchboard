@@ -28,9 +28,6 @@ data class MessageFile(
 	 * no src is a file whose message has arrived and whose bytes have not, which is what lets a fetch
 	 * resume across a restart instead of the attachment silently never appearing. */
 	val blobId: String? = null,
-	/** Which Gateway holds those bytes. Persisted with the reference because the fetch may not happen
-	 * for hours, and by then nothing else remembers where the message came from. */
-	val blobGateway: String? = null,
 	/** What this file IS, declared by the sender. Null or "attachment" renders as an ordinary file;
 	 * "ref-snapshot" hides as machinery; an unrecognized value shows demoted, because a wrong show
 	 * heals at the next update while a wrong hide is unreachable. */
@@ -59,7 +56,6 @@ internal fun fileJson(f: MessageFile): JSONObject =
 		.putOpt("size", f.size)
 		.putOpt("modifiedAt", f.modifiedAt)
 		.putOpt("blobId", f.blobId)
-		.putOpt("blobGateway", f.blobGateway)
 		.putOpt("role", f.role)
 		.putOpt("ref", f.ref?.let { fileMetaJson.encodeToString(RefFileMeta.serializer(), it) })
 		.putOpt("cardTitle", f.cardTitle)
@@ -81,7 +77,6 @@ internal fun loadFiles(m: JSONObject): List<MessageFile> {
 			f.longOrNull("size"),
 			f.longOrNull("modifiedAt"),
 			f.optString("blobId").takeIf { s -> s.isNotEmpty() },
-			f.optString("blobGateway").takeIf { s -> s.isNotEmpty() },
 			role = f.optString("role").takeIf { s -> s.isNotEmpty() },
 			// A garbled blob reads as absent so the tap declines to the link menu, the documented
 			// miss contract, instead of one bad row costing every thread.

@@ -5,6 +5,7 @@ import {
 	type OpResultEnvelope,
 	signRowEnvelope,
 } from "../../shared/schemasInbox.js";
+import type { ReferenceHeldStore } from "../blobs/referenceHeldStore.js";
 import { appendInboxRow } from "./inboxAppend.js";
 import { recordId } from "./inboxCore.js";
 import type { OwnerStoreRegistry } from "./ownerStoreRegistry.js";
@@ -19,6 +20,7 @@ export function appendRouterOpResultRow(
 		body: Record<string, unknown>;
 		contentRefs?: string[];
 	},
+	refs?: Pick<ReferenceHeldStore, "publish">,
 ): OpResultEnvelope & { row?: InboxRow } {
 	const envelope = {
 		origin: { kind: "router" as const, domainId: input.address.domainId },
@@ -32,7 +34,7 @@ export function appendRouterOpResultRow(
 		producerSig: signRowEnvelope(envelope, routerIdentity.signPriv),
 		body: input.body,
 	};
-	return appendInboxRow(registry, { address: input.address, row, producerSignPub: routerIdentity.signPub });
+	return appendInboxRow(registry, { address: input.address, row, producerSignPub: routerIdentity.signPub }, refs);
 }
 
 export function readOpResult(registry: OwnerStoreRegistry, domainId: string, opKey: OpKey): OpResultEnvelope | null {

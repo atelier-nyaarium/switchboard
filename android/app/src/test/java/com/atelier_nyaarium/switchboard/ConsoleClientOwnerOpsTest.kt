@@ -16,7 +16,6 @@ import com.atelier_nyaarium.switchboard.proto.PlanesReadResult
 import com.atelier_nyaarium.switchboard.proto.PlaneRead
 import com.atelier_nyaarium.switchboard.proto.RowEnvelope
 import com.atelier_nyaarium.switchboard.proto.RowOrigin
-import java.util.Base64
 import java.time.ZoneId
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
@@ -166,27 +165,6 @@ class ConsoleClientOwnerOpsTest {
 		assertEquals(listOf("one", "two"), dirs.entries)
 		assertEquals("created-session", created.id)
 		assertTrue(created.created)
-	}
-
-	@Test
-	fun blobStatPutGetRideGatewayValue() = runBlocking {
-		val stat = client.blobStat("blob")
-		val put = client.blobPut("blob", 4, byteArrayOf(1, 2), true)
-		val get = client.blobGet("blob", 4, 2)
-		val requestOps = sent.map { openConsoleOp(it) }
-
-		assertEquals(listOf("gateway_value", "gateway_value", "gateway_value"), sent.map { it.op["kind"]?.jsonPrimitive?.content })
-		assertEquals(listOf("gateway", "gateway", "gateway"), sent.map { it.op["gatewayId"]?.jsonPrimitive?.content })
-		assertEquals(listOf("blob_stat", "blob_put", "blob_get"), requestOps.map(::kindOf))
-		assertEquals("blob", (requestOps[0] as ConsoleOp.BlobStat).blobId)
-		assertEquals(4L, (requestOps[1] as ConsoleOp.BlobPut).offset)
-		assertEquals("blob", (requestOps[1] as ConsoleOp.BlobPut).blobId)
-		assertEquals(2, Base64.getDecoder().decode((requestOps[1] as ConsoleOp.BlobPut).chunk).size)
-		assertEquals(4L, (requestOps[2] as ConsoleOp.BlobGet).offset)
-		assertEquals(2L, (requestOps[2] as ConsoleOp.BlobGet).length)
-		assertEquals(4L, stat.have)
-		assertTrue(put.complete)
-		assertEquals("AQI=", get.chunk)
 	}
 
 	@Test

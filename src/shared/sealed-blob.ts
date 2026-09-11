@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { type ContentAad, openContent, sealContentWithNonce } from "./content-envelope.js";
+import { type ContentAad, contentAad, openContent, sealContentWithNonce } from "./content-envelope.js";
 import {
 	BLOB_CHUNK_BYTES,
 	BLOB_CIPHERTEXT_CHUNK_BYTES,
@@ -39,13 +39,27 @@ export function blobChunkAad(context: BlobSealContext, index: number, final: boo
 	};
 }
 
+const BLOB_NONCE_TAG = "switchboard-blob-nonce-v1\n";
+
+/**
+ * Key/AAD-derived nonces match Kotlin.
+ */
+export function blobChunkNonce(key: Buffer, context: BlobSealContext, index: number, final: boolean): Buffer {
+	return crypto
+		.createHmac("sha256", key)
+		.update(BLOB_NONCE_TAG)
+		.update(contentAad(blobChunkAad(context, index, final)))
+		.digest()
+		.subarray(0, BLOB_NONCE_BYTES);
+}
+
 export function sealBlobChunk(
 	plaintext: Buffer,
 	key: Buffer,
 	context: BlobSealContext,
 	index: number,
 	final: boolean,
-	nonce: Buffer = crypto.randomBytes(BLOB_NONCE_BYTES),
+	nonce: Buffer = blobChunkNonce(key, context, index, final),
 ): Buffer {
 	const envelope = sealContentWithNonce(plaintext, key, blobChunkAad(context, index, final), nonce);
 	return Buffer.concat([Buffer.from(envelope.nonce, "base64"), Buffer.from(envelope.ciphertext, "base64")]);

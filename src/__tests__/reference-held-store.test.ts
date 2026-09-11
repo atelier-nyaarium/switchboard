@@ -2,220 +2,373 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { CorruptHeldIndexError, ReferenceHeldStore } from "../federation-server/blobs/referenceHeldStore.js";
-import { processAmbient } from "../shared/ambient.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { ReferenceHeldStore, STAGED_BLOB_TTL_MS } from "../federation-server/blobs/referenceHeldStore.js";
+import { OwnerStoreRegistry } from "../federation-server/inbox/ownerStoreRegistry.js";
+import { DomainQuota } from "../federation-server/owner/domainQuota.js";
 import type { BlobReference } from "../shared/blob-reference.js";
 import { blobIdFor } from "../shared/blob-store.js";
-import { sealBlobChunk } from "../shared/sealed-blob.js";
+import { generateIdentity } from "../shared/crypto.js";
+import { sealBlobChunk, sealedBlobSize } from "../shared/sealed-blob.js";
+
+const roots: string[] = [];
+afterEach(() => {
+	for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+});
+
+const DOMAIN = "domain";
+const entry: BlobReference = { kind: "entry", entryId: "entry-1" };
+const row: BlobReference = {
+	kind: "row",
+	address: { kind: "gateway", domainId: DOMAIN, gatewayId: "gateway" },
+	seq: 1,
+};
+
+interface Seed {
+	root: string;
+	owner: ReturnType<typeof generateIdentity>;
+	now: () => number;
+}
+
+/** Reopens persisted state. */
+function make(options: { quota?: number; from?: Seed } = {}) {
+	const root = options.from?.root ?? fs.mkdtempSync(path.join(os.tmpdir(), "held-blobs-"));
+	if (!options.from) roots.push(root);
+	let now = options.from?.now() ?? 1_000;
+	const owner = options.from?.owner ?? generateIdentity();
+	const registry = new OwnerStoreRegistry({
+		dataDir: root,
+		ownerOf: (domainId) => (domainId === DOMAIN ? owner.sign.pub : null),
+		quotaFor: () =>
+			new DomainQuota({ dir: root, limitBytes: 100_000_000, statfs: () => ({ available: 100_000_000 }) }),
+		ambient: { now: () => now },
+	});
+	const store = new ReferenceHeldStore({
+		dataDir: root,
+		registry,
+		quotaBytesPerDomain: options.quota,
+		ambient: { now: () => now, newId: () => crypto.randomUUID() },
+	});
+	return { root, owner, registry, store, setNow: (value: number) => (now = value), now: () => now };
+}
+
+function sealed(plain: Buffer, epoch = 1) {
+	const blobId = blobIdFor(plain);
+	const bytes = sealBlobChunk(
+		plain,
+		Buffer.alloc(32, 4),
+		{ domainId: DOMAIN, ownerSignPub: "owner", epoch, blobId },
+		0,
+		true,
+	);
+	const digest = `sha256-${crypto.createHash("sha256").update(bytes).digest("hex")}`;
+	return {
+		blobId,
+		bytes,
+		declared: { blobId, size: plain.length, ciphertextSize: bytes.length, ciphertextDigest: digest, epoch },
+	};
+}
+
+function stage(store: ReferenceHeldStore, blob: ReturnType<typeof sealed>) {
+	const begun = store.begin(DOMAIN, blob.declared);
+	if (begun.outcome !== "lease") throw new Error(`expected a lease, got ${begun.outcome}`);
+	const sent = store.chunk(DOMAIN, blob.blobId, begun.lease, 0, blob.bytes, true);
+	expect(sent).toEqual({ outcome: "accepted", have: blob.bytes.length, complete: true });
+	return begun.lease;
+}
 
 describe("ReferenceHeldStore", () => {
-	const roots: string[] = [];
-	afterEach(() => {
-		for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+	it("keeps verified bytes until the last reference is released, and refuses a record that names a blob it does not hold", () => {
+		const { store, registry } = make();
+		const blob = sealed(Buffer.from("held bytes"));
+		expect(store.publish(DOMAIN, [{ ref: entry, blobIds: [blob.blobId] }], () => {})).toEqual({
+			kind: "blob_missing",
+			blobId: blob.blobId,
+		});
+		stage(store, blob);
+		let mutated = 0;
+		expect(
+			store.publish(
+				DOMAIN,
+				[
+					{ ref: entry, blobIds: [blob.blobId] },
+					{ ref: row, blobIds: [blob.blobId], expiresAt: 5_000 },
+				],
+				(tx) => {
+					mutated++;
+					tx.put("board.meta", "probe", null, { clear: { revision: 1 } });
+				},
+			),
+		).toMatchObject({ kind: "ok" });
+		expect(mutated).toBe(1);
+		expect(registry.for(DOMAIN).get("board.meta", "probe")).not.toBeNull();
+		expect(store.has(DOMAIN, blob.blobId)).toBe(true);
+		expect(store.refs(DOMAIN, blob.blobId)).toEqual([entry, row]);
+		expect(store.publish(DOMAIN, [{ ref: entry, blobIds: [] }], () => {})).toMatchObject({ kind: "ok" });
+		expect(store.has(DOMAIN, blob.blobId)).toBe(true);
+		expect(store.publish(DOMAIN, [{ ref: row, blobIds: [] }], () => {})).toMatchObject({ kind: "ok" });
+		expect(store.has(DOMAIN, blob.blobId)).toBe(false);
+		expect(store.status(DOMAIN, blob.blobId)).toEqual({ outcome: "absent" });
 	});
 
-	it("keeps verified ciphertext until the last reference is released", () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "held-blobs-"));
-		roots.push(root);
-		const store = new ReferenceHeldStore({ dataDir: root, ambient: processAmbient() });
-		const plain = Buffer.from("held bytes");
-		const blobId = blobIdFor(plain);
-		const bytes = sealBlobChunk(
-			plain,
-			Buffer.alloc(32, 4),
-			{ domainId: "domain", ownerSignPub: "owner", epoch: 1, blobId },
-			0,
-			true,
+	it("a refused mutation writes nothing, not even the references", () => {
+		const { store, registry } = make();
+		const blob = sealed(Buffer.from("conflict"));
+		stage(store, blob);
+		registry.for(DOMAIN).put("board.meta", "probe", null, { clear: { revision: 1 } });
+		const write = store.publish(DOMAIN, [{ ref: entry, blobIds: [blob.blobId] }], (tx) =>
+			tx.put("board.meta", "probe", null, { clear: { revision: 2 } }),
 		);
-		const digest = `sha256-${crypto.createHash("sha256").update(bytes).digest("hex")}`;
-		const entry: BlobReference = { kind: "entry", entryId: "entry-1" };
-		const row: BlobReference = {
-			kind: "row",
-			address: { kind: "gateway", domainId: "domain", gatewayId: "gateway" },
-			seq: 1,
-		};
-		store.applyRefs("domain", [
-			{ ref: entry, blobIds: [blobId] },
-			{ ref: row, blobIds: [blobId] },
-		]);
-		const begun = store.begin("domain", blobId, plain.length, bytes.length, digest, 1);
-		if (begun.kind !== "lease") throw new Error("expected lease");
-		expect(store.commitChunk("domain", blobId, begun.lease, 0, bytes, true)).toMatchObject({ complete: true });
-		store.applyRefs("domain", [{ ref: entry, blobIds: [] }]);
-		expect(store.has("domain", blobId)).toBe(true);
-		store.applyRefs("domain", [{ ref: row, blobIds: [] }]);
-		expect(store.has("domain", blobId)).toBe(false);
+		expect(write.kind).toBe("conflict");
+		expect(store.refs(DOMAIN, blob.blobId)).toEqual([]);
+		expect(store.has(DOMAIN, blob.blobId)).toBe(true);
 	});
 
-	it("reconcile removes unfinished uploads with dead references", () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "held-blobs-"));
-		roots.push(root);
-		const store = new ReferenceHeldStore({ dataDir: root, ambient: processAmbient() });
-		const plain = Buffer.from("unfinished");
-		const blobId = blobIdFor(plain);
-		const bytes = sealBlobChunk(
-			plain,
-			Buffer.alloc(32, 4),
-			{ domainId: "domain", ownerSignPub: "owner", epoch: 1, blobId },
-			0,
-			true,
-		);
-		const digest = `sha256-${crypto.createHash("sha256").update(bytes).digest("hex")}`;
-		store.applyRefs("domain", [{ ref: { kind: "entry", entryId: "gone" }, blobIds: [blobId] }]);
-		const begun = store.begin("domain", blobId, plain.length, bytes.length, digest, 1);
-		if (begun.kind !== "lease") throw new Error("expected lease");
-		store.commitChunk("domain", blobId, begun.lease, 0, bytes.subarray(0, 4), false);
-		store.reconcile("domain", () => false);
-		expect(store.refs("domain", blobId)).toEqual([]);
-		expect(store.has("domain", blobId)).toBe(false);
+	it("an unpublished blob lives an hour past its last chunk, then the sweep drops it", () => {
+		const { store, setNow, now } = make();
+		const blob = sealed(Buffer.from("staged"));
+		stage(store, blob);
+		setNow(now() + STAGED_BLOB_TTL_MS - 1);
+		store.sweep(DOMAIN, now());
+		expect(store.has(DOMAIN, blob.blobId)).toBe(true);
+		setNow(now() + 2);
+		store.sweep(DOMAIN, now());
+		expect(store.has(DOMAIN, blob.blobId)).toBe(false);
+		expect(store.status(DOMAIN, blob.blobId)).toEqual({ outcome: "absent" });
 	});
 
-	it("does not answer held for a reference whose bytes never finished arriving", () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "held-blobs-"));
-		roots.push(root);
-		const store = new ReferenceHeldStore({ dataDir: root, ambient: processAmbient() });
-		const plain = Buffer.from("half a file arrives");
-		const blobId = blobIdFor(plain);
-		const bytes = sealBlobChunk(
-			plain,
-			Buffer.alloc(32, 4),
-			{ domainId: "domain", ownerSignPub: "owner", epoch: 1, blobId },
-			0,
-			true,
-		);
-		const digest = `sha256-${crypto.createHash("sha256").update(bytes).digest("hex")}`;
-		store.applyRefs("domain", [{ ref: { kind: "entry", entryId: "entry-1" }, blobIds: [blobId] }]);
-		expect(store.has("domain", blobId)).toBe(false);
-		const begun = store.begin("domain", blobId, plain.length, bytes.length, digest, 1);
-		if (begun.kind !== "lease") throw new Error("expected lease");
-		store.commitChunk("domain", blobId, begun.lease, 0, bytes.subarray(0, 4), false);
-		expect(store.has("domain", blobId)).toBe(false);
-		store.commitChunk("domain", blobId, begun.lease, 4, bytes.subarray(4), true);
-		expect(store.has("domain", blobId)).toBe(true);
+	it("a staged blob's hour is kept on disk, so the next process sweeps it on time", () => {
+		const first = make();
+		const blob = sealed(Buffer.from("restart"));
+		stage(first.store, blob);
+		first.setNow(first.now() + STAGED_BLOB_TTL_MS + 1);
+		first.registry.close();
+		const next = make({ from: first });
+		next.store.reconcile(DOMAIN);
+		expect(next.store.has(DOMAIN, blob.blobId)).toBe(true);
+		next.store.sweep(DOMAIN, next.now());
+		expect(next.store.has(DOMAIN, blob.blobId)).toBe(false);
+		expect(next.store.status(DOMAIN, blob.blobId)).toEqual({ outcome: "absent" });
 	});
 
-	it("reconcile removes dead references and orphaned blobs", () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "held-blobs-"));
-		roots.push(root);
-		const store = new ReferenceHeldStore({ dataDir: root, ambient: processAmbient() });
-		const plain = Buffer.from("reconcile");
+	it("a slow upload is not swept while chunks keep landing", () => {
+		const { store, setNow, now } = make();
+		const plain = Buffer.alloc(1_048_576 + 3, 65);
 		const blobId = blobIdFor(plain);
-		const bytes = sealBlobChunk(
-			plain,
-			Buffer.alloc(32, 4),
-			{ domainId: "domain", ownerSignPub: "owner", epoch: 1, blobId },
-			0,
-			true,
-		);
-		const digest = `sha256-${crypto.createHash("sha256").update(bytes).digest("hex")}`;
-		const live: BlobReference = {
-			kind: "scheduled",
-			target: { domainId: "domain", gatewayId: "gateway", sessionId: "live" },
-		};
-		const dead: BlobReference = {
-			kind: "row",
-			address: { kind: "gateway", domainId: "domain", gatewayId: "gateway" },
-			seq: 2,
-		};
-		store.applyRefs("domain", [
-			{ ref: live, blobIds: [blobId] },
-			{ ref: dead, blobIds: [blobId] },
-		]);
-		const begun = store.begin("domain", blobId, plain.length, bytes.length, digest, 1);
-		if (begun.kind !== "lease") throw new Error("expected lease");
-		store.commitChunk("domain", blobId, begun.lease, 0, bytes, true);
-		store.reconcile("domain", (ref) => ref.kind === "scheduled");
-		expect(store.refs("domain", blobId)).toEqual([live]);
-		store.reconcile("domain", () => false);
-		expect(store.has("domain", blobId)).toBe(false);
+		const context = { domainId: DOMAIN, ownerSignPub: "owner", epoch: 1, blobId };
+		const first = sealBlobChunk(plain.subarray(0, 1_048_576), Buffer.alloc(32, 4), context, 0, false);
+		const second = sealBlobChunk(plain.subarray(1_048_576), Buffer.alloc(32, 4), context, 1, true);
+		const digest = `sha256-${crypto
+			.createHash("sha256")
+			.update(Buffer.concat([first, second]))
+			.digest("hex")}`;
+		const begun = store.begin(DOMAIN, {
+			blobId,
+			size: plain.length,
+			ciphertextSize: first.length + second.length,
+			ciphertextDigest: digest,
+			epoch: 1,
+		});
+		if (begun.outcome !== "lease") throw new Error("expected lease");
+		setNow(now() + STAGED_BLOB_TTL_MS - 60_000);
+		expect(store.chunk(DOMAIN, blobId, begun.lease, 0, first, false)).toMatchObject({ outcome: "accepted" });
+		setNow(now() + 120_000);
+		store.sweep(DOMAIN, now());
+		expect(store.status(DOMAIN, blobId)).toMatchObject({
+			outcome: "staged",
+			have: first.length,
+			lease: begun.lease,
+		});
+		expect(store.chunk(DOMAIN, blobId, begun.lease, first.length, second, true)).toEqual({
+			outcome: "accepted",
+			have: first.length + second.length,
+			complete: true,
+		});
 	});
 
-	it("replacing one reference with a larger set keeps existing bytes", () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "held-blobs-"));
-		roots.push(root);
-		const store = new ReferenceHeldStore({ dataDir: root, ambient: processAmbient() });
-		const plain = Buffer.from("replace");
-		const blobId = blobIdFor(plain);
-		const bytes = sealBlobChunk(
-			plain,
-			Buffer.alloc(32, 4),
-			{ domainId: "domain", ownerSignPub: "owner", epoch: 1, blobId },
-			0,
-			true,
-		);
-		const digest = `sha256-${crypto.createHash("sha256").update(bytes).digest("hex")}`;
-		const ref: BlobReference = { kind: "entry", entryId: "entry" };
-		store.applyRefs("domain", [{ ref, blobIds: [blobId] }]);
-		const lease = store.begin("domain", blobId, plain.length, bytes.length, digest, 1);
-		if (lease.kind !== "lease") throw new Error("expected lease");
-		store.commitChunk("domain", blobId, lease.lease, 0, bytes, true);
-		store.applyRefs("domain", [{ ref, blobIds: [blobId, "another"] }]);
-		expect(store.has("domain", blobId)).toBe(true);
+	it("a row reference outlives its row until the expiry it was bound with", () => {
+		const { store, setNow, now } = make();
+		const blob = sealed(Buffer.from("row bytes"));
+		stage(store, blob);
+		store.publish(DOMAIN, [{ ref: row, blobIds: [blob.blobId], expiresAt: now() + 10_000 }], () => {});
+		setNow(now() + 5_000);
+		store.sweep(DOMAIN, now());
+		expect(store.has(DOMAIN, blob.blobId)).toBe(true);
+		setNow(now() + 6_000);
+		store.sweep(DOMAIN, now());
+		expect(store.has(DOMAIN, blob.blobId)).toBe(false);
 	});
 
-	it("moves one blob between references in one batch without deleting it", () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "held-blobs-"));
-		roots.push(root);
-		const store = new ReferenceHeldStore({ dataDir: root, ambient: processAmbient() });
-		const plain = Buffer.from("move");
-		const blobId = blobIdFor(plain);
-		const bytes = sealBlobChunk(
-			plain,
-			Buffer.alloc(32, 4),
-			{ domainId: "domain", ownerSignPub: "owner", epoch: 1, blobId },
-			0,
-			true,
+	it("a hold is released only by its expiry, and a live record keeps its reference past one", () => {
+		const { store, registry, setNow, now } = make();
+		const blob = sealed(Buffer.from("held"));
+		stage(store, blob);
+		const hold: BlobReference = { kind: "hold", gatewayId: "gateway", holdId: "relay-1" };
+		store.publish(
+			DOMAIN,
+			[
+				{ ref: hold, blobIds: [blob.blobId], expiresAt: now() + 1_000 },
+				{ ref: entry, blobIds: [blob.blobId] },
+			],
+			(tx) => tx.put("board.entry", "entry-1", null, { clear: { id: "entry-1" } }),
 		);
-		const digest = `sha256-${crypto.createHash("sha256").update(bytes).digest("hex")}`;
-		const from: BlobReference = { kind: "entry", entryId: "from" };
+		setNow(now() + 2_000);
+		store.sweep(DOMAIN, now());
+		expect(store.refs(DOMAIN, blob.blobId)).toEqual([entry]);
+		const record = registry.for(DOMAIN).get("board.entry", "entry-1");
+		registry.for(DOMAIN).del("board.entry", "entry-1", record?.version ?? 0);
+		store.sweep(DOMAIN, now());
+		expect(store.has(DOMAIN, blob.blobId)).toBe(false);
+	});
+
+	it("moves one blob between references in one line without losing the bytes", () => {
+		const { store } = make();
+		const blob = sealed(Buffer.from("move"));
+		stage(store, blob);
 		const to: BlobReference = { kind: "entry", entryId: "to" };
-		store.applyRefs("domain", [{ ref: from, blobIds: [blobId] }]);
-		const lease = store.begin("domain", blobId, plain.length, bytes.length, digest, 1);
-		if (lease.kind !== "lease") throw new Error("expected lease");
-		store.commitChunk("domain", blobId, lease.lease, 0, bytes, true);
-		store.applyRefs("domain", [
-			{ ref: from, blobIds: [] },
-			{ ref: to, blobIds: [blobId] },
-		]);
-		expect(store.has("domain", blobId)).toBe(true);
-		expect(store.refs("domain", blobId)).toEqual([to]);
-	});
-
-	it("keeps an unparseable stored reference and logs it during reconcile", () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "held-blobs-"));
-		roots.push(root);
-		const indexDir = path.join(root, "blobs", "domain", "held");
-		fs.mkdirSync(indexDir, { recursive: true });
-		fs.writeFileSync(
-			path.join(indexDir, "index.json"),
-			JSON.stringify({ entries: { blob: { refs: ["not-a-reference"] } } }),
+		store.publish(DOMAIN, [{ ref: entry, blobIds: [blob.blobId] }], () => {});
+		store.publish(
+			DOMAIN,
+			[
+				{ ref: entry, blobIds: [] },
+				{ ref: to, blobIds: [blob.blobId] },
+			],
+			() => {},
 		);
-		const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-		const store = new ReferenceHeldStore({ dataDir: root, ambient: processAmbient() });
-		store.reconcile("domain", () => false);
-		expect(warning).toHaveBeenCalledWith("[router] unknown blob reference not-a-reference");
-		expect(JSON.parse(fs.readFileSync(path.join(indexDir, "index.json"), "utf8")).entries.blob.refs).toEqual([
-			"not-a-reference",
-		]);
-		warning.mockRestore();
+		expect(store.has(DOMAIN, blob.blobId)).toBe(true);
+		expect(store.refs(DOMAIN, blob.blobId)).toEqual([to]);
 	});
 
-	it("keeps the index quarantined across repeated opens", () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "held-blobs-"));
-		roots.push(root);
-		const file = path.join(root, "blobs", "domain", "held", "index.json");
-		fs.mkdirSync(path.dirname(file), { recursive: true });
-		fs.writeFileSync(file, "corrupt");
-		const store = new ReferenceHeldStore({ dataDir: root, ambient: processAmbient() });
-		let first: unknown;
-		try {
-			store.refs("domain", `sha256-${"0".repeat(64)}`);
-		} catch (error) {
-			first = error;
-		}
-		expect(first).toBeInstanceOf(CorruptHeldIndexError);
-		expect(() => store.refs("domain", `sha256-${"0".repeat(64)}`)).toThrow(CorruptHeldIndexError);
-		expect(fs.existsSync(file)).toBe(false);
+	it("referenced bytes are never replaced by a begin, while a staged blob restarts under a new digest", () => {
+		const { store } = make();
+		const blob = sealed(Buffer.from("same plaintext"));
+		const other = sealed(Buffer.from("same plaintext"), 2);
+		stage(store, blob);
+		expect(store.begin(DOMAIN, other.declared)).toMatchObject({ outcome: "lease", have: 0 });
+		expect(store.has(DOMAIN, blob.blobId)).toBe(false);
+		stage(store, other);
+		store.publish(DOMAIN, [{ ref: entry, blobIds: [other.blobId] }], () => {});
+		expect(store.begin(DOMAIN, blob.declared)).toEqual({ outcome: "complete" });
+		expect(store.read(DOMAIN, other.blobId, 0, 100)).toMatchObject({ outcome: "fetched", epoch: 2 });
+	});
+
+	it("refuses a stale lease, a gap, and a body that does not match the declared digest", () => {
+		const { store } = make();
+		const blob = sealed(Buffer.from("guarded"));
+		const stale = store.begin(DOMAIN, blob.declared);
+		const fresh = store.begin(DOMAIN, blob.declared);
+		if (stale.outcome !== "lease" || fresh.outcome !== "lease") throw new Error("expected leases");
+		expect(store.chunk(DOMAIN, blob.blobId, stale.lease, 0, blob.bytes, true)).toEqual({
+			outcome: "refused",
+			reason: "lease",
+		});
+		expect(store.chunk(DOMAIN, blob.blobId, fresh.lease, 4, blob.bytes.subarray(4), true)).toEqual({
+			outcome: "refused",
+			reason: "gap",
+		});
+		const forged = Buffer.from(blob.bytes);
+		forged[forged.length - 1] ^= 1;
+		expect(store.chunk(DOMAIN, blob.blobId, fresh.lease, 0, forged, true)).toEqual({
+			outcome: "refused",
+			reason: "digest",
+		});
+		expect(store.status(DOMAIN, blob.blobId)).toEqual({ outcome: "absent" });
+		expect(store.read(DOMAIN, blob.blobId, 0, 10)).toEqual({ outcome: "absent" });
+	});
+
+	it("resumes from the bytes the Router already holds", () => {
+		const { store } = make();
+		const plain = Buffer.alloc(1_048_576 + 3, 66);
+		const blobId = blobIdFor(plain);
+		const context = { domainId: DOMAIN, ownerSignPub: "owner", epoch: 1, blobId };
+		const first = sealBlobChunk(plain.subarray(0, 1_048_576), Buffer.alloc(32, 4), context, 0, false);
+		const second = sealBlobChunk(plain.subarray(1_048_576), Buffer.alloc(32, 4), context, 1, true);
+		const declared = {
+			blobId,
+			size: plain.length,
+			ciphertextSize: first.length + second.length,
+			ciphertextDigest: `sha256-${crypto
+				.createHash("sha256")
+				.update(Buffer.concat([first, second]))
+				.digest("hex")}`,
+			epoch: 1,
+		};
+		const begun = store.begin(DOMAIN, declared);
+		if (begun.outcome !== "lease") throw new Error("expected lease");
+		store.chunk(DOMAIN, blobId, begun.lease, 0, first, false);
+		const resumed = store.begin(DOMAIN, declared);
+		expect(resumed).toMatchObject({ outcome: "lease", have: first.length });
+		if (resumed.outcome !== "lease") throw new Error("expected lease");
+		expect(store.chunk(DOMAIN, blobId, resumed.lease, first.length, second, true)).toMatchObject({
+			complete: true,
+		});
+	});
+
+	it("a begin the quota refuses leaves the staged bytes it would have replaced", () => {
+		const { store } = make({ quota: 200 });
+		const blob = sealed(Buffer.from("kept"));
+		stage(store, blob);
+		const replaced = store.begin(DOMAIN, {
+			...blob.declared,
+			ciphertextDigest: sealed(Buffer.from("other"), 2).declared.ciphertextDigest,
+			ciphertextSize: sealedBlobSize(10_000),
+			size: 10_000,
+			epoch: 2,
+		});
+		expect(replaced).toEqual({ outcome: "refused", reason: "quota" });
+		expect(store.has(DOMAIN, blob.blobId)).toBe(true);
+		expect(store.status(DOMAIN, blob.blobId)).toMatchObject({ outcome: "complete", epoch: 1 });
+	});
+
+	it("refuses a begin the Domain quota cannot hold", () => {
+		const { store } = make({ quota: 40 });
+		const small = sealed(Buffer.from("ok"));
+		const large = sealed(Buffer.from("this one is over the quota"));
+		stage(store, small);
+		expect(store.begin(DOMAIN, large.declared)).toEqual({ outcome: "refused", reason: "quota" });
+	});
+
+	it("reconcile drops bytes no record names, records with nothing behind them, and the old index", () => {
+		const { store, root, registry } = make();
+		const blob = sealed(Buffer.from("orphan"));
+		stage(store, blob);
+		const held = path.join(root, "blobs", DOMAIN, "held");
+		fs.writeFileSync(path.join(held, "index.json"), "{}");
+		const stray = blobIdFor(Buffer.from("stray")).slice("sha256-".length);
+		fs.mkdirSync(path.join(held, stray.slice(0, 2)), { recursive: true });
+		fs.writeFileSync(path.join(held, stray.slice(0, 2), stray), "stray");
+		registry.for(DOMAIN).put("blob", `sha256-${"c".repeat(64)}`, null, {
+			clear: {
+				size: 1,
+				ciphertextSize: 29,
+				ciphertextDigest: "x",
+				epoch: 1,
+				refs: [],
+				expiry: {},
+				generation: 1,
+				stagedAt: 0,
+			},
+		});
+		store.reconcile(DOMAIN);
+		expect(fs.existsSync(path.join(held, "index.json"))).toBe(false);
+		expect(fs.existsSync(path.join(held, stray.slice(0, 2), stray))).toBe(false);
+		expect(registry.for(DOMAIN).get("blob", `sha256-${"c".repeat(64)}`)).toBeNull();
+		expect(store.has(DOMAIN, blob.blobId)).toBe(true);
+	});
+
+	it("lists every reference the Domain's records name", () => {
+		const { store, registry } = make();
+		const owner = registry.ownerKey(DOMAIN).ownerSignPub;
+		const s = registry.for(DOMAIN);
+		s.put("board.entry", "e1", null, { clear: { id: "e1", attachments: [{ blobId: "sha256-a" }] } });
+		s.put("scheduled", "d/g/s", null, {
+			clear: { target: { domainId: "d", gatewayId: "g", sessionId: "s" }, files: ["sha256-b"] },
+		});
+		s.append(`owner:${DOMAIN}/${owner}`, { envelope: { contentRefs: ["sha256-c"] }, acceptedAt: 10, seq: 1 });
+		expect(store.inventory(DOMAIN, 100)).toEqual([
+			{ ref: "entry:e1", blobIds: ["sha256-a"] },
+			{ ref: "scheduled:d/g/s", blobIds: ["sha256-b"] },
+			{ ref: `row:owner:${DOMAIN}/${owner}:1`, blobIds: ["sha256-c"], expiresAt: 110 },
+		]);
 	});
 });

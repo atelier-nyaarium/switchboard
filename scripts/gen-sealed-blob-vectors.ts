@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { contentAad } from "../src/shared/content-envelope.js";
-import { blobChunkAad, sealBlobChunk, sealedBlobSize } from "../src/shared/sealed-blob.js";
+import { blobChunkAad, blobChunkNonce, sealBlobChunk, sealedBlobSize } from "../src/shared/sealed-blob.js";
 
 /** Writes cross-runtime sealed-blob vectors. */
 const key = Buffer.alloc(32, 7);
@@ -11,18 +11,23 @@ const cases = [0, 1, 100].map((size) => {
 	const plaintext = Buffer.alloc(size, 65);
 	const chunks = Math.max(1, Math.ceil(size / 1_048_576));
 	const frames: string[] = [];
+	const derivedNonces: string[] = [];
+	const derivedFrames: string[] = [];
 	for (let index = 0; index < chunks; index++) {
 		const slice = plaintext.subarray(index * 1_048_576, (index + 1) * 1_048_576);
+		const final = index + 1 === chunks;
 		// Fixed nonces keep vectors reproducible.
 		const nonce = Buffer.alloc(12, index + 1);
-		frames.push(sealBlobChunk(slice, key, context, index, index + 1 === chunks, nonce).toString("base64"));
+		frames.push(sealBlobChunk(slice, key, context, index, final, nonce).toString("base64"));
+		derivedNonces.push(blobChunkNonce(key, context, index, final).toString("base64"));
+		derivedFrames.push(sealBlobChunk(slice, key, context, index, final).toString("base64"));
 	}
-	return { size, ciphertextSize: sealedBlobSize(size), frames };
+	return { size, ciphertextSize: sealedBlobSize(size), frames, derivedNonces, derivedFrames };
 });
 
 const vectors = {
 	_comment:
-		"Cross-runtime vectors for sealed blob framing. Read by BOTH src/__tests__/sealed-blob.test.ts and android/.../SealedBlobTest.kt, so the hand-authored Kotlin twin cannot drift from src/shared/sealed-blob.ts. The AAD binds the blob id, the chunk index and the final flag; a single character of difference means nothing decrypts, and a test inside one runtime cannot catch that because both its halves would share the mistake.",
+		"Cross-runtime vectors for sealed blob framing. Read by BOTH src/__tests__/sealed-blob.test.ts and android/.../SealedBlobTest.kt, so the hand-authored Kotlin twin cannot drift from src/shared/sealed-blob.ts. The AAD binds the blob id, the chunk index and the final flag; a single character of difference means nothing decrypts, and a test inside one runtime cannot catch that because both its halves would share the mistake. derivedNonces and derivedFrames pin the nonce an uploader derives from the key and the AAD, so a resumed upload on either runtime seals the same bytes.",
 	key: key.toString("base64"),
 	context,
 	aadSample: contentAad(blobChunkAad(context, 0, true)).toString("base64"),

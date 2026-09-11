@@ -1,9 +1,8 @@
 import crypto from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createBlobUploader } from "../gateway/router/blobUploader.js";
-import { processAmbient } from "../shared/ambient.js";
 import { blobIdFor } from "../shared/blob-store.js";
-import { BLOB_CHUNK_BYTES } from "../shared/router-protocol.js";
+import { BLOB_CHUNK_BYTES, BLOB_CIPHERTEXT_CHUNK_BYTES } from "../shared/router-protocol.js";
 import { openSealedBlobRange, sealedBlobSize } from "../shared/sealed-blob.js";
 
 const key = Buffer.alloc(32, 7);
@@ -45,7 +44,6 @@ function uploader(
 	complete = true,
 ) {
 	return createBlobUploader({
-		ambient: processAmbient(),
 		call,
 		blobs: blobStub(bytes, complete),
 		incarnation: () => 1,
@@ -55,29 +53,32 @@ function uploader(
 	});
 }
 
+const leased = (have = 0) => ({ result: { outcome: "lease", lease, have } });
+const accepted = (complete: boolean) => ({ result: { outcome: "accepted", have: 1, complete } });
+
 describe("blob uploader", () => {
-	it("declares and uploads the exact sealed bytes", async () => {
+	it("declares and stages the exact sealed bytes", async () => {
 		const bytes = Buffer.alloc(BLOB_CHUNK_BYTES + 7, 65);
 		const blobId = blobIdFor(bytes);
 		const calls: Array<{ action: string; params: Record<string, unknown> }> = [];
 		const call = vi.fn(async (action: string, params: Record<string, unknown>) => {
 			calls.push({ action, params });
-			return action === "blob_begin" ? { result: { kind: "lease", lease } } : { result: { complete: true } };
+			return action === "blob_begin" ? leased() : accepted(true);
 		});
 
-		expect(await uploader(bytes, call).upload(blobId, "cache")).toEqual({ kind: "uploaded" });
+		expect(await uploader(bytes, call).stage(blobId)).toEqual({ kind: "staged" });
 		const begin = calls[0].params;
 		const frames = calls.slice(1).map((entry) => Buffer.from(entry.params.bytes as string, "base64"));
 		const ciphertext = Buffer.concat(frames);
-		expect(begin).toMatchObject({
+		expect(begin).toEqual({
 			blobId,
 			size: bytes.length,
 			ciphertextSize: sealedBlobSize(bytes.length),
 			ciphertextDigest: `sha256-${crypto.createHash("sha256").update(ciphertext).digest("hex")}`,
 			epoch: 3,
-			store: "cache",
 		});
 		expect(calls.slice(1).map((entry) => entry.params.final)).toEqual([false, true]);
+		expect(calls.slice(1).map((entry) => entry.params.offset)).toEqual([0, BLOB_CIPHERTEXT_CHUNK_BYTES]);
 		expect(frames[0].subarray(0, 12)).not.toEqual(frames[1].subarray(0, 12));
 		const opened = openSealedBlobRange(
 			{ bytes: ciphertext, offset: 0, size: bytes.length, epoch: 3 },
@@ -89,23 +90,31 @@ describe("blob uploader", () => {
 		expect(opened.bytes).toEqual(bytes);
 	});
 
+	it("resumes from the chunk the Router's cursor names", async () => {
+		const bytes = Buffer.alloc(BLOB_CHUNK_BYTES * 2 + 1, 66);
+		const call = vi.fn(async (action: string, _params: Record<string, unknown>) =>
+			action === "blob_begin" ? leased(BLOB_CIPHERTEXT_CHUNK_BYTES) : accepted(true),
+		);
+		expect(await uploader(bytes, call).stage(blobIdFor(bytes))).toEqual({ kind: "staged" });
+		expect(call.mock.calls.slice(1).map((entry) => entry[1].offset)).toEqual([
+			BLOB_CIPHERTEXT_CHUNK_BYTES,
+			BLOB_CIPHERTEXT_CHUNK_BYTES * 2,
+		]);
+	});
+
 	it("seals an empty blob as one authenticated final frame", async () => {
 		const bytes = Buffer.alloc(0);
-		const call = vi
-			.fn()
-			.mockResolvedValueOnce({ result: { kind: "lease", lease } })
-			.mockResolvedValueOnce({ result: { complete: true } });
-		expect(await uploader(bytes, call).upload(blobIdFor(bytes), "cache")).toEqual({ kind: "uploaded" });
+		const call = vi.fn().mockResolvedValueOnce(leased()).mockResolvedValueOnce(accepted(true));
+		expect(await uploader(bytes, call).stage(blobIdFor(bytes))).toEqual({ kind: "staged" });
 		expect(Buffer.from(call.mock.calls[1][1].bytes, "base64")).toHaveLength(28);
 		expect(call.mock.calls[1][1].final).toBe(true);
 	});
 
-	it("does not upload incomplete or keyless blobs", async () => {
+	it("does not stage incomplete or keyless blobs", async () => {
 		const bytes = Buffer.from("partial");
 		const call = vi.fn();
-		expect(await uploader(bytes, call, false).upload(blobIdFor(bytes), "cache")).toEqual({ kind: "absent" });
+		expect(await uploader(bytes, call, false).stage(blobIdFor(bytes))).toEqual({ kind: "absent" });
 		const keyless = createBlobUploader({
-			ambient: processAmbient(),
 			call,
 			blobs: blobStub(bytes),
 			incarnation: () => 1,
@@ -113,7 +122,7 @@ describe("blob uploader", () => {
 			ownerSignPub: () => ownerSignPub,
 			keys: { epochs: () => [], keyFor: () => null },
 		});
-		expect(await keyless.upload(blobIdFor(bytes), "cache")).toMatchObject({ kind: "failed" });
+		expect(await keyless.stage(blobIdFor(bytes))).toMatchObject({ kind: "failed" });
 		expect(call).not.toHaveBeenCalled();
 	});
 
@@ -121,28 +130,23 @@ describe("blob uploader", () => {
 		const bytes = Buffer.from("refused");
 		const call = vi
 			.fn()
-			.mockResolvedValueOnce({ result: { kind: "lease", lease } })
-			.mockResolvedValueOnce({ result: { kind: "gap" } });
-		expect(await uploader(bytes, call).upload(blobIdFor(bytes), "cache")).toEqual({ kind: "failed", error: "gap" });
+			.mockResolvedValueOnce(leased())
+			.mockResolvedValueOnce({ result: { outcome: "refused", reason: "gap" } });
+		expect(await uploader(bytes, call).stage(blobIdFor(bytes))).toEqual({ kind: "failed", error: "gap" });
 		expect(call).toHaveBeenCalledTimes(2);
 	});
 
-	it("does not send chunks when the Router already has the blob", async () => {
+	it("does not send chunks when the Router already holds the blob", async () => {
 		const bytes = Buffer.from("held");
-		const call = vi.fn().mockResolvedValue({ result: { kind: "exists" } });
-		expect(await uploader(bytes, call).upload(blobIdFor(bytes), "held", { kind: "entry", id: "e" })).toEqual({
-			kind: "already_held",
-		});
+		const call = vi.fn().mockResolvedValue({ result: { outcome: "complete" } });
+		expect(await uploader(bytes, call).stage(blobIdFor(bytes))).toEqual({ kind: "already_held" });
 		expect(call).toHaveBeenCalledTimes(1);
 	});
 
-	it("answers failed when begin reports quota without sending a chunk", async () => {
+	it("answers failed when begin is refused, without sending a chunk", async () => {
 		const bytes = Buffer.from("quota");
-		const call = vi.fn().mockResolvedValue({ result: { kind: "quota" } });
-		expect(await uploader(bytes, call).upload(blobIdFor(bytes), "cache")).toEqual({
-			kind: "failed",
-			error: "begin refused",
-		});
+		const call = vi.fn().mockResolvedValue({ result: { outcome: "refused", reason: "quota" } });
+		expect(await uploader(bytes, call).stage(blobIdFor(bytes))).toEqual({ kind: "failed", error: "quota" });
 		expect(call).toHaveBeenCalledTimes(1);
 	});
 
@@ -151,7 +155,6 @@ describe("blob uploader", () => {
 		const blobs = blobStub(bytes);
 		const call = vi.fn();
 		const value = createBlobUploader({
-			ambient: processAmbient(),
 			call,
 			blobs,
 			incarnation: () => null,
@@ -159,25 +162,26 @@ describe("blob uploader", () => {
 			ownerSignPub: () => ownerSignPub,
 			keys: { epochs: () => [3], keyFor: () => key },
 		});
-		expect(await value.upload(blobIdFor(bytes), "cache")).toMatchObject({ kind: "failed" });
+		expect(await value.stage(blobIdFor(bytes))).toMatchObject({ kind: "failed" });
 		expect(call).not.toHaveBeenCalled();
 		expect(blobs.stat).not.toHaveBeenCalled();
 	});
 
-	it("uploadAll returns uploaded and already held ids while skipping failures", async () => {
+	it("stageAll answers the ids the Router holds and skips failures and unverified uploads", async () => {
 		const entries = {
-			uploaded: Buffer.from("uploaded"),
+			staged: Buffer.from("staged"),
 			held: Buffer.from("held"),
 			failed: Buffer.from("failed"),
+			unverified: Buffer.from("unverified"),
 		};
 		const call = vi.fn(async (action: string, params: Record<string, unknown>) => {
-			if (action === "blob_begin" && params.blobId === "held") return { result: { kind: "exists" } };
-			if (action === "blob_begin" && params.blobId === "failed") return { result: { kind: "quota" } };
-			if (action === "blob_begin") return { result: { kind: "lease", lease } };
-			return { result: { complete: true } };
+			if (action === "blob_begin" && params.blobId === "held") return { result: { outcome: "complete" } };
+			if (action === "blob_begin" && params.blobId === "failed")
+				return { result: { outcome: "refused", reason: "quota" } };
+			if (action === "blob_begin") return leased();
+			return accepted(!(params.blobId === "unverified"));
 		});
 		const value = createBlobUploader({
-			ambient: processAmbient(),
 			call,
 			blobs: blobMapStub(entries),
 			incarnation: () => 1,
@@ -185,57 +189,18 @@ describe("blob uploader", () => {
 			ownerSignPub: () => ownerSignPub,
 			keys: { epochs: () => [3], keyFor: () => key },
 		});
-		expect(await value.uploadAll(Object.keys(entries), "cache")).toEqual(["uploaded", "held"]);
+		expect(await value.stageAll(Object.keys(entries))).toEqual(["staged", "held"]);
 	});
 
-	it("passes refs only for held uploads", async () => {
-		const entries = { held: Buffer.from("held"), cached: Buffer.from("cached") };
-		const call = vi.fn().mockResolvedValue({ result: { kind: "exists" } });
-		const value = createBlobUploader({
-			ambient: processAmbient(),
-			call,
-			blobs: blobMapStub(entries),
-			incarnation: () => 1,
-			domainId,
-			ownerSignPub: () => ownerSignPub,
-			keys: { epochs: () => [3], keyFor: () => key },
-		});
-		const ref = { kind: "entry" as const, id: "entry-1" };
-		await value.upload("held", "held", ref);
-		await value.upload("cached", "cache");
-		expect(call.mock.calls[0][1]).toMatchObject({ blobId: "held", store: "held", ref });
-		expect(call.mock.calls[1][1]).toMatchObject({ blobId: "cached", store: "cache" });
-		expect(call.mock.calls[1][1]).not.toHaveProperty("ref");
-	});
-
-	it("reports failed when the Router does not verify the final ciphertext", async () => {
-		const bytes = Buffer.from("unverified");
-		const blobId = blobIdFor(bytes);
-		const call = vi.fn(async (action: string) =>
-			action === "blob_begin" ? { result: { kind: "lease", lease } } : { result: { complete: false } },
-		);
-
-		expect(await uploader(bytes, call).upload(blobId, "cache")).toEqual({
-			kind: "failed",
-			error: "ciphertext_unverified",
-		});
-	});
-
-	it("uploadAll drops a blob the Router never verified", async () => {
-		const entries = { good: Buffer.from("good") };
-		const call = vi.fn(async (action: string) =>
-			action === "blob_begin" ? { result: { kind: "lease", lease } } : { result: { complete: false } },
-		);
-		const value = createBlobUploader({
-			ambient: processAmbient(),
-			call,
-			blobs: blobMapStub(entries),
-			incarnation: () => 1,
-			domainId,
-			ownerSignPub: () => ownerSignPub,
-			keys: { epochs: () => [3], keyFor: () => key },
-		});
-
-		expect(await value.uploadAll(["good"], "cache")).toEqual([]);
+	it("holds a staged blob under this Gateway's name for the time asked", async () => {
+		const answers: Array<{ result: unknown }> = [
+			{ result: { outcome: "accepted" } },
+			{ result: { outcome: "refused", reason: "blob_missing" } },
+		];
+		const call = vi.fn(async () => answers.shift() ?? { result: {} });
+		const value = uploader(Buffer.from("x"), call);
+		expect(await value.hold("sha256-x", "relay-1", 5_000)).toBe(true);
+		expect(call).toHaveBeenCalledWith("blob_hold", { blobId: "sha256-x", holdId: "relay-1", ttlMs: 5_000 });
+		expect(await value.hold("sha256-x", "relay-2", 5_000)).toBe(false);
 	});
 });

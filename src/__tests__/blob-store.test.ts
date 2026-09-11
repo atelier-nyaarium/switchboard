@@ -142,6 +142,29 @@ describe("blob store", () => {
 		expect(store.path(warm)).not.toBeNull();
 	});
 
+	it("never evicts a blob something still names, and ages out a complete blob nothing does", () => {
+		const named = blobIdFor(Buffer.alloc(100, "n"));
+		const orphan = blobIdFor(Buffer.alloc(100, "o"));
+		const young = blobIdFor(Buffer.alloc(100, "y"));
+		store.write(named, 0, Buffer.alloc(100, "n"), true);
+		store.write(orphan, 0, Buffer.alloc(100, "o"), true);
+		fs.utimesSync(store.path(named)!, new Date(1), new Date(1));
+		fs.utimesSync(store.path(orphan)!, new Date(1), new Date(1));
+		store.write(young, 0, Buffer.alloc(100, "y"), true);
+
+		const freed = store.sweep({
+			maxBytes: 150,
+			completeMaxAgeMs: 1000,
+			keep: (blobId) => blobId === named,
+			now: Date.now() + 10_000,
+		});
+
+		expect(freed).toBe(200);
+		expect(store.path(named)).not.toBeNull();
+		expect(store.path(orphan)).toBeNull();
+		expect(store.path(young)).toBeNull();
+	});
+
 	it("leaves everything alone while the store is under its ceiling", () => {
 		const id = blobIdFor(Buffer.from("small"));
 		store.write(id, 0, Buffer.from("small"), true);

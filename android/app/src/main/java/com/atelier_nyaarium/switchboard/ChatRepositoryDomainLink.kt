@@ -150,5 +150,4 @@ suspend fun ChatRepository.clearAll() = withContext(Dispatchers.IO) {
 	Attachments.purgeAll(filesDir)
 	_state.update { ChatState(provisioned = false) }
 	// Cancel the OS-level alarm.
-	scheduled.scheduledSendScheduler?.cancelNext()
 }

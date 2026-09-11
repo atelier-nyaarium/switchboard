@@ -1,14 +1,17 @@
 import { formatInboxAddress, type InboxAddress, parseInboxAddress } from "./schemasInbox.js";
 import { type ScheduledTarget, ScheduledTargetSchema } from "./schemasScheduled.js";
 
+/** Record or timed hold. */
 export type BlobReference =
 	| { kind: "entry"; entryId: string }
 	| { kind: "row"; address: InboxAddress; seq: number }
-	| { kind: "scheduled"; target: ScheduledTarget };
+	| { kind: "scheduled"; target: ScheduledTarget }
+	| { kind: "hold"; gatewayId: string; holdId: string };
 
 export function formatBlobReference(ref: BlobReference): string {
 	if (ref.kind === "entry") return `entry:${encodeURIComponent(ref.entryId)}`;
 	if (ref.kind === "row") return `row:${formatInboxAddress(ref.address)}:${ref.seq}`;
+	if (ref.kind === "hold") return `hold:${ref.gatewayId}/${encodeURIComponent(ref.holdId)}`;
 	return `scheduled:${ref.target.domainId}/${ref.target.gatewayId}/${ref.target.sessionId}`;
 }
 
@@ -27,6 +30,20 @@ export function parseBlobReference(id: string): BlobReference | null {
 		const address = parseInboxAddress(id.slice("row:".length, split));
 		const seq = Number(id.slice(split + 1));
 		return split > 4 && address && Number.isSafeInteger(seq) && seq > 0 ? { kind: "row", address, seq } : null;
+	}
+	if (id.startsWith("hold:")) {
+		const split = id.indexOf("/");
+		if (split < 0) return null;
+		const gatewayId = id.slice("hold:".length, split);
+		const value = id.slice(split + 1);
+		try {
+			const holdId = decodeURIComponent(value);
+			return gatewayId && holdId && encodeURIComponent(holdId) === value
+				? { kind: "hold", gatewayId, holdId }
+				: null;
+		} catch {
+			return null;
+		}
 	}
 	if (!id.startsWith("scheduled:")) return null;
 	const parts = id.slice("scheduled:".length).split("/");

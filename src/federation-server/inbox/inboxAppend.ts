@@ -1,6 +1,7 @@
 import { canonicalJson, sha256Hex } from "../../shared/canonical-json.js";
 import {
 	formatInboxAddress,
+	INBOX_ROW_TTL_MS,
 	type InboxAddress,
 	type InboxRow,
 	type InboxRowInput,
@@ -11,12 +12,30 @@ import {
 	verifyRowEnvelope,
 } from "../../shared/schemasInbox.js";
 import { foldWriteResult } from "../../shared/write-result.js";
+import type { ReferenceHeldStore } from "../blobs/referenceHeldStore.js";
 import type { OwnerStateStore } from "../owner/ownerStateStore.js";
 import { capacityRefusal } from "./inboxCapacity.js";
 import { durabilityOutcome, guarded, ledgerTransaction, recordId } from "./inboxCore.js";
 import type { OwnerStoreRegistry } from "./ownerStoreRegistry.js";
 
 type OpKeyInput = OpKey | { conversationId: string; opId: string; hash?: string };
+type RowRefs = Pick<ReferenceHeldStore, "publish">;
+type Tx = Parameters<Parameters<OwnerStateStore["batch"]>[0]>[0];
+
+/** Binds row bytes. */
+function rowTransaction(
+	store: OwnerStateStore,
+	refs: RowRefs | undefined,
+	address: InboxAddress,
+	row: { seq: number; acceptedAt: number; envelope: { contentRefs: string[] } },
+	fn: (tx: Tx) => void,
+) {
+	const blobIds = row.envelope.contentRefs;
+	if (!blobIds.length) return ledgerTransaction(store, fn);
+	if (!refs) return { kind: "blob_missing" as const, blobId: blobIds[0] };
+	const ref = { kind: "row" as const, address, seq: row.seq };
+	return refs.publish(address.domainId, [{ ref, blobIds, expiresAt: row.acceptedAt + INBOX_ROW_TTL_MS }], fn);
+}
 
 export function appendInboxRow(
 	registry: OwnerStoreRegistry,
@@ -28,6 +47,7 @@ export function appendInboxRow(
 		shareGeneration?: number;
 		nonce?: { signerSignPub: string; nonce: string; at: number };
 	},
+	refs?: RowRefs,
 ): OpResultEnvelope & { row?: InboxRow } {
 	const { address, row } = input;
 	const key = row.envelope.opKey;
@@ -56,7 +76,7 @@ export function appendInboxRow(
 				if (result.success) return result.data;
 			}
 			if (clear.state === "accepted" && clear.address !== formatInboxAddress(address))
-				return appendResultRow(registry, store, address, row, existing);
+				return appendResultRow(registry, store, address, row, existing, refs);
 		}
 		if (clear.address && clear.address !== formatInboxAddress(address)) return { opKey: key, outcome: "conflict" };
 		// Matching op hash replays. Differing hash conflicts.
@@ -86,6 +106,7 @@ export function appendInboxRow(
 			...(input.shareGeneration !== undefined ? { shareGeneration: input.shareGeneration } : {}),
 		},
 		input.nonce,
+		refs,
 	);
 }
 
@@ -95,6 +116,7 @@ function appendResultRow(
 	address: InboxAddress,
 	input: InboxRowInput,
 	existing: { id: string; version: number; clear: Record<string, unknown> },
+	refs?: RowRefs,
 ): OpResultEnvelope & { row?: InboxRow } {
 	const row = InboxRowSchema.parse({
 		...input,
@@ -108,12 +130,14 @@ function appendResultRow(
 		seq: row.seq,
 		result: input.body,
 	};
-	const write = ledgerTransaction(store, (tx) => {
+	const write = rowTransaction(store, refs, address, row, (tx) => {
 		tx.put("op", existing.id, existing.version, {
 			clear: { ...existing.clear, state: "complete", seq: row.seq, result },
 		});
 		tx.append(formatInboxAddress(address), row);
 	});
+	if (write.kind === "blob_missing")
+		return { opKey: input.envelope.opKey, outcome: "refused", reason: "blob_missing" };
 	const folded = foldWriteResult(write);
 	if (folded.applied) return { ...result, outcome: folded.outcome, row };
 	return { opKey: input.envelope.opKey, outcome: durabilityOutcome(write.kind) };
@@ -126,6 +150,7 @@ function appendLedgerTransaction(
 	input: InboxRowInput,
 	ledger: { state: string; opHash: string; at: number; shareGeneration?: number },
 	nonce?: { signerSignPub: string; nonce: string; at: number },
+	refs?: RowRefs,
 ): OpResultEnvelope & { row?: InboxRow } {
 	const row = {
 		...input,
@@ -134,13 +159,15 @@ function appendLedgerTransaction(
 		size: Buffer.byteLength(canonicalJson(input)),
 	} as InboxRow;
 	const result = { opKey: input.envelope.opKey, outcome: "accepted" as const, seq: row.seq };
-	const write = ledgerTransaction(store, (tx) => {
+	const write = rowTransaction(store, refs, address, row, (tx) => {
 		tx.put("op", recordId(input.envelope.opKey, registry.ownerKey(address.domainId).ownerSignPub), null, {
 			clear: { ...ledger, address: formatInboxAddress(address), seq: row.seq, result },
 		});
 		if (nonce) tx.put("nonce", `${nonce.signerSignPub}/${nonce.nonce}`, null, { clear: { at: nonce.at } });
 		tx.append(formatInboxAddress(address), row);
 	});
+	if (write.kind === "blob_missing")
+		return { opKey: input.envelope.opKey, outcome: "refused", reason: "blob_missing" };
 	const folded = foldWriteResult(write);
 	if (folded.applied) return { ...result, outcome: folded.outcome, row };
 	return { opKey: input.envelope.opKey, outcome: durabilityOutcome(write.kind) };
