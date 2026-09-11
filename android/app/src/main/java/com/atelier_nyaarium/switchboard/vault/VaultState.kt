@@ -1,5 +1,8 @@
 package com.atelier_nyaarium.switchboard.vault
 
+import com.atelier_nyaarium.switchboard.proto.PolicyRef
+import com.atelier_nyaarium.switchboard.proto.VaultGrant
+import com.atelier_nyaarium.switchboard.proto.VaultHolder
 import com.atelier_nyaarium.switchboard.proto.VaultRequest
 import com.atelier_nyaarium.switchboard.proto.VaultStoredEntry
 import kotlinx.serialization.Serializable
@@ -49,18 +52,16 @@ val VaultRequest.operation: String
 		is VaultRequest.Typed -> operation
 	}
 
-/** Read the old name until 2026-09-19. */
 val VaultRequest.displayShape: String
 	get() = when (this) {
-		is VaultRequest.Entry -> displayShape ?: shape
-		is VaultRequest.Typed -> displayShape ?: shape
+		is VaultRequest.Entry -> displayShape
+		is VaultRequest.Typed -> displayShape
 	}
 
-/** Empty from a gateway that sends no set. */
 val VaultRequest.coveredShapes: List<String>
 	get() = when (this) {
-		is VaultRequest.Entry -> coveredShapes.orEmpty()
-		is VaultRequest.Typed -> coveredShapes.orEmpty()
+		is VaultRequest.Entry -> coveredShapes
+		is VaultRequest.Typed -> coveredShapes
 	}
 
 val VaultRequest.sessionTarget: String
@@ -75,6 +76,47 @@ val VaultRequest.asker: String?
 		is VaultRequest.Entry -> asker
 		is VaultRequest.Typed -> asker
 	}
+
+val VaultGrant.grantId: String
+	get() = when (this) {
+		is VaultGrant.Window -> grantId
+		is VaultGrant.Session -> grantId
+		is VaultGrant.Standing -> grantId
+	}
+
+val VaultGrant.entryId: String
+	get() = when (this) {
+		is VaultGrant.Window -> entryId
+		is VaultGrant.Session -> entryId
+		is VaultGrant.Standing -> entryId
+	}
+
+val VaultGrant.holder: VaultHolder
+	get() = when (this) {
+		is VaultGrant.Window -> holder
+		is VaultGrant.Session -> holder
+		is VaultGrant.Standing -> holder
+	}
+
+/** A standing grant dies with its routine, not a clock. */
+val VaultGrant.expiresAt: Long?
+	get() = when (this) {
+		is VaultGrant.Window -> expiresAt
+		is VaultGrant.Session -> expiresAt
+		is VaultGrant.Standing -> null
+	}
+
+/** A standing grant is entry-wide and carries none. */
+val VaultGrant.policy: PolicyRef?
+	get() = when (this) {
+		is VaultGrant.Window -> policy
+		is VaultGrant.Session -> policy
+		is VaultGrant.Standing -> null
+	}
+
+/** Only a window names its set. */
+val VaultGrant.coveredShapes: List<String>?
+	get() = (this as? VaultGrant.Window)?.coveredShapes
 
 /** An approval the same command may come back from. */
 @Serializable
@@ -134,9 +176,6 @@ const val VAULT_DECISION_ONCE = "once"
 const val VAULT_DECISION_WINDOW = "window"
 const val VAULT_DECISION_SESSION = "session"
 const val VAULT_DECISION_DENY = "deny"
-
-/** A grant tier nobody decides in the moment; a routine's, configured when the routine is saved. */
-const val VAULT_GRANT_STANDING = "standing"
 
 /** Security setting values for vault approvals. */
 const val VAULT_UNLOCK_OFF = "off"

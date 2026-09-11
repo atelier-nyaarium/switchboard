@@ -140,7 +140,13 @@ describe("federation harness: vault requests", () => {
 		const seen = (await requestRows()).length;
 		const use = post(alice, "/vault/use", { entryId, operation: "ssh deploy@prod uptime", waitMs: 10_000 });
 		const request = await nextRequest(seen);
-		expect(request).toMatchObject({ kind: "entry", entryId, shape: "ssh deploy@prod", sessionTarget: alice.team });
+		expect(request).toMatchObject({
+			kind: "entry",
+			entryId,
+			displayShape: "ssh deploy@prod",
+			coveredShapes: ["ssh deploy@prod"],
+			sessionTarget: alice.team,
+		});
 		const answered = await h.phone.value({ kind: "vault_answer", requestId: request.requestId, decision: "once" });
 		expect(answered.result).toEqual({ ok: true });
 		expect((await use).json).toEqual({ outcome: "approved", decision: "once", value: "hunter2" });
@@ -186,9 +192,9 @@ describe("federation harness: vault requests", () => {
 
 		const grants = await h.phone.value({ kind: "vault_grants" });
 		const grant = (
-			grants.result as { grants: Array<{ grantId: string; tier: string; shape?: string }> }
-		).grants.find((g) => g.shape === "ssh deploy@prod");
-		expect(grant).toMatchObject({ tier: "window", shape: "ssh deploy@prod" });
+			grants.result as { grants: Array<{ grantId: string; tier: string; displayShape?: string }> }
+		).grants.find((g) => g.displayShape === "ssh deploy@prod");
+		expect(grant).toMatchObject({ tier: "window", displayShape: "ssh deploy@prod" });
 		expect((await h.phone.value({ kind: "vault_revoke", grantId: grant?.grantId ?? "" })).result).toEqual({
 			revoked: true,
 		});
@@ -225,13 +231,13 @@ describe("federation harness: vault requests", () => {
 		});
 		expect(widened.json).toMatchObject({ outcome: "pending" });
 		const asked = await nextRequest(seen + 1);
-		expect(asked.shape).toBe("printf %s");
+		expect(asked.displayShape).toBe("printf %s");
 		await h.phone.value({ kind: "vault_answer", requestId: asked.requestId, decision: "deny" });
 		await retracted(asked.requestId);
 		const grants = (await h.phone.value({ kind: "vault_grants" })).result as {
-			grants: Array<{ grantId: string; shape?: string }>;
+			grants: Array<{ grantId: string; displayShape?: string }>;
 		};
-		const grant = grants.grants.find((g) => g.shape === "printf %s");
+		const grant = grants.grants.find((g) => g.displayShape === "printf %s");
 		expect((await h.phone.value({ kind: "vault_revoke", grantId: grant?.grantId ?? "" })).result).toEqual({
 			revoked: true,
 		});
@@ -370,12 +376,12 @@ describe("federation harness: vault requests", () => {
 		const listed = (await h.phone.value({ kind: "vault_grants" })).result as {
 			grants: Array<{
 				grantId: string;
-				sessionTarget: string;
+				holder: { kind: string; sessionTarget?: string };
 				policy?: { policyId: string; policyRevision: number };
 			}>;
 		};
 		const minted = listed.grants.find(
-			(grant) => grant.sessionTarget === alice.team && grant.policy?.policyId === "prod-ssh-policy",
+			(grant) => grant.holder.sessionTarget === alice.team && grant.policy?.policyId === "prod-ssh-policy",
 		);
 		expect(minted).toMatchObject({ policy: { policyId: "prod-ssh-policy", policyRevision: 1 } });
 		expect((await h.phone.value({ kind: "vault_revoke", grantId: minted?.grantId ?? "" })).result).toEqual({

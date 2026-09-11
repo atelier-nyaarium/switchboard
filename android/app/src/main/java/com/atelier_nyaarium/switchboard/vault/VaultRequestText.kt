@@ -41,8 +41,7 @@ internal fun windowCovers(request: VaultPendingRequest): String? {
 }
 
 /** A window's own set. One recorded without it covers nothing. */
-internal fun grantCovers(coveredShapes: List<String>?, legacyShapes: List<String>?): String? =
-	(coveredShapes ?: legacyShapes)?.ifEmpty { null }?.joinToString(", ")
+internal fun grantCovers(coveredShapes: List<String>?): String? = coveredShapes?.ifEmpty { null }?.joinToString(", ")
 
 internal data class Expiry(val text: String, val urgent: Boolean)
 

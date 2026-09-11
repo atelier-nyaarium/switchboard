@@ -12,7 +12,8 @@
 		"kind": "entry",
 		"entryId": "prod-deploy",
 		"operation": "ssh deploy@prod",
-		"shape": "ssh deploy@prod",
+		"displayShape": "ssh deploy@prod",
+		"coveredShapes": ["ssh deploy@prod"],
 		"sessionTarget": "host.82d560",
 		"deadlineAt": 1757000540000
 	}

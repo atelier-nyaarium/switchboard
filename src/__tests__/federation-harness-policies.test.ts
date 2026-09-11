@@ -25,7 +25,6 @@ describe("federation harness: authorization policies", () => {
 		displayShape: "ssh deploy@prod",
 		coveredShapes: ["ssh deploy@prod"],
 		holder: { kind: "session", sessionTarget: "host.alice" },
-		sessionTarget: "host.alice",
 		expiresAt: h.now() + 60_000,
 		policy: { policyId: "apt", policyRevision },
 	});

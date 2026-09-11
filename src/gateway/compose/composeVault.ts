@@ -10,7 +10,6 @@ import type { VaultConsoleHandlers } from "../console/consoleTypes.js";
 import type { PolicyStore } from "../policies/store.js";
 import { createAddressing } from "../routes/addressing.js";
 import { createVaultDecisions, qualificationRefusal } from "../vault/decisions.js";
-import { operationSet } from "../vault/operationSet.js";
 import { createVaultRequests } from "../vault/requests.js";
 import { createVaultRoutes } from "../vault/vaultRoutes.js";
 import type { GatewayRoutes } from "./composeRoutes.js";
@@ -110,7 +109,7 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 			return qualificationRefusal(deps.policies().get(request.policy.policyId), {
 				entryId: request.entryId,
 				policyRevision: request.policy.policyRevision,
-				displayShape: request.displayShape ?? request.shape,
+				displayShape: request.displayShape,
 			});
 		},
 		onApproved: (request, decision) => {
@@ -119,8 +118,8 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 				decision,
 				{
 					entryId: request.entryId,
-					displayShape: request.displayShape ?? request.shape,
-					coveredShapes: request.coveredShapes ?? operationSet(request.operation),
+					displayShape: request.displayShape,
+					coveredShapes: request.coveredShapes,
 					sessionTarget: request.sessionTarget,
 					...(request.policy ? { policy: request.policy } : {}),
 				},

@@ -1651,9 +1651,8 @@ sealed class VaultRequest {
 		val v: Long,
 		val requestId: String,
 		val operation: String,
-		val shape: String,
-		val displayShape: String? = null,
-		val coveredShapes: List<String>? = null,
+		val displayShape: String,
+		val coveredShapes: List<String>,
 		val sessionTarget: String,
 		val deadlineAt: Long,
 		val asker: String? = null,
@@ -1666,9 +1665,8 @@ sealed class VaultRequest {
 		val v: Long,
 		val requestId: String,
 		val operation: String,
-		val shape: String,
-		val displayShape: String? = null,
-		val coveredShapes: List<String>? = null,
+		val displayShape: String,
+		val coveredShapes: List<String>,
 		val sessionTarget: String,
 		val deadlineAt: Long,
 		val asker: String? = null,
@@ -1681,19 +1679,39 @@ data class VaultRetract(
 )
 
 @Serializable
-data class VaultGrant(
-	val grantId: String,
-	val tier: String,
-	val entryId: String? = null,
-	val shape: String? = null,
-	val displayShape: String? = null,
-	val coveredShapes: List<String>? = null,
-	val shapes: List<String>? = null,
-	val holder: VaultHolder? = null,
-	val sessionTarget: String? = null,
-	val expiresAt: Long? = null,
-	val policy: PolicyRef? = null,
-)
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("tier")
+sealed class VaultGrant {
+	@Serializable
+	@SerialName("window")
+	data class Window(
+		val grantId: String,
+		val entryId: String,
+		val holder: VaultHolder,
+		val displayShape: String,
+		val coveredShapes: List<String>,
+		val expiresAt: Long,
+		val policy: PolicyRef? = null,
+	) : VaultGrant()
+
+	@Serializable
+	@SerialName("session")
+	data class Session(
+		val grantId: String,
+		val entryId: String,
+		val holder: VaultHolder,
+		val expiresAt: Long,
+		val policy: PolicyRef? = null,
+	) : VaultGrant()
+
+	@Serializable
+	@SerialName("standing")
+	data class Standing(
+		val grantId: String,
+		val entryId: String,
+		val holder: VaultHolder,
+	) : VaultGrant()
+}
 
 @Serializable
 data class ConsoleVaultAnswerResult(

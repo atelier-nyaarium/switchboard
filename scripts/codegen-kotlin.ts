@@ -405,6 +405,7 @@ const SEALED_ROOTS = new Set([
 	"RunbookFireTarget",
 	"BoardOp",
 	"BoardActor",
+	"VaultGrant",
 	"VaultHolder",
 	"VaultRequest",
 	"WireFixture",

@@ -81,8 +81,6 @@ export function createVaultRequests(deps: VaultRequestsDeps) {
 			v: 1 as const,
 			requestId,
 			operation: input.operation,
-			// Emit the old name until 2026-09-19.
-			shape,
 			displayShape: shape,
 			coveredShapes: operationSet(input.operation),
 			sessionTarget: input.sessionTarget,

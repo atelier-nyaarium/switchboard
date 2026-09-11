@@ -5,7 +5,6 @@ import type { Ambient } from "../../shared/ambient.js";
 import { type DurableStore, DurableStoreInstalledError } from "../../shared/durable-store.js";
 import type { AuthorizationPolicy } from "../../shared/schemasPolicy.js";
 import {
-	holderOf,
 	type PolicyRef,
 	VAULT_SESSION_GRANT_CAP_MS,
 	VAULT_WINDOW_MS,
@@ -57,14 +56,18 @@ export function qualificationRefusal(
 	return null;
 }
 
+/** A standing grant is entry-wide and carries none. */
+const policyOf = (grant: VaultGrant): PolicyRef | undefined => (grant.tier === "standing" ? undefined : grant.policy);
+
 /** The policy no longer answers for this grant. */
 function disqualified(grant: VaultGrant, current: AuthorizationPolicy | null): boolean {
-	if (grant.policy === undefined || grant.entryId === undefined) return false;
+	const policy = policyOf(grant);
+	if (policy === undefined) return false;
 	// Only a window grant names a shape.
 	const resolved = {
 		entryId: grant.entryId,
-		policyRevision: grant.policy.policyRevision,
-		...(grant.tier === "window" ? { displayShape: grant.displayShape ?? grant.shape } : {}),
+		policyRevision: policy.policyRevision,
+		...(grant.tier === "window" ? { displayShape: grant.displayShape } : {}),
 	};
 	return qualificationRefusal(current, resolved) !== null;
 }
@@ -99,7 +102,7 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 		}
 	};
 	const sweep = (now: number): void => {
-		const kept = grants.filter((grant) => grant.expiresAt === undefined || grant.expiresAt > now);
+		const kept = grants.filter((grant) => grant.tier === "standing" || grant.expiresAt > now);
 		if (kept.length !== grants.length) commit(kept, false);
 	};
 
@@ -112,24 +115,21 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 		const live = deps.routineHolding?.(scope.sessionTarget) ?? null;
 		return grants.find((grant) => {
 			if (grant.entryId !== scope.entryId) return false;
-			// Before the holder: a policy grant covers only what that policy, at that revision, resolved,
-			// and a window under it only the one key it was given for.
+			if (grant.tier === "standing")
+				return live !== null && grant.holder.kind === "routine" && grant.holder.routineId === live;
+			// A policy grant covers only what that policy, at that revision, resolved, and a window
+			// under it only the one key it was given for.
 			if (grant.policy !== undefined) {
 				if (
 					grant.policy.policyId !== scope.policy?.policyId ||
 					grant.policy.policyRevision !== scope.policy.policyRevision
 				)
 					return false;
-				if (grant.tier === "window" && (grant.displayShape ?? grant.shape) !== scope.displayShape) return false;
+				if (grant.tier === "window" && grant.displayShape !== scope.displayShape) return false;
 			}
-			const holder = holderOf(grant);
-			if (!holder) return false;
-			if (holder.kind === "routine") return live !== null && holder.routineId === live;
-			if (holder.sessionTarget !== scope.sessionTarget) return false;
+			if (grant.holder.kind !== "session" || grant.holder.sessionTarget !== scope.sessionTarget) return false;
 			if (grant.tier === "session") return true;
-			// Read the old name until 2026-09-19.
-			const covered = grant.coveredShapes ?? grant.shapes;
-			return covered !== undefined && coveredBy(scope.coveredShapes, covered);
+			return coveredBy(scope.coveredShapes, grant.coveredShapes);
 		});
 	};
 
@@ -144,11 +144,9 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 						grantId: deps.ambient.newId(),
 						tier: "window",
 						entryId: scope.entryId,
-						shape: scope.displayShape,
 						displayShape: scope.displayShape,
 						coveredShapes: scope.coveredShapes,
 						holder,
-						sessionTarget: scope.sessionTarget,
 						expiresAt: now + VAULT_WINDOW_MS,
 						...qualified,
 					}
@@ -157,7 +155,6 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 						tier: "session",
 						entryId: scope.entryId,
 						holder,
-						sessionTarget: scope.sessionTarget,
 						expiresAt: now + sessionCapMs,
 						...qualified,
 					};
@@ -170,12 +167,9 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 	 * reaches this, through a routine save, so nothing inside a session can widen it.
 	 */
 	const setRoutineGrants = (routineId: string, entryIds: string[]): VaultGrant[] => {
-		const mine = (grant: VaultGrant) => {
-			const holder = holderOf(grant);
-			return holder?.kind === "routine" && holder.routineId === routineId;
-		};
+		const mine = (grant: VaultGrant) => grant.holder.kind === "routine" && grant.holder.routineId === routineId;
 		const wanted = new Set(entryIds);
-		const kept = grants.filter((grant) => !mine(grant) || (grant.entryId && wanted.has(grant.entryId)));
+		const kept = grants.filter((grant) => !mine(grant) || wanted.has(grant.entryId));
 		const held = new Set(kept.filter(mine).map((grant) => grant.entryId));
 		const added: VaultGrant[] = entryIds
 			.filter((entryId) => !held.has(entryId))
@@ -207,21 +201,22 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 	 */
 	const entriesListed = (entryIds: string[]): void => {
 		const live = new Set(entryIds);
-		const kept = grants.filter((grant) => grant.entryId === undefined || live.has(grant.entryId));
+		const kept = grants.filter((grant) => live.has(grant.entryId));
 		if (kept.length !== grants.length) commit(kept, true);
 	};
 
 	/** The policy store already holds the move; the grants it qualified follow. */
 	const policyMoved = (policyId: string, current: AuthorizationPolicy | null): void => {
-		const kept = grants.filter((grant) => grant.policy?.policyId !== policyId || !disqualified(grant, current));
+		const kept = grants.filter((grant) => policyOf(grant)?.policyId !== policyId || !disqualified(grant, current));
 		if (kept.length !== grants.length) commit(kept, true);
 	};
 
 	/** The store's whole list. */
-	const policiesListed = (policyOf: PolicyResolver): void => {
-		const kept = grants.filter(
-			(grant) => grant.policy === undefined || !disqualified(grant, policyOf(grant.policy.policyId)),
-		);
+	const policiesListed = (policyOf_: PolicyResolver): void => {
+		const kept = grants.filter((grant) => {
+			const policy = policyOf(grant);
+			return policy === undefined || !disqualified(grant, policyOf_(policy.policyId));
+		});
 		if (kept.length !== grants.length) commit(kept, true);
 	};
 
@@ -236,10 +231,9 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 	};
 
 	const sessionEnded = (sessionTarget: string): void => {
-		const kept = grants.filter((grant) => {
-			const holder = holderOf(grant);
-			return holder?.kind !== "session" || holder.sessionTarget !== sessionTarget;
-		});
+		const kept = grants.filter(
+			(grant) => grant.holder.kind !== "session" || grant.holder.sessionTarget !== sessionTarget,
+		);
 		if (kept.length !== grants.length) commit(kept, true);
 	};
 

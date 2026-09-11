@@ -20,7 +20,8 @@ class VaultRequestTextTest {
 			v = 1L,
 			requestId = "r",
 			operation = operation,
-			shape = "sudo apt",
+			displayShape = "sudo apt",
+			coveredShapes = listOf("apt"),
 			sessionTarget = "owner.claude",
 			deadlineAt = 10L,
 			asker = asker,
@@ -38,7 +39,8 @@ class VaultRequestTextTest {
 				v = 1L,
 				requestId = "r",
 				operation = "gh auth login",
-				shape = "gh auth",
+				displayShape = "gh auth",
+				coveredShapes = listOf("gh auth login"),
 				sessionTarget = "evie-bot.0713b7",
 				deadlineAt = 10L,
 			),
@@ -52,7 +54,6 @@ class VaultRequestTextTest {
 			v = 1L,
 			requestId = "r",
 			operation = operation,
-			shape = display,
 			displayShape = display,
 			coveredShapes = shapes.toList(),
 			sessionTarget = "host.alice",
@@ -70,46 +71,15 @@ class VaultRequestTextTest {
 		// A wrapper's name is not what runs.
 		assertEquals("30 min covers apt update", windowCovers(covering("sudo apt update", "sudo apt", "apt update")))
 		assertNull(windowCovers(covering("apt update", "apt update", "apt update")))
-		// An unknown set stays unnamed.
-		assertNull(windowCovers(entry()))
 		// A typed value takes no window.
 		assertNull(windowCovers(typed("sudo apt install foo")))
 	}
 
 	@Test
 	fun aGrantNamesItsProgramsOrNothingAtAll() {
-		assertEquals("apt update, curl x", grantCovers(listOf("apt update", "curl x"), null))
-		assertEquals("apt update", grantCovers(null, listOf("apt update")))
-		assertNull(grantCovers(null, null))
-		assertNull(grantCovers(emptyList(), null))
-	}
-
-	@Test
-	fun aRowFromAnOlderGatewayReadsItsOnlyShapeAndCoversNothing() {
-		val old = entry()
-		assertEquals("gh auth", old.displayShape)
-		assertEquals(emptyList<String>(), old.coveredShapes)
-	}
-
-	@Test
-	fun theNewNameWinsWhenARowCarriesBoth() {
-		val current = VaultPendingRequest(
-			"dom.sakura.owner.claude",
-			VaultRequest.Entry(
-				entryId = "e1",
-				v = 1L,
-				requestId = "r",
-				operation = "printf %s | sha256sum",
-				shape = "stale",
-				displayShape = "printf %s",
-				coveredShapes = listOf("printf %s", "sha256sum"),
-				sessionTarget = "host.alice",
-				deadlineAt = 10L,
-			),
-			0L,
-		)
-		assertEquals("printf %s", current.displayShape)
-		assertEquals(listOf("printf %s", "sha256sum"), current.coveredShapes)
+		assertEquals("apt update, curl x", grantCovers(listOf("apt update", "curl x")))
+		assertNull(grantCovers(null))
+		assertNull(grantCovers(emptyList()))
 	}
 
 	@Test

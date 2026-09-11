@@ -194,7 +194,7 @@ private fun GrantRow(
 	views: List<VaultEntryView>,
 	onRevoke: () -> Unit,
 ) {
-	val entryTitle = grant.entryId?.let { id -> views.firstOrNull { it.id == id }?.title ?: id }
+	val entryTitle = views.firstOrNull { it.id == grant.entryId }?.title ?: grant.entryId
 	Row(
 		Modifier.fillMaxWidth().padding(vertical = 4.dp),
 		horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -209,16 +209,15 @@ private fun GrantRow(
 			)
 			Text(
 				listOfNotNull(
-					when (grant.tier) {
-						VAULT_GRANT_STANDING -> "While it runs"
-						VAULT_DECISION_SESSION -> "This session"
-						else -> "30 minutes"
+					when (grant) {
+						is VaultGrant.Standing -> "While it runs"
+						is VaultGrant.Session -> "This session"
+						is VaultGrant.Window -> "30 minutes"
 					},
 					entryTitle,
 					// Names the policy that answered.
 					grant.policy?.let { ref -> "via ${state.gateways.policyOn(gatewayId, ref.policyId)?.name ?: ref.policyId}" },
-					// Read the old name until 2026-09-19.
-					grantCovers(grant.coveredShapes, grant.shapes),
+					grantCovers(grant.coveredShapes),
 					grant.expiresAt?.let { expiresIn(it).text },
 				).joinToString(" - "),
 				style = MaterialTheme.typography.bodySmall,
@@ -231,13 +230,12 @@ private fun GrantRow(
 	}
 }
 
-/** Who the grant is for. A row written before holders names a session and nothing else. */
-private fun holderName(state: ChatState, gatewayId: String, grant: VaultGrant): String {
-	val holder = grant.holder
-	if (holder is VaultHolder.Routine) return "Routine ${holder.routineId}"
-	val target = (holder as? VaultHolder.Session)?.sessionTarget ?: grant.sessionTarget ?: return "Unknown"
-	return sessionName(state, gatewayId, target)
-}
+/** Who the grant is for. */
+private fun holderName(state: ChatState, gatewayId: String, grant: VaultGrant): String =
+	when (val holder = grant.holder) {
+		is VaultHolder.Routine -> "Routine ${holder.routineId}"
+		is VaultHolder.Session -> sessionName(state, gatewayId, holder.sessionTarget)
+	}
 
 /** The session's label when this phone knows it, else the gateway's own name for it. */
 private fun sessionName(state: ChatState, gatewayId: String, sessionTarget: String): String {

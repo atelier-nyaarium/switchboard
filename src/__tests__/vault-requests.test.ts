@@ -40,7 +40,8 @@ describe("vault requests", () => {
 			v: 1,
 			kind: "entry",
 			entryId: "deploy",
-			shape: "ssh deploy@prod",
+			displayShape: "ssh deploy@prod",
+			coveredShapes: ["ssh deploy@prod"],
 			sessionTarget: "host.alice",
 			deadlineAt: 1_000_000 + VAULT_REQUEST_DEADLINE_MS,
 		});

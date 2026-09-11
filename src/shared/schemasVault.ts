@@ -135,11 +135,8 @@ const requestFields = {
 	v: z.literal(1),
 	requestId,
 	operation,
-	// `shape` goes and `displayShape` becomes required on 2026-09-19, once every console reads it.
-	shape: displayShape,
-	displayShape: displayShape.optional(),
-	// Optional while an older gateway may omit it; required from 2026-09-19.
-	coveredShapes: shapes.optional(),
+	displayShape,
+	coveredShapes: shapes,
 	sessionTarget: z.string().min(1).max(128),
 	deadlineAt: z.number().int().nonnegative(),
 	asker,
@@ -163,53 +160,43 @@ export const VaultRetractSchema = z.object({ requestId }).meta({ id: "VaultRetra
  */
 export const VaultHolderSchema = z
 	.discriminatedUnion("kind", [
-		z.object({ kind: z.literal("session"), sessionTarget: z.string().min(1).max(128) }),
-		z.object({ kind: z.literal("routine"), routineId: z.string().min(1).max(64) }),
+		z.strictObject({ kind: z.literal("session"), sessionTarget: z.string().min(1).max(128) }),
+		z.strictObject({ kind: z.literal("routine"), routineId: z.string().min(1).max(64) }),
 	])
 	.meta({ id: "VaultHolder" });
 
 export type VaultHolder = z.infer<typeof VaultHolderSchema>;
 
-const VaultGrantRecordSchema = z.object({
-	grantId: z.string().min(1).max(128),
-	/** A standing grant is a routine's, and dies with the routine rather than with a clock. */
-	tier: z.enum(["window", "session", "standing"]).meta({ id: "VaultGrantTier", catalog: "tier" }),
-	entryId: entryId.optional(),
-	// A session grant names no shape at all. `shape` goes on 2026-09-19.
-	shape: z.string().max(256).optional(),
-	displayShape: z.string().max(256).optional(),
-	// A window recorded without one covers nothing.
-	coveredShapes: shapes.optional(),
-	// Read a grant written under the old name until 2026-09-19.
-	shapes: shapes.optional(),
-	// Required on 2026-09-22, once no stored grant predates holders.
-	holder: VaultHolderSchema.optional(),
-	// Read a grant written before the subject was a holder. Goes on 2026-09-22.
-	sessionTarget: z.string().min(1).max(128).optional(),
-	expiresAt: z.number().int().nonnegative().optional(),
-	/** An entry-wide grant carries none. */
-	policy: VaultPolicyRefSchema.optional(),
-});
+const grantFields = { grantId: z.string().min(1).max(128), entryId, holder: VaultHolderSchema };
+const expiresAt = z.number().int().nonnegative();
+/** An entry-wide grant carries none. */
+const policy = VaultPolicyRefSchema.optional();
+
+/** Strict: a field of another tier is a refused row. */
+const VaultGrantRecordSchema = z.discriminatedUnion("tier", [
+	z.strictObject({
+		tier: z.literal("window"),
+		...grantFields,
+		displayShape,
+		coveredShapes: shapes,
+		expiresAt,
+		policy,
+	}),
+	z.strictObject({ tier: z.literal("session"), ...grantFields, expiresAt, policy }),
+	/** A routine's, entry-wide; dies with the routine. */
+	z.strictObject({ tier: z.literal("standing"), ...grantFields }),
+]);
 
 type VaultGrantRecord = z.infer<typeof VaultGrantRecordSchema>;
 
-/** The one place a grant's subject is read. A row written before holders is a session's. */
-export function holderOf(grant: VaultGrantRecord): VaultHolder | null {
-	if (grant.holder) return grant.holder;
-	return grant.sessionTarget ? { kind: "session", sessionTarget: grant.sessionTarget } : null;
+/** A session holds a window or session grant; a routine holds a standing one. */
+function holderFitsTier(grant: VaultGrantRecord): boolean {
+	return (grant.tier === "standing") === (grant.holder.kind === "routine");
 }
 
-/** A routine's standing grant is entry-wide; only a session holds one qualified by a policy. */
-function policyGrantIsSessionHeld(grant: VaultGrantRecord): boolean {
-	if (grant.policy === undefined) return true;
-	if (grant.tier === "standing") return false;
-	return holderOf(grant)?.kind === "session";
-}
-
-export const VaultGrantSchema = VaultGrantRecordSchema.refine(
-	policyGrantIsSessionHeld,
-	"a policy grant is a session's window or session grant",
-).meta({ id: "VaultGrant" });
+export const VaultGrantSchema = VaultGrantRecordSchema.refine(holderFitsTier, "the holder does not fit the tier").meta({
+	id: "VaultGrant",
+});
 
 export const ConsoleVaultAnswerResultSchema = z
 	.object({ ok: z.boolean(), reason: z.string().optional() })
@@ -247,7 +234,7 @@ export const VaultCaptureRequestSchema = z.object({
 	publicDescription: z.string().max(2048).optional(),
 	value: z.string().min(1).max(MAX_VAULT_CAPTURE_CHARS),
 });
-// Optional until 2026-09-19 for helpers installed before 8.7.3; then require `asker` here. The request arms keep it optional: a session's own run has none.
+/** `asker` is absent when the helper cannot read its parent. */
 export const VaultAskpassRequestSchema = z.object({ cmdline: operation, waitMs, asker });
 export const VaultApprovedDecisionSchema = z.enum(["once", "window", "session", "standing"]);
 /** What use, collect, and askpass answer: pending hands back the request; deny and timeout both refuse. */

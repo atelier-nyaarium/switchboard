@@ -45,7 +45,7 @@ and the delta list are in `docs/federation.md` under Owner state.
   When the first argument is a flag, the whole line is the shape, since a flag's value could hide
   the target. `displayShape` applies it to the words as written, which is what the grants tab lists
   and what a saved typed value is titled, and it holds for text no parser accepts. On the wire it
-  is `displayShape`, beside `coveredShapes`, and the older `shape` rides along until 2026-09-19.
+  is `displayShape`, beside `coveredShapes`.
 - **A window covers a set, not the shape:** `operationSet` in `gateway/vault/operationSet.ts` reads
   the line with `unbash` and names every simple command in it, reaching commands nested in shell
   constructs and in substitutions, each as its own shape by the rule above. A window grant answers
@@ -253,10 +253,9 @@ session holds a binding token. `vaultRun.ts` is the child run.
   value under the shape as its title. Deny opens a `Steer` field whose note rides the refusal.
 - **The sheet names what a window would cover:** `windowCovers` in `VaultRequestText.kt` prints the
   request's `coveredShapes` under the operation, in full, since the content scrolls. It says nothing
-  when the line already names the one shape, when the request is typed, since a typed value is
-  answered once and records no grant, and when the row carries no set, since a gateway that sends
-  none covers one this phone cannot name. `grantCovers` does the same for the grants tab, and a
-  grant recorded without a set names nothing, because the gateway refuses it.
+  when the line already names the one shape, and when the request is typed, since a typed value is
+  answered once and records no grant. `grantCovers` does the same for the grants tab, where every
+  window grant carries its set.
 - Vault approvals, under Settings and Security: Off, Every approval, 30-minute unlock.
   `ApprovalGate` is the one gate: it runs before an entry approval, a reveal, and a save that
   changes a stored value; a typed value never prompts. Tightening the policy is free, loosening it
