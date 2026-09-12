@@ -2,7 +2,12 @@
 // spelling a tool name, so prose cannot ask for something that was never built.
 
 import type { z } from "zod";
-import { SessionRoutineAnswerSchema, SessionRoutineRequestShape } from "./schemasRoutine.js";
+import {
+	SessionReportAnswerSchema,
+	SessionReportRequestShape,
+	SessionRoutineAnswerSchema,
+	SessionRoutineRequestShape,
+} from "./schemasRoutine.js";
 
 export interface SessionCommand {
 	/** The MCP tool a session calls. */
@@ -25,6 +30,12 @@ export const SESSION_COMMANDS = {
 		path: "/routine/session",
 		request: SessionRoutineRequestShape,
 		answer: SessionRoutineAnswerSchema,
+	},
+	sessionReport: {
+		tool: "report_session_routine",
+		path: "/routine/report",
+		request: SessionReportRequestShape,
+		answer: SessionReportAnswerSchema,
 	},
 } as const satisfies Record<string, SessionCommand>;
 

@@ -54,6 +54,8 @@ function exitCode(child: Child, name: string): Promise<number> {
 }
 
 const TOOL = SESSION_COMMANDS.sessionRoutine.tool;
+/** Every command in the catalogue, so a new one is proven registered without editing this. */
+const SESSION_TOOLS = Object.values(SESSION_COMMANDS).map((command) => command.tool);
 
 interface McpRun {
 	tools: string[];
@@ -379,13 +381,17 @@ async function main(): Promise<void> {
 
 		const gatewayUrl = `http://127.0.0.1:${gatewayPort}`;
 		const bound = await mcpSession(gatewayUrl, "host.boot-mcp", sessionToken, "no_routine");
-		if (!bound.tools.includes(TOOL)) throw new Error(`${TOOL} was not registered for a bound session`);
+		for (const tool of SESSION_TOOLS) {
+			if (!bound.tools.includes(tool)) throw new Error(`${tool} was not registered for a bound session`);
+		}
 
 		const wrong = await mcpSession(gatewayUrl, "host.boot-mcp", "0".repeat(64));
 		if (wrong.answer.kind !== "unauthenticated") throw new Error(`stale token answered ${wrong.answer.kind}`);
 
 		const none = await mcpSession(gatewayUrl, "host.boot-mcp", undefined);
-		if (none.tools.includes(TOOL)) throw new Error(`${TOOL} registered for a session with no token`);
+		for (const tool of SESSION_TOOLS) {
+			if (none.tools.includes(tool)) throw new Error(`${tool} registered for a session with no token`);
+		}
 	});
 
 	host?.close();

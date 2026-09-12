@@ -202,6 +202,45 @@ export const SessionRoutineAnswerSchema = z.discriminatedUnion("kind", [
 
 export type SessionRoutineRequest = z.infer<typeof SessionRoutineRequestSchema>;
 
+/**
+ * What a filed report leaves of the work window. Long enough that a session which spoke too soon can
+ * still finish, short enough that a finished run stops holding its routine's secrets all day.
+ */
+export const ROUTINE_REPORT_GRACE_MS = 30 * 60 * 1000;
+
+/** Bounded so a runaway session cannot write the occurrence file to the disk's end. */
+export const MAX_ROUTINE_REPORT_CHARS = 16_384;
+
+export const SessionReportRequestShape = {
+	occurrenceId: z.string().min(1).max(64).describe(`Occurrence id from the nudge.`),
+	report: z
+		.string()
+		.min(1)
+		.max(MAX_ROUTINE_REPORT_CHARS)
+		.describe(`What the run did and what it left, in the run's own words.`),
+};
+
+export const SessionReportRequestSchema = z.object(SessionReportRequestShape);
+
+export const SessionReportAnswerSchema = z.discriminatedUnion("kind", [
+	z.object({
+		kind: z.literal("filed"),
+		routineId: z.string(),
+		scheduledAt: z.number().int(),
+		/** What the window now ends at, which a second filing never pushes out. */
+		workUntil: z.number().int(),
+	}),
+	z.object({ kind: z.literal("no_routine") }),
+	z.object({ kind: z.literal("unknown_occurrence") }),
+	z.object({ kind: z.literal("wrong_session") }),
+	z.object({ kind: z.literal("unauthenticated") }),
+	/** The run is over, by deadline or by the session having gone quiet. Nothing left to narrow. */
+	z.object({ kind: z.literal("not_working") }),
+]);
+
+export type SessionReportRequest = z.infer<typeof SessionReportRequestSchema>;
+export type SessionReportAnswer = z.infer<typeof SessionReportAnswerSchema>;
+
 export type RoutineAttention = z.infer<typeof RoutineAttentionSchema>;
 export type RoutineMiss = z.infer<typeof RoutineMissSchema>;
 export type RoutineState = z.infer<typeof RoutineStateSchema>;

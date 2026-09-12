@@ -51,6 +51,10 @@ export const OccurrenceSchema = z.object({
 	 * pressed run hides a scheduled slot that never happened.
 	 */
 	adhoc: z.boolean().optional(),
+	/** What the run said it did, in its own words, filed by the session itself. */
+	report: z.string().optional(),
+	/** When the first report landed. A later one replaces the words and not this. */
+	reportedAt: z.number().int().nonnegative().optional(),
 });
 
 export type Occurrence = z.infer<typeof OccurrenceSchema>;
@@ -139,6 +143,31 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		return commit(rows.map((row) => (row === held ? moved : row)));
 	};
 
+	/**
+	 * Files what the run says it did, and pulls the work window in to `until`.
+	 *
+	 * The window only ever moves EARLIER. A session that could push it out by filing again would
+	 * hold its routine's secrets open indefinitely, one report at a time. Filing again replaces the
+	 * words and leaves the window and `reportedAt` where the first one put them.
+	 */
+	const noteReport = (
+		routineId: string,
+		scheduledAt: number,
+		report: string,
+		filedAt: number,
+		until: number,
+	): Occurrence | null => {
+		const held = at(routineId, scheduledAt);
+		if (!held || held.state !== "dispatched") return null;
+		const moved: Occurrence = {
+			...held,
+			report,
+			reportedAt: held.reportedAt ?? filedAt,
+			workUntil: Math.min(held.workUntil ?? held.deadlineAt, until),
+		};
+		return commit(rows.map((row) => (row === held ? moved : row))) ? moved : null;
+	};
+
 	/** The first read is the one recorded; asking again says nothing new. */
 	const noteRead = (routineId: string, scheduledAt: number, at: number): boolean => {
 		const held = rows.find((row) => row.routineId === routineId && row.scheduledAt === scheduledAt);
@@ -184,7 +213,7 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		return dropped;
 	};
 
-	return { all, at, forRoutine, open, transition, noteWork, noteRead, clearReview, clear, sweep };
+	return { all, at, forRoutine, open, transition, noteWork, noteReport, noteRead, clearReview, clear, sweep };
 }
 
 export type OccurrenceStore = ReturnType<typeof createOccurrenceStore>;

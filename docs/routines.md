@@ -166,12 +166,35 @@ Answering records `readAt` on the occurrence, and the list carries it as `lastRe
 other half of liveness: a session that woke and did something else is not one that picked the routine
 up, and nothing else can tell them apart. It still says nothing about whether the work was any good.
 
+## What the session files back
+
+`report_session_routine` is the catalogue's second entry, resolved exactly as the first: the caller's
+token names a team, and a run on another team is refused with the same four outcomes. It takes the
+occurrence id and the run's own account of what it did.
+
+Filing is what narrows a run's authority. Without it the work window runs its full twelve hours from
+dispatch, and a standing grant lives with the window, so a routine that finished at noon could still
+reach its secrets at midnight if its session never went quiet. A filed report pulls `workUntil` in to
+`ROUTINE_REPORT_GRACE_MS`, about half an hour, which is long enough for a run that spoke too soon to
+finish.
+
+**The window only ever moves earlier.** `noteReport` floors it with `Math.min`, so filing again
+replaces the words and buys no time. Without that a session holds its routine's secrets open
+indefinitely, one report every twenty-nine minutes. `reportedAt` likewise records the first filing
+and not the latest.
+
+A run that is over answers `not_working` rather than accepting silently: its window needs no
+narrowing, and the session should learn that its authority has already gone. That covers a row that
+was never dispatched, one whose work is already `done`, and one the deadline closed.
+
 ## What no gate here can reach
 
 `bun run check:boot` runs the real `main-mcp` as a subprocess, answers the gateway's handshake as a
 client does, and checks the tool registers for a bound session, answers its own session, refuses a
 token the gateway does not know, and is absent without a binding. A residue test cannot see a tool
-that is never registered.
+that is never registered. It walks every entry in the catalogue for the registration checks, so a
+command added there is proven without editing the gate; the behavioural probe is `get_session_routine`
+alone.
 
 The emulator covers Compose, the clock-change receiver and the zone conversion. Drive it with `adb`
 as `AGENTS.md` describes. It cannot represent the following, which is a manual pass on a real phone

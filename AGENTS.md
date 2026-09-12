@@ -324,7 +324,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/` - Claude Code tools
 - `src/mcp/bridge/` / `channel/` / `references/` / `board/` / `designer/` / `connector/` - bridge, channel, reference, board, designer, and connector tools
 - `src/mcp/vault/vaultTools.ts` / `vaultRun.ts` - vault tools over the gateway's loopback routes, and the child run that injects a value and scrubs it from the output
-- `src/mcp/routines/routineTools.ts` - `get_session_routine`, registered for any token-bound session and behind no capability
+- `src/mcp/routines/routineTools.ts` - `get_session_routine` and `report_session_routine`, registered for any token-bound session and behind no capability
+  - **Filing a report is what narrows a run's authority, and the window only moves earlier:**
+    `noteReport` floors `workUntil` with `Math.min`, so a second filing replaces the words and buys
+    no time. Otherwise a session holds its routine's secrets open one report at a time. A run that
+    is over answers `not_working` rather than accepting silently.
 - `src/mcp/devcontainer/` - host daemon plumbing and per-session tools
 - `src/mcp/devcontainer/hostResolve.ts` - pure host/workdir/watch-target resolution and tmux command construction
 - `src/mcp/devcontainer/windowsSpawn.ts` - Windows PowerShell probing, WSL path translation, and native directory listing

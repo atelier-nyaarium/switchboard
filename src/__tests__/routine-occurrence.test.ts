@@ -60,6 +60,41 @@ describe("what an occurrence may become", () => {
 		]);
 	});
 
+	it("floors the work window when a run files its report, and a second filing cannot widen it", () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "routine-occurrence-"));
+		roots.push(root);
+		const occurrences = createOccurrenceStore({ store: new DurableStore(root, "occurrences") });
+		const TWELVE_HOURS = 43_200_000;
+		occurrences.open("triage", 100, 100 + TWELVE_HOURS);
+		occurrences.transition("triage", 100, { state: "due", version: 1 }, "prepared");
+		occurrences.transition("triage", 100, { state: "prepared", version: 2 }, "dispatched", {
+			work: "started",
+			workUntil: 100 + TWELVE_HOURS,
+		});
+
+		const filed = occurrences.noteReport("triage", 100, "apt upgraded, nothing held back", 500, 500 + 1_800_000);
+		expect(filed?.workUntil).toBe(500 + 1_800_000);
+		expect(filed?.report).toBe("apt upgraded, nothing held back");
+		expect(filed?.reportedAt).toBe(500);
+
+		// Correcting the words is fine. Buying another half hour is not, or a session holds its
+		// routine's secrets open indefinitely, one report at a time.
+		const again = occurrences.noteReport("triage", 100, "also cleaned the cache", 900, 900 + 1_800_000);
+		expect(again?.workUntil).toBe(500 + 1_800_000);
+		expect(again?.report).toBe("also cleaned the cache");
+		expect(again?.reportedAt).toBe(500);
+	});
+
+	it("takes no report for a run that was never dispatched", () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "routine-occurrence-"));
+		roots.push(root);
+		const occurrences = createOccurrenceStore({ store: new DurableStore(root, "occurrences") });
+		occurrences.open("triage", 100, 200);
+
+		expect(occurrences.noteReport("triage", 100, "spoke early", 150, 160)).toBeNull();
+		expect(occurrences.noteReport("triage", 999, "no such run", 150, 160)).toBeNull();
+	});
+
 	it("rejects a stale version and preserves state after a failed durable write", () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "routine-occurrence-"));
 		roots.push(root);

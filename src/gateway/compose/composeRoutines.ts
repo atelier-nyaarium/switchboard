@@ -1,6 +1,7 @@
 import type { Ambient } from "../../shared/ambient.js";
 import { openDurable } from "../../shared/durable-store.js";
 import {
+	ROUTINE_REPORT_GRACE_MS,
 	type Routine,
 	type RoutineAttention,
 	type RoutineMiss,
@@ -193,6 +194,10 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 			occurrences: () => occurrences.all(),
 			routineName: (routineId) => store.get(routineId)?.name ?? null,
 			noteRead: (routineId, scheduledAt) => occurrences.noteRead(routineId, scheduledAt, deps.ambient.now()),
+			fileReport: (routineId, scheduledAt, report) => {
+				const now = deps.ambient.now();
+				return occurrences.noteReport(routineId, scheduledAt, report, now, now + ROUTINE_REPORT_GRACE_MS);
+			},
 		}),
 		console: {
 			list: () => ({ routines: state(), zone: gatewayZone() }),

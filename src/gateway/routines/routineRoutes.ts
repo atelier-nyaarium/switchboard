@@ -3,9 +3,10 @@
 import { z } from "zod";
 import { SESSION_COMMANDS } from "../../shared/session-commands.js";
 import type { Occurrence } from "./occurrences.js";
-import { answerSessionRoutine } from "./sessionRoutine.js";
+import { answerSessionReport, answerSessionRoutine } from "./sessionRoutine.js";
 
 const COMMAND = SESSION_COMMANDS.sessionRoutine;
+const REPORT = SESSION_COMMANDS.sessionReport;
 
 export type Handler = (req: Request, body: unknown) => Promise<Response>;
 
@@ -16,6 +17,8 @@ export interface RoutineRoutesDeps {
 	routineName: (routineId: string) => string | null;
 	/** Records that the session read its instructions, which is the other half of liveness. */
 	noteRead: (routineId: string, scheduledAt: number) => void;
+	/** Files the run's account of itself and pulls its window in. Null when the row would not take it. */
+	fileReport: (routineId: string, scheduledAt: number, report: string) => Occurrence | null;
 }
 
 const json = (body: unknown, status: number): Response =>
@@ -38,5 +41,23 @@ export function createRoutineRoutes(deps: RoutineRoutesDeps): Map<string, Handle
 		return json(answer, 200);
 	};
 
-	return new Map<string, Handler>([[COMMAND.path, sessionRoutine]]);
+	const sessionReport: Handler = async (req, body) => {
+		const parsed = z.object(REPORT.request).safeParse(body);
+		if (!parsed.success) return json({ error: "an occurrence id and a report are required" }, 400);
+		const answer = answerSessionReport(
+			{
+				callerTeam: () => deps.resolveCaller(req),
+				occurrences: deps.occurrences,
+				file: deps.fileReport,
+			},
+			parsed.data.occurrenceId,
+			parsed.data.report,
+		);
+		return json(answer, 200);
+	};
+
+	return new Map<string, Handler>([
+		[COMMAND.path, sessionRoutine],
+		[REPORT.path, sessionReport],
+	]);
 }
