@@ -20,6 +20,15 @@ internal data class WorkspaceTarget(val gatewayId: String, val address: String) 
 }
 
 /**
+ * Joins halves into one key with the ASCII record separator, which no address, module path or symbol
+ * id holds. Constructed rather than written as a literal: a control byte in source makes the file
+ * binary to every tool that reads it, and compiles anyway.
+ */
+internal val KEY_SEPARATOR: String = Char(0x1e).toString()
+
+internal fun separated(vararg parts: String): String = parts.joinToString(KEY_SEPARATOR)
+
+/**
  * What the window was drawn from. `spanHash` is the whole binding: a save is accepted only while the
  * span still hashes to this, so an edit elsewhere in the file leaves the window alone.
  */
