@@ -950,6 +950,29 @@ Accepted and recorded rather than fixed:
   not servable. Intended, since a truncated answer would be saved back truncated, but it is a second
   effective read limit and the phone has to say so.
 
+### Bug Classes
+
+**Mechanism:** the timeouts bounding one read.
+**Defect class:** related bounds with no single owner, which must be ordered and are not.
+
+Three bounds now sit on one logical read, and they only work if ordered correctly:
+
+| Bound | Value | Owner |
+|---|---|---|
+| The plane's wait | 20 s | `workspace-op.ts` |
+| The handlers' index budget | 15 s | `handlers.ts`, derived from the plane's |
+| Lexicon's own patience | 45 s | `attachRefs.ts`, set for refs |
+
+Getting the order wrong produces a blind timeout: the Gateway gives up while the work completes, and the
+owner is told nothing happened when something did. This phase produced that twice, once by having no
+budget at all and once by applying the budget per CALL so two calls outlasted the plane.
+
+Only the second is derived; the other two are independent numbers in different features for different
+reasons. Nothing asserts `handler budget < plane wait`, and nothing relates either to Lexicon's patience.
+The structural answer is one owner deriving all three from the outermost, with a test pinning the
+ordering. Raised to crust rather than built now, since Phase 8 adds a save with its own bound and that is
+the right moment to own all four at once.
+
 ### Left
 
 - Nothing in this phase. The ops are reachable from the Gateway; the phone surface that calls them is
