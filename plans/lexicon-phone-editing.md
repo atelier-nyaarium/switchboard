@@ -51,35 +51,21 @@ A: The compromised host is out of scope. Everything else is in.
 > But that falls under the /security rule of if their computer was compromised, then it literally
 > doesn't matter anyways. So identity with Sol. the REAL security implications for the non pwned case.
 
-Sol's verdict: no new authority class, because `tmux_send` already relays arbitrary text into a
-terminal, which is already command execution from the phone. This is a reachability change, not a
-power change. Four things do not come for free:
+No new authority class: `tmux_send` already relays arbitrary text into a terminal, which is command
+execution from the phone. A reachability change, not a power change. Four things are not free:
 
-1. **Replay.** Delivery ops get a durable Router ledger, gateway claims, target binding and host
-   dedupe. Value ops are transient RPCs with none of it. A write added to the value-op kinds could be
-   replayed by the Router with no forgery.
+1. **Replay.** Delivery ops get a durable Router ledger, claims, target binding and host dedupe. Value ops
+   get none. SUPERSEDED on the road: writes take neither, they take the bridge plane, so its at-most-once
+   rule is defined in Phase 3 and its preconditions in Phase 10.
+2. **View to write.** `refactor_replace` re-resolves fresh and binds the save to nothing the owner saw.
+3. **Path confinement.** `isSpawnWorkdirPath` validates spelling only. `insideWorkspace` is better but
+   check-then-use. SUPERSEDED on placement by Question 9 and on framing by Question 11. The mechanics
+   survive, plus hardlinks, platform namespace escapes and special files from the audit.
+4. **Shared transaction.** One per workspace, no owner, restart-surviving, revertible by any session. Phone
+   saves are single-shot.
 
-   "Writes need the durable road" is SUPERSEDED by Question 9 and the audit lap. Writes travel neither road:
-   they go on the bridge plane, which is new, so its at-most-once rule is ours to define. Phase 3 defines it
-   as a per-request idempotency key with a short-lived completed map on the plugin, and Phase 10 adds
-   per-operation preconditions, since a source hash alone is not idempotency.
-2. **View to write.** `refactor_replace` takes a symbol id plus new text and re-resolves fresh.
-   Nothing binds the save to the span the owner was shown.
-3. **Path confinement.** `isSpawnWorkdirPath` validates SPELLING only and would accept a path outside
-   the project. Fine for listing, useless for writing. Lexicon's `insideWorkspace` is a better
-   starting point but still has a check-to-write race.
-
-   Sol placed confinement in the host daemon as the only part knowing the spawn-to-project mapping.
-   SUPERSEDED by Question 9: the host daemon is out, and the plugin process holds the files. Its security
-   framing is SUPERSEDED by Question 11, which makes confinement a mistake boundary. What survives intact is
-   the list of mechanics, and the audit lap added hardlinks, platform namespace escapes, and special files.
-4. **Shared transaction.** Lexicon's refactor transaction is one per workspace, has no owner,
-   survives daemon restart, and any session can revert it, which deliberately bypasses undo. Phone
-   saves must be single-shot, never held across a screen lock.
-
-Also medium: whole-file reads make source and secrets easy to cache in Android state, logs and
-backups. Delete, move and copy become one-tap, so they need expected source hashes, expected
-destination absence, explicit overwrite and atomic semantics.
+Medium: whole-file reads cache source and secrets into Android state, logs and backups. One-tap delete,
+move and copy need hashes, destination checks, explicit overwrite and named atomicity.
 
 ## Question 4 - Can a symbol be named unambiguously?
 
@@ -317,8 +303,7 @@ invalidate every open window on every restart, which is the breakdown named here
   activity but dies with the app process; runbook drafts have the same hole. A window draft has to land
   on disk the way the runbook library does.
 
-A file that moved during the restart fails the span hash and the owner sees the new text. Designed
-path, not a break.
+A file that moved during the restart fails the span hash, and the owner sees the new text.
 
 ## Question 15 - When does a window learn it went stale?
 
@@ -393,7 +378,7 @@ CORRECTED by the audit lap. The pin gap was cited as evidence and the figure was
 
 Seven commits and one patch version, not the two minor versions claimed. The `v3.0.2-119` that `git
 describe` answers is a stale TAG; tags stopped at v3.0.2 while the package version moved on. The
-conclusion stands on its other two legs, but the pin was never the clincher.
+conclusion does not depend on the pin gap.
 
 ## Question 19 - What happens after Agent Apply?
 
@@ -412,16 +397,15 @@ would discard their typing.**
 - Span changed, unsaved text there: banner, the owner decides.
 - File changed elsewhere, span untouched: nothing happens at all.
 
-The property this buys is that the stale banner is never noise. On screen means something is at stake.
+So the stale banner is never noise: on screen means something is at stake.
 
 Proposing back was declined. Its cost, recorded in case it returns: a new phone-bound row kind naming a
 window, carried on the durable `OwnerRowOutbox` road that already pushes to the phone.
 
 # Mockups
 
-Four accepted screens in `plans/lexicon-phone-editing/`, saved beside this plan at the owner's request
-because the feature is large enough to need referring back to. Each is a self-contained design card at
-phone width, built on REAL Lexicon answers and real directory listings, not invented shapes.
+Five accepted screens in `plans/lexicon-phone-editing/`. Self-contained design cards at phone width, on real
+Lexicon answers and real directory listings.
 
 | File | Screen |
 |---|---|
@@ -436,7 +420,7 @@ The flow between them: tree, tap a file to its outline, tap a symbol to its deta
 
 # Design Rulings
 
-Accepted over three rounds on the symbol window and one each on the others.
+All accepted by the owner.
 
 > that's pretty good.
 >
@@ -453,9 +437,9 @@ owner never used.
 
 ## Every explanatory sentence comes out
 
-The owner cut all three on sight: the label above the prose request, the paragraph in the stale banner,
-and the footer line explaining the two buttons. A label plus data stays; a sentence telling the owner
-what a control does goes. The stale banner is now a bold title, one line, and an inline action.
+A label plus data stays. A sentence telling the owner what a control does goes. Three were cut on sight: the
+label above the prose request, the stale banner's paragraph, and the footer line explaining the buttons. The
+stale banner is a bold title, one line, and an inline action.
 
 ## Save is the right-hand button
 
@@ -490,16 +474,14 @@ Carried over from the refs viewer at the owner's request, which was the early at
 > now our refs attempt was an early day shot at this windowing by doing a primitive blue/yellow
 > highlight. I think blue highlight is still good for line selections and yellow for symbols
 
-The real values live in the refview stylesheet as `--band` and `--span`, and they are not alternatives:
-`.line.in-range` takes the blue band and `mark.span` takes the amber, so a line-range ref carries both.
+They are not alternatives. `.line.in-range` takes the band and `mark.span` takes the amber, so a line-range
+ref carries both.
 
 - **Blue band**, `rgba(56, 139, 253, 0.20)` dark: these lines are the selection.
 - **Amber mark**, `rgba(210, 153, 34, 0.38)` dark: this text is the symbol.
 - **Purple accent**, the M3 primary: this is editable.
 
-Three meanings, no overlap, and they compose. A window opened from a line range carries a band, a mark
-and an accent without any of them fighting. The amber also names which symbol a window card is on, which
-the first draft was missing.
+Three meanings, no overlap, and they compose. The amber also names which symbol a window card is on.
 
 The refview document uses GitHub's palette because it was built standalone, while the rest of the app is
 Material, and a foreign palette would read as a different app mid-flow once it renders windows. It moves
@@ -563,11 +545,10 @@ Read-only, over Lexicon's six answer classes: describe, why, relate, contract, e
 
 # Audit Findings
 
-Lap 1 of `plan-refinement`. Six angles fanned to Luna against both repos, then triaged against the code
-rather than taken on tone. Angles: transport, Lexicon correctness, confinement and abuse, Android
-feasibility, Release 1 completeness, document consistency.
+Six angles across both repos, each triaged against the code: transport, Lexicon correctness, confinement and
+abuse, Android feasibility, Release 1 completeness, document consistency.
 
-## Four dissolved by simplification rather than work
+## Four dissolved by simplification
 
 - **The window descriptor needs no signature.** Q5 said Switchboard mints the token and Q14 said it is
   signed with a Gateway keyring key, which contradicted each other and both conflicted with the plane being
@@ -599,9 +580,9 @@ feasibility, Release 1 completeness, document consistency.
 4. **A crash leaves a transaction OPEN.** `recover` drops unfinished steps without closing the transaction
    row, so every later session is blocked until someone commits or reverts. The durability requirement
    missed this entirely.
-5. **There is no single canonical workspace root.** `refWorkspace :: workspaceRoot`, `hostResolve ::
-   findProjectPath`, the register message's `PROJECT_HOST_PATH` and `hostDaemon :: resolveProject` can each
-   answer differently, so the tree, the index and a mutation could address different trees.
+5. ~~**There is no single canonical workspace root.**~~ REJECTED while building Phase 1. The four resolvers
+   answer different questions in different processes, and a devcontainer REQUIRES the plugin's path and the
+   host's path to differ. The real rule is about space, not a value; see Phase 1.
 6. **The default tree holds `.env`, `.git` and `node_modules`,** with no exclusion, no redaction and no
    audit trail. `.env` carries `HOST_WS_TOKEN` and federation tokens.
 7. **An expected source hash does not make a mutation idempotent.** A repeated copy succeeds again, and
@@ -629,10 +610,27 @@ feasibility, Release 1 completeness, document consistency.
 
 - That the 49-declaration figure is unverified. Lexicon's own `outline_module` answered it. The auditor
   could not reproduce it, which is not the same thing.
+- Finding 5, the disagreeing workspace roots. Rejected while building Phase 1, where the code showed the
+  resolvers answer different questions. Recorded because acting on a confident finding without checking it
+  would have produced a unification that breaks every devcontainer.
+
+## Two artifacts that mislead every reader, agent or human
+
+Both of these produced wrong claims in this plan before they were caught, mine included.
+
+**`git describe` lies about Lexicon's version.** Tags in `nyaa-lexicon` stopped at `v3.0.2`, while
+`package.json` walked on to 3.7.x. So `git describe` answers `v3.0.2-119-g7077be2` for a 3.7.0 checkout. Two
+auditors and this plan all misread the gap from it. The version lives in `package.json`; a revision is the
+only thing `git describe` is good for here. Upstream fix belongs to `nyaa-lexicon` and is the owner's call.
+
+**No resolver name says whose space it answers in.** `workspaceRoot`, `findProjectPath`, `resolveProject`,
+`resolveHostWorkdir` and `PROJECT_HOST_PATH` read as five spellings of one question. Nothing in the names or
+their comments separates container space from host space, which is what produced the rejected finding above.
+Carried to crust collection rather than renamed mid-phase.
 
 # Codebase Facts
 
-Gathered 2026-09-12 by six explorer agents. Kept so a compaction does not cost the refresh.
+Read out of both repos 2026-09-12.
 
 ## Lexicon
 
@@ -729,18 +727,35 @@ since reads were previously scheduled against a root four resolvers could disagr
 
 # Release 1 - Reading, and Agent Apply
 
-## Phase 1 - One canonical workspace root
+## Phase 1 - One canonical workspace root [DONE]
 
-Before any road reads a file, decide what the root IS and carry that one answer everywhere. Four resolvers
-can disagree today: `refWorkspace :: workspaceRoot`, `hostResolve :: findProjectPath`, the bridge register
-message's `PROJECT_HOST_PATH`, and `hostDaemon :: resolveProject`. The tree, the Lexicon index and any
-mutation must address the same tree or nothing above this is trustworthy.
+**Pin:** `6d451f7`, version 3.7.1, on `origin/main` so CI can reach it. Green on biome, tsc, 2730 tests,
+`check:boot`, module residue, Kotlin codegen drift, fixtures and pinning.
 
-The plugin process is the one that knows, since it holds the Lexicon client whose root is the workspace.
-Its answer travels with every response, so the phone never infers a root.
+Also checked at source level, since `occurrences.ts` and `symbolId.ts` are in those seven commits and this
+feature rests on id stability. Every change there swaps `...(x === undefined ? {} : { k: x })` for
+`...defined({ k: x })`. Identical semantics. Id composition and occurrence numbering are untouched.
 
-Also move the `lexicon` submodule pin from `7077be2` to the live revision. Seven commits, one patch version,
-and the audit found no API break in what this repo calls, so this is small.
+**The audit's "four disagreeing resolvers" finding is REJECTED.** They answer different questions in
+different processes:
+
+| Resolver | Question | Whose space |
+|---|---|---|
+| `refWorkspace :: workspaceRoot` | what is THIS process's workspace root | the plugin's |
+| `hostResolve :: findProjectPath` | which host directory holds the project called X | the host's |
+| `hostDaemon :: resolveProject` | same, host-side | the host's |
+| `PROJECT_HOST_PATH` | what the HOST calls this project | the host's |
+
+A devcontainer REQUIRES them to differ: `/workspaces/switchboard` inside, `/home/nyaarium/projects/switchboard`
+outside. One value would be wrong for one of them.
+
+The rule is about space, not a value:
+
+**The plane serves paths in the PLUGIN's own space, the space Lexicon indexes. A host path never enters this
+road.** `workspaceRoot()` already owns that answer, cached and admitted through `classifyWorkspaceRoot`.
+
+`workspaceRoot()` sits under `references/` behind a residue test fencing that directory. It is extracted in
+Phase 3, where the second consumer exists.
 
 ## Phase 2 - Confinement
 
@@ -784,7 +799,7 @@ registration today, so this needs:
 
 Reads in this release: tree listing, whole-file read, outline, symbol source, symbol knowledge.
 
-## Phase 4 - `WindowOps` and the phone surface
+## Phase 4 - WindowOps and the phone surface
 
 An ops class first, because this project's own rule is that a decision the phone makes lives beside its ops
 class and never inside a Composable, since there is no instrumentation test source set. `WindowOps` owns the
@@ -820,8 +835,8 @@ The message must carry the full symbol id, the module, and the ORIGINAL span tex
 because a bare name is refused as ambiguous and an occurrence-numbered id can renumber. The agent compares
 the original against what it reads now and refuses on a mismatch rather than writing blind.
 
-Stated honestly: that is a comparison at human pace, not under a lock, so Release 1's Agent Apply is
-best-effort. The guarantee arrives with Phase 7.
+That comparison runs at human pace, not under a lock, so Release 1's Agent Apply is best-effort. Phase 7
+makes it a guarantee.
 
 The agent's `channel_reply` already reaches the owner, so the result is visible as a normal reply. Nothing
 marks it as an apply result or refreshes the window; the foreground re-check covers it.
@@ -831,8 +846,8 @@ marks it as an apply result or refreshes the window; the foreground re-check cov
 Slice the resolved range, hash the slice, and add it as one new optional field on `RefKeyMetaSchema`. That is
 what lets the viewer say `Changed since sent` and offer Sent against Now.
 
-New work, not retention: today `resolveOne` hashes the WHOLE file transiently and the metadata keeps no hash
-at all. `sliceRange` and `hashContent` are the primitives.
+`resolveOne` hashes the WHOLE file transiently and the metadata keeps no hash, so this is new work rather than
+retention. `sliceRange` and `hashContent` are the primitives.
 
 # Release 2 - Saving without the agent
 
@@ -874,8 +889,8 @@ discard their typing.
 The tree's sheet offers `Edit raw` and nothing built it. A whole-file read into a Compose field, its own
 draft under `filesDir`, and a Save that goes through Phase 10's preconditions.
 
-Large files are the obvious trap: the relay cap is 8 MB and the read cap is lower. A file past the cap opens
-read-only and says so, rather than loading a truncated body that a Save would then write back.
+The relay cap is 8 MB and the read cap is lower. A file past the cap opens read-only and says so, rather than
+loading a truncated body a Save would write back.
 
 ## Phase 10 - Whole-file mutation
 
