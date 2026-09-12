@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineSymbol
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -107,4 +108,109 @@ class WindowRulesTest {
 
 		assertEquals(listOf(edited), editedWindows(listOf(window(), edited)))
 	}
+
+	// Line numbers arrive one-based, so a span starting at 4 draws its first line as 4.
+	@Test
+	fun `a span on its own is numbered and unbanded`() {
+		assertEquals(listOf(CodeLine(4, "one"), CodeLine(5, "two")), spanLines(answer("one\ntwo", "h1")))
+	}
+
+	@Test
+	fun `without the file a window is its span alone, banded`() {
+		assertEquals(listOf(CodeLine(4, "old", true)), windowLines(window(), null))
+	}
+
+	@Test
+	fun `the file supplies the lines either side, unbanded`() {
+		val file = (1..12).map { "line $it" }
+		val held = window(text = "four\nfive\nsix\nseven\neight\nnine")
+
+		assertEquals(
+			listOf(
+				CodeLine(2, "line 2"),
+				CodeLine(3, "line 3"),
+				CodeLine(4, "four", true),
+				CodeLine(5, "five", true),
+				CodeLine(6, "six", true),
+				CodeLine(7, "seven", true),
+				CodeLine(8, "eight", true),
+				CodeLine(9, "nine", true),
+				CodeLine(10, "line 10"),
+				CodeLine(11, "line 11"),
+			),
+			windowLines(held, file),
+		)
+	}
+
+	// A span at the very top or bottom must not ask the file for a line it does not have.
+	@Test
+	fun `context stops at the file's edges`() {
+		val lines = windowLines(window(text = "old"), listOf("old"))
+
+		assertEquals(listOf(CodeLine(4, "old", true)), lines)
+	}
+
+	// Two cards would otherwise draw the same lines, with a gap count that denies it.
+	@Test
+	fun `context stops at the neighbouring window`() {
+		val file = (1..12).map { "line $it" }
+		val oneLine = window().let { it.copy(descriptor = it.descriptor.copy(endLine = 4)) }
+
+		assertEquals(
+			listOf(CodeLine(3, "line 3"), CodeLine(4, "old", true), CodeLine(5, "line 5")),
+			windowLines(oneLine, file, previousEnd = 2, nextStart = 6),
+		)
+	}
+
+	@Test
+	fun `a gap is the lines the viewer skipped, and touching windows have none`() {
+		val first = window()
+		val next = Window(
+			descriptor = descriptorOf(answer("x", "h2", G_ID)).copy(startLine = 20, endLine = 24),
+			original = "x",
+		)
+		val touching = Window(
+			descriptor = descriptorOf(answer("x", "h3", G_ID)).copy(startLine = 10, endLine = 12),
+			original = "x",
+		)
+
+		assertEquals(10, gapBetween(first, next))
+		assertNull(gapBetween(first, touching))
+	}
+
+	@Test
+	fun `windows are drawn in file order, not tap order`() {
+		val early = window()
+		val late = Window(
+			descriptor = descriptorOf(answer("x", "h2", G_ID)).copy(startLine = 90, endLine = 95),
+			original = "x",
+		)
+
+		assertEquals(listOf(early, late), inFileOrder(listOf(late, early)))
+	}
+
+	@Test
+	fun `the chips count every kind, commonest first, behind an All`() {
+		val symbols = listOf(
+			outlineSymbol("a", "const"),
+			outlineSymbol("b", "function"),
+			outlineSymbol("c", "const"),
+			outlineSymbol("d", "type"),
+		)
+
+		assertEquals(
+			listOf(
+				OutlineKind(null, "All", 4),
+				OutlineKind("const", "Const", 2),
+				OutlineKind("function", "Function", 1),
+				OutlineKind("type", "Type", 1),
+			),
+			outlineKinds(symbols),
+		)
+		assertEquals(listOf("a", "c"), outlineOfKind(symbols, "const").map { it.name })
+		assertEquals(4, outlineOfKind(symbols, null).size)
+	}
 }
+
+private fun outlineSymbol(name: String, kind: String) =
+	WorkspaceOutlineSymbol(symbolId = "lexicon typescript src/a.ts $name.", name = name, symbolKind = kind)

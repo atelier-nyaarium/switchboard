@@ -211,7 +211,11 @@ internal class ConsoleWorkspaceGateway(private val client: ConsoleClient) : Work
 }
 
 internal class ChatRepositoryWindowHost(private val repo: ChatRepository) : WindowHost {
-	override val workspace: WorkspaceGateway? get() = repo.clientOrNull()?.let(::ConsoleWorkspaceGateway)
+	// The sandbox answers as a session's plugin would, since `isSandbox` reaches no socket at all.
+	private val sandbox by lazy { SandboxWorkspaceGateway() }
+
+	override val workspace: WorkspaceGateway? get() =
+		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsoleWorkspaceGateway)
 }
 
 /** The port over the console client's runbook calls. */

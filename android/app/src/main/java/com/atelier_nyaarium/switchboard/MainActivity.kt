@@ -548,6 +548,14 @@ fun App(
 						modifier = modifier,
 					)
 				},
+				filesEnabled = true,
+				files = { modifier ->
+					com.atelier_nyaarium.switchboard.workspace.WorkspaceScreen(
+						repo = repo,
+						state = state,
+						modifier = modifier,
+					)
+				},
 				// Rides the vault plugin.
 				policiesEnabled = vaultOn,
 				policies = { modifier ->

@@ -99,8 +99,11 @@ fun MainTabsScreen(
 	routines: @Composable (Modifier) -> Unit = {},
 	policiesEnabled: Boolean = false,
 	policies: @Composable (Modifier) -> Unit = {},
+	filesEnabled: Boolean = false,
+	files: @Composable (Modifier) -> Unit = {},
 ) {
 	val tabs = listOf("Sessions") + (if (boardEnabled) listOf("Backlog") else emptyList()) +
+		(if (filesEnabled) listOf("Files") else emptyList()) +
 		(if (runbooksEnabled) listOf("Runbooks") else emptyList()) +
 		(if (routinesEnabled) listOf("Routines") else emptyList()) +
 		(if (policiesEnabled) listOf("Policies") else emptyList()) +
@@ -163,6 +166,7 @@ fun MainTabsScreen(
 			HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
 				when (tabs[page]) {
 					"Backlog" -> board(Modifier.fillMaxSize()) { scope.launch { pagerState.animateScrollToPage(0) } }
+					"Files" -> files(Modifier.fillMaxSize())
 					"Runbooks" -> runbooks(Modifier.fillMaxSize())
 					"Routines" -> routines(Modifier.fillMaxSize())
 					"Policies" -> policies(Modifier.fillMaxSize())

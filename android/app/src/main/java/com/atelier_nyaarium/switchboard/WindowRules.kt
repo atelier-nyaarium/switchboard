@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineSymbol
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 
 /**
@@ -129,3 +130,67 @@ internal fun withoutWindow(held: List<Window>, symbolId: String): List<Window> =
 
 /** Only what the owner actually changed, so an untouched span is never submitted. */
 internal fun editedWindows(held: List<Window>): List<Window> = held.filter { it.edited }
+
+/** One rendered line: its number as the file counts them, and whether the blue band marks it. */
+internal data class CodeLine(val number: Int, val text: String, val banded: Boolean = false)
+
+/**
+ * A symbol's own source, numbered as the file numbers it. Unbanded: the band says which lines of a
+ * surrounding file are in range, and on its own there is nothing for it to say.
+ */
+internal fun spanLines(answer: WorkspaceSymbolSourceAnswer): List<CodeLine> =
+	answer.text.split("\n").mapIndexed { i, text -> CodeLine(answer.startLine.toInt() + i, text) }
+
+/**
+ * A window's lines, with `context` lines of the file either side. Without the file it is the span
+ * alone, which is what an unreadable or oversized file leaves.
+ *
+ * The trailing numbers are the file's, not the draft's, so a draft that grew shows a jump rather
+ * than numbers the file does not have.
+ */
+internal fun windowLines(
+	window: Window,
+	file: List<String>?,
+	context: Int = 2,
+	previousEnd: Int? = null,
+	nextStart: Int? = null,
+): List<CodeLine> {
+	val start = window.descriptor.startLine.toInt()
+	val end = window.descriptor.endLine.toInt()
+	val span = window.shown.split("\n").mapIndexed { i, text -> CodeLine(start + i, text, true) }
+	if (file == null) return span
+	// Context stops at the neighbouring window, or the gap between two cards would count lines both draw.
+	val first = maxOf(1, start - context, (previousEnd ?: 0) + 1)
+	val last = minOf(file.size, end + context, (nextStart ?: Int.MAX_VALUE) - 1)
+	// Indexed directly, with no default: a line the file does not hold is a bug, not a blank row.
+	val above = (first until minOf(start, file.size + 1)).map { CodeLine(it, file[it - 1]) }
+	val below = (end + 1..last).map { CodeLine(it, file[it - 1]) }
+	return above + span + below
+}
+
+/** How many lines the viewer skipped between two windows, or null when they touch. */
+internal fun gapBetween(above: Window, below: Window): Int? {
+	val skipped = below.descriptor.startLine.toInt() - above.descriptor.endLine.toInt() - 1
+	return skipped.takeIf { it > 0 }
+}
+
+/** Windows in file order, since they were opened in tap order and are drawn down one file. */
+internal fun inFileOrder(held: List<Window>): List<Window> =
+	held.sortedWith(compareBy({ it.descriptor.module }, { it.descriptor.startLine }))
+
+/** One outline chip. A null kind is every symbol, which is why the field is nullable rather than "". */
+internal data class OutlineKind(val kind: String?, val label: String, val count: Int)
+
+/**
+ * The chips a file earns, commonest first. The labels are Lexicon's own kind words rather than a table
+ * of abbreviations here, which would go stale the moment a language names a kind this does not know.
+ */
+internal fun outlineKinds(symbols: List<WorkspaceOutlineSymbol>): List<OutlineKind> {
+	val counted = symbols.groupBy { it.symbolKind }
+		.map { (kind, rows) -> OutlineKind(kind, kind.replaceFirstChar { it.uppercase() }, rows.size) }
+		.sortedWith(compareByDescending<OutlineKind> { it.count }.thenBy { it.label })
+	return listOf(OutlineKind(null, "All", symbols.size)) + counted
+}
+
+internal fun outlineOfKind(symbols: List<WorkspaceOutlineSymbol>, kind: String?): List<WorkspaceOutlineSymbol> =
+	if (kind == null) symbols else symbols.filter { it.symbolKind == kind }

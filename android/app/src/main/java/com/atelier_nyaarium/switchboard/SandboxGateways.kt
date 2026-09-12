@@ -23,6 +23,13 @@ import com.atelier_nyaarium.switchboard.proto.RoutineTarget
 import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
 import com.atelier_nyaarium.switchboard.proto.RunbookParameter
+import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineSymbol
+import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeEntry
 import kotlinx.serialization.json.JsonObject
 
 // What a Gateway would answer, answered in the sandbox instead. Every screen that only appears when
@@ -265,4 +272,106 @@ internal class SandboxRoutineGateway : RoutineGateway {
 
 	override suspend fun dismiss(gatewayId: String, routineId: String, occurrenceId: String) =
 		ConsoleRoutineOccurrenceResult(applied = true)
+}
+
+/**
+ * A small canned workspace, so the tree, the outline, a symbol's detail and a window all draw without
+ * a session to reach. The second seeded session refuses everything, which is the only way the
+ * refusal notice is reachable here.
+ */
+internal class SandboxWorkspaceGateway : WorkspaceGateway {
+	private val file = listOf(
+		"import { z } from \"zod\";",
+		"",
+		"/** What a routine may remember, in UTF-8 BYTES. */",
+		"export const MAX_ROUTINE_MEMORY_BYTES = 32_768;",
+		"",
+		"/** Why a routine cannot be stored, or null. */",
+		"export function routineRefusal(routine: Routine): string | null {",
+		"\tif (routine.weekdays.length === 0) return \"a routine with no weekday would never fire\";",
+		"\tif (!knownZone(routine.zone)) return `\${routine.zone} is not a zone`;",
+		"\treturn null;",
+		"}",
+	)
+
+	private val module = "src/shared/schemasRoutine.ts"
+
+	private fun idOf(name: String) = "lexicon typescript $module $name."
+
+	private fun <T> refusedBySecond(target: WorkspaceTarget, answer: () -> T): WorkspaceAnswer<T> =
+		if (target.gatewayId == SECOND_GATEWAY) {
+			WorkspaceAnswer.Refused("this workspace is not served here")
+		} else {
+			WorkspaceAnswer.Read(answer())
+		}
+
+	override suspend fun tree(target: WorkspaceTarget, path: String) =
+		refusedBySecond(target) {
+			WorkspaceTreeAnswer(
+				path = path,
+				truncated = false,
+				entries = when (path) {
+					"" -> listOf(
+						WorkspaceTreeEntry(name = "src", directory = true, children = 2),
+						WorkspaceTreeEntry(name = "AGENTS.md", directory = false, bytes = 18_402),
+					)
+					"src" -> listOf(WorkspaceTreeEntry(name = "shared", directory = true, children = 1))
+					else -> listOf(WorkspaceTreeEntry(name = "schemasRoutine.ts", directory = false, bytes = 9_431))
+				},
+			)
+		}
+
+	override suspend fun file(target: WorkspaceTarget, path: String) =
+		refusedBySecond(target) {
+			WorkspaceReadAnswer(path = path, text = file.joinToString("\n"), lines = file.size.toLong())
+		}
+
+	override suspend fun outline(target: WorkspaceTarget, path: String) =
+		refusedBySecond(target) {
+			WorkspaceOutlineAnswer(
+				path = path,
+				symbols = listOf(
+					WorkspaceOutlineSymbol(
+						symbolId = idOf("MAX_ROUTINE_MEMORY_BYTES"),
+						name = "MAX_ROUTINE_MEMORY_BYTES",
+						symbolKind = "const",
+						signature = "= 32_768",
+						startLine = 4,
+					),
+					WorkspaceOutlineSymbol(
+						symbolId = idOf("routineRefusal()"),
+						name = "routineRefusal",
+						symbolKind = "function",
+						signature = "(routine: Routine): string | null",
+						startLine = 7,
+					),
+				),
+			)
+		}
+
+	override suspend fun symbolSource(target: WorkspaceTarget, symbolId: String) =
+		refusedBySecond(target) {
+			val wholeFunction = symbolId.contains("routineRefusal")
+			val start = if (wholeFunction) 6 else 3
+			val end = if (wholeFunction) 11 else 4
+			WorkspaceSymbolSourceAnswer(
+				symbolId = symbolId,
+				module = module,
+				name = if (wholeFunction) "routineRefusal" else "MAX_ROUTINE_MEMORY_BYTES",
+				text = file.subList(start - 1, end).joinToString("\n"),
+				startLine = start.toLong(),
+				endLine = end.toLong(),
+				spanHash = "sandbox-${start}-$end",
+			)
+		}
+
+	override suspend fun knowledge(target: WorkspaceTarget, symbolId: String) =
+		refusedBySecond(target) {
+			WorkspaceKnowledgeAnswer(
+				symbolId = symbolId,
+				text = "Describe: returns the reason a routine cannot be stored, or null when it can.\n\n" +
+					"Why: a rule that parses can still name nothing, so the refusal asks the recurrence " +
+					"calculator rather than trusting the parse.",
+			)
+		}
 }

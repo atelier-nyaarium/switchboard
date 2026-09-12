@@ -43,21 +43,21 @@ internal class WindowOps(
 ) {
 	private val reads = GatewayReadFence()
 
-	private val held = MutableStateFlow<Map<String, List<Window>>>(emptyMap())
+	private val held = MutableStateFlow<Map<WorkspaceTarget, List<Window>>>(emptyMap())
 
 	/** What the window screen collects. Not in `ChatState`, which is persisted and the Router's. */
-	val windows: StateFlow<Map<String, List<Window>>> = held
+	val windows: StateFlow<Map<WorkspaceTarget, List<Window>>> = held
 
-	fun windowsOf(target: WorkspaceTarget): List<Window> = held.value[target.key].orEmpty()
+	fun windowsOf(target: WorkspaceTarget): List<Window> = held.value[target].orEmpty()
 
 	/** One window at a time, so an open or a close landing mid-recheck is not overwritten. */
 	private fun replace(target: WorkspaceTarget, symbolId: String, window: Window) {
 		held.update { all ->
-			val list = all[target.key].orEmpty()
+			val list = all[target].orEmpty()
 			if (list.none { it.descriptor.symbolId == symbolId }) {
 				all
 			} else {
-				all + (target.key to list.map { if (it.descriptor.symbolId == symbolId) window else it })
+				all + (target to list.map { if (it.descriptor.symbolId == symbolId) window else it })
 			}
 		}
 	}
@@ -110,7 +110,7 @@ internal class WindowOps(
 					original = answer.value.text,
 					draft = drafts.load(target, symbolId),
 				)
-				held.update { all -> all + (target.key to withWindow(all[target.key].orEmpty(), opened)) }
+				held.update { all -> all + (target to withWindow(all[target].orEmpty(), opened)) }
 				WorkspaceAnswer.Read(opened)
 			}
 			is WorkspaceAnswer.Refused -> answer
@@ -118,9 +118,9 @@ internal class WindowOps(
 		}
 	}
 
-	/** The one road that discards a draft, so closing is how the owner abandons one. */
+	/** The one road that discards a draft by closing, so closing is how the owner abandons one. */
 	fun closeWindow(target: WorkspaceTarget, symbolId: String) {
-		held.update { all -> all + (target.key to withoutWindow(all[target.key].orEmpty(), symbolId)) }
+		held.update { all -> all + (target to withoutWindow(all[target].orEmpty(), symbolId)) }
 		repoScope.launch { drafts.clear(target, symbolId) }
 	}
 
@@ -129,6 +129,24 @@ internal class WindowOps(
 		val window = windowsOf(target).firstOrNull { it.descriptor.symbolId == symbolId } ?: return
 		replace(target, symbolId, window.copy(draft = text))
 		repoScope.launch { drafts.save(target, symbolId, text) }
+	}
+
+	/**
+	 * What the stale banner's Refresh does. The owner has chosen the file's text over their own, so the
+	 * draft goes; `recheck` never does this, which is why the banner exists at all.
+	 */
+	suspend fun adopt(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<Window> {
+		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
+		return when (val fresh = fenced(target) { gate.symbolSource(target, symbolId) }) {
+			is WorkspaceAnswer.Read -> {
+				val next = Window(descriptor = descriptorOf(fresh.value), original = fresh.value.text)
+				replace(target, symbolId, next)
+				repoScope.launch { drafts.clear(target, symbolId) }
+				WorkspaceAnswer.Read(next)
+			}
+			is WorkspaceAnswer.Refused -> fresh
+			WorkspaceAnswer.Unreachable -> WorkspaceAnswer.Unreachable
+		}
 	}
 
 	/**
@@ -146,6 +164,11 @@ internal class WindowOps(
 				is RefreshOutcome.Conflicts -> replace(target, window.descriptor.symbolId, outcome.window)
 			}
 		}
+	}
+
+	/** Every session with a window open, which is what coming back to the app re-checks. */
+	suspend fun recheckAll() {
+		for (target in held.value.keys) recheck(target)
 	}
 
 	/** What Agent Apply sends, for every span the owner actually changed. */
