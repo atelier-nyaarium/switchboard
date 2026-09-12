@@ -4,8 +4,8 @@ import { connect, type Session } from "@nyaa-lexicon/client";
 import type { ChannelFile } from "../../shared/types.js";
 import { uploadBytes } from "../blobTransfer.js";
 import type { ToolTextResult } from "../bridge/replyTool.js";
+import { loadWorkspaceFile } from "../workspace/loadFile.js";
 import { buildArtifacts } from "./artifactBuilder.js";
-import { loadRefFile } from "./refFile.js";
 import { resolveRefs } from "./refResolve.js";
 import { scanRefs } from "./refScanner.js";
 import { hostRootsSettled, workspaceRoot } from "./refWorkspace.js";
@@ -121,7 +121,7 @@ export async function appendRefArtifacts(body: string, attachments: ReplyFile[])
 	const outcome = await resolveRefs(found, {
 		workspace,
 		session: () => sessionFor(workspace.root),
-		load: loadRefFile,
+		load: loadWorkspaceFile,
 		deadline: Date.now() + REPLY_PATIENCE_MS,
 	});
 	if (!outcome.ok) return outcome;

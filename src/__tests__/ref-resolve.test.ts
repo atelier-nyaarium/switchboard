@@ -2,10 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadRefFile } from "../mcp/references/refFile.js";
 import { resolveRefs } from "../mcp/references/refResolve.js";
 import { scanRefs } from "../mcp/references/refScanner.js";
 import type { WorkspaceRoot } from "../mcp/references/refWorkspace.js";
+import { loadWorkspaceFile } from "../mcp/workspace/loadFile.js";
 
 let root: string;
 let workspace: WorkspaceRoot;
@@ -30,7 +30,7 @@ describe("resolving before the daemon is reached", () => {
 	it("degrades as warming, without opening a session, once the reply's budget is spent", async () => {
 		const { refs } = scanRefs("[add](ref://src/cart.ts:Cart:add)");
 
-		const outcome = await resolveRefs(refs, { workspace, session: unopened, load: loadRefFile, deadline: 0 });
+		const outcome = await resolveRefs(refs, { workspace, session: unopened, load: loadWorkspaceFile, deadline: 0 });
 
 		expect(outcome.ok).toBe(true);
 		if (!outcome.ok) return;
@@ -47,7 +47,7 @@ describe("resolving before the daemon is reached", () => {
 		const outcome = await resolveRefs(refs, {
 			workspace,
 			session: hung,
-			load: loadRefFile,
+			load: loadWorkspaceFile,
 			deadline: started + 60,
 		});
 
@@ -62,7 +62,7 @@ describe("resolving before the daemon is reached", () => {
 		const outcome = await resolveRefs(refs, {
 			workspace,
 			session: unopened,
-			load: loadRefFile,
+			load: loadWorkspaceFile,
 			deadline: Date.now() + 1_000,
 		});
 
@@ -76,7 +76,7 @@ describe("resolving before the daemon is reached", () => {
 	it("collects every refusal before refusing, one line per ref", async () => {
 		const { refs } = scanRefs("[a](ref://src/nope.ts:X) and [b](ref://src/cart.ts#missing)");
 
-		const outcome = await resolveRefs(refs, { workspace, session: unopened, load: loadRefFile, deadline: 0 });
+		const outcome = await resolveRefs(refs, { workspace, session: unopened, load: loadWorkspaceFile, deadline: 0 });
 
 		expect(outcome.ok).toBe(false);
 		if (outcome.ok) return;
@@ -92,13 +92,13 @@ describe("resolving before the daemon is reached", () => {
 		const outsideResult = await resolveRefs(outside, {
 			workspace,
 			session: unopened,
-			load: loadRefFile,
+			load: loadWorkspaceFile,
 			deadline: 0,
 		});
 		const missingResult = await resolveRefs(missing, {
 			workspace,
 			session: unopened,
-			load: loadRefFile,
+			load: loadWorkspaceFile,
 			deadline: 0,
 		});
 		expect(outsideResult.ok).toBe(false);
@@ -110,7 +110,7 @@ describe("resolving before the daemon is reached", () => {
 		const result = await resolveRefs(refs, {
 			workspace: { root, admitted: false, reason: "warming" },
 			session: unopened,
-			load: loadRefFile,
+			load: loadWorkspaceFile,
 			deadline: Date.now() + 100,
 		});
 		expect(result.ok).toBe(true);

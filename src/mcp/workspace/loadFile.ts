@@ -1,17 +1,22 @@
+// The one reader of a workspace file: regular files only, sized before the read, text or nothing.
+//
+// Shared by the refs snapshot road and the phone's file road, so neither grows a second set of rules.
+// Containment is NOT decided here; a caller passes a path `confine` already admitted.
+
 import fs from "node:fs";
 
-/** What may be OPENED. artifactBuilder's cap bounds what is sent. */
-const MAX_REF_SOURCE_BYTES = 8_000_000;
+/** What may be OPENED. A sender's own cap bounds what it then ships. */
+const MAX_SOURCE_BYTES = 8_000_000;
 
 ////////////////////////////////
 //  Interfaces & Types
 
-/** All hard tool errors: the file tier never degrades. */
+/** Every failure is hard: this tier never degrades. */
 export type FileFailure = "missing" | "unreadable" | "binary";
 
 export interface LoadedFile {
 	/** As written, kept for messages and manifest keys. */
-	refPath: string;
+	shown: string;
 	absolute: string;
 	/** UTF-8. A UTF-16 source is transcoded, and every coordinate downstream refers to THIS. */
 	text: string;
@@ -39,38 +44,33 @@ function decodeText(buffer: Buffer): string | null {
 	return Buffer.from(text, "utf8").equals(buffer) ? text : null;
 }
 
-/**
- * Reads the file `refWorkspace` classified, following the name as written. The root is a base, not
- * a fence: a snapshot only rides a reply to the OWNER's own console, and an author meaning to
- * disclose a file can paste it regardless. Refusals are loud, since a skipped ref would leave the
- * author believing it went out.
- */
-export function loadRefFile(absolute: string, refPath: string): LoadResult {
-	if (refPath === "") return { ok: false, failure: "missing", detail: `a ref needs a path` };
+/** Refusals are loud: a silently skipped file leaves the caller believing it was read. */
+export function loadWorkspaceFile(absolute: string, shown: string): LoadResult {
+	if (shown === "") return { ok: false, failure: "missing", detail: `a path is required` };
 
 	let buffer: Buffer;
 	try {
 		const stat = fs.statSync(absolute);
-		if (!stat.isFile()) return { ok: false, failure: "unreadable", detail: `${refPath} is not a file` };
+		if (!stat.isFile()) return { ok: false, failure: "unreadable", detail: `${shown} is not a file` };
 		// Sized BEFORE reading, or a huge file is already in memory.
-		if (stat.size > MAX_REF_SOURCE_BYTES) {
+		if (stat.size > MAX_SOURCE_BYTES) {
 			return {
 				ok: false,
 				failure: "unreadable",
-				detail: `${refPath} is ${stat.size} bytes, over the ${MAX_REF_SOURCE_BYTES}-byte source limit`,
+				detail: `${shown} is ${stat.size} bytes, over the ${MAX_SOURCE_BYTES}-byte source limit`,
 			};
 		}
 		buffer = fs.readFileSync(absolute);
 	} catch (err) {
 		const code = (err as NodeJS.ErrnoException).code;
 		if (code === "ENOENT" || code === "ENOTDIR") {
-			return { ok: false, failure: "missing", detail: `${refPath} does not exist` };
+			return { ok: false, failure: "missing", detail: `${shown} does not exist` };
 		}
-		return { ok: false, failure: "unreadable", detail: `${refPath}: ${(err as Error).message}` };
+		return { ok: false, failure: "unreadable", detail: `${shown}: ${(err as Error).message}` };
 	}
 
 	const text = decodeText(buffer);
-	if (text === null) return { ok: false, failure: "binary", detail: `${refPath} is not text` };
+	if (text === null) return { ok: false, failure: "binary", detail: `${shown} is not text` };
 
-	return { ok: true, file: { refPath, absolute, text, bytes: Buffer.byteLength(text, "utf8") } };
+	return { ok: true, file: { shown, absolute, text, bytes: Buffer.byteLength(text, "utf8") } };
 }

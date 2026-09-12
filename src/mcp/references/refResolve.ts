@@ -5,9 +5,9 @@
 import type { ChainAnswer, ChainCandidate, Session } from "@nyaa-lexicon/client";
 import { DaemonError, Incompatible, NotInstalled } from "@nyaa-lexicon/client";
 import { hashContent } from "@nyaa-lexicon/protocol";
+import type { LoadResult } from "../workspace/loadFile.js";
 import type { ResolvedRef } from "./artifactBuilder.js";
 import { lineCount, lineOf, linesOf, offsetsOf, type Resolution, type Span, spanAt, spanOf } from "./refCoordinates.js";
-import type { LoadResult } from "./refFile.js";
 import { canonicalKey, type Matcher, type Ref } from "./refGrammar.js";
 import { type DegradeCause, noticeFor, type Refusal, reasonFor, renderRefusal } from "./refNotices.js";
 import type { FoundRef } from "./refScanner.js";
