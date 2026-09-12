@@ -172,6 +172,12 @@ fun RoutineEditor(
 					modifier = Modifier.weight(1f),
 				)
 			}
+			OutlinedTextField(
+				value = draft.forgetAfterDays.toString(),
+				onValueChange = { text -> text.toIntOrNull()?.let { draft = draft.copy(forgetAfterDays = it) } },
+				label = { Text("Forget session after (days)") },
+				modifier = Modifier.fillMaxWidth(),
+			)
 			// No zone picker: the gateway's zone is canonical, so the owner reads their own and the
 			// save converts. Saying so beats a field that looks like a choice and is not one.
 			if (zone.id != gatewayZone) {

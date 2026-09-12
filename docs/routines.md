@@ -187,6 +187,48 @@ A run that is over answers `not_working` rather than accepting silently: its win
 narrowing, and the session should learn that its authority has already gone. That covers a row that
 was never dispatched, one whose work is already `done`, and one the deadline closed.
 
+## What a routine remembers
+
+A routine carries a history its runs rewrite. The instructions hand it over with a
+`historyVersion`; the report hands back the same text amended with what this run learned. It is a
+running account the session consolidates, not a log it appends to.
+
+**Keyed by the routine's incarnation, never its id.** The gateway mints an incarnation when it first
+stores a routine and carries it across every edit, so a rename or a reschedule keeps the memory and a
+delete ends it. An id reused after a delete gets a new incarnation, which is what stops a fresh
+routine inheriting a dead one's history. Not `since`: two routines stored in one millisecond would
+share that, and a number shaped like a time invites being read as one. `sameContent` excludes it
+alongside the revision and `since`, or a save would look like an edit because the gateway owns a
+field.
+
+**Its own file.** A poisoned memory starts memory fresh rather than taking the routine store with
+it, and `usable` refuses an oversized row at restore exactly as a write refuses one.
+
+**The filing is two writes, in one order.** The occurrence goes first, carrying the report, the
+narrowed window and the proposed history; then the memory store. A crash between them leaves a
+proposal to retry and has ALREADY closed the authority, which is the direction that fails safe. The
+reverse could advance history while losing the report and leaving the vault window wide.
+`memoryApplied` is what says which side of that a row is on.
+
+**A conflict bounces exactly once.** Two runs can be live at once, since Run can be pressed while a
+scheduled one works. Both read version 4; the first writes 5. The second is refused with the held
+text and version, so it can consolidate, and `memoryBounced` on its row makes the next filing land as
+it stands. Bouncing forever would leave two windows nothing closes. The known consequence: a third
+run writing while the bounced one consolidates is overwritten by the retry.
+
+**Oversized history is refused, never trimmed**, and the bound is UTF-8 bytes rather than characters,
+since the bound is on a file and one character can be four of them. Silently cutting what a session
+chose to carry loses facts nobody can see went missing.
+
+## When a finished routine's session goes
+
+`forgetAfterDays` on the record, a week unless the owner says otherwise, is how long a finished run's
+reserved session is kept. The tick drops it through the same two steps an owner's forget takes, named
+once in `composeRouterFrames` rather than copied, since the copy nobody taps is the one that drifts.
+It fires only when nothing in that session is still working and the newest run is older than the
+setting. Measured from the run rather than from the report, or a run that never filed would keep its
+session forever, which is the case this exists for.
+
 ## What no gate here can reach
 
 `bun run check:boot` runs the real `main-mcp` as a subprocess, answers the gateway's handshake as a

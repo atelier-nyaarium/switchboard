@@ -13,6 +13,10 @@ export interface RoutineExecutionDeps {
 	/** True while the session is working, false while it is not, undefined when nobody knows. */
 	workingOf: (team: string) => boolean | undefined;
 	reserveSession: (routine: Routine) => Promise<ReserveResult>;
+	/** Whether a record still stands for that session, so an already-forgotten one is left alone. */
+	hasSession: (team: string) => boolean;
+	/** The same teardown an owner's forget takes, so the automatic one cannot do less. */
+	forgetSession: (team: string) => void;
 	/** Why the nudge was refused, or null. */
 	deliver: (nudge: { from: string; to: string; body: string; deliveryId: string }) => Promise<string | null>;
 }
@@ -26,6 +30,8 @@ export function nudgeFor(routine: Routine, occurrence: Occurrence): string {
 		`Owner issued a routine: ${routine.name}.`,
 		// Named from the catalog, so the words cannot ask for a tool nothing registers.
 		`Call ${SESSION_COMMANDS.sessionRoutine.tool} with occurrenceId "${occurrence.scheduledAt}" for the instructions.`,
+		// Said here because nothing else would: a run that never files holds its authority for hours.
+		`When the work is done, call ${SESSION_COMMANDS.sessionReport.tool} with the same occurrenceId.`,
 		"If any blocker occurs, channel_reply.",
 	].join("\n");
 }
@@ -37,6 +43,10 @@ export function createRoutineExecution(deps: RoutineExecutionDeps): RoutineAttem
 			// the deadline is what stops this waiting forever.
 			return deps.workingOf(team) !== true;
 		},
+
+		hasSession: deps.hasSession,
+
+		forgetSession: deps.forgetSession,
 
 		async prepare(routine: Routine, _occurrence: Occurrence): Promise<PrepareResult> {
 			const runbook = deps.getRunbook(routine.runbookId);

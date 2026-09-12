@@ -3,11 +3,17 @@
 import { z } from "zod";
 import { instantOf, type LocalDate, nextOccurrence, parseLocalDate, parseLocalTime } from "./routine-recurrence.js";
 import { MAX_SLUG_LEN, SLUG_RE } from "./session-id.js";
+import { ROUTINE_FORGET_DAYS_DEFAULT, ROUTINE_FORGET_DAYS_MAX, ROUTINE_FORGET_DAYS_MIN } from "./wire-vocabulary.js";
 
 /** Eight weeks is the longest interval the editor offers. */
 const MAX_WEEK_INTERVAL = 8;
 
 const ROUTINE_SESSION_PREFIX = "routine-";
+
+/** The owner's choice, or the default a console too old to carry one implies. */
+export function forgetAfterMs(routine: { forgetAfterDays?: number }): number {
+	return (routine.forgetAfterDays ?? ROUTINE_FORGET_DAYS_DEFAULT) * 24 * 60 * 60 * 1000;
+}
 
 /** The id has to leave a valid session segment, since the reserved session is named from it. */
 export const MAX_ROUTINE_ID_LEN = MAX_SLUG_LEN - ROUTINE_SESSION_PREFIX.length;
@@ -74,6 +80,19 @@ export const RoutineSchema = z
 		 * cannot reach past it, so a routine saved today is never handed a miss for last month.
 		 */
 		since: z.number().int().nonnegative(),
+		/**
+		 * Days a finished run's reserved session is kept before the gateway forgets it. Absent reads
+		 * as the default, which is what a console that has not shipped this field sends.
+		 */
+		// Required from 2026-09-25, by when every console has it.
+		forgetAfterDays: z.number().int().min(ROUTINE_FORGET_DAYS_MIN).max(ROUTINE_FORGET_DAYS_MAX).optional(),
+		/**
+		 * Minted by the gateway when it first stores this routine and carried across every edit, so
+		 * what the routine remembers survives a rename and dies with the routine. An id reused after
+		 * a delete gets a new one, which is what stops a fresh routine inheriting a dead one's memory.
+		 * Not the created time: two routines stored in one millisecond would share that.
+		 */
+		incarnation: z.string().min(1).max(64).optional(),
 	})
 	.meta({ id: "Routine" });
 
@@ -193,6 +212,10 @@ export const SessionRoutineAnswerSchema = z.discriminatedUnion("kind", [
 		routineName: z.string(),
 		scheduledAt: z.number().int(),
 		text: z.string(),
+		/** What earlier runs of this routine chose to carry forward. Empty on its first run. */
+		history: z.string(),
+		/** The version that history is at, which the report files against. */
+		historyVersion: z.number().int().nonnegative(),
 	}),
 	z.object({ kind: z.literal("no_routine") }),
 	z.object({ kind: z.literal("unknown_occurrence") }),
@@ -201,6 +224,8 @@ export const SessionRoutineAnswerSchema = z.discriminatedUnion("kind", [
 ]);
 
 export type SessionRoutineRequest = z.infer<typeof SessionRoutineRequestSchema>;
+/** Derived, not written twice: the gateway's answer and this schema are one declaration. */
+export type SessionRoutineAnswer = z.infer<typeof SessionRoutineAnswerSchema>;
 
 /**
  * What a filed report leaves of the work window. Long enough that a session which spoke too soon can
@@ -211,6 +236,13 @@ export const ROUTINE_REPORT_GRACE_MS = 30 * 60 * 1000;
 /** Bounded so a runaway session cannot write the occurrence file to the disk's end. */
 export const MAX_ROUTINE_REPORT_CHARS = 16_384;
 
+/**
+ * What a routine may remember, in UTF-8 BYTES rather than characters, since the bound is on the file
+ * and one character is up to four of them. Oversized is refused and never trimmed: silently cutting
+ * what a session chose to carry forward loses facts nobody can see went missing.
+ */
+export const MAX_ROUTINE_MEMORY_BYTES = 32_768;
+
 export const SessionReportRequestShape = {
 	occurrenceId: z.string().min(1).max(64).describe(`Occurrence id from the nudge.`),
 	report: z
@@ -218,6 +250,15 @@ export const SessionReportRequestShape = {
 		.min(1)
 		.max(MAX_ROUTINE_REPORT_CHARS)
 		.describe(`What the run did and what it left, in the run's own words.`),
+	history: z
+		.string()
+		.max(MAX_ROUTINE_MEMORY_BYTES)
+		.describe(`The history you were handed, amended with what this run learned. Carried to the next run.`),
+	historyVersion: z
+		.number()
+		.int()
+		.nonnegative()
+		.describe(`The historyVersion you were handed, so a run that moved it since is caught.`),
 };
 
 export const SessionReportRequestSchema = z.object(SessionReportRequestShape);
@@ -236,6 +277,17 @@ export const SessionReportAnswerSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("unauthenticated") }),
 	/** The run is over, by deadline or by the session having gone quiet. Nothing left to narrow. */
 	z.object({ kind: z.literal("not_working") }),
+	/**
+	 * Another run wrote history since this one read it. Carries what is held now so the session can
+	 * consolidate and file again. Bounces exactly once: the next filing is taken as it stands.
+	 */
+	z.object({
+		kind: z.literal("history_conflict"),
+		history: z.string(),
+		historyVersion: z.number().int().nonnegative(),
+	}),
+	/** The history handed back is larger than a routine may remember. Shorten it and file again. */
+	z.object({ kind: z.literal("history_too_large"), maxBytes: z.number().int().positive() }),
 ]);
 
 export type SessionReportRequest = z.infer<typeof SessionReportRequestSchema>;

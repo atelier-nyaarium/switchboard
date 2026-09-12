@@ -51,3 +51,12 @@ export const SIGNING_TAGS = {
 
 export const CONTENT_NONCE_BYTES = 12;
 export const WIRE_NONCE_BYTES = 18;
+
+/**
+ * How long a finished routine's reserved session is kept. Declared here so the editor's default and
+ * the gateway's fallback for a console too old to send one are the same number, not two that agree
+ * until somebody edits one.
+ */
+export const ROUTINE_FORGET_DAYS_DEFAULT = 7;
+export const ROUTINE_FORGET_DAYS_MIN = 1;
+export const ROUTINE_FORGET_DAYS_MAX = 365;

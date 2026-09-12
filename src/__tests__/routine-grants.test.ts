@@ -47,6 +47,7 @@ function stage(over: Partial<Runbook> = {}) {
 			now: () => now,
 			setTimer: () => ({}) as ReturnType<Ambient["setTimer"]>,
 			clearTimer: () => undefined,
+			newId: () => "inc-1",
 		},
 		getRunbook: () => runbook,
 		resolveCaller: () => null,
@@ -56,6 +57,8 @@ function stage(over: Partial<Runbook> = {}) {
 		},
 		attempt: () => ({
 			sessionIdle: () => true,
+			hasSession: () => false,
+			forgetSession: () => {},
 			prepare: async () => ({ ok: true, revision: 1, snapshot: "do it", team: TEAM }),
 			deliver: async () => undefined,
 		}),

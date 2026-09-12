@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard.routines
 
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineTarget
 import com.atelier_nyaarium.switchboard.proto.Runbook
@@ -15,6 +16,8 @@ private val DATE_RE = Regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 /** What the record's own schema bounds, mirrored so a refusal is not read as a dead network. */
 private const val MAX_WEEK_INTERVAL = 8
 private const val MAX_LINKED = 16
+private val FORGET_MIN = Protocol.Wire.ROUTINE_FORGET_DAYS_MIN
+private val FORGET_MAX = Protocol.Wire.ROUTINE_FORGET_DAYS_MAX
 
 /**
  * What the editor holds. The gateway owns the revision and when it took the routine, so neither is
@@ -35,6 +38,8 @@ internal data class RoutineDraft(
 	val workdir: String = "",
 	val linkedEntries: List<String> = emptyList(),
 	val enabled: Boolean = true,
+	/** Days a finished run's session is kept before the gateway forgets it. */
+	val forgetAfterDays: Int = Protocol.Wire.ROUTINE_FORGET_DAYS_DEFAULT,
 	/** What was read, so a save says which record it edits. Zero means nothing was stored. */
 	val revision: Long = 0L,
 ) {
@@ -54,6 +59,7 @@ internal data class RoutineDraft(
 		linkedEntries.size != linkedEntries.toSet().size -> "A secret is linked twice"
 		runbookId.isBlank() -> "Pick a runbook"
 		approvedRevision <= 0L -> "Pick a runbook"
+		forgetAfterDays !in FORGET_MIN..FORGET_MAX -> "Keep the session $FORGET_MIN to $FORGET_MAX days"
 		else -> null
 	}
 
@@ -76,6 +82,7 @@ internal data class RoutineDraft(
 			// Named by the gateway, whatever is sent.
 			revision = revision.coerceAtLeast(1L),
 			since = 0L,
+			forgetAfterDays = forgetAfterDays.toLong(),
 		)
 	}
 
@@ -130,6 +137,8 @@ internal data class RoutineDraft(
 			workdir = routine.target.workdir.orEmpty(),
 			linkedEntries = routine.linkedEntries,
 			enabled = routine.enabled,
+			// A record from a gateway that predates the field reads as the default.
+			forgetAfterDays = routine.forgetAfterDays?.toInt() ?: Protocol.Wire.ROUTINE_FORGET_DAYS_DEFAULT,
 			revision = routine.revision,
 		)
 	}

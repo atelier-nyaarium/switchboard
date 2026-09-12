@@ -1,6 +1,7 @@
 // The Router frames this Gateway answers, and the console dispatcher behind the value op.
 
 import type { Ambient } from "../../shared/ambient.js";
+import type { BoardDisposition } from "../../shared/board-authority.js";
 import { opPayloadAadKind } from "../../shared/content-envelope.js";
 import { ValueOpFrameSchema } from "../../shared/router-protocol.js";
 import { ConsoleOpSchema } from "../../shared/schemasConsoleOp.js";
@@ -54,6 +55,18 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 		const localDomainId = context.activeDomainId();
 		const isLinkedDomain = (domainId: string) => context.isLinkedDomain(domainId);
 
+		// Named, because the routine stage forgets a finished run's session by the same two steps an
+		// owner's forget takes. Written twice they would drift, and the copy nobody taps drifts first.
+		const dropSessionResume = (team: string, disposition: BoardDisposition): void => {
+			const released = context.slice()?.boardClient.sessionEnded(team, disposition);
+			if (released) fireAndForget(`board release for ${team}`, released);
+			sessions.presence.forget(team);
+		};
+		const onSessionEnded = (team: string): void => {
+			deps.vault.sessionEnded(team);
+			deps.routines.sessionEnded(team);
+		};
+
 		const consoleHandler = createConsoleDispatcher({
 			registry: sessions.registry,
 			conversationRegistry: sessions.conversationRegistry,
@@ -62,11 +75,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			localDomainId,
 			ambient,
 			isTrustedCatalogProject: sessions.isTrustedCatalogProject,
-			dropSessionResume: (team, disposition) => {
-				const released = context.slice()?.boardClient.sessionEnded(team, disposition);
-				if (released) fireAndForget(`board release for ${team}`, released);
-				sessions.presence.forget(team);
-			},
+			dropSessionResume,
 			sessionStore: sessions.presence,
 			domain: () => {
 				const snapshot = slice.allowlist.getSnapshot() ?? null;
@@ -98,10 +107,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			runbooks: deps.runbooks.console,
 			routines: deps.routines.console,
 			policies: deps.policies.console,
-			onSessionEnded: (team) => {
-				deps.vault.sessionEnded(team);
-				deps.routines.sessionEnded(team);
-			},
+			onSessionEnded,
 		});
 
 		deps.routines.bindExecution(
@@ -109,6 +115,11 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 				getRunbook: (runbookId) => deps.runbooks.console.get(runbookId),
 				workingOf: (team) => sessions.presence.workingOf(team),
 				reserveSession: (routine) => consoleHandler.reserveRoutineSession(routine),
+				hasSession: (team) => sessions.presence.getByTeam(team) !== undefined,
+				forgetSession: (team) => {
+					dropSessionResume(team, "release");
+					onSessionEnded(team);
+				},
 				deliver: async ({ from, to, body, deliveryId }) => {
 					const res = await deps.routes().sendFromOwner({ from, to, body, deliveryId, channelOnly: true });
 					if (res.ok) return null;

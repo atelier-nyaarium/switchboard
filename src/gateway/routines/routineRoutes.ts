@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { SESSION_COMMANDS } from "../../shared/session-commands.js";
 import type { Occurrence } from "./occurrences.js";
-import { answerSessionReport, answerSessionRoutine } from "./sessionRoutine.js";
+import { answerSessionReport, answerSessionRoutine, type FileOutcome } from "./sessionRoutine.js";
 
 const COMMAND = SESSION_COMMANDS.sessionRoutine;
 const REPORT = SESSION_COMMANDS.sessionReport;
@@ -17,8 +17,15 @@ export interface RoutineRoutesDeps {
 	routineName: (routineId: string) => string | null;
 	/** Records that the session read its instructions, which is the other half of liveness. */
 	noteRead: (routineId: string, scheduledAt: number) => void;
-	/** Files the run's account of itself and pulls its window in. Null when the row would not take it. */
-	fileReport: (routineId: string, scheduledAt: number, report: string) => Occurrence | null;
+	/** What this routine remembers from earlier runs. */
+	memory: (routineId: string) => { text: string; version: number };
+	/** The occurrence write and the memory write, in that order. */
+	fileReport: (
+		routineId: string,
+		scheduledAt: number,
+		report: string,
+		memory: { text: string; base: number; force: boolean },
+	) => FileOutcome;
 }
 
 const json = (body: unknown, status: number): Response =>
@@ -34,6 +41,7 @@ export function createRoutineRoutes(deps: RoutineRoutesDeps): Map<string, Handle
 				callerTeam: () => deps.resolveCaller(req),
 				occurrences: deps.occurrences,
 				routineName: deps.routineName,
+				memory: deps.memory,
 			},
 			parsed.data.occurrenceId,
 		);
@@ -52,6 +60,8 @@ export function createRoutineRoutes(deps: RoutineRoutesDeps): Map<string, Handle
 			},
 			parsed.data.occurrenceId,
 			parsed.data.report,
+			parsed.data.history,
+			parsed.data.historyVersion,
 		);
 		return json(answer, 200);
 	};

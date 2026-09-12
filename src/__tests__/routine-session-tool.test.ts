@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Occurrence } from "../gateway/routines/occurrences.js";
 import { answerSessionReport, answerSessionRoutine } from "../gateway/routines/sessionRoutine.js";
 import { reportTextOf, textOf } from "../mcp/routines/routineTools.js";
+import { MAX_ROUTINE_MEMORY_BYTES } from "../shared/schemasRoutine.js";
 
 const row = (over: Partial<Occurrence> = {}): Occurrence => ({
 	routineId: "triage",
@@ -14,12 +15,18 @@ const row = (over: Partial<Occurrence> = {}): Occurrence => ({
 	...over,
 });
 
-const ask = (over: { team?: string | null; rows?: Occurrence[]; id?: string }) =>
+const ask = (over: {
+	team?: string | null;
+	rows?: Occurrence[];
+	id?: string;
+	memory?: { text: string; version: number };
+}) =>
 	answerSessionRoutine(
 		{
 			callerTeam: () => (over.team === undefined ? "host.routine-triage" : over.team),
 			occurrences: () => over.rows ?? [row()],
 			routineName: () => "Morning triage",
+			memory: () => over.memory ?? { text: "", version: 0 },
 		},
 		over.id ?? "1700000000000",
 	);
@@ -32,7 +39,14 @@ describe("what a routine's session may ask back", () => {
 			routineName: "Morning triage",
 			scheduledAt: 1_700_000_000_000,
 			text: "read the overnight failures",
+			history: "",
+			historyVersion: 0,
 		});
+	});
+
+	it("hands over what earlier runs left, and the version to file against", () => {
+		const answer = ask({ memory: { text: "signing keys were refreshed", version: 4 } });
+		expect(answer).toMatchObject({ history: "signing keys were refreshed", historyVersion: 4 });
 	});
 
 	// The boot check proves the tool is registered and reachable, but asks for an occurrence that is
@@ -45,6 +59,8 @@ describe("what a routine's session may ask back", () => {
 				routineName: "Morning triage",
 				scheduledAt: 1,
 				text: "read the overnight failures",
+				history: "",
+				historyVersion: 0,
 			}),
 		).toBe("# Morning triage\n\nread the overnight failures");
 		for (const kind of ["no_routine", "unknown_occurrence", "wrong_session", "unauthenticated"] as const) {
@@ -71,29 +87,44 @@ describe("what a routine's session may ask back", () => {
 const working = (over: Partial<Occurrence> = {}): Occurrence =>
 	row({ work: "started", workUntil: 1_700_043_200_000, ...over });
 
-const file = (over: { team?: string | null; rows?: Occurrence[]; id?: string; until?: number }) => {
+const file = (over: {
+	team?: string | null;
+	rows?: Occurrence[];
+	id?: string;
+	until?: number;
+	held?: { text: string; version: number };
+	history?: string;
+	version?: number;
+}) => {
+	const rows = over.rows ?? [working()];
+	const stored = over.held ?? { text: "", version: 0 };
 	const filed: Occurrence[] = [];
+	const wrote: string[] = [];
 	const answer = answerSessionReport(
 		{
 			callerTeam: () => (over.team === undefined ? "host.routine-triage" : over.team),
-			occurrences: () => over.rows ?? [working()],
-			file: (routineId, scheduledAt) => {
-				const held = (over.rows ?? [working()]).find(
+			occurrences: () => rows,
+			file: (routineId, scheduledAt, _report, memory) => {
+				const held = rows.find(
 					(candidate) => candidate.routineId === routineId && candidate.scheduledAt === scheduledAt,
 				);
-				if (!held) return null;
+				if (!held) return { kind: "refused" };
+				if (!memory.force && stored.version !== memory.base) return { kind: "conflict", current: stored };
+				wrote.push(memory.text);
 				const moved = {
 					...held,
 					workUntil: Math.min(held.workUntil ?? held.deadlineAt, over.until ?? 1_700_001_800_000),
 				};
 				filed.push(moved);
-				return moved;
+				return { kind: "filed", occurrence: moved };
 			},
 		},
 		over.id ?? "1700000000000",
 		"apt upgraded, nothing held back",
+		over.history ?? "keys refreshed",
+		over.version ?? 0,
 	);
-	return { answer, filed };
+	return { answer, filed, wrote };
 };
 
 describe("a routine session filing its own report", () => {
@@ -151,5 +182,42 @@ describe("a routine session filing its own report", () => {
 		] as const) {
 			expect(reportTextOf({ kind }).length, kind).toBeGreaterThan(0);
 		}
+	});
+
+	// The owner's rule: bounce exactly once, hand back the truth, take whatever comes next.
+	it("bounces a run whose history moved, and hands back what is held", () => {
+		const { answer, wrote } = file({ held: { text: "someone else wrote this", version: 5 }, version: 4 });
+		expect(answer).toEqual({
+			kind: "history_conflict",
+			history: "someone else wrote this",
+			historyVersion: 5,
+		});
+		expect(wrote).toHaveLength(0);
+	});
+
+	it("takes the second filing from a run it already bounced", () => {
+		const bounced = working({ memoryBounced: true });
+		const { answer, wrote } = file({
+			rows: [bounced],
+			held: { text: "someone else wrote this", version: 5 },
+			version: 4,
+			history: "consolidated",
+		});
+		expect(answer.kind).toBe("filed");
+		expect(wrote).toEqual(["consolidated"]);
+	});
+
+	it("refuses a history too large to remember, before anything is written", () => {
+		const { answer, filed, wrote } = file({ history: "x".repeat(MAX_ROUTINE_MEMORY_BYTES + 1) });
+		expect(answer).toEqual({ kind: "history_too_large", maxBytes: MAX_ROUTINE_MEMORY_BYTES });
+		expect(filed).toHaveLength(0);
+		expect(wrote).toHaveLength(0);
+	});
+
+	// Bytes, not characters: the bound is on the file, and one character can be four of them.
+	it("measures the bound in bytes", () => {
+		const justOver = "é".repeat(MAX_ROUTINE_MEMORY_BYTES / 2 + 1);
+		expect(justOver.length).toBeLessThan(MAX_ROUTINE_MEMORY_BYTES);
+		expect(file({ history: justOver }).answer.kind).toBe("history_too_large");
 	});
 });

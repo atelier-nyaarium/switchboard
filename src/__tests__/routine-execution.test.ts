@@ -46,6 +46,8 @@ function seam(over: Partial<Parameters<typeof createRoutineExecution>[0]> = {}) 
 	const execution = createRoutineExecution({
 		getRunbook: () => runbook(),
 		workingOf: () => undefined,
+		hasSession: () => false,
+		forgetSession: () => {},
 		reserveSession: async (r) => ({ kind: "ok", team: routineTeam(r) }),
 		deliver: async (nudge) => {
 			delivered.push(nudge);

@@ -18,6 +18,8 @@ export interface RoutineStoreDeps {
 	/** Whether something this routine did not make already holds its reserved session's name. */
 	sessionTaken?: (routine: Routine) => boolean;
 	now: () => number;
+	/** Mints a routine's incarnation. Opaque, so nothing reads it as a time or an order. */
+	newIncarnation: () => string;
 	/**
 	 * Called after every write that took. Required, and published from the one place that writes, so
 	 * a reader holding something derived from this store cannot be left stale by a writer that forgot
@@ -57,7 +59,7 @@ function frozen(routine: Routine): Routine {
  * comparison would silently take an edit that only moved the field nobody added to the list.
  */
 function sameContent(a: Routine, b: Routine): boolean {
-	const owned = ({ revision: _revision, since: _since, ...rest }: Routine) => rest;
+	const owned = ({ revision: _revision, since: _since, incarnation: _incarnation, ...rest }: Routine) => rest;
 	return canonicalJson(owned(a)) === canonicalJson(owned(b));
 }
 
@@ -139,8 +141,14 @@ export function createRoutineStore(deps: RoutineStoreDeps) {
 		if (held0 >= REVISION_CEILING) {
 			return { stored: false, revision: held0, reason: "this routine has no revision left to write" };
 		}
-		// The gateway owns both of these, so an editor cannot move either by sending one.
-		const routine = frozen({ ...candidate, revision: held0 + 1, since: current?.since ?? deps.now() });
+		// The gateway owns all three, so an editor cannot move any by sending one. The incarnation is
+		// minted once and carried, which is what lets memory survive an edit and die with the routine.
+		const routine = frozen({
+			...candidate,
+			revision: held0 + 1,
+			since: current?.since ?? deps.now(),
+			incarnation: current?.incarnation ?? deps.newIncarnation(),
+		});
 		const next = current
 			? routines.map((existing) => (existing.id === routine.id ? routine : existing))
 			: [...routines, routine];

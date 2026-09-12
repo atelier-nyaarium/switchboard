@@ -17,7 +17,12 @@ const fresh = () => {
 };
 const open = (dataDir: string) =>
 	openDurable(dataDir, "routines", (store) =>
-		createRoutineStore({ store, now: () => 1_700_000_000_000, onChanged: () => undefined }),
+		createRoutineStore({
+			store,
+			now: () => 1_700_000_000_000,
+			newIncarnation: () => "inc-1",
+			onChanged: () => undefined,
+		}),
 	);
 
 const routine = (id: string, over: Partial<Routine> = {}): Routine => ({
@@ -122,6 +127,7 @@ describe("routine store", () => {
 			createRoutineStore({
 				store,
 				now: () => 1_700_000_000_000,
+				newIncarnation: () => "inc-1",
 				sessionTaken: () => true,
 				onChanged: () => undefined,
 			}),

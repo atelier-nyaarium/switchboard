@@ -55,6 +55,20 @@ export const OccurrenceSchema = z.object({
 	report: z.string().optional(),
 	/** When the first report landed. A later one replaces the words and not this. */
 	reportedAt: z.number().int().nonnegative().optional(),
+	/** The memory version the accepted filing was based on, kept as part of the transaction record. */
+	memoryVersion: z.number().int().nonnegative().optional(),
+	/**
+	 * The history this run filed, written here BEFORE it reaches the memory store. A crash between
+	 * the two leaves a proposal to retry rather than a report lost with a window still wide open.
+	 */
+	memoryProposed: z.string().optional(),
+	/** Set once the proposal reached the memory store, so recovery retries only what did not. */
+	memoryApplied: z.boolean().optional(),
+	/**
+	 * This run has already been told another run moved history. Its next filing is taken as it
+	 * stands, so two runs cannot sit bouncing off each other.
+	 */
+	memoryBounced: z.boolean().optional(),
 });
 
 export type Occurrence = z.infer<typeof OccurrenceSchema>;
@@ -156,6 +170,7 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		report: string,
 		filedAt: number,
 		until: number,
+		memory?: { proposed: string; base: number },
 	): Occurrence | null => {
 		const held = at(routineId, scheduledAt);
 		if (!held || held.state !== "dispatched") return null;
@@ -164,8 +179,23 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 			report,
 			reportedAt: held.reportedAt ?? filedAt,
 			workUntil: Math.min(held.workUntil ?? held.deadlineAt, until),
+			...(memory ? { memoryProposed: memory.proposed, memoryVersion: memory.base, memoryApplied: false } : {}),
 		};
 		return commit(rows.map((row) => (row === held ? moved : row))) ? moved : null;
+	};
+
+	/** The proposal reached the memory store, so recovery leaves it alone. */
+	const noteMemoryApplied = (routineId: string, scheduledAt: number): boolean => {
+		const held = at(routineId, scheduledAt);
+		if (!held) return false;
+		return commit(rows.map((row) => (row === held ? { ...row, memoryApplied: true } : row)));
+	};
+
+	/** This run has been told history moved once; its next filing is taken as it stands. */
+	const noteMemoryBounced = (routineId: string, scheduledAt: number): boolean => {
+		const held = at(routineId, scheduledAt);
+		if (!held) return false;
+		return commit(rows.map((row) => (row === held ? { ...row, memoryBounced: true } : row)));
 	};
 
 	/** The first read is the one recorded; asking again says nothing new. */
@@ -213,7 +243,21 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		return dropped;
 	};
 
-	return { all, at, forRoutine, open, transition, noteWork, noteReport, noteRead, clearReview, clear, sweep };
+	return {
+		all,
+		at,
+		forRoutine,
+		open,
+		transition,
+		noteWork,
+		noteReport,
+		noteMemoryApplied,
+		noteMemoryBounced,
+		noteRead,
+		clearReview,
+		clear,
+		sweep,
+	};
 }
 
 export type OccurrenceStore = ReturnType<typeof createOccurrenceStore>;

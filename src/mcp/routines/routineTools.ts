@@ -21,13 +21,24 @@ change what was asked of you. Read it again after a compaction rather than worki
 const REPORT_DESCRIPTION = `
 # Report Session Routine
 
-File this run's own account of what it did.
+File this run's account of itself, and the routine's history amended with what you learned.
 
-Filing narrows the run's authority: the window its standing secrets live in pulls in to about half
+\`report\` is this run alone: what you did, what you left.
+
+\`history\` is what the NEXT run of this routine is handed. You were given it and its
+\`historyVersion\` with the instructions. Return it mostly as it stands, amended with what is worth
+carrying: facts that will still be true next time, things you fixed, things you chose not to. Drop
+what has gone stale. It is a running account, not a log, so keep it consolidated.
+
+Filing narrows this run's authority: the window its standing secrets live in pulls in to about half
 an hour, instead of the twelve hours it would otherwise hold. Keep working after filing if there is
-more to do. Filing again replaces the words and never widens the window back out.
+more to do.
 
-Write what you did and what you left. This is what the owner reads later.
+Answers you may get back:
+
+- \`history_conflict\` means another run wrote history while you worked. The current text comes back
+  with it. Fold your findings into that and file once more; the second filing lands.
+- \`history_too_large\` means consolidate and file again.
 `.trim();
 
 /** What each outcome means, said rather than left to a bare kind. */
@@ -35,6 +46,17 @@ export function reportTextOf(answer: SessionReportAnswer): string {
 	switch (answer.kind) {
 		case "filed":
 			return `Report filed. Authority for this run now ends at ${new Date(answer.workUntil).toISOString()}.`;
+		case "history_conflict":
+			return [
+				"Another run of this routine wrote history while you worked, so yours was not taken.",
+				"Below is what is held now. Fold your own findings into it and file once more; that one lands.",
+				"",
+				`historyVersion: ${answer.historyVersion}`,
+				"",
+				answer.history,
+			].join("\n");
+		case "history_too_large":
+			return `That history is over ${answer.maxBytes} bytes. Consolidate it and file again.`;
 		case "not_working":
 			return "This run is already over, so there is no window left to narrow.";
 		case "no_routine":
@@ -52,7 +74,17 @@ export function reportTextOf(answer: SessionReportAnswer): string {
 export function textOf(answer: z.infer<typeof SessionRoutineAnswerSchema>): string {
 	switch (answer.kind) {
 		case "instructions":
-			return `# ${answer.routineName}\n\n${answer.text}`;
+			return answer.history
+				? [
+						`# ${answer.routineName}`,
+						"",
+						answer.text,
+						"",
+						`## What earlier runs left (historyVersion ${answer.historyVersion})`,
+						"",
+						answer.history,
+					].join("\n")
+				: `# ${answer.routineName}\n\n${answer.text}`;
 		case "no_routine":
 			return "No routine runs in this session.";
 		case "unknown_occurrence":
@@ -91,12 +123,17 @@ export function registerRoutineTools(mcpServer: McpServer): void {
 	mcpServer.registerTool(
 		REPORT.tool,
 		{ title: `Report Session Routine`, description: REPORT_DESCRIPTION, inputSchema: REPORT.request },
-		async (args: { occurrenceId: string; report: string }) => {
+		async (args: { occurrenceId: string; report: string; history: string; historyVersion: number }) => {
 			try {
 				const answer = REPORT.answer.parse(
 					await routerPost(
 						REPORT.path,
-						{ occurrenceId: args.occurrenceId, report: args.report },
+						{
+							occurrenceId: args.occurrenceId,
+							report: args.report,
+							history: args.history,
+							historyVersion: args.historyVersion,
+						},
 						{ retries: 0 },
 					),
 				) as SessionReportAnswer;

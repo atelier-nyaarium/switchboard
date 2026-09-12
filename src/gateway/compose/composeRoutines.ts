@@ -12,15 +12,17 @@ import type { Runbook } from "../../shared/schemasRunbook.js";
 import type { RoutineConsoleHandlers } from "../console/consoleTypes.js";
 import { fireAndForget } from "../fireAndForget.js";
 import { type Attention, createAttentionStore } from "../routines/attention.js";
+import { createRoutineMemoryStore } from "../routines/memory.js";
 import { createOccurrenceStore, type Occurrence } from "../routines/occurrences.js";
 import { routineTeam } from "../routines/reservation.js";
 import { createRoutineRoutes, type Handler as RoutineRouteHandler } from "../routines/routineRoutes.js";
 import { createRoutineRunner, type RoutineAttempt } from "../routines/runner.js";
+import type { FileOutcome } from "../routines/sessionRoutine.js";
 import { createRoutineStore } from "../routines/store.js";
 
 export interface RoutineStageDeps {
 	dataDir: string;
-	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">;
+	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer" | "newId">;
 	/** Read late, since what executes is composed after this stage. */
 	attempt?: () => RoutineAttempt | null;
 	getRunbook?: (runbookId: string) => Runbook | null;
@@ -64,6 +66,9 @@ export interface RoutineStage {
 /** Nothing to run against, so every occurrence waits rather than being declared missed. */
 const IDLE_ATTEMPT: RoutineAttempt = {
 	sessionIdle: () => false,
+	// Nothing is known about any session here, so none is forgotten.
+	hasSession: () => false,
+	forgetSession: () => {},
 	prepare: async () => ({ ok: false, reason: "unreachable" }),
 	deliver: async () => undefined,
 };
@@ -112,6 +117,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 			knowsSpawn: deps.knowsSpawn,
 			sessionTaken: (routine) => ownsIts(routineTeam(routine), routine) === false,
 			now: () => deps.ambient.now(),
+			newIncarnation: () => deps.ambient.newId(),
 			onChanged: () => storeMoved(),
 		}),
 	);
@@ -121,11 +127,16 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 	const attention = openDurable(deps.dataDir, "routine-attention", (durable) =>
 		createAttentionStore({ store: durable }),
 	);
+	// Its own file, so a poisoned memory starts memory fresh rather than taking the routines with it.
+	const memory = openDurable(deps.dataDir, "routine-memory", (durable) =>
+		createRoutineMemoryStore({ store: durable }),
+	);
 	const runner = createRoutineRunner({
 		routines: store,
 		occurrences,
 		ambient: deps.ambient,
 		attempt: () => bound ?? deps.attempt?.() ?? IDLE_ATTEMPT,
+		sweepMemory: (live) => memory.sweepOrphans(live),
 	});
 
 	const state = (): RoutineState[] => {
@@ -188,16 +199,61 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		if (touched) storeMoved();
 	};
 
+	/** Empty for a routine the store no longer holds, and for one stored before incarnations. */
+	const remembered = (routineId: string): { text: string; version: number } => {
+		const incarnation = store.get(routineId)?.incarnation;
+		return incarnation ? memory.read(incarnation) : { text: "", version: 0 };
+	};
+
+	/**
+	 * The whole filing, in the order a crash between the two writes has to survive.
+	 *
+	 * The occurrence goes first, carrying the report, the narrowed window and the proposed history.
+	 * A crash after it leaves a proposal to retry and has ALREADY closed the authority, which is the
+	 * direction that fails safe. The other order could advance history while losing the report and
+	 * leaving the vault window wide.
+	 */
+	const fileReport = (
+		routineId: string,
+		scheduledAt: number,
+		report: string,
+		proposal: { text: string; base: number; force: boolean },
+	): FileOutcome => {
+		const incarnation = store.get(routineId)?.incarnation;
+		if (!incarnation) return { kind: "refused" };
+		// Asked before anything is written, so a conflict costs no report and no narrowing.
+		if (!proposal.force) {
+			const current = memory.read(incarnation);
+			if (current.version !== proposal.base) {
+				occurrences.noteMemoryBounced(routineId, scheduledAt);
+				return { kind: "conflict", current };
+			}
+		}
+		const now = deps.ambient.now();
+		const filed = occurrences.noteReport(routineId, scheduledAt, report, now, now + ROUTINE_REPORT_GRACE_MS, {
+			proposed: proposal.text,
+			base: proposal.base,
+		});
+		if (!filed) return { kind: "refused" };
+		const wrote = proposal.force
+			? memory.overwrite(incarnation, proposal.text, now)
+			: memory.write(incarnation, proposal.text, proposal.base, now);
+		// A memory write that failed leaves memoryApplied false, which is the record recovery reads.
+		if (wrote && (wrote as { ok?: boolean }).ok !== false) {
+			occurrences.noteMemoryApplied(routineId, scheduledAt);
+		}
+		return { kind: "filed", occurrence: filed };
+	};
+
 	return {
 		routes: createRoutineRoutes({
 			resolveCaller: deps.resolveCaller,
 			occurrences: () => occurrences.all(),
 			routineName: (routineId) => store.get(routineId)?.name ?? null,
 			noteRead: (routineId, scheduledAt) => occurrences.noteRead(routineId, scheduledAt, deps.ambient.now()),
-			fileReport: (routineId, scheduledAt, report) => {
-				const now = deps.ambient.now();
-				return occurrences.noteReport(routineId, scheduledAt, report, now, now + ROUTINE_REPORT_GRACE_MS);
-			},
+			memory: (routineId) => remembered(routineId),
+			fileReport: (routineId, scheduledAt, report, proposal) =>
+				fileReport(routineId, scheduledAt, report, proposal),
 		}),
 		console: {
 			list: () => ({ routines: state(), zone: gatewayZone() }),
@@ -219,10 +275,13 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 			remove: (routineId) => {
 				// The routine goes first, so a half-done delete leaves rows nothing will walk. A
 				// refused delete leaves a live routine, and its history is not this call's to take.
+				// Read the incarnation before the record goes, since it is the memory's only key.
+				const incarnation = store.get(routineId)?.incarnation;
 				const removed = store.remove(routineId);
 				if (!removed.deleted) return removed;
 				occurrences.clear(routineId);
 				attention.clear(routineId);
+				if (incarnation) memory.clear(incarnation);
 				settleGrants(routineId);
 				return removed;
 			},

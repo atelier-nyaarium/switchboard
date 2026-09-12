@@ -27,6 +27,7 @@ export const DATA_DIR_ENTRIES: ReadonlySet<string> = new Set([
 	"policies.json",
 	"replay-guard.json",
 	"routine-attention.json",
+	"routine-memory.json",
 	"routine-occurrences.json",
 	"routines.json",
 	"runbooks.json",

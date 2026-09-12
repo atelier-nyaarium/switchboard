@@ -4,7 +4,7 @@ import type { Ambient, TimerHandle } from "../../shared/ambient.js";
 import { chainedTimer } from "../../shared/chained-timer.js";
 import type { MissReason } from "../../shared/routine-occurrence.js";
 import { nextOccurrence } from "../../shared/routine-recurrence.js";
-import type { Routine } from "../../shared/schemasRoutine.js";
+import { forgetAfterMs, type Routine } from "../../shared/schemasRoutine.js";
 import { fireAndForget } from "../fireAndForget.js";
 import type { Occurrence, OccurrenceStore } from "./occurrences.js";
 import { routineTeam } from "./reservation.js";
@@ -33,6 +33,10 @@ export type PrepareResult =
 export interface RoutineAttempt {
 	/** Whether that session can take work now. */
 	sessionIdle: (team: string) => boolean;
+	/** Whether a record still stands for that session. */
+	hasSession: (team: string) => boolean;
+	/** Drops the session a finished routine reserved, the way an owner's forget would. */
+	forgetSession: (team: string) => void;
 	/** Renders and binds the session, answering what to store against the occurrence. */
 	prepare: (routine: Routine, occurrence: Occurrence) => Promise<PrepareResult>;
 	/** Called after `dispatched` is durable, so a crash here loses the nudge rather than repeating it. */
@@ -45,10 +49,12 @@ export interface RoutineRunnerDeps {
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">;
 	/** Read late, because what executes is composed after the stage that runs it. */
 	attempt: () => RoutineAttempt;
+	/** Drops memory whose routine is gone. Absent in the store's own tests, which hold none. */
+	sweepMemory?: (live: Set<string>) => void;
 }
 
 export function createRoutineRunner(deps: RoutineRunnerDeps) {
-	const { routines, occurrences, ambient } = deps;
+	const { routines, occurrences, ambient, sweepMemory } = deps;
 	const attempt = () => deps.attempt();
 	let timer: TimerHandle | null = null;
 	let tick: TimerHandle | null = null;
@@ -195,6 +201,26 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			occurrences.noteWork(occurrence.routineId, occurrence.scheduledAt, "done");
 	}
 
+	/**
+	 * Drops the session a routine reserved once every run in it is over and the owner's keep period
+	 * has passed. The session is reserved per routine and reused, so the next fire takes it again.
+	 *
+	 * Measured from the newest occurrence rather than from the report, since a run that never filed
+	 * one would otherwise keep its session forever, which is the case this exists for.
+	 */
+	function forgetFinishedSessions(now: number): void {
+		for (const routine of routines.list()) {
+			const team = routineTeam(routine);
+			if (!attempt().hasSession(team)) continue;
+			if (workingOccurrences(team).length > 0) continue;
+			const rows = occurrences.forRoutine(routine.id);
+			if (rows.length === 0) continue;
+			const newest = Math.max(...rows.map((row) => row.scheduledAt));
+			if (now - newest < forgetAfterMs(routine)) continue;
+			attempt().forgetSession(team);
+		}
+	}
+
 	/** Every open window in that session. More than one is ordinary: each press carries its own. */
 	function workingOccurrences(sessionTarget: string): Occurrence[] {
 		const now = ambient.now();
@@ -267,7 +293,10 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 				}
 			}
 
+			forgetFinishedSessions(now);
 			occurrences.sweep(now - KEEP_MS);
+			// Deletion is root-first, so a failed clear leaves memory nothing can reach. This collects it.
+			sweepMemory?.(new Set(routines.list().flatMap((r) => (r.incarnation ? [r.incarnation] : []))));
 		} finally {
 			rearm();
 		}

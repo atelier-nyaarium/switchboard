@@ -105,6 +105,9 @@ object Protocol {
 		const val GATEWAY_REASON_NO_WAITER: String = "no_waiter"
 		const val CONTENT_NONCE_BYTES: Int = 12
 		const val WIRE_NONCE_BYTES: Int = 18
+		const val ROUTINE_FORGET_DAYS_DEFAULT: Int = 7
+		const val ROUTINE_FORGET_DAYS_MIN: Int = 1
+		const val ROUTINE_FORGET_DAYS_MAX: Int = 365
 
 		object ConsoleOpKind {
 			const val SEND: String = "send"
@@ -1821,6 +1824,8 @@ data class Routine(
 	val enabled: Boolean,
 	val revision: Long,
 	val since: Long,
+	val forgetAfterDays: Long? = null,
+	val incarnation: String? = null,
 )
 
 @Serializable

@@ -47,13 +47,15 @@ function world(over: Partial<RoutineAttempt> = {}, took = A_YEAR_BEFORE) {
 	roots.push(root);
 	// The gateway stamps when it took a routine, so a test says so by moving this clock.
 	const routines = openDurable(root, "routines", (store) =>
-		createRoutineStore({ store, now: () => took, onChanged: () => undefined }),
+		createRoutineStore({ store, now: () => took, newIncarnation: () => "inc-1", onChanged: () => undefined }),
 	);
 	const occurrences = openDurable(root, "routine-occurrences", (store) => createOccurrenceStore({ store }));
 	let now = MONDAY_0900_LA;
 	const delivered: string[] = [];
 	const attempt: RoutineAttempt = {
 		sessionIdle: () => true,
+		hasSession: () => false,
+		forgetSession: () => {},
 		prepare: async () => ready,
 		deliver: async (_routine, occurrence) => {
 			delivered.push(`${occurrence.routineId}:${occurrence.scheduledAt}`);
@@ -283,10 +285,13 @@ describe("the routine runner", () => {
 				now: () => now,
 				setTimer: () => ({}) as ReturnType<Ambient["setTimer"]>,
 				clearTimer: () => undefined,
+				newId: () => "inc-1",
 			},
 			resolveCaller: () => null,
 			attempt: () => ({
 				sessionIdle: () => true,
+				hasSession: () => false,
+				forgetSession: () => {},
 				prepare: async () => (prepared ? ready : moved),
 				deliver: async (_routine, occurrence) => {
 					delivered.push(String(occurrence.scheduledAt));

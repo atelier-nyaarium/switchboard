@@ -64,6 +64,17 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/compose/composeVault.ts` - vault client, decisions, requests, routes, and console operations
 - `src/gateway/runbooks/store.ts` - gateway-held runbooks; sole writer, so a stored record has passed the rules
 - `src/gateway/routines/store.ts` - gateway-held routines; sole writer, and it publishes `onChanged` so the runner cannot be left armed for what the store no longer says
+- `src/gateway/routines/memory.ts` - what a routine remembers between runs, keyed by its incarnation
+  - **The incarnation, not the id:** minted once and carried across edits, so memory survives a
+    rename and dies with the routine. An id reused after a delete gets a new one, which is what stops
+    a fresh routine inheriting a dead one's history. `sameContent` excludes it, or a save would read
+    as an edit because the gateway owns a field.
+  - **The occurrence is written before the memory store, always:** a crash between them leaves a
+    proposal to retry and has already closed the run's authority. The reverse advances history while
+    losing the report and leaving the vault window wide.
+  - **A history conflict bounces exactly once:** two runs can be live at once, so the second is handed
+    what is held and `memoryBounced` makes its next filing land as it stands. Bouncing forever leaves
+    two windows nothing closes.
 - `src/gateway/routines/routineRoutes.ts` / `sessionRoutine.ts` - the loopback door a routine's own session reads its instructions through, and the four outcomes it answers with
   - **The gateway names every revision:** a put carries the revision the caller read and the store
     writes its own successor, answering with the record. Nothing on the phone chooses a number, so a
