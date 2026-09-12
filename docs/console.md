@@ -302,12 +302,33 @@ no TTL.
 - **Read slots** (`ReadSlot`): a fence key names what a read FILLS. One key per session made a
   symbol's source and its knowledge cancel each other, and the sandbox could not show it because it
   never suspends. A read that fills a per-module cache is not fenced at all, since there is nothing
-  an older answer could overwrite.
+  an older answer could overwrite. `separated` escapes each half rather than refusing one holding
+  the record separator, because a Lexicon symbol id can carry one and a workspace file does not get
+  to decide whether the tab crashes.
+- **The foreground sweep is not fenced** (`WindowOps.recheck`): the fence hands a key to whoever
+  claimed last, so a sweep would discard the Refresh the owner just tapped and answer them nothing.
+  Each window instead carries the hash it held when its read began, and an answer arriving at a
+  window that has moved past it lands nothing. A content hash gives no ordering, so a sweep answer
+  that was genuinely newer is dropped too; the next sweep picks it up.
 - **Window drafts** (`WindowDraftStore.kt`): one file per draft under `filesDir`, write-then-rename,
   keyed by a hash of session and symbol id. Not the runbook store, which serialises a whole library
   into one preferences string on every commit. A failed rename leaves the previous draft; deleting
-  first to make room is the one order with a window holding neither copy. One mutex orders every
-  write, clear and load, so a save queued before a close cannot land after it.
+  first to make room is the one order with a window holding neither copy.
+
+  **The disk follows the value, and no caller names a file.** `WindowOps.apply` diffs the winning
+  before and after by incarnation and tells the store what each file should hold, under the same
+  monitor as the state write. Callers used to save and clear for themselves and the two copies
+  desynced twice.
+
+  **The store owns its own ordering.** One worker drains one queue, reads included, so a clear asked
+  for after a save cannot be overtaken by it whatever dispatcher it runs on. A job that throws is
+  caught, since a dead worker would silently push every later write onto the caller, which for a
+  keystroke is the main thread. A cancelled scope shuts the queue, and work handed over after that
+  runs on the caller rather than waiting for a worker that has gone.
+
+  **A refused write reaches the log.** Every road answers the same way: the write, the read, the
+  clear and the re-provision wipe all report rather than reading as a success. The owner sees nothing
+  on a release build, which is on the board.
 - **Unread tracking** (`ReadAnchor.kt`, `thread.js`): anchors match inbox rows by epoch and
   sequence equality. Reads drain by scroll position.
 - **Idle pushback** (`IdlePushbackManager.kt`): owns aligned `AlarmManager` wakeups.

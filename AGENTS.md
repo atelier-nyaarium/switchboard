@@ -312,9 +312,19 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     enough on its own: a window carries an incarnation minted at open and the set an epoch that moves
     on every close and on a re-provision, because a symbol id names which span and not which OPENING
     of it. Work reads one at the start and lands nothing if it moved.
+  - **`apply` is also the one road to the disk, so the pair cannot drift:** it diffs the winning
+    before and after by incarnation and tells the store what each file should hold, under the same
+    monitor as the state write. No caller names a file. Callers saving and clearing for themselves
+    desynced memory and disk twice.
   - **A draft is one file, written then renamed:** a combined file would rewrite every draft on every
     keystroke batch, which is what `RunbookManager` pays. A failed rename leaves the previous draft;
-    deleting first to make room is the one order with a window holding neither copy.
+    deleting first to make room is the one order with a window holding neither copy. The store drains
+    its own queue, reads included, so nothing outside it can order two touches of one file wrongly.
+    Every road reports a refusal rather than reading as a success.
+  - **The foreground sweep is unfenced, and guards itself on the span hash instead:** the fence gives
+    a key to whoever claimed last, so a sweep would discard the Refresh the owner just tapped. A
+    window carries the hash it held when its read began, and an answer arriving at a window that has
+    moved past it lands nothing.
   - **Nothing decides inside a Composable**, since there is no instrumentation source set. The screens
     render and call; `WindowRules` and `WorkspaceNav` hold the decisions and carry the tests.
 - `android/.../AttachmentOps.kt` - attachment fetch-and-sweep state
