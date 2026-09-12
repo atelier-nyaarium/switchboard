@@ -164,7 +164,7 @@ class VaultPrompt(
 			orientation = LinearLayout.HORIZONTAL
 			gravity = Gravity.CENTER_VERTICAL
 		}
-		val name = text(17f, Color.WHITE).apply {
+		val name = text(17f, ON_PANEL).apply {
 			setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
 		}.also { title = it }
 		val left = text(12f, MUTED).also { expiry = it }
@@ -172,7 +172,7 @@ class VaultPrompt(
 		head.addView(left)
 
 		val requester = text(12.5f, MUTED).also { who = it }
-		val op = text(12.5f, Color.WHITE).apply {
+		val op = text(12.5f, ON_PANEL).apply {
 			setTypeface(android.graphics.Typeface.MONOSPACE)
 			ellipsize = android.text.TextUtils.TruncateAt.END
 			setPadding(dp(12), dp(10), dp(12), dp(10))
@@ -183,7 +183,7 @@ class VaultPrompt(
 			hint = "Password"
 			inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
 			textSize = 15f
-			setTextColor(Color.WHITE)
+			setTextColor(ON_PANEL)
 			setHintTextColor(MUTED)
 			setPadding(dp(13), dp(12), dp(13), dp(12))
 			background = outlined(10)
@@ -203,6 +203,10 @@ class VaultPrompt(
 			orientation = LinearLayout.VERTICAL
 			setPadding(dp(18), dp(16), dp(18), dp(16))
 			background = rounded(PANEL, 24)
+			elevation = dp(12).toFloat()
+			outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+			outlineSpotShadowColor = Color.BLACK
+			outlineAmbientShadowColor = Color.BLACK
 			addView(head)
 			addView(requester, spaced(8))
 			addView(op, spaced(8))
@@ -213,10 +217,12 @@ class VaultPrompt(
 			)
 		}
 		// The window spans the screen; this inset is what keeps the card off both walls, since a
-		// window margin is ignored at MATCH_PARENT width.
+		// window margin is ignored at MATCH_PARENT width. The shadow draws into it, so nothing clips.
 		return LinearLayout(context).apply {
 			orientation = LinearLayout.VERTICAL
-			setPadding(dp(14), 0, dp(14), 0)
+			setPadding(dp(14), dp(14), dp(14), dp(14))
+			clipToPadding = false
+			clipChildren = false
 			addView(card, LinearLayout.LayoutParams(MATCH, WRAP))
 		}
 	}
@@ -313,14 +319,20 @@ class VaultPrompt(
 		}
 	}
 
+	/**
+	 * The light half of the same Material palette the app draws its dark half from. The console is
+	 * dark and so is most of what it covers, so a dark card reads as part of whatever is behind it.
+	 * The shadow carries the rest: over a light app, colour alone would not separate it.
+	 */
 	private companion object {
 		const val WRAP = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 		const val MATCH = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-		val MUTED: Int = Color.parseColor("#B9B2C4")
-		val PANEL: Int = Color.parseColor("#241F2D")
-		val FIELD: Int = Color.parseColor("#191622")
-		val OUTLINE: Int = Color.parseColor("#4A4550")
-		val PRIMARY: Int = Color.parseColor("#D0BCFF")
-		val ON_PRIMARY: Int = Color.parseColor("#33184E")
+		val PANEL: Int = Color.parseColor("#F5EFF7")
+		val ON_PANEL: Int = Color.parseColor("#1D1B20")
+		val MUTED: Int = Color.parseColor("#49454F")
+		val FIELD: Int = Color.parseColor("#E6E0E9")
+		val OUTLINE: Int = Color.parseColor("#79747E")
+		val PRIMARY: Int = Color.parseColor("#6750A4")
+		val ON_PRIMARY: Int = Color.WHITE
 	}
 }
