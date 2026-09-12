@@ -757,21 +757,88 @@ road.** `workspaceRoot()` already owns that answer, cached and admitted through 
 `workspaceRoot()` sits under `references/` behind a residue test fencing that directory. It is extracted in
 Phase 3, where the second consumer exists.
 
-## Phase 2 - Confinement
+## Phase 2 - Confinement ✅
 
-Before the plane serves anything, not after. A mistake boundary, not a security boundary: the session can
-already run commands, so the check buys an honest tree and a refused mis-tap and claims nothing more.
+`src/mcp/workspace/confine.ts`, a pure module, with 38 behaviour tests. A mistake boundary, not a security
+boundary: the session can already run commands, so the check buys an honest tree and a refused mis-tap and
+claims nothing more.
 
-- Default root is the canonical one from Phase 1. Wider is a deliberate act.
-- Canonical resolution plus `realpath`, and refusal of a path that escapes after resolution.
-- Hardlinks are the hole `realpath` cannot see, so mutation compares the resolved file identity, not just
-  its name.
-- Named refusals for the platform escapes: case folding, Windows short names and alternate data streams,
-  trailing dots and spaces, junctions.
-- Regular files only, with a size cap. `refFile :: loadRefFile` already refuses non-regular files and caps
-  at 8 MB; reuse those rules rather than write second ones.
-- An exclusion list the tree applies by default, covering `.env` and its siblings, `.git` internals, and
-  `node_modules`. Reads leave no audit trail today, so the cheap protection is not serving the file at all.
+It takes the root as an ARGUMENT rather than importing a resolver. That dissolves the extraction Phase 1
+deferred: nothing reaches into `references/`, and the rule is testable against a fixture tree.
+
+`confine` answers in five stages, the filesystem only touched by the last two:
+
+1. **Lexical.** Refuses an absolute path, a drive-letter path, and any `..` walk.
+2. **Spelling.** Control characters anywhere. On Windows only, alternate data streams and reserved device
+   names, the base trimmed of trailing dots and spaces first since Windows drops them and `CON ` reaches the
+   device.
+3. **Withheld, as written.** `.git` as a whole segment at any depth, `.env` and the suffixes it prefixes as a
+   leaf, matched lowercased because a case-folding filesystem aliases them.
+4. **Canonical containment.** `realpath` of the root against `realpath` of the target, or of its nearest
+   existing ancestor when it is being created.
+5. **Withheld, as resolved.** Stage 3 again on the resolved path, so a link cannot launder a withheld file.
+
+`fileIdentity` and `sameFile` compare dev and ino, the hole `realpath` cannot see: a hardlink gives one inode
+two names that both resolve inside the root.
+
+**Windows rules are platform-gated, not universal.** The first draft applied them everywhere, reasoning that
+one rule beats a branch and a path might describe a Windows host. That was wrong, and Phase 1 is why: the
+plugin serves its OWN filesystem, so no path on this road describes another machine. Ungated, it refused
+`aux.ts` and any name holding a colon, both legal off Windows. The platform is a parameter so a test can
+drive either.
+
+**Short names, trailing dots and junctions are NOT refused as spellings.** Each RESOLVES, so stages 4 and 5
+cover them, and refusing their spellings would reject real files. Only the alternate data stream is a genuine
+escape, since it names different bytes beside a file that resolves the same.
+
+**`node_modules` is hidden, not withheld.** It is bulk rather than secrets, so `listable` keeps it out of a
+tree while a named file under it is served. `.git` and `.env` stay refused by both, and the segment rules
+still apply inside it, so `node_modules/pkg/.env.production` is refused.
+
+**`.env.example`, `.env.sample` and `.env.template` are served.** Committed and secretless, and refusing them
+was a wrong refusal the audit caught.
+
+The canonical stage was mutation-tested: disabling it admits the symlink escape and exactly one test fails.
+
+### Bug Classes
+
+**Mechanism:** path resolution in `confine`.
+**Defect class:** a rule applied to the name as WRITTEN rather than to what it resolves to.
+
+Patched twice, which makes it a design bug rather than bad luck:
+
+1. Containment checked the written path, so a symlink whose parent pointed outside the root was admitted.
+   Patched by adding the canonical stage.
+2. Exclusion checked the written path, so `.env.example` symlinked to `.env` was admitted and a read would
+   have served the secret. Any innocent name linking to a withheld one did the same.
+
+The structural fix rather than a third patch: `withheld` is now one function run over both the written and the
+resolved segments, and the resolved pass is not optional. A future rule added to `withheld` gets both passes
+for free, so the class cannot return through a new rule.
+
+**Mechanism:** the same resolution, asked twice.
+**Defect class:** two filesystem calls deciding one fact, which can disagree.
+
+An `existsSync` call decided whether to apply the leaf rule, and a separate `realpath` decided what the path
+was. A link created between them was admitted, because the stale answer suppressed the rule. Not a mistake
+the owner could make by tapping, but the fix removes the window rather than bounding it: `resolveTarget` makes
+one resolution answer the real path, whether it exists, and whether it is a directory. They cannot disagree
+because they are one answer.
+
+### Accepted limits
+
+- **A read does not compare inode identity.** A hardlink inside the root to an inode outside it is admitted,
+  and `realpath` cannot see it since a hardlink has no target to resolve. The only available signal is
+  `nlink > 1`, which would refuse legitimate links. Mutation compares identity; a read does not.
+- **A listing can show what a read then refuses.** `listable` judges a name and `confine` judges a resolved
+  path, so a symlink to a withheld file appears in the tree and is refused on open. Closing it would mean
+  statting every entry while listing. Showing then refusing is the right direction to fail.
+- **A directory is judged by what it is, not by its name.** `.env.d` as a directory is served so a tree can
+  list it; the same name as a FILE is withheld. The leaf rule asks the resolution, not the spelling.
+
+**Moved to Phase 3:** regular-files-only and the size cap. Those belong at load time, and `loadRefFile`
+already owns them. Reusing it from here would reach into `references/`, so Phase 3 lifts that loader into a
+shared module instead of either importing across features or writing a second copy.
 
 `isSpawnWorkdirPath` validates spelling only and is the basis for none of this.
 
@@ -798,6 +865,10 @@ registration today, so this needs:
   neither a transient value op nor the Router's delivery ledger, so at-most-once is defined here.
 
 Reads in this release: tree listing, whole-file read, outline, symbol source, symbol knowledge.
+
+**Lift the file loader out of `references/` first.** `loadRefFile` owns regular-files-only, the 8 MB cap
+sized before the read, and the binary sniff. The plane needs all three. Importing it across features or
+writing a second copy are both wrong, so it moves to a shared module that refs and the plane both call.
 
 ## Phase 4 - WindowOps and the phone surface
 
