@@ -202,6 +202,19 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 				}
 			},
 		)
+		vaultPrompt = com.atelier_nyaarium.switchboard.vault.VaultPrompt(
+			this,
+			onAnswer = { requestId, decision, typed ->
+				repo.command { vaultOps.answerById(requestId, decision, typed) }
+			},
+			onOpenSession = { team ->
+				startActivity(
+					Intent(this, MainActivity::class.java)
+						.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+						.putExtra(EXTRA_OPEN_TEAM, team),
+				)
+			},
+		)
 		repo.playback.onTransportChanged = { publishTransport() }
 		repo.pushback.scheduler = this
 		// Boot the plugin framework BEFORE the poll loop starts: booting wires the data-plane bridge
@@ -254,10 +267,22 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 			val posted = mutableSetOf<String>()
 			repo.vault.pending.collect { pending ->
 				val ids = if (plugins.isActive("vault")) pending.mapTo(HashSet()) { it.requestId } else emptySet()
-				for (gone in posted - ids) notifications.cancelVaultRequest(gone)
+				for (gone in posted - ids) {
+					notifications.cancelVaultRequest(gone)
+					mainHandler.post { vaultPrompt?.clear(gone) }
+				}
 				posted.retainAll(ids)
 				for (request in pending) {
 					if (request.requestId in ids && posted.add(request.requestId)) notifications.notifyVaultRequest(repo, request)
+				}
+				// The oldest still waiting, so a second request does not shove the first off screen.
+				pending.firstOrNull { it.requestId in ids }?.let { front ->
+					val title = com.atelier_nyaarium.switchboard.vault.requestTitle(
+						front,
+						front.entryId?.let { repo.vaultOps.view(it)?.title },
+					)
+					val who = com.atelier_nyaarium.switchboard.vault.requester(repo.state.value, front)
+					mainHandler.post { vaultPrompt?.show(front, title, who) }
 				}
 			}
 		}
@@ -267,6 +292,7 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 
 	private var transport: SttsTransport? = null
 	private var bubble: QueueBubble? = null
+	private var vaultPrompt: com.atelier_nyaarium.switchboard.vault.VaultPrompt? = null
 
 	/** Held for as long as a run has anything to say. Lives here rather than in the repository, which
 	 * holds no Context by construction, and is driven off the same settled state every other surface
@@ -395,7 +421,12 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 		focus.release()
 		val leaving = bubble
 		bubble = null
-		mainHandler.post { leaving?.release() }
+		val leavingPrompt = vaultPrompt
+		vaultPrompt = null
+		mainHandler.post {
+			leaving?.release()
+			leavingPrompt?.release()
+		}
 		transport?.release()
 		transport = null
 		getSystemService(NotificationManager::class.java).cancel(TRANSPORT_NOTIFICATION_ID)

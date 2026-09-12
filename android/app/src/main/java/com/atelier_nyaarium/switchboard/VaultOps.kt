@@ -173,9 +173,9 @@ internal class VaultOps(
 		return result?.ok == true
 	}
 
-	suspend fun answerById(requestId: String, decision: String): Boolean {
+	suspend fun answerById(requestId: String, decision: String, typedValue: String? = null): Boolean {
 		val pending = manager.request(requestId) ?: return false
-		return answer(pending, decision)
+		return answer(pending, decision, typedValue)
 	}
 
 	fun refreshGrants() {
