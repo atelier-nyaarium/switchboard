@@ -1100,6 +1100,14 @@ Still open, recorded rather than fixed:
   typing; the window set itself is memory.
 - **A failed draft write is silent.** `save` swallows its failure, so a full disk loses the only restart
   copy without saying so.
+- **A renumbered id restores a draft onto the wrong span.** An occurrence-numbered id moves when a
+  same-named sibling is inserted above it, and a draft is keyed by that id. Name and module do not
+  disambiguate, since the sibling shares both. Phase 7's compare-and-swap is where this gets an answer.
+- **The gateway collapses three read outcomes into two.** `workspaceReadOf` throws, and the frame layer
+  turns every throw into a refusal, so a dropped plugin socket reaches the phone as a refusal. The owner
+  reads the truth because the failure word rides in the message, but the code's distinction is lost.
+- **A whole file is pulled for two lines of context.** There is no ranged read, so a window in a large
+  module transfers the module. Cached per module and dropped when its last window closes.
 
 ### Left
 
