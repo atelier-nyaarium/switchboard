@@ -727,7 +727,7 @@ since reads were previously scheduled against a root four resolvers could disagr
 
 # Release 1 - Reading, and Agent Apply
 
-## Phase 1 - One canonical workspace root [DONE]
+## Phase 1 - One canonical workspace root ✅
 
 **Pin:** `6d451f7`, version 3.7.1, on `origin/main` so CI can reach it. Green on biome, tsc, 2730 tests,
 `check:boot`, module residue, Kotlin codegen drift, fixtures and pinning.
@@ -914,3 +914,29 @@ reconciled by re-reading rather than retried blind.
 
 A raw edit banks a `no_act` `RidingAwareness` naming the file, so the agent's model of it is corrected by the
 next message it was going to get anyway. No push, no acknowledgement.
+
+# Painpoints
+
+## Asking where a project lives takes four functions and three processes
+
+`workspaceRoot`, `findProjectPath`, `resolveProject`, `resolveHostWorkdir` and `PROJECT_HOST_PATH` read as
+five spellings of one question. They are not. Two answer in the plugin's space and three in the host's, and
+nothing in a name or a comment says which. Working that out cost a read of all of them, and two auditors
+never did, which is what produced the rejected disagreeing-roots finding.
+
+## The obvious version command lies
+
+`git describe` in `lexicon/` answers a `v3.0.2` tag for a 3.7.x package, because tags there stopped. It is
+the first thing anyone reaches for and it reads as years of drift. It put a wrong fact in front of the owner.
+
+## These phases are not sized for a twelve-step audit lap
+
+Phase 1 was a submodule pointer and a plan correction, and the lap spent ten steps finding nothing to do.
+Phase 6 is one optional schema field and will be the same. Either those fold into their neighbours, or a lap
+covers a release rather than a phase. Worth settling before the remaining laps, not during them.
+
+## The cycle runner's phase text freezes at start
+
+The runner still replays Phase 1's original wording, including the premise this lap rejected. The plan moved
+and the spec shown each step did not. Nothing warns about it, so a later lap could audit against text that no
+longer describes the intent. Read the plan file, never the runner's copy.

@@ -797,6 +797,12 @@ The build derives versions, bundles `dist/`, and commits the release. Do not han
 - Pin moves require a committed submodule change before release.
 - Never install inside `lexicon/`. Nested `node_modules` shadow root dependency pins and produce duplicate packages.
 - A real `node_modules/@nyaa-lexicon` directory is invalid. It must link into `lexicon/`.
+- **The version is in `package.json`, never from `git describe`.** Tags there stopped at `v3.0.2`, so
+  `describe` answers `v3.0.2-119-g7077be2` for a 3.7.0 checkout and reads as years of drift. Compare package
+  versions, and use a revision only to name the pin. Two auditors and one plan misread a seven-commit gap as
+  two minor versions from that tag.
+- The packages link as symlinks, so moving the pin needs no reinstall. Verify with `bun run lint`, then
+  `bun run test` and `bun run check:boot`, since a Lexicon behaviour change is invisible to `tsc`.
 
 ### Installing
 
