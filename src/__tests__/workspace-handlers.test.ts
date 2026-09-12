@@ -202,7 +202,6 @@ describe("the index-backed reads", () => {
 		);
 	});
 
-	// Stale is its own failure: the phone refreshes, where a refusal means the symbol is gone.
 	it("keeps a stale index apart from a missing symbol", async () => {
 		const stale = fakeSession({ symbolSource: { found: false, reason: "the file moved", stale: true } });
 		const gone = fakeSession({ symbolSource: { found: false, reason: "no such symbol" } });
@@ -251,7 +250,6 @@ describe("the index-backed reads", () => {
 		});
 	});
 
-	// A thrown daemon call must reach the phone as a cause, never as a hang.
 	it("answers a thrown op as a failure rather than throwing", async () => {
 		const result = await ask(workspace(), { kind: "outline", path: "src/app.ts" }, unopened);
 		expect(result).toMatchObject({ ok: false, failure: "failed", detail: "the daemon was asked" });

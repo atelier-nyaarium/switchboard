@@ -11,22 +11,20 @@
 export const WORKSPACE_OP_FRAME = "workspace_op";
 export const WORKSPACE_OP_REPLY_FRAME = "workspace_op_reply";
 
-/** Long enough for a cold Lexicon daemon to answer, short enough that the phone is not left hanging. */
 export const WORKSPACE_OP_TIMEOUT_MS = 20_000;
 
-/** A replayed key answers the first result instead of acting twice. Holds past any sane retry. */
+/** Holds past any sane retry. */
 export const WORKSPACE_OP_DEDUPE_MS = 120_000;
 
-/** Bounds what one answer may carry, under the 8 MB relay frame cap with room for the envelope. */
+/** Under the 8 MB relay cap, leaving envelope room. */
 export const MAX_WORKSPACE_OP_BYTES = 4_000_000;
 
-/** A tree answer is paged rather than truncated, so a huge directory is still navigable. */
+/** Paged, never truncated. */
 export const MAX_TREE_ENTRIES = 1_000;
 
 ////////////////////////////////
 //  Interfaces & Types
 
-/** Every op names a workspace-relative path. The plugin decides what that means; the phone never does. */
 export type WorkspaceOp =
 	| { kind: "tree"; path: string }
 	| { kind: "read"; path: string }
@@ -37,17 +35,17 @@ export type WorkspaceOp =
 export interface TreeEntry {
 	name: string;
 	directory: boolean;
-	/** Absent for a directory, where a child count is what the phone shows instead. */
+	/** A directory carries a child count instead. */
 	bytes?: number;
 	children?: number;
 }
 
 export interface TreeAnswer {
 	kind: "tree";
-	/** Workspace-relative, empty at the root, so the phone renders a path it did not compose. */
+	/** Empty is the workspace root. */
 	path: string;
 	entries: TreeEntry[];
-	/** True when `MAX_TREE_ENTRIES` cut the list, so the phone says so rather than implying the end. */
+	/** The phone says so rather than implying the end. */
 	truncated: boolean;
 }
 
@@ -62,7 +60,7 @@ export interface OutlineSymbol {
 	symbolId: string;
 	name: string;
 	symbolKind: string;
-	/** Absent at the top level. The phone nests by this rather than by indentation in a string. */
+	/** Absent at the top level; the phone nests by it. */
 	containerId?: string;
 	signature?: string;
 	startLine?: number;
@@ -89,7 +87,7 @@ export interface SymbolSourceAnswer {
 export interface KnowledgeAnswer {
 	kind: "symbolKnowledge";
 	symbolId: string;
-	/** Rendered by Lexicon. The phone displays it and parses nothing out of it. */
+	/** Opaque to the phone. */
 	text: string;
 }
 

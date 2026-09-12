@@ -27,7 +27,6 @@ describe("correlating a workspace op with its reply", () => {
 		expect(clock.scheduled()).toBe(0);
 	});
 
-	// The fence: an answer from a replaced socket must not land on its successor's request.
 	it("drops a reply whose generation was replaced", async () => {
 		const clock = clockOf();
 		const coordinator = new WorkspaceOpCoordinator(clock);
@@ -64,7 +63,6 @@ describe("correlating a workspace op with its reply", () => {
 		await expect(pending).resolves.toEqual(answered);
 	});
 
-	// A dropped socket must not settle what another session is waiting on.
 	it("fails only the generation that dropped", async () => {
 		const clock = clockOf();
 		const coordinator = new WorkspaceOpCoordinator(clock);
