@@ -922,7 +922,16 @@ Four real findings, fixed:
    now runs first: a replaced socket can never answer what it was carrying.
 4. **The plane's timeout was shorter than Lexicon's patience.** A cold daemon could finish after the
    Gateway gave up, so the owner saw a timeout while the work completed. The index-backed handlers now
-   run under their own budget at three quarters of the plane's, answering with a cause instead.
+   run under a budget at three quarters of the plane's, answering with a cause instead.
+
+   The FIRST attempt at this was itself wrong, and the re-audit caught it: a budget per CALL let an
+   outline spend the full budget twice, once opening the session and once asking, which together outlast
+   the plane's timeout and reinstate the blind timeout being fixed. It is now ONE deadline for the whole
+   op, the shape `refResolve` already uses. The budget is injectable so the test proving it runs in
+   200 ms rather than 15 seconds.
+
+   The test for it did not bite on the first try either: a fast fake session left only one slow call, so
+   per-call and shared behaved alike. Both calls have to be slow for the difference to show.
 
 Also taken: measuring an answer's text rather than serialising the whole answer to weigh it, which
 avoided a second full copy of a large file.

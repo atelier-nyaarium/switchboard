@@ -254,4 +254,22 @@ describe("the index-backed reads", () => {
 		const result = await ask(workspace(), { kind: "outline", path: "src/app.ts" }, unopened);
 		expect(result).toMatchObject({ ok: false, failure: "failed", detail: "the daemon was asked" });
 	});
+
+	// BOTH calls slow is the defect condition: a budget each would spend the budget twice.
+	it("spends ONE deadline across both index calls, not a budget each", async () => {
+		const slowThenHangs = async (): Promise<Session> => {
+			await new Promise((resolve) => setTimeout(resolve, 150));
+			return { outlineModule: () => new Promise(() => {}) } as unknown as Session;
+		};
+		const started = Date.now();
+
+		const result = await answerWorkspaceOp(
+			{ root: () => workspace(), session: slowThenHangs, budgetMs: 200 },
+			{ kind: "outline", path: "src/app.ts" },
+		);
+
+		// Shared: 150 then 50. Per call: 150 then 200.
+		expect(Date.now() - started).toBeLessThan(300);
+		expect(result).toMatchObject({ ok: false, failure: "failed" });
+	});
 });

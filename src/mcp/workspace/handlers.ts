@@ -29,6 +29,8 @@ export interface HandlerDeps {
 	root: () => string;
 	/** Lazy: an op that needs no index never opens a socket. */
 	session: () => Promise<Session>;
+	/** Defaults to `INDEX_BUDGET_MS`; a test drives it short. */
+	budgetMs?: number;
 }
 
 ////////////////////////////////
@@ -43,13 +45,19 @@ const failed = (detail: string): WorkspaceOpResult => ({ ok: false, failure: "fa
  */
 const INDEX_BUDGET_MS = Math.floor(WORKSPACE_OP_TIMEOUT_MS * 0.75);
 
-async function withinBudget<T>(work: Promise<T>): Promise<T> {
+/**
+ * ONE deadline for the whole op, never a budget per call: two calls each given the full budget can
+ * together outlast the plane's timeout, which is the blind timeout this exists to prevent.
+ */
+async function byDeadline<T>(deadline: number, work: () => Promise<T>): Promise<T> {
+	const left = deadline - Date.now();
+	if (left <= 0) throw new Error("the index did not answer in time");
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const spent = new Promise<never>((_, reject) => {
-		timer = setTimeout(() => reject(new Error("the index did not answer in time")), INDEX_BUDGET_MS);
+		timer = setTimeout(() => reject(new Error("the index did not answer in time")), left);
 	});
 	try {
-		return await Promise.race([work, spent]);
+		return await Promise.race([work(), spent]);
 	} finally {
 		clearTimeout(timer);
 	}
@@ -147,13 +155,18 @@ function readOf(root: string, written: string): WorkspaceOpResult {
 	return { ok: true, answer: { kind: "read", path: place.relative, text, lines: text.split("\n").length } };
 }
 
-async function outlineOf(deps: HandlerDeps, root: string, written: string): Promise<WorkspaceOpResult> {
+async function outlineOf(
+	deps: HandlerDeps,
+	root: string,
+	written: string,
+	deadline: number,
+): Promise<WorkspaceOpResult> {
 	const place = confine(root, written);
 	if (!place.ok) return refused(place.refusal.detail);
 	if (place.relative === "") return refused("a module path is required");
 
-	const session = await withinBudget(deps.session());
-	const summaries = await withinBudget(session.outlineModule({ module: place.relative }));
+	const session = await byDeadline(deadline, deps.session);
+	const summaries = await byDeadline(deadline, () => session.outlineModule({ module: place.relative }));
 	const symbols: OutlineSymbol[] = summaries.map((summary) => ({
 		symbolId: summary.symbolId,
 		name: summary.name,
@@ -166,10 +179,15 @@ async function outlineOf(deps: HandlerDeps, root: string, written: string): Prom
 	return { ok: true, answer: { kind: "outline", path: place.relative, symbols } };
 }
 
-async function symbolSourceOf(deps: HandlerDeps, root: string, symbolId: string): Promise<WorkspaceOpResult> {
+async function symbolSourceOf(
+	deps: HandlerDeps,
+	root: string,
+	symbolId: string,
+	deadline: number,
+): Promise<WorkspaceOpResult> {
 	if (confinedModule(root, symbolId) === null) return refused("that symbol's module is not served");
-	const session = await withinBudget(deps.session());
-	const answer = await withinBudget(session.symbolSource({ symbolId }));
+	const session = await byDeadline(deadline, deps.session);
+	const answer = await byDeadline(deadline, () => session.symbolSource({ symbolId }));
 	if (!answer.found) {
 		return answer.stale === true ? { ok: false, failure: "stale", detail: answer.reason } : refused(answer.reason);
 	}
@@ -189,10 +207,15 @@ async function symbolSourceOf(deps: HandlerDeps, root: string, symbolId: string)
 	};
 }
 
-async function knowledgeOf(deps: HandlerDeps, root: string, symbolId: string): Promise<WorkspaceOpResult> {
+async function knowledgeOf(
+	deps: HandlerDeps,
+	root: string,
+	symbolId: string,
+	deadline: number,
+): Promise<WorkspaceOpResult> {
 	if (confinedModule(root, symbolId) === null) return refused("that symbol's module is not served");
-	const session = await withinBudget(deps.session());
-	const described = await withinBudget(session.describe({ symbolId }));
+	const session = await byDeadline(deadline, deps.session);
+	const described = await byDeadline(deadline, () => session.describe({ symbolId }));
 	if (described === null) return refused(`no symbol with that id is indexed`);
 	return { ok: true, answer: { kind: "symbolKnowledge", symbolId, text: JSON.stringify(described) } };
 }
@@ -200,6 +223,7 @@ async function knowledgeOf(deps: HandlerDeps, root: string, symbolId: string): P
 /** A thrown op is answered as `failed`, never swallowed, so the phone sees a cause rather than a hang. */
 export async function answerWorkspaceOp(deps: HandlerDeps, op: WorkspaceOp): Promise<WorkspaceOpResult> {
 	const root = deps.root();
+	const deadline = Date.now() + (deps.budgetMs ?? INDEX_BUDGET_MS);
 	try {
 		switch (op.kind) {
 			case "tree":
@@ -207,11 +231,11 @@ export async function answerWorkspaceOp(deps: HandlerDeps, op: WorkspaceOp): Pro
 			case "read":
 				return withinCap(readOf(root, op.path));
 			case "outline":
-				return withinCap(await outlineOf(deps, root, op.path));
+				return withinCap(await outlineOf(deps, root, op.path, deadline));
 			case "symbolSource":
-				return withinCap(await symbolSourceOf(deps, root, op.symbolId));
+				return withinCap(await symbolSourceOf(deps, root, op.symbolId, deadline));
 			case "symbolKnowledge":
-				return withinCap(await knowledgeOf(deps, root, op.symbolId));
+				return withinCap(await knowledgeOf(deps, root, op.symbolId, deadline));
 		}
 	} catch (error) {
 		return failed(error instanceof Error ? error.message : String(error));
