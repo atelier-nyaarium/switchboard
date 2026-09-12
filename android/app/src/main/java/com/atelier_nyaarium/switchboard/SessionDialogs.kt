@@ -19,11 +19,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -234,7 +230,6 @@ fun CreateSessionDialog(
 	// Null until picked. `host` is not a neutral default - it is one real target among several, so
 	// preselecting it lets a mis-tap spawn on the wrong machine's shell in silence.
 	var selectedProject by remember { mutableStateOf(initialProject(rememberedProject, projects)) }
-	var projectMenuOpen by remember { mutableStateOf(false) }
 	// A free-form label: the gateway mints the session id, so the label is not slug-constrained.
 	var name by remember { mutableStateOf("") }
 	var dir by remember { mutableStateOf(TextFieldValue("")) }
@@ -252,44 +247,22 @@ fun CreateSessionDialog(
 		title = { Text(if (gateway.isEmpty()) "New session" else "New session on $gateway") },
 		text = {
 			Column {
-				ExposedDropdownMenuBox(
-					expanded = projectMenuOpen,
-					onExpandedChange = { projectMenuOpen = it },
-					modifier = Modifier.fillMaxWidth(),
-				) {
-					OutlinedTextField(
-						// The SAME label the menu rows use. These disagreed once: the field showed the
-						// wire word while the open menu showed the label, so one thing read as `host`
-						// and `WSL` at the same time depending on whether the menu was open.
-						value = selectedProject?.let { hostSpawnLabel(it, projects) } ?: "",
-						onValueChange = {},
-						readOnly = true,
-						label = { Text("Project") },
-						placeholder = { Text("Choose one") },
-						trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = projectMenuOpen) },
-						singleLine = true,
-						modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
-					)
-					ExposedDropdownMenu(expanded = projectMenuOpen, onDismissRequest = { projectMenuOpen = false }) {
-						for (p in projects) {
-							DropdownMenuItem(
-								// Label only. `selectedProject` keeps the wire word, which is an address
-								// segment keying session records, resume state and board work.
-								text = { Text(hostSpawnLabel(p, projects)) },
-								onClick = hapticClick {
-									// The picked directory belongs to the filesystem it was browsed on, so
-									// changing spawn point retires it. Carrying it over lets a `~/project`
-									// ride onto a Windows session (whose validator accepts POSIX shapes,
-									// then refuses the UNC it translates to) and a `C:/...` ride onto the
-									// host, where it is simply not a path.
-									if (p != selectedProject) dir = TextFieldValue("")
-									selectedProject = p
-									projectMenuOpen = false
-								},
-							)
-						}
-					}
-				}
+				// `selectedProject` keeps the wire word, which is an address segment keying session
+				// records, resume state and board work; the label is shown and never stored.
+				PickMenu(
+					label = "Project",
+					choices = projects,
+					picked = selectedProject,
+					labelOf = { hostSpawnLabel(it, projects) },
+					onPick = { picked ->
+						// The picked directory belongs to the filesystem it was browsed on, so changing
+						// spawn point retires it. Carrying it over lets a `~/project` ride onto a Windows
+						// session (whose validator accepts POSIX shapes, then refuses the UNC it
+						// translates to) and a `C:/...` ride onto the host, where it is not a path.
+						if (picked != selectedProject) dir = TextFieldValue("")
+						selectedProject = picked
+					},
+				)
 				Spacer(Modifier.height(12.dp))
 				OutlinedTextField(
 					value = name,
