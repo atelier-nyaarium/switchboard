@@ -298,15 +298,20 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 
 	private fun idOf(name: String) = "lexicon typescript $module $name."
 
-	private fun <T> refusedBySecond(target: WorkspaceTarget, answer: () -> T): WorkspaceAnswer<T> =
-		if (target.gatewayId == SECOND_GATEWAY) {
-			WorkspaceAnswer.Refused("this workspace is not served here")
-		} else {
-			WorkspaceAnswer.Read(answer())
+	/**
+	 * Keyed by the SESSION, not its Gateway, since that is what a workspace belongs to. One session
+	 * refuses so the refusal notice is reachable, and the empty Gateway answers an empty workspace,
+	 * which is not the same as one that could not be read.
+	 */
+	private fun <T> asSeeded(target: WorkspaceTarget, empty: () -> T, answer: () -> T): WorkspaceAnswer<T> =
+		when {
+			target.address.endsWith(".other") -> WorkspaceAnswer.Refused("this workspace is not served here")
+			target.gatewayId == EMPTY_GATEWAY -> WorkspaceAnswer.Read(empty())
+			else -> WorkspaceAnswer.Read(answer())
 		}
 
 	override suspend fun tree(target: WorkspaceTarget, path: String) =
-		refusedBySecond(target) {
+		asSeeded(target, { WorkspaceTreeAnswer(path = path, truncated = false, entries = emptyList()) }) {
 			WorkspaceTreeAnswer(
 				path = path,
 				truncated = false,
@@ -322,12 +327,12 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 		}
 
 	override suspend fun file(target: WorkspaceTarget, path: String) =
-		refusedBySecond(target) {
+		asSeeded(target, { WorkspaceReadAnswer(path = path, text = "", lines = 0) }) {
 			WorkspaceReadAnswer(path = path, text = file.joinToString("\n"), lines = file.size.toLong())
 		}
 
 	override suspend fun outline(target: WorkspaceTarget, path: String) =
-		refusedBySecond(target) {
+		asSeeded(target, { WorkspaceOutlineAnswer(path = path, symbols = emptyList()) }) {
 			WorkspaceOutlineAnswer(
 				path = path,
 				symbols = listOf(
@@ -350,7 +355,7 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 		}
 
 	override suspend fun symbolSource(target: WorkspaceTarget, symbolId: String) =
-		refusedBySecond(target) {
+		asSeeded(target, { blankSpan(symbolId) }) {
 			val wholeFunction = symbolId.contains("routineRefusal")
 			val start = if (wholeFunction) 6 else 3
 			val end = if (wholeFunction) 11 else 4
@@ -366,7 +371,7 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 		}
 
 	override suspend fun knowledge(target: WorkspaceTarget, symbolId: String) =
-		refusedBySecond(target) {
+		asSeeded(target, { WorkspaceKnowledgeAnswer(symbolId = symbolId, text = "") }) {
 			WorkspaceKnowledgeAnswer(
 				symbolId = symbolId,
 				text = "Describe: returns the reason a routine cannot be stored, or null when it can.\n\n" +
@@ -374,4 +379,15 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 					"calculator rather than trusting the parse.",
 			)
 		}
+
+	private fun blankSpan(symbolId: String) =
+		WorkspaceSymbolSourceAnswer(
+			symbolId = symbolId,
+			module = module,
+			name = "nothing",
+			text = "",
+			startLine = 1,
+			endLine = 1,
+			spanHash = "sandbox-empty",
+		)
 }

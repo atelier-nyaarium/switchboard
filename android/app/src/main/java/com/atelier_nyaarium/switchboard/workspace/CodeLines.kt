@@ -11,6 +11,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -25,6 +28,13 @@ internal object Highlight {
 	val band = Color(0x33388BFD)
 	val mark = Color(0x61D29922)
 }
+
+/** The amber mark over the symbol's own name, which is the other half of the ref viewer's vocabulary. */
+private fun lineText(line: CodeLine): AnnotatedString =
+	buildAnnotatedString {
+		append(line.text)
+		line.mark?.let { addStyle(SpanStyle(background = Highlight.mark), it.first, it.last + 1) }
+	}
 
 /** Wrapping rather than scrolling sideways, which is what the ref viewer's document already does. */
 @Composable
@@ -46,7 +56,7 @@ internal fun CodeLines(lines: List<CodeLine>, modifier: Modifier = Modifier) {
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 				Text(
-					line.text,
+					lineText(line),
 					Modifier.weight(1f).padding(end = 8.dp),
 					style = MaterialTheme.typography.bodySmall,
 					fontFamily = FontFamily.Monospace,

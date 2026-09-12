@@ -31,7 +31,7 @@ import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
 import com.atelier_nyaarium.switchboard.childPath
 import com.atelier_nyaarium.switchboard.hapticClick
-import com.atelier_nyaarium.switchboard.prettySize
+import com.atelier_nyaarium.switchboard.opensDirectory
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeEntry
 
@@ -63,9 +63,9 @@ internal fun WorkspaceTree(
 							entry = entry,
 							onClick = {
 								val child = childPath(path, entry.name)
-								if (entry.directory) onOpenDirectory(child) else onOpenOutline(child)
+								if (opensDirectory(entry)) onOpenDirectory(child) else onOpenOutline(child)
 							},
-							onLongClick = { if (!entry.directory) sheetFor = entry.name },
+							onLongClick = { if (!opensDirectory(entry)) sheetFor = entry.name },
 						)
 						HorizontalDivider()
 					}
@@ -127,7 +127,7 @@ private fun TreeRow(entry: WorkspaceTreeEntry, onClick: () -> Unit, onLongClick:
 				maxLines = 1,
 				overflow = TextOverflow.Ellipsis,
 			)
-			treeMeta(entry)?.let {
+			com.atelier_nyaarium.switchboard.treeMeta(entry)?.let {
 				Text(
 					it,
 					style = MaterialTheme.typography.labelSmall,
@@ -138,7 +138,3 @@ private fun TreeRow(entry: WorkspaceTreeEntry, onClick: () -> Unit, onLongClick:
 		}
 	}
 }
-
-/** A directory counts its children; a file shows its size. Neither is shown as zero when absent. */
-private fun treeMeta(entry: WorkspaceTreeEntry): String? =
-	if (entry.directory) entry.children?.toString() else prettySize(entry.bytes)

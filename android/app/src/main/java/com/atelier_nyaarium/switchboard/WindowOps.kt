@@ -128,7 +128,7 @@ internal class WindowOps(
 	fun type(target: WorkspaceTarget, symbolId: String, text: String) {
 		val window = windowsOf(target).firstOrNull { it.descriptor.symbolId == symbolId } ?: return
 		replace(target, symbolId, window.copy(draft = text))
-		repoScope.launch { drafts.save(target, symbolId, text) }
+		repoScope.launch { if (holdsDraft(windowsOf(target), symbolId, text)) drafts.save(target, symbolId, text) }
 	}
 
 	/**

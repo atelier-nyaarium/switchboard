@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineSymbol
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeEntry
 
 /**
  * Every decision the window surface makes. None of it lives in a Composable: there is no
@@ -128,18 +129,60 @@ internal fun withWindow(held: List<Window>, added: Window): List<Window> =
 internal fun withoutWindow(held: List<Window>, symbolId: String): List<Window> =
 	held.filterNot { it.descriptor.symbolId == symbolId }
 
+/**
+ * Whether the drafts on disk should still hold this text. Memory is the authority, so a save queued
+ * before a close or a refresh does not land after the clear that was meant to discard it.
+ */
+internal fun holdsDraft(held: List<Window>, symbolId: String, text: String): Boolean =
+	held.any { it.descriptor.symbolId == symbolId && it.draft == text }
+
 /** Only what the owner actually changed, so an untouched span is never submitted. */
 internal fun editedWindows(held: List<Window>): List<Window> = held.filter { it.edited }
 
-/** One rendered line: its number as the file counts them, and whether the blue band marks it. */
-internal data class CodeLine(val number: Int, val text: String, val banded: Boolean = false)
+/**
+ * One rendered line: its number as the file counts them, whether the blue band marks it, and the
+ * half-open range of `text` the amber mark covers.
+ */
+internal data class CodeLine(
+	val number: Int,
+	val text: String,
+	val banded: Boolean = false,
+	val mark: IntRange? = null,
+)
+
+/**
+ * Where the symbol's own name sits in a line, which is what the amber mark covers. The ref viewer
+ * marks the same thing; here the range is found by name, since the answer carries no name range.
+ *
+ * Only a whole word counts, or `f` would mark the `f` inside `offset`.
+ */
+internal fun markOf(text: String, name: String): IntRange? {
+	if (name.isEmpty()) return null
+	var from = text.indexOf(name)
+	while (from >= 0) {
+		val before = text.getOrNull(from - 1)
+		val after = text.getOrNull(from + name.length)
+		if (!before.isNamePart() && !after.isNamePart()) return from until from + name.length
+		from = text.indexOf(name, from + 1)
+	}
+	return null
+}
+
+private fun Char?.isNamePart(): Boolean = this != null && (isLetterOrDigit() || this == '_' || this == '$')
 
 /**
  * A symbol's own source, numbered as the file numbers it. Unbanded: the band says which lines of a
  * surrounding file are in range, and on its own there is nothing for it to say.
  */
 internal fun spanLines(answer: WorkspaceSymbolSourceAnswer): List<CodeLine> =
-	answer.text.split("\n").mapIndexed { i, text -> CodeLine(answer.startLine.toInt() + i, text) }
+	marked(answer.text.split("\n").mapIndexed { i, text -> CodeLine(answer.startLine.toInt() + i, text) }, answer.name)
+
+/** The name is marked once, on the first line that holds it, as the declaration rather than a use. */
+private fun marked(lines: List<CodeLine>, name: String): List<CodeLine> {
+	val at = lines.indexOfFirst { markOf(it.text, name) != null }
+	if (at < 0) return lines
+	return lines.mapIndexed { i, line -> if (i == at) line.copy(mark = markOf(line.text, name)) else line }
+}
 
 /**
  * A window's lines, with `context` lines of the file either side. Without the file it is the span
@@ -157,7 +200,10 @@ internal fun windowLines(
 ): List<CodeLine> {
 	val start = window.descriptor.startLine.toInt()
 	val end = window.descriptor.endLine.toInt()
-	val span = window.shown.split("\n").mapIndexed { i, text -> CodeLine(start + i, text, true) }
+	val span = marked(
+		window.shown.split("\n").mapIndexed { i, text -> CodeLine(start + i, text, true) },
+		window.descriptor.name,
+	)
 	if (file == null) return span
 	// Context stops at the neighbouring window, or the gap between two cards would count lines both draw.
 	val first = maxOf(1, start - context, (previousEnd ?: 0) + 1)
@@ -168,10 +214,16 @@ internal fun windowLines(
 	return above + span + below
 }
 
-/** How many lines the viewer skipped between two windows, or null when they touch. */
-internal fun gapBetween(above: Window, below: Window): Int? {
-	val skipped = below.descriptor.startLine.toInt() - above.descriptor.endLine.toInt() - 1
-	return skipped.takeIf { it > 0 }
+/**
+ * How many lines neither card draws between two windows, or null when the two together cover the gap.
+ * Counting the raw distance would announce a skip over lines both cards are showing as context.
+ */
+internal fun gapBetween(above: Window, below: Window, context: Int = 2): Int? {
+	val start = below.descriptor.startLine.toInt()
+	val end = above.descriptor.endLine.toInt()
+	val lastDrawn = minOf(end + context, start - 1)
+	val firstDrawn = maxOf(start - context, end + 1)
+	return (firstDrawn - lastDrawn - 1).takeIf { it > 0 }
 }
 
 /** Windows in file order, since they were opened in tap order and are drawn down one file. */
@@ -194,3 +246,43 @@ internal fun outlineKinds(symbols: List<WorkspaceOutlineSymbol>): List<OutlineKi
 
 internal fun outlineOfKind(symbols: List<WorkspaceOutlineSymbol>, kind: String?): List<WorkspaceOutlineSymbol> =
 	if (kind == null) symbols else symbols.filter { it.symbolKind == kind }
+
+/**
+ * How deep a row sits under its container, by walking `containerId` up. A container the answer does
+ * not carry, and a cycle, both indent nothing rather than guessing or walking forever.
+ */
+internal fun outlineDepth(symbols: List<WorkspaceOutlineSymbol>, symbol: WorkspaceOutlineSymbol): Int {
+	val byId = symbols.associateBy { it.symbolId }
+	val seen = mutableSetOf(symbol.symbolId)
+	var depth = 0
+	var container = symbol.containerId
+	while (container != null && byId.containsKey(container) && seen.add(container)) {
+		depth++
+		container = byId.getValue(container).containerId
+	}
+	return depth
+}
+
+/** A tap on a tree row: a directory opens, a file goes to its outline. */
+internal fun opensDirectory(entry: WorkspaceTreeEntry): Boolean = entry.directory
+
+/** A directory counts its children, a file shows its size, and neither shows a missing one as zero. */
+internal fun treeMeta(entry: WorkspaceTreeEntry): String? =
+	if (entry.directory) entry.children?.toString() else prettySize(entry.bytes)
+
+/** The files a window view reads for context, each once however many windows it holds. */
+internal fun modulesOf(windows: List<Window>): List<String> = windows.map { it.descriptor.module }.distinct()
+
+/** What bounds a window's context: the neighbours either side, but only within the same file. */
+internal fun neighbourBounds(ordered: List<Window>, index: Int): Pair<Int?, Int?> {
+	val module = ordered[index].descriptor.module
+	val above = ordered.getOrNull(index - 1)?.takeIf { it.descriptor.module == module }
+	val below = ordered.getOrNull(index + 1)?.takeIf { it.descriptor.module == module }
+	return above?.descriptor?.endLine?.toInt() to below?.descriptor?.startLine?.toInt()
+}
+
+/** A module is named above its first window, the first included, or one file would go unnamed. */
+internal fun opensModule(ordered: List<Window>, index: Int): Boolean {
+	val above = ordered.getOrNull(index - 1) ?: return true
+	return above.descriptor.module != ordered[index].descriptor.module
+}

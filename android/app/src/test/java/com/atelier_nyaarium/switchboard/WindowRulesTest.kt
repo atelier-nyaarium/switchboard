@@ -2,9 +2,9 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineSymbol
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeEntry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -12,29 +12,36 @@ import org.junit.Test
 private const val F_ID = "lexicon typescript src/a.ts f()."
 private const val G_ID = "lexicon typescript src/a.ts g()."
 
+/** The range is DERIVED from the text, or a fixture claims six lines while holding one. */
+private fun answer(
+	text: String,
+	hash: String,
+	symbolId: String = F_ID,
+	startLine: Long = 4,
+): WorkspaceSymbolSourceAnswer =
+	WorkspaceSymbolSourceAnswer(
+		symbolId = symbolId,
+		module = "src/a.ts",
+		name = "f",
+		text = text,
+		startLine = startLine,
+		endLine = startLine + text.split("\n").size - 1,
+		spanHash = hash,
+	)
+
+private fun window(
+	text: String = "old",
+	hash: String = "h1",
+	draft: String? = null,
+	symbolId: String = F_ID,
+	startLine: Long = 4,
+): Window = Window(descriptor = descriptorOf(answer(text, hash, symbolId, startLine)), original = text, draft = draft)
+
+private fun outlineSymbol(name: String, kind: String) =
+	WorkspaceOutlineSymbol(symbolId = "lexicon typescript src/a.ts $name.", name = name, symbolKind = kind)
+
 class WindowRulesTest {
-	private fun answer(text: String, hash: String, symbolId: String = F_ID): WorkspaceSymbolSourceAnswer =
-		WorkspaceSymbolSourceAnswer(
-			symbolId = symbolId,
-			module = "src/a.ts",
-			name = "f",
-			text = text,
-			startLine = 4,
-			endLine = 9,
-			spanHash = hash,
-		)
-
-	private fun window(text: String = "old", hash: String = "h1", draft: String? = null): Window =
-		Window(descriptor = descriptorOf(answer(text, hash)), original = text, draft = draft)
-
-	@Test
-	fun `two sessions of one gateway never share a key`() {
-		assertNotEquals(
-			WorkspaceTarget(gatewayId = "sakura", address = "home.sakura.host.aaa").key,
-			WorkspaceTarget(gatewayId = "sakura", address = "home.sakura.host.bbb").key,
-		)
-	}
-
+	// Typing the original back is not an edit, and nothing else would notice if it were.
 	@Test
 	fun `a draft equal to the original is not an edit`() {
 		assertFalse(window().edited)
@@ -79,14 +86,9 @@ class WindowRulesTest {
 	}
 
 	@Test
-	fun `an untouched window has nothing to ask about`() {
-		assertNull(agentRequestOf(window()))
-	}
-
-	@Test
 	fun `a long press accumulates, and the same symbol twice adds nothing`() {
 		val f = window()
-		val g = Window(descriptor = descriptorOf(answer("b", "h2", G_ID)), original = "b")
+		val g = window(text = "b", hash = "h2", symbolId = G_ID)
 
 		val both = withWindow(withWindow(emptyList(), f), g)
 
@@ -104,9 +106,10 @@ class WindowRulesTest {
 
 	@Test
 	fun `only edited windows are submitted`() {
-		val edited = Window(descriptor = descriptorOf(answer("b", "h2", G_ID)), original = "b", draft = "c")
+		val edited = window(text = "b", hash = "h2", symbolId = G_ID, draft = "c")
 
 		assertEquals(listOf(edited), editedWindows(listOf(window(), edited)))
+		assertNull(agentRequestOf(window()))
 	}
 
 	// Line numbers arrive one-based, so a span starting at 4 draws its first line as 4.
@@ -142,51 +145,149 @@ class WindowRulesTest {
 		)
 	}
 
-	// A span at the very top or bottom must not ask the file for a line it does not have.
+	// A span at either end of a file must not ask it for a line it does not have.
 	@Test
 	fun `context stops at the file's edges`() {
-		val lines = windowLines(window(text = "old"), listOf("old"))
+		val file = listOf("first", "middle", "last")
 
-		assertEquals(listOf(CodeLine(4, "old", true)), lines)
+		assertEquals(
+			listOf(CodeLine(1, "first", true), CodeLine(2, "middle"), CodeLine(3, "last")),
+			windowLines(window(text = "first", startLine = 1), file),
+		)
+		assertEquals(
+			listOf(CodeLine(1, "first"), CodeLine(2, "middle"), CodeLine(3, "last", true)),
+			windowLines(window(text = "last", startLine = 3), file),
+		)
 	}
 
 	// Two cards would otherwise draw the same lines, with a gap count that denies it.
 	@Test
 	fun `context stops at the neighbouring window`() {
 		val file = (1..12).map { "line $it" }
-		val oneLine = window().let { it.copy(descriptor = it.descriptor.copy(endLine = 4)) }
 
 		assertEquals(
 			listOf(CodeLine(3, "line 3"), CodeLine(4, "old", true), CodeLine(5, "line 5")),
-			windowLines(oneLine, file, previousEnd = 2, nextStart = 6),
+			windowLines(window(), file, previousEnd = 2, nextStart = 6),
 		)
 	}
 
+	// The trailing numbers are the file's, so a draft that grew shows a jump rather than invented lines.
 	@Test
-	fun `a gap is the lines the viewer skipped, and touching windows have none`() {
-		val first = window()
-		val next = Window(
-			descriptor = descriptorOf(answer("x", "h2", G_ID)).copy(startLine = 20, endLine = 24),
-			original = "x",
-		)
-		val touching = Window(
-			descriptor = descriptorOf(answer("x", "h3", G_ID)).copy(startLine = 10, endLine = 12),
-			original = "x",
-		)
+	fun `a draft that grew keeps the file's numbering below it`() {
+		val file = (1..8).map { "line $it" }
 
-		assertEquals(10, gapBetween(first, next))
+		assertEquals(
+			listOf(
+				CodeLine(2, "line 2"),
+				CodeLine(3, "line 3"),
+				CodeLine(4, "mine", true),
+				CodeLine(5, "and more", true),
+				CodeLine(6, "and more still", true),
+				CodeLine(5, "line 5"),
+				CodeLine(6, "line 6"),
+			),
+			windowLines(window(draft = "mine\nand more\nand more still"), file),
+		)
+	}
+
+	// The count is what neither card draws, or it announces a skip over lines both are showing.
+	@Test
+	fun `a gap counts only the lines no card draws`() {
+		val first = window()
+		val far = window(text = "x", hash = "h2", symbolId = G_ID, startLine = 20)
+		val touching = window(text = "x", hash = "h3", symbolId = G_ID, startLine = 5)
+		val coveredByContext = window(text = "x", hash = "h4", symbolId = G_ID, startLine = 6)
+
+		assertEquals(11, gapBetween(first, far))
 		assertNull(gapBetween(first, touching))
+		assertNull(gapBetween(first, coveredByContext))
 	}
 
 	@Test
 	fun `windows are drawn in file order, not tap order`() {
 		val early = window()
-		val late = Window(
-			descriptor = descriptorOf(answer("x", "h2", G_ID)).copy(startLine = 90, endLine = 95),
-			original = "x",
-		)
+		val late = window(text = "x", hash = "h2", symbolId = G_ID, startLine = 90)
 
 		assertEquals(listOf(early, late), inFileOrder(listOf(late, early)))
+	}
+
+	// A whole word only, or a one-letter name marks the letter inside every other identifier.
+	@Test
+	fun `the amber mark covers the name and nothing that merely contains it`() {
+		assertEquals(13 until 14, markOf("export const f = 1;", "f"))
+		assertNull(markOf("const offset = 1;", "f"))
+		assertNull(markOf("nothing here", "f"))
+	}
+
+	@Test
+	fun `the mark lands on the first line holding the name, not every line`() {
+		val lines = spanLines(answer("/** about f */\nexport function f() {}\n\tf();", "h1"))
+
+		assertEquals(listOf(10 until 11, null, null), lines.map { it.mark })
+	}
+
+	@Test
+	fun `a nested declaration is indented under its container`() {
+		val parent = outlineSymbol("Shop", "class")
+		val child = outlineSymbol("add", "method").copy(containerId = parent.symbolId)
+		val grandchild = outlineSymbol("qty", "parameter").copy(containerId = child.symbolId)
+		val symbols = listOf(parent, child, grandchild)
+
+		assertEquals(0, outlineDepth(symbols, parent))
+		assertEquals(1, outlineDepth(symbols, child))
+		assertEquals(2, outlineDepth(symbols, grandchild))
+	}
+
+	// A container the answer does not carry is not a reason to indent, nor to walk forever.
+	@Test
+	fun `an unknown or circular container indents nothing`() {
+		val orphan = outlineSymbol("a", "const").copy(containerId = "lexicon typescript src/a.ts gone.")
+		val loop = outlineSymbol("b", "const").copy(containerId = "lexicon typescript src/a.ts b.")
+
+		assertEquals(0, outlineDepth(listOf(orphan), orphan))
+		assertEquals(0, outlineDepth(listOf(loop), loop))
+	}
+
+	@Test
+	fun `a directory counts children and a file shows its size`() {
+		assertEquals("4", treeMeta(WorkspaceTreeEntry(name = "src", directory = true, children = 4)))
+		assertEquals("9 KB", treeMeta(WorkspaceTreeEntry(name = "a.ts", directory = false, bytes = 9_431)))
+		assertNull(treeMeta(WorkspaceTreeEntry(name = "a.ts", directory = false)))
+		assertTrue(opensDirectory(WorkspaceTreeEntry(name = "src", directory = true)))
+		assertFalse(opensDirectory(WorkspaceTreeEntry(name = "a.ts", directory = false)))
+	}
+
+	@Test
+	fun `a file is read once however many windows it holds`() {
+		val a = window()
+		val b = window(text = "x", hash = "h2", symbolId = G_ID, startLine = 20)
+
+		assertEquals(listOf("src/a.ts"), modulesOf(listOf(a, b)))
+	}
+
+	// A neighbour in another file bounds nothing, or one file's window would clip another's context.
+	@Test
+	fun `only a neighbour in the same file bounds a window`() {
+		val first = window()
+		val second = window(text = "x", hash = "h2", symbolId = G_ID, startLine = 20)
+		val elsewhere = second.let { it.copy(descriptor = it.descriptor.copy(module = "src/b.ts")) }
+
+		assertEquals(null to 20, neighbourBounds(listOf(first, second), 0))
+		assertEquals(4 to null, neighbourBounds(listOf(first, second), 1))
+		assertEquals(null to null, neighbourBounds(listOf(first, elsewhere), 1))
+		assertFalse(opensModule(listOf(first, second), 1))
+		assertTrue(opensModule(listOf(first, second), 0))
+		assertTrue(opensModule(listOf(first, elsewhere), 1))
+	}
+
+	// Memory is the authority: a save queued before a close must not land after the clear.
+	@Test
+	fun `a draft is persisted only while memory still holds it`() {
+		val held = listOf(window(draft = "mine"))
+
+		assertTrue(holdsDraft(held, F_ID, "mine"))
+		assertFalse(holdsDraft(held, F_ID, "older"))
+		assertFalse(holdsDraft(emptyList(), F_ID, "mine"))
 	}
 
 	@Test
@@ -211,6 +312,3 @@ class WindowRulesTest {
 		assertEquals(4, outlineOfKind(symbols, null).size)
 	}
 }
-
-private fun outlineSymbol(name: String, kind: String) =
-	WorkspaceOutlineSymbol(symbolId = "lexicon typescript src/a.ts $name.", name = name, symbolKind = kind)

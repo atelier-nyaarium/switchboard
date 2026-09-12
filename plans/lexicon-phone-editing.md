@@ -1015,19 +1015,44 @@ rewrites everything on every keystroke-batch.
   it, and `Protocol.kt` carries seven real data classes rather than a `JsonElement`.
 - **`ConsoleClientWorkspace.kt`** keeps three outcomes apart: read, refused with the gateway's reason, and
   unreachable. Collapsing the last two would draw a withheld file as a dropped connection.
-- **`WindowOps.kt`** holds every rule: the session-scoped target key, the descriptor carrying the span hash,
-  the refresh rule, the two submit roads, the accumulating window set and what an agent request must carry.
-  Eleven JVM tests, all running. The refresh rule is mutation-tested: dropping the conflict branch fails
-  exactly one test out of 1330.
+- **`WindowRules.kt`** holds every rule: the session-scoped target key, the descriptor carrying the span
+  hash, the refresh rule, the two submit roads, the accumulating window set, what an agent request must
+  carry, the numbered lines a card draws and the outline's chips. `*Ops` is this codebase's name for the
+  STATEFUL class (`RoutineText`/`RoutineOps`), so the pure half took the other name.
+- **`WindowOps.kt`** is that stateful class, over a `WorkspaceGateway` port: the open windows, the drafts,
+  the fence, the foreground re-check and the banner's adopt. Thirteen JVM tests drive it with no socket.
 - **The fence needed no new class.** `GatewayReadFence` already keys by an opaque string; only its parameter
   name said gateway. Renaming that one word removed the lie without touching a call site, so windows key the
   same fence by session address.
+- **`WindowDraftStore.kt`** writes ONE FILE PER DRAFT under `filesDir`, write-then-rename, keyed by a hash
+  of session and symbol id. Eleven tests, and session scoping is mutation-tested.
+- **Four screens behind one Back stack**, in `workspace/`, plus `WorkspaceNav.kt` for the stack, the title,
+  the child path and which sessions hold a workspace. Nothing decides anything inside a Composable.
+- **`SandboxWorkspaceGateway`** answers as a session's plugin would, which is the only reason all four
+  screens could be looked at at all. One seeded session refuses everything, so the refusal notice is
+  reachable, following the rule that each seeded Gateway answers differently.
 
-Green on lint, tsc, 2815 TS tests, `check:boot`, and `kotlin-gate.sh`, which CI does not run.
+Green on lint, tsc, `check:boot`, 1371 Kotlin tests, and `kotlin-gate.sh`, which CI does not run. Every
+screen was walked on the emulator.
+
+### Bug Classes
+
+- **A default that invents data hides the bug that needed it.** `windowLines` asked the file for context
+  lines either side and read them through `getOrElse { "" }`, so a span near the top of a short file drew
+  blank rows numbered for lines the file does not have. Indexing directly, with the range clamped to the
+  file, made the same mistake throw instead. The mechanism is the display builder; the class is a lenient
+  accessor standing in for a bound.
+- **A layout slot that does not carry its caller's weight.** `WorkspaceAnswerBox` passed its modifier to
+  the loading and refusal branches but not to the answer, so a content `fillMaxSize` pushed the outline's
+  Raw button off screen. No gate here compiles a layout; the emulator found it.
 
 ### Left
 
-- The five screens, and the draft file under `filesDir`.
+- The ref viewer's two exits, which need the span hash refs do not carry yet. They move to Phase 6, where
+  that hash is added.
+- The detail screen's per-question knowledge, its badges and its facts rows. The plane answers
+  `describe_symbol` as one block of text, and parsing that on the phone would be a twin of Lexicon's own
+  formatter. A structured knowledge answer is its own phase, recorded on the board.
 
 ## Phase 5 - Agent Apply
 

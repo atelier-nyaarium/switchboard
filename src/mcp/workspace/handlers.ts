@@ -120,6 +120,8 @@ function treeOf(root: string, written: string): WorkspaceOpResult {
 	}
 
 	const kept = names.filter((entry) => listable(entry.name, !entry.isDirectory()));
+	// Ordered BEFORE the cap, or an over-cap directory answers an arbitrary thousand of itself.
+	kept.sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
 	const truncated = kept.length > MAX_TREE_ENTRIES;
 	const entries: TreeEntry[] = [];
 	for (const entry of kept.slice(0, MAX_TREE_ENTRIES)) {
@@ -139,8 +141,6 @@ function treeOf(root: string, written: string): WorkspaceOpResult {
 		entries.push({ name: entry.name, directory: false, ...(bytes === undefined ? {} : { bytes }) });
 	}
 
-	// Directories first, then by name, so a tree reads the way a file manager does.
-	entries.sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
 	return { ok: true, answer: { kind: "tree", path: place.relative, entries, truncated } };
 }
 

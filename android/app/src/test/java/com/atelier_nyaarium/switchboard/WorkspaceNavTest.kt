@@ -37,6 +37,8 @@ class WorkspaceNavTest {
 		// The leaf alone loses where in the tree this is.
 		assertEquals("src/gateway", placeTitle(WorkspacePlace.Tree("src/gateway")))
 		assertEquals("a.ts", placeTitle(outline))
+		assertEquals("a.ts", placeTitle(WorkspacePlace.Raw("src/a.ts")))
+		assertEquals("Windows", placeTitle(WorkspacePlace.Windows))
 		assertEquals("routineRefusal", placeTitle(WorkspacePlace.Detail("lexicon typescript src/a.ts f().", "routineRefusal")))
 	}
 

@@ -32,6 +32,9 @@ import com.atelier_nyaarium.switchboard.WorkspaceTarget
 import com.atelier_nyaarium.switchboard.gapBetween
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.inFileOrder
+import com.atelier_nyaarium.switchboard.modulesOf
+import com.atelier_nyaarium.switchboard.neighbourBounds
+import com.atelier_nyaarium.switchboard.opensModule
 import com.atelier_nyaarium.switchboard.windowLines
 import kotlinx.coroutines.launch
 
@@ -48,7 +51,7 @@ internal fun WindowView(
 	modifier: Modifier = Modifier,
 ) {
 	val ordered = inFileOrder(windows)
-	val modules = ordered.map { it.descriptor.module }.distinct()
+	val modules = modulesOf(ordered)
 	var context by remember(target.key) { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
 	val scope = rememberCoroutineScope()
 
@@ -67,8 +70,8 @@ internal fun WindowView(
 
 	LazyColumn(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 		for ((index, window) in ordered.withIndex()) {
-			val above = ordered.getOrNull(index - 1)
-			if (above != null && above.descriptor.module != window.descriptor.module) {
+			val (previousEnd, nextStart) = neighbourBounds(ordered, index)
+			if (opensModule(ordered, index)) {
 				item(key = "module:${window.descriptor.module}") {
 					Text(
 						window.descriptor.module,
@@ -78,21 +81,17 @@ internal fun WindowView(
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
 				}
-			} else if (above != null) {
-				gapBetween(above, window)?.let { skipped ->
+			} else {
+				gapBetween(ordered[index - 1], window)?.let { skipped ->
 					item(key = "gap:${window.descriptor.symbolId}") { GapRow(skipped) }
 				}
 			}
 			item(key = "window:${window.descriptor.symbolId}") {
-				val below = ordered.getOrNull(index + 1)
 				WindowCard(
 					window = window,
 					file = context[window.descriptor.module],
-					// Only a neighbour in the SAME file bounds this one's context.
-					previousEnd = above?.takeIf { it.descriptor.module == window.descriptor.module }
-						?.descriptor?.endLine?.toInt(),
-					nextStart = below?.takeIf { it.descriptor.module == window.descriptor.module }
-						?.descriptor?.startLine?.toInt(),
+					previousEnd = previousEnd,
+					nextStart = nextStart,
 					onRefresh = { scope.launch { ops.adopt(target, window.descriptor.symbolId) } },
 					onClose = { onClose(window.descriptor.symbolId) },
 				)

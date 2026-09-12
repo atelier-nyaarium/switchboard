@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.WindowOps
 import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
+import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.spanLines
@@ -80,7 +81,7 @@ internal fun SymbolDetail(
 			}
 		}
 		Button(
-			onClick = onOpenWindow,
+			onClick = hapticClick(onOpenWindow),
 			modifier = Modifier.fillMaxWidth().padding(12.dp),
 			enabled = source is WorkspaceAnswer.Read,
 		) {

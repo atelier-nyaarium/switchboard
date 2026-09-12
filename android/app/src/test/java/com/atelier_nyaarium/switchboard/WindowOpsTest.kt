@@ -40,19 +40,29 @@ class WindowOpsTest {
 		val refusing = mutableSetOf<String>()
 		val holds = mutableMapOf<String, TestHold>()
 
-		override suspend fun tree(target: WorkspaceTarget, path: String) =
-			WorkspaceAnswer.Read(WorkspaceTreeAnswer(path = path, entries = emptyList(), truncated = false))
+		/** Which session each call named, so a read cannot quietly ask about another workspace. */
+		val asked = mutableListOf<WorkspaceTarget>()
 
-		override suspend fun file(target: WorkspaceTarget, path: String) =
-			WorkspaceAnswer.Read(WorkspaceReadAnswer(path = path, text = "whole file", lines = 1))
+		override suspend fun tree(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceTreeAnswer> {
+			asked += target
+			return WorkspaceAnswer.Read(WorkspaceTreeAnswer(path = path, entries = emptyList(), truncated = false))
+		}
 
-		override suspend fun outline(target: WorkspaceTarget, path: String) =
-			WorkspaceAnswer.Read(WorkspaceOutlineAnswer(path = path, symbols = emptyList()))
+		override suspend fun file(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceReadAnswer> {
+			asked += target
+			return WorkspaceAnswer.Read(WorkspaceReadAnswer(path = path, text = "whole file", lines = 1))
+		}
+
+		override suspend fun outline(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceOutlineAnswer> {
+			asked += target
+			return WorkspaceAnswer.Read(WorkspaceOutlineAnswer(path = path, symbols = emptyList()))
+		}
 
 		override suspend fun symbolSource(
 			target: WorkspaceTarget,
 			symbolId: String,
 		): WorkspaceAnswer<WorkspaceSymbolSourceAnswer> {
+			asked += target
 			// Read before the hold, so a held answer is the older one.
 			val span = spans[symbolId]
 			holds.remove(symbolId)?.pass()
@@ -61,8 +71,13 @@ class WindowOpsTest {
 			return WorkspaceAnswer.Read(sourceAnswer(symbolId, text, hash))
 		}
 
-		override suspend fun knowledge(target: WorkspaceTarget, symbolId: String) =
-			WorkspaceAnswer.Read(WorkspaceKnowledgeAnswer(symbolId = symbolId, text = "what is known"))
+		override suspend fun knowledge(
+			target: WorkspaceTarget,
+			symbolId: String,
+		): WorkspaceAnswer<WorkspaceKnowledgeAnswer> {
+			asked += target
+			return WorkspaceAnswer.Read(WorkspaceKnowledgeAnswer(symbolId = symbolId, text = "what is known"))
+		}
 	}
 
 	private class FakeHost(override val workspace: WorkspaceGateway?) : WindowHost
@@ -203,6 +218,22 @@ class WindowOpsTest {
 		assertEquals(listOf(F_ID to "fun f() { moved() }", G_ID to "fun g() {}"), shown())
 	}
 
+	// The mirror of the above: a sweep must not resurrect a window the owner closed while it ran.
+	@Test
+	fun `a window closed during a recheck stays closed`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		gateway.spans[F_ID] = "fun f() { moved() }" to "h9"
+		val hold = TestHold().also { gateway.holds[F_ID] = it }
+
+		val sweep = launch { ops.recheck(one) }
+		hold.entered.await()
+		ops.closeWindow(one, F_ID)
+		hold.release()
+		sweep.join()
+
+		assertEquals(emptyList<Pair<String, String>>(), shown())
+	}
+
 	// An answer the owner has already moved past must not put back what they left.
 	@Test
 	fun `an overtaken read of one session is dropped`() = runBlocking {
@@ -230,6 +261,69 @@ class WindowOpsTest {
 		assertTrue(slow.await() is WorkspaceAnswer.Read)
 		assertEquals(listOf(F_ID to "fun f() {}"), shown(one))
 		assertEquals(listOf(G_ID to "fun g() {}"), shown(two))
+	}
+
+	// The banner's Refresh: the owner chose the file's text, so their draft goes with it.
+	@Test
+	fun `adopting takes the file's text and discards the draft`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "mine")
+		gateway.spans[F_ID] = "theirs" to "h9"
+
+		val adopted = ops.adopt(one, F_ID)
+
+		assertEquals(listOf(F_ID to "theirs"), shown())
+		assertEquals(listOf(false), ops.windowsOf(one).map { it.stale })
+		assertNull(drafts.load(one, F_ID))
+		assertTrue(adopted is WorkspaceAnswer.Read)
+	}
+
+	@Test
+	fun `a refused adopt leaves the window and the draft alone`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "mine")
+		gateway.refusing += F_ID
+
+		assertEquals(WorkspaceAnswer.Refused("withheld"), ops.adopt(one, F_ID))
+		assertEquals(listOf(F_ID to "mine"), shown())
+		assertEquals("mine", drafts.load(one, F_ID))
+	}
+
+	// A transient refusal is not a reason to throw away what the owner is looking at.
+	@Test
+	fun `a recheck that cannot read a span leaves it as it was`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "mine")
+		gateway.refusing += F_ID
+
+		ops.recheck(one)
+
+		assertEquals(listOf(F_ID to "mine"), shown())
+		assertEquals(listOf(false), ops.windowsOf(one).map { it.stale })
+	}
+
+	// The foreground hook calls this one, and it must reach every session with a window open.
+	@Test
+	fun `rechecking everything reaches every session holding a window`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.openWindow(two, G_ID)
+		gateway.spans[F_ID] = "f moved" to "h8"
+		gateway.spans[G_ID] = "g moved" to "h9"
+
+		ops.recheckAll()
+
+		assertEquals(listOf(F_ID to "f moved"), shown(one))
+		assertEquals(listOf(G_ID to "g moved"), shown(two))
+	}
+
+	@Test
+	fun `every read names the session it is asked about`() = runBlocking {
+		assertEquals("src/a.ts", (ops.tree(one, "src/a.ts") as WorkspaceAnswer.Read).value.path)
+		assertEquals("whole file", (ops.file(one, "src/a.ts") as WorkspaceAnswer.Read).value.text)
+		assertEquals("src/a.ts", (ops.outline(one, "src/a.ts") as WorkspaceAnswer.Read).value.path)
+		assertEquals(F_ID, (ops.symbol(one, F_ID) as WorkspaceAnswer.Read).value.symbolId)
+		assertEquals(F_ID, (ops.knowledge(one, F_ID) as WorkspaceAnswer.Read).value.symbolId)
+		assertEquals(listOf(one, one, one, one, one), gateway.asked)
 	}
 
 	@Test

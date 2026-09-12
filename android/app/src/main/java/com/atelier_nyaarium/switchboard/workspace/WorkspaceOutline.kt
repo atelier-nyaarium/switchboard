@@ -30,7 +30,9 @@ import com.atelier_nyaarium.switchboard.Window
 import com.atelier_nyaarium.switchboard.WindowOps
 import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
+import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.holdsWindow
+import com.atelier_nyaarium.switchboard.outlineDepth
 import com.atelier_nyaarium.switchboard.outlineKinds
 import com.atelier_nyaarium.switchboard.outlineOfKind
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
@@ -77,6 +79,7 @@ internal fun WorkspaceOutline(
 						item(key = "symbol:${symbol.symbolId}") {
 							OutlineRow(
 								symbol = symbol,
+								depth = outlineDepth(outline.symbols, symbol),
 								windowed = holdsWindow(held, symbol.symbolId),
 								onClick = { onOpenDetail(symbol.symbolId, symbol.name) },
 								onLongClick = { onOpenWindow(symbol.symbolId) },
@@ -91,9 +94,9 @@ internal fun WorkspaceOutline(
 			Modifier.fillMaxWidth().padding(12.dp),
 			horizontalArrangement = Arrangement.spacedBy(9.dp),
 		) {
-			OutlinedButton(onClick = onOpenRaw) { Text("Raw") }
+			OutlinedButton(onClick = hapticClick(onOpenRaw)) { Text("Raw") }
 			if (held.isNotEmpty()) {
-				Button(onClick = onOpenWindows, modifier = Modifier.weight(1f)) {
+				Button(onClick = hapticClick(onOpenWindows), modifier = Modifier.weight(1f)) {
 					Text(if (held.size == 1) "View 1 window" else "View ${held.size} windows")
 				}
 			}
@@ -104,13 +107,15 @@ internal fun WorkspaceOutline(
 @Composable
 private fun OutlineRow(
 	symbol: WorkspaceOutlineSymbol,
+	depth: Int,
 	windowed: Boolean,
 	onClick: () -> Unit,
 	onLongClick: () -> Unit,
 ) {
 	WorkspaceRow(onClick = onClick, onLongClick = onLongClick) {
 		Row(
-			Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+			Modifier.fillMaxWidth()
+				.padding(start = 12.dp + (depth * 14).dp, top = 10.dp, end = 12.dp, bottom = 10.dp),
 			horizontalArrangement = Arrangement.spacedBy(10.dp),
 			verticalAlignment = Alignment.CenterVertically,
 		) {

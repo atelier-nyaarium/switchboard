@@ -81,6 +81,20 @@ describe("listing a directory", () => {
 		expect(names).not.toContain("node_modules");
 	});
 
+	// Ordered before the cap, or which thousand the owner sees is whatever the filesystem said first.
+	it("keeps the first entries by name when there are more than it will answer", async () => {
+		const root = workspace();
+		for (let i = 0; i < 1_100; i++) fs.writeFileSync(path.join(root, `f${String(i).padStart(4, "0")}.ts`), "x");
+
+		const answer = tree(await ask(root, { kind: "tree", path: "" }));
+		const files = answer.entries.filter((e) => !e.directory).map((e) => e.name);
+
+		expect(answer.truncated).toBe(true);
+		expect(answer.entries.length).toBe(1_000);
+		expect(files[0]).toBe(".env.example");
+		expect(files.at(-1)).toBe("f0997.ts");
+	});
+
 	it("carries a byte count for a file and a child count for a directory", async () => {
 		const answer = tree(await ask(workspace(), { kind: "tree", path: "" }));
 		const dir = answer.entries.find((e) => e.name === "src");
