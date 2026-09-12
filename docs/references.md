@@ -28,6 +28,15 @@ One worked example per matcher. A test pins them:
     [before](ref://src/cart.ts:Shop:Cart:add#this.count@before:reset)
     [after](ref://src/cart.ts:Shop:Cart:add#this.count@after:reset)
 
+**Two exits.** A snapshot's viewer opens the file's outline, and the declaration's editable span when
+the ref resolved to one. What the ref carries decides which are offered, so a path with no chain shows
+the file alone.
+
+**What a resolved key carries:** its canonical key, the lines, an optional character span, the quality
+and its reason, the hash of those lines, and the symbol id the chain resolved to. The hash is of the
+LINES, so an edit elsewhere in the file is not a change to what the reader was shown. A key the schema
+would refuse is dropped rather than sent, since one refused key fails the whole snapshot's metadata.
+
 **Refused, naming the fix:** outside-root chain, missing or ambiguous name, or no matcher result.
 `exact` requires one hash-verified declaration.
 

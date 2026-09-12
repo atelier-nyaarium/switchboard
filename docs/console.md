@@ -329,6 +329,14 @@ no TTL.
   **A refused write reaches the log.** Every road answers the same way: the write, the read, the
   clear and the re-provision wipe all report rather than reading as a success. The owner sees nothing
   on a release build, which is on the board.
+- **A ref's exits into the Files tab** (`WorkspaceOpenBus`, `exitsFor`): a snapshot's viewer offers the
+  outline and, when the ref resolved to a declaration, its editable span. The request is HELD rather
+  than emitted, since a ref opens over a thread and the thread replaces the tab row, so nothing that
+  acts on it is composed when it is made. Three readers take it as each mounts: the shell leaves the
+  thread, the tab row scrolls, and the tab shows the place and clears it, naming the request it showed.
+  A request waits while the roster is unknown, shows on the session it named, and is dropped once the
+  roster says that session is gone, so it never rides the session picker's fallback into another
+  project. `docs/references.md` holds what a ref carries.
 - **Unread tracking** (`ReadAnchor.kt`, `thread.js`): anchors match inbox rows by epoch and
   sequence equality. Reads drain by scroll position.
 - **Idle pushback** (`IdlePushbackManager.kt`): owns aligned `AlarmManager` wakeups.

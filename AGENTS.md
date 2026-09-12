@@ -327,6 +327,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     moved past it lands nothing.
   - **Nothing decides inside a Composable**, since there is no instrumentation source set. The screens
     render and call; `WindowRules` and `WorkspaceNav` hold the decisions and carry the tests.
+  - **`WorkspaceOpenBus` HOLDS a request rather than emitting one:** a ref's exit is tapped over a
+    thread, which replaces the tab row, so the three readers that act on it each compose after it is
+    made. Only the tab that showed one clears it, naming it, and `standingOf` drops a request whose
+    session the roster no longer holds rather than letting the picker's fallback open another project.
 - `android/.../AttachmentOps.kt` - attachment fetch-and-sweep state
 - `android/.../ScheduledSendOps.kt` - scheduled sends as Router-held intents: the drain, the cancel intent, and the Router's result rows, all under one mutex
   - **The Router fires; the phone intends:** a record is pending until `schedule_send` is accepted,
@@ -519,6 +523,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/shared/codex-agent.ts` / `codexAgent*.ts` - Codex delegation wire truth; excluded from Kotlin codegen
 - `src/shared/copilot-agent.ts` / `copilotAgent*.ts` - Copilot delegation wire truth; excluded from Kotlin codegen
 - `src/shared/channel-file.ts` - declared ChannelFile metadata; receivers do not infer it from bytes or position
+  - **The producer parses what it emits with the consumer's schema:** `buildArtifacts` drops a ref key
+    the schema would refuse rather than sending it, since one refused key fails the WHOLE file and costs
+    every other ref in that message its snapshot, where a dropped key leaves its own link behaving as an
+    ordinary one. A canonical key carries an arbitrary matcher and has no bound of its own.
+  - **A ref's `spanHash` is of the LINES it resolved to**, so an edit elsewhere in the file is not a
+    change to what the reader was shown. Same function as a window descriptor's hash, different span;
+    the two are never compared to each other.
 - `src/shared/session-id.ts` - sole address grammar owner
 - `src/shared/session-commands.ts` - what a session can be told to call: one entry per command, holding the tool name, the gateway path and both schemas
   - **A nudge names a command, never a tool:** the prose renders the catalogue's name, the gateway
