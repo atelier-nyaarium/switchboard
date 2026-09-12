@@ -1156,7 +1156,7 @@ Three were considered and deliberately not done:
   `describe_symbol` as one block of text, and parsing that on the phone would be a twin of Lexicon's own
   formatter. A structured knowledge answer is its own phase, recorded on the board.
 
-## Phase 5 - Agent Apply
+## Phase 5 - Agent Apply ✅
 
 The phone sends the owner's text as an ordinary `send`, which already carries arbitrary body text to a
 session's conversation under an 8 MB relay cap. No write plane, no descriptor to verify, no Lexicon change.
@@ -1449,3 +1449,38 @@ green, while `grep` treated the files as binary and Lexicon would not index them
 it and the first was dismissed. The tool gives no way to ask for the escape text, so the construction has to
 avoid the literal entirely: `Char(0x1e)` in Kotlin, `String.fromCharCode` in a test. `control-byte-residue.test.ts`
 now fences it, but the trap remains for anyone writing a string.
+
+## Every phone test dispatcher agrees with whatever mechanism you wrote
+
+The phone's tests run on `Dispatchers.Unconfined`, where a channel send resumes its consumer inline on the
+calling thread. Ordering therefore looks correct whether the code orders anything or not. I wrote an
+ordering test for the draft queue, watched it pass under a mutation that removed the ordering entirely, and
+only then understood why. The fix was a dispatcher that hands work back newest first, which I wrote inline
+in `WindowDraftStoreTest`; it belongs beside `TestHold.kt`, since every ops class with a queue will want it.
+
+`StandardTestDispatcher` does not help: it is FIFO too. Nothing in the repo offers a hostile one.
+
+## Nothing records which test covers which rule, so the only way to know is to break it
+
+Four rounds of mutation testing this lap, every one by hand: edit production code, run with
+`--rerun-tasks`, read which test failed, revert. Two of my own attempts were wrong in ways only that loop
+catches. One mutation was equivalent to the original and proved nothing. One test asserted a collision that
+the escaping could not produce, so it passed under the mutation it existed to catch.
+
+Both are the same gap: a test's name says what it believes, and nothing checks that belief against the code.
+Coverage tools do not help here, since the lines run either way.
+
+## `DebugLog` is the storage layer's whole error surface, and it leaves the device on debug builds only
+
+Three fixes this lap end at "and the worker logs it". On the build the owner runs, that is nothing: a draft
+that failed to save looks exactly like one that saved, and they find out by losing it. Every phone-held
+store has this shape. There is no per-subsystem "the last write did not land" state a screen can draw, so
+the honest fix is a new field and a new UI element every time, which is why it keeps not happening.
+
+## The sandbox answers one outline for every file
+
+`SandboxWorkspaceGateway` serves the same symbols whatever path is asked for, so navigating to
+`src/shared/schemasRoutine.ts` and to `AGENTS.md` land on identical screens. Mid-smoke-test that reads as a
+mis-tap, and I spent a round checking navigation that was fine. `AGENTS.md` already requires each seeded
+Gateway to answer differently so a grouping bug has somewhere to show; the same rule is not applied to files
+inside one sandbox workspace.
