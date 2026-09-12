@@ -17,7 +17,6 @@ import kotlinx.serialization.json.decodeFromJsonElement
 internal sealed interface WorkspaceAnswer<out T> {
 	data class Read<T>(val value: T) : WorkspaceAnswer<T>
 
-	/** The gateway or the plugin answered no, and `reason` is what the owner is shown. */
 	data class Refused(val reason: String) : WorkspaceAnswer<Nothing>
 
 	data object Unreachable : WorkspaceAnswer<Nothing>

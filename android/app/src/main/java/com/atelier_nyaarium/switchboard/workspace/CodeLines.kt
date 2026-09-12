@@ -20,23 +20,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.atelier_nyaarium.switchboard.CodeLine
 
-/**
- * The two highlights kept from the ref viewer, so one vocabulary covers both surfaces. Blue bands the
- * lines in range; amber names the symbol itself.
- */
+/** Blue bands the lines in range; amber names the symbol. The ref viewer's two colours. */
 internal object Highlight {
 	val band = Color(0x33388BFD)
 	val mark = Color(0x61D29922)
 }
 
-/** The amber mark over the symbol's own name, which is the other half of the ref viewer's vocabulary. */
 private fun lineText(line: CodeLine): AnnotatedString =
 	buildAnnotatedString {
 		append(line.text)
 		line.mark?.let { addStyle(SpanStyle(background = Highlight.mark), it.first, it.last + 1) }
 	}
 
-/** Wrapping rather than scrolling sideways, which is what the ref viewer's document already does. */
+/** Wraps rather than scrolling sideways. */
 @Composable
 internal fun CodeLines(lines: List<CodeLine>, modifier: Modifier = Modifier) {
 	Column(modifier.fillMaxWidth()) {

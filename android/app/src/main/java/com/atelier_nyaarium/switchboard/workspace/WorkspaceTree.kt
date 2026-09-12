@@ -35,7 +35,6 @@ import com.atelier_nyaarium.switchboard.opensDirectory
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeEntry
 
-/** One directory. A tap descends or opens the outline; a long press offers what else a file can do. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun WorkspaceTree(

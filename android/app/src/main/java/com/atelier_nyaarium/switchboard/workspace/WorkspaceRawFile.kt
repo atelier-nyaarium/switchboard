@@ -20,7 +20,7 @@ import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 
-/** The whole file, numbered and read-only. Lexicon has no part in this road, which is the point of it. */
+/** Lexicon has no part in this road, which is the point of it. */
 @Composable
 internal fun WorkspaceRawFile(
 	ops: WindowOps,

@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** The gateway calls, as a port, so a test drives the whole class without a socket. */
+/** A port, so a test drives the whole class without a socket. */
 internal interface WorkspaceGateway {
 	suspend fun tree(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceTreeAnswer>
 
@@ -29,11 +29,10 @@ internal interface WindowHost {
 }
 
 /**
- * The open windows and their drafts, which is the only workspace state the phone holds. A tree, an
- * outline and a symbol's detail are re-read rather than cached, as the other per-gateway tabs do.
+ * The open windows and their drafts, the only workspace state the phone holds. Everything else is
+ * re-read, as the other per-gateway tabs do.
  *
- * Keyed by SESSION throughout. Two sessions of one gateway hold different workspaces, so a
- * gateway-keyed map would serve one session's span for the other.
+ * Keyed by SESSION: two sessions of one gateway hold different workspaces.
  */
 internal class WindowOps(
 	private val host: WindowHost,
@@ -97,10 +96,7 @@ internal class WindowOps(
 		return fenced(target) { gate.knowledge(target, symbolId) }
 	}
 
-	/**
-	 * A long press, which accumulates. A draft held for the symbol is restored, so a window reopened
-	 * after the process died comes back with the owner's typing rather than the file's text.
-	 */
+	/** Accumulates, and restores any held draft, so a reopen after the process died keeps the typing. */
 	suspend fun openWindow(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<Window> {
 		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
 		return when (val answer = fenced(target) { gate.symbolSource(target, symbolId) }) {
@@ -131,10 +127,7 @@ internal class WindowOps(
 		repoScope.launch { if (holdsDraft(windowsOf(target), symbolId, text)) drafts.save(target, symbolId, text) }
 	}
 
-	/**
-	 * What the stale banner's Refresh does. The owner has chosen the file's text over their own, so the
-	 * draft goes; `recheck` never does this, which is why the banner exists at all.
-	 */
+	/** The banner's Refresh: the owner chose the file's text, so the draft goes. `recheck` never does. */
 	suspend fun adopt(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<Window> {
 		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
 		return when (val fresh = fenced(target) { gate.symbolSource(target, symbolId) }) {
@@ -149,10 +142,7 @@ internal class WindowOps(
 		}
 	}
 
-	/**
-	 * The foreground re-check, unfenced because it is a sweep over windows already held rather than a
-	 * read of something the owner just asked for. `refreshWith` decides each one.
-	 */
+	/** Unfenced: a sweep over windows already held, not a read the owner just asked for. */
 	suspend fun recheck(target: WorkspaceTarget) {
 		val gate = host.workspace ?: return
 		for (window in windowsOf(target)) {

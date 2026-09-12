@@ -5,11 +5,9 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeEntry
 
 /**
- * Every decision the window surface makes. None of it lives in a Composable: there is no
- * instrumentation test source set, so a rule written inside one is invisible to every gate.
+ * Every decision the window surface makes, outside a Composable so a gate can reach it.
  *
- * Scoped by SESSION, never by gateway. Two sessions of one gateway hold different workspaces, so a
- * gateway-keyed cache would serve one session's tree for the other.
+ * Scoped by SESSION, never by gateway: two sessions of one gateway hold different workspaces.
  */
 
 /**
@@ -44,7 +42,7 @@ internal fun descriptorOf(answer: WorkspaceSymbolSourceAnswer): WindowDescriptor
 		spanHash = answer.spanHash,
 	)
 
-/** One span the owner can read and, from the next release, edit. */
+/** One span of one file, as the owner is shown it. */
 internal data class Window(
 	val descriptor: WindowDescriptor,
 	/** What the span held when the window was drawn. */
@@ -177,7 +175,7 @@ private fun Char?.isNamePart(): Boolean = this != null && (isLetterOrDigit() || 
 internal fun spanLines(answer: WorkspaceSymbolSourceAnswer): List<CodeLine> =
 	marked(answer.text.split("\n").mapIndexed { i, text -> CodeLine(answer.startLine.toInt() + i, text) }, answer.name)
 
-/** The name is marked once, on the first line that holds it, as the declaration rather than a use. */
+/** Once, on the first line holding it: the declaration rather than a use. */
 private fun marked(lines: List<CodeLine>, name: String): List<CodeLine> {
 	val at = lines.indexOfFirst { markOf(it.text, name) != null }
 	if (at < 0) return lines
@@ -230,7 +228,7 @@ internal fun gapBetween(above: Window, below: Window, context: Int = 2): Int? {
 internal fun inFileOrder(held: List<Window>): List<Window> =
 	held.sortedWith(compareBy({ it.descriptor.module }, { it.descriptor.startLine }))
 
-/** One outline chip. A null kind is every symbol, which is why the field is nullable rather than "". */
+/** A null kind is every symbol. */
 internal data class OutlineKind(val kind: String?, val label: String, val count: Int)
 
 /**

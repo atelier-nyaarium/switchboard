@@ -48,8 +48,8 @@ import kotlinx.coroutines.launch
  * The Files tab: one session's workspace, with the tree, a file's outline, a symbol's detail and the
  * open windows behind one Back stack.
  *
- * Every rule is in `WorkspaceNav.kt` and `WindowRules.kt`. Nothing here decides anything, since there
- * is no instrumentation source set for a gate to reach a decision made inside a Composable.
+ * The stack, the title, which sessions hold a workspace and which one is read are `WorkspaceNav.kt`,
+ * since no gate here can reach a rule written inside a Composable.
  */
 @Composable
 fun WorkspaceScreen(repo: ChatRepository, state: ChatState, modifier: Modifier = Modifier) {
@@ -174,10 +174,7 @@ private fun WorkspaceHeader(
 	}
 }
 
-/**
- * The four outcomes of a read, drawn once rather than on each screen: still reading, the gateway's own
- * refusal, no word at all, and the answer.
- */
+/** The four outcomes of a read, drawn once rather than on each screen. */
 @Composable
 internal fun <T> WorkspaceAnswerBox(
 	answer: WorkspaceAnswer<T>?,

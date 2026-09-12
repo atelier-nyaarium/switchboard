@@ -274,11 +274,7 @@ internal class SandboxRoutineGateway : RoutineGateway {
 		ConsoleRoutineOccurrenceResult(applied = true)
 }
 
-/**
- * A small canned workspace, so the tree, the outline, a symbol's detail and a window all draw without
- * a session to reach. The second seeded session refuses everything, which is the only way the
- * refusal notice is reachable here.
- */
+/** A canned workspace, so every workspace screen draws with no session to reach. */
 internal class SandboxWorkspaceGateway : WorkspaceGateway {
 	private val file = listOf(
 		"import { z } from \"zod\";",
@@ -299,9 +295,8 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 	private fun idOf(name: String) = "lexicon typescript $module $name."
 
 	/**
-	 * Keyed by the SESSION, not its Gateway, since that is what a workspace belongs to. One session
-	 * refuses so the refusal notice is reachable, and the empty Gateway answers an empty workspace,
-	 * which is not the same as one that could not be read.
+	 * Keyed by SESSION, which is what a workspace belongs to. One refuses, so the refusal notice is
+	 * reachable; the empty Gateway answers empty, which is not the same as unreadable.
 	 */
 	private fun <T> asSeeded(target: WorkspaceTarget, empty: () -> T, answer: () -> T): WorkspaceAnswer<T> =
 		when {

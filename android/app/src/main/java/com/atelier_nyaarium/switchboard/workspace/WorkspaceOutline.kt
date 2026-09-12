@@ -38,10 +38,7 @@ import com.atelier_nyaarium.switchboard.outlineOfKind
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineSymbol
 
-/**
- * A file's declarations. A tap reads one; a long press opens a window for it, which is the gesture the
- * owner asked for so poking around never costs a window.
- */
+/** A tap reads a symbol, a long press opens a window, so poking around never costs one. */
 @Composable
 internal fun WorkspaceOutline(
 	ops: WindowOps,
