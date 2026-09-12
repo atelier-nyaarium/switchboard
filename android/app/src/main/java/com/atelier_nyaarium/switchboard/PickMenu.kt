@@ -1,4 +1,4 @@
-package com.atelier_nyaarium.switchboard.runbooks
+package com.atelier_nyaarium.switchboard
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.DropdownMenuItem
@@ -15,7 +15,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import com.atelier_nyaarium.switchboard.hapticClick
 
 /** Field and rows share one label. */
 @OptIn(ExperimentalMaterial3Api::class)
