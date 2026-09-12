@@ -208,7 +208,8 @@ export const ConsoleVaultRevokeResultSchema = z
 	.object({ revoked: z.boolean() })
 	.meta({ id: "ConsoleVaultRevokeResult" });
 
-export const VAULT_REQUEST_DEADLINE_MS = 9 * 60 * 1000;
+// Long enough to read a page and come back; a missed request costs the whole run.
+export const VAULT_REQUEST_DEADLINE_MS = 30 * 60 * 1000;
 export const VAULT_WINDOW_MS = 30 * 60 * 1000;
 // Whole-session grants cap at eight hours.
 export const VAULT_SESSION_GRANT_CAP_MS = 8 * 60 * 60 * 1000;

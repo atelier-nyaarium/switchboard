@@ -1,14 +1,20 @@
 // The askpass decision over ports; the entry point wires the real ones.
 
-import { VAULT_ROUTE_WAIT_CAP_MS, type VaultValueAnswer, VaultValueAnswerSchema } from "../shared/schemasVault.js";
+import {
+	VAULT_REQUEST_DEADLINE_MS,
+	VAULT_ROUTE_WAIT_CAP_MS,
+	type VaultValueAnswer,
+	VaultValueAnswerSchema,
+} from "../shared/schemasVault.js";
 import { withoutAskpassFlags } from "../shared/selector-key.js";
 
 /** A tty race polls briefly; a hold without one is long. */
 export const RACE_WAIT_MS = 25_000;
 export const HOLD_WAIT_MS = VAULT_ROUTE_WAIT_CAP_MS;
 export const WITHDRAW_TIMEOUT_MS = 3_000;
-/** Long enough to read a page and come back; a missed request costs the whole run. */
-const DEFAULT_DEADLINE_MS = 30 * 60 * 1000;
+/** Outlives the request the gateway opens, so the helper observes the expiry rather than
+ * abandoning an owner who can still answer. Derived, since two numbers for one rule drift. */
+const DEFAULT_DEADLINE_MS = VAULT_REQUEST_DEADLINE_MS + 60_000;
 
 export interface GatewayPort {
 	/** Null when the gateway cannot be reached or refuses the token. */
