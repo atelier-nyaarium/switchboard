@@ -1,0 +1,158 @@
+<!-- @dsCard group="Lexicon editing" width="430" height="980" -->
+<meta charset="utf-8">
+<title>File Tree</title>
+<meta name="viewport" content="width=430, initial-scale=1">
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; width: 430px; height: 980px; position: relative; overflow: hidden;
+		background: #141218; color: #E6E0E9;
+		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
+		-webkit-font-smoothing: antialiased;
+	}
+
+	header { background: #1D1B20; border-bottom: 1px solid #49454F; padding: 10px 14px 11px; }
+	.top { display: flex; align-items: center; gap: 8px; }
+	.proj { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
+	.sess { color: #948F9A; font-size: 11px; margin-left: auto; font-family: ui-monospace, monospace; }
+	.plus { color: #D0BCFF; font-size: 21px; line-height: 1; font-weight: 400; }
+	.path {
+		margin-top: 7px; font-family: ui-monospace, monospace; font-size: 12px; color: #CAC4D0;
+	}
+	.path b { color: #E6E0E9; }
+	.path s { color: #6F6A76; text-decoration: none; }
+
+	.up { display: flex; align-items: center; gap: 11px; padding: 10px 14px 11px; border-bottom: 1px solid #201E25; color: #CAC4D0; }
+
+	.row {
+		display: flex; align-items: center; gap: 11px;
+		padding: 10px 14px 11px; border-bottom: 1px solid #201E25;
+	}
+	.row.win { background: #241F2D; box-shadow: inset 2px 0 0 #D0BCFF; }
+	.ic { flex: none; width: 19px; text-align: center; font-size: 14px; line-height: 1; }
+	.ic.dir { color: #F0C674; }
+	.ic.ts { color: #8AB4F8; font-family: ui-monospace, monospace; font-size: 10px; font-weight: 700; }
+	.ic.md { color: #9BD4A3; font-family: ui-monospace, monospace; font-size: 10px; font-weight: 700; }
+	.nm { flex: 1; min-width: 0; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.nm.d { font-weight: 600; }
+	.meta { flex: none; color: #6F6A76; font-size: 10.5px; font-family: ui-monospace, monospace; }
+	.chev { flex: none; color: #847E8E; font-size: 16px; line-height: 1; }
+
+	/* Long-press sheet */
+	.scrim { position: absolute; left: 0; right: 0; top: 0; bottom: 0; background: rgba(0,0,0,.55); }
+	.sheet {
+		position: absolute; left: 0; right: 0; bottom: 0;
+		background: #2B2930; border-radius: 18px 18px 0 0;
+		padding: 8px 0 14px;
+	}
+	.grab { width: 34px; height: 4px; border-radius: 2px; background: #605B68; margin: 2px auto 10px; }
+	.shead {
+		display: flex; align-items: center; gap: 11px;
+		padding: 2px 18px 11px; border-bottom: 1px solid #3B3741;
+	}
+	.sname { font-size: 14.5px; font-weight: 600; }
+	.ssub { color: #948F9A; font-size: 11px; font-family: ui-monospace, monospace; margin-top: 2px; }
+	.act { display: flex; align-items: center; gap: 14px; padding: 12px 18px 13px; font-size: 14.5px; }
+	.act .g { flex: none; width: 20px; text-align: center; color: #CAC4D0; font-size: 15px; }
+	.act.danger, .act.danger .g { color: #F2B8B5; }
+	.divide { height: 1px; background: #3B3741; margin: 5px 0; }
+</style>
+
+<header>
+	<div class="top">
+		<div class="proj">switchboard</div>
+		<div class="sess">host.89753c</div>
+		<div class="plus">&#43;</div>
+	</div>
+	<div class="path"><s>~/projects/</s><b>switchboard</b> / src / <b>gateway</b></div>
+</header>
+
+<div class="up"><span class="ic">&#8593;</span> <span class="nm">..</span></div>
+
+<div class="row">
+	<div class="ic dir">&#9698;</div>
+	<div class="nm d">compose</div>
+	<div class="meta">22</div>
+	<div class="chev">&#8250;</div>
+</div>
+<div class="row">
+	<div class="ic dir">&#9698;</div>
+	<div class="nm d">console</div>
+	<div class="meta">7</div>
+	<div class="chev">&#8250;</div>
+</div>
+<div class="row">
+	<div class="ic dir">&#9698;</div>
+	<div class="nm d">federation</div>
+	<div class="meta">4</div>
+	<div class="chev">&#8250;</div>
+</div>
+<div class="row">
+	<div class="ic dir">&#9698;</div>
+	<div class="nm d">policies</div>
+	<div class="meta">1</div>
+	<div class="chev">&#8250;</div>
+</div>
+<div class="row win">
+	<div class="ic dir">&#9698;</div>
+	<div class="nm d">routines</div>
+	<div class="meta">6</div>
+	<div class="chev">&#8250;</div>
+</div>
+<div class="row">
+	<div class="ic dir">&#9698;</div>
+	<div class="nm d">router</div>
+	<div class="meta">11</div>
+	<div class="chev">&#8250;</div>
+</div>
+<div class="row">
+	<div class="ic dir">&#9698;</div>
+	<div class="nm d">vault</div>
+	<div class="meta">3</div>
+	<div class="chev">&#8250;</div>
+</div>
+<div class="row">
+	<div class="ic ts">TS</div>
+	<div class="nm">awarenessBank.ts</div>
+	<div class="meta">186</div>
+	<div class="chev">&#8250;</div>
+</div>
+<div class="row">
+	<div class="ic ts">TS</div>
+	<div class="nm">boot.ts</div>
+	<div class="meta">241</div>
+	<div class="chev">&#8250;</div>
+</div>
+<div class="row">
+	<div class="ic ts">TS</div>
+	<div class="nm">codexAgentService.ts</div>
+	<div class="meta">402</div>
+	<div class="chev">&#8250;</div>
+</div>
+<div class="row">
+	<div class="ic ts">TS</div>
+	<div class="nm">presence.ts</div>
+	<div class="meta">314</div>
+	<div class="chev">&#8250;</div>
+</div>
+
+<div class="scrim"></div>
+<div class="sheet">
+	<div class="grab"></div>
+	<div class="shead">
+		<div class="ic ts">TS</div>
+		<div>
+			<div class="sname">presence.ts</div>
+			<div class="ssub">314 lines &middot; 9.4 KB</div>
+		</div>
+	</div>
+	<div class="act"><span class="g">&#9707;</span> Open outline</div>
+	<div class="act"><span class="g">&#9998;</span> Edit raw</div>
+	<div class="divide"></div>
+	<div class="act"><span class="g">&#8594;</span> Move</div>
+	<div class="act"><span class="g">&#10697;</span> Duplicate</div>
+	<div class="act"><span class="g">&#9000;</span> Rename</div>
+	<div class="act"><span class="g">&#8599;</span> Send to agent</div>
+	<div class="divide"></div>
+	<div class="act danger"><span class="g">&#9003;</span> Delete</div>
+</div>

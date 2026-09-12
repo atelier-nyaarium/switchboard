@@ -1,0 +1,166 @@
+<!-- @dsCard group="Lexicon editing" width="430" height="980" -->
+<meta charset="utf-8">
+<title>Symbol Window</title>
+<meta name="viewport" content="width=430, initial-scale=1">
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; width: 430px;
+		background: #141218; color: #E6E0E9;
+		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
+		-webkit-font-smoothing: antialiased;
+	}
+	.mono {
+		font-family: ui-monospace, "Roboto Mono", "DejaVu Sans Mono", monospace;
+		font-size: 11.5px; line-height: 1.55;
+	}
+
+	header {
+		position: sticky; top: 0; z-index: 3;
+		background: #1D1B20; border-bottom: 1px solid #49454F;
+		padding: 10px 14px 11px;
+	}
+	.crumb { color: #948F9A; font-size: 11px; letter-spacing: .2px; }
+	.titlerow { display: flex; align-items: baseline; gap: 8px; margin-top: 1px; }
+	.fname { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
+	.lines { color: #948F9A; font-size: 11px; margin-left: auto; white-space: nowrap; }
+	.ask {
+		margin-top: 9px; background: #26223B;
+		border-left: 2px solid #D0BCFF; border-radius: 0 6px 6px 0;
+		padding: 7px 9px 8px; font-size: 12.5px; color: #CFC7DB;
+	}
+
+	main { padding: 12px 10px 78px; }
+	.card { background: #211F26; border: 1px solid #332F38; border-radius: 12px; overflow: hidden; }
+	.card.stale { border-color: #6B4246; }
+	.chead {
+		display: flex; align-items: center; gap: 7px;
+		padding: 9px 11px 8px; border-bottom: 1px solid #2E2A35;
+	}
+	.chain { font-size: 12.5px; font-weight: 600; }
+	.chain span { color: #948F9A; font-weight: 400; }
+	.rng { color: #8C8795; font-size: 10.5px; white-space: nowrap; }
+	.dot { width: 7px; height: 7px; border-radius: 50%; background: #D0BCFF; flex: none; }
+	.dot.off { background: #4A4553; }
+	.pill {
+		flex: none; background: #332A45; color: #D0BCFF; border-radius: 20px;
+		padding: 2px 8px; font-size: 10px; font-weight: 600; letter-spacing: .3px;
+	}
+
+	.code { padding: 4px 0 6px; }
+	.row { display: flex; }
+	.ln { flex: none; width: 34px; text-align: right; padding-right: 9px; color: #605B68; }
+	.tx { flex: 1; padding-right: 10px; white-space: pre-wrap; word-break: break-word; }
+	.ro .tx { color: #837E8C; }
+	.edit { background: #2B2930; box-shadow: inset 2px 0 0 #D0BCFF; }
+	.edit .ln { color: #8E88A0; }
+	.edit .tx { color: #F1EBF5; }
+	.caret { border-bottom: 1.5px solid #D0BCFF; }
+	/* Amber names the symbol the window is on. Purple accent means editable. Different jobs. */
+	mark.span { background: rgba(210, 153, 34, 0.38); color: inherit; border-radius: 2px; }
+	.kw { color: #C3A6F5; }
+	.cmt { color: #9BD4A3; }
+	.cmt-ro { color: #6E8C74; }
+
+	.staleban { background: #3B2326; color: #F2B8B5; padding: 8px 11px 9px; font-size: 12px; }
+	.staleban b { display: block; font-weight: 700; margin-bottom: 3px; }
+	.staleline { display: flex; align-items: center; gap: 10px; }
+	.staleact {
+		margin-left: auto; flex: none; border: 1px solid #F2B8B5; color: #F2B8B5;
+		border-radius: 18px; padding: 4px 14px; font-size: 11.5px; font-weight: 600;
+	}
+
+	.gap {
+		display: flex; align-items: center; gap: 9px;
+		padding: 9px 16px; color: #6F6A76; font-size: 10.5px; letter-spacing: .3px;
+	}
+	.gap i { flex: 1; height: 1px; background: #2E2A35; }
+
+	footer {
+		position: fixed; left: 0; right: 0; bottom: 0; width: 430px;
+		background: #1D1B20; border-top: 1px solid #49454F;
+		padding: 10px 12px 13px; display: flex; gap: 9px;
+	}
+	.btn { flex: 1; text-align: center; border-radius: 22px; padding: 11px 0 12px; font-size: 13.5px; font-weight: 600; }
+	.primary { background: #D0BCFF; color: #381E72; }
+	.ghost { border: 1px solid #938F99; color: #D0BCFF; }
+</style>
+
+<header>
+	<div class="crumb">switchboard / src / shared</div>
+	<div class="titlerow">
+		<div class="fname">schemasRoutine.ts</div>
+		<div class="lines">343 lines</div>
+	</div>
+	<div class="ask">give me the 3 prose lines, I wanna change the wording</div>
+</header>
+
+<main>
+	<div class="card">
+		<div class="chead">
+			<div class="dot"></div>
+			<div class="chain">RoutineSchema <span>:</span> weekdays</div>
+			<div class="pill" style="margin-left:auto">EDITED</div>
+			<div class="rng">50-51</div>
+		</div>
+		<div class="code mono">
+			<div class="row ro"><div class="ln">48</div><div class="tx">		id: z.string().min(1),</div></div>
+			<div class="row ro"><div class="ln">49</div><div class="tx">		name: z.string().min(1),</div></div>
+			<div class="row edit"><div class="ln">50</div><div class="tx">		<span class="cmt">/** Which ISO weekdays it fires on. Monday is 1. */</span><span class="caret"></span></div></div>
+			<div class="row edit"><div class="ln">51</div><div class="tx">		<mark class="span">weekdays</mark>: z.array(z.number().int().min(1).max(7)),</div></div>
+			<div class="row ro"><div class="ln">52</div><div class="tx">		<span class="cmt-ro">/** 1 is every week, 2 every other. */</span></div></div>
+			<div class="row ro"><div class="ln">53</div><div class="tx">		weekInterval: z.number().int().min(1),</div></div>
+		</div>
+	</div>
+
+	<div class="gap"><i></i> 6 lines <i></i></div>
+
+	<div class="card">
+		<div class="chead">
+			<div class="dot off"></div>
+			<div class="chain">RoutineSchema <span>:</span> zone</div>
+			<div class="rng" style="margin-left:auto">58-63</div>
+		</div>
+		<div class="code mono">
+			<div class="row ro"><div class="ln">56</div><div class="tx">		<span class="cmt-ro">/** As HH:MM. */</span></div></div>
+			<div class="row ro"><div class="ln">57</div><div class="tx">		time: z.string(),</div></div>
+			<div class="row edit"><div class="ln">58</div><div class="tx">		<span class="cmt">/**</span></div></div>
+			<div class="row edit"><div class="ln">59</div><div class="tx">		<span class="cmt"> * The zone every calendar field above is read in,</span></div></div>
+			<div class="row edit"><div class="ln">60</div><div class="tx">		<span class="cmt"> * recorded at save. Without it the canonical zone</span></div></div>
+			<div class="row edit"><div class="ln">61</div><div class="tx">		<span class="cmt"> * would be a line in the Dockerfile.</span></div></div>
+			<div class="row edit"><div class="ln">62</div><div class="tx">		<span class="cmt"> */</span></div></div>
+			<div class="row edit"><div class="ln">63</div><div class="tx">		<mark class="span">zone</mark>: z.string().min(1),</div></div>
+			<div class="row ro"><div class="ln">64</div><div class="tx">		runbookId: z.string().min(1),</div></div>
+		</div>
+	</div>
+
+	<div class="gap"><i></i> 175 lines <i></i></div>
+
+	<div class="card stale">
+		<div class="chead">
+			<div class="dot off"></div>
+			<div class="chain">MAX_ROUTINE_MEMORY_BYTES</div>
+			<div class="rng" style="margin-left:auto">239-244</div>
+		</div>
+		<div class="staleban">
+			<b>Stale Window</b>
+			<div class="staleline">
+				<div>The code here changed.</div>
+				<div class="staleact">Refresh</div>
+			</div>
+		</div>
+		<div class="code mono">
+			<div class="row ro"><div class="ln">237</div><div class="tx"><span class="kw">export const</span> MAX_ROUTINE_REPORT_CHARS = 16_384;</div></div>
+			<div class="row ro"><div class="ln">239</div><div class="tx"><span class="cmt-ro">/**</span></div></div>
+			<div class="row ro"><div class="ln">240</div><div class="tx"><span class="cmt-ro"> * What a routine may remember, in UTF-8 BYTES</span></div></div>
+			<div class="row ro"><div class="ln">241</div><div class="tx"><span class="cmt-ro"> * rather than characters.</span></div></div>
+			<div class="row ro"><div class="ln">242</div><div class="tx"><span class="cmt-ro"> */</span></div></div>
+			<div class="row ro"><div class="ln">244</div><div class="tx"><span class="kw">export const</span> <mark class="span">MAX_ROUTINE_MEMORY_BYTES</mark> = 32_768;</div></div>
+		</div>
+	</div>
+</main>
+
+<footer>
+	<div class="btn ghost">Agent Apply</div>
+	<div class="btn primary">Save 1 edit</div>
+</footer>

@@ -1,0 +1,168 @@
+<!-- @dsCard group="Lexicon editing" width="430" height="1060" -->
+<meta charset="utf-8">
+<title>Symbol Detail</title>
+<meta name="viewport" content="width=430, initial-scale=1">
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; width: 430px;
+		background: #141218; color: #E6E0E9;
+		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
+		-webkit-font-smoothing: antialiased;
+	}
+
+	header { background: #1D1B20; border-bottom: 1px solid #49454F; padding: 10px 14px 12px; }
+	.back { color: #CAC4D0; font-size: 15px; margin-bottom: 5px; }
+	.titlerow { display: flex; align-items: center; gap: 8px; }
+	.kind {
+		flex: none; width: 21px; height: 21px; border-radius: 4px;
+		background: #332A45; color: #D0BCFF;
+		font-family: ui-monospace, monospace; font-size: 12px; font-weight: 700;
+		display: flex; align-items: center; justify-content: center;
+	}
+	.nm { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
+	.where { color: #948F9A; font-size: 11px; margin-top: 3px; font-family: ui-monospace, monospace; }
+
+	main { padding: 12px 12px 86px; }
+	.sec { color: #8C8795; font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; margin: 16px 2px 7px; }
+	.sec:first-child { margin-top: 2px; }
+
+	.srcwrap {
+		position: relative; background: #211F26; border: 1px solid #332F38;
+		border-radius: 10px; overflow: hidden;
+	}
+	.src {
+		padding: 8px 0 6px;
+		font-family: ui-monospace, "Roboto Mono", monospace; font-size: 11px; line-height: 1.55;
+	}
+	.row { display: flex; }
+	.ln { flex: none; width: 34px; text-align: right; padding-right: 9px; color: #605B68; }
+	.tx { flex: 1; padding-right: 10px; white-space: pre-wrap; word-break: break-word; color: #CFC9D6; }
+	.kw { color: #C3A6F5; }
+	.ty { color: #8AB4F8; }
+	.str { color: #9BD4A3; }
+	.cmt { color: #6E8C74; }
+	mark.span { background: rgba(210, 153, 34, 0.38); color: inherit; border-radius: 2px; }
+	.more {
+		border-top: 1px solid #2E2A35; padding: 8px 11px 9px;
+		color: #D0BCFF; font-size: 11.5px; font-weight: 600;
+	}
+
+	.doc {
+		background: #1B1A20; border-left: 2px solid #49454F; border-radius: 0 8px 8px 0;
+		padding: 9px 11px 10px; color: #BDB7C6; font-size: 12.5px; line-height: 1.5;
+	}
+
+	.ans { background: #211F26; border: 1px solid #332F38; border-radius: 10px; padding: 9px 11px 10px; margin-bottom: 7px; }
+	.ahead { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+	.q { font-size: 11.5px; font-weight: 700; color: #D0BCFF; letter-spacing: .4px; text-transform: uppercase; }
+	.badge { margin-left: auto; flex: none; border-radius: 20px; padding: 2px 8px; font-size: 9.5px; font-weight: 700; letter-spacing: .4px; }
+	.b-thin { background: #2A2830; color: #948F9A; }
+	.b-stale { background: #3B2326; color: #F2B8B5; }
+	.atext { font-size: 12.5px; line-height: 1.5; color: #DDD7E4; }
+
+	.gap { display: flex; align-items: center; gap: 9px; padding: 8px 11px 9px; margin-bottom: 7px; border: 1px dashed #3C3845; border-radius: 10px; }
+	.gq { font-size: 11.5px; font-weight: 700; color: #847E8E; letter-spacing: .4px; text-transform: uppercase; }
+	.gnone { font-size: 12px; color: #6F6A76; }
+	.askchip { margin-left: auto; flex: none; border: 1px solid #847E8E; color: #CAC4D0; border-radius: 16px; padding: 3px 12px; font-size: 11.5px; font-weight: 600; }
+
+	.facts { background: #211F26; border: 1px solid #332F38; border-radius: 10px; overflow: hidden; }
+	.frow { display: flex; align-items: center; gap: 10px; padding: 10px 11px 11px; border-bottom: 1px solid #2A2731; font-size: 13px; }
+	.frow:last-child { border-bottom: none; }
+	.fval { margin-left: auto; color: #948F9A; font-size: 12.5px; }
+	.chev { flex: none; color: #847E8E; font-size: 16px; line-height: 1; }
+
+	footer {
+		position: fixed; left: 0; right: 0; bottom: 0; width: 430px;
+		background: #1D1B20; border-top: 1px solid #49454F; padding: 10px 12px 13px;
+	}
+	.btn { text-align: center; border-radius: 22px; padding: 11px 0 12px; font-size: 13.5px; font-weight: 600; background: #D0BCFF; color: #381E72; }
+</style>
+
+<header>
+	<div class="back">&#8592;&nbsp; schemasRoutine.ts</div>
+	<div class="titlerow">
+		<div class="kind">F</div>
+		<div class="nm">routineRefusal</div>
+	</div>
+	<div class="where">src/shared/schemasRoutine.ts : 309-334</div>
+</header>
+
+<main>
+	<div class="sec">Source</div>
+	<div class="srcwrap">
+		<div class="src">
+			<div class="row"><div class="ln">309</div><div class="tx"><span class="cmt">/**</span></div></div>
+			<div class="row"><div class="ln">310</div><div class="tx"><span class="cmt"> * Why a routine cannot be stored, or null.</span></div></div>
+			<div class="row"><div class="ln">311</div><div class="tx"><span class="cmt"> */</span></div></div>
+			<div class="row"><div class="ln">313</div><div class="tx"><span class="kw">export function</span> <mark class="span">routineRefusal</mark>(</div></div>
+			<div class="row"><div class="ln">313</div><div class="tx">  routine: <span class="ty">Routine</span>,</div></div>
+			<div class="row"><div class="ln">313</div><div class="tx">): <span class="ty">string</span> | <span class="kw">null</span> {</div></div>
+			<div class="row"><div class="ln">314</div><div class="tx">  <span class="kw">if</span> (routine.weekdays.length === 0)</div></div>
+			<div class="row"><div class="ln">314</div><div class="tx">    <span class="kw">return</span> <span class="str">"a routine with no weekday would never fire"</span>;</div></div>
+			<div class="row"><div class="ln">315</div><div class="tx">  <span class="kw">if</span> (<span class="kw">new</span> Set(routine.weekdays).size !== routine.weekdays.length)</div></div>
+			<div class="row"><div class="ln">315</div><div class="tx">    <span class="kw">return</span> <span class="str">"a weekday is named twice"</span>;</div></div>
+			<div class="row"><div class="ln">318</div><div class="tx">  <span class="kw">if</span> (!parseLocalDate(routine.startDate))</div></div>
+		</div>
+		<div class="more">Show all 26 lines</div>
+	</div>
+
+	<div class="sec">Documentation</div>
+	<div class="doc">Why a routine cannot be stored, or null. Bounds nothing by size; a record is refused for
+		what it means, as a runbook is.</div>
+
+	<div class="sec">Knowledge</div>
+
+	<div class="ans">
+		<div class="ahead">
+			<div class="q">Describe</div>
+			<div class="badge b-thin">THIN</div>
+		</div>
+		<div class="atext">Returns the reason a routine cannot be stored, or null when it can.</div>
+	</div>
+
+	<div class="ans">
+		<div class="ahead">
+			<div class="q">Why</div>
+			<div class="badge b-stale">STALE</div>
+		</div>
+		<div class="atext">A rule that parses can still name nothing, so the refusal asks the recurrence
+			calculator rather than trusting the parse. Judging a weekday set and an interval by eye answers
+			the wrong question.</div>
+	</div>
+
+	<div class="gap">
+		<div class="gq">Contract</div>
+		<div class="gnone">not recorded</div>
+		<div class="askchip">Ask</div>
+	</div>
+	<div class="gap">
+		<div class="gq">Relate</div>
+		<div class="gnone">not recorded</div>
+		<div class="askchip">Ask</div>
+	</div>
+	<div class="gap">
+		<div class="gq">Effects</div>
+		<div class="gnone">not recorded</div>
+		<div class="askchip">Ask</div>
+	</div>
+	<div class="gap">
+		<div class="gq">Usage</div>
+		<div class="gnone">not recorded</div>
+		<div class="askchip">Ask</div>
+	</div>
+
+	<div class="sec">Facts</div>
+	<div class="facts">
+		<div class="frow">Members<div class="fval">3</div><div class="chev">&#8250;</div></div>
+		<div class="frow">References<div class="fval">5 places</div><div class="chev">&#8250;</div></div>
+		<div class="frow">Uses<div class="fval">30 symbols</div><div class="chev">&#8250;</div></div>
+		<div class="frow">Comments<div class="fval">4</div><div class="chev">&#8250;</div></div>
+		<div class="frow">Type hierarchy<div class="fval">none indexed</div></div>
+		<div class="frow">Last changed<div class="fval">3 days ago</div><div class="chev">&#8250;</div></div>
+	</div>
+</main>
+
+<footer>
+	<div class="btn">Open Window</div>
+</footer>

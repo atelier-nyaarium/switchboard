@@ -1,0 +1,178 @@
+<!-- @dsCard group="Lexicon editing" width="430" height="980" -->
+<meta charset="utf-8">
+<title>File Outline</title>
+<meta name="viewport" content="width=430, initial-scale=1">
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; width: 430px;
+		background: #141218; color: #E6E0E9;
+		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
+		-webkit-font-smoothing: antialiased;
+	}
+
+	header { background: #1D1B20; border-bottom: 1px solid #49454F; padding: 10px 14px 11px; }
+	.crumb { color: #948F9A; font-size: 11px; letter-spacing: .2px; }
+	.titlerow { display: flex; align-items: center; gap: 8px; margin-top: 1px; }
+	.fname { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
+	.lines { color: #948F9A; font-size: 11px; margin-left: auto; white-space: nowrap; }
+	.kebab { color: #CAC4D0; font-size: 18px; line-height: 1; padding: 0 2px; }
+
+	.askrow { display: flex; align-items: center; gap: 9px; margin-top: 10px; }
+	.askfield {
+		flex: 1; background: #26223B; border-left: 2px solid #D0BCFF;
+		border-radius: 0 6px 6px 0; padding: 8px 10px 9px;
+		color: #8A83A0; font-size: 12.5px;
+	}
+	.send {
+		flex: none; width: 34px; height: 34px; border-radius: 50%;
+		background: #D0BCFF; color: #381E72;
+		display: flex; align-items: center; justify-content: center;
+		font-size: 15px; font-weight: 700;
+	}
+
+	.chips { display: flex; gap: 7px; padding: 10px 12px 9px; }
+	.chip { border: 1px solid #49454F; border-radius: 16px; padding: 5px 11px 6px; font-size: 11.5px; color: #CAC4D0; }
+	.chip.on { background: #332A45; border-color: #332A45; color: #D0BCFF; font-weight: 600; }
+
+	.list { padding: 0 0 88px; }
+	.row {
+		display: flex; align-items: center; gap: 10px;
+		padding: 9px 12px 10px; border-bottom: 1px solid #201E25;
+	}
+	.row.win { background: #241F2D; box-shadow: inset 2px 0 0 #D0BCFF; }
+	.row.nest { padding-left: 30px; background: #191720; }
+
+	.kind {
+		flex: none; width: 19px; height: 19px; border-radius: 4px;
+		font-family: ui-monospace, monospace; font-size: 11px; font-weight: 700;
+		display: flex; align-items: center; justify-content: center;
+	}
+	.k-fn { background: #332A45; color: #D0BCFF; }
+	.k-ty { background: #1F2B3D; color: #8AB4F8; }
+	.k-co { background: #1E2F24; color: #9BD4A3; }
+	.k-va { background: #2A2830; color: #948F9A; }
+
+	.body { flex: 1; min-width: 0; }
+	.nm { font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.sig {
+		font-family: ui-monospace, monospace; font-size: 10.5px; color: #7E7889;
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;
+	}
+	.at { flex: none; color: #6F6A76; font-size: 10.5px; font-family: ui-monospace, monospace; }
+	.chev { flex: none; color: #847E8E; font-size: 16px; line-height: 1; }
+
+	footer {
+		position: fixed; left: 0; right: 0; bottom: 0; width: 430px;
+		background: #1D1B20; border-top: 1px solid #49454F;
+		padding: 10px 12px 13px; display: flex; gap: 9px;
+	}
+	.btn { text-align: center; border-radius: 22px; padding: 11px 0 12px; font-size: 13.5px; font-weight: 600; }
+	.ghost { flex: none; padding-left: 22px; padding-right: 22px; border: 1px solid #938F99; color: #D0BCFF; }
+	.primary { flex: 1; background: #D0BCFF; color: #381E72; }
+</style>
+
+<header>
+	<div class="crumb">switchboard / src / shared</div>
+	<div class="titlerow">
+		<div class="fname">schemasRoutine.ts</div>
+		<div class="lines">343 lines</div>
+		<div class="kebab">&#8942;</div>
+	</div>
+	<div class="askrow">
+		<div class="askfield">Ask for the windows you want</div>
+		<div class="send">&#8593;</div>
+	</div>
+</header>
+
+<div class="chips">
+	<div class="chip on">All 49</div>
+	<div class="chip">Fn 4</div>
+	<div class="chip">Type 15</div>
+	<div class="chip">Const 22</div>
+</div>
+
+<div class="list">
+	<div class="row">
+		<div class="kind k-co">C</div>
+		<div class="body"><div class="nm">MAX_WEEK_INTERVAL</div><div class="sig">= 8</div></div>
+		<div class="at">9</div>
+		<div class="chev">&#8250;</div>
+	</div>
+
+	<div class="row win">
+		<div class="kind k-fn">F</div>
+		<div class="body"><div class="nm">forgetAfterMs</div><div class="sig">(routine) =&gt; number</div></div>
+		<div class="at">14</div>
+		<div class="chev">&#8250;</div>
+	</div>
+
+	<div class="row">
+		<div class="kind k-fn">F</div>
+		<div class="body"><div class="nm">routineSessionName</div><div class="sig">(routineId: string): string</div></div>
+		<div class="at">27</div>
+		<div class="chev">&#8250;</div>
+	</div>
+	<div class="row">
+		<div class="kind k-co">C</div>
+		<div class="body"><div class="nm">RoutineTargetSchema</div><div class="sig">= z.object({ spawn, session })</div></div>
+		<div class="at">36</div>
+		<div class="chev">&#8250;</div>
+	</div>
+	<div class="row">
+		<div class="kind k-co">C</div>
+		<div class="body"><div class="nm">RoutineSchema</div><div class="sig">= z.object({ ... })</div></div>
+		<div class="at">46</div>
+		<div class="chev">&#8250;</div>
+	</div>
+	<div class="row">
+		<div class="kind k-ty">T</div>
+		<div class="body"><div class="nm">Routine</div><div class="sig">= z.infer&lt;typeof RoutineSchema&gt;</div></div>
+		<div class="at">99</div>
+		<div class="chev">&#8250;</div>
+	</div>
+	<div class="row">
+		<div class="kind k-co">C</div>
+		<div class="body"><div class="nm">ROUTINE_REPORT_GRACE_MS</div><div class="sig">= 30 * 60 * 1000</div></div>
+		<div class="at">234</div>
+		<div class="chev">&#8250;</div>
+	</div>
+
+	<div class="row win">
+		<div class="kind k-co">C</div>
+		<div class="body"><div class="nm">MAX_ROUTINE_MEMORY_BYTES</div><div class="sig">= 32_768</div></div>
+		<div class="at">244</div>
+		<div class="chev">&#8250;</div>
+	</div>
+
+	<div class="row win">
+		<div class="kind k-fn">F</div>
+		<div class="body"><div class="nm">routineRefusal</div><div class="sig">(routine: Routine): string | null</div></div>
+		<div class="at">313</div>
+		<div class="chev">&#8250;</div>
+	</div>
+	<div class="row nest">
+		<div class="kind k-va">C</div>
+		<div class="body"><div class="nm">rule</div><div class="sig">= { weekdays, weekInterval, startDate }</div></div>
+		<div class="at">326</div>
+		<div class="chev">&#8250;</div>
+	</div>
+	<div class="row nest">
+		<div class="kind k-va">C</div>
+		<div class="body"><div class="nm">start</div><div class="sig">= parseLocalDate(routine.startDate)</div></div>
+		<div class="at">331</div>
+		<div class="chev">&#8250;</div>
+	</div>
+
+	<div class="row">
+		<div class="kind k-fn">F</div>
+		<div class="body"><div class="nm">knownZone</div><div class="sig">(zone: string): boolean</div></div>
+		<div class="at">336</div>
+		<div class="chev">&#8250;</div>
+	</div>
+</div>
+
+<footer>
+	<div class="btn ghost">Raw</div>
+	<div class="btn primary">View 3 Windows</div>
+</footer>

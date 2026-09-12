@@ -1,0 +1,113 @@
+<!-- @dsCard group="Lexicon editing" width="430" height="900" -->
+<meta charset="utf-8">
+<title>Ref Viewer</title>
+<meta name="viewport" content="width=430, initial-scale=1">
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; width: 430px;
+		background: #141218; color: #E6E0E9;
+		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
+		-webkit-font-smoothing: antialiased;
+	}
+
+	header { background: #1D1B20; border-bottom: 1px solid #49454F; padding: 10px 14px 12px; }
+	.back { color: #CAC4D0; font-size: 15px; margin-bottom: 6px; }
+	.titlerow { display: flex; align-items: center; gap: 8px; }
+	.kind {
+		flex: none; width: 21px; height: 21px; border-radius: 4px;
+		background: #332A45; color: #D0BCFF;
+		font-family: ui-monospace, monospace; font-size: 12px; font-weight: 700;
+		display: flex; align-items: center; justify-content: center;
+	}
+	.nm { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
+	.where { color: #948F9A; font-size: 11px; margin-top: 3px; font-family: ui-monospace, monospace; }
+
+	.strip {
+		display: flex; align-items: center; gap: 8px;
+		background: #2C2A33; border-bottom: 1px solid #3B3741;
+		padding: 8px 14px 9px; font-size: 12px; color: #CAC4D0;
+	}
+	.strip b { font-weight: 700; color: #E6E0E9; }
+
+	.seg { display: flex; gap: 0; padding: 12px 14px 0; }
+	.tab {
+		flex: 1; text-align: center; padding: 8px 0 9px;
+		font-size: 13px; font-weight: 600; color: #948F9A;
+		border: 1px solid #49454F;
+	}
+	.tab:first-child { border-radius: 18px 0 0 18px; }
+	.tab:last-child { border-radius: 0 18px 18px 0; border-left: none; }
+	.tab.on { background: #332A45; border-color: #332A45; color: #D0BCFF; }
+
+	main { padding: 12px 12px 86px; }
+	.srcwrap { background: #211F26; border: 1px solid #332F38; border-radius: 10px; overflow: hidden; }
+	.src { padding: 8px 0 8px; font-family: ui-monospace, "Roboto Mono", monospace; font-size: 11px; line-height: 1.6; }
+	.row { display: flex; }
+	.ln { flex: none; width: 34px; text-align: right; padding-right: 9px; color: #605B68; }
+	.tx { flex: 1; padding-right: 10px; white-space: pre-wrap; word-break: break-word; color: #CFC9D6; }
+	/* Blue band marks the lines in range. Amber mark names the symbol. Both kept from refview. */
+	.band { background: rgba(56, 139, 253, 0.20); }
+	.band .ln { color: #7F93B4; }
+	.band .tx { color: #F1EBF5; }
+	mark.span { background: rgba(210, 153, 34, 0.38); color: inherit; border-radius: 2px; }
+	.kw { color: #C3A6F5; }
+	.ty { color: #8AB4F8; }
+	.str { color: #9BD4A3; }
+	.cmt { color: #6E8C74; }
+
+	footer {
+		position: fixed; left: 0; right: 0; bottom: 0; width: 430px;
+		background: #1D1B20; border-top: 1px solid #49454F;
+		padding: 10px 12px 13px; display: flex; gap: 9px;
+	}
+	.btn { text-align: center; border-radius: 22px; padding: 11px 0 12px; font-size: 13.5px; font-weight: 600; }
+	.ghost { flex: none; padding-left: 20px; padding-right: 20px; border: 1px solid #938F99; color: #D0BCFF; }
+	.primary { flex: 1; background: #D0BCFF; color: #381E72; }
+</style>
+
+<header>
+	<div class="back">&#8592;&nbsp; Thread</div>
+	<div class="titlerow">
+		<div class="kind">F</div>
+		<div class="nm">routineRefusal</div>
+	</div>
+	<div class="where">src/shared/schemasRoutine.ts : 309-334</div>
+</header>
+
+<div class="strip"><b>Changed since sent</b></div>
+
+<div class="seg">
+	<div class="tab on">Sent</div>
+	<div class="tab">Now</div>
+</div>
+
+<main>
+	<div class="srcwrap">
+		<div class="src">
+			<div class="row"><div class="ln">309</div><div class="tx"><span class="cmt">/**</span></div></div>
+			<div class="row"><div class="ln">310</div><div class="tx"><span class="cmt"> * Why a routine cannot be stored, or null.</span></div></div>
+			<div class="row"><div class="ln">311</div><div class="tx"><span class="cmt"> */</span></div></div>
+			<div class="row"><div class="ln">313</div><div class="tx"><span class="kw">export function</span> <mark class="span">routineRefusal</mark>(</div></div>
+			<div class="row"><div class="ln">313</div><div class="tx">  routine: <span class="ty">Routine</span>,</div></div>
+			<div class="row"><div class="ln">313</div><div class="tx">): <span class="ty">string</span> | <span class="kw">null</span> {</div></div>
+			<div class="row band"><div class="ln">314</div><div class="tx">  <span class="kw">if</span> (routine.weekdays.length === 0)</div></div>
+			<div class="row band"><div class="ln">314</div><div class="tx">    <span class="kw">return</span> <span class="str">"a routine needs at least one weekday"</span>;</div></div>
+			<div class="row"><div class="ln">315</div><div class="tx">  <span class="kw">if</span> (<span class="kw">new</span> Set(routine.weekdays).size !== routine.weekdays.length)</div></div>
+			<div class="row"><div class="ln">315</div><div class="tx">    <span class="kw">return</span> <span class="str">"a weekday is named twice"</span>;</div></div>
+			<div class="row"><div class="ln">318</div><div class="tx">  <span class="kw">if</span> (!parseLocalDate(routine.startDate))</div></div>
+			<div class="row"><div class="ln">318</div><div class="tx">    <span class="kw">return</span> <span class="str">`${routine.startDate} is not a date`</span>;</div></div>
+			<div class="row"><div class="ln">321</div><div class="tx">  <span class="kw">if</span> (!knownZone(routine.zone))</div></div>
+			<div class="row"><div class="ln">321</div><div class="tx">    <span class="kw">return</span> <span class="str">`${routine.zone} is not a zone`</span>;</div></div>
+			<div class="row"><div class="ln">324</div><div class="tx">  <span class="cmt">// A rule that parses can still name nothing.</span></div></div>
+			<div class="row"><div class="ln">326</div><div class="tx">  <span class="kw">const</span> rule = {</div></div>
+			<div class="row"><div class="ln">327</div><div class="tx">    weekdays: routine.weekdays,</div></div>
+			<div class="row"><div class="ln">328</div><div class="tx">    weekInterval: routine.weekInterval,</div></div>
+		</div>
+	</div>
+</main>
+
+<footer>
+	<div class="btn ghost">Open File</div>
+	<div class="btn primary">Open Window</div>
+</footer>
