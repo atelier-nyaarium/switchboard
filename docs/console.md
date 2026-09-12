@@ -287,6 +287,27 @@ no TTL.
   over revision N" tap performs). The binding picker offers only entries with a value that
   `allowedOn` that Gateway. A row's toggle and a routine's carry the row's revision and show the
   gateway's refusal under the row until a toggle of that row lands.
+- **Files tab** (`WindowOps.kt`, `WindowRules.kt`, `WorkspaceNav.kt`, `workspace/`): one session's
+  workspace, read through the plugin that holds it. The tree, an outline, a symbol's detail and the
+  open windows sit behind one Back stack in `WorkspaceNav`. Everything is keyed by SESSION, not by
+  Gateway: two sessions of one Gateway hold different workspaces. Reads are re-read rather than
+  cached, as the other per-Gateway tabs do; the exceptions are the open windows, their drafts, and
+  one cached file per module for the lines around a window.
+- **Window identity** (`Window.incarnation`, `WindowOps.apply`): held state has one road in, which
+  hands a transform what is held NOW. A window carries an incarnation minted at open and the set
+  carries an epoch that moves on every close and on a re-provision. Work that began before either
+  reads it at the start and lands nothing if it moved, since a symbol id names which span and not
+  which opening of it. Without this a foreground re-check begun before a close and reopen applied
+  its answer to the window that replaced the one it read.
+- **Read slots** (`ReadSlot`): a fence key names what a read FILLS. One key per session made a
+  symbol's source and its knowledge cancel each other, and the sandbox could not show it because it
+  never suspends. A read that fills a per-module cache is not fenced at all, since there is nothing
+  an older answer could overwrite.
+- **Window drafts** (`WindowDraftStore.kt`): one file per draft under `filesDir`, write-then-rename,
+  keyed by a hash of session and symbol id. Not the runbook store, which serialises a whole library
+  into one preferences string on every commit. A failed rename leaves the previous draft; deleting
+  first to make room is the one order with a window holding neither copy. One mutex orders every
+  write, clear and load, so a save queued before a close cannot land after it.
 - **Unread tracking** (`ReadAnchor.kt`, `thread.js`): anchors match inbox rows by epoch and
   sequence equality. Reads drain by scroll position.
 - **Idle pushback** (`IdlePushbackManager.kt`): owns aligned `AlarmManager` wakeups.

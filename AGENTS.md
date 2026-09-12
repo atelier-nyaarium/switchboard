@@ -297,6 +297,26 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A fenced read answers `Fresh` or `Stale`, never a null that means two things:** the body's
     own null (a failed call) rides inside `Fresh`, so a caller that leaves the group alone on a
     failure and one that hides it on a refusal both read the same answer without guessing.
+  - **A key names the SLOT a read fills, not merely the holder:** one key per session made a symbol's
+    source and its knowledge cancel each other. `WindowOps` passes a sealed `ReadSlot`, so no string
+    reaches this from there; the other callers still pass one. A read that fills a per-module cache is
+    not fenced at all, since nothing an older answer could overwrite exists.
+- `android/.../WindowOps.kt` / `WindowRules.kt` / `WorkspaceNav.kt` / `WindowDraftStore.kt` /
+  `workspace/` - the Files tab: the open windows and their drafts, every rule the surface applies, the
+  Back stack, and the four screens. `docs/console.md` holds the whole of it
+  - **Keyed by SESSION, never by Gateway:** two sessions of one Gateway hold different workspaces, so
+    a Gateway-keyed map serves one session's span for the other. The fence, the draft filenames and
+    the window map all take the qualified session address.
+  - **Held state has ONE road in, `apply`, which hands a transform what is held NOW:** a caller that
+    captured a window, awaited the gateway and then wrote its decision has nowhere to write it. Not
+    enough on its own: a window carries an incarnation minted at open and the set an epoch that moves
+    on every close and on a re-provision, because a symbol id names which span and not which OPENING
+    of it. Work reads one at the start and lands nothing if it moved.
+  - **A draft is one file, written then renamed:** a combined file would rewrite every draft on every
+    keystroke batch, which is what `RunbookManager` pays. A failed rename leaves the previous draft;
+    deleting first to make room is the one order with a window holding neither copy.
+  - **Nothing decides inside a Composable**, since there is no instrumentation source set. The screens
+    render and call; `WindowRules` and `WorkspaceNav` hold the decisions and carry the tests.
 - `android/.../AttachmentOps.kt` - attachment fetch-and-sweep state
 - `android/.../ScheduledSendOps.kt` - scheduled sends as Router-held intents: the drain, the cancel intent, and the Router's result rows, all under one mutex
   - **The Router fires; the phone intends:** a record is pending until `schedule_send` is accepted,
@@ -762,6 +782,12 @@ passed every gate. Run the path where it actually runs, or fence what the gate c
 
 **Do not sanitize invisible characters in display strings:** `oneLine` collapses ASCII whitespace,
 which is the whole of it. No category strip, no bidi rule, no Unicode whitespace set.
+
+**A control character belongs in source as an escape, never as the byte:** an editing tool given a
+unicode escape writes the byte itself, which compiles and passes every gate while making the file
+binary to `grep`, invisible in a diff, and unindexable by Lexicon. Construct it instead, as
+`Char(0x1e)` does for the window key separator. `control-byte-residue.test.ts` reads every tracked
+Kotlin and TypeScript file; its two exemptions are the files that assert on terminal escapes.
 
 **A long-lived coroutine scope on the phone carries a `CoroutineExceptionHandler`:** it outlives the
 call that made it, so a throw inside has no caller to catch it, and a `SupervisorJob` only spares
