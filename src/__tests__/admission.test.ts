@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	type Admission,
+	admittedGatewayIds,
 	REGISTER_MAX_SKEW_MS,
 	resolveAdmitted,
 	resolveAdmittedConsole,
@@ -209,5 +210,86 @@ describe("registration proof-of-possession", () => {
 		expect(verifyRegistration(claim(), { ownerSignPub: owner.sign.pub, nowMs: now, revocations: revs })).toMatch(
 			/revoked/,
 		);
+	});
+});
+
+describe("the gateway ids a Domain admits", () => {
+	const admit = (over: Partial<Admission>) => signAdmission(admission(over), owner.sign.priv, owner.sign.pub);
+	const revoke = (signPub: string, issuedAt: number, nonce: string) =>
+		signRevocation({ signPub, issuedAt, nonce }, owner.sign.priv, owner.sign.pub);
+	const snapshot = (admissions: ReturnType<typeof admit>[], revocations: ReturnType<typeof revoke>[]) => ({
+		ownerSignPub: owner.sign.pub,
+		admissions,
+		revocations,
+	});
+
+	it("names each admitted gateway once, however many times it enrolled", () => {
+		const ids = admittedGatewayIds(
+			snapshot(
+				[
+					admit({ issuedAt: 1000, nonce: "bjE=" }),
+					admit({ issuedAt: 2000, nonce: "bjI=" }),
+					admit({ issuedAt: 3000, nonce: "bjM=" }),
+				],
+				[],
+			),
+		);
+		expect(ids).toEqual(["laptop"]);
+	});
+
+	it("drops a gateway whose admission the revocation outlived", () => {
+		expect(
+			admittedGatewayIds(snapshot([admit({ issuedAt: 1000 })], [revoke(host.sign.pub, 9999, "cmV2")])),
+		).toEqual([]);
+	});
+
+	// The bridge admits this registration, so a roster that buried it disagreed with the door.
+	it("keeps a key that was revoked and then enrolled again", () => {
+		const held = snapshot(
+			[admit({ issuedAt: 1000, nonce: "bjE=" }), admit({ issuedAt: 5000, nonce: "bjI=" })],
+			[revoke(host.sign.pub, 2000, "cmV2")],
+		);
+		expect(admittedGatewayIds(held)).toEqual(["laptop"]);
+		// The same answer registration gives, which is the whole point.
+		expect(resolveAdmitted(held.admissions, held.revocations, owner.sign.pub, host.sign.pub)).not.toBeNull();
+	});
+
+	// Registration judges the admission presented, so an older id its holder can still present stands.
+	it("keeps both ids when one key was re-admitted under another name", () => {
+		const older = admit({ issuedAt: 1000, gatewayId: "mikan", nonce: "bjE=" });
+		const newer = admit({ issuedAt: 5000, gatewayId: "sakura", nonce: "bjI=" });
+		expect(admittedGatewayIds(snapshot([older, newer], [])).sort()).toEqual(["mikan", "sakura"]);
+		// The door accepts the older admission on its own, which is why the roster must too.
+		expect(resolveAdmitted([older], [], owner.sign.pub, host.sign.pub)?.gatewayId).toBe("mikan");
+	});
+
+	it("names one gateway when two keys are admitted under it", () => {
+		const second = generateIdentity();
+		const other = signAdmission(
+			admission({ signPub: second.sign.pub, boxPub: second.box.pub, nonce: "bjI=" }),
+			owner.sign.priv,
+			owner.sign.pub,
+		);
+		expect(admittedGatewayIds(snapshot([admit({ nonce: "bjE=" }), other], []))).toEqual(["laptop"]);
+	});
+
+	it("ignores a revocation the owner never signed", () => {
+		const attacker = generateIdentity();
+		const forgedRevocation = signRevocation(
+			{ signPub: host.sign.pub, issuedAt: 9999, nonce: "cmV2" },
+			attacker.sign.priv,
+			attacker.sign.pub,
+		);
+		expect(admittedGatewayIds(snapshot([admit({})], [forgedRevocation]))).toEqual(["laptop"]);
+	});
+
+	it("ignores an admission the owner never signed", () => {
+		const attacker = generateIdentity();
+		const forged = signAdmission(admission({ gatewayId: "stolen" }), attacker.sign.priv, attacker.sign.pub);
+		expect(admittedGatewayIds(snapshot([forged], []))).toEqual([]);
+	});
+
+	it("ignores a console admission even when it carries a gateway id", () => {
+		expect(admittedGatewayIds(snapshot([admit({ kind: "console", gatewayId: "laptop" })], []))).toEqual([]);
 	});
 });

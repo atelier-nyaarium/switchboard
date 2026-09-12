@@ -136,6 +136,21 @@ export function resolveAdmitted(
 	return best;
 }
 
+/**
+ * Every gateway id a Domain still admits: one whose own admission would pass registration. Each is
+ * resolved alone, because registration judges the single admission a Gateway presents, and a key
+ * that once named another id would otherwise hide the id the bridge still lets in.
+ */
+export function admittedGatewayIds(snapshot: DomainSnapshot): string[] {
+	const ids = new Set<string>();
+	for (const signed of snapshot.admissions) {
+		if (signed.admission.kind !== "gateway") continue;
+		const live = resolveAdmitted([signed], snapshot.revocations, snapshot.ownerSignPub, signed.admission.signPub);
+		if (live?.kind === "gateway" && live.gatewayId) ids.add(live.gatewayId);
+	}
+	return [...ids];
+}
+
 export function resolveAdmittedConsole(
 	allowlist: SignedAdmission[],
 	revocations: SignedRevocation[],

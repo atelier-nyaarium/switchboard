@@ -1,4 +1,4 @@
-import type { DomainSnapshot } from "../shared/admission.js";
+import { admittedGatewayIds, type DomainSnapshot } from "../shared/admission.js";
 import { type ChainTimers, chainedTimer } from "../shared/chained-timer.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
 import {
@@ -50,13 +50,10 @@ export interface OwnerServicesDeps {
 export function createOwnerServices(deps: OwnerServicesDeps) {
 	const { registry, inbox, bridge, referenceHeld, ambient } = deps;
 	const connected = (domainId: string): string[] => bridge.registeredGateways(domainId).map((g) => g.gatewayId);
+	/** One rule with registration, or a Gateway is admitted at the bridge and absent from the roster. */
 	const admittedGateways = (domainId: string): string[] => {
 		const snapshot = deps.getDomain(domainId);
-		if (!snapshot) return [];
-		const revoked = new Set(snapshot.revocations.map((r) => r.revocation.signPub));
-		return snapshot.admissions
-			.filter((a) => a.admission.kind === "gateway" && a.admission.gatewayId && !revoked.has(a.admission.signPub))
-			.map((a) => a.admission.gatewayId as string);
+		return snapshot ? admittedGatewayIds(snapshot) : [];
 	};
 	const linkedDomains = (domainId: string): string[] =>
 		registry.domains().filter((other) => other !== domainId && deps.hasLinkEdge(domainId, other));
