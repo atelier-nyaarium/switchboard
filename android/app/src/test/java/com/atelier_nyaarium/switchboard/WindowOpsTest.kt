@@ -397,6 +397,37 @@ class WindowOpsTest {
 		assertNull(drafts.load(one, F_ID))
 	}
 
+	// Typing back to the original leaves a draft file behind an unedited window.
+	@Test
+	fun `a recheck that adopts takes any held draft, not only a differing one`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "fun f() {}")
+		gateway.spans[F_ID] = "moved" to "h9"
+
+		ops.recheck(one)
+
+		assertNull(drafts.load(one, F_ID))
+	}
+
+	// The fence supersedes this adopt, since a reopen claims the same slot; the incarnation guard in
+	// `adopt` is the second line for a window that goes away by some other road.
+	@Test
+	fun `an adopt that lands after a reopen leaves the new draft alone`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		val hold = TestHold().also { gateway.holds[F_ID] = it }
+
+		val refresh = async { ops.adopt(one, F_ID) }
+		hold.entered.await()
+		ops.closeWindow(one, F_ID)
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "typed after the reopen")
+		hold.release()
+		refresh.await()
+
+		assertEquals(listOf(F_ID to "typed after the reopen"), shown())
+		assertEquals("typed after the reopen", drafts.load(one, F_ID))
+	}
+
 	// A transient refusal is not a reason to throw away what the owner is looking at.
 	@Test
 	fun `a recheck that cannot read a span leaves it as it was`() = runBlocking {

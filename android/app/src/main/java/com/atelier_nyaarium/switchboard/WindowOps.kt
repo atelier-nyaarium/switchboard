@@ -231,8 +231,14 @@ internal class WindowOps(
 					original = fresh.value.text,
 					incarnation = incarnation,
 				)
-				applyTo(target, incarnation) { next }
-				repoScope.launch { writing.withLock { drafts.clear(target, symbolId) } }
+				var applied = false
+				applyTo(target, incarnation) {
+					applied = true
+					next
+				}
+				// Only the draft this adopted. The fence usually supersedes a late answer first; this is
+				// the guard for a window that went away by some other road.
+				if (applied) repoScope.launch { writing.withLock { drafts.clear(target, symbolId) } }
 				WorkspaceAnswer.Read(next)
 			}
 			is WorkspaceAnswer.Refused -> fresh
@@ -253,7 +259,8 @@ internal class WindowOps(
 				when (val outcome = refreshWith(current, fresh.value)) {
 					RefreshOutcome.Unchanged -> current
 					is RefreshOutcome.Adopted -> {
-						dropped = current.edited
+						// Any held draft, not only a differing one: typing back to the original keeps a file.
+						dropped = current.draft != null
 						outcome.window
 					}
 					is RefreshOutcome.Conflicts -> outcome.window

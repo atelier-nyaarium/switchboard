@@ -22,10 +22,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -84,9 +87,13 @@ internal fun WindowView(
 				onClick = hapticClick {
 					if (!asking) {
 						asking = true
+						// Finally, or a cancellation leaves the button disabled with nothing said.
 						scope.launch {
-							asked = ops.agentApply(target)
-							asking = false
+							try {
+								asked = ops.agentApply(target)
+							} finally {
+								asking = false
+							}
 						}
 					}
 				},
@@ -173,12 +180,27 @@ private fun GapRow(skipped: Int) {
 	}
 }
 
-/** The span itself, in the purple the design reserves for what is editable. */
+/**
+ * The span itself, in the purple the design reserves for what is editable.
+ *
+ * The selection is held here and saved, because the text alone is not the field's state: scrolling
+ * the card off screen disposes it, and rebuilding from a bare string puts the caret at the end, where
+ * the next keystroke lands somewhere the owner did not choose. A change from elsewhere, which is a
+ * refresh or an adopt, replaces the whole value; that window is no longer theirs to be typing in.
+ */
 @Composable
-private fun SpanField(text: String, onType: (String) -> Unit) {
+private fun SpanField(key: String, text: String, onType: (String) -> Unit) {
+	var value by rememberSaveable(key, stateSaver = TextFieldValue.Saver) {
+		mutableStateOf(TextFieldValue(text))
+	}
+	if (value.text != text) value = TextFieldValue(text, TextRange(text.length))
+
 	OutlinedTextField(
-		value = text,
-		onValueChange = onType,
+		value = value,
+		onValueChange = {
+			value = it
+			onType(it.text)
+		},
 		modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
 		textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
 		colors = OutlinedTextFieldDefaults.colors(
@@ -245,7 +267,7 @@ private fun WindowCard(
 			}
 			val parts = windowParts(window, file, previousEnd = previousEnd, nextStart = nextStart)
 			CodeLines(parts.above, Modifier.padding(top = 6.dp))
-			SpanField(parts.span, onType)
+			SpanField(window.descriptor.symbolId, parts.span, onType)
 			CodeLines(parts.below, Modifier.padding(bottom = 6.dp))
 		}
 	}
