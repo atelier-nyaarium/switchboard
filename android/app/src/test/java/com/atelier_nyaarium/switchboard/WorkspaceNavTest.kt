@@ -69,6 +69,18 @@ class WorkspaceNavTest {
 		assertNull(pickedSession(emptyList(), null))
 	}
 
+	// The picker falls back to another session, so a request for one that is gone must not ride that
+	// fallback and open a different project's file at the same path.
+	@Test
+	fun `a request waits for the roster, shows on its own session, and is dropped once it is gone`() {
+		val sessions = listOf(session("home.sakura.host.aaa"), session("home.sakura.host.bbb"))
+
+		assertEquals(RequestStanding.Show, standingOf(sessions, true, "home.sakura.host.bbb"))
+		assertEquals(RequestStanding.Wait, standingOf(emptyList(), false, "home.sakura.host.bbb"))
+		assertEquals(RequestStanding.Drop, standingOf(sessions, true, "home.sakura.host.ccc"))
+		assertEquals(RequestStanding.Drop, standingOf(emptyList(), true, "home.sakura.host.bbb"))
+	}
+
 	// A pick the roster dropped is not kept, or the tab reads a workspace that is gone.
 	@Test
 	fun `a pick the roster no longer holds falls back rather than sticking`() {

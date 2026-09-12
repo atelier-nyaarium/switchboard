@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import com.atelier_nyaarium.switchboard.proto.Protocol
@@ -110,6 +111,13 @@ fun MainTabsScreen(
 		(if (vaultEnabled) listOf("Vault") else emptyList())
 	val pagerState = rememberPagerState(pageCount = { tabs.size })
 	val scope = rememberCoroutineScope()
+
+	// Scrolls to the tab only; the tab itself reads the same request for what to show, and clears it.
+	LaunchedEffect(tabs) {
+		com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus.pending.collect { request ->
+			if (request != null) tabs.indexOf("Files").takeIf { it >= 0 }?.let { pagerState.animateScrollToPage(it) }
+		}
+	}
 
 	Scaffold(
 		topBar = {

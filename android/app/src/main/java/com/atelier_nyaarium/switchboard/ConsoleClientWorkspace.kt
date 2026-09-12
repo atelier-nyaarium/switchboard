@@ -25,7 +25,15 @@ private suspend inline fun <reified T> ConsoleClient.workspaceRead(
 	op: ConsoleOp,
 ): WorkspaceAnswer<T> {
 	// A throwing transport would cancel the screen's effect, leaving it on a spinner with no answer.
-	val answer = runCatching { sendValueAnswer(gatewayId, op) }.getOrNull() ?: return WorkspaceAnswer.Unreachable
+	// Cancellation is rethrown, or a caller Compose already cancelled runs on past the await and writes
+	// what the screen it belonged to no longer wants.
+	val answer = try {
+		sendValueAnswer(gatewayId, op)
+	} catch (e: kotlin.coroutines.cancellation.CancellationException) {
+		throw e
+	} catch (_: Exception) {
+		return WorkspaceAnswer.Unreachable
+	} ?: return WorkspaceAnswer.Unreachable
 	return when (answer) {
 		is ConsoleClient.ValueAnswer.Answered -> {
 			// An undecodable answer is a peer this build cannot read, not a refusal about the file.

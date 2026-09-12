@@ -1150,8 +1150,8 @@ Three were considered and deliberately not done:
 
 ### Left
 
-- The ref viewer's two exits, which need the span hash refs do not carry yet. They move to Phase 6, where
-  that hash is added.
+- The ref viewer's two exits, which need the span hash refs do not carry yet. Moved to Phase 6, where that
+  hash is added, and shipped there.
 - The detail screen's per-question knowledge, its badges and its facts rows. The plane answers
   `describe_symbol` as one block of text, and parsing that on the phone would be a twin of Lexicon's own
   formatter. A structured knowledge answer is its own phase, recorded on the board.
@@ -1288,13 +1288,69 @@ A second red team, over the draft-persistence refactor, broke three more:
 - **The sandbox answers a send as sent.** It reaches no Router, and the alternative is a button that looks
   broken. Nothing else about the apply road can be walked there.
 
-## Phase 6 - Refs carry a span hash
+## Phase 6 - Refs carry a span hash ✅
 
 Slice the resolved range, hash the slice, and add it as one new optional field on `RefKeyMetaSchema`. That is
 what lets the viewer say `Changed since sent` and offer Sent against Now.
 
 `resolveOne` hashes the WHOLE file transiently and the metadata keeps no hash, so this is new work rather than
 retention. `sliceRange` and `hashContent` are the primitives.
+
+### Done
+
+- **`spanHash` is of the LINES a key resolved to**, not of the file and not of the span's characters. Every
+  road `resolveOne` takes ends at lines, including the two that never see a range, and a change anywhere on a
+  line the reader was shown is a change to what they were shown. `textOfLines` is the slice.
+
+  Same FUNCTION as the window descriptor, different SPAN, and Phase 8 must not treat them as one number. A
+  window hashes what Lexicon calls the declaration, which Phase 7 says includes a touching doc comment and is
+  precise to the character. A ref hashes the lines the viewer drew. Neither is ever compared against the
+  other: a ref's hash is compared to a later read of its own lines, which is all `Changed since sent` asks.
+- **A key the schema would refuse is dropped rather than sent.** The producer parses what it emits with the
+  consumer's own schema. A refused key fails the whole file, so one unusual value would cost every other ref
+  in that message its snapshot; a dropped key only leaves its own link behaving as an ordinary one.
+- **`symbolId` rides beside it**, taken from the chain candidate that `exactOutcome` already holds. Without it
+  the viewer could offer a file and never the declaration, since a ref key and a Lexicon symbol id are
+  different grammars and the phone cannot convert one to the other.
+- **The viewer's two exits**, which Phase 4 deferred here. `Open File` lands on the outline, `Open Window`
+  opens the editable span. Offered only for what the ref actually carries: an older sender, a ref with no
+  chain, and one the index could not answer all show the file exit alone.
+- **`WorkspaceOpenBus` HOLDS its request** rather than emitting it. A ref opens over a thread, and the thread
+  replaces the tab row, so nothing that acts on the request is composed when it is made. The first build
+  dropped the event and the tap read as dead. Three things now read the held request as each composes: the
+  shell leaves the thread, the tab row scrolls, and the tab shows the place and clears it.
+
+### Bug Classes
+
+- **A bounded wire field whose producer does not respect the bound.** Caught twice in one phase. Round one:
+  `symbolId` was bounded at 1024 and the producer sent whatever Lexicon answered. Round two: `key` has been
+  bounded at 512 since long before this phase, and `canonicalKey` builds it from an arbitrary matcher with no
+  bound at all. The mechanism is `buildArtifacts` composing a record by hand; the class is a field whose two
+  ends disagree about what fits. A per-field check is the patch, and writing a second one is what named this.
+  What closes it: the producer parses what it emits with the consumer's schema and drops what would be
+  refused, so any field added later is covered without anyone remembering.
+
+  The same shape is worth looking for wherever a record is built by hand against a bounded schema. Left for
+  its own pass rather than widened here.
+
+- **A `runCatching` around a suspend call swallows cancellation.** `workspaceRead` caught every `Throwable`,
+  including `CancellationException`, so a Compose effect that had already been cancelled ran on past its
+  await and wrote what the screen no longer wanted. `agentApply` in `WindowOps` gets this right and rethrows,
+  so the two disagreed inside one feature. Nothing fences the pattern, and the phone has no gate that could
+  see it.
+
+### Left
+
+- **The Sent against Now strip.** It needs a live read of those lines and a Kotlin twin of `hashContent` with
+  a shared fixture corpus pinning both runtimes, which is a phase's worth rather than a slice. `spanHash`
+  therefore ships ahead of its reader, which is the order this project's wire discipline asks for anyway.
+- **Back after an exit does not return to the thread.** The exit clears the thread on its way out, so Back
+  pops the workspace stack and then leaves the app. Reaching the thread again is the Sessions tab. A
+  cross-tab back stack is app navigation rather than this phase, and the mockup promises a way in, not a way
+  back.
+- **A refused `Open Window` says nothing.** `openWindow` answers Refused or Unreachable, the exit navigates
+  regardless, and the Windows list shows its ordinary empty state. Same gap as a refused draft write, and on
+  the same board item.
 
 # Release 2 - Saving without the agent
 

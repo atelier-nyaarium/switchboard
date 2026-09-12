@@ -23,6 +23,7 @@ class ReferenceViewerTest {
 		reason: String? = null,
 		ambiguous: Boolean? = null,
 		matchCount: Long? = null,
+		symbolId: String? = null,
 	) = RefKeyMeta(
 		key = "ref://src/cart.ts:Cart:add",
 		startLine = 100,
@@ -31,7 +32,23 @@ class ReferenceViewerTest {
 		reason = reason,
 		ambiguous = ambiguous,
 		matchCount = matchCount,
+		symbolId = symbolId,
 	)
+
+	// A ref always names a file; only a chain the index answered names a declaration. An older sender
+	// carries no symbol id, and the window exit is absent rather than opening nothing.
+	@Test
+	fun `the window exit is offered only for a ref that resolved to a declaration`() {
+		val meta = RefFileMeta(refPath = "src/cart.ts", keys = emptyList())
+
+		assertEquals(
+			RefExits(filePath = "src/cart.ts", symbolId = "lexicon typescript src/cart.ts Cart#add()."),
+			exitsFor(meta, key(symbolId = "lexicon typescript src/cart.ts Cart#add().")),
+		)
+		assertNull(exitsFor(meta, key()).symbolId)
+		assertNull(exitsFor(meta, key(symbolId = "")).symbolId)
+		assertNull(exitsFor(RefFileMeta(refPath = "", keys = emptyList()), key()).filePath)
+	}
 
 	private fun request(meta: RefFileMeta, k: RefKeyMeta = key()) =
 		ReferenceOpenRequest("team", k, meta, "1-1/cart.ts", "ref://src/cart.ts:Cart:add")

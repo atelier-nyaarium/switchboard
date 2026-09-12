@@ -2175,6 +2175,8 @@ data class RefKeyMeta(
 	val reason: String? = null,
 	val ambiguous: Boolean? = null,
 	val matchCount: Long? = null,
+	val spanHash: String? = null,
+	val symbolId: String? = null,
 )
 
 @Serializable

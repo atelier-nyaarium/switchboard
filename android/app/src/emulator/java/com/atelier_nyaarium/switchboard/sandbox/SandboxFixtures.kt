@@ -201,7 +201,11 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 				endLine = 36,
 				span = RefSpanMeta(startLine = 33, startColumn = 9, endLine = 33, endColumn = 19),
 				quality = "exact",
+				spanHash = "5f2b9c41a7e30d68b154ac9021ff37de",
+				symbolId = "lexicon typescript src/shared/schemasRoutine.ts routineRefusal().",
 			),
+			// No symbol id, which is what a ref the index could not answer carries. The foot then offers
+			// the file alone, which is the case a seeded pair answering alike would hide.
 			RefKeyMeta(
 				key = "ref://src/mcp/references/refFile.ts:LoaderV1:isJoinable",
 				startLine = 33,

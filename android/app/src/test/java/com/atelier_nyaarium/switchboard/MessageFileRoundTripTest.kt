@@ -48,6 +48,8 @@ class MessageFileRoundTripTest {
 					endLine = 110,
 					span = com.atelier_nyaarium.switchboard.proto.RefSpanMeta(100, 4, 100, 9),
 					quality = "exact",
+					spanHash = "0123456789abcdef0123456789abcdef",
+					symbolId = "lexicon typescript src/cart.ts Cart#add().",
 				),
 			),
 		)

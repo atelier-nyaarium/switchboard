@@ -17,6 +17,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -35,7 +36,9 @@ import com.atelier_nyaarium.switchboard.WorkspacePlace
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.localFieldOf
+import com.atelier_nyaarium.switchboard.RequestStanding
 import com.atelier_nyaarium.switchboard.pickedSession
+import com.atelier_nyaarium.switchboard.standingOf
 import com.atelier_nyaarium.switchboard.placeOf
 import com.atelier_nyaarium.switchboard.placeTitle
 import com.atelier_nyaarium.switchboard.popPlace
@@ -55,7 +58,32 @@ import kotlinx.coroutines.launch
 fun WorkspaceScreen(repo: ChatRepository, state: ChatState, modifier: Modifier = Modifier) {
 	val sessions = remember(state.teams) { workspaceSessions(state.teams) }
 	var pickedName by remember { mutableStateOf<String?>(null) }
+	// Held until the picked session's nav host has it: picking changes the target, which starts the
+	// stack over, so a place pushed before that would be thrown away.
+	var asked by remember { mutableStateOf<WorkspaceOpenRequest?>(null) }
 	val session = pickedSession(sessions, pickedName)
+	val standing = asked?.let { standingOf(sessions, state.gateways.loaded, it.team) }
+	// Only what the request actually named. A session that has left the roster falls the picker back to
+	// another one, and a path opened THERE is a different project's file under the same name.
+	val pending = asked?.takeIf { standing == RequestStanding.Show }?.open
+
+	// Cleared where the place is pushed, not here: this screen can be disposed between the two, and a
+	// request already taken off the bus would go with it.
+	LaunchedEffect(Unit) {
+		WorkspaceOpenBus.pending.collect { request ->
+			if (request != null) {
+				pickedName = request.team
+				asked = request
+			}
+		}
+	}
+
+	LaunchedEffect(standing) {
+		if (standing == RequestStanding.Drop) {
+			asked?.let { WorkspaceOpenBus.shown(it) }
+			asked = null
+		}
+	}
 
 	Column(modifier.fillMaxSize()) {
 		if (sessions.size > 1) {
@@ -83,19 +111,45 @@ fun WorkspaceScreen(repo: ChatRepository, state: ChatState, modifier: Modifier =
 			}
 		} else {
 			val target = remember(session.name) { targetOf(session) }
-			WorkspaceNavHost(repo, target, Modifier.weight(1f))
+			// Named rather than read from `asked`, since an effect Compose has replaced can still reach
+			// here and would otherwise clear the request that replaced it.
+			WorkspaceNavHost(repo, target, Modifier.weight(1f), asked?.takeIf { pending != null }) { shownRequest ->
+				WorkspaceOpenBus.shown(shownRequest)
+				if (asked == shownRequest) asked = null
+			}
 		}
 	}
 }
 
 @Composable
-private fun WorkspaceNavHost(repo: ChatRepository, target: WorkspaceTarget, modifier: Modifier = Modifier) {
+private fun WorkspaceNavHost(
+	repo: ChatRepository,
+	target: WorkspaceTarget,
+	modifier: Modifier = Modifier,
+	asked: WorkspaceOpenRequest? = null,
+	onPendingShown: (WorkspaceOpenRequest) -> Unit = {},
+) {
 	// Switching session starts over: a held path names the workspace it was read from.
 	var stack by remember(target.key) { mutableStateOf(listOf(WORKSPACE_ROOT)) }
 	val place = placeOf(stack)
 	val scope = rememberCoroutineScope()
 	val boards by repo.windowOps.windows.collectAsState()
 	val windows = boards[target].orEmpty()
+
+	// After the stack was rebuilt for this target, or the reset would discard what was asked for.
+	LaunchedEffect(target.key, asked) {
+		val request = asked ?: return@LaunchedEffect
+		when (val open = request.open) {
+			is WorkspaceOpen.File -> stack = pushPlace(listOf(WORKSPACE_ROOT), WorkspacePlace.Outline(open.path))
+			is WorkspaceOpen.Window -> {
+				// Shown whether or not the span could be read. A refusal adds no window and nothing here
+				// says so, which is the same gap a failed draft write has.
+				repo.windowOps.openWindow(target, open.symbolId)
+				stack = pushPlace(listOf(WORKSPACE_ROOT), WorkspacePlace.Windows)
+			}
+		}
+		onPendingShown(request)
+	}
 
 	BackHandler(enabled = stack.size > 1) { stack = popPlace(stack) }
 

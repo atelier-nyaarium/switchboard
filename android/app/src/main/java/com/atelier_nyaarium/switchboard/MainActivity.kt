@@ -205,6 +205,12 @@ fun App(
 			rendererPool.setVisible(false)
 		}
 	}
+	// The thread REPLACES the tab row, so leaving it is what lets the tab row and the tab compose.
+	LaunchedEffect(Unit) {
+		com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus.pending.collect { request ->
+			if (request != null) openTeam = null
+		}
+	}
 	LaunchedEffect(openTeamRequest.value) {
 		openTeamRequest.value?.let { team ->
 			val opened = repo.openThread(team) ?: return@let

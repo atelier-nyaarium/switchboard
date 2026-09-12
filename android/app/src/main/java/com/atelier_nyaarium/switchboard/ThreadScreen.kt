@@ -497,7 +497,10 @@ fun ThreadScreen(
 					properties = DialogProperties(usePlatformDefaultWidth = false),
 				) {
 					Surface(modifier = Modifier.fillMaxSize()) {
-						com.atelier_nyaarium.switchboard.plugins.references.ReferenceViewer(request)
+						com.atelier_nyaarium.switchboard.plugins.references.ReferenceViewer(
+							request = request,
+							onLeave = { openReference = null },
+						)
 					}
 				}
 			}

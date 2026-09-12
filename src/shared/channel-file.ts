@@ -31,6 +31,13 @@ export const RefSegmentMetaSchema = z
 	})
 	.meta({ id: "RefSegmentMeta" });
 
+/**
+ * Lexicon bounds neither a module path nor a descriptor chain, so an id can in principle outrun this.
+ * The producer DROPS one that does rather than sending it, since a refused key fails the whole file
+ * and would cost every other ref in the message its snapshot. Exported so the two agree.
+ */
+export const REF_SYMBOL_ID_MAX = 1024;
+
 /** One canonical ref key this snapshot backs, and how it resolved. */
 export const RefKeyMetaSchema = z
 	.object({
@@ -44,6 +51,15 @@ export const RefKeyMetaSchema = z
 		reason: z.string().max(256).optional(),
 		ambiguous: z.boolean().optional(),
 		matchCount: z.number().int().nonnegative().optional(),
+		// Of the LINES this key resolved to, never of the whole file, or an edit anywhere in the file
+		// would read as a change to what the reader was shown. Optional by meaning and carries no
+		// date: a sender that could not read the file back omits it and the viewer offers no
+		// comparison, which is honest rather than a claim that nothing moved.
+		spanHash: z.string().min(1).max(64).optional(),
+		// What the chain resolved to, so the viewer can open the editable span rather than making the
+		// reader find it again. Optional by meaning: a ref with no chain, or one the index could not
+		// answer, names a file and not a declaration.
+		symbolId: z.string().min(1).max(REF_SYMBOL_ID_MAX).optional(),
 	})
 	.meta({ id: "RefKeyMeta" });
 

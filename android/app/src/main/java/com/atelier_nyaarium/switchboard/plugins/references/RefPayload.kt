@@ -26,6 +26,21 @@ private val HLJS_LANGUAGE = mapOf(
 	"xml" to "xml", "html" to "xml", "htm" to "xml", "svg" to "xml", "graphql" to "graphql", "makefile" to "makefile",
 )
 
+/** What the viewer's foot offers, so a reader can leave the snapshot for the live code. */
+internal data class RefExits(val filePath: String?, val symbolId: String?)
+
+/**
+ * A ref names a file on the wire and only sometimes a declaration: a path with no chain, one the index
+ * could not answer, and an older sender all carry no symbol id.
+ */
+internal fun exitsFor(
+    meta: com.atelier_nyaarium.switchboard.proto.RefFileMeta,
+    key: com.atelier_nyaarium.switchboard.proto.RefKeyMeta,
+): RefExits = RefExits(
+    filePath = meta.refPath.ifBlank { null },
+    symbolId = key.symbolId?.ifBlank { null },
+)
+
 /** The banner text for a resolution that did not land exactly where the ref asked. */
 internal fun noticeFor(key: com.atelier_nyaarium.switchboard.proto.RefKeyMeta): String? {
 	val drift = when (key.quality) {

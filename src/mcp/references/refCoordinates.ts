@@ -27,6 +27,8 @@ export interface Resolution {
 	quality: Quality;
 	/** Why the quality is not exact, phrased for the viewer's banner. */
 	reason?: string;
+	/** What the chain resolved to. Absent for a ref that names a file rather than a declaration. */
+	symbolId?: string;
 }
 
 export interface Lines {
@@ -96,4 +98,17 @@ export function spanAt(text: string, start: number, length: number): Span {
 
 export function lineCount(text: string): number {
 	return Math.max(1, text.split("\n").length);
+}
+
+/**
+ * The lines a resolution covers, joined as they sit in the file. Whole lines rather than the span's
+ * characters: every road a ref takes ends at lines, including the ones that never see a range, and a
+ * change anywhere on a line the owner was shown is a change to what they were shown.
+ *
+ * Clamped, since a resolution is built from the file it names but a caller could pair the two wrongly.
+ */
+export function textOfLines(text: string, lines: Lines): string {
+	const all = text.split("\n");
+	const first = Math.max(0, lines.startLine - 1);
+	return all.slice(first, Math.max(first, lines.endLine)).join("\n");
 }

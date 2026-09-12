@@ -52,3 +52,22 @@ internal fun targetOf(team: Team): WorkspaceTarget = WorkspaceTarget(gatewayId =
 /** Falls back to the first, since the field names whichever is read. Only an empty roster draws nothing. */
 internal fun pickedSession(sessions: List<Team>, picked: String?): Team? =
 	sessions.firstOrNull { it.name == picked } ?: sessions.firstOrNull()
+
+/** What a request raised elsewhere should do now that the tab holds it. */
+internal enum class RequestStanding {
+	/** The roster has not answered yet, and an absent session is not yet a missing one. */
+	Wait,
+
+	Show,
+
+	/** Dropped rather than held: a request kept until its session came back would navigate out of
+	 *  nowhere long after the tap, and `pickedSession` would meanwhile open it against another. */
+	Drop,
+}
+
+internal fun standingOf(sessions: List<Team>, rosterLoaded: Boolean, team: String): RequestStanding =
+	when {
+		sessions.any { it.name == team } -> RequestStanding.Show
+		rosterLoaded -> RequestStanding.Drop
+		else -> RequestStanding.Wait
+	}

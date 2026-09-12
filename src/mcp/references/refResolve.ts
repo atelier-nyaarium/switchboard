@@ -185,7 +185,9 @@ function exactOutcome(
 	const lines = linesOf(candidate.range);
 	// A parameter list has no name of its own, so its whole range lights.
 	const span: Span = spanOf(candidate.selectionRange ?? candidate.range);
-	const base: Resolution = { ...lines, span, quality: "exact" };
+	// Kept whether or not a matcher narrows the range: the matcher picks text INSIDE this declaration,
+	// so the declaration is still what the editor should open.
+	const base: Resolution = { ...lines, span, quality: "exact", symbolId: candidate.symbolId };
 	if (ref.matcher === null) return done(base);
 
 	const scope = offsetsOf(text, candidate.range);

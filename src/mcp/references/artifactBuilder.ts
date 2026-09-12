@@ -1,6 +1,13 @@
-import { REF_META_MAX_KEYS, REF_META_MAX_SEGMENTS, type RefFileMeta } from "../../shared/channel-file.js";
+import { hashContent } from "@nyaa-lexicon/protocol";
+import {
+	REF_META_MAX_KEYS,
+	REF_META_MAX_SEGMENTS,
+	REF_SYMBOL_ID_MAX,
+	type RefFileMeta,
+	RefKeyMetaSchema,
+} from "../../shared/channel-file.js";
 import { safeName, uniqueName } from "./artifactNames.js";
-import { lineCount, type Resolution } from "./refCoordinates.js";
+import { lineCount, type Resolution, textOfLines } from "./refCoordinates.js";
 import type { FoundRef } from "./refScanner.js";
 
 ////////////////////////////////
@@ -145,7 +152,8 @@ export function buildArtifacts(resolved: ResolvedRef[], existingNames: string[])
 	const budgeted = applyBudget(entries, byPath, texts);
 	if (!budgeted.ok) return budgeted;
 
-	// Refused loudly: a dropped key would be a ref that taps dead with no error anywhere.
+	// A cap the sender can act on refuses loudly, naming the file and what to do. A key the schema
+	// would not take is dropped instead, since refusing costs every other ref in the message.
 	const artifacts: BuiltArtifact[] = [];
 	for (const entry of entries) {
 		const refs = byPath.get(entry.refPath) ?? [];
@@ -182,14 +190,27 @@ export function buildArtifacts(resolved: ResolvedRef[], existingNames: string[])
 							})),
 						}
 					: {}),
-				keys: [...keyed.values()].map((r) => ({
-					key: r.found.key,
-					startLine: r.resolution.startLine,
-					endLine: r.resolution.endLine,
-					...(r.resolution.span ? { span: r.resolution.span } : {}),
-					quality: r.resolution.quality,
-					...(r.resolution.reason ? { reason: r.resolution.reason } : {}),
-				})),
+				// Parsed with the schema the consumer uses, and a key that would be refused is dropped
+				// rather than sent: one refused key fails the WHOLE file, costing every other ref in the
+				// message its snapshot, where a dropped key only leaves its own link behaving as an
+				// ordinary one. A canonical key carries an arbitrary matcher and has no bound of its own.
+				keys: [...keyed.values()]
+					.map((r) => ({
+						key: r.found.key,
+						startLine: r.resolution.startLine,
+						endLine: r.resolution.endLine,
+						...(r.resolution.span ? { span: r.resolution.span } : {}),
+						quality: r.resolution.quality,
+						...(r.resolution.reason ? { reason: r.resolution.reason } : {}),
+						// Dropped rather than sent over-length: the key would be refused and take the whole
+						// file's metadata with it, costing every other ref its snapshot for one lost exit.
+						...(r.resolution.symbolId && r.resolution.symbolId.length <= REF_SYMBOL_ID_MAX
+							? { symbolId: r.resolution.symbolId }
+							: {}),
+						// Off the ORIGINAL text, not the shipped content, which may be segments joined.
+						spanHash: hashContent(textOfLines(r.text, r.resolution)),
+					}))
+					.filter((key) => RefKeyMetaSchema.safeParse(key).success),
 			},
 		});
 	}

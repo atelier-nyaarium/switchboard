@@ -8,14 +8,23 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.atelier_nyaarium.switchboard.Attachments
+import com.atelier_nyaarium.switchboard.workspace.WorkspaceOpen
+import com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus
+import com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenRequest
 import org.json.JSONObject
 
 ////////////////////////////////
@@ -29,7 +38,11 @@ import org.json.JSONObject
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun ReferenceViewer(request: ReferenceOpenRequest, modifier: Modifier = Modifier) = androidx.compose.runtime.key(request) {
+fun ReferenceViewer(
+	request: ReferenceOpenRequest,
+	onLeave: () -> Unit,
+	modifier: Modifier = Modifier,
+) = androidx.compose.runtime.key(request) {
 	// key(request) owns the whole lifecycle: a request swap under a live viewer tears this subtree
 	// down (releasing the WebView) and rebuilds it fresh, so the one-shot factory closure can never
 	// render a previous ref's payload under the new request. produceState alone does NOT give this -
@@ -60,7 +73,8 @@ fun ReferenceViewer(request: ReferenceOpenRequest, modifier: Modifier = Modifier
 		val payload = settled.getOrNull()
 		val failureNote =
 			if (settled.isFailure) "Couldn't open this snapshot." else "This snapshot is no longer available on this device."
-		Box(modifier.fillMaxSize()) {
+		Column(modifier.fillMaxSize()) {
+		Box(Modifier.weight(1f)) {
 		AndroidView(
 			modifier = Modifier.fillMaxSize(),
 			// Each dismissal must take its renderer process with it; the sibling Designer WebViews do
@@ -109,6 +123,38 @@ fun ReferenceViewer(request: ReferenceOpenRequest, modifier: Modifier = Modifier
 					}
 				},
 			)
+		}
+		RefExitRow(request, onLeave)
+		}
+	}
+}
+
+/** The snapshot records what the agent meant; these reach what the code says now. */
+@Composable
+private fun RefExitRow(request: ReferenceOpenRequest, onLeave: () -> Unit) {
+	val exits = remember(request) { exitsFor(request.meta, request.key) }
+	if (exits.filePath == null && exits.symbolId == null) return
+
+	Row(
+		Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+		horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(9.dp),
+	) {
+		exits.filePath?.let { path ->
+			androidx.compose.material3.OutlinedButton(
+				onClick = com.atelier_nyaarium.switchboard.hapticClick {
+					WorkspaceOpenBus.request(WorkspaceOpenRequest(request.team, WorkspaceOpen.File(path)))
+					onLeave()
+				},
+			) { androidx.compose.material3.Text("Open File") }
+		}
+		exits.symbolId?.let { id ->
+			androidx.compose.material3.Button(
+				onClick = com.atelier_nyaarium.switchboard.hapticClick {
+					WorkspaceOpenBus.request(WorkspaceOpenRequest(request.team, WorkspaceOpen.Window(id)))
+					onLeave()
+				},
+				modifier = Modifier.weight(1f),
+			) { androidx.compose.material3.Text("Open Window") }
 		}
 	}
 }

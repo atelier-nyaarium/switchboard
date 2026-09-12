@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildArtifacts, MAX_FILE_BYTES, type ResolvedRef } from "../mcp/references/artifactBuilder.js";
 import { safeName, uniqueName } from "../mcp/references/artifactNames.js";
 import type { Resolution } from "../mcp/references/refCoordinates.js";
-import { REF_META_MAX_KEYS } from "../shared/channel-file.js";
+import { REF_META_MAX_KEYS, REF_SYMBOL_ID_MAX, RefFileMetaSchema } from "../shared/channel-file.js";
 
 function ref(refPath: string, text: string, resolution: Partial<Resolution> = {}): ResolvedRef {
 	const key = `ref://${refPath}${resolution.startLine ? `:S${resolution.startLine}` : ""}`;
@@ -58,6 +58,80 @@ describe("building the artifact set", () => {
 			quality: "fuzzy",
 			reason: "renamed",
 		});
+	});
+
+	// Of the lines the key resolved to. A whole-file hash would call an edit forty lines away a change
+	// to what the reader was shown.
+	it("hashes each key's own lines, so two keys in one file differ and an edit elsewhere does not", () => {
+		const text = lines(40);
+		const moved = `${lines(39)}\nline 40 edited`;
+
+		const both = buildArtifacts(
+			[ref("a.ts", text, { startLine: 3, endLine: 5 }), ref("a.ts", text, { startLine: 20, endLine: 22 })],
+			[],
+		);
+		const after = buildArtifacts([ref("a.ts", moved, { startLine: 3, endLine: 5 })], []);
+
+		const keys = both.ok ? both.artifacts[0].ref.keys : [];
+		expect(keys[0].spanHash).toBeTruthy();
+		expect(keys[0].spanHash).not.toBe(keys[1].spanHash);
+		expect(after.ok && after.artifacts[0].ref.keys[0].spanHash).toBe(keys[0].spanHash);
+	});
+
+	it("hashes the text the reader was shown, so a change inside those lines shows up", () => {
+		const before = buildArtifacts([ref("a.ts", lines(10), { startLine: 4, endLine: 6 })], []);
+		const after = buildArtifacts(
+			[
+				ref("a.ts", `${lines(3)}\nline 4 edited\n${lines(10).split("\n").slice(4).join("\n")}`, {
+					startLine: 4,
+					endLine: 6,
+				}),
+			],
+			[],
+		);
+
+		expect(after.ok && after.artifacts[0].ref.keys[0].spanHash).not.toBe(
+			before.ok ? before.artifacts[0].ref.keys[0].spanHash : "",
+		);
+	});
+
+	// A refused key fails the whole file, so one unusually long id must not cost every other ref in the
+	// message its snapshot.
+	it("drops a symbol id too long for the wire rather than sending a key that would be refused", () => {
+		const long = `lexicon typescript src/a.ts ${"Deep:".repeat(REF_SYMBOL_ID_MAX)}f().`;
+		const result = buildArtifacts([ref("a.ts", lines(10), { symbolId: long })], []);
+
+		expect(result.ok).toBe(true);
+		expect(result.ok && result.artifacts[0].ref.keys[0].symbolId).toBeUndefined();
+		expect(RefFileMetaSchema.safeParse(result.ok ? result.artifacts[0].ref : null).success).toBe(true);
+	});
+
+	// A canonical key carries an arbitrary matcher and has no bound of its own, so the key the producer
+	// builds can outrun the one the schema takes.
+	it("drops a key the schema would refuse rather than costing every other ref its snapshot", () => {
+		const long = `ref://a.ts#${"x".repeat(600)}`;
+		const result = buildArtifacts(
+			[
+				{
+					...ref("a.ts", lines(10), { startLine: 2, endLine: 3 }),
+					found: { ...ref("a.ts", "").found, key: long },
+				},
+				ref("a.ts", lines(10), { startLine: 5, endLine: 6 }),
+			],
+			[],
+		);
+
+		expect(result.ok && result.artifacts).toHaveLength(1);
+		expect(result.ok && result.artifacts[0].ref.keys.map((k) => k.key)).not.toContain(long);
+		expect(result.ok && result.artifacts[0].ref.keys).toHaveLength(1);
+		expect(RefFileMetaSchema.safeParse(result.ok ? result.artifacts[0].ref : null).success).toBe(true);
+	});
+
+	it("carries a symbol id the wire accepts", () => {
+		const id = "lexicon typescript src/a.ts f().";
+		const result = buildArtifacts([ref("a.ts", lines(10), { symbolId: id })], []);
+
+		expect(result.ok && result.artifacts[0].ref.keys[0].symbolId).toBe(id);
 	});
 
 	it("keeps the last resolution when one canonical key repeats", () => {
