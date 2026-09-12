@@ -52,7 +52,7 @@ class VaultPrompt(
 	/** Swiped away by hand; the shade still carries it and a tap there brings this back. */
 	private val parked = mutableSetOf<String>()
 
-	fun canShow(): Boolean = android.provider.Settings.canDrawOverlays(context)
+	fun canShow(): Boolean = OverlayPermission.granted(context)
 
 	/** Re-opened from the notification, so a parked request is wanted again. */
 	fun unpark(requestId: String) {
@@ -320,19 +320,19 @@ class VaultPrompt(
 	}
 
 	/**
-	 * The light half of the same Material palette the app draws its dark half from. The console is
-	 * dark and so is most of what it covers, so a dark card reads as part of whatever is behind it.
-	 * The shadow carries the rest: over a light app, colour alone would not separate it.
+	 * The top elevation tier of the dark palette, which is how Material separates a surface from
+	 * whatever it covers: a step lighter than the app's own cards, not an inverted one. The shadow
+	 * and, once expanded, the scrim carry the rest.
 	 */
 	private companion object {
 		const val WRAP = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 		const val MATCH = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-		val PANEL: Int = Color.parseColor("#F5EFF7")
-		val ON_PANEL: Int = Color.parseColor("#1D1B20")
-		val MUTED: Int = Color.parseColor("#49454F")
-		val FIELD: Int = Color.parseColor("#E6E0E9")
-		val OUTLINE: Int = Color.parseColor("#79747E")
-		val PRIMARY: Int = Color.parseColor("#6750A4")
-		val ON_PRIMARY: Int = Color.WHITE
+		val PANEL: Int = Color.parseColor("#36343B")
+		val ON_PANEL: Int = Color.parseColor("#E6E0E9")
+		val MUTED: Int = Color.parseColor("#CAC4D0")
+		val FIELD: Int = Color.parseColor("#211F26")
+		val OUTLINE: Int = Color.parseColor("#938F99")
+		val PRIMARY: Int = Color.parseColor("#D0BCFF")
+		val ON_PRIMARY: Int = Color.parseColor("#381E72")
 	}
 }
