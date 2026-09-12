@@ -1197,6 +1197,30 @@ marks it as an apply result or refreshes the window; the foreground re-check cov
   surface, which is where it is: the detail screen shows forty lines until asked. Editing half a span is
   not a thing to offer.
 
+A red team then broke four things, all fixed and each covered:
+
+- **The caret reset to the end** whenever the card was scrolled off screen and back, so the next keystroke
+  landed where the owner did not choose and the apply would have carried text they did not write. The
+  field holds and saves its selection now, not only its text.
+- **A recheck that adopted left the draft file**, so closing and reopening restored text the file no longer
+  had. Any held draft goes with an adopt, not only a differing one: typing back to the original still
+  leaves a file.
+- **A cancelled ask left the button disabled** with nothing said, since `agentApply` rethrows cancellation.
+- **The notice believed an op id was delivery.** A send answers with one either way and marks its own
+  thread row when the gateway refuses, so the apply reads that row.
+
+### Left standing, with reasons
+
+- **A reused session address would carry a window to the wrong workspace.** A session id is six hex
+  characters, unique within its spawn rather than forever, so an address can in principle come back for a
+  different session. The protection is the one the phase already rests on: the message carries the
+  ORIGINAL text and the agent refuses when what it reads does not match. Tracking a session incarnation
+  through the window set would be real work for a collision this unlikely.
+- **A very long span is one very long field.** Typing in it costs a full-text write per keystroke batch,
+  serialised behind the draft lock. Bounded by what the owner chose to open.
+- **The sandbox answers a send as sent.** It reaches no Router, and the alternative is a button that looks
+  broken. Nothing else about the apply road can be walked there.
+
 ## Phase 6 - Refs carry a span hash
 
 Slice the resolved range, hash the slice, and add it as one new optional field on `RefKeyMetaSchema`. That is
