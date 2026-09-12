@@ -336,6 +336,27 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/bridge/` / `channel/` / `references/` / `board/` / `designer/` / `connector/` - bridge, channel, reference, board, designer, and connector tools
 - `src/mcp/vault/vaultTools.ts` / `vaultRun.ts` - vault tools over the gateway's loopback routes, and the child run that injects a value and scrubs it from the output
 - `src/mcp/routines/routineTools.ts` - `get_session_routine` and `report_session_routine`, registered for any token-bound session and behind no capability
+- `src/shared/workspace-op.ts` - the workspace plane's wire vocabulary, beside `host-op.ts` and for the same reason: Gateway to an MCP-side process, never to Kotlin
+- `src/gateway/workspacePlane.ts` / `workspaceOpCoordinator.ts` - the Gateway's end of the plane, and the correlation it settles on
+  - **A socket IS its generation, and a reply from a replaced one settles nothing:** the generation lives
+    in a `WeakMap` keyed by the socket object rather than on `WsData`, since a generation is the plane's
+    business. `failGeneration` settles only what one dropped socket carried, so another session's waits
+    are untouched, and `close` calls it BEFORE its stale return, or a replaced socket's requests wait out
+    the full timeout for an answer that can never come.
+  - **One socket per session, chosen by `resolveLiveIncarnation`:** a session can hold several plugin
+    sockets keyed team then `subId`. Nothing broadcasts, and no second selector exists.
+- `src/mcp/workspace/plane.ts` / `handlers.ts` / `opDedupe.ts` - the plugin's end: the frame it answers, the five reads, and at-most-once
+  - **The plugin answers off the agent's turn:** the socket callback and the agent's work share a process
+    but not a thread of control, which is what makes a read cost no tokens.
+  - **At-most-once is defined HERE, because nothing upstream defines it:** the plane is neither a transient
+    value op nor the Router's delivery ledger. `createOpDedupe` replays a settled answer for a repeated key
+    AND joins a flight already open, since a replay arriving before the first answer would otherwise do the
+    work twice. A thrown op is not held: nothing was answered, so a retry must run.
+  - **A symbol id is confined too, not just a path:** an id EMBEDS its module, and Lexicon checks only
+    lexical containment. Without `confinedModule` an indexed `.env` would answer through `symbolSource`.
+  - **ONE deadline per op, never a budget per call:** two calls each given the full budget outlast the
+    plane's wait and reinstate the blind timeout the budget exists to prevent.
+- `src/mcp/workspace/loadFile.ts` - the one reader of a workspace file: regular files only, sized before the read, text or nothing. Shared by the refs snapshot road and the phone's file road; containment is the caller's.
 - `src/mcp/workspace/confine.ts` - which project files the phone's file road may reach, and the identity a mutation compares
   - **Every rule runs against what a path RESOLVES to, never its spelling:** a link defeated containment
     once and exclusion once, both by being checked as written. `withheld` is therefore ONE function run

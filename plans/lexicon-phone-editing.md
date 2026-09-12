@@ -842,7 +842,7 @@ shared module instead of either importing across features or writing a second co
 
 `isSpawnWorkdirPath` validates spelling only and is the basis for none of this.
 
-## Phase 3 - The bridge plane, reads only
+## Phase 3 - The bridge plane, reads only ✅
 
 A request and response protocol on the socket each session's plugin already dials out and holds. This is
 the whole reach: no new listener, no inbound hole, and it works identically for a host session and a
@@ -1120,6 +1120,22 @@ Writing confinement from scratch was right, and that is the complaint. `refWorks
 lexical containment and module spelling. `isSpawnWorkdirPath` does shape. Lexicon's `insideWorkspace` does
 containment with a realpath. Each is adjacent, none composes, and two of them are the wrong strength for a
 write. A fourth now exists. Nothing forces a new path rule to land in one place, so a fifth is likely.
+
+## Nothing marks a comment as load-bearing
+
+A prose agent asked to enforce a four-word rule proposed gutting the comments that document the leaks
+this lap closed, because nothing distinguishes a comment carrying a rule from one narrating. Its
+replacement for the symbol-id confinement note was "Confinement precedes lookup", which loses the entire
+reason and invites the next reader to delete the check. The codebase has no convention for this, and a
+word-count rule applied without one actively erodes the comments worth keeping.
+
+## A socket's identity had nowhere to live
+
+The plane needs to know which incarnation of a session's socket a request went to. `WsData` carries
+`subId`, `handshakeConfirmed` and `isStale` but nothing generational, and adding a field there means
+touching a type every socket construction site shares. A `WeakMap` keyed by the socket object works and is
+local, but it means the answer to "which incarnation is this" lives in whichever feature asked first. The
+second feature to need it will build a second one.
 
 ## The cycle runner's phase text freezes at start
 
