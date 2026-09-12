@@ -87,7 +87,7 @@ function withinCap(result: WorkspaceOpResult): WorkspaceOpResult {
 	};
 }
 
-/** Counts what a tap would actually list, or the number tells the owner a withheld name is in there. */
+/** Counts what a tap would list, or the number says a withheld name is in there. */
 function childCount(dir: string): number | undefined {
 	try {
 		return fs.readdirSync(dir, { withFileTypes: true }).filter((e) => listable(e.name, !e.isDirectory())).length;

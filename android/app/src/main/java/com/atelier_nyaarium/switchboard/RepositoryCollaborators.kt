@@ -192,7 +192,7 @@ internal class ChatRepositoryPolicyHost(private val repo: ChatRepository) : Poli
 		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsolePolicyGateway)
 }
 
-/** The port over the console client's workspace reads. Every call names the session, not the gateway alone. */
+/** The port over the console client's workspace reads. */
 internal class ConsoleWorkspaceGateway(private val client: ConsoleClient) : WorkspaceGateway {
 	override suspend fun tree(target: WorkspaceTarget, path: String) =
 		client.workspaceTree(target.gatewayId, target.address, path)

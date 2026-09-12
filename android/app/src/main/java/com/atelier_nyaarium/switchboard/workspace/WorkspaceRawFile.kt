@@ -17,7 +17,7 @@ import com.atelier_nyaarium.switchboard.WorkspaceTarget
 import com.atelier_nyaarium.switchboard.fileLines
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 
-/** Lexicon has no part in this road, which is the point of it. */
+/** Lexicon has no part in this road. */
 @Composable
 internal fun WorkspaceRawFile(
 	ops: WindowOps,

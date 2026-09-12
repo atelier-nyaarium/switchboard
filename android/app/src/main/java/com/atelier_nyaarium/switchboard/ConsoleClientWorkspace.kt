@@ -8,8 +8,6 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
 import kotlinx.serialization.json.decodeFromJsonElement
 
-// A workspace belongs to a session, so every call names the gateway AND the session.
-
 /**
  * Three outcomes, never two: the gateway refusing is its word about the workspace, and being
  * unreachable is no word at all. Collapsing them would draw a withheld file as a dropped connection.

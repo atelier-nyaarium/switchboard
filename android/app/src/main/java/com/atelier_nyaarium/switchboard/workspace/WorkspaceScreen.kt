@@ -197,7 +197,7 @@ internal fun WorkspaceNotice(text: String, modifier: Modifier = Modifier) {
 	}
 }
 
-/** Normal tap opens, long press opens a window, which is the one gesture rule these lists share. */
+/** Normal tap opens, long press opens a window. */
 @Composable
 internal fun WorkspaceRow(
 	onClick: () -> Unit,
