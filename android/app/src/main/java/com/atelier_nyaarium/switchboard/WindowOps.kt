@@ -6,12 +6,14 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /** A port, so a test drives the whole class without a socket. */
 internal interface WorkspaceGateway {
@@ -39,7 +41,7 @@ internal interface WindowHost {
 internal class WindowOps(
 	private val host: WindowHost,
 	private val drafts: WindowDraftStore,
-	/** Already off the main thread, and no call here names a dispatcher of its own. */
+	/** Already off the main thread, so what is launched on it names no dispatcher. */
 	private val repoScope: CoroutineScope,
 ) : ClearsOnReprovision {
 	private val reads = GatewayReadFence()
@@ -60,12 +62,22 @@ internal class WindowOps(
 
 	fun windowsOf(target: WorkspaceTarget): List<Window> = held.value[target].orEmpty()
 
+	/** Minted per open, so two openings of one symbol are two windows. */
+	private val incarnations = java.util.concurrent.atomic.AtomicLong(0)
+
+	/**
+	 * Moves whenever the SET of windows changes. Work that began before a close, or before a
+	 * re-provision, reads this at the start and lands nothing if it has moved since.
+	 */
+	private val epoch = java.util.concurrent.atomic.AtomicLong(0)
+
 	/**
 	 * THE one road into held state: every change is a function of what is held NOW, so a decision made
 	 * from a value read before a network wait cannot be written back. A caller that captured a window,
 	 * awaited the gateway, and then wrote what it decided is the shape this exists to make unwritable.
 	 *
 	 * The transform sees the session's windows and returns them; returning the same list writes nothing.
+	 * It runs inside the atomic update, so a check it makes is not racing the write it guards.
 	 */
 	private fun apply(target: WorkspaceTarget, transform: (List<Window>) -> List<Window>) {
 		held.update { all ->
@@ -75,16 +87,22 @@ internal class WindowOps(
 		}
 	}
 
-	/** One window, found by id as it stands. Absent means it was closed, and nothing is written. */
-	private fun applyTo(target: WorkspaceTarget, symbolId: String, transform: (Window) -> Window) {
+	/**
+	 * One window, found by the incarnation the caller read. A window closed and reopened during a wait
+	 * is a DIFFERENT window, so an answer about the old one lands nowhere.
+	 */
+	private fun applyTo(target: WorkspaceTarget, incarnation: Long, transform: (Window) -> Window) {
 		apply(target) { windows ->
-			if (windows.none { it.descriptor.symbolId == symbolId }) {
+			if (windows.none { it.incarnation == incarnation }) {
 				windows
 			} else {
-				windows.map { if (it.descriptor.symbolId == symbolId) transform(it) else it }
+				windows.map { if (it.incarnation == incarnation) transform(it) else it }
 			}
 		}
 	}
+
+	private fun windowFor(target: WorkspaceTarget, symbolId: String): Window? =
+		windowsOf(target).firstOrNull { it.descriptor.symbolId == symbolId }
 
 	/**
 	 * Stale answers are dropped rather than drawn, since an older read would put back what moved.
@@ -130,14 +148,21 @@ internal class WindowOps(
 	/** Accumulates, and restores any held draft, so a reopen after the process died keeps the typing. */
 	suspend fun openWindow(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<Window> {
 		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
+		val began = epoch.get()
 		return when (val answer = fenced(target, ReadSlot.Span(symbolId)) { gate.symbolSource(target, symbolId) }) {
 			is WorkspaceAnswer.Read -> {
+				// Off the caller's thread, which is the screen's: a Compose scope runs on the main one.
+				// Under the write lock, or a close racing the reopen restores the draft it just discarded.
+				val draft = withContext(Dispatchers.IO) { writing.withLock { drafts.load(target, symbolId) } }
 				val opened = Window(
 					descriptor = descriptorOf(answer.value),
 					original = answer.value.text,
-					draft = drafts.load(target, symbolId),
+					draft = draft,
+					incarnation = incarnations.incrementAndGet(),
 				)
-				apply(target) { withWindow(it, opened) }
+				// A close or a re-provision while this was in flight means the owner does not want it.
+				// A close or a re-provision while this was in flight means the owner does not want it.
+				apply(target) { if (epoch.get() == began) withWindow(it, opened) else it }
 				WorkspaceAnswer.Read(opened)
 			}
 			is WorkspaceAnswer.Refused -> answer
@@ -147,7 +172,8 @@ internal class WindowOps(
 
 	/** The one road that discards a draft by closing, so closing is how the owner abandons one. */
 	fun closeWindow(target: WorkspaceTarget, symbolId: String) {
-		val module = windowsOf(target).firstOrNull { it.descriptor.symbolId == symbolId }?.descriptor?.module
+		val module = windowFor(target, symbolId)?.descriptor?.module
+		epoch.incrementAndGet()
 		apply(target) { withoutWindow(it, symbolId) }
 		// A whole file is held for context, so it goes as soon as no window of it is open.
 		if (module != null && windowsOf(target).none { it.descriptor.module == module }) {
@@ -158,7 +184,8 @@ internal class WindowOps(
 
 	/** Memory first so the field stays responsive; the draft reaches disk off the main thread. */
 	fun type(target: WorkspaceTarget, symbolId: String, text: String) {
-		applyTo(target, symbolId) { it.copy(draft = text) }
+		val window = windowFor(target, symbolId) ?: return
+		applyTo(target, window.incarnation) { it.copy(draft = text) }
 		repoScope.launch {
 			// Under the lock, so a clear cannot land between the check and the write.
 			writing.withLock { if (holdsDraft(windowsOf(target), symbolId, text)) drafts.save(target, symbolId, text) }
@@ -175,16 +202,24 @@ internal class WindowOps(
 		val gate = host.workspace ?: return null
 		val answer = gate.file(target, module)
 		if (answer !is WorkspaceAnswer.Read) return null
-		return answer.value.text.split("\n").also { context[target to module] = it }
+		val lines = answer.value.text.split("\n")
+		// Kept only while a window still needs it, or a close during the read leaves bytes nothing drops.
+		if (windowsOf(target).any { it.descriptor.module == module }) context[target to module] = lines
+		return lines
 	}
 
 	/** The banner's Refresh: the owner chose the file's text, so the draft goes. `recheck` never does. */
 	suspend fun adopt(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<Window> {
 		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
+		val incarnation = windowFor(target, symbolId)?.incarnation ?: return WorkspaceAnswer.Unreachable
 		return when (val fresh = fenced(target, ReadSlot.Span(symbolId)) { gate.symbolSource(target, symbolId) }) {
 			is WorkspaceAnswer.Read -> {
-				val next = Window(descriptor = descriptorOf(fresh.value), original = fresh.value.text)
-				applyTo(target, symbolId) { next }
+				val next = Window(
+					descriptor = descriptorOf(fresh.value),
+					original = fresh.value.text,
+					incarnation = incarnation,
+				)
+				applyTo(target, incarnation) { next }
 				repoScope.launch { writing.withLock { drafts.clear(target, symbolId) } }
 				WorkspaceAnswer.Read(next)
 			}
@@ -196,11 +231,11 @@ internal class WindowOps(
 	/** Unfenced: a sweep over windows already held, not a read the owner just asked for. */
 	suspend fun recheck(target: WorkspaceTarget) = sweeping.withLock {
 		val gate = host.workspace ?: return@withLock
-		for (symbolId in windowsOf(target).map { it.descriptor.symbolId }) {
+		for ((symbolId, incarnation) in windowsOf(target).map { it.descriptor.symbolId to it.incarnation }) {
 			val fresh = gate.symbolSource(target, symbolId)
 			if (fresh !is WorkspaceAnswer.Read) continue
-			// Judged against the window as it stands, which is the only thing `applyTo` will hand it.
-			applyTo(target, symbolId) { current ->
+			// Judged against the window as it stands, and only if it is still the one that was read.
+			applyTo(target, incarnation) { current ->
 				when (val outcome = refreshWith(current, fresh.value)) {
 					RefreshOutcome.Unchanged -> current
 					is RefreshOutcome.Adopted -> outcome.window
@@ -221,6 +256,8 @@ internal class WindowOps(
 
 	/** A re-provision takes the previous owner's code with it, on disk as well as in memory. */
 	override suspend fun clearInMemory() {
+		// Before the clear, so a read already in flight cannot add the previous owner's window after it.
+		epoch.incrementAndGet()
 		held.value = emptyMap()
 		context.clear()
 		writing.withLock { drafts.clearAll() }

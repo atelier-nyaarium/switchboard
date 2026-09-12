@@ -251,6 +251,53 @@ class WindowOpsTest {
 		assertEquals(emptyList<Pair<String, String>>(), shown())
 	}
 
+	// A symbol id names which span, not which OPENING of it, so the old answer belongs to neither.
+	@Test
+	fun `a sweep does not land on the window that replaced the one it read`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		gateway.spans[F_ID] = "fun f() { moved() }" to "h9"
+		val hold = TestHold().also { gateway.holds[F_ID] = it }
+
+		val sweep = launch { ops.recheck(one) }
+		hold.entered.await()
+		ops.closeWindow(one, F_ID)
+		gateway.spans[F_ID] = "fun f() { newest }" to "h11"
+		ops.openWindow(one, F_ID)
+		hold.release()
+		sweep.join()
+
+		assertEquals(listOf(F_ID to "fun f() { newest }"), shown())
+	}
+
+	// A window closed while its own read was in flight is one the owner does not want back.
+	@Test
+	fun `an open that lands after its close adds nothing`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		val hold = TestHold().also { gateway.holds[F_ID] = it }
+
+		val reopen = async { ops.openWindow(one, F_ID) }
+		hold.entered.await()
+		ops.closeWindow(one, F_ID)
+		hold.release()
+		reopen.await()
+
+		assertEquals(emptyList<Pair<String, String>>(), shown())
+	}
+
+	// The previous owner's code must not arrive after the wipe that was meant to take it.
+	@Test
+	fun `an open that lands after a re-provision adds nothing`() = runBlocking {
+		val hold = TestHold().also { gateway.holds[F_ID] = it }
+
+		val opening = async { ops.openWindow(one, F_ID) }
+		hold.entered.await()
+		ops.clearInMemory()
+		hold.release()
+		opening.await()
+
+		assertEquals(emptyList<Pair<String, String>>(), shown())
+	}
+
 	// An answer the owner has already moved past must not put back what they left.
 	@Test
 	fun `an overtaken read of the same thing is dropped`() = runBlocking {

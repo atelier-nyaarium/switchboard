@@ -26,7 +26,11 @@ internal data class WorkspaceTarget(val gatewayId: String, val address: String) 
  */
 internal val KEY_SEPARATOR: String = Char(0x1e).toString()
 
-internal fun separated(vararg parts: String): String = parts.joinToString(KEY_SEPARATOR)
+internal fun separated(vararg parts: String): String {
+	// Otherwise two different pairs join to one key and share a fence counter.
+	require(parts.none { it.contains(KEY_SEPARATOR) }) { "a key part holds the separator" }
+	return parts.joinToString(KEY_SEPARATOR)
+}
 
 /**
  * What a read fills, which is what a fence key must name. Two reads of one session but different
@@ -92,6 +96,11 @@ internal data class Window(
 	/** Null until the owner types; the draft is what a save or an ask would carry. */
 	val draft: String? = null,
 	val stale: Boolean = false,
+	/**
+	 * Minted per open. A symbol id names which span, not WHICH OPENING of it, so work that began
+	 * before a close and lands after the reopen would otherwise apply to the window that replaced it.
+	 */
+	val incarnation: Long = 0,
 ) {
 	val edited: Boolean get() = draft != null && draft != original
 	val shown: String get() = draft ?: original
@@ -121,7 +130,8 @@ internal sealed interface RefreshOutcome {
 internal fun refreshWith(held: Window, fresh: WorkspaceSymbolSourceAnswer): RefreshOutcome {
 	val descriptor = descriptorOf(fresh)
 	if (descriptor.spanHash == held.descriptor.spanHash) return RefreshOutcome.Unchanged
-	val next = Window(descriptor = descriptor, original = fresh.text)
+	// A copy, so the same window keeps its incarnation: refreshed, not replaced.
+	val next = held.copy(descriptor = descriptor, original = fresh.text, draft = null, stale = false)
 	if (!held.edited) return RefreshOutcome.Adopted(next)
 	return RefreshOutcome.Conflicts(held.copy(stale = true))
 }
