@@ -141,8 +141,8 @@ class VaultPrompt(
 		).apply {
 			gravity = if (open) Gravity.CENTER else Gravity.TOP
 			if (open) dimAmount = 0.55f
-			y = if (open) 0 else dp(10)
-			horizontalMargin = 0.03f
+			// A quarter down: high enough to read at a glance, clear of the status bar and the notch.
+			y = if (open) 0 else (context.resources.displayMetrics.heightPixels * 0.25f).toInt()
 		}
 	}
 
@@ -199,7 +199,7 @@ class VaultPrompt(
 			addView(filled("Send") { answer(VAULT_DECISION_ONCE) })
 		}.also { actions = it }
 
-		return LinearLayout(context).apply {
+		val card = LinearLayout(context).apply {
 			orientation = LinearLayout.VERTICAL
 			setPadding(dp(18), dp(16), dp(18), dp(16))
 			background = rounded(PANEL, 24)
@@ -211,6 +211,13 @@ class VaultPrompt(
 			setOnTouchListener(
 				PromptTouch(onTap = { expand() }, onSwipeAway = { park() }, threshold = dp(56), slop = dp(16)),
 			)
+		}
+		// The window spans the screen; this inset is what keeps the card off both walls, since a
+		// window margin is ignored at MATCH_PARENT width.
+		return LinearLayout(context).apply {
+			orientation = LinearLayout.VERTICAL
+			setPadding(dp(14), 0, dp(14), 0)
+			addView(card, LinearLayout.LayoutParams(MATCH, WRAP))
 		}
 	}
 
