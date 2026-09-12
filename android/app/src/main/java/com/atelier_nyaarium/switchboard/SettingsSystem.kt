@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.atelier_nyaarium.switchboard.vault.OverlayPermission
 import kotlinx.coroutines.launch
 
 ////////////////////////////////
@@ -41,6 +42,8 @@ import kotlinx.coroutines.launch
 internal fun SystemSettings(repo: ChatRepository) {
 	var refreshText by remember { mutableStateOf((repo.sessions.terminalRefreshMs / 1000.0).toString()) }
 	BatteryExemptionRow()
+	HorizontalDivider()
+	VaultOverlayRow(repo)
 	HorizontalDivider()
 	AppUpdateRow()
 	HorizontalDivider()
@@ -178,6 +181,39 @@ internal fun BatteryExemptionRow() {
 	}
 	Text(
 		"Exempts the app from battery optimization so messages keep arriving while the screen is off.",
+		style = MaterialTheme.typography.bodySmall,
+	)
+}
+
+/**
+ * Android grants drawing over other apps on its own settings screen, never through a dialog, so
+ * this is the only road to it. Re-reads on resume, and re-reports on the edge: until it is on, the
+ * gateway is told the vault is off, and an agent that would have been offered it is not.
+ */
+@Composable
+internal fun VaultOverlayRow(repo: ChatRepository) {
+	val context = LocalContext.current
+	val scope = rememberCoroutineScope()
+	var allowed by remember { mutableStateOf(OverlayPermission.granted(context)) }
+	androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+		val now = OverlayPermission.granted(context)
+		if (now != allowed) {
+			allowed = now
+			scope.launch { repo.reportEnabledPlugins() }
+		}
+	}
+	Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+		Text("Vault prompts", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+		if (allowed) {
+			Text("Allowed", color = MaterialTheme.colorScheme.primary)
+		} else {
+			Button(onClick = hapticClick {
+				runCatching { context.startActivity(OverlayPermission.grantIntent(context)) }
+			}) { Text("Allow") }
+		}
+	}
+	Text(
+		"Lets a secret request appear over whatever you are using. Off, the vault is not offered to agents.",
 		style = MaterialTheme.typography.bodySmall,
 	)
 }

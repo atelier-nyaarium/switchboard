@@ -35,6 +35,9 @@ class PluginManager(
 	private val enabledStore: EnabledStore,
 	readManifest: (assetDir: String) -> String,
 	catalog: List<PluginCatalog.Entry>,
+	/** Whether the device still permits what this plugin needs to reach the owner. Loading proves
+	 * the code runs; an Android permission the owner can revoke at any time is a separate fact. */
+	private val devicePermits: (id: String) -> Boolean = { true },
 	// Log seam (the app passes DebugLog): android.util.Log is unavailable to the pure-JVM tests
 	// that exercise the skip/failure paths, so the manager never touches it directly.
 	private val log: (String) -> Unit = {},
@@ -145,12 +148,14 @@ class PluginManager(
 	 * What this device reports to the gateway, so an agent's tools match what the owner can
 	 * actually render. LOADED, not merely enabled: a plugin whose entry threw is switched on in
 	 * settings but renders nothing, and promising an agent a surface that is broken here is worse
-	 * than not offering it.
+	 * than not offering it. A withheld device permission reads the same way, and is re-read on
+	 * every report because the owner can revoke one while the process lives.
 	 */
 	@Synchronized
 	fun reportable(): List<EnabledPlugin> = records.mapNotNull { record ->
 		val manifest = record.manifest ?: return@mapNotNull null
 		if (record.id !in loaded) return@mapNotNull null
+		if (!devicePermits(record.id)) return@mapNotNull null
 		EnabledPlugin(id = record.id, instructions = manifest.agentInstructions.ifEmpty { null })
 	}
 
