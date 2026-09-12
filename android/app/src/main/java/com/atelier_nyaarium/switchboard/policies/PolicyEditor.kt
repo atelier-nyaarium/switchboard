@@ -17,7 +17,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -89,29 +88,6 @@ fun PolicyEditor(
 		example = ""
 		editing = null
 	}
-	// On an untouched form the switch is the row's, so it writes without a Save.
-	val flip: (Boolean) -> Unit = { on ->
-		val opened = draft
-		draft = draft.copy(enabled = on)
-		if (opened.flipsAtOnce(held)) {
-			refused = null
-			refusedAt = null
-			scope.launch {
-				when (val saved = repo.policyOps.setEnabled(opened.id, on, opened.revision, gatewayId)) {
-					is PolicySaved.Stored -> draft = PolicyDraft.of(saved.policy)
-					is PolicySaved.Refused -> {
-						draft = opened
-						refused = saved.reason
-						refusedAt = saved.heldRevision
-					}
-					PolicySaved.Unreachable -> {
-						draft = opened
-						refused = GATEWAY_UNREACHABLE
-					}
-				}
-			}
-		}
-	}
 	val commit: () -> Unit = {
 		val candidate = draft.toPolicy()
 		if (candidate != null) {
@@ -139,19 +115,6 @@ fun PolicyEditor(
 		onCancel = close,
 		onSave = commit,
 	) {
-			Row(
-				Modifier.fillMaxWidth(),
-				horizontalArrangement = Arrangement.spacedBy(8.dp),
-				verticalAlignment = Alignment.CenterVertically,
-			) {
-				Text(
-					if (draft.enabled) "Enabled" else "Disabled",
-					style = MaterialTheme.typography.bodyMedium,
-					modifier = Modifier.weight(1f),
-				)
-				Switch(checked = draft.enabled, onCheckedChange = flip)
-			}
-
 			refused?.let { reason ->
 				Card(Modifier.fillMaxWidth()) {
 					Column(Modifier.padding(12.dp)) {

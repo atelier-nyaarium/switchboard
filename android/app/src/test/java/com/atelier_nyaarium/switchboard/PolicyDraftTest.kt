@@ -62,11 +62,6 @@ class PolicyDraftTest {
 		assertEquals(false, draft.enabled)
 		assertEquals(3L, draft.revision)
 		assertEquals(stored, draft.toPolicy())
-
-		// The switch writes on its own only while the rest of the form is what the gateway holds.
-		assertEquals(true, draft.flipsAtOnce(stored))
-		assertEquals(false, draft.copy(name = "Renamed").flipsAtOnce(stored))
-		assertEquals(false, draft.flipsAtOnce(null))
 	}
 
 	private fun entry(gateways: List<String>?, unreadable: Boolean = false) = VaultEntryView(
