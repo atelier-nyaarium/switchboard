@@ -52,6 +52,13 @@ class VaultManager(private val store: VaultStore) : ClearsOnReprovision {
 	/** Requests awaiting an answer, oldest first. */
 	val pending: StateFlow<List<VaultPendingRequest>> = _pending
 
+	/**
+	 * The request the overlay prompt is drawing, null when it draws none. Written by the service
+	 * that owns the prompt and read by the conversation, so one request is never both a card over
+	 * everything and a tile in the thread.
+	 */
+	val promptShowing = MutableStateFlow<String?>(null)
+
 	/** Active grants per gateway, as last read through `vault_grants`. */
 	val grants = mutableStateOf<Map<String, List<VaultGrant>>>(emptyMap())
 

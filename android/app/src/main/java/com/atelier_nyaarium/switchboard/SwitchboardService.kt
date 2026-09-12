@@ -211,6 +211,7 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 			onAnswer = { requestId, decision, typed ->
 				repo.command { vaultOps.answerById(requestId, decision, typed) }
 			},
+			visible = repo.vault.promptShowing,
 			onOpenSession = { team ->
 				startActivity(
 					Intent(this, MainActivity::class.java)

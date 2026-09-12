@@ -25,6 +25,8 @@ class VaultPrompt(
 	private val context: Context,
 	private val onAnswer: (requestId: String, decision: String, typed: String?) -> Unit,
 	private val onOpenSession: (team: String) -> Unit,
+	/** The request this is currently drawing, so the conversation knows not to tile it twice. */
+	private val visible: kotlinx.coroutines.flow.MutableStateFlow<String?>,
 ) {
 	private val windows = context.getSystemService(WindowManager::class.java)
 	private var root: LinearLayout? = null
@@ -78,6 +80,7 @@ class VaultPrompt(
 		command?.text = pending.operation
 		render()
 		view.visibility = View.VISIBLE
+		visible.value = pending.requestId
 		ticker.removeCallbacks(tick)
 		ticker.postDelayed(tick, 15_000)
 	}
@@ -92,6 +95,7 @@ class VaultPrompt(
 	}
 
 	fun release() {
+		visible.value = null
 		ticker.removeCallbacks(tick)
 		root?.let { runCatching { windows.removeView(it) } }
 		root = null

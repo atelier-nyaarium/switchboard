@@ -350,6 +350,27 @@ fun App(
 			val boardLiveLineFor = remember(openTeam, boardRevision, boardOn, boardKey) {
 				if (boardOn) repo.boardOps.boardLiveLineFor(openTeam!!) else null
 			}
+			// The overlay draws over this screen, so a request it is already showing is not tiled
+			// again underneath it.
+			val vaultPending by repo.vault.pending.collectAsState()
+			val promptShowing by repo.vault.promptShowing.collectAsState()
+			val vaultRevision by repo.vault.revision
+			val vaultTileFor = remember(openTeam, vaultPending, promptShowing, vaultRevision) {
+				vaultPending
+					.firstOrNull { it.team == openTeam && it.requestId != promptShowing }
+					?.let { request ->
+						com.atelier_nyaarium.switchboard.vault.VaultTile(
+							requestId = request.requestId,
+							title = com.atelier_nyaarium.switchboard.vault.requestTitle(
+								request,
+								request.entryId?.let { repo.vaultOps.view(it)?.title },
+							),
+							requester = com.atelier_nyaarium.switchboard.vault.requester(state, request),
+							operation = request.operation,
+							deadlineAt = request.deadlineAt,
+						)
+					}
+			}
 			ThreadScreen(
 				team = openTeam!!,
 				label = tabLabelFor(state, openTeam!!),
@@ -372,6 +393,8 @@ fun App(
 				onMoveBoardEntry = { row, drop ->
 					repo.boardOps.boardSetParent(row.entry.id, drop.parent, drop.rank)
 				},
+				vaultTile = vaultTileFor,
+				onOpenVaultRequest = { vaultModal = VaultModal.Request(it) },
 				revealAt = revealAt,
 				onRevealed = { revealAt = null },
 				unreadBoundary = repo::unreadBoundary,
