@@ -63,6 +63,10 @@ internal class BoardOps(
 		}
 	}
 
+	/** An assignment no listed session answers to, which would otherwise select nothing at all. */
+	fun boardAssignedUnlisted(sessionId: String?): Boolean =
+		sessionId != null && boardAssignTargets().none { boardSessionKeyOf(it.name) == sessionId }
+
 	/** Forgets a session and its board disposition. */
 	fun forgetWithBoardDisposition(team: String, cancelThem: Boolean, onForgotten: () -> Unit) {
 		val asked = if (cancelThem) "cancel" else "release"
