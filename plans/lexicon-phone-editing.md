@@ -1068,9 +1068,13 @@ screen was walked on the emulator.
   each gateway answer against that snapshot, so typing during the sweep was overwritten. The same shape
   was patched once before in this phase, as the save that checked `holdsDraft` outside the lock it needed.
   Both are a decision made from a value read before a suspension point.
-  CLOSED by `apply`, the one road into held state: it hands a transform what is held NOW, so a caller that
-  captured a window, awaited the gateway and then wrote its decision has nowhere to write it. Mutation
-  tested by restoring the loop over captured windows, which fails exactly one test.
+  CLOSED in two rounds, the second because a red team broke the first. `apply` is the one road into held
+  state and hands a transform what is held NOW. That alone was not enough: a symbol id names which span,
+  not which OPENING of it, so a sweep begun before a close and reopen still landed on the window that
+  replaced the one it read, an open in flight during a close resurrected it, and an open in flight during
+  a re-provision brought back the previous owner's code. A window now carries an incarnation minted at
+  open, and the set an epoch that moves on every close and on the wipe; work reads one at the start and
+  lands nothing if it moved. Each guard is mutation tested.
 - **A control byte written into source.** `" "` passed to an editing tool landed as the byte itself in
   three files. It compiles, so every gate here was green, while `grep` treated the files as binary and
   Lexicon would not index them. Two separate audit rounds reported it and the first was dismissed as a
@@ -1120,6 +1124,10 @@ Still open, recorded rather than fixed:
   reads the truth because the failure word rides in the message, but the code's distinction is lost.
 - **A whole file is pulled for two lines of context.** There is no ranged read, so a window in a large
   module transfers the module. Cached per module and dropped when its last window closes.
+- **`GatewayReadFence` still takes a plain string.** `WindowOps` cannot pass a wrong key, since `ReadSlot`
+  is sealed, but the primitive is shared and its other callers join a gateway id and a record id with a
+  slash. A gateway id holding a slash would collide two rows onto one counter. Not this feature's to
+  change, and no gateway id can hold one today.
 
 ### What the architecture pass decided
 
