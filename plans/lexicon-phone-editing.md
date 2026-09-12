@@ -757,7 +757,7 @@ road.** `workspaceRoot()` already owns that answer, cached and admitted through 
 `workspaceRoot()` sits under `references/` behind a residue test fencing that directory. It is extracted in
 Phase 3, where the second consumer exists.
 
-## Phase 2 - Confinement ✅
+## Phase 2 - Confinement ✅ `src/mcp/workspace/confine.ts`
 
 `src/mcp/workspace/confine.ts`, a pure module, with 38 behaviour tests. A mistake boundary, not a security
 boundary: the session can already run commands, so the check buys an honest tree and a refused mis-tap and
@@ -1005,6 +1005,13 @@ the first thing anyone reaches for and it reads as years of drift. It put a wron
 Phase 1 was a submodule pointer and a plan correction, and the lap spent ten steps finding nothing to do.
 Phase 6 is one optional schema field and will be the same. Either those fold into their neighbours, or a lap
 covers a release rather than a phase. Worth settling before the remaining laps, not during them.
+
+## Three near-miss path checks, none reusable
+
+Writing confinement from scratch was right, and that is the complaint. `refWorkspace :: classifyPath` does
+lexical containment and module spelling. `isSpawnWorkdirPath` does shape. Lexicon's `insideWorkspace` does
+containment with a realpath. Each is adjacent, none composes, and two of them are the wrong strength for a
+write. A fourth now exists. Nothing forces a new path rule to land in one place, so a fifth is likely.
 
 ## The cycle runner's phase text freezes at start
 

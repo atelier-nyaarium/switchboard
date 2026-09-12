@@ -336,6 +336,22 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/bridge/` / `channel/` / `references/` / `board/` / `designer/` / `connector/` - bridge, channel, reference, board, designer, and connector tools
 - `src/mcp/vault/vaultTools.ts` / `vaultRun.ts` - vault tools over the gateway's loopback routes, and the child run that injects a value and scrubs it from the output
 - `src/mcp/routines/routineTools.ts` - `get_session_routine` and `report_session_routine`, registered for any token-bound session and behind no capability
+- `src/mcp/workspace/confine.ts` - which project files the phone's file road may reach, and the identity a mutation compares
+  - **Every rule runs against what a path RESOLVES to, never its spelling:** a link defeated containment
+    once and exclusion once, both by being checked as written. `withheld` is therefore ONE function run
+    over the written segments and the resolved ones, so a rule added to it cannot reappear in only one
+    pass. `resolveTarget` answers the real path, existence and directoryness from a single resolution,
+    since two calls deciding one fact left a window where a link created between them was admitted.
+  - **Not a security boundary, and it must not be described as one:** the session it runs in can already
+    run commands. It buys a tree that cannot wander and a refused mis-tap. A read does not compare inode
+    identity, so a hardlink to an outside inode is admitted; `realpath` cannot see one and `nlink` would
+    refuse legitimate links.
+  - **The Windows rules are platform-gated:** the plugin serves its OWN filesystem, so no path here
+    describes another machine. Ungated they refused `aux.ts` and any name holding a colon, both legal
+    elsewhere. A short name, a trailing dot and a junction are not refused at all, since each resolves.
+  - **`.git` is withheld; `node_modules` is only unlisted.** Bulk is hidden from a tree and served when
+    named, secrets are served to nobody. A directory is judged by what it is: `.env.d` as a directory is
+    listable, the same name as a file is not.
   - **Filing a report is what narrows a run's authority, and the window only moves earlier:**
     `noteReport` floors `workUntil` with `Math.min`, so a second filing replaces the words and buys
     no time. Otherwise a session holds its routine's secrets open one report at a time. A run that
