@@ -375,16 +375,17 @@ export function createWebSocketHandlers({
 		const teamName = ws.data.teamName;
 		const subId = ws.data.subId;
 
+		// Before the stale return: a REPLACED socket can never answer what it was carrying, so its waits
+		// must fail now rather than each spending the full timeout.
+		const stranded = workspacePlane?.dropped(ws) ?? 0;
+		if (stranded > 0) console.log(`[workspace] ${stranded} op(s) stranded by ${teamName}/${subId} closing`);
+
 		if (ws.data.isStale) {
 			console.log(`[ws] stale socket closed for ${teamName}/${subId} - ignoring`);
 			return;
 		}
 
 		if (!teamName) return;
-
-		// Before the registry entry goes: its waits fail at once rather than each timing out.
-		const stranded = workspacePlane?.dropped(ws) ?? 0;
-		if (stranded > 0) console.log(`[workspace] ${stranded} op(s) stranded by ${teamName}/${subId} closing`);
 
 		if (teamName === "host") {
 			const subs = registry.get(teamName);

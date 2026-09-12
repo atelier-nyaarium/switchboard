@@ -906,6 +906,41 @@ wired.
 `wsSend :: sendOn`. Fixing it was better than the original, since a refused write now settles the waiter
 at once instead of leaving it to time out saying nothing more.
 
+### What the audit caught, and what it got wrong
+
+Four real findings, fixed:
+
+1. **A symbol id bypassed confinement entirely.** `symbolSource` and `symbolKnowledge` take an id, not a
+   path, and an id EMBEDS its module. Lexicon checks only lexical containment and knows nothing of what
+   this plane withholds, so an indexed `.env` would have answered. Both now parse the id and run its
+   module through `confine`. Mutation-tested: removing the check fails exactly the two tests for it.
+2. **A tree's `statSync` followed a symlink**, reporting an outside file's size for a child that
+   `confine` would refuse. `lstatSync` reports the link itself. A Dirent from `withFileTypes` calls a
+   symlink a file rather than a directory, which is why the stat was reached at all.
+3. **A replaced socket stranded its waits.** `close` returns early for a stale socket, and the drop
+   call sat after that return, so a replaced socket's requests waited out the full timeout. The drop
+   now runs first: a replaced socket can never answer what it was carrying.
+4. **The plane's timeout was shorter than Lexicon's patience.** A cold daemon could finish after the
+   Gateway gave up, so the owner saw a timeout while the work completed. The index-backed handlers now
+   run under their own budget at three quarters of the plane's, answering with a cause instead.
+
+Also taken: measuring an answer's text rather than serialising the whole answer to weigh it, which
+avoided a second full copy of a large file.
+
+Rejected, because they are the Phase 2 decision rather than defects:
+
+- That `node_modules/...` is readable by direct path. It is unlisted, not withheld, deliberately, so a
+  named dependency file can be read while the tree stays navigable.
+- That an outline of a path under `node_modules` is reachable. Same decision.
+
+Accepted and recorded rather than fixed:
+
+- **An in-flight read survives a reconnect** and its answer is discarded by the generation fence. Safe
+  only because a read has no side effects. Phase 10 adds mutation and must revisit it.
+- **A file under the loader's 8 MB cap can exceed the plane's 4 MB answer cap**, so it is readable and
+  not servable. Intended, since a truncated answer would be saved back truncated, but it is a second
+  effective read limit and the phone has to say so.
+
 ### Left
 
 - Nothing in this phase. The ops are reachable from the Gateway; the phone surface that calls them is

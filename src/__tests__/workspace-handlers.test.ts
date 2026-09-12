@@ -32,6 +32,9 @@ const unopened = async (): Promise<Session> => {
 	throw new Error("the daemon was asked");
 };
 
+const SERVED_ID = "lexicon typescript src/app.ts f().";
+const WITHHELD_ID = "lexicon typescript .env f().";
+
 function deps(root: string, session: () => Promise<Session> = unopened): HandlerDeps {
 	return { root: () => root, session };
 }
@@ -186,7 +189,7 @@ describe("the index-backed reads", () => {
 			},
 		});
 
-		const result = await ask(workspace(), { kind: "symbolSource", symbolId: "id-f" }, session);
+		const result = await ask(workspace(), { kind: "symbolSource", symbolId: SERVED_ID }, session);
 
 		expect(result.ok && result.answer.kind === "symbolSource" && result.answer).toMatchObject({
 			module: "src/app.ts",
@@ -204,17 +207,45 @@ describe("the index-backed reads", () => {
 		const stale = fakeSession({ symbolSource: { found: false, reason: "the file moved", stale: true } });
 		const gone = fakeSession({ symbolSource: { found: false, reason: "no such symbol" } });
 
-		expect(await ask(workspace(), { kind: "symbolSource", symbolId: "x" }, stale)).toMatchObject({
+		expect(await ask(workspace(), { kind: "symbolSource", symbolId: SERVED_ID }, stale)).toMatchObject({
 			failure: "stale",
 		});
-		expect(await ask(workspace(), { kind: "symbolSource", symbolId: "x" }, gone)).toMatchObject({
+		expect(await ask(workspace(), { kind: "symbolSource", symbolId: SERVED_ID }, gone)).toMatchObject({
 			failure: "refused",
 		});
 	});
 
 	it("refuses knowledge for a symbol the index does not hold", async () => {
 		const session = fakeSession({ describe: null });
-		expect(await ask(workspace(), { kind: "symbolKnowledge", symbolId: "x" }, session)).toMatchObject({
+		expect(await ask(workspace(), { kind: "symbolKnowledge", symbolId: SERVED_ID }, session)).toMatchObject({
+			ok: false,
+			failure: "refused",
+		});
+	});
+
+	// A symbol id embeds a module, and nothing but this confines one. Lexicon would answer.
+	it.each(["symbolSource", "symbolKnowledge"] as const)("refuses a %s id naming a withheld module", async (kind) => {
+		const served = fakeSession({
+			symbolSource: {
+				found: true,
+				module: ".env",
+				name: "f",
+				text: "TOKEN=secret\n",
+				range: { start: { line: 0, column: 0 }, end: { line: 0, column: 5 } },
+				contentHash: "h",
+			},
+			describe: { anything: true },
+		});
+
+		// The session would answer, so a refusal here is this rule and not a missing symbol.
+		expect(await ask(workspace(), { kind, symbolId: WITHHELD_ID }, served)).toMatchObject({
+			ok: false,
+			failure: "refused",
+		});
+	});
+
+	it.each(["symbolSource", "symbolKnowledge"] as const)("refuses an unparseable %s id", async (kind) => {
+		expect(await ask(workspace(), { kind, symbolId: "not-an-id" })).toMatchObject({
 			ok: false,
 			failure: "refused",
 		});

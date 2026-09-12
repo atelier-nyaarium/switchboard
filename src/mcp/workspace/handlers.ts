@@ -7,13 +7,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Session } from "@nyaa-lexicon/client";
-import { hashContent } from "@nyaa-lexicon/protocol";
+import { hashContent, parseSymbolId } from "@nyaa-lexicon/protocol";
 import {
 	MAX_TREE_ENTRIES,
 	MAX_WORKSPACE_OP_BYTES,
 	type OutlineSymbol,
 	type TreeEntry,
+	WORKSPACE_OP_TIMEOUT_MS,
 	type WorkspaceOp,
+	type WorkspaceOpAnswer,
 	type WorkspaceOpResult,
 } from "../../shared/workspace-op.js";
 import { confine, listable } from "./confine.js";
@@ -35,10 +37,40 @@ export interface HandlerDeps {
 const refused = (detail: string): WorkspaceOpResult => ({ ok: false, failure: "refused", detail });
 const failed = (detail: string): WorkspaceOpResult => ({ ok: false, failure: "failed", detail });
 
-/** An answer past the cap is refused whole, since a truncated file would be saved back truncated. */
+/**
+ * Under the plane's own timeout, so a cold index answers with a CAUSE rather than letting the Gateway
+ * time out blind. The refs path waits 45 seconds for a daemon; the phone is not left that long.
+ */
+const INDEX_BUDGET_MS = Math.floor(WORKSPACE_OP_TIMEOUT_MS * 0.75);
+
+async function withinBudget<T>(work: Promise<T>): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const spent = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error("the index did not answer in time")), INDEX_BUDGET_MS);
+	});
+	try {
+		return await Promise.race([work, spent]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/** The text IS the weight of every answer that has one, so measuring it skips a second full copy. */
+function answerBytes(answer: WorkspaceOpAnswer): number {
+	switch (answer.kind) {
+		case "read":
+		case "symbolSource":
+		case "symbolKnowledge":
+			return Buffer.byteLength(answer.text, "utf8");
+		default:
+			return Buffer.byteLength(JSON.stringify(answer), "utf8");
+	}
+}
+
+/** Refused whole, since a truncated answer would be saved back truncated. */
 function withinCap(result: WorkspaceOpResult): WorkspaceOpResult {
 	if (!result.ok) return result;
-	const bytes = Buffer.byteLength(JSON.stringify(result.answer), "utf8");
+	const bytes = answerBytes(result.answer);
 	if (bytes <= MAX_WORKSPACE_OP_BYTES) return result;
 	return {
 		ok: false,
@@ -53,6 +85,16 @@ function childCount(dir: string): number | undefined {
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * A symbol id embeds its module, and nothing else confines one. Lexicon checks lexical containment
+ * and knows nothing of what this plane withholds, so an indexed `.env` would answer without this.
+ */
+function confinedModule(root: string, symbolId: string): string | null {
+	const parsed = parseSymbolId(symbolId);
+	if (parsed === null) return null;
+	return confine(root, parsed.module).ok ? parsed.module : null;
 }
 
 function treeOf(root: string, written: string): WorkspaceOpResult {
@@ -81,7 +123,8 @@ function treeOf(root: string, written: string): WorkspaceOpResult {
 		}
 		let bytes: number | undefined;
 		try {
-			bytes = fs.statSync(full).size;
+			// lstat, never stat: following a link here would report an outside file's size.
+			bytes = fs.lstatSync(full).size;
 		} catch {
 			bytes = undefined;
 		}
@@ -109,8 +152,8 @@ async function outlineOf(deps: HandlerDeps, root: string, written: string): Prom
 	if (!place.ok) return refused(place.refusal.detail);
 	if (place.relative === "") return refused("a module path is required");
 
-	const session = await deps.session();
-	const summaries = await session.outlineModule({ module: place.relative });
+	const session = await withinBudget(deps.session());
+	const summaries = await withinBudget(session.outlineModule({ module: place.relative }));
 	const symbols: OutlineSymbol[] = summaries.map((summary) => ({
 		symbolId: summary.symbolId,
 		name: summary.name,
@@ -123,9 +166,10 @@ async function outlineOf(deps: HandlerDeps, root: string, written: string): Prom
 	return { ok: true, answer: { kind: "outline", path: place.relative, symbols } };
 }
 
-async function symbolSourceOf(deps: HandlerDeps, symbolId: string): Promise<WorkspaceOpResult> {
-	const session = await deps.session();
-	const answer = await session.symbolSource({ symbolId });
+async function symbolSourceOf(deps: HandlerDeps, root: string, symbolId: string): Promise<WorkspaceOpResult> {
+	if (confinedModule(root, symbolId) === null) return refused("that symbol's module is not served");
+	const session = await withinBudget(deps.session());
+	const answer = await withinBudget(session.symbolSource({ symbolId }));
 	if (!answer.found) {
 		return answer.stale === true ? { ok: false, failure: "stale", detail: answer.reason } : refused(answer.reason);
 	}
@@ -145,9 +189,10 @@ async function symbolSourceOf(deps: HandlerDeps, symbolId: string): Promise<Work
 	};
 }
 
-async function knowledgeOf(deps: HandlerDeps, symbolId: string): Promise<WorkspaceOpResult> {
-	const session = await deps.session();
-	const described = await session.describe({ symbolId });
+async function knowledgeOf(deps: HandlerDeps, root: string, symbolId: string): Promise<WorkspaceOpResult> {
+	if (confinedModule(root, symbolId) === null) return refused("that symbol's module is not served");
+	const session = await withinBudget(deps.session());
+	const described = await withinBudget(session.describe({ symbolId }));
 	if (described === null) return refused(`no symbol with that id is indexed`);
 	return { ok: true, answer: { kind: "symbolKnowledge", symbolId, text: JSON.stringify(described) } };
 }
@@ -164,9 +209,9 @@ export async function answerWorkspaceOp(deps: HandlerDeps, op: WorkspaceOp): Pro
 			case "outline":
 				return withinCap(await outlineOf(deps, root, op.path));
 			case "symbolSource":
-				return withinCap(await symbolSourceOf(deps, op.symbolId));
+				return withinCap(await symbolSourceOf(deps, root, op.symbolId));
 			case "symbolKnowledge":
-				return withinCap(await knowledgeOf(deps, op.symbolId));
+				return withinCap(await knowledgeOf(deps, root, op.symbolId));
 		}
 	} catch (error) {
 		return failed(error instanceof Error ? error.message : String(error));
