@@ -1209,6 +1209,17 @@ A red team then broke four things, all fixed and each covered:
 - **The notice believed an op id was delivery.** A send answers with one either way and marks its own
   thread row when the gateway refuses, so the apply reads that row.
 
+### Bug Classes
+
+- **The draft on disk and the draft in memory are two copies of one fact.** Patched twice in this phase.
+  Round one: a recheck that adopted set the memory draft to null and left the file, so a reopen restored
+  text the file no longer had. Round two: the clear was conditioned on `edited`, so typing back to the
+  original left a file behind an unedited window. The mechanism is every road that changes a window's
+  draft; the class is a second copy nothing binds to the first. A reducer over held state does not cover
+  it, since one copy is a file and the other is a `StateFlow`. What would: make the draft file follow the
+  window value rather than each caller remembering, which means one writer keyed to the window's
+  incarnation. Left for Phase 8, which adds Save and therefore a third road into the same pair.
+
 ### Left standing, with reasons
 
 - **A reused session address would carry a window to the wrong workspace.** A session id is six hex

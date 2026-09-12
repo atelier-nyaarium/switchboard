@@ -253,13 +253,12 @@ internal class WindowOps(
 			val fresh = gate.symbolSource(target, symbolId)
 			if (fresh !is WorkspaceAnswer.Read) continue
 			// Judged against the window as it stands, and only if it is still the one that was read.
-			// Idempotent, since the transform runs inside a compare-and-set that may retry.
+			// Assigned inside a compare-and-set that may retry, so it must stay idempotent.
 			var dropped = false
 			applyTo(target, incarnation) { current ->
 				when (val outcome = refreshWith(current, fresh.value)) {
 					RefreshOutcome.Unchanged -> current
 					is RefreshOutcome.Adopted -> {
-						// Any held draft, not only a differing one: typing back to the original keeps a file.
 						dropped = current.draft != null
 						outcome.window
 					}
@@ -267,6 +266,7 @@ internal class WindowOps(
 				}
 			}
 			// An adopted window holds no draft, so the file must not keep one a reopen would restore.
+			// Any held draft, not only a differing one: typing back to the original still leaves a file.
 			if (dropped) repoScope.launch { writing.withLock { drafts.clear(target, symbolId) } }
 		}
 	}
