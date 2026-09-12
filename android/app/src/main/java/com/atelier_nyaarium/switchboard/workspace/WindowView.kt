@@ -37,6 +37,8 @@ import com.atelier_nyaarium.switchboard.opensModule
 import com.atelier_nyaarium.switchboard.windowLines
 import kotlinx.coroutines.launch
 
+private const val CARD_LINES = 120
+
 /**
  * The open windows down one scroll, each with the file either side of it read-only. The file is read
  * once per module for that context; a module that cannot be read draws its spans alone.
@@ -168,10 +170,15 @@ private fun WindowCard(
 					}
 				}
 			}
-			CodeLines(
-				windowLines(window, file, previousEnd = previousEnd, nextStart = nextStart),
-				Modifier.padding(vertical = 6.dp),
-			)
+			val lines = windowLines(window, file, previousEnd = previousEnd, nextStart = nextStart)
+			var whole by remember(window.descriptor.symbolId) { mutableStateOf(false) }
+			// A card is one LazyColumn item, so its rows all compose at once however long the span is.
+			CodeLines(if (whole) lines else lines.take(CARD_LINES), Modifier.padding(vertical = 6.dp))
+			if (!whole && lines.size > CARD_LINES) {
+				TextButton(onClick = hapticClick { whole = true }, modifier = Modifier.padding(start = 4.dp)) {
+					Text("Show all ${lines.size} lines")
+				}
+			}
 		}
 	}
 }

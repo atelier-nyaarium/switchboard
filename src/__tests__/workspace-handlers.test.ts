@@ -71,6 +71,34 @@ describe("listing a directory", () => {
 		expect(answer.truncated).toBe(false);
 	});
 
+	// A row the read road would refuse is a row that should not be offered.
+	it("does not list a link to something withheld or outside", async () => {
+		const root = workspace();
+		const outside = path.join(root, "..", `outside-${path.basename(root)}.ts`);
+		fs.writeFileSync(outside, "export const secret = 1;\n");
+		roots.push(outside);
+		fs.symlinkSync(path.join(root, ".env"), path.join(root, "secrets.ts"));
+		fs.symlinkSync(outside, path.join(root, "outside.ts"));
+		fs.symlinkSync(path.join(root, "README.md"), path.join(root, "readme-link.md"));
+
+		const names = tree(await ask(root, { kind: "tree", path: "" })).entries.map((e) => e.name);
+
+		expect(names).not.toContain("secrets.ts");
+		expect(names).not.toContain("outside.ts");
+		expect(names).toContain("readme-link.md");
+	});
+
+	// A count of what a tap cannot list would say a withheld name is in there.
+	it("counts only the children it would list", async () => {
+		const root = workspace();
+		fs.mkdirSync(path.join(root, "src", ".git"));
+		fs.writeFileSync(path.join(root, "src", ".env"), "TOKEN=x\n");
+
+		const answer = tree(await ask(root, { kind: "tree", path: "" }));
+
+		expect(answer.entries.find((e) => e.name === "src")).toMatchObject({ children: 1 });
+	});
+
 	// The exclusions are confine's, not a second list here.
 	it("hides withheld names and dependency bulk", async () => {
 		const answer = tree(await ask(workspace(), { kind: "tree", path: "" }));

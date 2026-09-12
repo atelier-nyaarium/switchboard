@@ -32,7 +32,7 @@ import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.holdsWindow
-import com.atelier_nyaarium.switchboard.outlineDepth
+import com.atelier_nyaarium.switchboard.outlineDepths
 import com.atelier_nyaarium.switchboard.outlineKinds
 import com.atelier_nyaarium.switchboard.outlineOfKind
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
@@ -58,6 +58,7 @@ internal fun WorkspaceOutline(
 	Column(modifier.fillMaxSize()) {
 		WorkspaceAnswerBox(answer, Modifier.weight(1f)) { outline ->
 			val shown = outlineOfKind(outline.symbols, kind)
+			val depths = remember(outline.symbols) { outlineDepths(outline.symbols) }
 			Column(Modifier.fillMaxSize()) {
 				Row(
 					Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -76,7 +77,7 @@ internal fun WorkspaceOutline(
 						item(key = "symbol:${symbol.symbolId}") {
 							OutlineRow(
 								symbol = symbol,
-								depth = outlineDepth(outline.symbols, symbol),
+								depth = depths[symbol.symbolId] ?: 0,
 								windowed = holdsWindow(held, symbol.symbolId),
 								onClick = { onOpenDetail(symbol.symbolId, symbol.name) },
 								onLongClick = { onOpenWindow(symbol.symbolId) },

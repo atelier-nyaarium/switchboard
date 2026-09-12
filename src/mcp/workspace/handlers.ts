@@ -87,9 +87,10 @@ function withinCap(result: WorkspaceOpResult): WorkspaceOpResult {
 	};
 }
 
+/** Counts what a tap would actually list, or the number tells the owner a withheld name is in there. */
 function childCount(dir: string): number | undefined {
 	try {
-		return fs.readdirSync(dir).length;
+		return fs.readdirSync(dir, { withFileTypes: true }).filter((e) => listable(e.name, !e.isDirectory())).length;
 	} catch {
 		return undefined;
 	}
@@ -119,7 +120,12 @@ function treeOf(root: string, written: string): WorkspaceOpResult {
 		return failed(`${written || "."}: ${(error as Error).message}`);
 	}
 
-	const kept = names.filter((entry) => listable(entry.name, !entry.isDirectory()));
+	// A link is listed only if the road behind it would serve it, or the tree offers a row that refuses.
+	const kept = names.filter(
+		(entry) =>
+			listable(entry.name, !entry.isDirectory()) &&
+			(!entry.isSymbolicLink() || confine(root, path.posix.join(place.relative, entry.name)).ok),
+	);
 	// Ordered BEFORE the cap, or an over-cap directory answers an arbitrary thousand of itself.
 	kept.sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
 	const truncated = kept.length > MAX_TREE_ENTRIES;

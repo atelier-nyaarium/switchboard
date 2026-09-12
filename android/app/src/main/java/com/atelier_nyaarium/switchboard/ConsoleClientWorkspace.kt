@@ -26,7 +26,8 @@ private suspend inline fun <reified T> ConsoleClient.workspaceRead(
 	gatewayId: String,
 	op: ConsoleOp,
 ): WorkspaceAnswer<T> {
-	val answer = sendValueAnswer(gatewayId, op)
+	// A throwing transport would cancel the screen's effect, leaving it on a spinner with no answer.
+	val answer = runCatching { sendValueAnswer(gatewayId, op) }.getOrNull() ?: return WorkspaceAnswer.Unreachable
 	return when (answer) {
 		is ConsoleClient.ValueAnswer.Answered -> {
 			// An undecodable answer is a peer this build cannot read, not a refusal about the file.

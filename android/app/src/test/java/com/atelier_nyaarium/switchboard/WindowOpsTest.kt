@@ -236,16 +236,31 @@ class WindowOpsTest {
 
 	// An answer the owner has already moved past must not put back what they left.
 	@Test
-	fun `an overtaken read of one session is dropped`() = runBlocking {
+	fun `an overtaken read of the same thing is dropped`() = runBlocking {
 		val hold = TestHold().also { gateway.holds[F_ID] = it }
 
 		val slow = async { ops.openWindow(one, F_ID) }
 		hold.entered.await()
-		ops.openWindow(one, G_ID)
+		gateway.spans[F_ID] = "fun f() { newer }" to "h7"
+		ops.openWindow(one, F_ID)
 		hold.release()
 
 		assertEquals(WorkspaceAnswer.Unreachable, slow.await())
-		assertEquals(listOf(G_ID to "fun g() {}"), shown())
+		assertEquals(listOf(F_ID to "fun f() { newer }"), shown())
+	}
+
+	// A symbol's source and its knowledge are two things on one screen, not one read racing itself.
+	@Test
+	fun `reading two different things at once does not cancel either`() = runBlocking {
+		val hold = TestHold().also { gateway.holds[F_ID] = it }
+
+		val source = async { ops.symbol(one, F_ID) }
+		hold.entered.await()
+		val known = ops.knowledge(one, F_ID)
+		hold.release()
+
+		assertTrue(source.await() is WorkspaceAnswer.Read)
+		assertTrue(known is WorkspaceAnswer.Read)
 	}
 
 	// One counter per session, or a slow read of one session discards a fresh read of another.

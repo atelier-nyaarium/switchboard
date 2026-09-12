@@ -36,7 +36,11 @@ class ClearsOnReprovisionTest {
 			.map { it.name }
 			.toSet()
 		// playback: the run names the previous owner's messages and every transport surface draws it.
-		assertEquals(setOf("board", "vault", "runbooks", "presence", "trust", "drain", "playback"), declared)
+		// windowOps: open windows and their drafts hold the previous owner's code, on disk as well.
+		assertEquals(
+			setOf("board", "vault", "runbooks", "presence", "trust", "drain", "playback", "windowOps"),
+			declared,
+		)
 	}
 
 	/** A new Domain must not restore the old one's roster from the slot. */

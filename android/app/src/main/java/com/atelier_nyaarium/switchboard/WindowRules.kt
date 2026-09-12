@@ -249,19 +249,24 @@ internal fun outlineOfKind(symbols: List<WorkspaceOutlineSymbol>, kind: String?)
 	if (kind == null) symbols else symbols.filter { it.symbolKind == kind }
 
 /**
- * How deep a row sits under its container, by walking `containerId` up. A container the answer does
- * not carry, and a cycle, both indent nothing rather than guessing or walking forever.
+ * How deep each row sits under its container, by walking `containerId` up. A container the answer
+ * does not carry, and a cycle, both indent nothing rather than guessing or walking forever.
+ *
+ * Answered for the whole outline at once: per row it rebuilt the index, which is a map of every
+ * symbol built once per symbol.
  */
-internal fun outlineDepth(symbols: List<WorkspaceOutlineSymbol>, symbol: WorkspaceOutlineSymbol): Int {
+internal fun outlineDepths(symbols: List<WorkspaceOutlineSymbol>): Map<String, Int> {
 	val byId = symbols.associateBy { it.symbolId }
-	val seen = mutableSetOf(symbol.symbolId)
-	var depth = 0
-	var container = symbol.containerId
-	while (container != null && byId.containsKey(container) && seen.add(container)) {
-		depth++
-		container = byId.getValue(container).containerId
+	return symbols.associate { symbol ->
+		val seen = mutableSetOf(symbol.symbolId)
+		var depth = 0
+		var container = symbol.containerId
+		while (container != null && byId.containsKey(container) && seen.add(container)) {
+			depth++
+			container = byId.getValue(container).containerId
+		}
+		symbol.symbolId to depth
 	}
-	return depth
 }
 
 /** A tap on a tree row: a directory opens, a file goes to its outline. */

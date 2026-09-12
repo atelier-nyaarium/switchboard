@@ -233,9 +233,10 @@ class WindowRulesTest {
 		val grandchild = outlineSymbol("qty", "parameter").copy(containerId = child.symbolId)
 		val symbols = listOf(parent, child, grandchild)
 
-		assertEquals(0, outlineDepth(symbols, parent))
-		assertEquals(1, outlineDepth(symbols, child))
-		assertEquals(2, outlineDepth(symbols, grandchild))
+		assertEquals(
+			mapOf(parent.symbolId to 0, child.symbolId to 1, grandchild.symbolId to 2),
+			outlineDepths(symbols),
+		)
 	}
 
 	// A container the answer does not carry is not a reason to indent, nor to walk forever.
@@ -244,8 +245,8 @@ class WindowRulesTest {
 		val orphan = outlineSymbol("a", "const").copy(containerId = "lexicon typescript src/a.ts gone.")
 		val loop = outlineSymbol("b", "const").copy(containerId = "lexicon typescript src/a.ts b.")
 
-		assertEquals(0, outlineDepth(listOf(orphan), orphan))
-		assertEquals(0, outlineDepth(listOf(loop), loop))
+		assertEquals(mapOf(orphan.symbolId to 0), outlineDepths(listOf(orphan)))
+		assertEquals(mapOf(loop.symbolId to 0), outlineDepths(listOf(loop)))
 	}
 
 	@Test

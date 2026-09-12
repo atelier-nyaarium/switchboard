@@ -273,7 +273,7 @@ class ChatRepository(
 	@Volatile internal var sttsClient: SttsClient? = null
 
 	internal val clearedOnReprovision: List<ClearsOnReprovision>
-		get() = listOf(this, board, vault, runbooks, presence, trust, drain, playback)
+		get() = listOf(this, board, vault, runbooks, presence, trust, drain, playback, windowOps)
 
 	override suspend fun clearInMemory() {
 		invalidateClient()
