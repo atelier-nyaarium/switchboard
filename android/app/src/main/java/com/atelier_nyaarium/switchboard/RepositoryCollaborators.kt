@@ -192,6 +192,28 @@ internal class ChatRepositoryPolicyHost(private val repo: ChatRepository) : Poli
 		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsolePolicyGateway)
 }
 
+/** The port over the console client's workspace reads. Every call names the session, not the gateway alone. */
+internal class ConsoleWorkspaceGateway(private val client: ConsoleClient) : WorkspaceGateway {
+	override suspend fun tree(target: WorkspaceTarget, path: String) =
+		client.workspaceTree(target.gatewayId, target.address, path)
+
+	override suspend fun file(target: WorkspaceTarget, path: String) =
+		client.workspaceFile(target.gatewayId, target.address, path)
+
+	override suspend fun outline(target: WorkspaceTarget, path: String) =
+		client.workspaceOutline(target.gatewayId, target.address, path)
+
+	override suspend fun symbolSource(target: WorkspaceTarget, symbolId: String) =
+		client.workspaceSymbolSource(target.gatewayId, target.address, symbolId)
+
+	override suspend fun knowledge(target: WorkspaceTarget, symbolId: String) =
+		client.workspaceSymbolKnowledge(target.gatewayId, target.address, symbolId)
+}
+
+internal class ChatRepositoryWindowHost(private val repo: ChatRepository) : WindowHost {
+	override val workspace: WorkspaceGateway? get() = repo.clientOrNull()?.let(::ConsoleWorkspaceGateway)
+}
+
 /** The port over the console client's runbook calls. */
 internal class ConsoleRunbookGateway(private val client: ConsoleClient) : RunbookGateway {
 	override suspend fun list(gatewayId: String) = client.runbookList(gatewayId)

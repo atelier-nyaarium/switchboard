@@ -4,7 +4,6 @@ import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.ConsolePolicyDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsolePolicyPutResult
 import com.atelier_nyaarium.switchboard.proto.PolicyBinding
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -29,17 +28,6 @@ private fun policy(
 /** The gateway's key rule, as far as a test needs it. */
 private fun keyOf(example: String) = example.trim().split(Regex("\\s+")).take(2).joinToString(" ")
 
-/** Holds one call, and says when it is held. */
-private class Hold {
-	val entered = CompletableDeferred<Unit>()
-	val gate = CompletableDeferred<Unit>()
-
-	suspend fun pass() {
-		entered.complete(Unit)
-		gate.await()
-	}
-}
-
 class PolicyOpsTest {
 	/** Answers per gateway; a gateway in `refusing` throws, as an older build's unknown op does. */
 	private class FakeGateway : PolicyGateway {
@@ -49,8 +37,8 @@ class PolicyOpsTest {
 		val staleIds = mutableSetOf<String>()
 		val puts = mutableListOf<Pair<String, Long?>>()
 		/** The next list, or the next enable, of that gateway waits here once. */
-		val holds = mutableMapOf<String, Hold>()
-		val enableHolds = mutableMapOf<String, Hold>()
+		val holds = mutableMapOf<String, TestHold>()
+		val enableHolds = mutableMapOf<String, TestHold>()
 
 		override suspend fun list(gatewayId: String): PolicyListAnswer {
 			// Read before the hold, so a held answer is the older one.
@@ -126,7 +114,7 @@ class PolicyOpsTest {
 		val ops = PolicyOps(state, Host(fake))
 
 		runBlocking {
-			val hold = Hold()
+			val hold = TestHold()
 			fake.holds["mikan"] = hold
 			val slow = launch { ops.refreshAll() }
 			hold.entered.await()
@@ -147,7 +135,7 @@ class PolicyOpsTest {
 		val ops = PolicyOps(state, Host(fake))
 
 		runBlocking {
-			val hold = Hold()
+			val hold = TestHold()
 			fake.holds["sakura"] = hold
 			val slow = launch { ops.refresh("sakura") }
 			hold.entered.await()
@@ -226,7 +214,7 @@ class PolicyOpsTest {
 		runBlocking { ops.refreshAll() }
 
 		runBlocking {
-			val hold = Hold()
+			val hold = TestHold()
 			fake.enableHolds["sakura"] = hold
 			val older = launch { ops.setEnabled("apt", false, 1L, "sakura") }
 			hold.entered.await()

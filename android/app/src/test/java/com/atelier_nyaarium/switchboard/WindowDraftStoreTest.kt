@@ -15,8 +15,8 @@ private const val G_ID = "lexicon typescript src/a.ts g()."
 class WindowDraftStoreTest {
 	private lateinit var dir: File
 	private lateinit var store: WindowDraftStore
-	private val one = WorkspaceTarget(gatewayId = "sakura", session = "host.aaa")
-	private val two = WorkspaceTarget(gatewayId = "sakura", session = "host.bbb")
+	private val one = WorkspaceTarget(gatewayId = "sakura", address = "home.sakura.host.aaa")
+	private val two = WorkspaceTarget(gatewayId = "sakura", address = "home.sakura.host.bbb")
 
 	@Before
 	fun setUp() {

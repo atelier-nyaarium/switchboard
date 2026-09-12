@@ -1,129 +1,154 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
-/**
- * Every decision the window surface makes. None of it lives in a Composable: there is no
- * instrumentation test source set, so a rule written inside one is invisible to every gate.
- *
- * Scoped by SESSION, never by gateway. Two sessions of one gateway hold different workspaces, so a
- * gateway-keyed cache would serve one session's tree for the other.
- */
+/** The gateway calls, as a port, so a test drives the whole class without a socket. */
+internal interface WorkspaceGateway {
+	suspend fun tree(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceTreeAnswer>
 
-/** A session's workspace, which is what every window and read is scoped to. */
-internal data class WorkspaceTarget(val gatewayId: String, val session: String) {
-	/** Stable and self-describing, so a fence key reads as a session rather than a gateway. */
-	val key: String get() = "$gatewayId/$session"
+	suspend fun file(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceReadAnswer>
+
+	suspend fun outline(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceOutlineAnswer>
+
+	suspend fun symbolSource(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<WorkspaceSymbolSourceAnswer>
+
+	suspend fun knowledge(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<WorkspaceKnowledgeAnswer>
+}
+
+internal interface WindowHost {
+	val workspace: WorkspaceGateway?
 }
 
 /**
- * What the window was drawn from. `spanHash` is the whole binding: a save is accepted only while the
- * span still hashes to this, so an edit elsewhere in the file leaves the window alone.
+ * The open windows and their drafts, which is the only workspace state the phone holds. A tree, an
+ * outline and a symbol's detail are re-read rather than cached, as the other per-gateway tabs do.
+ *
+ * Keyed by SESSION throughout. Two sessions of one gateway hold different workspaces, so a
+ * gateway-keyed map would serve one session's span for the other.
  */
-internal data class WindowDescriptor(
-	val symbolId: String,
-	val module: String,
-	val name: String,
-	val startLine: Long,
-	val endLine: Long,
-	val spanHash: String,
-)
-
-internal fun descriptorOf(answer: WorkspaceSymbolSourceAnswer): WindowDescriptor =
-	WindowDescriptor(
-		symbolId = answer.symbolId,
-		module = answer.module,
-		name = answer.name,
-		startLine = answer.startLine,
-		endLine = answer.endLine,
-		spanHash = answer.spanHash,
-	)
-
-/** One span the owner can read and, from the next release, edit. */
-internal data class Window(
-	val descriptor: WindowDescriptor,
-	/** What the span held when the window was drawn. */
-	val original: String,
-	/** Null until the owner types; the draft is what a save or an ask would carry. */
-	val draft: String? = null,
-	val stale: Boolean = false,
+internal class WindowOps(
+	private val host: WindowHost,
+	private val drafts: WindowDraftStore,
+	/** Already off the main thread, and no call here names a dispatcher of its own. */
+	private val repoScope: CoroutineScope,
 ) {
-	val edited: Boolean get() = draft != null && draft != original
-	val shown: String get() = draft ?: original
+	private val reads = GatewayReadFence()
+
+	private val held = MutableStateFlow<Map<String, List<Window>>>(emptyMap())
+
+	/** What the window screen collects. Not in `ChatState`, which is persisted and the Router's. */
+	val windows: StateFlow<Map<String, List<Window>>> = held
+
+	fun windowsOf(target: WorkspaceTarget): List<Window> = held.value[target.key].orEmpty()
+
+	/** One window at a time, so an open or a close landing mid-recheck is not overwritten. */
+	private fun replace(target: WorkspaceTarget, symbolId: String, window: Window) {
+		held.update { all ->
+			val list = all[target.key].orEmpty()
+			if (list.none { it.descriptor.symbolId == symbolId }) {
+				all
+			} else {
+				all + (target.key to list.map { if (it.descriptor.symbolId == symbolId) window else it })
+			}
+		}
+	}
+
+	/** Stale answers are dropped rather than drawn, since an older read would put back what moved. */
+	private suspend fun <T> fenced(
+		target: WorkspaceTarget,
+		call: suspend () -> WorkspaceAnswer<T>,
+	): WorkspaceAnswer<T> =
+		when (val read = reads.read(target.key) { call() }) {
+			is GatewayRead.Fresh -> read.value
+			GatewayRead.Stale -> WorkspaceAnswer.Unreachable
+		}
+
+	suspend fun tree(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceTreeAnswer> {
+		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
+		return fenced(target) { gate.tree(target, path) }
+	}
+
+	suspend fun file(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceReadAnswer> {
+		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
+		return fenced(target) { gate.file(target, path) }
+	}
+
+	suspend fun outline(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceOutlineAnswer> {
+		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
+		return fenced(target) { gate.outline(target, path) }
+	}
+
+	suspend fun symbol(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<WorkspaceSymbolSourceAnswer> {
+		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
+		return fenced(target) { gate.symbolSource(target, symbolId) }
+	}
+
+	suspend fun knowledge(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<WorkspaceKnowledgeAnswer> {
+		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
+		return fenced(target) { gate.knowledge(target, symbolId) }
+	}
+
+	/**
+	 * A long press, which accumulates. A draft held for the symbol is restored, so a window reopened
+	 * after the process died comes back with the owner's typing rather than the file's text.
+	 */
+	suspend fun openWindow(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<Window> {
+		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
+		return when (val answer = fenced(target) { gate.symbolSource(target, symbolId) }) {
+			is WorkspaceAnswer.Read -> {
+				val opened = Window(
+					descriptor = descriptorOf(answer.value),
+					original = answer.value.text,
+					draft = drafts.load(target, symbolId),
+				)
+				held.update { all -> all + (target.key to withWindow(all[target.key].orEmpty(), opened)) }
+				WorkspaceAnswer.Read(opened)
+			}
+			is WorkspaceAnswer.Refused -> answer
+			WorkspaceAnswer.Unreachable -> WorkspaceAnswer.Unreachable
+		}
+	}
+
+	/** The one road that discards a draft, so closing is how the owner abandons one. */
+	fun closeWindow(target: WorkspaceTarget, symbolId: String) {
+		held.update { all -> all + (target.key to withoutWindow(all[target.key].orEmpty(), symbolId)) }
+		repoScope.launch { drafts.clear(target, symbolId) }
+	}
+
+	/** Memory first so the field stays responsive; the draft reaches disk off the main thread. */
+	fun type(target: WorkspaceTarget, symbolId: String, text: String) {
+		val window = windowsOf(target).firstOrNull { it.descriptor.symbolId == symbolId } ?: return
+		replace(target, symbolId, window.copy(draft = text))
+		repoScope.launch { drafts.save(target, symbolId, text) }
+	}
+
+	/**
+	 * The foreground re-check, unfenced because it is a sweep over windows already held rather than a
+	 * read of something the owner just asked for. `refreshWith` decides each one.
+	 */
+	suspend fun recheck(target: WorkspaceTarget) {
+		val gate = host.workspace ?: return
+		for (window in windowsOf(target)) {
+			val fresh = gate.symbolSource(target, window.descriptor.symbolId)
+			if (fresh !is WorkspaceAnswer.Read) continue
+			when (val outcome = refreshWith(window, fresh.value)) {
+				RefreshOutcome.Unchanged -> {}
+				is RefreshOutcome.Adopted -> replace(target, window.descriptor.symbolId, outcome.window)
+				is RefreshOutcome.Conflicts -> replace(target, window.descriptor.symbolId, outcome.window)
+			}
+		}
+	}
+
+	/** What Agent Apply sends, for every span the owner actually changed. */
+	fun agentRequests(target: WorkspaceTarget): List<AgentRequest> =
+		editedWindows(windowsOf(target)).mapNotNull { agentRequestOf(it) }
 }
-
-/**
- * What a refresh does, which is the one rule the whole staleness design rests on: refresh silently
- * when nothing of the owner's is lost, and show the banner only when it would discard their typing.
- */
-internal sealed interface RefreshOutcome {
-	/** Nothing of the owner's was at stake, so the new text simply replaces the old. */
-	data class Adopted(val window: Window) : RefreshOutcome
-
-	/** The owner has unsaved text here, so they decide rather than losing it. */
-	data class Conflicts(val window: Window) : RefreshOutcome
-
-	/** The span is unchanged, so there was nothing to do. */
-	data object Unchanged : RefreshOutcome
-}
-
-/**
- * The rule, in one place. A caller never compares hashes itself.
- *
- * An unedited window adopts whatever is current, which is why the banner is never noise: on screen
- * means something is at stake.
- */
-internal fun refreshWith(held: Window, fresh: WorkspaceSymbolSourceAnswer): RefreshOutcome {
-	val descriptor = descriptorOf(fresh)
-	if (descriptor.spanHash == held.descriptor.spanHash) return RefreshOutcome.Unchanged
-	val next = Window(descriptor = descriptor, original = fresh.text)
-	if (!held.edited) return RefreshOutcome.Adopted(next)
-	return RefreshOutcome.Conflicts(held.copy(stale = true))
-}
-
-/** Which road a submit takes. The same text serves both; only the button differs. */
-internal enum class SubmitRoad {
-	/** Written verbatim. Arrives with the release that can save. */
-	Save,
-
-	/** Sent to the agent as a request, which it interprets and applies. */
-	AgentApply,
-}
-
-/**
- * What the agent must be told, since a bare name is refused as ambiguous and an occurrence-numbered
- * id can renumber. The ORIGINAL rides along so the agent can refuse a span that moved under it.
- */
-internal data class AgentRequest(val module: String, val symbolId: String, val original: String, val proposed: String)
-
-internal fun agentRequestOf(window: Window): AgentRequest? {
-	if (!window.edited) return null
-	return AgentRequest(
-		module = window.descriptor.module,
-		symbolId = window.descriptor.symbolId,
-		original = window.original,
-		proposed = window.shown,
-	)
-}
-
-/** What a tap does, so the screens carry no branching of their own. */
-internal enum class OutlineTap {
-	/** Short tap: read the symbol, its documentation and its knowledge. */
-	OpenDetail,
-
-	/** Long press: add a window for it, accumulating rather than replacing. */
-	OpenWindow,
-}
-
-/** Hidden from a tree by the same rules the gateway refuses a read with, so the two never disagree. */
-internal fun windowsFor(held: List<Window>, symbolId: String): Boolean = held.any { it.descriptor.symbolId == symbolId }
-
-/** Accumulating, so a second long press adds rather than replaces, and a third of the same is a no-op. */
-internal fun withWindow(held: List<Window>, added: Window): List<Window> =
-	if (windowsFor(held, added.descriptor.symbolId)) held else held + added
-
-internal fun withoutWindow(held: List<Window>, symbolId: String): List<Window> =
-	held.filterNot { it.descriptor.symbolId == symbolId }
-
-/** Only what the owner actually changed, so an untouched span is never submitted. */
-internal fun editedWindows(held: List<Window>): List<Window> = held.filter { it.edited }
