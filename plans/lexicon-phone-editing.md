@@ -1075,7 +1075,7 @@ screen was walked on the emulator.
   a re-provision brought back the previous owner's code. A window now carries an incarnation minted at
   open, and the set an epoch that moves on every close and on the wipe; work reads one at the start and
   lands nothing if it moved. Each guard is mutation tested.
-- **A control byte written into source.** `" "` passed to an editing tool landed as the byte itself in
+- **A control byte written into source.** A unicode escape passed to an editing tool landed as the byte in
   three files. It compiles, so every gate here was green, while `grep` treated the files as binary and
   Lexicon would not index them. Two separate audit rounds reported it and the first was dismissed as a
   hallucination. The separator is constructed rather than written now, and `control-byte-residue.test.ts`
@@ -1293,3 +1293,38 @@ second feature to need it will build a second one.
 The runner still replays Phase 1's original wording, including the premise this lap rejected. The plan moved
 and the spec shown each step did not. Nothing warns about it, so a later lap could audit against text that no
 longer describes the intent. Read the plan file, never the runner's copy.
+
+## The emulator is the only gate for a screen, and it is driven by pixels
+
+Two real defects this lap were invisible to lint, tsc, 2820 TypeScript tests and the Kotlin gate: a layout
+slot that did not carry its caller's weight, so a footer button went off screen, and a view that composed one
+row per line before drawing anything. Both needed a screenshot.
+
+The loop to get one is a build, an install, a scripted tap sequence and a screencap, and the tap sequence is
+hardcoded pixel coordinates. Those shift the moment a row appears above them, so the script silently taps the
+wrong thing and the screenshot still looks plausible. I lost a round to exactly that when the header gained a
+Back button. There is no deep link into a tab, so every check re-navigates from the top.
+
+## The sandbox cannot reproduce a race, and nothing says so
+
+`SandboxWorkspaceGateway` answers inline with no suspension. That makes it a fine rendering fixture and a
+useless behavioural one: the worst bug of this phase, two fenced reads of one session cancelling each other,
+is invisible there and appears immediately in a JVM test with an explicit hold. `AGENTS.md` describes the
+sandbox as what makes a refusal screen reachable, which is true, and says nothing about what it cannot show.
+A reader who smoke tests on the emulator and sees green has tested rendering only.
+
+## A cached test task reported a green that was not run
+
+While mutation testing, `./gradlew :app:testDebugUnitTest --tests ...` answered `FROM-CACHE` and
+`BUILD SUCCESSFUL` after a production source change. A mutation that should have failed a test appeared to
+pass. `--rerun-tasks` is needed for this work and nothing says so; `kotlin-gate.sh` passes through to the
+cached task too. A gate that can answer for a build it did not run is the same class as a gate that cannot
+see a failure.
+
+## An editing tool writes a unicode escape as the byte
+
+Asking for a separator character put a raw NUL into three source files. They compiled, so every gate stayed
+green, while `grep` treated the files as binary and Lexicon would not index them. Two audit rounds reported
+it and the first was dismissed. The tool gives no way to ask for the escape text, so the construction has to
+avoid the literal entirely: `Char(0x1e)` in Kotlin, `String.fromCharCode` in a test. `control-byte-residue.test.ts`
+now fences it, but the trap remains for anyone writing a string.
