@@ -1045,6 +1045,45 @@ screen was walked on the emulator.
 - **A layout slot that does not carry its caller's weight.** `WorkspaceAnswerBox` passed its modifier to
   the loading and refusal branches but not to the answer, so a content `fillMaxSize` pushed the outline's
   Raw button off screen. No gate here compiles a layout; the emulator found it.
+- **A fixture that contradicts itself proves nothing.** Both Kotlin test files built a symbol answer
+  claiming lines 4 to 9 over one line of text, which is why the first edge-case test asserted something
+  misleading and still passed. The range is now derived from the text. The mechanism is the test fixture;
+  the class is a hand-written invariant that nothing enforces.
+- **An ordering applied after a cap.** `treeOf` sliced to `MAX_TREE_ENTRIES` and sorted what survived, so
+  an over-cap directory answered an arbitrary thousand of itself. Sorting before the slice is the fix, and
+  the same shape is worth checking wherever a cap and an order meet.
+
+### What the audits found
+
+Five alignment agents, a comment audit and a test audit ran over the phase. Fixed: the tree's cap, the
+amber mark never being applied, a draft save landing after the clear meant to discard it, a failed rename
+deleting the previous draft, the gap row counting lines both cards draw, the outline not indenting under
+its container, the sandbox keying its refusal by Gateway rather than session, four decisions sitting inside
+Composables, and the test fixtures above.
+
+Rejected, with the reason:
+
+- **The window has no editable span, no `Agent Apply` and no `Save`.** Those are Phases 5 and 8. The
+  mockups show the end state of the feature, not the end state of this phase.
+- **The tree sheet has no Move, Rename, Duplicate, Delete or Send to agent, and Raw is read-only.** Phases
+  9 and 10.
+- **`WorkspaceTarget` keys by Gateway and session together.** A session address already names its own
+  Gateway, so the pair carries one fact, not two that can disagree. The Gateway is kept because a call
+  needs to know which machine to post to, which a cross-Domain address does not answer.
+- **The tree has no parent row.** Back is the parent row, and the header carries the path.
+- **Every card has a Close the mockup does not show.** Windows accumulate, so closing one is not optional.
+- **The empty state chooses its own wording inside a Composable.** Every sibling tab does the same, and the
+  audit found them itself. Changing one screen alone would make the codebase less consistent, not more.
+
+Still open, recorded rather than fixed:
+
+- **The prose road is in no phase.** The owner asking for windows in prose, and an agent minting them, is
+  half of Q12's answer and no phase owns it. It needs the session to push a window set to the phone, which
+  is new machinery. Recorded on the board.
+- **An open window does not survive the process, only its draft does.** Reopening the symbol restores the
+  typing; the window set itself is memory.
+- **A failed draft write is silent.** `save` swallows its failure, so a full disk loses the only restart
+  copy without saying so.
 
 ### Left
 
