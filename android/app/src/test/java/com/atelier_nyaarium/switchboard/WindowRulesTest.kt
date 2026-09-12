@@ -70,6 +70,18 @@ class WindowRulesTest {
 		)
 	}
 
+	// What an applied ask looks like: the owner asked, the agent wrote it, and the file now says it.
+	@Test
+	fun `a span that caught up with the draft adopts rather than conflicting`() {
+		val held = window(draft = "mine")
+		val fresh = answer("mine", "h2")
+
+		assertEquals(
+			RefreshOutcome.Adopted(held.copy(descriptor = descriptorOf(fresh), original = "mine", draft = null)),
+			refreshWith(held, fresh),
+		)
+	}
+
 	@Test
 	fun `a changed span conflicts and keeps the owner's typing`() {
 		val held = window(draft = "mine")

@@ -132,7 +132,8 @@ internal fun refreshWith(held: Window, fresh: WorkspaceSymbolSourceAnswer): Refr
 	if (descriptor.spanHash == held.descriptor.spanHash) return RefreshOutcome.Unchanged
 	// A copy, so the same window keeps its incarnation: refreshed, not replaced.
 	val next = held.copy(descriptor = descriptor, original = fresh.text, draft = null, stale = false)
-	if (!held.edited) return RefreshOutcome.Adopted(next)
+	// The file caught up with the draft, which is what an applied ask looks like. Nothing is at stake.
+	if (!held.edited || fresh.text == held.shown) return RefreshOutcome.Adopted(next)
 	return RefreshOutcome.Conflicts(held.copy(stale = true))
 }
 

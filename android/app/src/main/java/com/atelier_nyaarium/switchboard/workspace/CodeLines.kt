@@ -55,6 +55,8 @@ internal fun CodeLineRow(line: CodeLine) {
 			style = MaterialTheme.typography.bodySmall,
 			fontFamily = FontFamily.Monospace,
 			fontSize = 11.sp,
+			// Dimmed beside an editable field, so what the owner cannot change reads that way.
+			color = if (line.banded) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 	}
 }

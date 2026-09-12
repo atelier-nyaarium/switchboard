@@ -73,13 +73,24 @@ internal fun WindowView(
 
 	val edits = editedWindows(ordered).size
 	var asked by remember(target.key) { mutableStateOf<Applied?>(null) }
+	var asking by remember(target.key) { mutableStateOf(false) }
 
 	Column(modifier.fillMaxSize()) {
 		WindowScroll(ops, target, ordered, context, Modifier.weight(1f), onClose)
 		asked?.let { WorkspaceNotice(appliedNotice(it)) }
 		if (edits > 0) {
 			OutlinedButton(
-				onClick = hapticClick { scope.launch { asked = ops.agentApply(target) } },
+				// Guarded, or a second tap asks twice for the same spans while the first is still going.
+				onClick = hapticClick {
+					if (!asking) {
+						asking = true
+						scope.launch {
+							asked = ops.agentApply(target)
+							asking = false
+						}
+					}
+				},
+				enabled = !asking,
 				modifier = Modifier.fillMaxWidth().padding(12.dp),
 			) {
 				Text(if (edits == 1) "Agent Apply" else "Agent Apply $edits spans")
@@ -88,13 +99,17 @@ internal fun WindowView(
 	}
 }
 
-/** What the owner is told after asking, since the agent's own reply lands in the conversation. */
+/**
+ * What the owner is told. A send that left the phone is not an apply that happened, so this says
+ * where to look rather than claiming an outcome: the thread carries the agent's reply, and a message
+ * that failed to leave shows its own error there.
+ */
 private fun appliedNotice(applied: Applied): String =
 	when (applied) {
-		is Applied.Sent -> if (applied.spans == 1) "Sent. The agent replies in the thread." else
-			"Sent ${applied.spans} spans. The agent replies in the thread."
-		Applied.NothingEdited -> "Nothing to send"
-		Applied.Failed -> "That did not send"
+		is Applied.Sent -> if (applied.spans == 1) "Asked. The agent answers in the thread." else
+			"Asked about ${applied.spans} spans. The agent answers in the thread."
+		Applied.NothingEdited -> "Nothing to ask about"
+		Applied.Failed -> "That did not leave the phone"
 	}
 
 @Composable

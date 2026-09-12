@@ -1171,6 +1171,32 @@ makes it a guarantee.
 The agent's `channel_reply` already reaches the owner, so the result is visible as a normal reply. Nothing
 marks it as an apply result or refreshes the window; the foreground re-check covers it.
 
+### Done
+
+- **The span is one text field**, in the purple the design reserves for what is editable, with the context
+  either side keeping its numbers. A gutter cannot stay true beside a wrapping editor, and per-line fields
+  would break selection and paste across lines. `windowParts` replaced `windowLines` to say so in the type.
+- **`applyMessage`** builds one message naming every edited span: module, full symbol id, what the owner
+  was shown, and what they want. The fence outruns any backtick run in either text, since a span can hold
+  a fenced block in a comment and a three-backtick fence would end there.
+- **Drafts survive the send.** The agent may refuse a span whose file moved, and the owner's typing is the
+  only copy of what they wanted.
+- **A refresh adopts when the file caught up with the draft.** Without that rule, an applied ask came back
+  as a stale banner about the owner's own change, and Refresh would have discarded the text that matched.
+- **The button is guarded while a send is in flight**, so a second tap does not ask twice.
+
+### What the audits found
+
+- **The notice says what it knows.** `ChatRepository.send` answers with an op id whether or not delivery
+  landed, marking the thread message in error when it did not. So the notice points at the thread rather
+  than claiming an apply happened. `Applied.Failed` is a throw, not a refusal.
+- **The amber mark is gone from the window surface**, since the span is now a field rather than lines. The
+  card header names the symbol and the field IS the symbol, so a mark inside it would point at itself. The
+  mark stays on the detail screen, where a symbol sits among lines that are not it.
+- **The line cap went with `windowLines`.** A long span is now one long field. The cap belongs on the READ
+  surface, which is where it is: the detail screen shows forty lines until asked. Editing half a span is
+  not a thing to offer.
+
 ## Phase 6 - Refs carry a span hash
 
 Slice the resolved range, hash the slice, and add it as one new optional field on `RefKeyMetaSchema`. That is
