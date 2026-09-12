@@ -107,6 +107,13 @@ internal data class RoutineDraft(
 	}
 
 	companion object {
+		/** The gateway prefixes `routine-` to name the reserved session, so the id carries none. */
+		fun fresh(zone: java.time.ZoneId): RoutineDraft = RoutineDraft(
+			id = java.util.UUID.randomUUID().toString().take(8),
+			startDate = java.time.LocalDate.now(zone).toString(),
+			zone = zone.id,
+		)
+
 		fun of(routine: Routine): RoutineDraft = RoutineDraft(
 			id = routine.id,
 			name = routine.name,

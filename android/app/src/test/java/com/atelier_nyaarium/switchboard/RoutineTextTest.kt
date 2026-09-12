@@ -161,6 +161,15 @@ class RoutineTextTest {
 		assertEquals(mapOf("scope" to ""), moved.values)
 	}
 
+	// The gateway prefixes the session name, so an id carrying it reads as routine-routine-xxxx.
+	@Test
+	fun aFreshRoutineIdCarriesNoSessionPrefix() {
+		val fresh = RoutineDraft.fresh(java.time.ZoneId.of("America/Los_Angeles"))
+		assertFalse(fresh.id, fresh.id.startsWith("routine-"))
+		assertEquals("America/Los_Angeles", fresh.zone)
+		assertNull(fresh.copy(name = "T", runbookId = "b", approvedRevision = 1L).refusal())
+	}
+
 	@Test
 	fun theClockReadsAnHhMmAndFallsBackToNineSharp() {
 		assertEquals(9 to 30, clockOf("09:30"))

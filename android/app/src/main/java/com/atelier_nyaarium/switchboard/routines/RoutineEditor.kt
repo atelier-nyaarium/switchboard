@@ -70,12 +70,7 @@ fun RoutineEditor(
 	// Read in the owner's own zone, whatever the gateway keeps it in.
 	var draft by remember(routineId, gatewayZone) {
 		mutableStateOf(
-			held?.let { RoutineDraft.of(it).shown(zone.id) }
-				?: RoutineDraft(
-					id = "routine-${java.util.UUID.randomUUID().toString().take(8)}",
-					startDate = java.time.LocalDate.now(zone).toString(),
-					zone = zone.id,
-				),
+			held?.let { RoutineDraft.of(it).shown(zone.id) } ?: RoutineDraft.fresh(zone),
 		)
 	}
 	val vaultRevision by repo.vault.revision
