@@ -37,11 +37,12 @@ import { registerSetEffortLevel } from "./devcontainer/setEffortLevel.js";
 import { bringUpLine, readResumeArg } from "./launchFacts.js";
 import type { LocalAgentBackend } from "./local/localAgentHost.js";
 import { createLocalAgentBackend } from "./local/localAgentHost.js";
-import { closeReferenceSession, setReferencesEnabled } from "./references/attachRefs.js";
-import { adoptHostRoots, expectHostRoots } from "./references/refWorkspace.js";
+import { closeReferenceSession, referenceSession, setReferencesEnabled } from "./references/attachRefs.js";
+import { adoptHostRoots, expectHostRoots, workspaceRoot } from "./references/refWorkspace.js";
 import { registerRoutineTools } from "./routines/routineTools.js";
 import { resolveSessionNaming } from "./team-name.js";
 import { registerVaultTools } from "./vault/vaultTools.js";
+import { setWorkspacePlane } from "./workspace/plane.js";
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -168,6 +169,13 @@ export async function startMcp(): Promise<void> {
 	if (process.env.SWITCHBOARD_SESSION_TOKEN) registerRoutineTools(mcpServer);
 	// Not a tool of its own: it rides the reply path, so it is switched on rather than registered.
 	setReferencesEnabled(hasCapability(capabilities, "references"));
+	// Answered off the agent's turn, so it is wired rather than registered. The root and the Lexicon
+	// socket belong to the references feature; passing them in keeps the plane out of it.
+	setWorkspacePlane(
+		hasCapability(capabilities, "references")
+			? { root: () => workspaceRoot().root, session: referenceSession }
+			: null,
+	);
 
 	// Container-only. The registered name is composite; the workspace/schema key on the project alone.
 	if (inContainer) {

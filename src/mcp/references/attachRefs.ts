@@ -75,6 +75,11 @@ function connectOptions(): { patience: number; lexiconRoot?: string } {
 	};
 }
 
+/** The one socket, for anything outside refs that needs the index without opening a second one. */
+export function referenceSession(): Promise<Session> {
+	return sessionFor(workspaceRoot().root);
+}
+
 /** The daemon is shared, so this only drops this process's socket; nothing is stopped. */
 export async function closeReferenceSession(): Promise<void> {
 	const pending = sessionPromise;

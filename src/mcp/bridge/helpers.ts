@@ -6,7 +6,9 @@ import packageJson from "../../../package.json";
 import { createReconnector } from "../../shared/reconnect.js";
 import { OP_LEDGER_PROTOCOL } from "../../shared/schemas.js";
 import type { ChannelPushPayload, ConnectionMode, ResponsePushPayload } from "../../shared/types.js";
+import { WORKSPACE_OP_FRAME } from "../../shared/workspace-op.js";
 import { emitChannelNotification, emitResponseNotification } from "../channel/channelNotify.js";
+import { answerOnPlane, parseWorkspaceOpRequest } from "../workspace/plane.js";
 
 export interface BridgeConfig {
 	routerUrl: string;
@@ -340,6 +342,20 @@ export function connectToRouter(): void {
 			emitResponseNotification(channelServer, msg as unknown as ResponsePushPayload).catch((err: Error) => {
 				console.error(`[channel] response notification error: ${err.message}`);
 			});
+		}
+
+		// Answered off the agent's turn: this callback shares the process but not its thread of control.
+		if (msg.type === WORKSPACE_OP_FRAME) {
+			const request = parseWorkspaceOpRequest(msg);
+			if (request === null) {
+				console.error(`[workspace] malformed op frame`);
+				return;
+			}
+			answerOnPlane(request.reqId, request.key, request.op)
+				.then((reply) => routerWs?.send(JSON.stringify(reply)))
+				.catch((err: Error) => {
+					console.error(`[workspace] op failed to answer: ${err.message}`);
+				});
 		}
 	});
 

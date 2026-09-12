@@ -4,6 +4,7 @@ import type { Capability } from "../shared/capabilities.js";
 import type { HostSpawnState } from "../shared/host-spawn.js";
 import type { SessionStore } from "../shared/session-store.js";
 import type { ConnectionMode, WebSocketConfig } from "../shared/types.js";
+import type { WorkspaceOpResult } from "../shared/workspace-op.js";
 import type { SessionAuthority } from "./sessionAuthority.js";
 import type { WakeCoordinator } from "./wake.js";
 
@@ -24,6 +25,11 @@ export interface WebSocketDeps {
 			result: { ok: boolean; result?: unknown; error?: string; errorKind?: "absent" | "failure" },
 		) => void;
 		failAll: (error: string) => void;
+	};
+	/** Structural, not the class, so the handler tests need no plane built. */
+	workspacePlane?: {
+		settle: (socket: ServerWebSocket<WsData>, reqId: string, result: WorkspaceOpResult) => boolean;
+		dropped: (socket: ServerWebSocket<WsData>) => number;
 	};
 	config: WebSocketConfig;
 	onTeamConnect?: (team: string, ws: ServerWebSocket<WsData>) => void;

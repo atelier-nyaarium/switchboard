@@ -4,6 +4,7 @@ import { isHostSpawnSession } from "../shared/host-spawn.js";
 import { OP_LEDGER_PROTOCOL, WsRegisterSchema } from "../shared/schemas.js";
 import { isComposite } from "../shared/session-id.js";
 import type { ConnectionMode } from "../shared/types.js";
+import { WORKSPACE_OP_REPLY_FRAME, type WorkspaceOpResult } from "../shared/workspace-op.js";
 import { HandshakeGate } from "./handshakeGate.js";
 import { NOTHING_PRESENTED, type Presented, presentedByRegister } from "./sessionAuthority.js";
 import { reached, sendOn } from "./wsSend.js";
@@ -28,6 +29,7 @@ export function createWebSocketHandlers({
 	hostSpawnPoints,
 	wakeCoordinator,
 	hostOpCoordinator,
+	workspacePlane,
 	config,
 	onTeamConnect,
 	onTeamDisconnect,
@@ -322,6 +324,12 @@ export function createWebSocketHandlers({
 			});
 		}
 
+		// Any session, never just host: the plane serves the workspace the plugin itself holds.
+		if (msg.type === WORKSPACE_OP_REPLY_FRAME && typeof msg.reqId === "string" && ws.data.teamName) {
+			const settled = workspacePlane?.settle(ws, msg.reqId, msg.result as WorkspaceOpResult);
+			if (settled === false) console.log(`[workspace] reply ${msg.reqId} had no waiter`);
+		}
+
 		if (ws.data.teamName === "host" && typeof msg.type === "string" && CODEX_INBOUND_FRAMES.has(msg.type)) {
 			onCodexHostMessage?.(msg);
 		}
@@ -373,6 +381,10 @@ export function createWebSocketHandlers({
 		}
 
 		if (!teamName) return;
+
+		// Before the registry entry goes: its waits fail at once rather than each timing out.
+		const stranded = workspacePlane?.dropped(ws) ?? 0;
+		if (stranded > 0) console.log(`[workspace] ${stranded} op(s) stranded by ${teamName}/${subId} closing`);
 
 		if (teamName === "host") {
 			const subs = registry.get(teamName);

@@ -884,11 +884,32 @@ Reads in this release: tree listing, whole-file read, outline, symbol source, sy
   the first answer would otherwise do the work twice. A thrown op is not held, since nothing was
   answered. Mutation-tested: removing the in-flight join fails exactly one test.
 
+- **The frame pair and both ends.** The plugin dispatches `workspace_op` beside its `channel_push` branch
+  and answers on the same socket, off the agent's turn. `createWorkspacePlane` picks the socket, sends,
+  and awaits; `websocket.ts` settles `workspace_op_reply` for any session rather than only `host`.
+- **Socket selection is `resolveLiveIncarnation`, not a new rule.** It already prefers a
+  handshake-confirmed socket, falls back through the session store alias, and then to the first live one.
+  Writing a second selector would have been the duplication the plan warned about. Nothing broadcasts.
+- **The five read handlers.** Every path through `confine`, every byte through the lifted loader, and the
+  Lexicon session INJECTED rather than imported, so the handlers never reach into `references/`. A tree
+  sorts directories first and pages at `MAX_TREE_ENTRIES` rather than truncating silently. An outline
+  renumbers Lexicon's zero-based lines to what an editor shows. `symbolSource` hashes the SPAN, not the
+  whole file the daemon hands back, which is the whole point of the window binding.
+- **A closing socket strands its waits at once** rather than leaving each to time out.
+
+Verified on lint, tsc, 2810 tests and `check:boot`, which boots the real gateway and MCP with the plane
+wired.
+
+### A gate caught a real violation
+
+`ws-send-residue.test.ts` refused a raw `socket.send` in the new plane: every socket write goes through
+`wsSend :: sendOn`. Fixing it was better than the original, since a refused write now settles the waiter
+at once instead of leaving it to time out saying nothing more.
+
 ### Left
 
-- The frame pair on the socket: plugin-side dispatch, and the Gateway side that sends and settles.
-- Socket selection per session via `isMainOrLead` rather than broadcasting to every `subId`.
-- The five read handlers, each taking its path through `confine` and its bytes through the lifted loader.
+- Nothing in this phase. The ops are reachable from the Gateway; the phone surface that calls them is
+  Phase 4.
 
 ## Phase 4 - WindowOps and the phone surface
 

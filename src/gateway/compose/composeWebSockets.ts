@@ -3,6 +3,7 @@
 import type { Ambient } from "../../shared/ambient.js";
 import { ChannelDeliveryCoordinator } from "../channelDelivery.js";
 import { createWebSocketHandlers } from "../websocket.js";
+import { createWorkspacePlane, type WorkspacePlane } from "../workspacePlane.js";
 import type { AgentsStage } from "./composeAgents.js";
 import type { FederationStage } from "./composeFederation.js";
 import type { HostStage } from "./composeHost.js";
@@ -37,10 +38,17 @@ export interface WebSocketsStageDeps {
 export interface WebSocketsStage {
 	channelDeliveries: ChannelDeliveryCoordinator;
 	wsHandlers: ReturnType<typeof createWebSocketHandlers>;
+	workspacePlane: WorkspacePlane;
 }
 
 export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 	const { sessions, stores, host, agents, federation, ambient } = deps;
+	// Built here because it needs the registry this stage owns, and the socket handler settles onto it.
+	const workspacePlane = createWorkspacePlane({
+		registry: sessions.registry,
+		sessionStore: sessions.sessionStore,
+		ambient,
+	});
 	const channelDeliveries = new ChannelDeliveryCoordinator({
 		store: stores.pendingDeliveries,
 		registry: sessions.registry,
@@ -58,6 +66,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		hostSpawnPoints: sessions.hostSpawnPoints,
 		wakeCoordinator: host.wakeCoordinator,
 		hostOpCoordinator: host.hostOpCoordinator,
+		workspacePlane,
 		onTeamConnect: (team) => {
 			if (team === "host") host.pushPresenceWatch(true);
 			const handed = channelDeliveries.drain(team);
@@ -93,5 +102,5 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		announcePresenceDirty: () => sessions.presence.markDirty(),
 	});
 
-	return { channelDeliveries, wsHandlers };
+	return { channelDeliveries, wsHandlers, workspacePlane };
 }
