@@ -7,7 +7,8 @@ import { withoutAskpassFlags } from "../shared/selector-key.js";
 export const RACE_WAIT_MS = 25_000;
 export const HOLD_WAIT_MS = VAULT_ROUTE_WAIT_CAP_MS;
 export const WITHDRAW_TIMEOUT_MS = 3_000;
-const DEFAULT_DEADLINE_MS = 10 * 60 * 1000;
+/** Long enough to read a page and come back; a missed request costs the whole run. */
+const DEFAULT_DEADLINE_MS = 30 * 60 * 1000;
 
 export interface GatewayPort {
 	/** Null when the gateway cannot be reached or refuses the token. */

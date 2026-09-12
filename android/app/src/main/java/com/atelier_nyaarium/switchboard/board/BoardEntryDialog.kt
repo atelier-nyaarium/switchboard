@@ -176,10 +176,9 @@ private fun BoardEntryEditor(
 						repo.boardOps.boardAssign(entryId, team.name)
 					}
 				}
-				// Its session is on no Gateway the roster names. Without this the entry sits assigned
-				// with nothing selected, reading as though it were on the Backlog.
-				if (repo.boardOps.boardAssignedUnlisted(entry.sessionId)) {
-					SessionChip("Not listed", true) { repo.boardOps.boardAssign(entryId, null) }
+				// Without this the entry sits assigned with nothing selected, reading as Backlog.
+				repo.boardOps.boardUnlistedLabel(entry)?.let { label ->
+					SessionChip(label, true) { repo.boardOps.boardAssign(entryId, null) }
 				}
 			}
 

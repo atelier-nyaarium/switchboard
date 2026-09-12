@@ -63,9 +63,13 @@ internal class BoardOps(
 		}
 	}
 
-	/** An assignment no listed session answers to, which would otherwise select nothing at all. */
-	fun boardAssignedUnlisted(sessionId: String?): Boolean =
-		sessionId != null && boardAssignTargets().none { boardSessionKeyOf(it.name) == sessionId }
+	/** What to call an assignment no listed session answers to, naming its Gateway. Null when one does. */
+	fun boardUnlistedLabel(entry: com.atelier_nyaarium.switchboard.proto.BoardEntry): String? {
+		val assigned = entry.sessionId ?: return null
+		if (boardAssignTargets().any { boardSessionKeyOf(it.name) == assigned }) return null
+		val gateway = entry.session?.gatewayId
+		return if (gateway.isNullOrBlank()) "Not listed" else "$gateway, not listed"
+	}
 
 	/** Forgets a session and its board disposition. */
 	fun forgetWithBoardDisposition(team: String, cancelThem: Boolean, onForgotten: () -> Unit) {
