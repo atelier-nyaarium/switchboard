@@ -383,6 +383,20 @@ class WindowOpsTest {
 		assertEquals("mine", drafts.load(one, F_ID))
 	}
 
+	// A window that adopted holds no draft, so a reopen must not restore one from disk.
+	@Test
+	fun `a recheck that adopts the owner's own text takes the draft file with it`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "mine")
+		gateway.spans[F_ID] = "mine" to "h9"
+
+		ops.recheck(one)
+
+		assertEquals(listOf(F_ID to "mine"), shown())
+		assertEquals(listOf(false), ops.windowsOf(one).map { it.edited })
+		assertNull(drafts.load(one, F_ID))
+	}
+
 	// A transient refusal is not a reason to throw away what the owner is looking at.
 	@Test
 	fun `a recheck that cannot read a span leaves it as it was`() = runBlocking {
