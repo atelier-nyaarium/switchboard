@@ -161,7 +161,6 @@ internal class WindowOps(
 					incarnation = incarnations.incrementAndGet(),
 				)
 				// A close or a re-provision while this was in flight means the owner does not want it.
-				// A close or a re-provision while this was in flight means the owner does not want it.
 				apply(target) { if (epoch.get() == began) withWindow(it, opened) else it }
 				WorkspaceAnswer.Read(opened)
 			}
