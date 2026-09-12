@@ -295,16 +295,6 @@ internal class ServiceNotifications(private val context: Context) {
 		}
 	}
 
-	private fun vaultActionIntent(requestId: String, action: String): PendingIntent {
-		val intent = Intent(context, NotificationReceiver::class.java).setAction(action).putExtra(EXTRA_VAULT_REQUEST, requestId)
-		return PendingIntent.getBroadcast(
-			context,
-			(requestId.hashCode() * 31) xor action.hashCode(),
-			intent,
-			PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-		)
-	}
-
 	private fun vaultContentIntent(requestId: String): PendingIntent {
 		val intent = Intent(context, MainActivity::class.java)
 			.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -317,7 +307,10 @@ internal class ServiceNotifications(private val context: Context) {
 		)
 	}
 
-	/** Tap opens the sheet, where every answer lives; swipe denies. */
+	/**
+	 * Tap opens the sheet, where every answer lives. It cannot be swiped away, because brushing past
+	 * one while busy used to deny it outright. Only an answer or the deadline ends a request.
+	 */
 	internal fun notifyVaultRequest(repo: ChatRepository, pending: VaultPendingRequest) {
 		if (!canNotify()) return
 		val who = requester(repo.state.value, pending)
@@ -327,9 +320,8 @@ internal class ServiceNotifications(private val context: Context) {
 			.setContentTitle(requestTitle(pending, entryTitle))
 			.setContentText("$who: ${pending.operation}".take(120))
 			.setStyle(NotificationCompat.BigTextStyle().bigText("$who\n${pending.operation}"))
-			.setAutoCancel(true)
+			.setOngoing(true)
 			.setContentIntent(vaultContentIntent(pending.requestId))
-			.setDeleteIntent(vaultActionIntent(pending.requestId, NotificationReceiver.ACTION_VAULT_DENY))
 		NotificationManagerCompat.from(context).notify(vaultNotificationId(pending.requestId), builder.build())
 	}
 

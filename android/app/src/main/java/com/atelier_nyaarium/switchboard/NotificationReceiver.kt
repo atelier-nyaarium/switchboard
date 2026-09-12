@@ -28,13 +28,8 @@ class NotificationReceiver : BroadcastReceiver() {
 			SttsTransport.ACTION_PAUSE -> return repo.command { playback.pausePlayback() }
 			SttsTransport.ACTION_SKIP -> return repo.command { playback.skipPlayback() }
 		}
-		intent.getStringExtra(SwitchboardService.EXTRA_VAULT_REQUEST)?.let { requestId ->
-			// A notification outliving the plugin answers nothing.
-			if (!com.atelier_nyaarium.switchboard.plugins.Plugins.get(context).isActive("vault")) return
-			// Only a swipe answers from here; every other answer lives in the sheet.
-			if (intent.action != ACTION_VAULT_DENY) return
-			return repo.command { vaultOps.answerById(requestId, com.atelier_nyaarium.switchboard.vault.VAULT_DECISION_DENY) }
-		}
+		// A vault notification answers nothing from here; every answer lives in the sheet.
+		if (intent.hasExtra(SwitchboardService.EXTRA_VAULT_REQUEST)) return
 		val team = intent.getStringExtra(SwitchboardService.EXTRA_OPEN_TEAM)?.let(repo::fromCanonical) ?: return
 		val at = intent.getLongExtra(SwitchboardService.EXTRA_MESSAGE_AT, -1L)
 		when (intent.action) {
@@ -58,6 +53,5 @@ class NotificationReceiver : BroadcastReceiver() {
 		const val ACTION_PLAY_FULL = "com.atelier_nyaarium.switchboard.PLAY_FULL"
 		const val ACTION_PLAY_SUMMARY = "com.atelier_nyaarium.switchboard.PLAY_SUMMARY"
 		const val ACTION_STATUS_DISMISSED = "com.atelier_nyaarium.switchboard.STATUS_DISMISSED"
-		const val ACTION_VAULT_DENY = "com.atelier_nyaarium.switchboard.VAULT_DENY"
 	}
 }
