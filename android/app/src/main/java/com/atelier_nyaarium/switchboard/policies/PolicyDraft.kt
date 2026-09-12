@@ -32,6 +32,15 @@ internal data class PolicyDraft(
 		return if (example.isEmpty() || example in examples) this else copy(examples = examples + example)
 	}
 
+	/** In place, so order holds. Blank or a duplicate elsewhere changes nothing. */
+	fun replaceExample(original: String, typed: String): PolicyDraft {
+		val example = typed.trim()
+		val at = examples.indexOf(original)
+		if (example.isEmpty() || at < 0) return this
+		if (example != original && example in examples) return this
+		return copy(examples = examples.toMutableList().also { it[at] = example })
+	}
+
 	/** Null until Save has what it needs. The empty field is the only thing that says so. */
 	fun toPolicy(): AuthorizationPolicy? {
 		if (!ID_RE.matches(id) || id.length > MAX_ID_LEN) return null

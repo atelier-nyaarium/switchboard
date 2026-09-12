@@ -119,4 +119,26 @@ class RunbookDraftTest {
 		assertEquals("Environment", reopened.settingsFor("env").label)
 		assertEquals("prod", reopened.settingsFor("env").default)
 	}
+
+	@Test
+	fun editingAnOptionKeepsItsPlaceAndTakesTheDefaultWithIt() {
+		val held = ParameterDraft(kind = "choice", options = listOf("dev", "prod", "canary"), default = "prod")
+
+		val renamed = held.replaceOption("prod", "production")
+		assertEquals(listOf("dev", "production", "canary"), renamed.options)
+		assertEquals("production", renamed.default)
+
+		// A default pointing elsewhere stays put.
+		assertEquals("prod", held.replaceOption("dev", "development").default)
+	}
+
+	@Test
+	fun anEditThatWouldBlankOrCollideChangesNothing() {
+		val held = ParameterDraft(kind = "choice", options = listOf("dev", "prod"), default = "prod")
+		assertEquals(held, held.replaceOption("prod", "   "))
+		assertEquals(held, held.replaceOption("prod", "dev"))
+		assertEquals(held, held.replaceOption("gone", "anything"))
+		// Saving an untouched edit is not a collision with itself.
+		assertEquals(held, held.replaceOption("prod", "prod"))
+	}
 }

@@ -201,6 +201,12 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **The preview is the gateway's render, never the phone's:** the sheet calls `runbook_preview`, so
     one implementation of the grammar serves both it and the fire. An edit marks the shown text
     stale rather than blanking it, and Fire waits for a preview whose revision matches the runbook.
+- `android/.../runbooks/RunbookPreview.kt` / `PickMenu.kt` - the one preview fold, and the one field for a closed-set pick
+  - **`settledPreview` is the road from values to a `PreviewState`, and both screens take it:** the
+    fire sheet and the routine editor key their own effects, but the debounce, the gateway call, the
+    standing-refusal reading and the fold live here, where `previewOf` is a JVM test away.
+  - **`PickMenu` shows one label in the field and the rows:** a target, a spawn point and a runbook
+    all pick through it, so the field cannot read as one name while the open menu reads as another.
   - **`FireSheetState` holds two lifetimes:** the values and the preview belong to a runbook at a
     revision and `adopt` resets them; the target and a fire in flight belong to the sheet.
   - **A runbook fires on the Gateway that holds it, so the sheet picks no Gateway:** one call names
@@ -214,10 +220,23 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     a Compose layout.
   - **A typed option keeps its indent:** `trimmedOption` drops blank edge lines, and trims fully only
     when one line is left, so a pasted block does not lose the indentation of its first line alone.
-- `android/.../RoutineOps.kt` / `routines/RoutinesScreen.kt` / `RoutineEditor.kt` / `RoutineText.kt` -
-  the gateway calls, the tab, the editor, and the pure lines each row shows
+- `android/.../RoutineOps.kt` / `routines/RoutinesScreen.kt` / `RoutineEditor.kt` / `RoutineText.kt` /
+  `GrantSecretsSheet.kt` - the gateway calls, the tab, the editor, the pure lines each row shows, and
+  the sheet a routine's secrets are granted through
   - **Nothing is held on the phone:** a routine's record, its next run, its misses and its reviews
     are the gateway's, so a change re-reads rather than guessing.
+  - **The editor picks from what the Gateway offers, through the builders New session and Fire use:**
+    `spawnChoices` for the spawn point, the library for the runbook. A held value the Gateway no
+    longer offers stays first and marked (`spawnMenu`, `runbookMenu`), since a registry answering
+    nothing is not the owner asking to retarget. Picking a runbook retires the previous one's
+    answers (`RoutineDraft.pickRunbook`), and the preview under the parameters is the same fold the
+    fire sheet reads. The time is picked on a clock, not typed; `clockOf` and `clockText` are the
+    two roads between the picker and the `HH:MM` the schema reads. The list row alone owns
+    enabling; the editor has no switch.
+  - **The grant sheet's Done returns the checked tiles, and only those:** `grantedAfter` keeps held
+    order, appends new picks in vault order, and drops an id the vault no longer holds. `grantedLine`
+    names that id as missing before the sheet is opened, so the drop is never a surprise. The sheet
+    offers only entries with a value that are allowed on this Gateway, the rule `PolicyEditor` keeps.
   - **Every gateway is asked, concurrently, and one that cannot be read leaves the rest drawn:**
     `refreshAll` fans out over the roster, and an answer for a Gateway the roster no longer names
     is dropped at the write.

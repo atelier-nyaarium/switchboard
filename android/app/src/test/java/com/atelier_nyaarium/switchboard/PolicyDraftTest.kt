@@ -91,4 +91,18 @@ class PolicyDraftTest {
 		assertEquals(false, entry(listOf("mikan")).allowedOn("sakura"))
 		assertEquals(false, entry(null, unreadable = true).allowedOn("sakura"))
 	}
+
+	@Test
+	fun editingACommandKeepsItsPlaceAndRefusesABlankOrACollision() {
+		val held = PolicyDraft(id = "p", examples = listOf("sudo apt", "sudo apt-get", "ssh root@arbiter"))
+
+		assertEquals(
+			listOf("sudo apt", "sudo dnf", "ssh root@arbiter"),
+			held.replaceExample("sudo apt-get", "  sudo dnf  ").examples,
+		)
+		assertEquals(held, held.replaceExample("sudo apt-get", ""))
+		assertEquals(held, held.replaceExample("sudo apt-get", "sudo apt"))
+		assertEquals(held, held.replaceExample("gone", "anything"))
+		assertEquals(held, held.replaceExample("sudo apt", "sudo apt"))
+	}
 }

@@ -10,13 +10,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
@@ -43,10 +39,7 @@ import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
 import com.atelier_nyaarium.switchboard.standingRefusal
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-private const val PREVIEW_SETTLE_MS = 400L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,20 +61,8 @@ fun RunbookFireSheet(
 	val scope = rememberCoroutineScope()
 
 	LaunchedEffect(runbook.revision, values, sheet.attempt) {
-		sheet.preview = (sheet.preview as? PreviewState.Ready)?.let { PreviewState.Stale(it.text) }
-			?: PreviewState.Pending
-		delay(PREVIEW_SETTLE_MS)
-		val answer = repo.runbookOps.preview(runbookId, values, gatewayId)
-		sheet.preview = when {
-			answer == null -> {
-				// Filtered as the editor filters it, or a refusal the library has moved past explains
-				// a block it no longer causes.
-				val refusal = standingRefusal(repo.runbookOps.refusalFor(gatewayId, runbookId), runbook.revision)
-				PreviewState.Blocked(refusal?.reason, canOverwrite = refusal != null)
-			}
-			answer.text != null -> PreviewState.Ready(answer.text, answer.revision)
-			else -> PreviewState.Refused(answer.reason ?: "these values do not render")
-		}
+		sheet.preview = sheet.preview.stale()
+		sheet.preview = settledPreview(repo, gatewayId, runbookId, values, runbook.revision)
 	}
 
 	ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -139,10 +120,11 @@ fun RunbookFireSheet(
 					val choices =
 						if (sheet.freshSession) spawnTargets(state, gatewayId)
 						else sessionTargets(state, gatewayId)
-					TargetMenu(
+					PickMenu(
 						label = if (sheet.freshSession) "Start on" else "Send to",
 						choices = choices,
 						picked = choices.find { it.address == sheet.target },
+						labelOf = { it.label },
 						onPick = { sheet.pick(it.address) },
 					)
 				}
@@ -192,37 +174,8 @@ fun RunbookFireSheet(
 	}
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TargetMenu(label: String, choices: List<FireTarget>, picked: FireTarget?, onPick: (FireTarget) -> Unit) {
-	var open by remember { mutableStateOf(false) }
-
-	ExposedDropdownMenuBox(expanded = open, onExpandedChange = { open = it }, modifier = Modifier.fillMaxWidth()) {
-		OutlinedTextField(
-			value = picked?.label ?: "",
-			onValueChange = {},
-			readOnly = true,
-			label = { Text(label) },
-			placeholder = { Text(if (choices.isEmpty()) "Nothing to pick" else "Choose one") },
-			trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = open) },
-			modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
-		)
-		ExposedDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-			for (choice in choices) {
-				DropdownMenuItem(
-					text = { Text(choice.label) },
-					onClick = hapticClick {
-						onPick(choice)
-						open = false
-					},
-				)
-			}
-		}
-	}
-}
-
-@Composable
-private fun PreviewPane(preview: PreviewState, onOverwrite: () -> Unit) {
+internal fun PreviewPane(preview: PreviewState, onOverwrite: () -> Unit) {
 	val rendered = when (preview) {
 		is PreviewState.Ready -> preview.text
 		is PreviewState.Stale -> preview.text

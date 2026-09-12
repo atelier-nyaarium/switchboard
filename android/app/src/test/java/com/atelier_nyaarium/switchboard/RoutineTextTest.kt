@@ -5,14 +5,23 @@ import com.atelier_nyaarium.switchboard.proto.RoutineAttention
 import com.atelier_nyaarium.switchboard.proto.RoutineMiss
 import com.atelier_nyaarium.switchboard.proto.RoutineState
 import com.atelier_nyaarium.switchboard.proto.RoutineTarget
+import com.atelier_nyaarium.switchboard.proto.Runbook
+import com.atelier_nyaarium.switchboard.proto.RunbookParameter
 import com.atelier_nyaarium.switchboard.routines.RoutineDraft
 import com.atelier_nyaarium.switchboard.routines.attentionLine
+import com.atelier_nyaarium.switchboard.routines.clockOf
+import com.atelier_nyaarium.switchboard.routines.clockText
+import com.atelier_nyaarium.switchboard.routines.grantedAfter
+import com.atelier_nyaarium.switchboard.routines.grantedLine
 import com.atelier_nyaarium.switchboard.routines.lastRunLine
+import com.atelier_nyaarium.switchboard.routines.matchesSecret
 import com.atelier_nyaarium.switchboard.routines.missLine
 import com.atelier_nyaarium.switchboard.routines.nextRunLine
 import com.atelier_nyaarium.switchboard.routines.ruleMoved
 import com.atelier_nyaarium.switchboard.routines.runbookChipLabel
+import com.atelier_nyaarium.switchboard.routines.runbookMenu
 import com.atelier_nyaarium.switchboard.routines.scheduleLine
+import com.atelier_nyaarium.switchboard.vault.VaultEntryView
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -129,13 +138,92 @@ class RoutineTextTest {
 		assertFalse(ruleMoved(null, draft.copy(time = "10:00")))
 	}
 
+	private fun book(id: String, revision: Long, vararg parameters: RunbookParameter) =
+		Runbook(id = id, name = id, body = "x", parameters = parameters.toList(), revision = revision)
+
 	@Test
-	fun theSwitchWritesOnItsOwnOnlyWhileTheFormIsWhatTheGatewayHolds() {
-		val held = routine(zone = "America/Los_Angeles")
-		val shown = RoutineDraft.of(held).shown("Asia/Tokyo")
-		assertTrue(shown.flipsAtOnce(held, "Asia/Tokyo"))
-		assertFalse(shown.copy(name = "Other").flipsAtOnce(held, "Asia/Tokyo"))
-		assertFalse(shown.flipsAtOnce(null, "Asia/Tokyo"))
+	fun pickingAnotherRunbookRetiresTheOldAnswersAndSeedsTheNewDefaults() {
+		val apt = book("apt", 3L, RunbookParameter(name = "scope", label = "Scope", kind = "choice", default = "full", options = listOf("full", "security")))
+		val backup = book("backup", 5L, RunbookParameter(name = "scope", label = "Scope", kind = "text"))
+		val draft = RoutineDraft.of(routine()).pickRunbook(apt).copy(values = mapOf("scope" to "security"))
+
+		val same = draft.pickRunbook(apt)
+		assertEquals(mapOf("scope" to "security"), same.values)
+
+		// Same id at a newer revision is new words, so the answers go too.
+		val revised = draft.pickRunbook(apt.copy(revision = 4L))
+		assertEquals(4L, revised.approvedRevision)
+		assertEquals(mapOf("scope" to "full"), revised.values)
+
+		val moved = draft.pickRunbook(backup)
+		assertEquals("backup", moved.runbookId)
+		assertEquals(5L, moved.approvedRevision)
+		assertEquals(mapOf("scope" to ""), moved.values)
+	}
+
+	@Test
+	fun theClockReadsAnHhMmAndFallsBackToNineSharp() {
+		assertEquals(9 to 30, clockOf("09:30"))
+		assertEquals(23 to 59, clockOf("23:59"))
+		assertEquals(9 to 0, clockOf("25:00"))
+		assertEquals(9 to 0, clockOf("09:60"))
+		assertEquals(9 to 0, clockOf(""))
+		assertEquals("07:05", clockText(7, 5))
+	}
+
+	@Test
+	fun aHeldRunbookTheLibraryNoLongerHoldsStaysPickableFirstAndMarked() {
+		val library = listOf(book("apt", 3L))
+		assertEquals(library, runbookMenu(library, "apt", 3L))
+		assertEquals(library, runbookMenu(library, "", 0L))
+		val menu = runbookMenu(library, "gone", 9L)
+		assertEquals(listOf("gone", "apt"), menu.map { it.id })
+		assertEquals(9L, menu.first().revision)
+	}
+
+	private fun entry(id: String, title: String, description: String? = null) = VaultEntryView(
+		id = id,
+		revision = 1L,
+		createdBy = "phone",
+		createdAt = 0L,
+		updatedAt = 0L,
+		publicTitle = title,
+		publicDescription = description,
+		privateTitle = null,
+		privateDescription = null,
+		gateways = null,
+		gatewaysUnreadable = false,
+		hasValue = true,
+	)
+
+	@Test
+	fun theGrantedLineNamesWholeEntriesThenCountsTheRestAndTheGhosts() {
+		val vault = listOf(entry("a", "Sakura Nyaarium"), entry("b", "Arbiter Root"), entry("c", "GitHub PAT"))
+		assertEquals("None granted.", grantedLine(emptyList(), vault))
+		assertEquals("Sakura Nyaarium, Arbiter Root", grantedLine(listOf("a", "b"), vault))
+		assertEquals("Sakura Nyaarium, 1 no longer in the vault", grantedLine(listOf("a", "gone"), vault))
+
+		val many = (1..12).map { entry("e$it", "Entry number $it") }
+		val line = grantedLine(many.map { it.id }, many)
+		assertTrue(line, line.endsWith(" more"))
+		assertFalse(line, line.contains("Entry number 12"))
+	}
+
+	@Test
+	fun theFilterReadsTitleAndDescriptionWithoutCase() {
+		val pat = entry("c", "GitHub PAT", "Repo and workflow token")
+		assertTrue(matchesSecret(pat, ""))
+		assertTrue(matchesSecret(pat, "github"))
+		assertTrue(matchesSecret(pat, "TOKEN"))
+		assertFalse(matchesSecret(pat, "kubernetes"))
+	}
+
+	@Test
+	fun doneKeepsHeldOrderAppendsNewPicksInVaultOrderAndDropsGhosts() {
+		val vault = listOf(entry("a", "A"), entry("b", "B"), entry("c", "C"))
+		val after = grantedAfter(previous = listOf("c", "ghost", "a"), chosen = setOf("c", "ghost", "a", "b"), entries = vault)
+		assertEquals(listOf("c", "a", "b"), after)
+		assertEquals(listOf("a"), grantedAfter(listOf("c", "a"), setOf("a"), vault))
 	}
 
 	@Test

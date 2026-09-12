@@ -1,6 +1,8 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.runbooks.sessionTargets
+import com.atelier_nyaarium.switchboard.runbooks.spawnChoices
+import com.atelier_nyaarium.switchboard.runbooks.spawnMenu
 import com.atelier_nyaarium.switchboard.runbooks.spawnTargets
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -46,5 +48,23 @@ class RunbookTargetsTest {
 	@Test
 	fun noDomainYetOffersNothingToFireInto() {
 		assertEquals(emptyList<String>(), spawnTargets(state.copy(domainId = null), "sakura").map { it.address })
+	}
+
+	@Test
+	fun aRoutineStoresTheBareSpawnAndAHeldOneNoLongerOfferedStaysFirstAndMarked() {
+		val choices = spawnChoices(state, "sakura")
+		assertEquals(listOf("host", "evie-bot"), choices.map { it.spawn })
+		assertEquals(choices, spawnMenu(choices, "host"))
+		assertEquals(choices, spawnMenu(choices, ""))
+
+		val menu = spawnMenu(choices, "old-sandbox")
+		assertEquals(listOf("old-sandbox", "host", "evie-bot"), menu.map { it.spawn })
+		assertEquals(listOf(false, true, true), menu.map { it.offered })
+	}
+
+	@Test
+	fun aDevcontainerNamedLikeAHostSpawnDoesNotDoubleIt() {
+		val collided = state.copy(teams = state.teams + team("d1.sakura.host", kind = "devcontainer"))
+		assertEquals(listOf("host", "evie-bot"), spawnChoices(collided, "sakura").map { it.spawn })
 	}
 }

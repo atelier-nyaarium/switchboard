@@ -14,6 +14,18 @@ data class ParameterDraft(
 	fun asKind(next: String): ParameterDraft =
 		if (next == "choice") copy(kind = next, default = default.takeIf { it in options }.orEmpty())
 		else copy(kind = next)
+
+	/** In place, so order holds and the default follows. Blank or a duplicate elsewhere changes nothing. */
+	fun replaceOption(original: String, typed: String): ParameterDraft {
+		val next = trimmedOption(typed)
+		val at = options.indexOf(original)
+		if (next.isEmpty() || at < 0) return this
+		if (next != original && next in options) return this
+		return copy(
+			options = options.toMutableList().also { it[at] = next },
+			default = if (default == original) next else default,
+		)
+	}
 }
 
 data class RunbookDraft(

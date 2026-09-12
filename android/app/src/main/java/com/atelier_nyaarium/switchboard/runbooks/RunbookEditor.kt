@@ -7,12 +7,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -114,7 +116,8 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, o
 		},
 	) { pad ->
 		Column(
-			Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+			Modifier.padding(pad).fillMaxSize().imePadding().verticalScroll(rememberScrollState())
+				.padding(horizontal = 16.dp),
 			verticalArrangement = Arrangement.spacedBy(12.dp),
 		) {
 			OutlinedTextField(
@@ -211,6 +214,7 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, o
 @Composable
 private fun ParameterCard(name: String, setting: ParameterDraft, onEdit: ((ParameterDraft) -> ParameterDraft) -> Unit) {
 	var option by remember(name) { mutableStateOf("") }
+	var editing by remember(name) { mutableStateOf<String?>(null) }
 
 	Card(Modifier.fillMaxWidth()) {
 		Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -239,13 +243,37 @@ private fun ParameterCard(name: String, setting: ParameterDraft, onEdit: ((Param
 				FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
 					for (held in setting.options) {
 						val shown = chipLabel(held)
+						val isDefault = setting.default == held
 						InputChip(
-							selected = setting.default == held,
-							onClick = hapticClick { onEdit { it.copy(default = if (it.default == held) "" else held) } },
+							selected = isDefault,
+							// Tap edits; the check sets the default. One chip, two answers.
+							onClick = hapticClick {
+								editing = held
+								option = held
+							},
 							label = { Text(shown, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+							leadingIcon = {
+								IconButton(onClick = hapticClick {
+									onEdit { it.copy(default = if (it.default == held) "" else held) }
+								}) {
+									Icon(
+										Icons.Default.Check,
+										contentDescription = if (isDefault) "Default" else "Make default",
+										tint = if (isDefault) {
+											MaterialTheme.colorScheme.primary
+										} else {
+											MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+										},
+									)
+								}
+							},
 							trailingIcon = {
 								IconButton(onClick = hapticClick {
 									onEdit { it.copy(options = it.options - held, default = if (it.default == held) "" else it.default) }
+									if (editing == held) {
+										editing = null
+										option = ""
+									}
 								}) { Icon(Icons.Default.Close, contentDescription = "Remove $shown") }
 							},
 						)
@@ -259,13 +287,15 @@ private fun ParameterCard(name: String, setting: ParameterDraft, onEdit: ((Param
 						label = { Text("Option") },
 						modifier = Modifier.weight(1f).heightIn(max = 200.dp),
 					)
+					val held = editing
 					TextButton(
-						enabled = ready.isNotBlank() && ready !in setting.options,
+						enabled = ready.isNotBlank() && (ready == held || ready !in setting.options),
 						onClick = hapticClick {
-							onEdit { it.copy(options = it.options + ready) }
+							onEdit { if (held != null) it.replaceOption(held, ready) else it.copy(options = it.options + ready) }
 							option = ""
+							editing = null
 						},
-					) { Text("Add") }
+					) { Text(if (held != null) "Save" else "Add") }
 				}
 			} else {
 				OutlinedTextField(

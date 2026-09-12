@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard.routines
 
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineTarget
+import com.atelier_nyaarium.switchboard.proto.Runbook
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -84,8 +85,15 @@ internal data class RoutineDraft(
 	/** The same rule as the gateway keeps it, which is what a save sends. */
 	fun asKept(gatewayZone: String, on: java.time.LocalDate = today()): RoutineDraft = read(gatewayZone, on)
 
-	/** A flip writes at once only while nothing else is edited. */
-	fun flipsAtOnce(held: Routine?, inZoneId: String): Boolean = held != null && this == of(held).shown(inZoneId)
+	/** Another runbook's answers do not carry over; the picked one's defaults stand in. */
+	fun pickRunbook(book: Runbook): RoutineDraft {
+		if (book.id == runbookId && book.revision == approvedRevision) return this
+		return copy(
+			runbookId = book.id,
+			approvedRevision = book.revision,
+			values = book.parameters.associate { it.name to (it.default ?: "") },
+		)
+	}
 
 	private fun read(target: String, on: java.time.LocalDate): RoutineDraft {
 		if (target == zone) return this

@@ -1,11 +1,14 @@
 package com.atelier_nyaarium.switchboard.routines
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -15,12 +18,15 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,13 +36,23 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.NO_TAP_AWAY
 import com.atelier_nyaarium.switchboard.RoutineSaved
 import com.atelier_nyaarium.switchboard.absoluteTimeText
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.Routine
+import com.atelier_nyaarium.switchboard.runbooks.PickMenu
+import com.atelier_nyaarium.switchboard.runbooks.PreviewPane
+import com.atelier_nyaarium.switchboard.runbooks.PreviewState
+import com.atelier_nyaarium.switchboard.runbooks.settledPreview
+import com.atelier_nyaarium.switchboard.runbooks.spawnChoices
+import com.atelier_nyaarium.switchboard.runbooks.spawnMenu
+import com.atelier_nyaarium.switchboard.runbooks.stale
 import kotlinx.coroutines.launch
 
 private val WEEKDAY_LABELS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -70,33 +86,33 @@ fun RoutineEditor(
 	}
 	val vaultRevision by repo.vault.revision
 	val entries = remember(vaultRevision) { repo.vaultOps.views() }
+	val offered = remember(entries, gatewayId) { entries.filter { it.hasValue && it.allowedOn(gatewayId) } }
 	val scope = rememberCoroutineScope()
 	var saving by remember(routineId) { mutableStateOf(false) }
 	var refused by remember(routineId) { mutableStateOf<String?>(null) }
 	var confirming by remember(routineId) { mutableStateOf(false) }
 	var confirmingDelete by remember(routineId) { mutableStateOf(false) }
+	var granting by remember(routineId) { mutableStateOf(false) }
+	var pickingTime by remember(routineId) { mutableStateOf(false) }
 
-	// On an untouched form the switch is the row's, so it writes without a Save.
-	val flip: (Boolean) -> Unit = { on ->
-		val opened = draft
-		draft = draft.copy(enabled = on)
-		if (opened.flipsAtOnce(held, zone.id)) {
-			refused = null
-			scope.launch {
-				when (val saved = repo.routineOps.setEnabled(opened.id, on, opened.revision, gatewayId)) {
-					is RoutineSaved.Stored -> draft = RoutineDraft.of(saved.routine).shown(zone.id)
-					is RoutineSaved.Refused -> {
-						draft = opened
-						refused = saved.reason
-					}
-					RoutineSaved.Unreachable -> {
-						draft = opened
-						refused = com.atelier_nyaarium.switchboard.GATEWAY_UNREACHABLE
-					}
-				}
-			}
-		}
+	// This gateway's only. A routine cannot pin words another machine holds.
+	val library = remember(gatewayId, state.gateways) { state.gateways.runbooksOn(gatewayId) }
+	val names = library.map { it.name }
+	val picked = library.find { it.id == draft.runbookId }
+	val books = remember(library, draft.runbookId, draft.approvedRevision) {
+		runbookMenu(library, draft.runbookId, draft.approvedRevision)
 	}
+	val spawns = remember(state, gatewayId, draft.spawn) { spawnMenu(spawnChoices(state, gatewayId), draft.spawn) }
+
+	var preview by remember(routineId) { mutableStateOf<PreviewState>(PreviewState.Pending) }
+	var attempt by remember(routineId) { mutableStateOf(0) }
+	// Keyed on the library's copy too, or a runbook that lands after the routine never renders.
+	LaunchedEffect(draft.runbookId, picked?.revision, draft.values, attempt) {
+		val book = picked ?: return@LaunchedEffect
+		preview = preview.stale()
+		preview = settledPreview(repo, gatewayId, book.id, draft.values, book.revision)
+	}
+
 	val commit: () -> Unit = {
 		// Converted here and nowhere else: what the gateway stores is its own zone's wall clock.
 		val candidate = draft.asKept(gatewayZone).toRoutine()
@@ -130,23 +146,10 @@ fun RoutineEditor(
 		},
 	) { pad ->
 		Column(
-			Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+			Modifier.padding(pad).fillMaxSize().imePadding().verticalScroll(rememberScrollState())
+				.padding(horizontal = 16.dp),
 			verticalArrangement = Arrangement.spacedBy(12.dp),
 		) {
-			Row(
-				Modifier.fillMaxWidth(),
-				horizontalArrangement = Arrangement.spacedBy(8.dp),
-				verticalAlignment = Alignment.CenterVertically,
-			) {
-				// The state it is in, not the move.
-				Text(
-					if (draft.enabled) "Enabled" else "Disabled",
-					style = MaterialTheme.typography.bodyMedium,
-					modifier = Modifier.weight(1f),
-				)
-				Switch(checked = draft.enabled, onCheckedChange = flip)
-			}
-
 			refused?.let {
 				Card(Modifier.fillMaxWidth()) {
 					Text(it, Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
@@ -176,12 +179,16 @@ fun RoutineEditor(
 				}
 			}
 			Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-				OutlinedTextField(
-					value = draft.time,
-					onValueChange = { draft = draft.copy(time = it) },
-					label = { Text("Time") },
-					modifier = Modifier.weight(1f),
-				)
+				Box(Modifier.weight(1f)) {
+					OutlinedTextField(
+						value = draft.time,
+						onValueChange = {},
+						readOnly = true,
+						label = { Text("Time") },
+						modifier = Modifier.fillMaxWidth(),
+					)
+					Box(Modifier.matchParentSize().clickable(onClick = hapticClick { pickingTime = true }))
+				}
 				OutlinedTextField(
 					value = draft.weekInterval.toString(),
 					onValueChange = { text -> text.toIntOrNull()?.let { draft = draft.copy(weekInterval = it) } },
@@ -199,25 +206,30 @@ fun RoutineEditor(
 				)
 			}
 
-			Text("Runbook", style = MaterialTheme.typography.labelLarge)
-			// This gateway's only. A routine cannot pin words another machine holds.
-			val library = remember(gatewayId, state.gateways) { state.gateways.runbooksOn(gatewayId) }
-			val names = library.map { it.name }
-			FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-				for (book in library) {
-					FilterChip(
-						selected = draft.runbookId == book.id,
-						onClick = hapticClick {
-							draft = draft.copy(runbookId = book.id, approvedRevision = book.revision)
-						},
-						label = { Text(runbookChipLabel(book.name, book.id, names)) },
-					)
-				}
-			}
-			val picked = library.find { it.id == draft.runbookId }
+			PickMenu(
+				label = "Spawn point",
+				choices = spawns,
+				picked = spawns.find { it.spawn == draft.spawn },
+				labelOf = { it.label },
+				onPick = { draft = draft.copy(spawn = it.spawn) },
+				trailingOf = { if (it.offered) null else "not offered now" },
+			)
+
+			Text("Granted secrets", style = MaterialTheme.typography.labelLarge)
+			Text(grantedLine(draft.linkedEntries, entries), style = MaterialTheme.typography.bodyMedium)
+			OutlinedButton(onClick = hapticClick { granting = true }) { Text("Grant secrets") }
+
+			PickMenu(
+				label = "Runbook",
+				choices = books,
+				picked = books.find { it.id == draft.runbookId },
+				labelOf = { runbookChipLabel(it.name, it.id, names) },
+				onPick = { draft = draft.pickRunbook(it) },
+				trailingOf = { book -> if (library.any { it.id == book.id }) null else "not stored now" },
+			)
 			for (parameter in picked?.parameters.orEmpty()) {
-				val held = draft.values[parameter.name].orEmpty()
-				val set = { value: String -> draft = draft.copy(values = draft.values + (parameter.name to value)) }
+				val value = draft.values[parameter.name].orEmpty()
+				val set = { text: String -> draft = draft.copy(values = draft.values + (parameter.name to text)) }
 				// A choice offers what the runbook offers, as the fire sheet does. A free field here
 				// would take a value the runbook never named and only fail at the gateway.
 				if (parameter.kind == "choice") {
@@ -225,7 +237,7 @@ fun RoutineEditor(
 					FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
 						for (option in parameter.options.orEmpty()) {
 							FilterChip(
-								selected = held == option,
+								selected = value == option,
 								onClick = hapticClick { set(option) },
 								label = { Text(option) },
 							)
@@ -233,46 +245,19 @@ fun RoutineEditor(
 					}
 				} else {
 					OutlinedTextField(
-						value = held,
+						value = value,
 						onValueChange = set,
 						label = { Text(parameter.label) },
 						modifier = Modifier.fillMaxWidth(),
 					)
 				}
 			}
-
-			OutlinedTextField(
-				value = draft.spawn,
-				onValueChange = { draft = draft.copy(spawn = it) },
-				label = { Text("Spawn point") },
-				modifier = Modifier.fillMaxWidth(),
-			)
-
-			Text("Linked secrets", style = MaterialTheme.typography.labelLarge)
-			Text(
-				if (entries.isEmpty()) {
-					"Nothing in the vault to link yet."
-				} else {
-					"Each is unrestricted while this routine is working: it may be used for anything " +
-						"the session can be talked into running."
-				},
-				style = MaterialTheme.typography.bodySmall,
-			)
-			FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-				for (entry in entries) {
-					FilterChip(
-						selected = entry.id in draft.linkedEntries,
-						onClick = hapticClick {
-							draft = draft.copy(
-								linkedEntries = if (entry.id in draft.linkedEntries) {
-									draft.linkedEntries - entry.id
-								} else {
-									draft.linkedEntries + entry.id
-								},
-							)
-						},
-						label = { Text(entry.title) },
-					)
+			if (picked != null) {
+				PreviewPane(preview) {
+					scope.launch {
+						repo.runbookOps.overwrite(draft.runbookId, gatewayId)
+						attempt += 1
+					}
 				}
 			}
 
@@ -280,6 +265,48 @@ fun RoutineEditor(
 				TextButton(onClick = hapticClick { confirmingDelete = true }) { Text("Delete routine") }
 			}
 		}
+	}
+
+	if (pickingTime) {
+		val (hour, minute) = clockOf(draft.time)
+		val clock = rememberTimePickerState(
+			initialHour = hour,
+			initialMinute = minute,
+			is24Hour = android.text.format.DateFormat.is24HourFormat(LocalContext.current),
+		)
+		Dialog(onDismissRequest = { pickingTime = false }, properties = NO_TAP_AWAY) {
+			Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+				Column(
+					Modifier.padding(24.dp),
+					horizontalAlignment = Alignment.CenterHorizontally,
+					verticalArrangement = Arrangement.spacedBy(20.dp),
+				) {
+					Text("Time", style = MaterialTheme.typography.titleMedium)
+					TimePicker(state = clock)
+					Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+						TextButton(onClick = hapticClick { pickingTime = false }) { Text("Cancel") }
+						TextButton(
+							onClick = hapticClick {
+								draft = draft.copy(time = clockText(clock.hour, clock.minute))
+								pickingTime = false
+							},
+						) { Text("OK") }
+					}
+				}
+			}
+		}
+	}
+
+	if (granting) {
+		GrantSecretsSheet(
+			entries = offered,
+			granted = draft.linkedEntries,
+			onDone = {
+				draft = draft.copy(linkedEntries = it)
+				granting = false
+			},
+			onDismiss = { granting = false },
+		)
 	}
 
 	if (confirming) {

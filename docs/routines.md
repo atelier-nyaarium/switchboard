@@ -74,6 +74,15 @@ the same routine id and neither may cancel or overwrite the other.
 An empty tab distinguishes the two things it can mean: no Gateway answered at all, or the Gateways
 that answered hold nothing.
 
+The editor picks rather than types. The spawn point and the runbook are menus over what that Gateway
+offers, built by the same functions the New session dialog and the fire sheet use. A held value the
+Gateway no longer offers stays in the menu, first and marked, because a registry answering nothing is
+not the owner asking to retarget. Picking a runbook retires the previous one's answers and seeds the
+new one's defaults. A preview rendered by the Gateway sits under the parameters, the same fold the
+fire sheet reads. Secrets are granted through a sheet with a filter over title and description; Done
+returns exactly the checked tiles, so an id the vault no longer holds drops there, and the line above
+the button names it as missing beforehand. The list row alone enables and disables.
+
 ## The runner
 
 `src/gateway/routines/runner.ts` owns when, and everything that could act on an occurrence enters

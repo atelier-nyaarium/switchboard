@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -17,6 +18,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -81,14 +83,17 @@ fun PolicyEditor(
 	}
 	val scope = rememberCoroutineScope()
 	var example by remember(gatewayId, policyId) { mutableStateOf("") }
+	var editing by remember(gatewayId, policyId) { mutableStateOf<String?>(null) }
 	var saving by remember(gatewayId, policyId) { mutableStateOf(false) }
 	var refused by remember(gatewayId, policyId) { mutableStateOf<String?>(null) }
 	var refusedAt by remember(gatewayId, policyId) { mutableStateOf<Long?>(null) }
 	var confirmingDelete by remember(gatewayId, policyId) { mutableStateOf(false) }
 
 	val addExample = {
-		draft = draft.withExample(example)
+		val held = editing
+		draft = if (held != null) draft.replaceExample(held, example) else draft.withExample(example)
 		example = ""
+		editing = null
 	}
 	// On an untouched form the switch is the row's, so it writes without a Save.
 	val flip: (Boolean) -> Unit = { on ->
@@ -149,7 +154,8 @@ fun PolicyEditor(
 		},
 	) { pad ->
 		Column(
-			Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+			Modifier.padding(pad).fillMaxSize().imePadding().verticalScroll(rememberScrollState())
+				.padding(horizontal = 16.dp),
 			verticalArrangement = Arrangement.spacedBy(12.dp),
 		) {
 			Row(
@@ -225,15 +231,29 @@ fun PolicyEditor(
 					singleLine = true,
 					modifier = Modifier.weight(1f),
 				)
-				TextButton(onClick = hapticClick(addExample), enabled = example.isNotBlank()) { Text("Add") }
+				TextButton(onClick = hapticClick(addExample), enabled = example.isNotBlank()) {
+					Text(if (editing != null) "Save" else "Add")
+				}
 			}
 			FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
 				for (key in draft.examples) {
 					InputChip(
-						selected = false,
-						onClick = hapticClick { draft = draft.copy(examples = draft.examples - key) },
+						selected = editing == key,
+						// Tap edits; the X removes.
+						onClick = hapticClick {
+							editing = key
+							example = key
+						},
 						label = { Text(key, fontFamily = FontFamily.Monospace) },
-						trailingIcon = { Icon(Icons.Default.Close, contentDescription = "Remove") },
+						trailingIcon = {
+							IconButton(onClick = hapticClick {
+								draft = draft.copy(examples = draft.examples - key)
+								if (editing == key) {
+									editing = null
+									example = ""
+								}
+							}) { Icon(Icons.Default.Close, contentDescription = "Remove $key") }
+						},
 					)
 				}
 			}

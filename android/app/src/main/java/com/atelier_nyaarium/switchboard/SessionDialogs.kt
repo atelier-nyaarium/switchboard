@@ -56,7 +56,7 @@ import androidx.compose.ui.window.DialogProperties
 
 /** Every dialog here holds a half-finished intent: a typed goal, a picked time, a draft edit. A tap
  * beside the dialog is usually a mis-hit, so it must not discard one. Back still dismisses. */
-private val NO_TAP_AWAY = DialogProperties(dismissOnClickOutside = false)
+internal val NO_TAP_AWAY = DialogProperties(dismissOnClickOutside = false)
 
 ////////////////////////////////
 //  Composables

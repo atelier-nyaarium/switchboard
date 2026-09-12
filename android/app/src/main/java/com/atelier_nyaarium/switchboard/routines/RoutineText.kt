@@ -5,6 +5,8 @@ import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineAttention
 import com.atelier_nyaarium.switchboard.proto.RoutineMiss
 import com.atelier_nyaarium.switchboard.proto.RoutineState
+import com.atelier_nyaarium.switchboard.proto.Runbook
+import com.atelier_nyaarium.switchboard.vault.VaultEntryView
 
 private val WEEKDAYS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
@@ -72,6 +74,53 @@ internal fun attentionLine(attention: RoutineAttention, zone: java.time.ZoneId):
  */
 internal fun runbookChipLabel(name: String, id: String, names: List<String>): String =
 	if (names.count { it == name } > 1) "$name ($id)" else name
+
+/** Hour and minute of an HH:MM; nine sharp when it does not parse. */
+internal fun clockOf(time: String): Pair<Int, Int> {
+	val parts = time.split(":")
+	val hour = parts.getOrNull(0)?.toIntOrNull()
+	val minute = parts.getOrNull(1)?.toIntOrNull()
+	return if (hour != null && minute != null && hour in 0..23 && minute in 0..59) hour to minute else 9 to 0
+}
+
+/** ASCII digits whatever the locale, since the schema reads them. */
+internal fun clockText(hour: Int, minute: Int): String = String.format(java.util.Locale.ROOT, "%02d:%02d", hour, minute)
+
+/** A held runbook the library no longer holds stays pickable, first and marked. */
+internal fun runbookMenu(library: List<Runbook>, heldId: String, heldRevision: Long): List<Runbook> =
+	if (heldId.isBlank() || library.any { it.id == heldId }) library
+	else listOf(Runbook(id = heldId, name = heldId, body = "", parameters = emptyList(), revision = heldRevision)) + library
+
+private const val GRANTED_HEAD = 90
+
+/** Whole names to a cap, then a count; ghosts counted. */
+internal fun grantedLine(linked: List<String>, entries: List<VaultEntryView>): String {
+	val byId = entries.associateBy { it.id }
+	val names = linked.mapNotNull { byId[it]?.title }
+	val missing = linked.size - names.size
+	val shown = mutableListOf<String>()
+	var length = 0
+	for (name in names) {
+		val next = length + name.length + if (shown.isEmpty()) 0 else 2
+		if (next > GRANTED_HEAD && shown.isNotEmpty()) break
+		shown += name
+		length = next
+	}
+	val rest = names.size - shown.size
+	val parts = buildList {
+		if (shown.isNotEmpty()) add(shown.joinToString(", ") + if (rest > 0) " and $rest more" else "")
+		if (missing > 0) add("$missing no longer in the vault")
+	}
+	return if (parts.isEmpty()) "None granted." else parts.joinToString(", ")
+}
+
+/** Title or description; values are sealed and never read. */
+internal fun matchesSecret(entry: VaultEntryView, query: String): Boolean {
+	val needle = query.trim()
+	if (needle.isEmpty()) return true
+	return entry.title.contains(needle, ignoreCase = true) ||
+		entry.description?.contains(needle, ignoreCase = true) == true
+}
 
 /** A run already handed to its session is not recalled by any of the three. */
 internal const val VERBS_EXPLAIN = "A run already handed over carries on either way."
