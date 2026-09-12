@@ -10,6 +10,14 @@ import type { WakeResult } from "../wake.js";
 import type { ConsoleTargets } from "./consoleTargets.js";
 import { CreateSessionAmbiguousError } from "./consoleTypes.js";
 
+/**
+ * Whether this Gateway launched the terminal behind a record. A session someone started themselves
+ * runs under a name no target derives, so close refuses it and forget leaves it alone.
+ */
+export function ownTerminal(record: SessionRecord | undefined, teamOf: (record: SessionRecord) => string): boolean {
+	return !record?.liveTeam || record.liveTeam.team === teamOf(record);
+}
+
 export interface SessionLifecycleDeps {
 	targets: ConsoleTargets;
 	createSessionBoundMs: number;
@@ -215,7 +223,7 @@ export function createSessionLifecycleHandlers({
 		const { name } = targets.requireLocalComposite(op.target, "close");
 		const target = targets.tmuxTarget(op.target);
 		const record = sessionStore?.getByTeam(name);
-		if (record?.liveTeam && record.liveTeam.team !== sessionStore!.teamOf(record)) {
+		if (!ownTerminal(record, (r) => sessionStore!.teamOf(r))) {
 			throw new Error(`"${name}" is user-launched; end it from your terminal`);
 		}
 		if (isWakeInFlight?.(name)) {
@@ -232,18 +240,25 @@ export function createSessionLifecycleHandlers({
 		if (!relayToHost) throw new Error("terminal view unavailable on this Gateway");
 		const { name } = targets.requireLocalComposite(op.target, "forget");
 		if (isWakeInFlight?.(name)) throw new Error(`"${name}" is waking; wait for it to finish before forgetting`);
-		const dedupKey = `${conversationId}:${opId}`;
-		try {
-			const target = targets.tmuxTarget(op.target);
-			const r = await relayToHost({ kind: "killSession", target, dedupKey });
-			if (!r.ok) console.log(`[console] forget "${name}": kill failed - ${r.error ?? "unknown error"}`);
-		} catch (e) {
-			console.log(`[console] forget "${name}": kill failed - ${(e as Error).message}`);
+		// Close refuses a terminal it did not launch; forget drops the record and leaves it running.
+		const record = sessionStore?.getByTeam(name);
+		let killed = false;
+		if (ownTerminal(record, (r) => sessionStore!.teamOf(r))) {
+			const dedupKey = `${conversationId}:${opId}`;
+			try {
+				const target = targets.tmuxTarget(op.target);
+				const r = await relayToHost({ kind: "killSession", target, dedupKey });
+				killed = r.ok;
+				if (!r.ok) console.log(`[console] forget "${name}": kill failed - ${r.error ?? "unknown error"}`);
+			} catch (e) {
+				console.log(`[console] forget "${name}": kill failed - ${(e as Error).message}`);
+			}
 		}
 		const disposition: BoardDisposition = op.boardDisposition ?? "release";
 		dropSessionResume?.(name, disposition);
 		onSessionEnded?.(name);
-		return { killed: true, boardDisposition: disposition };
+		// The record always goes; the kill is a courtesy that can honestly fail.
+		return { killed, boardDisposition: disposition };
 	}
 
 	function renameSession(op: Extract<ConsoleOp, { kind: "rename_session" }>) {
