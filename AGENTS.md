@@ -223,8 +223,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../RoutineOps.kt` / `routines/RoutinesScreen.kt` / `RoutineEditor.kt` / `RoutineText.kt` /
   `GrantSecretsSheet.kt` - the gateway calls, the tab, the editor, the pure lines each row shows, and
   the sheet a routine's secrets are granted through
-  - **Nothing is held on the phone:** a routine's record, its next run, its misses and its reviews
-    are the gateway's, so a change re-reads rather than guessing.
+  - **The phone caches, it never owns:** a routine's record, its next run, its misses and its
+    reviews are the gateway's, so a change re-reads rather than guessing. `GatewayEntry` holds the
+    displayed copy per gateway for routines and policies alike, and reconciles only by rereading.
+    Runbooks are the exception that keeps a durable library, which can disagree until a sync.
   - **The editor picks from what the Gateway offers, through the builders New session and Fire use:**
     `spawnChoices` for the spawn point, the library for the runbook. A held value the Gateway no
     longer offers stays first and marked (`spawnMenu`, `runbookMenu`), since a registry answering

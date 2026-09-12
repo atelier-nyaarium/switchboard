@@ -244,7 +244,9 @@ internal class RunbookOps(
 		val mine = host.library.find(gatewayId, runbookId) ?: return false
 		if (Triple(gatewayId, runbookId, mine.revision) in synced) return true
 
-		val theirs = attempt { client.list(gatewayId) } ?: return false
+		// Fenced like every other per-gateway read; this one writes through show() too.
+		val read = reads.read(gatewayId) { attempt { client.list(gatewayId) } }
+		val theirs = (read as? GatewayRead.Fresh)?.value ?: return false
 		val held = theirs.runbooks.find { it.id == runbookId }
 		var settledRevision = mine.revision
 		val settled = when (val decision = pushDecision(mine, held)) {
