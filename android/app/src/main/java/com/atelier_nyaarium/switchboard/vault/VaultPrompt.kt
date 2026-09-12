@@ -141,8 +141,8 @@ class VaultPrompt(
 		).apply {
 			gravity = if (open) Gravity.CENTER else Gravity.TOP
 			if (open) dimAmount = 0.55f
-			// A quarter down: high enough to read at a glance, clear of the status bar and the notch.
-			y = if (open) 0 else (context.resources.displayMetrics.heightPixels * 0.25f).toInt()
+			// The card's own top, not the window's, so the gutter does not shift what 15% means.
+			y = if (open) 0 else (context.resources.displayMetrics.heightPixels * 0.15f).toInt() - gutter
 		}
 	}
 
@@ -202,8 +202,8 @@ class VaultPrompt(
 		val card = LinearLayout(context).apply {
 			orientation = LinearLayout.VERTICAL
 			setPadding(dp(18), dp(16), dp(18), dp(16))
-			background = rounded(PANEL, 24)
-			elevation = dp(12).toFloat()
+			background = panel()
+			elevation = dp(24).toFloat()
 			outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
 			outlineSpotShadowColor = Color.BLACK
 			outlineAmbientShadowColor = Color.BLACK
@@ -220,18 +220,32 @@ class VaultPrompt(
 		// window margin is ignored at MATCH_PARENT width. The shadow draws into it, so nothing clips.
 		return LinearLayout(context).apply {
 			orientation = LinearLayout.VERTICAL
-			setPadding(dp(14), dp(14), dp(14), dp(14))
+			setPadding(dp(14), gutter, dp(14), gutter)
 			clipToPadding = false
 			clipChildren = false
 			addView(card, LinearLayout.LayoutParams(MATCH, WRAP))
 		}
 	}
 
+	/** Room above and below for the shadow to fall into, which the window's y then backs out. */
+	private val gutter: Int
+		get() = dp(28)
+
 	private fun spaced(top: Int) = LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(top) }
 
 	private fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
 		cornerRadius = dp(radius).toFloat()
 		setColor(color)
+	}
+
+	/**
+	 * The card's own edge. The shadow alone separates it over a light app and vanishes over a dark
+	 * one, since it is black on black, so the two cover different backdrops rather than doubling up.
+	 */
+	private fun panel() = GradientDrawable().apply {
+		cornerRadius = dp(24).toFloat()
+		setColor(PANEL)
+		setStroke(dp(1) + 1, EDGE)
 	}
 
 	private fun outlined(radius: Int) = GradientDrawable().apply {
@@ -321,20 +335,21 @@ class VaultPrompt(
 	}
 
 	/**
-	 * The top elevation tier of the dark palette, which is how Material separates a surface from
-	 * whatever it covers: a step lighter than the app's own cards, not an inverted one. The shadow
-	 * and, once expanded, the scrim carry the rest.
+	 * On a dark theme elevation IS the surface tone: a black shadow over a dark app draws nothing,
+	 * however high it is set. So the card sits above the tier any app surface uses, and the shadow
+	 * is kept only for the light backdrops where it can be seen.
 	 */
 	private companion object {
 		const val WRAP = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 		const val MATCH = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-		val PANEL: Int = Color.parseColor("#36343B")
+		val PANEL: Int = Color.parseColor("#48434F")
 		val ON_PANEL: Int = Color.parseColor("#E6E0E9")
 		val MUTED: Int = Color.parseColor("#CAC4D0")
-		val FIELD: Int = Color.parseColor("#211F26")
+		val FIELD: Int = Color.parseColor("#241F2D")
 		val OUTLINE: Int = Color.parseColor("#938F99")
 		val PRIMARY: Int = Color.parseColor("#D0BCFF")
 		val ON_PRIMARY: Int = Color.parseColor("#381E72")
 		val ERROR: Int = Color.parseColor("#F2B8B5")
+		val EDGE: Int = Color.argb(96, 255, 255, 255)
 	}
 }
