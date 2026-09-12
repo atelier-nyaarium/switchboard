@@ -6,26 +6,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.EditorScaffold
 import com.atelier_nyaarium.switchboard.NO_TAP_AWAY
 import com.atelier_nyaarium.switchboard.RoutineSaved
 import com.atelier_nyaarium.switchboard.absoluteTimeText
@@ -130,26 +124,13 @@ fun RoutineEditor(
 		}
 	}
 
-	Scaffold(
-		topBar = {
-			TopAppBar(
-				title = { Text(if (held == null) "New routine" else "Edit routine") },
-				actions = {
-					TextButton(onClick = hapticClick(onClose)) { Text("Cancel") }
-					Button(
-						enabled = draft.refusal() == null && !saving,
-						onClick = hapticClick { if (ruleMoved(held, draft)) confirming = true else commit() },
-						modifier = Modifier.padding(end = 8.dp),
-					) { Text(if (saving) "Saving" else "Save") }
-				},
-			)
-		},
-	) { pad ->
-		Column(
-			Modifier.padding(pad).fillMaxSize().imePadding().verticalScroll(rememberScrollState())
-				.padding(horizontal = 16.dp),
-			verticalArrangement = Arrangement.spacedBy(12.dp),
-		) {
+	EditorScaffold(
+		title = if (held == null) "New routine" else "Edit routine",
+		saving = saving,
+		canSave = draft.refusal() == null,
+		onCancel = onClose,
+		onSave = { if (ruleMoved(held, draft)) confirming = true else commit() },
+	) {
 			refused?.let {
 				Card(Modifier.fillMaxWidth()) {
 					Text(it, Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
@@ -263,7 +244,6 @@ fun RoutineEditor(
 
 			if (held != null) {
 				TextButton(onClick = hapticClick { confirmingDelete = true }) { Text("Delete routine") }
-			}
 		}
 	}
 

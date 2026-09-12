@@ -4,16 +4,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -22,11 +17,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,6 +36,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.EditorScaffold
 import com.atelier_nyaarium.switchboard.GATEWAY_UNREACHABLE
 import com.atelier_nyaarium.switchboard.PolicyDeleted
 import com.atelier_nyaarium.switchboard.PolicySaved
@@ -138,26 +132,13 @@ fun PolicyEditor(
 		}
 	}
 
-	Scaffold(
-		topBar = {
-			TopAppBar(
-				title = { Text(if (held == null) "New policy" else "Edit policy") },
-				actions = {
-					TextButton(onClick = hapticClick(close)) { Text("Cancel") }
-					Button(
-						enabled = draft.toPolicy() != null && !saving,
-						onClick = hapticClick(commit),
-						modifier = Modifier.padding(end = 8.dp),
-					) { Text(if (saving) "Saving" else "Save") }
-				},
-			)
-		},
-	) { pad ->
-		Column(
-			Modifier.padding(pad).fillMaxSize().imePadding().verticalScroll(rememberScrollState())
-				.padding(horizontal = 16.dp),
-			verticalArrangement = Arrangement.spacedBy(12.dp),
-		) {
+	EditorScaffold(
+		title = if (held == null) "New policy" else "Edit policy",
+		saving = saving,
+		canSave = draft.toPolicy() != null,
+		onCancel = close,
+		onSave = commit,
+	) {
 			Row(
 				Modifier.fillMaxWidth(),
 				horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -260,7 +241,6 @@ fun PolicyEditor(
 
 			if (held != null) {
 				TextButton(onClick = hapticClick { confirmingDelete = true }) { Text("Delete policy") }
-			}
 		}
 	}
 

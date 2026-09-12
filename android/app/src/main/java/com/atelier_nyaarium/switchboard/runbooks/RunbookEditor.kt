@@ -5,19 +5,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -25,13 +20,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -45,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
+import com.atelier_nyaarium.switchboard.EditorScaffold
 import com.atelier_nyaarium.switchboard.SaveRefusal
 import com.atelier_nyaarium.switchboard.RunbookSaved
 import com.atelier_nyaarium.switchboard.hapticClick
@@ -73,53 +67,40 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, o
 	var overwriting by rememberSaveable(gatewayId, runbookId) { mutableStateOf(false) }
 	var deleting by remember(gatewayId, runbookId) { mutableStateOf(false) }
 
-	Scaffold(
-		topBar = {
-			TopAppBar(
-				title = { Text(if (existing == null) "New runbook" else "Edit runbook") },
-				actions = {
-					TextButton(
-						onClick = hapticClick {
+	EditorScaffold(
+		title = if (existing == null) "New runbook" else "Edit runbook",
+		saving = saving,
+		canSave = draft.refusal() == null,
+		onCancel = {
+			repo.runbookOps.dropDraft(gatewayId, draftKey)
+			onClose()
+		},
+		onSave = {
+			val candidate = draft.toRunbook()
+			if (candidate != null) {
+				saving = true
+				refused = null
+				val base = draft.revision.takeIf { it > 0L }
+				scope.launch {
+					val saved = repo.runbookOps.save(
+						candidate,
+						gatewayId = gatewayId,
+						baseRevision = base,
+						overwrite = overwriting,
+					)
+					when (saved) {
+						is RunbookSaved.Refused -> refused = saved.refusal
+						else -> {
 							repo.runbookOps.dropDraft(gatewayId, draftKey)
 							onClose()
-						},
-					) { Text("Cancel") }
-					Button(
-						enabled = draft.refusal() == null && !saving,
-						onClick = hapticClick {
-							val candidate = draft.toRunbook() ?: return@hapticClick
-							saving = true
-							refused = null
-							val base = draft.revision.takeIf { it > 0L }
-							scope.launch {
-								val saved = repo.runbookOps.save(
-									candidate,
-									gatewayId = gatewayId,
-									baseRevision = base,
-									overwrite = overwriting,
-								)
-								when (saved) {
-									is RunbookSaved.Refused -> refused = saved.refusal
-									else -> {
-										repo.runbookOps.dropDraft(gatewayId, draftKey)
-										onClose()
-									}
-								}
-								overwriting = false
-								saving = false
-							}
-						},
-						modifier = Modifier.padding(end = 8.dp),
-					) { Text(if (saving) "Saving" else "Save") }
-				},
-			)
+						}
+					}
+					overwriting = false
+					saving = false
+				}
+			}
 		},
-	) { pad ->
-		Column(
-			Modifier.padding(pad).fillMaxSize().imePadding().verticalScroll(rememberScrollState())
-				.padding(horizontal = 16.dp),
-			verticalArrangement = Arrangement.spacedBy(12.dp),
-		) {
+	) {
 			OutlinedTextField(
 				value = draft.name,
 				onValueChange = { draft = draft.copy(name = it) },
@@ -164,9 +145,8 @@ fun RunbookEditor(repo: ChatRepository, gatewayId: String, runbookId: String?, o
 
 			if (existing != null) {
 				TextButton(onClick = hapticClick { deleting = true }) { Text("Delete runbook") }
-			}
-			Spacer(Modifier.height(24.dp))
 		}
+		Spacer(Modifier.height(24.dp))
 	}
 
 	if (deleting) {

@@ -248,7 +248,13 @@ internal class SessionOps(
 				}
 			}
 		} else {
-			DebugLog.log("Forget", "team=$team dropped locally; no Gateway to send it to")
+			// Names which half refused, or the next reader guesses as I did.
+			DebugLog.log(
+				"Forget",
+				"team=$team dropped locally; no Gateway to send it to " +
+					"[domain=${(t as? Address)?.domain} local=${host.localDomain} " +
+					"roster=${host.state.value.gateways.ids()}]",
+			)
 			onForgotten?.invoke()
 		}
 	}
