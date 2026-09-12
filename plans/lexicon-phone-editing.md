@@ -1052,6 +1052,22 @@ screen was walked on the emulator.
 - **An ordering applied after a cap.** `treeOf` sliced to `MAX_TREE_ENTRIES` and sorted what survived, so
   an over-cap directory answered an arbitrary thousand of itself. Sorting before the slice is the fix, and
   the same shape is worth checking wherever a cap and an order meet.
+- **A fence key that does not name what the read is for.** TWICE in this phase, in `GatewayReadFence` as
+  `WindowOps` uses it. Round one keyed every read of a session alike, so a symbol's source and its
+  knowledge cancelled each other and the detail screen drew one pane as unreachable. Round two was the
+  window's context read, which fills a per-module cache and has nothing to overwrite, so fencing it let an
+  unrelated tap strip that file's context with nothing to retry. The rule the mechanism was missing: a
+  fence key names the SLOT a read fills, and a read that fills no slot is not fenced at all. `GatewayReads.kt`
+  says the key is "whatever the holder scopes by", which is true and is not enough to choose one.
+- **A snapshot outliving the await that made it stale.** The recheck sweep read its windows once and judged
+  each gateway answer against that snapshot, so typing during the sweep was overwritten. The same shape
+  was patched once before in this phase, as the save that checked `holdsDraft` outside the lock it needed.
+  Both are a decision made from a value read before a suspension point. Re-read after the await, and hold
+  the lock across the check and the act.
+- **Draft persistence, patched twice.** Round one: a failed rename deleted the previous draft to make room.
+  Round two: concurrent writes shared one temp path and could land out of order. The mechanism is
+  `WindowDraftStore` plus its callers; both rounds were the same class, a write path that is atomic in one
+  step and not across its callers. A mutex owns the ordering now.
 
 ### What the audits found
 

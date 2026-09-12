@@ -295,18 +295,18 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 	private fun idOf(name: String) = "lexicon typescript $module $name."
 
 	/**
-	 * Keyed by SESSION, which is what a workspace belongs to. One refuses, so the refusal notice is
-	 * reachable; the empty Gateway answers empty, which is not the same as unreadable.
+	 * Keyed by SESSION, which is what a workspace belongs to. One of the two seeded sessions refuses,
+	 * so the refusal notice is reachable; the empty Gateway holds no session to ask.
 	 */
-	private fun <T> asSeeded(target: WorkspaceTarget, empty: () -> T, answer: () -> T): WorkspaceAnswer<T> =
-		when {
-			target.address.endsWith(".other") -> WorkspaceAnswer.Refused("this workspace is not served here")
-			target.gatewayId == EMPTY_GATEWAY -> WorkspaceAnswer.Read(empty())
-			else -> WorkspaceAnswer.Read(answer())
+	private fun <T> asSeeded(target: WorkspaceTarget, answer: () -> T): WorkspaceAnswer<T> =
+		if (target.address.endsWith(".other")) {
+			WorkspaceAnswer.Refused("this workspace is not served here")
+		} else {
+			WorkspaceAnswer.Read(answer())
 		}
 
 	override suspend fun tree(target: WorkspaceTarget, path: String) =
-		asSeeded(target, { WorkspaceTreeAnswer(path = path, truncated = false, entries = emptyList()) }) {
+		asSeeded(target) {
 			WorkspaceTreeAnswer(
 				path = path,
 				truncated = false,
@@ -315,19 +315,24 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 						WorkspaceTreeEntry(name = "src", directory = true, children = 2),
 						WorkspaceTreeEntry(name = "AGENTS.md", directory = false, bytes = 18_402),
 					)
-					"src" -> listOf(WorkspaceTreeEntry(name = "shared", directory = true, children = 1))
+					"src" -> listOf(
+						WorkspaceTreeEntry(name = "shared", directory = true, children = 1),
+						// Empty, since a directory with nothing in it draws its own notice.
+						WorkspaceTreeEntry(name = "generated", directory = true, children = 0),
+					)
+					"src/generated" -> emptyList()
 					else -> listOf(WorkspaceTreeEntry(name = "schemasRoutine.ts", directory = false, bytes = 9_431))
 				},
 			)
 		}
 
 	override suspend fun file(target: WorkspaceTarget, path: String) =
-		asSeeded(target, { WorkspaceReadAnswer(path = path, text = "", lines = 0) }) {
+		asSeeded(target) {
 			WorkspaceReadAnswer(path = path, text = file.joinToString("\n"), lines = file.size.toLong())
 		}
 
 	override suspend fun outline(target: WorkspaceTarget, path: String) =
-		asSeeded(target, { WorkspaceOutlineAnswer(path = path, symbols = emptyList()) }) {
+		asSeeded(target) {
 			WorkspaceOutlineAnswer(
 				path = path,
 				symbols = listOf(
@@ -350,7 +355,7 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 		}
 
 	override suspend fun symbolSource(target: WorkspaceTarget, symbolId: String) =
-		asSeeded(target, { blankSpan(symbolId) }) {
+		asSeeded(target) {
 			val wholeFunction = symbolId.contains("routineRefusal")
 			val start = if (wholeFunction) 6 else 3
 			val end = if (wholeFunction) 11 else 4
@@ -366,7 +371,7 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 		}
 
 	override suspend fun knowledge(target: WorkspaceTarget, symbolId: String) =
-		asSeeded(target, { WorkspaceKnowledgeAnswer(symbolId = symbolId, text = "") }) {
+		asSeeded(target) {
 			WorkspaceKnowledgeAnswer(
 				symbolId = symbolId,
 				text = "Describe: returns the reason a routine cannot be stored, or null when it can.\n\n" +
@@ -375,14 +380,4 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 			)
 		}
 
-	private fun blankSpan(symbolId: String) =
-		WorkspaceSymbolSourceAnswer(
-			symbolId = symbolId,
-			module = module,
-			name = "nothing",
-			text = "",
-			startLine = 1,
-			endLine = 1,
-			spanHash = "sandbox-empty",
-		)
 }

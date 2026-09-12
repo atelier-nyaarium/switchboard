@@ -55,6 +55,10 @@ internal fun WorkspaceTree(
 			if (tree.truncated) {
 				WorkspaceNotice("Only the first entries are listed")
 			}
+			// A blank screen otherwise, which reads as a read that never landed.
+			if (tree.entries.isEmpty()) {
+				WorkspaceNotice("Nothing here")
+			}
 			LazyColumn(Modifier.fillMaxSize()) {
 				for (entry in tree.entries) {
 					item(key = "entry:${entry.name}") {
