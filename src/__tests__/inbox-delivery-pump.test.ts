@@ -288,6 +288,62 @@ describe("inbox delivery pump", () => {
 		expect(dispatched).toBe(0);
 	});
 
+	// A refused body and a kind this road does not carry are different faults, and only the first tells
+	// the sender what to change. One message for both sent a reader hunting the kind for a bad field.
+	it("names the field a refused body failed on, rather than blaming the op kind", async () => {
+		const identity = generateIdentity();
+		const refused = setup();
+		const refusalBodies: unknown[] = [];
+		let dispatched = 0;
+		const pump = refused.pump({
+			gatewayId: "gateway",
+			producerSignPriv: identity.sign.priv,
+			consoleDispatch: async () => {
+				dispatched++;
+				return {};
+			},
+			contentKeyStore: {
+				open: () => ({
+					kind: "ok",
+					// A send whose one attachment carries a blob id the schema's shape refuses.
+					plaintext: Buffer.from(
+						JSON.stringify({
+							kind: "send",
+							to: "session",
+							body: "here",
+							files: [
+								{
+									filename: "a.png",
+									mime: "image/png",
+									size: 1,
+									descriptiveKey: "a.png",
+									role: "attachment",
+									blobId: "nope",
+								},
+							],
+						}),
+					),
+				}),
+				seal: (plaintext: Buffer) => {
+					refusalBodies.push(JSON.parse(plaintext.toString("utf8")));
+					return { kind: "ok", envelope: row().body };
+				},
+			} as never,
+		});
+
+		await pump.onFrame({
+			address,
+			rows: [{ ...row(), envelope: { ...envelope(1), kind: "console_op" } }],
+			deliveryEpoch: 1,
+		});
+
+		expect(dispatched).toBe(0);
+		const [body] = refusalBodies as Array<{ ok: boolean; error: string }>;
+		expect(body.ok).toBe(false);
+		expect(body.error).toContain("malformed console op");
+		expect(body.error).toContain("blobId");
+	});
+
 	it("requests a missing console-op epoch and retries after the key grant", async () => {
 		const setupResult = setup();
 		const identity = generateIdentity();

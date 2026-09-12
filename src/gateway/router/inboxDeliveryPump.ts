@@ -199,10 +199,19 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 			return appendConsoleResult(address, parsed, row, deliveryEpoch, { ok: false, error: "malformed_body" });
 		}
 		const op = ConsoleOpSchema.safeParse(body);
+		// Told apart, since a body the schema refused and a kind this road does not carry are different
+		// faults and the sender can only act on the first. One message for both sent a reader hunting
+		// the op kind while the real answer was a field.
+		if (!op.success) {
+			const at = op.error.issues[0];
+			return appendConsoleResult(address, parsed, row, deliveryEpoch, {
+				ok: false,
+				error: `malformed console op: ${at ? `${at.path.join(".") || "(root)"}: ${at.message}` : "unparseable"}`,
+			});
+		}
 		if (
-			!op.success ||
-			((!DELIVERY_OP_KINDS.has(op.data.kind) || VALUE_OP_KINDS.has(op.data.kind)) &&
-				!TOLERATED_DELIVERY_OP_KINDS.has(op.data.kind))
+			(!DELIVERY_OP_KINDS.has(op.data.kind) || VALUE_OP_KINDS.has(op.data.kind)) &&
+			!TOLERATED_DELIVERY_OP_KINDS.has(op.data.kind)
 		)
 			return appendConsoleResult(address, parsed, row, deliveryEpoch, {
 				ok: false,
