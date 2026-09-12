@@ -33,6 +33,7 @@ import type { Runbook } from "../../shared/schemasRunbook.js";
 import type { VaultDecision, VaultGrant } from "../../shared/schemasVault.js";
 import type { SessionStore } from "../../shared/session-store.js";
 import type { GatewaySpawnPoints, TeamInfo } from "../../shared/types.js";
+import type { WorkspaceOp, WorkspaceOpResult } from "../../shared/workspace-op.js";
 import type { DeliverToOwner } from "../consolePushOps.js";
 import type { WakeResult } from "../wake.js";
 import type { ConversationRegistry, TeamRegistry } from "../wsTypes.js";
@@ -115,6 +116,8 @@ export interface ConsoleHandlerDeps {
 	runbooks?: RunbookConsoleHandlers;
 	routines?: RoutineConsoleHandlers;
 	policies?: PolicyConsoleHandlers;
+	/** Absent before the socket stage composes, which refuses every workspace read. */
+	workspaceRead?: (team: string, op: WorkspaceOp) => Promise<WorkspaceOpResult>;
 	onSessionEnded?: (team: string) => void;
 }
 

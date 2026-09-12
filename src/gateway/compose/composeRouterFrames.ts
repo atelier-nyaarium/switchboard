@@ -36,6 +36,7 @@ export interface RouterFramesStageDeps {
 	runbooks: Pick<RunbookStage, "console">;
 	routines: Pick<RoutineStage, "console" | "bindExecution" | "sessionEnded">;
 	policies: Pick<import("./composePolicies.js").PolicyStage, "console">;
+	workspacePlane: Pick<import("../workspacePlane.js").WorkspacePlane, "ask">;
 }
 
 export interface RouterFramesBuild extends RouterFrameHandlers {
@@ -107,6 +108,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			runbooks: deps.runbooks.console,
 			routines: deps.routines.console,
 			policies: deps.policies.console,
+			workspaceRead: deps.workspacePlane.ask,
 			onSessionEnded,
 		});
 

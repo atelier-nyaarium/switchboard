@@ -37,6 +37,7 @@ import {
 	ConsoleVaultGrantsResultSchema,
 	ConsoleVaultRevokeResultSchema,
 } from "./schemasVault.js";
+import { WorkspaceOpAnswerSchema } from "./schemasWorkspace.js";
 
 ////////////////////////////////
 //  Op result schemas (gateway -> console)
@@ -417,6 +418,7 @@ export const ConsoleOpResultSchema = z.union([
 	ConsoleCloseSessionResultSchema,
 	ConsoleRenameSessionResultSchema,
 	ConsoleListDirsResultSchema,
+	WorkspaceOpAnswerSchema,
 	CrossDomainListenResultSchema,
 	CrossDomainRequestResultSchema,
 	CrossDomainConfirmResultSchema,

@@ -201,6 +201,15 @@ import {
 	WireSealedSchema,
 } from "../src/shared/schemasWireFixture.js";
 import {
+	KnowledgeAnswerSchema,
+	OutlineAnswerSchema,
+	OutlineSymbolSchema,
+	ReadAnswerSchema,
+	SymbolSourceAnswerSchema,
+	TreeAnswerSchema,
+	TreeEntrySchema,
+} from "../src/shared/schemasWorkspace.js";
+import {
 	ADDRESS_SEP,
 	CONV_TAG,
 	DEFAULT_SESSION,
@@ -396,6 +405,13 @@ const ROOTS: z.ZodType[] = [
 	WireFixtureSchema,
 	WireFixtureEntrySchema,
 	WireManifestSchema,
+	TreeEntrySchema,
+	TreeAnswerSchema,
+	ReadAnswerSchema,
+	OutlineSymbolSchema,
+	OutlineAnswerSchema,
+	SymbolSourceAnswerSchema,
+	KnowledgeAnswerSchema,
 ];
 
 const SEALED_ROOTS = new Set([

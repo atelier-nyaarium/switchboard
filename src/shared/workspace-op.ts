@@ -1,7 +1,8 @@
 // What the Gateway may ask a session's plugin about its own workspace, and what comes back.
 //
-// Gateway to plugin over the bridge socket the plugin already dials out and holds. TS on both ends,
-// so these are interfaces rather than Zod: nothing here crosses to Kotlin.
+// Gateway to plugin over the bridge socket the plugin already dials out and holds. The ANSWER shapes
+// live in `schemasWorkspace.ts`, since the phone reads them too and they must reach Kotlin; only the
+// frames and the bounds are declared here, which never leave this pair of processes.
 //
 // READS ONLY. A mutation needs the preconditions this plane does not yet carry.
 
@@ -32,66 +33,16 @@ export type WorkspaceOp =
 	| { kind: "symbolSource"; symbolId: string }
 	| { kind: "symbolKnowledge"; symbolId: string };
 
-export interface TreeEntry {
-	name: string;
-	directory: boolean;
-	/** A directory carries a child count instead. */
-	bytes?: number;
-	children?: number;
-}
-
-export interface TreeAnswer {
-	kind: "tree";
-	/** Empty is the workspace root. */
-	path: string;
-	entries: TreeEntry[];
-	/** The phone says so rather than implying the end. */
-	truncated: boolean;
-}
-
-export interface ReadAnswer {
-	kind: "read";
-	path: string;
-	text: string;
-	lines: number;
-}
-
-export interface OutlineSymbol {
-	symbolId: string;
-	name: string;
-	symbolKind: string;
-	/** Absent at the top level; the phone nests by it. */
-	containerId?: string;
-	signature?: string;
-	startLine?: number;
-}
-
-export interface OutlineAnswer {
-	kind: "outline";
-	path: string;
-	symbols: OutlineSymbol[];
-}
-
-export interface SymbolSourceAnswer {
-	kind: "symbolSource";
-	symbolId: string;
-	module: string;
-	name: string;
-	text: string;
-	startLine: number;
-	endLine: number;
-	/** Of the SPAN, not the file, so an edit elsewhere does not invalidate a window. */
-	spanHash: string;
-}
-
-export interface KnowledgeAnswer {
-	kind: "symbolKnowledge";
-	symbolId: string;
-	/** Opaque to the phone. */
-	text: string;
-}
-
-export type WorkspaceOpAnswer = TreeAnswer | ReadAnswer | OutlineAnswer | SymbolSourceAnswer | KnowledgeAnswer;
+export type {
+	KnowledgeAnswer,
+	OutlineAnswer,
+	OutlineSymbol,
+	ReadAnswer,
+	SymbolSourceAnswer,
+	TreeAnswer,
+	TreeEntry,
+	WorkspaceOpAnswer,
+} from "./schemasWorkspace.js";
 
 /**
  * `refused` is the plugin answering properly; `failed` is the plane itself. The phone shows the first
@@ -100,7 +51,7 @@ export type WorkspaceOpAnswer = TreeAnswer | ReadAnswer | OutlineAnswer | Symbol
 export type WorkspaceOpFailure = "refused" | "failed" | "timeout" | "disconnected" | "stale" | "too_large";
 
 export type WorkspaceOpResult =
-	| { ok: true; answer: WorkspaceOpAnswer }
+	| { ok: true; answer: import("./schemasWorkspace.js").WorkspaceOpAnswer }
 	| { ok: false; failure: WorkspaceOpFailure; detail: string };
 
 /** `key` is the idempotency key; a replay of it answers the first result rather than acting again. */

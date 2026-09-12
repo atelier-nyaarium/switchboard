@@ -121,6 +121,11 @@ object Protocol {
 			const val RENAME_SESSION: String = "rename_session"
 			const val WAKE: String = "wake"
 			const val LIST_DIRS: String = "list_dirs"
+			const val WORKSPACE_TREE: String = "workspace_tree"
+			const val WORKSPACE_FILE: String = "workspace_file"
+			const val WORKSPACE_OUTLINE: String = "workspace_outline"
+			const val WORKSPACE_SYMBOL_SOURCE: String = "workspace_symbol_source"
+			const val WORKSPACE_SYMBOL_KNOWLEDGE: String = "workspace_symbol_knowledge"
 			const val CROSS_DOMAIN_LISTEN: String = "cross_domain_listen"
 			const val CROSS_DOMAIN_REQUEST: String = "cross_domain_request"
 			const val CROSS_DOMAIN_CONFIRM: String = "cross_domain_confirm"
@@ -356,6 +361,41 @@ sealed class ConsoleOp {
 	data class ListDirs(
 		val path: String,
 		val spawn: String? = null,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("workspace_tree")
+	data class WorkspaceTree(
+		val target: String,
+		val path: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("workspace_file")
+	data class WorkspaceFile(
+		val target: String,
+		val path: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("workspace_outline")
+	data class WorkspaceOutline(
+		val target: String,
+		val path: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("workspace_symbol_source")
+	data class WorkspaceSymbolSource(
+		val target: String,
+		val symbolId: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("workspace_symbol_knowledge")
+	data class WorkspaceSymbolKnowledge(
+		val target: String,
+		val symbolId: String,
 	) : ConsoleOp()
 
 	@Serializable
@@ -2045,6 +2085,71 @@ data class WireFixtureEntry(
 data class WireManifest(
 	val _comment: String,
 	val fixtures: List<WireFixtureEntry>,
+)
+
+@Serializable
+data class WorkspaceTreeEntry(
+	val name: String,
+	val directory: Boolean,
+	val bytes: Long? = null,
+	val children: Long? = null,
+)
+
+@Serializable
+data class WorkspaceTreeAnswer(
+	@EncodeDefault
+	val kind: String = "tree",
+	val path: String,
+	val entries: List<WorkspaceTreeEntry>,
+	val truncated: Boolean,
+)
+
+@Serializable
+data class WorkspaceReadAnswer(
+	@EncodeDefault
+	val kind: String = "read",
+	val path: String,
+	val text: String,
+	val lines: Long,
+)
+
+@Serializable
+data class WorkspaceOutlineSymbol(
+	val symbolId: String,
+	val name: String,
+	val symbolKind: String,
+	val containerId: String? = null,
+	val signature: String? = null,
+	val startLine: Long? = null,
+)
+
+@Serializable
+data class WorkspaceOutlineAnswer(
+	@EncodeDefault
+	val kind: String = "outline",
+	val path: String,
+	val symbols: List<WorkspaceOutlineSymbol>,
+)
+
+@Serializable
+data class WorkspaceSymbolSourceAnswer(
+	@EncodeDefault
+	val kind: String = "symbolSource",
+	val symbolId: String,
+	val module: String,
+	val name: String,
+	val text: String,
+	val startLine: Long,
+	val endLine: Long,
+	val spanHash: String,
+)
+
+@Serializable
+data class WorkspaceKnowledgeAnswer(
+	@EncodeDefault
+	val kind: String = "symbolKnowledge",
+	val symbolId: String,
+	val text: String,
 )
 
 @Serializable

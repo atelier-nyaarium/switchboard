@@ -81,6 +81,33 @@ export const ConsoleOpSchema = z
 			path: z.string().max(512),
 			spawn: z.string().min(1).max(64).optional(),
 		}),
+		// Reads only, one kind each as every other feature does, so Kotlin gets real classes rather
+		// than an opaque payload. `target` names a session, never a spawn point.
+		z.object({
+			kind: z.literal("workspace_tree"),
+			target: z.string().min(1).max(128),
+			path: z.string().max(512),
+		}),
+		z.object({
+			kind: z.literal("workspace_file"),
+			target: z.string().min(1).max(128),
+			path: z.string().max(512),
+		}),
+		z.object({
+			kind: z.literal("workspace_outline"),
+			target: z.string().min(1).max(128),
+			path: z.string().max(512),
+		}),
+		z.object({
+			kind: z.literal("workspace_symbol_source"),
+			target: z.string().min(1).max(128),
+			symbolId: z.string().min(1).max(1024),
+		}),
+		z.object({
+			kind: z.literal("workspace_symbol_knowledge"),
+			target: z.string().min(1).max(128),
+			symbolId: z.string().min(1).max(1024),
+		}),
 		z.object({ kind: z.literal("cross_domain_listen") }),
 		z.object({
 			kind: z.literal("cross_domain_request"),
@@ -225,6 +252,11 @@ export const TOLERATED_DELIVERY_OP_KINDS = new Set<string>();
 export const VALUE_OP_KINDS = new Set([
 	"peek",
 	"list_dirs",
+	"workspace_tree",
+	"workspace_file",
+	"workspace_outline",
+	"workspace_symbol_source",
+	"workspace_symbol_knowledge",
 	"create_session",
 	"reload_plugins",
 	"cross_domain_listen",

@@ -5,6 +5,7 @@ import { ownerKeyId } from "../../shared/owner-id.js";
 import { DELIVERY_OP_KINDS, TOLERATED_DELIVERY_OP_KINDS, VALUE_OP_KINDS } from "../../shared/schemasConsoleOp.js";
 import { type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
 import { SpawnPoint } from "../../shared/session-id.js";
+import type { WorkspaceOp } from "../../shared/workspace-op.js";
 import {
 	RESERVE_OP,
 	type ReserveResult,
@@ -52,9 +53,21 @@ export function createConsoleDispatcher({
 	runbooks,
 	routines,
 	policies,
+	workspaceRead,
 	onSessionEnded,
 }: ConsoleHandlerDeps) {
 	const targets = createConsoleTargets({ localDomainId, localGatewayId, isTrustedCatalogProject });
+
+	/** A session, never a spawn point: the plane serves the workspace a plugin itself holds. */
+	async function workspaceReadOf(target: string, op: WorkspaceOp) {
+		const bound = targets.requireLocalComposite(target, "read the workspace of");
+		if (!workspaceRead) throw new Error("this Gateway serves no workspace reads");
+		const answer = await workspaceRead(bound.name, op);
+		// The failure rides the message, which is how the phone tells refused from failed.
+		if (!answer.ok) throw new Error(`${answer.failure}: ${answer.detail}`);
+		return answer.answer;
+	}
+
 	const terminalOps = createTerminalHandlers({ targets, relayToHost, sessionStore });
 	const sessionLifecycle = createSessionLifecycleHandlers({
 		targets,
@@ -232,6 +245,21 @@ export function createConsoleDispatcher({
 
 			case "list_dirs":
 				return terminalOps.listDirs(op);
+
+			case "workspace_tree":
+				return workspaceReadOf(op.target, { kind: "tree", path: op.path });
+
+			case "workspace_file":
+				return workspaceReadOf(op.target, { kind: "read", path: op.path });
+
+			case "workspace_outline":
+				return workspaceReadOf(op.target, { kind: "outline", path: op.path });
+
+			case "workspace_symbol_source":
+				return workspaceReadOf(op.target, { kind: "symbolSource", symbolId: op.symbolId });
+
+			case "workspace_symbol_knowledge":
+				return workspaceReadOf(op.target, { kind: "symbolKnowledge", symbolId: op.symbolId });
 
 			case "create_session":
 				return sessionLifecycle.createSession(op, conversationId, opId);
