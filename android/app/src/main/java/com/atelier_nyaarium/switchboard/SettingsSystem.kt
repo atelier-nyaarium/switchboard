@@ -43,7 +43,7 @@ internal fun SystemSettings(repo: ChatRepository) {
 	var refreshText by remember { mutableStateOf((repo.sessions.terminalRefreshMs / 1000.0).toString()) }
 	BatteryExemptionRow()
 	HorizontalDivider()
-	VaultOverlayRow(repo)
+	VaultOverlayRow()
 	HorizontalDivider()
 	AppUpdateRow()
 	HorizontalDivider()
@@ -187,20 +187,15 @@ internal fun BatteryExemptionRow() {
 
 /**
  * Android grants drawing over other apps on its own settings screen, never through a dialog, so
- * this is the only road to it. Re-reads on resume, and re-reports on the edge: until it is on, the
- * gateway is told the vault is off, and an agent that would have been offered it is not.
+ * this is the only road to it. The vault works either way; without it a request reaches the owner
+ * as a notification alone, which is easy to miss.
  */
 @Composable
-internal fun VaultOverlayRow(repo: ChatRepository) {
+internal fun VaultOverlayRow() {
 	val context = LocalContext.current
-	val scope = rememberCoroutineScope()
 	var allowed by remember { mutableStateOf(OverlayPermission.granted(context)) }
 	androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-		val now = OverlayPermission.granted(context)
-		if (now != allowed) {
-			allowed = now
-			scope.launch { repo.reportEnabledPlugins() }
-		}
+		allowed = OverlayPermission.granted(context)
 	}
 	Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
 		Text("Vault prompts", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
@@ -213,7 +208,7 @@ internal fun VaultOverlayRow(repo: ChatRepository) {
 		}
 	}
 	Text(
-		"Lets a secret request appear over whatever you are using. Off, the vault is not offered to agents.",
+		"Lets a secret request appear over whatever you are using. Off, it arrives only as a notification.",
 		style = MaterialTheme.typography.bodySmall,
 	)
 }

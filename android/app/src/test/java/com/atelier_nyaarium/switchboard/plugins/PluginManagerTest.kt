@@ -28,7 +28,6 @@ class PluginManagerTest {
 		manifests: Map<String, String>,
 		catalog: List<PluginCatalog.Entry>,
 		store: FakeStore = FakeStore(),
-		devicePermits: (String) -> Boolean = { true },
 	) {
 		val runtime = PluginRuntime()
 		val registry = runtime.createRegistry<String>("test-slots")
@@ -41,7 +40,6 @@ class PluginManagerTest {
 			enabledStore = store,
 			readManifest = { dir -> manifests[dir] ?: error("no manifest for $dir") },
 			catalog = catalog,
-			devicePermits = devicePermits,
 		)
 	}
 
@@ -347,27 +345,6 @@ class PluginManagerTest {
 
 		assertEquals(true, fx.manager.states().first().enabled)
 		assertTrue(fx.manager.reportable().isEmpty())
-	}
-
-	@Test
-	fun withholdsALoadedPluginUntilTheDeviceGrantsWhatItNeeds() {
-		var granted = false
-		val fx = Fixture(
-			manifests = mapOf("a" to manifest("a"), "b" to manifest("b")),
-			catalog = listOf(PluginCatalog.Entry("a") {}, PluginCatalog.Entry("b") {}),
-			store = FakeStore("a", "b"),
-			devicePermits = { id -> id != "a" || granted },
-		)
-		fx.manager.boot()
-
-		assertEquals(listOf("b"), fx.manager.reportable().map { it.id })
-		assertEquals(true, fx.manager.isActive("a"))
-
-		granted = true
-		assertEquals(setOf("a", "b"), fx.manager.reportable().map { it.id }.toSet())
-
-		granted = false
-		assertEquals(listOf("b"), fx.manager.reportable().map { it.id })
 	}
 
 	@Test

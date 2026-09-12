@@ -5,10 +5,6 @@ import com.atelier_nyaarium.switchboard.AppStateStore
 import com.atelier_nyaarium.switchboard.InboundSubscriber
 import com.atelier_nyaarium.switchboard.PluginActionSubscriber
 import com.atelier_nyaarium.switchboard.Repo
-import com.atelier_nyaarium.switchboard.vault.OverlayPermission
-
-/** Composite id of the vault plugin, the key its enabled flag and its claims are tagged with. */
-const val VAULT_PLUGIN_ID = "vault"
 
 /** Process-lifetime plugin framework, mirroring [com.atelier_nyaarium.switchboard.Repo]: built
  * and booted once, surviving Activity recreation so toggling in settings never re-runs boot. */
@@ -36,12 +32,6 @@ object Plugins {
 			},
 			readManifest = { dir -> app.assets.open("plugins/$dir/manifest.json").bufferedReader().use { it.readText() } },
 			catalog = PluginCatalog.all,
-			devicePermits = { id ->
-				// A vault request the owner never sees costs a whole run, and the prompt is the only
-				// thing that reaches them reliably. Read every report: the grant can be revoked
-				// while this process lives.
-				id != VAULT_PLUGIN_ID || OverlayPermission.granted(app)
-			},
 			log = { com.atelier_nyaarium.switchboard.DebugLog.log("Plugins", it) },
 		)
 		manager.boot()

@@ -14,6 +14,7 @@ import com.atelier_nyaarium.switchboard.SwitchboardService.Companion.CHANNEL_STA
 import com.atelier_nyaarium.switchboard.SwitchboardService.Companion.EXTRA_MESSAGE_AT
 import com.atelier_nyaarium.switchboard.SwitchboardService.Companion.EXTRA_OPEN_TEAM
 import com.atelier_nyaarium.switchboard.SwitchboardService.Companion.EXTRA_VAULT_REQUEST
+import com.atelier_nyaarium.switchboard.vault.OverlayPermission
 import com.atelier_nyaarium.switchboard.vault.VaultPendingRequest
 import com.atelier_nyaarium.switchboard.vault.requestTitle
 import com.atelier_nyaarium.switchboard.vault.requester
@@ -295,14 +296,19 @@ internal class ServiceNotifications(private val context: Context) {
 		}
 	}
 
-	/** Back to the prompt it was parked from, not into the app wearing a different face. */
-	private fun vaultContentIntent(requestId: String): PendingIntent {
+	/**
+	 * Back to the prompt it was parked from, not into the app wearing a different face. Without the
+	 * overlay grant there is no prompt to go back to, so the tap lands in the asking session
+	 * instead of firing an intent that would draw nothing.
+	 */
+	private fun vaultContentIntent(pending: VaultPendingRequest): PendingIntent {
+		if (!OverlayPermission.granted(context)) return contentIntent(pending.team)
 		val intent = Intent(context, SwitchboardService::class.java)
 			.setAction(SwitchboardService.ACTION_VAULT_REOPEN)
-			.putExtra(EXTRA_VAULT_REQUEST, requestId)
+			.putExtra(EXTRA_VAULT_REQUEST, pending.requestId)
 		return PendingIntent.getService(
 			context,
-			requestId.hashCode(),
+			pending.requestId.hashCode(),
 			intent,
 			PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
 		)
@@ -322,7 +328,7 @@ internal class ServiceNotifications(private val context: Context) {
 			.setContentText("$who: ${pending.operation}".take(120))
 			.setStyle(NotificationCompat.BigTextStyle().bigText("$who\n${pending.operation}"))
 			.setOngoing(true)
-			.setContentIntent(vaultContentIntent(pending.requestId))
+			.setContentIntent(vaultContentIntent(pending))
 		NotificationManagerCompat.from(context).notify(vaultNotificationId(pending.requestId), builder.build())
 	}
 
