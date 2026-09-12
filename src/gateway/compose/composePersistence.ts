@@ -84,8 +84,10 @@ export function composePersistence({
 						const released = context.slice()?.boardClient.sessionEnded(team, "release");
 						if (released) fireAndForget(`board release for ${team}`, released);
 						sessionEnded?.(team);
+						// The sweep took the record straight out of the store, so the facade is told what
+						// it would have known had the forget gone through it.
+						sessions.presence.forgotten(team);
 					}
-					sessions.presence.markDirty();
 				},
 			},
 			{ name: "op-idempotency-sweep", run: () => stores.durableOpStore.sweep() },

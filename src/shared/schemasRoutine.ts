@@ -251,6 +251,9 @@ export const SessionReportRequestShape = {
 		.max(MAX_ROUTINE_REPORT_CHARS)
 		.describe(`What the run did and what it left, in the run's own words.`),
 	history: z
+		// A coarse pre-bound, not THE bound: zod counts characters and the limit is bytes. One
+		// character is at least one byte, so anything this refuses is over either way. The byte
+		// check at the door is what answers `history_too_large`.
 		.string()
 		.max(MAX_ROUTINE_MEMORY_BYTES)
 		.describe(`The history you were handed, amended with what this run learned. Carried to the next run.`),

@@ -137,9 +137,18 @@ export class PresenceFacade {
 
 	forget(team: string): boolean {
 		const r = this.sessionStore.forget(team);
+		this.forgotten(team);
+		return r;
+	}
+
+	/**
+	 * That team's record has gone, by this facade or by the resume sweep taking it directly. The
+	 * cached working state has to go with it either way, or a swept session still reads as busy and
+	 * a routine declines to dispatch into the name it just freed.
+	 */
+	forgotten(team: string): void {
 		this.markDirty();
 		this.working.delete(team);
-		return r;
 	}
 
 	clearLive(team: string, subId: string): void {

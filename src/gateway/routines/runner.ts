@@ -49,12 +49,14 @@ export interface RoutineRunnerDeps {
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">;
 	/** Read late, because what executes is composed after the stage that runs it. */
 	attempt: () => RoutineAttempt;
+	/** Finishes a filing whose memory write never landed. Runs before the sweep that would erase it. */
+	recoverProposals?: () => void;
 	/** Drops memory whose routine is gone. Absent in the store's own tests, which hold none. */
 	sweepMemory?: (live: Set<string>) => void;
 }
 
 export function createRoutineRunner(deps: RoutineRunnerDeps) {
-	const { routines, occurrences, ambient, sweepMemory } = deps;
+	const { routines, occurrences, ambient, recoverProposals, sweepMemory } = deps;
 	const attempt = () => deps.attempt();
 	let timer: TimerHandle | null = null;
 	let tick: TimerHandle | null = null;
@@ -294,6 +296,8 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			}
 
 			forgetFinishedSessions(now);
+			// Before the sweep: a proposal it deletes is a history nothing can recover.
+			recoverProposals?.();
 			occurrences.sweep(now - KEEP_MS);
 			// Deletion is root-first, so a failed clear leaves memory nothing can reach. This collects it.
 			sweepMemory?.(new Set(routines.list().flatMap((r) => (r.incarnation ? [r.incarnation] : []))));

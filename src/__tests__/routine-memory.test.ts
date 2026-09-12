@@ -66,6 +66,21 @@ describe("what a routine remembers between runs", () => {
 		expect(memory.read("inc-2")).toEqual({ text: "", version: 0 });
 	});
 
+	// The array can express two rows for one incarnation; a reader taking the first and a writer
+	// updating one would then disagree about what a routine remembers.
+	it("keeps one row per incarnation, taking the newest, when the file holds two", () => {
+		const { root } = open();
+		const doubled = [
+			{ incarnation: "inc-1", text: "older", version: 1, at: 1 },
+			{ incarnation: "inc-1", text: "newer", version: 2, at: 2 },
+		];
+		fs.writeFileSync(path.join(root, "routine-memory.json"), JSON.stringify(doubled));
+
+		const reopened = createRoutineMemoryStore({ store: new DurableStore(root, "routine-memory") });
+		expect(reopened.read("inc-1")).toEqual({ text: "newer", version: 2 });
+		expect(reopened.sweepOrphans(new Set())).toBe(1);
+	});
+
 	// Restore refuses what a write refuses. An oversized row on disk is a hand edit or a bug, and
 	// starting that routine's memory empty beats serving something no write could have made.
 	it("starts a routine's memory fresh when the stored row is over the bound", () => {

@@ -55,8 +55,12 @@ function frozen(routine: Routine): Routine {
 
 /**
  * Two records the owner would call the same. Everything but what the gateway owns is compared, so a
- * field added to the record is compared without anything here being edited. A hand-listed
- * comparison would silently take an edit that only moved the field nobody added to the list.
+ * field the OWNER can edit is compared without anything here being edited. A hand-listed comparison
+ * would silently take an edit that only moved the field nobody added to the list.
+ *
+ * The exclusions are the other half of that rule, and a new gateway-owned field has to join them.
+ * One left out reads as owner content, so the gateway minting it would look like an edit and every
+ * save would land a revision the owner did not ask for.
  */
 function sameContent(a: Routine, b: Routine): boolean {
 	const owned = ({ revision: _revision, since: _since, incarnation: _incarnation, ...rest }: Routine) => rest;

@@ -136,6 +136,8 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		occurrences,
 		ambient: deps.ambient,
 		attempt: () => bound ?? deps.attempt?.() ?? IDLE_ATTEMPT,
+		// Before the sweep, or a proposal is deleted rather than finished.
+		recoverProposals: () => recoverProposals(),
 		sweepMemory: (live) => memory.sweepOrphans(live),
 	});
 
@@ -203,6 +205,32 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 	const remembered = (routineId: string): { text: string; version: number } => {
 		const incarnation = store.get(routineId)?.incarnation;
 		return incarnation ? memory.read(incarnation) : { text: "", version: 0 };
+	};
+
+	/**
+	 * Finishes a filing whose memory write never landed. Without this `memoryApplied` is a marker
+	 * nothing reads, and the sweep eventually deletes the only copy of a history a run wrote.
+	 *
+	 * Idempotent by construction. Memory already at the proposed text one past the base was this
+	 * proposal landing, so the row is marked and nothing is written twice. Memory still at the base
+	 * takes the write. Memory that moved past it belongs to a later run, and overwriting would erase
+	 * a newer history to recover an older one, so the row is marked and left alone.
+	 */
+	const recoverProposals = (): void => {
+		for (const row of occurrences.all()) {
+			if (row.memoryProposed === undefined || row.memoryApplied === true) continue;
+			const incarnation = store.get(row.routineId)?.incarnation;
+			if (!incarnation) continue;
+			const base = row.memoryVersion ?? 0;
+			const current = memory.read(incarnation);
+			if (current.version === base) {
+				const wrote = memory.write(incarnation, row.memoryProposed, base, deps.ambient.now());
+				if (!wrote.ok) continue;
+			} else if (!(current.version === base + 1 && current.text === row.memoryProposed)) {
+				console.warn(`[routine] ${row.routineId}:${row.scheduledAt} history superseded; proposal dropped`);
+			}
+			occurrences.noteMemoryApplied(row.routineId, row.scheduledAt);
+		}
 	};
 
 	/**

@@ -23,13 +23,27 @@ const MemoriesSchema = z.array(RoutineMemorySchema);
  */
 const usable = (row: RoutineMemory): boolean => Buffer.byteLength(row.text, "utf8") <= MAX_ROUTINE_MEMORY_BYTES;
 
+/**
+ * One row per incarnation, enforced at restore the way the policy store enforces its own rules. The
+ * array shape can express two rows for one incarnation; a reader taking the first and a writer
+ * updating one would then disagree about what a routine remembers.
+ */
+const deduped = (rows: RoutineMemory[]): RoutineMemory[] => {
+	const held = new Map<string, RoutineMemory>();
+	for (const row of rows) {
+		const previous = held.get(row.incarnation);
+		if (!previous || row.version > previous.version) held.set(row.incarnation, row);
+	}
+	return [...held.values()];
+};
+
 export interface RoutineMemoryStoreDeps {
 	store: DurableStore;
 }
 
 export function createRoutineMemoryStore(deps: RoutineMemoryStoreDeps) {
 	const { store } = deps;
-	let rows: RoutineMemory[] = MemoriesSchema.parse(store.load() ?? []).filter(usable);
+	let rows: RoutineMemory[] = deduped(MemoriesSchema.parse(store.load() ?? []).filter(usable));
 
 	const commit = (next: RoutineMemory[]): boolean => {
 		const previous = rows;
