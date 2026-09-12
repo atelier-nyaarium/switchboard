@@ -218,6 +218,23 @@ class WindowOpsTest {
 		assertEquals(listOf(F_ID to "fun f() { moved() }", G_ID to "fun g() {}"), shown())
 	}
 
+	// The whole reason a sweep decides inside the apply: the owner types while it is in flight.
+	@Test
+	fun `typing during a recheck is not overwritten by the answer it was waiting for`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		gateway.spans[F_ID] = "fun f() { moved() }" to "h9"
+		val hold = TestHold().also { gateway.holds[F_ID] = it }
+
+		val sweep = launch { ops.recheck(one) }
+		hold.entered.await()
+		ops.type(one, F_ID, "mine")
+		hold.release()
+		sweep.join()
+
+		assertEquals(listOf(F_ID to "mine"), shown())
+		assertEquals(listOf(true), ops.windowsOf(one).map { it.stale })
+	}
+
 	// The mirror of the above: a sweep must not resurrect a window the owner closed while it ran.
 	@Test
 	fun `a window closed during a recheck stays closed`() = runBlocking {

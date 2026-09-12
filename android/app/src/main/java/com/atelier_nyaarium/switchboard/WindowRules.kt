@@ -29,6 +29,39 @@ internal val KEY_SEPARATOR: String = Char(0x1e).toString()
 internal fun separated(vararg parts: String): String = parts.joinToString(KEY_SEPARATOR)
 
 /**
+ * What a read fills, which is what a fence key must name. Two reads of one session but different
+ * slots do not supersede each other; a caller cannot invent a key, since there is no string to pass.
+ */
+internal sealed interface ReadSlot {
+	val key: String
+
+	data object Tree : ReadSlot {
+		override val key = "tree"
+	}
+
+	data object File : ReadSlot {
+		override val key = "file"
+	}
+
+	data object Outline : ReadSlot {
+		override val key = "outline"
+	}
+
+	data object Source : ReadSlot {
+		override val key = "source"
+	}
+
+	data object Knowledge : ReadSlot {
+		override val key = "knowledge"
+	}
+
+	/** One per symbol: opening two windows at once is two reads, not one racing itself. */
+	data class Span(val symbolId: String) : ReadSlot {
+		override val key get() = "span:$symbolId"
+	}
+}
+
+/**
  * What the window was drawn from. `spanHash` is the whole binding: a save is accepted only while the
  * span still hashes to this, so an edit elsewhere in the file leaves the window alone.
  */

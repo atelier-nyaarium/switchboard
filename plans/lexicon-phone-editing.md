@@ -1020,7 +1020,11 @@ rewrites everything on every keystroke-batch.
   carry, the numbered lines a card draws and the outline's chips. `*Ops` is this codebase's name for the
   STATEFUL class (`RoutineText`/`RoutineOps`), so the pure half took the other name.
 - **`WindowOps.kt`** is that stateful class, over a `WorkspaceGateway` port: the open windows, the drafts,
-  the fence, the foreground re-check and the banner's adopt. Thirteen JVM tests drive it with no socket.
+  a per-module context cache, the fence, the foreground re-check and the banner's adopt. Its held state
+  has ONE road in, `apply`, which hands a transform what is held now and writes what it returns. A
+  decision made from a value read before a network wait therefore cannot be written back, which is the
+  class that recurred twice in this phase. `ReadSlot` is a sealed type, so a fence key cannot be invented
+  by a caller. Twenty-six JVM tests drive it with no socket.
 - **The fence needed no new class.** `GatewayReadFence` already keys by an opaque string; only its parameter
   name said gateway. Renaming that one word removed the lie without touching a call site, so windows key the
   same fence by session address.
@@ -1059,11 +1063,19 @@ screen was walked on the emulator.
   unrelated tap strip that file's context with nothing to retry. The rule the mechanism was missing: a
   fence key names the SLOT a read fills, and a read that fills no slot is not fenced at all. `GatewayReads.kt`
   says the key is "whatever the holder scopes by", which is true and is not enough to choose one.
+  CLOSED by `ReadSlot`, a sealed type with one case per slot, so there is no string for a caller to invent.
 - **A snapshot outliving the await that made it stale.** The recheck sweep read its windows once and judged
   each gateway answer against that snapshot, so typing during the sweep was overwritten. The same shape
   was patched once before in this phase, as the save that checked `holdsDraft` outside the lock it needed.
-  Both are a decision made from a value read before a suspension point. Re-read after the await, and hold
-  the lock across the check and the act.
+  Both are a decision made from a value read before a suspension point.
+  CLOSED by `apply`, the one road into held state: it hands a transform what is held NOW, so a caller that
+  captured a window, awaited the gateway and then wrote its decision has nowhere to write it. Mutation
+  tested by restoring the loop over captured windows, which fails exactly one test.
+- **A control byte written into source.** `" "` passed to an editing tool landed as the byte itself in
+  three files. It compiles, so every gate here was green, while `grep` treated the files as binary and
+  Lexicon would not index them. Two separate audit rounds reported it and the first was dismissed as a
+  hallucination. The separator is constructed rather than written now, and `control-byte-residue.test.ts`
+  reads every tracked Kotlin and TypeScript file for the class.
 - **Draft persistence, patched twice.** Round one: a failed rename deleted the previous draft to make room.
   Round two: concurrent writes shared one temp path and could land out of order. The mechanism is
   `WindowDraftStore` plus its callers; both rounds were the same class, a write path that is atomic in one
@@ -1108,6 +1120,25 @@ Still open, recorded rather than fixed:
   reads the truth because the failure word rides in the message, but the code's distinction is lost.
 - **A whole file is pulled for two lines of context.** There is no ranged read, so a window in a large
   module transfers the module. Cached per module and dropped when its last window closes.
+
+### What the architecture pass decided
+
+Five agents assessed the two recurring classes and the shape around them. Two changes landed, and they
+are the reason the classes are now unwritable rather than merely patched: the single `apply` road into
+held state, and `ReadSlot` as a sealed type. Both are local to `WindowOps`.
+
+Three were considered and deliberately not done:
+
+- **A workspace read catalog**, one registration replacing the eleven files an added read touches today.
+  Real, and the count is right. It is infrastructure shared with every console op, not this feature's, so
+  it belongs to its own plan. Phase 6 adds a field to an existing answer and Phase 8 adds a write, so the
+  cost is felt twice more before it would pay for itself.
+- **A timeout contract** owning the ordering of the plane's wait, the handler's budget and Lexicon's
+  patience. The pass ranked it first on its angle and named the same condition Phase 3 already recorded:
+  Phase 8 adds the fourth number, and owning three of four now would be guessing at the fourth.
+- **A `WindowManager` beside `WindowOps`**, matching `RunbookManager`. That split exists because a runbook
+  library is durable and shared across Gateways. Windows are memory plus one draft file per span. Copying
+  the shape without the pressure that earned it would add a layer, not remove one.
 
 ### Left
 
