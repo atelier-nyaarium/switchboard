@@ -168,6 +168,9 @@ internal fun markOf(text: String, name: String): IntRange? {
 
 private fun Char?.isNamePart(): Boolean = this != null && (isLetterOrDigit() || this == '_' || this == '$')
 
+/** A whole file's lines, numbered from one. */
+internal fun fileLines(text: String): List<CodeLine> = text.split("\n").mapIndexed { i, line -> CodeLine(i + 1, line) }
+
 /**
  * A symbol's own source, numbered as the file numbers it. Unbanded: the band says which lines of a
  * surrounding file are in range, and on its own there is nothing for it to say.

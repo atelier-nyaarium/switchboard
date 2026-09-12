@@ -317,6 +317,37 @@ class WindowOpsTest {
 	}
 
 	@Test
+	fun `a window's file is read once and kept`() = runBlocking {
+		ops.openWindow(one, F_ID)
+
+		assertEquals(listOf("whole file"), ops.contextFor(one, "src/a.ts"))
+		ops.contextFor(one, "src/a.ts")
+
+		assertEquals(1, gateway.asked.size - 1)
+	}
+
+	// Unfenced: a tap landing mid-read would otherwise leave that file without context for good.
+	@Test
+	fun `a context read is not dropped by a newer read of the session`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.openWindow(one, G_ID)
+
+		assertEquals(listOf("whole file"), ops.contextFor(one, "src/a.ts"))
+	}
+
+	@Test
+	fun `the last window of a file closing lets its context go`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.contextFor(one, "src/a.ts")
+		val before = gateway.asked.size
+
+		ops.closeWindow(one, F_ID)
+		ops.contextFor(one, "src/a.ts")
+
+		assertEquals(before + 1, gateway.asked.size)
+	}
+
+	@Test
 	fun `every read names the session it is asked about`() = runBlocking {
 		assertEquals("src/a.ts", (ops.tree(one, "src/a.ts") as WorkspaceAnswer.Read).value.path)
 		assertEquals("whole file", (ops.file(one, "src/a.ts") as WorkspaceAnswer.Read).value.text)

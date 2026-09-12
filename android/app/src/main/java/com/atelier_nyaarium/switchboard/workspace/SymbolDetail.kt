@@ -11,6 +11,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,6 +28,8 @@ import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.spanLines
+
+private const val SOURCE_PREVIEW_LINES = 40
 
 /**
  * One symbol: its source, and what Lexicon knows about it. Two reads rather than one, so the source
@@ -55,6 +58,8 @@ internal fun SymbolDetail(
 			verticalArrangement = Arrangement.spacedBy(10.dp),
 		) {
 			WorkspaceAnswerBox(source) { span ->
+				val lines = spanLines(span)
+				var whole by remember(span.symbolId) { mutableStateOf(false) }
 				Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
 					Text(
 						"${span.module} : ${span.startLine}-${span.endLine}",
@@ -65,7 +70,13 @@ internal fun SymbolDetail(
 					)
 					DetailSection("Source")
 					OutlinedCard(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-						CodeLines(spanLines(span), Modifier.padding(vertical = 6.dp))
+						// Capped until asked, or a long declaration builds thousands of rows to be read past.
+						CodeLines(if (whole) lines else lines.take(SOURCE_PREVIEW_LINES), Modifier.padding(vertical = 6.dp))
+						if (!whole && lines.size > SOURCE_PREVIEW_LINES) {
+							TextButton(onClick = hapticClick { whole = true }, modifier = Modifier.padding(start = 4.dp)) {
+								Text("Show all ${lines.size} lines")
+							}
+						}
 					}
 				}
 			}

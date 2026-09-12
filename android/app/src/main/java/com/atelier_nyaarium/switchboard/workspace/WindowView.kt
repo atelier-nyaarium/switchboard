@@ -27,7 +27,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.Window
 import com.atelier_nyaarium.switchboard.WindowOps
-import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
 import com.atelier_nyaarium.switchboard.gapBetween
 import com.atelier_nyaarium.switchboard.hapticClick
@@ -57,9 +56,7 @@ internal fun WindowView(
 
 	LaunchedEffect(target.key, modules) {
 		for (module in modules) {
-			if (context.containsKey(module)) continue
-			val answer = ops.file(target, module)
-			if (answer is WorkspaceAnswer.Read) context = context + (module to answer.value.text.split("\n"))
+			ops.contextFor(target, module)?.let { context = context + (module to it) }
 		}
 	}
 

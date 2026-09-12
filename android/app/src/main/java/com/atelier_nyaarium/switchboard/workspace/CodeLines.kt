@@ -34,31 +34,35 @@ private fun lineText(line: CodeLine): AnnotatedString =
 
 /** Wraps rather than scrolling sideways. */
 @Composable
+internal fun CodeLineRow(line: CodeLine) {
+	Row(
+		Modifier.fillMaxWidth()
+			.background(if (line.banded) Highlight.band else Color.Transparent)
+			.padding(vertical = 1.dp),
+	) {
+		Text(
+			"${line.number}",
+			Modifier.width(38.dp).padding(end = 8.dp),
+			style = MaterialTheme.typography.bodySmall,
+			fontFamily = FontFamily.Monospace,
+			fontSize = 11.sp,
+			textAlign = TextAlign.End,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		Text(
+			lineText(line),
+			Modifier.weight(1f).padding(end = 8.dp),
+			style = MaterialTheme.typography.bodySmall,
+			fontFamily = FontFamily.Monospace,
+			fontSize = 11.sp,
+		)
+	}
+}
+
+/** Eager, so it belongs inside a window card and never over a whole file. */
+@Composable
 internal fun CodeLines(lines: List<CodeLine>, modifier: Modifier = Modifier) {
 	Column(modifier.fillMaxWidth()) {
-		for (line in lines) {
-			Row(
-				Modifier.fillMaxWidth()
-					.background(if (line.banded) Highlight.band else Color.Transparent)
-					.padding(vertical = 1.dp),
-			) {
-				Text(
-					"${line.number}",
-					Modifier.width(38.dp).padding(end = 8.dp),
-					style = MaterialTheme.typography.bodySmall,
-					fontFamily = FontFamily.Monospace,
-					fontSize = 11.sp,
-					textAlign = TextAlign.End,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-				Text(
-					lineText(line),
-					Modifier.weight(1f).padding(end = 8.dp),
-					style = MaterialTheme.typography.bodySmall,
-					fontFamily = FontFamily.Monospace,
-					fontSize = 11.sp,
-				)
-			}
-		}
+		for (line in lines) CodeLineRow(line)
 	}
 }
