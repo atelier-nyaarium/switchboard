@@ -12,8 +12,14 @@ const ROUTINE_SESSION_PREFIX = "routine-";
 /** The id has to leave a valid session segment, since the reserved session is named from it. */
 export const MAX_ROUTINE_ID_LEN = MAX_SLUG_LEN - ROUTINE_SESSION_PREFIX.length;
 
-/** Where a routine's reserved session lives. The one place that name is made. */
+/**
+ * Where a routine's reserved session lives. The one place that name is made.
+ *
+ * An id that already carries the prefix keeps it rather than earning a second one: the prefix
+ * names the session, so applying it twice names nothing. Stored ids from earlier builds carry it.
+ */
 export function routineSessionName(routineId: string): string {
+	if (routineId.startsWith(ROUTINE_SESSION_PREFIX)) return routineId;
 	return `${ROUTINE_SESSION_PREFIX}${routineId}`;
 }
 

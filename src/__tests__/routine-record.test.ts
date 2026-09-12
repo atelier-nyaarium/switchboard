@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Routine, RoutineSchema, routineRefusal } from "../shared/schemasRoutine.js";
+import { type Routine, RoutineSchema, routineRefusal, routineSessionName } from "../shared/schemasRoutine.js";
 
 const routine = (over: Partial<Routine> = {}): Routine => ({
 	id: "r1",
@@ -56,5 +56,10 @@ describe("what a routine may be", () => {
 
 	it("accepts the sparsest schedule the editor can make", () => {
 		expect(routineRefusal(routine({ weekdays: [7], weekInterval: 8 }))).toBeNull();
+	});
+
+	it("names the reserved session once, whatever the id looks like", () => {
+		expect(routineSessionName("d509a5ad")).toBe("routine-d509a5ad");
+		expect(routineSessionName("routine-d509a5ad")).toBe("routine-d509a5ad");
 	});
 });
