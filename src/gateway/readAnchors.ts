@@ -59,6 +59,8 @@ export class ReadAnchors {
 		this.ensureRegistered(ownerId);
 		const result = mergeReadAnchor(this.state, ownerId, team, entry);
 		this.state = result.state;
+		// The plane reads this state, so the write announces itself.
+		if (result.advanced) this.planeRegistry.markDirty(readAnchorsPlaneName(ownerId));
 		return result.advanced;
 	}
 }

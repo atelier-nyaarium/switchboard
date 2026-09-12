@@ -96,11 +96,20 @@ describe("ReadAnchors", () => {
 			const aliceBefore = registry.version(readAnchorsPlaneName("alice"));
 			const bobBefore = registry.version(readAnchorsPlaneName("bob"));
 
+			// The report announces itself; nothing outside has to remember to mark.
 			anchors.report("alice", "team-a", { epoch: 1, seq: 10, at: 1000 });
-			registry.markDirty(readAnchorsPlaneName("alice"));
 
 			expect(registry.version(readAnchorsPlaneName("alice"))?.counter).toBe((aliceBefore?.counter ?? 0) + 1);
 			expect(registry.version(readAnchorsPlaneName("bob"))).toEqual(bobBefore);
+		});
+
+		it("a report that does not advance leaves the plane where it was", () => {
+			const registry = new PlaneRegistry(processAmbient());
+			const anchors = new ReadAnchors(registry, undefined);
+			anchors.report("alice", "team-a", { epoch: 1, seq: 50, at: 5000 });
+			const settled = registry.version(readAnchorsPlaneName("alice"));
+			expect(anchors.report("alice", "team-a", { epoch: 1, seq: 30, at: 6000 })).toBe(false);
+			expect(registry.version(readAnchorsPlaneName("alice"))).toEqual(settled);
 		});
 
 		it("a snapshot for one owner's plane never includes another owner's data", () => {

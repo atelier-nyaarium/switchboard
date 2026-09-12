@@ -16,6 +16,8 @@ export interface FederationContextDeps {
 	buildSlice: (boot: GatewayBootstrap) => FederationSlice;
 	/** Runs once the slice is published, never before. */
 	onActivate: (slice: FederationSlice) => void;
+	/** Presence reads the Domain id, so a change announces itself. */
+	onDomainChanged?: () => void;
 }
 
 export class FederationContext {
@@ -91,7 +93,7 @@ export class FederationContext {
 	standalone(): void {
 		this.state = { phase: "standalone" };
 		this.activeBoot = null;
-		this.domain = this.deps.domainIdOnDisk();
+		this.setDomain(this.deps.domainIdOnDisk());
 	}
 
 	/** Builds the slice first, so a failed build leaves the phase untouched. */
@@ -99,8 +101,15 @@ export class FederationContext {
 		if (this.state.phase === "federationActive") return;
 		const slice = this.deps.buildSlice(boot);
 		this.activeBoot = boot;
-		this.domain = boot.domainId;
+		this.setDomain(boot.domainId);
 		this.state = { phase: "federationActive", federation: slice };
 		this.deps.onActivate(slice);
+	}
+
+	/** The one write, so no road changes the Domain without saying so. */
+	private setDomain(next: string | null): void {
+		if (this.domain === next) return;
+		this.domain = next;
+		this.deps.onDomainChanged?.();
 	}
 }

@@ -112,6 +112,15 @@ export function createWebSocketHandlers({
 		ws.data.conversationId = null;
 	}
 
+	/**
+	 * The flag and its announcement together. Presence derives online from this field, and the
+	 * registration announcement fires before it, so a bare assignment publishes "verifying".
+	 */
+	function confirmHandshake(ws: ServerWebSocket<WsData>): void {
+		ws.data.handshakeConfirmed = true;
+		announcePresenceDirty?.();
+	}
+
 	function message(ws: ServerWebSocket<WsData>, raw: string | Buffer): void {
 		let msg: Record<string, unknown>;
 		try {
@@ -280,13 +289,13 @@ export function createWebSocketHandlers({
 						evictSocket(ws);
 						return;
 					}
-					ws.data.handshakeConfirmed = true;
+					confirmHandshake(ws);
 					console.log(`[ws] ${team}/${subId} reconnected as remembered lead - handshake skipped`);
 				} else {
 					mintHandshake(ws, team, subId);
 				}
 			} else {
-				ws.data.handshakeConfirmed = true;
+				confirmHandshake(ws);
 			}
 
 			onTeamConnect?.(team, ws);
@@ -490,7 +499,7 @@ export function createWebSocketHandlers({
 				evictSocket(ws);
 				return true;
 			}
-			ws.data.handshakeConfirmed = true;
+			confirmHandshake(ws);
 			if (auth) handshakeGate.confirmLead(pending.team, auth.toAnswerFor(ws));
 			console.log(`[ws] handshake confirmed: ${pending.team}/${pending.subId} is lead`);
 		} else {

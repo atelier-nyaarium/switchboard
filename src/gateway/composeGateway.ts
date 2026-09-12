@@ -84,6 +84,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			// Here rather than beside the active boot, so enrolling into an arming one arms this too.
 			routines?.start();
 		},
+		onDomainChanged: () => sessions.presence.markDirty(),
 	});
 
 	const stores = composeStores({
