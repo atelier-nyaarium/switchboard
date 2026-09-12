@@ -18,6 +18,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import com.atelier_nyaarium.switchboard.vault.VaultPendingRequest
+import com.atelier_nyaarium.switchboard.vault.VaultPrompt
+import com.atelier_nyaarium.switchboard.vault.requestTitle
+import com.atelier_nyaarium.switchboard.vault.requester
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -202,7 +206,7 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 				}
 			},
 		)
-		vaultPrompt = com.atelier_nyaarium.switchboard.vault.VaultPrompt(
+		vaultPrompt = VaultPrompt(
 			this,
 			onAnswer = { requestId, decision, typed ->
 				repo.command { vaultOps.answerById(requestId, decision, typed) }
@@ -276,23 +280,33 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 					if (request.requestId in ids && posted.add(request.requestId)) notifications.notifyVaultRequest(repo, request)
 				}
 				// The oldest still waiting, so a second request does not shove the first off screen.
-				pending.firstOrNull { it.requestId in ids }?.let { front ->
-					val title = com.atelier_nyaarium.switchboard.vault.requestTitle(
-						front,
-						front.entryId?.let { repo.vaultOps.view(it)?.title },
-					)
-					val who = com.atelier_nyaarium.switchboard.vault.requester(repo.state.value, front)
-					mainHandler.post { vaultPrompt?.show(front, title, who) }
-				}
+				showVaultPrompt(repo, pending.firstOrNull { it.requestId in ids })
 			}
 		}
 	}
 
-	override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+	override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+		if (intent?.action == ACTION_VAULT_REOPEN) {
+			intent.getStringExtra(EXTRA_VAULT_REQUEST)?.let { requestId ->
+				val repo = Repo.get(this)
+				vaultPrompt?.unpark(requestId)
+				showVaultPrompt(repo, repo.vault.pending.value.firstOrNull { it.requestId == requestId })
+			}
+		}
+		return START_STICKY
+	}
+
+	/** The one road to the prompt, so the shade and a fresh request reach it the same way. */
+	private fun showVaultPrompt(repo: ChatRepository, front: VaultPendingRequest?) {
+		val pending = front ?: return
+		val title = requestTitle(pending, pending.entryId?.let { repo.vaultOps.view(it)?.title })
+		val who = requester(repo.state.value, pending)
+		mainHandler.post { vaultPrompt?.show(pending, title, who) }
+	}
 
 	private var transport: SttsTransport? = null
 	private var bubble: QueueBubble? = null
-	private var vaultPrompt: com.atelier_nyaarium.switchboard.vault.VaultPrompt? = null
+	private var vaultPrompt: VaultPrompt? = null
 
 	/** Held for as long as a run has anything to say. Lives here rather than in the repository, which
 	 * holds no Context by construction, and is driven off the same settled state every other surface
@@ -485,6 +499,7 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 		const val EXTRA_MESSAGE_AT = "message_at"
 		const val EXTRA_OPEN_QUEUE = "open_queue"
 		const val EXTRA_VAULT_REQUEST = "vault_request"
+		const val ACTION_VAULT_REOPEN = "com.atelier_nyaarium.switchboard.VAULT_REOPEN"
 
 		/** Its own request code, so the queue's PendingIntent cannot collapse into a team's. */
 		private const val REQUEST_OPEN_QUEUE = 4272

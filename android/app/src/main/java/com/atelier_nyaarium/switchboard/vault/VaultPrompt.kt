@@ -164,7 +164,9 @@ class VaultPrompt(
 			orientation = LinearLayout.HORIZONTAL
 			gravity = Gravity.CENTER_VERTICAL
 		}
-		val name = text(16f, Color.WHITE).also { title = it }
+		val name = text(17f, Color.WHITE).apply {
+			setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
+		}.also { title = it }
 		val left = text(12f, MUTED).also { expiry = it }
 		head.addView(name, LinearLayout.LayoutParams(0, WRAP, 1f))
 		head.addView(left)
@@ -173,40 +175,81 @@ class VaultPrompt(
 		val op = text(12.5f, Color.WHITE).apply {
 			setTypeface(android.graphics.Typeface.MONOSPACE)
 			ellipsize = android.text.TextUtils.TruncateAt.END
+			setPadding(dp(12), dp(10), dp(12), dp(10))
+			background = rounded(FIELD, 10)
 		}.also { command = it }
 
 		val secret = EditText(context).apply {
 			hint = "Password"
 			inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+			textSize = 15f
 			setTextColor(Color.WHITE)
 			setHintTextColor(MUTED)
+			setPadding(dp(13), dp(12), dp(13), dp(12))
+			background = outlined(10)
 			visibility = View.GONE
 		}.also { password = it }
 
 		val row = LinearLayout(context).apply {
 			orientation = LinearLayout.HORIZONTAL
+			gravity = Gravity.END
 			visibility = View.GONE
-			addView(button("Deny") { answer(VAULT_DECISION_DENY) })
-			addView(button("Go to session") { shown?.let { onOpenSession(it.team) }; park() })
-			addView(button("Send") { answer(VAULT_DECISION_ONCE) })
+			addView(flat("Deny") { answer(VAULT_DECISION_DENY) })
+			addView(flat("Go to session") { shown?.let { onOpenSession(it.team) }; park() })
+			addView(filled("Send") { answer(VAULT_DECISION_ONCE) })
 		}.also { actions = it }
 
 		return LinearLayout(context).apply {
 			orientation = LinearLayout.VERTICAL
-			setPadding(dp(16), dp(14), dp(16), dp(14))
-			background = GradientDrawable().apply {
-				cornerRadius = dp(22).toFloat()
-				setColor(Color.parseColor("#2A2633"))
-			}
+			setPadding(dp(18), dp(16), dp(18), dp(16))
+			background = rounded(PANEL, 24)
 			addView(head)
-			addView(requester)
-			addView(op)
-			addView(secret)
-			addView(row)
+			addView(requester, spaced(8))
+			addView(op, spaced(8))
+			addView(secret, spaced(12))
+			addView(row, spaced(12))
 			setOnTouchListener(
 				PromptTouch(onTap = { expand() }, onSwipeAway = { park() }, threshold = dp(56), slop = dp(16)),
 			)
 		}
+	}
+
+	private fun spaced(top: Int) = LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(top) }
+
+	private fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
+		cornerRadius = dp(radius).toFloat()
+		setColor(color)
+	}
+
+	private fun outlined(radius: Int) = GradientDrawable().apply {
+		cornerRadius = dp(radius).toFloat()
+		setColor(Color.TRANSPARENT)
+		setStroke(dp(1).coerceAtLeast(1), OUTLINE)
+	}
+
+	/** Deny and Go to session read as text, so Send is the only thing that looks like the answer. */
+	private fun flat(label: String, onClick: () -> Unit) = Button(context).apply {
+		text = label
+		textSize = 13f
+		isAllCaps = false
+		setTextColor(PRIMARY)
+		background = null
+		minWidth = 0
+		minimumWidth = 0
+		setPadding(dp(12), dp(10), dp(12), dp(10))
+		setOnClickListener { onClick() }
+	}
+
+	private fun filled(label: String, onClick: () -> Unit) = Button(context).apply {
+		text = label
+		textSize = 13f
+		isAllCaps = false
+		setTextColor(ON_PRIMARY)
+		background = rounded(PRIMARY, 999)
+		minWidth = 0
+		minimumWidth = 0
+		setPadding(dp(22), dp(10), dp(22), dp(10))
+		setOnClickListener { onClick() }
 	}
 
 	private fun answer(decision: String) {
@@ -219,12 +262,6 @@ class VaultPrompt(
 	private fun text(size: Float, color: Int) = TextView(context).apply {
 		textSize = size
 		setTextColor(color)
-	}
-
-	private fun button(label: String, onClick: () -> Unit) = Button(context).apply {
-		text = label
-		textSize = 13f
-		setOnClickListener { onClick() }
 	}
 
 	private fun dp(value: Int): Int = (value * context.resources.displayMetrics.density).toInt()
@@ -271,6 +308,12 @@ class VaultPrompt(
 
 	private companion object {
 		const val WRAP = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+		const val MATCH = android.view.ViewGroup.LayoutParams.MATCH_PARENT
 		val MUTED: Int = Color.parseColor("#B9B2C4")
+		val PANEL: Int = Color.parseColor("#241F2D")
+		val FIELD: Int = Color.parseColor("#191622")
+		val OUTLINE: Int = Color.parseColor("#4A4550")
+		val PRIMARY: Int = Color.parseColor("#D0BCFF")
+		val ON_PRIMARY: Int = Color.parseColor("#33184E")
 	}
 }

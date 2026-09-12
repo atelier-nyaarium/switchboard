@@ -295,11 +295,12 @@ internal class ServiceNotifications(private val context: Context) {
 		}
 	}
 
+	/** Back to the prompt it was parked from, not into the app wearing a different face. */
 	private fun vaultContentIntent(requestId: String): PendingIntent {
-		val intent = Intent(context, MainActivity::class.java)
-			.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+		val intent = Intent(context, SwitchboardService::class.java)
+			.setAction(SwitchboardService.ACTION_VAULT_REOPEN)
 			.putExtra(EXTRA_VAULT_REQUEST, requestId)
-		return PendingIntent.getActivity(
+		return PendingIntent.getService(
 			context,
 			requestId.hashCode(),
 			intent,
