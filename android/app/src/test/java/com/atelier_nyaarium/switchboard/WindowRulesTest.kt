@@ -119,29 +119,22 @@ class WindowRulesTest {
 	}
 
 	@Test
-	fun `without the file a window is its span alone, banded`() {
-		assertEquals(listOf(CodeLine(4, "old", true)), windowLines(window(), null))
+	fun `without the file a window is its span and no context`() {
+		assertEquals(WindowParts(emptyList(), "old", emptyList()), windowParts(window(), null))
 	}
 
 	@Test
-	fun `the file supplies the lines either side, unbanded`() {
+	fun `the file supplies the lines either side, and the span is its own text`() {
 		val file = (1..12).map { "line $it" }
 		val held = window(text = "four\nfive\nsix\nseven\neight\nnine")
 
 		assertEquals(
-			listOf(
-				CodeLine(2, "line 2"),
-				CodeLine(3, "line 3"),
-				CodeLine(4, "four", true),
-				CodeLine(5, "five", true),
-				CodeLine(6, "six", true),
-				CodeLine(7, "seven", true),
-				CodeLine(8, "eight", true),
-				CodeLine(9, "nine", true),
-				CodeLine(10, "line 10"),
-				CodeLine(11, "line 11"),
+			WindowParts(
+				above = listOf(CodeLine(2, "line 2"), CodeLine(3, "line 3")),
+				span = "four\nfive\nsix\nseven\neight\nnine",
+				below = listOf(CodeLine(10, "line 10"), CodeLine(11, "line 11")),
 			),
-			windowLines(held, file),
+			windowParts(held, file),
 		)
 	}
 
@@ -151,12 +144,12 @@ class WindowRulesTest {
 		val file = listOf("first", "middle", "last")
 
 		assertEquals(
-			listOf(CodeLine(1, "first", true), CodeLine(2, "middle"), CodeLine(3, "last")),
-			windowLines(window(text = "first", startLine = 1), file),
+			WindowParts(emptyList(), "first", listOf(CodeLine(2, "middle"), CodeLine(3, "last"))),
+			windowParts(window(text = "first", startLine = 1), file),
 		)
 		assertEquals(
-			listOf(CodeLine(1, "first"), CodeLine(2, "middle"), CodeLine(3, "last", true)),
-			windowLines(window(text = "last", startLine = 3), file),
+			WindowParts(listOf(CodeLine(1, "first"), CodeLine(2, "middle")), "last", emptyList()),
+			windowParts(window(text = "last", startLine = 3), file),
 		)
 	}
 
@@ -166,27 +159,23 @@ class WindowRulesTest {
 		val file = (1..12).map { "line $it" }
 
 		assertEquals(
-			listOf(CodeLine(3, "line 3"), CodeLine(4, "old", true), CodeLine(5, "line 5")),
-			windowLines(window(), file, previousEnd = 2, nextStart = 6),
+			WindowParts(listOf(CodeLine(3, "line 3")), "old", listOf(CodeLine(5, "line 5"))),
+			windowParts(window(), file, previousEnd = 2, nextStart = 6),
 		)
 	}
 
-	// The trailing numbers are the file's, so a draft that grew shows a jump rather than invented lines.
+	// The numbers below are the file's, so a draft that grew does not renumber what it did not change.
 	@Test
-	fun `a draft that grew keeps the file's numbering below it`() {
+	fun `a draft that grew leaves the context below where the file has it`() {
 		val file = (1..8).map { "line $it" }
 
 		assertEquals(
-			listOf(
-				CodeLine(2, "line 2"),
-				CodeLine(3, "line 3"),
-				CodeLine(4, "mine", true),
-				CodeLine(5, "and more", true),
-				CodeLine(6, "and more still", true),
-				CodeLine(5, "line 5"),
-				CodeLine(6, "line 6"),
+			WindowParts(
+				above = listOf(CodeLine(2, "line 2"), CodeLine(3, "line 3")),
+				span = "mine\nand more\nand more still",
+				below = listOf(CodeLine(5, "line 5"), CodeLine(6, "line 6")),
 			),
-			windowLines(window(draft = "mine\nand more\nand more still"), file),
+			windowParts(window(draft = "mine\nand more\nand more still"), file),
 		)
 	}
 
@@ -289,6 +278,52 @@ class WindowRulesTest {
 		assertTrue(holdsDraft(held, F_ID, "mine"))
 		assertFalse(holdsDraft(held, F_ID, "older"))
 		assertFalse(holdsDraft(emptyList(), F_ID, "mine"))
+	}
+
+	@Test
+	fun `nothing edited is no message at all`() {
+		assertNull(applyMessage(emptyList()))
+	}
+
+	// The id and the original are what let the agent refuse rather than write over a span that moved.
+	@Test
+	fun `a message carries the id, the module, what was shown and what is wanted`() {
+		val message = applyMessage(listOf(agentRequestOf(window(draft = "fun f() { mine() }"))!!))!!
+
+		assertTrue(message.contains(F_ID))
+		assertTrue(message.contains("src/a.ts"))
+		assertTrue(message.contains("old"))
+		assertTrue(message.contains("fun f() { mine() }"))
+	}
+
+	@Test
+	fun `several spans are counted and all carried`() {
+		val f = agentRequestOf(window(draft = "for f"))!!
+		val g = agentRequestOf(window(text = "b", hash = "h2", symbolId = G_ID, draft = "for g"))!!
+
+		val message = applyMessage(listOf(f, g))!!
+
+		assertTrue(message.contains("2 spans"))
+		assertTrue(message.contains("for f"))
+		assertTrue(message.contains("for g"))
+	}
+
+	// A span can hold a fenced block in a comment, and a three-backtick fence would end there.
+	@Test
+	fun `a fence outruns the longest backtick run inside`() {
+		assertEquals("```", fenceFor("nothing to escape"))
+		assertEquals("```", fenceFor("a `tick` and ``two``"))
+		assertEquals("````", fenceFor("/** ```ts */"))
+		assertEquals("``````", fenceFor("`````"))
+	}
+
+	@Test
+	fun `a span holding a fence is wrapped in a longer one`() {
+		val held = window(text = "/** ```ts\n * example\n * ``` */", hash = "h1", draft = "/** changed ``` */")
+
+		val message = applyMessage(listOf(agentRequestOf(held)!!))!!
+
+		assertTrue(message.contains("````\n/** ```ts"))
 	}
 
 	@Test

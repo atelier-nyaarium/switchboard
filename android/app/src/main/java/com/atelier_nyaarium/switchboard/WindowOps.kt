@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +31,18 @@ internal interface WorkspaceGateway {
 
 internal interface WindowHost {
 	val workspace: WorkspaceGateway?
+
+	/** An apply is an ordinary message to the session, not a write plane. */
+	suspend fun send(address: String, text: String): Boolean
+}
+
+/** What Agent Apply did, never a bare Boolean: nothing to send is not a failure to send. */
+internal sealed interface Applied {
+	data class Sent(val spans: Int) : Applied
+
+	data object NothingEdited : Applied
+
+	data object Failed : Applied
 }
 
 /**
@@ -252,6 +265,26 @@ internal class WindowOps(
 	/** What Agent Apply sends, for every span the owner actually changed. */
 	fun agentRequests(target: WorkspaceTarget): List<AgentRequest> =
 		editedWindows(windowsOf(target)).mapNotNull { agentRequestOf(it) }
+
+	/**
+	 * Asks the session to make the edits. The drafts stay: the agent may refuse a span whose file
+	 * moved, and the owner's typing is the only copy of what they wanted. The foreground re-check
+	 * raises the stale banner once the file actually changes, and Refresh is how they let it go.
+	 */
+	suspend fun agentApply(target: WorkspaceTarget): Applied {
+		val requests = agentRequests(target)
+		val text = applyMessage(requests) ?: return Applied.NothingEdited
+		// A throwing send would otherwise take the screen's coroutine with it and say nothing at all.
+		val sent = try {
+			host.send(target.address, text)
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			DebugLog.log("Window", "apply failed: ${e.message}")
+			false
+		}
+		return if (sent) Applied.Sent(requests.size) else Applied.Failed
+	}
 
 	/** A re-provision takes the previous owner's code with it, on disk as well as in memory. */
 	override suspend fun clearInMemory() {

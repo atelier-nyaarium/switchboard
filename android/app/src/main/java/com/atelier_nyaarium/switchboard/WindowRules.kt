@@ -161,6 +161,53 @@ internal fun agentRequestOf(window: Window): AgentRequest? {
 	)
 }
 
+/**
+ * A fence longer than any run of backticks inside, which is the markdown rule. A span can hold a
+ * fenced block in a comment, and a three-backtick fence around it would end at that comment.
+ */
+internal fun fenceFor(text: String): String {
+	var longest = 0
+	var run = 0
+	for (ch in text) {
+		run = if (ch == '`') run + 1 else 0
+		if (run > longest) longest = run
+	}
+	return "`".repeat(maxOf(3, longest + 1))
+}
+
+/**
+ * What the owner's proposal reads as in the session's conversation. The ORIGINAL rides along because
+ * an occurrence-numbered id can renumber, so the agent compares before it writes rather than trusting
+ * the id alone. The wording invites a refusal, since a proposal may be pseudo code rather than final
+ * text and this comparison is not under any lock.
+ */
+internal fun applyMessage(requests: List<AgentRequest>): String? {
+	if (requests.isEmpty()) return null
+	val spans = requests.joinToString("\n\n") { request ->
+		val fence = fenceFor(request.original + request.proposed)
+		listOf(
+			"## ${request.module}",
+			"`${request.symbolId}`",
+			"",
+			"As I was shown it:",
+			"$fence\n${request.original}\n$fence",
+			"",
+			"What I want:",
+			"$fence\n${request.proposed}\n$fence",
+		).joinToString("\n")
+	}
+	val one = requests.size == 1
+	return listOf(
+		"I edited ${if (one) "a span" else "${requests.size} spans"} on my phone. Apply ${if (one) "it" else "them"}.",
+		"",
+		"Read each symbol by its id first. If what you read is not what I was shown, say so and leave it;",
+		"the file may have moved under me. What I wrote may be pseudo code or a note rather than final",
+		"text, so read it as intent and ask me if it is unclear.",
+		"",
+		spans,
+	).joinToString("\n")
+}
+
 /** What a tap does, so the screens carry no branching of their own. */
 internal enum class OutlineTap {
 	/** Short tap: read the symbol, its documentation and its knowledge. */
@@ -244,27 +291,30 @@ private fun marked(lines: List<CodeLine>, name: String): List<CodeLine> {
  * The trailing numbers are the file's, not the draft's, so a draft that grew shows a jump rather
  * than numbers the file does not have.
  */
-internal fun windowLines(
+/**
+ * A card's three parts. The span is text rather than lines because it is edited as one field: a
+ * gutter cannot stay true beside a wrapping editor, and per-line fields would break selection and
+ * paste across lines. The context keeps its numbers, where they can be trusted.
+ */
+internal data class WindowParts(val above: List<CodeLine>, val span: String, val below: List<CodeLine>)
+
+internal fun windowParts(
 	window: Window,
 	file: List<String>?,
 	context: Int = 2,
 	previousEnd: Int? = null,
 	nextStart: Int? = null,
-): List<CodeLine> {
+): WindowParts {
 	val start = window.descriptor.startLine.toInt()
 	val end = window.descriptor.endLine.toInt()
-	val span = marked(
-		window.shown.split("\n").mapIndexed { i, text -> CodeLine(start + i, text, true) },
-		window.descriptor.name,
-	)
-	if (file == null) return span
+	if (file == null) return WindowParts(emptyList(), window.shown, emptyList())
 	// Context stops at the neighbouring window, or the gap between two cards would count lines both draw.
 	val first = maxOf(1, start - context, (previousEnd ?: 0) + 1)
 	val last = minOf(file.size, end + context, (nextStart ?: Int.MAX_VALUE) - 1)
 	// Indexed directly, with no default: a line the file does not hold is a bug, not a blank row.
 	val above = (first until minOf(start, file.size + 1)).map { CodeLine(it, file[it - 1]) }
 	val below = (end + 1..last).map { CodeLine(it, file[it - 1]) }
-	return above + span + below
+	return WindowParts(above, window.shown, below)
 }
 
 /**

@@ -216,6 +216,10 @@ internal class ChatRepositoryWindowHost(private val repo: ChatRepository) : Wind
 
 	override val workspace: WorkspaceGateway? get() =
 		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsoleWorkspaceGateway)
+
+	// The sandbox reaches no Router, and a send that cancels its own caller leaves the button dead.
+	override suspend fun send(address: String, text: String): Boolean =
+		if (isSandbox) true else repo.send(address, text) != null
 }
 
 /** The port over the console client's runbook calls. */

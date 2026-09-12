@@ -10,7 +10,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -25,19 +28,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.atelier_nyaarium.switchboard.Applied
 import com.atelier_nyaarium.switchboard.Window
 import com.atelier_nyaarium.switchboard.WindowOps
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
+import com.atelier_nyaarium.switchboard.editedWindows
 import com.atelier_nyaarium.switchboard.gapBetween
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.inFileOrder
 import com.atelier_nyaarium.switchboard.modulesOf
 import com.atelier_nyaarium.switchboard.neighbourBounds
 import com.atelier_nyaarium.switchboard.opensModule
-import com.atelier_nyaarium.switchboard.windowLines
+import com.atelier_nyaarium.switchboard.windowParts
 import kotlinx.coroutines.launch
-
-private const val CARD_LINES = 120
 
 /**
  * The open windows down one scroll, each with the file either side of it read-only. The file is read
@@ -67,6 +71,43 @@ internal fun WindowView(
 		return
 	}
 
+	val edits = editedWindows(ordered).size
+	var asked by remember(target.key) { mutableStateOf<Applied?>(null) }
+
+	Column(modifier.fillMaxSize()) {
+		WindowScroll(ops, target, ordered, context, Modifier.weight(1f), onClose)
+		asked?.let { WorkspaceNotice(appliedNotice(it)) }
+		if (edits > 0) {
+			OutlinedButton(
+				onClick = hapticClick { scope.launch { asked = ops.agentApply(target) } },
+				modifier = Modifier.fillMaxWidth().padding(12.dp),
+			) {
+				Text(if (edits == 1) "Agent Apply" else "Agent Apply $edits spans")
+			}
+		}
+	}
+}
+
+/** What the owner is told after asking, since the agent's own reply lands in the conversation. */
+private fun appliedNotice(applied: Applied): String =
+	when (applied) {
+		is Applied.Sent -> if (applied.spans == 1) "Sent. The agent replies in the thread." else
+			"Sent ${applied.spans} spans. The agent replies in the thread."
+		Applied.NothingEdited -> "Nothing to send"
+		Applied.Failed -> "That did not send"
+	}
+
+@Composable
+private fun WindowScroll(
+	ops: WindowOps,
+	target: WorkspaceTarget,
+	ordered: List<Window>,
+	context: Map<String, List<String>>,
+	modifier: Modifier,
+	onClose: (String) -> Unit,
+) {
+	val scope = rememberCoroutineScope()
+
 	LazyColumn(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 		for ((index, window) in ordered.withIndex()) {
 			val (previousEnd, nextStart) = neighbourBounds(ordered, index)
@@ -91,6 +132,7 @@ internal fun WindowView(
 					file = context[window.descriptor.module],
 					previousEnd = previousEnd,
 					nextStart = nextStart,
+					onType = { ops.type(target, window.descriptor.symbolId, it) },
 					onRefresh = { scope.launch { ops.adopt(target, window.descriptor.symbolId) } },
 					onClose = { onClose(window.descriptor.symbolId) },
 				)
@@ -116,12 +158,28 @@ private fun GapRow(skipped: Int) {
 	}
 }
 
+/** The span itself, in the purple the design reserves for what is editable. */
+@Composable
+private fun SpanField(text: String, onType: (String) -> Unit) {
+	OutlinedTextField(
+		value = text,
+		onValueChange = onType,
+		modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+		textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
+		colors = OutlinedTextFieldDefaults.colors(
+			focusedBorderColor = MaterialTheme.colorScheme.primary,
+			unfocusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+		),
+	)
+}
+
 @Composable
 private fun WindowCard(
 	window: Window,
 	file: List<String>?,
 	previousEnd: Int?,
 	nextStart: Int?,
+	onType: (String) -> Unit,
 	onRefresh: () -> Unit,
 	onClose: () -> Unit,
 ) {
@@ -170,15 +228,10 @@ private fun WindowCard(
 					}
 				}
 			}
-			val lines = windowLines(window, file, previousEnd = previousEnd, nextStart = nextStart)
-			var whole by remember(window.descriptor.symbolId) { mutableStateOf(false) }
-			// A card is one LazyColumn item, so its rows all compose at once however long the span is.
-			CodeLines(if (whole) lines else lines.take(CARD_LINES), Modifier.padding(vertical = 6.dp))
-			if (!whole && lines.size > CARD_LINES) {
-				TextButton(onClick = hapticClick { whole = true }, modifier = Modifier.padding(start = 4.dp)) {
-					Text("Show all ${lines.size} lines")
-				}
-			}
+			val parts = windowParts(window, file, previousEnd = previousEnd, nextStart = nextStart)
+			CodeLines(parts.above, Modifier.padding(top = 6.dp))
+			SpanField(parts.span, onType)
+			CodeLines(parts.below, Modifier.padding(bottom = 6.dp))
 		}
 	}
 }

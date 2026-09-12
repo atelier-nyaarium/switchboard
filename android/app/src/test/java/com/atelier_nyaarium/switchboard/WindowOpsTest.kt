@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -80,10 +81,23 @@ class WindowOpsTest {
 		}
 	}
 
-	private class FakeHost(override val workspace: WorkspaceGateway?) : WindowHost
+	/** Records what was sent, since an apply is an ordinary message and nothing else marks it. */
+	private class FakeHost(override val workspace: WorkspaceGateway?) : WindowHost {
+		val sent = mutableListOf<Pair<String, String>>()
+		var sends = true
+		var throws = false
+
+		override suspend fun send(address: String, text: String): Boolean {
+			if (throws) throw IllegalStateException("the Router was not reached")
+			if (!sends) return false
+			sent += address to text
+			return true
+		}
+	}
 
 	private lateinit var dir: File
 	private lateinit var gateway: FakeWorkspace
+	private lateinit var host: FakeHost
 	private lateinit var drafts: WindowDraftStore
 	private lateinit var ops: WindowOps
 
@@ -91,8 +105,8 @@ class WindowOpsTest {
 	private val two = WorkspaceTarget(gatewayId = "sakura", address = "home.sakura.host.bbb")
 
 	/** Unconfined, so a draft write has landed by the time the call that started it returns. */
-	private fun opsOver(store: WindowDraftStore, host: WindowHost = FakeHost(gateway)) =
-		WindowOps(host, store, CoroutineScope(Dispatchers.Unconfined))
+	private fun opsOver(store: WindowDraftStore, over: WindowHost = host) =
+		WindowOps(over, store, CoroutineScope(Dispatchers.Unconfined))
 
 	@Before
 	fun setUp() {
@@ -100,6 +114,7 @@ class WindowOpsTest {
 		gateway = FakeWorkspace()
 		gateway.spans[F_ID] = "fun f() {}" to "h1"
 		gateway.spans[G_ID] = "fun g() {}" to "h2"
+		host = FakeHost(gateway)
 		drafts = WindowDraftStore(dir)
 		ops = opsOver(drafts)
 	}
@@ -434,6 +449,54 @@ class WindowOpsTest {
 		assertEquals(F_ID, (ops.symbol(one, F_ID) as WorkspaceAnswer.Read).value.symbolId)
 		assertEquals(F_ID, (ops.knowledge(one, F_ID) as WorkspaceAnswer.Read).value.symbolId)
 		assertEquals(listOf(one, one, one, one, one), gateway.asked)
+	}
+
+	@Test
+	fun `an apply goes to the session as one message naming every edited span`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.openWindow(one, G_ID)
+		ops.type(one, G_ID, "fun g() { mine() }")
+
+		assertEquals(Applied.Sent(1), ops.agentApply(one))
+
+		val (address, text) = host.sent.single()
+		assertEquals(one.address, address)
+		assertTrue(text.contains(G_ID))
+		assertTrue(text.contains("fun g() { mine() }"))
+		assertFalse(text.contains(F_ID))
+	}
+
+	@Test
+	fun `an apply with nothing edited sends nothing`() = runBlocking {
+		ops.openWindow(one, F_ID)
+
+		assertEquals(Applied.NothingEdited, ops.agentApply(one))
+		assertEquals(emptyList<Pair<String, String>>(), host.sent.toList())
+	}
+
+	// The agent may refuse a span whose file moved, so the owner's only copy of what they wanted stays.
+	@Test
+	fun `an apply keeps the drafts, sent or not`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "mine")
+
+		ops.agentApply(one)
+		assertEquals(listOf(F_ID to "mine"), shown())
+		assertEquals("mine", drafts.load(one, F_ID))
+
+		host.sends = false
+		assertEquals(Applied.Failed, ops.agentApply(one))
+		assertEquals(listOf(F_ID to "mine"), shown())
+	}
+
+	// A throw would otherwise take the screen's coroutine with it, leaving the button looking dead.
+	@Test
+	fun `a send that throws is a failure, not a lost coroutine`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "mine")
+		host.throws = true
+
+		assertEquals(Applied.Failed, ops.agentApply(one))
 	}
 
 	@Test
