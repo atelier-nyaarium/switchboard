@@ -1533,6 +1533,41 @@ that failed to save looks exactly like one that saved, and they find out by losi
 store has this shape. There is no per-subsystem "the last write did not land" state a screen can draw, so
 the honest fix is a new field and a new UI element every time, which is why it keeps not happening.
 
+## Every jump between screens invents its own bus, and picking the wrong one is silent
+
+There is no hoisted navigation on the phone. The selected tab is local state inside `MainTabsScreen`, and
+the thread replaces the tab row entirely rather than sitting beside it, so anything that wants to move the
+reader from one to the other reaches for a process-wide singleton. There are three now: `ReferenceOpenBus`,
+`DesignerOpenBus`, and the one this phase added.
+
+They do not agree on semantics. The first two are replay-free event streams, which is right for them since
+their consumer is on screen when the event fires. I copied that shape and the tap read as dead, because my
+consumer composes only after the request is made. Nothing named the difference; I found it on the emulator.
+
+The bus is also where the correctness lives: which session the request belongs to, when it is cleared, and
+what happens if it cannot be honoured are all rules, and all of them sit in a Composable where no gate here
+can reach them. I pulled `standingOf` out into `WorkspaceNav` for that reason, but the clearing and the
+holding stayed in the screen.
+
+## `runCatching` is 231 sites, and the wrong ones read exactly like the right ones
+
+`workspaceRead` wrapped a suspend transport call in `runCatching`, which swallows `CancellationException`
+along with everything else, so a Compose effect that had been cancelled ran on and wrote state. `agentApply`
+in `WindowOps` gets this right and rethrows. Both are in the same feature and neither reads as unusual.
+
+Grep finds 231 `runCatching {` on the phone. Nothing distinguishes the ones wrapping suspend work from the
+ones wrapping a parse, so there is no way to audit them short of reading every one. A residue test could,
+and is on the board, but the idiom itself is the trap: the safe-looking spelling is the dangerous one.
+
+## A hand-built wire record and its schema have nothing holding them together
+
+`buildArtifacts` composes a `RefKeyMeta` field by field and ships it. `RefKeyMetaSchema` bounds four of
+those fields. Nothing connected the two, so `key` has been buildable past its own bound since long before
+this phase, and one such key fails the entire file's metadata rather than itself.
+
+The fix was three characters of `safeParse` in the producer, which suggests the gap is habit rather than
+difficulty. Worth asking how many other hand-built wire records in `src/` are in the same position.
+
 ## The sandbox answers one outline for every file
 
 `SandboxWorkspaceGateway` serves the same symbols whatever path is asked for, so navigating to
