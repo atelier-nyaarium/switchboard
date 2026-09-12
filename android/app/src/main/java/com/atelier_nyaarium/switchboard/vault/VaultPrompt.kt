@@ -130,7 +130,11 @@ class VaultPrompt(
 		val flags = if (open) {
 			WindowManager.LayoutParams.FLAG_DIM_BEHIND
 		} else {
-			WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+			// Dims collapsed too. NOT_TOUCH_MODAL keeps taps passing through, so the screen reads as
+			// held without the card taking it: the one separator that works on any backdrop.
+			WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+				WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+				WindowManager.LayoutParams.FLAG_DIM_BEHIND
 		}
 		return WindowManager.LayoutParams(
 			WindowManager.LayoutParams.MATCH_PARENT,
@@ -140,7 +144,7 @@ class VaultPrompt(
 			android.graphics.PixelFormat.TRANSLUCENT,
 		).apply {
 			gravity = if (open) Gravity.CENTER else Gravity.TOP
-			if (open) dimAmount = 0.55f
+			dimAmount = if (open) 0.55f else 0.3f
 			// The card's own top, not the window's, so the gutter does not shift what 15% means.
 			y = if (open) 0 else (context.resources.displayMetrics.heightPixels * 0.15f).toInt() - gutter
 		}
