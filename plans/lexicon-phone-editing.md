@@ -19,7 +19,8 @@ A: Two halves. Whole-file handling on the phone, and the symbol window.
 > the change that the AI will interpret and act upon.
 
 Half one, the ordinary half: tree browsing, raw whole-file edit, create, delete, move, copy. Scoped
-to the spawn point's project by default.
+to the spawn point's project by default. Phases 9 and 10 carry it; the audit caught that the raw editor
+had no phase at all despite the tree's sheet offering it.
 
 Half two, the point of it: the owner asks in prose for symbols, an agent resolves the prose to
 symbols through Lexicon, and the phone draws each span editable with the surrounding file read-only.
@@ -36,9 +37,11 @@ A: A context menu on the file, carrying a prose request to the agent.
 > the content source. the direct owner involvement is pretty clear of their choice. we just need to
 > ensure it can't be abused.
 
-So the prose request IS the feature's entry point. Direct edit and proposal go through the same door:
-a direct edit is the owner sending the span, a proposal is the owner sending words and the agent
-sending the span.
+Direct edit and proposal go through the same door: a direct edit is the owner sending the span, a proposal is
+the owner sending words and the agent sending the span.
+
+PARTLY SUPERSEDED by Question 16. The prose request is ONE entry point, not the only one; a symbol can also
+be picked directly from a file's outline with no agent turn.
 
 ## Question 3 - What is the threat model?
 
@@ -54,14 +57,22 @@ power change. Four things do not come for free:
 
 1. **Replay.** Delivery ops get a durable Router ledger, gateway claims, target binding and host
    dedupe. Value ops are transient RPCs with none of it. A write added to the value-op kinds could be
-   replayed by the Router with no forgery. Writes need the durable road, which today only addresses
-   sessions, so it is real work.
+   replayed by the Router with no forgery.
+
+   "Writes need the durable road" is SUPERSEDED by Question 9 and the audit lap. Writes travel neither road:
+   they go on the bridge plane, which is new, so its at-most-once rule is ours to define. Phase 3 defines it
+   as a per-request idempotency key with a short-lived completed map on the plugin, and Phase 10 adds
+   per-operation preconditions, since a source hash alone is not idempotency.
 2. **View to write.** `refactor_replace` takes a symbol id plus new text and re-resolves fresh.
    Nothing binds the save to the span the owner was shown.
 3. **Path confinement.** `isSpawnWorkdirPath` validates SPELLING only and would accept a path outside
-   the project. Fine for listing, useless for writing. Confinement belongs in the host daemon, the
-   only part that knows the spawn-to-project mapping. Lexicon's `insideWorkspace` is a better
+   the project. Fine for listing, useless for writing. Lexicon's `insideWorkspace` is a better
    starting point but still has a check-to-write race.
+
+   Sol placed confinement in the host daemon as the only part knowing the spawn-to-project mapping.
+   SUPERSEDED by Question 9: the host daemon is out, and the plugin process holds the files. Its security
+   framing is SUPERSEDED by Question 11, which makes confinement a mistake boundary. What survives intact is
+   the list of mechanics, and the audit lap added hardlinks, platform namespace escapes, and special files.
 4. **Shared transaction.** Lexicon's refactor transaction is one per workspace, has no owner,
    survives daemon restart, and any session can revert it, which deliberately bypasses undo. Phone
    saves must be single-shot, never held across a screen lock.
@@ -116,8 +127,13 @@ The span compare-and-swap belongs in LEXICON, because only Lexicon can re-resolv
 span under its own writer lock in one step. Switchboard reading, comparing, then asking for a write
 leaves exactly the race this closes.
 
-Split: Lexicon grows a replace taking an expected span hash. Switchboard mints and carries the window
-token, and owns the phone surface, the plugin, and the host filesystem operations.
+Split: Lexicon grows a replace taking an expected span hash. Switchboard carries the window descriptor and
+owns the phone surface, the plugin, and the filesystem operations.
+
+REVISED by the audit lap on two points. The descriptor is not "minted" and carries no capability, since the
+authority is the owner's signed console op; see Phase 8. And the Lexicon side is not a new argument on an
+existing call: planning runs outside `WorkspaceGate.exclusive`, so the re-resolve and the hash have to move
+inside it.
 
 ## Question 6 - When is a window validated? [superseded by Question 15]
 
@@ -143,13 +159,17 @@ Proposed in `ref-viewer.html` and accepted as the design direction:
   since there is nothing to compare. Default is Sent, because the owner tapped a link in a message and
   what was meant is what they came for.
 
-One addition to the existing pipeline carries it: the snapshot starts keeping the span hash it was cut
-from. `refResolve :: resolveOne` already hash-checks against the file at resolve time, so the hash exists
-and is simply discarded; keeping it lets the viewer compare in one step.
+CORRECTED by the audit lap. The claim was that refs already compute the needed hash and merely discard it.
+Wrong twice. `resolveOne` computes `snapshot = hashContent(text)` over the WHOLE decoded file, to reconcile
+Lexicon's answer with the bytes, and `RefKeyMetaSchema` persists coordinates with no hash at all.
 
-That makes ONE hash concept serve both features. The window's freebie rule and the ref's
-changed-since-sent strip become the same comparison, so there is a single thing to get right rather than
-two that can disagree.
+So the span hash is new work: slice the range and hash the slice, then carry it as one new optional field
+on the ref metadata. Both primitives exist, `sliceRange` and `hashContent`, but nothing composes them
+today and nothing keeps the result.
+
+Still small, and it still makes ONE hash concept serve both features. The window's freebie rule and the
+ref's changed-since-sent strip become the same comparison, so there is a single thing to get right rather
+than two that can disagree.
 
 ## Question 8 - How does the code split across two repos?
 
@@ -358,14 +378,22 @@ A: Yes, it stays. Two different consumers.
 The Lexicon plugin gives the AGENT tools for navigating code. This feature gives the OWNER a phone
 surface. Neither covers the other.
 
-The evidence against folding them is already on disk: the submodule pin sits at `v3.0.2-119-g7077be2`
-while the live project is at 3.7.1. If Switchboard owned the agent's Lexicon tools, the agent would be
-limited to whatever Switchboard last shipped, two minor versions stale today, and every Lexicon release
-would need a Switchboard release to reach the owner.
-
-One MCP plugin also cannot call another, since they are separate processes, so Switchboard needs its own
+One MCP plugin cannot call another, since they are separate processes, so Switchboard needs its own
 Lexicon client regardless. It already has one for refs. Two clients against one daemon is not duplication;
-that is what a server is.
+that is what a server is. And if Switchboard owned the agent's Lexicon tools, the agent would be limited
+to whatever Switchboard last shipped, so every Lexicon release would need a Switchboard release to reach
+the owner.
+
+CORRECTED by the audit lap. The pin gap was cited as evidence and the figure was wrong. Real numbers:
+
+| | Revision | Package version |
+|---|---|---|
+| Pin | `7077be2` | 3.7.0 |
+| Live | `6d451f7` | 3.7.1 |
+
+Seven commits and one patch version, not the two minor versions claimed. The `v3.0.2-119` that `git
+describe` answers is a stale TAG; tags stopped at v3.0.2 while the package version moved on. The
+conclusion stands on its other two legs, but the pin was never the clincher.
 
 ## Question 19 - What happens after Agent Apply?
 
@@ -533,6 +561,75 @@ Read-only, over Lexicon's six answer classes: describe, why, relate, contract, e
   so it must be agent work, but the chip is only the prose road pointed at one gap. Flagged to the owner
   as vetoable.
 
+# Audit Findings
+
+Lap 1 of `plan-refinement`. Six angles fanned to Luna against both repos, then triaged against the code
+rather than taken on tone. Angles: transport, Lexicon correctness, confinement and abuse, Android
+feasibility, Release 1 completeness, document consistency.
+
+## Four dissolved by simplification rather than work
+
+- **The window descriptor needs no signature.** Q5 said Switchboard mints the token and Q14 said it is
+  signed with a Gateway keyring key, which contradicted each other and both conflicted with the plane being
+  served by the plugin. The authority is the owner's already-signed console op, and a wrong descriptor
+  simply fails the span-hash check or names a different symbol. So it carries no capability and needs no
+  key, no issuer and no expiry. It is a `(symbolId, range, spanHash)` descriptor.
+- **The window view uses no WebView.** Making a span editable inside the refs viewer's WebView was a real
+  hole: `contenteditable` over syntax spans and marks wrecks text extraction, selection, undo and IME. But
+  the window's read-only context is plain rows and its editable spans are small. Compose rows plus Compose
+  text fields, and no WebView at all. The WebView stays where it already works, the ref viewer.
+- **One session, one socket to pick.** `registry` is team then `subId`, so a session can hold several
+  plugin sockets. `isMainOrLead` already rides the register message and `resolveLiveIncarnation` already
+  picks a canonical one, so this is a read of existing machinery, not new machinery.
+- **A prose edit rarely leaves an outstanding issue.** `impactOf` raises `UnboundReference` only for newly
+  increased genuinely dangling references, excluding `ExternalDependency`, `NotIndexed` and
+  `DynamicallyTyped`. So the forced-commit path is an edge case, not the common one.
+
+## Accepted, and absorbed into the phases
+
+1. **The plane is not "one frame kind".** The plugin handles only `channel_push`, `response_push`,
+   handshake and registration. There is no session-request dispatch, no reply correlation on that socket,
+   and no pending-request map or generation fence. Host ops and the connector both have correlation to copy
+   from; the bridge does not.
+2. **A request in flight is lost on reconnect,** with no ledger and no fence, so a retry can duplicate work
+   or answer into a replacement session.
+3. **The Lexicon span compare-and-swap needs the gate restructured.** Planning runs structurally outside
+   `WorkspaceGate.exclusive`, which wraps only the staleness check, journal, write and reindex. Re-resolve
+   and span-hash have to move inside it.
+4. **A crash leaves a transaction OPEN.** `recover` drops unfinished steps without closing the transaction
+   row, so every later session is blocked until someone commits or reverts. The durability requirement
+   missed this entirely.
+5. **There is no single canonical workspace root.** `refWorkspace :: workspaceRoot`, `hostResolve ::
+   findProjectPath`, the register message's `PROJECT_HOST_PATH` and `hostDaemon :: resolveProject` can each
+   answer differently, so the tree, the index and a mutation could address different trees.
+6. **The default tree holds `.env`, `.git` and `node_modules`,** with no exclusion, no redaction and no
+   audit trail. `.env` carries `HOST_WS_TOKEN` and federation tokens.
+7. **An expected source hash does not make a mutation idempotent.** A repeated copy succeeds again, and
+   delete or move can act on a recreated file with identical bytes, because a content hash binds no file
+   identity. Destination preconditions are required, not optional.
+8. **Hardlinks defeat path confinement,** since a name inside the root can reach an inode whose other name
+   is outside, and `realpath` does not see it.
+9. **Platform namespace escapes are unnamed:** case folding, Windows short names and alternate data
+   streams, trailing dots and spaces, junctions.
+10. **Special and unstable files are unbounded.** `refFile :: loadRefFile` already refuses non-regular files
+    and caps at 8 MB; the new plane must reuse those rules rather than reinvent them.
+11. **SharedPreferences is the wrong store for a code draft.** `RunbookManager :: commit` serialises a whole
+    library into one preferences string. A draft belongs in a file under `filesDir`, written atomically.
+12. **Gateway-scoped phone helpers cannot key session-scoped windows.** `GatewayReadFence` and
+    `GatewayRegistry` key by Gateway, so two sessions on one Gateway collide.
+13. **The plan named no ops class,** which would land the tap rules, the refresh rule and the two save roads
+    inside Composables, where this project's own rule forbids them and no gate can see them.
+14. **Nothing built the raw whole-file editor,** though the tree's sheet offers it.
+15. **Agent Apply carries no exactness guarantee in Release 1.** Without the compare-and-swap an agent can
+    resolve a renumbered occurrence and write the wrong span. It must compare the original text it was sent
+    and refuse a mismatch, which is a check at human pace rather than under a lock.
+16. **Reads were scheduled before confinement defined them.**
+
+## Rejected
+
+- That the 49-declaration figure is unverified. Lexicon's own `outline_module` answered it. The auditor
+  could not reproduce it, which is not the same thing.
+
 # Codebase Facts
 
 Gathered 2026-09-12 by six explorer agents. Kept so a compaction does not cost the refresh.
@@ -615,98 +712,190 @@ Gathered 2026-09-12 by six explorer agents. Kept so a compaction does not cost t
 
 # Plan
 
-Two releases, settled in Question 20. Nothing in the first touches Lexicon, so the Lexicon patch is never
-on the critical path.
+Two releases, settled in Question 20, and rewritten after the audit lap. Eleven phases. Nothing in the first
+release touches Lexicon, so the Lexicon patch is never on the critical path.
 
-A consequence found while splitting them: **Agent Apply belongs in the first release.** The agent writes
-through its own Lexicon tools, which already exist, so the phone only has to compose a message naming the
-window and carrying the owner's text. No write plane, no token, no Lexicon change. Only the direct
-no-agent Save waits for the second release.
+**Agent Apply belongs in the first release,** because the agent writes through its own Lexicon tools. The
+phone only composes a message carrying the window's identity and the owner's text. No write plane, no
+descriptor to verify, no Lexicon change. The audit's caveat is kept rather than buried: without the
+compare-and-swap it is best-effort, so the agent compares the original text it was sent and refuses a
+mismatch.
 
 So the first release reads everything and can change anything through the agent. The second removes the
-agent from the loop.
+agent from the loop and makes the exactness a guarantee.
+
+Ordering changed after the audit. Confinement and the canonical root now come BEFORE anything serves a read,
+since reads were previously scheduled against a root four resolvers could disagree about.
 
 # Release 1 - Reading, and Agent Apply
 
-## Phase 1 - Move the submodule pin
+## Phase 1 - One canonical workspace root
 
-Bring the `lexicon` submodule from `v3.0.2-119-g7077be2` up to the live project and fix what breaks. Debt
-already owed, forced by this feature rather than created by it. Nothing else can be trusted until the pin
-and the daemon agree.
+Before any road reads a file, decide what the root IS and carry that one answer everywhere. Four resolvers
+can disagree today: `refWorkspace :: workspaceRoot`, `hostResolve :: findProjectPath`, the bridge register
+message's `PROJECT_HOST_PATH`, and `hostDaemon :: resolveProject`. The tree, the Lexicon index and any
+mutation must address the same tree or nothing above this is trustworthy.
 
-## Phase 2 - The bridge plane, reads only
+The plugin process is the one that knows, since it holds the Lexicon client whose root is the workspace.
+Its answer travels with every response, so the phone never infers a root.
 
-A request and response frame kind on the socket each session's MCP plugin already holds open to the
-Gateway. The plugin process answers it without the agent taking a turn. This is the whole reach: no new
-listener, no inbound hole, and it works identically for a host session and a devcontainer one.
+Also move the `lexicon` submodule pin from `7077be2` to the live revision. Seven commits, one patch version,
+and the audit found no API break in what this repo calls, so this is small.
 
-Reads only in this release: tree listing, whole-file read, outline, symbol source, symbol knowledge.
+## Phase 2 - Confinement
 
-## Phase 3 - Confinement
+Before the plane serves anything, not after. A mistake boundary, not a security boundary: the session can
+already run commands, so the check buys an honest tree and a refused mis-tap and claims nothing more.
 
-Needed even for reads, so the tree cannot wander and a path that escapes the workspace is refused rather
-than served. A mistake boundary, not a security boundary: the session it runs in can already run commands,
-so the check buys an honest tree and a refused mis-tap, and claims nothing more.
+- Default root is the canonical one from Phase 1. Wider is a deliberate act.
+- Canonical resolution plus `realpath`, and refusal of a path that escapes after resolution.
+- Hardlinks are the hole `realpath` cannot see, so mutation compares the resolved file identity, not just
+  its name.
+- Named refusals for the platform escapes: case folding, Windows short names and alternate data streams,
+  trailing dots and spaces, junctions.
+- Regular files only, with a size cap. `refFile :: loadRefFile` already refuses non-regular files and caps
+  at 8 MB; reuse those rules rather than write second ones.
+- An exclusion list the tree applies by default, covering `.env` and its siblings, `.git` internals, and
+  `node_modules`. Reads leave no audit trail today, so the cheap protection is not serving the file at all.
 
-Default root is the workspace, which is also Lexicon's root. Going wider is a deliberate act.
-`isSpawnWorkdirPath` validates spelling only and is not the basis for any of it.
+`isSpawnWorkdirPath` validates spelling only and is the basis for none of this.
 
-## Phase 4 - The phone surface
+## Phase 3 - The bridge plane, reads only
+
+A request and response protocol on the socket each session's plugin already dials out and holds. This is
+the whole reach: no new listener, no inbound hole, and it works identically for a host session and a
+devcontainer one. The plugin answers without the agent taking a turn, because the socket callback and the
+agent's work share a process but not a thread of control.
+
+Bigger than "one frame kind". The plugin handles only `channel_push`, `response_push`, handshake and
+registration today, so this needs:
+
+- A frame pair and a dispatch on the plugin side.
+- Reply correlation. `hostOpCoordinator` and `connector :: invokeOnClient` are the two existing patterns to
+  copy; the bridge socket has neither.
+- A pending-request map with a generation fence, since a reconnect today would lose an in-flight request
+  silently and a retry could answer into a replacement socket.
+- One socket per session chosen deliberately. A session can hold several plugin sockets, keyed team then
+  `subId`. `isMainOrLead` rides the register message and `resolveLiveIncarnation` already picks a canonical
+  one; use them rather than broadcasting.
+- A per-request idempotency key with a short-lived completed map on the plugin, so a replayed frame answers
+  the first result instead of acting twice. This is what settles the durable-road question: the plane is
+  neither a transient value op nor the Router's delivery ledger, so at-most-once is defined here.
+
+Reads in this release: tree listing, whole-file read, outline, symbol source, symbol knowledge.
+
+## Phase 4 - `WindowOps` and the phone surface
+
+An ops class first, because this project's own rule is that a decision the phone makes lives beside its ops
+class and never inside a Composable, since there is no instrumentation test source set. `WindowOps` owns the
+tap rules, the refresh rule, the two save roads, the open-window set and the drafts. The screens render and
+call it.
+
+Keyed by SESSION, not by Gateway. `GatewayReadFence` and `GatewayRegistry` key by Gateway and would collide
+on two sessions of one Gateway, so windows need their own fence keyed by session address.
 
 Five screens, mockups in `plans/lexicon-phone-editing/`:
 
-- The tree with its long-press operations sheet, read-only operations live.
+- The tree with its long-press sheet, read-only operations live.
 - A file's outline, with kind chips and the prose box.
 - A symbol's detail: source, documentation, knowledge, `Open Window`.
-- The window view, read-only spans with their context, plus `Agent Apply`.
+- The window view: read-only context and, in this release, read-only spans plus `Agent Apply`.
 - The ref viewer with `Open File` and `Open Window`.
 
-The window view starts from `ReferenceViewer`, which already draws highlighted code in a WebView. Its
-document moves onto the app's Material surfaces, keeping only the blue band and the amber mark.
+No WebView in the window view. Read-only context is Compose rows and an editable span is a Compose text
+field, which sidesteps `contenteditable` over syntax spans and its selection, undo, IME and extraction
+problems. The WebView stays where it already works, in the ref viewer, whose document moves onto the app's
+Material surfaces keeping only the blue band and the amber mark.
 
-A draft persists to disk, not just to its ops class, since the ops class dies with the app process. The
-runbook library is the pattern.
+A draft persists to a file under `filesDir`, written atomically. NOT the runbook store: `RunbookManager ::
+commit` serialises a whole library into one preferences string, which a code span can overrun and which
+rewrites everything on every keystroke-batch.
 
-## Phase 5 - Refs keep their span hash
+## Phase 5 - Agent Apply
 
-`refResolve :: resolveOne` already hash-checks Lexicon's answer against the file and discards the result.
-Keep it on the snapshot so the viewer can say `Changed since sent` and offer Sent against Now.
+The phone sends the owner's text as an ordinary `send`, which already carries arbitrary body text to a
+session's conversation under an 8 MB relay cap. No write plane, no descriptor to verify, no Lexicon change.
+
+The message must carry the full symbol id, the module, and the ORIGINAL span text the owner was shown,
+because a bare name is refused as ambiguous and an occurrence-numbered id can renumber. The agent compares
+the original against what it reads now and refuses on a mismatch rather than writing blind.
+
+Stated honestly: that is a comparison at human pace, not under a lock, so Release 1's Agent Apply is
+best-effort. The guarantee arrives with Phase 7.
+
+The agent's `channel_reply` already reaches the owner, so the result is visible as a normal reply. Nothing
+marks it as an apply result or refreshes the window; the foreground re-check covers it.
+
+## Phase 6 - Refs carry a span hash
+
+Slice the resolved range, hash the slice, and add it as one new optional field on `RefKeyMetaSchema`. That is
+what lets the viewer say `Changed since sent` and offer Sent against Now.
+
+New work, not retention: today `resolveOne` hashes the WHOLE file transiently and the metadata keeps no hash
+at all. `sliceRange` and `hashContent` are the primitives.
 
 # Release 2 - Saving without the agent
 
-## Phase 6 - Lexicon span compare-and-swap
+## Phase 7 - Lexicon span compare-and-swap
 
-A replace taking an expected span hash, re-resolving the id and hashing the span it now covers inside the
-writer gate in one step. The gated whole-file compare already exists in `planReplacement` and
-`refactorReplace`; this changes what is hashed and accepts the expectation from the caller.
+A replace accepting an expected span hash, re-resolving the id and hashing the span it now covers, inside
+the writer gate, in one step.
+
+This needs the gate restructured, not just a new argument. `journaledStep` wraps the staleness check, the
+journal, the write and the reindex; planning runs outside it. The re-resolve and the span hash have to move
+in, which means either a gated validation phase or moving `planReplacement` wholesale, candidate parsing
+included.
+
+Hash the exact `sliceRange` text, since ranges are zero-based lines and UTF-16 columns, and a TypeScript
+declaration range swallows a touching doc comment, so "the span" includes documentation.
+
+Also close the crash hazard this feature exposes: `recover` drops unfinished steps without closing the
+transaction row, so a crash leaves it open and blocks every later session. A phone save makes that reachable
+far more often than an agent's refactor does.
 
 Then move the pin again.
 
-## Phase 7 - The window token
+## Phase 8 - The window descriptor and Save
 
-Stateless and verifiable by the process that minted it, carrying workspace, module, symbol id, range, span
-hash and expiry. A save presents the token and the bound symbol is used, never one supplied anew. Stateless
-because Lexicon's transaction is ownerless and restart-surviving, so nothing good comes of storing window
-state beside it, and because stored state would invalidate every open window on every update.
+The descriptor is `(symbolId, range, spanHash)` and carries no capability, so it needs no key, no issuer and
+no expiry. Authority is the owner's already-signed console op, and a wrong descriptor either fails the hash
+or names another symbol. Stateless, so a restart costs nothing.
 
-## Phase 8 - Save
-
-Start a transaction if none is open, join one if it is, and commit only in the first case. Force a commit
-the phone's own transaction cannot close, reporting the issues in the save's answer rather than blocking on
-them.
+Save: start a transaction if none is open, join one if it is, commit ONLY if it opened it, as `joinCreate`
+does in the wake service. A commit the phone's own transaction cannot close is forced, with the issues
+reported in the answer rather than blocking, though the audit found that path is rarer than assumed since
+`impactOf` raises an issue only for newly dangling references.
 
 Refresh silently whenever nothing of the owner's is lost; show the stale banner only when a refresh would
-discard their typing. In Release 1 that rule is trivially satisfied, since nothing is ever unsaved.
+discard their typing.
 
-## Phase 9 - Whole-file mutation
+## Phase 9 - The raw whole-file editor
 
-Write, create, delete, move, copy over the plane as plain file work, never through Lexicon. Every mutation
-carries an expected source hash and, where it creates, expected destination absence.
+The tree's sheet offers `Edit raw` and nothing built it. A whole-file read into a Compose field, its own
+draft under `filesDir`, and a Save that goes through Phase 10's preconditions.
 
-A value op's `opId` is not a durable idempotency key, so a duplicate frame can invoke a handler twice. The
-expected-hash precondition is what makes the second attempt fail rather than repeat.
+Large files are the obvious trap: the relay cap is 8 MB and the read cap is lower. A file past the cap opens
+read-only and says so, rather than loading a truncated body that a Save would then write back.
 
-## Phase 10 - The awareness notice
+## Phase 10 - Whole-file mutation
 
-A raw edit banks a `no_act` `RidingAwareness` naming the file, so the agent's model of it is corrected by
-the next message it was going to get anyway. No push, no acknowledgement.
+Write, create, delete, move and copy over the plane as plain file work, never through Lexicon.
+
+Preconditions per operation, because an expected SOURCE hash alone is not idempotency. A repeated copy
+succeeds again; delete and move can act on a recreated file with identical bytes, since a content hash binds
+no file identity.
+
+- Write: expected source hash.
+- Create: expected destination absence.
+- Copy and move: expected source hash, expected destination state, and explicit overwrite rather than
+  implied.
+- Delete: expected source hash plus the resolved file identity.
+- Atomic semantics named per operation, and directory cases decided rather than inherited.
+
+Destructive operations are armed on the phone, not one-tap, and an answer the phone never received is
+reconciled by re-reading rather than retried blind.
+
+## Phase 11 - The awareness notice
+
+A raw edit banks a `no_act` `RidingAwareness` naming the file, so the agent's model of it is corrected by the
+next message it was going to get anyway. No push, no acknowledgement.
