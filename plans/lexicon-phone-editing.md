@@ -978,7 +978,7 @@ the right moment to own all four at once.
 - Nothing in this phase. The ops are reachable from the Gateway; the phone surface that calls them is
   Phase 4.
 
-## Phase 4 - WindowOps and the phone surface
+## Phase 4 - WindowOps and the phone surface ✅
 
 An ops class first, because this project's own rule is that a decision the phone makes lives beside its ops
 class and never inside a Composable, since there is no instrumentation test source set. `WindowOps` owns the
