@@ -372,8 +372,7 @@ class ChatRepository(
 	internal val policyOps = PolicyOps(state = _state, host = ChatRepositoryPolicyHost(this))
 	internal val windowOps = WindowOps(
 		host = ChatRepositoryWindowHost(this),
-		drafts = WindowDraftStore(File(filesDir, "window-drafts")),
-		repoScope = repoScope,
+		drafts = WindowDraftStore(File(filesDir, "window-drafts"), repoScope),
 	)
 	internal val attachments = AttachmentOps(
 		state = _state,

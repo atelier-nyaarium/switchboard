@@ -104,9 +104,10 @@ class WindowOpsTest {
 	private val one = WorkspaceTarget(gatewayId = "sakura", address = "home.sakura.host.aaa")
 	private val two = WorkspaceTarget(gatewayId = "sakura", address = "home.sakura.host.bbb")
 
-	/** Unconfined, so a draft write has landed by the time the call that started it returns. */
-	private fun opsOver(store: WindowDraftStore, over: WindowHost = host) =
-		WindowOps(over, store, CoroutineScope(Dispatchers.Unconfined))
+	/** Unconfined, so the store's queue drains on the calling thread. */
+	private fun draftsOver(over: File) = WindowDraftStore(over, CoroutineScope(Dispatchers.Unconfined))
+
+	private fun opsOver(store: WindowDraftStore, over: WindowHost = host) = WindowOps(over, store)
 
 	@Before
 	fun setUp() {
@@ -115,7 +116,7 @@ class WindowOpsTest {
 		gateway.spans[F_ID] = "fun f() {}" to "h1"
 		gateway.spans[G_ID] = "fun g() {}" to "h2"
 		host = FakeHost(gateway)
-		drafts = WindowDraftStore(dir)
+		drafts = draftsOver(dir)
 		ops = opsOver(drafts)
 	}
 
@@ -168,7 +169,7 @@ class WindowOpsTest {
 		ops.openWindow(one, F_ID)
 		ops.type(one, F_ID, "fun f() { mine() }")
 
-		val next = opsOver(WindowDraftStore(dir))
+		val next = opsOver(draftsOver(dir))
 		next.openWindow(one, F_ID)
 
 		assertEquals(listOf(F_ID to "fun f() { mine() }"), shownIn(next, one))
@@ -426,6 +427,25 @@ class WindowOpsTest {
 
 		assertEquals(listOf(F_ID to "typed after the reopen"), shown())
 		assertEquals("typed after the reopen", drafts.load(one, F_ID))
+	}
+
+	// A sweep answer describing a version the window has moved past is older news than what it shows.
+	// Nothing else catches it: the sweep is unfenced, the incarnation is unchanged by an adopt, and
+	// `refreshWith` compares hashes for equality alone, so it would read the older text as a catch-up.
+	@Test
+	fun `a sweep answer that lands after the owner's refresh does not put the old span back`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		gateway.spans[F_ID] = "swept" to "h2"
+		val hold = TestHold().also { gateway.holds[F_ID] = it }
+
+		val sweep = async { ops.recheck(one) }
+		hold.entered.await()
+		gateway.spans[F_ID] = "refreshed" to "h3"
+		ops.adopt(one, F_ID)
+		hold.release()
+		sweep.await()
+
+		assertEquals(listOf(F_ID to "refreshed"), shown())
 	}
 
 	// A transient refusal is not a reason to throw away what the owner is looking at.

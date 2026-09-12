@@ -20,17 +20,24 @@ internal data class WorkspaceTarget(val gatewayId: String, val address: String) 
 }
 
 /**
- * Joins halves into one key with the ASCII record separator, which no address, module path or symbol
- * id holds. Constructed rather than written as a literal: a control byte in source makes the file
- * binary to every tool that reads it, and compiles anyway.
+ * Constructed rather than written as a literal: a control byte in source makes the file binary to
+ * every tool that reads it, and compiles anyway.
  */
 internal val KEY_SEPARATOR: String = Char(0x1e).toString()
 
-internal fun separated(vararg parts: String): String {
-	// Otherwise two different pairs join to one key and share a fence counter.
-	require(parts.none { it.contains(KEY_SEPARATOR) }) { "a key part holds the separator" }
-	return parts.joinToString(KEY_SEPARATOR)
-}
+/**
+ * Joins two halves into one key. A symbol id CAN hold the separator, since Lexicon quotes a descriptor
+ * name only for its own structural characters, so a declaration named with a control byte reaches here
+ * raw, and a workspace file does not get to decide whether the tab crashes. Escaping keeps two
+ * different pairs from joining to one key and sharing a fence counter.
+ *
+ * Two halves rather than a vararg: no arity can then coincide with another's key.
+ */
+internal fun separated(first: String, second: String): String = "${escaped(first)}$KEY_SEPARATOR${escaped(second)}"
+
+private fun escaped(part: String): String =
+	// The escape character first, or a written "%1e" and an escaped separator become one string.
+	part.replace("%", "%25").replace(KEY_SEPARATOR, "%1e")
 
 /**
  * What a read fills, which is what a fence key must name. Two reads of one session but different
@@ -226,13 +233,6 @@ internal fun withWindow(held: List<Window>, added: Window): List<Window> =
 
 internal fun withoutWindow(held: List<Window>, symbolId: String): List<Window> =
 	held.filterNot { it.descriptor.symbolId == symbolId }
-
-/**
- * Whether the drafts on disk should still hold this text. Memory is the authority, so a save queued
- * before a close or a refresh does not land after the clear that was meant to discard it.
- */
-internal fun holdsDraft(held: List<Window>, symbolId: String, text: String): Boolean =
-	held.any { it.descriptor.symbolId == symbolId && it.draft == text }
 
 /** Only what the owner actually changed, so an untouched span is never submitted. */
 internal fun editedWindows(held: List<Window>): List<Window> = held.filter { it.edited }

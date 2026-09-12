@@ -6,15 +6,11 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
 import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 
 /** A port, so a test drives the whole class without a socket. */
 internal interface WorkspaceGateway {
@@ -54,8 +50,6 @@ internal sealed interface Applied {
 internal class WindowOps(
 	private val host: WindowHost,
 	private val drafts: WindowDraftStore,
-	/** Already off the main thread, so what is launched on it names no dispatcher. */
-	private val repoScope: CoroutineScope,
 ) : ClearsOnReprovision {
 	private val reads = GatewayReadFence()
 
@@ -67,8 +61,12 @@ internal class WindowOps(
 	/** One sweep at a time, or an older sweep's answer lands after a newer one's. */
 	private val sweeping = Mutex()
 
-	/** Draft writes in the order they were asked for, and never interleaved on one temp file. */
-	private val writing = Mutex()
+	/**
+	 * Held across the write and the enqueue that follows it, so the files are asked for in the order the
+	 * values landed. A plain monitor rather than a `Mutex`, since the screen calls `apply` off a keystroke
+	 * and cannot suspend; nothing inside it reaches the disk or the network.
+	 */
+	private val applying = Any()
 
 	/** What the window screen collects. Not in `ChatState`, which is persisted and the Router's. */
 	val windows: StateFlow<Map<WorkspaceTarget, List<Window>>> = held
@@ -93,10 +91,40 @@ internal class WindowOps(
 	 * It runs inside the atomic update, so a check it makes is not racing the write it guards.
 	 */
 	private fun apply(target: WorkspaceTarget, transform: (List<Window>) -> List<Window>) {
-		held.update { all ->
-			val before = all[target].orEmpty()
-			val after = transform(before)
-			if (after == before) all else all + (target to after)
+		synchronized(applying) {
+			var before = emptyList<Window>()
+			var after = emptyList<Window>()
+			held.update { all ->
+				before = all[target].orEmpty()
+				after = transform(before)
+				if (after == before) all else all + (target to after)
+			}
+			// Assigned inside a compare-and-set that may retry, so only the winning attempt is persisted.
+			persistDrafts(target, before, after)
+		}
+	}
+
+	/**
+	 * The disk follows the value. A caller changes a window and never says what the file should do, so
+	 * the pair cannot drift: a draft that appeared is written, one that went is deleted, and a window
+	 * that left takes its file with it.
+	 *
+	 * Keyed by incarnation, the one notion of window identity `applyTo` and the epoch guard also read.
+	 */
+	private fun persistDrafts(target: WorkspaceTarget, before: List<Window>, after: List<Window>) {
+		// Departures first: a file is named by its symbol, so a window leaving and another of the same
+		// symbol arriving name one file, and the leaver must not delete what the arrival just wrote.
+		val kept = after.mapTo(HashSet()) { it.incarnation }
+		for (window in before) {
+			if (window.incarnation in kept) continue
+			drafts.clear(target, window.descriptor.symbolId)
+		}
+		val was = before.associateBy { it.incarnation }
+		for (window in after) {
+			val draft = window.draft
+			if (was[window.incarnation]?.draft == draft) continue
+			val symbolId = window.descriptor.symbolId
+			if (draft == null) drafts.clear(target, symbolId) else drafts.save(target, symbolId, draft)
 		}
 	}
 
@@ -164,9 +192,7 @@ internal class WindowOps(
 		val began = epoch.get()
 		return when (val answer = fenced(target, ReadSlot.Span(symbolId)) { gate.symbolSource(target, symbolId) }) {
 			is WorkspaceAnswer.Read -> {
-				// Off the caller's thread, which is the screen's: a Compose scope runs on the main one.
-				// Under the write lock, or a close racing the reopen restores the draft it just discarded.
-				val draft = withContext(Dispatchers.IO) { writing.withLock { drafts.load(target, symbolId) } }
+				val draft = drafts.load(target, symbolId)
 				val opened = Window(
 					descriptor = descriptorOf(answer.value),
 					original = answer.value.text,
@@ -191,17 +217,12 @@ internal class WindowOps(
 		if (module != null && windowsOf(target).none { it.descriptor.module == module }) {
 			context.remove(target to module)
 		}
-		repoScope.launch { writing.withLock { drafts.clear(target, symbolId) } }
 	}
 
-	/** Memory first so the field stays responsive; the draft reaches disk off the main thread. */
+	/** Memory only; the disk follows from the value, off the caller's thread. */
 	fun type(target: WorkspaceTarget, symbolId: String, text: String) {
 		val window = windowFor(target, symbolId) ?: return
 		applyTo(target, window.incarnation) { it.copy(draft = text) }
-		repoScope.launch {
-			// Under the lock, so a clear cannot land between the check and the write.
-			writing.withLock { if (holdsDraft(windowsOf(target), symbolId, text)) drafts.save(target, symbolId, text) }
-		}
 	}
 
 	/**
@@ -231,14 +252,7 @@ internal class WindowOps(
 					original = fresh.value.text,
 					incarnation = incarnation,
 				)
-				var applied = false
-				applyTo(target, incarnation) {
-					applied = true
-					next
-				}
-				// Only the draft this adopted. The fence usually supersedes a late answer first; this is
-				// the guard for a window that went away by some other road.
-				if (applied) repoScope.launch { writing.withLock { drafts.clear(target, symbolId) } }
+				applyTo(target, incarnation) { next }
 				WorkspaceAnswer.Read(next)
 			}
 			is WorkspaceAnswer.Refused -> fresh
@@ -246,28 +260,34 @@ internal class WindowOps(
 		}
 	}
 
-	/** Unfenced: a sweep over windows already held, not a read the owner just asked for. */
+	/**
+	 * Unfenced: a sweep over windows already held, not a read the owner just asked for. The fence would
+	 * be wrong here, since it hands the key to whoever claimed last, so a sweep would discard the
+	 * Refresh the owner just tapped and answer them nothing.
+	 *
+	 * The span the sweep read is what it may judge, so each window carries the hash it was holding when
+	 * the read began. An answer describing a version the window has already moved past is older news
+	 * than what it is showing, and `refreshWith` compares hashes for equality alone: it would take that
+	 * older text as the file catching up and quietly put it back.
+	 */
 	suspend fun recheck(target: WorkspaceTarget) = sweeping.withLock {
 		val gate = host.workspace ?: return@withLock
-		for ((symbolId, incarnation) in windowsOf(target).map { it.descriptor.symbolId to it.incarnation }) {
+		for (held in windowsOf(target).map { Triple(it.descriptor.symbolId, it.incarnation, it.descriptor.spanHash) }) {
+			val (symbolId, incarnation, began) = held
 			val fresh = gate.symbolSource(target, symbolId)
 			if (fresh !is WorkspaceAnswer.Read) continue
 			// Judged against the window as it stands, and only if it is still the one that was read.
-			// Assigned inside a compare-and-set that may retry, so it must stay idempotent.
-			var dropped = false
 			applyTo(target, incarnation) { current ->
-				when (val outcome = refreshWith(current, fresh.value)) {
-					RefreshOutcome.Unchanged -> current
-					is RefreshOutcome.Adopted -> {
-						dropped = current.draft != null
-						outcome.window
+				if (current.descriptor.spanHash != began) {
+					current
+				} else {
+					when (val outcome = refreshWith(current, fresh.value)) {
+						RefreshOutcome.Unchanged -> current
+						is RefreshOutcome.Adopted -> outcome.window
+						is RefreshOutcome.Conflicts -> outcome.window
 					}
-					is RefreshOutcome.Conflicts -> outcome.window
 				}
 			}
-			// An adopted window holds no draft, so the file must not keep one a reopen would restore.
-			// Any held draft, not only a differing one: typing back to the original still leaves a file.
-			if (dropped) repoScope.launch { writing.withLock { drafts.clear(target, symbolId) } }
 		}
 	}
 
@@ -304,8 +324,8 @@ internal class WindowOps(
 	override suspend fun clearInMemory() {
 		// Before the clear, so a read already in flight cannot add the previous owner's window after it.
 		epoch.incrementAndGet()
-		held.value = emptyMap()
+		for (target in held.value.keys) apply(target) { emptyList() }
 		context.clear()
-		writing.withLock { drafts.clearAll() }
+		drafts.clearAll()
 	}
 }

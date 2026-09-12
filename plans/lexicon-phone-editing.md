@@ -1209,6 +1209,23 @@ A red team then broke four things, all fixed and each covered:
 - **The notice believed an op id was delivery.** A send answers with one either way and marks its own
   thread row when the gateway refuses, so the apply reads that row.
 
+A second red team, over the draft-persistence refactor, broke three more:
+
+- **A sweep answer landing after the owner's Refresh put the older span back.** The sweep is unfenced, an
+  adopt keeps the window's incarnation, and `refreshWith` compares hashes for equality alone, so it read
+  the older text as the file catching up. Each window now carries the hash it held when its read began,
+  and an answer about a version it has moved past lands nothing. The fence is the wrong tool here: it
+  hands the key to whoever claimed last, so a sweep would discard the Refresh and answer the tap nothing.
+- **A symbol id can hold the record separator.** Lexicon quotes a descriptor name only for its own
+  structural characters, so a declaration named with a control byte reaches the phone raw, and the key
+  join refused it with a throw that escaped a window open. The join escapes now rather than refusing,
+  since a workspace file does not get to decide whether the tab crashes.
+- **A refused draft write read as a saved one.** The write swallowed its own failure, so the worker's
+  logger never saw it and `renameTo` returning false was indistinguishable from success. It throws now
+  and the worker logs it. A re-audit found the same swallow in the read, the clear and the wipe, so all
+  four report the same way. Only the log changes, and no gate here reads one: there is no portable way
+  to refuse a delete, so these four are covered by inspection alone.
+
 ### Bug Classes
 
 - **The draft on disk and the draft in memory are two copies of one fact.** Patched twice in this phase.
@@ -1218,17 +1235,56 @@ A red team then broke four things, all fixed and each covered:
   draft; the class is a second copy nothing binds to the first. A reducer over held state does not cover
   it, since one copy is a file and the other is a `StateFlow`. What would: make the draft file follow the
   window value rather than each caller remembering, which means one writer keyed to the window's
-  incarnation. Left for Phase 8, which adds Save and therefore a third road into the same pair.
+  incarnation.
+
+  Landed here rather than in Phase 8. `apply` is the one road into held state, so it is also the one road
+  to the disk: it diffs the winning before and after by incarnation and says what each file should hold.
+  No caller names a file any more, and `holdsDraft` is gone with the callers that asked it. The write and
+  the enqueue that follows it are taken under one monitor, or two `apply` calls could win their
+  compare-and-sets in one order and ask for their files in the other. The store then drains its own queue,
+  reads included, so a clear asked for after a save cannot be overtaken by it.
+
+  That ordering is covered by a dispatcher that hands work back newest first. The rest of the store's tests
+  run on `Dispatchers.Unconfined`, where a send resumes the worker on the calling thread, so every road
+  through the store looks ordered there whether or not it is.
+
+  Two hangs came out of the same review. A throwing job ended the worker and left every later read waiting
+  for an answer nothing would give, so each job is guarded. A cancelled scope did the same, so the worker
+  shuts the queue on its way out and anything handed over after that runs on the caller. A dead worker is
+  not silent either way: everything after it would run on the caller, which for a keystroke is the main
+  thread, and that is what the guard's test pins.
+
+  `persistDrafts` clears for departed windows before saving for present ones. A file is named by its
+  symbol, so one window leaving and another of the same symbol arriving would name one file, and the
+  leaver must not delete what the arrival just wrote. No caller produces both in one update today, since
+  a reopen needs a close first, so nothing pins the order. Phase 8 adds Save and is the moment to pin it.
 
 ### Left standing, with reasons
 
+- **The sweep's hash guard can drop an answer that was actually newer.** Two reads of one span are two
+  plane ops, and nothing orders their answers, so a sweep that started before an adopt can be served
+  after it. The guard skips any answer arriving at a window whose hash has moved, which in that ordering
+  drops news the window wanted. Nothing better is available: a content hash gives no ordering, so the
+  only thing that can be decided is whether the window still sits where the read began. The trade is
+  deliberate, since the alternative silently reverts an action the owner took, and the cost self-heals
+  on the next foreground sweep.
+- **A draft whose key holds a percent sign is orphaned by the escape.** The key is hashed into the
+  filename, so escaping changes it for those ids alone and their held drafts read as absent. Nothing
+  lists the directory, so the old file stays. Accepted: a draft is unsaved scratch, the common id is
+  unaffected, and a migration probing both spellings would carry the old rule forever.
+- **A refused draft write reaches the log and nothing else.** `DebugLog` leaves the device only on a
+  debug build, so an owner on the release build sees their text on screen and would learn it never
+  landed only by losing it. A per-window "not saved" state is the honest answer and it is a screen
+  change, so it sits on the board rather than widening this phase.
 - **A reused session address would carry a window to the wrong workspace.** A session id is six hex
   characters, unique within its spawn rather than forever, so an address can in principle come back for a
   different session. The protection is the one the phase already rests on: the message carries the
   ORIGINAL text and the agent refuses when what it reads does not match. Tracking a session incarnation
   through the window set would be real work for a collision this unlikely.
 - **A very long span is one very long field.** Typing in it costs a full-text write per keystroke batch,
-  serialised behind the draft lock. Bounded by what the owner chose to open.
+  serialised behind the store's queue, which is unbounded and says nothing about its backlog. Bounded in
+  practice by what the owner chose to open, which is one symbol. Phase 9 opens a whole file and is where
+  a debounce or a write that coalesces per symbol earns its place.
 - **The sandbox answers a send as sent.** It reaches no Router, and the alternative is a button that looks
   broken. Nothing else about the apply road can be walked there.
 
@@ -1279,6 +1335,10 @@ discard their typing.
 
 The tree's sheet offers `Edit raw` and nothing built it. A whole-file read into a Compose field, its own
 draft under `filesDir`, and a Save that goes through Phase 10's preconditions.
+
+The draft goes through `WindowDraftStore`, with the path taking the symbol id's place in the key, so a
+whole-file draft is not a second writer of the same directory. The disk follows the held value there too, as
+Phase 5 made it.
 
 The relay cap is 8 MB and the read cap is lower. A file past the cap opens read-only and says so, rather than
 loading a truncated body a Save would write back.

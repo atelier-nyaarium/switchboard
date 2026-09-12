@@ -41,6 +41,15 @@ private fun outlineSymbol(name: String, kind: String) =
 	WorkspaceOutlineSymbol(symbolId = "lexicon typescript src/a.ts $name.", name = name, symbolKind = kind)
 
 class WindowRulesTest {
+	// A symbol id can hold the separator, so the join escapes it rather than refusing. A part spelling
+	// the escape must not then key as one holding the separator itself.
+	@Test
+	fun `a key part holding the separator joins, and cannot be spelled by another part`() {
+		separated("a${KEY_SEPARATOR}b", "c")
+
+		assertFalse(separated("%1e", "c") == separated(KEY_SEPARATOR, "c"))
+	}
+
 	// Typing the original back is not an edit, and nothing else would notice if it were.
 	@Test
 	fun `a draft equal to the original is not an edit`() {
@@ -280,16 +289,6 @@ class WindowRulesTest {
 		assertFalse(opensModule(listOf(first, second), 1))
 		assertTrue(opensModule(listOf(first, second), 0))
 		assertTrue(opensModule(listOf(first, elsewhere), 1))
-	}
-
-	// Memory is the authority: a save queued before a close must not land after the clear.
-	@Test
-	fun `a draft is persisted only while memory still holds it`() {
-		val held = listOf(window(draft = "mine"))
-
-		assertTrue(holdsDraft(held, F_ID, "mine"))
-		assertFalse(holdsDraft(held, F_ID, "older"))
-		assertFalse(holdsDraft(emptyList(), F_ID, "mine"))
 	}
 
 	@Test
