@@ -20,9 +20,12 @@ internal sealed interface GatewayRead<out T> {
 internal class GatewayReadFence {
 	private val counters = ConcurrentHashMap<String, AtomicLong>()
 
-	/** Claims a read; the body's answer is Fresh only while no later claim of the key exists. */
-	suspend fun <T> read(gatewayId: String, call: suspend () -> T): GatewayRead<T> {
-		val counter = counters.computeIfAbsent(gatewayId) { AtomicLong(0) }
+	/**
+	 * Claims a read; the body's answer is Fresh only while no later claim of the key exists. The key is
+	 * whatever the holder scopes by: a gateway id for the per-gateway tabs, a session address for windows.
+	 */
+	suspend fun <T> read(key: String, call: suspend () -> T): GatewayRead<T> {
+		val counter = counters.computeIfAbsent(key) { AtomicLong(0) }
 		val mine = counter.incrementAndGet()
 		val value = call()
 		return if (mine == counter.get()) GatewayRead.Fresh(value) else GatewayRead.Stale

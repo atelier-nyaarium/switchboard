@@ -1005,6 +1005,30 @@ A draft persists to a file under `filesDir`, written atomically. NOT the runbook
 commit` serialises a whole library into one preferences string, which a code span can overrun and which
 rewrites everything on every keystroke-batch.
 
+### Done
+
+- **The phone can reach the plane.** Five console ops, one per read, because a nested union generated an
+  opaque payload the phone would have to build by hand and every other feature uses one kind each. Each
+  names a SESSION, never a spawn point.
+- **The answer shapes became Zod.** They were plain interfaces on the stated premise that they never reach
+  Kotlin, and the phone reading them makes that false. `schemasWorkspace.ts` owns them, the codegen lists
+  it, and `Protocol.kt` carries seven real data classes rather than a `JsonElement`.
+- **`ConsoleClientWorkspace.kt`** keeps three outcomes apart: read, refused with the gateway's reason, and
+  unreachable. Collapsing the last two would draw a withheld file as a dropped connection.
+- **`WindowOps.kt`** holds every rule: the session-scoped target key, the descriptor carrying the span hash,
+  the refresh rule, the two submit roads, the accumulating window set and what an agent request must carry.
+  Eleven JVM tests, all running. The refresh rule is mutation-tested: dropping the conflict branch fails
+  exactly one test out of 1330.
+- **The fence needed no new class.** `GatewayReadFence` already keys by an opaque string; only its parameter
+  name said gateway. Renaming that one word removed the lie without touching a call site, so windows key the
+  same fence by session address.
+
+Green on lint, tsc, 2815 TS tests, `check:boot`, and `kotlin-gate.sh`, which CI does not run.
+
+### Left
+
+- The five screens, and the draft file under `filesDir`.
+
 ## Phase 5 - Agent Apply
 
 The phone sends the owner's text as an ordinary `send`, which already carries arbitrary body text to a
