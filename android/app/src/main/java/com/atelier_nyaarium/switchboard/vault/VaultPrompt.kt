@@ -194,7 +194,7 @@ class VaultPrompt(
 			orientation = LinearLayout.HORIZONTAL
 			gravity = Gravity.END
 			visibility = View.GONE
-			addView(flat("Deny") { answer(VAULT_DECISION_DENY) })
+			addView(flat("Deny", ERROR) { answer(VAULT_DECISION_DENY) })
 			addView(flat("Go to session") { shown?.let { onOpenSession(it.team) }; park() })
 			addView(filled("Send") { answer(VAULT_DECISION_ONCE) })
 		}.also { actions = it }
@@ -240,12 +240,13 @@ class VaultPrompt(
 		setStroke(dp(1).coerceAtLeast(1), OUTLINE)
 	}
 
-	/** Deny and Go to session read as text, so Send is the only thing that looks like the answer. */
-	private fun flat(label: String, onClick: () -> Unit) = Button(context).apply {
+	/** Deny and Go to session read as text, so Send is the only thing that looks like the answer.
+	 * Deny takes the error colour, the way both authenticators mark the refusing half. */
+	private fun flat(label: String, color: Int = PRIMARY, onClick: () -> Unit) = Button(context).apply {
 		text = label
 		textSize = 13f
 		isAllCaps = false
-		setTextColor(PRIMARY)
+		setTextColor(color)
 		background = null
 		minWidth = 0
 		minimumWidth = 0
@@ -334,5 +335,6 @@ class VaultPrompt(
 		val OUTLINE: Int = Color.parseColor("#938F99")
 		val PRIMARY: Int = Color.parseColor("#D0BCFF")
 		val ON_PRIMARY: Int = Color.parseColor("#381E72")
+		val ERROR: Int = Color.parseColor("#F2B8B5")
 	}
 }
