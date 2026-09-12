@@ -866,9 +866,29 @@ registration today, so this needs:
 
 Reads in this release: tree listing, whole-file read, outline, symbol source, symbol knowledge.
 
-**Lift the file loader out of `references/` first.** `loadRefFile` owns regular-files-only, the 8 MB cap
-sized before the read, and the binary sniff. The plane needs all three. Importing it across features or
-writing a second copy are both wrong, so it moves to a shared module that refs and the plane both call.
+### Done
+
+- **The loader is lifted.** `src/mcp/workspace/loadFile.ts` holds regular-files-only, the 8 MB cap sized
+  before the read, and the text-or-nothing decode. Refs and the plane both call it. Nothing read the
+  loader's own path field, so no wire change was needed and `refPath` stays in the channel file schema.
+- **The wire vocabulary.** `src/shared/workspace-op.ts`, beside `host-op.ts` for the same reason: it is
+  vocabulary shared between the Gateway and an MCP-side process, and it never reaches Kotlin. Five read
+  ops, one answer per op, and a failure union that keeps `refused` apart from `failed` so a withheld file
+  never reads as a dropped socket.
+- **Correlation, with the fence the host coordinator lacks.** `WorkspaceOpCoordinator` remembers the
+  socket generation a request was issued on, so a late answer from a replaced socket cannot settle its
+  successor's request. `failGeneration` settles only what one dropped socket carried, leaving another
+  session's waits alone. Mutation-tested: removing the generation comparison fails exactly one test.
+- **At-most-once, on the answering side.** `createOpDedupe` replays a settled answer for a repeated key
+  AND joins a flight already open, which is the case a settled-only map misses: a replay arriving before
+  the first answer would otherwise do the work twice. A thrown op is not held, since nothing was
+  answered. Mutation-tested: removing the in-flight join fails exactly one test.
+
+### Left
+
+- The frame pair on the socket: plugin-side dispatch, and the Gateway side that sends and settles.
+- Socket selection per session via `isMainOrLead` rather than broadcasting to every `subId`.
+- The five read handlers, each taking its path through `confine` and its bytes through the lifted loader.
 
 ## Phase 4 - WindowOps and the phone surface
 
