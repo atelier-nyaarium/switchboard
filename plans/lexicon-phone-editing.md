@@ -1028,8 +1028,9 @@ rewrites everything on every keystroke-batch.
 - **The fence needed no new class.** `GatewayReadFence` already keys by an opaque string; only its parameter
   name said gateway. Renaming that one word removed the lie without touching a call site, so windows key the
   same fence by session address.
-- **`WindowDraftStore.kt`** writes ONE FILE PER DRAFT under `filesDir`, write-then-rename, keyed by a hash
-  of session and symbol id. Eleven tests, and session scoping is mutation-tested.
+- **`WorkspaceDraftStore.kt`** (named `WindowDraftStore` until Phase 9) writes ONE FILE PER DRAFT under
+  `filesDir`, write-then-rename, keyed by a hash of session and `DraftKey` (a symbol id, or since Phase 9 a
+  file path), with the base hash the typing was done over. Session scoping is mutation-tested.
 - **Four screens behind one Back stack**, in `workspace/`, plus `WorkspaceNav.kt` for the stack, the title,
   the child path and which sessions hold a workspace. Nothing decides anything inside a Composable.
 - **`SandboxWorkspaceGateway`** answers as a session's plugin would, which is the only reason all four
@@ -1479,8 +1480,10 @@ discard their typing.
   hash plus a re-read of each window at its turn. Each road remembered a different half of the guard. Closed
   structurally: `WindowStamp` is (incarnation, span hash), and `landUnmoved` is the one road that lands such
   an answer, so the sweep and the save share it and a new road cannot bring half a guard. The open keeps its
-  epoch, since it lands a window no stamp describes yet; Refresh keeps `applyTo`, since the owner's own tap
-  is newer than anything.
+  epoch, since it lands a window no stamp describes yet. Refresh kept `applyTo` on the reading that the
+  owner's own tap is newer than anything, which Phase 9's red team disproved: typing entered while Refresh
+  read is newer still, and was dropped. Phase 9 replaced the stamp and both helpers with `HeldEdits.land`,
+  where Refresh lands only over the untouched window.
 
 ## Phase 8b - Root and conversation drawers ✅
 
@@ -1580,7 +1583,7 @@ board" the scope table names. The whole board has never had a view of its own.
   generation are one `ShellNav` value, and `arrive` is a pure transition that decides the view and the bump
   together. Nothing outside `ShellNav.kt` writes a field of it.
 
-## Phase 9 - The raw whole-file editor
+## Phase 9 - The raw whole-file editor ✅
 
 The tree's sheet offers `Edit raw` and nothing built it. A whole-file read into a Compose field, its own
 draft under `filesDir`, and a Save that goes through Phase 10's preconditions.
@@ -1591,6 +1594,89 @@ Phase 5 made it.
 
 The relay cap is 8 MB and the read cap is lower. A file past the cap opens read-only and says so, rather than
 loading a truncated body a Save would write back.
+
+### Done
+
+- **One file mutation op, write first.** `workspace_mutate_file` carries a strict `FileMutationSchema`
+  variant, so Phase 10's create, delete, move and copy are variants with their own preconditions rather than
+  four more ops through a dozen files each. The plugin's `writeOf` (`src/mcp/workspace/mutateFile.ts`)
+  compares the sha256 of the bytes on disk, fills a sibling temp through `writeFileAtomic`, hashes the file
+  again and renames onto the link's target. A plane failure of any write answers `unknown`.
+- **The read says whether a write may follow.** `loadWorkspaceFile` answers the hash and whether it
+  transcoded; the read answer carries `hash` only for a UTF-8 file under `MAX_RAW_EDIT_BYTES` (256 KB) and a
+  `readOnly` reason otherwise, and the write refuses what the read would not offer.
+- **The raw editor** (`RawFileOps`, `RawFileRules`, `workspace/WorkspaceRawFile.kt`): Save on the right,
+  Discard on the left, a one-line "Changed on disk" banner with Refresh, a read back for an unanswered write,
+  a foreground recheck, and per-path views the screen only renders.
+- **Drafts carry their base hash, for windows too.** A draft reopened over moved text comes back stale, so a
+  save of it is refused. `WorkspaceDraftStore` keys by `DraftKey` and writes the newest intent per file once.
+- **`HeldEdits.land`** closed the landing class for both editors (see Bug Classes).
+- **Verified on the emulator:** read-only past the cap, editable, a landed Save and its notice retiring on
+  typing, the stale banner and "Not saved", Refresh adopting the agent's text, and typing surviving a
+  force-stop. Gates: kotlin gate, 2863 TypeScript tests, lint.
+
+### Left
+
+- **Deploy.** The gateway needs the new console op before a phone offers Save (deploy order: gateway, then
+  plugin and phone). Until the plugin updates, a read carries no hash and the editor opens read-only with
+  "update it".
+
+### Bug Classes
+
+- **An awaited answer lands on held state keyed by less than what it decided from.** Mechanism: every
+  ops-class road that reads the gateway and then writes a held edit. Phase 5 and Phase 8 closed the sweep and
+  the save with `WindowStamp` (incarnation and span hash). This phase's red team found Refresh still keyed by
+  incarnation alone, in both `WindowOps.adopt` and the new `RawFileOps.adopt`, so typing entered while its
+  read was in flight was dropped; and `RawFileOps.open` guarded against a re-provision but not a leave, so a
+  screen left mid-read held the file anyway. Patched: adopt lands only while the stamp AND the draft are what
+  the tap saw, and a per-path leave count fences open. Three rounds in one mechanism. Closed structurally by
+  the architecture pass: `HeldEdits.land` takes the edit an answer was computed from and a `Landing`, which
+  is `OverUntouched` (lands only over exactly that value) or `Folded` (lands over the same opening at the same
+  `version`, folding in what arrived since). `WindowStamp`, `RawStamp` and both ops classes' `landUnmoved`
+  and `applyTo` are gone, so no road names its own subset; `HeldEditsTest` pins both landings. The red team on
+  that pass found the fourth instance one level out: the raw screen's `views` map is held state outside
+  `HeldEdits`, and its publishes guarded by a re-provision epoch and a leave count, so of two opens of one path
+  the older answer could draw over the newer. Patched with one token per path that a newer open or a leave
+  replaces; the same token bounds the map, since an open that settles takes its entry with it. Not closed for
+  a future second map beside `HeldEdits`: `views` is one, and nothing stops a third choosing its own guard.
+- **A restored draft trusted without the text it was typed over.** Mechanism: `WindowDraftStore` held text
+  only, so a draft reopened after the file or span moved was saved as if typed over the current text,
+  landing old typing over the change. Found while designing the raw editor, for windows and raw files alike;
+  patched by storing the base hash beside the text. The red team found the legacy shim restored a pre-base
+  draft as fresh, the same class through the migration door; patched by reading one with `UNKNOWN_BASE`,
+  which no hash equals, so the rules need no second branch.
+
+### What the architecture pass decided
+
+- **The raw screen renders, it does not decide.** `RawFileOps.views` publishes each path's `RawView`
+  (loading, editable, read-only with its reason, refused, unreachable). A recheck that lets a file go draws
+  it read-only, a re-provision clears the views, a leave removes the path's view, and Refresh answers only a
+  notice when it cannot read. The screen's own open answer, let-go effect and generation fence are gone,
+  and `RawFileOpsTest` covers each transition. A caret move is not typing in either ops class.
+- **Names that tell the truth.** `WorkspaceDraftStore` holds span and file drafts, `WorkspaceHost` and
+  `WorkspaceGateway` live in `WorkspacePorts.kt`, and `ChatRepositoryWorkspaceHost` serves both ops classes.
+  The draft directory keeps its first name, since another would orphan every held draft.
+- **Not one editor framework over spans and files.** Lexicon issues, joined transactions, context lines and
+  accumulating windows differ from one file per path; the landing primitive is the part they share.
+- **Phase 10 must not widen `stale`.** "The destination exists", "the source is another file with the same
+  bytes" and "overwrite was not armed" are different facts from "the file moved", so the mutation answer
+  grows outcomes that name each, with source and destination state reported apart, rather than more
+  optional fields on `done/stale/unknown`. The reconcile for move and delete reads both paths back; the text
+  comparison `readBackOf` makes cannot settle them.
+
+### Accepted limits
+
+- **The write's last hash and its rename are two calls.** A writer landing between them is overwritten and
+  the phone told `done`. Only a lock every writer honours closes it, and the agent's own tools honour none.
+- **A parent directory swapped for a link between confine and rename redirects the write.** Confinement is a
+  mistake boundary; the session that could stage the swap can already write the target.
+- **The rename gives the file a new inode.** Mode is kept; owner, ACLs and hardlinks are not.
+- **A crash between the temp write and the rename leaves `name.tmp.<pid>` beside the file.** Nothing sweeps a
+  workspace; the tree lists it until someone deletes it.
+- **A save may grow a file past `MAX_RAW_EDIT_BYTES`.** The cap is what a phone field can hold open, not what
+  a save may write, so the save lands and the next open is read-only.
+- **A file too large for one answer (over 4 MB) is refused with its size, not shown read-only.** It says so
+  and loads no truncated body, which is the guarantee; a body that does not fit cannot be drawn.
 
 ## Phase 10 - Whole-file mutation
 
@@ -1737,6 +1823,12 @@ it and the first was dismissed. The tool gives no way to ask for the escape text
 avoid the literal entirely: `Char(0x1e)` in Kotlin, `String.fromCharCode` in a test. `control-byte-residue.test.ts`
 now fences it, but the trap remains for anyone writing a string.
 
+It happened again in Phase 9 with a byte order mark: a test string written with the U+FEFF escape before `hi`
+landed as the literal zero-width character in `src/__tests__/workspace-handlers.test.ts`, and nothing failed.
+Writing this entry did it a third time, quoting the escape. `control-byte-residue.test.ts` reads
+control bytes only, so a format character passes it; only the banned-character grep from the coding rules saw
+it, and nothing runs that grep. The test now builds the bytes (`UTF16_HI`).
+
 ## Every phone test dispatcher agrees with whatever mechanism you wrote
 
 The phone's tests run on `Dispatchers.Unconfined`, where a channel send resumes its consumer inline on the
@@ -1807,6 +1899,12 @@ mis-tap, and I spent a round checking navigation that was fine. `AGENTS.md` alre
 Gateway to answer differently so a grouping bug has somewhere to show; the same rule is not applied to files
 inside one sandbox workspace.
 
+Phase 9 met the other face of it: the sandbox decides outcomes by path special cases rather than by the rule
+the plugin runs. Its file write ignored the expected hash, so a draft that came back stale on the emulator
+saved anyway, which no plugin allows. It was found only because the stale banner happened to push a tap onto
+the wrong line. `SandboxWorkspaceGateway.mutateFile` now compares the hash; every other sandbox answer is
+still a canned value per path, and nothing checks that one agrees with the plugin's rule.
+
 ## A comment pass told "four words" strips the reason and keeps the label
 
 Three Luna cleanup passes over the drawer work turned reasons into labels: "Composed on open, so it outranks
@@ -1817,6 +1915,14 @@ pass only held once the prompt named reasons about ORDER, IDENTITY and LIFETIME 
 label-versus-reason example. The prose rule and the cleanup prompts say "four words or fewer" without that
 distinction, so every run re-learns it.
 
+Phase 9's pass did worse despite that prompt, which also scoped it to comments the diff added. A file rewritten
+whole shows every line as added, so the pass rewrote `WorkspaceDraftStore`'s pre-existing KDoc ("Write-then-
+rename, so a kill mid-write leaves the previous draft" became "Writes atomically"), gutted `HeldEdits`,
+`RawFileOps` and `RawFileRules`, and deleted the two "Remove 2026-09-26" comments the migration rule requires.
+Recovery meant rewriting five files from the session's own copies. The later passes ran REPORT ONLY, and I
+applied what held; they produced two to five findings each, and none damaged anything. An edit-mode comment
+pass is not safe over a rewritten file.
+
 ## Confident audit claims about Compose behaviour are refuted only by the emulator
 
 Three auditors asserted, with code citations, that the drawer's swipe would steal a board row's sideways drag
@@ -1826,6 +1932,23 @@ input and registers handlers, and the third contradicts a test that passes. None
 each took an emulator run (`adb shell input motionevent DOWN/MOVE/UP` for a long-press drag, `input keyevent
 4 4` for a double Back, `am start --es open_team` for a notification). The recipes are not written anywhere,
 so each red team re-derives them, and a triage without them would have "fixed" code that was right.
+
+## Lexicon's Kotlin rename binds only what shares a file
+
+A rename of `WindowHost` previewed two occurrences, both in its own file, and listed the other five as
+`SameSpellingUnbound`: same-package references in `RawFileOps.kt`, `RepositoryCollaborators.kt` and two tests.
+`WindowDraftStore` and `ChatRepositoryWindowHost` answered as ambiguous between the class and its
+constructor. The renames were done by hand and verified by grep, which is exactly what the refactor tools
+exist to avoid, and the "may not be complete" warning is the only signal that a Kotlin rename would compile
+half renamed. The same gap makes `find_references` undercount Kotlin symbols, so an auditor told to prefer
+Lexicon sees fewer callers than exist.
+
+## Auditors cannot run the Kotlin gate
+
+Every Luna audit this phase ended with "Android tests could not run because Java is unavailable". Their
+Kotlin claims are read, never run, so a race they describe is a hypothesis until a JVM test or the emulator
+settles it, and the triage has to do that for each one. The TypeScript half they do run. Nothing in the audit
+prompts says so, and a reader of a report cannot tell a verified Kotlin finding from a reasoned one.
 
 ## Every navigation change lands in one 750-line composable
 
