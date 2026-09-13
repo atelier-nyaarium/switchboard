@@ -1652,7 +1652,9 @@ loading a truncated body a Save would write back.
   (loading, editable, read-only with its reason, refused, unreachable). A recheck that lets a file go draws
   it read-only, a re-provision clears the views, a leave removes the path's view, and Refresh answers only a
   notice when it cannot read. The screen's own open answer, let-go effect and generation fence are gone,
-  and `RawFileOpsTest` covers each transition. A caret move is not typing in either ops class.
+  and `RawFileOpsTest` covers each transition. A caret move is not typing in either ops class. The screen
+  still keeps its busy flag and notice text, whose decisions (`rawSaveNotice`, `noticeShown`) are rules;
+  Phase 10 later moved the map itself onto `PublishedViews`.
 - **Names that tell the truth.** `WorkspaceDraftStore` holds span and file drafts, `WorkspaceHost` and
   `WorkspaceGateway` live in `WorkspacePorts.kt`, and `ChatRepositoryWorkspaceHost` serves both ops classes.
   The draft directory keeps its first name, since another would orphan every held draft.
@@ -1678,7 +1680,7 @@ loading a truncated body a Save would write back.
 - **A file too large for one answer (over 4 MB) is refused with its size, not shown read-only.** It says so
   and loads no truncated body, which is the guarantee; a body that does not fit cannot be drawn.
 
-## Phase 10 - Whole-file mutation
+## Phase 10 - Whole-file mutation ✅
 
 Write, create, delete, move and copy over the plane as plain file work, never through Lexicon.
 
@@ -1696,10 +1698,131 @@ no file identity.
 Destructive operations are armed on the phone, not one-tap, and an answer the phone never received is
 reconciled by re-reading rather than retried blind.
 
-## Phase 11 - The awareness notice
+### Done
+
+- **The wire:** `workspace_file_state` answers a path as absent, a folder, or a file with its size, sha256 and
+  identity (`dev:ino` of the name). `FileMutationSchema` gains `create {path, text}`, `delete {path,
+  expectedHash, expectedIdentity}`, `move {..., to, destination}` and `copy {path, expectedHash, to,
+  destination}`, where `destination` is `absent` or a `replace` naming the file's hash and identity. The
+  answer's outcomes are `done`, `stale` (the source), `destinationChanged` and `unknown`, so Phase 9's rule
+  that `stale` not widen holds. Strict variants refuse a precondition a plugin does not know.
+- **The plugin** (`mutateFile.ts`, `atomic-write.ts`): the atomic placement per operation and the checks
+  `AGENTS.md` names. Folders are refused as sources and destinations, a destination that is another name for
+  the source is refused, a write re-confines the path it resolves to, and a move where links are unsupported
+  refuses rather than risk a replace.
+- **The phone:** New file, and Copy to, Move to and Delete on a file's sheet, armed from state reads and
+  confirmed once through `WorkspaceFileOps`' folder views, settled by reading back. Create opens the raw
+  editor. Details in `docs/console.md`.
+- **Phase 11 rides this phase:** see below.
+- **Verified:** on the emulator, create opening the editor once under a double tap, a copy confirmed as a
+  Replace and sent once under a double tap, a move into a missing folder refused, an unhashable file and a
+  withheld destination refused at arming, a delete and its reload, and the raw editor's save, stale banner
+  and Refresh after the refactors. Gates: kotlin gate, 2892 TypeScript tests, lint, `check:boot`, and the
+  parity corpus on both runtimes, each shown to fail on a broken expectation.
+
+### Left
+
+- **Deploy.** The plugin first is harmless: an older Gateway never asks for the new op. The Gateway then
+  the phone: an older plugin refuses `fileState` and the new variants at once with "update it", and an older
+  Gateway refuses `workspace_file_state` as an unknown op, both of which the phone shows as refusals.
+- **The awareness lease** (board item): a refused send loses the notice it drained, for board and files
+  alike, and `no_act` changes never consult liveness.
+
+### Accepted limits
+
+- **Every check and its landing are two calls.** A writer landing between a delete's identity check and its
+  unlink, a move's and its link or rename, or a copy-replace's and its rename has its change deleted, moved or
+  replaced. Only a lock every writer honours closes it.
+- **An unanswered create or copy settling on identical bytes reads as done.** Nothing names who put them
+  there; the bytes are what the owner asked for.
+- **A recreated file can be handed a freed inode.** Identity then cannot tell it from the file confirmed,
+  and neither can its bytes if they match.
+- **Without hardlinks, a create or copy is an exclusive copy a reader can see part-written.**
+- **A folder left before an op answers shows no outcome.** The tree read on return says what happened, and
+  an op still waiting for the lock when its folder is left is not sent.
+- **Raw typing held for a moved or deleted file stays under the old path.** The confirmation says so.
+- **Hashing a file up to 256 MB blocks the plugin's event loop for the length of the read.**
+- **A span save whose read back failed names its symbol id in the notice,** which carries its module.
+
+### Bug Classes
+
+- **The sandbox answers a workspace op differently from the plugin.** Mechanism: `SandboxWorkspaceGateway`,
+  a hand-written twin of `mutateFile.ts` and `confine.ts` with no gate comparing them. Phase 9 found it
+  ignoring `expectedHash`, so a restored stale draft saved on the emulator only. This phase found three more:
+  a missing folder answered `destinationChanged` where the plugin refuses, a withheld destination armed and
+  confirmed where the plugin refuses the state read, and a 912 KB file with no hash where the plugin hashes up
+  to 256 MB, which made "too large to check" appear for a file the plugin would delete. Each was patched by
+  hand in the sandbox. Second round in one mechanism; nothing but an emulator run notices the next one.
+- **Each workspace ops class hand-rolls its re-provision fence.** Mechanism: an `epoch` counter per class.
+  `WindowOps` and `RawFileOps` each carry one; the red team found `WorkspaceFileOps` had none, so a
+  confirmation armed before a re-provision stayed sendable, and a double tap on Confirm sent a spent one.
+  Patched with a per-session `confirmable` map the class clears, and an epoch its arming checks. Third copy
+  of the same guard. Closed by the architecture pass with `WorkspaceHost.generation` (below).
+- **A second held map beside `HeldEdits` chooses its own guard.** Mechanism: per-screen state an ops class
+  publishes and awaited work writes into. Phase 9 closed the raw screen's `views` with a per-path token and
+  recorded that nothing stops a later map choosing its own. The architecture pass added `FolderView` per
+  folder, guarded at first by the generation alone; its red team found an op begun in a folder left and
+  reopened landing its outcome and opening the created file on the new showing, a cancelled op leaving the
+  folder busy, and a confirmation waiting for the lock sent after a re-provision. Patched with an opening token
+  per folder that each claim carries with the generation, a cancellation that releases the claim, and a check
+  of both just before sending. Two maps then carried the same token-and-generation shape by hand. Closed by
+  the second architecture pass with `PublishedViews`: the one per-key view map an ops class publishes, whose
+  `Showing` carries the token and the generation, whose `update` and `claim` land only on a current showing, and
+  whose `show` joins while `reshow` ends what came before. `RawFileOps.views` and `WorkspaceFileOps.views` both
+  take it, and `PublishedViewsTest` pins the contract, so a third map takes the guard rather than writing one.
+
+### What the architecture pass decided
+
+- **One corpus pins the sandbox and the fakes to the plugin.** `WorkspaceFileTable` holds the plugin's logical
+  rules (confinement, file state, every mutation's preconditions and answers) over paths and text.
+  `SandboxWorkspaceGateway` answers through it, keeping only its display quirks, and the file-op test's fake
+  disk wraps it with the losses a plane can suffer. `tests/fixtures/workspace-file-ops/vectors.json` runs
+  against the plugin's real handlers over a temp directory and against the table, so a disagreement fails a
+  gate on both runtimes; a broken expectation was checked to fail each, and both runners refuse an
+  expectation naming a key nothing checks or no result at all. It covers state reads, every mutation and tree
+  listings, whose order is the plugin's `localeCompare`. Links, encodings, size caps and races stay with
+  native tests, since a model of them would be a second plugin. `RawFileOpsTest`'s fake still models its own
+  write.
+- **One generation fences re-provision for every workspace ops class.** `WorkspaceHost.generation` is advanced
+  once, first in the re-provision roster, and `WindowOps` (opens, window context), `RawFileOps` (opens) and
+  `WorkspaceFileOps` (every read, arming and landing) capture it instead of each keeping an epoch. Other
+  landings need none, since `HeldEdits` finds nothing to land on once the clear has run. It fences what lands
+  and what an op sends after waiting for the lock; a write already on the wire lands on disk regardless.
+  Guards that are not re-provision stay local: the window set's close epoch, the raw file's per-path open
+  token, and `HeldEdits`' incarnation and version.
+- **The tree renders, it does not sequence.** `WorkspaceFileOps.views` publishes a `FolderView` per folder: the
+  listing, busy, the outcome of the last operation, the path being asked for, the confirmation shown, and a
+  created file to open. `choose`, `begin` and `confirm` each claim the folder atomically with its opening and
+  generation, so a second tap or a spent confirmation sends nothing, and the separate confirmation map is gone.
+  A folder's showing ends at leave: an op begun in it lands nothing on a later showing, and one still waiting
+  to send is not sent; the tree the new showing reads is what says what happened. A cancelled op lets its
+  folder go. The outcome is a `FolderOutcome`, so tests assert results rather than wording. `WindowOps.tree`
+  and `ReadSlot.Tree` are gone.
+- **One guard for a view map beside `HeldEdits`.** The second pass extracted `PublishedViews` from the raw
+  editor's and the tree's hand-written maps: a `Showing` is the key's token and the generation, `update` and
+  `claim` land only on a current one, `show` joins and `reshow` ends what came before. Its red team found no
+  behaviour lost from either class, and the emulator ran the raw editor's open, save, stale banner and Refresh
+  and the tree's create, back and delete on it.
+- **Not a file-state precondition on the wire.** Each strict variant already declares exactly what it binds:
+  write and copy deliberately bind no source identity, since a rename gives a new inode and a copy lands
+  bytes. The corpus gates the interpretations the vocabulary change was meant to unify.
+- **Not the awareness lease here.** A refused send losing what it drained, and `no_act` changes never
+  consulting liveness, belong to the bank and the send route, shared with board awareness. Claimed on the
+  board for its own pass.
+
+## Phase 11 - The awareness notice ✅
 
 A raw edit banks a `no_act` `RidingAwareness` naming the file, so the agent's model of it is corrected by the
 next message it was going to get anyway. No push, no acknowledgement.
+
+### Done
+
+- `workspaceAwareness.ts` registers a `files` subscriber on the bank. `workspaceAnswerNoting` is the console's
+  one road from a plane result to an answer, and banks a change for every span save and file mutation that
+  answered `saved` or `done`, and a "may have" for one that answered `unknown`, since only the phone's read
+  back knows whether it landed. One line per path, its latest change, at most 40 listed. Forget drops the
+  session's bank; close keeps it for the wake. Covered by `workspace-awareness.test.ts` through the real
+  bank.
 
 # Painpoints
 
@@ -1959,3 +2082,39 @@ red team's findings all traced to state whose lifetime the function's shape hid 
 branch, a view outliving its conversation). `ShellNav` took the navigation out; the conversation and root
 assemblies are still inline, and the forget teardown and the presence word are each written twice there (on
 the board).
+
+## An unwritten contract makes two audits contradict each other
+
+Two red-team angles on the folder views read the same lifecycle in opposite ways: one called a result
+landing on a reopened folder a defect, the other called a result lost when its folder was left a defect.
+Neither was wrong, since nothing had said what a showing of a folder is. The decision (a showing ends at
+leave, and the tree read on return says what happened) was made during triage and written into the plan
+afterwards. Every audit that has to guess the intended lifetime of a piece of screen state spends a finding
+on the guess.
+
+## A test that binds a file's identity passes or fails by inode reuse
+
+`src/__tests__/workspace-handlers.test.ts` "deletes only the file the owner was shown" failed on its first
+run: removing a file and writing one at the same path handed back the freed inode, so a recreated file looked
+like the confirmed one. Holding the old inode with a hardlink fixed the test, and the corpus runner does the
+same (`src/__tests__/workspace-file-ops-vectors.test.ts`, the `put` step). A new test of identity that forgets
+the holder passes or fails by what the filesystem allocates.
+
+## The plugin's tree order is whatever `localeCompare` answers
+
+`src/mcp/workspace/handlers.ts:treeOf` sorts names with `localeCompare`, which follows the process's locale.
+`WorkspaceFileTable` matches it with a root-locale `Collator`, and the corpus pins one ASCII case, but the
+desktop JVM's collator is not Android's ICU, and neither is guaranteed to agree with Node's ICU on punctuation
+or non-ASCII names. The order also decides which thousand entries a truncated listing keeps.
+
+## A summarised test run hides which file failed
+
+One `bun run test | tail` reported a file that failed with ten tests skipped, and the rerun passed; the file
+name had been cut. A file-level failure (a throw outside a test) is exactly the kind that reads as load, and
+the command recipe everyone uses throws away the one line that names it. On the board.
+
+## A pixel-driven smoke run taps the wrong row whenever a notice appears
+
+The tree shows an operation's notice above its list, which moves every row down by one card, and a keystroke
+sent before a dialog's field takes focus is dropped silently. Both made a correct screen look broken in a
+scripted run, and each needed a screenshot per step to tell apart from a real defect.
