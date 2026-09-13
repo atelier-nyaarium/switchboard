@@ -85,9 +85,6 @@ internal fun refreshRaw(held: RawEdit, fresh: WorkspaceReadAnswer): RawEdit? {
 internal fun written(held: RawEdit, sent: String, hash: String): RawEdit =
 	held.copy(original = sent, hash = hash, draft = held.draft?.takeIf { it != sent }, stale = false)
 
-internal const val MUTATION_DONE = "done"
-internal const val MUTATION_STALE = "stale"
-
 /** What one Save did, never a Boolean. */
 internal sealed interface RawSave {
 	data object Written : RawSave

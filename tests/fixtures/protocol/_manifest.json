@@ -36,6 +36,10 @@
 		{ "file": "workspace-save-span-answer.json", "schema": "WorkspaceSaveSpanAnswer", "expect": "pass" },
 		{ "file": "console-op-workspace-mutate-file.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "invalid-workspace-mutate-file-missing-hash.json", "schema": "ConsoleOp", "expect": "fail" },
-		{ "file": "workspace-file-mutation-answer.json", "schema": "WorkspaceFileMutationAnswer", "expect": "pass" }
+		{ "file": "workspace-file-mutation-answer.json", "schema": "WorkspaceFileMutationAnswer", "expect": "pass" },
+		{ "file": "console-op-workspace-move-file.json", "schema": "ConsoleOp", "expect": "pass" },
+		{ "file": "invalid-workspace-delete-file-missing-identity.json", "schema": "ConsoleOp", "expect": "fail" },
+		{ "file": "console-op-workspace-file-state.json", "schema": "ConsoleOp", "expect": "pass" },
+		{ "file": "workspace-file-state-answer.json", "schema": "WorkspaceFileStateAnswer", "expect": "pass" }
 	]
 }

@@ -5,6 +5,7 @@ import type { AwarenessObservation } from "../../shared/awareness-types.js";
 import type { BoardEntry } from "../../shared/console-protocol.js";
 import { type AwarenessBank, createAwarenessBank } from "../awarenessBank.js";
 import { boardAwarenessSubscriber } from "../boardAwareness.js";
+import { type WorkspaceChange, workspaceAwarenessSubscriber } from "../workspaceAwareness.js";
 import { reached, sendOn } from "../wsSend.js";
 import { resolveLiveIncarnation } from "../wsTypes.js";
 import type { HostStage } from "./composeHost.js";
@@ -19,6 +20,7 @@ export interface AwarenessStageDeps {
 export interface AwarenessStage {
 	awareness: AwarenessBank;
 	boardObserve: (observations: readonly AwarenessObservation<BoardEntry>[]) => void;
+	workspaceObserve: (observations: readonly AwarenessObservation<WorkspaceChange>[]) => void;
 	awarenessTimer: IntervalHandle;
 }
 
@@ -38,6 +40,7 @@ export function composeAwareness({ sessions, host, ambient }: AwarenessStageDeps
 		},
 	});
 	const boardObserve = awareness.register(boardAwarenessSubscriber);
+	const workspaceObserve = awareness.register(workspaceAwarenessSubscriber);
 	const awarenessTimer = ambient.setInterval(() => {
 		try {
 			awareness.tick();
@@ -46,5 +49,5 @@ export function composeAwareness({ sessions, host, ambient }: AwarenessStageDeps
 		}
 	}, 1_000);
 
-	return { awareness, boardObserve, awarenessTimer };
+	return { awareness, boardObserve, workspaceObserve, awarenessTimer };
 }

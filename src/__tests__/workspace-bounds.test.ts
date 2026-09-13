@@ -42,19 +42,27 @@ describe("the bounds on one workspace op, outermost first", () => {
 			{ kind: "outline", path: "a" },
 			{ kind: "symbolSource", symbolId: "s" },
 			{ kind: "symbolKnowledge", symbolId: "s" },
+			{ kind: "fileState", path: "a" },
 		];
 		for (const op of reads) expect(boundsOf(op)).toBe(WORKSPACE_BOUNDS.read);
 		expect(boundsOf({ kind: "saveSpan", symbolId: "s", expectedSpanHash: "h", text: "" })).toBe(
 			WORKSPACE_BOUNDS.save,
 		);
-		expect(boundsOf(write)).toBe(WORKSPACE_BOUNDS.save);
+		for (const op of mutations) expect(boundsOf(op)).toBe(WORKSPACE_BOUNDS.save);
 	});
 });
 
-const write: WorkspaceOp = {
-	kind: "mutateFile",
-	mutation: { kind: "write", path: "src/a.ts", expectedHash: "h", text: "x" },
-};
+const DESTINATION = { kind: "absent" } as const;
+
+const mutations: WorkspaceOp[] = [
+	{ kind: "write", path: "src/a.ts", expectedHash: "h", text: "x" },
+	{ kind: "create", path: "src/a.ts", text: "" },
+	{ kind: "delete", path: "src/a.ts", expectedHash: "h", expectedIdentity: "i" },
+	{ kind: "move", path: "src/a.ts", expectedHash: "h", expectedIdentity: "i", to: "b.ts", destination: DESTINATION },
+	{ kind: "copy", path: "src/a.ts", expectedHash: "h", to: "b.ts", destination: DESTINATION },
+].map((mutation) => ({ kind: "mutateFile", mutation }) as WorkspaceOp);
+
+const write = mutations[0];
 
 describe("what the phone is told when the plane fails", () => {
 	const save: WorkspaceOp = { kind: "saveSpan", symbolId: "s", expectedSpanHash: "h", text: "x" };
@@ -71,11 +79,13 @@ describe("what the phone is told when the plane fails", () => {
 			kind: "saveSpan",
 			outcome: "unknown",
 		});
-		expect(answerForConsole(write, { ok: false, failure, detail: "d" })).toMatchObject({
-			kind: "mutateFile",
-			path: "src/a.ts",
-			outcome: "unknown",
-		});
+		for (const mutation of mutations) {
+			expect(answerForConsole(mutation, { ok: false, failure, detail: "d" })).toMatchObject({
+				kind: "mutateFile",
+				path: "src/a.ts",
+				outcome: "unknown",
+			});
+		}
 	});
 
 	it("keeps a refused write and every failed read as the error the phone shows", () => {

@@ -273,7 +273,7 @@ class ChatRepository(
 	@Volatile internal var sttsClient: SttsClient? = null
 
 	internal val clearedOnReprovision: List<ClearsOnReprovision>
-		get() = listOf(this, board, vault, runbooks, presence, trust, drain, playback, windowOps, rawFileOps)
+		get() = listOf(this, board, vault, runbooks, presence, trust, drain, playback, windowOps, rawFileOps, fileOps)
 
 	override suspend fun clearInMemory() {
 		invalidateClient()
@@ -376,6 +376,10 @@ class ChatRepository(
 	private val workspaceHost = ChatRepositoryWorkspaceHost(this)
 	internal val windowOps = WindowOps(host = workspaceHost, drafts = workspaceDrafts)
 	internal val rawFileOps = RawFileOps(host = workspaceHost, drafts = workspaceDrafts)
+	// A draft on disk counts; one loads only on open.
+	internal val fileOps = WorkspaceFileOps(host = workspaceHost) { target, path ->
+		rawFileOps.editOf(target, path)?.edited == true || workspaceDrafts.load(target, DraftKey.File(path)) != null
+	}
 	internal val attachments = AttachmentOps(
 		state = _state,
 		persistence = persistence,

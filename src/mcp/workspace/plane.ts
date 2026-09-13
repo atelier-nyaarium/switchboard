@@ -38,7 +38,7 @@ export function parseWorkspaceOpRequest(msg: Record<string, unknown>): ParsedWor
 	const malformed = { reqId, refused: "this session's plugin cannot read that workspace op; update it" };
 	if (typeof key !== "string" || typeof op !== "object" || op === null) return malformed;
 	const { kind, path, symbolId, expectedSpanHash, text, mutation } = op as Record<string, unknown>;
-	if (kind === "tree" || kind === "read" || kind === "outline") {
+	if (kind === "tree" || kind === "read" || kind === "outline" || kind === "fileState") {
 		return typeof path === "string" ? { reqId, key, op: { kind, path } } : malformed;
 	}
 	if (kind === "symbolSource" || kind === "symbolKnowledge") {

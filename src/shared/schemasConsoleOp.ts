@@ -124,6 +124,11 @@ export const ConsoleOpSchema = z
 			text: z.string().max(4_000_000),
 		}),
 		z.object({
+			kind: z.literal("workspace_file_state"),
+			target: z.string().min(1).max(128),
+			path: z.string().max(512),
+		}),
+		z.object({
 			kind: z.literal("workspace_mutate_file"),
 			target: z.string().min(1).max(128),
 			mutation: FileMutationSchema,
@@ -278,6 +283,7 @@ export const VALUE_OP_KINDS = new Set([
 	"workspace_symbol_source",
 	"workspace_symbol_knowledge",
 	"workspace_save_span",
+	"workspace_file_state",
 	"workspace_mutate_file",
 	"create_session",
 	"reload_plugins",

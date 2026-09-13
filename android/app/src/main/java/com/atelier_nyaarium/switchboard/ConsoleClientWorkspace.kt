@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
@@ -94,6 +95,13 @@ internal suspend fun ConsoleClient.workspaceMutateFile(
 	mutation: WorkspaceFileMutation,
 ): WorkspaceAnswer<WorkspaceFileMutationAnswer> =
 	workspaceRead(gatewayId, ConsoleOp.WorkspaceMutateFile(target = target, mutation = mutation))
+
+internal suspend fun ConsoleClient.workspaceFileState(
+	gatewayId: String,
+	target: String,
+	path: String,
+): WorkspaceAnswer<WorkspaceFileStateAnswer> =
+	workspaceRead(gatewayId, ConsoleOp.WorkspaceFileState(target = target, path = path))
 
 internal suspend fun ConsoleClient.workspaceSymbolKnowledge(
 	gatewayId: String,

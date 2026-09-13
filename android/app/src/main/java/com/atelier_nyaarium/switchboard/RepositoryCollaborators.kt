@@ -215,6 +215,9 @@ internal class ConsoleWorkspaceGateway(private val client: ConsoleClient) : Work
 
 	override suspend fun mutateFile(target: WorkspaceTarget, mutation: WorkspaceFileMutation) =
 		client.workspaceMutateFile(target.gatewayId, target.address, mutation)
+
+	override suspend fun fileState(target: WorkspaceTarget, path: String) =
+		client.workspaceFileState(target.gatewayId, target.address, path)
 }
 
 internal class ChatRepositoryWorkspaceHost(private val repo: ChatRepository) : WorkspaceHost {

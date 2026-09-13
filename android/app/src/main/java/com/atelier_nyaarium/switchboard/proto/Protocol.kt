@@ -127,6 +127,7 @@ object Protocol {
 			const val WORKSPACE_SYMBOL_SOURCE: String = "workspace_symbol_source"
 			const val WORKSPACE_SYMBOL_KNOWLEDGE: String = "workspace_symbol_knowledge"
 			const val WORKSPACE_SAVE_SPAN: String = "workspace_save_span"
+			const val WORKSPACE_FILE_STATE: String = "workspace_file_state"
 			const val WORKSPACE_MUTATE_FILE: String = "workspace_mutate_file"
 			const val CROSS_DOMAIN_LISTEN: String = "cross_domain_listen"
 			const val CROSS_DOMAIN_REQUEST: String = "cross_domain_request"
@@ -407,6 +408,13 @@ sealed class ConsoleOp {
 		val symbolId: String,
 		val expectedSpanHash: String,
 		val text: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("workspace_file_state")
+	data class WorkspaceFileState(
+		val target: String,
+		val path: String,
 	) : ConsoleOp()
 
 	@Serializable
@@ -2196,6 +2204,22 @@ data class WorkspaceSaveSpanAnswer(
 @Serializable
 @OptIn(ExperimentalSerializationApi::class)
 @JsonClassDiscriminator("kind")
+sealed class WorkspaceFileDestination {
+	@Serializable
+	@SerialName("absent")
+	data object Absent : WorkspaceFileDestination()
+
+	@Serializable
+	@SerialName("replace")
+	data class Replace(
+		val expectedHash: String,
+		val expectedIdentity: String,
+	) : WorkspaceFileDestination()
+}
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
 sealed class WorkspaceFileMutation {
 	@Serializable
 	@SerialName("write")
@@ -2203,6 +2227,40 @@ sealed class WorkspaceFileMutation {
 		val path: String,
 		val expectedHash: String,
 		val text: String,
+	) : WorkspaceFileMutation()
+
+	@Serializable
+	@SerialName("create")
+	data class Create(
+		val path: String,
+		val text: String,
+	) : WorkspaceFileMutation()
+
+	@Serializable
+	@SerialName("delete")
+	data class Delete(
+		val path: String,
+		val expectedHash: String,
+		val expectedIdentity: String,
+	) : WorkspaceFileMutation()
+
+	@Serializable
+	@SerialName("move")
+	data class Move(
+		val path: String,
+		val expectedHash: String,
+		val expectedIdentity: String,
+		val to: String,
+		val destination: WorkspaceFileDestination,
+	) : WorkspaceFileMutation()
+
+	@Serializable
+	@SerialName("copy")
+	data class Copy(
+		val path: String,
+		val expectedHash: String,
+		val to: String,
+		val destination: WorkspaceFileDestination,
 	) : WorkspaceFileMutation()
 }
 
@@ -2215,6 +2273,17 @@ data class WorkspaceFileMutationAnswer(
 	val hash: String? = null,
 	val gone: Boolean? = null,
 	val reason: String? = null,
+)
+
+@Serializable
+data class WorkspaceFileStateAnswer(
+	@EncodeDefault
+	val kind: String = "fileState",
+	val path: String,
+	val state: String,
+	val bytes: Long? = null,
+	val hash: String? = null,
+	val identity: String? = null,
 )
 
 @Serializable

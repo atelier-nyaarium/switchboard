@@ -2,7 +2,15 @@ import fs, { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ATOMIC_TEMP_SUFFIX, sweepAtomicTemps, writeFileAtomic } from "../shared/atomic-write.js";
+import {
+	ATOMIC_TEMP_SUFFIX,
+	createFileExclusive,
+	LinksUnsupported,
+	moveFileAtomic,
+	NameTaken,
+	sweepAtomicTemps,
+	writeFileAtomic,
+} from "../shared/atomic-write.js";
 
 const roots: string[] = [];
 
@@ -122,5 +130,61 @@ describe("writeFileAtomic", () => {
 		expect(existsSync(path.join(root, `live.tmp.${process.ppid}`))).toBe(true);
 		expect(existsSync(path.join(root, ownTemp))).toBe(false);
 		expect(existsSync(path.join(root, "sibling.tmp"))).toBe(true);
+	});
+});
+
+describe("createFileExclusive and moveFileAtomic", () => {
+	const noLinks = () =>
+		vi.spyOn(fs, "linkSync").mockImplementation(() => {
+			throw Object.assign(new Error("links unsupported"), { code: "EPERM" });
+		});
+
+	it.each([
+		["with links", () => {}],
+		["without links", noLinks],
+	])("creates a name whole only where nothing is, %s", (_label, arrange) => {
+		const root = tempRoot();
+		const target = path.join(root, "new.txt");
+		writeFileSync(path.join(root, "taken.txt"), "theirs");
+		arrange();
+
+		createFileExclusive(target, "mine", { mode: 0o600 });
+		expect(() => createFileExclusive(path.join(root, "taken.txt"), "mine")).toThrow(NameTaken);
+
+		expect(readFileSync(target, "utf8")).toBe("mine");
+		expect(statSync(target).mode & 0o777).toBe(0o600);
+		expect(readFileSync(path.join(root, "taken.txt"), "utf8")).toBe("theirs");
+		expect(fs.readdirSync(root).sort()).toEqual(["new.txt", "taken.txt"]);
+	});
+
+	// Checking then renaming would replace a name taken in between.
+	it("refuses a move to a free name where links are not supported, moving nothing", () => {
+		const root = tempRoot();
+		const from = path.join(root, "from.txt");
+		writeFileSync(from, "bytes");
+		noLinks();
+
+		expect(() => moveFileAtomic(from, path.join(root, "to.txt"), { replace: false })).toThrow(LinksUnsupported);
+		expect(fs.readdirSync(root)).toEqual(["from.txt"]);
+	});
+
+	it("moves onto a free name keeping the inode, refuses a taken one, and replaces only when told", () => {
+		const root = tempRoot();
+		const from = path.join(root, "from.txt");
+		writeFileSync(from, "bytes");
+		writeFileSync(path.join(root, "taken.txt"), "theirs");
+		const inode = statSync(from).ino;
+
+		expect(() => moveFileAtomic(from, path.join(root, "taken.txt"), { replace: false })).toThrow(NameTaken);
+		expect(readFileSync(from, "utf8")).toBe("bytes");
+
+		mkdirSync(path.join(root, "sub"));
+		moveFileAtomic(from, path.join(root, "sub", "to.txt"), { replace: false });
+		expect(existsSync(from)).toBe(false);
+		expect(statSync(path.join(root, "sub", "to.txt")).ino).toBe(inode);
+
+		moveFileAtomic(path.join(root, "sub", "to.txt"), path.join(root, "taken.txt"), { replace: true });
+		expect(readFileSync(path.join(root, "taken.txt"), "utf8")).toBe("bytes");
+		expect(fs.readdirSync(root).sort()).toEqual(["sub", "taken.txt"]);
 	});
 });

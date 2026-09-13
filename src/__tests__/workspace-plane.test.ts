@@ -44,6 +44,30 @@ describe("reading a workspace op frame", () => {
 		expect(
 			parseWorkspaceOpRequest(frame({ kind: "mutateFile", mutation: { kind: "shred", path: "a.ts" } })),
 		).toMatchObject(refusedFrame);
+
+		const move = {
+			kind: "move",
+			path: "a.ts",
+			expectedHash: "h",
+			expectedIdentity: "1:2",
+			to: "b.ts",
+			destination: { kind: "absent" },
+		};
+		expect(parseWorkspaceOpRequest(frame({ kind: "mutateFile", mutation: move }))).toMatchObject({
+			op: { mutation: move },
+		});
+		const guessedReplace = { ...move, destination: { kind: "replace", expectedHash: "h" } };
+		const unarmedDelete = { kind: "delete", path: "a.ts", expectedHash: "h" };
+		for (const mutation of [
+			guessedReplace,
+			unarmedDelete,
+			{ ...move, destination: { kind: "absent", force: true } },
+		]) {
+			expect(parseWorkspaceOpRequest(frame({ kind: "mutateFile", mutation }))).toMatchObject(refusedFrame);
+		}
+		expect(parseWorkspaceOpRequest(frame({ kind: "fileState", path: "a.ts" }))).toMatchObject({
+			op: { kind: "fileState", path: "a.ts" },
+		});
 	});
 
 	// Silence would hold the Gateway to its full timeout for an op an older plugin cannot read.

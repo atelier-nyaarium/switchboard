@@ -36,6 +36,7 @@ import type { GatewaySpawnPoints, TeamInfo } from "../../shared/types.js";
 import type { WorkspaceOp, WorkspaceOpResult } from "../../shared/workspace-op.js";
 import type { DeliverToOwner } from "../consolePushOps.js";
 import type { WakeResult } from "../wake.js";
+import type { WorkspaceChange } from "../workspaceAwareness.js";
 import type { ConversationRegistry, TeamRegistry } from "../wsTypes.js";
 import type { DurableOpStore } from "./durableOpStore.js";
 
@@ -118,6 +119,8 @@ export interface ConsoleHandlerDeps {
 	policies?: PolicyConsoleHandlers;
 	/** Absent before the socket stage composes, which refuses every workspace op. */
 	workspaceAsk?: (team: string, op: WorkspaceOp) => Promise<WorkspaceOpResult>;
+	/** A landed phone write, told to the session it changed. */
+	workspaceChanged?: (team: string, change: WorkspaceChange) => void;
 	onSessionEnded?: (team: string) => void;
 }
 

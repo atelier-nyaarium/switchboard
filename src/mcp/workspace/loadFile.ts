@@ -38,6 +38,33 @@ export function hashBytes(bytes: Uint8Array): string {
 	return createHash("sha256").update(bytes).digest("hex");
 }
 
+/**
+ * The same hash over a file of any kind, read in chunks so a large one is never held whole. Null when it is
+ * not a regular file, cannot be read, or is over `maxBytes`.
+ */
+export function hashFileAt(absolute: string, maxBytes: number): { bytes: number; hash: string } | null {
+	let descriptor: number | undefined;
+	try {
+		descriptor = fs.openSync(absolute, "r");
+		const stat = fs.fstatSync(descriptor);
+		if (!stat.isFile() || stat.size > maxBytes) return null;
+		const hash = createHash("sha256");
+		const chunk = Buffer.allocUnsafe(1 << 20);
+		let bytes = 0;
+		for (;;) {
+			const read = fs.readSync(descriptor, chunk, 0, chunk.length, null);
+			if (read === 0) break;
+			hash.update(chunk.subarray(0, read));
+			bytes += read;
+		}
+		return { bytes, hash: hash.digest("hex") };
+	} catch {
+		return null;
+	} finally {
+		if (descriptor !== undefined) fs.closeSync(descriptor);
+	}
+}
+
 /** A UTF-16 BOM is checked FIRST: those files are full of NULs, which a UTF-8 sniff calls binary. */
 function decodeText(buffer: Buffer): { text: string; encoding: LoadedFile["encoding"] } | null {
 	if (buffer.length >= 2) {

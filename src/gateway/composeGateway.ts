@@ -224,6 +224,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		routines,
 		policies,
 		workspacePlane: websockets.workspacePlane,
+		awareness,
 	});
 
 	if (bootstrap.gatewayBoot.kind === "arming") enrollment.enterArming(bootstrap.gatewayBoot.nonce);

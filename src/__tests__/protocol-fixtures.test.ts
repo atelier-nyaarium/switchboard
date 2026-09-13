@@ -16,7 +16,7 @@ import {
 	PlanesReadValueSchema,
 } from "../shared/schemas.js";
 import { MailboxEntrySchema } from "../shared/schemasConsoleOp.js";
-import { FileMutationAnswerSchema, SaveSpanAnswerSchema } from "../shared/schemasWorkspace.js";
+import { FileMutationAnswerSchema, FileStateAnswerSchema, SaveSpanAnswerSchema } from "../shared/schemasWorkspace.js";
 
 const FIXTURES = path.join(__dirname, "../../tests/fixtures/protocol");
 
@@ -35,6 +35,7 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	ConsolePeekResult: ConsolePeekResultSchema,
 	WorkspaceSaveSpanAnswer: SaveSpanAnswerSchema,
 	WorkspaceFileMutationAnswer: FileMutationAnswerSchema,
+	WorkspaceFileStateAnswer: FileStateAnswerSchema,
 };
 
 interface ManifestEntry {

@@ -201,8 +201,10 @@ import {
 	WireSealedSchema,
 } from "../src/shared/schemasWireFixture.js";
 import {
+	FileDestinationSchema,
 	FileMutationAnswerSchema,
 	FileMutationSchema,
+	FileStateAnswerSchema,
 	KnowledgeAnswerSchema,
 	OutlineAnswerSchema,
 	OutlineSymbolSchema,
@@ -418,8 +420,10 @@ const ROOTS: z.ZodType[] = [
 	KnowledgeAnswerSchema,
 	SaveIssueSchema,
 	SaveSpanAnswerSchema,
+	FileDestinationSchema,
 	FileMutationSchema,
 	FileMutationAnswerSchema,
+	FileStateAnswerSchema,
 ];
 
 const SEALED_ROOTS = new Set([
@@ -437,6 +441,7 @@ const SEALED_ROOTS = new Set([
 	"VaultRequest",
 	"WireFixture",
 	"WorkspaceFileMutation",
+	"WorkspaceFileDestination",
 ]);
 
 type Json = Record<string, unknown>;

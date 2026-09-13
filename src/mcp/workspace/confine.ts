@@ -20,8 +20,8 @@ export type ConfineRefusal =
 /** POSIX-separated, matching a Lexicon module path. Empty is the root. */
 export type Confined = { ok: true; absolute: string; relative: string } | { ok: false; refusal: ConfineRefusal };
 
-/** The bytes, not the name, so two names for one inode compare equal. */
-export type FileIdentity = { dev: number; ino: number };
+/** The inode, not the name, so two names for one inode compare equal. A string, since an inode can pass 2^53. */
+export type FileIdentity = string;
 
 ////////////////////////////////
 //  Constants
@@ -174,19 +174,30 @@ export function confine(root: string, relativeWritten: string, platform: string 
 	return { ok: true, absolute, relative: segments.join("/") };
 }
 
-/** Null when unstattable, which a caller reads as nothing to compare against. */
+/** Null when unstattable, which a caller reads as nothing to compare against. Of a link, not its target. */
 export function fileIdentity(absolute: string): FileIdentity | null {
 	try {
-		const stat = fs.lstatSync(absolute);
-		return { dev: stat.dev, ino: stat.ino };
+		const stat = fs.lstatSync(absolute, { bigint: true });
+		return `${stat.dev}:${stat.ino}`;
 	} catch {
 		return null;
 	}
 }
 
-/** A mutation names the bytes it read, so a hardlink is caught by identity. */
+/** Nothing never matches. */
 export function sameFile(a: FileIdentity | null, b: FileIdentity | null): boolean {
-	return a !== null && b !== null && a.dev === b.dev && a.ino === b.ino;
+	return a !== null && a === b;
+}
+
+/** Follows links, so a link and its target, or two hardlinks, are one file. */
+export function namesOneFile(a: string, b: string): boolean {
+	try {
+		const first = fs.statSync(a, { bigint: true });
+		const second = fs.statSync(b, { bigint: true });
+		return first.dev === second.dev && first.ino === second.ino;
+	} catch {
+		return false;
+	}
 }
 
 /** Hides bulk as well as what `confine` refuses. */

@@ -6,6 +6,9 @@ import type { Session } from "@nyaa-lexicon/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { answerWorkspaceOp, type HandlerDeps } from "../mcp/workspace/handlers.js";
 import {
+	type FileDestination,
+	type FileMutation,
+	type FileStateAnswer,
 	MAX_RAW_EDIT_BYTES,
 	type TreeAnswer,
 	type WorkspaceOp,
@@ -558,6 +561,31 @@ describe("writing a file", () => {
 		expect(fs.readFileSync(path.join(root, "src", "app.ts"), "utf8")).toBe("through");
 	});
 
+	it("writes nothing through a link retargeted outside the workspace after it was read", async () => {
+		const root = workspace();
+		const link = path.join(root, "src", "alias.ts");
+		fs.symlinkSync("app.ts", link);
+		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "wsoutside-"));
+		roots.push(outside);
+		fs.writeFileSync(path.join(outside, "theirs.ts"), shown);
+		const original = fs.readFileSync.bind(fs);
+		vi.spyOn(fs, "readFileSync").mockImplementation(((target: fs.PathOrFileDescriptor, options?: unknown) => {
+			const read = original(target, options as undefined);
+			if (target === link) {
+				fs.unlinkSync(link);
+				fs.symlinkSync(path.join(outside, "theirs.ts"), link);
+			}
+			return read;
+		}) as typeof fs.readFileSync);
+
+		expect(await ask(root, write("src/alias.ts", sha256(shown), "mine"))).toMatchObject({
+			ok: false,
+			failure: "refused",
+		});
+		vi.restoreAllMocks();
+		expect(fs.readFileSync(path.join(outside, "theirs.ts"), "utf8")).toBe(shown);
+	});
+
 	it("refuses what a read would not offer, before writing anything", async () => {
 		const root = workspace();
 		fs.writeFileSync(path.join(root, "wide.txt"), UTF16_HI);
@@ -577,6 +605,231 @@ describe("writing a file", () => {
 		expect(fs.readFileSync(path.join(root, ".env"), "utf8")).toBe("TOKEN=secret\n");
 		expect(fs.readFileSync(path.join(outside, "theirs.ts"), "utf8")).toBe(shown);
 		expect(fs.readFileSync(path.join(root, "wide.txt"))).toEqual(UTF16_HI);
+	});
+});
+
+describe("file state and whole-file mutations", () => {
+	const shown = "export const x = 1;\n";
+
+	afterEach(() => vi.restoreAllMocks());
+
+	async function stateOf(root: string, filePath: string): Promise<FileStateAnswer> {
+		const result = await ask(root, { kind: "fileState", path: filePath });
+		if (!result.ok || result.answer.kind !== "fileState") throw new Error(`no state: ${JSON.stringify(result)}`);
+		return result.answer;
+	}
+
+	const mutate = (root: string, mutation: FileMutation) => ask(root, { kind: "mutateFile", mutation });
+
+	/** The preconditions a phone arms from a state read. */
+	async function armed(root: string, filePath: string) {
+		const state = await stateOf(root, filePath);
+		return { path: filePath, expectedHash: state.hash ?? "", expectedIdentity: state.identity ?? "" };
+	}
+
+	async function replacing(root: string, filePath: string) {
+		const { expectedHash, expectedIdentity } = await armed(root, filePath);
+		return { kind: "replace" as const, expectedHash, expectedIdentity };
+	}
+
+	const outcome = (result: WorkspaceOpResult) =>
+		result.ok && result.answer.kind === "mutateFile" ? result.answer : null;
+
+	it("names what a mutation would: nothing, a folder, or a file by size, hash and inode", async () => {
+		const root = workspace();
+		fs.symlinkSync("app.ts", path.join(root, "src", "alias.ts"));
+
+		expect(await stateOf(root, "src/new.ts")).toEqual({ kind: "fileState", path: "src/new.ts", state: "absent" });
+		expect(await stateOf(root, "src")).toMatchObject({ state: "directory" });
+		const file = await stateOf(root, "src/app.ts");
+		expect(file).toMatchObject({ state: "file", bytes: shown.length, hash: sha256(shown) });
+		const alias = await stateOf(root, "src/alias.ts");
+		expect(alias.hash).toBe(file.hash);
+		expect(alias.identity).not.toBe(file.identity);
+		expect(await ask(root, { kind: "fileState", path: ".env" })).toMatchObject({ ok: false, failure: "refused" });
+	});
+
+	it("creates a file only where nothing is, and a read then answers the hash it gave", async () => {
+		const root = workspace();
+		const create = (filePath: string, text: string): FileMutation => ({ kind: "create", path: filePath, text });
+
+		expect(outcome(await mutate(root, create("src/new.ts", "fresh\n")))).toEqual({
+			kind: "mutateFile",
+			path: "src/new.ts",
+			outcome: "done",
+			hash: sha256("fresh\n"),
+		});
+		expect(await ask(root, { kind: "read", path: "src/new.ts" })).toMatchObject({
+			answer: { hash: sha256("fresh\n") },
+		});
+
+		fs.symlinkSync("nowhere.ts", path.join(root, "src", "dangling.ts"));
+		for (const taken of ["src/app.ts", "src/dangling.ts"]) {
+			expect(outcome(await mutate(root, create(taken, "mine")))?.outcome).toBe("destinationChanged");
+		}
+		expect(fs.readFileSync(path.join(root, "src", "app.ts"), "utf8")).toBe(shown);
+		expect(fs.existsSync(path.join(root, "src", "nowhere.ts"))).toBe(false);
+
+		for (const refusedPath of ["missing/new.ts", ".env.local", ".", "README.md/child.ts"]) {
+			expect(await mutate(root, create(refusedPath, "x"))).toMatchObject({ ok: false, failure: "refused" });
+		}
+		expect(fs.readdirSync(path.join(root, "src")).sort()).toEqual(["app.ts", "dangling.ts", "new.ts"]);
+	});
+
+	it("deletes only the file the owner was shown, and a link rather than what it names", async () => {
+		const root = workspace();
+		const file = path.join(root, "src", "app.ts");
+		fs.symlinkSync("app.ts", path.join(root, "src", "alias.ts"));
+
+		const alias = await armed(root, "src/alias.ts");
+		expect(outcome(await mutate(root, { kind: "delete", ...alias }))?.outcome).toBe("done");
+		expect(fs.existsSync(path.join(root, "src", "alias.ts"))).toBe(false);
+		expect(fs.readFileSync(file, "utf8")).toBe(shown);
+
+		const before = await armed(root, "src/app.ts");
+		// Held, or the recreated file may be handed the freed inode.
+		fs.linkSync(file, path.join(root, "held.ts"));
+		fs.rmSync(file);
+		fs.writeFileSync(file, shown);
+		expect(outcome(await mutate(root, { kind: "delete", ...before }))?.outcome).toBe("stale");
+
+		const recreated = await armed(root, "src/app.ts");
+		fs.appendFileSync(file, "// more\n");
+		expect(outcome(await mutate(root, { kind: "delete", ...recreated }))?.outcome).toBe("stale");
+		expect(fs.existsSync(file)).toBe(true);
+
+		fs.rmSync(file);
+		expect(outcome(await mutate(root, { kind: "delete", ...recreated }))).toMatchObject({
+			outcome: "stale",
+			gone: true,
+		});
+		const folder = { kind: "delete" as const, path: "src", expectedHash: "h", expectedIdentity: "i" };
+		expect(await mutate(root, folder)).toMatchObject({ ok: false, failure: "refused" });
+	});
+
+	it("moves a file to a free name keeping its inode, and never onto a name that was taken meanwhile", async () => {
+		const root = workspace();
+		const source = await armed(root, "src/app.ts");
+		const move = (to: string, destination: FileDestination): FileMutation => ({
+			kind: "move",
+			...source,
+			to,
+			destination,
+		});
+
+		fs.writeFileSync(path.join(root, "src", "taken.ts"), "theirs");
+		expect(outcome(await mutate(root, move("src/taken.ts", { kind: "absent" })))?.outcome).toBe(
+			"destinationChanged",
+		);
+		expect(fs.readFileSync(path.join(root, "src", "taken.ts"), "utf8")).toBe("theirs");
+
+		expect(outcome(await mutate(root, move("moved.ts", { kind: "absent" })))).toEqual({
+			kind: "mutateFile",
+			path: "src/app.ts",
+			outcome: "done",
+			hash: sha256(shown),
+		});
+		expect(fs.existsSync(path.join(root, "src", "app.ts"))).toBe(false);
+		expect((await stateOf(root, "moved.ts")).identity).toBe(source.expectedIdentity);
+	});
+
+	it("replaces a destination only while it is the one the owner was shown", async () => {
+		const root = workspace();
+		const target = path.join(root, "README.md");
+		const source = await armed(root, "src/app.ts");
+		const named = await replacing(root, "README.md");
+		const move: FileMutation = { kind: "move", ...source, to: "README.md", destination: named };
+
+		fs.appendFileSync(target, "edited\n");
+		expect(outcome(await mutate(root, move))?.outcome).toBe("destinationChanged");
+		expect(fs.existsSync(path.join(root, "src", "app.ts"))).toBe(true);
+
+		const renamed: FileMutation = { ...move, destination: await replacing(root, "README.md") };
+		expect(outcome(await mutate(root, renamed))?.outcome).toBe("done");
+		expect(fs.readFileSync(target, "utf8")).toBe(shown);
+		expect(fs.existsSync(path.join(root, "src", "app.ts"))).toBe(false);
+	});
+
+	it("refuses a move onto a folder, a withheld name, a missing folder, or another name for the same file", async () => {
+		const root = workspace();
+		const file = path.join(root, "src", "app.ts");
+		fs.symlinkSync("app.ts", path.join(root, "src", "alias.ts"));
+		fs.linkSync(file, path.join(root, "src", "hard.ts"));
+		const source = await armed(root, "src/app.ts");
+		const onto = async (to: string, destination: FileDestination = { kind: "absent" }) =>
+			mutate(root, { kind: "move", ...source, to, destination });
+
+		for (const refusedMove of [
+			await onto("src"),
+			await onto(".env"),
+			await onto("missing/app.ts"),
+			await onto("src/app.ts"),
+			await onto("src/alias.ts", await replacing(root, "src/alias.ts")),
+			await onto("src/hard.ts", await replacing(root, "src/hard.ts")),
+		]) {
+			expect(refusedMove).toMatchObject({ ok: false, failure: "refused" });
+		}
+		expect(fs.readFileSync(file, "utf8")).toBe(shown);
+		expect(fs.lstatSync(path.join(root, "src", "alias.ts")).isSymbolicLink()).toBe(true);
+	});
+
+	it("copies the bytes the owner saw with the source's mode, leaving the source alone", async () => {
+		const root = workspace();
+		const file = path.join(root, "src", "app.ts");
+		fs.chmodSync(file, 0o640);
+		const { path: from, expectedHash } = await armed(root, "src/app.ts");
+
+		const copied = await mutate(root, {
+			kind: "copy",
+			path: from,
+			expectedHash,
+			to: "src/copy.ts",
+			destination: { kind: "absent" },
+		});
+		expect(outcome(copied)?.outcome).toBe("done");
+		expect(fs.readFileSync(path.join(root, "src", "copy.ts"), "utf8")).toBe(shown);
+		expect(fs.statSync(path.join(root, "src", "copy.ts")).mode & 0o777).toBe(0o640);
+		expect(fs.readFileSync(file, "utf8")).toBe(shown);
+
+		const over = await mutate(root, {
+			kind: "copy",
+			path: from,
+			expectedHash,
+			to: "README.md",
+			destination: await replacing(root, "README.md"),
+		});
+		expect(outcome(over)?.outcome).toBe("done");
+		expect(fs.readFileSync(path.join(root, "README.md"), "utf8")).toBe(shown);
+	});
+
+	// The hash is checked on the copied bytes, so a change between the state read and the copy lands nothing.
+	it("lands nothing when the source changes during the copy, or the destination appears during it", async () => {
+		const root = workspace();
+		const file = path.join(root, "src", "app.ts");
+		const copy: FileMutation = {
+			kind: "copy",
+			path: "src/app.ts",
+			expectedHash: sha256(shown),
+			to: "src/copy.ts",
+			destination: { kind: "absent" },
+		};
+		const original = fs.copyFileSync.bind(fs);
+
+		vi.spyOn(fs, "copyFileSync").mockImplementationOnce((from, to, mode) => {
+			fs.writeFileSync(file, "changed\n");
+			original(from, to, mode);
+		});
+		expect(outcome(await mutate(root, copy))?.outcome).toBe("stale");
+		expect(fs.readdirSync(path.join(root, "src"))).toEqual(["app.ts"]);
+
+		fs.writeFileSync(file, shown);
+		vi.spyOn(fs, "copyFileSync").mockImplementationOnce((from, to, mode) => {
+			original(from, to, mode);
+			fs.writeFileSync(path.join(root, "src", "copy.ts"), "theirs");
+		});
+		expect(outcome(await mutate(root, copy))?.outcome).toBe("destinationChanged");
+		expect(fs.readFileSync(path.join(root, "src", "copy.ts"), "utf8")).toBe("theirs");
+		expect(fs.readdirSync(path.join(root, "src")).sort()).toEqual(["app.ts", "copy.ts"]);
 	});
 });
 

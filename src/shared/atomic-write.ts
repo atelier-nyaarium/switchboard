@@ -105,6 +105,89 @@ export function writeFileAtomic(file: string, source: AtomicSource, options: Ato
 	}
 }
 
+/** Thrown when a name that must be absent is taken; nothing was placed there. */
+export class NameTaken extends Error {}
+
+/** A filesystem that cannot hardlink. */
+function noHardlinks(error: unknown): boolean {
+	const code = (error as NodeJS.ErrnoException).code;
+	return code === "EPERM" || code === "ENOTSUP" || code === "EOPNOTSUPP" || code === "ENOSYS";
+}
+
+function syncDirectory(directory: string): void {
+	if (process.platform === "win32") return;
+	const descriptor = fs.openSync(directory, "r");
+	try {
+		fs.fsyncSync(descriptor);
+	} finally {
+		fs.closeSync(descriptor);
+	}
+}
+
+/** Thrown when a filesystem cannot link, so a move could not refuse a taken name; nothing was moved. */
+export class LinksUnsupported extends Error {}
+
+/**
+ * Write-then-link: the name appears with all its bytes or not at all, and only where nothing was, since a
+ * link refuses a taken name where a rename would replace it. Throws `NameTaken` otherwise. Where links are not
+ * supported, an exclusive copy keeps the refusal, and a reader can see the file part-written.
+ */
+export function createFileExclusive(file: string, source: AtomicSource, options: { mode?: number } = {}): void {
+	const temp = `${file}${ATOMIC_TEMP_SUFFIX}`;
+	try {
+		if (typeof source === "function") {
+			source(temp);
+			if (options.mode !== undefined) fs.chmodSync(temp, options.mode);
+		} else fs.writeFileSync(temp, source, options.mode === undefined ? undefined : { mode: options.mode });
+		const descriptor = fs.openSync(temp, "r");
+		try {
+			fs.fsyncSync(descriptor);
+		} finally {
+			fs.closeSync(descriptor);
+		}
+		try {
+			fs.linkSync(temp, file);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new NameTaken(file);
+			if (!noHardlinks(error)) throw error;
+			try {
+				fs.copyFileSync(temp, file, fs.constants.COPYFILE_EXCL);
+			} catch (copyError) {
+				if ((copyError as NodeJS.ErrnoException).code === "EEXIST") throw new NameTaken(file);
+				throw copyError;
+			}
+		}
+		syncDirectory(path.dirname(file));
+	} finally {
+		try {
+			fs.rmSync(temp, { force: true });
+		} catch {}
+	}
+}
+
+/**
+ * A move that keeps the inode. Onto an absent name it links then unlinks, so a taken name throws `NameTaken`
+ * and a failure between the two leaves both names rather than neither. With `replace` it renames, which swaps
+ * whatever is there in one step. Where links are not supported the absent case throws `LinksUnsupported`,
+ * since checking then renaming would replace a name taken in between.
+ */
+export function moveFileAtomic(from: string, to: string, options: { replace: boolean }): void {
+	if (options.replace) {
+		renameFileSync(from, to);
+	} else {
+		try {
+			fs.linkSync(from, to);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new NameTaken(to);
+			if (noHardlinks(error)) throw new LinksUnsupported(to);
+			throw error;
+		}
+		fs.unlinkSync(from);
+	}
+	syncDirectory(path.dirname(to));
+	if (path.dirname(from) !== path.dirname(to)) syncDirectory(path.dirname(from));
+}
+
 /**
  * Removes temps a dead writer left in a directory. Returns their names, for the log.
  *

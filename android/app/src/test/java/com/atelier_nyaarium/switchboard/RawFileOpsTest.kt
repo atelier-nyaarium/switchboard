@@ -94,6 +94,8 @@ class RawFileOpsTest {
 			expectedSpanHash: String,
 			text: String,
 		): WorkspaceAnswer<WorkspaceSaveSpanAnswer> = error("not reached")
+
+		override suspend fun fileState(target: WorkspaceTarget, path: String) = error("not reached")
 	}
 
 	private class Host(override val workspace: WorkspaceGateway?) : WorkspaceHost {

@@ -76,6 +76,7 @@ internal fun WorkspaceScreen(
 		when (place) {
 			is WorkspacePlace.Tree -> WorkspaceTree(
 				ops = repo.windowOps,
+				fileOps = repo.fileOps,
 				target = target,
 				path = place.path,
 				onOpenDirectory = { onPush(WorkspacePlace.Tree(it)) },

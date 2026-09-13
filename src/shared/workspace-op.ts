@@ -55,12 +55,16 @@ export const MAX_TREE_ENTRIES = 1_000;
 /** A larger file opens read-only, since a phone text field cannot hold one. */
 export const MAX_RAW_EDIT_BYTES = 256_000;
 
+/** Larger files answer no hash, since hashing one outlasts the plane. */
+export const MAX_HASHED_BYTES = 256_000_000;
+
 ////////////////////////////////
 //  Interfaces & Types
 
 export type WorkspaceOp =
 	| { kind: "tree"; path: string }
 	| { kind: "read"; path: string }
+	| { kind: "fileState"; path: string }
 	| { kind: "outline"; path: string }
 	| { kind: "symbolSource"; symbolId: string }
 	| { kind: "symbolKnowledge"; symbolId: string }
@@ -97,8 +101,10 @@ export function answerForConsole(op: WorkspaceOp, result: WorkspaceOpResult): Wo
 }
 
 export type {
+	FileDestination,
 	FileMutation,
 	FileMutationAnswer,
+	FileStateAnswer,
 	KnowledgeAnswer,
 	OutlineAnswer,
 	OutlineSymbol,

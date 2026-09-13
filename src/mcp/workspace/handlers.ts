@@ -22,7 +22,7 @@ import {
 } from "../../shared/workspace-op.js";
 import { confine, listable } from "./confine.js";
 import { loadWorkspaceFile } from "./loadFile.js";
-import { mutateFile, readOnlyReason } from "./mutateFile.js";
+import { fileStateOf, mutateFile, readOnlyReason } from "./mutateFile.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -345,6 +345,8 @@ export async function answerWorkspaceOp(deps: HandlerDeps, op: WorkspaceOp): Pro
 				return withinCap(treeOf(root, op.path));
 			case "read":
 				return withinCap(readOf(root, op.path));
+			case "fileState":
+				return withinCap(fileStateOf(root, op.path));
 			case "outline":
 				return withinCap(await outlineOf(deps, root, op.path, deadline));
 			case "symbolSource":

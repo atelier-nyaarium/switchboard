@@ -5,7 +5,7 @@ import { ownerKeyId } from "../../shared/owner-id.js";
 import { DELIVERY_OP_KINDS, TOLERATED_DELIVERY_OP_KINDS, VALUE_OP_KINDS } from "../../shared/schemasConsoleOp.js";
 import { type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
 import { SpawnPoint } from "../../shared/session-id.js";
-import { answerForConsole, type WorkspaceOp } from "../../shared/workspace-op.js";
+import type { WorkspaceOp } from "../../shared/workspace-op.js";
 import {
 	RESERVE_OP,
 	type ReserveResult,
@@ -13,6 +13,7 @@ import {
 	routineOwns,
 	routineTeam,
 } from "../routines/reservation.js";
+import { workspaceAnswerNoting } from "../workspaceAwareness.js";
 import { createCrossDomainHandlers } from "./consoleCrossDomain.js";
 import { createRunbookFireHandler } from "./consoleRunbookFire.js";
 import { createSessionLifecycleHandlers } from "./consoleSessionLifecycle.js";
@@ -54,6 +55,7 @@ export function createConsoleDispatcher({
 	routines,
 	policies,
 	workspaceAsk,
+	workspaceChanged,
 	onSessionEnded,
 }: ConsoleHandlerDeps) {
 	const targets = createConsoleTargets({ localDomainId, localGatewayId, isTrustedCatalogProject });
@@ -62,7 +64,9 @@ export function createConsoleDispatcher({
 	async function workspaceOf(target: string, op: WorkspaceOp, verb = "read the workspace of") {
 		const bound = targets.requireLocalComposite(target, verb);
 		if (!workspaceAsk) throw new Error("this Gateway serves no workspace");
-		return answerForConsole(op, await workspaceAsk(bound.name, op));
+		return workspaceAnswerNoting(op, await workspaceAsk(bound.name, op), (change) =>
+			workspaceChanged?.(bound.name, change),
+		);
 	}
 
 	const terminalOps = createTerminalHandlers({ targets, relayToHost, sessionStore });
@@ -264,6 +268,9 @@ export function createConsoleDispatcher({
 					{ kind: "saveSpan", symbolId: op.symbolId, expectedSpanHash: op.expectedSpanHash, text: op.text },
 					"save into the workspace of",
 				);
+
+			case "workspace_file_state":
+				return workspaceOf(op.target, { kind: "fileState", path: op.path });
 
 			case "workspace_mutate_file":
 				return workspaceOf(

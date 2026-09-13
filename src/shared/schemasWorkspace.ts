@@ -113,8 +113,36 @@ export const SaveSpanAnswerSchema = z
 	})
 	.meta({ id: "WorkspaceSaveSpanAnswer" });
 
+const HashSchema = z.string().min(1).max(128);
+
+/** The inode behind a name, which identical bytes in a recreated file do not share. */
+const IdentitySchema = z.string().min(1).max(128);
+
+const MutationPathSchema = z.string().min(1).max(512);
+
+export const FileStateAnswerSchema = z
+	.object({
+		kind: z.literal("fileState"),
+		path: z.string().max(512),
+		state: z.enum(["absent", "file", "directory"]),
+		bytes: z.number().int().nonnegative().optional(),
+		/** Absent for a directory, or a file too large to hash. */
+		hash: HashSchema.optional(),
+		identity: IdentitySchema.optional(),
+	})
+	.meta({ id: "WorkspaceFileStateAnswer" });
+
+/** What a move or copy expects at its destination. `replace` is the explicit overwrite. */
+export const FileDestinationSchema = z
+	.discriminatedUnion("kind", [
+		z.strictObject({ kind: z.literal("absent") }),
+		z.strictObject({ kind: z.literal("replace"), expectedHash: HashSchema, expectedIdentity: IdentitySchema }),
+	])
+	.meta({ id: "WorkspaceFileDestination" });
+
 /**
- * Plain file work, never through Lexicon. Each kind carries its own preconditions.
+ * Plain file work, never through Lexicon. Each kind carries its own preconditions, since a content hash alone
+ * binds no file: a delete or move could act on a recreated file with identical bytes.
  *
  * Strict, so a reader that does not know a precondition refuses the mutation rather than stripping it.
  */
@@ -122,10 +150,33 @@ export const FileMutationSchema = z
 	.discriminatedUnion("kind", [
 		z.strictObject({
 			kind: z.literal("write"),
-			path: z.string().min(1).max(512),
+			path: MutationPathSchema,
 			/** Hash shown to the owner. */
-			expectedHash: z.string().min(1).max(128),
+			expectedHash: HashSchema,
 			text: z.string().max(4_000_000),
+		}),
+		/** Only where nothing is. */
+		z.strictObject({ kind: z.literal("create"), path: MutationPathSchema, text: z.string().max(4_000_000) }),
+		z.strictObject({
+			kind: z.literal("delete"),
+			path: MutationPathSchema,
+			expectedHash: HashSchema,
+			expectedIdentity: IdentitySchema,
+		}),
+		z.strictObject({
+			kind: z.literal("move"),
+			path: MutationPathSchema,
+			expectedHash: HashSchema,
+			expectedIdentity: IdentitySchema,
+			to: MutationPathSchema,
+			destination: FileDestinationSchema,
+		}),
+		z.strictObject({
+			kind: z.literal("copy"),
+			path: MutationPathSchema,
+			expectedHash: HashSchema,
+			to: MutationPathSchema,
+			destination: FileDestinationSchema,
 		}),
 	])
 	.meta({ id: "WorkspaceFileMutation" });
@@ -135,13 +186,14 @@ export const FileMutationAnswerSchema = z
 		kind: z.literal("mutateFile"),
 		path: z.string().max(512),
 		/**
-		 * `stale`: the file no longer holds what the mutation named, so nothing was written. `unknown`: it may
-		 * have landed, so the phone reads back. An outcome a phone does not know reads as unknown.
+		 * `stale`: the source no longer holds what the mutation named. `destinationChanged`: the destination is
+		 * not in the state it named. Neither wrote anything. `unknown`: it may have landed, so the phone reads
+		 * back. An outcome a phone does not know reads as unknown.
 		 */
-		outcome: z.enum(["done", "stale", "unknown"]),
-		/** Hash after write. */
-		hash: z.string().min(1).max(128).optional(),
-		/** Stale because absent. */
+		outcome: z.enum(["done", "stale", "destinationChanged", "unknown"]),
+		/** The file the mutation leaves: at `path` for a write or create, at the destination for a move or copy. */
+		hash: HashSchema.optional(),
+		/** Stale because the source is not there. */
 		gone: z.boolean().optional(),
 		reason: z.string().max(2048).optional(),
 	})
@@ -155,6 +207,7 @@ export const WorkspaceOpAnswerSchema = z.discriminatedUnion("kind", [
 	KnowledgeAnswerSchema,
 	SaveSpanAnswerSchema,
 	FileMutationAnswerSchema,
+	FileStateAnswerSchema,
 ]);
 
 export type TreeEntry = z.infer<typeof TreeEntrySchema>;
@@ -167,4 +220,6 @@ export type KnowledgeAnswer = z.infer<typeof KnowledgeAnswerSchema>;
 export type SaveSpanAnswer = z.infer<typeof SaveSpanAnswerSchema>;
 export type FileMutation = z.infer<typeof FileMutationSchema>;
 export type FileMutationAnswer = z.infer<typeof FileMutationAnswerSchema>;
+export type FileStateAnswer = z.infer<typeof FileStateAnswerSchema>;
+export type FileDestination = z.infer<typeof FileDestinationSchema>;
 export type WorkspaceOpAnswer = z.infer<typeof WorkspaceOpAnswerSchema>;

@@ -132,6 +132,8 @@ class WindowOpsTest {
 			target: WorkspaceTarget,
 			mutation: WorkspaceFileMutation,
 		): WorkspaceAnswer<WorkspaceFileMutationAnswer> = WorkspaceAnswer.Refused("not a file test")
+
+		override suspend fun fileState(target: WorkspaceTarget, path: String) = error("not reached")
 	}
 
 	/** Records what was sent, since an apply is an ordinary message and nothing else marks it. */

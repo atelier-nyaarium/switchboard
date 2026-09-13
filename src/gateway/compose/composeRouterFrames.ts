@@ -13,6 +13,7 @@ import { createGatewayRelayHandler, createGatewayRelayPump } from "../federation
 import { fireAndForget } from "../fireAndForget.js";
 import { composeValueResult } from "../router/valueResult.js";
 import { createRoutineExecution } from "../routines/execution.js";
+import type { AwarenessStage } from "./composeAwareness.js";
 import type { HostStage } from "./composeHost.js";
 import type { RouterPresenceBuild } from "./composeRouterPresence.js";
 import type { GatewayRoutes } from "./composeRoutes.js";
@@ -37,6 +38,7 @@ export interface RouterFramesStageDeps {
 	routines: Pick<RoutineStage, "console" | "bindExecution" | "sessionEnded">;
 	policies: Pick<import("./composePolicies.js").PolicyStage, "console">;
 	workspacePlane: Pick<import("../workspacePlane.js").WorkspacePlane, "ask">;
+	awareness: Pick<AwarenessStage, "awareness" | "workspaceObserve">;
 }
 
 export interface RouterFramesBuild extends RouterFrameHandlers {
@@ -56,12 +58,13 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 		const localDomainId = context.activeDomainId();
 		const isLinkedDomain = (domainId: string) => context.isLinkedDomain(domainId);
 
-		// Named, because the routine stage forgets a finished run's session by the same two steps an
+		// Named, because the routine stage forgets a finished run's session by the same steps an
 		// owner's forget takes. Written twice they would drift, and the copy nobody taps drifts first.
 		const dropSessionResume = (team: string, disposition: BoardDisposition): void => {
 			const released = context.slice()?.boardClient.sessionEnded(team, disposition);
 			if (released) fireAndForget(`board release for ${team}`, released);
 			sessions.presence.forget(team);
+			deps.awareness.awareness.dropFor(team);
 		};
 		const onSessionEnded = (team: string): void => {
 			deps.vault.sessionEnded(team);
@@ -109,6 +112,10 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			routines: deps.routines.console,
 			policies: deps.policies.console,
 			workspaceAsk: deps.workspacePlane.ask,
+			workspaceChanged: (team, change) =>
+				deps.awareness.workspaceObserve([
+					{ sessionKey: team, identity: change.path, pre: undefined, post: change },
+				]),
 			onSessionEnded,
 		});
 
