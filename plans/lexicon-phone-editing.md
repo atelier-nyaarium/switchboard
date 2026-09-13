@@ -1358,7 +1358,7 @@ retention. `sliceRange` and `hashContent` are the primitives.
 operation with the editor, and Phase 10 carries the rest. Phase 11 is one banked notice and rides Phase 10's
 lap. Four laps, not five.
 
-## Phase 7 - Lexicon span compare-and-swap
+## Phase 7 - Lexicon span compare-and-swap ✅
 
 A replace accepting an expected span hash, re-resolving the id and hashing the span it now covers, inside
 the writer gate, in one step.
@@ -1498,6 +1498,21 @@ Writing confinement from scratch was right, and that is the complaint. `refWorks
 lexical containment and module spelling. `isSpawnWorkdirPath` does shape. Lexicon's `insideWorkspace` does
 containment with a realpath. Each is adjacent, none composes, and two of them are the wrong strength for a
 write. A fourth now exists. Nothing forces a new path rule to land in one place, so a fifth is likely.
+
+## A plan that prescribes a mechanism misleads the alignment audit
+
+Phase 7 said the re-resolve and the span hash "have to move inside" the gate. The shipped design checks the
+span on one exact read and has the gate verify that read, which is the same guarantee without the move. Four
+alignment auditors of four then graded the code against the prescription, misread `baseHash` as the phone's
+read, and filed the freebie as broken. A phase should state the guarantee and leave the mechanism open, or
+the audit checks the wrong thing with high confidence.
+
+## Lexicon's wire cannot say "refuse if you do not understand this field"
+
+A daemon strips unknown keys, which is right for skew and wrong for a safety precondition: an older daemon
+handed `expectedSpanHash` writes unchecked. The only way to make it fail closed was a second method,
+`refactorReplaceSpan`, beside `refactorReplace`. Every future precondition on a mutating method will face the
+same choice between a method per guarantee and a silent downgrade.
 
 ## Nothing marks a comment as load-bearing
 
