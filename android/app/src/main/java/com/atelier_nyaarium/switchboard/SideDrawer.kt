@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -34,7 +33,6 @@ import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -42,7 +40,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
 
 @Composable
 internal fun SideDrawer(
@@ -52,11 +49,6 @@ internal fun SideDrawer(
 	content: @Composable () -> Unit,
 ) {
 	val outer = LocalLayoutDirection.current
-	val scope = rememberCoroutineScope()
-	// Composed on open and held through closing, so it outranks the screen's Back.
-	if (state.targetValue == DrawerValue.Open || state.currentValue == DrawerValue.Open) {
-		BackHandler { scope.launch { state.close() } }
-	}
 	// Material uses the start edge.
 	val drawerDirection = if (side == DrawerSide.RIGHT) LayoutDirection.Rtl else LayoutDirection.Ltr
 	CompositionLocalProvider(LocalLayoutDirection provides drawerDirection) {
@@ -75,6 +67,9 @@ internal fun SideDrawer(
 		)
 	}
 }
+
+/** Open or closing, so Back belongs to the drawer. */
+internal fun DrawerState.holdsBack(): Boolean = targetValue == DrawerValue.Open || currentValue == DrawerValue.Open
 
 @Composable
 internal fun DrawerButton(badged: Boolean, onClick: () -> Unit) {

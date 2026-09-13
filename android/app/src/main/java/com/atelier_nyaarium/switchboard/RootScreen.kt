@@ -9,7 +9,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -18,7 +18,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -31,6 +30,7 @@ internal fun RootScreen(
 	shown: RootView,
 	onView: (RootView) -> Unit,
 	drawerSide: DrawerSide,
+	drawerState: DrawerState,
 	domainId: String?,
 	vaultPending: Int,
 	snackbarHostState: SnackbarHostState,
@@ -41,7 +41,6 @@ internal fun RootScreen(
 	onQueue: () -> Unit,
 	body: @Composable (RootView, Modifier) -> Unit,
 ) {
-	val drawerState = rememberDrawerState(DrawerValue.Closed)
 	val scope = rememberCoroutineScope()
 	val marks = views.map { rootMark(it, vaultPending) }
 

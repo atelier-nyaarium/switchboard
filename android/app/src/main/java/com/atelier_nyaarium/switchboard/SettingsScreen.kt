@@ -50,8 +50,7 @@ private fun settingsTitle(route: SettingsRoute): String = when (route) {
 }
 
 /** Settings hub-and-spoke: the hub lists tappable category rows; each drills into a
- * focused sub-screen. Back pops a sub-screen to the hub, and the hub closes settings
- * (the App-level BackHandler mirrors this for the system back button). */
+ * focused sub-screen. Both Back paths use `settingsBack`. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -70,24 +69,10 @@ fun SettingsScreen(
 	drawerSide: DrawerSide,
 	onDrawerSide: (DrawerSide) -> Unit,
 ) {
-	// Settings opens from the pre-provision setup screen too. Before provisioning the repo is not
-	// loaded, so the provisioned-only categories (Profile, Voice, Networks, Security) would NPE or
-	// route into provisioned-only screens. Show ONLY the app-local sections then (System, Plugins,
-	// and Federation, which reads the store and dials nothing), and treat a stale saved sub-route as
-	// the hub so it can never render a provisioned-only screen unprovisioned.
+	// Before provisioning, only app-local sections are valid.
 	val provisioned = state.provisioned
-	val preProvisionRoutes = setOf(SettingsRoute.HUB, SettingsRoute.SYSTEM, SettingsRoute.PLUGINS, SettingsRoute.FEDERATION)
-	val effectiveRoute = if (!provisioned && route !in preProvisionRoutes) SettingsRoute.HUB else route
-	// Federation is reached FROM Domain & Trust when provisioned, so back returns there rather than
-	// skipping the level the user actually came through. Before provisioning there is no Domain &
-	// Trust to return to, so back goes to the hub.
-	val onBack = {
-		when (effectiveRoute) {
-			SettingsRoute.HUB -> onCloseSettings()
-			SettingsRoute.FEDERATION -> onRoute(if (provisioned) SettingsRoute.NETWORKS else SettingsRoute.HUB)
-			else -> onRoute(SettingsRoute.HUB)
-		}
-	}
+	val effectiveRoute = effectiveRoute(route, provisioned)
+	val onBack = { settingsBack(route, provisioned)?.let(onRoute) ?: onCloseSettings() }
 	Scaffold(
 		topBar = {
 			TopAppBar(

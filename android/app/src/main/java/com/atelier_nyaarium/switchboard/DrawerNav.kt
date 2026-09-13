@@ -78,6 +78,9 @@ internal enum class Arrival {
 	/** The tab row. */
 	TAB,
 
+	/** The tab row, after the open tab closed. */
+	CLOSED_TAB,
+
 	/** A ref's exit. */
 	FILES_ASKED,
 }

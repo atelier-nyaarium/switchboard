@@ -14,9 +14,9 @@ internal sealed interface WorkspaceOpen {
 internal data class WorkspaceOpenRequest(val team: String, val open: WorkspaceOpen)
 
 /**
- * Held until the Files view it names composes.
+ * Held until shell routing, since the roster may be pending.
  *
- * The latest wins. That view clears it, or the shell once its session is gone.
+ * Latest wins; the shell clears routed or dropped requests.
  */
 internal object WorkspaceOpenBus {
 	private val _pending = MutableStateFlow<WorkspaceOpenRequest?>(null)

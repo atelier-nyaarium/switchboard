@@ -1538,16 +1538,26 @@ The mockups are `plans/lexicon-phone-editing/drawer-*.html`. One ruling on them:
   there would outrank the editors the filtered views now open. Not closed structurally; any new screen with
   its own handler can outrank a sheet or drawer drawn over it. The red team found the second instance in the
   same handler: it was released when the close began, so a second Back during the animation reached the
-  screen underneath. Patched by holding it until `currentValue` closes too. Two patches in one mechanism;
-  handed to the architecture pass.
+  screen underneath. Patched by holding it until `currentValue` closes too. Two patches in one mechanism.
+  Closed structurally by the architecture pass: `backLayer` in `ShellNav.kt` orders Back by what is drawn
+  over what (editor, overlay, settings, drawer, Files stack, view, conversation, root view), `App` holds the
+  one handler that dispatches it, the drawer and the Files stack lost theirs, and
+  `back-handler-residue.test.ts` refuses a handler anywhere but the three files it names with a reason.
+  Hoisting the drawer states let one outlive its screen, so a drawer left open reappeared open after a
+  notification or a return from Settings. `shellScreen` is now the one order the render and `backLayer`
+  both read, and each drawer's state is remembered per showing of its screen.
 - **A held request re-applied on every recomposition key.** Mechanism: the shell's `WorkspaceOpenBus`
   effect is keyed on the roster, so each roster tick routed a pending request again and could force Files
-  after the owner left it. Patched by routing each request once, by identity, and dropping one whose
-  thread cannot open.
+  after the owner left it. Patched by routing each request once, by identity. Closed by the same pass: the
+  shell takes the request off the bus as it routes it, and the Files stack is the conversation's
+  (`ConversationNav.files`), so no screen consumes a request at all.
 - **A navigation road that lands a conversation without deciding its view.** Mechanism: the view was held
   across every change of `openTeam`, and five roads land one. The alignment audit found opening a second
-  session from the list landed on the first one's Terminal. Closed structurally: every road into a
-  conversation calls `arrive` with an `Arrival`, and `arrivedView` is the one rule. Leaving writes null.
+  session from the list landed on the first one's Terminal. First closed by routing every road through one
+  `arrive` lambda, which still left the generation bump to each caller. Closed structurally by the
+  architecture pass: the open conversation, its view, its Files stack, the root view, settings and the
+  generation are one `ShellNav` value, and `arrive` is a pure transition that decides the view and the bump
+  together. Nothing outside `ShellNav.kt` writes a field of it.
 
 ## Phase 9 - The raw whole-file editor
 

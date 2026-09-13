@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard.workspace
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,8 +16,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -29,22 +26,26 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.Team
-import com.atelier_nyaarium.switchboard.WORKSPACE_ROOT
 import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspacePlace
-import com.atelier_nyaarium.switchboard.WorkspaceTarget
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.holdsWorkspace
 import com.atelier_nyaarium.switchboard.placeOf
 import com.atelier_nyaarium.switchboard.placeTitle
-import com.atelier_nyaarium.switchboard.popPlace
-import com.atelier_nyaarium.switchboard.pushPlace
 import com.atelier_nyaarium.switchboard.targetOf
 import kotlinx.coroutines.launch
 
+/** Shell owns the stack, so Back and ref exits share it. */
 @Composable
-fun WorkspaceScreen(repo: ChatRepository, session: Team?, rosterLoaded: Boolean, modifier: Modifier = Modifier) {
-	val request by WorkspaceOpenBus.pending.collectAsState()
+internal fun WorkspaceScreen(
+	repo: ChatRepository,
+	session: Team?,
+	rosterLoaded: Boolean,
+	stack: List<WorkspacePlace>,
+	onPush: (WorkspacePlace) -> Unit,
+	onPop: () -> Unit,
+	modifier: Modifier = Modifier,
+) {
 	if (session == null || !holdsWorkspace(session)) {
 		Column(
 			modifier.fillMaxSize().padding(24.dp),
@@ -59,69 +60,37 @@ fun WorkspaceScreen(repo: ChatRepository, session: Team?, rosterLoaded: Boolean,
 		return
 	}
 	val target = remember(session.name) { targetOf(session) }
-	// Only matching requests open here.
-	val asked = request?.takeIf { it.team == session.name }
-	WorkspaceNavHost(repo, target, modifier.fillMaxSize(), asked) { WorkspaceOpenBus.shown(it) }
-}
-
-@Composable
-private fun WorkspaceNavHost(
-	repo: ChatRepository,
-	target: WorkspaceTarget,
-	modifier: Modifier = Modifier,
-	asked: WorkspaceOpenRequest? = null,
-	onPendingShown: (WorkspaceOpenRequest) -> Unit = {},
-) {
-	// Switching session starts over: a held path names the workspace it was read from.
-	var stack by remember(target.key) { mutableStateOf(listOf(WORKSPACE_ROOT)) }
 	val place = placeOf(stack)
 	val scope = rememberCoroutineScope()
 	val boards by repo.windowOps.windows.collectAsState()
 	val windows = boards[target].orEmpty()
-
-	// After the stack was rebuilt for this target, or the reset would discard what was asked for.
-	LaunchedEffect(target.key, asked) {
-		val request = asked ?: return@LaunchedEffect
-		when (val open = request.open) {
-			is WorkspaceOpen.File -> stack = pushPlace(listOf(WORKSPACE_ROOT), WorkspacePlace.Outline(open.path))
-			is WorkspaceOpen.Window -> {
-				// Shown whether or not the span could be read. A refusal adds no window and nothing here
-				// says so, which is the same gap a failed draft write has.
-				repo.windowOps.openWindow(target, open.symbolId)
-				stack = pushPlace(listOf(WORKSPACE_ROOT), WorkspacePlace.Windows)
-			}
-		}
-		onPendingShown(request)
-	}
-
-	BackHandler(enabled = stack.size > 1) { stack = popPlace(stack) }
 
 	Column(modifier.fillMaxSize()) {
 		WorkspaceHeader(
 			place = place,
 			openWindows = windows.size,
 			canBack = stack.size > 1,
-			onBack = { stack = popPlace(stack) },
-			onWindows = { stack = pushPlace(stack, WorkspacePlace.Windows) },
+			onBack = onPop,
+			onWindows = { onPush(WorkspacePlace.Windows) },
 		)
 		when (place) {
 			is WorkspacePlace.Tree -> WorkspaceTree(
 				ops = repo.windowOps,
 				target = target,
 				path = place.path,
-				onOpenDirectory = { stack = pushPlace(stack, WorkspacePlace.Tree(it)) },
-				onOpenOutline = { stack = pushPlace(stack, WorkspacePlace.Outline(it)) },
-				onOpenRaw = { stack = pushPlace(stack, WorkspacePlace.Raw(it)) },
+				onOpenDirectory = { onPush(WorkspacePlace.Tree(it)) },
+				onOpenOutline = { onPush(WorkspacePlace.Outline(it)) },
+				onOpenRaw = { onPush(WorkspacePlace.Raw(it)) },
 			)
 			is WorkspacePlace.Outline -> WorkspaceOutline(
 				ops = repo.windowOps,
 				target = target,
 				path = place.path,
 				held = windows,
-				onOpenDetail = { id, name -> stack = pushPlace(stack, WorkspacePlace.Detail(id, name)) },
+				onOpenDetail = { id, name -> onPush(WorkspacePlace.Detail(id, name)) },
 				onOpenWindow = { id -> scope.launch { repo.windowOps.openWindow(target, id) } },
-				onOpenRaw = { stack = pushPlace(stack, WorkspacePlace.Raw(place.path)) },
-				onOpenWindows = { stack = pushPlace(stack, WorkspacePlace.Windows) },
+				onOpenRaw = { onPush(WorkspacePlace.Raw(place.path)) },
+				onOpenWindows = { onPush(WorkspacePlace.Windows) },
 			)
 			is WorkspacePlace.Raw -> WorkspaceRawFile(repo.windowOps, target, place.path)
 			is WorkspacePlace.Detail -> SymbolDetail(
@@ -130,7 +99,7 @@ private fun WorkspaceNavHost(
 				symbolId = place.symbolId,
 				onOpenWindow = {
 					scope.launch { repo.windowOps.openWindow(target, place.symbolId) }
-					stack = pushPlace(stack, WorkspacePlace.Windows)
+					onPush(WorkspacePlace.Windows)
 				},
 			)
 			WorkspacePlace.Windows -> WindowView(

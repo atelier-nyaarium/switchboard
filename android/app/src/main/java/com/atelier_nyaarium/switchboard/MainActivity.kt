@@ -124,9 +124,8 @@ fun App(
 	val missingBoot = bootState as? BootState.Missing
 	val context = LocalContext.current
 	val activity = context as? FragmentActivity
-	var openTeam by remember { mutableStateOf<String?>(null) }
-	// Increment only on genuine opens.
-	var openNonce by remember { mutableStateOf(0) }
+	var nav by rememberSaveable(stateSaver = ShellNavSaver) { mutableStateOf(ShellNav()) }
+	val openTeam = nav.conversation?.team
 	// Composition mirror; store persists.
 	var boardStripHeight by remember { mutableStateOf(repo.store.boardStripHeight) }
 	var boardModal by remember { mutableStateOf<String?>(null) }
@@ -136,9 +135,8 @@ fun App(
 	var editRunbook by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
 	var editRoutine by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
 	var editPolicy by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
-	var rootView by rememberSaveable { mutableStateOf(RootView.SESSIONS) }
-	var conversationView by rememberSaveable { mutableStateOf(ConversationView.CHAT) }
 	var drawerSide by remember { mutableStateOf(repo.store.drawerSide) }
+	val shellScope = rememberCoroutineScope()
 	val shellActions = ShellActions(
 		openBoardEntry = { boardModal = it },
 		moveBoardEntry = { row, drop -> repo.boardOps.boardSetParent(row.entry.id, drop.parent, drop.rank) },
@@ -164,9 +162,6 @@ fun App(
 			else -> QueueGlance.IDLE
 		}
 	}
-	// Save settings route across recreation.
-	var showSettings by rememberSaveable { mutableStateOf(false) }
-	var settingsRoute by rememberSaveable { mutableStateOf(SettingsRoute.HUB) }
 	// Overlays are not saveable; they may contain key material.
 	var overlays by remember { mutableStateOf(emptyList<Overlay>()) }
 	val openOverlay = { overlay: Overlay -> overlays = overlays.pushOverlay(overlay) }
@@ -223,48 +218,38 @@ fun App(
 	}
 	val features = DrawerFeatures(board = pluginManager.isActive("taskboard"), vault = pluginManager.isActive("vault"))
 	val offeredRoot = rootViews(features)
-	val shownRoot = shownView(offeredRoot, rootView)
-	val offeredConversation = openTeam?.let { conversationViews(features, terminalEligible(state, it)) }
-	val shownConversation = offeredConversation?.let { shownView(it, conversationView) }
-	// Every arrival chooses a view.
-	val arrive = { team: String, arrival: Arrival ->
-		val presence = state.sessions().firstOrNull { it.name == team }?.presence
-		val offered = conversationViews(features, terminalEligible(state, team))
-		conversationView = arrivedView(conversationView, offered, arrival, stuckAtLogin(presence))
-		openTeam = team
+	val offeredConversation = openTeam?.let { conversationViews(features, terminalEligible(state, it)) }.orEmpty()
+	val factsFor = { team: String ->
+		ArrivalFacts(
+			offered = conversationViews(features, terminalEligible(state, team)),
+			stuckAtLogin = stuckAtLogin(state.sessions().firstOrNull { it.name == team }?.presence),
+		)
 	}
-	// A ref's exit opens its session on Files.
+	// A ref's exit opens Files. Clearing first prevents duplicate routing.
 	val workspaceRequest by com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus.pending.collectAsState()
-	// By identity: a repeated tap is new, a roster tick is not.
-	var routedRequest by remember { mutableStateOf<Any?>(null) }
 	LaunchedEffect(workspaceRequest, state.teams, state.gateways.loaded) {
 		val request = workspaceRequest ?: return@LaunchedEffect
-		if (request === routedRequest) return@LaunchedEffect
-		when (standingOf(state.teams, state.gateways.loaded, request.team)) {
-			RequestStanding.Wait -> Unit
-			RequestStanding.Drop -> com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus.shown(request)
-			RequestStanding.Show -> {
-				routedRequest = request
-				val opened = repo.openThread(request.team)
-				if (opened == null) {
-					com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus.shown(request)
-					return@LaunchedEffect
-				}
-				if (opened != openTeam) openNonce++
-				arrive(opened, Arrival.FILES_ASKED)
+		val standing = standingOf(state.teams, state.gateways.loaded, request.team)
+		if (standing == RequestStanding.Wait) return@LaunchedEffect
+		com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus.shown(request)
+		val row = state.teams.firstOrNull { it.name == request.team }
+		val opened = if (standing == RequestStanding.Show) repo.openThread(request.team) else null
+		if (row == null || opened == null) return@LaunchedEffect
+		val place = when (val open = request.open) {
+			is com.atelier_nyaarium.switchboard.workspace.WorkspaceOpen.File -> WorkspacePlace.Outline(open.path)
+			is com.atelier_nyaarium.switchboard.workspace.WorkspaceOpen.Window -> {
+				// This effect ends when the bus clears, so use the shell scope.
+				shellScope.launch { repo.windowOps.openWindow(targetOf(row), open.symbolId) }
+				WorkspacePlace.Windows
 			}
 		}
+		nav = nav.arrive(opened, Arrival.FILES_ASKED, factsFor(opened), place)
 	}
 	LaunchedEffect(openTeamRequest.value) {
 		openTeamRequest.value?.let { team ->
 			val opened = repo.openThread(team) ?: return@let
-			// Clear overlays before notification navigation.
-			showSettings = false
-			settingsRoute = SettingsRoute.HUB
 			overlays = emptyList()
-			arrive(opened, Arrival.OUTSIDE)
-			// Increment nonce for genuine opens.
-			openNonce++
+			nav = nav.arrive(opened, Arrival.OUTSIDE, factsFor(opened))
 			openTeamRequest.value = null
 		}
 	}
@@ -272,7 +257,7 @@ fun App(
 	// A notification tap opens the request.
 	LaunchedEffect(vaultRequestRequest.value) {
 		vaultRequestRequest.value?.let { requestId ->
-			showSettings = false
+			nav = nav.closeSettings()
 			overlays = emptyList()
 			vaultModal = VaultModal.Request(requestId)
 			vaultRequestRequest.value = null
@@ -289,42 +274,51 @@ fun App(
 		if (locked && activity != null) promptUnlock(activity) { ok -> if (ok) unlocked = true }
 	}
 
-	// Back follows render order.
-	BackHandler(
-		enabled = editRunbook != null || editRoutine != null || editPolicy != null || overlays.isNotEmpty() ||
-			showSettings || openTeam != null ||
-			// Root views require unlocked boot.
-			(!locked && missingBoot == null && backFrom(offeredRoot, shownRoot) != null),
-	) {
-		val conversationBack = offeredConversation?.let { offered -> shownConversation?.let { backFrom(offered, it) } }
-		when {
-			editPolicy != null -> editPolicy = null
-			editRoutine != null -> editRoutine = null
-			editRunbook != null -> editRunbook = null
-			overlays.isNotEmpty() -> closeOverlay()
-			// Mirrors SettingsScreen's own back: Federation was entered from Domain & Trust.
-			showSettings && settingsRoute == SettingsRoute.FEDERATION ->
-				settingsRoute = if (state.provisioned) SettingsRoute.NETWORKS else SettingsRoute.HUB
-			showSettings && settingsRoute != SettingsRoute.HUB -> settingsRoute = SettingsRoute.HUB
-			showSettings -> showSettings = false
-			conversationBack != null -> conversationView = conversationBack
-			openTeam != null -> openTeam = null
-			else -> backFrom(offeredRoot, shownRoot)?.let { rootView = it }
+	val screen = shellScreen(nav, locked, overlays.isNotEmpty(), missingBoot == null)
+	// One state per showing of its screen, so a drawer left open never reappears open.
+	val rootDrawer = remember(screen == ShellScreen.ROOT) {
+		androidx.compose.material3.DrawerState(androidx.compose.material3.DrawerValue.Closed)
+	}
+	val conversationDrawer = remember(screen == ShellScreen.CONVERSATION, openTeam) {
+		androidx.compose.material3.DrawerState(androidx.compose.material3.DrawerValue.Closed)
+	}
+	// The one Back authority: `backLayer` orders what is drawn over what.
+	val shownDrawer = if (screen == ShellScreen.CONVERSATION) conversationDrawer else rootDrawer
+	val backFacts = BackFacts(
+		editorOpen = editRunbook != null || editRoutine != null || editPolicy != null,
+		locked = locked,
+		overlayOpen = overlays.isNotEmpty(),
+		booted = missingBoot == null,
+		drawerOpen = shownDrawer.holdsBack(),
+		offeredRoot = offeredRoot,
+		offeredConversation = offeredConversation,
+	)
+	val layer = backLayer(nav, backFacts)
+	BackHandler(enabled = layer != null) {
+		when (layer) {
+			BackLayer.EDITOR -> when {
+				editPolicy != null -> editPolicy = null
+				editRoutine != null -> editRoutine = null
+				else -> editRunbook = null
+			}
+			BackLayer.OVERLAY -> closeOverlay()
+			BackLayer.DRAWER -> shellScope.launch { shownDrawer.close() }
+			null -> Unit
+			else -> nav = nav.back(layer, backFacts, state.provisioned)
 		}
 	}
 
-	when {
-		// Lock takes precedence.
-		locked -> LockScreen(onUnlock = { activity?.let { a -> promptUnlock(a) { ok -> if (ok) unlocked = true } } })
-		overlays.isNotEmpty() -> OverlayHost(overlays.last(), repo, state, openOverlay, closeOverlay)
+	when (screen) {
+		ShellScreen.LOCK -> LockScreen(onUnlock = { activity?.let { a -> promptUnlock(a) { ok -> if (ok) unlocked = true } } })
+		ShellScreen.OVERLAY -> OverlayHost(overlays.last(), repo, state, openOverlay, closeOverlay)
 		// Settings remains reachable before provisioning.
-		showSettings ->
+		ShellScreen.SETTINGS ->
 			SettingsScreen(
 				state = state,
 				repo = repo,
 				plugins = pluginManager,
-				route = settingsRoute,
-				onRoute = { settingsRoute = it },
+				route = nav.settings ?: SettingsRoute.HUB,
+				onRoute = { nav = nav.openSettings(it) },
 				onSetDeviceName = { repo.command { setDeviceName(it) } },
 				onToggleBiometric = { repo.setBiometricLock(it) },
 				onManage = { openOverlay(Overlay.Manage) },
@@ -334,36 +328,28 @@ fun App(
 					// Wipe plugins and notifications after local wipe.
 					pluginManager.host.accountWipeHandlers.forEachCaught(onError = ::logPluginThrow) { it.onWipe(context) }
 					ServiceNotifications.cancelProvisioningNotifications(context)
-					showSettings = false
-					settingsRoute = SettingsRoute.HUB
 					overlays = emptyList()
-					openTeam = null
+					nav = ShellNav()
 				},
-				onCloseSettings = {
-					showSettings = false
-					settingsRoute = SettingsRoute.HUB
-				},
+				onCloseSettings = { nav = nav.closeSettings() },
 				drawerSide = drawerSide,
 				onDrawerSide = {
 					drawerSide = it
 					repo.store.drawerSide = it
 				},
 			)
-		missingBoot != null -> when {
-			Need.PROVISIONING in missingBoot.needs ->
+		ShellScreen.BOOT -> when {
+			Need.PROVISIONING in missingBoot?.needs.orEmpty() ->
 				ProvisionScreen(
 					repo = repo,
 					state = state,
 					onProvision = { repo.command { provision(it) } },
-					onSettings = { showSettings = true },
-					onFederation = {
-						settingsRoute = SettingsRoute.FEDERATION
-						showSettings = true
-					},
+					onSettings = { nav = nav.openSettings() },
+					onFederation = { nav = nav.openSettings(SettingsRoute.FEDERATION) },
 				)
-			else -> DomainConnectingScreen(onSettings = { showSettings = true })
+			else -> DomainConnectingScreen(onSettings = { nav = nav.openSettings() })
 		}
-		openTeam != null -> {
+		ShellScreen.CONVERSATION -> {
 			// Devcontainer names are fixed.
 			val session = state.sessions().firstOrNull { it.name == openTeam }
 			val kind = session?.kind
@@ -388,8 +374,7 @@ fun App(
 				pluginManager.host.threadForgetHandlers.forEachCaught(onError = ::logPluginThrow) { it.onForget(context, forgotten) }
 				SwitchboardService.cancelTeamNotification(context, forgotten)
 				SwitchboardService.cancelScheduledSendFailedNotification(context, forgotten)
-					// Clear only the still-open thread.
-				if (openTeam == forgotten) openTeam = null
+				nav = nav.forgot(forgotten)
 			}
 			val boardOn = pluginManager.isActive("taskboard")
 			val boardTeam = state.teams.firstOrNull { it.name == openTeam }
@@ -427,8 +412,8 @@ fun App(
 					}
 			}
 			val team = openTeam!!
-			val offered = offeredConversation.orEmpty()
-			val shown = shownConversation ?: ConversationView.CHAT
+			val offered = offeredConversation
+			val shown = shownView(offered, nav.conversation?.view ?: ConversationView.CHAT)
 			val windowBoards by repo.windowOps.windows.collectAsState()
 			val facts = ConversationFacts(
 				team = team,
@@ -437,18 +422,16 @@ fun App(
 				pendingRequests = ViewScope.Session(team).requestsOf(vaultPending).size,
 			)
 			val marks = offered.map { conversationMark(it, facts) }
-			val drawerState = androidx.compose.material3.rememberDrawerState(androidx.compose.material3.DrawerValue.Closed)
-			val drawerScope = rememberCoroutineScope()
 			SideDrawer(
 				side = drawerSide,
-				state = drawerState,
+				state = conversationDrawer,
 				sheet = {
 					DrawerHeader(tabLabelFor(state, team), localFieldOf(team), monospace = true)
 					offered.forEachIndexed { index, view ->
 						if (index > 0 && view.scoped != null && offered[index - 1].scoped == null) DrawerDivider()
 						DrawerRow(view.title, iconOf(view), view == shown, marks[index]) {
-							conversationView = view
-							drawerScope.launch { drawerState.close() }
+							nav = nav.showView(view)
+							shellScope.launch { conversationDrawer.close() }
 						}
 					}
 				},
@@ -465,7 +448,7 @@ fun App(
 				error = state.error?.takeUnless { presence == "waking..." && it.endsWith("retrying") },
 				rendererPool = rendererPool,
 				canRename = kind == "loose",
-				openNonce = openNonce,
+				openNonce = nav.generation,
 				boardStrip = boardStripFor,
 				boardLiveLine = boardLiveLineFor,
 				boardRevision = boardRevision,
@@ -478,20 +461,16 @@ fun App(
 				revealAt = revealAt,
 				onRevealed = { revealAt = null },
 				unreadBoundary = repo::unreadBoundary,
-				onGateway = { t ->
-						// Non-active tab switches are genuine opens.
-					if (t != openTeam) openNonce++
-					arrive(t, Arrival.TAB)
-				},
+				onGateway = { t -> nav = nav.arrive(t, Arrival.TAB, factsFor(t)) },
 				onCloseTab = { t ->
 						// Leave closing tab before renderer removal.
 					if (t == openTeam) {
 						val next = state.openTabs.firstOrNull { it != t }
-						if (next == null) openTeam = null else arrive(next, Arrival.TAB)
+						nav = if (next == null) nav.leave() else nav.arrive(next, Arrival.CLOSED_TAB, factsFor(next))
 					}
 					repo.closeTab(t)
 				},
-				onSessions = { openTeam = null },
+				onSessions = { nav = nav.leave() },
 				composer = ComposerState(
 					draft = state.drafts[openTeam!!] ?: Draft(),
 					sendAwaitingWake = state.awaitingWake(openTeam!!),
@@ -559,10 +538,10 @@ fun App(
 				),
 				onFocusChange = repo::declareFocus,
 				view = shown,
-				onView = { conversationView = it },
+				onView = { nav = nav.showView(it) },
 				drawerSide = drawerSide,
 				drawerBadged = anyBadge(marks),
-				onOpenDrawer = { drawerScope.launch { drawerState.open() } },
+				onOpenDrawer = { shellScope.launch { conversationDrawer.open() } },
 				body = { modifier ->
 					val scoped = shown.scoped
 					if (scoped == null) {
@@ -570,14 +549,14 @@ fun App(
 							repo = repo,
 							session = state.teams.firstOrNull { it.name == team },
 							rosterLoaded = state.gateways.loaded,
+							stack = nav.conversation?.files ?: listOf(WORKSPACE_ROOT),
+							onPush = { nav = nav.pushFiles(it) },
+							onPop = { nav = nav.popFiles() },
 							modifier = modifier,
 						)
 					} else {
 						androidx.compose.foundation.layout.Column(modifier) {
-							ScopeRow(scoped, team) {
-								rootView = RootView.of(scoped)
-								openTeam = null
-							}
+							ScopeRow(scoped, team) { nav = nav.wholeOf(scoped) }
 							ScopedViewBody(
 								view = scoped,
 								scope = ViewScope.Session(team),
@@ -592,7 +571,7 @@ fun App(
 			)
 			}
 		}
-		else -> {
+		ShellScreen.ROOT -> {
 			val snackbarHostState = remember { SnackbarHostState() }
 			// Transient failures use snackbar.
 			LaunchedEffect(state.transientMessages) {
@@ -626,9 +605,10 @@ fun App(
 			}
 			RootScreen(
 				views = offeredRoot,
-				shown = shownRoot,
-				onView = { rootView = it },
+				shown = shownView(offeredRoot, nav.root),
+				onView = { nav = nav.showRoot(it) },
 				drawerSide = drawerSide,
+				drawerState = rootDrawer,
 				domainId = state.domainId,
 				vaultPending = if (vaultOn) vaultPending.size else 0,
 				snackbarHostState = snackbarHostState,
@@ -637,10 +617,7 @@ fun App(
 						// Refresh retries non-route columns.
 					repo.boardOps.refreshBoard()
 				},
-				onSettings = {
-					settingsRoute = SettingsRoute.HUB
-					showSettings = true
-				},
+				onSettings = { nav = nav.openSettings() },
 				queueState = queueState,
 				onQueue = { openQueueRequest.value = true },
 			) { view, modifier ->
@@ -653,7 +630,7 @@ fun App(
 						state = state,
 						actions = shellActions,
 						modifier = modifier,
-						onBoardSaved = { rootView = RootView.SESSIONS },
+						onBoardSaved = { nav = nav.showRoot(RootView.SESSIONS) },
 					)
 				} else {
 					SessionsScreen(
@@ -664,10 +641,7 @@ fun App(
 						onAddGateway = { openOverlay(Overlay.AddGateway) },
 						onHostHelp = { openOverlay(Overlay.HostHelp) },
 						onOpen = { team ->
-							repo.openThread(team)?.let {
-								arrive(it, Arrival.OUTSIDE)
-								openNonce++
-							}
+							repo.openThread(team)?.let { nav = nav.arrive(it, Arrival.OUTSIDE, factsFor(it)) }
 						},
 						onRename = { team, name -> repo.command { rename(team, name) } },
 						onForget = { team ->
@@ -685,10 +659,7 @@ fun App(
 						onVerifyEnroll = (if (state.provisioned) repo.ceremony.pendingEnrolleeCeremony() else null)
 							?.let { c -> { openOverlay(Overlay.EnrolleeCeremony(c)) } },
 						// Router endpoint opens Federation.
-						onRouterEndpoint = {
-							settingsRoute = SettingsRoute.FEDERATION
-							showSettings = true
-						},
+						onRouterEndpoint = { nav = nav.openSettings(SettingsRoute.FEDERATION) },
 						boardLine = { team -> boardLines[team.name] },
 						boardBranch = { team -> boardBranches[team.name] },
 						vaultTier = { team -> vaultTiers[team.name] },
