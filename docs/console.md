@@ -284,8 +284,10 @@ no TTL.
   Vault) and a conversation shows Chat, Terminal, Files or one of those views filtered to it, each
   picked from a drawer. A swipe opens it from the edge the swipe moves away from, and the menu button
   sits on, and opens from, the side `DrawerSide` names, left unless right was stored. `SideDrawers` is
-  one anchored drag over both edges (`drawerAnchors`), since Material's drawer drags from one edge and
-  two nested ones swallow each other's swipe. Where the shell stands is one `ShellNav` value,
+  one anchored state over both edges (`drawerAnchors`), since Material's drawer drags from one edge and
+  two nested ones swallow each other's swipe. A swipe claims it only past twice the touch slop and
+  within about 22 degrees of horizontal (`swipeClaim`), so a scroll's drift stays a scroll, and a
+  release settles by `releasedSlot`. Where the shell stands is one `ShellNav` value,
   and every road through it is a transition: `arrive` decides the view and whether the thread re-snaps
   (`Arrival` names the road), and the conversation carries its own Files stack.
 

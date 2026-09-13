@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
+import kotlin.math.abs
 
 enum class DrawerSide {
 	LEFT,
@@ -26,6 +27,26 @@ internal fun drawerAnchors(settled: DrawerSlot, width: Float): Map<DrawerSlot, F
 	DrawerSlot.CLOSED -> mapOf(DrawerSlot.CLOSED to 0f, DrawerSlot.LEFT to width, DrawerSlot.RIGHT to -width)
 	DrawerSlot.LEFT -> mapOf(DrawerSlot.CLOSED to 0f, DrawerSlot.LEFT to width)
 	DrawerSlot.RIGHT -> mapOf(DrawerSlot.CLOSED to 0f, DrawerSlot.RIGHT to -width)
+}
+
+// Within about 22 degrees of horizontal.
+private const val SWIPE_RATIO = 2.5f
+
+/** Null until past slop. A scroll's drift never claims. */
+internal fun swipeClaim(dx: Float, dy: Float, slop: Float): Boolean? =
+	if (dx * dx + dy * dy < slop * slop) null else abs(dx) >= abs(dy) * SWIPE_RATIO
+
+/** Where a released drag settles. */
+internal fun releasedSlot(offset: Float, velocity: Float, width: Float, fling: Float): DrawerSlot {
+	val opening = slotShown(offset)
+	if (opening == DrawerSlot.CLOSED) return DrawerSlot.CLOSED
+	val outward = if (opening == DrawerSlot.LEFT) velocity else -velocity
+	return when {
+		outward > fling -> opening
+		outward < -fling -> DrawerSlot.CLOSED
+		abs(offset) > width / 2 -> opening
+		else -> DrawerSlot.CLOSED
+	}
 }
 
 internal fun slotShown(offset: Float): DrawerSlot = when {

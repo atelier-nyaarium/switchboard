@@ -100,4 +100,23 @@ class DrawerNavTest {
 		assertEquals(1040f, sheetX(DrawerSlot.RIGHT, -40f, width, screen = 1080))
 		assertEquals(780f, sheetX(DrawerSlot.RIGHT, -width, width, screen = 1080))
 	}
+
+	@Test
+	fun `only a near-horizontal swipe past slop claims the drawer`() {
+		assertNull(swipeClaim(10f, 2f, slop = 20f))
+		assertEquals(true, swipeClaim(-40f, 10f, slop = 20f))
+		assertEquals(false, swipeClaim(25f, 60f, slop = 20f))
+		assertEquals(false, swipeClaim(30f, 15f, slop = 20f))
+	}
+
+	@Test
+	fun `a released drawer follows a fling, and otherwise the nearer half`() {
+		val width = 300f
+		val fling = 1000f
+		assertEquals(DrawerSlot.LEFT, releasedSlot(60f, 1500f, width, fling))
+		assertEquals(DrawerSlot.CLOSED, releasedSlot(250f, -1500f, width, fling))
+		assertEquals(DrawerSlot.RIGHT, releasedSlot(-200f, 0f, width, fling))
+		assertEquals(DrawerSlot.CLOSED, releasedSlot(-100f, 0f, width, fling))
+		assertEquals(DrawerSlot.CLOSED, releasedSlot(0f, 5000f, width, fling))
+	}
 }

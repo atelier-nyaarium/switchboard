@@ -1,11 +1,12 @@
 package com.atelier_nyaarium.switchboard
 
+import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.AnchoredDraggableState
 import androidx.compose.foundation.gestures.DraggableAnchors
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.anchoredDraggable
 import androidx.compose.foundation.gestures.animateTo
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -49,9 +50,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.contentDescription
@@ -65,6 +70,8 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 
 /** Opens from either edge. */
@@ -99,7 +106,7 @@ internal fun SideDrawer(
 	val shown by remember(state) { derivedStateOf { slotShown(offset()) } }
 	val scope = rememberCoroutineScope()
 
-	BoxWithConstraints(Modifier.fillMaxSize().anchoredDraggable(state, Orientation.Horizontal)) {
+	BoxWithConstraints(Modifier.fillMaxSize().pointerInput(state, width) { swipeDrawer(state, width, scope) }) {
 		val screen = constraints.maxWidth
 		content()
 		if (shown != DrawerSlot.CLOSED) {
@@ -130,6 +137,57 @@ internal fun SideDrawer(
 						}
 					}
 				}
+			}
+		}
+	}
+}
+
+/** Claims only a near-horizontal swipe, then follows the finger. */
+private suspend fun PointerInputScope.swipeDrawer(
+	state: AnchoredDraggableState<DrawerSlot>,
+	width: Float,
+	scope: CoroutineScope,
+) {
+	val fling = DRAWER_FLING_VELOCITY.toPx()
+	awaitEachGesture {
+		val down = awaitFirstDown(requireUnconsumed = false)
+		val slop = viewConfiguration.touchSlop * SWIPE_SLOP_SCALE
+		var travel = Offset.Zero
+		var claimed: Boolean? = null
+		while (claimed == null) {
+			val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
+			if (!change.pressed || change.isConsumed) return@awaitEachGesture
+			travel += change.positionChange()
+			claimed = swipeClaim(travel.x, travel.y, slop)
+		}
+		if (!claimed) return@awaitEachGesture
+
+		val tracker = VelocityTracker().apply { addPosition(down.uptimeMillis, down.position) }
+		val deltas = Channel<Float>(Channel.UNLIMITED)
+		val drag = scope.launch {
+			state.anchoredDrag(MutatePriority.UserInput) { anchors ->
+				for (delta in deltas) {
+					dragTo((state.offset + delta).coerceIn(anchors.minPosition(), anchors.maxPosition()))
+				}
+			}
+		}
+		deltas.trySend(travel.x)
+		var velocity = 0f
+		try {
+			while (true) {
+				val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+				if (!change.pressed) break
+				tracker.addPosition(change.uptimeMillis, change.position)
+				deltas.trySend(change.positionChange().x)
+				change.consume()
+			}
+			velocity = tracker.calculateVelocity().x
+		} finally {
+			// A cancelled gesture must still release the drag.
+			deltas.close()
+			scope.launch {
+				drag.join()
+				state.animateTo(releasedSlot(state.offset, velocity, width, fling))
 			}
 		}
 	}
@@ -209,3 +267,8 @@ private fun iconOf(view: ScopedView): ImageVector = when (view) {
 }
 
 private val DRAWER_WIDTH = 304.dp
+
+// Material's drawer threshold.
+private val DRAWER_FLING_VELOCITY = 400.dp
+
+private const val SWIPE_SLOP_SCALE = 2f
