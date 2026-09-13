@@ -1,29 +1,32 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.WorkspaceFileDestination
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
-private fun hashOf(text: String) = "h:${text.hashCode()}"
+private const val APP = "src/app.ts"
 
 class WorkspaceFileOpsTest {
-	/** Files by path, each on its own inode, mutated only while every precondition holds, as the plugin does. */
+	/** The plugin's rules through `WorkspaceFileTable`, with the losses a plane can suffer. */
 	private class FakeDisk : WorkspaceGateway by NotReached {
-		data class Entry(val text: String, val inode: Long)
-
-		val files = mutableMapOf<String, Entry>()
-		val folders = mutableSetOf("src", "lib")
-		val tooLarge = mutableSetOf<String>()
-		val withheld = mutableSetOf<String>()
+		val table = WorkspaceFileTable(folders = listOf("src", "lib"), files = mapOf(APP to "const x = 1;"))
 		val sent = mutableListOf<WorkspaceFileMutation>()
+		val tooLarge = mutableSetOf<String>()
+
+		/** A path answering as another name for the same file, as a move cut short leaves it. */
+		val aliases = mutableMapOf<String, String>()
+		val stateHolds = mutableListOf<TestHold>()
+		val mutationHolds = mutableListOf<TestHold>()
+		var treeReads = 0
 
 		/** Applies, then answers nothing. */
 		var lostAfter = false
@@ -37,84 +40,40 @@ class WorkspaceFileOpsTest {
 		/** State reads fail once more than this many mutations were sent. */
 		var unreadableAfter: Int? = null
 
-		private var inodes = 0L
-
-		fun put(path: String, text: String) {
-			files[path] = Entry(text, ++inodes)
+		override suspend fun tree(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceTreeAnswer> {
+			treeReads++
+			return table.tree(path)
 		}
 
 		override suspend fun fileState(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceFileStateAnswer> {
 			if (unreadableAfter?.let { sent.size > it } == true) return WorkspaceAnswer.Unreachable
-			if (path in withheld) return WorkspaceAnswer.Refused("$path is withheld")
-			val entry = files[path]
-			return WorkspaceAnswer.Read(
-				when {
-					path in folders -> WorkspaceFileStateAnswer(path = path, state = "directory")
-					entry == null -> WorkspaceFileStateAnswer(path = path, state = "absent")
-					path in tooLarge -> WorkspaceFileStateAnswer(path = path, state = "file", bytes = 1L shl 30)
-					else -> WorkspaceFileStateAnswer(
-						path = path,
-						state = "file",
-						bytes = entry.text.length.toLong(),
-						hash = hashOf(entry.text),
-						identity = "i${entry.inode}",
-					)
-				},
-			)
+			val state = table.state(aliases[path] ?: path)
+			stateHolds.removeFirstOrNull()?.pass()
+			val read = (state as? WorkspaceAnswer.Read)?.value ?: return state
+			val named = read.copy(path = path)
+			return WorkspaceAnswer.Read(if (path in tooLarge) named.copy(hash = null, identity = null) else named)
 		}
-
-		private fun holds(path: String, hash: String, identity: String?) =
-			files[path]?.let { hashOf(it.text) == hash && (identity == null || "i${it.inode}" == identity) } == true
-
-		private fun lands(to: String, destination: WorkspaceFileDestination) =
-			when (destination) {
-				WorkspaceFileDestination.Absent -> to !in files
-				is WorkspaceFileDestination.Replace -> holds(to, destination.expectedHash, destination.expectedIdentity)
-			}
 
 		override suspend fun mutateFile(
 			target: WorkspaceTarget,
 			mutation: WorkspaceFileMutation,
 		): WorkspaceAnswer<WorkspaceFileMutationAnswer> {
+			mutationHolds.removeFirstOrNull()?.pass()
 			sent += mutation
-			val path = when (mutation) {
-				is WorkspaceFileMutation.Create -> mutation.path
-				is WorkspaceFileMutation.Delete -> mutation.path
-				is WorkspaceFileMutation.Move -> mutation.path
-				is WorkspaceFileMutation.Copy -> mutation.path
-				is WorkspaceFileMutation.Write -> error("not reached")
-			}
 			if (lostBefore) return WorkspaceAnswer.Unreachable
-			unknown?.let { return WorkspaceAnswer.Read(WorkspaceFileMutationAnswer(path = path, outcome = "unknown", reason = it)) }
-			val outcome = apply(mutation)
-			if (lostAfter) return WorkspaceAnswer.Unreachable
-			return WorkspaceAnswer.Read(
-				WorkspaceFileMutationAnswer(path = path, outcome = outcome, gone = (path !in files).takeIf { outcome == MUTATION_STALE }),
-			)
-		}
-
-		private fun apply(mutation: WorkspaceFileMutation): String =
-			when (mutation) {
-				is WorkspaceFileMutation.Create ->
-					if (mutation.path in files) MUTATION_DESTINATION_CHANGED else MUTATION_DONE.also { put(mutation.path, mutation.text) }
-				is WorkspaceFileMutation.Delete ->
-					if (!holds(mutation.path, mutation.expectedHash, mutation.expectedIdentity)) {
-						MUTATION_STALE
-					} else {
-						MUTATION_DONE.also { files.remove(mutation.path) }
-					}
-				is WorkspaceFileMutation.Move -> when {
-					!holds(mutation.path, mutation.expectedHash, mutation.expectedIdentity) -> MUTATION_STALE
-					!lands(mutation.to, mutation.destination) -> MUTATION_DESTINATION_CHANGED
-					else -> MUTATION_DONE.also { files[mutation.to] = files.remove(mutation.path)!! }
+			unknown?.let { reason ->
+				val path = when (mutation) {
+					is WorkspaceFileMutation.Write -> mutation.path
+					is WorkspaceFileMutation.Create -> mutation.path
+					is WorkspaceFileMutation.Delete -> mutation.path
+					is WorkspaceFileMutation.Move -> mutation.path
+					is WorkspaceFileMutation.Copy -> mutation.path
 				}
-				is WorkspaceFileMutation.Copy -> when {
-					!holds(mutation.path, mutation.expectedHash, null) -> MUTATION_STALE
-					!lands(mutation.to, mutation.destination) -> MUTATION_DESTINATION_CHANGED
-					else -> MUTATION_DONE.also { put(mutation.to, files.getValue(mutation.path).text) }
-				}
-				is WorkspaceFileMutation.Write -> error("not reached")
+				return WorkspaceAnswer.Read(WorkspaceFileMutationAnswer(path = path, outcome = "unknown", reason = reason))
 			}
+			val answer = table.mutate(mutation)
+			return if (lostAfter) WorkspaceAnswer.Unreachable else answer
+		}
 	}
 
 	private object NotReached : WorkspaceGateway {
@@ -137,178 +96,297 @@ class WorkspaceFileOpsTest {
 	}
 
 	private class Host(override val workspace: WorkspaceGateway?) : WorkspaceHost {
+		override val generation = WorkspaceGeneration()
+
 		override suspend fun send(address: String, text: String) = error("not reached")
 	}
 
 	private lateinit var disk: FakeDisk
+	private lateinit var host: Host
 	private lateinit var ops: WorkspaceFileOps
 	private val typing = mutableSetOf<String>()
 	private val one = WorkspaceTarget(gatewayId = "sakura", address = "home.sakura.host.aaa")
 
+	private fun view(path: String = "src") = ops.viewOf(one, path) ?: error("no view of $path")
+
+	private fun finished(action: FileAction, result: FileOpResult) = FolderOutcome.Finished(action, result)
+
+	/** Arms as the sheet does. */
 	private suspend fun armed(action: ArmedAction): ArmedFileOp {
-		val arming = ops.arm(one, action)
-		return (arming as? Arming.Armed)?.op ?: error("not armed: $arming")
+		ops.begin(one, "src", action)
+		return view().confirming ?: error("not armed: ${view().outcome}")
+	}
+
+	private suspend fun confirmed(action: ArmedAction): FolderOutcome? {
+		armed(action)
+		ops.confirm(one, "src")
+		return view().outcome
+	}
+
+	private suspend fun created(path: String): FolderOutcome? {
+		ops.ask(one, "src", PathAsk(PathAsk.Kind.Create, "src"))
+		ops.choose(one, "src", CreateFile(path))
+		return view().outcome
 	}
 
 	@Before
-	fun setUp() {
+	fun setUp() = runBlocking {
 		disk = FakeDisk()
-		disk.put("src/app.ts", "const x = 1;")
-		ops = WorkspaceFileOps(Host(disk)) { _, path -> path in typing }
+		host = Host(disk)
+		ops = WorkspaceFileOps(host) { _, path -> path in typing }
+		ops.open(one, "src")
 	}
 
 	@Test
 	fun `a delete sends what was confirmed, so a file recreated since with the same bytes is left alone`() = runBlocking {
-		val op = armed(ArmedAction.Delete("src/app.ts"))
-		disk.put("src/app.ts", "const x = 1;")
+		val delete = ArmedAction.Delete(APP)
+		armed(delete)
+		disk.table.put(APP, "const x = 1;")
+		ops.confirm(one, "src")
+		assertEquals(finished(delete, FileOpResult.SourceChanged(gone = false)), view().outcome)
 
-		assertEquals(FileOpResult.SourceChanged(gone = false), ops.perform(one, op))
-		assertTrue("src/app.ts" in disk.files)
+		assertEquals(finished(delete, FileOpResult.Done), confirmed(delete))
+		assertNull(disk.table.textOf(APP))
 
-		assertEquals(FileOpResult.Done, ops.perform(one, armed(ArmedAction.Delete("src/app.ts"))))
-		assertFalse("src/app.ts" in disk.files)
-
-		disk.put("src/b.ts", "b")
-		val gone = armed(ArmedAction.Delete("src/b.ts"))
-		disk.files.remove("src/b.ts")
-		assertEquals(FileOpResult.SourceChanged(gone = true), ops.perform(one, gone))
+		disk.table.put("src/b.ts", "b")
+		val gone = ArmedAction.Delete("src/b.ts")
+		armed(gone)
+		disk.table.remove("src/b.ts")
+		ops.confirm(one, "src")
+		assertEquals(finished(gone, FileOpResult.SourceChanged(gone = true)), view().outcome)
 	}
 
 	@Test
-	fun `a confirmation sends once, and a newer arming or a re-provision spends it`() = runBlocking {
-		val op = armed(ArmedAction.Delete("src/app.ts"))
-		assertEquals(FileOpResult.Done, ops.perform(one, op))
-		assertTrue(ops.perform(one, op) is FileOpResult.Refused)
-
-		disk.put("src/b.ts", "b")
-		val older = armed(ArmedAction.Delete("src/b.ts"))
-		armed(ArmedAction.Move("src/b.ts", "lib/b.ts"))
-		assertTrue(ops.perform(one, older) is FileOpResult.Refused)
-
-		val beforeReprovision = armed(ArmedAction.Delete("src/b.ts"))
-		ops.clearInMemory()
-		assertTrue(ops.perform(one, beforeReprovision) is FileOpResult.Refused)
-
+	fun `a confirmation sends once, a newer arming replaces it, and a re-provision spends it`() = runBlocking {
+		armed(ArmedAction.Delete(APP))
+		ops.confirm(one, "src")
+		ops.confirm(one, "src")
 		assertEquals(1, disk.sent.size)
-		assertTrue("src/b.ts" in disk.files)
+
+		disk.table.put("src/b.ts", "b")
+		armed(ArmedAction.Delete("src/b.ts"))
+		assertEquals(finished(ArmedAction.Move("src/b.ts", "lib/b.ts"), FileOpResult.Done), confirmed(ArmedAction.Move("src/b.ts", "lib/b.ts")))
+		assertEquals(2, disk.sent.size)
+
+		armed(ArmedAction.Delete("lib/b.ts"))
+		host.generation.advance()
+		ops.clearInMemory()
+		ops.open(one, "src")
+		ops.confirm(one, "src")
+		assertEquals(2, disk.sent.size)
+		assertEquals("b", disk.table.textOf("lib/b.ts"))
+	}
+
+	@Test
+	fun `an arming in flight across a re-provision draws nothing on the folder opened after it`() = runBlocking {
+		val hold = TestHold().also { disk.stateHolds += it }
+		val arming = async { ops.begin(one, "src", ArmedAction.Delete(APP)) }
+		hold.entered.await()
+		host.generation.advance()
+		ops.clearInMemory()
+		ops.open(one, "src")
+		hold.release()
+		arming.await()
+
+		assertEquals(FolderView(listing = view().listing), view())
+	}
+
+	// A reopened folder is a new showing; the tree it reads is what says what happened.
+	@Test
+	fun `an op begun in a folder left and reopened lands nothing on the new showing`() = runBlocking {
+		val hold = TestHold().also { disk.mutationHolds += it }
+		ops.ask(one, "src", PathAsk(PathAsk.Kind.Create, "src"))
+		val creating = async { ops.choose(one, "src", CreateFile("src/new.ts")) }
+		hold.entered.await()
+		ops.leave(one, "src")
+		ops.open(one, "src")
+		hold.release()
+		creating.await()
+
+		assertEquals(FolderView(listing = view().listing), view())
+		assertEquals("", disk.table.textOf("src/new.ts"))
+	}
+
+	@Test
+	fun `a cancelled op lets its folder go, and a confirmation waiting across a re-provision is never sent`() = runBlocking {
+		val hold = TestHold().also { disk.mutationHolds += it }
+		armed(ArmedAction.Delete(APP))
+		val confirming = async { ops.confirm(one, "src") }
+		hold.entered.await()
+		confirming.cancel()
+		hold.release()
+		confirming.join()
+		assertEquals(false, view().busy)
+
+		disk.table.put("src/b.ts", "b")
+		val first = TestHold().also { disk.mutationHolds += it }
+		armed(ArmedAction.Delete("src/b.ts"))
+		val sending = async { ops.confirm(one, "src") }
+		first.entered.await()
+		ops.open(one, "lib")
+		ops.begin(one, "lib", ArmedAction.Delete("src/b.ts"))
+		val waiting = async { ops.confirm(one, "lib") }
+		// Lets the second confirm reach the lock the first holds.
+		yield()
+		assertEquals(true, ops.viewOf(one, "lib")?.busy)
+		host.generation.advance()
+		ops.clearInMemory()
+		first.release()
+		sending.await()
+		waiting.await()
+
+		assertEquals(listOf("src/b.ts"), disk.sent.filterIsInstance<WorkspaceFileMutation.Delete>().map { it.path })
 	}
 
 	@Test
 	fun `arming refuses what no precondition can name, and passes on why a path could not be read`() = runBlocking {
-		disk.put("big.bin", "x")
+		disk.table.put("big.bin", "x")
 		disk.tooLarge += "big.bin"
-		disk.withheld += ".env"
 		val refusals = listOf(
 			ArmedAction.Delete("src"),
 			ArmedAction.Delete("src/missing.ts"),
 			ArmedAction.Delete("big.bin"),
-			ArmedAction.Move("src/app.ts", "src/app.ts"),
-			ArmedAction.Move("src/app.ts", "lib"),
-			ArmedAction.Copy("src/app.ts", "big.bin"),
-			ArmedAction.Copy("src/app.ts", ".env"),
+			ArmedAction.Move(APP, APP),
+			ArmedAction.Move(APP, "lib"),
+			ArmedAction.Copy(APP, "big.bin"),
+			ArmedAction.Copy(APP, ".env"),
 		)
-		for (action in refusals) assertTrue("$action", ops.arm(one, action) is Arming.Refused)
-		assertEquals(Arming.Refused(".env is withheld"), ops.arm(one, ArmedAction.Copy("src/app.ts", ".env")))
+		for (action in refusals) {
+			ops.begin(one, "src", action)
+			assertTrue("$action", view().outcome is FolderOutcome.NotArmed)
+		}
+		val withheld = (disk.table.state(".env") as WorkspaceAnswer.Refused).reason
+		assertEquals(FolderOutcome.NotArmed(withheld), view().outcome)
+		assertTrue(disk.sent.isEmpty())
 
 		val nowhere = WorkspaceFileOps(Host(null)) { _, _ -> false }
-		assertTrue(nowhere.arm(one, ArmedAction.Delete("src/app.ts")) is Arming.Refused)
-		assertTrue(disk.sent.isEmpty())
+		nowhere.open(one, "src")
+		nowhere.begin(one, "src", ArmedAction.Delete(APP))
+		assertTrue(nowhere.viewOf(one, "src")?.outcome is FolderOutcome.NotArmed)
 	}
 
 	@Test
 	fun `a move names the destination it found, and replacing one is confirmed as a replace`() = runBlocking {
-		val toFree = armed(ArmedAction.Move("src/app.ts", "lib/app.ts"))
-		assertEquals("Move", confirmOf(toFree).button)
-		disk.put("lib/app.ts", "theirs")
+		val move = ArmedAction.Move(APP, "lib/app.ts")
+		assertEquals("Move", confirmOf(armed(move)).button)
+		disk.table.put("lib/app.ts", "theirs")
+		ops.confirm(one, "src")
+		assertEquals(finished(move, FileOpResult.DestinationChanged), view().outcome)
+		assertEquals("theirs", disk.table.textOf("lib/app.ts"))
 
-		assertEquals(FileOpResult.DestinationChanged, ops.perform(one, toFree))
-		assertEquals("theirs", disk.files.getValue("lib/app.ts").text)
-		assertTrue("src/app.ts" in disk.files)
-
-		val inode = disk.files.getValue("src/app.ts").inode
-		val over = armed(ArmedAction.Move("src/app.ts", "lib/app.ts"))
-		assertEquals("Replace", confirmOf(over).button)
-
-		assertEquals(FileOpResult.Done, ops.perform(one, over))
-		assertEquals(FakeDisk.Entry("const x = 1;", inode), disk.files["lib/app.ts"])
-		assertFalse("src/app.ts" in disk.files)
+		val identity = disk.table.identityOf(APP)
+		assertEquals("Replace", confirmOf(armed(move)).button)
+		ops.confirm(one, "src")
+		assertEquals(finished(move, FileOpResult.Done), view().outcome)
+		assertEquals(identity, disk.table.identityOf("lib/app.ts"))
+		assertNull(disk.table.textOf(APP))
 	}
 
 	@Test
 	fun `an unanswered mutation is settled by reading back, and never sent twice`() = runBlocking {
 		disk.lostAfter = true
-		assertEquals(FileOpResult.Done, ops.perform(one, armed(ArmedAction.Copy("src/app.ts", "lib/copy.ts"))))
-		assertEquals(FileOpResult.Done, ops.perform(one, armed(ArmedAction.Move("src/app.ts", "lib/app.ts"))))
-		assertEquals(FileOpResult.Done, ops.perform(one, armed(ArmedAction.Delete("lib/copy.ts"))))
+		val copy = ArmedAction.Copy(APP, "lib/copy.ts")
+		val move = ArmedAction.Move(APP, "lib/app.ts")
+		val delete = ArmedAction.Delete("lib/copy.ts")
+		assertEquals(finished(copy, FileOpResult.Done), confirmed(copy))
+		assertEquals(finished(move, FileOpResult.Done), confirmed(move))
+		assertEquals(finished(delete, FileOpResult.Done), confirmed(delete))
 		assertEquals(3, disk.sent.size)
 
-		val back = ArmedAction.Move("lib/app.ts", "src/app.ts")
+		val back = ArmedAction.Move("lib/app.ts", APP)
 		disk.lostAfter = false
 		disk.lostBefore = true
-		assertEquals(FileOpResult.NotDone(null), ops.perform(one, armed(back)))
+		assertEquals(finished(back, FileOpResult.NotDone(null)), confirmed(back))
 
 		disk.lostBefore = false
 		disk.unknown = "timeout: slow"
-		assertEquals(FileOpResult.NotDone("timeout: slow"), ops.perform(one, armed(back)))
+		assertEquals(finished(back, FileOpResult.NotDone("timeout: slow")), confirmed(back))
 
-		val move = armed(back)
+		armed(back)
 		disk.unreadableAfter = disk.sent.size
-		assertEquals(FileOpResult.Unconfirmed, ops.perform(one, move))
+		ops.confirm(one, "src")
+		assertEquals(finished(back, FileOpResult.Unconfirmed), view().outcome)
 		assertEquals(6, disk.sent.size)
 	}
 
-	// A move cut short between its link and its unlink leaves both names on one inode.
+	// A move cut short between its link and its unlink leaves both names on one file.
 	@Test
 	fun `a read back tells a landed copy from a changed destination, and a half-finished move from a done one`() = runBlocking {
-		val copy = armed(ArmedAction.Copy("src/app.ts", "lib/copy.ts"))
+		val copy = ArmedAction.Copy(APP, "lib/copy.ts")
+		armed(copy)
 		disk.unknown = "failed: socket"
-		// What landing looks like when the answer is lost, followed by an edit to the source.
-		disk.put("lib/copy.ts", "const x = 1;")
-		disk.put("src/app.ts", "edited since")
-		assertEquals(FileOpResult.Done, ops.perform(one, copy))
+		// Landed with its answer lost, then the source was edited.
+		disk.table.put("lib/copy.ts", "const x = 1;")
+		disk.table.edit(APP, "edited since")
+		ops.confirm(one, "src")
+		assertEquals(finished(copy, FileOpResult.Done), view().outcome)
 
-		disk.files.remove("lib/copy.ts")
-		val again = armed(ArmedAction.Copy("src/app.ts", "lib/copy.ts"))
-		disk.put("lib/copy.ts", "someone else's")
-		assertEquals(FileOpResult.DestinationChanged, ops.perform(one, again))
+		disk.table.remove("lib/copy.ts")
+		armed(copy)
+		disk.table.put("lib/copy.ts", "someone else's")
+		ops.confirm(one, "src")
+		assertEquals(finished(copy, FileOpResult.DestinationChanged), view().outcome)
 
-		val move = armed(ArmedAction.Move("lib/copy.ts", "lib/moved.ts"))
-		disk.files["lib/moved.ts"] = disk.files.getValue("lib/copy.ts")
-		assertEquals(FileOpResult.Unconfirmed, ops.perform(one, move))
+		val move = ArmedAction.Move("lib/copy.ts", "lib/moved.ts")
+		armed(move)
+		disk.aliases["lib/moved.ts"] = "lib/copy.ts"
+		ops.confirm(one, "src")
+		assertEquals(finished(move, FileOpResult.Unconfirmed), view().outcome)
 	}
 
 	@Test
-	fun `a create takes only a free name, and an unanswered one is settled by what is there`() = runBlocking {
-		assertEquals(FileOpResult.Done, ops.create(one, "src/new.ts"))
-		assertEquals(FileOpResult.DestinationChanged, ops.create(one, "src/app.ts"))
+	fun `a create takes a free name once, opens it, and settles an unanswered one by what is there`() = runBlocking {
+		val reads = disk.treeReads
+		assertEquals(finished(CreateFile("src/new.ts"), FileOpResult.Done), created("src/new.ts"))
+		assertEquals("src/new.ts", view().openRaw)
+		assertTrue(disk.treeReads > reads)
+		assertTrue((view().listing as WorkspaceAnswer.Read).value.entries.any { it.name == "new.ts" })
+		ops.rawOpened(one, "src")
+		assertNull(view().openRaw)
+
+		ops.choose(one, "src", CreateFile("src/again.ts"))
+		assertNull(disk.table.textOf("src/again.ts"))
+
+		assertEquals(finished(CreateFile(APP), FileOpResult.DestinationChanged), created(APP))
+		assertNull(view().openRaw)
 
 		disk.lostAfter = true
-		assertEquals(FileOpResult.Done, ops.create(one, "src/lost.ts"))
+		assertEquals(finished(CreateFile("src/lost.ts"), FileOpResult.Done), created("src/lost.ts"))
 		disk.lostAfter = false
 		disk.lostBefore = true
-		assertEquals(FileOpResult.NotDone(null), ops.create(one, "src/never.ts"))
-		assertEquals(FileOpResult.DestinationChanged, ops.create(one, "src/app.ts"))
-		assertEquals("", disk.files.getValue("src/lost.ts").text)
+		assertEquals(finished(CreateFile("src/never.ts"), FileOpResult.NotDone(null)), created("src/never.ts"))
+	}
 
-		assertEquals("src/new.ts", rawToOpen(CreateFile("src/new.ts"), FileOpResult.Done))
-		assertNull(rawToOpen(CreateFile("src/app.ts"), FileOpResult.DestinationChanged))
-		assertNull(rawToOpen(ArmedAction.Delete("src/app.ts"), FileOpResult.Done))
+	@Test
+	fun `a refused op leaves the tree unread, and a folder left draws and sends nothing`() = runBlocking {
+		val reads = disk.treeReads
+		val nowhere = ArmedAction.Move(APP, "missing/app.ts")
+		armed(nowhere)
+		ops.confirm(one, "src")
+		assertTrue((view().outcome as FolderOutcome.Finished).result is FileOpResult.Refused)
+		assertEquals(reads, disk.treeReads)
+
+		armed(ArmedAction.Delete(APP))
+		ops.leave(one, "src")
+		ops.confirm(one, "src")
+		assertNull(ops.viewOf(one, "src"))
+		assertEquals(1, disk.sent.size)
 	}
 
 	@Test
 	fun `the confirmation names typing the raw editor still holds for the file`() = runBlocking {
-		typing += "src/app.ts"
+		typing += APP
 
-		assertTrue(armed(ArmedAction.Move("src/app.ts", "lib/app.ts")).typingHeld)
-		assertTrue(confirmOf(armed(ArmedAction.Delete("src/app.ts"))).lines.isNotEmpty())
-		assertTrue(confirmOf(armed(ArmedAction.Copy("src/app.ts", "lib/app.ts"))).lines.isEmpty())
+		assertTrue(armed(ArmedAction.Move(APP, "lib/app.ts")).typingHeld)
+		assertTrue(confirmOf(armed(ArmedAction.Delete(APP))).lines.isNotEmpty())
+		assertTrue(confirmOf(armed(ArmedAction.Copy(APP, "lib/app.ts"))).lines.isEmpty())
 	}
 
 	@Test
 	fun `a typed path is trimmed, and a trailing slash keeps the name it had`() {
-		val move = PathAsk(PathAsk.Kind.Move, "src/app.ts")
-		assertEquals(ArmedAction.Move("src/app.ts", "lib/app.ts"), move.actionOf(" lib/ "))
-		assertEquals(ArmedAction.Move("src/app.ts", "lib/b.ts"), move.actionOf("/lib/b.ts"))
+		val move = PathAsk(PathAsk.Kind.Move, APP)
+		assertEquals(ArmedAction.Move(APP, "lib/app.ts"), move.actionOf(" lib/ "))
+		assertEquals(ArmedAction.Move(APP, "lib/b.ts"), move.actionOf("/lib/b.ts"))
 		assertNull(move.actionOf("  "))
 
 		val create = PathAsk(PathAsk.Kind.Create, "src")

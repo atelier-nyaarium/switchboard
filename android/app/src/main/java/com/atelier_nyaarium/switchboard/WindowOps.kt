@@ -4,7 +4,6 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -51,8 +50,8 @@ internal class WindowOps(
 	private val incarnations = java.util.concurrent.atomic.AtomicLong(0)
 
 	/**
-	 * Moves whenever the SET of windows changes. Work that began before a close, or before a
-	 * re-provision, reads this at the start and lands nothing if it has moved since.
+	 * Moves whenever a window leaves the set. Work that began before a close reads this at the start and lands
+	 * nothing if it has moved since; `host.generation` does the same for a re-provision.
 	 */
 	private val epoch = java.util.concurrent.atomic.AtomicLong(0)
 
@@ -91,11 +90,6 @@ internal class WindowOps(
 			GatewayRead.Stale -> WorkspaceAnswer.Unreachable
 		}
 
-	suspend fun tree(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceTreeAnswer> {
-		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
-		return fenced(target, ReadSlot.Tree) { gate.tree(target, path) }
-	}
-
 	suspend fun file(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceReadAnswer> {
 		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
 		return fenced(target, ReadSlot.File) { gate.file(target, path) }
@@ -120,6 +114,7 @@ internal class WindowOps(
 	suspend fun openWindow(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<Window> {
 		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
 		val began = epoch.get()
+		val generation = host.generation.capture()
 		return when (val answer = fenced(target, ReadSlot.Span(symbolId)) { gate.symbolSource(target, symbolId) }) {
 			is WorkspaceAnswer.Read -> {
 				val opened = restored(
@@ -131,7 +126,9 @@ internal class WindowOps(
 					drafts.load(target, DraftKey.Span(symbolId)),
 				)
 				// A close or a re-provision while this was in flight means the owner does not want it.
-				apply(target) { if (epoch.get() == began) withWindow(it, opened) else it }
+				apply(target) {
+					if (epoch.get() == began && host.generation.isCurrent(generation)) withWindow(it, opened) else it
+				}
 				WorkspaceAnswer.Read(opened)
 			}
 			is WorkspaceAnswer.Refused -> answer
@@ -161,8 +158,9 @@ internal class WindowOps(
 	suspend fun contextFor(target: WorkspaceTarget, module: String): List<String>? {
 		context[target to module]?.let { return it }
 		val gate = host.workspace ?: return null
+		val generation = host.generation.capture()
 		val answer = gate.file(target, module)
-		if (answer !is WorkspaceAnswer.Read) return null
+		if (answer !is WorkspaceAnswer.Read || !host.generation.isCurrent(generation)) return null
 		val lines = answer.value.text.split("\n")
 		// Kept only while a window still needs it, or a close during the read leaves bytes nothing drops.
 		if (windowsOf(target).any { it.descriptor.module == module }) context[target to module] = lines
@@ -289,8 +287,6 @@ internal class WindowOps(
 
 	/** A re-provision takes the previous owner's code with it, on disk as well as in memory. */
 	override suspend fun clearInMemory() {
-		// Before the clear, so a read already in flight cannot add the previous owner's window after it.
-		epoch.incrementAndGet()
 		for (target in held.targets()) apply(target) { emptyList() }
 		context.clear()
 		drafts.clearAll()

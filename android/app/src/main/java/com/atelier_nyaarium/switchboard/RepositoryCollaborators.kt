@@ -220,9 +220,14 @@ internal class ConsoleWorkspaceGateway(private val client: ConsoleClient) : Work
 		client.workspaceFileState(target.gatewayId, target.address, path)
 }
 
-internal class ChatRepositoryWorkspaceHost(private val repo: ChatRepository) : WorkspaceHost {
+internal class ChatRepositoryWorkspaceHost(private val repo: ChatRepository) : WorkspaceHost, ClearsOnReprovision {
 	// The sandbox answers as a session's plugin would, since `isSandbox` reaches no socket at all.
 	private val sandbox by lazy { SandboxWorkspaceGateway() }
+
+	override val generation = WorkspaceGeneration()
+
+	/** First in the roster, so the ops classes clear after their work is fenced. */
+	override suspend fun clearInMemory() = generation.advance()
 
 	override val workspace: WorkspaceGateway? get() =
 		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsoleWorkspaceGateway)

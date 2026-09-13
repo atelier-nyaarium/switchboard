@@ -9,6 +9,7 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
+import java.util.concurrent.atomic.AtomicLong
 
 /** A port, so a test drives every workspace ops class without a socket. */
 internal interface WorkspaceGateway {
@@ -40,6 +41,25 @@ internal interface WorkspaceGateway {
 internal interface WorkspaceHost {
 	val workspace: WorkspaceGateway?
 
+	/** Shared by every workspace ops class, so one re-provision fences all of their work at once. */
+	val generation: WorkspaceGeneration
+
 	/** An apply is an ordinary message to the session, not a write plane. */
 	suspend fun send(address: String, text: String): Boolean
+}
+
+/**
+ * Moves once per re-provision, before any ops class clears what it holds. Work captures it as it starts and
+ * lands nothing once it has moved.
+ */
+internal class WorkspaceGeneration {
+	private val value = AtomicLong(0)
+
+	fun capture(): Long = value.get()
+
+	fun isCurrent(captured: Long): Boolean = value.get() == captured
+
+	fun advance() {
+		value.incrementAndGet()
+	}
 }

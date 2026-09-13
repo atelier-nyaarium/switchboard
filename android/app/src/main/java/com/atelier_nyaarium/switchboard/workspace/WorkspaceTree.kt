@@ -18,12 +18,13 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,31 +33,20 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ArmedAction
-import com.atelier_nyaarium.switchboard.ArmedFileOp
-import com.atelier_nyaarium.switchboard.Arming
-import com.atelier_nyaarium.switchboard.CreateFile
-import com.atelier_nyaarium.switchboard.FileAction
-import com.atelier_nyaarium.switchboard.FileOpResult
 import com.atelier_nyaarium.switchboard.PathAsk
-import com.atelier_nyaarium.switchboard.WindowOps
-import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspaceFileOps
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
 import com.atelier_nyaarium.switchboard.childPath
 import com.atelier_nyaarium.switchboard.confirmOf
-import com.atelier_nyaarium.switchboard.fileOpNotice
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.opensDirectory
-import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
+import com.atelier_nyaarium.switchboard.outcomeText
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeEntry
-import com.atelier_nyaarium.switchboard.rawToOpen
-import com.atelier_nyaarium.switchboard.treeMoved
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun WorkspaceTree(
-	ops: WindowOps,
 	fileOps: WorkspaceFileOps,
 	target: WorkspaceTarget,
 	path: String,
@@ -65,55 +55,36 @@ internal fun WorkspaceTree(
 	onOpenRaw: (String) -> Unit,
 	modifier: Modifier = Modifier,
 ) {
-	var answer by remember(target.key, path) { mutableStateOf<WorkspaceAnswer<WorkspaceTreeAnswer>?>(null) }
+	val views by fileOps.views.collectAsState()
+	val view = views[target to path]
 	var sheetFor by remember(target.key, path) { mutableStateOf<String?>(null) }
-	var reloads by remember(target.key, path) { mutableIntStateOf(0) }
-	var asking by remember(target.key, path) { mutableStateOf<PathAsk?>(null) }
-	var confirming by remember(target.key, path) { mutableStateOf<ArmedFileOp?>(null) }
-	var busy by remember(target.key, path) { mutableStateOf(false) }
-	var notice by remember(target.key, path) { mutableStateOf<String?>(null) }
 	val scope = rememberCoroutineScope()
-	LaunchedEffect(target.key, path, reloads) { answer = ops.tree(target, path) }
-
-	fun run(action: FileAction, work: suspend () -> FileOpResult) {
-		busy = true
-		notice = null
-		scope.launch {
-			val result = work()
-			busy = false
-			notice = fileOpNotice(action, result)
-			if (treeMoved(result)) reloads++
-			rawToOpen(action, result)?.let(onOpenRaw)
+	// Keyed on the view too, so a re-provision that clears it while shown opens it again.
+	LaunchedEffect(target.key, path, view == null) { if (view == null) fileOps.open(target, path) }
+	DisposableEffect(target.key, path) { onDispose { fileOps.leave(target, path) } }
+	LaunchedEffect(view?.openRaw) {
+		view?.openRaw?.let {
+			fileOps.rawOpened(target, path)
+			onOpenRaw(it)
 		}
 	}
 
-	fun chosen(action: FileAction) {
-		asking = null
-		when (action) {
-			is CreateFile -> run(action) { fileOps.create(target, action.path) }
-			is ArmedAction -> {
-				busy = true
-				notice = null
-				scope.launch {
-					when (val arming = fileOps.arm(target, action)) {
-						is Arming.Armed -> confirming = arming.op
-						is Arming.Refused -> notice = arming.reason
-					}
-					busy = false
-				}
-			}
-		}
-	}
-
-	WorkspaceAnswerBox(answer, modifier) { tree ->
+	WorkspaceAnswerBox(view?.listing, modifier) { tree ->
 		Column(Modifier.fillMaxSize()) {
 			Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-				if (busy) LinearProgressIndicator(Modifier.weight(1f).padding(horizontal = 8.dp)) else Spacer(Modifier.weight(1f))
-				TextButton(onClick = hapticClick { asking = PathAsk(PathAsk.Kind.Create, path) }, enabled = !busy) {
+				if (view?.busy == true) {
+					LinearProgressIndicator(Modifier.weight(1f).padding(horizontal = 8.dp))
+				} else {
+					Spacer(Modifier.weight(1f))
+				}
+				TextButton(
+					onClick = hapticClick { fileOps.ask(target, path, PathAsk(PathAsk.Kind.Create, path)) },
+					enabled = view?.busy != true,
+				) {
 					Text("New file")
 				}
 			}
-			notice?.let { WorkspaceNotice(it) }
+			view?.outcome?.let { WorkspaceNotice(outcomeText(it)) }
 			if (tree.truncated) {
 				WorkspaceNotice("Only the first entries are listed")
 			}
@@ -140,6 +111,7 @@ internal fun WorkspaceTree(
 	}
 
 	sheetFor?.let { name ->
+		val file = childPath(path, name)
 		ModalBottomSheet(onDismissRequest = { sheetFor = null }) {
 			Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
 				Text(
@@ -149,43 +121,43 @@ internal fun WorkspaceTree(
 				)
 				SheetAction("Open outline") {
 					sheetFor = null
-					onOpenOutline(childPath(path, name))
+					onOpenOutline(file)
 				}
 				SheetAction("Edit raw") {
 					sheetFor = null
-					onOpenRaw(childPath(path, name))
+					onOpenRaw(file)
 				}
-				if (!busy) {
+				if (view?.busy != true) {
 					SheetAction("Copy to") {
 						sheetFor = null
-						asking = PathAsk(PathAsk.Kind.Copy, childPath(path, name))
+						fileOps.ask(target, path, PathAsk(PathAsk.Kind.Copy, file))
 					}
 					SheetAction("Move to") {
 						sheetFor = null
-						asking = PathAsk(PathAsk.Kind.Move, childPath(path, name))
+						fileOps.ask(target, path, PathAsk(PathAsk.Kind.Move, file))
 					}
 					SheetAction("Delete") {
 						sheetFor = null
-						chosen(ArmedAction.Delete(childPath(path, name)))
+						scope.launch { fileOps.begin(target, path, ArmedAction.Delete(file)) }
 					}
 				}
 			}
 		}
 	}
 
-	// Each tap reads the state as it stands, so a second tap before the dialog leaves does nothing.
-	asking?.let { ask -> PathDialog(ask, onChosen = { if (asking != null) chosen(it) }, onDismiss = { asking = null }) }
+	view?.asking?.let { ask ->
+		PathDialog(
+			ask,
+			onChosen = { action -> scope.launch { fileOps.choose(target, path, action) } },
+			onDismiss = { fileOps.dismiss(target, path) },
+		)
+	}
 
-	confirming?.let { shown ->
+	view?.confirming?.let { op ->
 		ConfirmFileOpDialog(
-			confirm = confirmOf(shown),
-			onConfirm = {
-				confirming?.let { op ->
-					confirming = null
-					run(op.action) { fileOps.perform(target, op) }
-				}
-			},
-			onDismiss = { confirming = null },
+			confirm = confirmOf(op),
+			onConfirm = { scope.launch { fileOps.confirm(target, path) } },
+			onDismiss = { fileOps.dismiss(target, path) },
 		)
 	}
 }

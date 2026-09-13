@@ -23,7 +23,6 @@ import com.atelier_nyaarium.switchboard.proto.RoutineTarget
 import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
 import com.atelier_nyaarium.switchboard.proto.RunbookParameter
-import com.atelier_nyaarium.switchboard.proto.WorkspaceFileDestination
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
@@ -34,7 +33,6 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeEntry
 import kotlinx.serialization.json.JsonObject
 
 // What a Gateway would answer, answered in the sandbox instead. Every screen that only appears when
@@ -313,163 +311,61 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 			WorkspaceAnswer.Read(answer())
 		}
 
-	/** Fixed. `src/generated` stays empty for its notice. */
-	private val folders = listOf("src", "src/generated", "src/shared")
-
-	/** Mutable, so a change shows in the tree. */
-	private val files = java.util.concurrent.ConcurrentHashMap(
-		listOf("AGENTS.md", READ_ONLY_FILE, UNHASHED_FILE, module).associateWith { file.joinToString("\n") },
+	/** The plugin's rules over a canned tree. `src/generated` stays empty for its notice. */
+	private val table = WorkspaceFileTable(
+		folders = listOf("src", "src/generated", "src/shared"),
+		files = listOf("AGENTS.md", READ_ONLY_FILE, UNHASHED_FILE, module).associateWith { file.joinToString("\n") },
 	)
 
-	private val identities = java.util.concurrent.ConcurrentHashMap<String, String>()
+	private fun served(target: WorkspaceTarget) = !target.address.endsWith(".other")
 
-	private val minted = java.util.concurrent.atomic.AtomicLong(0)
+	private val notServed = WorkspaceAnswer.Refused("this workspace is not served here")
 
-	private fun identityOf(path: String) = identities.getOrPut(path) { "sandbox-inode-${minted.incrementAndGet()}" }
-
-	private fun hashOf(text: String) = "sandbox-${text.hashCode()}"
-
-	private fun parentOf(path: String) = path.substringBeforeLast('/', "")
-
-	/** Too large to edit, and too large to hash. */
-	private fun bytesOf(path: String) =
+	/** Shown too large to edit, and too large to hash. Paths are the table's, so a spelling cannot dodge them. */
+	private fun shownBytes(path: String, bytes: Long?) =
 		when (path) {
 			READ_ONLY_FILE -> 912_000L
 			UNHASHED_FILE -> 300_000_000L
-			else -> files[path]?.toByteArray()?.size?.toLong()
+			else -> bytes
 		}
 
-	override suspend fun tree(target: WorkspaceTarget, path: String) =
-		asSeeded(target) {
-			val childFolders = folders.filter { parentOf(it) == path }
-			val childFiles = files.keys.filter { parentOf(it) == path }.sorted()
-			WorkspaceTreeAnswer(
-				path = path,
-				truncated = false,
-				entries = childFolders.map { folder ->
-					val children = folders.count { parentOf(it) == folder } + files.keys.count { parentOf(it) == folder }
-					WorkspaceTreeEntry(name = folder.substringAfterLast('/'), directory = true, children = children.toLong())
-				} + childFiles.map {
-					WorkspaceTreeEntry(name = it.substringAfterLast('/'), directory = false, bytes = bytesOf(it))
-				},
-			)
-		}
-
-	override suspend fun file(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceReadAnswer> {
-		val held = asSeeded(target) { files[path] }
-		if (held !is WorkspaceAnswer.Read) return WorkspaceAnswer.Refused("this workspace is not served here")
-		val text = held.value ?: return WorkspaceAnswer.Refused("$path does not exist")
-		if (path == UNHASHED_FILE) return WorkspaceAnswer.Refused("$path is too large to read")
-		val lines = text.split("\n").size.toLong()
+	override suspend fun tree(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceTreeAnswer> {
+		if (!served(target)) return notServed
+		val listing = table.tree(path) as? WorkspaceAnswer.Read ?: return table.tree(path)
 		return WorkspaceAnswer.Read(
-			if (path == READ_ONLY_FILE) {
-				WorkspaceReadAnswer(path = path, text = text, lines = lines, readOnly = "$path is over the editing limit")
-			} else {
-				WorkspaceReadAnswer(path = path, text = text, lines = lines, hash = hashOf(text))
-			},
+			listing.value.copy(
+				entries = listing.value.entries.map { it.copy(bytes = shownBytes(childPath(listing.value.path, it.name), it.bytes)) },
+			),
 		)
 	}
 
-	private fun withheld(path: String) = path.substringAfterLast('/').let { it.startsWith(".env") && it != ".env.example" }
-
-	override suspend fun fileState(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceFileStateAnswer> {
-		if (withheld(path)) return WorkspaceAnswer.Refused("$path is withheld")
-		return asSeeded(target) {
-			val text = files[path]
-			when {
-				path.isEmpty() || path in folders -> WorkspaceFileStateAnswer(path = path, state = "directory")
-				text == null -> WorkspaceFileStateAnswer(path = path, state = "absent")
-				path == UNHASHED_FILE -> WorkspaceFileStateAnswer(path = path, state = "file", bytes = bytesOf(path))
-				else -> WorkspaceFileStateAnswer(
-					path = path,
-					state = "file",
-					bytes = bytesOf(path),
-					hash = hashOf(text),
-					identity = identityOf(path),
-				)
-			}
-		}
+	override suspend fun file(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceReadAnswer> {
+		if (!served(target)) return notServed
+		val canonical = table.canonical(path)
+		if (canonical == UNHASHED_FILE) return WorkspaceAnswer.Refused("$path is too large to read")
+		val read = table.read(path) as? WorkspaceAnswer.Read ?: return table.read(path)
+		if (canonical != READ_ONLY_FILE) return read
+		return WorkspaceAnswer.Read(read.value.copy(hash = null, readOnly = "$path is over the editing limit"))
 	}
 
-	/** Whether `path` is still the file a precondition named. */
-	private fun holds(path: String, hash: String, identity: String?) =
-		files[path]?.let { hashOf(it) == hash } == true && (identity == null || identityOf(path) == identity)
+	override suspend fun fileState(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceFileStateAnswer> {
+		if (!served(target)) return notServed
+		val state = table.state(path) as? WorkspaceAnswer.Read ?: return table.state(path)
+		val shown = state.value.copy(bytes = shownBytes(state.value.path, state.value.bytes))
+		return WorkspaceAnswer.Read(if (shown.path == UNHASHED_FILE) shown.copy(hash = null, identity = null) else shown)
+	}
 
-	private fun landsOn(destination: WorkspaceFileDestination, to: String) =
-		when (destination) {
-			WorkspaceFileDestination.Absent -> !files.containsKey(to)
-			is WorkspaceFileDestination.Replace -> holds(to, destination.expectedHash, destination.expectedIdentity)
-		}
-
-	/** Refused as the plugin refuses, never answered as changed. */
-	private fun placeRefusal(path: String): String? =
-		when {
-			withheld(path) -> "$path is withheld"
-			path in folders -> "$path is a folder"
-			parentOf(path).let { it.isNotEmpty() && it !in folders } -> "${parentOf(path)} is not a folder here"
-			else -> null
-		}
-
-	/** AGENTS.md always reads as moved on a write. Every other precondition is checked, as the plugin checks it. */
+	/** AGENTS.md always reads as moved on a write, so the stale banner is reachable. */
 	override suspend fun mutateFile(
 		target: WorkspaceTarget,
 		mutation: WorkspaceFileMutation,
 	): WorkspaceAnswer<WorkspaceFileMutationAnswer> {
-		val place = when (mutation) {
-			is WorkspaceFileMutation.Create -> mutation.path
-			is WorkspaceFileMutation.Move -> mutation.to
-			is WorkspaceFileMutation.Copy -> mutation.to
-			else -> null
+		if (!served(target)) return notServed
+		if (mutation is WorkspaceFileMutation.Write && table.canonical(mutation.path) == "AGENTS.md") {
+			table.put(mutation.path, "# Agents\n\nChanged by the agent.")
+			return WorkspaceAnswer.Read(WorkspaceFileMutationAnswer(path = mutation.path, outcome = MUTATION_STALE))
 		}
-		place?.let(::placeRefusal)?.let { return WorkspaceAnswer.Refused(it) }
-		return asSeeded(target) {
-			val answer = { path: String, outcome: String -> WorkspaceFileMutationAnswer(path = path, outcome = outcome) }
-			when (mutation) {
-				is WorkspaceFileMutation.Write ->
-					if (mutation.path == "AGENTS.md") {
-						files[mutation.path] = "# Agents\n\nChanged by the agent."
-						answer(mutation.path, MUTATION_STALE)
-					} else if (!holds(mutation.path, mutation.expectedHash, null)) {
-						answer(mutation.path, MUTATION_STALE)
-					} else {
-						files[mutation.path] = mutation.text
-						WorkspaceFileMutationAnswer(path = mutation.path, outcome = MUTATION_DONE, hash = hashOf(mutation.text))
-					}
-				is WorkspaceFileMutation.Create ->
-					if (files.putIfAbsent(mutation.path, mutation.text) != null) {
-						answer(mutation.path, MUTATION_DESTINATION_CHANGED)
-					} else {
-						WorkspaceFileMutationAnswer(path = mutation.path, outcome = MUTATION_DONE, hash = hashOf(mutation.text))
-					}
-				is WorkspaceFileMutation.Delete ->
-					if (!holds(mutation.path, mutation.expectedHash, mutation.expectedIdentity)) {
-						answer(mutation.path, MUTATION_STALE)
-					} else {
-						files.remove(mutation.path)
-						identities.remove(mutation.path)
-						answer(mutation.path, MUTATION_DONE)
-					}
-				is WorkspaceFileMutation.Move -> when {
-					!holds(mutation.path, mutation.expectedHash, mutation.expectedIdentity) -> answer(mutation.path, MUTATION_STALE)
-					!landsOn(mutation.destination, mutation.to) -> answer(mutation.path, MUTATION_DESTINATION_CHANGED)
-					else -> {
-						files[mutation.to] = files.remove(mutation.path) ?: ""
-						identities[mutation.to] = identityOf(mutation.path)
-						identities.remove(mutation.path)
-						WorkspaceFileMutationAnswer(path = mutation.path, outcome = MUTATION_DONE, hash = mutation.expectedHash)
-					}
-				}
-				is WorkspaceFileMutation.Copy -> when {
-					!holds(mutation.path, mutation.expectedHash, null) -> answer(mutation.path, MUTATION_STALE)
-					!landsOn(mutation.destination, mutation.to) -> answer(mutation.path, MUTATION_DESTINATION_CHANGED)
-					else -> {
-						files[mutation.to] = files[mutation.path] ?: ""
-						identities.remove(mutation.to)
-						WorkspaceFileMutationAnswer(path = mutation.path, outcome = MUTATION_DONE, hash = mutation.expectedHash)
-					}
-				}
-			}
-		}
+		return table.mutate(mutation)
 	}
 
 	override suspend fun outline(target: WorkspaceTarget, path: String) =

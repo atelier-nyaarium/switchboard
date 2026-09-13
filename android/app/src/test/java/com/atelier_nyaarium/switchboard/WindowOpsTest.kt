@@ -138,6 +138,7 @@ class WindowOpsTest {
 
 	/** Records what was sent, since an apply is an ordinary message and nothing else marks it. */
 	private class FakeHost(override val workspace: WorkspaceGateway?) : WorkspaceHost {
+		override val generation = WorkspaceGeneration()
 		val sent = mutableListOf<Pair<String, String>>()
 		var sends = true
 		var throws = false
@@ -191,7 +192,6 @@ class WindowOpsTest {
 	fun `no gateway reads as unreachable rather than throwing`() = runBlocking {
 		val none = opsOver(drafts, FakeHost(null))
 
-		assertEquals(WorkspaceAnswer.Unreachable, none.tree(one, ""))
 		assertEquals(WorkspaceAnswer.Unreachable, none.openWindow(one, F_ID))
 		assertEquals(emptyList<Window>(), none.windowsOf(one))
 	}
@@ -380,6 +380,7 @@ class WindowOpsTest {
 
 		val opening = async { ops.openWindow(one, F_ID) }
 		hold.entered.await()
+		host.generation.advance()
 		ops.clearInMemory()
 		hold.release()
 		opening.await()
@@ -599,12 +600,11 @@ class WindowOpsTest {
 
 	@Test
 	fun `every read names the session it is asked about`() = runBlocking {
-		assertEquals("src/a.ts", (ops.tree(one, "src/a.ts") as WorkspaceAnswer.Read).value.path)
 		assertEquals("whole file", (ops.file(one, "src/a.ts") as WorkspaceAnswer.Read).value.text)
 		assertEquals("src/a.ts", (ops.outline(one, "src/a.ts") as WorkspaceAnswer.Read).value.path)
 		assertEquals(F_ID, (ops.symbol(one, F_ID) as WorkspaceAnswer.Read).value.symbolId)
 		assertEquals(F_ID, (ops.knowledge(one, F_ID) as WorkspaceAnswer.Read).value.symbolId)
-		assertEquals(listOf(one, one, one, one, one), gateway.asked)
+		assertEquals(listOf(one, one, one, one), gateway.asked)
 	}
 
 	@Test

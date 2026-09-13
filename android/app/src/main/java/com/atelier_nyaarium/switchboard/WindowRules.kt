@@ -48,10 +48,6 @@ private fun escaped(part: String): String =
 internal sealed interface ReadSlot {
 	val key: String
 
-	data object Tree : ReadSlot {
-		override val key = "tree"
-	}
-
 	data object File : ReadSlot {
 		override val key = "file"
 	}

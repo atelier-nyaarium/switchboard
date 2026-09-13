@@ -4,6 +4,32 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceFileDestination
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
+
+/** What a folder's screen draws: its tree, and the one file operation begun from it. */
+internal data class FolderView(
+	/** Null while the first read is out. */
+	val listing: WorkspaceAnswer<WorkspaceTreeAnswer>? = null,
+	val busy: Boolean = false,
+	val outcome: FolderOutcome? = null,
+	val asking: PathAsk? = null,
+	val confirming: ArmedFileOp? = null,
+	/** A created file the screen opens, then acknowledges. */
+	val openRaw: String? = null,
+)
+
+/** How the last operation begun from a folder ended. */
+internal sealed interface FolderOutcome {
+	data class Finished(val action: FileAction, val result: FileOpResult) : FolderOutcome
+
+	data class NotArmed(val reason: String) : FolderOutcome
+}
+
+internal fun outcomeText(outcome: FolderOutcome): String =
+	when (outcome) {
+		is FolderOutcome.Finished -> fileOpNotice(outcome.action, outcome.result)
+		is FolderOutcome.NotArmed -> outcome.reason
+	}
 
 internal const val MUTATION_DONE = "done"
 internal const val MUTATION_STALE = "stale"

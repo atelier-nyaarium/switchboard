@@ -1,0 +1,510 @@
+{
+	"about": "Workspace file ops as the plugin answers them. src/__tests__/workspace-file-ops-vectors.test.ts runs them against the plugin's handlers over a temp directory, and WorkspaceFileTableVectorsTest.kt against WorkspaceFileTable. Steps: bind reads a path's state as #name (hash) and @name (identity); put writes a new file, as another writer would; edit changes one in place; remove deletes one; op runs a workspace op and checks expect. sha256:<text> is that text's hash. after is every file left.",
+	"cases": [
+		{
+			"name": "a state read names nothing, a folder, a file, and refuses what is withheld",
+			"folders": ["src"],
+			"files": { "src/app.ts": "a" },
+			"steps": [
+				{
+					"op": { "kind": "fileState", "path": "src/new.ts" },
+					"expect": { "state": "absent", "path": "src/new.ts" }
+				},
+				{ "op": { "kind": "fileState", "path": "src" }, "expect": { "state": "directory" } },
+				{ "op": { "kind": "fileState", "path": "" }, "expect": { "state": "directory" } },
+				{
+					"op": { "kind": "fileState", "path": "src/./app.ts" },
+					"expect": { "state": "file", "path": "src/app.ts", "hash": "sha256:a" }
+				},
+				{ "op": { "kind": "fileState", "path": "missing/app.ts" }, "expect": { "state": "absent" } },
+				{ "op": { "kind": "fileState", "path": ".env.example" }, "expect": { "state": "absent" } },
+				{ "op": { "kind": "fileState", "path": ".env" }, "expect": { "refused": true } },
+				{ "op": { "kind": "fileState", "path": ".env.local" }, "expect": { "refused": true } },
+				{ "op": { "kind": "fileState", "path": ".git/config" }, "expect": { "refused": true } },
+				{ "op": { "kind": "fileState", "path": "../outside.ts" }, "expect": { "refused": true } },
+				{ "op": { "kind": "fileState", "path": "/etc/hosts" }, "expect": { "refused": true } }
+			],
+			"after": { "src/app.ts": "a" }
+		},
+		{
+			"name": "a write lands only over the bytes it was shown",
+			"folders": ["src"],
+			"files": { "src/app.ts": "a" },
+			"steps": [
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "write",
+							"path": "src/../src/app.ts",
+							"expectedHash": "sha256:a",
+							"text": "b"
+						}
+					},
+					"expect": { "outcome": "done", "path": "src/app.ts", "hash": "sha256:b" }
+				},
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": { "kind": "write", "path": "src/app.ts", "expectedHash": "sha256:a", "text": "c" }
+					},
+					"expect": { "outcome": "stale" }
+				},
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": { "kind": "write", "path": "src/gone.ts", "expectedHash": "sha256:a", "text": "c" }
+					},
+					"expect": { "outcome": "stale", "gone": true }
+				},
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": { "kind": "write", "path": "src", "expectedHash": "sha256:a", "text": "c" }
+					},
+					"expect": { "refused": true }
+				},
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": { "kind": "write", "path": "", "expectedHash": "sha256:a", "text": "c" }
+					},
+					"expect": { "refused": true }
+				}
+			],
+			"after": { "src/app.ts": "b" }
+		},
+		{
+			"name": "a create takes only a free name inside a folder",
+			"folders": ["src"],
+			"files": { "src/app.ts": "a" },
+			"steps": [
+				{
+					"op": { "kind": "mutateFile", "mutation": { "kind": "create", "path": "src/new.ts", "text": "" } },
+					"expect": { "outcome": "done", "hash": "sha256:" }
+				},
+				{
+					"op": { "kind": "mutateFile", "mutation": { "kind": "create", "path": "src/new.ts", "text": "" } },
+					"expect": { "outcome": "destinationChanged" }
+				},
+				{
+					"op": { "kind": "mutateFile", "mutation": { "kind": "create", "path": "src", "text": "" } },
+					"expect": { "outcome": "destinationChanged" }
+				},
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": { "kind": "create", "path": "missing/new.ts", "text": "" }
+					},
+					"expect": { "refused": true }
+				},
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": { "kind": "create", "path": "src/app.ts/child.ts", "text": "" }
+					},
+					"expect": { "refused": true }
+				},
+				{
+					"op": { "kind": "mutateFile", "mutation": { "kind": "create", "path": ".env", "text": "" } },
+					"expect": { "refused": true }
+				},
+				{
+					"op": { "kind": "mutateFile", "mutation": { "kind": "create", "path": "", "text": "" } },
+					"expect": { "refused": true }
+				},
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": { "kind": "create", "path": ".env.example", "text": "TOKEN=" }
+					},
+					"expect": { "outcome": "done" }
+				}
+			],
+			"after": { "src/app.ts": "a", "src/new.ts": "", ".env.example": "TOKEN=" }
+		},
+		{
+			"name": "a delete binds the file it was shown, not only its bytes",
+			"folders": ["src"],
+			"files": { "src/app.ts": "a" },
+			"steps": [
+				{ "bind": "first", "path": "src/app.ts" },
+				{ "put": "src/app.ts", "text": "a" },
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "delete",
+							"path": "src/app.ts",
+							"expectedHash": "#first",
+							"expectedIdentity": "@first"
+						}
+					},
+					"expect": { "outcome": "stale" }
+				},
+				{ "bind": "second", "path": "src/app.ts" },
+				{ "edit": "src/app.ts", "text": "b" },
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "delete",
+							"path": "src/app.ts",
+							"expectedHash": "#second",
+							"expectedIdentity": "@second"
+						}
+					},
+					"expect": { "outcome": "stale" }
+				},
+				{ "bind": "third", "path": "src/app.ts" },
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "delete",
+							"path": "src/app.ts",
+							"expectedHash": "#third",
+							"expectedIdentity": "@third"
+						}
+					},
+					"expect": { "outcome": "done" }
+				},
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "delete",
+							"path": "src/app.ts",
+							"expectedHash": "#third",
+							"expectedIdentity": "@third"
+						}
+					},
+					"expect": { "outcome": "stale", "gone": true }
+				},
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "delete",
+							"path": "src",
+							"expectedHash": "#third",
+							"expectedIdentity": "@third"
+						}
+					},
+					"expect": { "refused": true }
+				}
+			],
+			"after": {}
+		},
+		{
+			"name": "a move to a free name keeps the file it moves",
+			"folders": ["src", "lib"],
+			"files": { "src/app.ts": "a" },
+			"steps": [
+				{ "bind": "app", "path": "src/app.ts" },
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "move",
+							"path": "src/app.ts",
+							"expectedHash": "#app",
+							"expectedIdentity": "@app",
+							"to": "lib/app.ts",
+							"destination": { "kind": "absent" }
+						}
+					},
+					"expect": { "outcome": "done", "path": "src/app.ts", "hash": "sha256:a" }
+				},
+				{
+					"op": { "kind": "fileState", "path": "lib/app.ts" },
+					"expect": { "state": "file", "identity": "@app" }
+				},
+				{ "op": { "kind": "fileState", "path": "src/app.ts" }, "expect": { "state": "absent" } }
+			],
+			"after": { "lib/app.ts": "a" }
+		},
+		{
+			"name": "a move replaces a taken name only while it is the file named",
+			"folders": ["src", "lib"],
+			"files": { "src/app.ts": "a", "lib/app.ts": "theirs" },
+			"steps": [
+				{ "bind": "app", "path": "src/app.ts" },
+				{ "bind": "theirs", "path": "lib/app.ts" },
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "move",
+							"path": "src/app.ts",
+							"expectedHash": "#app",
+							"expectedIdentity": "@app",
+							"to": "lib/app.ts",
+							"destination": { "kind": "absent" }
+						}
+					},
+					"expect": { "outcome": "destinationChanged" }
+				},
+				{ "edit": "lib/app.ts", "text": "changed" },
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "move",
+							"path": "src/app.ts",
+							"expectedHash": "#app",
+							"expectedIdentity": "@app",
+							"to": "lib/app.ts",
+							"destination": {
+								"kind": "replace",
+								"expectedHash": "#theirs",
+								"expectedIdentity": "@theirs"
+							}
+						}
+					},
+					"expect": { "outcome": "destinationChanged" }
+				},
+				{ "bind": "changed", "path": "lib/app.ts" },
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "move",
+							"path": "src/app.ts",
+							"expectedHash": "#app",
+							"expectedIdentity": "@app",
+							"to": "lib/app.ts",
+							"destination": {
+								"kind": "replace",
+								"expectedHash": "#changed",
+								"expectedIdentity": "@changed"
+							}
+						}
+					},
+					"expect": { "outcome": "done" }
+				}
+			],
+			"after": { "lib/app.ts": "a" }
+		},
+		{
+			"name": "a move refuses a folder, its own path, a withheld name and a missing folder",
+			"folders": ["src", "lib"],
+			"files": { "src/app.ts": "a" },
+			"steps": [
+				{ "bind": "app", "path": "src/app.ts" },
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "move",
+							"path": "src/app.ts",
+							"expectedHash": "#app",
+							"expectedIdentity": "@app",
+							"to": "lib",
+							"destination": { "kind": "absent" }
+						}
+					},
+					"expect": { "refused": true }
+				},
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "move",
+							"path": "src/app.ts",
+							"expectedHash": "#app",
+							"expectedIdentity": "@app",
+							"to": "src/app.ts",
+							"destination": { "kind": "absent" }
+						}
+					},
+					"expect": { "refused": true }
+				},
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "move",
+							"path": "src/app.ts",
+							"expectedHash": "#app",
+							"expectedIdentity": "@app",
+							"to": ".env",
+							"destination": { "kind": "absent" }
+						}
+					},
+					"expect": { "refused": true }
+				},
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "move",
+							"path": "src/app.ts",
+							"expectedHash": "#app",
+							"expectedIdentity": "@app",
+							"to": "missing/app.ts",
+							"destination": { "kind": "absent" }
+						}
+					},
+					"expect": { "refused": true }
+				},
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "move",
+							"path": "src",
+							"expectedHash": "#app",
+							"expectedIdentity": "@app",
+							"to": "lib/src",
+							"destination": { "kind": "absent" }
+						}
+					},
+					"expect": { "refused": true }
+				}
+			],
+			"after": { "src/app.ts": "a" }
+		},
+		{
+			"name": "a move whose source has gone answers that before looking at the destination",
+			"folders": ["src"],
+			"files": { "src/app.ts": "a" },
+			"steps": [
+				{ "bind": "app", "path": "src/app.ts" },
+				{ "remove": "src/app.ts" },
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "move",
+							"path": "src/app.ts",
+							"expectedHash": "#app",
+							"expectedIdentity": "@app",
+							"to": ".env",
+							"destination": { "kind": "absent" }
+						}
+					},
+					"expect": { "outcome": "stale", "gone": true }
+				}
+			],
+			"after": {}
+		},
+		{
+			"name": "a copy lands the bytes the owner saw, and replaces only a destination it names",
+			"folders": ["src", "lib"],
+			"files": { "src/app.ts": "a", "lib/b.ts": "b" },
+			"steps": [
+				{ "bind": "app", "path": "src/app.ts" },
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "copy",
+							"path": "src/app.ts",
+							"expectedHash": "#app",
+							"to": "lib/copy.ts",
+							"destination": { "kind": "absent" }
+						}
+					},
+					"expect": { "outcome": "done", "hash": "sha256:a" }
+				},
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "copy",
+							"path": "src/app.ts",
+							"expectedHash": "#app",
+							"to": "lib/copy.ts",
+							"destination": { "kind": "absent" }
+						}
+					},
+					"expect": { "outcome": "destinationChanged" }
+				},
+				{ "bind": "b", "path": "lib/b.ts" },
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "copy",
+							"path": "src/app.ts",
+							"expectedHash": "#app",
+							"to": "lib/b.ts",
+							"destination": { "kind": "replace", "expectedHash": "#b", "expectedIdentity": "@b" }
+						}
+					},
+					"expect": { "outcome": "done" }
+				},
+				{ "put": "src/app.ts", "text": "a" },
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "copy",
+							"path": "src/app.ts",
+							"expectedHash": "#app",
+							"to": "lib/again.ts",
+							"destination": { "kind": "absent" }
+						}
+					},
+					"expect": { "outcome": "done" }
+				},
+				{ "edit": "src/app.ts", "text": "z" },
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": {
+							"kind": "copy",
+							"path": "src/app.ts",
+							"expectedHash": "#app",
+							"to": "lib/late.ts",
+							"destination": { "kind": "absent" }
+						}
+					},
+					"expect": { "outcome": "stale" }
+				}
+			],
+			"after": { "src/app.ts": "z", "lib/b.ts": "a", "lib/copy.ts": "a", "lib/again.ts": "a" }
+		},
+		{
+			"name": "a tree lists folders first, by name, hiding what is withheld and dependency bulk",
+			"folders": ["src", "lib", "node_modules", ".git", "src/.env.d"],
+			"files": {
+				"README.md": "r",
+				"C.md": "c",
+				"b.md": "b",
+				".env": "secret",
+				".env.example": "e",
+				"src/a.ts": "a",
+				"src/.env.local": "secret"
+			},
+			"steps": [
+				{
+					"op": { "kind": "tree", "path": "" },
+					"expect": { "names": ["lib", "src", ".env.example", "b.md", "C.md", "README.md"] }
+				},
+				{ "op": { "kind": "tree", "path": "src" }, "expect": { "names": [".env.d", "a.ts"] } },
+				{ "op": { "kind": "tree", "path": "src/a.ts" }, "expect": { "refused": true } },
+				{ "op": { "kind": "tree", "path": ".git" }, "expect": { "refused": true } },
+				{ "op": { "kind": "fileState", "path": "src/.env.d" }, "expect": { "state": "directory" } },
+				{
+					"op": {
+						"kind": "mutateFile",
+						"mutation": { "kind": "create", "path": "src/.env.d/x.ts", "text": "" }
+					},
+					"expect": { "outcome": "done" }
+				}
+			],
+			"after": {
+				"README.md": "r",
+				"C.md": "c",
+				"b.md": "b",
+				".env": "secret",
+				".env.example": "e",
+				"src/a.ts": "a",
+				"src/.env.local": "secret",
+				"src/.env.d/x.ts": ""
+			}
+		}
+	]
+}

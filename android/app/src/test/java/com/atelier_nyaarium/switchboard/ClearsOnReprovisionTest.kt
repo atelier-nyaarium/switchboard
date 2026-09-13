@@ -38,7 +38,19 @@ class ClearsOnReprovisionTest {
 		// playback: the run names the previous owner's messages and every transport surface draws it.
 		// Edits and drafts retain prior-owner code.
 		assertEquals(
-			setOf("board", "vault", "runbooks", "presence", "trust", "drain", "playback", "windowOps", "rawFileOps", "fileOps"),
+			setOf(
+				"board",
+				"vault",
+				"runbooks",
+				"presence",
+				"trust",
+				"drain",
+				"playback",
+				"workspaceHost",
+				"windowOps",
+				"rawFileOps",
+				"fileOps",
+			),
 			declared,
 		)
 	}

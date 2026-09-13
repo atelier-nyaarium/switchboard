@@ -28,9 +28,6 @@ internal class RawFileOps(
 
 	private val incarnations = AtomicLong(0)
 
-	/** Moves on a re-provision, so a read in flight lands nothing after it. */
-	private val epoch = AtomicLong(0)
-
 	/**
 	 * The one open of each path that may still land. A newer open or a leave replaces or drops it, so an older
 	 * read settles nothing, and it goes when that open settles.
@@ -69,10 +66,10 @@ internal class RawFileOps(
 	 */
 	suspend fun open(target: WorkspaceTarget, path: String): RawView {
 		val key = target to path
-		val began = epoch.get()
+		val began = host.generation.capture()
 		val mine = Any()
 		opening[key] = mine
-		val wanted = { epoch.get() == began && opening[key] === mine }
+		val wanted = { host.generation.isCurrent(began) && opening[key] === mine }
 		val settle = { view: RawView ->
 			drawn.update { all -> if (wanted()) all + (key to view) else all }
 			view
@@ -202,7 +199,6 @@ internal class RawFileOps(
 
 	/** A re-provision takes the previous owner's files with it, on disk as well as in memory. */
 	override suspend fun clearInMemory() {
-		epoch.incrementAndGet()
 		opening.clear()
 		drawn.value = emptyMap()
 		for (target in held.targets()) held.apply(target) { emptyList() }
