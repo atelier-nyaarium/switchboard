@@ -1354,6 +1354,10 @@ retention. `sliceRange` and `hashContent` are the primitives.
 
 # Release 2 - Saving without the agent
 
+**Lap sizing, settled before the laps:** Phase 9's Save IS Phase 10's write, so Phase 9 lands the write
+operation with the editor, and Phase 10 carries the rest. Phase 11 is one banked notice and rides Phase 10's
+lap. Four laps, not five.
+
 ## Phase 7 - Lexicon span compare-and-swap
 
 A replace accepting an expected span hash, re-resolving the id and hashing the span it now covers, inside
@@ -1372,6 +1376,51 @@ transaction row, so a crash leaves it open and blocks every later session. A pho
 far more often than an agent's refactor does.
 
 Then move the pin again.
+
+### Done
+
+- **A new daemon method, `refactorReplaceSpan`, not a field on `refactorReplace`.** A daemon strips unknown
+  fields, so an older one handed `expectedSpanHash` would write without checking. An unknown method fails
+  instead. Protocol 3.2.0, and `symbolSource` answers `spanHash`, the hash of the text it returns.
+- **The gate was not restructured, and does not need to be.** The plan checks the span on one exact read of
+  the file, and the gate re-verifies the whole file is still those bytes before writing. Unchanged bytes imply
+  an unchanged span, so the pair is one compare-and-swap. The freebie survives: an edit elsewhere before the
+  save is simply part of the file the plan reads. Four alignment auditors read `baseHash` as the phone's read
+  rather than the plan's and called the freebie broken; it is not.
+- **`standalone` moved here from Phase 8.** Start-if-none, join-if-one and commit-only-if-opened are decided
+  inside the gate, since three client calls cannot decide them atomically and a client that died between them
+  would strand the transaction. The answer's `transaction` says `own` or `joined`.
+- **The crash hazard is closed for the transactions this feature opens.** A transaction carries an origin, and
+  recovery closes an `own` one: committed when its step finalized, reverted otherwise. A live write that
+  cannot be undone settles the same way rather than waiting for a human who does not exist. A
+  `refactor_start` transaction still stays open after a crash, because a session may still be holding it.
+- **Lexicon's own `refactor_replace` takes `expectedSpanHash`**, so Agent Apply gets the same exactness.
+
+### Bug Classes
+
+- **A check on one read, a use of another.** `planReplacement` hashed and ranged the span from
+  `symbolSource`'s read, then read the file again to splice. A write between them spliced unchecked text at a
+  checked range. Same class as Phase 2's two filesystem calls deciding one fact, in a different mechanism.
+  Patched by refusing when the second read's hash differs from the first. The primitive would be a planner that
+  takes the text `symbolSource` read rather than reading again.
+
+### Accepted limits
+
+- **An occurrence-numbered twin with identical text.** Inserting a same-named sibling above renumbers the
+  owner's symbol (Question 4). If the new sibling's span is byte-identical, the hash matches and the save lands
+  on the twin. Binding the range would refuse every edit above the span, which is the freebie. Text-identical
+  same-named siblings are rare enough to accept.
+- **An external editor writing between the gate's check and the rename.** Pre-existing, in Codebase Facts.
+- **Invalid UTF-8 elsewhere in the file is rewritten as U+FFFD.** Pre-existing for every Lexicon writer. Filed
+  as its own item.
+
+### Left for Phase 8
+
+- **A save right after an unrelated edit refuses until the watcher reindexes**, since `symbolSource` refuses a
+  stale index. Not `stale: true`. The Switchboard handler reindexes the module and asks once more, which the
+  phone never sees.
+- **A lost connection mid-save is not retried**, since the method mutates. The phone reconciles by reading the
+  span and comparing its hash to the text it sent.
 
 ## Phase 8 - The window descriptor and Save
 
