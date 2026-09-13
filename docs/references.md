@@ -33,9 +33,17 @@ the ref resolved to one. What the ref carries decides which are offered, so a pa
 the file alone.
 
 **What a resolved key carries:** its canonical key, the lines, an optional character span, the quality
-and its reason, the hash of those lines, and the symbol id the chain resolved to. The hash is of the
-LINES, so an edit elsewhere in the file is not a change to what the reader was shown. A key the schema
-would refuse is dropped rather than sent, since one refused key fails the whole snapshot's metadata.
+and its reason, the hash of those lines, the symbol id the chain resolved to, and the line that
+declaration began on. The hash is of the LINES, so an edit elsewhere in the file is not a change to what
+the reader was shown. A key the schema would refuse is dropped rather than sent, since one refused key
+fails the whole snapshot's metadata.
+
+**Changed since sent** (`RefNow.kt`, `ContentHash.kt`, `SymbolViews.keepRefNow`): opening an exact key
+that carries all three reads the declaration and its file now, finds the key's lines at the same offset
+inside the declaration, and hashes them with the Kotlin twin of Lexicon's `hashContent`, which
+`tests/fixtures/content-hash/vectors.json` pins to the original. A different hash, or lines the declaration
+no longer reaches, draws the strip and a Sent / Now toggle, with Now marking the lines that differ. A
+matching hash draws nothing, and anything unread or missing makes no claim either way.
 
 **Refused, naming the fix:** outside-root chain, missing or ambiguous name, or no matcher result.
 `exact` requires one hash-verified declaration.

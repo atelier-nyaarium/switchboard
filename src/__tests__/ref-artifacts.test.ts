@@ -99,10 +99,11 @@ describe("building the artifact set", () => {
 	// message its snapshot.
 	it("drops a symbol id too long for the wire rather than sending a key that would be refused", () => {
 		const long = `lexicon typescript src/a.ts ${"Deep:".repeat(REF_SYMBOL_ID_MAX)}f().`;
-		const result = buildArtifacts([ref("a.ts", lines(10), { symbolId: long })], []);
+		const result = buildArtifacts([ref("a.ts", lines(10), { symbolId: long, symbolStartLine: 1 })], []);
 
 		expect(result.ok).toBe(true);
 		expect(result.ok && result.artifacts[0].ref.keys[0].symbolId).toBeUndefined();
+		expect(result.ok && result.artifacts[0].ref.keys[0].symbolStartLine).toBeUndefined();
 		expect(RefFileMetaSchema.safeParse(result.ok ? result.artifacts[0].ref : null).success).toBe(true);
 	});
 
@@ -127,11 +128,14 @@ describe("building the artifact set", () => {
 		expect(RefFileMetaSchema.safeParse(result.ok ? result.artifacts[0].ref : null).success).toBe(true);
 	});
 
-	it("carries a symbol id the wire accepts", () => {
+	it("carries a symbol id the wire accepts, with where its declaration began", () => {
 		const id = "lexicon typescript src/a.ts f().";
-		const result = buildArtifacts([ref("a.ts", lines(10), { symbolId: id })], []);
+		const result = buildArtifacts(
+			[ref("a.ts", lines(10), { startLine: 4, endLine: 5, symbolId: id, symbolStartLine: 2 })],
+			[],
+		);
 
-		expect(result.ok && result.artifacts[0].ref.keys[0].symbolId).toBe(id);
+		expect(result.ok && result.artifacts[0].ref.keys[0]).toMatchObject({ symbolId: id, symbolStartLine: 2 });
 	});
 
 	it("keeps the last resolution when one canonical key repeats", () => {

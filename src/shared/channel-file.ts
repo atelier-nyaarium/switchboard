@@ -60,6 +60,9 @@ export const RefKeyMetaSchema = z
 		// reader find it again. Optional by meaning: a ref with no chain, or one the index could not
 		// answer, names a file and not a declaration.
 		symbolId: z.string().min(1).max(REF_SYMBOL_ID_MAX).optional(),
+		// Where that declaration began when sent, so the viewer finds a narrowed key's lines in it now.
+		// Optional by meaning: it rides only with `symbolId`.
+		symbolStartLine: z.number().int().positive().optional(),
 	})
 	.meta({ id: "RefKeyMeta" });
 

@@ -29,6 +29,8 @@ export interface Resolution {
 	reason?: string;
 	/** What the chain resolved to. Absent for a ref that names a file rather than a declaration. */
 	symbolId?: string;
+	/** The declaration's first line, which a matcher's narrower lines sit inside. */
+	symbolStartLine?: number;
 }
 
 export interface Lines {

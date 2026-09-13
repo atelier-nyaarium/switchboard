@@ -2325,6 +2325,7 @@ data class RefKeyMeta(
 	val matchCount: Long? = null,
 	val spanHash: String? = null,
 	val symbolId: String? = null,
+	val symbolStartLine: Long? = null,
 )
 
 @Serializable

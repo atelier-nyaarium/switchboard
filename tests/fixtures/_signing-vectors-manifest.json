@@ -5,6 +5,7 @@
 		"board-rank",
 		"cross-domain-sas",
 		"content-envelope",
+		"content-hash",
 		"device-join",
 		"enroll-sas",
 		"limit-notice",

@@ -1982,7 +1982,7 @@ item for the prose road.
   what `withContext` returns.
 - **The sandbox answers a windows ask** with both canned symbols, so the whole road runs on the emulator.
 
-## Phase 12d - The ref viewer's Sent and Now
+## Phase 12d - The ref viewer's Sent and Now ✅
 
 Mock: `ref-viewer.html`. Phase 6 deferred this for want of a live read and a Kotlin hash twin.
 
@@ -1993,6 +1993,18 @@ Mock: `ref-viewer.html`. Phase 6 deferred this for want of a live read and a Kot
 - **Differs:** a "Changed since sent" strip and a Sent / Now toggle. Now highlights the lines that differ.
 - **Matches:** no strip.
 - **Unreadable:** no strip and no claim either way.
+
+### What shipped beyond the list
+
+- **A narrowed key needed one more field:** a `#text` matcher resolves to lines inside a declaration, so
+  the producer now sends `symbolStartLine`, where that declaration began. The phone finds the key's lines at
+  the same offset inside the declaration now, reading the file as well as `symbolSource`, since a
+  declaration's span text need not be whole lines. A key from an older plugin makes no claim.
+- **Only an exact key is compared,** and a slice reaching past the declaration's current end reads as
+  changed.
+- **The live read is `SymbolViews.keepRefNow`,** through `PublishedViews`, and the vectors directory is
+  registered in the cross-runtime manifest.
+- **The emulator's seeded ref carries a start line,** so the strip and the toggle draw there.
 
 ## Phase 13a - Gateway and Router follow-ups
 

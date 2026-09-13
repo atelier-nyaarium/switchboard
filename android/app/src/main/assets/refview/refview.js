@@ -158,6 +158,7 @@
 
 			codeEl.textContent = "";
 			const span = payload.span || null;
+			const changed = new Set(payload.changed || []);
 			let previousEnd = null;
 
 			for (const segment of payload.segments || []) {
@@ -171,6 +172,7 @@
 					const row = document.createElement("div");
 					row.className = "line";
 					if (lineNumber >= payload.startLine && lineNumber <= payload.endLine) row.classList.add("in-range");
+					if (changed.has(lineNumber)) row.classList.add("changed");
 
 					const ln = document.createElement("div");
 					ln.className = "ln";

@@ -58,38 +58,55 @@ internal fun noticeFor(key: com.atelier_nyaarium.switchboard.proto.RefKeyMeta): 
 	return listOfNotNull(drift, ambiguity).ifEmpty { null }?.joinToString(". ")
 }
 
+private fun languageOf(refPath: String): String? = HLJS_LANGUAGE[refPath.substringAfterLast('.', "").lowercase()]
+
+/** Each declared segment as its first line and text; none declared is the whole file from line 1. */
+internal fun snapshotSegments(
+	meta: com.atelier_nyaarium.switchboard.proto.RefFileMeta,
+	snapshot: String,
+): List<Pair<Long, String>> {
+	val declared = meta.segments.orEmpty()
+	if (declared.isEmpty()) return listOf(1L to snapshot)
+	val lines = snapshot.split("\n")
+	var cursor = 0
+	return declared.map { segment ->
+		val take = segment.lineCount.toInt().coerceIn(0, lines.size - cursor)
+		(segment.startLine to lines.subList(cursor, cursor + take).joinToString("\n")).also { cursor += take }
+	}
+}
+
+internal fun nowPayloadFor(request: ReferenceOpenRequest, now: RefNow.Differs): String =
+	JSONObject()
+		.put("refPath", request.meta.refPath)
+		.put("label", request.label)
+		.put("language", languageOf(request.meta.refPath))
+		.put("startLine", now.startLine)
+		.put("endLine", now.startLine + now.lines.size - 1)
+		.put("segments", JSONArray().put(JSONObject().put("startLine", now.startLine).put("text", now.lines.joinToString("\n"))))
+		.put("changed", JSONArray(now.changed.sorted()))
+		.toString()
+
 /** The payload the page renders. Built here rather than in JS so the viewer stays a renderer.
  *
  * The snapshot's content is its declared segments' text joined with newlines, so each segment's
  * text is recovered by consuming `lineCount` lines in order. A count past the end clamps: a lying
  * sender degrades its own render, never crashes the viewer. Absent (or empty) segments mean the
  * snapshot IS the whole file, numbered from 1. */
-internal fun payloadFor(request: ReferenceOpenRequest, snapshot: File): String {
+internal fun payloadFor(request: ReferenceOpenRequest, snapshot: File): String = payloadFor(request, snapshot.readText())
+
+internal fun payloadFor(request: ReferenceOpenRequest, snapshot: String): String {
 	val key = request.key
 	val meta = request.meta
 
 	val segments = JSONArray()
-	val declared = meta.segments.orEmpty()
-	if (declared.isEmpty()) {
-		segments.put(JSONObject().put("startLine", 1).put("text", snapshot.readText()))
-	} else {
-		val lines = snapshot.readText().split("\n")
-		var cursor = 0
-		for (segment in declared) {
-			val take = segment.lineCount.toInt().coerceIn(0, lines.size - cursor)
-			segments.put(
-				JSONObject()
-					.put("startLine", segment.startLine)
-					.put("text", lines.subList(cursor, cursor + take).joinToString("\n")),
-			)
-			cursor += take
-		}
+	for ((startLine, text) in snapshotSegments(meta, snapshot)) {
+		segments.put(JSONObject().put("startLine", startLine).put("text", text))
 	}
 
 	return JSONObject()
 		.put("refPath", meta.refPath)
 		.put("label", request.label)
-		.put("language", HLJS_LANGUAGE[meta.refPath.substringAfterLast('.', "").lowercase()])
+		.put("language", languageOf(meta.refPath))
 		.put("startLine", key.startLine)
 		.put("endLine", key.endLine)
 		.put("segments", segments)

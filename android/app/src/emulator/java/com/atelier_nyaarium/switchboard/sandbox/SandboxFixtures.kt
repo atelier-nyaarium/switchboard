@@ -203,6 +203,8 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 				quality = "exact",
 				spanHash = "5f2b9c41a7e30d68b154ac9021ff37de",
 				symbolId = "lexicon typescript src/shared/schemasRoutine.ts routineRefusal().",
+				// The sandbox's routineRefusal reads differently, so Changed since sent draws.
+				symbolStartLine = 32,
 			),
 			// No symbol id, which is what a ref the index could not answer carries. The foot then offers
 			// the file alone, which is the case a seeded pair answering alike would hide.

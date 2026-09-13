@@ -1,0 +1,13 @@
+{
+	"cases": [
+		{ "text": "", "hash": "e3b0c44298fc1c149afbf4c8996fb924" },
+		{ "text": "a", "hash": "ca978112ca1bbdcafac231b39a23dc4d" },
+		{ "text": "line 1\nline 2", "hash": "e266782c2841ee29d8f5aafc686abc45" },
+		{ "text": "tab\tand \"quote\"", "hash": "6ea07ac8b10886423dafdf0c2a05a428" },
+		{ "text": "café", "hash": "850f7dc43910ff890f8879c0ed26fe69" },
+		{ "text": "emoji 😀", "hash": "c07e2aa9faa2a31318dc2cbb7c3cd383" },
+		{ "text": "crlf\r\nline", "hash": "34674f71eac6a552cd49c5582dc00328" },
+		{ "text": "trailing newline\n", "hash": "e23b163ed8d06b186693c8524fbbabaa" },
+		{ "text": "  indented\n\treturn null;", "hash": "64c621add390227c27ffec45c92e3cb7" }
+	]
+}

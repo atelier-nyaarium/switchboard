@@ -14,6 +14,7 @@
 	--gutter: #f6f8fa;
 	--band: rgba(31, 111, 235, 0.12);
 	--span: rgba(191, 135, 0, 0.32);
+	--changed: rgba(31, 111, 235, 0.28);
 	--banner-bg: #fff8c5;
 	--banner-fg: #4d2d00;
 }
@@ -26,6 +27,7 @@ body.dark {
 	--gutter: #161b22;
 	--band: rgba(56, 139, 253, 0.20);
 	--span: rgba(210, 153, 34, 0.38);
+	--changed: rgba(56, 139, 253, 0.42);
 	--banner-bg: #341a00;
 	--banner-fg: #f0d8a8;
 }
@@ -103,6 +105,10 @@ body {
 
 .line.in-range {
 	background: var(--band);
+}
+
+.line.changed {
+	background: var(--changed);
 }
 
 .ln,

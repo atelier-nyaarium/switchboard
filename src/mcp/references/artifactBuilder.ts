@@ -205,7 +205,12 @@ export function buildArtifacts(resolved: ResolvedRef[], existingNames: string[])
 						// Dropped rather than sent over-length: the key would be refused and take the whole
 						// file's metadata with it, costing every other ref its snapshot for one lost exit.
 						...(r.resolution.symbolId && r.resolution.symbolId.length <= REF_SYMBOL_ID_MAX
-							? { symbolId: r.resolution.symbolId }
+							? {
+									symbolId: r.resolution.symbolId,
+									...(r.resolution.symbolStartLine
+										? { symbolStartLine: r.resolution.symbolStartLine }
+										: {}),
+								}
 							: {}),
 						// Off the ORIGINAL text, not the shipped content, which may be segments joined.
 						spanHash: hashContent(textOfLines(r.text, r.resolution)),

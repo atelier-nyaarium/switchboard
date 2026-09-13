@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.coroutineScope
@@ -9,6 +10,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 internal data class OutlineView(val outline: WorkspaceAnswer<WorkspaceOutlineAnswer>? = null)
+
+/** A ref's declaration now, and the file it sits in. */
+internal data class RefNowView(
+	val source: WorkspaceAnswer<WorkspaceSymbolSourceAnswer>? = null,
+	val file: WorkspaceAnswer<WorkspaceReadAnswer>? = null,
+)
 
 /** Two reads, so the source still draws when knowledge is refused. */
 internal data class DetailView(
@@ -69,9 +76,24 @@ internal class SymbolViews(private val host: WorkspaceHost) : ClearsOnReprovisio
 			}
 		}
 
+	private val refNows = PublishedViews<Pair<WorkspaceTarget, String>, RefNowView>(host.generation)
+
+	val refNowViews: StateFlow<Map<Pair<WorkspaceTarget, String>, RefNowView>> = refNows.all
+
+	/** The file is read after the span, from the module the span names. */
+	suspend fun keepRefNow(target: WorkspaceTarget, symbolId: String) =
+		refNows.keep(target to symbolId, ::RefNowView) { showing ->
+			val source = read { it.symbolSource(target, symbolId) }
+			refNows.update(showing) { view -> view.copy(source = source) }
+			val module = (source as? WorkspaceAnswer.Read)?.value?.module ?: return@keep
+			val file = read { it.file(target, module) }
+			refNows.update(showing) { view -> view.copy(file = file) }
+		}
+
 	override suspend fun clearInMemory() {
 		outlines.clear()
 		details.clear()
+		refNows.clear()
 	}
 
 	/** A throw is no answer. */
