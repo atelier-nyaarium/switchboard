@@ -71,6 +71,16 @@ describe("protocol fixtures", () => {
 		expect(PlanesReadValueSchema.parse(fixture("planes-read-value.json")).known.presence.version).toBe(4294967296);
 	});
 
+	it("takes a send whose message IS its attachment, and refuses one carrying neither", () => {
+		const to = "domain.gateway.spawn.session";
+		const file = { filename: "a.png", mime: "image/png", size: 1, descriptiveKey: "a.png", role: "attachment" };
+
+		expect(ConsoleOpSchema.safeParse({ kind: "send", to, body: "", files: [file] }).success).toBe(true);
+		expect(ConsoleOpSchema.safeParse({ kind: "send", to, body: "a caption" }).success).toBe(true);
+		expect(ConsoleOpSchema.safeParse({ kind: "send", to, body: "" }).success).toBe(false);
+		expect(ConsoleOpSchema.safeParse({ kind: "send", to, body: "", files: [] }).success).toBe(false);
+	});
+
 	it("accepts additive fields without exposing them", () => {
 		const op = { ...(fixture("console-op-create-session.json") as object), futureField: true };
 		const result = ConsoleOpSchema.parse(op);

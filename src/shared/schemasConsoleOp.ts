@@ -20,13 +20,19 @@ export const MAX_POLL_HOLD_MS = 45_000;
 
 export const ConsoleOpSchema = z
 	.discriminatedUnion("kind", [
-		z.object({
-			kind: z.literal("send"),
-			to: z.string().min(1).max(128),
-			domainId: z.string().min(1).max(64).optional(),
-			body: z.string().min(1),
-			files: ChannelFilesSchema.optional(),
-		}),
+		z
+			.object({
+				kind: z.literal("send"),
+				to: z.string().min(1).max(128),
+				domainId: z.string().min(1).max(64).optional(),
+				// Empty when files are the message.
+				body: z.string(),
+				files: ChannelFilesSchema.optional(),
+			})
+			.refine((op) => op.body.length > 0 || (op.files?.length ?? 0) > 0, {
+				error: "a send carries text or files",
+				path: ["body"],
+			}),
 		z.object({
 			kind: z.literal("respond"),
 			session_id: z.string().min(1),
