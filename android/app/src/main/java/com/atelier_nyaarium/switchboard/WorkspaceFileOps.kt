@@ -5,13 +5,14 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 private const val UNREACHABLE = "This session could not be reached"
+
+/** Where an op began: the folder's showing and the generation it must still be in to land. */
+private typealias Began = PublishedViews.Showing<Pair<WorkspaceTarget, String>>
 
 /**
  * Each folder's tree and file operation, published so the screen only renders. A destructive op sends only
@@ -24,43 +25,31 @@ internal class WorkspaceFileOps(
 	/** One at a time, so a second op cannot race the first's answer. */
 	private val mutating = Mutex()
 
-	private val drawn = MutableStateFlow<Map<Pair<WorkspaceTarget, String>, FolderView>>(emptyMap())
-
-	/** Each folder's live opening. A leave or a re-provision ends it, and work begun in it lands nothing after. */
-	private val openings = ConcurrentHashMap<Pair<WorkspaceTarget, String>, Any>()
+	/** A folder's showing ends at leave: an op begun in it lands nothing on a later one. */
+	private val shown = PublishedViews<Pair<WorkspaceTarget, String>, FolderView>(host.generation)
 
 	/** The newest tree read of each folder, so an older one lands nothing. */
 	private val reading = ConcurrentHashMap<Pair<WorkspaceTarget, String>, Any>()
 
 	/** What each shown folder draws. Absent: no screen has asked, or it left. */
-	val views: StateFlow<Map<Pair<WorkspaceTarget, String>, FolderView>> = drawn
+	val views: StateFlow<Map<Pair<WorkspaceTarget, String>, FolderView>> = shown.all
 
-	fun viewOf(target: WorkspaceTarget, path: String): FolderView? = drawn.value[target to path]
-
-	/** Where work began: the folder's opening and the generation, both of which it must still be in to land. */
-	private data class Began(val key: Pair<WorkspaceTarget, String>, val opening: Any, val generation: Long)
-
-	private fun began(key: Pair<WorkspaceTarget, String>): Began? =
-		openings[key]?.let { Began(key, it, host.generation.capture()) }
-
-	private fun current(began: Began) = openings[began.key] === began.opening && host.generation.isCurrent(began.generation)
+	fun viewOf(target: WorkspaceTarget, path: String): FolderView? = shown.of(target to path)
 
 	private fun redraw(began: Began, change: (FolderView) -> FolderView) {
-		drawn.update { all ->
-			val view = all[began.key]
-			if (view == null || !current(began)) all else all + (began.key to change(view))
-		}
+		shown.update(began, change)
 	}
+
+	private fun current(began: Began) = shown.isCurrent(began)
 
 	/** Takes the folder for one op, or nothing while one is running or `ready` says no. */
 	private fun claim(key: Pair<WorkspaceTarget, String>, ready: (FolderView) -> Boolean): Pair<Began, FolderView>? {
-		val began = began(key) ?: return null
-		var claimed: FolderView? = null
-		drawn.update { all ->
-			val view = all[key]
-			claimed = view?.takeIf { !it.busy && ready(it) && current(began) }
-			claimed?.let { all + (key to it.copy(busy = true, asking = null, confirming = null, outcome = null)) } ?: all
-		}
+		val began = shown.current(key) ?: return null
+		val claimed = shown.claim(
+			began,
+			take = { !it.busy && ready(it) },
+			taken = { it.copy(busy = true, asking = null, confirming = null, outcome = null) },
+		)
 		return claimed?.let { began to it }
 	}
 
@@ -75,20 +64,17 @@ internal class WorkspaceFileOps(
 	}
 
 	suspend fun open(target: WorkspaceTarget, path: String) {
-		val key = target to path
-		openings.putIfAbsent(key, Any())
-		drawn.update { all -> if (key in all) all else all + (key to FolderView()) }
-		reload(key)
+		shown.show(target to path) { FolderView() }
+		reload(target to path)
 	}
 
 	fun leave(target: WorkspaceTarget, path: String) {
-		openings.remove(target to path)
+		shown.leave(target to path)
 		reading.remove(target to path)
-		drawn.update { it - (target to path) }
 	}
 
 	private suspend fun reload(key: Pair<WorkspaceTarget, String>) {
-		val began = began(key) ?: return
+		val began = shown.current(key) ?: return
 		val mine = Any()
 		reading[key] = mine
 		try {
@@ -102,16 +88,16 @@ internal class WorkspaceFileOps(
 
 	/** Opens the path dialog. */
 	fun ask(target: WorkspaceTarget, path: String, ask: PathAsk) {
-		began(target to path)?.let { redraw(it) { view -> if (view.busy) view else view.copy(asking = ask, outcome = null) } }
+		shown.current(target to path)?.let { redraw(it) { view -> if (view.busy) view else view.copy(asking = ask, outcome = null) } }
 	}
 
 	fun dismiss(target: WorkspaceTarget, path: String) {
-		began(target to path)?.let { redraw(it) { view -> view.copy(asking = null, confirming = null) } }
+		shown.current(target to path)?.let { redraw(it) { view -> view.copy(asking = null, confirming = null) } }
 	}
 
 	/** The created file was opened. */
 	fun rawOpened(target: WorkspaceTarget, path: String) {
-		began(target to path)?.let { redraw(it) { view -> view.copy(openRaw = null) } }
+		shown.current(target to path)?.let { redraw(it) { view -> view.copy(openRaw = null) } }
 	}
 
 	/** The path dialog's answer. A second answer to the same dialog does nothing. */
@@ -139,9 +125,8 @@ internal class WorkspaceFileOps(
 	}
 
 	override suspend fun clearInMemory() {
-		openings.clear()
+		shown.clear()
 		reading.clear()
-		drawn.value = emptyMap()
 	}
 
 	private suspend fun armFor(began: Began, action: ArmedAction) {

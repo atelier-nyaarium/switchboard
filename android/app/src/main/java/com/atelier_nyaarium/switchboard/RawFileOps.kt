@@ -2,12 +2,9 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -24,15 +21,10 @@ internal class RawFileOps(
 ) : ClearsOnReprovision {
 	private val held = HeldEdits<RawEdit>(drafts)
 
-	private val drawn = MutableStateFlow<Map<Pair<WorkspaceTarget, String>, RawView>>(emptyMap())
+	/** Each open is a new showing, so an older open's read settles nothing. */
+	private val shown = PublishedViews<Pair<WorkspaceTarget, String>, RawView>(host.generation)
 
 	private val incarnations = AtomicLong(0)
-
-	/**
-	 * The one open of each path that may still land. A newer open or a leave replaces or drops it, so an older
-	 * read settles nothing, and it goes when that open settles.
-	 */
-	private val opening = ConcurrentHashMap<Pair<WorkspaceTarget, String>, Any>()
 
 	/** One save at a time, or a second tap sends text the first is still writing. */
 	private val saving = Mutex()
@@ -43,18 +35,18 @@ internal class RawFileOps(
 	val edits: StateFlow<Map<WorkspaceTarget, List<RawEdit>>> = held.all
 
 	/** What each open file's screen draws. Absent: no screen has asked, or it left. */
-	val views: StateFlow<Map<Pair<WorkspaceTarget, String>, RawView>> = drawn
+	val views: StateFlow<Map<Pair<WorkspaceTarget, String>, RawView>> = shown.all
 
 	fun editOf(target: WorkspaceTarget, path: String): RawEdit? = held.of(target).firstOrNull { it.path == path }
 
-	fun viewOf(target: WorkspaceTarget, path: String): RawView? = drawn.value[target to path]
+	fun viewOf(target: WorkspaceTarget, path: String): RawView? = shown.of(target to path)
 
 	private fun edit(target: WorkspaceTarget, path: String, change: (RawEdit) -> RawEdit) =
 		held.apply(target) { edits -> edits.map { if (it.path == path) change(it) else it } }
 
 	/** Replaces the view of a screen still showing, and only that. */
 	private fun redraw(target: WorkspaceTarget, path: String, view: RawView) {
-		drawn.update { all -> if ((target to path) in all) all + ((target to path) to view) else all }
+		shown.current(target to path)?.let { showing -> shown.update(showing) { view } }
 	}
 
 	private suspend fun read(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceReadAnswer> =
@@ -65,37 +57,28 @@ internal class RawFileOps(
 	 * what it holds. Nothing lands for a screen that left, or across a re-provision, while this read.
 	 */
 	suspend fun open(target: WorkspaceTarget, path: String): RawView {
-		val key = target to path
-		val began = host.generation.capture()
-		val mine = Any()
-		opening[key] = mine
-		val wanted = { host.generation.isCurrent(began) && opening[key] === mine }
+		val showing = shown.reshow(target to path) { RawView.Loading }
 		val settle = { view: RawView ->
-			drawn.update { all -> if (wanted()) all + (key to view) else all }
+			shown.update(showing) { view }
 			view
 		}
-		try {
-			drawn.update { all -> if (key in all) all else all + (key to RawView.Loading) }
-			val before = editOf(target, path)
-			val answer = read(target, path)
-			val file = (answer as? WorkspaceAnswer.Read)?.value
-			if (file == null) {
-				// Held typing stays on screen; a failed read is no reason to hide it.
-				return settle(if (editOf(target, path) != null) RawView.Editable else rawViewOf(answer) ?: RawView.Unreachable)
-			}
-			if (before != null) {
-				held.land(target, before, Landing.Folded { refreshRaw(it, file) })
-				if (editOf(target, path) != null) return settle(RawView.Editable)
-				if (file.hash == null) return settle(readOnlyOf(file))
-				// Left during the read, so it is held afresh.
-			}
-			val edit = rawEditOf(path, file, incarnations.incrementAndGet()) ?: return settle(readOnlyOf(file))
-			val opened = restoredRaw(edit, drafts.load(target, DraftKey.File(path)))
-			held.apply(target) { edits -> if (!wanted() || edits.any { it.path == path }) edits else edits + opened }
-			return settle(RawView.Editable)
-		} finally {
-			opening.remove(key, mine)
+		val before = editOf(target, path)
+		val answer = read(target, path)
+		val file = (answer as? WorkspaceAnswer.Read)?.value
+		if (file == null) {
+			// Held typing stays on screen; a failed read is no reason to hide it.
+			return settle(if (editOf(target, path) != null) RawView.Editable else rawViewOf(answer) ?: RawView.Unreachable)
 		}
+		if (before != null) {
+			held.land(target, before, Landing.Folded { refreshRaw(it, file) })
+			if (editOf(target, path) != null) return settle(RawView.Editable)
+			if (file.hash == null) return settle(readOnlyOf(file))
+			// Left during the read, so it is held afresh.
+		}
+		val edit = rawEditOf(path, file, incarnations.incrementAndGet()) ?: return settle(readOnlyOf(file))
+		val opened = restoredRaw(edit, drafts.load(target, DraftKey.File(path)))
+		held.apply(target) { edits -> if (!shown.isCurrent(showing) || edits.any { it.path == path }) edits else edits + opened }
+		return settle(RawView.Editable)
 	}
 
 	/** Memory only; the disk follows from the value. A caret move is not typing. */
@@ -110,9 +93,8 @@ internal class RawFileOps(
 
 	/** Leaving the screen lets go of a file with nothing typed. Typing stays held, and on disk. */
 	fun leave(target: WorkspaceTarget, path: String) {
-		opening.remove(target to path)
+		shown.leave(target to path)
 		held.apply(target) { edits -> edits.filterNot { it.path == path && !it.edited } }
-		drawn.update { it - (target to path) }
 	}
 
 	/**
@@ -199,8 +181,7 @@ internal class RawFileOps(
 
 	/** A re-provision takes the previous owner's files with it, on disk as well as in memory. */
 	override suspend fun clearInMemory() {
-		opening.clear()
-		drawn.value = emptyMap()
+		shown.clear()
 		for (target in held.targets()) held.apply(target) { emptyList() }
 		drafts.clearAll()
 	}
