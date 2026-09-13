@@ -55,14 +55,19 @@ set land in one journal line, and a write naming anything else is refused `attac
 
 ## Awareness
 
-- **Awareness rides the next message:** The send route drains each session's bank into
+- **Awareness rides the next message:** The send route leases each session's bank into
   `channel_push`. Standalone pushes are only the `act_now` fallback.
+- **A lease settles by whether its carrier landed** (`AwarenessBank.prepareFor`): `commit` once the
+  message is accepted removes exactly what it carried, and a change observed meanwhile keeps its delta
+  from what was delivered; `release` on a refusal leaves everything banked. One carrier holds a bank at a
+  time. The deadline push commits only when delivered, retries each second, and is dropped once the hold
+  runs out. A bank with no deadline is dropped once its session has been gone past the hold.
 - The bank keeps the first pre-state and last post-state per identity, then diffs at flush.
   Intermediate edits, moves, and undo sequences collapse into one net fact.
 - Reply disposition and gateway `no_ack` are separate axes; `no_ack` wins. `act_now` starts its hold
   at the first observation and is not extended. Board `gone` is `act_now`; other board changes are
   `no_act`.
-- The route drains only after confirming an active delivery path.
+- The route commits only once the delivery queue accepts the message or a socket takes it.
 - `no_ack`, `act`, and `awareness` are plain `ChannelPushPayload` fields. Notification metadata must
   be strings with snake_case keys.
 - No-reply interception is valid only when the store has no job for the fallback id. The `na-` prefix
@@ -70,7 +75,8 @@ set land in one journal line, and a write naming anything else is refused `attac
 - Both holders of a changed entry receive awareness, classified from pre/post visibility. A self-echo
   is skipped.
 - Rank-only reorders announce nothing.
-- Awareness bodies are bounded. Liveness distinguishes waking from gone and uses `WAKE_TIMEOUT_MS`.
+- Awareness bodies are bounded by the bank (`MAX_AWARENESS_BODY_CHARS`), whatever each subscriber renders.
+  Liveness distinguishes waking from gone and uses `WAKE_TIMEOUT_MS`.
 - The phone drains board edits before sending the next wire message.
 - **Files the owner changed from the phone ride too:** each span save or file mutation the console answers
   banks one `no_act` line per path, the latest change to it, and an `unknown` answer says "may have". A

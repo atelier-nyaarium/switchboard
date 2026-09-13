@@ -70,7 +70,7 @@ describe("workspace awareness", () => {
 		bank.tick();
 		expect(sent).toHaveLength(0);
 
-		const told = bank.takeFor("s");
+		const told = bank.prepareFor("s")?.awareness;
 		expect(told?.act).toBe("no_act");
 		expect(told?.body.split("\n").slice(1)).toEqual([
 			"- edited src/a.ts",
@@ -92,7 +92,7 @@ describe("workspace awareness", () => {
 			observe([{ sessionKey: "s", identity: change.path, pre: undefined, post: change }]);
 		}
 
-		const lines = bank.takeFor("s")?.body.split("\n") ?? [];
+		const lines = bank.prepareFor("s")?.awareness.body.split("\n") ?? [];
 		expect(lines.length).toBeLessThan(50);
 		expect(lines.at(-1)).toMatch(/more$/);
 	});

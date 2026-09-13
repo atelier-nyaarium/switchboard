@@ -269,7 +269,7 @@ describe("router presence slice", () => {
 		registry.close();
 	});
 
-	it("keeps dropped rows as unreachable and replaces them on a new baseline", () => {
+	it("keeps dropped rows as unreachable for the owner and hides them from a friend, then replaces them on a new baseline", () => {
 		const { registry, service } = make();
 		service.applyBaseline(reg, {
 			incarnation: 1,
@@ -284,6 +284,9 @@ describe("router presence slice", () => {
 		expect(registry.for("domain").get("presence.row", "presence.row:gw/other.main")?.clear.presenceFresh).toBe(
 			"unreachable",
 		);
+		// The owner keeps the rows, marked; a friend is shown none of them.
+		const friendDeps = { isShared: () => true, admittedGateways: () => ["gw"] };
+		expect(service.friendProjection("domain", "friend", friendDeps).sessions).toEqual([]);
 		expect(service.ownerProjection("domain", projectionDeps).spawnPoints).toEqual([
 			{ gatewayId: "gw", domainId: "domain", hostSpawns: [] },
 		]);

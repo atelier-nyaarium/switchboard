@@ -2,7 +2,8 @@ import type { Ambient } from "../shared/ambient.js";
 import type { BoardReply } from "../shared/board-structure.js";
 import type { HostSpawnState } from "../shared/host-spawn.js";
 import type { PendingJobStore } from "../shared/pending-job-store.js";
-import type { GatewayConfig, ResponsePayload, RidingAwareness, TeamInfo } from "../shared/types.js";
+import type { GatewayConfig, ResponsePayload, TeamInfo } from "../shared/types.js";
+import type { AwarenessBank } from "./awarenessBank.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
 import type { DurableOpStore } from "./console/durableOpStore.js";
 import { createAddressing } from "./routes/addressing.js";
@@ -72,7 +73,7 @@ export interface RoutesDeps {
 	boardReplays?: DurableOpStore<BoardReply>;
 	// State that must survive a rebuild.
 	carryOver?: RoutesCarryOver;
-	awareness?: { takeFor(sessionKey: string): RidingAwareness | null };
+	awareness?: Pick<AwarenessBank, "prepareFor">;
 	// Holds a channel message a session could not take.
 	deliveries?: ChannelDeliveryCoordinator;
 }

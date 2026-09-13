@@ -10,7 +10,8 @@ import {
 	SpawnPoint,
 	storeKey,
 } from "../../shared/session-id.js";
-import type { ChannelFile, GatewayConfig, ResponsePayload, RidingAwareness } from "../../shared/types.js";
+import type { ChannelFile, GatewayConfig, ResponsePayload } from "../../shared/types.js";
+import type { AwarenessBank, AwarenessLease } from "../awarenessBank.js";
 import type { ChannelDeliveryCoordinator } from "../channelDelivery.js";
 import { fireAndForget } from "../fireAndForget.js";
 import { holdIdFor } from "../router/blobUploader.js";
@@ -50,7 +51,7 @@ export interface SendRoutesDeps {
 	routerClient?: Pick<import("../router/routerClient.js").RouterClient, "isConnected"> | null;
 	repushHandshake?: (team: string, subId: string) => HandshakeRepushOutcome;
 	auth?: SessionAuthority;
-	awareness?: { takeFor(sessionKey: string): RidingAwareness | null };
+	awareness?: Pick<AwarenessBank, "prepareFor">;
 	deliveries?: ChannelDeliveryCoordinator;
 	/** Renews relay blob hold. */
 	blobUploader?: Pick<ReturnType<typeof import("../router/blobUploader.js").createBlobUploader>, "hold"> | null;
@@ -333,6 +334,7 @@ export function createSendRoutes({
 
 		if (targetMode === "channel") {
 			let anchor: Reservation | null = null;
+			let lease: AwarenessLease | null = null;
 			try {
 				let channelJobId: string;
 				let contract: JobContract;
@@ -359,8 +361,9 @@ export function createSendRoutes({
 
 				const hasFiles = files !== undefined && files.length > 0;
 				const messageId = hasFiles ? ambient.newId() : undefined;
-				// Capture awareness once so retries preserve the same row data.
-				const riding = awareness?.takeFor(localName) ?? undefined;
+				// Captured once so retries preserve the same row data, and settled by whether the message lands.
+				lease = awareness?.prepareFor(localName) ?? null;
+				const riding = lease?.awareness;
 
 				if (deliveries) {
 					// Owners name delivery rows.
@@ -379,6 +382,7 @@ export function createSendRoutes({
 					});
 					if (outcome === "refused") {
 						store.abort(anchor);
+						lease?.release();
 						return jsonResponse(
 							{ error: `"${qualifiedTo}" has too many messages waiting; nothing was accepted` },
 							503,
@@ -387,8 +391,10 @@ export function createSendRoutes({
 					// Migration is a refusal.
 					if (outcome === "migrating") {
 						store.abort(anchor);
+						lease?.release();
 						return jsonResponse({ error: `this Gateway is migrating; nothing was accepted` }, 503);
 					}
+					lease?.commit();
 					console.log(`[send] channel_push ${outcome} for ${qualifiedTo} [${channelJobId}] from ${from}`);
 					// Renews the delivery hold.
 					if (ingress.kind === "gateway" && hasFiles && blobUploader) {
@@ -427,6 +433,7 @@ export function createSendRoutes({
 					}
 					// Without the durable queue behind it, a message nobody took is simply lost.
 					if (!took) throw new Error(`Team "${qualifiedTo}" took none of the message`);
+					lease?.commit();
 
 					console.log(
 						`[send] channel_push to ${qualifiedTo} [${channelJobId}]${messageId ? ` msg=${messageId.slice(0, 8)}` : ""} from ${from} (${activeWs.length} sub-session${activeWs.length > 1 ? "s" : ""})`,
@@ -454,6 +461,7 @@ export function createSendRoutes({
 				});
 			} catch (err) {
 				if (anchor) store.abort(anchor);
+				lease?.release();
 				const message = err instanceof Error ? err.message : String(err);
 				console.error(`[send] channel error:`, message);
 				return jsonResponse({ error: message }, 500);

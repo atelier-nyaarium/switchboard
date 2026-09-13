@@ -2008,14 +2008,18 @@ Mock: `ref-viewer.html`. Phase 6 deferred this for want of a live read and a Kot
 
 ## Phase 13a - Gateway and Router follow-ups
 
-- **The awareness lease:** `prepareFor`, then `commit` on acceptance or `release`, which merges back any
+- **The awareness lease:** ✅ `prepareFor`, then `commit` on acceptance or `release`, which merges back any
   changes observed meanwhile. Liveness is checked for every non-empty bank, and the bank owns the output
   bound. The deadline push commits only once it is delivered.
-- **Friend presence freshness:** `friendProjection` skips rows whose Gateway is unreachable, since a friend
-  cannot reach them either.
-- **Purge Gateway self-retirement:** a Gateway-signed retirement the Router honours beside owner
-  revocations. It changes what a Gateway may say about itself, so it is designed under `/security` first.
-  A design that needs the owner's ruling stops the cycle and asks rather than building on a guess.
+  - A release never removed anything, so there is nothing to merge back: `commit` removes exactly what was
+    carried and keeps a change observed since as a delta from what was delivered.
+  - A bank with no deadline is dropped once its session has been gone past `MAX_HOLD_MS`, not at once, since
+    the next message may be what wakes it. A failed deadline push retries each second within the same hold.
+- **Friend presence freshness:** ✅ `friendProjection` skips rows whose Gateway is unreachable, since a
+  friend cannot reach them either.
+- **Purge Gateway self-retirement:** waiting on the owner. It changes who may revoke, so it went to the owner
+  as three options: the Gateway retires itself with its own key (A), the Gateway asks and the phone
+  confirms with an owner revocation (B, recommended), or no change (C).
 
 ## Phase 13b - Phone follow-ups
 

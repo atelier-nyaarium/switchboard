@@ -246,6 +246,8 @@ export function createPresenceService(deps: {
 	const friendProjection = (domainId: string, toDomainId: string, friendDeps: FriendDeps) => {
 		const sessions: CrossDomainPresenceSession[] = [];
 		for (const row of rowsFor(domainId, friendDeps.admittedGateways(domainId))) {
+			// A friend cannot reach it either, and the wire carries no freshness to say so.
+			if (row.presenceFresh === "unreachable") continue;
 			const sessionTarget = `${domainId}.${row.gatewayId}.${row.team}`;
 			if (!friendDeps.isShared(domainId, sessionTarget, toDomainId)) continue;
 			const session = toCrossDomainPresenceSession(row, (name) => {

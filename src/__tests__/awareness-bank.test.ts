@@ -1,10 +1,88 @@
 import { describe, expect, it } from "vitest";
-import { createAwarenessBank, isNoAckSessionId } from "../gateway/awarenessBank.js";
+import {
+	type AwarenessBank,
+	createAwarenessBank,
+	isNoAckSessionId,
+	MAX_AWARENESS_BODY_CHARS,
+	MAX_HOLD_MS,
+} from "../gateway/awarenessBank.js";
 import { processAmbient } from "../shared/ambient.js";
 import type { ChannelPushPayload } from "../shared/types.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 
+function take(bank: AwarenessBank, sessionKey: string) {
+	const lease = bank.prepareFor(sessionKey);
+	lease?.commit();
+	return lease?.awareness ?? null;
+}
+
 describe("awareness bank", () => {
+	it("keeps what a refused carrier held, and after an accepted one keeps only what changed since", () => {
+		const bank = createAwarenessBank({ liveness: () => "live", deliver: () => true, ambient: processAmbient() });
+		const observe = bank.register<string>({
+			source: "fake",
+			act: () => "no_act",
+			render: (_s, changes) => changes.map((c) => `${c.identity}:${c.pre}->${c.post}`).join(","),
+		});
+		observe([{ sessionKey: "s", identity: "x", pre: "a", post: "b" }]);
+
+		bank.prepareFor("s")?.release();
+		const carried = bank.prepareFor("s");
+		expect(carried?.awareness.body).toBe("x:a->b");
+		// One carrier at a time, so two messages never carry the same notice.
+		expect(bank.prepareFor("s")).toBeNull();
+
+		observe([
+			{ sessionKey: "s", identity: "x", pre: "b", post: "c" },
+			{ sessionKey: "s", identity: "y", pre: "a", post: "b" },
+		]);
+		carried?.commit();
+
+		expect(take(bank, "s")?.body).toBe("x:b->c,y:a->b");
+		expect(take(bank, "s")).toBeNull();
+	});
+
+	it("bounds the notice however much the subscribers render", () => {
+		const bank = createAwarenessBank({ liveness: () => "live", deliver: () => true, ambient: processAmbient() });
+		const observe = bank.register<string>({
+			source: "fake",
+			act: () => "no_act",
+			render: () => "a long line of change\n".repeat(2_000),
+		});
+		const unbroken = bank.register<string>({
+			source: "unbroken",
+			act: () => "no_act",
+			render: () => `${"x".repeat(MAX_AWARENESS_BODY_CHARS - 35)}${"\u{1F600}".repeat(50)}`,
+		});
+		observe([{ sessionKey: "s", identity: "x", pre: "a", post: "b" }]);
+		unbroken([{ sessionKey: "t", identity: "x", pre: "a", post: "b" }]);
+
+		expect(take(bank, "s")?.body.length).toBeLessThanOrEqual(MAX_AWARENESS_BODY_CHARS);
+		// A lone surrogate would not survive a UTF-8 encode.
+		const body = take(bank, "t")?.body ?? "";
+		expect(Buffer.from(body, "utf8").toString("utf8")).toBe(body);
+	});
+
+	it("drops a gone session's bank that only rides a later message, after the hold", () => {
+		let now = 0;
+		const bank = createAwarenessBank({
+			ambient: fakeAmbient({ now: () => now }),
+			liveness: () => "gone",
+			deliver: () => true,
+		});
+		const observe = bank.register<string>({ source: "fake", act: () => "no_act", render: () => "body" });
+		observe([{ sessionKey: "s", identity: "x", pre: "a", post: "b" }]);
+
+		now = MAX_HOLD_MS - 1;
+		bank.tick();
+		bank.prepareFor("s")?.release();
+		expect(bank.prepareFor("s")).not.toBeNull();
+		bank.prepareFor("s")?.release();
+		now = MAX_HOLD_MS;
+		bank.tick();
+		expect(take(bank, "s")).toBeNull();
+	});
+
 	it("keeps the first pre and last post, and drains once", () => {
 		const seen: { pre?: string; post?: string }[] = [];
 		const bank = createAwarenessBank({ liveness: () => "live", deliver: () => true, ambient: processAmbient() });
@@ -20,9 +98,9 @@ describe("awareness bank", () => {
 			{ sessionKey: "s", identity: "x", pre: "a", post: "b" },
 			{ sessionKey: "s", identity: "x", pre: "b", post: "c" },
 		]);
-		expect(bank.takeFor("s")).toEqual({ from: "fake", body: "body", act: "no_act" });
+		expect(take(bank, "s")).toEqual({ from: "fake", body: "body", act: "no_act" });
 		expect(seen).toEqual([{ identity: "x", pre: "a", post: "c" }]);
-		expect(bank.takeFor("s")).toBeNull();
+		expect(take(bank, "s")).toBeNull();
 	});
 
 	it("holds no_act and pushes act_now at its deadline", () => {
@@ -92,7 +170,7 @@ describe("awareness bank", () => {
 		// Piggybacking must consume the same content as a standalone fallback.
 		observe([{ sessionKey: "s", identity: "a", pre: "x", post: "y" }]);
 		now = 10_000;
-		expect(bank.takeFor("s")).toEqual({ from: "fake", body: "body", act: "act_now" });
+		expect(take(bank, "s")).toEqual({ from: "fake", body: "body", act: "act_now" });
 		now = 120_000;
 		bank.tick();
 		expect(sent).toHaveLength(0);
@@ -121,7 +199,7 @@ describe("awareness bank", () => {
 		now = 60_000;
 		bank.tick();
 		expect(sent).toHaveLength(0);
-		expect(bank.takeFor("s")).toBeNull();
+		expect(take(bank, "s")).toBeNull();
 	});
 
 	it("uses no_act when the net pair is not gone", () => {
@@ -165,7 +243,7 @@ describe("awareness bank", () => {
 		observe([{ sessionKey: "s", identity: "a", pre: "x", post: "y" }]);
 		for (now of [60_000, 300_000, 600_001]) bank.tick();
 		expect(sent).toHaveLength(0);
-		expect(bank.takeFor("s")).toBeNull();
+		expect(take(bank, "s")).toBeNull();
 	});
 
 	it("rechecks waking sessions every second", () => {
@@ -195,7 +273,7 @@ describe("awareness bank", () => {
 		expect(sent).toHaveLength(1);
 	});
 
-	it("clears the bank after a failed delivery rather than retrying it", () => {
+	it("keeps a push that failed, retries it each second, and drops it once the hold runs out", () => {
 		let now = 0;
 		let attempts = 0;
 		const bank = createAwarenessBank({
@@ -207,13 +285,17 @@ describe("awareness bank", () => {
 			},
 		});
 		const observe = bank.register<string>({ source: "fake", act: () => "act_now", render: () => "body" });
-		// A socket that closed between the liveness read and the send is reported as LOST, not requeued.
 		observe([{ sessionKey: "s", identity: "a", pre: "x", post: "y" }]);
 		now = 60_000;
 		bank.tick();
 		bank.tick();
-		expect(attempts).toBe(1);
-		expect(bank.takeFor("s")).toBeNull();
+		now = 61_000;
+		bank.tick();
+		expect(attempts).toBe(2);
+
+		now = MAX_HOLD_MS;
+		bank.tick();
+		expect(take(bank, "s")).toBeNull();
 	});
 
 	it("forgets what was banked for a session whose work ended, and nothing else", () => {
@@ -237,7 +319,7 @@ describe("awareness bank", () => {
 		bank.tick();
 		// The sibling session is the control: its push proves the tick ran and only the drop was forgotten.
 		expect(deliveredTo).toEqual(["alive"]);
-		expect(bank.takeFor("ended")).toBeNull();
+		expect(take(bank, "ended")).toBeNull();
 	});
 
 	it("never pushes a no_act-only bank", () => {
@@ -265,8 +347,8 @@ describe("awareness bank", () => {
 		first([{ sessionKey: "s", identity: "a", pre: "a", post: "b" }]);
 		second([{ sessionKey: "s", identity: "b", pre: "a", post: "b" }]);
 		empty([{ sessionKey: "s", identity: "c", pre: "a", post: "b" }]);
-		expect(bank.takeFor("s")).toEqual({ from: "awareness", body: "one\n\ntwo", act: "no_act" });
-		expect(bank.takeFor("s")).toBeNull();
+		expect(take(bank, "s")).toEqual({ from: "awareness", body: "one\n\ntwo", act: "no_act" });
+		expect(take(bank, "s")).toBeNull();
 	});
 
 	it("holds waking content and delivers when live", () => {
@@ -307,6 +389,6 @@ describe("awareness bank", () => {
 		live = true;
 		bank.tick(62_000);
 		expect(sent).toHaveLength(0);
-		expect(bank.takeFor("s")).toBeNull();
+		expect(take(bank, "s")).toBeNull();
 	});
 });
