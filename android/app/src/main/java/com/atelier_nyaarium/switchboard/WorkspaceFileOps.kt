@@ -5,11 +5,7 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -73,17 +69,7 @@ internal class WorkspaceFileOps(
 	}
 
 	/** Shows the folder while the caller runs, reopening it after a re-provision. */
-	suspend fun keepOpen(target: WorkspaceTarget, path: String) {
-		try {
-			coroutineScope {
-				views.map { (target to path) !in it }.distinctUntilChanged().collect { absent ->
-					if (absent) launch { open(target, path) }
-				}
-			}
-		} finally {
-			leave(target, path)
-		}
-	}
+	suspend fun keepOpen(target: WorkspaceTarget, path: String) = shown.keep(target to path, ::FolderView) { reload(it.key) }
 
 	fun leave(target: WorkspaceTarget, path: String) {
 		shown.leave(target to path)

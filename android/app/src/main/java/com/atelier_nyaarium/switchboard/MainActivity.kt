@@ -546,6 +546,7 @@ fun App(
 							rosterLoaded = state.gateways.loaded,
 							stack = nav.conversation?.files ?: listOf(WORKSPACE_ROOT),
 							onPush = { nav = nav.pushFiles(it) },
+							onJump = { nav = nav.jumpFiles(it) },
 							onPop = { nav = nav.popFiles() },
 							modifier = modifier,
 						)

@@ -31,20 +31,48 @@ class WorkspaceNavTest {
 	}
 
 	@Test
-	fun `a title names the place, and a directory keeps its whole path`() {
+	fun `a title names the place, and a detail names its file`() {
 		assertEquals("Files", placeTitle(WORKSPACE_ROOT))
-		// The leaf alone loses where in the tree this is.
 		assertEquals("src/gateway", placeTitle(WorkspacePlace.Tree("src/gateway")))
 		assertEquals("a.ts", placeTitle(outline))
 		assertEquals("a.ts", placeTitle(WorkspacePlace.Raw("src/a.ts")))
 		assertEquals("Windows", placeTitle(WorkspacePlace.Windows))
-		assertEquals("routineRefusal", placeTitle(WorkspacePlace.Detail("lexicon typescript src/a.ts f().", "routineRefusal")))
+		assertEquals("a.ts", placeTitle(WorkspacePlace.Detail("lexicon typescript src/a.ts f().", "src/a.ts")))
 	}
 
 	@Test
-	fun `a child of the root carries no leading separator`() {
+	fun `a child of the root carries no leading separator, and its parent is the root`() {
 		assertEquals("src", childPath("", "src"))
 		assertEquals("src/a.ts", childPath("src", "a.ts"))
+		assertEquals("", parentPath("src"))
+		assertEquals("src", parentPath("src/a.ts"))
+	}
+
+	@Test
+	fun `a jump returns to a folder on the stack, and steps onto one that is not`() {
+		val src = WorkspacePlace.Tree("src")
+		val shared = WorkspacePlace.Tree("src/shared")
+		val drilled = listOf(WORKSPACE_ROOT, src, shared, WorkspacePlace.Outline("src/shared/a.ts"))
+
+		assertEquals(listOf(WORKSPACE_ROOT, src), jumpPlace(drilled, src))
+		assertEquals(listOf(WORKSPACE_ROOT), jumpPlace(drilled, WORKSPACE_ROOT))
+
+		val arrived = listOf(WORKSPACE_ROOT, WorkspacePlace.Outline("src/shared/a.ts"))
+		assertEquals(arrived + shared, jumpPlace(arrived, shared))
+	}
+
+	@Test
+	fun `crumbs name the project, then each folder with the path it opens`() {
+		assertEquals(
+			listOf(Crumb("switchboard", ""), Crumb("src", "src"), Crumb("gateway", "src/gateway")),
+			crumbsOf("~/projects/switchboard", "src/gateway"),
+		)
+		assertEquals(crumbsOf("~/projects/switchboard", "src/gateway"), crumbsOf("~/projects/switchboard", "src//gateway/"))
+		assertEquals("~/projects/", rootPrefix("~/projects/switchboard"))
+		// An older plugin names no root.
+		assertEquals(listOf(Crumb("Files", "")), crumbsOf(null, ""))
+		assertEquals("", rootPrefix(null))
+		assertEquals("Files", projectName("/"))
 	}
 
 	// A request opens a conversation, so one for a session that is gone must not open anything.

@@ -32,17 +32,17 @@ import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.KnowledgeBadge
 import com.atelier_nyaarium.switchboard.KnowledgeRow
 import com.atelier_nyaarium.switchboard.RequestState
-import com.atelier_nyaarium.switchboard.askLabel
-import com.atelier_nyaarium.switchboard.askable
-import com.atelier_nyaarium.switchboard.knowledgeRequest
+import com.atelier_nyaarium.switchboard.SymbolIdentity
+import com.atelier_nyaarium.switchboard.SymbolViews
 import com.atelier_nyaarium.switchboard.WindowOps
 import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
+import com.atelier_nyaarium.switchboard.askLabel
+import com.atelier_nyaarium.switchboard.askable
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.knowledgeFacts
+import com.atelier_nyaarium.switchboard.knowledgeRequest
 import com.atelier_nyaarium.switchboard.knowledgeRows
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.spanLines
 import kotlinx.coroutines.launch
 
@@ -54,31 +54,27 @@ private const val SOURCE_PREVIEW_LINES = 40
  */
 @Composable
 internal fun SymbolDetail(
+	views: SymbolViews,
 	ops: WindowOps,
 	target: WorkspaceTarget,
 	symbolId: String,
 	onOpenWindow: () -> Unit,
 	modifier: Modifier = Modifier,
 ) {
-	var source by remember(target.key, symbolId) {
-		mutableStateOf<WorkspaceAnswer<WorkspaceSymbolSourceAnswer>?>(null)
-	}
-	var knowledge by remember(target.key, symbolId) {
-		mutableStateOf<WorkspaceAnswer<WorkspaceKnowledgeAnswer>?>(null)
-	}
+	val shown by views.detailViews.collectAsState()
+	val view = shown[target to symbolId]
+	val source = view?.source
+	val knowledge = view?.knowledge
 	val requests by ops.requestStates.collectAsState()
 	val scope = rememberCoroutineScope()
-	LaunchedEffect(target.key, symbolId) { source = ops.symbol(target, symbolId) }
-	LaunchedEffect(target.key, symbolId) { knowledge = ops.knowledge(target, symbolId) }
-	val known = (knowledge as? WorkspaceAnswer.Read)?.value
-	val span = (source as? WorkspaceAnswer.Read)?.value
+	LaunchedEffect(target.key, symbolId) { views.keepDetail(target, symbolId) }
 
 	Column(modifier.fillMaxSize()) {
 		Column(
 			Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
 			verticalArrangement = Arrangement.spacedBy(10.dp),
 		) {
-			SymbolHeader(span, known)
+			view?.identity?.let { SymbolHeader(it) }
 			WorkspaceAnswerBox(source) { read ->
 				val lines = spanLines(read)
 				var whole by remember(read.symbolId) { mutableStateOf(false) }
@@ -150,16 +146,15 @@ internal fun SymbolDetail(
 }
 
 @Composable
-private fun SymbolHeader(span: WorkspaceSymbolSourceAnswer?, known: WorkspaceKnowledgeAnswer?) {
-	val name = span?.name ?: known?.name ?: return
+private fun SymbolHeader(identity: SymbolIdentity) {
 	Column(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
 		Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-			KindBadge(known?.symbolKind)
-			Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+			KindBadge(identity.kind)
+			Text(identity.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 		}
-		val module = span?.module ?: known?.module
-		val start = span?.startLine ?: known?.startLine
-		val end = span?.endLine ?: known?.endLine
+		val module = identity.module
+		val start = identity.startLine
+		val end = identity.endLine
 		if (module != null) {
 			Text(
 				if (start != null && end != null) "$module : $start-$end" else module,

@@ -117,7 +117,13 @@ internal class WorkspaceFileTable(folders: Iterable<String> = emptyList(), files
 						entries.keys.count { parentOf(it) == folder && listable(it) }
 					WorkspaceTreeEntry(name = folder.substringAfterLast('/'), directory = true, children = children.toLong())
 				} + childFiles.map {
-					WorkspaceTreeEntry(name = it.substringAfterLast('/'), directory = false, bytes = bytesOf(entries.getValue(it).text))
+					val text = entries.getValue(it).text
+					WorkspaceTreeEntry(
+						name = it.substringAfterLast('/'),
+						directory = false,
+						bytes = bytesOf(text),
+						lines = text.split("\n").size.toLong(),
+					)
 				},
 			),
 		)

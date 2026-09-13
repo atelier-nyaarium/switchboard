@@ -12,6 +12,8 @@ export const TreeEntrySchema = z
 		/** A directory carries a child count instead. */
 		bytes: z.number().int().nonnegative().optional(),
 		children: z.number().int().nonnegative().optional(),
+		/** Absent for a folder, a large file, or bytes that are not text. */
+		lines: z.number().int().positive().optional(),
 	})
 	.meta({ id: "WorkspaceTreeEntry" });
 
@@ -20,6 +22,9 @@ export const TreeAnswerSchema = z
 		kind: z.literal("tree"),
 		/** Empty is the workspace root. */
 		path: z.string().max(512),
+		// Required from 2026-09-27, once plugins before 8.11 are gone.
+		/** The workspace root, home as `~`. */
+		root: z.string().max(4096).optional(),
 		entries: z.array(TreeEntrySchema).max(1_000),
 		/** The phone says so rather than implying the end. */
 		truncated: z.boolean(),
@@ -56,6 +61,11 @@ export const OutlineAnswerSchema = z
 		kind: z.literal("outline"),
 		path: z.string().max(512),
 		symbols: z.array(OutlineSymbolSchema).max(5_000),
+		/** Absent for a large file. */
+		lines: z.number().int().positive().optional(),
+		// Required from 2026-09-27, once plugins before 8.11 are gone.
+		/** The workspace root, home as `~`. */
+		root: z.string().max(4096).optional(),
 	})
 	.meta({ id: "WorkspaceOutlineAnswer" });
 

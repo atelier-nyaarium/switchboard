@@ -305,10 +305,15 @@ class WindowRulesTest {
 	}
 
 	@Test
-	fun `a directory counts children and a file shows its size`() {
+	fun `a directory counts children, a file its lines, and one without lines its size`() {
+		val counted = WorkspaceTreeEntry(name = "a.ts", directory = false, bytes = 9_431, lines = 314)
 		assertEquals("4", treeMeta(WorkspaceTreeEntry(name = "src", directory = true, children = 4)))
-		assertEquals("9 KB", treeMeta(WorkspaceTreeEntry(name = "a.ts", directory = false, bytes = 9_431)))
+		assertEquals("314", treeMeta(counted))
+		assertEquals("314 lines · 9 KB", fileSummary(counted))
+		assertEquals("9 KB", treeMeta(counted.copy(lines = null)))
+		assertEquals("9 KB", fileSummary(counted.copy(lines = null)))
 		assertNull(treeMeta(WorkspaceTreeEntry(name = "a.ts", directory = false)))
+		assertNull(fileSummary(WorkspaceTreeEntry(name = "a.ts", directory = false)))
 		assertTrue(opensDirectory(WorkspaceTreeEntry(name = "src", directory = true)))
 		assertFalse(opensDirectory(WorkspaceTreeEntry(name = "a.ts", directory = false)))
 	}

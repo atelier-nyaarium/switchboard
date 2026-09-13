@@ -403,20 +403,6 @@ class WindowOpsTest {
 		assertEquals(listOf(F_ID to "fun f() { newer }"), shown())
 	}
 
-	// A symbol's source and its knowledge are two things on one screen, not one read racing itself.
-	@Test
-	fun `reading two different things at once does not cancel either`() = runBlocking {
-		val hold = TestHold().also { gateway.holds[F_ID] = it }
-
-		val source = async { ops.symbol(one, F_ID) }
-		hold.entered.await()
-		val known = ops.knowledge(one, F_ID)
-		hold.release()
-
-		assertTrue(source.await() is WorkspaceAnswer.Read)
-		assertTrue(known is WorkspaceAnswer.Read)
-	}
-
 	// One counter per session, or a slow read of one session discards a fresh read of another.
 	@Test
 	fun `a slow read of one session leaves another session's read alone`() = runBlocking {
@@ -596,15 +582,6 @@ class WindowOpsTest {
 		ops.contextFor(one, "src/a.ts")
 
 		assertEquals(before + 1, gateway.asked.size)
-	}
-
-	@Test
-	fun `every read names the session it is asked about`() = runBlocking {
-		assertEquals("whole file", (ops.file(one, "src/a.ts") as WorkspaceAnswer.Read).value.text)
-		assertEquals("src/a.ts", (ops.outline(one, "src/a.ts") as WorkspaceAnswer.Read).value.path)
-		assertEquals(F_ID, (ops.symbol(one, F_ID) as WorkspaceAnswer.Read).value.symbolId)
-		assertEquals(F_ID, (ops.knowledge(one, F_ID) as WorkspaceAnswer.Read).value.symbolId)
-		assertEquals(listOf(one, one, one, one), gateway.asked)
 	}
 
 	@Test

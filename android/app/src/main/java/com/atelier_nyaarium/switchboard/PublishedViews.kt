@@ -1,9 +1,9 @@
 package com.atelier_nyaarium.switchboard
 
-import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 /**
  * What each shown screen draws, keyed by what it shows. Awaited work lands only on the showing it began in: a
@@ -14,9 +14,15 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 	/** Where work began. Opaque, so no caller compares its parts. */
 	class Showing<K> internal constructor(val key: K, internal val token: Any, internal val generation: Long)
 
-	private val drawn = MutableStateFlow<Map<K, V>>(emptyMap())
+	/** Tokens, keepers and `drawn` change only under it, so no reader sees one moved without the others. */
+	private val lock = Any()
 
-	private val showings = ConcurrentHashMap<K, Any>()
+	private val tokens = HashMap<K, Any>()
+
+	/** Outlives a clear: a kept screen shows its key again. */
+	private val keepers = HashMap<K, Int>()
+
+	private val drawn = MutableStateFlow<Map<K, V>>(emptyMap())
 
 	/** Absent: no screen has asked, or it left. */
 	val all: StateFlow<Map<K, V>> = drawn
@@ -24,50 +30,82 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 	fun of(key: K): V? = drawn.value[key]
 
 	/** Joins the showing of `key` already open, or starts one drawn as `initial`. */
-	fun show(key: K, initial: () -> V): Showing<K> = start(key, showings.computeIfAbsent(key) { Any() }, initial)
+	fun show(key: K, initial: () -> V): Showing<K> =
+		synchronized(lock) { start(key, tokens.getOrPut(key) { Any() }, initial) }
 
 	/** A new showing that ends any before it, keeping what is drawn. */
-	fun reshow(key: K, initial: () -> V): Showing<K> = start(key, Any().also { showings[key] = it }, initial)
+	fun reshow(key: K, initial: () -> V): Showing<K> =
+		synchronized(lock) { start(key, Any().also { tokens[key] = it }, initial) }
 
 	private fun start(key: K, token: Any, initial: () -> V): Showing<K> {
-		drawn.update { all -> if (key in all) all else all + (key to initial()) }
+		if (key !in drawn.value) drawn.value = drawn.value + (key to initial())
 		return Showing(key, token, generation.capture())
 	}
 
 	/** The showing open now, for work begun without one. */
-	fun current(key: K): Showing<K>? = showings[key]?.let { Showing(key, it, generation.capture()) }
+	fun current(key: K): Showing<K>? = synchronized(lock) { tokens[key]?.let { Showing(key, it, generation.capture()) } }
 
-	fun isCurrent(showing: Showing<K>): Boolean =
-		showings[showing.key] === showing.token && generation.isCurrent(showing.generation)
+	fun isCurrent(showing: Showing<K>): Boolean = synchronized(lock) { currentLocked(showing) }
 
-	/** False when the showing has ended, which changes nothing. */
-	fun update(showing: Showing<K>, change: (V) -> V): Boolean {
-		var landed = false
-		drawn.update { all ->
-			val view = all[showing.key]
-			landed = view != null && isCurrent(showing)
-			if (landed) all + (showing.key to change(view!!)) else all
+	private fun currentLocked(showing: Showing<K>): Boolean =
+		tokens[showing.key] === showing.token && generation.isCurrent(showing.generation)
+
+	/** False when the showing has ended, which changes nothing. `change` runs under the lock, so it must not block. */
+	fun update(showing: Showing<K>, change: (V) -> V): Boolean =
+		synchronized(lock) {
+			val view = drawn.value[showing.key]
+			if (view == null || !currentLocked(showing)) return false
+			drawn.value = drawn.value + (showing.key to change(view))
+			true
 		}
-		return landed
-	}
 
 	/** The view as it was, when `take` accepts it and it is replaced by `taken`; null otherwise. */
-	fun claim(showing: Showing<K>, take: (V) -> Boolean, taken: (V) -> V): V? {
-		var claimed: V? = null
-		drawn.update { all ->
-			claimed = all[showing.key]?.takeIf { isCurrent(showing) && take(it) }
-			claimed?.let { all + (showing.key to taken(it)) } ?: all
+	fun claim(showing: Showing<K>, take: (V) -> Boolean, taken: (V) -> V): V? =
+		synchronized(lock) {
+			val view = drawn.value[showing.key]?.takeIf { currentLocked(showing) && take(it) } ?: return null
+			drawn.value = drawn.value + (showing.key to taken(view))
+			view
 		}
-		return claimed
+
+	/** Shows `key` while the caller runs, and loads it again whenever a re-provision clears it. */
+	suspend fun keep(key: K, initial: () -> V, load: suspend (Showing<K>) -> Unit) {
+		synchronized(lock) { keepers[key] = (keepers[key] ?: 0) + 1 }
+		try {
+			coroutineScope {
+				all.collect { views ->
+					// Shown before the next value, since a conflated collector can miss a present one.
+					if (key !in views) {
+						val showing = show(key, initial)
+						launch { load(showing) }
+					}
+				}
+			}
+		} finally {
+			synchronized(lock) {
+				val left = (keepers[key] ?: 1) - 1
+				if (left > 0) {
+					keepers[key] = left
+				} else {
+					keepers.remove(key)
+					leaveLocked(key)
+				}
+			}
+		}
 	}
 
 	fun leave(key: K) {
-		showings.remove(key)
-		drawn.update { it - key }
+		synchronized(lock) { leaveLocked(key) }
+	}
+
+	private fun leaveLocked(key: K) {
+		tokens.remove(key)
+		drawn.value = drawn.value - key
 	}
 
 	fun clear() {
-		showings.clear()
-		drawn.value = emptyMap()
+		synchronized(lock) {
+			tokens.clear()
+			drawn.value = emptyMap()
+		}
 	}
 }

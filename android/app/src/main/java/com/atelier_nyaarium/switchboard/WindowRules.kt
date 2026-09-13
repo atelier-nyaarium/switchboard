@@ -48,22 +48,6 @@ private fun escaped(part: String): String =
 internal sealed interface ReadSlot {
 	val key: String
 
-	data object File : ReadSlot {
-		override val key = "file"
-	}
-
-	data object Outline : ReadSlot {
-		override val key = "outline"
-	}
-
-	data object Source : ReadSlot {
-		override val key = "source"
-	}
-
-	data object Knowledge : ReadSlot {
-		override val key = "knowledge"
-	}
-
 	/** One per symbol: opening two windows at once is two reads, not one racing itself. */
 	data class Span(val symbolId: String) : ReadSlot {
 		override val key get() = "span:$symbolId"
@@ -441,9 +425,9 @@ internal fun outlineDepths(symbols: List<WorkspaceOutlineSymbol>): Map<String, I
 /** A tap on a tree row: a directory opens, a file goes to its outline. */
 internal fun opensDirectory(entry: WorkspaceTreeEntry): Boolean = entry.directory
 
-/** A directory counts its children, a file shows its size, and neither shows a missing one as zero. */
+/** Children for a folder, lines or else size for a file, and never a missing one as zero. */
 internal fun treeMeta(entry: WorkspaceTreeEntry): String? =
-	if (entry.directory) entry.children?.toString() else prettySize(entry.bytes)
+	if (entry.directory) entry.children?.toString() else entry.lines?.toString() ?: prettySize(entry.bytes)
 
 /** The files a window view reads for context, each once however many windows it holds. */
 internal fun modulesOf(windows: List<Window>): List<String> = windows.map { it.descriptor.module }.distinct()

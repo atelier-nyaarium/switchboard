@@ -66,6 +66,9 @@ internal fun ShellNav.pushFiles(place: WorkspacePlace): ShellNav =
 
 internal fun ShellNav.popFiles(): ShellNav = copy(conversation = conversation?.let { it.copy(files = popPlace(it.files)) })
 
+internal fun ShellNav.jumpFiles(place: WorkspacePlace): ShellNav =
+	copy(conversation = conversation?.let { it.copy(files = jumpPlace(it.files, place)) })
+
 internal fun ShellNav.openSettings(route: SettingsRoute = SettingsRoute.HUB): ShellNav = copy(settings = route)
 
 internal fun ShellNav.closeSettings(): ShellNav = copy(settings = null)

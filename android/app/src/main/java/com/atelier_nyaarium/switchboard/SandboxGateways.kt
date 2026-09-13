@@ -57,6 +57,8 @@ private const val UNHASHED_FILE = "capture.bin"
 /** A real session answers later, or a screen racing its own read passes here. */
 private const val WORKSPACE_ROUND_TRIP_MS = 400L
 
+private const val SANDBOX_ROOT = "~/projects/sandbox"
+
 private fun day(offsetMs: Long): Long = System.currentTimeMillis() + offsetMs
 
 /**
@@ -345,7 +347,13 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 		val listing = table.tree(path) as? WorkspaceAnswer.Read ?: return table.tree(path)
 		return WorkspaceAnswer.Read(
 			listing.value.copy(
-				entries = listing.value.entries.map { it.copy(bytes = shownBytes(childPath(listing.value.path, it.name), it.bytes)) },
+				root = SANDBOX_ROOT,
+				entries = listing.value.entries.map {
+					val child = childPath(listing.value.path, it.name)
+					val bytes = shownBytes(child, it.bytes)
+					// Over the plugin's counting cap.
+					it.copy(bytes = bytes, lines = if (bytes != it.bytes) null else it.lines)
+				},
 			),
 		)
 	}
@@ -383,6 +391,8 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 		asSeeded(target) {
 			WorkspaceOutlineAnswer(
 				path = path,
+				root = SANDBOX_ROOT,
+				lines = file.size.toLong(),
 				symbols = listOf(
 					WorkspaceOutlineSymbol(
 						symbolId = idOf("MAX_ROUTINE_MEMORY_BYTES"),

@@ -1895,7 +1895,7 @@ Mock: `symbol-knowledge.html`. Closes the board item for the structured answer.
   - **12b and 12d:** the outline, the symbol detail and the ref viewer's live read are published by the ops
     class through `PublishedViews`, not held in screens.
 
-## Phase 12b - The tree and the outline
+## Phase 12b - The tree and the outline ✅
 
 Mocks: `file-tree.html`, `file-outline.html`.
 
@@ -1919,6 +1919,35 @@ Mocks: `file-tree.html`, `file-outline.html`.
   Members are indented under their container.
 - **Kept:** the filter chips, and Raw and View N Windows at the bottom.
 
+### What shipped beyond the list
+
+- **The outline answer names the root too**, so its breadcrumb reads the project name rather than "Files".
+- **Crumbs and the up row jump:** back to that folder when it is on the stack, onto it when it is not.
+- **`SymbolViews`** publishes the outline and a detail through `PublishedViews.keep`; `WindowOps` keeps only
+  span reads. `SymbolIdentity` is the one read of name, kind, module and lines. Container waits for 12c's
+  window header, since no answer carries it yet.
+- **Duplicate and Rename word their confirmations** as the sheet does; Rename refuses a slash or backslash.
+- **The plugin opens a file to count it without blocking and only when it is a regular file**, so a FIFO
+  cannot hold the plugin's thread.
+
+### Bug Classes
+
+- **Mechanism:** `PublishedViews`' showing lifecycle: `show`, `keep`, `leave` and `clear`, and the tree's
+  `reading` marker beside it.
+- **Defect class:** a showing's token, its drawn view and the callers keeping it are separate structures,
+  changed at different moments from different threads, so an interleaving leaves them disagreeing and a
+  screen stuck on a spinner or blank.
+- **Rounds:**
+  - A conflated collector never saw the key present, so the clear that followed read as no change and
+    nothing reloaded. `keep` now shows the key inside the collector, before the next value.
+  - A leaving screen's late exit removed the view its successor was showing. `keep` counts its callers.
+  - A clear between registering a token and drawing its view left a view no load could land on. `show`,
+    `reshow`, `leave` and `clear` share one lock.
+  - One keeper's exit removed another's read marker. The read that set a marker is the only one to remove it.
+- **Redesign:** every token, keeper count and drawn view now changes under one lock, and the drawn map is
+  published before the lock is released, so no reader can see one moved without the others. `update` and
+  `claim` take the lock too, rather than a compare-and-set over the map that read the tokens beside it.
+
 ## Phase 12c - The prose road and the window
 
 Mocks: `file-outline.html` for the field, `symbol-window.html` for the request above the cards. Closes the board
@@ -1928,6 +1957,9 @@ item for the prose road.
   request and the module, and asks for one `ref://` link per symbol to open.
 - **No new wire:** a ref already carries its `symbolId` (Phase 6), so the session's ordinary reply is the
   road back.
+- **Inbound match:** `PollDrain.addInboundSubscriber` is already a multi-subscriber road, so the pending
+  request subscribes there rather than replacing `onInbound`. A message's refs are
+  `files[].ref.keys[].symbolId`.
 - **Pending request:** the phone holds one per session: the text, the module and when it was sent.
   - The first session message after it whose refs carry symbol ids opens those windows through the one open
     road, and lands on Windows with the request shown above the cards.

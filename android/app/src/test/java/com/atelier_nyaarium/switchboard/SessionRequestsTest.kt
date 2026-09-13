@@ -4,6 +4,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SessionRequestsTest {
@@ -58,6 +59,18 @@ class SessionRequestsTest {
 		cancelled.join()
 		assertEquals(RequestState.SENT, requests.states.value[other])
 		assertEquals(listOf("record why", "record why", "record usage"), host.sent.toList())
+	}
+
+	@Test
+	fun `each file sent to the agent is its own request, naming that file`() = runBlocking {
+		val target = WorkspaceTarget(gatewayId = "sakura", address = key.address)
+
+		assertEquals(Submitted.Sent, requests.sendFile(target, "src/a.ts"))
+		assertEquals(Submitted.Sent, requests.sendFile(target, "src/b.ts"))
+
+		assertEquals(2, host.sent.size)
+		assertTrue(host.sent[1].contains("src/b.ts"))
+		assertEquals(RequestState.SENT, requests.states.value[fileRequest(target, "src/a.ts")])
 	}
 
 	@Test

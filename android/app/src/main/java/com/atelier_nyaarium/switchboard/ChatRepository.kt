@@ -274,8 +274,8 @@ class ChatRepository(
 
 	internal val clearedOnReprovision: List<ClearsOnReprovision>
 		get() = listOf(
-			this, board, vault, runbooks, presence, trust, drain, playback, workspaceHost, sessionRequests, windowOps, rawFileOps,
-			fileOps,
+			this, board, vault, runbooks, presence, trust, drain, playback, workspaceHost, sessionRequests, windowOps, symbolViews,
+			rawFileOps, fileOps,
 		)
 
 	override suspend fun clearInMemory() {
@@ -379,6 +379,7 @@ class ChatRepository(
 	private val workspaceHost = ChatRepositoryWorkspaceHost(this)
 	internal val sessionRequests = SessionRequests(workspaceHost)
 	internal val windowOps = WindowOps(host = workspaceHost, drafts = workspaceDrafts, outbox = sessionRequests)
+	internal val symbolViews = SymbolViews(workspaceHost)
 	internal val rawFileOps = RawFileOps(host = workspaceHost, drafts = workspaceDrafts)
 	// A draft on disk counts; one loads only on open.
 	internal val fileOps = WorkspaceFileOps(host = workspaceHost) { target, path ->

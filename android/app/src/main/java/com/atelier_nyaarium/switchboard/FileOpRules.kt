@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeEntry
 
 /** What a folder's screen draws: its tree, and the one file operation begun from it. */
 internal data class FolderView(
@@ -126,25 +127,58 @@ internal fun armedOf(action: ArmedAction, source: FileFact, destination: FileFac
 
 /** The dialog asking where. `from` is the file for a move or copy, and the folder a create starts in. */
 internal data class PathAsk(val kind: Kind, val from: String) {
-	enum class Kind { Create, Move, Copy }
+	/** A rename is a move that stays in its folder. */
+	enum class Kind { Create, Move, Duplicate, Rename }
+
+	private val name: String get() = from.substringAfterLast('/')
 
 	val title: String get() = when (kind) {
 		Kind.Create -> "New file"
 		Kind.Move -> "Move $from to"
-		Kind.Copy -> "Copy $from to"
+		Kind.Duplicate -> "Duplicate $from to"
+		Kind.Rename -> "Rename $name"
 	}
 
-	val prefill: String get() = if (kind == Kind.Create && from.isNotEmpty()) "$from/" else if (kind == Kind.Create) "" else from
+	val prefill: String get() = when (kind) {
+		Kind.Create -> if (from.isEmpty()) "" else "$from/"
+		Kind.Move, Kind.Duplicate -> from
+		Kind.Rename -> name
+	}
 
 	fun actionOf(typed: String): FileAction? {
-		val to = typedPath(typed, if (kind == Kind.Create) "" else from.substringAfterLast('/')) ?: return null
+		if (kind == Kind.Rename) {
+			val renamed = typed.trim().takeUnless { it.isEmpty() || '/' in it || '\\' in it || it == "." || it == ".." }
+				?: return null
+			return ArmedAction.Move(from, childPath(parentPath(from), renamed))
+		}
+		val to = typedPath(typed, if (kind == Kind.Create) "" else name) ?: return null
 		return when (kind) {
 			Kind.Create -> CreateFile(to)
-			Kind.Move -> ArmedAction.Move(from, to)
-			Kind.Copy -> ArmedAction.Copy(from, to)
+			Kind.Move, Kind.Rename -> ArmedAction.Move(from, to)
+			Kind.Duplicate -> ArmedAction.Copy(from, to)
 		}
 	}
 }
+
+internal fun fileSummary(entry: WorkspaceTreeEntry): String? =
+	listOfNotNull(entry.lines?.let(::linesText), prettySize(entry.bytes)).joinToString(" · ").ifEmpty { null }
+
+internal fun linesText(lines: Long): String = if (lines == 1L) "1 line" else "$lines lines"
+
+internal fun fileRequest(target: WorkspaceTarget, path: String): RequestKey = RequestKey(target.address, RequestKind.FILE, path)
+
+internal fun fileMention(path: String): String = "Look at `$path` in this workspace."
+
+internal fun sendLabel(state: RequestState?): String =
+	when (state) {
+		null -> "Send to agent"
+		RequestState.SENDING -> "Sending"
+		RequestState.SENT -> "Sent to agent"
+		RequestState.FAILED -> "Retry send"
+	}
+
+internal suspend fun SessionRequests.sendFile(target: WorkspaceTarget, path: String): Submitted =
+	submit(fileRequest(target, path), fileMention(path))
 
 /** Trimmed. A trailing slash names the folder `name` goes into. Null names no file. */
 internal fun typedPath(typed: String, name: String): String? {
@@ -236,9 +270,9 @@ internal fun confirmOf(op: ArmedFileOp): FileOpConfirm {
 			if (op.replaces) "Replace" else "Move",
 		)
 		is ArmedAction.Copy -> FileOpConfirm(
-			"Copy $path to ${action.to}?",
+			"Duplicate $path to ${action.to}?",
 			listOfNotNull(replacing(op, action.to)),
-			if (op.replaces) "Replace" else "Copy",
+			if (op.replaces) "Replace" else "Duplicate",
 		)
 	}
 }
@@ -256,7 +290,7 @@ internal fun fileOpNotice(action: FileAction, result: FileOpResult): String {
 			is CreateFile -> "Created ${action.path}"
 			is ArmedAction.Delete -> "Deleted ${action.path}"
 			is ArmedAction.Move -> "Moved to ${action.to}"
-			is ArmedAction.Copy -> "Copied to ${action.to}"
+			is ArmedAction.Copy -> "Duplicated to ${action.to}"
 		}
 		is FileOpResult.SourceChanged ->
 			if (result.gone) "${action.path} is gone. Nothing was done" else "${action.path} changed. Nothing was done"

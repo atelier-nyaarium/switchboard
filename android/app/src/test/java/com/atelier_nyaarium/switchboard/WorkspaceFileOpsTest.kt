@@ -416,5 +416,17 @@ class WorkspaceFileOpsTest {
 		val create = PathAsk(PathAsk.Kind.Create, "src")
 		assertNull(create.actionOf(create.prefill))
 		assertEquals(CreateFile("src/new.ts"), create.actionOf("${create.prefill}new.ts"))
+
+		assertEquals(ArmedAction.Copy(APP, "src/app2.ts"), PathAsk(PathAsk.Kind.Duplicate, APP).actionOf("src/app2.ts"))
+	}
+
+	@Test
+	fun `a rename types a name alone and stays in its folder`() {
+		val rename = PathAsk(PathAsk.Kind.Rename, APP)
+
+		assertEquals("app.ts", rename.prefill)
+		assertEquals(ArmedAction.Move(APP, "src/main.ts"), rename.actionOf(" main.ts "))
+		for (refused in listOf("", "lib/main.ts", "lib\\main.ts", "..", ".")) assertNull(rename.actionOf(refused))
+		assertEquals(ArmedAction.Move("top.ts", "renamed.ts"), PathAsk(PathAsk.Kind.Rename, "top.ts").actionOf("renamed.ts"))
 	}
 }

@@ -330,19 +330,31 @@ no TTL.
 - **View maps** (`PublishedViews`): what a screen draws, published per key beside `HeldEdits`. A `Showing`
   is the key's token and the generation; `update` and `claim` land only on a current one, `show` joins the
   showing already open and `reshow` ends what came before. A leave, a newer showing or a re-provision drops
-  an answer still out. `RawFileOps.views` and `WorkspaceFileOps.views` both take it, so no map chooses its
-  own guard.
+  an answer still out. `RawFileOps.views`, `WorkspaceFileOps.views` and `SymbolViews` all take it, so no map
+  chooses its own guard. Tokens, keepers and the drawn map change only under one lock, and the map is published
+  before it is released. `keep` is the one road for a screen that shows a key while it is composed: it shows
+  the key before the next value is read, since a conflated collector can miss the key being present and
+  then miss the re-provision that clears it, and it counts its callers, so a leaving screen's late exit
+  cannot drop the view its successor shows.
 - **Awaited answers land through `HeldEdits.land`**, never through `apply`: the caller passes the edit the
   answer was computed from and a `Landing`. `OverUntouched` lands only over exactly that value, which is
   Refresh: typing or a save since the tap outranks it. `Folded` lands over the same opening still bound to
   the same `version` (the span or file hash) and folds in what arrived since, which is a save keeping typing
   that came during it and a sweep applying the refresh rule. No road names its own fields to compare.
-- **Read slots** (`ReadSlot`): a fence key names what a read FILLS. One key per session made a
-  symbol's source and its knowledge cancel each other, and the sandbox could not show it because it
-  never suspends. A read that fills a per-module cache is not fenced at all, since there is nothing
-  an older answer could overwrite. `separated` escapes each half rather than refusing one holding
-  the record separator, because a Lexicon symbol id can carry one and a workspace file does not get
-  to decide whether the view crashes.
+- **Read slots** (`ReadSlot`): a fence key names what a read FILLS, one per span, so opening two windows
+  at once does not cancel either. An outline and a symbol's detail are not fenced: `SymbolViews` lands them
+  on their showing, each half of a detail as it arrives. A read that fills a per-module cache is not fenced
+  at all, since there is nothing an older answer could overwrite. `separated` escapes each half rather than
+  refusing one holding the record separator, because a Lexicon symbol id can carry one and a workspace file
+  does not get to decide whether the view crashes.
+- **Tree and outline headers** (`WorkspaceNav`: `crumbsOf`, `jumpPlace`): the tree and outline answers name
+  the workspace root, home as `~`, which is the project name and the first crumb. A crumb or the `..` row
+  returns to that folder when it is on the stack and steps onto it when it is not, so Back from a crumb
+  goes where the owner was. A detail's back line names its file. A text file under the plugin's counting
+  cap shows its line count; above it, or holding a NUL, its size.
+- **The file sheet** (`FileOpRules`: `PathAsk`, `fileSummary`, `sendFile`): Duplicate is the copy, Rename is
+  a move that types a name alone and stays in its folder, and Send to agent is a `FILE` request on
+  `SessionRequests` naming the path.
 - **The foreground sweep is not fenced** (`WindowOps.recheck`, `RawFileOps.recheck`): the fence hands a key
   to whoever claimed last, so a sweep would discard the Refresh the owner just tapped and answer them
   nothing. Each answer lands `Folded` over the edit its read began from, so one arriving at an edit that has

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -140,14 +141,23 @@ describe("listing a directory", () => {
 		expect(files.at(-1)).toBe("f0997.ts");
 	});
 
-	it("carries a byte count for a file and a child count for a directory", async () => {
-		const answer = tree(await ask(workspace(), { kind: "tree", path: "" }));
-		const dir = answer.entries.find((e) => e.name === "src");
-		const file = answer.entries.find((e) => e.name === "README.md");
+	it("carries a child count for a directory, and a size and line count for a text file", async () => {
+		const root = workspace();
+		fs.writeFileSync(path.join(root, "big.txt"), "x\n".repeat(200_000));
+		fs.writeFileSync(path.join(root, "blob.bin"), Buffer.from([1, 0, 2]));
+		fs.symlinkSync(path.join(root, "README.md"), path.join(root, "readme-link.md"));
 
-		expect(dir).toMatchObject({ directory: true, children: 1 });
-		expect(file?.bytes).toBeGreaterThan(0);
-		expect(file?.children).toBeUndefined();
+		const answer = tree(await ask(root, { kind: "tree", path: "" }));
+		const entry = (name: string) => answer.entries.find((e) => e.name === name);
+
+		expect(answer.root).toMatch(new RegExp(`/${path.basename(root)}$`));
+		expect(entry("src")).toMatchObject({ directory: true, children: 1 });
+		expect(entry("src")?.lines).toBeUndefined();
+		expect(entry("README.md")).toMatchObject({ bytes: 5, lines: 2 });
+		for (const uncounted of ["big.txt", "blob.bin", "readme-link.md"]) {
+			expect(entry(uncounted)?.bytes).toBeGreaterThan(0);
+			expect(entry(uncounted)?.lines).toBeUndefined();
+		}
 	});
 
 	it.each([
@@ -237,6 +247,7 @@ describe("the index-backed reads", () => {
 
 		const result = await ask(workspace(), { kind: "outline", path: "src/app.ts" }, session);
 
+		expect(result.ok && result.answer.kind === "outline" && result.answer.lines).toBe(2);
 		expect(result.ok && result.answer.kind === "outline" && result.answer.symbols).toEqual([
 			{ symbolId: "id-a", name: "x", symbolKind: "constant" },
 			{
@@ -248,6 +259,17 @@ describe("the index-backed reads", () => {
 				startLine: 5,
 			},
 		]);
+	});
+
+	// Opening a FIFO blocks until a writer arrives, which would hold the plugin's only thread.
+	it.skipIf(process.platform === "win32")("answers an outline of a FIFO without counting it", async () => {
+		const root = workspace();
+		execFileSync("mkfifo", [path.join(root, "src", "pipe.ts")]);
+
+		const result = await ask(root, { kind: "outline", path: "src/pipe.ts" }, fakeSession({}));
+
+		expect(result).toMatchObject({ ok: true, answer: { kind: "outline", symbols: [] } });
+		expect(result.ok && result.answer.kind === "outline" && result.answer.lines).toBeUndefined();
 	});
 
 	it("refuses an outline of the root, which names no module", async () => {

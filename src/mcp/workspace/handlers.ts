@@ -5,6 +5,7 @@
 // owns the one socket per process and this must not reach into it.
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { DaemonError, type Session } from "@nyaa-lexicon/client";
 import {
@@ -103,6 +104,43 @@ function withinCap(result: WorkspaceOpResult): WorkspaceOpResult {
 	};
 }
 
+/** Per file; above it a row shows its size. */
+const MAX_COUNTED_BYTES = 256_000;
+
+/** Per listing, so a folder of large files cannot hold the read. */
+const MAX_LISTING_COUNTED_BYTES = 4_000_000;
+
+/** Lines as the raw editor counts them, or undefined for bytes that are not text or over the cap. */
+function lineCountOf(file: string, buffer: Buffer, { follow = false } = {}): number | undefined {
+	let fd: number | undefined;
+	try {
+		// An unconfined link could name an outside file, and a FIFO would hold the open.
+		const flags = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0);
+		fd = fs.openSync(file, flags | (follow ? 0 : (fs.constants.O_NOFOLLOW ?? 0)));
+		if (!fs.fstatSync(fd).isFile()) return undefined;
+		const read = fs.readSync(fd, buffer, 0, buffer.length, 0);
+		if (read > MAX_COUNTED_BYTES) return undefined;
+		const bytes = buffer.subarray(0, read);
+		if (bytes.includes(0)) return undefined;
+		let lines = 1;
+		for (const byte of bytes) if (byte === 0x0a) lines++;
+		return lines;
+	} catch {
+		return undefined;
+	} finally {
+		if (fd !== undefined) fs.closeSync(fd);
+	}
+}
+
+const countingBuffer = () => Buffer.alloc(MAX_COUNTED_BYTES + 1);
+
+/** The root as the owner would type it. */
+function rootLabel(root: string): string {
+	const home = os.homedir();
+	const shown = root === home || root.startsWith(home + path.sep) ? `~${root.slice(home.length)}` : root;
+	return shown.split(path.sep).join("/");
+}
+
 /** Counts what a tap would list, or the number says a withheld name is in there. */
 function childCount(dir: string): number | undefined {
 	try {
@@ -146,6 +184,8 @@ function treeOf(root: string, written: string): WorkspaceOpResult {
 	kept.sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
 	const truncated = kept.length > MAX_TREE_ENTRIES;
 	const entries: TreeEntry[] = [];
+	const buffer = countingBuffer();
+	let countable = MAX_LISTING_COUNTED_BYTES;
 	for (const entry of kept.slice(0, MAX_TREE_ENTRIES)) {
 		const full = path.join(place.absolute, entry.name);
 		if (entry.isDirectory()) {
@@ -160,10 +200,23 @@ function treeOf(root: string, written: string): WorkspaceOpResult {
 		} catch {
 			bytes = undefined;
 		}
-		entries.push({ name: entry.name, directory: false, ...(bytes === undefined ? {} : { bytes }) });
+		let lines: number | undefined;
+		if (entry.isFile() && bytes !== undefined && bytes <= MAX_COUNTED_BYTES && bytes <= countable) {
+			countable -= bytes;
+			lines = lineCountOf(full, buffer);
+		}
+		entries.push({
+			name: entry.name,
+			directory: false,
+			...(bytes === undefined ? {} : { bytes }),
+			...(lines === undefined ? {} : { lines }),
+		});
 	}
 
-	return { ok: true, answer: { kind: "tree", path: place.relative, entries, truncated } };
+	return {
+		ok: true,
+		answer: { kind: "tree", path: place.relative, root: rootLabel(root), entries, truncated },
+	};
 }
 
 function readOf(root: string, written: string): WorkspaceOpResult {
@@ -208,7 +261,18 @@ async function outlineOf(
 		// Lexicon counts lines from zero; the phone shows what an editor shows.
 		...(summary.lines === undefined ? {} : { startLine: summary.lines.start + 1 }),
 	}));
-	return { ok: true, answer: { kind: "outline", path: place.relative, symbols } };
+	// Confined already, so a link's target is counted.
+	const lines = lineCountOf(place.absolute, countingBuffer(), { follow: true });
+	return {
+		ok: true,
+		answer: {
+			kind: "outline",
+			path: place.relative,
+			root: rootLabel(root),
+			symbols,
+			...(lines === undefined ? {} : { lines }),
+		},
+	};
 }
 
 function sourceAnswerOf(symbolId: string, found: Extract<SymbolSource, { found: true }>): SymbolSourceAnswer {

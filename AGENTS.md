@@ -299,11 +299,12 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A fenced read answers `Fresh` or `Stale`, never a null that means two things:** the body's
     own null (a failed call) rides inside `Fresh`, so a caller that leaves the group alone on a
     failure and one that hides it on a refusal both read the same answer without guessing.
-  - **A key names the SLOT a read fills, not merely the holder:** one key per session made a symbol's
-    source and its knowledge cancel each other. `WindowOps` passes a sealed `ReadSlot`, so no string
-    reaches this from there; the other callers still pass one. A read that fills a per-module cache is
-    not fenced at all, since nothing an older answer could overwrite exists.
-- `android/.../WindowOps.kt` / `WindowRules.kt` / `KnowledgeRules.kt` / `SessionRequests.kt` / `RawFileOps.kt` /
+  - **A key names the SLOT a read fills, not merely the holder:** two reads sharing a key cancel each
+    other. `WindowOps` passes a sealed `ReadSlot`, one per span, so no string reaches this from there;
+    the other callers still pass one. A read that fills a per-module cache is not fenced at all, since
+    nothing an older answer could overwrite exists. A read a screen draws is not fenced either: it lands
+    through its `PublishedViews` showing.
+- `android/.../WindowOps.kt` / `WindowRules.kt` / `SymbolViews.kt` / `KnowledgeRules.kt` / `SessionRequests.kt` / `RawFileOps.kt` /
   `RawFileRules.kt` / `WorkspaceFileOps.kt` / `FileOpRules.kt` / `HeldEdits.kt` / `PublishedViews.kt` /
   `WorkspaceDraftStore.kt` / `WorkspacePorts.kt` / `WorkspaceFileTable.kt` / `WorkspaceNav.kt` / `workspace/` - a
   conversation's Files: the open windows, the raw files being edited, the file operations, their drafts, every
@@ -335,7 +336,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     roster and read by every workspace ops class, where each once kept its own epoch and one kept none.
   - **A view map beside `HeldEdits` is a `PublishedViews`:** its `Showing` is the key's token and the
     generation, and `update` and `claim` land only on a current one. The raw editor's and the tree's maps each
-    hand-wrote this guard and each missed a case of it.
+    hand-wrote this guard and each missed a case of it. A screen shown while composed goes through `keep`,
+    and every token, keeper count and drawn view changes under its one lock: split across three structures,
+    they disagreed three different ways.
   - **A file operation is armed from a state read, confirmed once, and read back rather than resent:**
     `WorkspaceFileOps` builds the mutation only from the facts the confirmation showed, a folder's claim is
     taken once, and `settledOf` decides an unanswered one.

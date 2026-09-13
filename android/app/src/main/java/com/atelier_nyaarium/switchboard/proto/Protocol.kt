@@ -2119,6 +2119,7 @@ data class WorkspaceTreeEntry(
 	val directory: Boolean,
 	val bytes: Long? = null,
 	val children: Long? = null,
+	val lines: Long? = null,
 )
 
 @Serializable
@@ -2126,6 +2127,7 @@ data class WorkspaceTreeAnswer(
 	@EncodeDefault
 	val kind: String = "tree",
 	val path: String,
+	val root: String? = null,
 	val entries: List<WorkspaceTreeEntry>,
 	val truncated: Boolean,
 )
@@ -2157,6 +2159,8 @@ data class WorkspaceOutlineAnswer(
 	val kind: String = "outline",
 	val path: String,
 	val symbols: List<WorkspaceOutlineSymbol>,
+	val lines: Long? = null,
+	val root: String? = null,
 )
 
 @Serializable

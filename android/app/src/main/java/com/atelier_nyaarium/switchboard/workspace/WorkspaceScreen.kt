@@ -1,7 +1,9 @@
 package com.atelier_nyaarium.switchboard.workspace
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,24 +12,28 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
+import com.atelier_nyaarium.switchboard.Crumb
 import com.atelier_nyaarium.switchboard.Team
 import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspacePlace
@@ -47,6 +53,7 @@ internal fun WorkspaceScreen(
 	rosterLoaded: Boolean,
 	stack: List<WorkspacePlace>,
 	onPush: (WorkspacePlace) -> Unit,
+	onJump: (WorkspacePlace) -> Unit,
 	onPop: () -> Unit,
 	modifier: Modifier = Modifier,
 ) {
@@ -70,76 +77,102 @@ internal fun WorkspaceScreen(
 	val windows = boards[target].orEmpty()
 
 	Column(modifier.fillMaxSize()) {
-		WorkspaceHeader(
-			place = place,
-			openWindows = windows.size,
-			canBack = stack.size > 1,
-			onBack = onPop,
-			onWindows = { onPush(WorkspacePlace.Windows) },
-		)
 		when (place) {
 			is WorkspacePlace.Tree -> WorkspaceTree(
 				fileOps = repo.fileOps,
+				requests = repo.sessionRequests,
 				target = target,
+				session = session.shortName,
 				path = place.path,
+				openWindows = windows.size,
 				onOpenDirectory = { onPush(WorkspacePlace.Tree(it)) },
+				onOpenFolder = { onJump(WorkspacePlace.Tree(it)) },
 				onOpenOutline = { onPush(WorkspacePlace.Outline(it)) },
 				onOpenRaw = { onPush(WorkspacePlace.Raw(it)) },
+				onOpenWindows = { onPush(WorkspacePlace.Windows) },
 			)
 			is WorkspacePlace.Outline -> WorkspaceOutline(
-				ops = repo.windowOps,
+				views = repo.symbolViews,
 				target = target,
 				path = place.path,
 				held = windows,
-				onOpenDetail = { id, name -> onPush(WorkspacePlace.Detail(id, name)) },
+				onOpenFolder = { onJump(WorkspacePlace.Tree(it)) },
+				onOpenDetail = { id -> onPush(WorkspacePlace.Detail(id, place.path)) },
 				onOpenWindow = { id -> scope.launch { repo.windowOps.openWindow(target, id) } },
 				onOpenRaw = { onPush(WorkspacePlace.Raw(place.path)) },
 				onOpenWindows = { onPush(WorkspacePlace.Windows) },
 			)
-			is WorkspacePlace.Raw -> WorkspaceRawFile(repo.rawFileOps, target, place.path)
-			is WorkspacePlace.Detail -> SymbolDetail(
-				ops = repo.windowOps,
-				target = target,
-				symbolId = place.symbolId,
-				onOpenWindow = {
-					scope.launch { repo.windowOps.openWindow(target, place.symbolId) }
-					onPush(WorkspacePlace.Windows)
-				},
-			)
-			WorkspacePlace.Windows -> WindowView(
-				ops = repo.windowOps,
-				target = target,
-				windows = windows,
-				onClose = { repo.windowOps.closeWindow(target, it) },
-			)
+			is WorkspacePlace.Raw -> {
+				BackLine(placeTitle(place), onPop)
+				WorkspaceRawFile(repo.rawFileOps, target, place.path)
+			}
+			is WorkspacePlace.Detail -> {
+				BackLine(placeTitle(place), onPop)
+				SymbolDetail(
+					views = repo.symbolViews,
+					ops = repo.windowOps,
+					target = target,
+					symbolId = place.symbolId,
+					onOpenWindow = {
+						scope.launch { repo.windowOps.openWindow(target, place.symbolId) }
+						onPush(WorkspacePlace.Windows)
+					},
+				)
+			}
+			WorkspacePlace.Windows -> {
+				BackLine(placeTitle(place), onPop)
+				WindowView(
+					ops = repo.windowOps,
+					target = target,
+					windows = windows,
+					onClose = { repo.windowOps.closeWindow(target, it) },
+				)
+			}
 		}
 	}
 }
 
 @Composable
-private fun WorkspaceHeader(
-	place: WorkspacePlace,
-	openWindows: Int,
-	canBack: Boolean,
-	onBack: () -> Unit,
-	onWindows: () -> Unit,
-) {
+private fun BackLine(title: String, onBack: () -> Unit) {
 	Row(
-		Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
+		Modifier.fillMaxWidth().clickable(onClick = hapticClick(onBack)).padding(horizontal = 12.dp, vertical = 12.dp),
+		horizontalArrangement = Arrangement.spacedBy(10.dp),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
-		if (canBack) TextButton(onClick = hapticClick(onBack)) { Text("Back") }
+		Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", Modifier.size(20.dp))
 		Text(
-			placeTitle(place),
-			Modifier.weight(1f),
+			title,
 			style = MaterialTheme.typography.titleSmall,
 			fontFamily = FontFamily.Monospace,
 			maxLines = 1,
 			overflow = TextOverflow.Ellipsis,
 		)
-		if (openWindows > 0 && place != WorkspacePlace.Windows) {
-			TextButton(onClick = hapticClick(onWindows)) { Text("$openWindows open") }
+	}
+}
+
+/** Every segment opens its folder; `prefix` is the root's parent, drawn dim. */
+@Composable
+internal fun Breadcrumbs(crumbs: List<Crumb>, prefix: String, onOpenFolder: (String) -> Unit, modifier: Modifier = Modifier) {
+	val colors = MaterialTheme.colorScheme
+	Row(
+		modifier.horizontalScroll(rememberScrollState()),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		if (prefix.isNotEmpty()) {
+			Text(prefix, style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace, color = colors.outline)
+		}
+		crumbs.forEachIndexed { index, crumb ->
+			if (index > 0) {
+				Text(" / ", style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace, color = colors.outline)
+			}
+			Text(
+				crumb.label,
+				Modifier.clickable(onClick = hapticClick { onOpenFolder(crumb.path) }).padding(vertical = 4.dp),
+				style = MaterialTheme.typography.labelMedium,
+				fontFamily = FontFamily.Monospace,
+				fontWeight = if (index == 0 || index == crumbs.lastIndex) FontWeight.SemiBold else FontWeight.Normal,
+				color = colors.onSurfaceVariant,
+			)
 		}
 	}
 }

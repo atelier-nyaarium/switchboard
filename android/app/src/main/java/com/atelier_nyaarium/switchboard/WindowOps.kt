@@ -1,9 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -79,12 +76,7 @@ internal class WindowOps(
 	private fun windowFor(target: WorkspaceTarget, symbolId: String): Window? =
 		windowsOf(target).firstOrNull { it.descriptor.symbolId == symbolId }
 
-	/**
-	 * Stale answers are dropped rather than drawn, since an older read would put back what moved.
-	 *
-	 * The key names the SLOT, not just the session: a symbol's source and its knowledge are two
-	 * things on one screen, and one key for both makes each read cancel the other.
-	 */
+	/** Stale answers are dropped rather than drawn, since an older read would put back what moved. */
 	private suspend fun <T> fenced(
 		target: WorkspaceTarget,
 		slot: ReadSlot,
@@ -94,26 +86,6 @@ internal class WindowOps(
 			is GatewayRead.Fresh -> read.value
 			GatewayRead.Stale -> WorkspaceAnswer.Unreachable
 		}
-
-	suspend fun file(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceReadAnswer> {
-		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
-		return fenced(target, ReadSlot.File) { gate.file(target, path) }
-	}
-
-	suspend fun outline(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceOutlineAnswer> {
-		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
-		return fenced(target, ReadSlot.Outline) { gate.outline(target, path) }
-	}
-
-	suspend fun symbol(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<WorkspaceSymbolSourceAnswer> {
-		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
-		return fenced(target, ReadSlot.Source) { gate.symbolSource(target, symbolId) }
-	}
-
-	suspend fun knowledge(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<WorkspaceKnowledgeAnswer> {
-		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
-		return fenced(target, ReadSlot.Knowledge) { gate.knowledge(target, symbolId) }
-	}
 
 	/** Accumulates, and restores any held draft, so a reopen after the process died keeps the typing. */
 	suspend fun openWindow(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<Window> {

@@ -49,6 +49,7 @@ class ClearsOnReprovisionTest {
 				"workspaceHost",
 				"sessionRequests",
 				"windowOps",
+				"symbolViews",
 				"rawFileOps",
 				"fileOps",
 			),
