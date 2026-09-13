@@ -17,6 +17,11 @@ function kotlinFiles(dir: string, acc: string[] = []): string[] {
 	return acc;
 }
 
+function rawRunCatchingOffenders(file: string, source: string): string[] {
+	const matches = source.matchAll(/\brunCatching\s*[({]|\.runCatching\s*[({]|@runCatching(?!\w)/g);
+	return [...matches].map((match) => `${file}:${lineAt(source, match.index ?? 0)} use runCatchingCancellable`);
+}
+
 function bracePairs(source: string): Map<number, number> {
 	const stack: number[] = [];
 	const pairs = new Map<number, number>();
@@ -53,6 +58,32 @@ function lineAt(source: string, index: number): number {
 	return source.slice(0, index).split("\n").length;
 }
 
+function resultChainAfter(source: string, close: number): string {
+	let chain = "";
+	let parentheses = 0;
+	let brackets = 0;
+	let braces = 0;
+	for (let index = close + 1; index < source.length; index++) {
+		const character = source[index] as string;
+		chain += character;
+		if (character === "(") parentheses++;
+		else if (character === ")") parentheses--;
+		else if (character === "[") brackets++;
+		else if (character === "]") brackets--;
+		else if (character === "{") braces++;
+		else if (character === "}") braces--;
+		if (character === "\n" && parentheses === 0 && brackets === 0 && braces === 0) {
+			const nextLine =
+				source
+					.slice(index + 1)
+					.split("\n", 1)[0]
+					?.trim() ?? "";
+			if (!nextLine.startsWith(".")) break;
+		}
+	}
+	return chain;
+}
+
 function insideSuspendingContext(source: string, open: number, pairs: Map<number, number>): boolean {
 	const contexts = [
 		...source.matchAll(/\bsuspend\s+fun\b[^{;=]*\{/g),
@@ -82,14 +113,15 @@ function offendersIn(file: string, source: string, suspendFunctions: Set<string>
 	const pairs = bracePairs(source);
 	const offenders: string[] = [];
 
-	for (const match of source.matchAll(/\brunCatching\s*\{/g)) {
+	for (const match of source.matchAll(/\brunIsolated\s*\{/g)) {
 		const open = (match.index ?? 0) + match[0].lastIndexOf("{");
 		const close = pairs.get(open);
 		if (close === undefined || !insideSuspendingContext(source, open, pairs)) continue;
-		if (hasSuspendingCall(source.slice(open + 1, close), names)) {
-			offenders.push(
-				`${file}:${lineAt(source, open)} use runCatchingCancellable or rethrow CancellationException`,
-			);
+		if (
+			hasSuspendingCall(source.slice(open + 1, close), names) &&
+			!resultChainAfter(source, close).includes(".rethrowCancellation()")
+		) {
+			offenders.push(`${file}:${lineAt(source, open)} use runIsolated with .rethrowCancellation() after cleanup`);
 		}
 	}
 
@@ -125,6 +157,18 @@ function offendersOf(kotlin: string): string[] {
 }
 
 describe("coroutine cancellation", () => {
+	it("refuses raw runCatching everywhere on the phone", () => {
+		const files = kotlinFiles(ANDROID_MAIN).filter((file) => !file.endsWith("/Cancellation.kt"));
+		const offenders = files.flatMap((file) =>
+			rawRunCatchingOffenders(path.relative(process.cwd(), file), fs.readFileSync(file, "utf8")),
+		);
+		expect(offenders).toEqual([]);
+		expect(rawRunCatchingOffenders("probe.kt", "fun f() { runCatching { 1 } }")).toHaveLength(1);
+		expect(rawRunCatchingOffenders("probe.kt", "fun f() { runCatchingCancellable { 1 } }")).toEqual([]);
+		expect(rawRunCatchingOffenders("probe.kt", "fun f() { return@runCatching null }")).toHaveLength(1);
+		expect(rawRunCatchingOffenders("probe.kt", "fun f() { return@runCatchingCancellable null }")).toEqual([]);
+	});
+
 	it("does not swallow cancellation around suspending calls", () => {
 		const files = kotlinFiles(ANDROID_MAIN);
 		const sources = files.map((file) => fs.readFileSync(file, "utf8"));
@@ -137,11 +181,12 @@ describe("coroutine cancellation", () => {
 		expect(offenders).toEqual([]);
 	});
 
-	it("refuses a swallowed suspend call, including a suspend lambda and an expression body", () => {
-		expect(offendersOf("suspend fun f() { runCatching { delay(1) } }")).toHaveLength(1);
+	it("refuses a swallowed suspend call in a broad catch", () => {
+		expect(offendersOf("suspend fun f() { runIsolated { delay(1) } }")).toHaveLength(1);
 		expect(
-			offendersOf("suspend fun <T> wrap(block: suspend () -> T): Result<T> = runCatching { block() }"),
-		).toHaveLength(1);
+			offendersOf("suspend fun f() { runIsolated { delay(1) }.onFailure { cleanup() }.rethrowCancellation() }"),
+		).toEqual([]);
+		expect(offendersOf("fun f() { runIsolated { delay(1) } }")).toEqual([]);
 		expect(
 			offendersOf(
 				"fun g(scope: CoroutineScope) { scope.launch { try { delay(1) } catch (e: Exception) { log(e) } } }",
@@ -158,14 +203,6 @@ describe("coroutine cancellation", () => {
 		).toEqual([]);
 		expect(
 			offendersOf("suspend fun f() = withContext(NonCancellable) { try { send() } catch (e: Exception) { } }"),
-		).toEqual([]);
-		expect(offendersOf("suspend fun f() { runCatching { parse() } }")).toEqual([]);
-		expect(
-			offendersIn(
-				"probe.kt",
-				"fun g(scope: CoroutineScope, block: () -> Unit) { scope.launch { runCatching { block() } } }",
-				suspendNames(["class H(block: suspend () -> Unit)"]),
-			),
 		).toEqual([]);
 	});
 

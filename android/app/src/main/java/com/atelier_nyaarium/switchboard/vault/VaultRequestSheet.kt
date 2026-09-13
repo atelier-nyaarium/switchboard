@@ -49,6 +49,7 @@ import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.gatewayOf
 import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.runIsolated
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -103,7 +104,7 @@ fun VaultRequestSheet(
 			val ok = repo.vaultOps.answer(request, decision, value, if (approving) null else note)
 			if (ok && approving && typedRequest && save) {
 				// The saved entry is scoped to the gateway that asked.
-				val gateway = runCatching { gatewayOf(request.team) }.getOrNull()
+				val gateway = runIsolated { gatewayOf(request.team) }.getOrNull()
 				repo.vaultOps.save(
 					VaultDraft(publicTitle = request.displayShape, value = typed, gateways = listOfNotNull(gateway)),
 				)

@@ -115,7 +115,7 @@ internal class ChatRepositoryConnectHost(private val repo: ChatRepository) : Con
 	}
 
 	override fun attachIngest() {
-		runCatching {
+		runIsolated {
 			repo.store.load()?.let { DebugLog.attachIngest(ConsoleCredentials.parse(it, repo.store)) { repo.client().transport.proxyBase } }
 		}
 	}

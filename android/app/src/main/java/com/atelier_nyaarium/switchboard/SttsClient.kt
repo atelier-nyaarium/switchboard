@@ -77,7 +77,7 @@ class SttsClient(private val baseUrl: String, private val apiKey: String) {
 	fun probe(): SttsProbe {
 		if (!isConfigured) return SttsProbe.Unreachable("not configured")
 		val req = Request.Builder().url("$baseUrl/health").get().build()
-		return runCatching {
+		return runIsolated {
 			client.newCall(req).execute().use { resp ->
 				if (resp.isSuccessful) SttsProbe.Ok else SttsProbe.Unreachable("HTTP ${resp.code}")
 			}

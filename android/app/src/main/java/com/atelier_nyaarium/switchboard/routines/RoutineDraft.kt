@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineTarget
 import com.atelier_nyaarium.switchboard.proto.Runbook
+import com.atelier_nyaarium.switchboard.runIsolated
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -189,12 +190,12 @@ internal fun inZone(
 	on: java.time.LocalDate = java.time.LocalDate.now(java.time.ZoneOffset.UTC),
 ): ZoneRead {
 	val unchanged = ZoneRead(weekdays, time, 0)
-	val at = runCatching {
+	val at = runIsolated {
 		val (hour, minute) = time.split(":").map { it.toInt() }
 		java.time.LocalTime.of(hour, minute)
 	}.getOrNull() ?: return unchanged
-	val source = runCatching { java.time.ZoneId.of(from) }.getOrNull() ?: return unchanged
-	val target = runCatching { java.time.ZoneId.of(to) }.getOrNull() ?: return unchanged
+	val source = runIsolated { java.time.ZoneId.of(from) }.getOrNull() ?: return unchanged
+	val target = runIsolated { java.time.ZoneId.of(to) }.getOrNull() ?: return unchanged
 
 	val anchor = on.minusDays((on.dayOfWeek.value - 1).toLong())
 	val there = anchor.atTime(at).atZone(source).withZoneSameInstant(target)
@@ -206,5 +207,5 @@ internal fun inZone(
 /** Carried with the rule, or a fortnightly one keeps a parity its weekday no longer matches. */
 private fun shiftDate(date: String, days: Int): String {
 	if (days == 0) return date
-	return runCatching { java.time.LocalDate.parse(date).plusDays(days.toLong()).toString() }.getOrDefault(date)
+	return runIsolated { java.time.LocalDate.parse(date).plusDays(days.toLong()).toString() }.getOrDefault(date)
 }

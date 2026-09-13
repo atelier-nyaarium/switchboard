@@ -1,5 +1,7 @@
 package com.atelier_nyaarium.switchboard.plugins
 
+import com.atelier_nyaarium.switchboard.runIsolated
+
 /**
  * A source-tagged claim table, the one extension-point primitive. Core code owning an extension
  * surface creates a registry via [PluginRuntime.createRegistry]; plugins [claim] keys into it
@@ -52,7 +54,7 @@ class PluginRegistry<T : Any> internal constructor(
 	@Synchronized
 	fun forEachCaught(onError: (String, Throwable) -> Unit = { _, _ -> }, action: (T) -> Unit) {
 		claims.forEach { (key, claim) ->
-			runCatching { action(claim.value) }
+			runIsolated { action(claim.value) }
 				.onFailure { onError("registry \"$name\": claim \"$key\" (source \"${claim.source}\") threw", it) }
 		}
 	}
@@ -63,7 +65,7 @@ class PluginRegistry<T : Any> internal constructor(
 	@Synchronized
 	fun anyCaught(onError: (String, Throwable) -> Unit = { _, _ -> }, predicate: (T) -> Boolean): Boolean {
 		for ((key, claim) in claims) {
-			val matched = runCatching { predicate(claim.value) }
+			val matched = runIsolated { predicate(claim.value) }
 				.onFailure { onError("registry \"$name\": claim \"$key\" (source \"${claim.source}\") threw", it) }
 				.getOrDefault(false)
 			if (matched) return true
@@ -77,7 +79,7 @@ class PluginRegistry<T : Any> internal constructor(
 	@Synchronized
 	fun <R : Any> firstNotNullCaught(onError: (String, Throwable) -> Unit = { _, _ -> }, transform: (T) -> R?): R? {
 		for ((key, claim) in claims) {
-			val result = runCatching { transform(claim.value) }
+			val result = runIsolated { transform(claim.value) }
 				.onFailure { onError("registry \"$name\": claim \"$key\" (source \"${claim.source}\") threw", it) }
 				.getOrNull()
 			if (result != null) return result

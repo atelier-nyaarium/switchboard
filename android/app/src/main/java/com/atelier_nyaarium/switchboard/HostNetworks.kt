@@ -407,7 +407,7 @@ private fun rememberCreateInvite(context: Context, onSaved: () -> Unit): (String
 		val blob = pending
 		pending = null
 		if (uri == null || blob == null) return@rememberLauncherForActivityResult
-		runCatching {
+		runIsolated {
 			context.contentResolver.openOutputStream(uri)?.use { it.write(blob.toByteArray(Charsets.UTF_8)) }
 		}.onSuccess { onSaved() }
 	}

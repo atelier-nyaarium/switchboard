@@ -41,10 +41,10 @@ object DebugLog {
 
 			val prev = Thread.getDefaultUncaughtExceptionHandler()
 			Thread.setDefaultUncaughtExceptionHandler { thread, e ->
-				runCatching { log("CRASH", "uncaught on ${thread.name}: ${e.stackTraceToString()}") }
+				runIsolated { log("CRASH", "uncaught on ${thread.name}: ${e.stackTraceToString()}") }
 				// Crash flushing is bounded to avoid delaying process death.
-				runCatching {
-					Thread { runCatching { flushToIngest() } }
+				runIsolated {
+					Thread { runIsolated { flushToIngest() } }
 						.apply {
 							isDaemon = true
 							start()
@@ -65,8 +65,8 @@ object DebugLog {
 			ingestAppToken = prov.appToken
 			ingestDevice = prov.device
 			ingestConversationId = prov.conversationId
-			ingestClient = runCatching { ConsoleHttp.buildLeafPinnedClient(prov.routerCertFp) }.getOrNull()
-			val host = runCatching { java.net.URI(baseUrl()).host }.getOrNull() ?: "?"
+			ingestClient = runIsolated { ConsoleHttp.buildLeafPinnedClient(prov.routerCertFp) }.getOrNull()
+			val host = runIsolated { java.net.URI(baseUrl()).host }.getOrNull() ?: "?"
 			log("Ingest", "attached host=$host client=${ingestClient != null}")
 			if (flusher == null) {
 				flusher = Thread {
@@ -76,7 +76,7 @@ object DebugLog {
 						} catch (_: InterruptedException) {
 							return@Thread
 						}
-						runCatching { flushToIngest() }
+						runIsolated { flushToIngest() }
 					}
 				}.apply {
 					isDaemon = true
@@ -101,7 +101,7 @@ object DebugLog {
 			}
 
 			val client = ingestClient ?: return
-			runCatching {
+			runIsolated {
 				val body = buildIngestJson(device, convId, lines)
 				val request =
 					okhttp3.Request.Builder()
@@ -131,7 +131,7 @@ object DebugLog {
 	private val SPILL_RE = Regex("""^switchboard-debug( \(\d+\))?\.log( \(\d+\))?(\.txt)?$""")
 
 	private fun sweepSpilledLogs(ctx: Context) {
-		runCatching {
+		runIsolated {
 			val resolver = ctx.contentResolver
 			val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
 			resolver.query(
@@ -146,7 +146,7 @@ object DebugLog {
 				while (c.moveToNext()) {
 					val name = c.getString(nameCol) ?: continue
 					if (SPILL_RE.matches(name)) {
-						runCatching {
+						runIsolated {
 							resolver.delete(ContentUris.withAppendedId(collection, c.getLong(idCol)), null, null)
 						}
 					}

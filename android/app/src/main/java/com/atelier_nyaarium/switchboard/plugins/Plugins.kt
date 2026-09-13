@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.AppStateStore
 import com.atelier_nyaarium.switchboard.InboundSubscriber
 import com.atelier_nyaarium.switchboard.PluginActionSubscriber
 import com.atelier_nyaarium.switchboard.Repo
+import com.atelier_nyaarium.switchboard.runIsolated
 
 /** Process-lifetime plugin framework, mirroring [com.atelier_nyaarium.switchboard.Repo]: built
  * and booted once, surviving Activity recreation so toggling in settings never re-runs boot. */
@@ -52,7 +53,7 @@ object Plugins {
 		Repo.get(app).drain.addPluginActionSubscriber(
 			PluginActionSubscriber { team, pluginId, actionType, payload ->
 				host.pluginActions.get("$pluginId:$actionType")?.let { handler ->
-					runCatching { handler.onAction(PluginAction(team, payload)) }
+					runIsolated { handler.onAction(PluginAction(team, payload)) }
 						.onFailure { com.atelier_nyaarium.switchboard.DebugLog.log("Plugins", "plugin action handler threw: $it") }
 				}
 			},

@@ -4,6 +4,7 @@ import android.content.Context
 import android.widget.Toast
 import com.atelier_nyaarium.switchboard.Repo
 import com.atelier_nyaarium.switchboard.plugins.ThreadDockScope
+import com.atelier_nyaarium.switchboard.runIsolated
 import com.atelier_nyaarium.switchboard.saveFileToDownloads
 import com.atelier_nyaarium.switchboard.send
 import java.io.File
@@ -51,7 +52,7 @@ internal fun runAction(
  * a FileProvider URI (attachments/ is exposed in file_paths.xml). Launched on a process-lifetime
  * scope so closing the thread mid-send cannot cancel it (matching the composer's App-scoped send). */
 private fun reattach(context: Context, team: String, file: File) {
-	runCatching {
+	runIsolated {
 		val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 		designerSendScope.launch { Repo.get(context).send(team, "", listOf(uri)) }
 	}

@@ -34,7 +34,7 @@ object QrImage {
 	 * Save-as-file instead). Tries M first (more scan-robust), then L (more capacity). */
 	fun encode(text: String, sizePx: Int): Bitmap? {
 		for (ec in listOf(ErrorCorrectionLevel.M, ErrorCorrectionLevel.L)) {
-			val bmp = runCatching { encodeAt(text, sizePx, ec) }.getOrNull()
+			val bmp = runIsolated { encodeAt(text, sizePx, ec) }.getOrNull()
 			if (bmp != null) return bmp
 		}
 		return null

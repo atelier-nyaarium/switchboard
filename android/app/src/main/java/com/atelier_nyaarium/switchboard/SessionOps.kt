@@ -173,7 +173,7 @@ internal class SessionOps(
 
 	suspend fun relaunchSession(team: String) {
 		withContext(Dispatchers.IO) {
-			val t = runCatching { parseQualifiedTarget(team) }.getOrNull()
+			val t = runIsolated { parseQualifiedTarget(team) }.getOrNull()
 			if (t !is Address) error("not an addressable session")
 			val opId = UUID.randomUUID().toString()
 			// Keep one receipt across close and create while the roster reports asleep.
@@ -200,7 +200,7 @@ internal class SessionOps(
 
 	/** The durable half of `SessionForget`. */
 	fun forget(team: String, boardDisposition: String? = null) {
-		val t = runCatching { parseQualifiedTarget(team) }.getOrNull() ?: return
+		val t = runIsolated { parseQualifiedTarget(team) }.getOrNull() ?: return
 		val key = t.canonical
 		// Journaled for a Gateway the roster names; any other tombstones only.
 		val local = t is Address && host.state.value.gateways.owns(t, host.localDomain)
@@ -267,7 +267,7 @@ internal class SessionOps(
 	/** Journal before local deletion. */
 	private fun journalForget(team: String, boardDisposition: String?): PendingForget {
 		val opId = UUID.randomUUID().toString()
-		val journaled = runCatching {
+		val journaled = runIsolated {
 			journal.append(opId, FORGET_JOURNAL_KIND, JSONObject().put("team", team).putOpt("boardDisposition", boardDisposition))
 		}
 			.onFailure { DebugLog.log("Forget", "journal append failed for $team: ${it.message?.take(160)}") }
@@ -326,7 +326,7 @@ internal class SessionOps(
 	}
 
 	private fun retireForget(p: PendingForget) {
-		runCatching { journal.remove(p.opId) }
+		runIsolated { journal.remove(p.opId) }
 		host.forgottenUntil[p.team] = System.currentTimeMillis() + host.forgetTombstoneMs
 	}
 
@@ -338,4 +338,4 @@ internal class SessionOps(
 }
 
 internal fun wakeTargetOf(team: String): String? =
-	(runCatching { parseQualifiedTarget(team) }.getOrNull() as? Address)?.canonical
+	(runIsolated { parseQualifiedTarget(team) }.getOrNull() as? Address)?.canonical

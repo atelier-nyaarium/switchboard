@@ -12,7 +12,7 @@ internal class OwnerFacts(private val repo: ChatRepository) {
 	/** First-root only after Router acceptance. */
 	suspend fun firstRootIfPending(): Boolean {
 		val blob = repo.identity.blob() ?: return true
-		val prov = runCatching { ConsoleCredentials.parse(blob, repo.store) }.getOrNull() ?: return true
+		val prov = runIsolated { ConsoleCredentials.parse(blob, repo.store) }.getOrNull() ?: return true
 		return when (val decision = FriendOnboarding.decide(prov, repo.store.firstRooted)) {
 			is FirstRootDecision.NotPending -> true
 			is FirstRootDecision.Root -> {

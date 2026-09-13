@@ -140,7 +140,7 @@ private fun OpenLinkButton(url: String) {
  */
 private fun openSelectedLink(context: Context, url: String) {
 	val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-	if (runCatching { context.startActivity(intent) }.isFailure) {
+	if (runIsolated { context.startActivity(intent) }.isFailure) {
 		Toast.makeText(context, "No app opens ${linkLabel(url)}", Toast.LENGTH_SHORT).show()
 	}
 }

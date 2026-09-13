@@ -150,15 +150,15 @@ internal class ConsoleSocketClient(
 				heartbeatArmed = false
 				socket?.close(1001, "pong timeout")
 			} else {
-				runCatching { ping() }
+				runIsolated { ping() }
 				scheduleHeartbeat()
 			}
 		}
 	}
 
 	private fun handle(text: String) {
-		val json = runCatching { wireJson.parseToJsonElement(text).jsonObject }.getOrNull() ?: return
-		when (runCatching { json["type"]?.jsonPrimitive?.content }.getOrNull()) {
+		val json = runIsolated { wireJson.parseToJsonElement(text).jsonObject }.getOrNull() ?: return
+		when (runIsolated { json["type"]?.jsonPrimitive?.content }.getOrNull()) {
 			Protocol.Wire.SocketFrame.WELCOME -> {
 				val frame = wireJson.decodeFromJsonElement(ConsoleWelcomeFrame.serializer(), json)
 				if (incarnation == null) {

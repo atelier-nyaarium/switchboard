@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.VaultListResult
 import com.atelier_nyaarium.switchboard.proto.VaultPut
 import com.atelier_nyaarium.switchboard.proto.VaultWriteResult
+import com.atelier_nyaarium.switchboard.runIsolated
 import com.atelier_nyaarium.switchboard.wireJson
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -49,7 +50,7 @@ class VaultRouterWriter(private val signAndPost: suspend (JsonObject, String) ->
 
 	// The intake's own refusal carries no revision.
 	private fun writeResult(answer: JsonElement): VaultWriteResult =
-		runCatching { wireJson.decodeFromJsonElement(VaultWriteResult.serializer(), answer) }.getOrElse {
+		runIsolated { wireJson.decodeFromJsonElement(VaultWriteResult.serializer(), answer) }.getOrElse {
 			val body = answer.jsonObject
 			VaultWriteResult(
 				outcome = body["outcome"]?.jsonPrimitive?.content ?: Protocol.Wire.SocketFrame.REFUSED,

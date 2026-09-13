@@ -108,7 +108,7 @@ class SttsPlayer(private val root: File) {
 		val mp = player ?: return null
 		val owner = playerOwner ?: return null
 		val audio = playerAudio ?: return null
-		return runCatching {
+		return runIsolated {
 			Position(owner, audio, mp.currentPosition.toLong(), mp.duration.toLong())
 		}.getOrNull()
 	}
@@ -118,7 +118,7 @@ class SttsPlayer(private val root: File) {
 	@Synchronized
 	fun seekTo(owner: PlaybackId, ms: Long) {
 		if (playerOwner != owner) return
-		runCatching { player?.seekTo(ms.toInt()) }
+		runIsolated { player?.seekTo(ms.toInt()) }
 	}
 
 	/** Whether this message is audible, in any tier. What the row shows, and so what its button may
@@ -221,7 +221,7 @@ class SttsPlayer(private val root: File) {
 	 * back to back they blur into one utterance. */
 	fun afterGap(then: () -> Unit) {
 		playExec.execute {
-			runCatching { Thread.sleep(MARKER_GAP_MS) }
+			runIsolated { Thread.sleep(MARKER_GAP_MS) }
 			then()
 		}
 	}
@@ -317,9 +317,9 @@ class SttsPlayer(private val root: File) {
 
 	@Synchronized
 	private fun teardownPlayer() {
-		runCatching { loudness?.release() }
+		runIsolated { loudness?.release() }
 		loudness = null
-		runCatching { player?.release() }
+		runIsolated { player?.release() }
 		player = null
 		playerOwner = null
 		playerAudio = null
@@ -422,16 +422,16 @@ class SttsPlayer(private val root: File) {
 			}
 			mp.start()
 		} catch (e: Exception) {
-			runCatching { effect?.release() }
-			runCatching { mp.release() }
+			runIsolated { effect?.release() }
+			runIsolated { mp.release() }
 			throw e
 		}
 		// Taking the sound displaces whatever held it, and the registry reports that terminal rather
 		// than it vanishing. Null means this request was abandoned while the player was being built.
 		val displaced = requests.sound(id, yielding)
 		if (displaced == null) {
-			runCatching { effect?.release() }
-			runCatching { mp.release() }
+			runIsolated { effect?.release() }
+			runIsolated { mp.release() }
 			return
 		}
 		// The request that just lost the sound did not ASK to stop - something else took it - so keep
@@ -445,7 +445,7 @@ class SttsPlayer(private val root: File) {
 		// rendering left behind is not handed to the unattributed one a run speaks, which is a
 		// different file of a different length. Consumed on use, so it can never outlive its pause.
 		resumeAt.remove(ResumeKey(QueueEntry(id.team, id.at, id.tier), f.name))
-			?.let { runCatching { mp.seekTo(it.toInt()) } }
+			?.let { runIsolated { mp.seekTo(it.toInt()) } }
 		requests.started(id)
 	}
 

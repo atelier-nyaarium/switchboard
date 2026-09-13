@@ -181,7 +181,7 @@ class SpeechFocus(
 
 	private fun unregisterNoisy() {
 		if (!noisyRegistered) return
-		runCatching { context.unregisterReceiver(noisy) }
+		runIsolated { context.unregisterReceiver(noisy) }
 		noisyRegistered = false
 	}
 }

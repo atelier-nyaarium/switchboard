@@ -92,9 +92,9 @@ suspend fun ConsoleClient.uploadSealedBlob(source: File): String {
 
 fun ConsoleClient.blobIdOf(source: File): String = blobs.ingestFile(source)
 
-fun ConsoleClient.forgetBlob(blobId: String) { runCatching { blobs.remove(blobId) } }
+fun ConsoleClient.forgetBlob(blobId: String) { runIsolated { blobs.remove(blobId) } }
 
-fun ConsoleClient.pruneStaleBlobs(maxAgeMs: Long): Long = runCatching { blobs.pruneStale(maxAgeMs) }.getOrDefault(0L)
+fun ConsoleClient.pruneStaleBlobs(maxAgeMs: Long): Long = runIsolated { blobs.pruneStale(maxAgeMs) }.getOrDefault(0L)
 
 class BlobAbsent(blobId: String) : Exception("blob $blobId exists on no machine")
 

@@ -44,7 +44,7 @@ class SttsCache(
 			val dest = cacheFile(team, at, tier, provider, voice, text, rowKey)
 			val twin = done[text]
 			if (twin != null) {
-				if (!dest.exists() || dest.length() == 0L) runCatching { twin.copyTo(dest, overwrite = true) }
+				if (!dest.exists() || dest.length() == 0L) runIsolated { twin.copyTo(dest, overwrite = true) }
 				// The copy writes cache under no claim of its own, so it needs the same check.
 				if (requests.purgedSince(team, horizon)) return discardPreload(dest)
 				continue
@@ -108,7 +108,7 @@ class SttsCache(
 	/** A cached file's length in milliseconds. Best effort: an unreadable or half-written file simply
 	 * has no duration yet, which the tile shows as waiting rather than as a wrong number. */
 	private fun durationOf(f: File): Long? =
-		runCatching {
+		runIsolated {
 			android.media.MediaMetadataRetriever().use { mmr ->
 				mmr.setDataSource(f.absolutePath)
 				mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()

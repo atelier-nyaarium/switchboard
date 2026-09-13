@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard.plugins.designer
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.atelier_nyaarium.switchboard.runIsolated
 import com.atelier_nyaarium.switchboard.wireJson
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -122,7 +123,7 @@ object DesignStore {
 
 	private fun read(team: String): List<StoredCard> =
 		prefs?.getString(key(team), null)?.let {
-			runCatching { wireJson.decodeFromString(ListSerializer(StoredCard.serializer()), it) }.getOrNull()
+			runIsolated { wireJson.decodeFromString(ListSerializer(StoredCard.serializer()), it) }.getOrNull()
 		} ?: emptyList()
 
 	private fun write(team: String, cards: List<StoredCard>) {

@@ -6,6 +6,7 @@ import com.atelier_nyaarium.switchboard.hostSpawnChoices
 import com.atelier_nyaarium.switchboard.hostSpawnLabel
 import com.atelier_nyaarium.switchboard.localSessions
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
+import com.atelier_nyaarium.switchboard.runIsolated
 
 /** `address` is what the fire sends, always qualified; `label` is what the sheet shows. */
 internal data class FireTarget(val address: String, val label: String)
@@ -36,7 +37,7 @@ internal fun spawnTargets(state: ChatState, gatewayId: String): List<FireTarget>
 	val domainId = state.domainId ?: return emptyList()
 	return spawnChoices(state, gatewayId)
 		.mapNotNull { choice ->
-			runCatching { SpawnPoint.of(domainId, gatewayId, choice.spawn).canonical }
+			runIsolated { SpawnPoint.of(domainId, gatewayId, choice.spawn).canonical }
 				.getOrNull()
 				?.let { FireTarget(it, choice.label) }
 		}

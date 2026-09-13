@@ -48,7 +48,7 @@ object Repo {
 
 	/** Malformed catalog means empty. */
 	private fun loadSttsCatalog(app: Context): List<com.atelier_nyaarium.switchboard.proto.SttsProvider> =
-		runCatching {
+		runIsolated {
 			val json = app.assets.open("stts-providers.json").bufferedReader().use { it.readText() }
 			kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 				.decodeFromString<com.atelier_nyaarium.switchboard.proto.SttsProviders>(json)
@@ -69,7 +69,7 @@ class MainActivity : FragmentActivity() {
 		DebugLog.init(this)
 		val repo = Repo.get(this)
 		val injected = intent.getStringExtra("provisioning_b64")
-			?.let { runCatching { String(android.util.Base64.decode(it, android.util.Base64.DEFAULT)) }.getOrNull() }
+			?.let { runIsolated { String(android.util.Base64.decode(it, android.util.Base64.DEFAULT)) }.getOrNull() }
 		consume(intent)
 		setContent {
 			val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()

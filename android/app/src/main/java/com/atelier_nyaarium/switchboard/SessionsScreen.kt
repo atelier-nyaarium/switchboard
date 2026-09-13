@@ -93,7 +93,7 @@ internal data class CreateDialogTarget(
 			CreateDialogTarget(
 				domainId,
 				gatewayId,
-				candidates.filter { runCatching { SpawnPoint.of(domainId, gatewayId, it) }.isSuccess },
+				candidates.filter { runIsolated { SpawnPoint.of(domainId, gatewayId, it) }.isSuccess },
 			)
 	}
 }

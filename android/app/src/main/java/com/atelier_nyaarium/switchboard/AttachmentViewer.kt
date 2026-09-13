@@ -104,14 +104,14 @@ data class DecodedImage(val bitmap: Bitmap, val bounds: ImageBounds)
 
 /** Decode bounded to a sane on-screen size; a hostile/huge image downsamples
  * instead of OOMing the viewer. */
-private fun decodeBounded(file: File, maxDim: Int = 4096): DecodedImage? = runCatching {
+private fun decodeBounded(file: File, maxDim: Int = 4096): DecodedImage? = runIsolated {
 	val probe = BitmapFactory.Options().apply { inJustDecodeBounds = true }
 	BitmapFactory.decodeFile(file.path, probe)
-	if (probe.outWidth <= 0 || probe.outHeight <= 0) return@runCatching null
+	if (probe.outWidth <= 0 || probe.outHeight <= 0) return@runIsolated null
 	var sample = 1
 	while (probe.outWidth / sample > maxDim || probe.outHeight / sample > maxDim) sample *= 2
 	val bitmap = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
-		?: return@runCatching null
+		?: return@runIsolated null
 	DecodedImage(
 		bitmap,
 		ImageBounds(
@@ -126,7 +126,7 @@ private fun decodeBounded(file: File, maxDim: Int = 4096): DecodedImage? = runCa
 
 /** Copy a file into the public Downloads collection via MediaStore (no runtime permission
  * needed). Shared by the attachment viewer and the Designer plugin's Download action. */
-internal fun saveFileToDownloads(context: Context, file: File, name: String, mime: String): Boolean = runCatching {
+internal fun saveFileToDownloads(context: Context, file: File, name: String, mime: String): Boolean = runIsolated {
 	val resolver = context.contentResolver
 	val values = ContentValues().apply {
 		put(MediaStore.Downloads.DISPLAY_NAME, name)
@@ -512,7 +512,7 @@ private fun InfoRows(att: OpenAttachment, bounds: ImageBounds?) {
 	val size = prettySize(att.size ?: att.file.length().takeIf { it > 0 })
 	val dims = bounds?.let { "${it.sourceWidth} x ${it.sourceHeight}" }
 	val modified = att.modifiedAt?.let {
-		runCatching { DateFormat.getDateTimeInstance().format(Date(it)) }.getOrNull()
+		runIsolated { DateFormat.getDateTimeInstance().format(Date(it)) }.getOrNull()
 	}
 	if (size == null && dims == null && modified == null && att.location == null) return
 	Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {

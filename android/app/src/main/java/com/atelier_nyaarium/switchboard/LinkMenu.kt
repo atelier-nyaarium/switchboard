@@ -36,7 +36,7 @@ private fun linkOpenable(url: String): Boolean = Uri.parse(url).scheme?.lowercas
  * project-scoped protocol needs it to know which session's host it acts on. */
 internal fun openLink(context: Context, team: String, url: String) {
 	when (Uri.parse(url).scheme?.lowercase()) {
-		in OPENABLE_SCHEMES -> runCatching {
+		in OPENABLE_SCHEMES -> runIsolated {
 			context.startActivity(
 				Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
 			)

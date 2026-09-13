@@ -91,7 +91,7 @@ class PlaybackRequests(private val sink: Executor = Executor { it.run() }) {
 			// A throwing listener is isolated rather than logged: this class stays free of Android
 			// imports so its invariants can be unit-tested, and that rules out the platform logger.
 			for (event in batch) {
-				for (listener in listeners) runCatching { listener.onPlaybackEvent(event) }
+				for (listener in listeners) runIsolated { listener.onPlaybackEvent(event) }
 			}
 		}
 	}

@@ -79,7 +79,7 @@ class QueueBubble(
 	}
 
 	fun release() {
-		root?.let { runCatching { windows.removeView(it) } }
+		root?.let { runIsolated { windows.removeView(it) } }
 		clear()
 	}
 
@@ -127,7 +127,7 @@ class QueueBubble(
 
 	private fun attach(view: FrameLayout): Boolean {
 		layout.y = parkedY
-		return runCatching { windows.addView(view, layout) }.isSuccess
+		return runIsolated { windows.addView(view, layout) }.isSuccess
 	}
 
 	/** Move the window itself, not the view inside it - a translated child would still be clipped to
@@ -137,7 +137,7 @@ class QueueBubble(
 		val view = root ?: return
 		val limit = (context.resources.displayMetrics.heightPixels - dp(48)) / 2
 		layout.y = y.coerceIn(-limit, limit)
-		runCatching { windows.updateViewLayout(view, layout) }
+		runIsolated { windows.updateViewLayout(view, layout) }
 	}
 
 	private fun build(): FrameLayout {

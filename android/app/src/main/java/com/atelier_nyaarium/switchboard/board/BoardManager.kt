@@ -13,6 +13,7 @@ import com.atelier_nyaarium.switchboard.localFieldOrSelf
 import com.atelier_nyaarium.switchboard.proto.BoardEntry
 import com.atelier_nyaarium.switchboard.proto.BoardStoredEntry
 import com.atelier_nyaarium.switchboard.proto.PlaneLineage
+import com.atelier_nyaarium.switchboard.runIsolated
 import kotlinx.serialization.json.Json
 
 interface BoardStore {
@@ -88,7 +89,7 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 
 	private fun load(): BoardBlob {
 		val raw = store.loadTaskBoard() ?: return BoardBlob()
-		return runCatching { json.decodeFromString<BoardBlob>(raw) }.getOrNull()
+		return runIsolated { json.decodeFromString<BoardBlob>(raw) }.getOrNull()
 			?: BoardBlob().also {
 				loadedCleanly = false
 				DebugLog.log("Board", "stored board could not be decoded; starting empty")
@@ -97,7 +98,7 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 
 	private fun persist(next: BoardBlob): Boolean {
 		if (next == blob) return true
-		val written = runCatching { store.saveTaskBoard(json.encodeToString(BoardBlob.serializer(), next)) }
+		val written = runIsolated { store.saveTaskBoard(json.encodeToString(BoardBlob.serializer(), next)) }
 		if (written.isFailure) {
 			DebugLog.log("Board", "stored board could not be written: ${written.exceptionOrNull()?.message}")
 			return false

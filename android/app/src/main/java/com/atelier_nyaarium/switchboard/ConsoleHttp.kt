@@ -109,11 +109,11 @@ internal object ConsoleHttp {
 			}
 		DebugLog.log(tag, "$describe resp HTTP ${resp.code} ${loggedBodyPreview(resp.text, logBody)}")
 		if (resp.isSuccessful) {
-			return runCatching { wireJson.decodeFromString<R>(resp.text) }
+			return runIsolated { wireJson.decodeFromString<R>(resp.text) }
 				.getOrElse { fail("unexpected response (HTTP ${resp.code})") }
 		}
-		runCatching { wireJson.decodeFromString<R>(resp.text) }.getOrNull()?.let { return it }
-		val err = runCatching { wireJson.decodeFromString<BounceBody>(resp.text).error }.getOrNull()
+		runIsolated { wireJson.decodeFromString<R>(resp.text) }.getOrNull()?.let { return it }
+		val err = runIsolated { wireJson.decodeFromString<BounceBody>(resp.text).error }.getOrNull()
 		return fail(err ?: "HTTP ${resp.code}")
 	}
 
@@ -133,7 +133,7 @@ internal object ConsoleHttp {
 		resp.use {
 			val text = resp.body?.string().orEmpty()
 			DebugLog.log("DeviceApproval", "public resp HTTP ${resp.code} ${text.take(160)}")
-			runCatching { wireJson.decodeFromString<ConsoleApprovalResult>(text) }.getOrNull()?.let { return it }
+			runIsolated { wireJson.decodeFromString<ConsoleApprovalResult>(text) }.getOrNull()?.let { return it }
 			return ConsoleApprovalResult(ok = false, error = "HTTP ${resp.code}")
 		}
 	}

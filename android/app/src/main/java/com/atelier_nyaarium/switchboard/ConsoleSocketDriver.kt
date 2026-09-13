@@ -34,7 +34,7 @@ internal class ConsoleSocketDriver(
 		reconnectPending = false
 		val gen = coordinator.beginSocket()
 		val listener = Listener(gen)
-		val opened = runCatching { newClient(listener) }.getOrNull()
+		val opened = runIsolated { newClient(listener) }.getOrNull()
 		if (opened == null) {
 			coordinator.onSocketClosed(gen)
 			scheduleReconnect()
@@ -42,7 +42,7 @@ internal class ConsoleSocketDriver(
 			return
 		}
 		synchronized(lock) { client = gen to opened }
-		runCatching { opened.open() }.onFailure {
+		runIsolated { opened.open() }.onFailure {
 			coordinator.onSocketClosed(gen)
 			forget(gen)
 			retire(opened)
@@ -75,7 +75,7 @@ internal class ConsoleSocketDriver(
 	}
 
 	private fun retire(open: ConsoleSocketClient) {
-		runCatching { open.close() }
+		runIsolated { open.close() }
 	}
 
 	private inner class Listener(private val gen: Long) : ConsoleSocketListener {

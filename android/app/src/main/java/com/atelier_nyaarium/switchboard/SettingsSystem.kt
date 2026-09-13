@@ -188,7 +188,7 @@ internal fun BatteryExemptionRow() {
 			Text("Allowed", color = MaterialTheme.colorScheme.primary)
 		} else {
 			Button(onClick = hapticClick {
-				runCatching {
+				runIsolated {
 					context.startActivity(
 						Intent(
 							android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
@@ -223,7 +223,7 @@ internal fun VaultOverlayRow() {
 			Text("Allowed", color = MaterialTheme.colorScheme.primary)
 		} else {
 			Button(onClick = hapticClick {
-				runCatching { context.startActivity(OverlayPermission.grantIntent(context)) }
+				runIsolated { context.startActivity(OverlayPermission.grantIntent(context)) }
 			}) { Text("Allow") }
 		}
 	}

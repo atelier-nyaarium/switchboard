@@ -74,13 +74,13 @@ object OutgoingFiles {
 
 		// Ask the provider first. A provider that will not answer gets refused rather than read
 		// blind, since reading with no known length risks an OOM.
-		val declared = runCatching {
+		val declared = runIsolated {
 			resolver.openAssetFileDescriptor(uri, "r")?.use { it.length }
 		}.getOrNull()
 		if (declared == null || declared < 0) return Admission.Refused(name, Admission.Reason.GONE, 0, 0)
 		(decide(name, mime, declared, destination) as? Admission.Refused)?.let { return it }
 
-		val copied = runCatching {
+		val copied = runIsolated {
 			destination.parentFile?.mkdirs()
 			resolver.openInputStream(uri)?.use { input -> destination.outputStream().use(input::copyTo) }
 				?: return Admission.Refused(name, Admission.Reason.GONE, 0, 0)
@@ -121,7 +121,7 @@ object OutgoingFiles {
 		return Admission.Granted(OutgoingFile.of(name, mime, size, source))
 	}
 
-	private fun displayName(resolver: ContentResolver, uri: Uri): String? = runCatching {
+	private fun displayName(resolver: ContentResolver, uri: Uri): String? = runIsolated {
 		resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
 			if (c.moveToFirst()) c.getString(0) else null
 		}

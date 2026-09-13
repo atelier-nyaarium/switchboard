@@ -78,7 +78,7 @@ internal class WorkspaceDraftStore(private val dir: File, scope: CoroutineScope)
 
 	/** Guarded, or one throw ends the worker and leaves the queue dead. */
 	private fun run(job: () -> Unit) {
-		runCatching { job() }.onFailure { DebugLog.log("Drafts", "draft work failed: ${it.message}") }
+		runIsolated { job() }.onFailure { DebugLog.log("Drafts", "draft work failed: ${it.message}") }
 	}
 
 	/** Onto the queue, or on the caller once the queue is shut. An unbounded send refuses nothing else. */
@@ -110,7 +110,7 @@ internal class WorkspaceDraftStore(private val dir: File, scope: CoroutineScope)
 		val answer = CompletableDeferred<T>()
 		hand {
 			answer.complete(
-				runCatching { job() }
+				runIsolated { job() }
 					.onFailure { DebugLog.log("Drafts", "draft work failed: ${it.message}") }
 					.getOrDefault(fallback),
 			)

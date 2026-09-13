@@ -111,7 +111,7 @@ class ConsoleClient internal constructor(
 			put("known", known)
 		}, opId) ?: return null
 		val result = answer.jsonObject["result"] ?: return null
-		return runCatching {
+		return runIsolated {
 			wireJson.decodeFromJsonElement(com.atelier_nyaarium.switchboard.proto.PlanesReadResult.serializer(), result)
 		}.onFailure { DebugLog.log("Console", "planes_read decode failed") }.getOrNull()
 	}
@@ -257,12 +257,12 @@ class ConsoleClient internal constructor(
 			DebugLog.log("Console", "value op refused opId=$opId")
 			return ValueAnswer.Refused(reasonOf(answer))
 		}
-		val envelope = runCatching { wireJson.decodeFromJsonElement(ContentEnvelope.serializer(), answer) }
+		val envelope = runIsolated { wireJson.decodeFromJsonElement(ContentEnvelope.serializer(), answer) }
 			.onFailure { DebugLog.log("Console", "value result envelope failed opId=$opId") }
 			.getOrNull() ?: return ValueAnswer.Unreachable
 		val domain = boot.domainId
 		val key = contentKey(envelope.epoch.toInt()) ?: return ValueAnswer.Unreachable
-		return runCatching {
+		return runIsolated {
 			ValueAnswer.Answered(
 				wireJson.parseToJsonElement(
 					com.atelier_nyaarium.switchboard.crypto.Crypto.openContent(
@@ -305,7 +305,7 @@ class ConsoleClient internal constructor(
 		val answer = sendDeliveryOp(sessionAddressOf(to), op, opId)
 		val replyBody = answer?.let { wireJson.decodeFromJsonElement<OwnerOpAnswer>(it) }
 		val status = replyBody?.result?.let {
-			runCatching { wireJson.decodeFromJsonElement<ConsoleSendResult>(it).status }.getOrNull()
+			runIsolated { wireJson.decodeFromJsonElement<ConsoleSendResult>(it).status }.getOrNull()
 		}
 		return SendResult(ok = replyBody?.ok == true, status = status.orEmpty(), error = replyBody?.error ?: answer?.let { null } ?: "send timed out")
 	}

@@ -164,11 +164,11 @@ internal class KeyDeliveryOps(
 			}
 		}
 		val answer = send(keyReceiptsReadOp()) ?: return members.flatMap { member -> epochs.map { KeyDeliveryMember(member.kind, member.signPub, it, false) } }
-		val receipts = runCatching {
+		val receipts = runIsolated {
 			val body = wireJson.decodeFromJsonElement(OwnerOpAnswer.serializer(), answer)
-			wireJson.decodeFromJsonElement(KeyReceiptsReadResult.serializer(), body.result ?: return@runCatching null)
+			wireJson.decodeFromJsonElement(KeyReceiptsReadResult.serializer(), body.result ?: return@runIsolated null)
 		}.getOrElse {
-			runCatching { wireJson.decodeFromJsonElement(KeyReceiptsReadResult.serializer(), answer) }.getOrNull()
+			runIsolated { wireJson.decodeFromJsonElement(KeyReceiptsReadResult.serializer(), answer) }.getOrNull()
 		}?.receipts.orEmpty()
 		return members.flatMap { member -> epochs.map { epoch ->
 			KeyDeliveryMember(member.kind, member.signPub, epoch, receipts.any { it.recipientSignPub == member.signPub && it.epoch.toInt() == epoch })

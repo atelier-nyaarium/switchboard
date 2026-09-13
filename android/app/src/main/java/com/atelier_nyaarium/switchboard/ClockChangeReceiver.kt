@@ -24,7 +24,7 @@ class ClockChangeReceiver : BroadcastReceiver() {
 		// Defensive around the encrypted store, mirroring BootReceiver's identical guard: skip rather
 		// than fall back to or crash on an unreadable store on an unprovisioned device with nothing to
 		// re-sync anyway.
-		val provisioned = runCatching { AppStateStore(context).load() != null }.getOrDefault(false)
+		val provisioned = runIsolated { AppStateStore(context).load() != null }.getOrDefault(false)
 		if (!provisioned) return
 		DebugLog.log("ClockChange", "action=${intent.action}, re-syncing scheduled-send alarm")
 		// The service may already be running (the mainline case - a clock change happens while the

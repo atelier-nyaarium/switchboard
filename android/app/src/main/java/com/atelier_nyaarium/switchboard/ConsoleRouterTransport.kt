@@ -48,7 +48,7 @@ internal class ConsoleRouterTransport(
 		get() = credentials.appToken
 
 	override fun clientFor(base: String): okhttp3.OkHttpClient {
-		val host = runCatching { java.net.URI(base).host }.getOrNull() ?: return client
+		val host = runIsolated { java.net.URI(base).host }.getOrNull() ?: return client
 		if (!isPrivateHost(host)) return client
 		return client.newBuilder()
 			.connectTimeout(LAN_CONNECT_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
@@ -58,7 +58,7 @@ internal class ConsoleRouterTransport(
 	init {
 		DebugLog.log(
 			"Router",
-			"transport candidates=${candidates.map { runCatching { java.net.URI(it).host }.getOrNull() ?: "?" }}",
+			"transport candidates=${candidates.map { runIsolated { java.net.URI(it).host }.getOrNull() ?: "?" }}",
 		)
 	}
 
@@ -68,7 +68,7 @@ internal class ConsoleRouterTransport(
 	internal fun failedToReach(base: String): Boolean {
 		val next = nextReachIndex(candidates, current, base) ?: return false
 		if (next == current) return true
-		DebugLog.log("Router", "unreachable ${runCatching { java.net.URI(base).host }.getOrNull()}, trying ${runCatching { java.net.URI(candidates[next]).host }.getOrNull()}")
+		DebugLog.log("Router", "unreachable ${runIsolated { java.net.URI(base).host }.getOrNull()}, trying ${runIsolated { java.net.URI(candidates[next]).host }.getOrNull()}")
 		current = next
 		return true
 	}
@@ -102,7 +102,7 @@ internal class ConsoleRouterTransport(
 
 	private fun selfCorrectBootstrap(publicHost: String, publicPort: Int?) {
 		val blob = store.load() ?: return
-		val json = runCatching { org.json.JSONObject(blob) }.getOrNull() ?: return
+		val json = runIsolated { org.json.JSONObject(blob) }.getOrNull() ?: return
 		val currentUrl = json.optString("routerUrl")
 		if (currentUrl.isEmpty()) return
 		val port = publicPort ?: reachPort(currentUrl, DEFAULT_ROUTER_PORT)
@@ -123,7 +123,7 @@ internal class ConsoleRouterTransport(
 				if (!resp.isSuccessful) error("HTTP ${resp.code}: ${text.take(300)}")
 			}
 		}
-		val reach = runCatching { fetchReach() }.getOrNull()
+		val reach = runIsolated { fetchReach() }.getOrNull()
 		reached(reach)
 		return reach
 	}

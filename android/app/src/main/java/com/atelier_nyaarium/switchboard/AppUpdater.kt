@@ -110,7 +110,7 @@ object AppUpdater {
 		val intent = Intent(Intent.ACTION_VIEW)
 			.setDataAndType(uri, "application/vnd.android.package-archive")
 			.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-		runCatching { context.startActivity(intent) }
+		runIsolated { context.startActivity(intent) }
 	}
 
 	fun installedVersionCode(context: Context): Long =

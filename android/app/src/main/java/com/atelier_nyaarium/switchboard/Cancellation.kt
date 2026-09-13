@@ -20,3 +20,9 @@ fun <T> Result<T>.rethrowCancellation(): Result<T> = onFailure { it.rethrowIfCan
  * catches Throwable, cancellation included), silently turning "this coroutine was cancelled" into
  * an ordinary failure Result. */
 inline fun <T> runCatchingCancellable(block: () -> T): Result<T> = runCatching(block).rethrowCancellation()
+
+/**
+ * Catches everything, cancellation included. For work that is not a coroutine, or a boundary that must
+ * not throw. Around a suspend call, chain `.rethrowCancellation()` after any cleanup.
+ */
+inline fun <T> runIsolated(block: () -> T): Result<T> = runCatching(block)

@@ -18,7 +18,7 @@ class BootReceiver : BroadcastReceiver() {
 		// modern Android, but if the keystore is somehow unavailable we skip rather
 		// than fall back to (or crash on) an unreadable store. The app launch will
 		// start the service normally later.
-		val provisioned = runCatching { AppStateStore(context).load() != null }.getOrDefault(false)
+		val provisioned = runIsolated { AppStateStore(context).load() != null }.getOrDefault(false)
 		if (!provisioned) return
 		SwitchboardService.start(context)
 	}

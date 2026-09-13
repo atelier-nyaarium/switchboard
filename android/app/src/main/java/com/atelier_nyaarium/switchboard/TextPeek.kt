@@ -35,7 +35,7 @@ object TextPeek {
 	/** The head of a file plus whether more of it exists beyond the peek. */
 	class Peek(val bytes: ByteArray, val truncated: Boolean)
 
-	fun read(file: File): Peek? = runCatching {
+	fun read(file: File): Peek? = runIsolated {
 		file.inputStream().use { stream ->
 			val buffer = ByteArray(PEEK_BYTES)
 			var filled = 0

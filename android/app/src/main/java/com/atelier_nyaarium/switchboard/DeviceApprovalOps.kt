@@ -38,7 +38,7 @@ internal fun parseConsoleTransport(plain: String): ConsoleTransport {
 
 internal fun verifyDeviceJoin(approvalId: String, nonce: String, join: ConsoleApprovalJoin): Boolean {
 	val signature = join.joinSig ?: return false
-	return runCatching {
+	return runIsolated {
 		Crypto.verify(
 			Crypto.deviceJoinSigningBytes(approvalId, nonce, join.newSignPub, join.newBoxPub),
 			signature,
@@ -57,10 +57,10 @@ internal class DeviceApprovalOps(
 	private val approvalNonces get() = collaborators.approvalNonces()
 
 	fun deviceApprovalReach(): String? =
-		runCatching { store.load()?.let { ConsoleCredentials.parse(it, store) } }.getOrNull()?.deviceApprovalReach?.takeIf { it.isNotEmpty() }
+		runIsolated { store.load()?.let { ConsoleCredentials.parse(it, store) } }.getOrNull()?.deviceApprovalReach?.takeIf { it.isNotEmpty() }
 
 	private fun routerCertFp(): String =
-		runCatching { store.load()?.let { ConsoleCredentials.parse(it, store) } }.getOrNull()?.routerCertFp ?: ""
+		runIsolated { store.load()?.let { ConsoleCredentials.parse(it, store) } }.getOrNull()?.routerCertFp ?: ""
 
 	suspend fun armDeviceApproval(): Result<DeviceApprovalArmed> = withContext(Dispatchers.IO) {
 		runCatchingCancellable {
@@ -165,7 +165,7 @@ internal class DeviceApprovalOps(
 	}
 
 	suspend fun newDeviceJoin(scan: ScannedDeviceApproval): Result<Unit> = withContext(Dispatchers.IO) {
-		runCatching {
+		runIsolated {
 			val id = identity.federation.consoleIdentity()
 			// These keys are reused when the new device unwraps transport.
 			val joinSig = Crypto.sign(
@@ -187,11 +187,11 @@ internal class DeviceApprovalOps(
 	}
 
 	suspend fun newDeviceFetch(scan: ScannedDeviceApproval): Result<Boolean> = withContext(Dispatchers.IO) {
-		runCatching {
+		runIsolated {
 			val op = ConsoleApprovalOp.Fetch(approvalId = scan.approvalId, nonce = scan.nonce)
 			val result = ConsoleHttp.postPublicApproval(scan.reach, op)
 			if (!result.ok) error(result.error ?: "The approval window expired.")
-			val sealed = result.sealed ?: return@runCatching false
+			val sealed = result.sealed ?: return@runIsolated false
 			// The QR owner key authenticates the sealed transport.
 			val plain = identity.federation.unsealConsoleTransport(sealed, scan.ownerSignPub)
 			val transport = parseConsoleTransport(plain.toString(Charsets.UTF_8))

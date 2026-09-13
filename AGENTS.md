@@ -878,10 +878,10 @@ refuses zero-width characters, em dashes and smart quotes in Kotlin, TypeScript 
 same tools turn a `\u` escape typed into an edit into the character, and `biome check --write`
 rewrites an escaped `RegExp` string into a literal, so restore such a line from git rather than retyping it.
 
-**A catch around a suspend call rethrows cancellation:** `runCatching` and `catch (e: Exception)` both
-take `CancellationException`, so a coroutine its caller cancelled runs on and writes state nobody wants.
-Use `runCatchingCancellable` or `rethrowIfCancellation`. `cancellation-residue.test.ts` reads every one
-in a suspending context; a `withContext(NonCancellable)` ancestor exempts it.
+**A catch around a suspend call rethrows cancellation:** raw `runCatching` is refused everywhere on the
+phone. Use `runCatchingCancellable` for coroutine work and `runIsolated` for non-coroutine work or
+boundaries that must not throw. A `runIsolated` around a suspend call must chain
+`rethrowCancellation` after cleanup; the residue test reads it.
 
 **A long-lived coroutine scope on the phone carries a `CoroutineExceptionHandler`:** it outlives the
 call that made it, so a throw inside has no caller to catch it, and a `SupervisorJob` only spares

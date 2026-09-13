@@ -91,7 +91,7 @@ internal class PhoneIdentity(private val store: AppStateStore, private val feder
 
 	/** Resolved against the blob still on disk, so it must run before the new one lands. */
 	private fun rememberConversationId(blob: String) {
-		val wire = runCatching { wireJson.decodeFromString<Provisioning>(blob) }.getOrNull() ?: return
+		val wire = runIsolated { wireJson.decodeFromString<Provisioning>(blob) }.getOrNull() ?: return
 		store.saveConversationId(ConsoleCredentials.conversationIdFor(wire, store))
 	}
 

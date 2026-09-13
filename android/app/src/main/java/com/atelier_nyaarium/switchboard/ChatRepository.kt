@@ -109,7 +109,7 @@ class ChatRepository(
 	internal fun transport(): ConsoleRouterTransport = provisioningHost.transport()
 
 	/** Null for anything but a qualified target; nothing here resolves a bare name. */
-	internal fun fromCanonical(from: String): String? = runCatching { parseQualifiedTarget(from).canonical }.getOrNull()
+	internal fun fromCanonical(from: String): String? = runIsolated { parseQualifiedTarget(from).canonical }.getOrNull()
 
 	internal val provisioningHost: RepositoryProvisioningHost = ChatRepositoryProvisioningHost(this)
 	internal val attachmentHost: AttachmentHost = ChatRepositoryAttachmentHost(this)

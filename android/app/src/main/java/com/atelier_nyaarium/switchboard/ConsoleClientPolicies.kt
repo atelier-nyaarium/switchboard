@@ -20,7 +20,7 @@ internal sealed interface PolicyListAnswer {
 internal suspend fun ConsoleClient.policyList(gatewayId: String): PolicyListAnswer =
 	when (val answer = sendValueAnswer(gatewayId, ConsoleOp.PolicyList)) {
 		is ConsoleClient.ValueAnswer.Answered ->
-			runCatching { wireJson.decodeFromJsonElement<ConsolePolicyListResult>(answer.result) }
+			runIsolated { wireJson.decodeFromJsonElement<ConsolePolicyListResult>(answer.result) }
 				.map { PolicyListAnswer.Listed(it.policies) }
 				.getOrElse { PolicyListAnswer.Unreachable }
 		is ConsoleClient.ValueAnswer.Refused -> PolicyListAnswer.Refused

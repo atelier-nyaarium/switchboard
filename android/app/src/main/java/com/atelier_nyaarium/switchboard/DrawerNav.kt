@@ -181,4 +181,4 @@ internal fun rootMark(view: RootView, pendingRequests: Int): DrawerMark? =
 /** Badges mark the closed drawer. */
 internal fun anyBadge(marks: List<DrawerMark?>): Boolean = marks.any { it is DrawerMark.Badge }
 
-internal fun addressOf(team: String): Address? = runCatching { parseQualifiedTarget(team) }.getOrNull() as? Address
+internal fun addressOf(team: String): Address? = runIsolated { parseQualifiedTarget(team) }.getOrNull() as? Address

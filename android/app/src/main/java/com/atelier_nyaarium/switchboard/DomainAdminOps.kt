@@ -155,14 +155,14 @@ internal class DomainAdminOps(
 
 	private fun loadHostedTenants(): List<HostedTenant> {
 		val json = store.loadHostedTenants() ?: return emptyList()
-		val arr = runCatching { JSONArray(json) }.getOrNull()
+		val arr = runIsolated { JSONArray(json) }.getOrNull()
 		if (arr == null) {
 			DebugLog.log("Persist", "hosted-tenants blob unparseable (${json.length} chars), treating as none")
 			return emptyList()
 		}
 		// Skip malformed rows without discarding valid tenants.
 		return (0 until arr.length()).mapNotNull { i ->
-			runCatching {
+			runIsolated {
 				val o = arr.getJSONObject(i)
 				HostedTenant(
 					domainId = o.getString("domainId"),
@@ -179,6 +179,6 @@ internal class DomainAdminOps(
 		for (r in rows) {
 			arr.put(JSONObject().put("domainId", r.domainId).put("displayName", r.displayName).put("nonce", r.nonce))
 		}
-		runCatching { store.saveHostedTenants(arr.toString()) }
+		runIsolated { store.saveHostedTenants(arr.toString()) }
 	}
 }

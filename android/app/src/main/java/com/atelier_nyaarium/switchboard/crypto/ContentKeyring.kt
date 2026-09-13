@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.AppStateStore
 import com.atelier_nyaarium.switchboard.ContentKeysLoad
 import com.atelier_nyaarium.switchboard.DebugLog
 import com.atelier_nyaarium.switchboard.proto.KeyEnvelope
+import com.atelier_nyaarium.switchboard.runIsolated
 
 class ContentKeyring(private val recipientBoxPrivB64: String = "", private val store: AppStateStore? = null) {
 	private val load = store?.loadContentKeys() ?: ContentKeysLoad.Loaded(emptyMap())
@@ -63,7 +64,7 @@ class ContentKeyring(private val recipientBoxPrivB64: String = "", private val s
 			if (keyring.resolveAdmittedConsole(envelope.signerSignPub) == null) {
 				return Merge.Refused("key signer is not an admitted console")
 			}
-			val (epoch, key) = runCatching { Crypto.unwrapContentKey(envelope, recipientBoxPrivB64) }.getOrNull()
+			val (epoch, key) = runIsolated { Crypto.unwrapContentKey(envelope, recipientBoxPrivB64) }.getOrNull()
 				?: return Merge.Refused("content key envelope is invalid")
 			val held = merged[epoch]
 			if (held != null && !held.contentEquals(key)) {

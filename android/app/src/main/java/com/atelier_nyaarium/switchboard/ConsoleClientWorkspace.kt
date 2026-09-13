@@ -41,7 +41,7 @@ private suspend inline fun <reified T> ConsoleClient.workspaceRead(
 	return when (answer) {
 		is ConsoleClient.ValueAnswer.Answered -> {
 			// An undecodable answer is a peer this build cannot read, not a refusal about the file.
-			val decoded = runCatching { wireJson.decodeFromJsonElement<T>(answer.result) }.getOrNull()
+			val decoded = runIsolated { wireJson.decodeFromJsonElement<T>(answer.result) }.getOrNull()
 			if (decoded == null) WorkspaceAnswer.Unreachable else WorkspaceAnswer.Read(decoded)
 		}
 		is ConsoleClient.ValueAnswer.Refused -> WorkspaceAnswer.Refused(answer.reason)

@@ -55,14 +55,14 @@ object ImageThumbs {
 	/** Decode near tile size and never larger than the ceiling, then trim the remainder. inSampleSize
 	 * only halves, so it lands within a factor of two; the scale afterwards is what makes a cached
 	 * thumb a predictable size instead of one that grows with the source. */
-	private fun decodeThumb(file: File): Bitmap? = runCatching {
+	private fun decodeThumb(file: File): Bitmap? = runIsolated {
 		val probe = BitmapFactory.Options().apply { inJustDecodeBounds = true }
 		BitmapFactory.decodeFile(file.path, probe)
-		if (probe.outWidth <= 0 || probe.outHeight <= 0) return@runCatching null
+		if (probe.outWidth <= 0 || probe.outHeight <= 0) return@runIsolated null
 
 		val sample = sampleFor(probe.outWidth, probe.outHeight)
 		val decoded = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
-			?: return@runCatching null
+			?: return@runIsolated null
 		scaleToTile(decoded)
 	}.getOrNull()
 

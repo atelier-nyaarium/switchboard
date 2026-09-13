@@ -94,18 +94,18 @@ internal class ChatRepositoryScheduledSendCollaborators(private val repo: ChatRe
 		val key = boot.contentKeyring.keyFor(epoch) ?: return null
 		return Crypto.sealContent(plaintext, key, Crypto.ContentAad(boot.domainId, boot.ownerSignPub, epoch, scheduledBodyAadKind(boot.conversationId, opId)))
 	}
-	override fun openScheduledBody(body: ContentEnvelope, opId: String): ByteArray? = runCatching {
+	override fun openScheduledBody(body: ContentEnvelope, opId: String): ByteArray? = runIsolated {
 		val boot = repo.readyOrNull() ?: return null
 		val key = boot.contentKeyring.keyFor(body.epoch.toInt()) ?: return null
 		Crypto.openContent(body, key, Crypto.ContentAad(boot.domainId, boot.ownerSignPub, body.epoch.toInt(), scheduledBodyAadKind(boot.conversationId, opId)))
 	}.getOrNull()
 	override fun targetOf(team: String): ScheduledTarget? {
-		val parsed = runCatching { com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget(team) as Address }.getOrNull() ?: return null
+		val parsed = runIsolated { com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget(team) as Address }.getOrNull() ?: return null
 		return ScheduledTarget(parsed.domain, parsed.gateway, parsed.spawn + "." + parsed.session)
 	}
 	override fun teamOf(target: ScheduledTarget): String? = repo.state.value.teams.firstOrNull { targetOf(it.name) == target }?.name
 	override suspend fun uploadFile(file: MessageFile): String = repo.client().uploadSealedBlob(Attachments.fileFor(repo.filesDir, file.src) ?: error("missing scheduled file"))
-	override suspend fun fetchFile(file: MessageFile, bucket: String): MessageFile? = runCatching {
+	override suspend fun fetchFile(file: MessageFile, bucket: String): MessageFile? = runIsolated {
 		val blobId = file.blobId ?: return null
 		val client = repo.client()
 		val src = Attachments.land(repo.filesDir, bucket, file.name, client.downloadBlob(blobId)) ?: return null

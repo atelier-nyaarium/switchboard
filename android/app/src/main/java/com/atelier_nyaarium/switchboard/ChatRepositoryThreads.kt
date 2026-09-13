@@ -105,7 +105,7 @@ fun ChatRepository.closeTab(team: String) {
 	// Stop speaking a thread the user just closed, but KEEP its cache: a close is reopenable and
 	// the audio was already paid for. Only `forget` deletes.
 	repoScope.launch { playback.dropQueuedFor(key) }
-	val t = runCatching { parseQualifiedTarget(team) }.getOrNull()
+	val t = runIsolated { parseQualifiedTarget(team) }.getOrNull()
 	if (t?.isCloseTabTarget() == true) {
 		drain.scope?.launch(Dispatchers.IO) {
 			runCatchingCancellable { client().closeSession(team) }

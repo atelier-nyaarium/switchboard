@@ -30,7 +30,7 @@ internal suspend fun ChatRepository.applyPlane(name: String, lineage: PlaneLinea
 	if (name == "taskBoard") return revisionPlane(name, lineage, board.planeLineage(), board::adoptEpoch) { boardOps.refreshBoard() }
 	if (name == "vault") return revisionPlane(name, lineage, vault.planeLineage(), vault::adoptEpoch) { vaultOps.refresh() }
 	if (name != "presence" || payload == null) return false
-	val projection = runCatching {
+	val projection = runIsolated {
 		wireJson.decodeFromJsonElement(com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection.serializer(), payload)
 	}.getOrNull() ?: return false
 	presence.applyOwnerProjection(projection)
@@ -90,13 +90,13 @@ internal suspend fun ChatRepository.dispatchInboxRows(rows: List<com.atelier_nya
 		val epochText = (row.envelope.epoch as? JsonPrimitive)?.content
 		if (epochText == "clear" && row.envelope.kind in setOf("scheduled_result", "board_observation")) {
 			when (row.envelope.kind) {
-				"scheduled_result" -> runCatching {
+				"scheduled_result" -> runIsolated {
 					wireJson.decodeFromJsonElement(com.atelier_nyaarium.switchboard.proto.ScheduledResultRow.serializer(), row.body)
 				}.onSuccess(onScheduledResult).onFailure {
 					DebugLog.log("Inbox", "scheduled result parse failed seq=${row.seq}")
 					entries += unavailableEntry(row)
 				}
-				"board_observation" -> runCatching {
+				"board_observation" -> runIsolated {
 					wireJson.decodeFromJsonElement(com.atelier_nyaarium.switchboard.proto.BoardObservationRow.serializer(), row.body)
 				}.onSuccess(onBoardObservation).onFailure {
 					DebugLog.log("Inbox", "board observation parse failed seq=${row.seq}")
@@ -106,13 +106,13 @@ internal suspend fun ChatRepository.dispatchInboxRows(rows: List<com.atelier_nya
 			continue
 		}
 		if (row.envelope.kind == Protocol.Wire.OWNER_OP_OP_RESULT) {
-			val result = runCatching {
+			val result = runIsolated {
 				val body = wireJson.decodeFromJsonElement(
 					ContentEnvelope.serializer(),
 					row.body,
 				)
 				val epoch = body.epoch.toInt()
-				val key = federation.contentKeyring().keyFor(epoch) ?: return@runCatching null
+				val key = federation.contentKeyring().keyFor(epoch) ?: return@runIsolated null
 				val plain = com.atelier_nyaarium.switchboard.crypto.Crypto.openContent(
 					body,
 					key,
@@ -140,12 +140,12 @@ internal suspend fun ChatRepository.dispatchInboxRows(rows: List<com.atelier_nya
 			dispatchKeyRows(listOf(row))
 			continue
 		}
-		val entry = runCatching {
+		val entry = runIsolated {
 			val envelope = wireJson.decodeFromJsonElement(ContentEnvelope.serializer(), row.body)
 			val epoch = envelope.epoch.toInt()
 			val key = federation.contentKeyring().keyFor(epoch) ?: run {
 				keyDelivery.requestMissing(epoch)
-				return@runCatching unavailableEntry(row)
+				return@runIsolated unavailableEntry(row)
 			}
 			val plain = com.atelier_nyaarium.switchboard.crypto.Crypto.openContent(
 				envelope,

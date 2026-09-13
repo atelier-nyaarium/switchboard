@@ -110,7 +110,7 @@ internal class MutationJournal(
 		val corrupt = mutableListOf<String>()
 		for ((index, raw) in rawLines.withIndex()) {
 			if (raw.isBlank()) continue
-			val entry = runCatching {
+			val entry = runIsolated {
 				val json = JSONObject(raw)
 				MutationEntry(
 					json.getString("opId"),

@@ -24,7 +24,7 @@ sealed interface IdentityLoad {
 		/** Classifies absent, loaded, and corrupt blobs. */
 		fun classify(raw: String?): IdentityLoad {
 			if (raw == null) return Absent
-			return runCatching { wireJson.decodeFromString(Crypto.Identity.serializer(), raw) }
+			return runIsolated { wireJson.decodeFromString(Crypto.Identity.serializer(), raw) }
 				.fold({ Loaded(it) }, { Corrupt })
 		}
 	}
@@ -37,7 +37,7 @@ sealed interface ContentKeysLoad {
 	data class Corrupt(val raw: String) : ContentKeysLoad
 }
 
-private fun securePreferences(context: Context): Pair<SharedPreferences, Boolean> = runCatching {
+private fun securePreferences(context: Context): Pair<SharedPreferences, Boolean> = runIsolated {
 		val key = MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
 		EncryptedSharedPreferences.create(
 			context,
@@ -347,7 +347,7 @@ class AppStateStore internal constructor(
 
 	fun loadContentKeys(): ContentKeysLoad {
 		val raw = prefs.getString(KEY_CONTENT_KEYS, null) ?: return ContentKeysLoad.Absent
-		return runCatching {
+		return runIsolated {
 			val json = JSONObject(raw)
 			val keys = buildMap {
 				json.keys().forEach { name ->
@@ -420,7 +420,7 @@ class AppStateStore internal constructor(
 		get() {
 			// Corrupt values mean no suggestion.
 			val raw = prefs.getString(KEY_LAST_PROJECT, null) ?: return emptyMap()
-			return runCatching {
+			return runIsolated {
 				val o = JSONObject(raw)
 				o.keys().asSequence().mapNotNull { k -> o.optString(k).takeIf { it.isNotEmpty() }?.let { k to it } }.toMap()
 			}.getOrDefault(emptyMap())

@@ -2058,6 +2058,12 @@ Mock: `ref-viewer.html`. Phase 6 deferred this for want of a live read and a Kot
   - Phase 6 fixed `workspaceRead` by hand.
   - The first fence found 19 sites. Its audit showed it could not see a suspend lambda parameter or an
     expression body, and the sharper fence then found `BoardRouterWriter.write` wrapping `signAndPost`.
+- **Redesign:** a raw `runCatching` is refused on the phone, so every catch names what it is:
+  `runCatchingCancellable` for coroutine work, `runIsolated` for work that is not a coroutine or a boundary
+  that must not throw. The fence reads a `runIsolated` around a suspend call and refuses it unless it chains
+  `rethrowCancellation`. Renaming all 215 sites to the cancellation-safe form was tried first; its red team
+  found plugin callbacks, a listener executor and the draft worker's guard leaking a cancellation, and
+  cleanup in failure chains skipped, so every remaining site became `runIsolated`, a pure rename.
 - **Mechanism:** editing tools over escaped text.
 - **Defect class:** a `\u` escape typed into an edit becomes the character, and `biome check --write`
   rewrote the control-byte fence's escaped `RegExp` into a literal. Restored from git; the line carries a

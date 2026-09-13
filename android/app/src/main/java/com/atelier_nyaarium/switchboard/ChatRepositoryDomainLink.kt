@@ -66,7 +66,7 @@ internal fun parseRouterUrl(url: String, fallbackPort: Int): Pair<String, Int>? 
 /** Current direct Router endpoint. */
 fun ChatRepository.currentRouterEndpoint(fallbackPort: Int): RouterEndpoint? {
 	val blob = store.load() ?: return null
-	val json = runCatching { JSONObject(blob) }.getOrNull() ?: return null
+	val json = runIsolated { JSONObject(blob) }.getOrNull() ?: return null
 	val direct = json.optString("transport") == "direct"
 	val url = json.optString("routerUrl")
 	if (url.isEmpty()) return null
@@ -135,7 +135,7 @@ suspend fun ChatRepository.setDeviceName(name: String) = withContext(Dispatchers
 }
 
 internal fun ChatRepository.currentDeviceName(): String =
-	store.load()?.let { runCatching { ConsoleCredentials.parse(it, store).device }.getOrNull() } ?: ""
+	store.load()?.let { runIsolated { ConsoleCredentials.parse(it, store).device }.getOrNull() } ?: ""
 
 suspend fun ChatRepository.clearAll() = withContext(Dispatchers.IO) {
 	// Join the poll loop before wiping state.

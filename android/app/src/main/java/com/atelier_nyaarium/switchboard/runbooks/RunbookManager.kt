@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard.runbooks
 import com.atelier_nyaarium.switchboard.ClearsOnReprovision
 import com.atelier_nyaarium.switchboard.DebugLog
 import com.atelier_nyaarium.switchboard.proto.Runbook
+import com.atelier_nyaarium.switchboard.runIsolated
 import kotlinx.serialization.json.Json
 
 interface RunbookStore {
@@ -24,7 +25,7 @@ class RunbookManager(private val store: RunbookStore) : ClearsOnReprovision {
 
 	private fun load(): Map<String, List<Runbook>> {
 		val raw = store.loadRunbooks() ?: return emptyMap()
-		runCatching { json.decodeFromString<Map<String, List<Runbook>>>(raw) }.getOrNull()?.let { return it }
+		runIsolated { json.decodeFromString<Map<String, List<Runbook>>>(raw) }.getOrNull()?.let { return it }
 		DebugLog.log("Runbook", "stored library could not be decoded; starting empty")
 		return emptyMap()
 	}
@@ -65,7 +66,7 @@ class RunbookManager(private val store: RunbookStore) : ClearsOnReprovision {
 
 	private fun commit(gatewayId: String, next: List<Runbook>): List<Runbook> {
 		val candidate = libraries + (gatewayId to next)
-		val written = runCatching { store.saveRunbooks(json.encodeToString(candidate)) }
+		val written = runIsolated { store.saveRunbooks(json.encodeToString(candidate)) }
 		if (written.isFailure) {
 			DebugLog.log("Runbook", "library could not be written: ${written.exceptionOrNull()?.message}")
 			return libraryOf(gatewayId)
@@ -77,7 +78,7 @@ class RunbookManager(private val store: RunbookStore) : ClearsOnReprovision {
 	override suspend fun clearInMemory() {
 		synchronized(stateLock) {
 			libraries = emptyMap()
-			runCatching { store.saveRunbooks(json.encodeToString(emptyMap<String, List<Runbook>>())) }
+			runIsolated { store.saveRunbooks(json.encodeToString(emptyMap<String, List<Runbook>>())) }
 				.onFailure { DebugLog.log("Runbook", "library could not be cleared: ${it.message}") }
 		}
 	}

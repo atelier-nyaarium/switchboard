@@ -398,7 +398,7 @@ private fun PlaybackPreferences(repo: ChatRepository) {
 			// the grant. A provider that will not persist one simply plays until it stops working,
 			// which the resolver already falls back from.
 			picked?.let { uri ->
-				runCatching {
+				runIsolated {
 					chimeContext.contentResolver
 						.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
 				}
@@ -478,7 +478,7 @@ private fun PlaybackPreferences(repo: ChatRepository) {
 				// settings screen, and the bubble is an addition - failing to open its grant page must
 				// not take the settings screen down with it.
 				onClick = hapticClick {
-					runCatching {
+					runIsolated {
 						overlayGrant.launch(
 							Intent(
 								android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,

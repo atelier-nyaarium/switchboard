@@ -73,14 +73,14 @@ object VideoThumbs {
 
 	private fun extract(filesDir: File, key: String, source: File): List<String> {
 		val retriever = MediaMetadataRetriever()
-		return runCatching {
+		return runIsolated<List<String>> {
 			retriever.setDataSource(source.path)
 			// Probed FIRST. A null or non-numeric duration has no defined behaviour in the sampling
 			// arithmetic, and an audio-only container carrying a video mime would otherwise run every
 			// seek just to collect nulls.
 			val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
 				?.toLongOrNull()
-				?: return@runCatching emptyList()
+				?: return@runIsolated emptyList()
 			val offsets = VideoSampling.pointsMs(duration).ifEmpty { listOf(VideoSampling.midpointMs(duration)) }
 			val dir = File(Attachments.root(filesDir), bucketFor(key)).apply { mkdirs() }
 
@@ -95,7 +95,7 @@ object VideoThumbs {
 					FRAME_DIM,
 				) ?: return@mapIndexedNotNull null
 				val name = "%02d.jpg".format(i)
-				runCatching {
+				runIsolated {
 					File(dir, name).outputStream().use { frame.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it) }
 					name
 				}.getOrNull().also { frame.recycle() }
@@ -107,6 +107,6 @@ object VideoThumbs {
 			} else {
 				written.map { "${Attachments.assetBase()}/${bucketFor(key)}/$it" }
 			}
-		}.getOrDefault(emptyList()).also { runCatching { retriever.release() } }
+		}.getOrDefault(emptyList()).also { runIsolated { retriever.release() } }
 	}
 }

@@ -48,7 +48,7 @@ data class ConsoleCredentials(
 		internal fun conversationIdFor(wire: Provisioning, store: AppStateStore): String {
 			// The credential and Domain identify the console across transport changes.
 			wire.conversationId?.let { return it }
-			val stored = store.load()?.let { runCatching { wireJson.decodeFromString<Provisioning>(it) }.getOrNull() }
+			val stored = store.load()?.let { runIsolated { wireJson.decodeFromString<Provisioning>(it) }.getOrNull() }
 			val sameConsole = stored != null && stored.appToken == wire.appToken && stored.pendingTenant == wire.pendingTenant
 			return (if (sameConsole) store.loadConversationId() else null) ?: UUID.randomUUID().toString()
 		}

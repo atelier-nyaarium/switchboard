@@ -36,7 +36,7 @@ internal class RenameOps(private val host: RenameHost) {
 			host.setLabel(team, "")
 			return
 		}
-		val t = runCatching { parseQualifiedTarget(team) }.getOrNull()
+		val t = runIsolated { parseQualifiedTarget(team) }.getOrNull()
 		val isLocal = t is Address && host.state.value.gateways.owns(t, host.localDomain())
 		val previous = host.state.value.labels[team]
 		if (isLocal) host.setLabel(team, trimmed)

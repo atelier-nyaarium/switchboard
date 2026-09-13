@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard.plugins
 
 import com.atelier_nyaarium.switchboard.proto.EnabledPlugin
+import com.atelier_nyaarium.switchboard.runIsolated
 
 /** One plugin's row for the settings UI. */
 data class PluginUiState(
@@ -62,7 +63,7 @@ class PluginManager(
 	init {
 		val seen = mutableSetOf<String>()
 		records = catalog.map { entry ->
-			val record = runCatching { PluginManifest.parse(readManifest(entry.assetDir)) }.fold(
+			val record = runIsolated { PluginManifest.parse(readManifest(entry.assetDir)) }.fold(
 				{ Record(entry.assetDir, entry.entry, it, broken = null) },
 				{ Record(entry.assetDir, entry.entry, manifest = null, broken = "manifest failed to load: ${it.message}") },
 			)
@@ -158,7 +159,7 @@ class PluginManager(
 	 * partial claims, so the failure path retract-sweeps before marking the plugin broken -
 	 * a half-registered plugin never stays half-live. */
 	private fun load(record: Record): Boolean {
-		val result = runCatching { runtime.context.with(record.id) { record.entry.register(host) } }
+		val result = runIsolated { runtime.context.with(record.id) { record.entry.register(host) } }
 		return result.fold(
 			{
 				loaded.add(record.id)

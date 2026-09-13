@@ -51,7 +51,7 @@ internal fun readClipboard(context: Context): String? {
 }
 
 // The precheck only accepts JSON carrying both Router fields.
-internal fun looksProvisionable(s: String): Boolean = runCatching {
+internal fun looksProvisionable(s: String): Boolean = runIsolated {
 	val j = org.json.JSONObject(s.trim())
 	j.has("routerUrl") && j.has("routerCertFp")
 }.getOrDefault(false)
@@ -121,9 +121,9 @@ fun ProvisionScreen(
 	val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
 		if (uri == null) return@rememberLauncherForActivityResult
 		// The wildcard picker requires a size bound before reading.
-		val text = runCatching {
+		val text = runIsolated {
 			val length = context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1
-			if (length < 0 || length > MAX_PROVISION_BLOB_BYTES) return@runCatching null
+			if (length < 0 || length > MAX_PROVISION_BLOB_BYTES) return@runIsolated null
 			context.contentResolver.openInputStream(uri)?.use { it.readAllBytes().decodeToString() }
 		}.getOrNull()
 		tryProvision(text, "file")

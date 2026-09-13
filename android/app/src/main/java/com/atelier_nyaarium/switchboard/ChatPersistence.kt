@@ -13,7 +13,7 @@ import org.json.JSONObject
  * map drops it for good. The exact-3-dots check enforces arity 4 (the qualified parser also accepts
  * arity 3). */
 private fun isAddressKey(rawKey: String): Boolean =
-	rawKey.count { it == '.' } == 3 && runCatching { parseQualifiedTarget(rawKey) }.isSuccess
+	rawKey.count { it == '.' } == 3 && runIsolated { parseQualifiedTarget(rawKey) }.isSuccess
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -78,7 +78,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 	}
 
 	internal fun persistThreads(threads: Map<String, List<Message>>) {
-		runCatching { store.saveThreads(threadsJson(threads)) }
+		runIsolated { store.saveThreads(threadsJson(threads)) }
 	}
 
 	private fun readAnchorsJson(anchors: Map<String, ReadAnchor>): String {
@@ -90,7 +90,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 	}
 
 	internal fun persistReadAnchors(anchors: Map<String, ReadAnchor>) {
-		runCatching { store.saveReadAnchors(readAnchorsJson(anchors)) }
+		runIsolated { store.saveReadAnchors(readAnchorsJson(anchors)) }
 	}
 
 	/** Write threads AND read anchors in one SharedPreferences batch (see
@@ -98,7 +98,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 	 * changed both, so a process kill between two separate writes can never strand one against
 	 * the other's stale value. */
 	internal fun persistThreadsAndReadAnchors(threads: Map<String, List<Message>>, anchors: Map<String, ReadAnchor>) {
-		runCatching { store.saveThreadsAndReadAnchors(threadsJson(threads), readAnchorsJson(anchors)) }
+		runIsolated { store.saveThreadsAndReadAnchors(threadsJson(threads), readAnchorsJson(anchors)) }
 	}
 
 	/** Load persisted read anchors, keyed by canonical address. On the FIRST run after this
@@ -109,7 +109,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 	internal fun loadPersistedReadAnchors(threads: Map<String, List<Message>>): Map<String, ReadAnchor> {
 		val json = store.loadReadAnchors()
 		if (json != null) {
-			return runCatching {
+			return runIsolated {
 				val root = JSONObject(json)
 				buildMap {
 					for (rawKey in root.keys()) {
@@ -127,7 +127,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 
 	internal fun loadPersistedThreads(): Map<String, List<Message>> {
 		val json = store.loadThreads() ?: return emptyMap()
-		return runCatching {
+		return runIsolated {
 			val root = JSONObject(json)
 			val merged = LinkedHashMap<String, MutableList<Message>>()
 			for (rawKey in root.keys()) {
@@ -182,7 +182,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 	}
 
 	internal fun persistLabels(labels: Map<String, String>) {
-		runCatching {
+		runIsolated {
 			val root = JSONObject()
 			for ((team, name) in labels) root.put(team, name)
 			store.saveLabels(root.toString())
@@ -191,7 +191,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 
 	internal fun loadPersistedLabels(): Map<String, String> {
 		val json = store.loadLabels() ?: return emptyMap()
-		return runCatching {
+		return runIsolated {
 			val root = JSONObject(json)
 			buildMap {
 				for (rawKey in root.keys()) {
@@ -227,13 +227,13 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 	}
 
 	internal fun persistScheduledSends(records: Map<String, ScheduledSend>) {
-		runCatching { store.saveScheduledSends(scheduledSendsJson(records)) }
+		runIsolated { store.saveScheduledSends(scheduledSendsJson(records)) }
 	}
 
 	/** Drops malformed rows individually. */
 	internal fun loadPersistedScheduledSends(): Map<String, ScheduledSend> {
 		val json = store.loadScheduledSends() ?: return emptyMap()
-		val root = runCatching { JSONObject(json) }.getOrNull()
+		val root = runIsolated { JSONObject(json) }.getOrNull()
 		if (root == null) {
 			// Banked sends vanishing with no trace reads as an app that forgot; leave a trace.
 			DebugLog.log("Persist", "scheduled-sends blob unparseable (${json.length} chars), dropping all")
@@ -242,11 +242,11 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 		return buildMap {
 			for (rawKey in root.keys()) {
 				if (!isAddressKey(rawKey)) continue
-				runCatching {
+				runIsolated {
 					val obj = root.getJSONObject(rawKey)
 					val opId = obj.optString("opId")
 					val fireAt = obj.optLong("fireAt")
-					if (opId.isEmpty() || fireAt <= 0L) return@runCatching null
+					if (opId.isEmpty() || fireAt <= 0L) return@runIsolated null
 					ScheduledSend(
 						text = obj.optString("text"),
 						fileRefs = loadFiles(obj),
@@ -265,7 +265,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 	}
 
 	internal fun persistGoals(records: Map<String, PendingGoal>) {
-		runCatching {
+		runIsolated {
 			val root = JSONObject()
 			for ((team, rec) in records) {
 				root.put(
@@ -284,7 +284,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 	 * with no text or no arming instant is dropped: nothing to type, or no clock to time out against. */
 	internal fun loadPersistedGoals(): Map<String, PendingGoal> {
 		val json = store.loadGoals() ?: return emptyMap()
-		val root = runCatching { JSONObject(json) }.getOrNull()
+		val root = runIsolated { JSONObject(json) }.getOrNull()
 		if (root == null) {
 			DebugLog.log("Persist", "goals blob unparseable (${json.length} chars), dropping all")
 			return emptyMap()
@@ -292,11 +292,11 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 		return buildMap {
 			for (rawKey in root.keys()) {
 				if (!isAddressKey(rawKey)) continue
-				runCatching {
+				runIsolated {
 					val obj = root.getJSONObject(rawKey)
 					val text = obj.optString("text")
 					val armedAt = obj.optLong("armedAt")
-					if (text.isEmpty() || armedAt <= 0L) return@runCatching null
+					if (text.isEmpty() || armedAt <= 0L) return@runIsolated null
 					PendingGoal(text = text, armedAt = armedAt, sentAt = obj.optLong("sentAt").takeIf { it > 0L })
 				}.getOrNull()?.let { put(rawKey, it) }
 			}
@@ -304,7 +304,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 	}
 
 	internal fun persistAbsenceStreaks(streak: Map<String, Int>) {
-		runCatching {
+		runIsolated {
 			val root = JSONObject()
 			for ((team, count) in streak) root.put(team, count)
 			store.saveAbsenceStreaks(root.toString())
@@ -313,7 +313,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 
 	internal fun loadPersistedAbsenceStreaks(): Map<String, Int> {
 		val json = store.loadAbsenceStreaks() ?: return emptyMap()
-		return runCatching {
+		return runIsolated {
 			val root = JSONObject(json)
 			buildMap {
 				for (rawKey in root.keys()) {
@@ -334,7 +334,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 	}
 
 	internal fun persistDrafts(records: Map<String, Draft>) {
-		runCatching {
+		runIsolated {
 			val root = JSONObject()
 			for ((team, draft) in records) {
 				val files = JSONArray()
@@ -350,7 +350,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 	/** Unoccupied rows drop. */
 	internal fun loadPersistedDrafts(): Map<String, Draft> {
 		val json = store.loadDrafts() ?: return emptyMap()
-		val root = runCatching { JSONObject(json) }.getOrNull()
+		val root = runIsolated { JSONObject(json) }.getOrNull()
 		if (root == null) {
 			DebugLog.log("Persist", "drafts blob unparseable (${json.length} chars), dropping all")
 			return emptyMap()
@@ -358,7 +358,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 		return buildMap {
 			for (rawKey in root.keys()) {
 				if (!isAddressKey(rawKey)) continue
-				runCatching {
+				runIsolated {
 					val obj = root.getJSONObject(rawKey)
 					Draft(text = obj.optString("text"), files = loadFiles(obj), locations = loadLocations(obj))
 				}.getOrNull()?.takeIf { it.isOccupied }?.let { put(rawKey, it) }

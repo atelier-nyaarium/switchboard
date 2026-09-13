@@ -149,7 +149,7 @@ internal fun ChatState.recomputeUnread(team: String, thread: List<Message>): Cha
 	copy(unread = unread + (team to unreadCount(thread, readAnchors[team])))
 
 internal fun sessionLeaf(canonical: String): String =
-	runCatching {
+	runIsolated {
 		when (val t = parseQualifiedTarget(canonical)) {
 			is Address -> t.session
 			else -> canonical.substringAfterLast('.')

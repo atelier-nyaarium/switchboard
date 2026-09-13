@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard.vault
 
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.gatewayOf
+import com.atelier_nyaarium.switchboard.runIsolated
 
 /** Under this the countdown reads in seconds and turns urgent. */
 internal const val EXPIRY_SECONDS_BELOW_MS = 120_000L
@@ -13,7 +14,7 @@ private const val SUDO_TRIES = 3
 
 /** Gateway, then the session's label. */
 internal fun requester(state: ChatState, request: VaultPendingRequest): String {
-	val gateway = runCatching { gatewayOf(request.team) }.getOrNull() ?: "?"
+	val gateway = runIsolated { gatewayOf(request.team) }.getOrNull() ?: "?"
 	return "$gateway · ${state.label(request.team)}"
 }
 

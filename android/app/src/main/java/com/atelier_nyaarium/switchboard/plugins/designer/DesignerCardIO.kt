@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard.plugins.designer
 
 import com.atelier_nyaarium.switchboard.Attachments
+import com.atelier_nyaarium.switchboard.runIsolated
 import java.io.File
 
 ////////////////////////////////
@@ -23,7 +24,7 @@ internal fun readCardPrefix(filesDir: File, rel: String, cap: Int = CARD_MARKER_
 	if (rel.isEmpty()) return null
 	val file = Attachments.resolve(filesDir, rel) ?: return null
 	if (file.length() > CARD_RENDER_CAP_BYTES) return null
-	return runCatching { file.inputStream().use { String(it.readNBytes(cap), Charsets.UTF_8) } }.getOrNull()
+	return runIsolated { file.inputStream().use { String(it.readNBytes(cap), Charsets.UTF_8) } }.getOrNull()
 }
 
 /** A card's full HTML for rendering (the viewer), or null when gone, oversize, or unreadable. Capped
@@ -35,7 +36,7 @@ internal fun readCardHtml(filesDir: File, rel: String): String? {
 		com.atelier_nyaarium.switchboard.DebugLog.log("Designer", "card ${file.name} is ${file.length()}B > ${CARD_RENDER_CAP_BYTES}B cap; not rendered")
 		return null
 	}
-	return runCatching { file.readText() }.getOrNull()
+	return runIsolated { file.readText() }.getOrNull()
 }
 
 /** Resolve an attachment-relative path to a File before acting on it. */

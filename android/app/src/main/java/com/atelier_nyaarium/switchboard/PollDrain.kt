@@ -65,18 +65,18 @@ internal suspend fun drainTick(
 	val answer = client.inboxRead(coordinator.cursor() + 1, coordinator.cursorEpoch())
 	if (answer is JsonArray) {
 		val rows = answer.mapNotNull { element ->
-			val decoded = runCatching {
+			val decoded = runIsolated {
 				wireJson.decodeFromJsonElement(com.atelier_nyaarium.switchboard.proto.InboxRow.serializer(), element)
 			}.getOrNull()
 			if (decoded != null) return@mapNotNull decoded
 			val objectValue = element as? JsonObject
-			val primitive = fun(name: String): String? = runCatching {
+			val primitive = fun(name: String): String? = runIsolated {
 				objectValue?.get(name)?.jsonPrimitive?.content
 			}.getOrNull()
 			val seq = primitive("seq")?.toLongOrNull()
 			DebugLog.log("Poll", "inbox row decode failed seq=${seq ?: "unknown"}")
 			val envelope = objectValue?.get("envelope")?.let { value ->
-				runCatching {
+				runIsolated {
 					wireJson.decodeFromJsonElement(com.atelier_nyaarium.switchboard.proto.RowEnvelope.serializer(), value)
 				}.getOrNull()
 			}
@@ -226,7 +226,7 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 		foldVersionedSlot(knownPlanes[name] ?: HeldLineage.NONE, lineage, observedAt) is SlotFold.Take
 
 	private fun lineageOf(value: JsonElement): PlaneLineage? =
-		runCatching { wireJson.decodeFromJsonElement(PlaneLineage.serializer(), value) }.getOrNull()
+		runIsolated { wireJson.decodeFromJsonElement(PlaneLineage.serializer(), value) }.getOrNull()
 
 	/** Welcome carries lineages only. */
 	internal suspend fun applyWelcomePlanes(welcome: JsonObject) {
@@ -278,7 +278,7 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 			if (entry.kind == "plugin_action") {
 				if (entry.pluginId != null && entry.actionType != null) {
 					pluginActionSubscribers.forEach { subscriber ->
-						runCatching { subscriber.onAction(team, entry.pluginId, entry.actionType, entry.payload) }
+						runIsolated { subscriber.onAction(team, entry.pluginId, entry.actionType, entry.payload) }
 							.onFailure { DebugLog.log("Drain", "plugin action failed seq=${entry.seq}") }
 					}
 				}
@@ -294,7 +294,7 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 			)
 			if (host.appendInbound(team, message) {
 				inboundSubscribers.forEach { subscriber ->
-					runCatching { subscriber.onMessage(team, message) }
+					runIsolated { subscriber.onMessage(team, message) }
 						.onFailure { DebugLog.log("Drain", "inbound subscriber failed seq=${entry.seq}") }
 				}
 			}) burst.getOrPut(team) { mutableListOf() }.add(message)

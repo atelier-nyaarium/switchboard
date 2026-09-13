@@ -8,6 +8,7 @@ import com.atelier_nyaarium.switchboard.plugins.PluginHost
 import com.atelier_nyaarium.switchboard.plugins.ThreadForgetHandler
 import com.atelier_nyaarium.switchboard.proto.VaultRequest
 import com.atelier_nyaarium.switchboard.proto.VaultRetract
+import com.atelier_nyaarium.switchboard.runIsolated
 import com.atelier_nyaarium.switchboard.wireJson
 
 /** The Vault plugin's entry hook (manifest: `assets/plugins/vault/manifest.json`). */
@@ -17,14 +18,14 @@ class VaultPlugin : PluginEntry {
 		// The manager drops a redispatched request by id.
 		host.pluginActions.claim("vault:request", PluginActionHandler { action ->
 			val payload = action.payload ?: return@PluginActionHandler
-			val request = runCatching { wireJson.decodeFromJsonElement(VaultRequest.serializer(), payload) }.getOrNull()
+			val request = runIsolated { wireJson.decodeFromJsonElement(VaultRequest.serializer(), payload) }.getOrNull()
 				?: return@PluginActionHandler
 			repo.vaultOps.onRequest(action.team, request)
 		})
 		// The request settled elsewhere; an unknown id is nothing to drop.
 		host.pluginActions.claim("vault:retract", PluginActionHandler { action ->
 			val payload = action.payload ?: return@PluginActionHandler
-			val retract = runCatching { wireJson.decodeFromJsonElement(VaultRetract.serializer(), payload) }.getOrNull()
+			val retract = runIsolated { wireJson.decodeFromJsonElement(VaultRetract.serializer(), payload) }.getOrNull()
 				?: return@PluginActionHandler
 			repo.vault.settleRequest(retract.requestId)
 		})

@@ -130,7 +130,7 @@ class ThreadRendererPool(private val context: Context) {
 			.setDataAndType(uri, mime)
 			.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
 		val chooser = Intent.createChooser(view, "Open with").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-		runCatching { context.startActivity(chooser) }
+		runIsolated { context.startActivity(chooser) }
 	}
 
 	fun setDark(value: Boolean) {

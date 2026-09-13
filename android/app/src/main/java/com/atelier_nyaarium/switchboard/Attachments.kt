@@ -149,7 +149,7 @@ object Attachments {
 		val used = mutableSetOf<String>()
 		return files.mapNotNull { f ->
 			val name = uniqueName(safeName(f.name), used)
-			runCatching {
+			runIsolated {
 				dir.mkdirs()
 				val out = File(dir, name)
 				if (out.canonicalFile != f.source.canonicalFile) writeOutgoingAtomically(f.source, out)

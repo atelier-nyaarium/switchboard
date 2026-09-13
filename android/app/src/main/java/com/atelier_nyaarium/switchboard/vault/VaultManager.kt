@@ -20,6 +20,7 @@ import com.atelier_nyaarium.switchboard.proto.VaultGrant
 import com.atelier_nyaarium.switchboard.proto.VaultListResult
 import com.atelier_nyaarium.switchboard.proto.VaultRequest
 import com.atelier_nyaarium.switchboard.proto.VaultStoredEntry
+import com.atelier_nyaarium.switchboard.runIsolated
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.Json
@@ -69,14 +70,14 @@ class VaultManager(private val store: VaultStore) : ClearsOnReprovision {
 	// Requests past their deadline do not come back.
 	private fun load(now: Long = System.currentTimeMillis()): VaultBlob {
 		val raw = store.loadVault() ?: return VaultBlob()
-		val loaded = runCatching { json.decodeFromString<VaultBlob>(raw) }.getOrNull()
+		val loaded = runIsolated { json.decodeFromString<VaultBlob>(raw) }.getOrNull()
 			?: return VaultBlob().also { DebugLog.log("Vault", "stored vault could not be decoded; starting empty") }
 		return loaded.copy(requests = loaded.requests.filter { it.deadlineAt > now })
 	}
 
 	private fun persist(next: VaultBlob): Boolean {
 		if (next == blob) return true
-		val written = runCatching { store.saveVault(json.encodeToString(VaultBlob.serializer(), next)) }
+		val written = runIsolated { store.saveVault(json.encodeToString(VaultBlob.serializer(), next)) }
 		if (written.isFailure) {
 			DebugLog.log("Vault", "stored vault could not be written: ${written.exceptionOrNull()?.message}")
 			return false
@@ -267,6 +268,6 @@ class VaultManager(private val store: VaultStore) : ClearsOnReprovision {
 	override suspend fun clearInMemory() = wipe()
 
 	private fun parseGateways(text: String): List<String>? =
-		runCatching { json.parseToJsonElement(text) as? JsonArray }.getOrNull()
+		runIsolated { json.parseToJsonElement(text) as? JsonArray }.getOrNull()
 			?.map { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: return null }
 }

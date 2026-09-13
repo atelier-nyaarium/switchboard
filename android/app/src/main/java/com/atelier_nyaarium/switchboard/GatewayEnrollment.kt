@@ -10,7 +10,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
 internal class GatewayEnrollment(private val repo: ChatRepository) {
-	fun parseAdmitGateway(scanned: String): ScannedGateway? = runCatching {
+	fun parseAdmitGateway(scanned: String): ScannedGateway? = runIsolated {
 		val j = org.json.JSONObject(scanned.trim())
 		if (j.optString("type") != "admit-gateway") return null
 		val signPub = j.getString("signPub")
@@ -167,7 +167,7 @@ internal class GatewayEnrollment(private val repo: ChatRepository) {
 	}
 
 	// Accept private IP literals only.
-	private fun isPrivateLanHost(host: String): Boolean = runCatching {
+	private fun isPrivateLanHost(host: String): Boolean = runIsolated {
 		android.net.InetAddresses.isNumericAddress(host) &&
 			java.net.InetAddress.getByName(host).let { it.isLoopbackAddress || it.isSiteLocalAddress || it.isLinkLocalAddress }
 	}.getOrDefault(false)

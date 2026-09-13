@@ -22,7 +22,7 @@ data class RouterReach(
 	companion object {
 		private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-		fun decode(text: String?): RouterReach = text?.let { runCatching { json.decodeFromString<RouterReach>(it) }.getOrNull() } ?: RouterReach()
+		fun decode(text: String?): RouterReach = text?.let { runIsolated { json.decodeFromString<RouterReach>(it) }.getOrNull() } ?: RouterReach()
 	}
 }
 
@@ -65,4 +65,4 @@ fun isPrivateHost(host: String): Boolean =
 
 /** Port from URL, or default. */
 fun reachPort(blobRouterUrl: String, default: Int): Int =
-	usablePort(runCatching { java.net.URI(blobRouterUrl).port }.getOrNull()) ?: default
+	usablePort(runIsolated { java.net.URI(blobRouterUrl).port }.getOrNull()) ?: default

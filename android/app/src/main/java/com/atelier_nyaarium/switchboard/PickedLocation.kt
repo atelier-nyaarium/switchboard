@@ -20,7 +20,7 @@ import android.provider.DocumentsContract
 object PickedLocation {
 	/** Read at pick time, which is the only moment the content Uri is in hand. */
 	fun of(uri: Uri): String? =
-		runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull()?.let(::segmentOf)
+		runIsolated { DocumentsContract.getDocumentId(uri) }.getOrNull()?.let(::segmentOf)
 
 	/** External storage spells a document id "primary:Download/photo.jpg", so the part after the
 	 * authority prefix is the only path-like component a provider offers. Taken over the id alone so

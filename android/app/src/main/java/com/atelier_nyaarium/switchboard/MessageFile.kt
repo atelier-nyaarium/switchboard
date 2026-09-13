@@ -81,7 +81,7 @@ internal fun loadFiles(m: JSONObject): List<MessageFile> {
 			// A garbled blob reads as absent so the tap declines to the link menu, the documented
 			// miss contract, instead of one bad row costing every thread.
 			ref = f.optString("ref").takeIf { s -> s.isNotEmpty() }?.let { raw ->
-				runCatching { fileMetaJson.decodeFromString(RefFileMeta.serializer(), raw) }.getOrNull()
+				runIsolated { fileMetaJson.decodeFromString(RefFileMeta.serializer(), raw) }.getOrNull()
 			},
 			cardTitle = f.optString("cardTitle").takeIf { s -> s.isNotEmpty() },
 			cardGroup = f.optString("cardGroup").takeIf { s -> s.isNotEmpty() },

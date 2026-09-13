@@ -11,6 +11,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.atelier_nyaarium.switchboard.runIsolated
 
 /**
  * The request itself, drawn over whatever app is in front, the way an authenticator prompt is.
@@ -97,7 +98,7 @@ class VaultPrompt(
 	fun release() {
 		visible.value = null
 		ticker.removeCallbacks(tick)
-		root?.let { runCatching { windows.removeView(it) } }
+		root?.let { runIsolated { windows.removeView(it) } }
 		root = null
 		title = null
 		expiry = null
@@ -111,7 +112,7 @@ class VaultPrompt(
 		command?.maxLines = if (expanded) 8 else 1
 		password?.visibility = if (expanded) View.VISIBLE else View.GONE
 		actions?.visibility = if (expanded) View.VISIBLE else View.GONE
-		root?.let { runCatching { windows.updateViewLayout(it, layoutFor(expanded)) } }
+		root?.let { runIsolated { windows.updateViewLayout(it, layoutFor(expanded)) } }
 	}
 
 	private fun expand() {
@@ -158,7 +159,7 @@ class VaultPrompt(
 	private fun attached(): LinearLayout? {
 		root?.let { return it }
 		val view = build()
-		val added = runCatching { windows.addView(view, layoutFor(false)) }.isSuccess
+		val added = runIsolated { windows.addView(view, layoutFor(false)) }.isSuccess
 		if (!added) {
 			release()
 			return null

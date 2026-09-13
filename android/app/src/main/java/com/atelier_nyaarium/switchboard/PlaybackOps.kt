@@ -241,7 +241,7 @@ internal class PlaybackOps(
 	private fun transportChanged() {
 		_queueRevision.value = _queueRevision.value + 1
 		warmQueued()
-		runCatching { onTransportChanged?.invoke() }
+		runIsolated { onTransportChanged?.invoke() }
 	}
 
 	private fun warmQueued() {

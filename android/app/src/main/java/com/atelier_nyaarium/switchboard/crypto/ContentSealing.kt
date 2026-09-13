@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard.crypto
 import com.atelier_nyaarium.switchboard.PhoneAmbient
 import com.atelier_nyaarium.switchboard.PhoneBootstrap
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
+import com.atelier_nyaarium.switchboard.runIsolated
 
 /** One sealing door per record kind; the AAD builder is the only difference between them. */
 open class ContentSealing(
@@ -23,7 +24,7 @@ open class ContentSealing(
 	open fun open(env: ContentEnvelope, kind: String, id: String): String? {
 		val epoch = env.epoch.toInt()
 		val key = boot.contentKeyring.keyFor(epoch) ?: return null.also { onMissingEpoch(epoch) }
-		return runCatching { Crypto.openContent(env, key, aad(epoch, kind, id)).toString(Charsets.UTF_8) }.getOrNull()
+		return runIsolated { Crypto.openContent(env, key, aad(epoch, kind, id)).toString(Charsets.UTF_8) }.getOrNull()
 	}
 
 	private fun aad(epoch: Int, kind: String, id: String) =

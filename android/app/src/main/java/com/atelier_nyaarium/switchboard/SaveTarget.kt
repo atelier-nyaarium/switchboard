@@ -58,7 +58,7 @@ object SaveTarget {
 	/** Take the long-lived grant. False when the system refused it, in which case the caller must not
 	 * store the Uri: a stored Uri with no grant is indistinguishable from a working one until a write
 	 * fails. */
-	fun persist(context: Context, tree: Uri): Boolean = runCatching {
+	fun persist(context: Context, tree: Uri): Boolean = runIsolated {
 		context.contentResolver.takePersistableUriPermission(
 			tree,
 			Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
@@ -74,7 +74,7 @@ object SaveTarget {
 	 */
 	fun writableTree(context: Context, stored: String): Uri? {
 		if (stored.isBlank()) return null
-		val tree = runCatching { Uri.parse(stored) }.getOrNull() ?: return null
+		val tree = runIsolated { Uri.parse(stored) }.getOrNull() ?: return null
 		val granted = context.contentResolver.persistedUriPermissions.any {
 			it.uri == tree && it.isWritePermission
 		}
@@ -85,7 +85,7 @@ object SaveTarget {
 	/** A short label for the chosen folder, or null when none is usable. */
 	fun label(context: Context, stored: String): String? {
 		val tree = writableTree(context, stored) ?: return null
-		val id = runCatching { DocumentsContract.getTreeDocumentId(tree) }.getOrNull() ?: return null
+		val id = runIsolated { DocumentsContract.getTreeDocumentId(tree) }.getOrNull() ?: return null
 		// Provider ids look like "primary:Pictures/Trips"; the tail is the part a user recognizes.
 		return id.substringAfterLast(':').substringAfterLast('/').ifBlank { null }
 	}
@@ -100,9 +100,9 @@ object SaveTarget {
 	fun writeToTree(context: Context, tree: Uri, source: File, name: String, mime: String): SaveOutcome {
 		val resolver = context.contentResolver
 		val dir = directoryUri(resolver, tree) ?: return SaveOutcome.FolderGone
-		val target = runCatching { DocumentsContract.createDocument(resolver, dir, documentMime(mime), name) }
+		val target = runIsolated { DocumentsContract.createDocument(resolver, dir, documentMime(mime), name) }
 			.getOrNull() ?: return SaveOutcome.FolderGone
-		val wrote = runCatching {
+		val wrote = runIsolated {
 			resolver.openOutputStream(target)?.use { out -> source.inputStream().use { it.copyTo(out) } } != null
 		}.getOrDefault(false)
 		if (!wrote) {
@@ -110,7 +110,7 @@ object SaveTarget {
 			// leaving it behind hands the user a corrupt file that looks like the one they saved. SAF
 			// has no pending flag like MediaStore's, so the only way to not publish a torn write is to
 			// remove it.
-			runCatching { DocumentsContract.deleteDocument(resolver, target) }
+			runIsolated { DocumentsContract.deleteDocument(resolver, target) }
 			return SaveOutcome.WriteFailed
 		}
 		// No mtime restore: SAF exposes no setter, and a provider that silently ignored an attempt
@@ -131,7 +131,7 @@ object SaveTarget {
 		return if (MIME_SHAPE.matches(m)) m else OPAQUE_MIME
 	}
 
-	private fun directoryUri(resolver: ContentResolver, tree: Uri): Uri? = runCatching {
+	private fun directoryUri(resolver: ContentResolver, tree: Uri): Uri? = runIsolated {
 		val id = DocumentsContract.getTreeDocumentId(tree)
 		val dir = DocumentsContract.buildDocumentUriUsingTree(tree, id)
 		// Querying is what separates a live folder from a deleted one; building the Uri always works.

@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.proto.Admission
 import com.atelier_nyaarium.switchboard.proto.DomainSnapshot
 import com.atelier_nyaarium.switchboard.proto.SignedAdmission
 import com.atelier_nyaarium.switchboard.proto.SignedRevocation
+import com.atelier_nyaarium.switchboard.runIsolated
 import kotlinx.serialization.json.Json
 
 /**
@@ -73,7 +74,7 @@ class Keyring(val snapshot: DomainSnapshot) {
 		/** Parse a stored snapshot, or null when the JSON is absent / unparseable. */
 		fun parse(snapshotJson: String?): Keyring? =
 			snapshotJson?.let {
-				runCatching { Keyring(json.decodeFromString(DomainSnapshot.serializer(), it)) }.getOrNull()
+				runIsolated { Keyring(json.decodeFromString(DomainSnapshot.serializer(), it)) }.getOrNull()
 			}
 	}
 }

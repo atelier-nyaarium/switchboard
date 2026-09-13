@@ -83,5 +83,5 @@ internal fun encodePendingEnrolls(map: Map<String, PendingEnroll>): String =
  * worst case of losing this is a card that says offline instead of unfinished. */
 internal fun decodePendingEnrolls(text: String?): Map<String, PendingEnroll> {
 	if (text.isNullOrBlank()) return emptyMap()
-	return runCatching { pendingJson.decodeFromString(pendingSerializer, text) }.getOrDefault(emptyMap())
+	return runIsolated { pendingJson.decodeFromString(pendingSerializer, text) }.getOrDefault(emptyMap())
 }

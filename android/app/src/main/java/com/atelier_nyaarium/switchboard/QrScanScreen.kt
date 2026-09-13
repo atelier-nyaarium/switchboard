@@ -80,7 +80,7 @@ fun QrScanScreen(onResult: (String) -> Unit, onCancel: () -> Unit) {
 	// getClient can throw if the bundled ML Kit model fails to load; keep it nullable so a failure
 	// degrades to the paste fallback instead of crashing during composition.
 	val scanner = remember {
-		runCatching {
+		runIsolated {
 			BarcodeScanning.getClient(BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build())
 		}.onFailure { DebugLog.log("QrScan", "getClient failed: ${it.javaClass.simpleName}: ${it.message}") }.getOrNull()
 	}
@@ -95,9 +95,9 @@ fun QrScanScreen(onResult: (String) -> Unit, onCancel: () -> Unit) {
 
 	DisposableEffect(Unit) {
 		onDispose {
-			runCatching { controller.unbind() }
-			runCatching { scanner?.close() }
-			runCatching { analysisExec.shutdown() }
+			runIsolated { controller.unbind() }
+			runIsolated { scanner?.close() }
+			runIsolated { analysisExec.shutdown() }
 		}
 	}
 
@@ -139,14 +139,14 @@ fun QrScanScreen(onResult: (String) -> Unit, onCancel: () -> Unit) {
 						}
 						val n = frames.incrementAndGet()
 						if (n == 1L) DebugLog.log("QrScan", "analysis ${proxy.width}x${proxy.height} rot=${proxy.imageInfo.rotationDegrees}")
-						val started = runCatching {
+						val started = runIsolated {
 							scanner.process(InputImage.fromMediaImage(media, proxy.imageInfo.rotationDegrees))
 								.addOnSuccessListener { codes ->
 									if (codes.isNotEmpty() || n % 60L == 0L) DebugLog.log("QrScan", "frame $n: ${codes.size} code(s)")
 									val raw = codes.firstOrNull()?.rawValue
 									if (raw != null && handled.compareAndSet(false, true)) {
 										DebugLog.log("QrScan", "decoded ${raw.length} chars")
-										runCatching { controller.unbind() }
+										runIsolated { controller.unbind() }
 										onResult(raw)
 									}
 								}
@@ -164,7 +164,7 @@ fun QrScanScreen(onResult: (String) -> Unit, onCancel: () -> Unit) {
 
 					// Screen QRs at close range can park AF at infinity; nudge focus to center.
 					view.post {
-						runCatching {
+						runIsolated {
 							val point = view.meteringPointFactory.createPoint(view.width / 2f, view.height / 2f)
 							controller.cameraControl?.startFocusAndMetering(FocusMeteringAction.Builder(point).build())
 						}

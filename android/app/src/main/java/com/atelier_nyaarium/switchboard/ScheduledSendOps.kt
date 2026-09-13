@@ -223,7 +223,7 @@ internal class ScheduledSendOps(
 		val answer = collaborators.postOwnerOp(buildJsonObject { put("kind", Protocol.Wire.OWNER_OP_SCHEDULE_LIST) }, opId)
 		// The list answers a bare array.
 		val records = answer as? JsonArray ?: return emptyList()
-		return records.mapNotNull { runCatching { wireJson.decodeFromJsonElement<ScheduledRecord>(it) }.getOrNull() }
+		return records.mapNotNull { runIsolated { wireJson.decodeFromJsonElement<ScheduledRecord>(it) }.getOrNull() }
 	}
 
 	/** Adopts Router record. */

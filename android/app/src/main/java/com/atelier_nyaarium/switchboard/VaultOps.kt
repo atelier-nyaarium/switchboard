@@ -148,7 +148,7 @@ internal class VaultOps(
 			collaborators.sealing()?.seal(text, VAULT_TYPED_KIND, pending.requestId)
 				?: return false.also { report("Vault: no content key to seal the value") }
 		}
-		val gatewayId = runCatching { gatewayOf(pending.team) }.getOrNull()
+		val gatewayId = runIsolated { gatewayOf(pending.team) }.getOrNull()
 			?: return false.also { report("Vault: the request names no gateway") }
 		val result = runCatchingCancellable {
 			client.valueResult<ConsoleVaultAnswerResult>(

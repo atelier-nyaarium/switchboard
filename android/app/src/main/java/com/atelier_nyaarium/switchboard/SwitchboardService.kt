@@ -417,7 +417,7 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 		val dest = java.io.File(java.io.File(filesDir, "stts/${SttsPlayer.MARKER_TEAM}"), name)
 		if (dest.isFile && dest.length() > 0L) return dest
 		val tmp = java.io.File(dest.parentFile, "$name.tmp")
-		return runCatching {
+		return runIsolated {
 			dest.parentFile?.mkdirs()
 			open().use { input -> tmp.outputStream().use { requireNotNull(input).copyTo(it) } }
 			if (tmp.length() > 0L && tmp.renameTo(dest)) dest else null

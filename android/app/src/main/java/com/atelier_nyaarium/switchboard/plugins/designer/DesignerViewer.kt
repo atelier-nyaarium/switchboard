@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.atelier_nyaarium.switchboard.runIsolated
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -84,7 +85,7 @@ private fun sandboxedCardWebView(ctx: Context): WebView = WebView(ctx).apply {
 
 /** Share a card's HTML file through the FileProvider share sheet. */
 private fun shareCard(context: Context, file: File) {
-	runCatching {
+	runIsolated {
 		val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 		val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
 			type = "text/html"

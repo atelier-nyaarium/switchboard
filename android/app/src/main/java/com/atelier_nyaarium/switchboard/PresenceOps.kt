@@ -92,7 +92,7 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 	/** The cursor's fold has already decided; the slot follows the land. */
 	suspend fun applyOwnerProjection(projection: OwnerPresenceProjection) = host.withDrainMutex { projectionMutex.withLock {
 		landProjection(projection, live = true)
-		runCatching {
+		runIsolated {
 			host.saveRouterState(
 				"presence",
 				RouterStateSlot(

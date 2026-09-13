@@ -33,6 +33,7 @@ import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
 import com.atelier_nyaarium.switchboard.gatewayOf
 import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.runIsolated
 import com.atelier_nyaarium.switchboard.workspace.WorkspaceOpen
 import com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus
 import com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenRequest
@@ -65,7 +66,7 @@ fun ReferenceViewer(
 	// so the factory always sees the final answer - never a race against a still-running read.
 	val loaded by androidx.compose.runtime.produceState<Result<SentSnapshot?>?>(initialValue = null) {
 		value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-			runCatching {
+			runIsolated {
 				Attachments.resolve(context.filesDir, request.rel)?.readText()?.let { text ->
 					SentSnapshot(payloadFor(request, text), sentLines(request.meta, request.key, text))
 				}

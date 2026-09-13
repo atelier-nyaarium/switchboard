@@ -55,7 +55,7 @@ internal fun localFieldOf(canonical: String): String =
  * `parseQualifiedTarget` throws on one, and the board holds both forms: its entries store the local field
  * while a chat's `Team.name` is the address. Idempotent, which is what lets a caller apply it
  * without first knowing which form it was handed. */
-internal fun localFieldOrSelf(value: String): String = runCatching { localFieldOf(value) }.getOrDefault(value)
+internal fun localFieldOrSelf(value: String): String = runIsolated { localFieldOf(value) }.getOrDefault(value)
 
 /** The Gateway segment of a canonical address string. */
 internal fun gatewayOf(canonical: String): String =
@@ -83,7 +83,7 @@ internal fun Team.withReceipt(r: ActionReceipt?): Team = copy(presence = presenc
  * produces.
  */
 internal fun spawnTargetKey(target: String): Pair<String, String>? {
-	val parsed = runCatching { parseQualifiedTarget(target) }.getOrNull() as? SpawnPoint ?: return null
+	val parsed = runIsolated { parseQualifiedTarget(target) }.getOrNull() as? SpawnPoint ?: return null
 	return parsed.gateway to parsed.spawn
 }
 

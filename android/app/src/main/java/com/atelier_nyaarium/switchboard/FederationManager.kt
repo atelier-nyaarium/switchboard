@@ -65,7 +65,7 @@ class FederationManager(private val store: AppStateStore) {
 		}
 
 	fun ownerKeysForDisplay(): OwnerKeysView? =
-		runCatching { ownerIdentity() }.getOrNull()?.let {
+		runIsolated { ownerIdentity() }.getOrNull()?.let {
 			OwnerKeysView(it.sign.pub, it.box.pub, Crypto.fingerprint(it.sign.pub))
 		}
 
@@ -92,7 +92,7 @@ class FederationManager(private val store: AppStateStore) {
 
 	@Synchronized
 	fun importOwnerBackup(blob: String, passphrase: String): OwnerRestoreResult {
-		val restored = runCatching { json.decodeFromString(Crypto.Identity.serializer(), OwnerBackup.restore(blob, passphrase)) }
+		val restored = runIsolated { json.decodeFromString(Crypto.Identity.serializer(), OwnerBackup.restore(blob, passphrase)) }
 			.getOrElse { return OwnerRestoreResult.WRONG_PASSPHRASE }
 		val existing = store.loadOwnerIdentity()
 		val rootedOwner = Keyring.parse(store.loadDomain())?.ownerSignPub
@@ -333,7 +333,7 @@ class FederationManager(private val store: AppStateStore) {
 	@Synchronized
 	fun trustedOwners(): Set<String> {
 		val raw = store.loadTrustedOwners() ?: return emptySet()
-		return runCatching {
+		return runIsolated {
 			val arr = org.json.JSONArray(raw)
 			(0 until arr.length()).map { arr.getString(it) }.toSet()
 		}.getOrDefault(emptySet())
@@ -355,7 +355,7 @@ class FederationManager(private val store: AppStateStore) {
 	/** Pending untrust owners. */
 	fun pendingUntrust(): Set<String> {
 		val raw = store.loadPendingUntrust() ?: return emptySet()
-		return runCatching {
+		return runIsolated {
 			val arr = org.json.JSONArray(raw)
 			(0 until arr.length()).map { arr.getString(it) }.toSet()
 		}.getOrDefault(emptySet())
