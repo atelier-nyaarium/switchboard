@@ -305,33 +305,35 @@ no TTL.
   over revision N" tap performs). The binding picker offers only entries with a value that
   `allowedOn` that Gateway. A row's toggle and a routine's carry the row's revision and show the
   gateway's refusal under the row until a toggle of that row lands.
-- **Files** (`WindowOps.kt`, `WindowRules.kt`, `WorkspaceNav.kt`, `workspace/`): a conversation's
-  workspace, read through the plugin that holds it. The tree, an outline, a symbol's detail and the
-  open windows sit behind one stack the conversation's `ShellNav` carries, moved by `WorkspaceNav`'s
-  push and pop. Everything is keyed by SESSION, not by Gateway: two sessions of one Gateway hold
-  different workspaces. Reads are re-read rather than cached, as the per-Gateway views do; the exceptions are the open windows, their drafts, and
-  one cached file per module for the lines around a window.
-- **Window identity** (`Window.incarnation`, `WindowOps.apply`): held state has one road in, which
-  hands a transform what is held NOW. A window carries an incarnation minted at open and the set
-  carries an epoch that moves on every close and on a re-provision. Work that began before either
-  reads it at the start and lands nothing if it moved, since a symbol id names which span and not
-  which opening of it. Without this a foreground re-check begun before a close and reopen applied
-  its answer to the window that replaced the one it read.
+- **Files** (`WindowOps.kt`, `WindowRules.kt`, `RawFileOps.kt`, `RawFileRules.kt`, `HeldEdits.kt`,
+  `WorkspaceDraftStore.kt`, `WorkspacePorts.kt`, `WorkspaceNav.kt`, `workspace/`): a conversation's
+  workspace, read through the plugin that holds it. The tree, an outline, a symbol's detail, the open
+  windows and a raw file sit behind one stack the conversation's `ShellNav` carries, moved by
+  `WorkspaceNav`'s push and pop. Everything is keyed by SESSION, not by Gateway: two sessions of one
+  Gateway hold different workspaces. Reads are re-read rather than cached, as the per-Gateway views do;
+  the exceptions are the open windows, the raw files being edited, their drafts, and one cached file per
+  module for the lines around a window.
+- **Held edits** (`HeldEdits`): windows and raw files are held the same way. `apply` is the one road for
+  a change to the set or an edit made without waiting, and hands a transform what is held NOW. An edit
+  carries an incarnation minted at open, since a symbol id or a path names which text and not which
+  opening of it; the window set also carries an epoch that moves on every close and on a re-provision, so
+  an open begun before either lands nothing.
+- **Awaited answers land through `HeldEdits.land`**, never through `apply`: the caller passes the edit the
+  answer was computed from and a `Landing`. `OverUntouched` lands only over exactly that value, which is
+  Refresh: typing or a save since the tap outranks it. `Folded` lands over the same opening still bound to
+  the same `version` (the span or file hash) and folds in what arrived since, which is a save keeping typing
+  that came during it and a sweep applying the refresh rule. No road names its own fields to compare.
 - **Read slots** (`ReadSlot`): a fence key names what a read FILLS. One key per session made a
   symbol's source and its knowledge cancel each other, and the sandbox could not show it because it
   never suspends. A read that fills a per-module cache is not fenced at all, since there is nothing
   an older answer could overwrite. `separated` escapes each half rather than refusing one holding
   the record separator, because a Lexicon symbol id can carry one and a workspace file does not get
   to decide whether the view crashes.
-- **The foreground sweep is not fenced** (`WindowOps.recheck`): the fence hands a key to whoever
-  claimed last, so a sweep would discard the Refresh the owner just tapped and answer them nothing.
-  Each window instead carries the hash it held when its read began, and an answer arriving at a
-  window that has moved past it lands nothing. A content hash gives no ordering, so a sweep answer
-  that was genuinely newer is dropped too; the next sweep picks it up.
-- **Awaited answers land through `landUnmoved`** (`WindowStamp`): the window's incarnation and the span
-  hash the work began from. The sweep and the save both land there, so a road added later cannot bring
-  half the guard. The open keeps the epoch, and Refresh lands by incarnation alone, since the owner's tap
-  is newer than anything.
+- **The foreground sweep is not fenced** (`WindowOps.recheck`, `RawFileOps.recheck`): the fence hands a key
+  to whoever claimed last, so a sweep would discard the Refresh the owner just tapped and answer them
+  nothing. Each answer lands `Folded` over the edit its read began from, so one arriving at an edit that has
+  moved past it lands nothing. A content hash gives no ordering, so a sweep answer that was genuinely newer
+  is dropped too; the next sweep picks it up.
 - **Save** (`WindowOps.save`, `afterSave`, `saveNotice`): the right-hand button beside Agent Apply writes
   each edited span verbatim through `workspace_save_span`, which lands only while the span still hashes
   to what the owner was shown. Each window is read again at its turn, so one closed during an earlier
@@ -340,25 +342,40 @@ no TTL.
   the save deleted closes its window. `unknown`, which is any save that may have landed without saying
   so, and a save whose span was not read back, re-read their windows. A save into an agent's open
   refactor says so in the notice, since that session can still undo it.
-- **Window drafts** (`WindowDraftStore.kt`): one file per draft under `filesDir`, write-then-rename,
-  keyed by a hash of session and symbol id. Not the runbook store, which serialises a whole library
-  into one preferences string on every commit. A failed rename leaves the previous draft; deleting
-  first to make room is the one order with a window holding neither copy.
+- **Raw files** (`RawFileOps`, `RawFileRules`, `WorkspaceRawFile`): the tree's `Edit raw` and the
+  outline's Raw open a whole file in one field. The read answers the sha256 of the bytes on disk only when
+  the file can be written back; a UTF-16 file or one over `MAX_RAW_EDIT_BYTES` opens read-only with its
+  reason, and one over the answer cap is refused with its size. Save sends `workspace_mutate_file` with a
+  `write` naming that hash. `done` takes the sent text as the file and keeps typing that arrived during
+  the save, `stale` raises "Changed on disk" with the typing kept, and anything that may have landed
+  without saying so is read back: the sent text means it landed, the old hash means it did not, anything
+  else is stale. Refresh adopts the file and drops the draft, only while nothing changed since the tap.
+  `RawFileOps.views` holds what each path's screen draws (loading, editable, read-only, refused,
+  unreachable), so the screen renders and decides nothing; a recheck that finds a held file can no longer
+  be written lets it go when nothing is typed and draws it read-only. Leaving the screen lets go of an
+  untyped file and keeps a typed one held. One token per path lets only the newest open land.
+- **Drafts** (`WorkspaceDraftStore.kt`): one file per draft under `filesDir`, write-then-rename, keyed by
+  a hash of session and `DraftKey` (a symbol id or a file path), holding the base hash the typing was done
+  over. A reopen whose base is not the text's current hash comes back stale, carrying that base, so a save
+  of it is refused rather than landing old typing over what moved (`restored`, `restoredRaw`). A draft
+  written before bases were kept reads with `UNKNOWN_BASE`, which no hash equals. Not the runbook store,
+  which serialises a whole library into one preferences string on every commit. A failed rename leaves the
+  previous draft; deleting first to make room is the one order with a window holding neither copy.
 
-  **The disk follows the value, and no caller names a file.** `WindowOps.apply` diffs the winning
-  before and after by incarnation and tells the store what each file should hold, under the same
-  monitor as the state write. Callers used to save and clear for themselves and the two copies
-  desynced twice.
+  **The disk follows the value, and no caller names a file.** `HeldEdits` diffs the winning before and
+  after by incarnation and tells the store what each file should hold, under the same monitor as the
+  state write.
 
   **The store owns its own ordering.** One worker drains one queue, reads included, so a clear asked
-  for after a save cannot be overtaken by it whatever dispatcher it runs on. A job that throws is
-  caught, since a dead worker would silently push every later write onto the caller, which for a
-  keystroke is the main thread. A cancelled scope shuts the queue, and work handed over after that
-  runs on the caller rather than waiting for a worker that has gone.
+  for after a save cannot be overtaken by it whatever dispatcher it runs on. The newest intent per file
+  is what a queued job performs, so typing that outruns the disk writes a whole file once. A job that
+  throws is caught, since a dead worker would silently push every later write onto the caller, which for
+  a keystroke is the main thread. A cancelled scope shuts the queue, and work handed over after that runs
+  on the caller rather than waiting for a worker that has gone.
 
   **A refused write reaches the log.** Every road answers the same way: the write, the read, the
   clear and the re-provision wipe all report rather than reading as a success. The owner sees nothing
-  on a release build, which is on the board.
+  on a release build.
 - **A ref's exits into Files** (`WorkspaceOpenBus`, `exitsFor`): a snapshot's viewer offers the outline
   and, when the ref resolved to a declaration, its editable span. The request is HELD rather than
   emitted, since the roster may not have answered yet. The shell reads it by `standingOf`: it waits

@@ -302,35 +302,33 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     source and its knowledge cancel each other. `WindowOps` passes a sealed `ReadSlot`, so no string
     reaches this from there; the other callers still pass one. A read that fills a per-module cache is
     not fenced at all, since nothing an older answer could overwrite exists.
-- `android/.../WindowOps.kt` / `WindowRules.kt` / `WorkspaceNav.kt` / `WindowDraftStore.kt` /
-  `workspace/` - a conversation's Files: the open windows and their drafts, every rule the surface applies,
-  the place rules, and the four screens. `docs/console.md` holds the whole of it
+- `android/.../WindowOps.kt` / `WindowRules.kt` / `RawFileOps.kt` / `RawFileRules.kt` / `HeldEdits.kt` /
+  `WorkspaceDraftStore.kt` / `WorkspacePorts.kt` / `WorkspaceNav.kt` / `workspace/` - a conversation's
+  Files: the open windows, the raw files being edited, their drafts, every rule the surface applies, the
+  place rules, and the five screens. `docs/console.md` holds the whole of it
   - **Keyed by SESSION, never by Gateway:** two sessions of one Gateway hold different workspaces, so
     a Gateway-keyed map serves one session's span for the other. The fence, the draft filenames and
-    the window map all take the qualified session address.
-  - **Held state has ONE road in, `apply`, which hands a transform what is held NOW:** a caller that
-    captured a window, awaited the gateway and then wrote its decision has nowhere to write it. Not
-    enough on its own: a window carries an incarnation minted at open and the set an epoch that moves
-    on every close and on a re-provision, because a symbol id names which span and not which OPENING
-    of it. Work reads one at the start and lands nothing if it moved.
-  - **An answer about a held window lands through `landUnmoved` and its `WindowStamp`:** the incarnation
-    AND the span hash the work began from, so a refresh that landed during the wait wins. The sweep and the
-    save share it; four roads each carried half this guard before it existed.
-  - **`apply` is also the one road to the disk, so the pair cannot drift:** it diffs the winning
-    before and after by incarnation and tells the store what each file should hold, under the same
-    monitor as the state write, and drops a file's context once no window of it is open. No caller names
-    a file. Callers saving and clearing for themselves desynced memory and disk twice.
-  - **A draft is one file, written then renamed:** a combined file would rewrite every draft on every
-    keystroke batch, which is what `RunbookManager` pays. A failed rename leaves the previous draft;
-    deleting first to make room is the one order with a window holding neither copy. The store drains
-    its own queue, reads included, so nothing outside it can order two touches of one file wrongly.
-    Every road reports a refusal rather than reading as a success.
-  - **The foreground sweep is unfenced, and guards itself on the span hash instead:** the fence gives
-    a key to whoever claimed last, so a sweep would discard the Refresh the owner just tapped. A
-    window carries the hash it held when its read began, and an answer arriving at a window that has
-    moved past it lands nothing.
+    the held maps all take the qualified session address.
+  - **Held edits have ONE road in, `HeldEdits`, shared by windows and raw files:** `apply` hands a
+    transform what is held NOW, for a change to the set or an edit made without waiting. An edit carries
+    an incarnation minted at open, because a symbol id or a path names which text and not which OPENING
+    of it.
+  - **An awaited answer lands only through `HeldEdits.land`, and names how:** `OverUntouched` over exactly
+    the edit it was computed from, or `Folded` over the same opening still bound to the same `version`,
+    folding in what arrived since, so no road chooses its own fields to compare. `HeldEditsTest` pins both.
+  - **The disk follows the value, so the pair cannot drift:** `HeldEdits` diffs the winning before and
+    after by incarnation and tells the store what each file should hold, under the same monitor as the
+    state write. No caller names a file.
+  - **A draft is one file, written then renamed, and carries the hash it was typed over:** a combined file
+    would rewrite every draft on every keystroke batch, which is what `RunbookManager` pays. A reopen over
+    moved text comes back stale with that base, so a save is refused rather than landing old typing. The
+    store drains its own queue, reads included, and performs the newest intent per file. Every road
+    reports a refusal rather than reading as a success.
+  - **The foreground sweep is unfenced, and lands `Folded` instead:** the fence gives a key to whoever
+    claimed last, so a sweep would discard the Refresh the owner just tapped.
   - **Nothing decides inside a Composable**, since there is no instrumentation source set. The screens
-    render and call; `WindowRules` and `WorkspaceNav` hold the decisions and carry the tests.
+    render and call; `WindowRules`, `RawFileRules` and `WorkspaceNav` hold the decisions, and
+    `RawFileOps.views` holds what a raw file's screen draws.
   - **`WorkspaceOpenBus` HOLDS a request rather than emitting one**, since the roster may not have
     answered yet. The shell reads it by `standingOf`, takes it off the bus as it routes it, and lands
     it as `ShellNav.arrive` with `Arrival.FILES_ASKED` and the place, so no screen consumes a request
@@ -393,8 +391,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     inside the phone's read timeout, `CONSOLE_ANSWER_WAIT_MS`, and `workspace-bounds.test.ts` pins the
     Kotlin constant and the order. A save gets the room a read does not.
   - **Only a refusal is known to have written nothing:** `answerForConsole` answers any other failure of a
-    save as `unknown`, and the phone reads the span back. A retried save is safe, since the span hash
-    refuses the second write and a read-back of the owner's own text is adopted.
+    write, a span save or a file mutation, as `unknown`, and the phone reads back. A retried write is safe,
+    since the hash refuses the second one and a read-back of the owner's own text is adopted.
+  - **Every file mutation is one op, `mutateFile`, carrying a strict `FileMutationSchema` variant:** a new
+    operation is a variant with its own preconditions, not a new op, and a reader that does not know a
+    precondition refuses the mutation rather than stripping it.
 - `src/gateway/workspacePlane.ts` / `workspaceOpCoordinator.ts` - the Gateway's end of the plane, and the correlation it settles on
   - **A socket IS its generation, and a reply from a replaced one settles nothing:** the generation lives
     in a `WeakMap` keyed by the socket object rather than on `WsData`, since a generation is the plane's
@@ -403,7 +404,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     the full timeout for an answer that can never come.
   - **One socket per session, chosen by `resolveLiveIncarnation`:** a session can hold several plugin
     sockets keyed team then `subId`. Nothing broadcasts, and no second selector exists.
-- `src/mcp/workspace/plane.ts` / `handlers.ts` / `opDedupe.ts` - the plugin's end: the frame it answers, the five reads and the span save, and at-most-once
+- `src/mcp/workspace/plane.ts` / `handlers.ts` / `mutateFile.ts` / `opDedupe.ts` - the plugin's end: the frame it answers, the five reads, the span save, the file mutations, and at-most-once
+  - **A file write is plain file work, never Lexicon:** `writeOf` compares the sha256 of the bytes on disk,
+    fills a sibling temp through `writeFileAtomic`, hashes the file again, and renames. The gap between that
+    hash and the rename is not closed, and the rename gives the path a new inode. A write refuses what a
+    read would not offer (`readOnlyReason`).
   - **The plugin answers off the agent's turn:** the socket callback and the agent's work share a process
     but not a thread of control, which is what makes an op cost no tokens.
   - **An op this build cannot read is refused at once:** silence would hold the Gateway to its full wait.
@@ -418,8 +423,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     lexical containment. Without `confinedModule` an indexed `.env` would answer through `symbolSource`.
   - **ONE deadline per op, never a budget per call:** two calls each given the full budget outlast the
     plane's wait and reinstate the blind timeout the budget exists to prevent.
-- `src/mcp/workspace/loadFile.ts` - the one reader of a workspace file: regular files only, sized before the read, text or nothing. Shared by the refs snapshot road and the phone's file road; containment is the caller's.
-- `src/mcp/workspace/confine.ts` - which project files the phone's file road may reach, and the identity a mutation compares
+- `src/mcp/workspace/loadFile.ts` - the one reader of a workspace file: regular files only, sized before the read, text or nothing, with the hash of its bytes and whether it was transcoded. Shared by the refs snapshot road and the phone's file road; containment is the caller's.
+- `src/mcp/workspace/confine.ts` - which project files the phone's file road may reach, and `fileIdentity` for a mutation that must bind a file rather than bytes
   - **Every rule runs against what a path RESOLVES to, never its spelling:** a link defeated containment
     once and exclusion once, both by being checked as written. `withheld` is therefore ONE function run
     over the written segments and the resolved ones, so a rule added to it cannot reappear in only one
