@@ -1423,7 +1423,7 @@ Then move the pin again.
 - **A lost connection mid-save is not retried**, since the method mutates. The phone reconciles by reading the
   span and comparing its hash to the text it sent.
 
-## Phase 8 - The window descriptor and Save
+## Phase 8 - The window descriptor and Save ✅
 
 The descriptor is `(symbolId, range, spanHash)` and carries no capability, so it needs no key, no issuer and
 no expiry. Authority is the owner's already-signed console op, and a wrong descriptor either fails the hash
@@ -1596,6 +1596,29 @@ A daemon strips unknown keys, which is right for skew and wrong for a safety pre
 handed `expectedSpanHash` writes unchecked. The only way to make it fail closed was a second method,
 `refactorReplaceSpan`, beside `refactorReplace`. Every future precondition on a mutating method will face the
 same choice between a method per guarantee and a silent downgrade.
+
+## The emulator recipe installs a build the emulator refuses, and says so quietly
+
+`./gradlew :app:assembleEmulator` builds version code 1, and an emulator that ever held a later build
+refuses it as a downgrade. `adb install` prints the refusal on one line among others, the old APK keeps
+running, and a screen without the change looks like the change failing. It cost a round of screenshots
+before the version code was checked. The AGENTS.md recipe sets `ANDROID_VERSION_CODE` for the phone and not
+for the emulator.
+
+## A residue keyed on a token cannot tell two meanings of one word
+
+`wire-vocabulary-residue.test.ts` forbids the literal `"refused"` in phone Kotlin because it is a socket
+frame word generated into `Protocol.Wire`. A save outcome meaning "Lexicon turned the text down" is a
+different word spelled the same, and the only way through was renaming the wire value to `rejected`. The
+rule is right for what it guards; nothing lets a schema's own enum words be generated as constants the
+phone could name instead.
+
+## Adding one console op still touches a dozen files
+
+The save is one op, and it reached the schema, the value-op kind list, the codegen roots, the console
+handler, the plane frame parser, the handler, the Gateway plane, the Kotlin client, the gateway port, its
+console and sandbox implementations, the test fake, and the protocol fixtures on both runtimes. Phase 4
+declined a workspace read catalog as infrastructure beyond this feature; Phase 10 adds four more ops.
 
 ## Nothing marks a comment as load-bearing
 
