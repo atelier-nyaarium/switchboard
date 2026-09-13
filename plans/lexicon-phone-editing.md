@@ -1401,8 +1401,9 @@ Then move the pin again.
 - **A check on one read, a use of another.** `planReplacement` hashed and ranged the span from
   `symbolSource`'s read, then read the file again to splice. A write between them spliced unchecked text at a
   checked range. Same class as Phase 2's two filesystem calls deciding one fact, in a different mechanism.
-  Patched by refusing when the second read's hash differs from the first. The primitive would be a planner that
-  takes the text `symbolSource` read rather than reading again.
+  First patched by refusing when the second read's hash differed, then closed: `symbolSourceRead` hands the
+  planner the file text it sliced, so there is no second read to disagree. `planMove` keeps a second read in
+  `moveEdits`; only an A-B-A write between them reaches it, so it is left.
 
 ### Accepted limits
 
