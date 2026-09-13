@@ -1471,6 +1471,17 @@ discard their typing.
 - **A span the save deleted keeps any typing that arrived during the save**, marked stale, for the owner
   to copy or close.
 
+### Bug Classes
+
+- **An answer that awaited the gateway lands over state that moved while it waited.** Mechanism: every
+  road in `WindowOps` that reads, awaits, then writes. Patched per road across four phases: the open by an
+  epoch (Phase 4), the sweep by the span hash it began from (Phase 5), and in this phase the save by the same
+  hash plus a re-read of each window at its turn. Each road remembered a different half of the guard. Closed
+  structurally: `WindowStamp` is (incarnation, span hash), and `landUnmoved` is the one road that lands such
+  an answer, so the sweep and the save share it and a new road cannot bring half a guard. The open keeps its
+  epoch, since it lands a window no stamp describes yet; Refresh keeps `applyTo`, since the owner's own tap
+  is newer than anything.
+
 ## Phase 8b - Root and conversation drawers
 
 Raised by the owner after Phase 7, from a screenshot of the Sessions tab: seven fixed tabs split every

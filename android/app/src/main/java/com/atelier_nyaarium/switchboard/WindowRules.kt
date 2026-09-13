@@ -113,7 +113,12 @@ internal data class Window(
 ) {
 	val edited: Boolean get() = draft != null && draft != original
 	val shown: String get() = draft ?: original
+
+	/** Which opening, holding which span: what an answer that awaited the gateway must still find. */
+	val stamp: WindowStamp get() = WindowStamp(incarnation, descriptor.spanHash)
 }
+
+internal data class WindowStamp(val incarnation: Long, val spanHash: String)
 
 /**
  * What a refresh does, which is the one rule the whole staleness design rests on: refresh silently

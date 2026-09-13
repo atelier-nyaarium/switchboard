@@ -158,6 +158,22 @@ internal class WindowOps(
 		}
 	}
 
+	/**
+	 * An answer about a window lands only if the window is still the one read AND still holds the span
+	 * the read began from; anything else has moved past what the answer knows. Null removes it.
+	 *
+	 * The one road for work that awaits the gateway over a window it did not open, so a new road cannot
+	 * forget half the guard.
+	 */
+	private fun landUnmoved(target: WorkspaceTarget, stamp: WindowStamp, transform: (Window) -> Window?) {
+		apply(target) { windows ->
+			val next = windows.mapNotNull { if (it.stamp == stamp) transform(it) else it }
+			// A window leaving the set is what the epoch guards.
+			if (next.size != windows.size) epoch.incrementAndGet()
+			next
+		}
+	}
+
 	private fun windowFor(target: WorkspaceTarget, symbolId: String): Window? =
 		windowsOf(target).firstOrNull { it.descriptor.symbolId == symbolId }
 
@@ -283,20 +299,15 @@ internal class WindowOps(
 	 */
 	suspend fun recheck(target: WorkspaceTarget) = sweeping.withLock {
 		val gate = host.workspace ?: return@withLock
-		for (held in windowsOf(target).map { Triple(it.descriptor.symbolId, it.incarnation, it.descriptor.spanHash) }) {
-			val (symbolId, incarnation, began) = held
+		for (held in windowsOf(target).map { it.descriptor.symbolId to it.stamp }) {
+			val (symbolId, stamp) = held
 			val fresh = gate.symbolSource(target, symbolId)
 			if (fresh !is WorkspaceAnswer.Read) continue
-			// Judged against the window as it stands, and only if it is still the one that was read.
-			applyTo(target, incarnation) { current ->
-				if (current.descriptor.spanHash != began) {
-					current
-				} else {
-					when (val outcome = refreshWith(current, fresh.value)) {
-						RefreshOutcome.Unchanged -> current
-						is RefreshOutcome.Adopted -> outcome.window
-						is RefreshOutcome.Conflicts -> outcome.window
-					}
+			landUnmoved(target, stamp) { current ->
+				when (val outcome = refreshWith(current, fresh.value)) {
+					RefreshOutcome.Unchanged -> current
+					is RefreshOutcome.Adopted -> outcome.window
+					is RefreshOutcome.Conflicts -> outcome.window
 				}
 			}
 		}
@@ -314,7 +325,6 @@ internal class WindowOps(
 			val window = windowsOf(target).firstOrNull { it.incarnation == listed && it.edited } ?: continue
 			val sent = window.shown
 			val descriptor = window.descriptor
-			val began = descriptor.spanHash
 			val answer = try {
 				gate.saveSpan(target, descriptor.symbolId, descriptor.spanHash, sent)
 			} catch (e: CancellationException) {
@@ -326,15 +336,7 @@ internal class WindowOps(
 			report = when (answer) {
 				is WorkspaceAnswer.Read -> {
 					val saved = answer.value
-					apply(target) { windows ->
-						val next = windows.mapNotNull {
-							// A read that landed during the save is newer than anything this answer knows.
-							if (it.incarnation == window.incarnation && it.descriptor.spanHash == began) afterSave(it, sent, saved) else it
-						}
-						// A span that no longer resolves leaves the set, which is what the epoch guards.
-						if (next.size != windows.size) epoch.incrementAndGet()
-						next
-					}
+					landUnmoved(target, window.stamp) { afterSave(it, sent, saved) }
 					when (saved.outcome) {
 						SAVE_SAVED -> report.copy(
 							saved = report.saved + 1,
