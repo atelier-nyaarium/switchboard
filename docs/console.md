@@ -310,6 +310,18 @@ no TTL.
   Each window instead carries the hash it held when its read began, and an answer arriving at a
   window that has moved past it lands nothing. A content hash gives no ordering, so a sweep answer
   that was genuinely newer is dropped too; the next sweep picks it up.
+- **Awaited answers land through `landUnmoved`** (`WindowStamp`): the window's incarnation and the span
+  hash the work began from. The sweep and the save both land there, so a road added later cannot bring
+  half the guard. The open keeps the epoch, and Refresh lands by incarnation alone, since the owner's tap
+  is newer than anything.
+- **Save** (`WindowOps.save`, `afterSave`, `saveNotice`): the right-hand button beside Agent Apply writes
+  each edited span verbatim through `workspace_save_span`, which lands only while the span still hashes
+  to what the owner was shown. Each window is read again at its turn, so one closed during an earlier
+  span's save is not written. The answer lands by the refresh rule: saved takes the span as it now stands
+  and keeps typing that arrived during the save, stale raises the banner with the typing kept, and a span
+  the save deleted closes its window. `unknown`, which is any save that may have landed without saying
+  so, and a save whose span was not read back, re-read their windows. A save into an agent's open
+  refactor says so in the notice, since that session can still undo it.
 - **Window drafts** (`WindowDraftStore.kt`): one file per draft under `filesDir`, write-then-rename,
   keyed by a hash of session and symbol id. Not the runbook store, which serialises a whole library
   into one preferences string on every commit. A failed rename leaves the previous draft; deleting

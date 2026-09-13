@@ -312,10 +312,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     enough on its own: a window carries an incarnation minted at open and the set an epoch that moves
     on every close and on a re-provision, because a symbol id names which span and not which OPENING
     of it. Work reads one at the start and lands nothing if it moved.
+  - **An answer about a held window lands through `landUnmoved` and its `WindowStamp`:** the incarnation
+    AND the span hash the work began from, so a refresh that landed during the wait wins. The sweep and the
+    save share it; four roads each carried half this guard before it existed.
   - **`apply` is also the one road to the disk, so the pair cannot drift:** it diffs the winning
     before and after by incarnation and tells the store what each file should hold, under the same
-    monitor as the state write. No caller names a file. Callers saving and clearing for themselves
-    desynced memory and disk twice.
+    monitor as the state write, and drops a file's context once no window of it is open. No caller names
+    a file. Callers saving and clearing for themselves desynced memory and disk twice.
   - **A draft is one file, written then renamed:** a combined file would rewrite every draft on every
     keystroke batch, which is what `RunbookManager` pays. A failed rename leaves the previous draft;
     deleting first to make room is the one order with a window holding neither copy. The store drains
@@ -371,6 +374,12 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/vault/vaultTools.ts` / `vaultRun.ts` - vault tools over the gateway's loopback routes, and the child run that injects a value and scrubs it from the output
 - `src/mcp/routines/routineTools.ts` - `get_session_routine` and `report_session_routine`, registered for any token-bound session and behind no capability
 - `src/shared/workspace-op.ts` - the workspace plane's wire vocabulary, beside `host-op.ts` and for the same reason: Gateway to an MCP-side process, never to Kotlin
+  - **`WORKSPACE_BOUNDS` owns every wait on one op:** each class's plane wait and handler budget sit
+    inside the phone's read timeout, `CONSOLE_ANSWER_WAIT_MS`, and `workspace-bounds.test.ts` pins the
+    Kotlin constant and the order. A save gets the room a read does not.
+  - **Only a refusal is known to have written nothing:** `answerForConsole` answers any other failure of a
+    save as `unknown`, and the phone reads the span back. A retried save is safe, since the span hash
+    refuses the second write and a read-back of the owner's own text is adopted.
 - `src/gateway/workspacePlane.ts` / `workspaceOpCoordinator.ts` - the Gateway's end of the plane, and the correlation it settles on
   - **A socket IS its generation, and a reply from a replaced one settles nothing:** the generation lives
     in a `WeakMap` keyed by the socket object rather than on `WsData`, since a generation is the plane's
@@ -379,9 +388,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     the full timeout for an answer that can never come.
   - **One socket per session, chosen by `resolveLiveIncarnation`:** a session can hold several plugin
     sockets keyed team then `subId`. Nothing broadcasts, and no second selector exists.
-- `src/mcp/workspace/plane.ts` / `handlers.ts` / `opDedupe.ts` - the plugin's end: the frame it answers, the five reads, and at-most-once
+- `src/mcp/workspace/plane.ts` / `handlers.ts` / `opDedupe.ts` - the plugin's end: the frame it answers, the five reads and the span save, and at-most-once
   - **The plugin answers off the agent's turn:** the socket callback and the agent's work share a process
-    but not a thread of control, which is what makes a read cost no tokens.
+    but not a thread of control, which is what makes an op cost no tokens.
+  - **An op this build cannot read is refused at once:** silence would hold the Gateway to its full wait.
+  - **The save is Lexicon's compare-and-swap:** `saveSpanOf` reindexes the module, calls
+    `refactorReplaceSpan` standalone, and answers the span as it now stands. `gone` is only the index saying
+    the span no longer resolves; a read back that failed says neither.
   - **At-most-once is defined HERE, because nothing upstream defines it:** the plane is neither a transient
     value op nor the Router's delivery ledger. `createOpDedupe` replays a settled answer for a repeated key
     AND joins a flight already open, since a replay arriving before the first answer would otherwise do the
