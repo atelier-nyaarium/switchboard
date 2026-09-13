@@ -9,7 +9,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,7 +29,7 @@ internal fun RootScreen(
 	shown: RootView,
 	onView: (RootView) -> Unit,
 	drawerSide: DrawerSide,
-	drawerState: DrawerState,
+	drawers: SideDrawers,
 	domainId: String?,
 	vaultPending: Int,
 	snackbarHostState: SnackbarHostState,
@@ -45,19 +44,18 @@ internal fun RootScreen(
 	val marks = views.map { rootMark(it, vaultPending) }
 
 	SideDrawer(
-		side = drawerSide,
-		state = drawerState,
+		drawers = drawers,
 		sheet = {
 			DrawerHeader("Switchboard", domainId)
 			views.forEachIndexed { index, view ->
 				DrawerRow(view.title, iconOf(view), view == shown, marks[index]) {
 					onView(view)
-					scope.launch { drawerState.close() }
+					scope.launch { drawers.close() }
 				}
 			}
 			DrawerDivider()
 			DrawerRow("Settings", Icons.Default.Settings, selected = false, mark = null) {
-				scope.launch { drawerState.close() }
+				scope.launch { drawers.close() }
 				onSettings()
 			}
 		},
@@ -67,7 +65,7 @@ internal fun RootScreen(
 				TopAppBar(
 					title = { Text(shown.title) },
 					navigationIcon = {
-						if (drawerSide == DrawerSide.LEFT) DrawerButton(anyBadge(marks)) { scope.launch { drawerState.open() } }
+						if (drawerSide == DrawerSide.LEFT) DrawerButton(anyBadge(marks)) { scope.launch { drawers.open(drawerSide) } }
 					},
 					actions = {
 						// The queue's only in-app door.
@@ -88,7 +86,7 @@ internal fun RootScreen(
 							}
 						}
 						IconButton(onClick = hapticClick(onRefresh)) { Icon(Icons.Default.Refresh, contentDescription = "Refresh") }
-						if (drawerSide == DrawerSide.RIGHT) DrawerButton(anyBadge(marks)) { scope.launch { drawerState.open() } }
+						if (drawerSide == DrawerSide.RIGHT) DrawerButton(anyBadge(marks)) { scope.launch { drawers.open(drawerSide) } }
 					},
 				)
 			},

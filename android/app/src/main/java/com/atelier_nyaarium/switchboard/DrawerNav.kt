@@ -9,8 +9,36 @@ enum class DrawerSide {
 	;
 
 	companion object {
-		fun of(stored: String?): DrawerSide = entries.firstOrNull { it.name == stored } ?: RIGHT
+		fun of(stored: String?): DrawerSide = entries.firstOrNull { it.name == stored } ?: LEFT
 	}
+}
+
+internal enum class DrawerSlot {
+	CLOSED,
+	LEFT,
+	RIGHT,
+}
+
+internal fun slotOf(side: DrawerSide): DrawerSlot = if (side == DrawerSide.LEFT) DrawerSlot.LEFT else DrawerSlot.RIGHT
+
+/** A shown drawer only closes. */
+internal fun drawerAnchors(settled: DrawerSlot, width: Float): Map<DrawerSlot, Float> = when (settled) {
+	DrawerSlot.CLOSED -> mapOf(DrawerSlot.CLOSED to 0f, DrawerSlot.LEFT to width, DrawerSlot.RIGHT to -width)
+	DrawerSlot.LEFT -> mapOf(DrawerSlot.CLOSED to 0f, DrawerSlot.LEFT to width)
+	DrawerSlot.RIGHT -> mapOf(DrawerSlot.CLOSED to 0f, DrawerSlot.RIGHT to -width)
+}
+
+internal fun slotShown(offset: Float): DrawerSlot = when {
+	offset > 0.5f -> DrawerSlot.LEFT
+	offset < -0.5f -> DrawerSlot.RIGHT
+	else -> DrawerSlot.CLOSED
+}
+
+/** The sheet's left edge. */
+internal fun sheetX(shown: DrawerSlot, offset: Float, width: Float, screen: Int): Float = when (shown) {
+	DrawerSlot.LEFT -> offset - width
+	DrawerSlot.RIGHT -> screen + offset
+	DrawerSlot.CLOSED -> 0f
 }
 
 enum class ScopedView(val title: String) {

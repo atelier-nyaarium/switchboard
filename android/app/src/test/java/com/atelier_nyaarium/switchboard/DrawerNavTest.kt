@@ -77,11 +77,27 @@ class DrawerNavTest {
 		assertNull(rootMark(RootView.BACKLOG, 2))
 	}
 
-	// A stored value from another build must not strand the drawer on no side.
 	@Test
-	fun `the drawer opens on the right unless left was stored`() {
-		assertEquals(DrawerSide.RIGHT, DrawerSide.of(null))
-		assertEquals(DrawerSide.RIGHT, DrawerSide.of("sideways"))
-		assertEquals(DrawerSide.LEFT, DrawerSide.of(DrawerSide.LEFT.name))
+	fun `the menu button sits left unless right was stored`() {
+		assertEquals(DrawerSide.LEFT, DrawerSide.of(null))
+		assertEquals(DrawerSide.LEFT, DrawerSide.of("sideways"))
+		assertEquals(DrawerSide.RIGHT, DrawerSide.of(DrawerSide.RIGHT.name))
+	}
+
+	@Test
+	fun `a closed drawer opens from the edge a drag leaves, and a shown one only closes`() {
+		val width = 300f
+		val closed = drawerAnchors(DrawerSlot.CLOSED, width)
+		assertEquals(width, closed[DrawerSlot.LEFT])
+		assertEquals(-width, closed[DrawerSlot.RIGHT])
+		assertEquals(setOf(DrawerSlot.CLOSED, DrawerSlot.LEFT), drawerAnchors(DrawerSlot.LEFT, width).keys)
+		assertEquals(setOf(DrawerSlot.CLOSED, DrawerSlot.RIGHT), drawerAnchors(DrawerSlot.RIGHT, width).keys)
+
+		assertEquals(DrawerSlot.LEFT, slotShown(40f))
+		assertEquals(DrawerSlot.RIGHT, slotShown(-40f))
+		assertEquals(DrawerSlot.CLOSED, slotShown(0f))
+		assertEquals(-260f, sheetX(DrawerSlot.LEFT, 40f, width, screen = 1080))
+		assertEquals(1040f, sheetX(DrawerSlot.RIGHT, -40f, width, screen = 1080))
+		assertEquals(780f, sheetX(DrawerSlot.RIGHT, -width, width, screen = 1080))
 	}
 }

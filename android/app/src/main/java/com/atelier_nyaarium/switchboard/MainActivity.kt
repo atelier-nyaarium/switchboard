@@ -276,12 +276,8 @@ fun App(
 
 	val screen = shellScreen(nav, locked, overlays.isNotEmpty(), missingBoot == null)
 	// One state per showing of its screen, so a drawer left open never reappears open.
-	val rootDrawer = remember(screen == ShellScreen.ROOT) {
-		androidx.compose.material3.DrawerState(androidx.compose.material3.DrawerValue.Closed)
-	}
-	val conversationDrawer = remember(screen == ShellScreen.CONVERSATION, openTeam) {
-		androidx.compose.material3.DrawerState(androidx.compose.material3.DrawerValue.Closed)
-	}
+	val rootDrawer = remember(screen == ShellScreen.ROOT) { SideDrawers() }
+	val conversationDrawer = remember(screen == ShellScreen.CONVERSATION, openTeam) { SideDrawers() }
 	// The one Back authority: `backLayer` orders what is drawn over what.
 	val shownDrawer = if (screen == ShellScreen.CONVERSATION) conversationDrawer else rootDrawer
 	val backFacts = BackFacts(
@@ -423,8 +419,7 @@ fun App(
 			)
 			val marks = offered.map { conversationMark(it, facts) }
 			SideDrawer(
-				side = drawerSide,
-				state = conversationDrawer,
+				drawers = conversationDrawer,
 				sheet = {
 					DrawerHeader(tabLabelFor(state, team), localFieldOf(team), monospace = true)
 					offered.forEachIndexed { index, view ->
@@ -541,7 +536,7 @@ fun App(
 				onView = { nav = nav.showView(it) },
 				drawerSide = drawerSide,
 				drawerBadged = anyBadge(marks),
-				onOpenDrawer = { shellScope.launch { conversationDrawer.open() } },
+				onOpenDrawer = { shellScope.launch { conversationDrawer.open(drawerSide) } },
 				body = { modifier ->
 					val scoped = shown.scoped
 					if (scoped == null) {
@@ -608,7 +603,7 @@ fun App(
 				shown = shownView(offeredRoot, nav.root),
 				onView = { nav = nav.showRoot(it) },
 				drawerSide = drawerSide,
-				drawerState = rootDrawer,
+				drawers = rootDrawer,
 				domainId = state.domainId,
 				vaultPending = if (vaultOn) vaultPending.size else 0,
 				snackbarHostState = snackbarHostState,

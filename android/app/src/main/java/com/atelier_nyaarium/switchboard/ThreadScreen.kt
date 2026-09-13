@@ -143,7 +143,7 @@ fun ThreadScreen(
 	onFocusChange: (FocusIntent) -> Unit = {},
 	view: ConversationView = ConversationView.CHAT,
 	onView: (ConversationView) -> Unit = {},
-	drawerSide: DrawerSide = DrawerSide.RIGHT,
+	drawerSide: DrawerSide = DrawerSide.LEFT,
 	drawerBadged: Boolean = false,
 	onOpenDrawer: () -> Unit = {},
 	/** Non-chat, non-terminal content. */
