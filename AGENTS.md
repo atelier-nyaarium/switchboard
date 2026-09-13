@@ -442,7 +442,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **An op this build cannot read is refused at once:** silence would hold the Gateway to its full wait.
   - **The save is Lexicon's compare-and-swap:** `saveSpanOf` reindexes the module, calls
     `refactorReplaceSpan` standalone, and answers the span as it now stands. `gone` is only the index saying
-    the span no longer resolves; a read back that failed says neither.
+    the span no longer resolves; a read back that failed says neither. From Lexicon 3.9 a module whose bytes a
+    UTF-8 decode would change, or text holding a lone surrogate, is refused with its reason.
   - **At-most-once is defined HERE, because nothing upstream defines it:** the plane is neither a transient
     value op nor the Router's delivery ledger. `createOpDedupe` replays a settled answer for a repeated key
     AND joins a flight already open, since a replay arriving before the first answer would otherwise do the
