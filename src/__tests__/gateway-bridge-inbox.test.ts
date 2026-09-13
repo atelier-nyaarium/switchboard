@@ -163,6 +163,16 @@ describe("GatewayBridge inbox", () => {
 		const refused = { ok: false, error: GATEWAY_ERROR_NOT_ADMITTED };
 		expect(await bridge.handleCall("c1", "probe", { incarnation: 1 })).toEqual(refused);
 		expect(await bridge.handleCall("c2", "list_gateways", {})).toEqual(refused);
+		await expect(
+			bridge.forwardGatewayValue("domain", {
+				opId: "op",
+				conversationId: "conversation",
+				signerSignPub: "owner",
+				device: "phone",
+				gatewayId: "gateway",
+				value: { kind: "list_dirs", path: "/" },
+			}),
+		).resolves.toEqual({ outcome: "unreachable" });
 		bridge.evictSigner("domain", gateway.sign.pub, "revoked");
 		const gone = { ok: false, error: GATEWAY_ERROR_NOT_REGISTERED };
 		expect(await bridge.handleCall("c1", "probe", { incarnation: 1 })).toEqual(gone);

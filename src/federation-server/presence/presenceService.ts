@@ -33,7 +33,7 @@ type ProjectionDeps = {
 	displayName: (domainId: string) => string | null;
 	isAdminDomain: (domainId: string) => boolean;
 };
-type FriendDeps = Pick<ProjectionDeps, "isShared">;
+type FriendDeps = Pick<ProjectionDeps, "isShared" | "admittedGateways">;
 
 const rowId = (gatewayId: string, sessionId: string): string => `presence.row:${gatewayId}/${sessionId}`;
 const rowPrefix = (gatewayId: string): string => `presence.row:${gatewayId}/`;
@@ -63,13 +63,15 @@ export function createPresenceService(deps: {
 	};
 
 	const reportedDrops = new Set<string>();
-	const rowsFor = (domainId: string): PresenceRow[] => {
+	// Revoked records stay, never served.
+	const rowsFor = (domainId: string, admitted: string[]): PresenceRow[] => {
+		const live = new Set(admitted);
 		const rows: PresenceRow[] = [];
 		for (const record of deps.registry.for(domainId).list("presence.row")) {
 			if (!record.id.startsWith("presence.row:")) continue;
 			const parsed = TeamInfoSchema.safeParse(record.clear);
 			if (parsed.success) {
-				rows.push(parsed.data);
+				if (live.has(parsed.data.gatewayId)) rows.push(parsed.data);
 				continue;
 			}
 			// Warn once per version.
@@ -81,11 +83,13 @@ export function createPresenceService(deps: {
 		return sortedRows(rows);
 	};
 
-	const gatewayRecords = (domainId: string) =>
-		deps.registry
+	const gatewayRecords = (domainId: string, admitted: string[]) => {
+		const live = new Set(admitted.map(gatewayRecordId));
+		return deps.registry
 			.for(domainId)
 			.list("presence.row")
-			.filter((record) => record.id.startsWith("presence.gateway:"));
+			.filter((record) => live.has(record.id));
+	};
 
 	/** The Domain's plane lineage, minted once and shared by every plane the console reads; null until it is durable. */
 	const lineageEpoch = (domainId: string): number | null => {
@@ -241,7 +245,7 @@ export function createPresenceService(deps: {
 
 	const friendProjection = (domainId: string, toDomainId: string, friendDeps: FriendDeps) => {
 		const sessions: CrossDomainPresenceSession[] = [];
-		for (const row of rowsFor(domainId)) {
+		for (const row of rowsFor(domainId, friendDeps.admittedGateways(domainId))) {
 			const sessionTarget = `${domainId}.${row.gatewayId}.${row.team}`;
 			if (!friendDeps.isShared(domainId, sessionTarget, toDomainId)) continue;
 			const session = toCrossDomainPresenceSession(row, (name) => {
@@ -260,12 +264,9 @@ export function createPresenceService(deps: {
 	};
 
 	const ownerProjection = (domainId: string, projectionDeps: ProjectionDeps) => {
-		const rows = rowsFor(domainId);
-		const rosterData = roster(
-			domainId,
-			projectionDeps.admittedGateways(domainId),
-			projectionDeps.connected(domainId),
-		);
+		const admitted = projectionDeps.admittedGateways(domainId);
+		const rows = rowsFor(domainId, admitted);
+		const rosterData = roster(domainId, admitted, projectionDeps.connected(domainId));
 		const owner = {
 			domainId,
 			displayName: projectionDeps.displayName(domainId),
@@ -283,7 +284,7 @@ export function createPresenceService(deps: {
 			};
 		});
 		// Spawn points require a baseline.
-		const spawnPoints = gatewayRecords(domainId)
+		const spawnPoints = gatewayRecords(domainId, admitted)
 			.map((record) => record.clear.spawnPoints as SpawnPoints | undefined)
 			.filter((points): points is SpawnPoints => points !== undefined);
 		const identity = JSON.stringify({

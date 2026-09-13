@@ -156,7 +156,7 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 	const presence = createPresenceService({
 		registry,
 		projection: projectionDeps,
-		friend: { isShared },
+		friend: { isShared, admittedGateways },
 		touch: (domainId, sessionTarget) => share.touch(domainId, sessionTarget),
 		pokeOwner: (domainId, lineage, projection) =>
 			deps.consoleSockets?.pushPlane(domainId, "presence", lineage, projection),

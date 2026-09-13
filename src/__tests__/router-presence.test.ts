@@ -353,6 +353,40 @@ describe("router presence slice", () => {
 		registry.close();
 	});
 
+	it("serves nothing of a revoked Gateway to the owner or a friend, and serves it again once re-admitted", () => {
+		const { registry, service } = make();
+		let admitted = ["gw", "other"];
+		const deps = { ...projectionDeps, admittedGateways: () => admitted, isShared: () => true };
+		service.applyBaseline(reg, {
+			incarnation: 1,
+			seq: 0,
+			rows: [row("proj.main")],
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: ["shell"] },
+		});
+		service.applyBaseline(
+			{ ...reg, gatewayId: "other" },
+			{
+				incarnation: 1,
+				seq: 0,
+				rows: [row("kept.main")],
+				spawnPoints: { gatewayId: "other", domainId: "domain", hostSpawns: [] },
+			},
+		);
+		service.onGatewayDropped(reg);
+
+		admitted = ["other"];
+		expect(service.ownerProjection("domain", deps)).toMatchObject({
+			rows: [{ team: "kept.main", gatewayId: "other" }],
+			spawnPoints: [{ gatewayId: "other" }],
+			roster: [{ gatewayId: "other" }],
+		});
+		expect(service.friendProjection("domain", "friend", deps).sessions.map((s) => s.team)).toEqual(["kept.main"]);
+
+		admitted = ["gw", "other"];
+		expect(service.ownerProjection("domain", deps).rows.map((r) => r.team)).toEqual(["kept.main", "proj.main"]);
+		registry.close();
+	});
+
 	it("rearms every row as unreachable", () => {
 		const { registry, service } = make();
 		service.applyBaseline(reg, {
@@ -456,6 +490,7 @@ describe("router presence slice", () => {
 		});
 		const projection = service.friendProjection("domain", "friend", {
 			isShared: (_d, target) => target.includes("proj.main"),
+			admittedGateways: () => ["gw"],
 		});
 		expect(Object.keys(projection.sessions[0])).toEqual([
 			"team",
@@ -565,7 +600,10 @@ describe("router presence slice", () => {
 				displayName: () => null,
 				isAdminDomain: () => false,
 			},
-			friend: { isShared: (_domainId, target, toDomainId) => target.includes("b.main") && toDomainId === "a" },
+			friend: {
+				isShared: (_domainId, target, toDomainId) => target.includes("b.main") && toDomainId === "a",
+				admittedGateways: () => ["gw"],
+			},
 		});
 		service.applyBaseline(
 			{ ...reg, domainId: "a" },

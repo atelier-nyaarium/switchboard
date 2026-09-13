@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { DomainSnapshot } from "../../shared/admission.js";
+import { admittedGatewayIds, type DomainSnapshot } from "../../shared/admission.js";
 import type { Ambient, TimerHandle } from "../../shared/ambient.js";
 import {
 	InboxAckParamsSchema,
@@ -172,12 +172,9 @@ export class InboxFrames {
 			value: unknown;
 		},
 	): Promise<unknown> {
-		const admitted = this.deps
-			.getDomain(domainId)
-			?.admissions.some(
-				(entry) => entry.admission.kind === "gateway" && entry.admission.gatewayId === params.gatewayId,
-			);
-		if (!admitted) return Promise.resolve({ outcome: "unreachable" });
+		const domain = this.deps.getDomain(domainId);
+		if (!domain || !admittedGatewayIds(domain).includes(params.gatewayId))
+			return Promise.resolve({ outcome: "unreachable" });
 		const connId = this.deps.getConnectionId(domainId, params.gatewayId);
 		const reg = connId ? this.deps.getRegistration(connId) : undefined;
 		const ws = connId ? this.deps.getConnection(connId) : null;
