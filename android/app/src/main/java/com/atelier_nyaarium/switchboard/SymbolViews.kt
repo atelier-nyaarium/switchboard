@@ -25,6 +25,7 @@ internal data class SymbolIdentity(
 	val module: String?,
 	val startLine: Long?,
 	val endLine: Long?,
+	val container: String? = null,
 )
 
 /** The span wins where both answer, since a window opens from it. */
@@ -36,6 +37,7 @@ internal fun identityOf(span: WorkspaceSymbolSourceAnswer?, known: WorkspaceKnow
 		module = span?.module ?: known?.module,
 		startLine = span?.startLine ?: known?.startLine,
 		endLine = span?.endLine ?: known?.endLine,
+		container = span?.container,
 	)
 }
 

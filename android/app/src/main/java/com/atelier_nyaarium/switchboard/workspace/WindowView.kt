@@ -1,15 +1,26 @@
 package com.atelier_nyaarium.switchboard.workspace
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
@@ -36,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import com.atelier_nyaarium.switchboard.Applied
 import com.atelier_nyaarium.switchboard.Window
 import com.atelier_nyaarium.switchboard.WindowOps
+import com.atelier_nyaarium.switchboard.WindowRequest
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
 import com.atelier_nyaarium.switchboard.editedWindows
 import com.atelier_nyaarium.switchboard.gapBetween
@@ -46,6 +58,7 @@ import com.atelier_nyaarium.switchboard.neighbourBounds
 import com.atelier_nyaarium.switchboard.opensModule
 import com.atelier_nyaarium.switchboard.saveNotice
 import com.atelier_nyaarium.switchboard.windowParts
+import com.atelier_nyaarium.switchboard.windowTitle
 import kotlinx.coroutines.launch
 
 /**
@@ -57,6 +70,8 @@ internal fun WindowView(
 	ops: WindowOps,
 	target: WorkspaceTarget,
 	windows: List<Window>,
+	ask: WindowRequest?,
+	onDismissAsk: () -> Unit,
 	onClose: (String) -> Unit,
 	modifier: Modifier = Modifier,
 ) {
@@ -72,7 +87,10 @@ internal fun WindowView(
 	}
 
 	if (ordered.isEmpty()) {
-		WorkspaceNotice("Long press a symbol in an outline to open a window", modifier)
+		Column(modifier) {
+			ask?.let { AskCard(it, onDismissAsk) }
+			WorkspaceNotice("Long press a symbol in an outline to open a window")
+		}
 		return
 	}
 
@@ -94,6 +112,7 @@ internal fun WindowView(
 	}
 
 	Column(modifier.fillMaxSize()) {
+		ask?.let { AskCard(it, onDismissAsk) }
 		WindowScroll(ops, target, ordered, context, Modifier.weight(1f), onClose)
 		notice?.let { WorkspaceNotice(it) }
 		if (edits > 0) {
@@ -133,6 +152,30 @@ private fun appliedNotice(applied: Applied): String =
 		Applied.AlreadySending -> "Already asking"
 		Applied.Failed -> "That did not leave the phone"
 	}
+
+@Composable
+private fun AskCard(ask: WindowRequest, onDismiss: () -> Unit) {
+	Row(
+		Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
+			.background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(topEnd = 8.dp, bottomEnd = 8.dp)),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		Box(Modifier.width(2.dp).height(40.dp).background(MaterialTheme.colorScheme.primary))
+		Column(Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 6.dp)) {
+			if (ask.opened == null) {
+				Text("Waiting for a reply", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+			}
+			Text(
+				ask.text,
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSecondaryContainer,
+				maxLines = 3,
+				overflow = TextOverflow.Ellipsis,
+			)
+		}
+		IconButton(onClick = hapticClick(onDismiss)) { Icon(Icons.Default.Close, contentDescription = "Dismiss") }
+	}
+}
 
 @Composable
 private fun WindowScroll(
@@ -242,8 +285,14 @@ private fun WindowCard(
 				horizontalArrangement = Arrangement.spacedBy(8.dp),
 				verticalAlignment = Alignment.CenterVertically,
 			) {
+				Box(
+					Modifier.size(7.dp).background(
+						if (window.edited) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+						CircleShape,
+					),
+				)
 				Text(
-					window.descriptor.name,
+					windowTitle(window.descriptor),
 					Modifier.weight(1f),
 					style = MaterialTheme.typography.titleSmall,
 					fontFamily = FontFamily.Monospace,
@@ -253,8 +302,10 @@ private fun WindowCard(
 				if (window.edited) {
 					Text(
 						"EDITED",
+						Modifier.background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(10.dp))
+							.padding(horizontal = 8.dp, vertical = 2.dp),
 						style = MaterialTheme.typography.labelSmall,
-						color = MaterialTheme.colorScheme.primary,
+						color = MaterialTheme.colorScheme.onPrimaryContainer,
 					)
 				}
 				Text(

@@ -4,6 +4,8 @@ import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.ConsolePolicyDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsolePolicyPutResult
 import com.atelier_nyaarium.switchboard.proto.PolicyBinding
+import com.atelier_nyaarium.switchboard.proto.RefFileMeta
+import com.atelier_nyaarium.switchboard.proto.RefKeyMeta
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineNextResult
@@ -288,6 +290,28 @@ internal class SandboxRoutineGateway : RoutineGateway {
 		ConsoleRoutineOccurrenceResult(applied = true)
 }
 
+private const val SANDBOX_MODULE = "src/shared/schemasRoutine.ts"
+
+/** A canned reply to a windows ask. */
+internal fun sandboxWindowsReply(text: String, now: Long): Message? {
+	if (!text.startsWith(WINDOWS_ASK_LEAD)) return null
+	val keys = listOf("routineRefusal()" to (7L to 11L), "MAX_ROUTINE_MEMORY_BYTES" to (4L to 4L)).map { (name, lines) ->
+		RefKeyMeta(
+			key = "$SANDBOX_MODULE:$name",
+			startLine = lines.first,
+			endLine = lines.second,
+			quality = "exact",
+			symbolId = "lexicon typescript $SANDBOX_MODULE $name.",
+		)
+	}
+	return Message(
+		fromMe = false,
+		text = "Opened both.",
+		at = now,
+		files = listOf(MessageFile(name = "refs", mime = "text/plain", role = "ref-snapshot", ref = RefFileMeta(SANDBOX_MODULE, keys = keys))),
+	)
+}
+
 /** A canned workspace, so every workspace screen draws with no session to reach. */
 internal class SandboxWorkspaceGateway : WorkspaceGateway {
 	private val file = listOf(
@@ -304,7 +328,7 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 		"}",
 	)
 
-	private val module = "src/shared/schemasRoutine.ts"
+	private val module = SANDBOX_MODULE
 
 	private fun idOf(name: String) = "lexicon typescript $module $name."
 

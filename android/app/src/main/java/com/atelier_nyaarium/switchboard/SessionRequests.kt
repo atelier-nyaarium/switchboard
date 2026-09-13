@@ -30,8 +30,8 @@ internal class SessionRequests(private val host: WorkspaceHost) : ClearsOnReprov
 
 	val states: StateFlow<Map<RequestKey, RequestState>> = held
 
-	suspend fun submit(key: RequestKey, text: String): Submitted {
-		val generation = host.generation.capture()
+	/** `generation` is when the caller began, if that was before this call. */
+	suspend fun submit(key: RequestKey, text: String, generation: Long = host.generation.capture()): Submitted {
 		while (true) {
 			val all = held.value
 			if (all[key] == RequestState.SENDING) return Submitted.AlreadySending
@@ -41,19 +41,19 @@ internal class SessionRequests(private val host: WorkspaceHost) : ClearsOnReprov
 			held.update { if (it[key] == RequestState.SENDING) it - key else it }
 			return Submitted.Failed
 		}
-		// Outlives the screen that asked.
-		val sent = withContext(NonCancellable) {
-			try {
+		// Outlives the screen that asked, landing included: a cancelled caller discards what this returns.
+		return withContext(NonCancellable) {
+			val sent = try {
 				host.send(key.address, text)
 			} catch (e: Exception) {
 				DebugLog.log("Requests", "send failed: ${e.message}")
 				false
 			}
+			if (host.generation.isCurrent(generation)) {
+				held.update { it + (key to if (sent) RequestState.SENT else RequestState.FAILED) }
+			}
+			if (sent) Submitted.Sent else Submitted.Failed
 		}
-		if (host.generation.isCurrent(generation)) {
-			held.update { it + (key to if (sent) RequestState.SENT else RequestState.FAILED) }
-		}
-		return if (sent) Submitted.Sent else Submitted.Failed
 	}
 
 	override suspend fun clearInMemory() {

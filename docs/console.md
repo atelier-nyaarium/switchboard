@@ -352,6 +352,15 @@ no TTL.
   returns to that folder when it is on the stack and steps onto it when it is not, so Back from a crumb
   goes where the owner was. A detail's back line names its file. A text file under the plugin's counting
   cap shows its line count; above it, or holding a NUL, its size.
+- **Asking for windows** (`WindowRequests`, `answeredWindows`): the outline's field sends the session a
+  `WINDOWS` request naming the module and asking for one `ref://` link per declaration. One ask is held per
+  session, in memory, recorded before the send so a fast reply still finds it; a newer ask replaces it. The
+  first inbound row after it from the session itself (not the owner, a peer, or a status row) whose refs
+  carry symbol ids opens those windows through `WindowOps.openWindow`. The Files screen then lands on Windows
+  with the ask above the cards. A reply naming none, or naming only windows that fail to open, leaves it
+  waiting until dismissed. The inbound match rides `PollDrain.addInboundSubscriber`; no wire carries a reply
+  id. A window's header reads `Container : member`, the container taken from the symbol id's owning
+  declaration by the plugin.
 - **The file sheet** (`FileOpRules`: `PathAsk`, `fileSummary`, `sendFile`): Duplicate is the copy, Rename is
   a move that types a name alone and stays in its folder, and Send to agent is a `FILE` request on
   `SessionRequests` naming the path.

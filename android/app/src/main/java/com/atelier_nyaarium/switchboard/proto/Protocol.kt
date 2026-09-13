@@ -2174,6 +2174,7 @@ data class WorkspaceSymbolSourceAnswer(
 	val startLine: Long,
 	val endLine: Long,
 	val spanHash: String,
+	val container: String? = null,
 )
 
 @Serializable

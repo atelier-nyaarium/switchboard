@@ -304,7 +304,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     the other callers still pass one. A read that fills a per-module cache is not fenced at all, since
     nothing an older answer could overwrite exists. A read a screen draws is not fenced either: it lands
     through its `PublishedViews` showing.
-- `android/.../WindowOps.kt` / `WindowRules.kt` / `SymbolViews.kt` / `KnowledgeRules.kt` / `SessionRequests.kt` / `RawFileOps.kt` /
+- `android/.../WindowOps.kt` / `WindowRules.kt` / `WindowRequests.kt` / `SymbolViews.kt` / `KnowledgeRules.kt` / `SessionRequests.kt` / `RawFileOps.kt` /
   `RawFileRules.kt` / `WorkspaceFileOps.kt` / `FileOpRules.kt` / `HeldEdits.kt` / `PublishedViews.kt` /
   `WorkspaceDraftStore.kt` / `WorkspacePorts.kt` / `WorkspaceFileTable.kt` / `WorkspaceNav.kt` / `workspace/` - a
   conversation's Files: the open windows, the raw files being edited, the file operations, their drafts, every

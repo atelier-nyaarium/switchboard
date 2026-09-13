@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Session } from "@nyaa-lexicon/client";
+import { composeSymbolId } from "@nyaa-lexicon/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { answerWorkspaceOp, type HandlerDeps } from "../mcp/workspace/handlers.js";
 import {
@@ -458,6 +459,37 @@ describe("the index-backed reads", () => {
 		});
 		const result = await ask(workspace(), { kind: "symbolSource", symbolId: SERVED_ID }, session);
 		expect(result.ok && result.answer.kind === "symbolSource" && result.answer.spanHash).toBe("lexicon");
+	});
+
+	it("names a member's enclosing declaration, and none for a top-level one", async () => {
+		const session = fakeSession({
+			symbolSource: { found: true, module: "src/app.ts", name: "weekdays", text: "x", range: SPAN },
+		});
+		const member = composeSymbolId({
+			language: "typescript",
+			module: "src/app.ts",
+			descriptors: [
+				{ kind: "type", name: "RoutineSchema" },
+				{ kind: "term", name: "weekdays" },
+			],
+		});
+		const answerOf = async (symbolId: string) => {
+			const result = await ask(workspace(), { kind: "symbolSource", symbolId }, session);
+			return result.ok && result.answer.kind === "symbolSource" ? result.answer : null;
+		};
+
+		const parameter = composeSymbolId({
+			language: "typescript",
+			module: "src/app.ts",
+			descriptors: [
+				{ kind: "typeParameter", name: "T" },
+				{ kind: "term", name: "value" },
+			],
+		});
+
+		expect((await answerOf(member))?.container).toBe("RoutineSchema");
+		expect(await answerOf(SERVED_ID)).not.toHaveProperty("container");
+		expect(await answerOf(parameter)).not.toHaveProperty("container");
 	});
 });
 

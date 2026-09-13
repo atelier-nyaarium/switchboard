@@ -80,6 +80,8 @@ export const SymbolSourceAnswerSchema = z
 		endLine: z.number().int().positive(),
 		/** Of the SPAN, so an edit elsewhere does not invalidate a window. */
 		spanHash: z.string().min(1).max(128),
+		/** The enclosing declaration's name; absent at the top level. */
+		container: z.string().max(512).optional(),
 	})
 	.meta({ id: "WorkspaceSymbolSourceAnswer" });
 

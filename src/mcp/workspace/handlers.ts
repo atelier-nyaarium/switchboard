@@ -275,7 +275,12 @@ async function outlineOf(
 	};
 }
 
+/** A parameter or a type parameter encloses nothing a window names. */
+const CONTAINER_KINDS: ReadonlySet<string> = new Set(["namespace", "type", "term", "method"]);
+
 function sourceAnswerOf(symbolId: string, found: Extract<SymbolSource, { found: true }>): SymbolSourceAnswer {
+	const owner = parseSymbolId(symbolId)?.descriptors.at(-2);
+	const container = owner && CONTAINER_KINDS.has(owner.kind) ? owner.name : undefined;
 	return {
 		kind: "symbolSource",
 		symbolId,
@@ -286,6 +291,7 @@ function sourceAnswerOf(symbolId: string, found: Extract<SymbolSource, { found: 
 		endLine: found.range.end.line + 1,
 		// Lexicon's own, which a save is checked against.
 		spanHash: found.spanHash ?? hashContent(found.text),
+		...(container === undefined ? {} : { container }),
 	};
 }
 

@@ -50,6 +50,7 @@ class ClearsOnReprovisionTest {
 				"sessionRequests",
 				"windowOps",
 				"symbolViews",
+				"windowRequests",
 				"rawFileOps",
 				"fileOps",
 			),

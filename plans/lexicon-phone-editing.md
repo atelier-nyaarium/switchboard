@@ -1948,7 +1948,7 @@ Mocks: `file-tree.html`, `file-outline.html`.
   published before the lock is released, so no reader can see one moved without the others. `update` and
   `claim` take the lock too, rather than a compare-and-set over the map that read the tokens beside it.
 
-## Phase 12c - The prose road and the window
+## Phase 12c - The prose road and the window ✅
 
 Mocks: `file-outline.html` for the field, `symbol-window.html` for the request above the cards. Closes the board
 item for the prose road.
@@ -1969,6 +1969,18 @@ item for the prose road.
   - A header of `Container : member`, the EDITED badge and the line range.
   - A separator reading "N lines" between consecutive windows of one file.
   - The stale banner is kept.
+
+### What shipped beyond the list
+
+- **The container is the plugin's reading of the symbol id:** the owning descriptor when it is a namespace,
+  type, term or method. The source answer carries it as an optional `container`.
+- **A reply counts only from the session itself:** not the owner, a peer or a status row, and not one stamped
+  more than five seconds before the ask. A reply whose windows all fail to open leaves the ask waiting.
+- **A dismissed or replaced ask opens nothing more,** and the send takes the re-provision generation from
+  before the ask was recorded.
+- **`SessionRequests` lands its state inside the non-cancellable block,** since a cancelled caller discards
+  what `withContext` returns.
+- **The sandbox answers a windows ask** with both canned symbols, so the whole road runs on the emulator.
 
 ## Phase 12d - The ref viewer's Sent and Now
 

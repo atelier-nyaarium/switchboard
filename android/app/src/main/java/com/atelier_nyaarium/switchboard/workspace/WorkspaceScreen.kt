@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -40,6 +41,7 @@ import com.atelier_nyaarium.switchboard.WorkspacePlace
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.holdsWorkspace
 import com.atelier_nyaarium.switchboard.kindBadge
+import com.atelier_nyaarium.switchboard.landsOnWindows
 import com.atelier_nyaarium.switchboard.placeOf
 import com.atelier_nyaarium.switchboard.placeTitle
 import com.atelier_nyaarium.switchboard.targetOf
@@ -75,6 +77,14 @@ internal fun WorkspaceScreen(
 	val scope = rememberCoroutineScope()
 	val boards by repo.windowOps.windows.collectAsState()
 	val windows = boards[target].orEmpty()
+	val asks by repo.windowRequests.requests.collectAsState()
+	val ask = asks[target.address]
+	LaunchedEffect(ask) {
+		if (ask != null && landsOnWindows(ask)) {
+			repo.windowRequests.landed(ask)
+			onPush(WorkspacePlace.Windows)
+		}
+	}
 
 	Column(modifier.fillMaxSize()) {
 		when (place) {
@@ -93,6 +103,7 @@ internal fun WorkspaceScreen(
 			)
 			is WorkspacePlace.Outline -> WorkspaceOutline(
 				views = repo.symbolViews,
+				asks = repo.windowRequests,
 				target = target,
 				path = place.path,
 				held = windows,
@@ -125,6 +136,8 @@ internal fun WorkspaceScreen(
 					ops = repo.windowOps,
 					target = target,
 					windows = windows,
+					ask = ask,
+					onDismissAsk = { repo.windowRequests.dismiss(target) },
 					onClose = { repo.windowOps.closeWindow(target, it) },
 				)
 			}

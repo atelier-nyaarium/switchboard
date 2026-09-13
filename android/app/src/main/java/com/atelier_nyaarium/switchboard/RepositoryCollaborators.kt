@@ -239,7 +239,10 @@ internal class ChatRepositoryWorkspaceHost(private val repo: ChatRepository) : W
 	 * refusal, so the row is what says whether the message left.
 	 */
 	override suspend fun send(address: String, text: String): Boolean {
-		if (isSandbox) return true
+		if (isSandbox) {
+			sandboxWindowsReply(text, repo.ambient.now())?.let { repo.windowRequests.onMessage(address, it) }
+			return true
+		}
 		val opId = repo.send(address, text) ?: return false
 		return repo.state.value.threads[address]?.firstOrNull { it.opId == opId }?.status != "error"
 	}

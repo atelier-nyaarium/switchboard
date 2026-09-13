@@ -65,6 +65,7 @@ internal data class WindowDescriptor(
 	val startLine: Long,
 	val endLine: Long,
 	val spanHash: String,
+	val container: String? = null,
 )
 
 internal fun descriptorOf(answer: WorkspaceSymbolSourceAnswer): WindowDescriptor =
@@ -75,7 +76,11 @@ internal fun descriptorOf(answer: WorkspaceSymbolSourceAnswer): WindowDescriptor
 		startLine = answer.startLine,
 		endLine = answer.endLine,
 		spanHash = answer.spanHash,
+		container = answer.container,
 	)
+
+internal fun windowTitle(descriptor: WindowDescriptor): String =
+	descriptor.container?.let { "$it : ${descriptor.name}" } ?: descriptor.name
 
 /** One span of one file, as the owner is shown it. */
 internal data class Window(
