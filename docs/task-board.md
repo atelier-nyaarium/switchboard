@@ -72,9 +72,13 @@ set land in one journal line, and a write naming anything else is refused `attac
 - Rank-only reorders announce nothing.
 - Awareness bodies are bounded. Liveness distinguishes waking from gone and uses `WAKE_TIMEOUT_MS`.
 - The phone drains board edits before sending the next wire message.
+- **Files the owner changed from the phone ride too:** each span save or file mutation the console answers
+  banks one `no_act` line per path, the latest change to it, and an `unknown` answer says "may have". A
+  forgotten session's bank is dropped with it; a closed one keeps it for its wake.
 
 **File map:**
 
 - `src/gateway/awarenessBank.ts` - subscriber bank, flush deadline, liveness.
 - `src/gateway/boardAwareness.ts` - board recipients and net-change classification.
+- `src/gateway/workspaceAwareness.ts` - what a phone workspace op changed, and the files notice.
 - `src/gateway/routes/routesSend.ts` - awareness delivery on channel pushes.

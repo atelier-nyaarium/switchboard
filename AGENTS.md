@@ -123,6 +123,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     anything else runs. The key is released only once the completion is durable, or a success the
     migration fence refused to record could be delivered twice.
 - `src/gateway/boardAwareness.ts` - board awareness recipients and net-change classification
+- `src/gateway/workspaceAwareness.ts` - what a phone workspace op changed, banked `no_act` for the session; `workspaceAnswerNoting` is the console's one road from a plane result to an answer
 - `src/gateway/awarenessBank.ts` - subscriber state, deadlines, and liveness reads
 - `src/gateway/daemonCapabilities.ts` - daemon capability answer
 - `src/gateway/federation/crossDomainShareState.ts` - this Gateway's copy of the Router's shares for its own sessions; a snapshot replaces it, a delta moves it one revision
@@ -302,10 +303,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     source and its knowledge cancel each other. `WindowOps` passes a sealed `ReadSlot`, so no string
     reaches this from there; the other callers still pass one. A read that fills a per-module cache is
     not fenced at all, since nothing an older answer could overwrite exists.
-- `android/.../WindowOps.kt` / `WindowRules.kt` / `RawFileOps.kt` / `RawFileRules.kt` / `HeldEdits.kt` /
-  `WorkspaceDraftStore.kt` / `WorkspacePorts.kt` / `WorkspaceNav.kt` / `workspace/` - a conversation's
-  Files: the open windows, the raw files being edited, their drafts, every rule the surface applies, the
-  place rules, and the five screens. `docs/console.md` holds the whole of it
+- `android/.../WindowOps.kt` / `WindowRules.kt` / `RawFileOps.kt` / `RawFileRules.kt` / `WorkspaceFileOps.kt` /
+  `FileOpRules.kt` / `HeldEdits.kt` / `PublishedViews.kt` / `WorkspaceDraftStore.kt` / `WorkspacePorts.kt` /
+  `WorkspaceFileTable.kt` / `WorkspaceNav.kt` / `workspace/` - a conversation's Files: the open windows, the
+  raw files being edited, the file operations, their drafts, every rule the surface applies, the place rules,
+  and the five screens. `docs/console.md` holds the whole of it
   - **Keyed by SESSION, never by Gateway:** two sessions of one Gateway hold different workspaces, so
     a Gateway-keyed map serves one session's span for the other. The fence, the draft filenames and
     the held maps all take the qualified session address.
@@ -326,6 +328,17 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     reports a refusal rather than reading as a success.
   - **The foreground sweep is unfenced, and lands `Folded` instead:** the fence gives a key to whoever
     claimed last, so a sweep would discard the Refresh the owner just tapped.
+  - **A re-provision is ONE generation, `WorkspaceHost.generation`:** advanced first in the re-provision
+    roster and read by every workspace ops class, where each once kept its own epoch and one kept none.
+  - **A view map beside `HeldEdits` is a `PublishedViews`:** its `Showing` is the key's token and the
+    generation, and `update` and `claim` land only on a current one. The raw editor's and the tree's maps each
+    hand-wrote this guard and each missed a case of it.
+  - **A file operation is armed from a state read, confirmed once, and read back rather than resent:**
+    `WorkspaceFileOps` builds the mutation only from the facts the confirmation showed, a folder's claim is
+    taken once, and `settledOf` decides an unanswered one.
+  - **The sandbox and the test fakes answer through `WorkspaceFileTable`:** the plugin's logical rules,
+    pinned to the plugin by `tests/fixtures/workspace-file-ops/vectors.json`, which both runtimes run. A
+    hand-written sandbox drifted from the plugin twice before it existed.
   - **Nothing decides inside a Composable**, since there is no instrumentation source set. The screens
     render and call; `WindowRules`, `RawFileRules` and `WorkspaceNav` hold the decisions, and
     `RawFileOps.views` holds what a raw file's screen draws.
@@ -404,11 +417,19 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     the full timeout for an answer that can never come.
   - **One socket per session, chosen by `resolveLiveIncarnation`:** a session can hold several plugin
     sockets keyed team then `subId`. Nothing broadcasts, and no second selector exists.
-- `src/mcp/workspace/plane.ts` / `handlers.ts` / `mutateFile.ts` / `opDedupe.ts` - the plugin's end: the frame it answers, the five reads, the span save, the file mutations, and at-most-once
+- `src/mcp/workspace/plane.ts` / `handlers.ts` / `mutateFile.ts` / `opDedupe.ts` - the plugin's end: the frame it answers, the six reads, the span save, the file mutations, and at-most-once
   - **A file write is plain file work, never Lexicon:** `writeOf` compares the sha256 of the bytes on disk,
-    fills a sibling temp through `writeFileAtomic`, hashes the file again, and renames. The gap between that
-    hash and the rename is not closed, and the rename gives the path a new inode. A write refuses what a
-    read would not offer (`readOnlyReason`).
+    fills a sibling temp through `writeFileAtomic`, hashes the file again, confines the resolved path again,
+    and renames. The gap between that hash and the rename is not closed, and the rename gives the path a new
+    inode. A write refuses what a read would not offer (`readOnlyReason`).
+  - **Each mutation lands only while what the phone named still holds, and places atomically:** delete and
+    move bind the source's identity as well as its hash, and re-check it last; create links a temp into
+    place, so a taken name refuses; a move to a free name links then unlinks, and a filesystem without links
+    refuses rather than risk replacing a name taken meanwhile; a copy hashes its temp against the confirmed
+    bytes before placing it; a replace names the file it replaces. A folder is refused as a source and a
+    destination, and another name for the same file is refused as a destination. `fileStateOf` answers
+    what a phone arms from. Every check then its landing leaves a gap only a lock every writer honours
+    would close.
   - **The plugin answers off the agent's turn:** the socket callback and the agent's work share a process
     but not a thread of control, which is what makes an op cost no tokens.
   - **An op this build cannot read is refused at once:** silence would hold the Gateway to its full wait.
@@ -424,7 +445,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **ONE deadline per op, never a budget per call:** two calls each given the full budget outlast the
     plane's wait and reinstate the blind timeout the budget exists to prevent.
 - `src/mcp/workspace/loadFile.ts` - the one reader of a workspace file: regular files only, sized before the read, text or nothing, with the hash of its bytes and whether it was transcoded. Shared by the refs snapshot road and the phone's file road; containment is the caller's.
-- `src/mcp/workspace/confine.ts` - which project files the phone's file road may reach, and `fileIdentity` for a mutation that must bind a file rather than bytes
+- `src/mcp/workspace/confine.ts` - which project files the phone's file road may reach, `fileIdentity` for a mutation that must bind a file rather than bytes, and `namesOneFile` for two names of one file
   - **Every rule runs against what a path RESOLVES to, never its spelling:** a link defeated containment
     once and exclusion once, both by being checked as written. `withheld` is therefore ONE function run
     over the written segments and the resolved ones, so a rule added to it cannot reappear in only one
@@ -574,7 +595,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/shared/wire-vocabulary.ts` - sole TS declaration of Router paths, the console header, signing tags, the bridge's refusals, nonce lengths; generated into `Protocol.Wire` beside the owner-op kinds the registry catalogues; residue-fenced on both runtimes
 - `src/shared/fixture-identity.ts` - the committed test signing keys; shipping entry points refuse them without `ALLOW_FIXTURE_IDENTITY=1`
 - `src/shared/ambient.ts` - the clock, entropy, ids, and timers as one injected record; `processAmbient` is the sole reader of the globals and unrefs every timer it hands back. `composeGateway` and `RouterServerParams` take one and thread it everywhere; `ambient-residue.test.ts` fences the three directories and names the reason for each allowed file. Vocabulary shared with the phone's `PhoneAmbient`, not a type
-- `src/shared/atomic-write.ts` - sole write-then-rename and temp-suffix owner; residue-tested
+- `src/shared/atomic-write.ts` - sole write-then-rename and temp-suffix owner, and the exclusive create and inode-keeping move beside it; residue-tested
 - `src/shared/durable-store.ts` - atomic snapshots and per-file quarantine boundaries
 - `src/shared/write-result.ts` - the two readings of an owner-store write: `landed` before anything irreversible, `appliedOrUncertain` before anything a caller retries; no site spells the pair
   - **An uncertain write is not a landed one:** a `durability_uncertain` line may or may not be on

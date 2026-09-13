@@ -305,19 +305,28 @@ no TTL.
   over revision N" tap performs). The binding picker offers only entries with a value that
   `allowedOn` that Gateway. A row's toggle and a routine's carry the row's revision and show the
   gateway's refusal under the row until a toggle of that row lands.
-- **Files** (`WindowOps.kt`, `WindowRules.kt`, `RawFileOps.kt`, `RawFileRules.kt`, `HeldEdits.kt`,
-  `WorkspaceDraftStore.kt`, `WorkspacePorts.kt`, `WorkspaceNav.kt`, `workspace/`): a conversation's
-  workspace, read through the plugin that holds it. The tree, an outline, a symbol's detail, the open
-  windows and a raw file sit behind one stack the conversation's `ShellNav` carries, moved by
-  `WorkspaceNav`'s push and pop. Everything is keyed by SESSION, not by Gateway: two sessions of one
-  Gateway hold different workspaces. Reads are re-read rather than cached, as the per-Gateway views do;
-  the exceptions are the open windows, the raw files being edited, their drafts, and one cached file per
-  module for the lines around a window.
+- **Files** (`WindowOps.kt`, `WindowRules.kt`, `RawFileOps.kt`, `RawFileRules.kt`, `WorkspaceFileOps.kt`,
+  `FileOpRules.kt`, `HeldEdits.kt`, `PublishedViews.kt`, `WorkspaceDraftStore.kt`, `WorkspacePorts.kt`,
+  `WorkspaceFileTable.kt`, `WorkspaceNav.kt`, `workspace/`): a conversation's workspace, read through the
+  plugin that holds it. The tree, an outline, a symbol's detail, the open windows and a raw file sit behind
+  one stack the conversation's `ShellNav` carries, moved by `WorkspaceNav`'s push and pop. Everything is
+  keyed by SESSION, not by Gateway: two sessions of one Gateway hold different workspaces. Reads are re-read
+  rather than cached, as the per-Gateway views do; the exceptions are the open windows, the raw files being
+  edited, their drafts, and one cached file per module for the lines around a window.
+- **A re-provision is one generation** (`WorkspaceHost.generation`): advanced once, first in the
+  re-provision roster, and read by every workspace ops class, so work begun under the previous owner lands
+  nothing after it and an op still waiting for its lock is not sent. A write already on the wire lands on
+  disk regardless.
 - **Held edits** (`HeldEdits`): windows and raw files are held the same way. `apply` is the one road for
   a change to the set or an edit made without waiting, and hands a transform what is held NOW. An edit
   carries an incarnation minted at open, since a symbol id or a path names which text and not which
-  opening of it; the window set also carries an epoch that moves on every close and on a re-provision, so
-  an open begun before either lands nothing.
+  opening of it; the window set also carries an epoch that moves on every close, so an open begun before
+  one lands nothing.
+- **View maps** (`PublishedViews`): what a screen draws, published per key beside `HeldEdits`. A `Showing`
+  is the key's token and the generation; `update` and `claim` land only on a current one, `show` joins the
+  showing already open and `reshow` ends what came before. A leave, a newer showing or a re-provision drops
+  an answer still out. `RawFileOps.views` and `WorkspaceFileOps.views` both take it, so no map chooses its
+  own guard.
 - **Awaited answers land through `HeldEdits.land`**, never through `apply`: the caller passes the edit the
   answer was computed from and a `Landing`. `OverUntouched` lands only over exactly that value, which is
   Refresh: typing or a save since the tap outranks it. `Folded` lands over the same opening still bound to
@@ -351,9 +360,30 @@ no TTL.
   without saying so is read back: the sent text means it landed, the old hash means it did not, anything
   else is stale. Refresh adopts the file and drops the draft, only while nothing changed since the tap.
   `RawFileOps.views` holds what each path's screen draws (loading, editable, read-only, refused,
-  unreachable), so the screen renders and decides nothing; a recheck that finds a held file can no longer
-  be written lets it go when nothing is typed and draws it read-only. Leaving the screen lets go of an
-  untyped file and keeps a typed one held. One token per path lets only the newest open land.
+  unreachable); a recheck that finds a held file can no longer be written lets it go when nothing is typed
+  and draws it read-only. Leaving the screen lets go of an untyped file and keeps a typed one held. Each open
+  is a new showing, so only the newest lands. The screen keeps its own busy flag and notice text; the
+  decisions behind them are `rawSaveNotice` and `noticeShown`.
+- **File operations** (`WorkspaceFileOps`, `FileOpRules`, `WorkspaceTree`, `FileOpDialogs`): the tree's New
+  file and its sheet's Copy to, Move to and Delete, all whole files; a folder is refused as a source and a
+  destination. A path dialog takes a workspace-relative path, where a trailing slash keeps the file's name.
+  Create sends at once, since it takes nothing that exists, and opens the new file in the raw editor.
+  Copy, move and delete are armed first: `workspace_file_state` reads the source and the destination, and
+  the confirmation says whether it replaces a file there and whether raw typing is held for the source. The
+  mutation is built only from those facts (hash and identity of the source, the destination absent or the
+  replace it names), so anything that moved since answers `stale` or `destinationChanged` and lands
+  nothing. `WorkspaceFileOps.views` publishes a `FolderView` per folder (listing, busy, the last
+  `FolderOutcome`, the dialog, the confirmation, a created file to open); `choose`, `begin` and `confirm`
+  each claim the folder once, so a second tap sends nothing, and a folder left ends its showing. An answer
+  that never arrived is settled by reading the paths back (`settledOf`, `createdOf`), never by sending
+  again: a delete is done when the source is gone, a move when the destination holds the source's identity
+  and the source is gone, a copy when the destination holds the confirmed bytes, a create when an empty file
+  is there. Both names on one file is a move cut short and reads as unconfirmed.
+- **The sandbox answers as the plugin does** (`WorkspaceFileTable`, `SandboxWorkspaceGateway`): the plugin's
+  confinement, file state and mutation preconditions over paths and text, with the sandbox's display quirks
+  on top and the file-op test's fake disk around it. `tests/fixtures/workspace-file-ops/vectors.json` runs
+  against the plugin's handlers over a temp directory and against the table, so the two disagreeing fails a
+  gate. Links, encodings, size caps and races are the disk's and stay with native tests.
 - **Drafts** (`WorkspaceDraftStore.kt`): one file per draft under `filesDir`, write-then-rename, keyed by
   a hash of session and `DraftKey` (a symbol id or a file path), holding the base hash the typing was done
   over. A reopen whose base is not the text's current hash comes back stale, carrying that base, so a save
