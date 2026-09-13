@@ -20,16 +20,16 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.fragment.app.FragmentActivity
 import com.atelier_nyaarium.switchboard.board.BoardEntryDialog
-import com.atelier_nyaarium.switchboard.board.BoardScreen
 import com.atelier_nyaarium.switchboard.board.GroupKey
-import com.atelier_nyaarium.switchboard.board.flattenBoard
 import com.atelier_nyaarium.switchboard.plugins.Plugins
-import com.atelier_nyaarium.switchboard.proto.isComposite
+import kotlinx.coroutines.launch
 
 /** Process-lifetime repository. */
 object Repo {
@@ -107,6 +107,9 @@ private sealed interface VaultModal {
 	data class Request(val id: String) : VaultModal
 }
 
+/** Runbook fire and destination. */
+private data class RunbookFire(val gatewayId: String, val id: String, val into: String?)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun App(
@@ -128,11 +131,24 @@ fun App(
 	var boardStripHeight by remember { mutableStateOf(repo.store.boardStripHeight) }
 	var boardModal by remember { mutableStateOf<String?>(null) }
 	var vaultModal by remember { mutableStateOf<VaultModal?>(null) }
-	var fireRunbookId by remember { mutableStateOf<Pair<String, String>?>(null) }
+	var fireRunbook by remember { mutableStateOf<RunbookFire?>(null) }
 	// Gateway and id. Null is closed, a blank id is a new one.
 	var editRunbook by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
 	var editRoutine by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
 	var editPolicy by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
+	var rootView by rememberSaveable { mutableStateOf(RootView.SESSIONS) }
+	var conversationView by rememberSaveable { mutableStateOf(ConversationView.CHAT) }
+	var drawerSide by remember { mutableStateOf(repo.store.drawerSide) }
+	val shellActions = ShellActions(
+		openBoardEntry = { boardModal = it },
+		moveBoardEntry = { row, drop -> repo.boardOps.boardSetParent(row.entry.id, drop.parent, drop.rank) },
+		openVaultEntry = { vaultModal = VaultModal.Entry(it) },
+		openVaultRequest = { vaultModal = VaultModal.Request(it) },
+		fireRunbook = { gatewayId, id, into -> fireRunbook = RunbookFire(gatewayId, id, into) },
+		editRunbook = { gatewayId, id -> editRunbook = gatewayId to id.orEmpty() },
+		editRoutine = { gatewayId, id -> editRoutine = gatewayId to id.orEmpty() },
+		editPolicy = { gatewayId, id -> editPolicy = gatewayId to id.orEmpty() },
+	)
 	// Clear reveal after handoff.
 	val revealAtState = remember { mutableStateOf<Pair<String, Long>?>(null) }
 	var revealAt by revealAtState
@@ -205,10 +221,38 @@ fun App(
 			rendererPool.setVisible(false)
 		}
 	}
-	// The thread REPLACES the tab row, so leaving it is what lets the tab row and the tab compose.
-	LaunchedEffect(Unit) {
-		com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus.pending.collect { request ->
-			if (request != null) openTeam = null
+	val features = DrawerFeatures(board = pluginManager.isActive("taskboard"), vault = pluginManager.isActive("vault"))
+	val offeredRoot = rootViews(features)
+	val shownRoot = shownView(offeredRoot, rootView)
+	val offeredConversation = openTeam?.let { conversationViews(features, terminalEligible(state, it)) }
+	val shownConversation = offeredConversation?.let { shownView(it, conversationView) }
+	// Every arrival chooses a view.
+	val arrive = { team: String, arrival: Arrival ->
+		val presence = state.sessions().firstOrNull { it.name == team }?.presence
+		val offered = conversationViews(features, terminalEligible(state, team))
+		conversationView = arrivedView(conversationView, offered, arrival, stuckAtLogin(presence))
+		openTeam = team
+	}
+	// A ref's exit opens its session on Files.
+	val workspaceRequest by com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus.pending.collectAsState()
+	// By identity: a repeated tap is new, a roster tick is not.
+	var routedRequest by remember { mutableStateOf<Any?>(null) }
+	LaunchedEffect(workspaceRequest, state.teams, state.gateways.loaded) {
+		val request = workspaceRequest ?: return@LaunchedEffect
+		if (request === routedRequest) return@LaunchedEffect
+		when (standingOf(state.teams, state.gateways.loaded, request.team)) {
+			RequestStanding.Wait -> Unit
+			RequestStanding.Drop -> com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus.shown(request)
+			RequestStanding.Show -> {
+				routedRequest = request
+				val opened = repo.openThread(request.team)
+				if (opened == null) {
+					com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus.shown(request)
+					return@LaunchedEffect
+				}
+				if (opened != openTeam) openNonce++
+				arrive(opened, Arrival.FILES_ASKED)
+			}
 		}
 	}
 	LaunchedEffect(openTeamRequest.value) {
@@ -218,7 +262,7 @@ fun App(
 			showSettings = false
 			settingsRoute = SettingsRoute.HUB
 			overlays = emptyList()
-			openTeam = opened
+			arrive(opened, Arrival.OUTSIDE)
 			// Increment nonce for genuine opens.
 			openNonce++
 			openTeamRequest.value = null
@@ -248,8 +292,11 @@ fun App(
 	// Back follows render order.
 	BackHandler(
 		enabled = editRunbook != null || editRoutine != null || editPolicy != null || overlays.isNotEmpty() ||
-			showSettings || openTeam != null,
+			showSettings || openTeam != null ||
+			// Root views require unlocked boot.
+			(!locked && missingBoot == null && backFrom(offeredRoot, shownRoot) != null),
 	) {
+		val conversationBack = offeredConversation?.let { offered -> shownConversation?.let { backFrom(offered, it) } }
 		when {
 			editPolicy != null -> editPolicy = null
 			editRoutine != null -> editRoutine = null
@@ -260,7 +307,9 @@ fun App(
 				settingsRoute = if (state.provisioned) SettingsRoute.NETWORKS else SettingsRoute.HUB
 			showSettings && settingsRoute != SettingsRoute.HUB -> settingsRoute = SettingsRoute.HUB
 			showSettings -> showSettings = false
-			else -> openTeam = null
+			conversationBack != null -> conversationView = conversationBack
+			openTeam != null -> openTeam = null
+			else -> backFrom(offeredRoot, shownRoot)?.let { rootView = it }
 		}
 	}
 
@@ -293,6 +342,11 @@ fun App(
 				onCloseSettings = {
 					showSettings = false
 					settingsRoute = SettingsRoute.HUB
+				},
+				drawerSide = drawerSide,
+				onDrawerSide = {
+					drawerSide = it
+					repo.store.drawerSide = it
 				},
 			)
 		missingBoot != null -> when {
@@ -346,12 +400,7 @@ fun App(
 			val boardRevision by repo.boardOps.boardRevision
 				// Failed reads do not advance revision.
 			val boardStripFor = remember(openTeam, boardRevision, boardOn, boardKey) {
-				if (!boardOn) null
-				else {
-					val key = boardKey ?: return@remember null
-					flattenBoard(repo.boardOps.boardEntriesFor(openTeam))
-						.sessions.firstOrNull { it.key == key }
-				}
+				if (boardOn) repo.boardOps.boardGroupFor(openTeam!!) else null
 			}
 			val boardLiveLineFor = remember(openTeam, boardRevision, boardOn, boardKey) {
 				if (boardOn) repo.boardOps.boardLiveLineFor(openTeam!!) else null
@@ -377,6 +426,33 @@ fun App(
 						)
 					}
 			}
+			val team = openTeam!!
+			val offered = offeredConversation.orEmpty()
+			val shown = shownConversation ?: ConversationView.CHAT
+			val windowBoards by repo.windowOps.windows.collectAsState()
+			val facts = ConversationFacts(
+				team = team,
+				openWindows = windowBoards.entries.firstOrNull { it.key.address == team }?.value?.size ?: 0,
+				undoneTasks = if (boardOn) repo.boardOps.boardUndoneCountFor(team) else 0,
+				pendingRequests = ViewScope.Session(team).requestsOf(vaultPending).size,
+			)
+			val marks = offered.map { conversationMark(it, facts) }
+			val drawerState = androidx.compose.material3.rememberDrawerState(androidx.compose.material3.DrawerValue.Closed)
+			val drawerScope = rememberCoroutineScope()
+			SideDrawer(
+				side = drawerSide,
+				state = drawerState,
+				sheet = {
+					DrawerHeader(tabLabelFor(state, team), localFieldOf(team), monospace = true)
+					offered.forEachIndexed { index, view ->
+						if (index > 0 && view.scoped != null && offered[index - 1].scoped == null) DrawerDivider()
+						DrawerRow(view.title, iconOf(view), view == shown, marks[index]) {
+							conversationView = view
+							drawerScope.launch { drawerState.close() }
+						}
+					}
+				},
+			) {
 			ThreadScreen(
 				team = openTeam!!,
 				label = tabLabelFor(state, openTeam!!),
@@ -396,9 +472,7 @@ fun App(
 				boardStripHeight = boardStripHeight,
 				onBoardStripHeight = { boardStripHeight = it; repo.store.boardStripHeight = it },
 				onOpenBoardEntry = { boardModal = it.entry.id },
-				onMoveBoardEntry = { row, drop ->
-					repo.boardOps.boardSetParent(row.entry.id, drop.parent, drop.rank)
-				},
+				onMoveBoardEntry = shellActions.moveBoardEntry,
 				vaultTile = vaultTileFor,
 				onOpenVaultRequest = { vaultModal = VaultModal.Request(it) },
 				revealAt = revealAt,
@@ -407,11 +481,14 @@ fun App(
 				onGateway = { t ->
 						// Non-active tab switches are genuine opens.
 					if (t != openTeam) openNonce++
-					openTeam = t
+					arrive(t, Arrival.TAB)
 				},
 				onCloseTab = { t ->
 						// Leave closing tab before renderer removal.
-					if (t == openTeam) openTeam = state.openTabs.firstOrNull { it != t }
+					if (t == openTeam) {
+						val next = state.openTabs.firstOrNull { it != t }
+						if (next == null) openTeam = null else arrive(next, Arrival.TAB)
+					}
 					repo.closeTab(t)
 				},
 				onSessions = { openTeam = null },
@@ -466,13 +543,7 @@ fun App(
 					repo.boardOps.forgetWithBoardDisposition(forgotten, cancelThem) { forgetTeardown(forgotten) }
 				},
 				terminal = TerminalState(
-						// Local composite sessions permit terminal ops.
-					eligible = isComposite(localFieldOf(openTeam!!)) &&
-						run {
-							val admin = state.domainId.orEmpty()
-							val dom = session?.domainId
-							dom.isNullOrEmpty() || admin.isEmpty() || dom == admin
-						},
+					eligible = ConversationView.TERMINAL in offered,
 						// Peek uses presence freshness.
 					presence = session?.presence,
 						// Presence supplies login status before online.
@@ -487,7 +558,39 @@ fun App(
 					onResumeAfterLimit = { repo.sessions.resumeAfterLimit(openTeam!!) },
 				),
 				onFocusChange = repo::declareFocus,
+				view = shown,
+				onView = { conversationView = it },
+				drawerSide = drawerSide,
+				drawerBadged = anyBadge(marks),
+				onOpenDrawer = { drawerScope.launch { drawerState.open() } },
+				body = { modifier ->
+					val scoped = shown.scoped
+					if (scoped == null) {
+						com.atelier_nyaarium.switchboard.workspace.WorkspaceScreen(
+							repo = repo,
+							session = state.teams.firstOrNull { it.name == team },
+							rosterLoaded = state.gateways.loaded,
+							modifier = modifier,
+						)
+					} else {
+						androidx.compose.foundation.layout.Column(modifier) {
+							ScopeRow(scoped, team) {
+								rootView = RootView.of(scoped)
+								openTeam = null
+							}
+							ScopedViewBody(
+								view = scoped,
+								scope = ViewScope.Session(team),
+								repo = repo,
+								state = state,
+								actions = shellActions,
+								modifier = Modifier.weight(1f),
+							)
+						}
+					}
+				},
 			)
+			}
 		}
 		else -> {
 			val snackbarHostState = remember { SnackbarHostState() }
@@ -521,57 +624,13 @@ fun App(
 			val vaultTiers = remember(vaultRevision, state.teams, vaultOn) {
 				if (!vaultOn) emptyMap() else state.teams.associate { it.name to repo.vaultOps.grantTierFor(it.name) }
 			}
-			MainTabsScreen(
-				state = state,
-				boardEnabled = pluginManager.isActive("taskboard"),
-				vaultEnabled = vaultOn,
+			RootScreen(
+				views = offeredRoot,
+				shown = shownRoot,
+				onView = { rootView = it },
+				drawerSide = drawerSide,
+				domainId = state.domainId,
 				vaultPending = if (vaultOn) vaultPending.size else 0,
-				vault = { modifier ->
-					com.atelier_nyaarium.switchboard.vault.VaultScreen(
-						repo = repo,
-						state = state,
-						onOpenEntry = { vaultModal = VaultModal.Entry(it) },
-						onOpenRequest = { vaultModal = VaultModal.Request(it) },
-						modifier = modifier,
-					)
-				},
-				runbooksEnabled = true,
-				runbooks = { modifier ->
-					com.atelier_nyaarium.switchboard.runbooks.RunbooksScreen(
-						repo = repo,
-						state = state,
-						onFire = { gatewayId, id -> fireRunbookId = gatewayId to id },
-						onEdit = { gatewayId, id -> editRunbook = gatewayId to id.orEmpty() },
-						modifier = modifier,
-					)
-				},
-				routinesEnabled = true,
-				routines = { modifier ->
-					com.atelier_nyaarium.switchboard.routines.RoutinesScreen(
-						repo = repo,
-						state = state,
-						onEdit = { gatewayId, id -> editRoutine = gatewayId to id.orEmpty() },
-						modifier = modifier,
-					)
-				},
-				filesEnabled = true,
-				files = { modifier ->
-					com.atelier_nyaarium.switchboard.workspace.WorkspaceScreen(
-						repo = repo,
-						state = state,
-						modifier = modifier,
-					)
-				},
-				// Rides the vault plugin.
-				policiesEnabled = vaultOn,
-				policies = { modifier ->
-					com.atelier_nyaarium.switchboard.policies.PoliciesScreen(
-						repo = repo,
-						state = state,
-						onEdit = { gatewayId, id -> editPolicy = gatewayId to id.orEmpty() },
-						modifier = modifier,
-					)
-				},
 				snackbarHostState = snackbarHostState,
 				onRefresh = {
 					repo.command { presence.refreshTeams() }
@@ -584,18 +643,19 @@ fun App(
 				},
 				queueState = queueState,
 				onQueue = { openQueueRequest.value = true },
-				board = { modifier, goToSessions ->
-					BoardScreen(
+			) { view, modifier ->
+				val scoped = view.scoped
+				if (scoped != null) {
+					ScopedViewBody(
+						view = scoped,
+						scope = ViewScope.Everything,
 						repo = repo,
-						onOpenEntry = { id -> boardModal = id },
-						onMoveEntry = { row, drop ->
-							repo.boardOps.boardSetParent(row.entry.id, drop.parent, drop.rank)
-						},
-						onSaved = goToSessions,
+						state = state,
+						actions = shellActions,
 						modifier = modifier,
+						onBoardSaved = { rootView = RootView.SESSIONS },
 					)
-				},
-				sessions = { modifier ->
+				} else {
 					SessionsScreen(
 						state = state,
 						modifier = modifier,
@@ -605,7 +665,7 @@ fun App(
 						onHostHelp = { openOverlay(Overlay.HostHelp) },
 						onOpen = { team ->
 							repo.openThread(team)?.let {
-								openTeam = it
+								arrive(it, Arrival.OUTSIDE)
 								openNonce++
 							}
 						},
@@ -648,8 +708,8 @@ fun App(
 							}
 						},
 					)
-				},
-			)
+				}
+			}
 		}
 	}
 
@@ -667,8 +727,8 @@ fun App(
 			com.atelier_nyaarium.switchboard.vault.VaultRequestSheet(repo, state, modal.id) { vaultModal = null }
 		null -> {}
 	}
-	fireRunbookId?.let { (gatewayId, id) ->
-		com.atelier_nyaarium.switchboard.runbooks.RunbookFireSheet(repo, state, gatewayId, id) { fireRunbookId = null }
+	fireRunbook?.let { fire ->
+		com.atelier_nyaarium.switchboard.runbooks.RunbookFireSheet(repo, state, fire.gatewayId, fire.id, fire.into) { fireRunbook = null }
 	}
 	editRunbook?.let { (gatewayId, opened) ->
 		val id = opened.ifEmpty { null }

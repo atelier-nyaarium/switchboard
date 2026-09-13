@@ -26,19 +26,22 @@ import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.NewOnGatewayFab
+import com.atelier_nyaarium.switchboard.ViewScope
+import com.atelier_nyaarium.switchboard.groupsOf
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.Runbook
 
 @Composable
-fun RunbooksScreen(
+internal fun RunbooksScreen(
 	repo: ChatRepository,
 	state: ChatState,
 	onFire: (String, String) -> Unit,
 	onEdit: (String, String?) -> Unit,
 	modifier: Modifier = Modifier,
+	scope: ViewScope = ViewScope.Everything,
 ) {
 	LaunchedEffect(state.gateways.incarnations()) { repo.runbookOps.refreshAll() }
-	val groups = state.gateways.gateways.filter { it.runbooks != null }
+	val groups = scope.groupsOf(state.gateways.gateways).filter { it.runbooks != null }
 	val named = groups.size > 1
 
 	Box(modifier.fillMaxSize()) {
@@ -90,6 +93,7 @@ fun RunbooksScreen(
 			description = "New runbook",
 			onNew = { onEdit(it, null) },
 			modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+			scope = scope,
 		)
 	}
 }

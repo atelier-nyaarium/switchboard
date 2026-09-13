@@ -1,0 +1,74 @@
+<!-- @dsCard group="Drawers" width="430" height="932" -->
+<meta charset="utf-8">
+<title>Root, drawer closed</title>
+<meta name="viewport" content="width=430, initial-scale=1">
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; width: 430px; height: 932px; position: relative; overflow: hidden;
+		background: #141218; color: #E6E0E9;
+		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
+		-webkit-font-smoothing: antialiased;
+	}
+	.status { height: 28px; padding: 6px 18px; font-size: 12px; color: #CAC4D0; display: flex; }
+	.status span:last-child { margin-left: auto; }
+	.bar { height: 64px; display: flex; align-items: center; padding: 0 6px 0 18px; gap: 4px; background: #141218; }
+	.title { font-size: 22px; flex: 1; }
+	.ib { width: 44px; height: 44px; display: grid; place-items: center; color: #CAC4D0; font-size: 20px; position: relative; }
+	.ib.menu { color: #E6E0E9; font-size: 22px; }
+	.dot { position: absolute; top: 9px; right: 9px; width: 8px; height: 8px; border-radius: 4px; background: #F2B8B5; }
+	.hint { position: absolute; right: 0; top: 380px; width: 4px; height: 72px; border-radius: 4px 0 0 4px; background: #49454F; }
+
+	.list { padding: 4px 12px; }
+	.gw { color: #948F9A; font-size: 12px; margin: 14px 6px 6px; font-family: ui-monospace, monospace; }
+	.card { background: #1D1B20; border-radius: 14px; padding: 12px 14px; margin-bottom: 8px; }
+	.row1 { display: flex; align-items: center; gap: 8px; }
+	.name { font-family: ui-monospace, monospace; font-size: 14.5px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.chip { font-size: 11px; padding: 2px 8px; border-radius: 8px; border: 1px solid #49454F; color: #CAC4D0; }
+	.chip.live { color: #9BD4A3; border-color: #3E5B44; }
+	.chip.work { color: #F0C674; border-color: #6B5A2E; }
+	.sub { color: #948F9A; font-size: 12.5px; margin-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+	.note { position: absolute; left: 12px; right: 12px; bottom: 12px; background: #2B2930; border: 1px dashed #605B68; border-radius: 12px; padding: 10px 12px; color: #CAC4D0; font-size: 12.5px; line-height: 1.45; }
+	.note b { color: #E6E0E9; }
+</style>
+
+<div class="status"><span>9:41</span><span>5G &#9646;&#9646;&#9646;</span></div>
+<div class="bar">
+	<div class="title">Sessions</div>
+	<div class="ib">&#9654;</div>
+	<div class="ib">&#8635;</div>
+	<div class="ib menu">&#9776;<span class="dot"></span></div>
+</div>
+
+<div class="list">
+	<div class="gw">sakura</div>
+	<div class="card">
+		<div class="row1"><div class="name">switchboard</div><div class="chip work">working...</div></div>
+		<div class="sub">Phase 8b - Root and conversation drawers</div>
+	</div>
+	<div class="card">
+		<div class="row1"><div class="name">nyaa-lexicon</div><div class="chip live">live</div></div>
+		<div class="sub">Idle</div>
+	</div>
+	<div class="card">
+		<div class="row1"><div class="name">evie-bot</div><div class="chip">asleep</div></div>
+		<div class="sub">Last active 2h ago</div>
+	</div>
+	<div class="gw">ql-desktop</div>
+	<div class="card">
+		<div class="row1"><div class="name">homelab</div><div class="chip live">live</div></div>
+		<div class="sub">Idle</div>
+	</div>
+	<div class="card">
+		<div class="row1"><div class="name">scratch</div><div class="chip">available</div></div>
+		<div class="sub">No messages yet</div>
+	</div>
+</div>
+
+<div class="hint"></div>
+
+<div class="note">
+	<b>No tab row and no pager.</b> The title names the view. Settings moves into the drawer. The red dot on
+	the drawer button stands for anything badged inside it, here a pending vault request.
+</div>

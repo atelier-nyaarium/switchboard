@@ -1,0 +1,83 @@
+<!-- @dsCard group="Drawers" width="430" height="932" -->
+<meta charset="utf-8">
+<title>Left-handed, and the setting</title>
+<meta name="viewport" content="width=430, initial-scale=1">
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; width: 430px; height: 932px; position: relative; overflow: hidden;
+		background: #141218; color: #E6E0E9;
+		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
+		-webkit-font-smoothing: antialiased;
+	}
+	.status { height: 28px; padding: 6px 18px; font-size: 12px; color: #CAC4D0; display: flex; }
+	.status span:last-child { margin-left: auto; }
+	.bar { height: 64px; display: flex; align-items: center; padding: 0 6px; gap: 2px; }
+	.ib { width: 44px; height: 44px; display: grid; place-items: center; color: #CAC4D0; font-size: 20px; }
+	.label { font-family: ui-monospace, monospace; font-size: 18px; margin-left: 4px; }
+	.tabs { display: flex; border-bottom: 1px solid #49454F; padding: 0 8px; }
+	.tab { padding: 12px 14px; font-size: 13.5px; color: #948F9A; font-family: ui-monospace, monospace; }
+	.tab.on { color: #D0BCFF; box-shadow: inset 0 -3px 0 #D0BCFF; }
+	.msg { margin: 10px 12px; padding: 10px 12px; border-radius: 14px; background: #1D1B20; font-size: 13.5px; max-width: 330px; margin-left: auto; height: 60px; }
+
+	.scrim { position: absolute; inset: 0 0 330px 0; background: rgba(0,0,0,.5); }
+	.drawer {
+		position: absolute; top: 0; left: 0; bottom: 330px; width: 304px;
+		background: #1D1B20; border-radius: 0 16px 16px 0; padding: 40px 12px 16px;
+	}
+	.dn { font-family: ui-monospace, monospace; font-size: 16px; font-weight: 600; padding: 4px 16px 0; }
+	.ds { font-size: 11.5px; color: #948F9A; margin: 4px 16px 14px; font-family: ui-monospace, monospace; }
+	.item { height: 48px; display: flex; align-items: center; gap: 14px; padding: 0 16px; border-radius: 24px; font-size: 14.5px; color: #CAC4D0; }
+	.item .g { width: 22px; text-align: center; font-size: 17px; }
+	.item .n { flex: 1; }
+	.item.on { background: #4A4458; color: #E8DEF8; font-weight: 600; }
+	.count { color: #948F9A; font-size: 12.5px; }
+	.sep { height: 1px; background: #49454F; margin: 8px 16px; }
+
+	.settings { position: absolute; left: 0; right: 0; bottom: 0; height: 330px; background: #141218; border-top: 6px solid #0B0A0D; }
+	.sbar { height: 60px; display: flex; align-items: center; gap: 10px; padding: 0 6px; }
+	.st { font-size: 20px; }
+	.srow { padding: 14px 20px; border-bottom: 1px solid #201E25; }
+	.sl { font-size: 15px; }
+	.seg { display: flex; margin-top: 12px; border: 1px solid #938F99; border-radius: 20px; overflow: hidden; width: 220px; }
+	.seg div { flex: 1; text-align: center; padding: 9px 0; font-size: 13.5px; color: #CAC4D0; }
+	.seg div.on { background: #4A4458; color: #E8DEF8; font-weight: 600; }
+	.seg div + div { border-left: 1px solid #938F99; }
+	.dim { color: #948F9A; font-size: 14px; }
+
+	.cut { position: absolute; left: 0; right: 0; bottom: 330px; height: 0; }
+</style>
+
+<div class="status"><span>9:41</span><span>5G &#9646;&#9646;&#9646;</span></div>
+<div class="bar">
+	<div class="ib">&#8592;</div>
+	<div class="ib">&#9776;</div>
+	<div class="label">switchboard</div>
+	<div style="flex:1"></div>
+	<div class="ib">&#8942;</div>
+</div>
+<div class="tabs"><div class="tab on">switchboard</div><div class="tab">nyaa-lexicon</div></div>
+<div class="msg"></div>
+<div class="msg"></div>
+
+<div class="scrim"></div>
+<div class="drawer">
+	<div class="dn">switchboard</div>
+	<div class="ds">sakura.host.89753c</div>
+	<div class="item on"><span class="g">&#9993;</span><span class="n">Chat</span></div>
+	<div class="item"><span class="g">&#9002;</span><span class="n">Terminal</span></div>
+	<div class="item"><span class="g">&#9776;</span><span class="n">Files</span><span class="count">3 windows</span></div>
+	<div class="sep"></div>
+	<div class="item"><span class="g">&#9745;</span><span class="n">Backlog</span><span class="count">4 open</span></div>
+	<div class="item"><span class="g">&#9656;</span><span class="n">Runbooks</span></div>
+</div>
+
+<div class="settings">
+	<div class="sbar"><div class="ib">&#8592;</div><div class="st">System</div></div>
+	<div class="srow">
+		<div class="sl">Drawer side</div>
+		<div class="seg"><div class="on">Left</div><div>Right</div></div>
+	</div>
+	<div class="srow dim">Terminal refresh speed</div>
+	<div class="srow dim">App update</div>
+</div>

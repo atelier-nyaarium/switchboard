@@ -48,7 +48,34 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlin.math.roundToInt
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.coroutines.withTimeoutOrNull
+
+/** Labels an open tab uniquely. */
+internal fun tabLabelFor(state: ChatState, team: String): String {
+	val label = state.labelOrNull(team)
+	val otherTabs = state.openTabs.filter { it != team }
+	if (label != null && otherTabs.none { state.labelOrNull(it) == label }) return label
+	val mine = team.split(Protocol.ADDRESS_SEP)
+	val otherSegments = otherTabs.map { it.split(Protocol.ADDRESS_SEP) }
+	// A label is free-form text - a user can type literal parentheses - so a qualified candidate
+	// below must also be checked against every other open tab's own raw label, not just against
+	// other tabs' address segments; otherwise a coincidentally (or deliberately) matching label
+	// elsewhere could display identically to this tab's own disambiguated text.
+	val otherLabels = otherTabs.mapNotNull { state.labelOrNull(it) }.toSet()
+	fun candidateAt(n: Int): String? {
+		val suffix = mine.takeLast(n)
+		if (otherSegments.any { it.takeLast(n) == suffix }) return null
+		val qualifier = suffix.joinToString(Protocol.ADDRESS_SEP)
+		val candidate = if (label != null) "$label ($qualifier)" else qualifier
+		return candidate.takeIf { it !in otherLabels }
+	}
+	// A label prefers spawn.session, since a bare random session id names nothing. When other labels
+	// block every tier, the bare id is the last resort before the raw address.
+	val tiers = if (label != null) (2..mine.size).toList() + 1 else (1..mine.size).toList()
+	for (n in tiers) candidateAt(n)?.let { return it }
+	return team
+}
 
 ////////////////////////////////
 //  Composables

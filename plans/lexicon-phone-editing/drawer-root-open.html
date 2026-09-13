@@ -1,0 +1,72 @@
+<!-- @dsCard group="Drawers" width="430" height="932" -->
+<meta charset="utf-8">
+<title>Root, drawer open</title>
+<meta name="viewport" content="width=430, initial-scale=1">
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; width: 430px; height: 932px; position: relative; overflow: hidden;
+		background: #141218; color: #E6E0E9;
+		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
+		-webkit-font-smoothing: antialiased;
+	}
+	.status { height: 28px; padding: 6px 18px; font-size: 12px; color: #CAC4D0; display: flex; }
+	.status span:last-child { margin-left: auto; }
+	.bar { height: 64px; display: flex; align-items: center; padding: 0 6px 0 18px; gap: 4px; }
+	.title { font-size: 22px; flex: 1; }
+	.ib { width: 44px; height: 44px; display: grid; place-items: center; color: #CAC4D0; font-size: 20px; }
+	.list { padding: 4px 12px; }
+	.gw { color: #948F9A; font-size: 12px; margin: 14px 6px 6px; font-family: ui-monospace, monospace; }
+	.card { background: #1D1B20; border-radius: 14px; padding: 12px 14px; margin-bottom: 8px; height: 62px; }
+	.name { font-family: ui-monospace, monospace; font-size: 14.5px; }
+
+	.scrim { position: absolute; inset: 0; background: rgba(0,0,0,.5); }
+	.drawer {
+		position: absolute; top: 0; right: 0; bottom: 0; width: 304px;
+		background: #1D1B20; border-radius: 16px 0 0 16px; padding: 40px 12px 16px;
+		display: flex; flex-direction: column;
+	}
+	.dh { padding: 4px 16px 18px; }
+	.dt { font-size: 15px; font-weight: 600; color: #CAC4D0; }
+	.ds { font-size: 11.5px; color: #948F9A; margin-top: 3px; font-family: ui-monospace, monospace; }
+	.item { height: 52px; display: flex; align-items: center; gap: 14px; padding: 0 16px; border-radius: 26px; font-size: 14.5px; color: #CAC4D0; }
+	.item .g { width: 22px; text-align: center; font-size: 17px; }
+	.item .n { flex: 1; }
+	.item.on { background: #4A4458; color: #E8DEF8; font-weight: 600; }
+	.badge { min-width: 20px; height: 20px; border-radius: 10px; background: #F2B8B5; color: #601410; font-size: 11.5px; font-weight: 700; display: grid; place-items: center; padding: 0 6px; }
+	.count { color: #948F9A; font-size: 12.5px; }
+	.sep { height: 1px; background: #49454F; margin: 10px 16px; }
+	.grow { flex: 1; }
+
+	.note { position: absolute; left: 12px; width: 110px; bottom: 12px; background: #2B2930; border: 1px dashed #605B68; border-radius: 12px; padding: 10px 11px; color: #CAC4D0; font-size: 12px; line-height: 1.45; }
+</style>
+
+<div class="status"><span>9:41</span><span>5G &#9646;&#9646;&#9646;</span></div>
+<div class="bar"><div class="title">Sessions</div><div class="ib">&#9654;</div><div class="ib">&#8635;</div><div class="ib">&#9776;</div></div>
+<div class="list">
+	<div class="gw">sakura</div>
+	<div class="card"><div class="name">switchboard</div></div>
+	<div class="card"><div class="name">nyaa-lexicon</div></div>
+	<div class="card"><div class="name">evie-bot</div></div>
+	<div class="gw">ql-desktop</div>
+	<div class="card"><div class="name">homelab</div></div>
+</div>
+
+<div class="scrim"></div>
+<div class="drawer">
+	<div class="dh">
+		<div class="dt">Switchboard</div>
+		<div class="ds">a95dd4e979aa3be5</div>
+	</div>
+	<div class="item on"><span class="g">&#9635;</span><span class="n">Sessions</span></div>
+	<div class="item"><span class="g">&#9745;</span><span class="n">Backlog</span><span class="count">12</span></div>
+	<div class="item"><span class="g">&#9656;</span><span class="n">Runbooks</span></div>
+	<div class="item"><span class="g">&#9719;</span><span class="n">Routines</span></div>
+	<div class="item"><span class="g">&#9878;</span><span class="n">Policies</span></div>
+	<div class="item"><span class="g">&#9919;</span><span class="n">Vault</span><span class="badge">2</span></div>
+	<div class="grow"></div>
+	<div class="sep"></div>
+	<div class="item"><span class="g">&#9881;</span><span class="n">Settings</span></div>
+</div>
+
+<div class="note">Swipe left anywhere, or tap the button. Only the global views.</div>

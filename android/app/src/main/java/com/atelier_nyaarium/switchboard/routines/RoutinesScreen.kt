@@ -29,28 +29,32 @@ import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.GatewayEntry
 import com.atelier_nyaarium.switchboard.GatewayRegistry
 import com.atelier_nyaarium.switchboard.NewOnGatewayFab
+import com.atelier_nyaarium.switchboard.ViewScope
+import com.atelier_nyaarium.switchboard.groupsOf
 import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.routinesOf
 import com.atelier_nyaarium.switchboard.proto.RoutineState
 import kotlinx.coroutines.launch
 
 @Composable
-fun RoutinesScreen(
+internal fun RoutinesScreen(
 	repo: ChatRepository,
 	state: ChatState,
 	onEdit: (String, String?) -> Unit,
 	modifier: Modifier = Modifier,
+	scope: ViewScope = ViewScope.Everything,
 ) {
 	LaunchedEffect(state.gateways.incarnations()) { repo.routineOps.refreshAll() }
 	// Every row time is an instant, so it reads in the owner's zone, not its gateway's. The rule
 	// keeps its own, and `scheduleLine` names it.
 	val zone = java.time.ZoneId.systemDefault()
-	val scope = rememberCoroutineScope()
-	val groups = state.gateways.gateways.filter { it.routines != null }
+	val launcher = rememberCoroutineScope()
+	val groups = scope.groupsOf(state.gateways.gateways).filter { it.routines != null }
 	val named = groups.size > 1
 	val toggleRefusals by repo.routineOps.toggleRefusals
 
 	Box(modifier.fillMaxSize()) {
-		if (groups.all { it.routines.orEmpty().isEmpty() }) {
+		if (groups.all { scope.routinesOf(it.routines.orEmpty()).isEmpty() }) {
 			Column(
 				Modifier.fillMaxSize().padding(24.dp),
 				verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
@@ -75,28 +79,28 @@ fun RoutinesScreen(
 							)
 						}
 					}
-					for (row in group.routines.orEmpty()) {
+					for (row in scope.routinesOf(group.routines.orEmpty())) {
 						item(key = "routine:${group.id}:${row.routine.id}") {
 							RoutineRow(
 								row = row,
 								zone = zone,
 								onEdit = { onEdit(group.id, row.routine.id) },
 								onRun = {
-									scope.launch { repo.routineOps.run(row.routine.id, group.id) }
+									launcher.launch { repo.routineOps.run(row.routine.id, group.id) }
 								},
 								toggleRefusal = toggleRefusals[group.id to row.routine.id],
 								onEnable = { on ->
-									scope.launch {
+									launcher.launch {
 										repo.routineOps.setEnabled(row.routine.id, on, row.routine.revision, group.id)
 									}
 								},
 								onRunNow = { occurrenceId ->
-									scope.launch {
+									launcher.launch {
 										repo.routineOps.runNow(row.routine.id, occurrenceId, group.id)
 									}
 								},
 								onDismiss = { occurrenceId ->
-									scope.launch {
+									launcher.launch {
 										repo.routineOps.dismiss(row.routine.id, occurrenceId, group.id)
 									}
 								},
@@ -111,6 +115,7 @@ fun RoutinesScreen(
 			description = "New routine",
 			onNew = { onEdit(it, null) },
 			modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+			scope = scope,
 		)
 	}
 }

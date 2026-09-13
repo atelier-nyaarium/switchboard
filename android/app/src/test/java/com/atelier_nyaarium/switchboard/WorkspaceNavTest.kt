@@ -1,7 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 private fun session(address: String) = testTeam(address)
@@ -48,29 +47,7 @@ class WorkspaceNavTest {
 		assertEquals("src/a.ts", childPath("src", "a.ts"))
 	}
 
-	// A spawn point has no plugin of its own, so offering it would offer a read nothing answers.
-	@Test
-	fun `only session addresses are offered`() {
-		val teams = listOf(session("home.sakura.host"), session("home.sakura.host.bbb"), session("home.sakura.host.aaa"))
-
-		assertEquals(
-			listOf("home.sakura.host.aaa", "home.sakura.host.bbb"),
-			workspaceSessions(teams).map { it.name },
-		)
-	}
-
-	// Nothing picked is not a state worth showing: the field names whichever one is being read.
-	@Test
-	fun `nothing picked reads the first, and a pick reads that one`() {
-		val sessions = listOf(session("home.sakura.host.aaa"), session("home.sakura.host.bbb"))
-
-		assertEquals("home.sakura.host.aaa", pickedSession(sessions, null)?.name)
-		assertEquals("home.sakura.host.bbb", pickedSession(sessions, "home.sakura.host.bbb")?.name)
-		assertNull(pickedSession(emptyList(), null))
-	}
-
-	// The picker falls back to another session, so a request for one that is gone must not ride that
-	// fallback and open a different project's file at the same path.
+	// A request opens a conversation, so one for a session that is gone must not open anything.
 	@Test
 	fun `a request waits for the roster, shows on its own session, and is dropped once it is gone`() {
 		val sessions = listOf(session("home.sakura.host.aaa"), session("home.sakura.host.bbb"))
@@ -81,12 +58,12 @@ class WorkspaceNavTest {
 		assertEquals(RequestStanding.Drop, standingOf(emptyList(), true, "home.sakura.host.bbb"))
 	}
 
-	// A pick the roster dropped is not kept, or the tab reads a workspace that is gone.
+	// A spawn point has no plugin of its own, so a request naming one would ask what nothing answers.
 	@Test
-	fun `a pick the roster no longer holds falls back rather than sticking`() {
-		val sessions = listOf(session("home.sakura.host.aaa"), session("home.sakura.host.bbb"))
+	fun `a spawn point holds no workspace`() {
+		val spawn = session("home.sakura.host")
 
-		assertEquals("home.sakura.host.aaa", pickedSession(sessions, "home.sakura.host.ccc")?.name)
+		assertEquals(RequestStanding.Drop, standingOf(listOf(spawn), true, "home.sakura.host"))
 	}
 
 	@Test

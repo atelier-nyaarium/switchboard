@@ -1,0 +1,84 @@
+<!-- @dsCard group="Drawers" width="430" height="932" -->
+<meta charset="utf-8">
+<title>Conversation, drawer open</title>
+<meta name="viewport" content="width=430, initial-scale=1">
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; width: 430px; height: 932px; position: relative; overflow: hidden;
+		background: #141218; color: #E6E0E9;
+		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
+		-webkit-font-smoothing: antialiased;
+	}
+	.status { height: 28px; padding: 6px 18px; font-size: 12px; color: #CAC4D0; display: flex; }
+	.status span:last-child { margin-left: auto; }
+	.bar { height: 64px; display: flex; align-items: center; padding: 0 6px; gap: 6px; }
+	.ib { width: 44px; height: 44px; display: grid; place-items: center; color: #CAC4D0; font-size: 20px; }
+	.label { font-family: ui-monospace, monospace; font-size: 18px; }
+	.chip { font-size: 11px; padding: 2px 8px; border-radius: 8px; border: 1px solid #6B5A2E; color: #F0C674; }
+	.tabs { display: flex; gap: 0; border-bottom: 1px solid #49454F; padding: 0 8px; }
+	.tab { padding: 12px 14px; font-size: 13.5px; color: #948F9A; font-family: ui-monospace, monospace; }
+	.tab.on { color: #D0BCFF; box-shadow: inset 0 -3px 0 #D0BCFF; }
+	.strip { margin: 8px 12px; padding: 8px 12px; background: #1D1B20; border-radius: 10px; font-size: 12.5px; color: #CAC4D0; }
+	.msg { margin: 10px 12px; padding: 10px 12px; border-radius: 14px; background: #1D1B20; font-size: 13.5px; line-height: 1.45; max-width: 330px; }
+	.msg.me { margin-left: auto; background: #4A4458; }
+	.composer { position: absolute; left: 12px; right: 12px; bottom: 16px; height: 52px; border-radius: 26px; background: #2B2930; }
+
+	.scrim { position: absolute; inset: 0; background: rgba(0,0,0,.5); }
+	.drawer {
+		position: absolute; top: 0; right: 0; bottom: 0; width: 304px;
+		background: #1D1B20; border-radius: 16px 0 0 16px; padding: 40px 12px 16px;
+	}
+	.dh { padding: 4px 16px 14px; }
+	.dl { display: flex; align-items: center; gap: 8px; }
+	.dn { font-family: ui-monospace, monospace; font-size: 16px; font-weight: 600; }
+	.ds { font-size: 11.5px; color: #948F9A; margin-top: 4px; font-family: ui-monospace, monospace; }
+	.sec { font-size: 11.5px; font-weight: 600; color: #948F9A; padding: 12px 16px 6px; letter-spacing: .3px; }
+	.item { height: 50px; display: flex; align-items: center; gap: 14px; padding: 0 16px; border-radius: 25px; font-size: 14.5px; color: #CAC4D0; }
+	.item .g { width: 22px; text-align: center; font-size: 17px; }
+	.item .n { flex: 1; }
+	.item.on { background: #4A4458; color: #E8DEF8; font-weight: 600; }
+	.scope { color: #948F9A; font-size: 12px; font-family: ui-monospace, monospace; }
+	.count { color: #948F9A; font-size: 12.5px; }
+	.badge { min-width: 20px; height: 20px; border-radius: 10px; background: #F2B8B5; color: #601410; font-size: 11.5px; font-weight: 700; display: grid; place-items: center; padding: 0 6px; }
+	.sep { height: 1px; background: #49454F; margin: 8px 16px; }
+
+	.note { position: absolute; left: 12px; width: 110px; top: 420px; background: #2B2930; border: 1px dashed #605B68; border-radius: 12px; padding: 10px 11px; color: #CAC4D0; font-size: 12px; line-height: 1.45; }
+</style>
+
+<div class="status"><span>9:41</span><span>5G &#9646;&#9646;&#9646;</span></div>
+<div class="bar">
+	<div class="ib">&#8592;</div>
+	<div class="label">switchboard</div>
+	<div class="chip">working...</div>
+	<div style="flex:1"></div>
+	<div class="ib">&#9002;</div>
+	<div class="ib">&#8942;</div>
+	<div class="ib">&#9776;</div>
+</div>
+<div class="tabs"><div class="tab on">switchboard</div><div class="tab">nyaa-lexicon</div><div class="tab">homelab</div></div>
+<div class="strip">&#9745; Phase 8b - Root and conversation drawers</div>
+<div class="msg">Mockups are in the design dock.</div>
+<div class="msg me">sounds good</div>
+<div class="msg">Starting with the root drawer.</div>
+<div class="composer"></div>
+
+<div class="scrim"></div>
+<div class="drawer">
+	<div class="dh">
+		<div class="dl"><span class="dn">switchboard</span></div>
+		<div class="ds">sakura.host.89753c</div>
+	</div>
+	<div class="item on"><span class="g">&#9993;</span><span class="n">Chat</span></div>
+	<div class="item"><span class="g">&#9002;</span><span class="n">Terminal</span></div>
+	<div class="item"><span class="g">&#9776;</span><span class="n">Files</span><span class="count">3 windows</span></div>
+	<div class="sep"></div>
+	<div class="sec">HERE</div>
+	<div class="item"><span class="g">&#9745;</span><span class="n">Backlog</span><span class="count">4 open</span></div>
+	<div class="item"><span class="g">&#9656;</span><span class="n">Runbooks</span><span class="scope">sakura</span></div>
+	<div class="item"><span class="g">&#9719;</span><span class="n">Routines</span><span class="scope">host</span></div>
+	<div class="item"><span class="g">&#9878;</span><span class="n">Policies</span><span class="scope">sakura</span></div>
+	<div class="item"><span class="g">&#9919;</span><span class="n">Vault</span><span class="badge">1</span></div>
+</div>
+
+<div class="note">The terminal icon stays in the bar too. The right edge of each filtered row names its scope.</div>

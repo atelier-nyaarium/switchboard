@@ -84,9 +84,19 @@ internal class BoardOps(
 	fun boardUndoneCountFor(team: String): Int = collaborators.board.undoneCount(team)
 
 	fun boardCardBranchFor(team: String, currentId: String?): CardBranch {
-		val row = state.value.teams.firstOrNull { it.name == team } ?: return CardBranch(emptyList(), 0)
-		val key = com.atelier_nyaarium.switchboard.board.GroupKey(row.domainId, row.gatewayId, collaborators.board.sessionKeyOf(team))
+		val key = groupKeyOf(team) ?: return CardBranch(emptyList(), 0)
 		return collaborators.board.cardBranch(key, currentId)
+	}
+
+	/** Session tree, or null if absent. */
+	fun boardGroupFor(team: String): com.atelier_nyaarium.switchboard.board.BoardGroup? {
+		val key = groupKeyOf(team) ?: return null
+		return com.atelier_nyaarium.switchboard.board.flattenBoard(boardEntries()).sessions.firstOrNull { it.key == key }
+	}
+
+	private fun groupKeyOf(team: String): com.atelier_nyaarium.switchboard.board.GroupKey? {
+		val row = state.value.teams.firstOrNull { it.name == team } ?: return null
+		return com.atelier_nyaarium.switchboard.board.GroupKey(row.domainId, row.gatewayId, collaborators.board.sessionKeyOf(team))
 	}
 
 	fun boardSessionKeyOf(team: String): String = collaborators.board.sessionKeyOf(team)

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -161,5 +162,35 @@ fun BoardStrip(
 				}
 			}
 		}
+	}
+}
+
+/** Full-height board rows. */
+@Composable
+fun BoardSessionList(
+	group: BoardGroup?,
+	revision: Long,
+	onOpenEntry: (BoardRow) -> Unit,
+	onMove: (BoardRow, BoardDrop) -> Unit,
+	modifier: Modifier = Modifier,
+) {
+	val rows = group?.rows.orEmpty()
+	if (rows.isEmpty()) {
+		Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+			Text("No tasks", style = MaterialTheme.typography.titleMedium)
+		}
+		return
+	}
+	val listState = rememberLazyListState()
+	val drag = rememberBoardDragController(listState, revision, rows, onMove)
+	Box(modifier.fillMaxSize()) {
+		LazyColumn(
+			state = listState,
+			modifier = Modifier.fillMaxSize().padding(vertical = 8.dp).boardDragInput(drag),
+			userScrollEnabled = !drag.ui.dragging,
+		) {
+			boardRowItems(rows, drag, BoardRowPresentation.Strip, onOpen = onOpenEntry)
+		}
+		BoardDropOverlay(drag, STRIP_INSET)
 	}
 }

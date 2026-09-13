@@ -28,97 +28,40 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
-import com.atelier_nyaarium.switchboard.ChatState
-import com.atelier_nyaarium.switchboard.PickMenu
+import com.atelier_nyaarium.switchboard.Team
 import com.atelier_nyaarium.switchboard.WORKSPACE_ROOT
 import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspacePlace
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
 import com.atelier_nyaarium.switchboard.hapticClick
-import com.atelier_nyaarium.switchboard.localFieldOf
-import com.atelier_nyaarium.switchboard.RequestStanding
-import com.atelier_nyaarium.switchboard.pickedSession
-import com.atelier_nyaarium.switchboard.standingOf
+import com.atelier_nyaarium.switchboard.holdsWorkspace
 import com.atelier_nyaarium.switchboard.placeOf
 import com.atelier_nyaarium.switchboard.placeTitle
 import com.atelier_nyaarium.switchboard.popPlace
 import com.atelier_nyaarium.switchboard.pushPlace
 import com.atelier_nyaarium.switchboard.targetOf
-import com.atelier_nyaarium.switchboard.workspaceSessions
 import kotlinx.coroutines.launch
 
-/**
- * The Files tab: one session's workspace, with the tree, a file's outline, a symbol's detail and the
- * open windows behind one Back stack.
- *
- * The stack, the title, which sessions hold a workspace and which one is read are `WorkspaceNav.kt`,
- * since no gate here can reach a rule written inside a Composable.
- */
 @Composable
-fun WorkspaceScreen(repo: ChatRepository, state: ChatState, modifier: Modifier = Modifier) {
-	val sessions = remember(state.teams) { workspaceSessions(state.teams) }
-	var pickedName by remember { mutableStateOf<String?>(null) }
-	// Held until the picked session's nav host has it: picking changes the target, which starts the
-	// stack over, so a place pushed before that would be thrown away.
-	var asked by remember { mutableStateOf<WorkspaceOpenRequest?>(null) }
-	val session = pickedSession(sessions, pickedName)
-	val standing = asked?.let { standingOf(sessions, state.gateways.loaded, it.team) }
-	// Only what the request actually named. A session that has left the roster falls the picker back to
-	// another one, and a path opened THERE is a different project's file under the same name.
-	val pending = asked?.takeIf { standing == RequestStanding.Show }?.open
-
-	// Cleared where the place is pushed, not here: this screen can be disposed between the two, and a
-	// request already taken off the bus would go with it.
-	LaunchedEffect(Unit) {
-		WorkspaceOpenBus.pending.collect { request ->
-			if (request != null) {
-				pickedName = request.team
-				asked = request
-			}
+fun WorkspaceScreen(repo: ChatRepository, session: Team?, rosterLoaded: Boolean, modifier: Modifier = Modifier) {
+	val request by WorkspaceOpenBus.pending.collectAsState()
+	if (session == null || !holdsWorkspace(session)) {
+		Column(
+			modifier.fillMaxSize().padding(24.dp),
+			verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
+			horizontalAlignment = Alignment.CenterHorizontally,
+		) {
+			Text(
+				if (rosterLoaded) "No workspace" else "No roster yet",
+				style = MaterialTheme.typography.titleMedium,
+			)
 		}
+		return
 	}
-
-	LaunchedEffect(standing) {
-		if (standing == RequestStanding.Drop) {
-			asked?.let { WorkspaceOpenBus.shown(it) }
-			asked = null
-		}
-	}
-
-	Column(modifier.fillMaxSize()) {
-		if (sessions.size > 1) {
-			Box(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-				PickMenu(
-					label = "Session",
-					choices = sessions,
-					picked = session,
-					labelOf = { it.sessionLabel ?: localFieldOf(it.name) },
-					onPick = { pickedName = it.name },
-					trailingOf = { it.gatewayId },
-				)
-			}
-		}
-		if (session == null) {
-			Column(
-				Modifier.fillMaxSize().padding(24.dp),
-				verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
-				horizontalAlignment = Alignment.CenterHorizontally,
-			) {
-				Text(
-					if (state.gateways.loaded) "No sessions" else "No roster yet",
-					style = MaterialTheme.typography.titleMedium,
-				)
-			}
-		} else {
-			val target = remember(session.name) { targetOf(session) }
-			// Named rather than read from `asked`, since an effect Compose has replaced can still reach
-			// here and would otherwise clear the request that replaced it.
-			WorkspaceNavHost(repo, target, Modifier.weight(1f), asked?.takeIf { pending != null }) { shownRequest ->
-				WorkspaceOpenBus.shown(shownRequest)
-				if (asked == shownRequest) asked = null
-			}
-		}
-	}
+	val target = remember(session.name) { targetOf(session) }
+	// Only matching requests open here.
+	val asked = request?.takeIf { it.team == session.name }
+	WorkspaceNavHost(repo, target, modifier.fillMaxSize(), asked) { WorkspaceOpenBus.shown(it) }
 }
 
 @Composable

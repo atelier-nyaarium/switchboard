@@ -8,7 +8,6 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleVaultGrantsResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleVaultRevokeResult
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.VaultGrant
-import com.atelier_nyaarium.switchboard.proto.VaultHolder
 import com.atelier_nyaarium.switchboard.proto.VaultPut
 import com.atelier_nyaarium.switchboard.proto.VaultRequest
 import com.atelier_nyaarium.switchboard.proto.VaultStoredEntry
@@ -22,7 +21,6 @@ import com.atelier_nyaarium.switchboard.vault.VaultManager
 import com.atelier_nyaarium.switchboard.vault.VaultPendingRequest
 import com.atelier_nyaarium.switchboard.vault.VaultRouterWriter
 import com.atelier_nyaarium.switchboard.vault.VaultSaveOutcome
-import com.atelier_nyaarium.switchboard.vault.holder
 import com.atelier_nyaarium.switchboard.vault.VaultSealing
 import com.atelier_nyaarium.switchboard.vault.sealDraft
 import java.util.UUID
@@ -206,11 +204,7 @@ internal class VaultOps(
 
 	/** The strongest grant tier a session holds, or null. */
 	fun grantTierFor(team: String): String? {
-		val gatewayId = runCatching { gatewayOf(team) }.getOrNull() ?: return null
-		val local = localFieldOrSelf(team)
-		val held = manager.grants.value[gatewayId]
-			.orEmpty()
-			.filter { (it.holder as? VaultHolder.Session)?.sessionTarget == local }
+		val held = grantsHeldBy(manager.grants.value, team)
 		return when {
 			held.any { it is VaultGrant.Session } -> VAULT_DECISION_SESSION
 			held.any { it is VaultGrant.Window } -> VAULT_DECISION_WINDOW

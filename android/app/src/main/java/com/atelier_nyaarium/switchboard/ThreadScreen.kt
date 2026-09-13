@@ -2,7 +2,6 @@ package com.atelier_nyaarium.switchboard
 
 import android.content.Context
 import android.net.Uri
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.combinedClickable
@@ -142,6 +141,13 @@ fun ThreadScreen(
 	undoneTasks: Int = 0,
 	onForgetWithTasks: (Boolean) -> Unit = {},
 	onFocusChange: (FocusIntent) -> Unit = {},
+	view: ConversationView = ConversationView.CHAT,
+	onView: (ConversationView) -> Unit = {},
+	drawerSide: DrawerSide = DrawerSide.RIGHT,
+	drawerBadged: Boolean = false,
+	onOpenDrawer: () -> Unit = {},
+	/** Non-chat, non-terminal content. */
+	body: @Composable (Modifier) -> Unit = {},
 ) {
 	var showMenu by remember { mutableStateOf(false) }
 	var showRename by remember { mutableStateOf(false) }
@@ -186,15 +192,7 @@ fun ThreadScreen(
 	var goalSubmitting by remember { mutableStateOf(false) }
 	var goalDialogGeneration by remember { mutableStateOf(0) }
 	val goalScope = rememberCoroutineScope()
-	// The raw-tmux terminal view, toggled from the top bar; re-keyed when switching session. A plain
-	// still-waking session (asleep, booting, or a fresh create) opens to CHAT by default - only a
-	// session already known to be stuck (terminal.needsLogin) jumps straight to terminal, so the
-	// human sees the problem instantly instead of watching an otherwise-uneventful boot.
-	var terminalMode by remember(team) {
-		val booting = terminal.presence?.isOnline != true
-		mutableStateOf(terminal.eligible && booting && terminal.needsLogin)
-	}
-	if (terminalMode) BackHandler { terminalMode = false }
+	val terminalMode = view == ConversationView.TERMINAL
 	// The chat half shows daemon-derived state too (the presence chip), and closing the terminal
 	// declares background on the way out. Without this the chip sits at the background cadence until
 	// the user navigates all the way back to the session list.
@@ -207,10 +205,10 @@ fun ThreadScreen(
 
 	// Hold the screen awake while a thread is open (reading or replying); released
 	// when this screen leaves the composition.
-	val view = LocalView.current
-	DisposableEffect(view) {
-		view.keepScreenOn = true
-		onDispose { view.keepScreenOn = false }
+	val hostView = LocalView.current
+	DisposableEffect(hostView) {
+		hostView.keepScreenOn = true
+		onDispose { hostView.keepScreenOn = false }
 	}
 
 	if (showRename) {
@@ -331,25 +329,33 @@ fun ThreadScreen(
 		topBar = {
 			TopAppBar(
 				title = {
-					Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-						Text(
-							label,
-							fontFamily = FontFamily.Monospace,
-							maxLines = 1,
-							overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-							modifier = Modifier.weight(1f, fill = false),
-						)
-						presence?.let { StatusChip(it, presenceColor(it)) }
+					Column {
+						Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+							Text(
+								label,
+								fontFamily = FontFamily.Monospace,
+								maxLines = 1,
+								overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+								modifier = Modifier.weight(1f, fill = false),
+							)
+							presence?.let { StatusChip(it, presenceColor(it)) }
+						}
+						if (view != ConversationView.CHAT) {
+							Text(view.title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+						}
 					}
 				},
 				navigationIcon = {
-					IconButton(onClick = hapticClick(onSessions)) {
-						Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to sessions")
+					Row {
+						IconButton(onClick = hapticClick(onSessions)) {
+							Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to sessions")
+						}
+						if (drawerSide == DrawerSide.LEFT) DrawerButton(drawerBadged, onOpenDrawer)
 					}
 				},
 				actions = {
 					if (terminal.eligible) {
-						IconButton(onClick = hapticClick { terminalMode = !terminalMode }) {
+						IconButton(onClick = hapticClick { onView(if (terminalMode) ConversationView.CHAT else ConversationView.TERMINAL) }) {
 							if (terminalMode) {
 								Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Back to chat")
 							} else {
@@ -383,6 +389,7 @@ fun ThreadScreen(
 							},
 						)
 					}
+					if (drawerSide == DrawerSide.RIGHT) DrawerButton(drawerBadged, onOpenDrawer)
 				},
 			)
 		},
@@ -395,7 +402,7 @@ fun ThreadScreen(
 			}
 			// Below the tab row, not above it. The strip is the open tab's own entries and its height
 			// changes as they do, which walked the tab row up and down the screen under it.
-			if (boardStrip != null && !terminalMode) {
+			if (boardStrip != null && view == ConversationView.CHAT) {
 				com.atelier_nyaarium.switchboard.board.BoardStrip(
 					group = boardStrip,
 					liveLine = boardLiveLine,
@@ -406,10 +413,14 @@ fun ThreadScreen(
 					onMove = onMoveBoardEntry,
 				)
 			}
-			vaultTile?.let { tile ->
-				com.atelier_nyaarium.switchboard.vault.VaultRequestTile(tile) { onOpenVaultRequest(tile.requestId) }
+			if (view == ConversationView.CHAT || terminalMode) {
+				vaultTile?.let { tile ->
+					com.atelier_nyaarium.switchboard.vault.VaultRequestTile(tile) { onOpenVaultRequest(tile.requestId) }
+				}
 			}
-			if (terminalMode) {
+			if (view != ConversationView.CHAT && !terminalMode) {
+				body(Modifier.weight(1f).fillMaxWidth())
+			} else if (terminalMode) {
 				TerminalView(
 					team = team,
 					refreshMs = terminal.refreshMs,

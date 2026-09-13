@@ -32,15 +32,16 @@ import androidx.compose.ui.unit.dp
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NewOnGatewayFab(
+internal fun NewOnGatewayFab(
 	registry: GatewayRegistry,
 	description: String,
 	onNew: (String) -> Unit,
 	modifier: Modifier = Modifier,
+	scope: ViewScope = ViewScope.Everything,
 ) {
 	var picking by remember { mutableStateOf(false) }
 	// Only a Gateway the current roster can reach takes a new record.
-	val offered = remember(registry) { registry.reachableIds().sorted() }
+	val offered = remember(registry, scope) { scope.newOn(registry) }
 	if (offered.isEmpty()) return
 
 	FloatingActionButton(

@@ -3,7 +3,7 @@ package com.atelier_nyaarium.switchboard.workspace
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-/** What a caller outside the Files tab asks it to show. */
+/** What a tap outside Files asks it to show. */
 internal sealed interface WorkspaceOpen {
 	data class File(val path: String) : WorkspaceOpen
 
@@ -14,10 +14,9 @@ internal sealed interface WorkspaceOpen {
 internal data class WorkspaceOpenRequest(val team: String, val open: WorkspaceOpen)
 
 /**
- * HELD rather than emitted, since the three things that act on a request each compose AFTER it is made:
- * the shell leaves the thread, the tab row scrolls, and the tab shows the place.
+ * Held until the Files view it names composes.
  *
- * The last request wins, and only the tab that showed one clears it.
+ * The latest wins. That view clears it, or the shell once its session is gone.
  */
 internal object WorkspaceOpenBus {
 	private val _pending = MutableStateFlow<WorkspaceOpenRequest?>(null)

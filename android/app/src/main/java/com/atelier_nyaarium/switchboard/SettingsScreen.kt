@@ -67,6 +67,8 @@ fun SettingsScreen(
 	onFederation: () -> Unit,
 	onClear: () -> Unit,
 	onCloseSettings: () -> Unit,
+	drawerSide: DrawerSide,
+	onDrawerSide: (DrawerSide) -> Unit,
 ) {
 	// Settings opens from the pre-provision setup screen too. Before provisioning the repo is not
 	// loaded, so the provisioned-only categories (Profile, Voice, Networks, Security) would NPE or
@@ -118,7 +120,7 @@ fun SettingsScreen(
 				SettingsRoute.FEDERATION -> FederationSettings(repo)
 				SettingsRoute.SECURITY -> SecuritySettings(state, repo, onToggleBiometric)
 				SettingsRoute.PLUGINS -> PluginsSettings(plugins, repo)
-				SettingsRoute.SYSTEM -> SystemSettings(repo)
+				SettingsRoute.SYSTEM -> SystemSettings(repo, drawerSide, onDrawerSide)
 			}
 		}
 	}

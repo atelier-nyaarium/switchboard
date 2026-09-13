@@ -69,3 +69,14 @@ data class TerminalState(
 	/** Clear a usage-limit dialog and pick the work back up (SessionOps.resumeAfterLimit). */
 	val onResumeAfterLimit: suspend () -> Unit,
 )
+
+/** A local composite session of this Domain has a drivable pane. */
+internal fun terminalEligible(state: ChatState, team: String): Boolean {
+	if (!com.atelier_nyaarium.switchboard.proto.isComposite(localFieldOf(team))) return false
+	val admin = state.domainId.orEmpty()
+	val dom = state.sessions().firstOrNull { it.name == team }?.domainId
+	return dom.isNullOrEmpty() || admin.isEmpty() || dom == admin
+}
+
+/** Still booting, and waiting on a login. */
+internal fun stuckAtLogin(presence: Presence?): Boolean = presence?.isOnline != true && presence?.needsLogin == true

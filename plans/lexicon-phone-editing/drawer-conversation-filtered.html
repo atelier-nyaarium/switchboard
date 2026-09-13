@@ -1,0 +1,72 @@
+<!-- @dsCard group="Drawers" width="430" height="932" -->
+<meta charset="utf-8">
+<title>Conversation, filtered Runbooks</title>
+<meta name="viewport" content="width=430, initial-scale=1">
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; width: 430px; height: 932px; position: relative; overflow: hidden;
+		background: #141218; color: #E6E0E9;
+		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
+		-webkit-font-smoothing: antialiased;
+	}
+	.status { height: 28px; padding: 6px 18px; font-size: 12px; color: #CAC4D0; display: flex; }
+	.status span:last-child { margin-left: auto; }
+	.bar { height: 64px; display: flex; align-items: center; padding: 0 6px; gap: 6px; }
+	.ib { width: 44px; height: 44px; display: grid; place-items: center; color: #CAC4D0; font-size: 20px; }
+	.tt { flex: 1; min-width: 0; }
+	.label { display: flex; align-items: center; gap: 8px; }
+	.ln { font-family: ui-monospace, monospace; font-size: 17px; }
+	.chip { font-size: 11px; padding: 2px 8px; border-radius: 8px; border: 1px solid #6B5A2E; color: #F0C674; }
+	.view { font-size: 12.5px; color: #D0BCFF; margin-top: 1px; }
+	.tabs { display: flex; border-bottom: 1px solid #49454F; padding: 0 8px; }
+	.tab { padding: 12px 14px; font-size: 13.5px; color: #948F9A; font-family: ui-monospace, monospace; }
+	.tab.on { color: #D0BCFF; box-shadow: inset 0 -3px 0 #D0BCFF; }
+
+	.scope { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid #201E25; font-size: 12.5px; color: #CAC4D0; }
+	.fchip { font-family: ui-monospace, monospace; font-size: 12px; padding: 4px 10px; border-radius: 8px; background: #332D41; color: #E8DEF8; }
+	.all { margin-left: auto; color: #D0BCFF; font-size: 13px; }
+
+	.rb { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #201E25; }
+	.rbt { flex: 1; min-width: 0; }
+	.rbn { font-size: 15px; }
+	.rbb { color: #948F9A; font-size: 12px; margin-top: 4px; font-family: ui-monospace, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.fire { flex: none; padding: 8px 18px; border-radius: 20px; background: #D0BCFF; color: #381E72; font-size: 13.5px; font-weight: 600; }
+
+	.note { position: absolute; left: 12px; right: 12px; bottom: 12px; background: #2B2930; border: 1px dashed #605B68; border-radius: 12px; padding: 10px 12px; color: #CAC4D0; font-size: 12.5px; line-height: 1.45; }
+</style>
+
+<div class="status"><span>9:41</span><span>5G &#9646;&#9646;&#9646;</span></div>
+<div class="bar">
+	<div class="ib">&#8592;</div>
+	<div class="tt">
+		<div class="label"><span class="ln">switchboard</span><span class="chip">working...</span></div>
+		<div class="view">Runbooks</div>
+	</div>
+	<div class="ib">&#8942;</div>
+	<div class="ib">&#9776;</div>
+</div>
+<div class="tabs"><div class="tab on">switchboard</div><div class="tab">nyaa-lexicon</div><div class="tab">homelab</div></div>
+
+<div class="scope"><span class="fchip">sakura</span><span>Fires into this session</span><span class="all">All Gateways &#8250;</span></div>
+
+<div class="rb">
+	<div class="rbt"><div class="rbn">Release plugin</div><div class="rbb">bun run build {{level}} and reload</div></div>
+	<div class="fire">Fire</div>
+</div>
+<div class="rb">
+	<div class="rbt"><div class="rbn">Kotlin gate</div><div class="rbb">./scripts/kotlin-gate.sh</div></div>
+	<div class="fire">Fire</div>
+</div>
+<div class="rb">
+	<div class="rbt"><div class="rbn">Deploy phone APK</div><div class="rbb">assembleDebug, adb install over {{device}}</div></div>
+	<div class="fire">Fire</div>
+</div>
+<div class="rb">
+	<div class="rbt"><div class="rbn">Audit a phase</div><div class="rbb">Fan out Luna over {{plan}} and {{phase}}</div></div>
+	<div class="fire">Fire</div>
+</div>
+
+<div class="note">
+	The Fire sheet opens with this session picked. All Gateways goes to the root view. Backlog, Routines, Policies and Vault take the same scope row with their own chip.
+</div>

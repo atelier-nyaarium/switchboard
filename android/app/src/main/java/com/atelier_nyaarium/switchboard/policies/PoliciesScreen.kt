@@ -28,21 +28,24 @@ import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.NewOnGatewayFab
+import com.atelier_nyaarium.switchboard.ViewScope
+import com.atelier_nyaarium.switchboard.groupsOf
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.vault.VaultEntryView
 import kotlinx.coroutines.launch
 
 @Composable
-fun PoliciesScreen(
+internal fun PoliciesScreen(
 	repo: ChatRepository,
 	state: ChatState,
 	onEdit: (String, String?) -> Unit,
 	modifier: Modifier = Modifier,
+	scope: ViewScope = ViewScope.Everything,
 ) {
 	LaunchedEffect(state.gateways.incarnations()) { repo.policyOps.refreshAll() }
-	val scope = rememberCoroutineScope()
-	val groups = state.gateways.gateways.filter { it.policies != null }
+	val launcher = rememberCoroutineScope()
+	val groups = scope.groupsOf(state.gateways.gateways).filter { it.policies != null }
 	val named = groups.size > 1
 	val toggleRefusals by repo.policyOps.toggleRefusals
 	val vaultRevision by repo.vault.revision
@@ -86,7 +89,7 @@ fun PoliciesScreen(
 								toggleRefusal = toggleRefusals[group.id to policy.id],
 								onEdit = { onEdit(group.id, policy.id) },
 								onEnable = { on ->
-									scope.launch {
+									launcher.launch {
 										repo.policyOps.setEnabled(policy.id, on, policy.revision, group.id)
 									}
 								},
@@ -101,6 +104,7 @@ fun PoliciesScreen(
 			description = "New policy",
 			onNew = { onEdit(it, null) },
 			modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+			scope = scope,
 		)
 	}
 }

@@ -1,8 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.Address
-import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
-
 /** A stack, so Back is one rule rather than a flag per screen. */
 internal sealed interface WorkspacePlace {
 	/** Empty is the workspace root. */
@@ -44,30 +41,24 @@ internal fun placeTitle(place: WorkspacePlace): String =
 internal fun childPath(parent: String, name: String): String = if (parent.isEmpty()) name else "$parent/$name"
 
 /** Only a session holds a workspace; a spawn point has no plugin, and the gateway refuses it. */
-internal fun workspaceSessions(teams: List<Team>): List<Team> =
-	teams.filter { runCatching { parseQualifiedTarget(it.name) }.getOrNull() is Address }.sortedBy { it.name }
+internal fun holdsWorkspace(team: Team): Boolean = addressOf(team.name) != null
 
 internal fun targetOf(team: Team): WorkspaceTarget = WorkspaceTarget(gatewayId = team.gatewayId, address = team.name)
 
-/** Falls back to the first, since the field names whichever is read. Only an empty roster draws nothing. */
-internal fun pickedSession(sessions: List<Team>, picked: String?): Team? =
-	sessions.firstOrNull { it.name == picked } ?: sessions.firstOrNull()
-
-/** What a request raised elsewhere should do now that the tab holds it. */
+/** Request disposition for the current roster. */
 internal enum class RequestStanding {
 	/** The roster has not answered yet, and an absent session is not yet a missing one. */
 	Wait,
 
 	Show,
 
-	/** Dropped rather than held: a request kept until its session came back would navigate out of
-	 *  nowhere long after the tap, and `pickedSession` would meanwhile open it against another. */
+	/** Dropped, or it navigates long after the tap. */
 	Drop,
 }
 
-internal fun standingOf(sessions: List<Team>, rosterLoaded: Boolean, team: String): RequestStanding =
+internal fun standingOf(teams: List<Team>, rosterLoaded: Boolean, team: String): RequestStanding =
 	when {
-		sessions.any { it.name == team } -> RequestStanding.Show
+		teams.any { it.name == team && holdsWorkspace(it) } -> RequestStanding.Show
 		rosterLoaded -> RequestStanding.Drop
 		else -> RequestStanding.Wait
 	}

@@ -49,6 +49,8 @@ fun RunbookFireSheet(
 	state: ChatState,
 	gatewayId: String,
 	runbookId: String,
+	/** An existing session picked on open. */
+	into: String? = null,
 	onDismiss: () -> Unit,
 ) {
 	val runbook = remember(gatewayId, runbookId, state.gateways) { state.gateways.runbookOn(gatewayId, runbookId) }
@@ -56,7 +58,7 @@ fun RunbookFireSheet(
 		LaunchedEffect(runbookId) { onDismiss() }
 		return
 	}
-	val sheet = remember(gatewayId, runbookId) { FireSheetState(runbook) }
+	val sheet = remember(gatewayId, runbookId, into) { FireSheetState(runbook, into) }
 	LaunchedEffect(runbook.revision) { sheet.adopt(runbook) }
 	val values = sheet.values
 	val scope = rememberCoroutineScope()
@@ -213,7 +215,7 @@ internal fun PreviewPane(preview: PreviewState, onOverwrite: () -> Unit) {
 	}
 }
 
-internal class FireSheetState(runbook: Runbook) {
+internal class FireSheetState(runbook: Runbook, private val into: String? = null) {
 	var revision by mutableStateOf(runbook.revision)
 		private set
 
@@ -229,15 +231,16 @@ internal class FireSheetState(runbook: Runbook) {
 		attempt += 1
 	}
 
-	var freshSession by mutableStateOf(true)
+	var freshSession by mutableStateOf(into == null)
 		private set
-	var target by mutableStateOf("")
+	var target by mutableStateOf(into.orEmpty())
 		private set
 
+	/** Existing session returns to the preset. */
 	fun aimAt(fresh: Boolean) {
 		if (fresh == freshSession) return
 		freshSession = fresh
-		target = ""
+		target = if (fresh) "" else into.orEmpty()
 	}
 
 	fun pick(address: String) {

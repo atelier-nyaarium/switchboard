@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Button
@@ -39,34 +40,40 @@ import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.StatusChip
+import com.atelier_nyaarium.switchboard.ViewScope
+import com.atelier_nyaarium.switchboard.grantsOf
 import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.requestsOf
 import com.atelier_nyaarium.switchboard.proto.VaultGrant
 import com.atelier_nyaarium.switchboard.proto.VaultHolder
 import kotlinx.coroutines.launch
 
-/** Pending requests, the entry list, and the grants a session holds. */
+/** Requests, entries, and grants. Session scope omits entries. */
 @Composable
-fun VaultScreen(
+internal fun VaultScreen(
 	repo: ChatRepository,
 	state: ChatState,
 	onOpenEntry: (String?) -> Unit,
 	onOpenRequest: (String) -> Unit,
 	modifier: Modifier = Modifier,
+	scope: ViewScope = ViewScope.Everything,
 ) {
 	LaunchedEffect(Unit) {
 		repo.vaultOps.refresh()
 		repo.vaultOps.refreshGrants()
 	}
 	val revision by repo.vault.revision
-	val pending by repo.vault.pending.collectAsState()
+	val allPending by repo.vault.pending.collectAsState()
 	val grants by repo.vault.grants
+	val pending = remember(allPending, scope) { scope.requestsOf(allPending) }
+	val held = remember(grants, scope) { scope.grantsOf(grants) }
 	var query by rememberSaveable { mutableStateOf("") }
 	val views = remember(revision) { repo.vaultOps.views() }
 	val shown = remember(views, query) {
 		val q = query.trim()
 		views.filter { q.isEmpty() || it.matches(q) }.sortedBy { it.title.lowercase() }
 	}
-	val scope = rememberCoroutineScope()
+	val launcher = rememberCoroutineScope()
 
 	LazyColumn(
 		modifier = modifier.fillMaxSize().padding(horizontal = 12.dp),
@@ -81,57 +88,76 @@ fun VaultScreen(
 				}
 			}
 		}
-		item(key = "sect:entries") {
-			Row(
-				Modifier.fillMaxWidth().padding(top = 6.dp),
-				horizontalArrangement = Arrangement.spacedBy(8.dp),
-				verticalAlignment = Alignment.CenterVertically,
-			) {
-				OutlinedTextField(
-					value = query,
-					onValueChange = { query = it },
-					singleLine = true,
-					label = { Text("Search") },
-					modifier = Modifier.weight(1f),
-				)
-				Button(
-					onClick = hapticClick { onOpenEntry(null) },
-					contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-					modifier = Modifier.height(34.dp),
-				) {
-					Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-					Spacer(Modifier.width(5.dp))
-					Text("New", style = MaterialTheme.typography.labelLarge)
-				}
-			}
-		}
-		if (shown.isEmpty()) {
-			item(key = "sect:empty") {
+		if (scope is ViewScope.Session && pending.isEmpty() && held.isEmpty()) {
+			item(key = "sect:none") {
 				Text(
-					if (views.isEmpty()) "Nothing stored" else "No entry matches",
+					"Nothing asked or granted",
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
 				)
 			}
 		}
-		for (entry in shown) {
-			item(key = "entry:${entry.id}") {
-				EntryRow(entry) { onOpenEntry(entry.id) }
-			}
-		}
-		val held = grants.entries.flatMap { (gatewayId, list) -> list.map { gatewayId to it } }
+		if (scope == ViewScope.Everything) entryItems(query, { query = it }, views, shown, onOpenEntry)
 		if (held.isNotEmpty()) {
 			item(key = "sect:grants") { SectionLabel("Grants") }
 			for ((gatewayId, grant) in held) {
 				item(key = "grant:$gatewayId:${grant.grantId}") {
 					GrantRow(state, gatewayId, grant, views) {
-						scope.launch { repo.vaultOps.revoke(gatewayId, grant.grantId) }
+						launcher.launch { repo.vaultOps.revoke(gatewayId, grant.grantId) }
 					}
 				}
 			}
 		}
 		item(key = "sect:bottom") { Spacer(Modifier.height(16.dp)) }
+	}
+}
+
+private fun LazyListScope.entryItems(
+	query: String,
+	onQuery: (String) -> Unit,
+	views: List<VaultEntryView>,
+	shown: List<VaultEntryView>,
+	onOpenEntry: (String?) -> Unit,
+) {
+	item(key = "sect:entries") {
+		Row(
+			Modifier.fillMaxWidth().padding(top = 6.dp),
+			horizontalArrangement = Arrangement.spacedBy(8.dp),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			OutlinedTextField(
+				value = query,
+				onValueChange = onQuery,
+				singleLine = true,
+				label = { Text("Search") },
+				modifier = Modifier.weight(1f),
+			)
+			Button(
+				onClick = hapticClick { onOpenEntry(null) },
+				contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+				modifier = Modifier.height(34.dp),
+			) {
+				Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+				Spacer(Modifier.width(5.dp))
+				Text("New", style = MaterialTheme.typography.labelLarge)
+			}
+		}
+	}
+	if (shown.isEmpty()) {
+		item(key = "sect:empty") {
+			Text(
+				if (views.isEmpty()) "Nothing stored" else "No entry matches",
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+			)
+		}
+	}
+	for (entry in shown) {
+		item(key = "entry:${entry.id}") {
+			EntryRow(entry) { onOpenEntry(entry.id) }
+		}
 	}
 }
 

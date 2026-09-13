@@ -1520,6 +1520,35 @@ Every view is classified before it is placed. Proposed to the owner and accepted
 - **Mockups first**, in the design dock, before any code.
 - A ref's exits land in the conversation's Files, since the message names its session.
 
+The mockups are `plans/lexicon-phone-editing/drawer-*.html`. One ruling on them:
+
+> for convenience sAke just the terminal view icon stays where it is. But do show in sidebar for clarity
+
+- **The terminal icon stays in the top bar**, and Terminal is in the drawer too.
+- **A routine targets a spawn point, not a session**, so a conversation's Routines are those on its spawn
+  point. The table's "routines targeting this session" has no record behind it.
+
+### Bug Classes
+
+- **A Back handler wins by when it was composed, not by what it closes.** Mechanism: `BackHandler`
+  registers on composition, and the dispatcher asks the newest first. Found on the emulator: with the
+  drawer open over Files, Back popped the Files stack underneath, because the Files view composed after the
+  drawer's own handler. Patched by composing the drawer's close handler on open (`SideDrawer`). The same
+  order is why the conversation's view Back lives in `App`'s chain rather than in `ThreadScreen`: a handler
+  there would outrank the editors the filtered views now open. Not closed structurally; any new screen with
+  its own handler can outrank a sheet or drawer drawn over it. The red team found the second instance in the
+  same handler: it was released when the close began, so a second Back during the animation reached the
+  screen underneath. Patched by holding it until `currentValue` closes too. Two patches in one mechanism;
+  handed to the architecture pass.
+- **A held request re-applied on every recomposition key.** Mechanism: the shell's `WorkspaceOpenBus`
+  effect is keyed on the roster, so each roster tick routed a pending request again and could force Files
+  after the owner left it. Patched by routing each request once, by identity, and dropping one whose
+  thread cannot open.
+- **A navigation road that lands a conversation without deciding its view.** Mechanism: the view was held
+  across every change of `openTeam`, and five roads land one. The alignment audit found opening a second
+  session from the list landed on the first one's Terminal. Closed structurally: every road into a
+  conversation calls `arrive` with an `Arrival`, and `arrivedView` is the one rule. Leaving writes null.
+
 ## Phase 9 - The raw whole-file editor
 
 The tree's sheet offers `Edit raw` and nothing built it. A whole-file read into a Compose field, its own

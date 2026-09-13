@@ -17,6 +17,9 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -39,8 +42,10 @@ import kotlinx.coroutines.launch
  * used to sit at the bottom here and live under Domain & Trust now ([DomainDangerSection]), beside
  * the things they act on. */
 @Composable
-internal fun SystemSettings(repo: ChatRepository) {
+internal fun SystemSettings(repo: ChatRepository, drawerSide: DrawerSide, onDrawerSide: (DrawerSide) -> Unit) {
 	var refreshText by remember { mutableStateOf((repo.sessions.terminalRefreshMs / 1000.0).toString()) }
+	DrawerSideRow(drawerSide, onDrawerSide)
+	HorizontalDivider()
 	BatteryExemptionRow()
 	HorizontalDivider()
 	VaultOverlayRow()
@@ -70,6 +75,21 @@ internal fun SystemSettings(repo: ChatRepository) {
 	)
 }
 
+@Composable
+private fun DrawerSideRow(side: DrawerSide, onSide: (DrawerSide) -> Unit) {
+	Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+		Text("Drawer side", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+		SingleChoiceSegmentedButtonRow {
+			DrawerSide.entries.forEachIndexed { index, option ->
+				SegmentedButton(
+					selected = side == option,
+					onClick = hapticClick { onSide(option) },
+					shape = SegmentedButtonDefaults.itemShape(index = index, count = DrawerSide.entries.size),
+				) { Text(if (option == DrawerSide.LEFT) "Left" else "Right") }
+			}
+		}
+	}
+}
 
 /** One-press self-update: download the chosen variant's APK straight from the public
  * GitHub release, then launch the installer. The variant dropdown lets the user

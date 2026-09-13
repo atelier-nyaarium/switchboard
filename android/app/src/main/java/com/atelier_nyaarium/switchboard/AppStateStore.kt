@@ -190,6 +190,12 @@ class AppStateStore internal constructor(
 			prefs.edit().putInt(KEY_BOARD_STRIP_HEIGHT, value.coerceIn(BOARD_STRIP_MIN_DP, BOARD_STRIP_MAX_DP)).apply()
 		}
 
+	var drawerSide: DrawerSide
+		get() = DrawerSide.of(prefs.getString(KEY_DRAWER_SIDE, null))
+		set(value) {
+			prefs.edit().putString(KEY_DRAWER_SIDE, value.name).apply()
+		}
+
 	/** Chime volume, 0-200. */
 	var sttsChimeVolume: Int
 		get() = prefs.getInt(KEY_STTS_CHIME_VOLUME, 100).coerceIn(0, 200)
@@ -500,6 +506,7 @@ class AppStateStore internal constructor(
 		const val KEY_STTS_VOLUME = "stts_volume"
 		const val KEY_STTS_CHIME_VOLUME = "stts_chime_volume"
 		const val KEY_BOARD_STRIP_HEIGHT = "board_strip_height"
+		const val KEY_DRAWER_SIDE = "drawer_side"
 		// Keeps the transcript usable.
 		const val BOARD_STRIP_MIN_DP = 72
 		const val BOARD_STRIP_MAX_DP = 420
