@@ -87,8 +87,8 @@ The phone is every runbook's sole author. `RunbookManager` owns the library and 
 way `BoardManager` and `VaultManager` own theirs, and it is cleared on re-provision with them.
 `RunbookOps` owns the gateway calls; `pushDecision` beside it is the sync rule.
 
-The Runbooks tab lists every admitted Gateway's library, grouped by Gateway and with Fire on each
-row. The heading is drawn only when there is more than one, so a single-Gateway phone gains no
+The Runbooks view lists every admitted Gateway's library, grouped by Gateway and with Fire on each
+row. Inside a conversation it lists that session's Gateway alone, and Fire opens aimed at the session. The heading is drawn only when there is more than one, so a single-Gateway phone gains no
 words. Groups sort by Gateway id, which gives none of them a privileged place.
 
 A runbook fires on the Gateway that holds it, so the sheet has no Gateway to pick: another Gateway's

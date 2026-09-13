@@ -161,7 +161,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     the row went leaves its name only.
 - S8 retained endpoints: `/capabilities`, `/discover`, `/task-board`
 - `android/.../ChatRepository.kt` - console process singleton and OwnerOp client
-- `android/.../GatewayRegistry.kt` - the Router's roster as the phone holds it: provenance, per-Gateway answers, and the reads the tabs use; `docs/console.md` holds the rules
+- `android/.../GatewayRegistry.kt` - the Router's roster as the phone holds it: provenance, per-Gateway answers, and the reads the views use; `docs/console.md` holds the rules
 - `android/.../PhoneIdentity.kt` / `PhoneBootstrap.kt` / `PhoneAmbient.kt` - the one door for identity facts, the boot value it publishes, and the ambient record (clock, entropy, ids, timer)
 - `android/.../SandboxSeeder.kt` - the emulator build's seam: `isSandbox`, the identity facts a
   sandbox boot needs, and the canned state it publishes
@@ -208,7 +208,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     placeholder keeps its settings while editing and `toRunbook` prunes them. `RunbookGrammar` is
     the Kotlin twin of `placeholdersOf`, pinned by `tests/fixtures/runbook-grammar/vectors.json`,
     and recognises names without rendering.
-- `android/.../runbooks/RunbooksScreen.kt` / `RunbookFireSheet.kt` - the tab with Fire per row, and the fire sheet
+- `android/.../runbooks/RunbooksScreen.kt` / `RunbookFireSheet.kt` - the view with Fire per row, and the fire sheet
   - **The preview is the gateway's render, never the phone's:** the sheet calls `runbook_preview`, so
     one implementation of the grammar serves both it and the fire. An edit marks the shown text
     stale rather than blanking it, and Fire waits for a preview whose revision matches the runbook.
@@ -232,7 +232,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A typed option keeps its indent:** `trimmedOption` drops blank edge lines, and trims fully only
     when one line is left, so a pasted block does not lose the indentation of its first line alone.
 - `android/.../RoutineOps.kt` / `routines/RoutinesScreen.kt` / `RoutineEditor.kt` / `RoutineText.kt` /
-  `GrantSecretsSheet.kt` - the gateway calls, the tab, the editor, the pure lines each row shows, and
+  `GrantSecretsSheet.kt` - the gateway calls, the view, the editor, the pure lines each row shows, and
   the sheet a routine's secrets are granted through
   - **The phone caches, it never owns:** a routine's record, its next run, its misses and its
     reviews are the gateway's, so a change re-reads rather than guessing. `GatewayEntry` holds the
@@ -269,7 +269,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     at the moment it is pressed, on every row including a disabled one. The miss panel's button runs
     the slot the rule named. Neither refuses while a run is already working.
 - `android/.../PolicyOps.kt` / `policies/PolicyDraft.kt` / `policies/PoliciesScreen.kt` / `policies/PolicyEditor.kt` /
-  `ConsoleClientPolicies.kt` - the gateway calls, the editor's model and its pure refusal, the tab, the editor
+  `ConsoleClientPolicies.kt` - the gateway calls, the editor's model and its pure refusal, the view, the editor
   - **Nothing is held on the phone, and every method names its gateway,** as routines do. A
     Gateway that refuses `policy_list` is drawn as nothing, since an older build refuses an unknown
     op with no stable code; one that cannot be reached keeps what it drew. `ConsoleClient.sendValueAnswer`
@@ -287,7 +287,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     `allowedOn` that Gateway, and names a binding it cannot resolve.
 - `android/.../GatewayPick.kt` - the button a new record starts from
   - **A new record has no Gateway yet:** one is taken without asking, several are asked, and none
-    draws no button. Nothing else on these tabs chooses a Gateway, since every row belongs to one.
+    draws no button. Nothing else on these views chooses a Gateway, since every row belongs to one.
+    Inside a conversation only that session's Gateway is offered (`ViewScope.newOn`).
 - `android/.../GatewayReads.kt` - `GatewayReadFence`, the one freshness rule for per-gateway reads
   - **The later read of a gateway wins, and only of that gateway:** the drain loop and a tap both
     start reads, so an older answer can land after a newer one and put back what the owner just
@@ -302,8 +303,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     reaches this from there; the other callers still pass one. A read that fills a per-module cache is
     not fenced at all, since nothing an older answer could overwrite exists.
 - `android/.../WindowOps.kt` / `WindowRules.kt` / `WorkspaceNav.kt` / `WindowDraftStore.kt` /
-  `workspace/` - the Files tab: the open windows and their drafts, every rule the surface applies, the
-  Back stack, and the four screens. `docs/console.md` holds the whole of it
+  `workspace/` - a conversation's Files: the open windows and their drafts, every rule the surface applies,
+  the place rules, and the four screens. `docs/console.md` holds the whole of it
   - **Keyed by SESSION, never by Gateway:** two sessions of one Gateway hold different workspaces, so
     a Gateway-keyed map serves one session's span for the other. The fence, the draft filenames and
     the window map all take the qualified session address.
@@ -330,10 +331,24 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     moved past it lands nothing.
   - **Nothing decides inside a Composable**, since there is no instrumentation source set. The screens
     render and call; `WindowRules` and `WorkspaceNav` hold the decisions and carry the tests.
-  - **`WorkspaceOpenBus` HOLDS a request rather than emitting one:** a ref's exit is tapped over a
-    thread, which replaces the tab row, so the three readers that act on it each compose after it is
-    made. Only the tab that showed one clears it, naming it, and `standingOf` drops a request whose
-    session the roster no longer holds rather than letting the picker's fallback open another project.
+  - **`WorkspaceOpenBus` HOLDS a request rather than emitting one**, since the roster may not have
+    answered yet. The shell reads it by `standingOf`, takes it off the bus as it routes it, and lands
+    it as `ShellNav.arrive` with `Arrival.FILES_ASKED` and the place, so no screen consumes a request
+    and a roster tick cannot route it twice.
+- `android/.../ShellNav.kt` / `DrawerNav.kt` / `ViewScope.kt` / `SideDrawer.kt` / `ScopedViews.kt` /
+  `RootScreen.kt` - where the shell stands, the drawers, and the views filtered to a conversation.
+  `docs/console.md` holds the whole of it
+  - **Where the shell stands is one `ShellNav` value, and every road through it is a transition:** the
+    open conversation, its view, its Files stack, the root view, settings and the thread's re-snap
+    generation. `arrive` decides the view and the re-snap together from an `Arrival`, so no road can
+    land a conversation without deciding both.
+  - **Back is ordered by what is drawn over what, never by when a handler composed:** `shellScreen` is
+    the one order the render and `backLayer` both read, and `App` holds the only shell `BackHandler`.
+    `back-handler-residue.test.ts` refuses one anywhere else but the full screens it names with a reason.
+    A drawer's state is remembered per showing of its screen, so a drawer left open never reappears open.
+  - **A filtered view is the root's view with a `ViewScope.Session`:** its Gateway for Runbooks and
+    Policies, its spawn point for Routines, its own requests and grants for Vault. The filters are pure
+    functions in `ViewScope.kt`, tested there; a screen takes the scope and asks.
 - `android/.../AttachmentOps.kt` - attachment fetch-and-sweep state
 - `android/.../ScheduledSendOps.kt` - scheduled sends as Router-held intents: the drain, the cancel intent, and the Router's result rows, all under one mutex
   - **The Router fires; the phone intends:** a record is pending until `schedule_send` is accepted,
@@ -361,8 +376,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../SessionsScreen.kt` / `SettingsScreen.kt` / `ThreadScreen.kt` / `Onboarding.kt` / `SessionDialogs.kt` / `ReorderableTabRow.kt` / `TabDragMath.kt` / `TimeText.kt` - screen siblings and tab geometry
 - `android/.../RendererPoolBindings.kt` / `AppOverlays.kt` / `LinkMenu.kt` - WebView pool, overlays, and link actions
 - `android/.../SettingsSections.kt` / `SettingsSystem.kt` / `SettingsVoice.kt` - settings leaf screens
-- `android/.../MainTabsScreen.kt` / `SessionsHeaders.kt` / `SessionCard.kt` / `SessionCardPreview.kt` / `SessionsEmptyState.kt` - sessions tab shell, cards, rules, and empty-state machine
-- `android/.../vault/` - `VaultSealing.kt` / `VaultManager.kt` / `VaultRouterWriter.kt` / `VaultDraft.kt` / `ApprovalGate.kt` / `VaultScreen.kt` / `VaultEntryDialog.kt` / `VaultRequestSheet.kt` / `VaultRequestText.kt` / `VaultState.kt` - the sealing door, the held entry set with pending requests and the retry count, the owner-op writer, the draft-to-sealed rule, the one owner-presence gate, the tab, the editor, the request sheet, its pure text rules (title, requester, countdown, repeat line), and the held request shapes
+- `android/.../SessionsHeaders.kt` / `SessionCard.kt` / `SessionCardPreview.kt` / `SessionsEmptyState.kt` - the Sessions view's headers, cards, rules, and empty-state machine
+- `android/.../vault/` - `VaultSealing.kt` / `VaultManager.kt` / `VaultRouterWriter.kt` / `VaultDraft.kt` / `ApprovalGate.kt` / `VaultScreen.kt` / `VaultEntryDialog.kt` / `VaultRequestSheet.kt` / `VaultRequestText.kt` / `VaultState.kt` - the sealing door, the held entry set with pending requests and the retry count, the owner-op writer, the draft-to-sealed rule, the one owner-presence gate, the view, the editor, the request sheet, its pure text rules (title, requester, countdown, repeat line), and the held request shapes
 - `android/.../crypto/ContentSealing.kt` - the one sealing door the board and the vault subclass; only the AAD builder differs
 - `android/.../plugins/vault/VaultPlugin.kt` - claims `vault:request`, forget, and wipe
 - `android/.../board/` - board reducers and durable `BoardManager`
@@ -621,7 +636,7 @@ How each subsystem works lives in `docs/`:
 | `docs/task-board.md` | Board, attachments, awareness |
 | `docs/vault.md` | Vault client, grants, request road, loopback routes |
 | `docs/policies.md` | The policy record, the selector key, the store's rules, the askpass resolver, what a qualified grant covers |
-| `docs/runbooks.md` | The `{{name}}` grammar, the gateway store, the fire, the tab, the editor, a refused push |
+| `docs/runbooks.md` | The `{{name}}` grammar, the gateway store, the fire, the view, the editor, a refused push |
 | `docs/routines.md` | The routine record, recurrence in a recorded zone, the console operations, what a session asks back, and the manual pass no gate here can reach |
 | `docs/references.md` | `ref://` grammar and matchers |
 | `docs/testing.md` | The federation harness, the minted wire fixtures, the identity set, the gates |

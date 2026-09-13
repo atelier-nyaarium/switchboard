@@ -81,8 +81,8 @@ gateway's console handler refuses anything shorter. `home-gateway-residue.test.t
 words on the phone.
 
 **No screen reads an identity default to decide what to draw.** The Routines, Runbooks and
-Policies tabs read `ChatState.gateways` and group by Gateway. The Policies tab rides the vault
-plugin, since a policy binds a secret. A Gateway that refuses `policy_list` is drawn as nothing,
+Policies views read `ChatState.gateways` and group by Gateway. Policies rides the vault plugin,
+since a policy binds a secret. A Gateway that refuses `policy_list` is drawn as nothing,
 since an older build refuses an unknown op.
 
 A join bundle sealed for a freshly approved device carries `version: 2`; `parseConsoleTransport`
@@ -96,11 +96,11 @@ Gateway on this phone, and no screen reads the keyring. Each entry carries what 
 (`connected`, `incarnation`, `lastRegisteredAt`, `hostSpawns`) and what that Gateway answered
 (`routines`, `runbooks`, `policies`), written through `withEntry`, which drops an answer for a
 Gateway the roster does not name. A restarted Gateway is re-asked: `landed` keeps answers only at
-the same incarnation, and the tabs key their re-read on `incarnations()`.
+the same incarnation, and the views key their re-read on `incarnations()`.
 
 The registry has a provenance. `NeverLoaded` is not an empty roster; `Cached` is the last slot on
 disk, landed once before the first poll and drawn with a stale mark; `Current` is a live
-projection. `offersSpawn(id)` is the Sessions tab's Create rule: the roster is loaded, the Router
+projection. `offersSpawn(id)` is the Sessions view's Create rule: the roster is loaded, the Router
 holds that Gateway's connection, and the Gateway projected its spawn points (`hostSpawns` is null
 until it does). `standing(id)` answers `Unknown`, `NeverSeen`, `Offline` or `Online` for the
 section header. `reachable(id)` says the roster is `Current` and the connection is held; the
@@ -279,7 +279,25 @@ no TTL.
   tmux-wrapped rows.
 - **Designer plugin** (`plugins/designer/`): owns design cards, live content-keyed rendering, and
   per-team `DesignStore`.
-- **Policies tab** (`PolicyOps.kt`, `policies/`): one group per Gateway, read on tab entry and
+- **The shell and its drawers** (`ShellNav.kt`, `DrawerNav.kt`, `ViewScope.kt`, `SideDrawer.kt`,
+  `ScopedViews.kt`): the root shows one global view (Sessions, Backlog, Runbooks, Routines, Policies,
+  Vault) and a conversation shows Chat, Terminal, Files or one of those views filtered to it, each
+  picked from a drawer on the side `DrawerSide` names. Where the shell stands is one `ShellNav` value,
+  and every road through it is a transition: `arrive` decides the view and whether the thread re-snaps
+  (`Arrival` names the road), and the conversation carries its own Files stack.
+
+  **Back is ordered by what is drawn over what.** `shellScreen` is the one order the render and
+  `backLayer` both read; `App` holds the only shell `BackHandler` and dispatches the layer it names
+  (editor, overlay, settings, drawer, Files stack, view, conversation, root view).
+  `back-handler-residue.test.ts` refuses a handler anywhere else but the two full screens it names,
+  since a handler wins by when it composed rather than by what it closes. A drawer's state belongs to
+  one showing of its screen, so a drawer left open never reappears open.
+
+  **A filtered view is its root view with a `ViewScope.Session`.** The session's Gateway for Runbooks
+  and Policies, its spawn point for Routines (a routine targets a spawn point, not a session), its own
+  requests and grants for Vault, and its tree for Backlog. New creates only on that Gateway, and Fire
+  opens aimed at the session.
+- **Policies** (`PolicyOps.kt`, `policies/`): one group per Gateway, read when the view shows and
   after every mutation, never held. `policyList` answers listed, refused or unreachable; a refusal
   hides that Gateway's group, unreachable keeps what was drawn, and the fence drops a stale read.
   The editor's draft lives in `PolicyOps` keyed by gateway and id; `PolicyDraft` holds every
@@ -287,11 +305,11 @@ no TTL.
   over revision N" tap performs). The binding picker offers only entries with a value that
   `allowedOn` that Gateway. A row's toggle and a routine's carry the row's revision and show the
   gateway's refusal under the row until a toggle of that row lands.
-- **Files tab** (`WindowOps.kt`, `WindowRules.kt`, `WorkspaceNav.kt`, `workspace/`): one session's
+- **Files** (`WindowOps.kt`, `WindowRules.kt`, `WorkspaceNav.kt`, `workspace/`): a conversation's
   workspace, read through the plugin that holds it. The tree, an outline, a symbol's detail and the
-  open windows sit behind one Back stack in `WorkspaceNav`. Everything is keyed by SESSION, not by
-  Gateway: two sessions of one Gateway hold different workspaces. Reads are re-read rather than
-  cached, as the other per-Gateway tabs do; the exceptions are the open windows, their drafts, and
+  open windows sit behind one stack the conversation's `ShellNav` carries, moved by `WorkspaceNav`'s
+  push and pop. Everything is keyed by SESSION, not by Gateway: two sessions of one Gateway hold
+  different workspaces. Reads are re-read rather than cached, as the per-Gateway views do; the exceptions are the open windows, their drafts, and
   one cached file per module for the lines around a window.
 - **Window identity** (`Window.incarnation`, `WindowOps.apply`): held state has one road in, which
   hands a transform what is held NOW. A window carries an incarnation minted at open and the set
@@ -304,7 +322,7 @@ no TTL.
   never suspends. A read that fills a per-module cache is not fenced at all, since there is nothing
   an older answer could overwrite. `separated` escapes each half rather than refusing one holding
   the record separator, because a Lexicon symbol id can carry one and a workspace file does not get
-  to decide whether the tab crashes.
+  to decide whether the view crashes.
 - **The foreground sweep is not fenced** (`WindowOps.recheck`): the fence hands a key to whoever
   claimed last, so a sweep would discard the Refresh the owner just tapped and answer them nothing.
   Each window instead carries the hash it held when its read began, and an answer arriving at a
@@ -341,14 +359,12 @@ no TTL.
   **A refused write reaches the log.** Every road answers the same way: the write, the read, the
   clear and the re-provision wipe all report rather than reading as a success. The owner sees nothing
   on a release build, which is on the board.
-- **A ref's exits into the Files tab** (`WorkspaceOpenBus`, `exitsFor`): a snapshot's viewer offers the
-  outline and, when the ref resolved to a declaration, its editable span. The request is HELD rather
-  than emitted, since a ref opens over a thread and the thread replaces the tab row, so nothing that
-  acts on it is composed when it is made. Three readers take it as each mounts: the shell leaves the
-  thread, the tab row scrolls, and the tab shows the place and clears it, naming the request it showed.
-  A request waits while the roster is unknown, shows on the session it named, and is dropped once the
-  roster says that session is gone, so it never rides the session picker's fallback into another
-  project. `docs/references.md` holds what a ref carries.
+- **A ref's exits into Files** (`WorkspaceOpenBus`, `exitsFor`): a snapshot's viewer offers the outline
+  and, when the ref resolved to a declaration, its editable span. The request is HELD rather than
+  emitted, since the roster may not have answered yet. The shell reads it by `standingOf`: it waits
+  while the roster is unknown, is dropped once the roster says that session is gone, and otherwise is
+  taken off the bus and routed as `arrive` with `Arrival.FILES_ASKED` and the place, which opens that
+  conversation on Files. `docs/references.md` holds what a ref carries.
 - **Unread tracking** (`ReadAnchor.kt`, `thread.js`): anchors match inbox rows by epoch and
   sequence equality. Reads drain by scroll position.
 - **Idle pushback** (`IdlePushbackManager.kt`): owns aligned `AlarmManager` wakeups.

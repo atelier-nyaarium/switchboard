@@ -120,7 +120,7 @@ host shares the helper's token.
 `policy_list`, `policy_put` (base optional), `policy_delete` and `policy_enable` (base required),
 dispatched in `gateway/console/consoleHandler.ts`. A put or enable answers `stored`, the held
 revision, the record to adopt, or a reason; a delete answers `deleted` or a reason. The phone's
-tab and editor are in `docs/console.md` under Android app.
+view and editor are in `docs/console.md` under Android app.
 
 ## File map
 
@@ -131,4 +131,4 @@ tab and editor are in `docs/console.md` under Android app.
 - `src/gateway/vault/vaultRoutes.ts` - the askpass resolver.
 - `src/gateway/vault/decisions.ts`, `requests.ts` - `covers`, `qualificationRefusal`, `policyMoved`, the tap validation.
 - `src/__tests__/policy-store.test.ts`, `schemas-policy.test.ts`, `vault-decisions.test.ts`, `federation-harness-vault-requests.test.ts`, `federation-harness-policies.test.ts` - the gates.
-- `android/.../PolicyOps.kt`, `policies/` - the phone's tab, editor and draft.
+- `android/.../PolicyOps.kt`, `policies/` - the phone's view, editor and draft.

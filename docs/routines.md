@@ -59,11 +59,13 @@ gateway owns `now`, and answers the occurrence id it opened.
 The list answer carries each routine with its next instant and any occurrence the owner has not dealt
 with, plus the zone that Gateway keeps them in. The phone recomputes none of it.
 
-## The tab
+## The view
 
-A routine belongs to the Gateway that runs it. The Routines tab asks every admitted Gateway,
+A routine belongs to the Gateway that runs it. The Routines view asks every admitted Gateway,
 concurrently, and groups the answers by Gateway; one that cannot be read leaves the rest drawn. The
-heading appears only when there is more than one, and groups sort by Gateway id.
+heading appears only when there is more than one, and groups sort by Gateway id. Inside a
+conversation it draws the routines on that session's spawn point, since a routine targets a spawn
+point rather than a session.
 
 Each group carries the zone its Gateway keeps schedules in, which is what the editor converts a typed
 wall-clock time into on save. The rows do not use it: a next run, a last run and a miss are all
@@ -71,7 +73,7 @@ instants, so they read in the owner's own zone, and the rule's line names the zo
 Notification ids, editor drafts and list keys all carry the Gateway, because two Gateways may hold
 the same routine id and neither may cancel or overwrite the other.
 
-An empty tab distinguishes the two things it can mean: no Gateway answered at all, or the Gateways
+An empty view distinguishes the two things it can mean: no Gateway answered at all, or the Gateways
 that answered hold nothing.
 
 The editor picks rather than types. The spawn point and the runbook are menus over what that Gateway

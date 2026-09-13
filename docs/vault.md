@@ -223,7 +223,7 @@ session holds a binding token. `vaultRun.ts` is the child run.
 
 ## Phone
 
-`android/.../vault/` and `VaultOps.kt`. The `vault` plugin gates the tab and reports the capability.
+`android/.../vault/` and `VaultOps.kt`. The `vault` plugin gates the view and reports the capability.
 
 - **`VaultSealing` is the phone's only door:** a `ContentSealing` under `vaultAadKind`, the twin of
   the gateway client. A typed value seals under the request id.
@@ -254,15 +254,16 @@ session holds a binding token. `vaultRun.ts` is the child run.
 - **The sheet names what a window would cover:** `windowCovers` in `VaultRequestText.kt` prints the
   request's `coveredShapes` under the operation, in full, since the content scrolls. It says nothing
   when the line already names the one shape, and when the request is typed, since a typed value is
-  answered once and records no grant. `grantCovers` does the same for the grants tab, where every
+  answered once and records no grant. `grantCovers` does the same for the grants list, where every
   window grant carries its set.
 - Vault approvals, under Settings and Security: Off, Every approval, 30-minute unlock.
   `ApprovalGate` is the one gate: it runs before an entry approval, a reveal, and a save that
   changes a stored value; a typed value never prompts. Tightening the policy is free, loosening it
   asks the owner, and any change ends the window.
-- Grants are read per admitted gateway through `vault_grants` when the tab opens and after an
-  approval. The session card shows YOLO for a whole-session grant and vault for a window. The tab
-  lists them with Revoke.
+- Grants are read per admitted gateway through `vault_grants` when the view opens and after an
+  approval. The session card shows YOLO for a whole-session grant and vault for a window. The view
+  lists them with Revoke. Inside a conversation it shows only that session's requests and grants,
+  matched by `grantsHeldBy`.
 
 **File map:**
 
@@ -275,6 +276,6 @@ session holds a binding token. `vaultRun.ts` is the child run.
 - `src/shared/vault-askpass-wrapper.ts` - the wrapper the daemon and the plugin lay down.
 - `src/shared/schemasVault.ts` - wire shapes, the request row, the loopback shapes, the constants.
 - `src/federation-server/vault/` - the Router service.
-- `android/.../vault/` - sealing, the held entry set, the writer, the tab, the editor, the request sheet.
+- `android/.../vault/` - sealing, the held entry set, the writer, the view, the editor, the request sheet.
 - `android/.../vault/VaultRequestText.kt` - the sheet's pure text rules, `windowCovers` and `grantCovers` among them.
 - `android/.../VaultOps.kt`, `plugins/vault/VaultPlugin.kt` - repository operations and the plugin's claims.
