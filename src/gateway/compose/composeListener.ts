@@ -1,6 +1,8 @@
 // The HTTP entry point, and the shutdown that flushes before it stops anything.
 
+import { signSelfRevocation } from "../../shared/admission.js";
 import type { Ambient } from "../../shared/ambient.js";
+import { WIRE_NONCE_BYTES } from "../../shared/wire-vocabulary.js";
 import { reportUnrecognizedDataEntries } from "../dataDirInventory.js";
 import { createHttpRouter } from "../httpRouter.js";
 import { unenrolledHealth } from "../routes/routesStatus.js";
@@ -22,7 +24,8 @@ export interface ListenerStageDeps {
 	dataDir: string;
 	localGatewayId: string;
 	enrollNonce?: string;
-	ambient: Pick<Ambient, "clearInterval">;
+	hostWsToken?: string;
+	ambient: Pick<Ambient, "now" | "randomBytes" | "clearInterval">;
 	context: FederationContext;
 	stores: Pick<StoresStage, "blobStore" | "jobs" | "jobsDurable" | "sessionResumeDurable">;
 	sessions: Pick<SessionsStage, "sessionAuthority" | "sessionResumeSnapshot" | "tripwireTimer" | "sessionReporter">;
@@ -44,8 +47,54 @@ export interface ListenerStage {
 	close: () => Promise<void>;
 }
 
+export interface GatewayRetireDeps {
+	ambient: Pick<Ambient, "now" | "randomBytes">;
+	gatewayId: string;
+	identity: { sign: { pub: string; priv: string } } | null;
+	routerClient: {
+		isConnected: () => boolean;
+		callInboxTool: (
+			action: string,
+			params: Record<string, unknown>,
+		) => Promise<{ result?: unknown; error?: string }>;
+	} | null;
+}
+
+export async function retireGateway(deps: GatewayRetireDeps): Promise<{ outcome: string; error?: string }> {
+	if (!deps.identity || !deps.routerClient?.isConnected()) return { outcome: "unreachable" };
+	const revocation = {
+		signPub: deps.identity.sign.pub,
+		issuedAt: deps.ambient.now(),
+		nonce: deps.ambient.randomBytes(WIRE_NONCE_BYTES).toString("base64url"),
+	};
+	try {
+		const answer = await deps.routerClient.callInboxTool("gateway_retire", {
+			revocation: signSelfRevocation(revocation, deps.gatewayId, deps.identity.sign.priv),
+		});
+		if (answer.error) {
+			if (answer.error.includes("unsupported gateway action")) return { outcome: "unsupported" };
+			return { outcome: "unreachable", error: answer.error };
+		}
+		const result = answer.result as { ok?: unknown; error?: unknown } | undefined;
+		if (result?.ok === true) return { outcome: "retired" };
+		return { outcome: "refused", error: typeof result?.error === "string" ? result.error : "refused" };
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return message.includes("unsupported gateway action")
+			? { outcome: "unsupported" }
+			: { outcome: "unreachable", error: message };
+	}
+}
+
 export function composeListener(deps: ListenerStageDeps): ListenerStage {
 	const { ambient, context, stores, sessions, persistence, host, awareness, websockets, routes } = deps;
+	const retire = () =>
+		retireGateway({
+			ambient,
+			gatewayId: deps.localGatewayId,
+			identity: context.boot()?.identity ?? null,
+			routerClient: context.slice()?.routerClient ?? null,
+		});
 
 	const router = createHttpRouter({
 		handleEnrollPost: deps.enrollment.handleEnrollPost,
@@ -56,6 +105,8 @@ export function composeListener(deps: ListenerStageDeps): ListenerStage {
 		loopbackRoutes: new Map([...deps.agents.agentRoutes, ...deps.vault.routes, ...(deps.routines?.routes ?? [])]),
 		routes: routes.current,
 		unenrolledHealth: () => unenrolledHealth(deps.localGatewayId),
+		hostWsToken: deps.hostWsToken,
+		retire,
 	});
 
 	reportUnrecognizedDataEntries(deps.dataDir);

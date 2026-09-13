@@ -1,9 +1,12 @@
 import {
 	type DomainSnapshot,
+	REGISTER_MAX_SKEW_MS,
+	resolveAdmitted,
 	type SignedAdmission,
 	type SignedRevocation,
 	verifyAdmission,
 	verifyRevocation,
+	verifySelfRevocation,
 } from "../shared/admission.js";
 import type { Ambient } from "../shared/ambient.js";
 import { fingerprint, type Identity } from "../shared/crypto.js";
@@ -47,7 +50,7 @@ export class EnrollmentCoordinator {
 		private readonly identity: Identity,
 		private readonly store: EnrollmentStore,
 		private readonly domainId: string,
-		private readonly ambient: Pick<Ambient, "randomBytes">,
+		private readonly ambient: Pick<Ambient, "now" | "randomBytes">,
 		private readonly nonceTtlMs: number = DEFAULT_NONCE_TTL_MS,
 	) {
 		this.state = store.load() ?? { ownerSignPub: null, ownerBoxPub: null, admissions: [], revocations: [] };
@@ -122,6 +125,28 @@ export class EnrollmentCoordinator {
 	public revoke(signed: SignedRevocation): string | null {
 		if (!this.state.ownerSignPub) return "Domain not rooted";
 		if (!verifyRevocation(signed, this.state.ownerSignPub)) return "revocation not owner-signed";
+		this.state.revocations.push(signed);
+		this.store.save(this.state);
+		return null;
+	}
+
+	public retire(signed: SignedRevocation, registered: { gatewayId: string; signPub: string }): string | null {
+		if (!this.state.ownerSignPub) return "Domain not rooted";
+		if (!verifySelfRevocation(signed, registered.gatewayId)) return "revocation not self-signed";
+		if (signed.revocation.signPub !== registered.signPub) return "revocation signer does not match gateway";
+		const duplicate = this.state.revocations.some(
+			(r) => r.revocation.signPub === signed.revocation.signPub && r.revocation.nonce === signed.revocation.nonce,
+		);
+		if (duplicate) return null;
+		const live = resolveAdmitted(
+			this.state.admissions,
+			this.state.revocations,
+			this.state.ownerSignPub,
+			registered.signPub,
+		);
+		if (live?.kind !== "gateway" || live.gatewayId !== registered.gatewayId) return "gateway is not admitted";
+		if (Math.abs(this.ambient.now() - signed.revocation.issuedAt) > REGISTER_MAX_SKEW_MS)
+			return "self revocation is stale";
 		this.state.revocations.push(signed);
 		this.store.save(this.state);
 		return null;

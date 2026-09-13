@@ -11,6 +11,7 @@ import {
 	SignedAdmissionSchema,
 	type SignedRevocation,
 	SignedRevocationSchema,
+	selfRevocationVerifiesAny,
 	verifyAdmission,
 	verifyRevocation,
 } from "../../shared/admission.js";
@@ -132,7 +133,9 @@ export class Allowlist {
 		}
 		this.state.ownerSignPub = snapshot.ownerSignPub;
 		this.state.admissions = snapshot.admissions.filter((s) => verifyAdmission(s, snapshot.ownerSignPub));
-		this.state.revocations = snapshot.revocations.filter((s) => verifyRevocation(s, snapshot.ownerSignPub));
+		this.state.revocations = snapshot.revocations.filter(
+			(s) => verifyRevocation(s, snapshot.ownerSignPub) || selfRevocationVerifiesAny(s, this.state.admissions),
+		);
 		this.persist();
 		return true;
 	}
@@ -146,7 +149,11 @@ export class Allowlist {
 	}
 
 	addRevocation(s: SignedRevocation): boolean {
-		if (!this.state.ownerSignPub || !verifyRevocation(s, this.state.ownerSignPub)) return false;
+		if (
+			!this.state.ownerSignPub ||
+			(!verifyRevocation(s, this.state.ownerSignPub) && !selfRevocationVerifiesAny(s, this.state.admissions))
+		)
+			return false;
 		this.state.revocations.push(s);
 		this.persist();
 		return true;

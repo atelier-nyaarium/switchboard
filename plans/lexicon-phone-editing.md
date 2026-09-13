@@ -2017,9 +2017,24 @@ Mock: `ref-viewer.html`. Phase 6 deferred this for want of a live read and a Kot
     the next message may be what wakes it. A failed deadline push retries each second within the same hold.
 - **Friend presence freshness:** ✅ `friendProjection` skips rows whose Gateway is unreachable, since a
   friend cannot reach them either.
-- **Purge Gateway self-retirement:** waiting on the owner. It changes who may revoke, so it went to the owner
-  as three options: the Gateway retires itself with its own key (A), the Gateway asks and the phone
-  confirms with an owner revocation (B, recommended), or no change (C).
+- **Purge Gateway self-retirement:** ✅ the owner chose A, as a considerate cleanup rather than a security
+  promise: a compromised Gateway is out of scope, and retiring is already the safest thing one could do.
+  A Sol audit reads it before it ships.
+  - **A retirement is a revocation its subject signed:** a `SignedRevocation` whose signer is the revoked
+    key itself, over its own signing tag. The shared verifier accepts it only for a gateway admission, so
+    every mirror that resolves admissions (the Router, each Gateway's allowlist, the phone's keyring) treats a
+    retired Gateway exactly as a revoked one, and an older mirror, which cannot verify it, ignores it.
+  - **The Gateway sends it itself:** a gated `gateway_retire` frame whose record must name the signer on that
+    connection. The Router stores it through the same append as an owner revocation and runs the same
+    aftermath: flush, broadcast, presence refresh, eviction after the answer.
+  - **Purge asks the running Gateway:** a loopback route guarded by `HOST_WS_TOKEN` signs and sends it once
+    the host daemon has stopped, the last step that aborts with nothing changed. Any other answer keeps the
+    Revoke-in-the-app instruction.
+  - **Sol's audit changed three things:** the signed bytes bind the gateway id, so a record acts only on the
+    admission it names; a revoked key is quiesced before the Router's flush on both roads, where the first
+    build had moved the owner road's eviction after it; and the purge's request carries a JSON body, which the
+    router requires of every POST. A same-user host session reading `HOST_WS_TOKEN` was judged no new
+    authority, since it can already wipe the Gateway's identity.
 
 ## Phase 13b - Phone follow-ups ✅
 
@@ -2069,15 +2084,33 @@ Mock: `ref-viewer.html`. Phase 6 deferred this for want of a live read and a Kot
   rewrote the control-byte fence's escaped `RegExp` into a literal. Restored from git; the line carries a
   `biome-ignore` now.
 
-## Phase 13c - Lexicon and suite follow-ups
+## Phase 13c - Lexicon and suite follow-ups ✅
 
-- **A lossy decode refuses a write:** in `nyaa-lexicon`, `SourceRead` reports whether the decode was
+- **A lossy decode refuses a write:** ✅ in `nyaa-lexicon`, `SourceRead` reports whether the decode was
   lossless, and every writer refuses a lossy module with a refusal naming the file. Reads stay lenient.
   It ships as a Lexicon release, then a pin move here.
-- **The Lexicon suite hang:** run the full suite with its output kept, name the file that hangs, and fix it.
-- **The unreproduced Switchboard suite failure:** repeated full runs with their logs kept, and a review of
+- **The Lexicon suite hang:** ✅ run the full suite with its output kept, name the file that hangs, and fix it.
+- **The unreproduced Switchboard suite failure:** ✅ repeated full runs with their logs kept, and a review of
   the vector test for a file-level throw. Close it with the file named and fixed, or with the runs that
   prove it gone and the reason it cannot recur.
+
+### As built
+
+- **Lexicon 3.9.0:** `writableSource` is the one read a writer splices over. It refuses a lossy decode, and
+  a binary or oversized module, which a writer used to read as absent and overwrite as a create.
+  `writableText` refuses new text holding a lone surrogate, and a move's gate rechecks every module the move
+  read, an absent target included. A BOM round-trips, so a BOM file still writes. Its red team named two
+  gaps left standing: `writeAll` does not reread between staging and writing, which is the check-then-land
+  gap every writer carries, and the planning hash is of decoded text, which `writeModule`'s reread still
+  catches.
+- **The suite hang did not recur** in seven full runs with logs and a stall dump. One test, the Rust corpus
+  parse, runs a synchronous loop its timeout cannot interrupt, and under deliberate load it overran by ten
+  seconds; it now yields between files, so a stall names itself instead of holding a worker. The ten-minute
+  hang is not established as that test.
+- **The Switchboard suite failure did not recur** in nine full runs this session, every log kept. The vector
+  test's only file-level work is a synchronous read of a committed fixture, which fails the file with no
+  tests collected rather than ten skipped, so it does not match the report. The cause stays unnamed; a
+  kept log now names the file if it returns.
 
 # Painpoints
 
@@ -2373,3 +2406,16 @@ the command recipe everyone uses throws away the one line that names it. On the 
 The tree shows an operation's notice above its list, which moves every row down by one card, and a keystroke
 sent before a dialog's field takes focus is dropped silently. Both made a correct screen look broken in a
 scripted run, and each needed a screenshot per step to tell apart from a real defect.
+
+## A catch that looks mechanical to rename is 215 separate decisions
+
+Swapping `runCatching` for its cancellation-safe twin compiles everywhere and reads as a rename, but a
+plugin callback, an executor listener, a worker's guard and every failure chain that cleans up each mean
+something different under cancellation. An agent told to sort the sites restructured sixty of them and moved
+a retriever's release into the failure branch. Only a pure rename to a second name kept the behaviour.
+
+## Escaped text does not survive the editing tools
+
+An edit containing a `\u` escape writes the character, and `biome check --write` turned the control-byte
+fence's escaped `RegExp` string into a literal. Neither shows in a diff at a glance. A line like that is
+restored from git, never retyped.

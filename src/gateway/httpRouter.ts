@@ -40,6 +40,8 @@ export interface HttpRouterDeps {
 	 * a Domain is active, when only health and enrollment answer. */
 	routes: () => HttpRoutes | null;
 	unenrolledHealth: () => Response;
+	hostWsToken?: string;
+	retire?: () => Promise<{ outcome: string; error?: string }>;
 }
 
 export const NOT_ENROLLED = "this Gateway is not enrolled in a Domain; run ./setup.sh";
@@ -53,7 +55,16 @@ export function createHttpRouter({
 	loopbackRoutes,
 	routes,
 	unenrolledHealth,
+	hostWsToken,
+	retire,
 }: HttpRouterDeps) {
+	async function serveRetire(req: Request): Promise<Response> {
+		const presented = Buffer.from(req.headers.get("authorization") ?? "");
+		const expected = Buffer.from(hostWsToken ? `Bearer ${hostWsToken}` : "");
+		if (!hostWsToken || presented.length !== expected.length || !timingSafeEqual(presented, expected))
+			return Response.json({ outcome: "refused", error: "unauthorized" }, { status: 403 });
+		return Response.json(await (retire?.() ?? Promise.resolve({ outcome: "unreachable" })));
+	}
 	function serveAdmitPayload(req: Request): Response {
 		// Admit payloads require the armed enrollment nonce.
 		const presented = Buffer.from(req.headers.get("x-enroll-nonce") ?? "");
@@ -118,6 +129,7 @@ export function createHttpRouter({
 		if (method === "GET" && url.pathname === "/admit-payload") {
 			return serveAdmitPayload(req);
 		}
+		if (method === "POST" && url.pathname === "/federation/retire") return serveRetire(req);
 		const r = routes();
 		if (!r) {
 			if (method === "GET" && url.pathname === "/health") return unenrolledHealth();

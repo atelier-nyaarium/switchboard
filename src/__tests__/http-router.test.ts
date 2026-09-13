@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { createHttpRouter, NOT_ENROLLED } from "../gateway/httpRouter.js";
 import { unenrolledHealth } from "../gateway/routes/routesStatus.js";
 
-function unenrolledRouter(enrolled: (body: Record<string, unknown>) => Response) {
+function unenrolledRouter(
+	enrolled: (body: Record<string, unknown>) => Response,
+	overrides: Partial<Parameters<typeof createHttpRouter>[0]> = {},
+) {
 	return createHttpRouter({
 		handleEnrollPost: enrolled,
 		admitPayload: () => undefined,
@@ -11,6 +14,7 @@ function unenrolledRouter(enrolled: (body: Record<string, unknown>) => Response)
 		loopbackRoutes: new Map([["/vault/entries", async () => Response.json({ entries: [] })]]),
 		routes: () => null,
 		unenrolledHealth: () => unenrolledHealth("gw"),
+		...overrides,
 	});
 }
 
@@ -45,5 +49,33 @@ describe("createHttpRouter before a Domain", () => {
 		const router = unenrolledRouter((body) => Response.json({ got: body }));
 		const answer = await router(new Request("http://gateway/enroll", { method: "POST", body: '{"a":1}' }));
 		expect(await answer.json()).toEqual({ got: { a: 1 } });
+	});
+
+	it("requires the host token to retire", async () => {
+		const noToken = unenrolledRouter(() => Response.json({ ok: true }));
+		expect(
+			(await noToken(new Request("http://gateway/federation/retire", { method: "POST", body: "{}" }))).status,
+		).toBe(403);
+
+		const retire = async () => ({ outcome: "retired" });
+		const router = unenrolledRouter(() => Response.json({ ok: true }), { hostWsToken: "secret", retire });
+		for (const authorization of [undefined, "Bearer wrong"]) {
+			const answer = await router(
+				new Request("http://gateway/federation/retire", {
+					method: "POST",
+					body: "{}",
+					headers: authorization ? { authorization } : {},
+				}),
+			);
+			expect(answer.status).toBe(403);
+		}
+		const answer = await router(
+			new Request("http://gateway/federation/retire", {
+				method: "POST",
+				body: "{}",
+				headers: { authorization: "Bearer secret" },
+			}),
+		);
+		expect(await answer.json()).toEqual({ outcome: "retired" });
 	});
 });

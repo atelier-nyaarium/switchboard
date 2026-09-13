@@ -5,13 +5,18 @@ import {
 	REGISTER_MAX_SKEW_MS,
 	resolveAdmitted,
 	resolveAdmittedConsole,
+	revocationSigningBytes,
+	selfRevocationSigningBytes,
 	signAdmission,
 	signRegister,
 	signRevocation,
+	signSelfRevocation,
 	verifyAdmission,
 	verifyRegistration,
+	verifyRevocation,
+	verifySelfRevocation,
 } from "../shared/admission.js";
-import { generateIdentity } from "../shared/crypto.js";
+import { generateIdentity, sign } from "../shared/crypto.js";
 
 const owner = generateIdentity();
 const host = generateIdentity();
@@ -29,6 +34,84 @@ function admission(over: Partial<Admission> = {}): Admission {
 }
 
 describe("domain admission", () => {
+	it("accepts a gateway self retirement only for a gateway", () => {
+		const gateway = generateIdentity();
+		const console = generateIdentity();
+		const gatewayAdmission = signAdmission(
+			admission({ signPub: gateway.sign.pub, boxPub: gateway.box.pub }),
+			owner.sign.priv,
+			owner.sign.pub,
+		);
+		const consoleAdmission = signAdmission(
+			admission({ kind: "console", signPub: console.sign.pub, boxPub: console.box.pub, gatewayId: undefined }),
+			owner.sign.priv,
+			owner.sign.pub,
+		);
+		const retired = signSelfRevocation(
+			{ signPub: gateway.sign.pub, issuedAt: 1001, nonce: "retire" },
+			"laptop",
+			gateway.sign.priv,
+		);
+		const ignored = signSelfRevocation(
+			{ signPub: console.sign.pub, issuedAt: 1001, nonce: "console" },
+			"laptop",
+			console.sign.priv,
+		);
+		expect(resolveAdmitted([gatewayAdmission], [retired], owner.sign.pub, gateway.sign.pub)).toBeNull();
+		expect(resolveAdmitted([consoleAdmission], [ignored], owner.sign.pub, console.sign.pub)?.kind).toBe("console");
+	});
+
+	it("keeps malformed self and owner revocation records inert", () => {
+		const record = { signPub: host.sign.pub, issuedAt: 2000, nonce: "retire" };
+		const stranger = generateIdentity();
+		const selfByStranger = {
+			...signSelfRevocation(record, "laptop", stranger.sign.priv),
+			ownerSignPub: record.signPub,
+		};
+		const ownerBytesBySubject = {
+			revocation: record,
+			ownerSignPub: host.sign.pub,
+			signature: sign(revocationSigningBytes(record), host.sign.priv),
+		};
+		const selfBytesByOwner = {
+			revocation: record,
+			ownerSignPub: owner.sign.pub,
+			signature: sign(selfRevocationSigningBytes(record, "laptop"), owner.sign.priv),
+		};
+		const listed = [signAdmission(admission(), owner.sign.priv, owner.sign.pub)];
+		for (const invalid of [selfByStranger, ownerBytesBySubject, selfBytesByOwner])
+			expect(resolveAdmitted(listed, [invalid], owner.sign.pub, host.sign.pub)).not.toBeNull();
+		expect(verifyRevocation(signSelfRevocation(record, "laptop", host.sign.priv), owner.sign.pub)).toBe(false);
+		expect(verifySelfRevocation(signRevocation(record, owner.sign.priv, owner.sign.pub), "laptop")).toBe(false);
+	});
+
+	it("restores a gateway with a newer admission after self retirement", () => {
+		const retired = signSelfRevocation(
+			{ signPub: host.sign.pub, issuedAt: 2000, nonce: "retire" },
+			"laptop",
+			host.sign.priv,
+		);
+		const newer = signAdmission(admission({ issuedAt: 3000, nonce: "newer" }), owner.sign.priv, owner.sign.pub);
+		expect(resolveAdmitted([newer], [retired], owner.sign.pub, host.sign.pub)?.issuedAt).toBe(3000);
+	});
+
+	it("binds self retirement to its gateway id", () => {
+		const key = generateIdentity();
+		const a = signAdmission(
+			admission({ signPub: key.sign.pub, boxPub: key.box.pub, gatewayId: "a" }),
+			owner.sign.priv,
+			owner.sign.pub,
+		);
+		const b = signAdmission(
+			admission({ signPub: key.sign.pub, boxPub: key.box.pub, gatewayId: "b" }),
+			owner.sign.priv,
+			owner.sign.pub,
+		);
+		const retired = signSelfRevocation({ signPub: key.sign.pub, issuedAt: 2000, nonce: "a" }, "a", key.sign.priv);
+		expect(resolveAdmitted([a], [retired], owner.sign.pub, key.sign.pub)).toBeNull();
+		expect(resolveAdmitted([b], [retired], owner.sign.pub, key.sign.pub)?.gatewayId).toBe("b");
+	});
+
 	it("owner-signs and verifies an admission", () => {
 		const s = signAdmission(admission(), owner.sign.priv, owner.sign.pub);
 		expect(verifyAdmission(s, owner.sign.pub)).toBe(true);

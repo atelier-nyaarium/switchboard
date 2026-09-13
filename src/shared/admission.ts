@@ -35,6 +35,7 @@ export const RevocationSchema = z
 export const SignedRevocationSchema = z
 	.object({
 		revocation: RevocationSchema,
+		/** The signer: Domain owner or retiring subject. */
 		ownerSignPub: z.string().min(1),
 		signature: z.string().min(1),
 	})
@@ -71,6 +72,13 @@ export function revocationSigningBytes(r: Revocation): Buffer {
 	return Buffer.from([SIGNING_TAGS.revocation, r.signPub, String(r.issuedAt), r.nonce].join("\n"), "utf8");
 }
 
+export function selfRevocationSigningBytes(r: Revocation, gatewayId: string): Buffer {
+	return Buffer.from(
+		[SIGNING_TAGS.selfRevocation, gatewayId, r.signPub, String(r.issuedAt), r.nonce].join("\n"),
+		"utf8",
+	);
+}
+
 export function signAdmission(
 	admission: Admission,
 	ownerSignPrivB64: string,
@@ -95,6 +103,14 @@ export function signRevocation(
 	};
 }
 
+export function signSelfRevocation(revocation: Revocation, gatewayId: string, signPrivB64: string): SignedRevocation {
+	return {
+		revocation,
+		ownerSignPub: revocation.signPub,
+		signature: sign(selfRevocationSigningBytes(revocation, gatewayId), signPrivB64),
+	};
+}
+
 export function verifyAdmission(s: SignedAdmission, expectedOwnerSignPubB64: string): boolean {
 	if (s.ownerSignPub !== expectedOwnerSignPubB64) return false;
 	return verify(admissionSigningBytes(s.admission), s.signature, expectedOwnerSignPubB64);
@@ -103,6 +119,21 @@ export function verifyAdmission(s: SignedAdmission, expectedOwnerSignPubB64: str
 export function verifyRevocation(s: SignedRevocation, expectedOwnerSignPubB64: string): boolean {
 	if (s.ownerSignPub !== expectedOwnerSignPubB64) return false;
 	return verify(revocationSigningBytes(s.revocation), s.signature, expectedOwnerSignPubB64);
+}
+
+export function verifySelfRevocation(s: SignedRevocation, gatewayId: string): boolean {
+	if (s.ownerSignPub !== s.revocation.signPub) return false;
+	return verify(selfRevocationSigningBytes(s.revocation, gatewayId), s.signature, s.revocation.signPub);
+}
+
+export function selfRevocationVerifiesAny(s: SignedRevocation, admissions: SignedAdmission[]): boolean {
+	return admissions.some(
+		(admission) =>
+			admission.admission.kind === "gateway" &&
+			admission.admission.signPub === s.revocation.signPub &&
+			!!admission.admission.gatewayId &&
+			verifySelfRevocation(s, admission.admission.gatewayId),
+	);
 }
 
 export function findAdmission(
@@ -129,7 +160,9 @@ export function resolveAdmitted(
 	if (!best) return null;
 	for (const r of revocations) {
 		if (r.revocation.signPub !== subjectSignPubB64) continue;
-		if (!verifyRevocation(r, expectedOwnerSignPubB64)) continue;
+		const ownerRevocation = verifyRevocation(r, expectedOwnerSignPubB64);
+		const selfRevocation = best.kind === "gateway" && !!best.gatewayId && verifySelfRevocation(r, best.gatewayId);
+		if (!ownerRevocation && !selfRevocation) continue;
 		// Equal timestamps revoke the admission.
 		if (r.revocation.issuedAt >= best.issuedAt) return null;
 	}

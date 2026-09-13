@@ -70,6 +70,7 @@ object Protocol {
 		const val OWNER_OP_BLOB_UPLOAD_STATUS: String = "blob_upload_status"
 		const val SIGNING_TAG_ADMISSION: String = "ADMISSION_V1"
 		const val SIGNING_TAG_REVOCATION: String = "REVOCATION_V1"
+		const val SIGNING_TAG_SELF_REVOCATION: String = "SELF_REVOCATION_V1"
 		const val SIGNING_TAG_REGISTER: String = "REGISTER_V1"
 		const val SIGNING_TAG_DEVICE_JOIN: String = "DEVICE_JOIN_V1"
 		const val SIGNING_TAG_OWNER_OP: String = "OWNEROP_V1"

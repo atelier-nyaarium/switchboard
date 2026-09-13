@@ -52,6 +52,32 @@ class KeyringTest {
 	}
 
 	@Test
+	fun selfRevocationRetiresOnlyAGateway() {
+		val console = Crypto.generateIdentity()
+		val consoleAdmission = AdmissionCrypto.signAdmission(
+			Admission("console", console.sign.pub, console.box.pub, null, 1000L, "console"),
+			owner.sign.priv,
+			owner.sign.pub,
+		)
+		val gatewayRevocation = AdmissionCrypto.signSelfRevocation(Revocation(gatewayA.sign.pub, 2000L, "gateway"), "sakura", gatewayA.sign.priv)
+		val consoleRevocation = AdmissionCrypto.signSelfRevocation(Revocation(console.sign.pub, 2000L, "console-revoke"), "console", console.sign.priv)
+		val keyring = Keyring(
+			DomainSnapshot(owner.sign.pub, listOf(admit(gatewayA, "sakura", 1000L), consoleAdmission), listOf(gatewayRevocation, consoleRevocation)),
+		)
+		assertNull(keyring.resolveGateway("sakura"))
+		assertEquals(console.sign.pub, keyring.resolveAdmittedConsole(console.sign.pub)?.signPub)
+	}
+
+	@Test
+	fun selfRevocationDoesNotCrossGatewayIds() {
+		val a = AdmissionCrypto.signAdmission(Admission("gateway", gatewayA.sign.pub, gatewayA.box.pub, "a", 1000L, "a"), owner.sign.priv, owner.sign.pub)
+		val b = AdmissionCrypto.signAdmission(Admission("gateway", gatewayA.sign.pub, gatewayA.box.pub, "b", 1000L, "b"), owner.sign.priv, owner.sign.pub)
+		val revocation = AdmissionCrypto.signSelfRevocation(Revocation(gatewayA.sign.pub, 2000L, "retire"), "a", gatewayA.sign.priv)
+		assertNull(Keyring(DomainSnapshot(owner.sign.pub, listOf(a), listOf(revocation))).resolveGateway("a"))
+		assertEquals(gatewayA.sign.pub, Keyring(DomainSnapshot(owner.sign.pub, listOf(b), listOf(revocation))).resolveGateway("b")?.signPub)
+	}
+
+	@Test
 	fun newestAdmissionWins() {
 		val rotated = Crypto.generateIdentity()
 		val keyring = Keyring(

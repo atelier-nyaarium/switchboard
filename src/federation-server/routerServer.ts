@@ -4,7 +4,7 @@ import https from "node:https";
 import path from "node:path";
 import { WebSocketServer } from "ws";
 import packageJson from "../../package.json";
-import { resolveAdmitted, resolveAdmittedConsole } from "../shared/admission.js";
+import { resolveAdmitted, resolveAdmittedConsole, SignedRevocationSchema } from "../shared/admission.js";
 import type { Ambient, IntervalHandle } from "../shared/ambient.js";
 import { fingerprint } from "../shared/crypto.js";
 import type { EnrollOp } from "../shared/federation-lifecycle.js";
@@ -121,6 +121,9 @@ export class RouterServer {
 				this.coordinatorFor(srcDomainId)?.hasLinkEdge(srcDomainId, dstDomainId) ?? false,
 			reach: () => params.reach ?? { publicHost: null, lanAddresses: [] },
 		});
+		this.bridge.registerGatewayFrame("gateway_retire", "value", (registered, params) =>
+			this.handleGatewayRetire(registered, params),
+		);
 		this.consoleSockets = createConsoleSockets({
 			ambient,
 			handleOwnerOp: (raw) => this.ownerOps.handle(raw),
@@ -481,16 +484,13 @@ export class RouterServer {
 		const result = await dispatchEnrollOp(coordinator, op, this.tenantAdmin);
 		if (!result.ok) return result;
 		if (op.kind === "submit_revocation") {
-			this.domain.inbox.forgetConsumer(domainId, op.revocation.revocation.signPub);
-			this.consoleSockets.forget(domainId, op.revocation.revocation.signPub);
+			this.quiesceRevoked(domainId, op.revocation.revocation.signPub);
 			this.bridge.evictSigner(domainId, op.revocation.revocation.signPub, "revoked");
 		}
 		if (op.kind === "submit_admission" || op.kind === "submit_revocation") {
 			const failed = await this.flushOrError(domainId);
 			if (failed) return failed;
-			this.bridge.broadcastDomainUpdate(domainId);
-			// Refresh roster changes.
-			this.ownerServices.presence.refresh(domainId);
+			this.announceDomain(domainId);
 		} else if (op.kind === "submit_xdomain_link" || op.kind === "revoke_xdomain_link") {
 			// Persist link changes before acknowledging.
 			const failed = await this.flushOrError(domainId);
@@ -519,6 +519,37 @@ export class RouterServer {
 			for (const dependent of dependents) this.ownerServices.presence.refresh(dependent);
 		}
 		return result;
+	}
+
+	private async handleGatewayRetire(
+		registered: { domainId: string; gatewayId: string; signPub: string },
+		params: Record<string, unknown>,
+	): Promise<{ ok: boolean; error?: string }> {
+		const parsed = SignedRevocationSchema.safeParse(params.revocation);
+		if (!parsed.success) return { ok: false, error: "invalid self revocation" };
+		const coordinator = this.coordinatorFor(registered.domainId);
+		if (!coordinator) return { ok: false, error: "Domain unavailable" };
+		const error = coordinator.retire(parsed.data, registered);
+		if (error) return { ok: false, error };
+		const { domainId, signPub } = registered;
+		this.quiesceRevoked(domainId, signPub);
+		const failed = await this.flushOrError(domainId);
+		// The answer rides this connection, so it leaves after it.
+		this.params.ambient.setTimer(() => this.bridge.evictSigner(domainId, signPub, "retired"), 0);
+		if (failed) return failed;
+		this.announceDomain(domainId);
+		return { ok: true };
+	}
+
+	/** Before the flush, so nothing more reaches a revoked key while it lands. */
+	private quiesceRevoked(domainId: string, signPub: string): void {
+		this.domain.inbox.forgetConsumer(domainId, signPub);
+		this.consoleSockets.forget(domainId, signPub);
+	}
+
+	private announceDomain(domainId: string): void {
+		this.bridge.broadcastDomainUpdate(domainId);
+		this.ownerServices.presence.refresh(domainId);
 	}
 
 	/** Maintenance tick with optional test time. */

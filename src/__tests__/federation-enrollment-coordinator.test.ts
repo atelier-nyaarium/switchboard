@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { EnrollmentCoordinator, inMemoryEnrollmentStore } from "../federation-server/enrollmentCoordinator.js";
 import type { EnrollmentState } from "../federation-server/federationSecret.js";
-import { signAdmission } from "../shared/admission.js";
+import { signAdmission, signSelfRevocation } from "../shared/admission.js";
 import { processAmbient } from "../shared/ambient.js";
 import { generateIdentity } from "../shared/crypto.js";
 
@@ -151,6 +151,24 @@ describe("EnrollmentCoordinator allowlist", () => {
 		expect(c.admit(signed)).toBeNull();
 		expect(c.admit(signed)).toBeNull();
 		expect(c.getDomainSnapshot()?.admissions).toHaveLength(1);
+	});
+
+	it("stores a gateway's own retirement once however often it is sent", () => {
+		const c = rooted();
+		const gateway = generateIdentity();
+		const admitted = { ...admission("laptop"), signPub: gateway.sign.pub, boxPub: gateway.box.pub };
+		expect(c.admit(signAdmission(admitted, owner.sign.priv, owner.sign.pub))).toBeNull();
+		const retirement = signSelfRevocation(
+			{ signPub: gateway.sign.pub, issuedAt: Date.now(), nonce: "retire" },
+			"laptop",
+			gateway.sign.priv,
+		);
+		const registered = { gatewayId: "laptop", signPub: gateway.sign.pub };
+
+		expect(c.retire(retirement, registered)).toBeNull();
+		expect(c.retire(retirement, registered)).toBeNull();
+
+		expect(c.getDomainSnapshot()?.revocations).toHaveLength(1);
 	});
 
 	it("persists the root so a reloaded coordinator is already rooted", () => {

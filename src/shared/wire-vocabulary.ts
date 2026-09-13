@@ -22,6 +22,7 @@ export const GATEWAY_REASON_NO_WAITER = "no_waiter";
 export const SIGNING_TAGS = {
 	admission: "ADMISSION_V1",
 	revocation: "REVOCATION_V1",
+	selfRevocation: "SELF_REVOCATION_V1",
 	register: "REGISTER_V1",
 	deviceJoin: "DEVICE_JOIN_V1",
 	ownerOp: "OWNEROP_V1",

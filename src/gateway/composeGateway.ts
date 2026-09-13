@@ -234,6 +234,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		dataDir: bootstrap.dataDir,
 		localGatewayId: bootstrap.localGatewayId,
 		enrollNonce: config.enrollNonce,
+		hostWsToken: config.hostWsToken,
 		ambient: bootstrap.ambient,
 		context,
 		stores,

@@ -17,6 +17,7 @@
 		"router-reach",
 		"runbook-grammar",
 		"sealed-blob",
+		"self-revocation",
 		"session-id",
 		"sync-cursor",
 		"transport-request",

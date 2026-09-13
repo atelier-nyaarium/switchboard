@@ -979,7 +979,7 @@ Gateway Setup displays the admit payload and waits on the same screen for the ph
 
 Purge Gateway removes only gateway state and gateway-owned `.env` keys. Purge Federation removes this owner's Domain slice first, then performs the gateway purge and removes the Domain id and setup code. The Domain id may come from `.env` or the Router's admin-Domain mark.
 
-**Purge Gateway does not revoke the Gateway:** Only the phone holds the signing key. Use Revoke in the app.
+**Purge Gateway retires itself when reachable:** it asks the Router to accept a self-signed revocation for this Gateway only. If retirement fails or the Router is older, purge continues and the owner must use Revoke in the app.
 
 **`.env` is shared by the gateway and Router:** Purges must preserve the file.
 

@@ -49,14 +49,16 @@ class Keyring(val snapshot: DomainSnapshot) {
 			if (best == null || s.admission.issuedAt > best.admission.issuedAt) best = s
 		}
 		val winner = best ?: return null
-		if (isRevoked(winner.admission.signPub, winner.admission.issuedAt)) return null
+		if (isRevoked(winner.admission, winner.admission.issuedAt)) return null
 		return winner
 	}
 
-	private fun isRevoked(signPubB64: String, admittedAt: Long): Boolean {
+	private fun isRevoked(admission: Admission, admittedAt: Long): Boolean {
 		for (r in snapshot.revocations) {
-			if (r.revocation.signPub != signPubB64) continue
-			if (!AdmissionCrypto.verifyRevocation(r, snapshot.ownerSignPub)) continue
+			if (r.revocation.signPub != admission.signPub) continue
+			val ownerRevocation = AdmissionCrypto.verifyRevocation(r, snapshot.ownerSignPub)
+			val selfRevocation = admission.kind == "gateway" && admission.gatewayId != null && AdmissionCrypto.verifySelfRevocation(r, admission.gatewayId)
+			if (!ownerRevocation && !selfRevocation) continue
 			// A revocation at or after the admission revokes it.
 			if (r.revocation.issuedAt >= admittedAt) return true
 		}

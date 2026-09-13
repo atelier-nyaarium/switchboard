@@ -10,7 +10,15 @@ import { requireDocker } from "./lib/docker-probe.js";
 import { confirm, dc, dcFederation, dirExists, envGet, envUnset } from "./lib/host.js";
 import { readRouterFed, routerRunning, writeRouterFed } from "./lib/routerState.js";
 import { confirmBoardLoss } from "./setup-board-guard.js";
-import { BLOB_FILE, CONSOLE_JSON_FILE, GW_JSON_FILE, GW_QR_GIF, QR_GIF, SECRETS_DIR } from "./setup-constants.js";
+import {
+	BLOB_FILE,
+	CONSOLE_JSON_FILE,
+	GW_JSON_FILE,
+	GW_QR_GIF,
+	HEALTH_URL,
+	QR_GIF,
+	SECRETS_DIR,
+} from "./setup-constants.js";
 import { gatewayHostname } from "./setup-gateway.js";
 
 ////////////////////////////////
@@ -107,18 +115,30 @@ async function stopHostDaemon(): Promise<{ ok: boolean; outcome: string }> {
 ////////////////////////////////
 //  Top-level operations
 
-/**
- * Remove this machine's gateway and nothing else.
- *
- * What it can do: stop the daemon and the container, erase both volumes, and take the gateway's own
- * keys out of .env. What it CANNOT do is tell the network: an admission is an owner-signed fact and
- * every mirror of it (the Router, every other Gateway, the phone's keyring) retires one only on an
- * owner-signed revocation, which this host cannot produce - the owner's SIGNING key never leaves the
- * phone. Editing the admission out of the Router's file was tried: it reached the Router at once and
- * the other Gateways at their next register, at the cost of bouncing the Router and dropping all of
- * them, but never the phone, whose keyring unions and so kept listing the ghost and reading its
- * board. The one thing that finishes the job is named here, not faked.
- */
+async function retireGateway(): Promise<{ outcome: string; error?: string } | null> {
+	try {
+		const health = await fetch(HEALTH_URL, { signal: AbortSignal.timeout(3_000) });
+		if (!health.ok) return null;
+		const token = await envGet("HOST_WS_TOKEN");
+		if (!token) return { outcome: "refused", error: "HOST_WS_TOKEN is missing" };
+		const response = await fetch("http://localhost:20000/federation/retire", {
+			method: "POST",
+			// The router parses every POST body first.
+			headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+			body: "{}",
+			signal: AbortSignal.timeout(10_000),
+		});
+		const body = (await response.json()) as { outcome?: unknown; error?: unknown };
+		return {
+			outcome: typeof body.outcome === "string" ? body.outcome : "unreachable",
+			...(typeof body.error === "string" ? { error: body.error } : {}),
+		};
+	} catch (error) {
+		return { outcome: "unreachable", error: error instanceof Error ? error.message : String(error) };
+	}
+}
+
+/** Remove this machine's gateway and nothing else. */
 export async function purgeGateway(): Promise<void> {
 	// Before anything is stopped. The wipe runs through docker, so with docker down the purge would
 	// otherwise kill the daemon, fail at the volumes, and leave a gateway that comes back on its own
@@ -127,6 +147,7 @@ export async function purgeGateway(): Promise<void> {
 	const gw = sanitizeGatewayId((await envGet("GATEWAY_ID")) || gatewayHostname());
 	console.log(`Purge Gateway "${gw}"\n`);
 	console.log("Removes the gateway on this machine and nothing else:");
+	console.log("  - asks the Router to retire its admission, signed with its own key");
 	console.log("  - stops the host daemon and the gateway container");
 	console.log("  - erases volumes/gateway-data and volumes/gateway (its keys, sessions and owner-row outbox)");
 	console.log(`  - drops its keys from .env (${GATEWAY_ENV_KEYS.join(", ")})`);
@@ -143,6 +164,9 @@ export async function purgeGateway(): Promise<void> {
 		console.log("Stop it by hand (tmux kill-session -t =host-daemon) and run 9) again.");
 		return;
 	}
+	// After the last step that aborts with nothing changed, while the gateway still serves.
+	const retirement = await retireGateway();
+	if (retirement) report("retirement", `${retirement.outcome}${retirement.error ? `: ${retirement.error}` : ""}`);
 	const down = await dc("down", "--remove-orphans").quiet().nothrow();
 	report(
 		"gateway",
@@ -156,6 +180,8 @@ export async function purgeGateway(): Promise<void> {
 	} catch (e) {
 		report("volumes", `FAILED: ${e instanceof Error ? e.message : String(e)}`);
 		console.log("\nThe purge did NOT complete. Fix the cause and run 9) again; repeating it is safe.");
+		if (retirement?.outcome === "retired")
+			console.log("Its admission is already retired, so it cannot rejoin as it was.");
 		return;
 	}
 	report("volumes", "erased");
@@ -163,10 +189,16 @@ export async function purgeGateway(): Promise<void> {
 	report(".env", remaining === 0 ? "removed (nothing else was in it)" : "gateway keys removed");
 	await $`rm -f ${GW_QR_GIF} ${GW_JSON_FILE}`.quiet().nothrow();
 	console.log(`\nGateway "${gw}" is purged from this machine.\n`);
-	console.log(`Its admission is still in your Domain. This script cannot revoke it - only you can, in the app:`);
-	console.log(`  Settings > Domain & Trust > Gateways > "${gw}" > Revoke`);
-	console.log(`Until then it shows there as offline and keeps its task-board column. Revoke it BEFORE`);
-	console.log(`enrolling this machine again, or the app lists "${gw}" twice.`);
+	if (retirement?.outcome === "retired") {
+		console.log("The Router retired this Gateway's admission.");
+	} else {
+		console.log(
+			`Retirement ${retirement ? retirement.outcome : "skipped"}. Its admission is still in your Domain:`,
+		);
+		console.log(`  Settings > Domain & Trust > Gateways > "${gw}" > Revoke`);
+		console.log(`Until then it shows there as offline and keeps its task-board column. Revoke it BEFORE`);
+		console.log(`enrolling this machine again, or the app lists "${gw}" twice.`);
+	}
 }
 
 /**

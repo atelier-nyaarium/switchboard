@@ -1,0 +1,16 @@
+{
+	"v": 1,
+	"gatewayId": "laptop",
+	"revocation": {
+		"signPub": "MXCo4mPj6sJdP9TnM34sP3ZPawSzPEIj5kJtJCkZ02Q=",
+		"issuedAt": 1757000000001,
+		"nonce": "fixture-self-retirement"
+	},
+	"signer": {
+		"pub": "MXCo4mPj6sJdP9TnM34sP3ZPawSzPEIj5kJtJCkZ02Q=",
+		"priv": "Nxzceq5eUwbanc1G90hr/usndX+xpGAa7uSH9i0A9Ek="
+	},
+	"signingBytes": "SELF_REVOCATION_V1\nlaptop\nMXCo4mPj6sJdP9TnM34sP3ZPawSzPEIj5kJtJCkZ02Q=\n1757000000001\nfixture-self-retirement",
+	"signingBytesHex": "53454c465f5245564f434154494f4e5f56310a6c6170746f700a4d58436f346d506a36734a645039546e4d33347350335a506177537a5045496a356b4a744a436b5a3032513d0a313735373030303030303030310a666978747572652d73656c662d7265746972656d656e74",
+	"signature": "92gOub+Y4XzdY2Ht2OK90k5s6rmRqifmwJNjjaZzlib2E4OZiBHdrDGt3fphLxUnKRoHgXo5Wn46zhfgK1JuBQ=="
+}

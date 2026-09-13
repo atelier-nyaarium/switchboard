@@ -3,6 +3,7 @@ import path from "node:path";
 import {
 	resolveAdmittedConsole,
 	type SignedAdmission,
+	selfRevocationVerifiesAny,
 	verifyAdmission,
 	verifyRevocation,
 } from "../../shared/admission.js";
@@ -49,19 +50,21 @@ export function stageBootstrap(
 						candidate.admission.nonce === admission.admission.nonce,
 				) === index,
 		);
-		const revocations = [
-			...(liveSnapshot?.revocations ?? []),
-			...bundle.domain.revocations.filter((revocation) =>
-				verifyRevocation(revocation, bundle.domain.ownerSignPub),
-			),
-		].filter(
-			(revocation, index, all) =>
-				all.findIndex(
-					(candidate) =>
-						candidate.revocation.signPub === revocation.revocation.signPub &&
-						candidate.revocation.nonce === revocation.revocation.nonce,
-				) === index,
-		);
+		const candidateRevocations = [...(liveSnapshot?.revocations ?? []), ...bundle.domain.revocations];
+		const revocations = candidateRevocations
+			.filter(
+				(revocation) =>
+					verifyRevocation(revocation, bundle.domain.ownerSignPub) ||
+					selfRevocationVerifiesAny(revocation, admissions),
+			)
+			.filter(
+				(revocation, index, all) =>
+					all.findIndex(
+						(candidate) =>
+							candidate.revocation.signPub === revocation.revocation.signPub &&
+							candidate.revocation.nonce === revocation.revocation.nonce,
+					) === index,
+			);
 		if (liveSnapshot) {
 			const liveSelf = liveAllowlist.selfAdmission(gatewayIdentity.sign.pub);
 			if (liveSelf && bundle.admission.admission.issuedAt <= liveSelf.admission.issuedAt) {

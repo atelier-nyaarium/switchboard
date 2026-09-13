@@ -16,6 +16,9 @@ object AdmissionCrypto {
 	fun revocationSigningBytes(r: Revocation): ByteArray =
 		listOf(Protocol.Wire.SIGNING_TAG_REVOCATION, r.signPub, r.issuedAt.toString(), r.nonce).joinToString("\n").toByteArray(Charsets.UTF_8)
 
+	fun selfRevocationSigningBytes(r: Revocation, gatewayId: String): ByteArray =
+		listOf(Protocol.Wire.SIGNING_TAG_SELF_REVOCATION, gatewayId, r.signPub, r.issuedAt.toString(), r.nonce).joinToString("\n").toByteArray(Charsets.UTF_8)
+
 	fun signAdmission(admission: Admission, ownerSignPriv: String, ownerSignPub: String): SignedAdmission =
 		SignedAdmission(
 			admission = admission,
@@ -30,10 +33,21 @@ object AdmissionCrypto {
 			signature = Crypto.sign(revocationSigningBytes(revocation), ownerSignPriv),
 		)
 
+	fun signSelfRevocation(revocation: Revocation, gatewayId: String, signPriv: String): SignedRevocation =
+		SignedRevocation(
+			revocation = revocation,
+			ownerSignPub = revocation.signPub,
+			signature = Crypto.sign(selfRevocationSigningBytes(revocation, gatewayId), signPriv),
+		)
+
 	fun verifyAdmission(s: SignedAdmission, expectedOwnerSignPub: String): Boolean =
 		s.ownerSignPub == expectedOwnerSignPub && Crypto.verify(admissionSigningBytes(s.admission), s.signature, expectedOwnerSignPub)
 
 	fun verifyRevocation(s: SignedRevocation, expectedOwnerSignPub: String): Boolean =
 		s.ownerSignPub == expectedOwnerSignPub &&
 			Crypto.verify(revocationSigningBytes(s.revocation), s.signature, expectedOwnerSignPub)
+
+	fun verifySelfRevocation(s: SignedRevocation, gatewayId: String): Boolean =
+		s.ownerSignPub == s.revocation.signPub &&
+			Crypto.verify(selfRevocationSigningBytes(s.revocation, gatewayId), s.signature, s.revocation.signPub)
 }
