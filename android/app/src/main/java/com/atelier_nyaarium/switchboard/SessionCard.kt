@@ -62,7 +62,7 @@ internal fun rememberSessionsPulsePhase(): State<Float> {
  * draw-phase callback rather than the composable body, so it repaints just this bar, not the whole card. */
 @Composable
 private fun PulseBar(phase: State<Float>, modifier: Modifier = Modifier) {
-	val amber = presenceColor("working...")
+	val amber = presenceColor(SessionWord.WORKING)
 	Box(
 		modifier
 			.fillMaxWidth()
@@ -105,19 +105,8 @@ fun SessionCard(
 	val display = state.label(team.name)
 	val unread = state.unread[team.name] ?: 0
 	val presence = team.presence
-	val live = presence.isOnline
-	val statusWord = presence.word
-	// The board tile reads the presence plane directly (daemon-derived and pushed on the poll
-	// response) rather than this device's own peek - a board session has no peek stream of its own.
-	// Null means unknown (never observed, or derivation just became impossible), never false - a tile
-	// shows no pulse rather than a stale frozen one, so both chips are gated on an explicit
-	// `== true`, not a null-as-false fallback.
-	val checkTerminal = live && presence.needsLogin == true
-	val limitHit = live && presence.limitBlocked == true
-	// "working" and "verifying" are one busy state sharing a single pulse bar. A limit-blocked session
-	// is stopped rather than busy, so it must not pulse even if the frame that derived it caught a
-	// spinner still on screen.
-	val busy = presence.isVerifying || (live && presence.working == true && !limitHit)
+	val word = state.sessionWord(team.name, presence, System.currentTimeMillis())
+	val busy = word.busy
 	// Ambient presence: full color while connected or busy, muted once asleep or gone ("down or
 	// asleep" both read the same muted way - only a connected/busy session keeps full-color text).
 	val titleColor =
@@ -127,11 +116,7 @@ fun SessionCard(
 			MaterialTheme.colorScheme.onSurface
 		}
 	// Presence is colour/motion only on the title, so a screen reader needs it spelled out here.
-	val presenceDescription =
-		if (limitHit) "session limit hit"
-		else if (checkTerminal) "check terminal"
-		else if (busy) "working"
-		else statusWord
+	val presenceDescription = word.text
 	// The clip keeps the ripple inside the card's rounded corners. A nested session card indents
 	// under its spawn-point header.
 	Card(
@@ -157,8 +142,7 @@ fun SessionCard(
 					overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
 					modifier = Modifier.weight(1f).clearAndSetSemantics { contentDescription = "$display, $presenceDescription" },
 				)
-				if (limitHit) StatusChip("limit hit", presenceColor("limit hit"))
-				if (checkTerminal) StatusChip("check terminal", presenceColor("check terminal"))
+				if (word == SessionWord.LIMIT_HIT || word == SessionWord.CHECK_TERMINAL) StatusChip(word.text, presenceColor(word))
 				// A whole-session vault grant is the loud one; a window shows quietly.
 				when (vaultTier) {
 					"session" -> StatusChip("YOLO", MaterialTheme.colorScheme.error)

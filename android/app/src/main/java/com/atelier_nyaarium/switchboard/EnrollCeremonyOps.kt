@@ -29,7 +29,7 @@ internal class EnrollCeremonyOps(
 	}
 
 	fun enrolleeEnrollContext(): EnrollCeremonyContext? {
-		val prov = runCatching { store.load()?.let { ConsoleCredentials.parse(it, store) } }.getOrNull() ?: return null
+		val prov = runCatchingCancellable { store.load()?.let { ConsoleCredentials.parse(it, store) } }.getOrNull() ?: return null
 		val hs = prov.enrollHandshake ?: return null
 		val myDomainId = prov.pendingTenant?.domainId ?: return null
 		val boot = identity.readyOrNull() ?: return null

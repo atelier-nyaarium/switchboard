@@ -233,6 +233,8 @@ session holds a binding token. `vaultRun.ts` is the child run.
   revision restarts from zero, and a full list behind it is a late answer. A write's own entry lands
   at once unless a newer one is held; the held revision advances only when nothing was skipped. A
   wipe bumps a generation, so work begun before it lands nothing after.
+- **On disk before it is shown:** `VaultManager` and `BoardManager` write first and publish only what
+  landed, as `RunbookManager` does. A refused write leaves memory as it was and answers false.
 - **A save keeps every field this phone cannot open:** `sealDraft` is the rule, tested on its own.
   The gateway chips never widen a scope by emptying it; only Every gateway clears it.
 - `VaultRouterWriter` posts `vault_list`, `vault_put`, and `vault_delete` as signed owner ops.

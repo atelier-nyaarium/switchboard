@@ -2021,20 +2021,47 @@ Mock: `ref-viewer.html`. Phase 6 deferred this for want of a live read and a Kot
   as three options: the Gateway retires itself with its own key (A), the Gateway asks and the phone
   confirms with an owner revocation (B, recommended), or no change (C).
 
-## Phase 13b - Phone follow-ups
+## Phase 13b - Phone follow-ups ✅
 
-- **A refused draft write is visible:** a per-window and per-file save-failure state, reported by the
+- **A refused draft write is visible:** ✅ a per-window and per-file save-failure state, reported by the
   store and drawn beside EDITED, and cleared by the next save that lands.
-- **Board and vault write before they publish:** the `RunbookManager` shape, with one write-failure test
+- **Board and vault write before they publish:** ✅ the `RunbookManager` shape, with one write-failure test
   each.
-- **One forget teardown:** a session lifecycle owner used by all three surfaces in `MainActivity`.
-- **One presence word:** a pure rule beside `Presence.kt`, used by `App` and `SessionCard` and tested per
+- **One forget teardown:** ✅ a session lifecycle owner used by all three surfaces in `MainActivity`.
+- **One presence word:** ✅ a pure rule beside `Presence.kt`, used by `App` and `SessionCard` and tested per
   case.
-- **Cancellation is never swallowed:** a residue test over every phone `runCatching` and broad catch
+- **Cancellation is never swallowed:** ✅ a residue test over every phone `runCatching` and broad catch
   around a suspend call, and a fix at each site it finds.
-- **Zero-width and banned punctuation are fenced:** the control-byte residue extends to U+FEFF,
+- **Zero-width and banned punctuation are fenced:** ✅ the control-byte residue extends to U+FEFF,
   U+200B-U+200D, em dashes and smart quotes over Kotlin, TypeScript and markdown, with the
   construct-it-instead advice in its failure message.
+
+### As built
+
+- **`unsaved` is the newest intent per draft file failing,** a Hold or a Drop; the next write of that file
+  that lands clears it, and a re-provision clears it inside its own queued job so an earlier failure cannot
+  land after it. Walked on the emulator by putting a file where the drafts directory goes.
+- **A write the Router settled but this device could not store is not reported as applied:** the board
+  writer answers unreachable and stops the drain, so the op replays; a vault save re-lists. A vault request
+  that could not be stored is logged and not shown, and its asker falls back to the tty; a retry outlived
+  an answer, a forget and a wipe in its second read.
+- **`SessionWord`** folds `ChatState.working` and `needsLogin` for both surfaces. Login outranks working,
+  so a card needing login shows its chip without the pulse; the old card pulsed under it.
+- **`SessionForget` tears down at once, with or without a board disposition.** The drain lands nothing for
+  a tombstoned session, which a plugin row arriving during a plain forget could already undo.
+
+### Bug Classes
+
+- **Mechanism:** catch sites around suspend calls on the phone.
+- **Defect class:** `runCatching` and a broad catch take `CancellationException`.
+- **Rounds:**
+  - Phase 6 fixed `workspaceRead` by hand.
+  - The first fence found 19 sites. Its audit showed it could not see a suspend lambda parameter or an
+    expression body, and the sharper fence then found `BoardRouterWriter.write` wrapping `signAndPost`.
+- **Mechanism:** editing tools over escaped text.
+- **Defect class:** a `\u` escape typed into an edit becomes the character, and `biome check --write`
+  rewrote the control-byte fence's escaped `RegExp` into a literal. Restored from git; the line carries a
+  `biome-ignore` now.
 
 ## Phase 13c - Lexicon and suite follow-ups
 

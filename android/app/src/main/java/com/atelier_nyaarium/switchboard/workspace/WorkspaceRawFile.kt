@@ -85,6 +85,7 @@ private fun RawEditor(
 	edit: RawEdit,
 ) {
 	val scope = rememberCoroutineScope()
+	val unsaved by ops.unsaved.collectAsState()
 	var notice by remember(target.key, edit.path) { mutableStateOf<RawNotice?>(null) }
 	var busy by remember(target.key, edit.path) { mutableStateOf(false) }
 
@@ -128,7 +129,9 @@ private fun RawEditor(
 			Row(
 				Modifier.fillMaxWidth().padding(12.dp),
 				horizontalArrangement = Arrangement.spacedBy(8.dp),
+				verticalAlignment = Alignment.CenterVertically,
 			) {
+				if (ops.isUnsaved(unsaved, target, edit)) NotSavedPill()
 				OutlinedButton(
 					onClick = hapticClick { ops.discard(target, edit.path) },
 					enabled = !busy,

@@ -74,12 +74,17 @@ class VaultManager(private val store: VaultStore) : ClearsOnReprovision {
 		return loaded.copy(requests = loaded.requests.filter { it.deadlineAt > now })
 	}
 
-	private fun persist(next: VaultBlob) {
-		if (next == blob) return
+	private fun persist(next: VaultBlob): Boolean {
+		if (next == blob) return true
+		val written = runCatching { store.saveVault(json.encodeToString(VaultBlob.serializer(), next)) }
+		if (written.isFailure) {
+			DebugLog.log("Vault", "stored vault could not be written: ${written.exceptionOrNull()?.message}")
+			return false
+		}
 		blob = next
-		store.saveVault(json.encodeToString(VaultBlob.serializer(), next))
 		_pending.value = next.requests
 		revision.longValue++
+		return true
 	}
 
 	private fun mutate(transform: (VaultBlob) -> VaultBlob) {
@@ -104,8 +109,7 @@ class VaultManager(private val store: VaultStore) : ClearsOnReprovision {
 				epoch -> return
 				0L -> persist(current.copy(routerEpoch = epoch, revision = 0L))
 				else -> {
-					generation++
-					persist(current.copy(routerEpoch = epoch, revision = 0L, stored = emptyList()))
+					if (persist(current.copy(routerEpoch = epoch, revision = 0L, stored = emptyList()))) generation++
 				}
 			}
 		}
@@ -126,7 +130,6 @@ class VaultManager(private val store: VaultStore) : ClearsOnReprovision {
 			return when (fold) {
 				is VersionedFold.Apply -> {
 					persist(current.copy(revision = fold.revision, stored = fold.entries, lastRouterSyncAt = at))
-					true
 				}
 				VersionedFold.Restart -> {
 					persist(current.copy(revision = 0L))
@@ -138,15 +141,16 @@ class VaultManager(private val store: VaultStore) : ClearsOnReprovision {
 	}
 
 	/** Lands a write's own entry unless a newer one is held; the revision advances only when nothing was skipped. */
-	fun applyWrite(entry: VaultStoredEntry, revision: Long, at: Long = System.currentTimeMillis(), generation: Long = this.generation) {
+	/** False only when the entry could not be stored. */
+	fun applyWrite(entry: VaultStoredEntry, revision: Long, at: Long = System.currentTimeMillis(), generation: Long = this.generation): Boolean {
 		synchronized(stateLock) {
-			if (generation != this.generation) return
+			if (generation != this.generation) return true
 			val current = blob
 			val held = current.stored.firstOrNull { it.clear.id == entry.clear.id }
-			if (held != null && held.clear.revision >= entry.clear.revision) return
+			if (held != null && held.clear.revision >= entry.clear.revision) return true
 			val stored = (current.stored.associateBy { it.clear.id } + (entry.clear.id to entry)).values.toList()
 			val next = if (revision == current.revision + 1) revision else current.revision
-			persist(current.copy(revision = next, stored = stored, lastRouterSyncAt = at))
+			return persist(current.copy(revision = next, stored = stored, lastRouterSyncAt = at))
 		}
 	}
 
@@ -205,8 +209,7 @@ class VaultManager(private val store: VaultStore) : ClearsOnReprovision {
 				attempt = (recent.maxOfOrNull { it.attempt } ?: 0) + 1,
 				sinceAnswerMs = recent.minOfOrNull { now - it.answeredAt },
 			)
-			persist(blob.copy(requests = blob.requests + pending))
-			return true
+			return persist(blob.copy(requests = blob.requests + pending))
 		}
 	}
 
@@ -231,8 +234,7 @@ class VaultManager(private val store: VaultStore) : ClearsOnReprovision {
 		synchronized(stateLock) {
 			val kept = blob.requests.filter { it.deadlineAt > now }
 			if (kept.size == blob.requests.size) return false
-			persist(blob.copy(requests = kept))
-			return true
+			return persist(blob.copy(requests = kept))
 		}
 	}
 

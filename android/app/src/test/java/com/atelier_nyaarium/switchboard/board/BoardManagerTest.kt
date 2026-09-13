@@ -23,9 +23,15 @@ import org.junit.Test
 
 class BoardManagerTest {
 	private class FakeStore(private var blob: String? = null) : BoardStore {
+		var failNextSave = false
+
 		override fun loadTaskBoard(): String? = blob
 
 		override fun saveTaskBoard(json: String) {
+			if (failNextSave) {
+				failNextSave = false
+				error("write failed")
+			}
 			blob = json
 		}
 
@@ -223,5 +229,19 @@ class BoardManagerTest {
 		assertEquals(listOf("kept"), board.snapshot().stored.map { it.clear.id })
 		assertEquals(0L, board.routerRevision)
 		assertEquals(HeldLineage(PlaneLineage(5L, 0L), null), board.planeLineage())
+	}
+
+	@Test
+	fun `a failed board write leaves memory unchanged until a later write succeeds`() {
+		val store = FakeStore().also { it.failNextSave = true }
+		val board = BoardManager(store)
+
+		board.adoptEpoch(1L)
+		assertEquals(BoardBlob(), board.snapshot())
+		assertEquals(BoardBlob(), BoardManager(store).snapshot())
+
+		board.adoptEpoch(1L)
+		assertEquals(1L, board.snapshot().routerEpoch)
+		assertEquals(1L, BoardManager(store).snapshot().routerEpoch)
 	}
 }

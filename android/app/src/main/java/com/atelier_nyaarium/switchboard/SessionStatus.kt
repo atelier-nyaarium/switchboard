@@ -21,23 +21,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 ////////////////////////////////
-//  Functions & Helpers
-
-// The status-word vocabulary moved to `Presence.word`, and the raw status string it reads went
-// private with it. It lived here as a free function over a String, which is precisely what let
-// fourteen call sites hold a status with no way to ask what it was worth; see Presence.kt.
-
-////////////////////////////////
 //  Composables
 
 /** Chip color for the board/thread presence vocabulary. */
 @Composable
-internal fun presenceColor(presence: String): Color = when (presence) {
-	"live" -> STATUS_GREEN
-	"working...", "waking...", "verifying" -> STATUS_AMBER
-	"available" -> Color(0xFF0969DA)
-	"check terminal", "limit hit" -> Color(0xFFDA3633)
-	else -> MaterialTheme.colorScheme.outline
+internal fun presenceColor(word: SessionWord): Color = when (word) {
+	SessionWord.LIVE -> STATUS_GREEN
+	SessionWord.WORKING, SessionWord.WAKING, SessionWord.VERIFYING -> STATUS_AMBER
+	SessionWord.AVAILABLE -> Color(0xFF0969DA)
+	SessionWord.CHECK_TERMINAL, SessionWord.LIMIT_HIT -> Color(0xFFDA3633)
+	SessionWord.ENDED -> MaterialTheme.colorScheme.outline
 }
 
 @Composable

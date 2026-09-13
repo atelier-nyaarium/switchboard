@@ -32,7 +32,7 @@ internal class GatewayEnrollment(private val repo: ChatRepository) {
 			?: return@withContext EnrollDelivery(false, repo._state.value.error ?: "Couldn't add the Gateway. Try again.", null)
 		val nonce = scanned.nonce
 			?: return@withContext EnrollDelivery(true, "Added. This Gateway will come online shortly.", null)
-		val prov = runCatching { repo.store.load()?.let { ConsoleCredentials.parse(it, repo.store) } }.getOrNull()
+		val prov = runCatchingCancellable { repo.store.load()?.let { ConsoleCredentials.parse(it, repo.store) } }.getOrNull()
 			?: return@withContext EnrollDelivery(true, "Added, but this device is not provisioned - re-import your setup blob.", null)
 		val result = try {
 			repo.client().requestGatewayTransport(repo.federation.signTransportRequest(System.currentTimeMillis()))

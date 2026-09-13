@@ -47,7 +47,7 @@ internal class DomainAdminOps(
 	// Owner-sign before deletion can remove the key.
 	suspend fun deleteDomain(): DeleteDomainOutcome = withContext(Dispatchers.IO) {
 		val domainId = identity.readyOrNull()?.domainId
-			?: runCatching { store.load()?.let { ConsoleCredentials.parse(it, store).pendingTenant?.domainId } }.getOrNull()
+			?: runCatchingCancellable { store.load()?.let { ConsoleCredentials.parse(it, store).pendingTenant?.domainId } }.getOrNull()
 		if (domainId.isNullOrEmpty()) {
 			collaborators.clearAll()
 			return@withContext DeleteDomainOutcome.WipedUnconfirmed
@@ -110,7 +110,7 @@ internal class DomainAdminOps(
 		}
 
 	suspend fun buildInviteBlob(tenant: HostedTenant): Result<String> = withContext(Dispatchers.IO) {
-		runCatching {
+		runCatchingCancellable {
 			val blob = store.load() ?: error("This device is not provisioned. Re-import your setup blob first.")
 			val prov = ConsoleCredentials.parse(blob, store)
 			// The pin stays out of the Router; the invite carries the admin endpoint.

@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.proto.BoardReadResult
 import com.atelier_nyaarium.switchboard.proto.BoardWrite
 import com.atelier_nyaarium.switchboard.proto.BoardWriteResult
 import com.atelier_nyaarium.switchboard.proto.Protocol
+import com.atelier_nyaarium.switchboard.runCatchingCancellable
 import com.atelier_nyaarium.switchboard.wireJson
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -28,6 +29,9 @@ sealed interface BoardWriteOutcome {
 
 private const val CAS_ATTEMPTS = 4
 
+/** Settled at the Router, not stored here; the replay settles it. */
+private fun unstored() = BoardWriteOutcome.Unreachable(IllegalStateException("the board could not be stored"))
+
 class BoardRouterWriter(
 	private val board: BoardManager,
 	private val signAndPost: suspend (JsonObject, String) -> JsonElement,
@@ -49,16 +53,16 @@ class BoardRouterWriter(
 			if (signature == null) signature = current else if (signature != current) return BoardWriteOutcome.Exhausted
 			val write = BoardWrite(ops = ops, expectedRevision = snapshot.routerRevision)
 			val generation = board.generation
-			val result = runCatching { decode(signAndPost(body(write), opId)) }
+			val result = runCatchingCancellable { decode(signAndPost(body(write), opId)) }
 				.getOrElse { return BoardWriteOutcome.Unreachable(it) }
 			when (result.outcome) {
 				Protocol.Wire.BOARD_OUTCOME_APPLIED -> {
-					board.settleWrite(opId, result.revision, result.entries, generation = generation)
+					if (!board.settleWrite(opId, result.revision, result.entries, generation = generation)) return unstored()
 					return BoardWriteOutcome.Applied
 				}
 				Protocol.Wire.SocketFrame.REFUSED -> {
 					val reason = result.refusal ?: Protocol.Wire.SocketFrame.REFUSED
-					board.settleWrite(opId, result.revision, result.entries, generation = generation)
+					if (!board.settleWrite(opId, result.revision, result.entries, generation = generation)) return unstored()
 					board.noticeRefusal(intents.singleOrNull()?.id, reason)
 					return BoardWriteOutcome.Refused(reason)
 				}
@@ -92,7 +96,7 @@ class BoardRouterWriter(
 	/** Router revision seeds the next CAS. */
 	suspend fun read(opId: String, decodeRead: (JsonElement) -> BoardReadResult): Boolean {
 		val generation = board.generation
-		val result = runCatching { decodeRead(signAndPost(buildJsonObject { put("kind", JsonPrimitive(Protocol.Wire.OWNER_OP_BOARD_READ)) }, opId)) }
+		val result = runCatchingCancellable { decodeRead(signAndPost(buildJsonObject { put("kind", JsonPrimitive(Protocol.Wire.OWNER_OP_BOARD_READ)) }, opId)) }
 			.getOrNull() ?: return false
 		return board.applyRouterBoard(result.revision, result.entries, generation = generation)
 	}

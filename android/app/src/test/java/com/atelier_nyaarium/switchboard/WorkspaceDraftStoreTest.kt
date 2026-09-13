@@ -174,10 +174,8 @@ class WorkspaceDraftStoreTest {
 		assertFalse(File(dir, legacy).exists())
 	}
 
-	// The failure itself only reaches the log, which no gate here reads. What is pinned is that a write
-	// that could not land leaves the previous draft and no half file behind.
 	@Test
-	fun `a save onto an unusable directory keeps the previous draft and leaves no part file`() = runBlocking {
+	fun `a save onto an unusable directory keeps the previous draft, leaves no part file, and says it did not land`() = runBlocking {
 		store.save(one, F_ID, typed("landed"))
 		assertEquals("landed", textOf(F_ID))
 
@@ -188,12 +186,15 @@ class WorkspaceDraftStoreTest {
 		assertNull(blocked.load(one, F_ID))
 		assertEquals("landed", textOf(F_ID))
 		assertEquals(0, dir.listFiles()?.count { it.name.endsWith(".part") })
+		assertTrue(blocked.isUnsaved(blocked.unsaved.value, one, F_ID))
+		assertFalse(blocked.isUnsaved(blocked.unsaved.value, one, G_ID))
+		assertFalse(store.isUnsaved(store.unsaved.value, one, F_ID))
 	}
 
 	// One throwing job must leave the worker alive. A dead one is not silent: everything after it runs
 	// on the caller instead, which for a keystroke is the main thread.
 	@Test
-	fun `a job that throws leaves the worker serving, so later work is still queued`() {
+	fun `a job that throws leaves the worker serving, and the next save that lands clears the signal`() {
 		val reversing = ReversingDispatcher()
 		val occupied = File(dir, "occupied").apply { writeText("a file, not a directory") }
 		val under = File(occupied, "drafts")
@@ -201,12 +202,14 @@ class WorkspaceDraftStoreTest {
 
 		store.save(one, F_ID, typed("doomed"))
 		reversing.drain()
+		assertTrue(store.isUnsaved(store.unsaved.value, one, F_ID))
 		occupied.delete()
 		store.save(one, F_ID, typed("after"))
 
 		assertFalse(under.exists())
 		reversing.drain()
 		assertTrue(under.isDirectory)
+		assertFalse(store.isUnsaved(store.unsaved.value, one, F_ID))
 	}
 
 	// A cancelled scope leaves the queue with no worker.
@@ -230,5 +233,18 @@ class WorkspaceDraftStoreTest {
 
 		assertNull(store.load(one, F_ID))
 		assertNull(store.load(two, DraftKey.File("src/a.ts")))
+	}
+
+	@Test
+	fun `a re-provision after a failed write leaves nothing flagged`() = runBlocking {
+		val occupied = File(dir, "occupied").apply { writeText("a file, not a directory") }
+		val blocked = storeOver(File(occupied, "drafts"))
+
+		blocked.save(one, G_ID, typed("never lands"))
+		assertTrue(blocked.isUnsaved(blocked.unsaved.value, one, G_ID))
+
+		blocked.clearAll()
+
+		assertFalse(blocked.isUnsaved(blocked.unsaved.value, one, G_ID))
 	}
 }

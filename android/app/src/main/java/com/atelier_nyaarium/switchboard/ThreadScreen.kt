@@ -86,7 +86,7 @@ private fun draftFileUris(context: Context, files: List<MessageFile>): List<Uri>
 fun ThreadScreen(
 	team: String,
 	label: String,
-	presence: String?,
+	presence: SessionWord?,
 	tabs: List<String>,
 	tabLabel: (String) -> String,
 	// Hold-to-drag reorder in the tab row (ReorderableTabRow); the committed order replaces
@@ -338,7 +338,7 @@ fun ThreadScreen(
 								overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
 								modifier = Modifier.weight(1f, fill = false),
 							)
-							presence?.let { StatusChip(it, presenceColor(it)) }
+							presence?.let { StatusChip(it.text, presenceColor(it)) }
 						}
 						if (view != ConversationView.CHAT) {
 							Text(view.title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
@@ -443,12 +443,12 @@ fun ThreadScreen(
 					Text(label, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
 					Text(
 						when (presence) {
-							"available", "waking..." ->
+							SessionWord.AVAILABLE, SessionWord.WAKING ->
 								"No messages yet. Sending will wake $label - first boot can take a minute or two."
-							"live", "working..." -> "No messages yet. $label is live."
-							"verifying" -> "No messages yet. $label is connecting."
-							"ended" -> "This session has ended."
-							else -> "No messages yet."
+							SessionWord.LIVE, SessionWord.WORKING -> "No messages yet. $label is live."
+							SessionWord.VERIFYING -> "No messages yet. $label is connecting."
+							SessionWord.ENDED -> "This session has ended."
+							SessionWord.LIMIT_HIT, SessionWord.CHECK_TERMINAL, null -> "No messages yet."
 						},
 						style = MaterialTheme.typography.bodyMedium,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,

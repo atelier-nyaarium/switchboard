@@ -53,6 +53,12 @@ internal class HeldEdits<T : Drafted>(private val drafts: WorkspaceDraftStore) {
 
 	val all: StateFlow<Map<WorkspaceTarget, List<T>>> = held
 
+	/** Draft files whose newest write failed. */
+	val unsaved: StateFlow<Set<String>> = drafts.unsaved
+
+	fun isUnsaved(unsaved: Set<String>, target: WorkspaceTarget, edit: T): Boolean =
+		drafts.isUnsaved(unsaved, target, edit.draftKey)
+
 	fun of(target: WorkspaceTarget): List<T> = held.value[target].orEmpty()
 
 	fun targets(): Set<WorkspaceTarget> = held.value.keys

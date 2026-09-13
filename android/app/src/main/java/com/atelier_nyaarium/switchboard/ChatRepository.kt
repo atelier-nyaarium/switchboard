@@ -192,7 +192,7 @@ class ChatRepository(
 		visible = { isVisible },
 		reconnect = { delay -> repoScope.launch {
 			kotlinx.coroutines.delay(delay)
-			if (isVisible && transportCoordinator.link() != ConsoleLink.SOCKET) runCatching { socket.connect() }
+			if (isVisible && transportCoordinator.link() != ConsoleLink.SOCKET) runCatchingCancellable { socket.connect() }
 		} },
 				onWelcome = { gen, welcome ->
 					repoScope.launch(Dispatchers.IO) { drain.applyWelcomePlanes(welcome.versions) }

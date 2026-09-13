@@ -198,7 +198,8 @@ internal class SessionOps(
 		}
 	}
 
-	fun forget(team: String, boardDisposition: String? = null, onForgotten: (() -> Unit)? = null) {
+	/** The durable half of `SessionForget`. */
+	fun forget(team: String, boardDisposition: String? = null) {
 		val t = runCatching { parseQualifiedTarget(team) }.getOrNull() ?: return
 		val key = t.canonical
 		// Journaled for a Gateway the roster names; any other tombstones only.
@@ -242,7 +243,7 @@ internal class SessionOps(
 			forgetsInFlight.add(pending.opId)
 			host.launchInBackground {
 				try {
-					deliverForget(pending, announce = true, onForgotten)
+					deliverForget(pending, announce = true)
 				} finally {
 					forgetsInFlight.remove(pending.opId)
 				}
@@ -255,7 +256,6 @@ internal class SessionOps(
 					"[domain=${(t as? Address)?.domain} local=${host.localDomain} " +
 					"roster=${host.state.value.gateways.ids()}]",
 			)
-			onForgotten?.invoke()
 		}
 	}
 
@@ -308,7 +308,7 @@ internal class SessionOps(
 		}
 	}
 
-	private suspend fun deliverForget(p: PendingForget, announce: Boolean, onForgotten: (() -> Unit)? = null) {
+	private suspend fun deliverForget(p: PendingForget, announce: Boolean) {
 		val applied = runCatchingCancellable { host.forget(p.team, p.boardDisposition, p.opId) }
 			.getOrElse { e ->
 				DebugLog.log("Forget", "team=${p.team} failed: ${e.message?.take(160)}")
@@ -323,7 +323,6 @@ internal class SessionOps(
 				it.copy(transientMessages = it.transientMessages + "Gateway needs an update; that session's tasks went back to the backlog.")
 			}
 		}
-		onForgotten?.let { withContext(Dispatchers.Main) { it() } }
 	}
 
 	private fun retireForget(p: PendingForget) {

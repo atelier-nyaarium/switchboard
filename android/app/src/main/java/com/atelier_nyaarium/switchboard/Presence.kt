@@ -111,10 +111,8 @@ private constructor(
 	/** The session has left the bridge entirely (locally synthesized, never a wire value). */
 	val hasEnded: Boolean get() = status == ENDED
 
-	/** The base board/thread word, before any working/waking/login refinement. Display tolerates
-	 * staleness: being one presence refresh behind on a label is cosmetic, where being behind on a
-	 * gate is the bug this file exists for. Pair with `presenceColor` for the chip colour. */
-	val word: String get() = wordFor(status)
+	/** Registered as asleep. */
+	val isAvailable: Boolean get() = status == AVAILABLE
 
 	/** A wake this device asked for is still outstanding, so a surface should say "waking" rather
 	 * than "asleep". Superseded by any Gateway actually reporting the session up. */

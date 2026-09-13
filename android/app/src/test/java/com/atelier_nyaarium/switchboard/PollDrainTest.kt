@@ -40,6 +40,8 @@ class PollDrainTest {
 		}
 		override fun plan(visible: Boolean, failed: Boolean): ConsoleTransportPlan = error("unused")
 		override fun fromCanonical(value: String) = value
+		val forgotten = mutableSetOf<String>()
+		override fun isForgotten(team: String) = team in forgotten
 		override fun advanceMailbox(result: SyncPollResult<Drained>) = SyncAdvance(SyncCursor.initial(), result.entries, false)
 		override fun setGap(value: Boolean) = Unit
 		override fun markCommsActivity(now: Long) = Unit
@@ -104,6 +106,36 @@ class PollDrainTest {
 		drain.processEntries(listOf(peer, notice), cursor = 2L, epoch = 1L, dropped = 0L)
 		assertEquals(listOf(session.canonical, "dom.gw.host.def"), host.appended.map { it.first })
 		assertEquals(true, host.appended.first().second.isPeer)
+	}
+
+	@Test
+	fun aForgottenSessionsRowsLandNothing() = runBlocking {
+		val host = FakeHost(emptyMap())
+		val drain = PollDrain(host, IdlePresencePort)
+		val actions = mutableListOf<String>()
+		drain.addPluginActionSubscriber { team, _, _, _ -> actions += team }
+		val gone = Address.of("dom", "gw", "host", "gone")
+		val kept = Address.of("dom", "gw", "host", "kept")
+		host.forgotten += gone.canonical
+		fun row(seq: Long, to: Address, kind: String) = MailboxEntry(
+			seq = seq,
+			at = seq,
+			kind = kind,
+			session_id = storeKey(SessionKey.Conv("owner", to)),
+			body = "hello",
+			pluginId = "vault",
+			actionType = "request",
+		)
+
+		drain.processEntries(
+			listOf(row(1, gone, "agent"), row(2, gone, "plugin_action"), row(3, kept, "agent")),
+			cursor = 3L,
+			epoch = 1L,
+			dropped = 0L,
+		)
+
+		assertEquals(listOf(kept.canonical), host.appended.map { it.first })
+		assertEquals(emptyList<String>(), actions)
 	}
 
 	@Test

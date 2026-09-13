@@ -63,10 +63,10 @@ private fun ChatRepository.revisionPlane(
 private suspend fun ChatRepository.dispatchKeyRows(rows: List<com.atelier_nyaarium.switchboard.proto.InboxRow>) {
 	for (row in rows) {
 		when (row.envelope.kind) {
-			Protocol.Wire.KeyOpKind.KEY_REQUEST -> runCatching {
+			Protocol.Wire.KeyOpKind.KEY_REQUEST -> runCatchingCancellable {
 				keyDelivery.onKeyRequest(wireJson.decodeFromJsonElement(com.atelier_nyaarium.switchboard.proto.KeyRequest.serializer(), row.body))
 			}.onFailure { DebugLog.log("KeyDelivery", "row parse failed kind=${Protocol.Wire.KeyOpKind.KEY_REQUEST}") }
-			Protocol.Wire.KeyOpKind.KEY_GRANT -> runCatching {
+			Protocol.Wire.KeyOpKind.KEY_GRANT -> runCatchingCancellable {
 				keyDelivery.onKeyGrant(wireJson.decodeFromJsonElement(com.atelier_nyaarium.switchboard.proto.KeyGrant.serializer(), row.body))
 			}.onFailure { DebugLog.log("KeyDelivery", "row parse failed kind=${Protocol.Wire.KeyOpKind.KEY_GRANT}") }
 		}

@@ -60,7 +60,7 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 		val anchors = host.state.value.readAnchors
 		for (team in teamsNeedingReadReport(anchors, lastReportedReadAnchors)) {
 			val anchor = anchors.getValue(team)
-			runCatching { host.reportRead(team, anchor) }
+			runCatchingCancellable { host.reportRead(team, anchor) }
 				.onSuccess { lastReportedReadAnchors = lastReportedReadAnchors + (team to anchor) }
 				.onFailure { DebugLog.log("Plane", "report_read failed for $team: ${it.message?.take(120)}") }
 		}
@@ -77,8 +77,8 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 	suspend fun restoreLastProjection() = restoreMutex.withLock {
 		if (restored) return@withLock
 		restored = true
-		val slot = runCatching { host.loadRouterState("presence") }.getOrNull() ?: return@withLock
-		val projection = runCatching {
+		val slot = runCatchingCancellable { host.loadRouterState("presence") }.getOrNull() ?: return@withLock
+		val projection = runCatchingCancellable {
 			wireJson.decodeFromJsonElement(OwnerPresenceProjection.serializer(), slot.payload)
 		}.getOrNull() ?: return@withLock
 		host.withDrainMutex {

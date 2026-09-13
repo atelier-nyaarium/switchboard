@@ -147,7 +147,7 @@ internal class DeviceApprovalOps(
 	}
 
 	suspend fun parseAuthorizeConsole(scanned: String): ScannedDeviceApproval? = withContext(Dispatchers.IO) {
-		runCatching {
+		runCatchingCancellable {
 			val j = JSONObject(scanned.trim())
 			require(j.optString("type") == "authorize-console")
 			ScannedDeviceApproval(

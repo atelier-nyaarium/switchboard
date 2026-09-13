@@ -32,12 +32,7 @@ class PresenceTest {
 	}
 
 	@Test
-	fun theStatusVocabularyHasOneOwner() {
-		assertEquals("live", row(Presence.ONLINE).word)
-		assertEquals("verifying", row(Presence.VERIFYING).word)
-		assertEquals("available", row(Presence.AVAILABLE).word)
-		assertEquals("ended", Presence.ended().word)
-		// Anything unrecognised reads as ended rather than leaking a raw wire token into the UI.
+	fun anUnrecognisedStatusReadsAsEnded() {
 		assertEquals("ended", Presence.wordFor("something-new"))
 	}
 

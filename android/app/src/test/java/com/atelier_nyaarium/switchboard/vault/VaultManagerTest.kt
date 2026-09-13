@@ -21,9 +21,15 @@ import org.junit.Test
 
 class VaultManagerTest {
 	private class FakeStore(private var blob: String? = null) : VaultStore {
+		var failNextSave = false
+
 		override fun loadVault(): String? = blob
 
 		override fun saveVault(json: String) {
+			if (failNextSave) {
+				failNextSave = false
+				error("write failed")
+			}
 			blob = json
 		}
 	}
@@ -277,5 +283,18 @@ class VaultManagerTest {
 		vault.adoptEpoch(5L)
 		assertEquals(listOf("kept"), vault.live().map { it.clear.id })
 		assertEquals(0L, vault.routerRevision)
+	}
+
+	@Test
+	fun `a failed vault write leaves pending state unchanged until a later write succeeds`() {
+		val store = FakeStore().also { it.failNextSave = true }
+		val vault = VaultManager(store)
+		val request = entryRequest("r1", 10_000L)
+
+		assertFalse(vault.addRequest("dom.gw.host.alice", request, now = 1_000L))
+		assertTrue(vault.pending.value.isEmpty())
+
+		assertTrue(vault.addRequest("dom.gw.host.alice", request, now = 1_000L))
+		assertEquals(listOf("r1"), vault.pending.value.map { it.requestId })
 	}
 }

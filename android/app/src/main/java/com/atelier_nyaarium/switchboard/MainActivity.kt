@@ -172,6 +172,7 @@ fun App(
 
 	// Initialize plugins before registry reads.
 	val pluginManager = remember { Plugins.get(context) }
+	val forgetSession = remember { SessionForget(context, repo.sessions, pluginManager.host.threadForgetHandlers) }
 
 	val viewerState = remember { mutableStateOf<OpenAttachment?>(null) }
 	var viewer by viewerState
@@ -350,28 +351,7 @@ fun App(
 			val session = state.sessions().firstOrNull { it.name == openTeam }
 			val kind = session?.kind
 			// Rename only known loose sessions.
-			val presence = when {
-				session == null -> null
-				session.presence.isOnline -> when {
-						// Limit block outranks working.
-					session.presence.limitBlocked == true -> "limit hit"
-					state.needsLogin(session.name) -> "check terminal"
-					state.working(session.name) -> "working..."
-					else -> "live"
-				}
-				// Local wake displays immediately.
-				session.presence.waking(System.currentTimeMillis()) -> "waking..."
-				!session.presence.isLive && !session.presence.hasEnded ->
-					if (state.working(session.name)) "waking..." else session.presence.word
-				else -> session.presence.word
-			}
-				// Teardown after forget lands.
-			val forgetTeardown = { forgotten: String ->
-				pluginManager.host.threadForgetHandlers.forEachCaught(onError = ::logPluginThrow) { it.onForget(context, forgotten) }
-				SwitchboardService.cancelTeamNotification(context, forgotten)
-				SwitchboardService.cancelScheduledSendFailedNotification(context, forgotten)
-				nav = nav.forgot(forgotten)
-			}
+			val presence = session?.let { state.sessionWord(it.name, it.presence, System.currentTimeMillis()) }
 			val boardOn = pluginManager.isActive("taskboard")
 			val boardTeam = state.teams.firstOrNull { it.name == openTeam }
 			val boardKey = boardTeam?.let { GroupKey(it.domainId, it.gatewayId, repo.boardOps.boardSessionKeyOf(openTeam!!)) }
@@ -440,7 +420,7 @@ fun App(
 				onReorderTabs = repo::reorderTabs,
 				messages = state.threads[openTeam].orEmpty(),
 					// Suppress retry banner during wake.
-				error = state.error?.takeUnless { presence == "waking..." && it.endsWith("retrying") },
+				error = state.error?.takeUnless { presence == SessionWord.WAKING && it.endsWith("retrying") },
 				rendererPool = rendererPool,
 				canRename = kind == "loose",
 				openNonce = nav.generation,
@@ -507,14 +487,15 @@ fun App(
 				onRename = { name -> repo.command { rename(openTeam!!, name) } },
 				onForget = {
 					val forgotten = openTeam!!
-					repo.sessions.forget(forgotten)
-					forgetTeardown(forgotten)
+					forgetSession.forget(forgotten)
+					nav = nav.forgot(forgotten)
 				},
 				// Use the same board forget gate.
 				undoneTasks = if (boardOn) repo.boardOps.boardUndoneCountFor(openTeam!!) else 0,
 				onForgetWithTasks = { cancelThem ->
 					val forgotten = openTeam!!
-					repo.boardOps.forgetWithBoardDisposition(forgotten, cancelThem) { forgetTeardown(forgotten) }
+					forgetSession.forget(forgotten, cancelTasks = cancelThem)
+					nav = nav.forgot(forgotten)
 				},
 				terminal = TerminalState(
 					eligible = ConversationView.TERMINAL in offered,
@@ -640,14 +621,7 @@ fun App(
 							repo.openThread(team)?.let { nav = nav.arrive(it, Arrival.OUTSIDE, factsFor(it)) }
 						},
 						onRename = { team, name -> repo.command { rename(team, name) } },
-						onForget = { team ->
-							pluginManager.host.threadForgetHandlers.forEachCaught(onError = ::logPluginThrow) {
-								it.onForget(context, team)
-							}
-							repo.sessions.forget(team)
-							SwitchboardService.cancelTeamNotification(context, team)
-							SwitchboardService.cancelScheduledSendFailedNotification(context, team)
-						},
+						onForget = { team -> forgetSession.forget(team) },
 						// Spawn stays on board; next poll reveals session.
 						onSpawn = { target, label, workdir -> repo.command { sessions.spawnSession(target, label, workdir) } },
 						onListDirs = { path, hostTarget, spawn -> repo.sessions.listDirs(path, hostTarget, spawn) },
@@ -664,16 +638,7 @@ fun App(
 								repo.boardOps.boardUndoneCountFor(team.name)
 							} else 0
 						},
-						onForgetWithTasks = { team, cancelThem ->
-								// Clean up plugins after forget lands.
-							repo.boardOps.forgetWithBoardDisposition(team, cancelThem) {
-								pluginManager.host.threadForgetHandlers.forEachCaught(onError = ::logPluginThrow) {
-									it.onForget(context, team)
-								}
-								SwitchboardService.cancelTeamNotification(context, team)
-								SwitchboardService.cancelScheduledSendFailedNotification(context, team)
-							}
-						},
+						onForgetWithTasks = { team, cancelThem -> forgetSession.forget(team, cancelTasks = cancelThem) },
 					)
 				}
 			}

@@ -123,7 +123,7 @@ fun ChatRepository.canDeleteOwnDomain(): Boolean {
 
 suspend fun ChatRepository.setDeviceName(name: String) = withContext(Dispatchers.IO) {
 	val blob = store.load() ?: return@withContext
-	val updated = runCatching { JSONObject(blob).put("device", name).toString() }
+	val updated = runCatchingCancellable { JSONObject(blob).put("device", name).toString() }
 		.getOrElse { e ->
 			_state.update { it.copy(transientMessages = it.transientMessages + (e.message ?: "Invalid provisioning blob")) }
 			return@withContext

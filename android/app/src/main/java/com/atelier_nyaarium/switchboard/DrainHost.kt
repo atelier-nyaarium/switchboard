@@ -25,6 +25,9 @@ internal interface DrainHost {
 	/** Reads the gateway's routines, so a background pass learns a miss with no tab open. */
 	suspend fun refreshRoutines()
 	fun fromCanonical(value: String): String?
+
+	/** Tombstoned by a forget. */
+	fun isForgotten(team: String): Boolean
 	fun advanceMailbox(result: SyncPollResult<Drained>): SyncAdvance<Drained>
 	fun setGap(value: Boolean)
 	fun markCommsActivity(now: Long)
@@ -57,6 +60,7 @@ internal class ChatRepositoryDrainHost(private val repo: ChatRepository) : Drain
 	override fun plan(visible: Boolean, failed: Boolean) =
 		repo.transportCoordinator.plan(visible, failed, repo.state.value.gateways.soonestRoutineAt())
 	override fun fromCanonical(value: String) = repo.fromCanonical(value)
+	override fun isForgotten(team: String) = (repo.forgottenUntil[team] ?: 0L) > System.currentTimeMillis()
 	override fun advanceMailbox(result: SyncPollResult<Drained>) = repo.mailboxSync.advance(result)
 	override fun setGap(value: Boolean) { repo._state.update { it.copy(gap = value) } }
 	override fun markCommsActivity(now: Long) { repo.pushback.onCommsActivity(now, repo.isVisible) }

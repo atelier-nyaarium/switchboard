@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -187,6 +188,7 @@ private fun WindowScroll(
 	onClose: (String) -> Unit,
 ) {
 	val scope = rememberCoroutineScope()
+	val unsaved by ops.unsaved.collectAsState()
 
 	LazyColumn(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 		for ((index, window) in ordered.withIndex()) {
@@ -209,6 +211,7 @@ private fun WindowScroll(
 			item(key = "window:${window.descriptor.symbolId}") {
 				WindowCard(
 					window = window,
+					unsaved = ops.isUnsaved(unsaved, target, window),
 					file = context[window.descriptor.module],
 					previousEnd = previousEnd,
 					nextStart = nextStart,
@@ -219,6 +222,18 @@ private fun WindowScroll(
 			}
 		}
 	}
+}
+
+/** The draft's newest write failed. */
+@Composable
+internal fun NotSavedPill() {
+	Text(
+		"NOT SAVED",
+		Modifier.background(MaterialTheme.colorScheme.errorContainer, RoundedCornerShape(10.dp))
+			.padding(horizontal = 8.dp, vertical = 2.dp),
+		style = MaterialTheme.typography.labelSmall,
+		color = MaterialTheme.colorScheme.onErrorContainer,
+	)
 }
 
 @Composable
@@ -271,6 +286,7 @@ private fun SpanField(key: String, text: String, onType: (String) -> Unit) {
 @Composable
 private fun WindowCard(
 	window: Window,
+	unsaved: Boolean,
 	file: List<String>?,
 	previousEnd: Int?,
 	nextStart: Int?,
@@ -308,6 +324,7 @@ private fun WindowCard(
 						color = MaterialTheme.colorScheme.onPrimaryContainer,
 					)
 				}
+				if (unsaved) NotSavedPill()
 				Text(
 					"${window.descriptor.startLine}-${window.descriptor.endLine}",
 					style = MaterialTheme.typography.labelSmall,

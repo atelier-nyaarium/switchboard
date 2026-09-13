@@ -6,6 +6,9 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** Which draft a file holds. */
@@ -53,6 +56,13 @@ internal class WorkspaceDraftStore(private val dir: File, scope: CoroutineScope)
 	 * disk writes a whole file once rather than once per keystroke, and still lands in asked order.
 	 */
 	private val intents = ConcurrentHashMap<String, Intent>()
+
+	private val refused = MutableStateFlow<Set<String>>(emptySet())
+
+	/** Newest write failed. */
+	val unsaved: StateFlow<Set<String>> = refused
+
+	fun isUnsaved(unsaved: Set<String>, target: WorkspaceTarget, key: DraftKey): Boolean = fileFor(target, key).name in unsaved
 
 	init {
 		scope.launch {
@@ -110,7 +120,17 @@ internal class WorkspaceDraftStore(private val dir: File, scope: CoroutineScope)
 
 	private fun settle(file: File, intent: Intent) {
 		intents[file.name] = intent
-		hand { intents.remove(file.name)?.let { perform(file, it) } }
+		hand {
+			intents.remove(file.name)?.let { newest ->
+				try {
+					perform(file, newest)
+					refused.update { it - file.name }
+				} catch (e: Exception) {
+					refused.update { it + file.name }
+					throw e
+				}
+			}
+		}
 	}
 
 	/**
@@ -169,6 +189,10 @@ internal class WorkspaceDraftStore(private val dir: File, scope: CoroutineScope)
 
 	/** A re-provision: no key is known for the previous owner's drafts, so the directory goes. */
 	suspend fun clearAll() {
-		queued(Unit) { check(dir.deleteRecursively() || !dir.exists()) { "the previous owner's drafts stayed" } }
+		queued(Unit) {
+			// After every earlier write has settled.
+			refused.value = emptySet()
+			check(dir.deleteRecursively() || !dir.exists()) { "the previous owner's drafts stayed" }
+		}
 	}
 }

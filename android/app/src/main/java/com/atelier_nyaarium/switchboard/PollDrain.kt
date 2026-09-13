@@ -266,7 +266,8 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 				is SessionKey.Conv -> key.address.canonical
 				null -> entry.from?.let(host::fromCanonical)
 			}
-			if (team == null) continue
+			// A forget's plugin teardown already ran.
+			if (team == null || host.isForgotten(team)) continue
 			val files = host.decodeAttachments(entry.files)
 			val body = entry.body.orEmpty()
 			if (entry.kind == "sent") {
@@ -338,7 +339,7 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 		pollScope = scope
 		pollJob = scope.launch(Dispatchers.IO) {
 				// Restore cached roster first.
-				runCatching { presence.restoreLastProjection() }
+				runCatchingCancellable { presence.restoreLastProjection() }
 			pollLoop@ while (isActive) {
 				var failed = false
 				var heldEmpty = false

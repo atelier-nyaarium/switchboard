@@ -187,6 +187,11 @@ single-flight, cadence and concurrency limits, and mutating-op deduplication.
 - **Forget** journals the op under its opId in the phone's `MutationJournal` before the local drop,
   holds the row's tombstone until the Gateway confirms, then replays every unconfirmed forget at
   service start and after a failed send. The Gateway no-ops an absent session, so a replay is safe.
+- **Every surface forgets through `SessionForget`:** the session's state, its plugins' state and its
+  notifications go at once, with or without a board disposition. Only the Gateway's half waits, and a
+  retried delivery carries nothing a surface still owes. While the tombstone holds, the drain lands
+  nothing for that session (`DrainHost.isForgotten`), so a row already on its way cannot put back what
+  the plugins just dropped.
 - The reserved `host` slot requires `HOST_WS_TOKEN`.
 
 ## Armed goals
@@ -252,6 +257,10 @@ no TTL.
   them. A live projection updates the stored display name. A restored cache shows the stored name.
   Renames arrive in projections. The phone does not write them locally. `canDeleteOwnDomain` is
   false until the facts arrive.
+- **One status word** (`SessionWord.kt`): the conversation chip, the card's chips, pulse and spoken
+  description all read `sessionWord`, over `ChatState.working` and `needsLogin`, which fold presence
+  with this device's peek and wake. Online reads limit, then login, then working, then live; verifying
+  reads verifying; asleep reads waking for this device's wake or a send waiting on one.
 - **Presence residue** (`presence-authority-residue.test.ts`): `status` is private, `Presence`
   construction is private, and consumers use authority-bearing members such as `isLive`, `isOnline`,
   `mayHavePane`, `authoritative`. Do not restore writable status strings.
@@ -428,6 +437,11 @@ no TTL.
   written before bases were kept reads with `UNKNOWN_BASE`, which no hash equals. Not the runbook store,
   which serialises a whole library into one preferences string on every commit. A failed rename leaves the
   previous draft; deleting first to make room is the one order with a window holding neither copy.
+
+  **A write that failed is drawn, not only logged.** `unsaved` names each draft whose newest write failed,
+  and the next write of it that lands clears it. A window card draws NOT SAVED beside EDITED and the raw
+  editor beside its buttons. `DebugLog` reaches the Router only from a debug build, so without it a release
+  build would show typing that never reached the disk.
 
   **The disk follows the value, and no caller names a file.** `HeldEdits` diffs the winning before and
   after by incarnation and tells the store what each file should hold, under the same monitor as the

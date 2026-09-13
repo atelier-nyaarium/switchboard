@@ -23,7 +23,6 @@ import kotlinx.coroutines.launch
 
 internal interface BoardOpsCollaborators {
 	val board: BoardManager
-	val sessions: SessionOps
 	val attachmentHost: AttachmentHost
 	val boardRouter: BoardRouterWriter
 	fun boardSealing(): BoardSealing?
@@ -69,12 +68,6 @@ internal class BoardOps(
 		if (boardAssignTargets().any { boardSessionKeyOf(it.name) == assigned }) return null
 		val gateway = entry.session?.gatewayId
 		return if (gateway.isNullOrBlank()) "Not listed" else "$gateway, not listed"
-	}
-
-	/** Forgets a session and its board disposition. */
-	fun forgetWithBoardDisposition(team: String, cancelThem: Boolean, onForgotten: () -> Unit) {
-		val asked = if (cancelThem) "cancel" else "release"
-		collaborators.sessions.forget(team, asked, onForgotten)
 	}
 
 	fun boardEntriesFor(team: String?): List<BoardEntry> = collaborators.board.routerEntries()

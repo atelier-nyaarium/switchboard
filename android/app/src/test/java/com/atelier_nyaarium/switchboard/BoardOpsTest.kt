@@ -21,7 +21,6 @@ class BoardOpsTest {
 
 	private class FakeCollaborators(store: FakeBoardStore) : BoardOpsCollaborators {
 		override val board = BoardManager(store)
-		override val sessions: SessionOps get() = error("unused")
 		override val attachmentHost: AttachmentHost get() = error("unused")
 		override val boardRouter = BoardRouterWriter(board, { _, _ -> error("unused") }, { error("unused") })
 		override fun boardSealing(): BoardSealing? = null

@@ -48,6 +48,11 @@ internal class WindowOps(
 
 	fun windowsOf(target: WorkspaceTarget): List<Window> = held.of(target)
 
+	val unsaved: StateFlow<Set<String>> = held.unsaved
+
+	fun isUnsaved(unsaved: Set<String>, target: WorkspaceTarget, window: Window): Boolean =
+		held.isUnsaved(unsaved, target, window)
+
 	/** Minted per open, so two openings of one symbol are two windows. */
 	private val incarnations = java.util.concurrent.atomic.AtomicLong(0)
 

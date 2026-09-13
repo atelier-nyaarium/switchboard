@@ -373,7 +373,7 @@ internal class TrustOps(
 	/** Answers the Gateways whose read landed this round; the rest keep what they had. */
 	suspend fun refreshPeers(): Set<String> = coroutineScope {
 		val fresh = state.value.gateways.ids().map { gatewayId -> async {
-			val read = runCatching { reads.read(gatewayId) { clientPort.client().crossDomainListPeers(gatewayId) } }.getOrNull()
+			val read = runCatchingCancellable { reads.read(gatewayId) { clientPort.client().crossDomainListPeers(gatewayId) } }.getOrNull()
 			val answer = (read as? GatewayRead.Fresh)?.value ?: return@async null
 			state.update { it.copy(gateways = it.gateways.withEntry(gatewayId) { e -> e.copy(peers = answer.peers) }) }
 			gatewayId

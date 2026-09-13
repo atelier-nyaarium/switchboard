@@ -141,7 +141,12 @@ internal class ScheduledSendOps(
 		for ((team, rec) in ordered.filter { it.value.routerVersion == null }) {
 			if (state.value.scheduledSends[team]?.opId != rec.opId) continue
 			val target = collaborators.targetOf(team) ?: continue
-			val files = try { rec.fileRefs.map { file -> if (file.blobId == null) file.copy(blobId = collaborators.uploadFile(file)) else file } } catch (_: Throwable) { continue }
+			val files = try {
+				rec.fileRefs.map { file -> if (file.blobId == null) file.copy(blobId = collaborators.uploadFile(file)) else file }
+			} catch (e: Throwable) {
+				e.rethrowIfCancellation()
+				continue
+			}
 			val plaintext = org.json.JSONObject().put("text", rec.text).put("messageId", rec.opId).put("files", org.json.JSONArray().also { a -> files.forEach { a.put(fileJson(it)) } }).toString().toByteArray()
 			val body = collaborators.sealScheduledBody(plaintext, rec.opId) ?: continue
 			if (files != rec.fileRefs) put(team, rec.copy(fileRefs = files))

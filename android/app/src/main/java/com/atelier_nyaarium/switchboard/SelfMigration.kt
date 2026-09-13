@@ -21,7 +21,7 @@ internal class SelfMigration(
 		resetAccepted()
 		var complete = true
 		for ((team, anchor) in readAnchors()) {
-			val answer = runCatching { reportRead(team, anchor) }.getOrNull()
+			val answer = runCatchingCancellable { reportRead(team, anchor) }.getOrNull()
 			if (answer?.jsonObject?.get("outcome")?.jsonPrimitive?.content != com.atelier_nyaarium.switchboard.proto.Protocol.Wire.OP_OUTCOME_ACCEPTED) complete = false
 		}
 		if (complete) journal.append("self-migration-$migrationEpoch", "self_migration", JSONObject().put("migrationEpoch", migrationEpoch))

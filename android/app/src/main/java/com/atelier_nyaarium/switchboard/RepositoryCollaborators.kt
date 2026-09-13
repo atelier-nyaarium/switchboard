@@ -121,7 +121,6 @@ internal class ChatRepositoryAttachmentCollaborators(private val repo: ChatRepos
 
 internal class ChatRepositoryBoardCollaborators(private val repo: ChatRepository) : BoardOpsCollaborators {
 	override val board: BoardManager get() = repo.board
-	override val sessions: SessionOps get() = repo.sessions
 	override val attachmentHost: AttachmentHost get() = repo.attachmentHost
 	override val boardRouter: BoardRouterWriter get() = repo.boardRouter
 	override fun boardSealing() = repo.boardSealing()

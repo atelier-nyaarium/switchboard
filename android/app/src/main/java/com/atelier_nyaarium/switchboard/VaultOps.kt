@@ -105,7 +105,7 @@ internal class VaultOps(
 		val result = runCatchingCancellable { collaborators.writer.put(put, newOpId()) }
 			.onFailure { DebugLog.log("Vault", "put failed: ${it.message?.take(80)}") }
 			.getOrNull() ?: return VaultSaveOutcome.Unreachable
-		result.entry?.let { manager.applyWrite(it, result.revision, generation = generation) }
+		result.entry?.let { if (!manager.applyWrite(it, result.revision, generation = generation)) refresh() }
 		return when (result.outcome) {
 			"applied" -> VaultSaveOutcome.Applied(id)
 			"conflict" -> VaultSaveOutcome.Conflict
@@ -119,7 +119,7 @@ internal class VaultOps(
 		val result = runCatchingCancellable { collaborators.writer.delete(id, existing.clear.revision, newOpId()) }
 			.onFailure { DebugLog.log("Vault", "delete failed: ${it.message?.take(80)}") }
 			.getOrNull() ?: return VaultSaveOutcome.Unreachable
-		result.entry?.let { manager.applyWrite(it, result.revision, generation = generation) }
+		result.entry?.let { if (!manager.applyWrite(it, result.revision, generation = generation)) refresh() }
 		return when (result.outcome) {
 			"applied" -> VaultSaveOutcome.Applied(id)
 			"conflict" -> VaultSaveOutcome.Conflict
@@ -127,7 +127,7 @@ internal class VaultOps(
 		}
 	}
 
-	/** The plugin's handler; duplicates are dropped by the manager. */
+	/** The plugin's handler; duplicates are dropped by the manager. An unstored one is logged there. */
 	fun onRequest(team: String, request: VaultRequest) {
 		manager.addRequest(team, request)
 	}

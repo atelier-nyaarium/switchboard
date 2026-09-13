@@ -39,6 +39,11 @@ internal class RawFileOps(
 
 	fun editOf(target: WorkspaceTarget, path: String): RawEdit? = held.of(target).firstOrNull { it.path == path }
 
+	val unsaved: StateFlow<Set<String>> = held.unsaved
+
+	fun isUnsaved(unsaved: Set<String>, target: WorkspaceTarget, edit: RawEdit): Boolean =
+		held.isUnsaved(unsaved, target, edit)
+
 	fun viewOf(target: WorkspaceTarget, path: String): RawView? = shown.of(target to path)
 
 	private fun edit(target: WorkspaceTarget, path: String, change: (RawEdit) -> RawEdit) =

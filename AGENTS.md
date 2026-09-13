@@ -394,10 +394,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../RendererPoolBindings.kt` / `AppOverlays.kt` / `LinkMenu.kt` - WebView pool, overlays, and link actions
 - `android/.../SettingsSections.kt` / `SettingsSystem.kt` / `SettingsVoice.kt` - settings leaf screens
 - `android/.../SessionsHeaders.kt` / `SessionCard.kt` / `SessionCardPreview.kt` / `SessionsEmptyState.kt` - the Sessions view's headers, cards, rules, and empty-state machine
+- `android/.../SessionWord.kt` / `SessionForget.kt` - the one status word a conversation and a card show, and the one forget every surface calls
 - `android/.../vault/` - `VaultSealing.kt` / `VaultManager.kt` / `VaultRouterWriter.kt` / `VaultDraft.kt` / `ApprovalGate.kt` / `VaultScreen.kt` / `VaultEntryDialog.kt` / `VaultRequestSheet.kt` / `VaultRequestText.kt` / `VaultState.kt` - the sealing door, the held entry set with pending requests and the retry count, the owner-op writer, the draft-to-sealed rule, the one owner-presence gate, the view, the editor, the request sheet, its pure text rules (title, requester, countdown, repeat line), and the held request shapes
 - `android/.../crypto/ContentSealing.kt` - the one sealing door the board and the vault subclass; only the AAD builder differs
 - `android/.../plugins/vault/VaultPlugin.kt` - claims `vault:request`, forget, and wipe
-- `android/.../board/` - board reducers and durable `BoardManager`
+- `android/.../board/` - board reducers and durable `BoardManager`, which writes before it publishes, as `VaultManager` and `RunbookManager` do
 - `android/.../board/BoardSealing.kt` / `BoardRender.kt` / `BoardIntent.kt` / `BoardOptimistic.kt` / `BoardRouterWriter.kt` - board text sealing, render with cached fallback, edits held as intent, optimistic apply, and the CAS drain
 - `android/.../ConsoleTransportCoordinator.kt` / `ConsoleSocketDriver.kt` - one Router consumer across two transports, and generation-fenced frame routing
 - `android/.../Federation.kt` / `FederationManager.kt` / `CrossDomainLink.kt` / `ConsoleClientCrossDomain.kt` / `CrossDomainPresenceUi.kt` - cross-Gateway routing, identity, allowlist, sealing, replay, and presence
@@ -872,7 +873,15 @@ which is the whole of it. No category strip, no bidi rule, no Unicode whitespace
 unicode escape writes the byte itself, which compiles and passes every gate while making the file
 binary to `grep`, invisible in a diff, and unindexable by Lexicon. Construct it instead, as
 `Char(0x1e)` does for the window key separator. `control-byte-residue.test.ts` reads every tracked
-Kotlin and TypeScript file; its two exemptions are the files that assert on terminal escapes.
+Kotlin and TypeScript file; its two exemptions are the files that assert on terminal escapes. It also
+refuses zero-width characters, em dashes and smart quotes in Kotlin, TypeScript and markdown. The
+same tools turn a `\u` escape typed into an edit into the character, and `biome check --write`
+rewrites an escaped `RegExp` string into a literal, so restore such a line from git rather than retyping it.
+
+**A catch around a suspend call rethrows cancellation:** `runCatching` and `catch (e: Exception)` both
+take `CancellationException`, so a coroutine its caller cancelled runs on and writes state nobody wants.
+Use `runCatchingCancellable` or `rethrowIfCancellation`. `cancellation-residue.test.ts` reads every one
+in a suspending context; a `withContext(NonCancellable)` ancestor exempts it.
 
 **A long-lived coroutine scope on the phone carries a `CoroutineExceptionHandler`:** it outlives the
 call that made it, so a throw inside has no caller to catch it, and a `SupervisorJob` only spares

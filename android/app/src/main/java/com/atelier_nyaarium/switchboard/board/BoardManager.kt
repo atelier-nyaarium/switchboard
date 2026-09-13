@@ -58,8 +58,9 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 	}
 
 	private fun notice(entry: BoardRefusal) {
-		refusals.add(entry)
-		mutate { it.copy(notices = it.notices + entry) }
+		synchronized(stateLock) {
+			if (persist(blob.copy(notices = blob.notices + entry))) refusals.add(entry)
+		}
 	}
 
 	fun noticeRefusal(entryId: String?, reason: String) {
@@ -94,11 +95,16 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 			}
 	}
 
-	private fun persist(next: BoardBlob) {
-		if (next == blob) return
+	private fun persist(next: BoardBlob): Boolean {
+		if (next == blob) return true
+		val written = runCatching { store.saveTaskBoard(json.encodeToString(BoardBlob.serializer(), next)) }
+		if (written.isFailure) {
+			DebugLog.log("Board", "stored board could not be written: ${written.exceptionOrNull()?.message}")
+			return false
+		}
 		blob = next
-		store.saveTaskBoard(json.encodeToString(BoardBlob.serializer(), next))
 		revision.longValue++
+		return true
 	}
 
 	fun mergedEntries(gatewayId: String, now: Long = System.currentTimeMillis()): List<BoardEntry> {
@@ -127,8 +133,7 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 				epoch -> return
 				0L -> persist(current.copy(routerEpoch = epoch, routerRevision = 0))
 				else -> {
-					generation++
-					persist(current.copy(routerEpoch = epoch, routerRevision = 0, stored = emptyList()))
+					if (persist(current.copy(routerEpoch = epoch, routerRevision = 0, stored = emptyList()))) generation++
 				}
 			}
 		}
@@ -146,8 +151,7 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 		val next = hit ?: render(open, current.stored, current.text).also { fresh ->
 			synchronized(stateLock) {
 				if (blob.stored === current.stored) {
-					persist(blob.copy(text = fresh.rendered.cache))
-					memo = fresh
+					if (persist(blob.copy(text = fresh.rendered.cache))) memo = fresh
 				}
 			}
 		}
@@ -180,7 +184,7 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 		entries: List<BoardStoredEntry>,
 		at: Long = System.currentTimeMillis(),
 		generation: Long = this.generation,
-	) {
+	): Boolean {
 		val next = renderIncoming(entries)
 		synchronized(stateLock) {
 			val fold = if (generation == this.generation) landed(revision, entries) else VersionedFold.Ignore
@@ -194,8 +198,9 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 			} else {
 				blob
 			}
-			persist(landed.copy(pending = landed.pending.filterNot { it.opId == opId }))
+			if (!persist(landed.copy(pending = landed.pending.filterNot { it.opId == opId }))) return false
 			if (fold is VersionedFold.Apply) memo = next
+			return true
 		}
 	}
 
@@ -219,7 +224,7 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 		synchronized(stateLock) {
 			if (generation != this.generation) return false
 			val fold = landed(revision, entries) as? VersionedFold.Apply ?: return false
-			persist(
+			val persisted = persist(
 				blob.copy(
 					routerRevision = fold.revision,
 					stored = fold.entries,
@@ -227,8 +232,8 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 					lastRouterSyncAt = at,
 				),
 			)
-			memo = next
-			return true
+			if (persisted) memo = next
+			return persisted
 		}
 	}
 
@@ -236,8 +241,9 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 	fun lastSyncedAt(): Long = snapshot().lastRouterSyncAt
 
 	fun dismissRefusal(refusal: BoardRefusal) {
-		refusals.remove(refusal)
-		mutate { it.copy(notices = it.notices.filter { n -> n != refusal }) }
+		synchronized(stateLock) {
+			if (persist(blob.copy(notices = blob.notices.filter { it != refusal }))) refusals.remove(refusal)
+		}
 	}
 
 	// Keep queued and stored entry buckets from sweeping.

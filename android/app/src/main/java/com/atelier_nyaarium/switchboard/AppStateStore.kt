@@ -285,8 +285,8 @@ class AppStateStore internal constructor(
 
 	override fun loadTaskBoard(): String? = prefs.getString(KEY_TASK_BOARD, null)
 
-	/** Vault entries and pending requests share one key; the Router holds the truth, so the write is async. */
-	override fun saveVault(json: String) = prefs.edit().putString(KEY_VAULT, json).apply()
+	/** Vault entries and pending requests share one key. */
+	override fun saveVault(json: String) = check(prefs.edit().putString(KEY_VAULT, json).commit())
 
 	override fun loadVault(): String? = prefs.getString(KEY_VAULT, null)
 

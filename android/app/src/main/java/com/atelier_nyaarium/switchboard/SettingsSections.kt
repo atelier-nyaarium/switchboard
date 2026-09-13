@@ -337,6 +337,7 @@ private fun ContentKeyDeliveryCard(repo: ChatRepository) {
 							"${rows.first().kind} ${member.take(8)}: confirmed ${confirmed.ifEmpty { "none" }}; missing ${missing.ifEmpty { "none" }}"
 						}
 				} catch (error: Exception) {
+					error.rethrowIfCancellation()
 					lines = listOf(error.message ?: error.javaClass.simpleName)
 				} finally {
 					busy = false
