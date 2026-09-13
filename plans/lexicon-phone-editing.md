@@ -2006,7 +2006,7 @@ Mock: `ref-viewer.html`. Phase 6 deferred this for want of a live read and a Kot
   registered in the cross-runtime manifest.
 - **The emulator's seeded ref carries a start line,** so the strip and the toggle draw there.
 
-## Phase 13a - Gateway and Router follow-ups
+## Phase 13a - Gateway and Router follow-ups ✅
 
 - **The awareness lease:** ✅ `prepareFor`, then `commit` on acceptance or `release`, which merges back any
   changes observed meanwhile. Liveness is checked for every non-empty bank, and the bank owns the output
