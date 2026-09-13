@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard.workspace
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ChevronRight
@@ -133,15 +135,16 @@ internal fun WorkspaceOutline(
 			val shownSymbols = outlineOfKind(read.symbols, kind)
 			val depths = remember(read.symbols) { outlineDepths(read.symbols) }
 			Column(Modifier.fillMaxSize()) {
+				// Unscrolled, overflow chips squeeze tall.
 				Row(
-					Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+					Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
 					horizontalArrangement = Arrangement.spacedBy(6.dp),
 				) {
 					for (counted in outlineKinds(read.symbols)) {
 						FilterChip(
 							selected = kind == counted.kind,
 							onClick = { kind = counted.kind },
-							label = { Text("${counted.label} ${counted.count}") },
+							label = { Text("${counted.label} ${counted.count}", maxLines = 1, softWrap = false) },
 						)
 					}
 				}

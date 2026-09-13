@@ -56,6 +56,9 @@ private const val EMPTY_GATEWAY = "idle-box"
 private const val READ_ONLY_FILE = "fixtures.json"
 private const val UNHASHED_FILE = "capture.bin"
 
+/** Holds more symbol kinds than one row of chips fits. */
+private const val MANY_KINDS_FILE = "src/shared/schemasWorkspace.ts"
+
 /** A real session answers later, or a screen racing its own read passes here. */
 private const val WORKSPACE_ROUND_TRIP_MS = 400L
 
@@ -348,7 +351,7 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 	/** The plugin's rules over a canned tree. `src/generated` stays empty for its notice. */
 	private val table = WorkspaceFileTable(
 		folders = listOf("src", "src/generated", "src/shared"),
-		files = listOf("AGENTS.md", READ_ONLY_FILE, UNHASHED_FILE, module).associateWith { file.joinToString("\n") },
+		files = listOf("AGENTS.md", READ_ONLY_FILE, UNHASHED_FILE, module, MANY_KINDS_FILE).associateWith { file.joinToString("\n") },
 	)
 
 	private suspend fun served(target: WorkspaceTarget): Boolean {
@@ -411,8 +414,28 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 		return table.mutate(mutation)
 	}
 
+	private val manyKinds = listOf(
+		"property" to 6, "constant" to 5, "variable" to 4, "type" to 3, "function" to 3, "method" to 2, "class" to 1,
+		"interface" to 1, "enum" to 1,
+	).flatMap { (kind, count) -> (1..count).map { kind to "$kind$it" } }
+
 	override suspend fun outline(target: WorkspaceTarget, path: String) =
 		asSeeded(target) {
+			if (table.canonical(path) == MANY_KINDS_FILE) {
+				return@asSeeded WorkspaceOutlineAnswer(
+					path = path,
+					root = SANDBOX_ROOT,
+					lines = manyKinds.size.toLong(),
+					symbols = manyKinds.mapIndexed { index, (kind, name) ->
+						WorkspaceOutlineSymbol(
+							symbolId = "lexicon typescript $MANY_KINDS_FILE $name.",
+							name = name,
+							symbolKind = kind,
+							startLine = index + 1L,
+						)
+					},
+				)
+			}
 			WorkspaceOutlineAnswer(
 				path = path,
 				root = SANDBOX_ROOT,

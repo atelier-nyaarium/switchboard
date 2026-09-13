@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard
 import android.content.ClipData
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -272,7 +273,7 @@ private fun RendezvousPanel(
 	// One Gateway per pairing.
 	if (gatewayIds.size > 1) {
 		Text("Pair on", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+		FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 			for (id in gatewayIds) FilterChip(selected = id == selectedGatewayId, onClick = { onGatewaySelected(id) }, label = { Text(id) })
 		}
 	}
