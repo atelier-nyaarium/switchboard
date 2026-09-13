@@ -55,13 +55,23 @@ jobs:
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon --console=plain
 
+      # One code for both APKs; phone-install.sh raises the offset.
+      - name: Stamp version code
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+          OFFSET: ${{ vars.ANDROID_VERSION_OFFSET || '0' }}
+        run: |
+          case "$OFFSET" in
+            ''|*[!0-9]*) echo "::error::ANDROID_VERSION_OFFSET is not a whole number: $OFFSET"; exit 1 ;;
+          esac
+          echo "ANDROID_VERSION_CODE=$((RUN_NUMBER + OFFSET))" >> "$GITHUB_ENV"
+
       - name: Build release APK
         env:
           ANDROID_KEYSTORE_PATH: ${{ env.have_keystore == 'true' && format('{0}/switchboard.keystore', runner.temp) || '' }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          ANDROID_VERSION_CODE: ${{ github.run_number }}
         run: ./gradlew :app:assembleRelease --no-daemon --console=plain
 
       - name: Build debug APK
@@ -75,7 +85,6 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          ANDROID_VERSION_CODE: ${{ github.run_number }}
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
 
       - name: Upload release APK as artifact

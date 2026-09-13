@@ -40,7 +40,7 @@ android {
 		// branches. compile/targetSdk track the latest API (36 / Android 16).
 		minSdk = 33
 		targetSdk = 36
-		// Monotonic in CI (build number) so updates are never seen as a downgrade.
+		// Stamped by CI and scripts/phone-install.sh.
 		versionCode = System.getenv("ANDROID_VERSION_CODE")?.toIntOrNull() ?: 1
 		// Track the plugin version (single bump ritual covers the app too).
 		versionName = Regex("\"version\"\\s*:\\s*\"([^\"]+)\"")

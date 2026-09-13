@@ -730,26 +730,26 @@ bun run lint && bun run test
 
 The phone runs the CI build, signed with the stable key kept in `~/android-dev/secrets/`. `env.sh`
 exports that key as the `ANDROID_KEYSTORE_*` variables the Gradle signing config reads, so a local
-debug build installs straight over it. Without those exports the build signs with the default debug
-key and the phone refuses the install. The version code must exceed the installed one.
+build installs straight over it. Without those exports the build signs with the default debug key
+and the phone refuses the install.
 
 ```bash
-source ~/android-dev/env.sh
-INSTALLED=$(adb shell dumpsys package com.atelier_nyaarium.switchboard | grep -o 'versionCode=[0-9]*' | cut -d= -f2)
-cd android && ANDROID_VERSION_CODE=$((INSTALLED + 1)) ./gradlew :app:assembleDebug
-adb install -r app/build/outputs/apk/debug/switchboard-debug.apk
+scripts/phone-install.sh          # debug
+scripts/phone-install.sh release
 ```
 
 The phone stays on wireless adb; `adb devices` lists it. No push or CI round trip is needed.
+
+**One version code sequence, two writers:** CI stamps `github.run_number` plus the repository
+variable `ANDROID_VERSION_OFFSET`, once per run so both APKs share it. The script stamps one past
+both the installed build and the newest run's code, and raises the offset before it builds so that
+the newest run, even one still in flight, stamps one above it. CI's `GITHUB_TOKEN` cannot write a variable, so only the script does.
+Never build for the phone with a hand-picked `ANDROID_VERSION_CODE`.
 
 **Every phone iteration goes over adb, never through CI.** Two minutes, against ten for the
 Android release, and there is always more to do than watch a workflow. Push when the work settles,
 not per tweak. `assembleRelease` reads the same keystore env, so the phone can stay on the
 production variant; `assembleDebug` is for when the ingest log stream is wanted.
-
-The CI release takes its version code from `github.run_number`, so local builds walk ahead of it
-and a later release APK can read as a downgrade. Build that commit locally instead of waiting for
-the run number to catch up.
 
 ### Emulator build
 
