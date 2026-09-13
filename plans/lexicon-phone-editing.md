@@ -1482,7 +1482,7 @@ discard their typing.
   epoch, since it lands a window no stamp describes yet; Refresh keeps `applyTo`, since the owner's own tap
   is newer than anything.
 
-## Phase 8b - Root and conversation drawers
+## Phase 8b - Root and conversation drawers ✅
 
 Raised by the owner after Phase 7, from a screenshot of the Sessions tab: seven fixed tabs split every
 label mid-word, and Files was the tab that tipped it over.
@@ -1527,6 +1527,27 @@ The mockups are `plans/lexicon-phone-editing/drawer-*.html`. One ruling on them:
 - **The terminal icon stays in the top bar**, and Terminal is in the drawer too.
 - **A routine targets a spawn point, not a session**, so a conversation's Routines are those on its spawn
   point. The table's "routines targeting this session" has no record behind it.
+
+### Done
+
+- **The root draws one view at a time** from a drawer (`RootScreen`): Sessions, then Backlog, Runbooks,
+  Routines, Policies and Vault as their plugins allow, then Settings. No tab row and no pager.
+- **A conversation's drawer** lists Chat, Terminal and Files, then the filtered views, each marked with its
+  scope or count. The terminal icon stays in the bar and toggles Chat and Terminal.
+- **A filtered view is the root's view under `ViewScope.Session`**: Runbooks and Policies on the session's
+  Gateway, Routines on its spawn point, Vault's requests and grants the session holds, Backlog the
+  session's tree at full height. New creates only on that Gateway, Fire opens aimed at the session, and the
+  scope row leads to the whole view at the root.
+- **Drawer side is a setting under System**, right by default, persisted in `AppStateStore.drawerSide`.
+- **Files left the root.** A ref's exit opens the conversation it names on Files at the asked place.
+- **The shell's navigation is one `ShellNav` value** with pure transitions, and Back is one handler ordered
+  by `shellScreen` and `backLayer`, fenced by `back-handler-residue.test.ts`.
+- Walked on the emulator on both sides: swipes over the session list, the chat WebView and a window's text
+  open the drawer; a vertical scroll, the attachment row and a sideways board drag do not; the Back order,
+  the ref exits, Fire's preset, and a notification over an open drawer all behave.
+
+**Left as it was:** the root Backlog is the unassigned list and trash it has always been, not "the whole
+board" the scope table names. The whole board has never had a view of its own.
 
 ### Bug Classes
 
@@ -1785,3 +1806,33 @@ difficulty. Worth asking how many other hand-built wire records in `src/` are in
 mis-tap, and I spent a round checking navigation that was fine. `AGENTS.md` already requires each seeded
 Gateway to answer differently so a grouping bug has somewhere to show; the same rule is not applied to files
 inside one sandbox workspace.
+
+## A comment pass told "four words" strips the reason and keeps the label
+
+Three Luna cleanup passes over the drawer work turned reasons into labels: "Composed on open, so it outranks
+the screen's Back" became "Open drawer wins Back", a Back-order KDoc became "Login prompts take precedence"
+(false, a ref's exit outranks them), and the Fire sheet's preset parameter was documented as "Destination
+restored after mode switch". Each needed a manual repair, and the wrong ones compile and read plausibly. The
+pass only held once the prompt named reasons about ORDER, IDENTITY and LIFETIME as load-bearing and gave a
+label-versus-reason example. The prose rule and the cleanup prompts say "four words or fewer" without that
+distinction, so every run re-learns it.
+
+## Confident audit claims about Compose behaviour are refuted only by the emulator
+
+Three auditors asserted, with code citations, that the drawer's swipe would steal a board row's sideways drag
+and a text field's selection handles, that the drawer's Back handler composed before the Files view's, and
+that a login prompt outranked a ref's Files request. The first two contradict how Compose dispatches pointer
+input and registers handlers, and the third contradicts a test that passes. None could be settled by reading;
+each took an emulator run (`adb shell input motionevent DOWN/MOVE/UP` for a long-press drag, `input keyevent
+4 4` for a double Back, `am start --es open_team` for a notification). The recipes are not written anywhere,
+so each red team re-derives them, and a triage without them would have "fixed" code that was right.
+
+## Every navigation change lands in one 750-line composable
+
+`MainActivity.kt:App` holds boot, lock, notification intents, overlays, settings, the conversation's assembly
+(presence text, board strip, vault tile, composer, terminal, drawer) and the root's (board and vault folds,
+the Sessions list's callbacks), plus every modal host. The drawers touched a dozen places inside it, and the
+red team's findings all traced to state whose lifetime the function's shape hid (a drawer state outliving its
+branch, a view outliving its conversation). `ShellNav` took the navigation out; the conversation and root
+assemblies are still inline, and the forget teardown and the presence word are each written twice there (on
+the board).
