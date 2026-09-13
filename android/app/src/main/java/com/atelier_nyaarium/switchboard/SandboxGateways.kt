@@ -33,6 +33,7 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 
 // What a Gateway would answer, answered in the sandbox instead. Every screen that only appears when
@@ -50,6 +51,9 @@ private const val EMPTY_GATEWAY = "idle-box"
 
 private const val READ_ONLY_FILE = "fixtures.json"
 private const val UNHASHED_FILE = "capture.bin"
+
+/** A real session answers later, or a screen racing its own read passes here. */
+private const val WORKSPACE_ROUND_TRIP_MS = 400L
 
 private fun day(offsetMs: Long): Long = System.currentTimeMillis() + offsetMs
 
@@ -304,12 +308,14 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 	 * Keyed by SESSION, which is what a workspace belongs to. One of the two seeded sessions refuses,
 	 * so the refusal notice is reachable; the empty Gateway holds no session to ask.
 	 */
-	private fun <T> asSeeded(target: WorkspaceTarget, answer: () -> T): WorkspaceAnswer<T> =
-		if (target.address.endsWith(".other")) {
+	private suspend fun <T> asSeeded(target: WorkspaceTarget, answer: () -> T): WorkspaceAnswer<T> {
+		delay(WORKSPACE_ROUND_TRIP_MS)
+		return if (target.address.endsWith(".other")) {
 			WorkspaceAnswer.Refused("this workspace is not served here")
 		} else {
 			WorkspaceAnswer.Read(answer())
 		}
+	}
 
 	/** The plugin's rules over a canned tree. `src/generated` stays empty for its notice. */
 	private val table = WorkspaceFileTable(
@@ -317,7 +323,10 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 		files = listOf("AGENTS.md", READ_ONLY_FILE, UNHASHED_FILE, module).associateWith { file.joinToString("\n") },
 	)
 
-	private fun served(target: WorkspaceTarget) = !target.address.endsWith(".other")
+	private suspend fun served(target: WorkspaceTarget): Boolean {
+		delay(WORKSPACE_ROUND_TRIP_MS)
+		return !target.address.endsWith(".other")
+	}
 
 	private val notServed = WorkspaceAnswer.Refused("this workspace is not served here")
 

@@ -777,6 +777,10 @@ emulator -avd <name> -no-window -no-audio -no-boot-anim -gpu swiftshader_indirec
 `SandboxGateways.kt` answers the runbook and routine calls as a Gateway would, which is what makes a
 screen that only appears on a refusal reachable at all. They are ports, not sockets.
 
+**The workspace sandbox answers after a round trip, never at once:** the tree screen keyed its load
+effect on the view its own load published, which cancelled every real read, and passed every
+emulator walk while the sandbox answered without suspending.
+
 **Each seeded Gateway answers differently, or a grouping bug has nowhere to show.** One holds the
 full set, one holds the same record ids as different records in another zone, and one answers empty,
 which is not the same as a Gateway that could not be read. Answering all three alike is what made the

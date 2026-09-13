@@ -18,7 +18,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -59,9 +58,7 @@ internal fun WorkspaceTree(
 	val view = views[target to path]
 	var sheetFor by remember(target.key, path) { mutableStateOf<String?>(null) }
 	val scope = rememberCoroutineScope()
-	// Keyed on the view too, so a re-provision that clears it while shown opens it again.
-	LaunchedEffect(target.key, path, view == null) { if (view == null) fileOps.open(target, path) }
-	DisposableEffect(target.key, path) { onDispose { fileOps.leave(target, path) } }
+	LaunchedEffect(target.key, path) { fileOps.keepOpen(target, path) }
 	LaunchedEffect(view?.openRaw) {
 		view?.openRaw?.let {
 			fileOps.rawOpened(target, path)

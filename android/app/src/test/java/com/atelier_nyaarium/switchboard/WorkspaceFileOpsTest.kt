@@ -5,7 +5,11 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -26,6 +30,7 @@ class WorkspaceFileOpsTest {
 		val aliases = mutableMapOf<String, String>()
 		val stateHolds = mutableListOf<TestHold>()
 		val mutationHolds = mutableListOf<TestHold>()
+		val treeHolds = mutableListOf<TestHold>()
 		var treeReads = 0
 
 		/** Applies, then answers nothing. */
@@ -42,6 +47,7 @@ class WorkspaceFileOpsTest {
 
 		override suspend fun tree(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceTreeAnswer> {
 			treeReads++
+			treeHolds.removeFirstOrNull()?.pass()
 			return table.tree(path)
 		}
 
@@ -371,6 +377,24 @@ class WorkspaceFileOpsTest {
 		ops.confirm(one, "src")
 		assertNull(ops.viewOf(one, "src"))
 		assertEquals(1, disk.sent.size)
+	}
+
+	@Test
+	fun `a folder kept open lands a late read, reopens after a re-provision, and leaves when cancelled`() = runBlocking {
+		ops.leave(one, "src")
+		val late = TestHold().also { disk.treeHolds += it }
+		val keeping = launch { ops.keepOpen(one, "src") }
+		late.release()
+		withTimeout(5_000) { ops.views.first { it[one to "src"]?.listing is WorkspaceAnswer.Read } }
+
+		val reads = disk.treeReads
+		host.generation.advance()
+		ops.clearInMemory()
+		withTimeout(5_000) { ops.views.first { it[one to "src"]?.listing is WorkspaceAnswer.Read } }
+		assertEquals(reads + 1, disk.treeReads)
+
+		keeping.cancelAndJoin()
+		assertNull(ops.viewOf(one, "src"))
 	}
 
 	@Test
