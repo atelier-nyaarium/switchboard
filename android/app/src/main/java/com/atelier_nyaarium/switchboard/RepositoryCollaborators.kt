@@ -208,6 +208,9 @@ internal class ConsoleWorkspaceGateway(private val client: ConsoleClient) : Work
 
 	override suspend fun knowledge(target: WorkspaceTarget, symbolId: String) =
 		client.workspaceSymbolKnowledge(target.gatewayId, target.address, symbolId)
+
+	override suspend fun saveSpan(target: WorkspaceTarget, symbolId: String, expectedSpanHash: String, text: String) =
+		client.workspaceSaveSpan(target.gatewayId, target.address, symbolId, expectedSpanHash, text)
 }
 
 internal class ChatRepositoryWindowHost(private val repo: ChatRepository) : WindowHost {

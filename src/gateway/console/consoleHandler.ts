@@ -5,7 +5,7 @@ import { ownerKeyId } from "../../shared/owner-id.js";
 import { DELIVERY_OP_KINDS, TOLERATED_DELIVERY_OP_KINDS, VALUE_OP_KINDS } from "../../shared/schemasConsoleOp.js";
 import { type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
 import { SpawnPoint } from "../../shared/session-id.js";
-import type { WorkspaceOp } from "../../shared/workspace-op.js";
+import { answerForConsole, type WorkspaceOp } from "../../shared/workspace-op.js";
 import {
 	RESERVE_OP,
 	type ReserveResult,
@@ -53,19 +53,16 @@ export function createConsoleDispatcher({
 	runbooks,
 	routines,
 	policies,
-	workspaceRead,
+	workspaceAsk,
 	onSessionEnded,
 }: ConsoleHandlerDeps) {
 	const targets = createConsoleTargets({ localDomainId, localGatewayId, isTrustedCatalogProject });
 
 	/** A session, never a spawn point: the plane serves the workspace a plugin itself holds. */
-	async function workspaceReadOf(target: string, op: WorkspaceOp) {
-		const bound = targets.requireLocalComposite(target, "read the workspace of");
-		if (!workspaceRead) throw new Error("this Gateway serves no workspace reads");
-		const answer = await workspaceRead(bound.name, op);
-		// The failure rides the message, which is how the phone tells refused from failed.
-		if (!answer.ok) throw new Error(`${answer.failure}: ${answer.detail}`);
-		return answer.answer;
+	async function workspaceOf(target: string, op: WorkspaceOp, verb = "read the workspace of") {
+		const bound = targets.requireLocalComposite(target, verb);
+		if (!workspaceAsk) throw new Error("this Gateway serves no workspace");
+		return answerForConsole(op, await workspaceAsk(bound.name, op));
 	}
 
 	const terminalOps = createTerminalHandlers({ targets, relayToHost, sessionStore });
@@ -247,19 +244,26 @@ export function createConsoleDispatcher({
 				return terminalOps.listDirs(op);
 
 			case "workspace_tree":
-				return workspaceReadOf(op.target, { kind: "tree", path: op.path });
+				return workspaceOf(op.target, { kind: "tree", path: op.path });
 
 			case "workspace_file":
-				return workspaceReadOf(op.target, { kind: "read", path: op.path });
+				return workspaceOf(op.target, { kind: "read", path: op.path });
 
 			case "workspace_outline":
-				return workspaceReadOf(op.target, { kind: "outline", path: op.path });
+				return workspaceOf(op.target, { kind: "outline", path: op.path });
 
 			case "workspace_symbol_source":
-				return workspaceReadOf(op.target, { kind: "symbolSource", symbolId: op.symbolId });
+				return workspaceOf(op.target, { kind: "symbolSource", symbolId: op.symbolId });
 
 			case "workspace_symbol_knowledge":
-				return workspaceReadOf(op.target, { kind: "symbolKnowledge", symbolId: op.symbolId });
+				return workspaceOf(op.target, { kind: "symbolKnowledge", symbolId: op.symbolId });
+
+			case "workspace_save_span":
+				return workspaceOf(
+					op.target,
+					{ kind: "saveSpan", symbolId: op.symbolId, expectedSpanHash: op.expectedSpanHash, text: op.text },
+					"save into the workspace of",
+				);
 
 			case "create_session":
 				return sessionLifecycle.createSession(op, conversationId, opId);

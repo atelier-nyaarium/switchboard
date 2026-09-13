@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -72,6 +73,18 @@ internal suspend fun ConsoleClient.workspaceSymbolSource(
 	symbolId: String,
 ): WorkspaceAnswer<WorkspaceSymbolSourceAnswer> =
 	workspaceRead(gatewayId, ConsoleOp.WorkspaceSymbolSource(target = target, symbolId = symbolId))
+
+internal suspend fun ConsoleClient.workspaceSaveSpan(
+	gatewayId: String,
+	target: String,
+	symbolId: String,
+	expectedSpanHash: String,
+	text: String,
+): WorkspaceAnswer<WorkspaceSaveSpanAnswer> =
+	workspaceRead(
+		gatewayId,
+		ConsoleOp.WorkspaceSaveSpan(target = target, symbolId = symbolId, expectedSpanHash = expectedSpanHash, text = text),
+	)
 
 internal suspend fun ConsoleClient.workspaceSymbolKnowledge(
 	gatewayId: String,

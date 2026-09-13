@@ -27,6 +27,7 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineSymbol
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeEntry
@@ -380,4 +381,30 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 			)
 		}
 
+	/** One saves and one is stale, so both are reachable. */
+	override suspend fun saveSpan(
+		target: WorkspaceTarget,
+		symbolId: String,
+		expectedSpanHash: String,
+		text: String,
+	): WorkspaceAnswer<WorkspaceSaveSpanAnswer> {
+		val seeded = (symbolSource(target, symbolId) as? WorkspaceAnswer.Read)?.value
+			?: return WorkspaceAnswer.Refused("this workspace is not served here")
+		return asSeeded(target) {
+			if (symbolId.contains("routineRefusal")) {
+				WorkspaceSaveSpanAnswer(
+					symbolId = symbolId,
+					outcome = SAVE_SAVED,
+					current = seeded.copy(text = text, spanHash = "sandbox-saved-${text.hashCode()}"),
+					joined = false,
+				)
+			} else {
+				WorkspaceSaveSpanAnswer(
+					symbolId = symbolId,
+					outcome = SAVE_STALE,
+					current = seeded.copy(text = "export const MAX_ROUTINE_MEMORY_BYTES = 65_536;", spanHash = "sandbox-moved"),
+				)
+			}
+		}
+	}
 }

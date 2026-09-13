@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineSymbol
+import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeEntry
 import org.junit.Assert.assertEquals
@@ -96,6 +97,50 @@ class WindowRulesTest {
 		val held = window(draft = "mine")
 
 		assertEquals(RefreshOutcome.Conflicts(held.copy(stale = true)), refreshWith(held, answer("theirs", "h2")))
+	}
+
+	private fun saveAnswer(outcome: String, current: WorkspaceSymbolSourceAnswer?, gone: Boolean? = null) =
+		WorkspaceSaveSpanAnswer(symbolId = F_ID, outcome = outcome, current = current, gone = gone)
+
+	@Test
+	fun `a save lands the span it wrote, keeping typing that arrived after the send`() {
+		val written = answer("sent", "h2")
+
+		assertEquals(
+			window(draft = "sent").copy(descriptor = descriptorOf(written), original = "sent", draft = null),
+			afterSave(window(draft = "sent"), "sent", saveAnswer(SAVE_SAVED, written)),
+		)
+		assertEquals("sent, and more", afterSave(window(draft = "sent, and more"), "sent", saveAnswer(SAVE_SAVED, written))?.draft)
+	}
+
+	@Test
+	fun `only a span that no longer resolves leaves no window, and one not read back or refused stays`() {
+		assertNull(afterSave(window(draft = "x"), "x", saveAnswer(SAVE_SAVED, null, gone = true)))
+		assertEquals(
+			window(draft = "x, and more").copy(stale = true),
+			afterSave(window(draft = "x, and more"), "x", saveAnswer(SAVE_SAVED, null, gone = true)),
+		)
+		assertEquals(window(draft = "x"), afterSave(window(draft = "x"), "x", saveAnswer(SAVE_SAVED, null)))
+		assertEquals(window(draft = "x"), afterSave(window(draft = "x"), "x", saveAnswer(SAVE_REJECTED, null)))
+	}
+
+	@Test
+	fun `a stale save raises the banner unless the span already holds the owner's text`() {
+		val held = window(draft = "mine")
+
+		assertEquals(held.copy(stale = true), afterSave(held, "mine", saveAnswer(SAVE_STALE, answer("theirs", "h2"))))
+		assertEquals(held.copy(stale = true), afterSave(held, "mine", saveAnswer(SAVE_STALE, null)))
+		assertFalse(afterSave(held, "mine", saveAnswer(SAVE_STALE, answer("mine", "h2")))!!.edited)
+	}
+
+	@Test
+	fun `a save notice names what happened and nothing when nothing did`() {
+		assertNull(saveNotice(SaveReport()))
+		assertEquals("Saved", saveNotice(SaveReport(saved = 1)))
+		assertEquals(
+			"Saved 2. 1 in an open refactor. 1 stale. 1 not confirmed. no such symbol",
+			saveNotice(SaveReport(saved = 2, joined = 1, stale = 1, unknown = 1, refused = listOf("no such symbol", "no such symbol"))),
+		)
 	}
 
 	@Test

@@ -205,6 +205,8 @@ import {
 	OutlineAnswerSchema,
 	OutlineSymbolSchema,
 	ReadAnswerSchema,
+	SaveIssueSchema,
+	SaveSpanAnswerSchema,
 	SymbolSourceAnswerSchema,
 	TreeAnswerSchema,
 	TreeEntrySchema,
@@ -412,6 +414,8 @@ const ROOTS: z.ZodType[] = [
 	OutlineAnswerSchema,
 	SymbolSourceAnswerSchema,
 	KnowledgeAnswerSchema,
+	SaveIssueSchema,
+	SaveSpanAnswerSchema,
 ];
 
 const SEALED_ROOTS = new Set([

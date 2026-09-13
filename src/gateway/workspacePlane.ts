@@ -6,12 +6,7 @@
 import type { ServerWebSocket } from "bun";
 import type { Ambient } from "../shared/ambient.js";
 import type { SessionStore } from "../shared/session-store.js";
-import {
-	WORKSPACE_OP_FRAME,
-	WORKSPACE_OP_TIMEOUT_MS,
-	type WorkspaceOp,
-	type WorkspaceOpResult,
-} from "../shared/workspace-op.js";
+import { boundsOf, WORKSPACE_OP_FRAME, type WorkspaceOp, type WorkspaceOpResult } from "../shared/workspace-op.js";
 import { WorkspaceOpCoordinator } from "./workspaceOpCoordinator.js";
 import { reached, sendOn } from "./wsSend.js";
 import { resolveLiveIncarnation, type TeamRegistry, type WsData } from "./wsTypes.js";
@@ -53,7 +48,7 @@ export function createWorkspacePlane(deps: WorkspacePlaneDeps) {
 		// The key is the request: a retry of the same ASK mints a new one, which is what lets a retry
 		// run while a replayed FRAME does not.
 		const key = `${team}:${reqId}`;
-		const pending = coordinator.wait(reqId, generation, WORKSPACE_OP_TIMEOUT_MS);
+		const pending = coordinator.wait(reqId, generation, boundsOf(op).planeWaitMs);
 
 		const frame = JSON.stringify({ type: WORKSPACE_OP_FRAME, reqId, key, op });
 		// A dropped write settles at once: waiting out the timeout would say nothing more.

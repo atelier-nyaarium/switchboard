@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { WorkspaceOpCoordinator } from "../gateway/workspaceOpCoordinator.js";
 import { createOpDedupe } from "../mcp/workspace/opDedupe.js";
+import { parseWorkspaceOpRequest } from "../mcp/workspace/plane.js";
 import type { WorkspaceOpResult } from "../shared/workspace-op.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 
@@ -14,6 +15,28 @@ const refused: WorkspaceOpResult = { ok: false, failure: "refused", detail: "wit
 
 ////////////////////////////////
 //  Tests
+
+describe("reading a workspace op frame", () => {
+	const frame = (op: unknown) => ({ reqId: "r", key: "k", op });
+
+	it("takes a save only whole, since a missing hash would be a save with no precondition", () => {
+		const whole = { kind: "saveSpan", symbolId: "s", expectedSpanHash: "h", text: "" };
+
+		expect(parseWorkspaceOpRequest(frame(whole))).toEqual({ reqId: "r", key: "k", op: whole });
+		expect(parseWorkspaceOpRequest(frame({ kind: "saveSpan", symbolId: "s", text: "x" }))).toMatchObject({
+			refused: expect.any(String),
+		});
+	});
+
+	// Silence would hold the Gateway to its full timeout for an op an older plugin cannot read.
+	it("refuses an op it cannot read at once, and ignores only a frame with no request to answer", () => {
+		expect(parseWorkspaceOpRequest(frame({ kind: "delete", path: "a" }))).toMatchObject({
+			reqId: "r",
+			refused: expect.any(String),
+		});
+		expect(parseWorkspaceOpRequest({ key: "k", op: { kind: "tree", path: "" } })).toBeNull();
+	});
+});
 
 describe("correlating a workspace op with its reply", () => {
 	it("settles the waiter that asked", async () => {

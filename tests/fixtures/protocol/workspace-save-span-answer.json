@@ -1,0 +1,17 @@
+{
+	"kind": "saveSpan",
+	"symbolId": "lexicon typescript src/a.ts target().",
+	"outcome": "saved",
+	"current": {
+		"kind": "symbolSource",
+		"symbolId": "lexicon typescript src/a.ts target().",
+		"module": "src/a.ts",
+		"name": "target",
+		"text": "export function target() {\n\treturn 3;\n}",
+		"startLine": 5,
+		"endLine": 7,
+		"spanHash": "97865f2067f0197a60879291851c6e5e"
+	},
+	"joined": true,
+	"issues": [{ "kind": "UnboundReference", "detail": "g no longer binds", "module": "src/b.ts", "line": 3 }]
+}

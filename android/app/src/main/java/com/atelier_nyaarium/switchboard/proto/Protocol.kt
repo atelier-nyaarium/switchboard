@@ -126,6 +126,7 @@ object Protocol {
 			const val WORKSPACE_OUTLINE: String = "workspace_outline"
 			const val WORKSPACE_SYMBOL_SOURCE: String = "workspace_symbol_source"
 			const val WORKSPACE_SYMBOL_KNOWLEDGE: String = "workspace_symbol_knowledge"
+			const val WORKSPACE_SAVE_SPAN: String = "workspace_save_span"
 			const val CROSS_DOMAIN_LISTEN: String = "cross_domain_listen"
 			const val CROSS_DOMAIN_REQUEST: String = "cross_domain_request"
 			const val CROSS_DOMAIN_CONFIRM: String = "cross_domain_confirm"
@@ -396,6 +397,15 @@ sealed class ConsoleOp {
 	data class WorkspaceSymbolKnowledge(
 		val target: String,
 		val symbolId: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("workspace_save_span")
+	data class WorkspaceSaveSpan(
+		val target: String,
+		val symbolId: String,
+		val expectedSpanHash: String,
+		val text: String,
 	) : ConsoleOp()
 
 	@Serializable
@@ -2150,6 +2160,27 @@ data class WorkspaceKnowledgeAnswer(
 	val kind: String = "symbolKnowledge",
 	val symbolId: String,
 	val text: String,
+)
+
+@Serializable
+data class WorkspaceSaveIssue(
+	val kind: String,
+	val detail: String,
+	val module: String? = null,
+	val line: Long? = null,
+)
+
+@Serializable
+data class WorkspaceSaveSpanAnswer(
+	@EncodeDefault
+	val kind: String = "saveSpan",
+	val symbolId: String,
+	val outcome: String,
+	val current: WorkspaceSymbolSourceAnswer? = null,
+	val gone: Boolean? = null,
+	val joined: Boolean? = null,
+	val issues: List<WorkspaceSaveIssue>? = null,
+	val reason: String? = null,
 )
 
 @Serializable

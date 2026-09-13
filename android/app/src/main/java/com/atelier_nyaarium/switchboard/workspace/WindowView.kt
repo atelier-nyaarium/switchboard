@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +44,7 @@ import com.atelier_nyaarium.switchboard.inFileOrder
 import com.atelier_nyaarium.switchboard.modulesOf
 import com.atelier_nyaarium.switchboard.neighbourBounds
 import com.atelier_nyaarium.switchboard.opensModule
+import com.atelier_nyaarium.switchboard.saveNotice
 import com.atelier_nyaarium.switchboard.windowParts
 import kotlinx.coroutines.launch
 
@@ -75,32 +77,44 @@ internal fun WindowView(
 	}
 
 	val edits = editedWindows(ordered).size
-	var asked by remember(target.key) { mutableStateOf<Applied?>(null) }
-	var asking by remember(target.key) { mutableStateOf(false) }
+	var notice by remember(target.key) { mutableStateOf<String?>(null) }
+	var busy by remember(target.key) { mutableStateOf(false) }
+
+	// One submit at a time; finally, or a cancellation leaves both disabled.
+	fun submit(work: suspend () -> String?) {
+		if (busy) return
+		busy = true
+		scope.launch {
+			try {
+				notice = work()
+			} finally {
+				busy = false
+			}
+		}
+	}
 
 	Column(modifier.fillMaxSize()) {
 		WindowScroll(ops, target, ordered, context, Modifier.weight(1f), onClose)
-		asked?.let { WorkspaceNotice(appliedNotice(it)) }
+		notice?.let { WorkspaceNotice(it) }
 		if (edits > 0) {
-			OutlinedButton(
-				// Guarded, or a second tap asks twice for the same spans while the first is still going.
-				onClick = hapticClick {
-					if (!asking) {
-						asking = true
-						// Finally, or a cancellation leaves the button disabled with nothing said.
-						scope.launch {
-							try {
-								asked = ops.agentApply(target)
-							} finally {
-								asking = false
-							}
-						}
-					}
-				},
-				enabled = !asking,
-				modifier = Modifier.fillMaxWidth().padding(12.dp),
+			Row(
+				Modifier.fillMaxWidth().padding(12.dp),
+				horizontalArrangement = Arrangement.spacedBy(8.dp),
 			) {
-				Text(if (edits == 1) "Agent Apply" else "Agent Apply $edits spans")
+				OutlinedButton(
+					onClick = hapticClick { submit { appliedNotice(ops.agentApply(target)) } },
+					enabled = !busy,
+					modifier = Modifier.weight(1f),
+				) {
+					Text("Agent Apply")
+				}
+				Button(
+					onClick = hapticClick { submit { saveNotice(ops.save(target)) } },
+					enabled = !busy,
+					modifier = Modifier.weight(1f),
+				) {
+					Text(if (edits == 1) "Save" else "Save $edits")
+				}
 			}
 		}
 	}

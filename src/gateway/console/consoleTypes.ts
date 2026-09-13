@@ -116,8 +116,8 @@ export interface ConsoleHandlerDeps {
 	runbooks?: RunbookConsoleHandlers;
 	routines?: RoutineConsoleHandlers;
 	policies?: PolicyConsoleHandlers;
-	/** Absent before the socket stage composes, which refuses every workspace read. */
-	workspaceRead?: (team: string, op: WorkspaceOp) => Promise<WorkspaceOpResult>;
+	/** Absent before the socket stage composes, which refuses every workspace op. */
+	workspaceAsk?: (team: string, op: WorkspaceOp) => Promise<WorkspaceOpResult>;
 	onSessionEnded?: (team: string) => void;
 }
 

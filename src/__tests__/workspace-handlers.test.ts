@@ -32,6 +32,8 @@ const unopened = async (): Promise<Session> => {
 	throw new Error("the daemon was asked");
 };
 
+const SPAN = { start: { line: 1, character: 0 }, end: { line: 1, character: 5 } };
+
 const SERVED_ID = "lexicon typescript src/app.ts f().";
 const WITHHELD_ID = "lexicon typescript .env f().";
 
@@ -297,6 +299,162 @@ describe("the index-backed reads", () => {
 		expect(result).toMatchObject({ ok: false, failure: "failed", detail: "the daemon was asked" });
 	});
 
+	it("carries Lexicon's own span hash when the daemon answers one", async () => {
+		const session = fakeSession({
+			symbolSource: { found: true, module: "src/app.ts", name: "f", text: "x", range: SPAN, spanHash: "lexicon" },
+		});
+		const result = await ask(workspace(), { kind: "symbolSource", symbolId: SERVED_ID }, session);
+		expect(result.ok && result.answer.kind === "symbolSource" && result.answer.spanHash).toBe("lexicon");
+	});
+});
+
+describe("saving a span", () => {
+	const save = (text = "after") =>
+		({ kind: "saveSpan", symbolId: SERVED_ID, expectedSpanHash: "seen", text }) as const;
+
+	/** Records what the daemon was asked, in order, so a test reads the sequence the save took. */
+	function daemon(replaced: Record<string, unknown> | Error, after?: Record<string, unknown>) {
+		const asked: string[] = [];
+		const session = async () =>
+			({
+				indexFile: async ({ module }: { module: string }) => {
+					asked.push(`indexFile ${module}`);
+					return { module, action: "current" };
+				},
+				refactorReplaceSpan: async (params: Record<string, unknown>) => {
+					asked.push(`refactorReplaceSpan ${params.expectedSpanHash} standalone=${params.standalone}`);
+					if (replaced instanceof Error) throw replaced;
+					return replaced;
+				},
+				symbolSource: async () => after ?? { found: false, reason: "gone" },
+			}) as unknown as Session;
+		return { asked, session };
+	}
+
+	const now = { found: true, module: "src/app.ts", name: "f", text: "after", range: SPAN, spanHash: "new" };
+
+	it("reindexes first, saves standalone, and answers the span as it now stands", async () => {
+		const { asked, session } = daemon({ replaced: true, issues: [], transaction: "own" }, now);
+
+		const result = await ask(workspace(), save(), session);
+
+		expect(asked).toEqual(["indexFile src/app.ts", "refactorReplaceSpan seen standalone=true"]);
+		expect(result).toEqual({
+			ok: true,
+			answer: {
+				kind: "saveSpan",
+				symbolId: SERVED_ID,
+				outcome: "saved",
+				joined: false,
+				current: {
+					kind: "symbolSource",
+					symbolId: SERVED_ID,
+					module: "src/app.ts",
+					name: "f",
+					text: "after",
+					startLine: 2,
+					endLine: 2,
+					spanHash: "new",
+				},
+			},
+		});
+	});
+
+	it("says a save joined another session's transaction, with what it broke", async () => {
+		const issue = { kind: "UnboundReference", detail: "g no longer binds", module: "src/b.ts", line: 3 };
+		const { session } = daemon({ replaced: true, issues: [issue], transaction: "joined" }, now);
+
+		expect(await ask(workspace(), save(), session)).toMatchObject({
+			ok: true,
+			answer: { outcome: "saved", joined: true, issues: [issue] },
+		});
+	});
+
+	it("answers a changed span as stale with what it holds now, and a refusal with its reason", async () => {
+		const stale = daemon({ replaced: false, issues: [], stale: true, reason: "changed" }, now);
+		const broken = daemon({ replaced: false, issues: [], reason: "the replacement does not parse" });
+
+		expect(await ask(workspace(), save(), stale.session)).toMatchObject({
+			ok: true,
+			answer: { outcome: "stale", current: { text: "after" } },
+		});
+		const refused = await ask(workspace(), save(), broken.session);
+		expect(refused).toMatchObject({
+			ok: true,
+			answer: { outcome: "rejected", reason: "the replacement does not parse" },
+		});
+		expect(refused.ok && refused.answer.kind === "saveSpan" && refused.answer.current).toBeUndefined();
+	});
+
+	// A failed read back says nothing about the span; only the index saying it is gone does.
+	it("tells a span that no longer resolves from one it could not read back", async () => {
+		const gone = daemon({ replaced: true, issues: [], transaction: "own" });
+		const unread = daemon({ replaced: true, issues: [], transaction: "own" });
+		const throwing = async () => {
+			const held = await unread.session();
+			return {
+				...held,
+				symbolSource: async () => Promise.reject(new Error("socket closed")),
+			} as unknown as Session;
+		};
+
+		const vanished = await ask(workspace(), save(), gone.session);
+		const unknown = await ask(workspace(), save(), throwing);
+
+		expect(vanished).toMatchObject({ ok: true, answer: { outcome: "saved", gone: true } });
+		expect(unknown.ok && unknown.answer.kind === "saveSpan" && unknown.answer).toEqual({
+			kind: "saveSpan",
+			symbolId: SERVED_ID,
+			outcome: "saved",
+			joined: false,
+		});
+	});
+
+	it("refuses a Lexicon too old to check the span, rather than failing", async () => {
+		const { DaemonError } = await import("@nyaa-lexicon/client");
+		const { session } = daemon(new DaemonError("unknown method: refactorReplaceSpan", "unknownMethod"));
+
+		expect(await ask(workspace(), save(), session)).toMatchObject({ ok: false, failure: "refused" });
+	});
+
+	it("refuses a span in a withheld module before asking the daemon anything", async () => {
+		const { asked, session } = daemon({ replaced: true, issues: [] }, now);
+
+		expect(
+			await ask(
+				workspace(),
+				{ kind: "saveSpan", symbolId: WITHHELD_ID, expectedSpanHash: "h", text: "x" },
+				session,
+			),
+		).toMatchObject({ ok: false, failure: "refused" });
+		expect(asked).toEqual([]);
+	});
+
+	it("answers a save that ran out of time as unknown, since it may still land", async () => {
+		const hangs = async () =>
+			({
+				indexFile: async () => ({ action: "current" }),
+				refactorReplaceSpan: () => new Promise(() => {}),
+			}) as unknown as Session;
+
+		const result = await answerWorkspaceOp({ root: () => workspace(), session: hangs, budgetMs: 50 }, save());
+
+		expect(result).toMatchObject({ ok: true, answer: { kind: "saveSpan", outcome: "unknown" } });
+	});
+
+	// The schema bounds characters; the answer cap is bytes, and would refuse only after the write.
+	it("refuses a span too large to carry back before writing anything", async () => {
+		const { asked, session } = daemon({ replaced: true, issues: [] }, now);
+
+		expect(await ask(workspace(), save("😀".repeat(600_000)), session)).toMatchObject({
+			ok: false,
+			failure: "refused",
+		});
+		expect(asked).toEqual([]);
+	});
+});
+
+describe("the index deadline", () => {
 	// BOTH calls slow is the defect condition: a budget each would spend the budget twice.
 	it("spends ONE deadline across both index calls, not a budget each", async () => {
 		const slowThenHangs = async (): Promise<Session> => {

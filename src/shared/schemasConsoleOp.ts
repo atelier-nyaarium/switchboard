@@ -87,8 +87,8 @@ export const ConsoleOpSchema = z
 			path: z.string().max(512),
 			spawn: z.string().min(1).max(64).optional(),
 		}),
-		// Reads only, one kind each as every other feature does, so Kotlin gets real classes rather
-		// than an opaque payload. `target` names a session, never a spawn point.
+		// One kind each as every other feature does, so Kotlin gets real classes rather than an opaque
+		// payload. `target` names a session, never a spawn point.
 		z.object({
 			kind: z.literal("workspace_tree"),
 			target: z.string().min(1).max(128),
@@ -113,6 +113,14 @@ export const ConsoleOpSchema = z
 			kind: z.literal("workspace_symbol_knowledge"),
 			target: z.string().min(1).max(128),
 			symbolId: z.string().min(1).max(1024),
+		}),
+		// The one write: lands only while the span still hashes to what the owner was shown.
+		z.object({
+			kind: z.literal("workspace_save_span"),
+			target: z.string().min(1).max(128),
+			symbolId: z.string().min(1).max(1024),
+			expectedSpanHash: z.string().min(1).max(128),
+			text: z.string().max(4_000_000),
 		}),
 		z.object({ kind: z.literal("cross_domain_listen") }),
 		z.object({
@@ -263,6 +271,7 @@ export const VALUE_OP_KINDS = new Set([
 	"workspace_outline",
 	"workspace_symbol_source",
 	"workspace_symbol_knowledge",
+	"workspace_save_span",
 	"create_session",
 	"reload_plugins",
 	"cross_domain_listen",

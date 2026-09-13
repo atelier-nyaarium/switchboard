@@ -25,23 +25,35 @@ export function setWorkspacePlane(wired: HandlerDeps | null): void {
 	dedupe = wired === null ? null : createOpDedupe({ now: Date.now, holdMs: WORKSPACE_OP_DEDUPE_MS });
 }
 
-/** Null for a frame this plane does not own, so the socket's other branches still see it. */
-export function parseWorkspaceOpRequest(
-	msg: Record<string, unknown>,
-): { reqId: string; key: string; op: WorkspaceOp } | null {
+export type ParsedWorkspaceOp =
+	| { reqId: string; key: string; op: WorkspaceOp }
+	/** Answered at once: an op this build cannot read would otherwise hold the Gateway to its timeout. */
+	| { reqId: string; refused: string };
+
+/** Null only when there is no request id to answer. */
+export function parseWorkspaceOpRequest(msg: Record<string, unknown>): ParsedWorkspaceOp | null {
 	const { reqId, key, op } = msg;
-	if (typeof reqId !== "string" || typeof key !== "string") return null;
-	if (typeof op !== "object" || op === null) return null;
-	const kind = (op as { kind?: unknown }).kind;
-	const path = (op as { path?: unknown }).path;
-	const symbolId = (op as { symbolId?: unknown }).symbolId;
+	if (typeof reqId !== "string") return null;
+	const malformed = { reqId, refused: "this session's plugin cannot read that workspace op; update it" };
+	if (typeof key !== "string" || typeof op !== "object" || op === null) return malformed;
+	const { kind, path, symbolId, expectedSpanHash, text } = op as Record<string, unknown>;
 	if (kind === "tree" || kind === "read" || kind === "outline") {
-		return typeof path === "string" ? { reqId, key, op: { kind, path } } : null;
+		return typeof path === "string" ? { reqId, key, op: { kind, path } } : malformed;
 	}
 	if (kind === "symbolSource" || kind === "symbolKnowledge") {
-		return typeof symbolId === "string" ? { reqId, key, op: { kind, symbolId } } : null;
+		return typeof symbolId === "string" ? { reqId, key, op: { kind, symbolId } } : malformed;
 	}
-	return null;
+	if (kind === "saveSpan") {
+		if (typeof symbolId !== "string" || typeof expectedSpanHash !== "string" || typeof text !== "string") {
+			return malformed;
+		}
+		return { reqId, key, op: { kind, symbolId, expectedSpanHash, text } };
+	}
+	return malformed;
+}
+
+export function refusedOnPlane(reqId: string, detail: string): WorkspaceOpReply {
+	return { type: WORKSPACE_OP_REPLY_FRAME, reqId, result: { ok: false, failure: "refused", detail } };
 }
 
 /** Always answers. A thrown handler becomes a failure the phone can read, never a dropped request. */

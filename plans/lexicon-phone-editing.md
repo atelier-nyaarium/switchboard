@@ -1437,6 +1437,78 @@ reported in the answer rather than blocking, though the audit found that path is
 Refresh silently whenever nothing of the owner's is lost; show the stale banner only when a refresh would
 discard their typing.
 
+### Done
+
+- **A save is `(symbolId, spanHash, text)`; the range is the phone's alone.** It draws the card and orders
+  windows. Sending it would bind the save to where the span sits, which refuses every edit above it, the
+  freebie Question 5 exists for. The hash is the binding.
+- **Start-if-none, join-if-one, commit-only-if-opened is Lexicon's**, as `standalone` since Phase 7. The
+  answer says `joined`, and the notice counts saves that landed in an open refactor, since that session can
+  still undo them.
+- **The plugin reindexes the module before every save**, rather than asking, reindexing on a stale refusal
+  and asking again. `indexFile` on a current module answers `current` for the cost of a hash, and one road
+  is simpler than a retry.
+- **The answer tells gone from unread.** `current` is the span read back; `gone` says the index no longer
+  holds it. A read that failed says neither, so the phone keeps the window and its typing and re-reads.
+- **A save answer lands only on the span it was sent from.** A refresh that landed while the save was in
+  flight has read later than anything the answer knows.
+- **The timeout contract is owned**, closing Phase 3's bug class: `WORKSPACE_BOUNDS` derives each class's
+  plane wait and handler budget inside the phone's read timeout, and `workspace-bounds.test.ts` pins the
+  Kotlin constant and the order. Two limits it does not remove, both recorded: the phone's 35 seconds is per
+  reach attempt, not per call, and a failover can repeat the op; and a timed-out save is not cancelled, so
+  it can land after the phone was told "not confirmed". Both are safe for a save because the hash refuses
+  a second write, and a later read or save of that span adopts the owner's text by the refresh rule.
+- **An op a plugin cannot read is refused at once**, rather than holding the Gateway to its timeout. Older
+  plugins than this still go silent for a save; the plugin deploys first.
+- **Only a refusal is known to have written nothing.** A save that timed out, dropped, failed or came back
+  over the answer cap answers `unknown` (`answerForConsole`), and so does an outcome word a phone does not
+  know. The phone re-reads those windows. The outcome for Lexicon turning the text down is `rejected`,
+  since Kotlin reserves the literal `refused` for a socket frame.
+- **The byte cap is checked before the write.** The schema bounds characters and the answer cap bytes, so a
+  span of wide characters would write and then fail to answer.
+- **Each window is read again at its turn in a multi-span save.** A window closed while an earlier span
+  saved took its draft with it; the capture from the start of the loop would still have written it.
+- **A span the save deleted keeps any typing that arrived during the save**, marked stale, for the owner
+  to copy or close.
+
+## Phase 8b - Root and conversation drawers
+
+Raised by the owner after Phase 7, from a screenshot of the Sessions tab: seven fixed tabs split every
+label mid-word, and Files was the tab that tipped it over.
+
+> ohh and where will the real final file explorer be? It should not be on root tab
+
+> how about both root and conversation view, they both get a side drawer? When you swipe left or right, a
+> static drawer shows depending on person L/R handiness.
+>
+> Root gets the top tabs moved to its drawer. Conversation view gets Files, Chat, Terminal, and even
+> Runbook/Vault who filter to this session/gateway.
+>
+> TLDR consider if something is global scoped vs filterable to a session vs only for a session when designing
+
+Every view is classified before it is placed. Proposed to the owner and accepted:
+
+> sounds good
+
+| View | Global | Filtered to this session or its Gateway | This session only |
+|---|---|---|---|
+| Sessions | yes | | |
+| Backlog | the whole board | this session's entries | |
+| Runbooks | every Gateway | this Gateway, firing into this session | |
+| Routines | every Gateway | routines targeting this session | |
+| Policies | every Gateway | this Gateway | |
+| Vault | every entry | this session's requests and grants | |
+| Chat | | | yes |
+| Terminal | | | yes |
+| Files and windows | | | yes |
+
+- **Root drawer** holds the global column and replaces the tab row.
+- **Conversation drawer** holds Chat, Terminal and Files, then the filtered views.
+- **Handedness is a setting**, right by default. The drawer opens from the thumb's edge; the other edge stays
+  Back.
+- **Mockups first**, in the design dock, before any code.
+- A ref's exits land in the conversation's Files, since the message names its session.
+
 ## Phase 9 - The raw whole-file editor
 
 The tree's sheet offers `Edit raw` and nothing built it. A whole-file read into a Compose field, its own

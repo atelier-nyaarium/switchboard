@@ -8,7 +8,7 @@ import { OP_LEDGER_PROTOCOL } from "../../shared/schemas.js";
 import type { ChannelPushPayload, ConnectionMode, ResponsePushPayload } from "../../shared/types.js";
 import { WORKSPACE_OP_FRAME } from "../../shared/workspace-op.js";
 import { emitChannelNotification, emitResponseNotification } from "../channel/channelNotify.js";
-import { answerOnPlane, parseWorkspaceOpRequest } from "../workspace/plane.js";
+import { answerOnPlane, parseWorkspaceOpRequest, refusedOnPlane } from "../workspace/plane.js";
 
 export interface BridgeConfig {
 	routerUrl: string;
@@ -348,7 +348,11 @@ export function connectToRouter(): void {
 		if (msg.type === WORKSPACE_OP_FRAME) {
 			const request = parseWorkspaceOpRequest(msg);
 			if (request === null) {
-				console.error(`[workspace] malformed op frame`);
+				console.error(`[workspace] op frame without a request id`);
+				return;
+			}
+			if ("refused" in request) {
+				routerWs?.send(JSON.stringify(refusedOnPlane(request.reqId, request.refused)));
 				return;
 			}
 			answerOnPlane(request.reqId, request.key, request.op)

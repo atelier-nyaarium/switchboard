@@ -78,12 +78,44 @@ export const KnowledgeAnswerSchema = z
 	})
 	.meta({ id: "WorkspaceKnowledgeAnswer" });
 
+/** What a save broke, as Lexicon reports it. */
+export const SaveIssueSchema = z
+	.object({
+		kind: z.string().max(64),
+		detail: z.string().max(2048),
+		module: z.string().max(512).optional(),
+		line: z.number().int().nonnegative().optional(),
+	})
+	.meta({ id: "WorkspaceSaveIssue" });
+
+export const SaveSpanAnswerSchema = z
+	.object({
+		kind: z.literal("saveSpan"),
+		symbolId: z.string().min(1).max(1024),
+		/**
+		 * `stale`: the span no longer holds the text the save was written against. `rejected`: Lexicon
+		 * refused the text, with `reason`. `unknown`: the save may have landed, so the phone reads the span
+		 * back. An outcome a phone does not know reads as unknown.
+		 */
+		outcome: z.enum(["saved", "stale", "rejected", "unknown"]),
+		/** The span as it stands after the attempt. Absent when it could not be read back. */
+		current: SymbolSourceAnswerSchema.optional(),
+		/** The span no longer resolves, as opposed to a read back that failed. */
+		gone: z.boolean().optional(),
+		/** Saved into a transaction another session opened, which can still undo it. */
+		joined: z.boolean().optional(),
+		issues: z.array(SaveIssueSchema).max(64).optional(),
+		reason: z.string().max(2048).optional(),
+	})
+	.meta({ id: "WorkspaceSaveSpanAnswer" });
+
 export const WorkspaceOpAnswerSchema = z.discriminatedUnion("kind", [
 	TreeAnswerSchema,
 	ReadAnswerSchema,
 	OutlineAnswerSchema,
 	SymbolSourceAnswerSchema,
 	KnowledgeAnswerSchema,
+	SaveSpanAnswerSchema,
 ]);
 
 export type TreeEntry = z.infer<typeof TreeEntrySchema>;
@@ -93,4 +125,5 @@ export type OutlineSymbol = z.infer<typeof OutlineSymbolSchema>;
 export type OutlineAnswer = z.infer<typeof OutlineAnswerSchema>;
 export type SymbolSourceAnswer = z.infer<typeof SymbolSourceAnswerSchema>;
 export type KnowledgeAnswer = z.infer<typeof KnowledgeAnswerSchema>;
+export type SaveSpanAnswer = z.infer<typeof SaveSpanAnswerSchema>;
 export type WorkspaceOpAnswer = z.infer<typeof WorkspaceOpAnswerSchema>;

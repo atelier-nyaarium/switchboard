@@ -1,0 +1,7 @@
+{
+	"kind": "workspace_save_span",
+	"target": "a95dd4e979aa3be5.sakura.host.89753c",
+	"symbolId": "lexicon typescript src/a.ts target().",
+	"expectedSpanHash": "da64c08948f4cf333ce13ceae74eaf22",
+	"text": "export function target() {\n\treturn 3;\n}"
+}

@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
 import kotlin.coroutines.cancellation.CancellationException
@@ -23,6 +24,13 @@ internal interface WorkspaceGateway {
 	suspend fun symbolSource(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<WorkspaceSymbolSourceAnswer>
 
 	suspend fun knowledge(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<WorkspaceKnowledgeAnswer>
+
+	suspend fun saveSpan(
+		target: WorkspaceTarget,
+		symbolId: String,
+		expectedSpanHash: String,
+		text: String,
+	): WorkspaceAnswer<WorkspaceSaveSpanAnswer>
 }
 
 internal interface WindowHost {
@@ -60,6 +68,9 @@ internal class WindowOps(
 
 	/** One sweep at a time, or an older sweep's answer lands after a newer one's. */
 	private val sweeping = Mutex()
+
+	/** One save at a time, or a second tap sends a span the first is still writing. */
+	private val saving = Mutex()
 
 	/**
 	 * Held across the write and the enqueue that follows it, so the files are asked for in the order the
@@ -101,6 +112,11 @@ internal class WindowOps(
 			}
 			// Assigned inside a compare-and-set that may retry, so only the winning attempt is persisted.
 			persistDrafts(target, before, after)
+			// A whole file is held for context, so it goes as soon as no window of it is open.
+			val open = after.mapTo(HashSet()) { it.descriptor.module }
+			for (module in before.map { it.descriptor.module }.distinct()) {
+				if (module !in open) context.remove(target to module)
+			}
 		}
 	}
 
@@ -210,13 +226,8 @@ internal class WindowOps(
 
 	/** The one road that discards a draft by closing, so closing is how the owner abandons one. */
 	fun closeWindow(target: WorkspaceTarget, symbolId: String) {
-		val module = windowFor(target, symbolId)?.descriptor?.module
 		epoch.incrementAndGet()
 		apply(target) { withoutWindow(it, symbolId) }
-		// A whole file is held for context, so it goes as soon as no window of it is open.
-		if (module != null && windowsOf(target).none { it.descriptor.module == module }) {
-			context.remove(target to module)
-		}
 	}
 
 	/** Memory only; the disk follows from the value, off the caller's thread. */
@@ -290,6 +301,59 @@ internal class WindowOps(
 			}
 		}
 	}
+
+	/**
+	 * Each edited span, only while it still hashes to what the owner was shown. A save with no answer
+	 * may have landed, so its windows are re-read rather than assumed.
+	 */
+	suspend fun save(target: WorkspaceTarget): SaveReport = saving.withLock {
+		val gate = host.workspace ?: return@withLock SaveReport(unknown = editedWindows(windowsOf(target)).size)
+		var report = SaveReport()
+		for (listed in editedWindows(windowsOf(target)).map { it.incarnation }) {
+			// Read again at its turn: a window closed while an earlier span saved took its draft with it.
+			val window = windowsOf(target).firstOrNull { it.incarnation == listed && it.edited } ?: continue
+			val sent = window.shown
+			val descriptor = window.descriptor
+			val began = descriptor.spanHash
+			val answer = try {
+				gate.saveSpan(target, descriptor.symbolId, descriptor.spanHash, sent)
+			} catch (e: CancellationException) {
+				throw e
+			} catch (e: Exception) {
+				DebugLog.log("Window", "save failed: ${e.message}")
+				WorkspaceAnswer.Unreachable
+			}
+			report = when (answer) {
+				is WorkspaceAnswer.Read -> {
+					val saved = answer.value
+					apply(target) { windows ->
+						val next = windows.mapNotNull {
+							// A read that landed during the save is newer than anything this answer knows.
+							if (it.incarnation == window.incarnation && it.descriptor.spanHash == began) afterSave(it, sent, saved) else it
+						}
+						// A span that no longer resolves leaves the set, which is what the epoch guards.
+						if (next.size != windows.size) epoch.incrementAndGet()
+						next
+					}
+					when (saved.outcome) {
+						SAVE_SAVED -> report.copy(
+							saved = report.saved + 1,
+							joined = report.joined + if (saved.joined == true) 1 else 0,
+							issues = report.issues + saved.issues.orEmpty(),
+							unread = report.unread + if (saved.current == null && saved.gone != true) 1 else 0,
+						)
+						SAVE_STALE -> report.copy(stale = report.stale + 1)
+						SAVE_REJECTED -> report.copy(refused = report.refused + (saved.reason ?: "Rejected"))
+						// Includes an outcome this build does not know, which may have written.
+						else -> report.copy(unknown = report.unknown + 1)
+					}
+				}
+				is WorkspaceAnswer.Refused -> report.copy(refused = report.refused + answer.reason)
+				WorkspaceAnswer.Unreachable -> report.copy(unknown = report.unknown + 1)
+			}
+		}
+		report
+	}.also { if (it.unknown > 0 || it.unread > 0) recheck(target) }
 
 	/** Every session with a window open, which is what coming back to the app re-checks. */
 	suspend fun recheckAll() {

@@ -12,6 +12,7 @@ import com.atelier_nyaarium.switchboard.proto.MailboxEntry
 import com.atelier_nyaarium.switchboard.proto.OwnerOp
 import com.atelier_nyaarium.switchboard.proto.PlanesReadResult
 import com.atelier_nyaarium.switchboard.proto.PlanesReadValue
+import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -43,6 +44,7 @@ class ProtocolFixturesTest {
 			"ConsoleForgetResult" -> wireJson.decodeFromString<ConsoleForgetResult>(body)
 			"ConsoleListDirsResult" -> wireJson.decodeFromString<ConsoleListDirsResult>(body)
 			"ConsolePeekResult" -> wireJson.decodeFromString<ConsolePeekResult>(body)
+			"WorkspaceSaveSpanAnswer" -> wireJson.decodeFromString<WorkspaceSaveSpanAnswer>(body)
 			else -> error("unknown manifest schema: $schema")
 		}
 

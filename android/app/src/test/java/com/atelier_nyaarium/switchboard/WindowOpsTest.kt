@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
 import java.io.File
@@ -78,6 +79,51 @@ class WindowOpsTest {
 		): WorkspaceAnswer<WorkspaceKnowledgeAnswer> {
 			asked += target
 			return WorkspaceAnswer.Read(WorkspaceKnowledgeAnswer(symbolId = symbolId, text = "what is known"))
+		}
+
+		/**
+		 * Writes only while the hash matches, as Lexicon does. `lost` writes and answers nothing, `unread`
+		 * writes and cannot read the span back, `gone` writes and the span no longer resolves.
+		 */
+		var lost = false
+		var unread = false
+		var gone = false
+		val saveHolds = mutableMapOf<String, TestHold>()
+		val answerHolds = mutableMapOf<String, TestHold>()
+		val saved = mutableListOf<Pair<String, String>>()
+
+		override suspend fun saveSpan(
+			target: WorkspaceTarget,
+			symbolId: String,
+			expectedSpanHash: String,
+			text: String,
+		): WorkspaceAnswer<WorkspaceSaveSpanAnswer> {
+			asked += target
+			saveHolds.remove(symbolId)?.pass()
+			if (symbolId in refusing) return WorkspaceAnswer.Refused("withheld")
+			val (_, hash) = spans[symbolId] ?: return WorkspaceAnswer.Read(
+				WorkspaceSaveSpanAnswer(symbolId = symbolId, outcome = SAVE_REJECTED, reason = "no such symbol"),
+			)
+			if (hash != expectedSpanHash) {
+				val (heldText, heldHash) = spans.getValue(symbolId)
+				return WorkspaceAnswer.Read(
+					WorkspaceSaveSpanAnswer(symbolId = symbolId, outcome = SAVE_STALE, current = sourceAnswer(symbolId, heldText, heldHash)),
+				)
+			}
+			spans[symbolId] = text to "saved:$text"
+			saved += symbolId to text
+			answerHolds.remove(symbolId)?.pass()
+			if (lost) return WorkspaceAnswer.Unreachable
+			if (gone) spans.remove(symbolId)
+			return WorkspaceAnswer.Read(
+				WorkspaceSaveSpanAnswer(
+					symbolId = symbolId,
+					outcome = SAVE_SAVED,
+					current = if (unread || gone) null else sourceAnswer(symbolId, text, "saved:$text"),
+					gone = if (gone) true else null,
+					joined = false,
+				),
+			)
 		}
 	}
 
@@ -562,6 +608,183 @@ class WindowOpsTest {
 		host.throws = true
 
 		assertEquals(Applied.Failed, ops.agentApply(one))
+	}
+
+	@Test
+	fun `a save writes only the edited spans and leaves each window showing what is on disk`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.openWindow(one, G_ID)
+		ops.type(one, G_ID, "fun g() { mine() }")
+
+		assertEquals(SaveReport(saved = 1), ops.save(one))
+
+		assertEquals(listOf(G_ID to "fun g() { mine() }"), gateway.saved.toList())
+		assertEquals(listOf(F_ID to "fun f() {}", G_ID to "fun g() { mine() }"), shown())
+		assertEquals(listOf(false, false), ops.windowsOf(one).map { it.edited })
+		assertNull(drafts.load(one, G_ID))
+	}
+
+	// A second save must be checked against what the first one wrote, not what the window first showed.
+	@Test
+	fun `a saved window saves again against its new span`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "first")
+		ops.save(one)
+		ops.type(one, F_ID, "second")
+
+		assertEquals(SaveReport(saved = 1), ops.save(one))
+		assertEquals(listOf(F_ID to "second"), shown())
+	}
+
+	@Test
+	fun `typing that lands while a save is in flight stays as the draft`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "sent")
+		val hold = TestHold().also { gateway.saveHolds[F_ID] = it }
+
+		val saving = async { ops.save(one) }
+		hold.entered.await()
+		ops.type(one, F_ID, "sent, and more")
+		hold.release()
+		saving.await()
+
+		assertEquals(listOf(F_ID to "sent, and more"), shown())
+		assertEquals(listOf(true), ops.windowsOf(one).map { it.edited })
+		assertEquals("sent, and more", drafts.load(one, F_ID))
+	}
+
+	@Test
+	fun `a span that moved under the owner is not written and raises the banner with their typing kept`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "mine")
+		gateway.spans[F_ID] = "theirs" to "h9"
+
+		assertEquals(SaveReport(stale = 1), ops.save(one))
+
+		assertEquals(emptyList<Pair<String, String>>(), gateway.saved.toList())
+		assertEquals(listOf(F_ID to "mine"), shown())
+		assertEquals(listOf(true), ops.windowsOf(one).map { it.stale })
+	}
+
+	@Test
+	fun `a refused save leaves the window and its draft alone`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "mine")
+		gateway.refusing += F_ID
+
+		assertEquals(SaveReport(refused = listOf("withheld")), ops.save(one))
+		assertEquals(listOf(F_ID to "mine"), shown())
+		assertEquals("mine", drafts.load(one, F_ID))
+	}
+
+	// No answer is not "not saved": the span is read back, and one holding the owner's text is adopted.
+	@Test
+	fun `a save that landed without an answer is reconciled by reading the span back`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "mine")
+		gateway.lost = true
+
+		assertEquals(SaveReport(unknown = 1), ops.save(one))
+
+		assertEquals(listOf(F_ID to "mine"), shown())
+		assertEquals(listOf(false), ops.windowsOf(one).map { it.edited })
+		assertNull(drafts.load(one, F_ID))
+	}
+
+	// The answer describes the span as the save left it; a refresh that landed since has read later.
+	@Test
+	fun `a save answer that lands after a newer read does not put the older span back`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "mine")
+		val hold = TestHold().also { gateway.answerHolds[F_ID] = it }
+
+		val saving = async { ops.save(one) }
+		hold.entered.await()
+		gateway.spans[F_ID] = "the agent's" to "h9"
+		ops.adopt(one, F_ID)
+		hold.release()
+		saving.await()
+
+		assertEquals(listOf(F_ID to "the agent's"), shown())
+	}
+
+	// A read back that failed says nothing about the span, so the window and its typing stay.
+	@Test
+	fun `a save whose span could not be read back keeps the window and settles it by re-reading`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "mine")
+		gateway.unread = true
+
+		assertEquals(SaveReport(saved = 1, unread = 1), ops.save(one))
+		assertEquals(listOf(F_ID to "mine"), shown())
+		assertEquals(listOf(false), ops.windowsOf(one).map { it.edited })
+	}
+
+	@Test
+	fun `a save whose span no longer resolves closes the window and lets its file's context go`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.contextFor(one, "src/a.ts")
+		ops.type(one, F_ID, "")
+		gateway.gone = true
+		val before = gateway.asked.size
+
+		ops.save(one)
+		ops.contextFor(one, "src/a.ts")
+
+		assertEquals(emptyList<Pair<String, String>>(), shown())
+		assertNull(drafts.load(one, F_ID))
+		assertEquals(before + 2, gateway.asked.size)
+	}
+
+	// Closing is how the owner abandons a draft, so a save already under way must not write it.
+	@Test
+	fun `a window closed while an earlier span saves is not written, and its reopening is not either`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.openWindow(one, G_ID)
+		ops.type(one, F_ID, "f mine")
+		ops.type(one, G_ID, "g abandoned")
+		val hold = TestHold().also { gateway.saveHolds[F_ID] = it }
+
+		val saving = async { ops.save(one) }
+		hold.entered.await()
+		ops.closeWindow(one, G_ID)
+		ops.openWindow(one, G_ID)
+		hold.release()
+		saving.await()
+
+		assertEquals(listOf(F_ID to "f mine"), gateway.saved.toList())
+		assertEquals(listOf(F_ID to "f mine", G_ID to "fun g() {}"), shown())
+	}
+
+	@Test
+	fun `a save answer this build does not know is settled by reading the span back`() = runBlocking {
+		val newer = object : WorkspaceGateway by gateway {
+			override suspend fun saveSpan(target: WorkspaceTarget, symbolId: String, expectedSpanHash: String, text: String) =
+				gateway.saveSpan(target, symbolId, expectedSpanHash, text).let {
+					WorkspaceAnswer.Read(WorkspaceSaveSpanAnswer(symbolId = symbolId, outcome = "committed"))
+				}
+		}
+		val later = opsOver(drafts, FakeHost(newer))
+		later.openWindow(one, F_ID)
+		later.type(one, F_ID, "mine")
+
+		assertEquals(SaveReport(unknown = 1), later.save(one))
+		assertEquals(listOf(false), later.windowsOf(one).map { it.edited })
+	}
+
+	@Test
+	fun `a save that lands after its window closed adds nothing back`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "mine")
+		val hold = TestHold().also { gateway.saveHolds[F_ID] = it }
+
+		val saving = async { ops.save(one) }
+		hold.entered.await()
+		ops.closeWindow(one, F_ID)
+		hold.release()
+		saving.await()
+
+		assertEquals(emptyList<Pair<String, String>>(), shown())
 	}
 
 	@Test

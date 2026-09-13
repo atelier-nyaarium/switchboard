@@ -108,7 +108,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			runbooks: deps.runbooks.console,
 			routines: deps.routines.console,
 			policies: deps.policies.console,
-			workspaceRead: deps.workspacePlane.ask,
+			workspaceAsk: deps.workspacePlane.ask,
 			onSessionEnded,
 		});
 

@@ -1,6 +1,8 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineSymbol
+import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveIssue
+import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeEntry
 
@@ -144,13 +146,64 @@ internal fun refreshWith(held: Window, fresh: WorkspaceSymbolSourceAnswer): Refr
 	return RefreshOutcome.Conflicts(held.copy(stale = true))
 }
 
-/** Which road a submit takes. The same text serves both; only the button differs. */
-internal enum class SubmitRoad {
-	/** Written verbatim. Arrives with the release that can save. */
-	Save,
+/**
+ * A window after its save answered, judged against the window as held now. Null: the span no longer
+ * resolves. Typing that arrived during the save stays as a draft. A save whose span could not be read
+ * back leaves the window as it is, for a re-read to settle.
+ */
+internal fun afterSave(held: Window, sent: String, answer: WorkspaceSaveSpanAnswer): Window? {
+	val fresh = answer.current
+	return when (answer.outcome) {
+		SAVE_SAVED -> when {
+			fresh != null -> held.copy(
+				descriptor = descriptorOf(fresh),
+				original = fresh.text,
+				draft = held.draft?.takeIf { typed -> typed != sent && typed != fresh.text },
+				stale = false,
+			)
+			// Typing that arrived during the save is the owner's to copy or close, never dropped unseen.
+			answer.gone == true -> if (held.draft != null && held.draft != sent) held.copy(stale = true) else null
+			else -> held
+		}
+		// The refresh rule decides.
+		SAVE_STALE -> when (val outcome = fresh?.let { refreshWith(held, it) }) {
+			null -> held.copy(stale = true)
+			RefreshOutcome.Unchanged -> held.copy(stale = true)
+			is RefreshOutcome.Adopted -> outcome.window
+			is RefreshOutcome.Conflicts -> outcome.window
+		}
+		else -> held
+	}
+}
 
-	/** Sent to the agent as a request, which it interprets and applies. */
-	AgentApply,
+internal const val SAVE_SAVED = "saved"
+internal const val SAVE_STALE = "stale"
+internal const val SAVE_REJECTED = "rejected"
+
+/** What one Save tap did across the edited windows, never a Boolean. */
+internal data class SaveReport(
+	val saved: Int = 0,
+	val stale: Int = 0,
+	val refused: List<String> = emptyList(),
+	/** No answer: the save may have landed, so the windows are re-read rather than assumed. */
+	val unknown: Int = 0,
+	/** Saved, but the span was not read back, so the windows are re-read. */
+	val unread: Int = 0,
+	/** Written into a transaction another session holds, which can still undo it. */
+	val joined: Int = 0,
+	val issues: List<WorkspaceSaveIssue> = emptyList(),
+)
+
+internal fun saveNotice(report: SaveReport): String? {
+	val parts = buildList {
+		if (report.saved > 0) add(if (report.saved == 1) "Saved" else "Saved ${report.saved}")
+		if (report.joined > 0) add("${report.joined} in an open refactor")
+		if (report.issues.isNotEmpty()) add(if (report.issues.size == 1) "1 issue" else "${report.issues.size} issues")
+		if (report.stale > 0) add("${report.stale} stale")
+		if (report.unknown > 0) add("${report.unknown} not confirmed")
+		report.refused.distinct().forEach { add(it) }
+	}
+	return parts.takeIf { it.isNotEmpty() }?.joinToString(". ")
 }
 
 /**
