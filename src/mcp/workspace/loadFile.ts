@@ -3,6 +3,7 @@
 // Shared by the refs snapshot road and the phone's file road, so neither grows a second set of rules.
 // Containment is NOT decided here; a caller passes a path `confine` already admitted.
 
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 
 /** What may be OPENED. A sender's own cap bounds what it then ships. */
@@ -21,6 +22,10 @@ export interface LoadedFile {
 	/** UTF-8. A UTF-16 source is transcoded, and every coordinate downstream refers to THIS. */
 	text: string;
 	bytes: number;
+	/** Of the bytes on disk, before any transcoding. */
+	hash: string;
+	/** Only a `utf8` file writes back as the bytes it was read from. */
+	encoding: "utf8" | "utf16";
 }
 
 export type LoadResult = { ok: true; file: LoadedFile } | { ok: false; failure: FileFailure; detail: string };
@@ -28,11 +33,19 @@ export type LoadResult = { ok: true; file: LoadedFile } | { ok: false; failure: 
 ////////////////////////////////
 //  Functions & Helpers
 
+/** The one hash a read answers and a write compares. */
+export function hashBytes(bytes: Uint8Array): string {
+	return createHash("sha256").update(bytes).digest("hex");
+}
+
 /** A UTF-16 BOM is checked FIRST: those files are full of NULs, which a UTF-8 sniff calls binary. */
-function decodeText(buffer: Buffer): string | null {
+function decodeText(buffer: Buffer): { text: string; encoding: LoadedFile["encoding"] } | null {
 	if (buffer.length >= 2) {
-		if (buffer[0] === 0xff && buffer[1] === 0xfe) return buffer.subarray(2).toString("utf16le");
-		if (buffer[0] === 0xfe && buffer[1] === 0xff) return buffer.subarray(2).swap16().toString("utf16le");
+		if (buffer[0] === 0xff && buffer[1] === 0xfe)
+			return { text: buffer.subarray(2).toString("utf16le"), encoding: "utf16" };
+		if (buffer[0] === 0xfe && buffer[1] === 0xff) {
+			return { text: buffer.subarray(2).swap16().toString("utf16le"), encoding: "utf16" };
+		}
 	}
 
 	// toString never fails, so a NUL is the reliable binary tell.
@@ -41,7 +54,7 @@ function decodeText(buffer: Buffer): string | null {
 
 	const text = buffer.toString("utf8");
 	// Round-tripping catches what toString silently replaced.
-	return Buffer.from(text, "utf8").equals(buffer) ? text : null;
+	return Buffer.from(text, "utf8").equals(buffer) ? { text, encoding: "utf8" } : null;
 }
 
 /** Refusals are loud: a silently skipped file leaves the caller believing it was read. */
@@ -69,8 +82,10 @@ export function loadWorkspaceFile(absolute: string, shown: string): LoadResult {
 		return { ok: false, failure: "unreadable", detail: `${shown}: ${(err as Error).message}` };
 	}
 
-	const text = decodeText(buffer);
-	if (text === null) return { ok: false, failure: "binary", detail: `${shown} is not text` };
+	const hash = hashBytes(buffer);
+	const decoded = decodeText(buffer);
+	if (decoded === null) return { ok: false, failure: "binary", detail: `${shown} is not text` };
 
-	return { ok: true, file: { shown, absolute, text, bytes: Buffer.byteLength(text, "utf8") } };
+	const { text, encoding } = decoded;
+	return { ok: true, file: { shown, absolute, text, bytes: Buffer.byteLength(text, "utf8"), hash, encoding } };
 }

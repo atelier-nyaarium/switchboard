@@ -1,0 +1,10 @@
+{
+	"kind": "workspace_mutate_file",
+	"target": "a95dd4e979aa3be5.sakura.host.89753c",
+	"mutation": {
+		"kind": "write",
+		"path": "src/a.ts",
+		"expectedHash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+		"text": "export function target() {\n\treturn 3;\n}\n"
+	}
+}

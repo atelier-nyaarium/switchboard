@@ -28,6 +28,24 @@ describe("reading a workspace op frame", () => {
 		});
 	});
 
+	// An older plugin stripping a precondition it does not know would write with less than was asked.
+	it("takes a file mutation only as its schema reads it, refusing a precondition it does not know", () => {
+		const write = { kind: "write", path: "a.ts", expectedHash: "h", text: "x" };
+		const refusedFrame = { reqId: "r", refused: expect.any(String) };
+
+		expect(parseWorkspaceOpRequest(frame({ kind: "mutateFile", mutation: write }))).toEqual({
+			reqId: "r",
+			key: "k",
+			op: { kind: "mutateFile", mutation: write },
+		});
+		expect(
+			parseWorkspaceOpRequest(frame({ kind: "mutateFile", mutation: { ...write, expectedIdentity: "i" } })),
+		).toMatchObject(refusedFrame);
+		expect(
+			parseWorkspaceOpRequest(frame({ kind: "mutateFile", mutation: { kind: "shred", path: "a.ts" } })),
+		).toMatchObject(refusedFrame);
+	});
+
 	// Silence would hold the Gateway to its full timeout for an op an older plugin cannot read.
 	it("refuses an op it cannot read at once, and ignores only a frame with no request to answer", () => {
 		expect(parseWorkspaceOpRequest(frame({ kind: "delete", path: "a" }))).toMatchObject({

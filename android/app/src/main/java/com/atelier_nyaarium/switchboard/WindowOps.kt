@@ -1,5 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
@@ -7,9 +9,7 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
 import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -31,6 +31,11 @@ internal interface WorkspaceGateway {
 		expectedSpanHash: String,
 		text: String,
 	): WorkspaceAnswer<WorkspaceSaveSpanAnswer>
+
+	suspend fun mutateFile(
+		target: WorkspaceTarget,
+		mutation: WorkspaceFileMutation,
+	): WorkspaceAnswer<WorkspaceFileMutationAnswer>
 }
 
 internal interface WindowHost {
@@ -61,7 +66,7 @@ internal class WindowOps(
 ) : ClearsOnReprovision {
 	private val reads = GatewayReadFence()
 
-	private val held = MutableStateFlow<Map<WorkspaceTarget, List<Window>>>(emptyMap())
+	private val held = HeldEdits<Window>(drafts)
 
 	/** The file around each open window, so leaving the screen and coming back re-reads nothing. */
 	private val context = java.util.concurrent.ConcurrentHashMap<Pair<WorkspaceTarget, String>, List<String>>()
@@ -72,17 +77,10 @@ internal class WindowOps(
 	/** One save at a time, or a second tap sends a span the first is still writing. */
 	private val saving = Mutex()
 
-	/**
-	 * Held across the write and the enqueue that follows it, so the files are asked for in the order the
-	 * values landed. A plain monitor rather than a `Mutex`, since the screen calls `apply` off a keystroke
-	 * and cannot suspend; nothing inside it reaches the disk or the network.
-	 */
-	private val applying = Any()
-
 	/** What the window screen collects. Not in `ChatState`, which is persisted and the Router's. */
-	val windows: StateFlow<Map<WorkspaceTarget, List<Window>>> = held
+	val windows: StateFlow<Map<WorkspaceTarget, List<Window>>> = held.all
 
-	fun windowsOf(target: WorkspaceTarget): List<Window> = held.value[target].orEmpty()
+	fun windowsOf(target: WorkspaceTarget): List<Window> = held.of(target)
 
 	/** Minted per open, so two openings of one symbol are two windows. */
 	private val incarnations = java.util.concurrent.atomic.AtomicLong(0)
@@ -93,56 +91,18 @@ internal class WindowOps(
 	 */
 	private val epoch = java.util.concurrent.atomic.AtomicLong(0)
 
-	/**
-	 * THE one road into held state: every change is a function of what is held NOW, so a decision made
-	 * from a value read before a network wait cannot be written back. A caller that captured a window,
-	 * awaited the gateway, and then wrote what it decided is the shape this exists to make unwritable.
-	 *
-	 * The transform sees the session's windows and returns them; returning the same list writes nothing.
-	 * It runs inside the atomic update, so a check it makes is not racing the write it guards.
-	 */
-	private fun apply(target: WorkspaceTarget, transform: (List<Window>) -> List<Window>) {
-		synchronized(applying) {
-			var before = emptyList<Window>()
-			var after = emptyList<Window>()
-			held.update { all ->
-				before = all[target].orEmpty()
-				after = transform(before)
-				if (after == before) all else all + (target to after)
-			}
-			// Assigned inside a compare-and-set that may retry, so only the winning attempt is persisted.
-			persistDrafts(target, before, after)
-			// A whole file is held for context, so it goes as soon as no window of it is open.
-			val open = after.mapTo(HashSet()) { it.descriptor.module }
-			for (module in before.map { it.descriptor.module }.distinct()) {
-				if (module !in open) context.remove(target to module)
-			}
-		}
-	}
-
-	/**
-	 * The disk follows the value. A caller changes a window and never says what the file should do, so
-	 * the pair cannot drift: a draft that appeared is written, one that went is deleted, and a window
-	 * that left takes its file with it.
-	 *
-	 * Keyed by incarnation, the one notion of window identity `applyTo` and the epoch guard also read.
-	 */
-	private fun persistDrafts(target: WorkspaceTarget, before: List<Window>, after: List<Window>) {
-		// Departures first: a file is named by its symbol, so a window leaving and another of the same
-		// symbol arriving name one file, and the leaver must not delete what the arrival just wrote.
-		val kept = after.mapTo(HashSet()) { it.incarnation }
-		for (window in before) {
-			if (window.incarnation in kept) continue
-			drafts.clear(target, window.descriptor.symbolId)
-		}
-		val was = before.associateBy { it.incarnation }
-		for (window in after) {
-			val draft = window.draft
-			if (was[window.incarnation]?.draft == draft) continue
-			val symbolId = window.descriptor.symbolId
-			if (draft == null) drafts.clear(target, symbolId) else drafts.save(target, symbolId, draft)
-		}
-	}
+	private fun apply(target: WorkspaceTarget, transform: (List<Window>) -> List<Window>) =
+		held.apply(
+			target,
+			settled = { before, after ->
+				// Drop context when no window needs it.
+				val open = after.mapTo(HashSet()) { it.descriptor.module }
+				for (module in before.map { it.descriptor.module }.distinct()) {
+					if (module !in open) context.remove(target to module)
+				}
+			},
+			transform = transform,
+		)
 
 	/**
 	 * One window, found by the incarnation the caller read. A window closed and reopened during a wait
@@ -224,12 +184,13 @@ internal class WindowOps(
 		val began = epoch.get()
 		return when (val answer = fenced(target, ReadSlot.Span(symbolId)) { gate.symbolSource(target, symbolId) }) {
 			is WorkspaceAnswer.Read -> {
-				val draft = drafts.load(target, symbolId)
-				val opened = Window(
-					descriptor = descriptorOf(answer.value),
-					original = answer.value.text,
-					draft = draft,
-					incarnation = incarnations.incrementAndGet(),
+				val opened = restored(
+					Window(
+						descriptor = descriptorOf(answer.value),
+						original = answer.value.text,
+						incarnation = incarnations.incrementAndGet(),
+					),
+					drafts.load(target, DraftKey.Span(symbolId)),
 				)
 				// A close or a re-provision while this was in flight means the owner does not want it.
 				apply(target) { if (epoch.get() == began) withWindow(it, opened) else it }
@@ -271,15 +232,16 @@ internal class WindowOps(
 	/** The banner's Refresh: the owner chose the file's text, so the draft goes. `recheck` never does. */
 	suspend fun adopt(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<Window> {
 		val gate = host.workspace ?: return WorkspaceAnswer.Unreachable
-		val incarnation = windowFor(target, symbolId)?.incarnation ?: return WorkspaceAnswer.Unreachable
+		val tapped = windowFor(target, symbolId) ?: return WorkspaceAnswer.Unreachable
 		return when (val fresh = fenced(target, ReadSlot.Span(symbolId)) { gate.symbolSource(target, symbolId) }) {
 			is WorkspaceAnswer.Read -> {
 				val next = Window(
 					descriptor = descriptorOf(fresh.value),
 					original = fresh.value.text,
-					incarnation = incarnation,
+					incarnation = tapped.incarnation,
 				)
-				applyTo(target, incarnation) { next }
+				// Typing or a save since the tap outranks it, and keeps the banner.
+				landUnmoved(target, tapped.stamp) { if (it.draft == tapped.draft) next else it }
 				WorkspaceAnswer.Read(next)
 			}
 			is WorkspaceAnswer.Refused -> fresh
@@ -359,7 +321,7 @@ internal class WindowOps(
 
 	/** Every session with a window open, which is what coming back to the app re-checks. */
 	suspend fun recheckAll() {
-		for (target in held.value.keys) recheck(target)
+		for (target in held.targets()) recheck(target)
 	}
 
 	/** What Agent Apply sends, for every span the owner actually changed. */
@@ -390,7 +352,7 @@ internal class WindowOps(
 	override suspend fun clearInMemory() {
 		// Before the clear, so a read already in flight cannot add the previous owner's window after it.
 		epoch.incrementAndGet()
-		for (target in held.value.keys) apply(target) { emptyList() }
+		for (target in held.targets()) apply(target) { emptyList() }
 		context.clear()
 		drafts.clearAll()
 	}

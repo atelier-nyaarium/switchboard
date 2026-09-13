@@ -6,6 +6,7 @@ import { AuthorizationPolicySchema } from "./schemasPolicy.js";
 import { RoutineSchema } from "./schemasRoutine.js";
 import { RunbookFireTargetSchema, RunbookSchema } from "./schemasRunbook.js";
 import { VaultDecisionSchema } from "./schemasVault.js";
+import { FileMutationSchema } from "./schemasWorkspace.js";
 
 export { SealedEnvelopeSchema } from "./crypto.js";
 
@@ -114,13 +115,18 @@ export const ConsoleOpSchema = z
 			target: z.string().min(1).max(128),
 			symbolId: z.string().min(1).max(1024),
 		}),
-		// The one write: lands only while the span still hashes to what the owner was shown.
+		// Lands only while the span still hashes to what the owner was shown.
 		z.object({
 			kind: z.literal("workspace_save_span"),
 			target: z.string().min(1).max(128),
 			symbolId: z.string().min(1).max(1024),
 			expectedSpanHash: z.string().min(1).max(128),
 			text: z.string().max(4_000_000),
+		}),
+		z.object({
+			kind: z.literal("workspace_mutate_file"),
+			target: z.string().min(1).max(128),
+			mutation: FileMutationSchema,
 		}),
 		z.object({ kind: z.literal("cross_domain_listen") }),
 		z.object({
@@ -272,6 +278,7 @@ export const VALUE_OP_KINDS = new Set([
 	"workspace_symbol_source",
 	"workspace_symbol_knowledge",
 	"workspace_save_span",
+	"workspace_mutate_file",
 	"create_session",
 	"reload_plugins",
 	"cross_domain_listen",

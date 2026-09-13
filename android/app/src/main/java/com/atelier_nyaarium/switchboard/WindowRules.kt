@@ -109,16 +109,31 @@ internal data class Window(
 	 * Minted per open. A symbol id names which span, not WHICH OPENING of it, so work that began
 	 * before a close and lands after the reopen would otherwise apply to the window that replaced it.
 	 */
-	val incarnation: Long = 0,
-) {
+	override val incarnation: Long = 0,
+) : Drafted {
 	val edited: Boolean get() = draft != null && draft != original
 	val shown: String get() = draft ?: original
 
 	/** Which opening, holding which span: what an answer that awaited the gateway must still find. */
 	val stamp: WindowStamp get() = WindowStamp(incarnation, descriptor.spanHash)
+
+	override val draftKey: DraftKey get() = DraftKey.Span(descriptor.symbolId)
+
+	override val heldDraft: HeldDraft? get() = draft?.let { HeldDraft(descriptor.spanHash, it) }
 }
 
 internal data class WindowStamp(val incarnation: Long, val spanHash: String)
+
+/**
+ * A window reopened over a draft. Typing done over another version of the span keeps that version's hash
+ * and comes back stale, so a save is refused rather than landing it over what moved.
+ */
+internal fun restored(window: Window, held: HeldDraft?): Window =
+	when {
+		held == null -> window
+		held.base == window.descriptor.spanHash -> window.copy(draft = held.text)
+		else -> window.copy(descriptor = window.descriptor.copy(spanHash = held.base), draft = held.text, stale = true)
+	}
 
 /**
  * What a refresh does, which is the one rule the whole staleness design rests on: refresh silently

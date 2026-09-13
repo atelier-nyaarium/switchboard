@@ -36,9 +36,9 @@ class ClearsOnReprovisionTest {
 			.map { it.name }
 			.toSet()
 		// playback: the run names the previous owner's messages and every transport surface draws it.
-		// windowOps: open windows and their drafts hold the previous owner's code, on disk as well.
+		// Edits and drafts retain prior-owner code.
 		assertEquals(
-			setOf("board", "vault", "runbooks", "presence", "trust", "drain", "playback", "windowOps"),
+			setOf("board", "vault", "runbooks", "presence", "trust", "drain", "playback", "windowOps", "rawFileOps"),
 			declared,
 		)
 	}

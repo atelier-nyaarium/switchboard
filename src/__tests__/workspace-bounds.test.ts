@@ -35,7 +35,7 @@ describe("the bounds on one workspace op, outermost first", () => {
 		expect(GATEWAY_RELAY_TIMEOUT_MS).toBeGreaterThanOrEqual(CONSOLE_ANSWER_WAIT_MS);
 	});
 
-	it("gives a save the save bounds and every read the read bounds", () => {
+	it("gives a write the save bounds and every read the read bounds", () => {
 		const reads: WorkspaceOp[] = [
 			{ kind: "tree", path: "" },
 			{ kind: "read", path: "a" },
@@ -47,28 +47,42 @@ describe("the bounds on one workspace op, outermost first", () => {
 		expect(boundsOf({ kind: "saveSpan", symbolId: "s", expectedSpanHash: "h", text: "" })).toBe(
 			WORKSPACE_BOUNDS.save,
 		);
+		expect(boundsOf(write)).toBe(WORKSPACE_BOUNDS.save);
 	});
 });
+
+const write: WorkspaceOp = {
+	kind: "mutateFile",
+	mutation: { kind: "write", path: "src/a.ts", expectedHash: "h", text: "x" },
+};
 
 describe("what the phone is told when the plane fails", () => {
 	const save: WorkspaceOp = { kind: "saveSpan", symbolId: "s", expectedSpanHash: "h", text: "x" };
 	const read: WorkspaceOp = { kind: "symbolSource", symbolId: "s" };
 
-	// Only a refusal wrote nothing. A timed-out or dropped save may still land, so the phone reads it back.
+	// Only refusal proves no write; other failures may land, so reread.
 	it.each([
 		"timeout",
 		"disconnected",
 		"failed",
 		"too_large",
-	] as const)("answers a save that %s as unknown", (failure) => {
+	] as const)("answers a write that %s as unknown", (failure) => {
 		expect(answerForConsole(save, { ok: false, failure, detail: "d" })).toMatchObject({
 			kind: "saveSpan",
 			outcome: "unknown",
 		});
+		expect(answerForConsole(write, { ok: false, failure, detail: "d" })).toMatchObject({
+			kind: "mutateFile",
+			path: "src/a.ts",
+			outcome: "unknown",
+		});
 	});
 
-	it("keeps a refused save and every failed read as the error the phone shows", () => {
+	it("keeps a refused write and every failed read as the error the phone shows", () => {
 		expect(() => answerForConsole(save, { ok: false, failure: "refused", detail: "withheld" })).toThrow("withheld");
+		expect(() => answerForConsole(write, { ok: false, failure: "refused", detail: "withheld" })).toThrow(
+			"withheld",
+		);
 		expect(() => answerForConsole(read, { ok: false, failure: "timeout", detail: "slow" })).toThrow(
 			"timeout: slow",
 		);

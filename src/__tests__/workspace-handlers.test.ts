@@ -1,10 +1,16 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Session } from "@nyaa-lexicon/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { answerWorkspaceOp, type HandlerDeps } from "../mcp/workspace/handlers.js";
-import type { TreeAnswer, WorkspaceOp, WorkspaceOpResult } from "../shared/workspace-op.js";
+import {
+	MAX_RAW_EDIT_BYTES,
+	type TreeAnswer,
+	type WorkspaceOp,
+	type WorkspaceOpResult,
+} from "../shared/workspace-op.js";
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -26,6 +32,11 @@ function workspace(): string {
 	fs.writeFileSync(path.join(root, "README.md"), "# hi\n");
 	return root;
 }
+
+const sha256 = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
+
+/** "hi" as UTF-16LE behind its byte order mark, built from bytes so no invisible character sits in source. */
+const UTF16_HI = Buffer.from([0xff, 0xfe, 0x68, 0x00, 0x69, 0x00]);
 
 /** Deliberately throws: an op needing no index must not open a session. */
 const unopened = async (): Promise<Session> => {
@@ -158,11 +169,30 @@ describe("listing a directory", () => {
 });
 
 describe("reading a file", () => {
-	it("answers the text and its line count without an index", async () => {
+	it("answers the text, its line count and the hash a write names, without an index", async () => {
 		expect(await ask(workspace(), { kind: "read", path: "src/app.ts" })).toEqual({
 			ok: true,
-			answer: { kind: "read", path: "src/app.ts", text: "export const x = 1;\n", lines: 2 },
+			answer: {
+				kind: "read",
+				path: "src/app.ts",
+				text: "export const x = 1;\n",
+				lines: 2,
+				hash: sha256("export const x = 1;\n"),
+			},
 		});
+	});
+
+	// A hash means writable; otherwise writes are refused.
+	it("offers no hash for a file too large to edit or read through transcoding, and says why", async () => {
+		const root = workspace();
+		fs.writeFileSync(path.join(root, "big.txt"), "x".repeat(MAX_RAW_EDIT_BYTES + 1));
+		fs.writeFileSync(path.join(root, "wide.txt"), UTF16_HI);
+
+		for (const file of ["big.txt", "wide.txt"]) {
+			const read = await ask(root, { kind: "read", path: file });
+			expect(read).toMatchObject({ ok: true, answer: { readOnly: expect.any(String) } });
+			expect(read.ok && read.answer.kind === "read" && read.answer.hash).toBeFalsy();
+		}
 	});
 
 	it("serves a committed env example and refuses the real one", async () => {
@@ -451,6 +481,102 @@ describe("saving a span", () => {
 			failure: "refused",
 		});
 		expect(asked).toEqual([]);
+	});
+});
+
+describe("writing a file", () => {
+	const write = (filePath: string, expectedHash: string, text: string): WorkspaceOp => ({
+		kind: "mutateFile",
+		mutation: { kind: "write", path: filePath, expectedHash, text },
+	});
+	const shown = "export const x = 1;\n";
+
+	afterEach(() => vi.restoreAllMocks());
+
+	it("writes over the text the owner was shown, keeps its mode, and answers the hash a read then answers", async () => {
+		const root = workspace();
+		const file = path.join(root, "src", "app.ts");
+		fs.chmodSync(file, 0o640);
+
+		const result = await ask(root, write("src/app.ts", sha256(shown), "export const x = 2;\n"));
+
+		expect(result).toEqual({
+			ok: true,
+			answer: { kind: "mutateFile", path: "src/app.ts", outcome: "done", hash: sha256("export const x = 2;\n") },
+		});
+		expect(fs.readFileSync(file, "utf8")).toBe("export const x = 2;\n");
+		expect(fs.statSync(file).mode & 0o777).toBe(0o640);
+		expect(await ask(root, { kind: "read", path: "src/app.ts" })).toMatchObject({
+			answer: { hash: sha256("export const x = 2;\n") },
+		});
+		expect(fs.readdirSync(path.join(root, "src"))).toEqual(["app.ts"]);
+	});
+
+	it("writes nothing over a file that moved since it was read, and says when it is gone", async () => {
+		const root = workspace();
+		const file = path.join(root, "src", "app.ts");
+		fs.writeFileSync(file, "export const x = 3;\n");
+
+		expect(await ask(root, write("src/app.ts", sha256(shown), "mine"))).toEqual({
+			ok: true,
+			answer: { kind: "mutateFile", path: "src/app.ts", outcome: "stale" },
+		});
+		expect(fs.readFileSync(file, "utf8")).toBe("export const x = 3;\n");
+
+		fs.rmSync(file);
+		expect(await ask(root, write("src/app.ts", sha256(shown), "mine"))).toMatchObject({
+			answer: { outcome: "stale", gone: true },
+		});
+		expect(fs.existsSync(file)).toBe(false);
+	});
+
+	// Rehashing catches changes during temp-file writes.
+	it("writes nothing when the file changes while the new text is on its way to disk", async () => {
+		const root = workspace();
+		const file = path.join(root, "src", "app.ts");
+		const original = fs.writeFileSync.bind(fs);
+		vi.spyOn(fs, "writeFileSync").mockImplementation((target, data, options) => {
+			original(target, data, options);
+			if (String(target) !== file) original(file, "export const x = 4;\n");
+		});
+
+		expect(await ask(root, write("src/app.ts", sha256(shown), "mine"))).toMatchObject({
+			answer: { outcome: "stale" },
+		});
+		vi.restoreAllMocks();
+		expect(fs.readFileSync(file, "utf8")).toBe("export const x = 4;\n");
+		expect(fs.readdirSync(path.join(root, "src"))).toEqual(["app.ts"]);
+	});
+
+	it("writes through a link to the file it names, leaving the link a link", async () => {
+		const root = workspace();
+		fs.symlinkSync("app.ts", path.join(root, "src", "alias.ts"));
+
+		await ask(root, write("src/alias.ts", sha256(shown), "through"));
+
+		expect(fs.lstatSync(path.join(root, "src", "alias.ts")).isSymbolicLink()).toBe(true);
+		expect(fs.readFileSync(path.join(root, "src", "app.ts"), "utf8")).toBe("through");
+	});
+
+	it("refuses what a read would not offer, before writing anything", async () => {
+		const root = workspace();
+		fs.writeFileSync(path.join(root, "wide.txt"), UTF16_HI);
+		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "wsoutside-"));
+		roots.push(outside);
+		fs.writeFileSync(path.join(outside, "theirs.ts"), shown);
+		fs.symlinkSync(path.join(outside, "theirs.ts"), path.join(root, "src", "away.ts"));
+
+		const refusedWrites = [
+			write(".env", sha256("TOKEN=secret\n"), "TOKEN=mine\n"),
+			write("src", "h", "x"),
+			write(".", "h", "x"),
+			write("src/away.ts", sha256(shown), "mine"),
+			write("wide.txt", createHash("sha256").update(UTF16_HI).digest("hex"), "narrow"),
+		];
+		for (const op of refusedWrites) expect(await ask(root, op)).toMatchObject({ ok: false, failure: "refused" });
+		expect(fs.readFileSync(path.join(root, ".env"), "utf8")).toBe("TOKEN=secret\n");
+		expect(fs.readFileSync(path.join(outside, "theirs.ts"), "utf8")).toBe(shown);
+		expect(fs.readFileSync(path.join(root, "wide.txt"))).toEqual(UTF16_HI);
 	});
 });
 

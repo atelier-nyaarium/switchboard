@@ -1,0 +1,5 @@
+{
+	"kind": "workspace_mutate_file",
+	"target": "a95dd4e979aa3be5.sakura.host.89753c",
+	"mutation": { "kind": "write", "path": "src/a.ts", "text": "export function target() {}\n" }
+}

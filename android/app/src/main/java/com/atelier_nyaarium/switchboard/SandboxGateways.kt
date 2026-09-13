@@ -23,6 +23,8 @@ import com.atelier_nyaarium.switchboard.proto.RoutineTarget
 import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
 import com.atelier_nyaarium.switchboard.proto.RunbookParameter
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineSymbol
@@ -45,6 +47,8 @@ private const val REFUSING_ID = "held-elsewhere"
 private const val SECOND_GATEWAY = "parsing"
 
 private const val EMPTY_GATEWAY = "idle-box"
+
+private const val READ_ONLY_FILE = "fixtures.json"
 
 private fun day(offsetMs: Long): Long = System.currentTimeMillis() + offsetMs
 
@@ -315,6 +319,7 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 					"" -> listOf(
 						WorkspaceTreeEntry(name = "src", directory = true, children = 2),
 						WorkspaceTreeEntry(name = "AGENTS.md", directory = false, bytes = 18_402),
+						WorkspaceTreeEntry(name = READ_ONLY_FILE, directory = false, bytes = 912_000),
 					)
 					"src" -> listOf(
 						WorkspaceTreeEntry(name = "shared", directory = true, children = 1),
@@ -327,9 +332,35 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 			)
 		}
 
+	/** Reopen sees sandbox writes. */
+	private val written = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+	private fun hashOf(text: String) = "sandbox-${text.hashCode()}"
+
 	override suspend fun file(target: WorkspaceTarget, path: String) =
 		asSeeded(target) {
-			WorkspaceReadAnswer(path = path, text = file.joinToString("\n"), lines = file.size.toLong())
+			val text = written[path] ?: file.joinToString("\n")
+			val lines = text.split("\n").size.toLong()
+			if (path == READ_ONLY_FILE) {
+				WorkspaceReadAnswer(path = path, text = text, lines = lines, readOnly = "$path is over the editing limit")
+			} else {
+				WorkspaceReadAnswer(path = path, text = text, lines = lines, hash = hashOf(text))
+			}
+		}
+
+	/** AGENTS.md always reads as moved, so the stale banner is reachable. */
+	override suspend fun mutateFile(target: WorkspaceTarget, mutation: WorkspaceFileMutation) =
+		asSeeded(target) {
+			when (mutation) {
+				is WorkspaceFileMutation.Write ->
+					if (mutation.path == "AGENTS.md") {
+						written[mutation.path] = "# Agents\n\nChanged by the agent."
+						WorkspaceFileMutationAnswer(path = mutation.path, outcome = MUTATION_STALE)
+					} else {
+						written[mutation.path] = mutation.text
+						WorkspaceFileMutationAnswer(path = mutation.path, outcome = MUTATION_DONE, hash = hashOf(mutation.text))
+					}
+			}
 		}
 
 	override suspend fun outline(target: WorkspaceTarget, path: String) =

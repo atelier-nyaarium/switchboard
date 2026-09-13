@@ -12,6 +12,7 @@ import com.atelier_nyaarium.switchboard.proto.SignedRemoveTenant
 import com.atelier_nyaarium.switchboard.proto.SignedSetDisplayName
 import com.atelier_nyaarium.switchboard.proto.SignedAdmission
 import com.atelier_nyaarium.switchboard.proto.SttsProvider
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.ScheduledTarget
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
@@ -211,6 +212,9 @@ internal class ConsoleWorkspaceGateway(private val client: ConsoleClient) : Work
 
 	override suspend fun saveSpan(target: WorkspaceTarget, symbolId: String, expectedSpanHash: String, text: String) =
 		client.workspaceSaveSpan(target.gatewayId, target.address, symbolId, expectedSpanHash, text)
+
+	override suspend fun mutateFile(target: WorkspaceTarget, mutation: WorkspaceFileMutation) =
+		client.workspaceMutateFile(target.gatewayId, target.address, mutation)
 }
 
 internal class ChatRepositoryWindowHost(private val repo: ChatRepository) : WindowHost {

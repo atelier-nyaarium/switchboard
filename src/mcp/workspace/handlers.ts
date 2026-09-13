@@ -22,6 +22,7 @@ import {
 } from "../../shared/workspace-op.js";
 import { confine, listable } from "./confine.js";
 import { loadWorkspaceFile } from "./loadFile.js";
+import { mutateFile, readOnlyReason } from "./mutateFile.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -164,8 +165,18 @@ function readOf(root: string, written: string): WorkspaceOpResult {
 	const loaded = loadWorkspaceFile(place.absolute, place.relative);
 	if (!loaded.ok) return refused(loaded.detail);
 
-	const text = loaded.file.text;
-	return { ok: true, answer: { kind: "read", path: place.relative, text, lines: text.split("\n").length } };
+	const { text, hash } = loaded.file;
+	const readOnly = readOnlyReason(loaded.file);
+	return {
+		ok: true,
+		answer: {
+			kind: "read",
+			path: place.relative,
+			text,
+			lines: text.split("\n").length,
+			...(readOnly === null ? { hash } : { readOnly }),
+		},
+	};
 }
 
 async function outlineOf(
@@ -342,6 +353,8 @@ export async function answerWorkspaceOp(deps: HandlerDeps, op: WorkspaceOp): Pro
 				return withinCap(await knowledgeOf(deps, root, op.symbolId, deadline));
 			case "saveSpan":
 				return withinCap(await saveSpanOf(deps, root, op, deadline));
+			case "mutateFile":
+				return withinCap(mutateFile(root, op.mutation));
 		}
 	} catch (error) {
 		return failed(error instanceof Error ? error.message : String(error));

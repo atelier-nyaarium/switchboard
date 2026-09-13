@@ -265,6 +265,13 @@ export function createConsoleDispatcher({
 					"save into the workspace of",
 				);
 
+			case "workspace_mutate_file":
+				return workspaceOf(
+					op.target,
+					{ kind: "mutateFile", mutation: op.mutation },
+					"change a file in the workspace of",
+				);
+
 			case "create_session":
 				return sessionLifecycle.createSession(op, conversationId, opId);
 

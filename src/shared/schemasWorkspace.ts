@@ -32,6 +32,10 @@ export const ReadAnswerSchema = z
 		path: z.string().max(512),
 		text: z.string(),
 		lines: z.number().int().nonnegative(),
+		/** Of the bytes on disk, which a write names. Absent when the text cannot be written back. */
+		hash: z.string().min(1).max(128).optional(),
+		/** Why no write is offered. */
+		readOnly: z.string().max(512).optional(),
 	})
 	.meta({ id: "WorkspaceReadAnswer" });
 
@@ -109,6 +113,40 @@ export const SaveSpanAnswerSchema = z
 	})
 	.meta({ id: "WorkspaceSaveSpanAnswer" });
 
+/**
+ * Plain file work, never through Lexicon. Each kind carries its own preconditions.
+ *
+ * Strict, so a reader that does not know a precondition refuses the mutation rather than stripping it.
+ */
+export const FileMutationSchema = z
+	.discriminatedUnion("kind", [
+		z.strictObject({
+			kind: z.literal("write"),
+			path: z.string().min(1).max(512),
+			/** Hash shown to the owner. */
+			expectedHash: z.string().min(1).max(128),
+			text: z.string().max(4_000_000),
+		}),
+	])
+	.meta({ id: "WorkspaceFileMutation" });
+
+export const FileMutationAnswerSchema = z
+	.object({
+		kind: z.literal("mutateFile"),
+		path: z.string().max(512),
+		/**
+		 * `stale`: the file no longer holds what the mutation named, so nothing was written. `unknown`: it may
+		 * have landed, so the phone reads back. An outcome a phone does not know reads as unknown.
+		 */
+		outcome: z.enum(["done", "stale", "unknown"]),
+		/** Hash after write. */
+		hash: z.string().min(1).max(128).optional(),
+		/** Stale because absent. */
+		gone: z.boolean().optional(),
+		reason: z.string().max(2048).optional(),
+	})
+	.meta({ id: "WorkspaceFileMutationAnswer" });
+
 export const WorkspaceOpAnswerSchema = z.discriminatedUnion("kind", [
 	TreeAnswerSchema,
 	ReadAnswerSchema,
@@ -116,6 +154,7 @@ export const WorkspaceOpAnswerSchema = z.discriminatedUnion("kind", [
 	SymbolSourceAnswerSchema,
 	KnowledgeAnswerSchema,
 	SaveSpanAnswerSchema,
+	FileMutationAnswerSchema,
 ]);
 
 export type TreeEntry = z.infer<typeof TreeEntrySchema>;
@@ -126,4 +165,6 @@ export type OutlineAnswer = z.infer<typeof OutlineAnswerSchema>;
 export type SymbolSourceAnswer = z.infer<typeof SymbolSourceAnswerSchema>;
 export type KnowledgeAnswer = z.infer<typeof KnowledgeAnswerSchema>;
 export type SaveSpanAnswer = z.infer<typeof SaveSpanAnswerSchema>;
+export type FileMutation = z.infer<typeof FileMutationSchema>;
+export type FileMutationAnswer = z.infer<typeof FileMutationAnswerSchema>;
 export type WorkspaceOpAnswer = z.infer<typeof WorkspaceOpAnswerSchema>;

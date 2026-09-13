@@ -4,9 +4,10 @@
 // live in `schemasWorkspace.ts`, since the phone reads them too and they must reach Kotlin; only the
 // frames and the bounds are declared here, which never leave this pair of processes.
 //
-// One write: a span save, whose precondition is the span hash Lexicon checks under its writer gate.
+// Two writes: a span save, checked by Lexicon under its writer gate, and a file mutation, which is plain
+// file work checked in the plugin.
 
-import type { WorkspaceOpAnswer } from "./schemasWorkspace.js";
+import type { FileMutation, WorkspaceOpAnswer } from "./schemasWorkspace.js";
 
 ////////////////////////////////
 //  Constants
@@ -51,6 +52,9 @@ export const MAX_WORKSPACE_OP_BYTES = 4_000_000;
 /** Paged, never truncated. */
 export const MAX_TREE_ENTRIES = 1_000;
 
+/** A larger file opens read-only, since a phone text field cannot hold one. */
+export const MAX_RAW_EDIT_BYTES = 256_000;
+
 ////////////////////////////////
 //  Interfaces & Types
 
@@ -60,27 +64,41 @@ export type WorkspaceOp =
 	| { kind: "outline"; path: string }
 	| { kind: "symbolSource"; symbolId: string }
 	| { kind: "symbolKnowledge"; symbolId: string }
-	| { kind: "saveSpan"; symbolId: string; expectedSpanHash: string; text: string };
+	| { kind: "saveSpan"; symbolId: string; expectedSpanHash: string; text: string }
+	| { kind: "mutateFile"; mutation: FileMutation };
 
 export function boundsOf(op: WorkspaceOp): WorkspaceBounds {
-	return WORKSPACE_BOUNDS[op.kind === "saveSpan" ? "save" : "read"];
+	return WORKSPACE_BOUNDS[unknownAnswerOf(op, "") === null ? "read" : "save"];
+}
+
+/** Writes may land; the phone rereads. */
+function unknownAnswerOf(op: WorkspaceOp, reason: string): WorkspaceOpAnswer | null {
+	switch (op.kind) {
+		case "saveSpan":
+			return { kind: "saveSpan", symbolId: op.symbolId, outcome: "unknown", reason };
+		case "mutateFile":
+			return { kind: "mutateFile", path: op.mutation.path, outcome: "unknown", reason };
+		default:
+			return null;
+	}
 }
 
 /**
  * A plane result as the phone reads it. A failure rides the thrown message, which is how the phone
  * tells refused from failed. Only a refusal is known to have written nothing, so any other failure of a
- * save answers `unknown`, which the phone settles by reading the span back.
+ * write answers `unknown`, which the phone settles by reading back.
  */
 export function answerForConsole(op: WorkspaceOp, result: WorkspaceOpResult): WorkspaceOpAnswer {
 	if (result.ok) return result.answer;
-	if (op.kind === "saveSpan" && result.failure !== "refused") {
-		const reason = `${result.failure}: ${result.detail}`.slice(0, 2048);
-		return { kind: "saveSpan", symbolId: op.symbolId, outcome: "unknown", reason };
-	}
+	const unknown =
+		result.failure === "refused" ? null : unknownAnswerOf(op, `${result.failure}: ${result.detail}`.slice(0, 2048));
+	if (unknown !== null) return unknown;
 	throw new Error(`${result.failure}: ${result.detail}`);
 }
 
 export type {
+	FileMutation,
+	FileMutationAnswer,
 	KnowledgeAnswer,
 	OutlineAnswer,
 	OutlineSymbol,

@@ -1,5 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
@@ -125,6 +127,11 @@ class WindowOpsTest {
 				),
 			)
 		}
+
+		override suspend fun mutateFile(
+			target: WorkspaceTarget,
+			mutation: WorkspaceFileMutation,
+		): WorkspaceAnswer<WorkspaceFileMutationAnswer> = WorkspaceAnswer.Refused("not a file test")
 	}
 
 	/** Records what was sent, since an apply is an ordinary message and nothing else marks it. */
@@ -170,6 +177,8 @@ class WindowOpsTest {
 	fun tearDown() {
 		dir.deleteRecursively()
 	}
+
+	private suspend fun draftOf(target: WorkspaceTarget, symbolId: String) = drafts.load(target, DraftKey.Span(symbolId))?.text
 
 	private fun shownIn(held: WindowOps, target: WorkspaceTarget) =
 		held.windowsOf(target).map { it.descriptor.symbolId to it.shown }
@@ -221,6 +230,22 @@ class WindowOpsTest {
 		assertEquals(listOf(F_ID to "fun f() { mine() }"), shownIn(next, one))
 	}
 
+	// Saving stale typing would overwrite moved content.
+	@Test
+	fun `a draft reopened over a span that moved comes back stale, and its save is refused as stale`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "fun f() { mine() }")
+		gateway.spans[F_ID] = "fun f() { agent() }" to "h9"
+
+		val next = opsOver(draftsOver(dir))
+		next.openWindow(one, F_ID)
+
+		assertTrue(next.windowsOf(one).single().stale)
+		assertEquals(listOf(F_ID to "fun f() { mine() }"), shownIn(next, one))
+		assertEquals(SaveReport(stale = 1), next.save(one))
+		assertEquals("fun f() { agent() }" to "h9", gateway.spans[F_ID])
+	}
+
 	@Test
 	fun `closing leaves the other windows and drops the draft`() = runBlocking {
 		ops.openWindow(one, F_ID)
@@ -230,7 +255,7 @@ class WindowOpsTest {
 		ops.closeWindow(one, F_ID)
 
 		assertEquals(listOf(G_ID to "fun g() {}"), shown())
-		assertNull(drafts.load(one, F_ID))
+		assertNull(draftOf(one, F_ID))
 	}
 
 	@Test
@@ -238,7 +263,7 @@ class WindowOpsTest {
 		ops.type(one, F_ID, "mine")
 
 		assertEquals(emptyList<Pair<String, String>>(), shown())
-		assertNull(drafts.load(one, F_ID))
+		assertNull(draftOf(one, F_ID))
 	}
 
 	@Test
@@ -415,8 +440,26 @@ class WindowOpsTest {
 
 		assertEquals(listOf(F_ID to "theirs"), shown())
 		assertEquals(listOf(false), ops.windowsOf(one).map { it.stale })
-		assertNull(drafts.load(one, F_ID))
+		assertNull(draftOf(one, F_ID))
 		assertTrue(adopted is WorkspaceAnswer.Read)
+	}
+
+	// The tap chose the file's text as it stood; typing after the tap is newer than that choice.
+	@Test
+	fun `typing while a Refresh reads outranks it`() = runBlocking {
+		ops.openWindow(one, F_ID)
+		ops.type(one, F_ID, "mine")
+		gateway.spans[F_ID] = "theirs" to "h9"
+		val hold = TestHold().also { gateway.holds[F_ID] = it }
+
+		val adopting = async(Dispatchers.Default) { ops.adopt(one, F_ID) }
+		hold.entered.await()
+		ops.type(one, F_ID, "mine, and more")
+		hold.release()
+		adopting.await()
+
+		assertEquals(listOf(F_ID to "mine, and more"), shown())
+		assertEquals("mine, and more", draftOf(one, F_ID))
 	}
 
 	@Test
@@ -427,7 +470,7 @@ class WindowOpsTest {
 
 		assertEquals(WorkspaceAnswer.Refused("withheld"), ops.adopt(one, F_ID))
 		assertEquals(listOf(F_ID to "mine"), shown())
-		assertEquals("mine", drafts.load(one, F_ID))
+		assertEquals("mine", draftOf(one, F_ID))
 	}
 
 	// A window that adopted holds no draft, so a reopen must not restore one from disk.
@@ -441,7 +484,7 @@ class WindowOpsTest {
 
 		assertEquals(listOf(F_ID to "mine"), shown())
 		assertEquals(listOf(false), ops.windowsOf(one).map { it.edited })
-		assertNull(drafts.load(one, F_ID))
+		assertNull(draftOf(one, F_ID))
 	}
 
 	// Typing back to the original leaves a draft file behind an unedited window.
@@ -453,7 +496,7 @@ class WindowOpsTest {
 
 		ops.recheck(one)
 
-		assertNull(drafts.load(one, F_ID))
+		assertNull(draftOf(one, F_ID))
 	}
 
 	// The fence supersedes this adopt, since a reopen claims the same slot; the incarnation guard in
@@ -472,7 +515,7 @@ class WindowOpsTest {
 		refresh.await()
 
 		assertEquals(listOf(F_ID to "typed after the reopen"), shown())
-		assertEquals("typed after the reopen", drafts.load(one, F_ID))
+		assertEquals("typed after the reopen", draftOf(one, F_ID))
 	}
 
 	// A sweep answer describing a version the window has moved past is older news than what it shows.
@@ -593,7 +636,7 @@ class WindowOpsTest {
 
 		ops.agentApply(one)
 		assertEquals(listOf(F_ID to "mine"), shown())
-		assertEquals("mine", drafts.load(one, F_ID))
+		assertEquals("mine", draftOf(one, F_ID))
 
 		host.sends = false
 		assertEquals(Applied.Failed, ops.agentApply(one))
@@ -621,7 +664,7 @@ class WindowOpsTest {
 		assertEquals(listOf(G_ID to "fun g() { mine() }"), gateway.saved.toList())
 		assertEquals(listOf(F_ID to "fun f() {}", G_ID to "fun g() { mine() }"), shown())
 		assertEquals(listOf(false, false), ops.windowsOf(one).map { it.edited })
-		assertNull(drafts.load(one, G_ID))
+		assertNull(draftOf(one, G_ID))
 	}
 
 	// A second save must be checked against what the first one wrote, not what the window first showed.
@@ -650,7 +693,7 @@ class WindowOpsTest {
 
 		assertEquals(listOf(F_ID to "sent, and more"), shown())
 		assertEquals(listOf(true), ops.windowsOf(one).map { it.edited })
-		assertEquals("sent, and more", drafts.load(one, F_ID))
+		assertEquals("sent, and more", draftOf(one, F_ID))
 	}
 
 	@Test
@@ -674,7 +717,7 @@ class WindowOpsTest {
 
 		assertEquals(SaveReport(refused = listOf("withheld")), ops.save(one))
 		assertEquals(listOf(F_ID to "mine"), shown())
-		assertEquals("mine", drafts.load(one, F_ID))
+		assertEquals("mine", draftOf(one, F_ID))
 	}
 
 	// No answer is not "not saved": the span is read back, and one holding the owner's text is adopted.
@@ -688,7 +731,7 @@ class WindowOpsTest {
 
 		assertEquals(listOf(F_ID to "mine"), shown())
 		assertEquals(listOf(false), ops.windowsOf(one).map { it.edited })
-		assertNull(drafts.load(one, F_ID))
+		assertNull(draftOf(one, F_ID))
 	}
 
 	// The answer describes the span as the save left it; a refresh that landed since has read later.
@@ -732,7 +775,7 @@ class WindowOpsTest {
 		ops.contextFor(one, "src/a.ts")
 
 		assertEquals(emptyList<Pair<String, String>>(), shown())
-		assertNull(drafts.load(one, F_ID))
+		assertNull(draftOf(one, F_ID))
 		assertEquals(before + 2, gateway.asked.size)
 	}
 

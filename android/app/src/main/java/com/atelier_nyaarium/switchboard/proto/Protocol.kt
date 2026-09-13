@@ -127,6 +127,7 @@ object Protocol {
 			const val WORKSPACE_SYMBOL_SOURCE: String = "workspace_symbol_source"
 			const val WORKSPACE_SYMBOL_KNOWLEDGE: String = "workspace_symbol_knowledge"
 			const val WORKSPACE_SAVE_SPAN: String = "workspace_save_span"
+			const val WORKSPACE_MUTATE_FILE: String = "workspace_mutate_file"
 			const val CROSS_DOMAIN_LISTEN: String = "cross_domain_listen"
 			const val CROSS_DOMAIN_REQUEST: String = "cross_domain_request"
 			const val CROSS_DOMAIN_CONFIRM: String = "cross_domain_confirm"
@@ -406,6 +407,13 @@ sealed class ConsoleOp {
 		val symbolId: String,
 		val expectedSpanHash: String,
 		val text: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("workspace_mutate_file")
+	data class WorkspaceMutateFile(
+		val target: String,
+		val mutation: WorkspaceFileMutation,
 	) : ConsoleOp()
 
 	@Serializable
@@ -2121,6 +2129,8 @@ data class WorkspaceReadAnswer(
 	val path: String,
 	val text: String,
 	val lines: Long,
+	val hash: String? = null,
+	val readOnly: String? = null,
 )
 
 @Serializable
@@ -2180,6 +2190,30 @@ data class WorkspaceSaveSpanAnswer(
 	val gone: Boolean? = null,
 	val joined: Boolean? = null,
 	val issues: List<WorkspaceSaveIssue>? = null,
+	val reason: String? = null,
+)
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class WorkspaceFileMutation {
+	@Serializable
+	@SerialName("write")
+	data class Write(
+		val path: String,
+		val expectedHash: String,
+		val text: String,
+	) : WorkspaceFileMutation()
+}
+
+@Serializable
+data class WorkspaceFileMutationAnswer(
+	@EncodeDefault
+	val kind: String = "mutateFile",
+	val path: String,
+	val outcome: String,
+	val hash: String? = null,
+	val gone: Boolean? = null,
 	val reason: String? = null,
 )
 

@@ -33,6 +33,9 @@
 		{ "file": "invalid-owner-row-vault-request-bare.json", "schema": "MailboxEntry", "expect": "fail" },
 		{ "file": "console-op-workspace-save-span.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "invalid-workspace-save-span-missing-hash.json", "schema": "ConsoleOp", "expect": "fail" },
-		{ "file": "workspace-save-span-answer.json", "schema": "WorkspaceSaveSpanAnswer", "expect": "pass" }
+		{ "file": "workspace-save-span-answer.json", "schema": "WorkspaceSaveSpanAnswer", "expect": "pass" },
+		{ "file": "console-op-workspace-mutate-file.json", "schema": "ConsoleOp", "expect": "pass" },
+		{ "file": "invalid-workspace-mutate-file-missing-hash.json", "schema": "ConsoleOp", "expect": "fail" },
+		{ "file": "workspace-file-mutation-answer.json", "schema": "WorkspaceFileMutationAnswer", "expect": "pass" }
 	]
 }

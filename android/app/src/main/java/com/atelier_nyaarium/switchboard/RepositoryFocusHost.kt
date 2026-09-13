@@ -27,8 +27,11 @@ internal class ChatRepositoryFocusHost(private val repo: ChatRepository) : Repos
 		declareFocus(lastVisibleFocus)
 		repo.drain.kickPoll()
 		if (repo.ownerOpsOrNull()?.domainId() != null) runCatching { repo.socket.connect() }
-		// A span can have moved while the phone was away, and only the owner's own typing is at stake.
-		repo.repoScope.launch { repo.windowOps.recheckAll() }
+		// A file can have moved while the phone was away, and only the owner's own typing is at stake.
+		repo.repoScope.launch {
+			repo.windowOps.recheckAll()
+			repo.rawFileOps.recheckAll()
+		}
 	}
 
 	override fun onBackground() {

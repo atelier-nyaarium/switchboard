@@ -92,7 +92,7 @@ internal fun WorkspaceScreen(
 				onOpenRaw = { onPush(WorkspacePlace.Raw(place.path)) },
 				onOpenWindows = { onPush(WorkspacePlace.Windows) },
 			)
-			is WorkspacePlace.Raw -> WorkspaceRawFile(repo.windowOps, target, place.path)
+			is WorkspacePlace.Raw -> WorkspaceRawFile(repo.rawFileOps, target, place.path)
 			is WorkspacePlace.Detail -> SymbolDetail(
 				ops = repo.windowOps,
 				target = target,

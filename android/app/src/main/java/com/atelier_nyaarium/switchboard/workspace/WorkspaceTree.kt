@@ -89,7 +89,7 @@ internal fun WorkspaceTree(
 					sheetFor = null
 					onOpenOutline(childPath(path, name))
 				}
-				SheetAction("View raw") {
+				SheetAction("Edit raw") {
 					sheetFor = null
 					onOpenRaw(childPath(path, name))
 				}
