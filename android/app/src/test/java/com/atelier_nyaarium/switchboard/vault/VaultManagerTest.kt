@@ -241,6 +241,8 @@ class VaultManagerTest {
 		first.applyList(list(2L, 0L, entry("a")))
 		first.addRequest("dom.gw.host.alice", entryRequest("r1", now + 60_000L), now = now)
 		first.addRequest("dom.gw.host.alice", entryRequest("stale", now + 1L), now = now)
+		// A reopen reads the wall clock.
+		while (System.currentTimeMillis() <= now + 1L) Thread.sleep(1)
 
 		val reopened = VaultManager(store)
 		assertEquals(2L, reopened.routerRevision)
