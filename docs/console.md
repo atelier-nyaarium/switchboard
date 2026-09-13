@@ -310,8 +310,8 @@ no TTL.
   over revision N" tap performs). The binding picker offers only entries with a value that
   `allowedOn` that Gateway. A row's toggle and a routine's carry the row's revision and show the
   gateway's refusal under the row until a toggle of that row lands.
-- **Files** (`WindowOps.kt`, `WindowRules.kt`, `RawFileOps.kt`, `RawFileRules.kt`, `WorkspaceFileOps.kt`,
-  `FileOpRules.kt`, `HeldEdits.kt`, `PublishedViews.kt`, `WorkspaceDraftStore.kt`, `WorkspacePorts.kt`,
+- **Files** (`WindowOps.kt`, `WindowRules.kt`, `KnowledgeRules.kt`, `SessionRequests.kt`, `RawFileOps.kt`,
+  `RawFileRules.kt`, `WorkspaceFileOps.kt`, `FileOpRules.kt`, `HeldEdits.kt`, `PublishedViews.kt`, `WorkspaceDraftStore.kt`, `WorkspacePorts.kt`,
   `WorkspaceFileTable.kt`, `WorkspaceNav.kt`, `workspace/`): a conversation's workspace, read through the
   plugin that holds it. The tree, an outline, a symbol's detail, the open windows and a raw file sit behind
   one stack the conversation's `ShellNav` carries, moved by `WorkspaceNav`'s push and pop. Everything is
@@ -356,6 +356,17 @@ no TTL.
   the save deleted closes its window. `unknown`, which is any save that may have landed without saying
   so, and a save whose span was not read back, re-read their windows. A save into an agent's open
   refactor says so in the notice, since that session can still undo it.
+- **Knowledge** (`KnowledgeRules.kt`, `workspace/SymbolDetail.kt`): `workspace_symbol_knowledge` answers the
+  symbol (name, kind, module, lines, signature, doc comment), one entry per Lexicon question class with its
+  prose and health, and the counts `describe` holds. Stale is the answer's own staleness or an inherited
+  one, doubted is its own doubt or one upstream, and stranded is Lexicon's mark. An older plugin answers
+  none of it, and the screen asks for an update. A Lexicon too old for any read the plugin makes answers a
+  refusal naming the update, not a failure.
+- **Composed requests** (`SessionRequests`): the one road for a message the phone writes for a session,
+  Agent Apply and a knowledge Ask. A request is keyed by address, kind and subject and claimed before it
+  is sent, so a second tap or a second screen sends nothing while one is out. The send outlives the screen
+  that asked, so the state it lands is what happened; a re-provision drops it. Asking again once sent is
+  allowed on purpose.
 - **Raw files** (`RawFileOps`, `RawFileRules`, `WorkspaceRawFile`): the tree's `Edit raw` and the
   outline's Raw open a whole file in one field. The read answers the sha256 of the bytes on disk only when
   the file can be written back; a UTF-16 file or one over `MAX_RAW_EDIT_BYTES` opens read-only with its

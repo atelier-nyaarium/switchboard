@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -23,7 +22,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.Window
@@ -117,14 +115,7 @@ private fun OutlineRow(
 			horizontalArrangement = Arrangement.spacedBy(10.dp),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
-			Text(
-				symbol.symbolKind.take(1).uppercase(),
-				Modifier.width(22.dp),
-				style = MaterialTheme.typography.labelMedium,
-				fontFamily = FontFamily.Monospace,
-				textAlign = TextAlign.Center,
-				color = MaterialTheme.colorScheme.primary,
-			)
+			KindBadge(symbol.symbolKind)
 			Column(Modifier.weight(1f)) {
 				Text(
 					symbol.name,

@@ -7,9 +7,18 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DaemonError, type Session } from "@nyaa-lexicon/client";
-import { hashContent, parseSymbolId, type SymbolSource } from "@nyaa-lexicon/protocol";
+import {
+	type DescribeResult,
+	hashContent,
+	parseSymbolId,
+	QUESTION_CLASSES,
+	type RecallAnswerResult,
+	type SymbolSource,
+} from "@nyaa-lexicon/protocol";
 import {
 	boundsOf,
+	type KnowledgeAnswer,
+	type KnowledgeEntry,
 	MAX_TREE_ENTRIES,
 	MAX_WORKSPACE_OP_BYTES,
 	type OutlineSymbol,
@@ -72,7 +81,6 @@ function answerBytes(answer: WorkspaceOpAnswer): number {
 	switch (answer.kind) {
 		case "read":
 		case "symbolSource":
-		case "symbolKnowledge":
 			return Buffer.byteLength(answer.text, "utf8");
 		case "saveSpan":
 			return (
@@ -332,7 +340,62 @@ async function knowledgeOf(
 	const session = await byDeadline(deadline, deps.session);
 	const described = await byDeadline(deadline, () => session.describe({ symbolId }));
 	if (described === null) return refused(`no symbol with that id is indexed`);
-	return { ok: true, answer: { kind: "symbolKnowledge", symbolId, text: JSON.stringify(described) } };
+	const recalled = await byDeadline(deadline, () => session.recallAnswer({ symbolId }));
+	return { ok: true, answer: knowledgeAnswerOf(symbolId, described, recalled) };
+}
+
+/** Unrecorded questions included. */
+export function knowledgeAnswerOf(
+	symbolId: string,
+	described: DescribeResult,
+	recalled: RecallAnswerResult,
+): KnowledgeAnswer {
+	const { symbol } = described;
+	const held = new Map(
+		(Array.isArray(recalled) ? recalled : recalled ? [recalled] : []).map((r) => [r.answer.question, r]),
+	);
+	const answers = QUESTION_CLASSES.map((question): KnowledgeEntry => {
+		const found = held.get(question);
+		if (found === undefined) return { question };
+		return {
+			question,
+			prose: found.answer.prose,
+			thin: found.answer.thin,
+			stale: found.stale.length > 0 || found.inheritedStale.length > 0,
+			doubted: found.answer.doubt !== undefined || found.doubtedUpstream.length > 0,
+			stranded: found.stranded !== undefined,
+		};
+	});
+	return {
+		kind: "symbolKnowledge",
+		symbolId,
+		name: symbol.name,
+		symbolKind: symbol.kind,
+		module: symbol.module,
+		answers,
+		facts: {
+			members: described.members.length,
+			references: described.referenceCount,
+			fanIn: described.graph.fanIn,
+			fanOut: described.graph.fanOut,
+			supertypes: described.hierarchy.supertypes.length,
+			subtypes: described.hierarchy.subtypes.length,
+			comments: (described.comments?.length ?? 0) + (described.moreComments ?? 0),
+		},
+		// Lexicon counts lines from zero.
+		...(symbol.lines === undefined ? {} : { startLine: symbol.lines.start + 1, endLine: symbol.lines.end + 1 }),
+		...(symbol.signature === undefined ? {} : { signature: symbol.signature }),
+		...(symbol.docComment === undefined ? {} : { documentation: symbol.docComment }),
+		text: legacyKnowledgeText(symbol.docComment, answers),
+	};
+}
+
+// Remove 2026-09-27 with the wire field.
+function legacyKnowledgeText(documentation: string | undefined, answers: KnowledgeEntry[]): string {
+	const recorded = answers.flatMap((entry) =>
+		entry.prose === undefined ? [] : [`${entry.question}: ${entry.prose}`],
+	);
+	return [documentation, ...recorded].filter((part) => part !== undefined).join("\n\n");
 }
 
 /** A thrown op is answered as `failed`, never swallowed, so the phone sees a cause rather than a hang. */
@@ -359,6 +422,10 @@ export async function answerWorkspaceOp(deps: HandlerDeps, op: WorkspaceOp): Pro
 				return withinCap(mutateFile(root, op.mutation));
 		}
 	} catch (error) {
+		// Every Lexicon read: an older daemon is an update, not a failure.
+		if (error instanceof DaemonError && error.cause === "unknownMethod") {
+			return refused(`this machine's Lexicon is too old (${error.message}); update the lexicon plugin`);
+		}
 		return failed(error instanceof Error ? error.message : String(error));
 	}
 }

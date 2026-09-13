@@ -71,6 +71,7 @@ function fakeSession(answers: Partial<Record<string, unknown>>): () => Promise<S
 			outlineModule: async () => answers.outlineModule ?? [],
 			symbolSource: async () => answers.symbolSource,
 			describe: async () => answers.describe ?? null,
+			recallAnswer: async () => answers.recallAnswer ?? [],
 		}) as unknown as Session;
 }
 
@@ -287,6 +288,103 @@ describe("the index-backed reads", () => {
 			failure: "stale",
 		});
 		expect(await ask(workspace(), { kind: "symbolSource", symbolId: SERVED_ID }, gone)).toMatchObject({
+			failure: "refused",
+		});
+	});
+
+	it("answers every question in order, with each recorded answer's health and the symbol's facts", async () => {
+		const summary = (name: string) => ({ symbolId: `id ${name}`, name, kind: "class", module: "src/app.ts" });
+		const recalled = (question: string, extra: Record<string, unknown> = {}) => ({
+			answer: {
+				symbolId: SERVED_ID,
+				question,
+				factId: `f ${question}`,
+				prose: `${question} prose`,
+				citations: [],
+				thin: false,
+				createdAt: 1,
+			},
+			stale: [],
+			inheritedStale: [],
+			doubtedUpstream: [],
+			...extra,
+		});
+		const session = fakeSession({
+			describe: {
+				symbol: {
+					...summary("f"),
+					signature: "class F",
+					docComment: "What F is.",
+					lines: { start: 2, end: 9 },
+				},
+				members: [summary("a"), summary("b")],
+				comments: [{ form: "inline", placement: "body", line: 4, text: "note" }],
+				moreComments: 2,
+				referenceCount: 7,
+				graph: { symbolId: SERVED_ID, fanIn: 5, fanOut: 3 },
+				hierarchy: {
+					symbolId: SERVED_ID,
+					supertypes: [summary("base")],
+					subtypes: [],
+					ancestors: [],
+					unboundSupertypes: [],
+				},
+				tier: "bound",
+			},
+			recallAnswer: [
+				recalled("why", { stale: ["fact gone"] }),
+				{ ...recalled("describe"), answer: { ...recalled("describe").answer, thin: true } },
+				{
+					...recalled("usage"),
+					answer: { ...recalled("usage").answer, doubt: { factId: "d", reason: "r", at: 1 } },
+				},
+			],
+		});
+
+		const result = await ask(workspace(), { kind: "symbolKnowledge", symbolId: SERVED_ID }, session);
+
+		expect(result.ok && result.answer).toEqual({
+			kind: "symbolKnowledge",
+			symbolId: SERVED_ID,
+			name: "f",
+			symbolKind: "class",
+			module: "src/app.ts",
+			startLine: 3,
+			endLine: 10,
+			signature: "class F",
+			documentation: "What F is.",
+			answers: [
+				{
+					question: "describe",
+					prose: "describe prose",
+					thin: true,
+					stale: false,
+					doubted: false,
+					stranded: false,
+				},
+				{ question: "why", prose: "why prose", thin: false, stale: true, doubted: false, stranded: false },
+				{ question: "relate" },
+				{ question: "contract" },
+				{ question: "effects" },
+				{ question: "usage", prose: "usage prose", thin: false, stale: false, doubted: true, stranded: false },
+			],
+			facts: { members: 2, references: 7, fanIn: 5, fanOut: 3, supertypes: 1, subtypes: 0, comments: 3 },
+			text: "What F is.\n\ndescribe: describe prose\n\nwhy: why prose\n\nusage: usage prose",
+		});
+	});
+
+	it("refuses knowledge from a Lexicon that cannot recall answers", async () => {
+		const { DaemonError } = await import("@nyaa-lexicon/client");
+		const session = async () =>
+			({
+				describe: async () => ({ symbol: { name: "f" } }),
+				recallAnswer: async () => {
+					throw new DaemonError("unknown method: recallAnswer", "unknownMethod");
+				},
+			}) as unknown as Session;
+
+		expect(await ask(workspace(), { kind: "symbolKnowledge", symbolId: SERVED_ID }, session)).toMatchObject({
+			ok: false,
 			failure: "refused",
 		});
 	});

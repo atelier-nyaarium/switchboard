@@ -14,6 +14,7 @@ import com.atelier_nyaarium.switchboard.proto.PlanesReadResult
 import com.atelier_nyaarium.switchboard.proto.PlanesReadValue
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -49,6 +50,7 @@ class ProtocolFixturesTest {
 			"WorkspaceSaveSpanAnswer" -> wireJson.decodeFromString<WorkspaceSaveSpanAnswer>(body)
 			"WorkspaceFileMutationAnswer" -> wireJson.decodeFromString<WorkspaceFileMutationAnswer>(body)
 			"WorkspaceFileStateAnswer" -> wireJson.decodeFromString<WorkspaceFileStateAnswer>(body)
+			"WorkspaceKnowledgeAnswer" -> wireJson.decodeFromString<WorkspaceKnowledgeAnswer>(body)
 			else -> error("unknown manifest schema: $schema")
 		}
 

@@ -80,7 +80,7 @@ class WindowOpsTest {
 			symbolId: String,
 		): WorkspaceAnswer<WorkspaceKnowledgeAnswer> {
 			asked += target
-			return WorkspaceAnswer.Read(WorkspaceKnowledgeAnswer(symbolId = symbolId, text = "what is known"))
+			return WorkspaceAnswer.Read(WorkspaceKnowledgeAnswer(symbolId = symbolId, name = "known"))
 		}
 
 		/**
@@ -653,6 +653,17 @@ class WindowOpsTest {
 		host.throws = true
 
 		assertEquals(Applied.Failed, ops.agentApply(one))
+	}
+
+	@Test
+	fun `an ask sends the session the question, and a send that throws fails`() = runBlocking {
+		val answer = WorkspaceKnowledgeAnswer(symbolId = F_ID, name = "f", module = "src/a.ts")
+
+		assertEquals(Submitted.Sent, ops.askKnowledge(one, answer, "why"))
+		assertEquals(listOf(one.address to knowledgeAsk(answer, "why")), host.sent.toList())
+
+		host.throws = true
+		assertEquals(Submitted.Failed, ops.askKnowledge(one, answer, "usage"))
 	}
 
 	@Test

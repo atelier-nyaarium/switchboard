@@ -273,7 +273,10 @@ class ChatRepository(
 	@Volatile internal var sttsClient: SttsClient? = null
 
 	internal val clearedOnReprovision: List<ClearsOnReprovision>
-		get() = listOf(this, board, vault, runbooks, presence, trust, drain, playback, workspaceHost, windowOps, rawFileOps, fileOps)
+		get() = listOf(
+			this, board, vault, runbooks, presence, trust, drain, playback, workspaceHost, sessionRequests, windowOps, rawFileOps,
+			fileOps,
+		)
 
 	override suspend fun clearInMemory() {
 		invalidateClient()
@@ -374,7 +377,8 @@ class ChatRepository(
 	// Keep this directory name, since another name would orphan every held draft.
 	private val workspaceDrafts = WorkspaceDraftStore(File(filesDir, "window-drafts"), repoScope)
 	private val workspaceHost = ChatRepositoryWorkspaceHost(this)
-	internal val windowOps = WindowOps(host = workspaceHost, drafts = workspaceDrafts)
+	internal val sessionRequests = SessionRequests(workspaceHost)
+	internal val windowOps = WindowOps(host = workspaceHost, drafts = workspaceDrafts, outbox = sessionRequests)
 	internal val rawFileOps = RawFileOps(host = workspaceHost, drafts = workspaceDrafts)
 	// A draft on disk counts; one loads only on open.
 	internal val fileOps = WorkspaceFileOps(host = workspaceHost) { target, path ->

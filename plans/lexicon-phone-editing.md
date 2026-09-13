@@ -722,6 +722,9 @@ mismatch.
 So the first release reads everything and can change anything through the agent. The second removes the
 agent from the loop and makes the exactness a guarantee.
 
+An encore follows both: Phase 12 brings every Files screen to its mock, and Phase 13 finishes the follow-ups
+the eleven phases left on the board.
+
 Ordering changed after the audit. Confinement and the canonical root now come BEFORE anything serves a read,
 since reads were previously scheduled against a root four resolvers could disagree about.
 
@@ -1155,7 +1158,8 @@ Three were considered and deliberately not done:
   hash is added, and shipped there.
 - The detail screen's per-question knowledge, its badges and its facts rows. The plane answers
   `describe_symbol` as one block of text, and parsing that on the phone would be a twin of Lexicon's own
-  formatter. A structured knowledge answer is its own phase, recorded on the board.
+  formatter. A structured knowledge answer is its own phase, recorded on the board. SUPERSEDED by Phase 12a,
+  which structures the answer.
 
 ## Phase 5 - Agent Apply ✅
 
@@ -1823,6 +1827,164 @@ next message it was going to get anyway. No push, no acknowledgement.
   back knows whether it landed. One line per path, its latest change, at most 40 listed. Forget drops the
   session's bank; close keeps it for the wake. Covered by `workspace-awareness.test.ts` through the real
   bank.
+
+# Encore - Matching the mocks, and what was left
+
+The owner compared build 645 against the mockups in `plans/lexicon-phone-editing/`. Knowledge prints
+Lexicon's `describe` result as raw JSON, folders show a slash, and every Files screen trails its mock
+somewhere. Phase 12 brings each screen to its mock. Phase 13 finishes every follow-up left on the board.
+
+Deploy order is unchanged: plugin, Gateway, phone. A Router change in 13a restarts the Router first. A
+Lexicon change in 13c ships as a Lexicon release and a pin move before the plugin build.
+
+Render a mock to compare against with headless Firefox:
+`firefox --headless --no-remote --profile "$(mktemp -d)" --window-size 430,<card height> --screenshot out.png file://<mock>`.
+The card height is on the mock's first line.
+
+## Phase 12a - Structured knowledge ✅
+
+Mock: `symbol-knowledge.html`. Closes the board item for the structured answer.
+
+- **Wire:** `WorkspaceKnowledgeAnswer` becomes structured:
+  - The symbol: name, kind, module, lines and signature.
+  - `documentation`, when the symbol carries a doc comment.
+  - One entry per Lexicon question class, in `QUESTION_CLASSES` order. Each has the recorded prose, or none, and
+    its health: thin, stale, doubted, stranded.
+  - `facts`: members, references, fan in and out, supertypes and subtypes, and attached comments.
+  - Every field an older peer cannot fill is optional, so a phone meeting an older plugin draws a refusal
+    rather than a crash. The regenerated `Protocol.kt` and a protocol fixture ride the same commit.
+- **Plugin:** `knowledgeOf` calls `describe` and `recallAnswer` inside the op's one deadline, and maps
+  Lexicon's shapes onto the wire.
+  - **Stale:** the recalled answer's `stale` or `inheritedStale` is non-empty.
+  - **Doubted:** the answer carries a `doubt`, or `doubtedUpstream` is non-empty.
+  - **Stranded:** Lexicon marks the answer `stranded`.
+  - **Documentation:** the `describe` comments that are the symbol's own doc comment.
+- **Phone:** `SymbolDetail` draws what the mock draws.
+  - A header with the kind badge, the name and `path : lines`.
+  - Source, then Documentation.
+  - Knowledge: one row per question with a THIN, STALE, DOUBTED or STRANDED badge. A missing answer reads
+    "not recorded" with an Ask chip.
+  - Facts as rows, zero counts included.
+- **Old phones:** the answer carries a plain `text` rendering until 2026-09-27, since a phone before this
+  build requires the field and would otherwise read every knowledge answer as unreachable.
+- **Ask:** sends the session a message asking it to record that question for the symbol and module, through
+  `SessionRequests`, the road Agent Apply sends on. The chip reads Asking while it is out, then Asked or
+  Retry, and can be tapped again once it is not sending. The send outlives the screen that asked.
+- **Rules:** the row list and the ask text are pure functions beside `WindowRules`, tested there.
+- **Sandbox:** answers a canned structured answer with a thin row, a stale row and gaps.
+
+### What the architecture pass decided
+
+- **One road for a message the phone composes for a session: `SessionRequests`.** Agent Apply and Ask each
+  built their own send, catch and double-tap guard, and 12b and 12c would add two more. `submit` claims a
+  `RequestKey` (session, kind, subject) before sending, so two taps or two screens send once, publishes each
+  request's state, and fences a re-provision with `WorkspaceHost.generation`. Ask's label and whether it can
+  be tapped read that state through `askLabel` and `askable`. 12b's Send to agent and 12c's window request
+  are request kinds on it.
+- **An older Lexicon is one rule in the plugin.** `answerWorkspaceOp` turns any `unknownMethod` from a Lexicon
+  read into an update refusal naming the method; the save keeps its own, since it answers every other throw
+  as `unknown`.
+- **One kind badge.** The outline drew its own first letter, so a class read C there and K in detail.
+  `KindBadge` and `kindBadge` are the one mapping.
+- **Carried to the next phases:**
+  - **12b and 12c:** a symbol's identity (name, kind, module, lines, container) is built once, and the window
+    descriptor gains kind and container for 12c's card header.
+  - **12c:** the pending window request is a request kind on `SessionRequests`, matched against inbound
+    messages through a multi-subscriber stream that replaces the single `onInbound` slot the notifications
+    own.
+  - **12b and 12d:** the outline, the symbol detail and the ref viewer's live read are published by the ops
+    class through `PublishedViews`, not held in screens.
+
+## Phase 12b - The tree and the outline
+
+Mocks: `file-tree.html`, `file-outline.html`.
+
+- **Tree header:** the project name and session, and a breadcrumb whose segments navigate. New file moves
+  to a `+` in the header.
+- **Tree rows:**
+  - A `..` row when not at the root.
+  - A folder icon for folders, already in the working tree, and a type badge for files.
+  - A chevron on every row.
+  - Folders show their child count, and text files show a line count. The plugin's tree entry gains an
+    optional `lines`, counted only under a size cap, above which the row shows its size.
+- **File sheet:**
+  - A header with the name and "N lines · size".
+  - Actions with icons: Open outline, Edit raw, Move, Duplicate (the Copy action, renamed), Rename, Send to
+    agent, and Delete in the error color.
+  - **Rename** is a move within the same folder, prefilled with the name.
+  - **Send to agent** sends the session a message naming the file.
+- **Outline header:** the breadcrumb path, the file name and its line count.
+- **Detail header:** the back line names the containing file, so the symbol's name is not drawn twice.
+- **Outline rows:** a colored kind badge, the name, the signature beneath it, the start line and a chevron.
+  Members are indented under their container.
+- **Kept:** the filter chips, and Raw and View N Windows at the bottom.
+
+## Phase 12c - The prose road and the window
+
+Mocks: `file-outline.html` for the field, `symbol-window.html` for the request above the cards. Closes the board
+item for the prose road.
+
+- **The field:** "Ask for the windows you want" on the outline sends the session a message. It carries the
+  request and the module, and asks for one `ref://` link per symbol to open.
+- **No new wire:** a ref already carries its `symbolId` (Phase 6), so the session's ordinary reply is the
+  road back.
+- **Pending request:** the phone holds one per session: the text, the module and when it was sent.
+  - The first session message after it whose refs carry symbol ids opens those windows through the one open
+    road, and lands on Windows with the request shown above the cards.
+  - A reply with no symbol refs leaves the request pending until dismissed.
+  - It is held in memory, so a restart drops it.
+- **Window cards:**
+  - A header of `Container : member`, the EDITED badge and the line range.
+  - A separator reading "N lines" between consecutive windows of one file.
+  - The stale banner is kept.
+
+## Phase 12d - The ref viewer's Sent and Now
+
+Mock: `ref-viewer.html`. Phase 6 deferred this for want of a live read and a Kotlin hash twin.
+
+- **Reading now:** opening a ref that carries a `symbolId` and a `spanHash` reads the span through
+  `symbolSource`.
+- **Comparing:** a Kotlin twin of Lexicon's `hashContent` (sha256 of the UTF-8 text, the first 32 hex
+  characters) hashes the same line slice the producer hashed. A shared vector file pins both runtimes.
+- **Differs:** a "Changed since sent" strip and a Sent / Now toggle. Now highlights the lines that differ.
+- **Matches:** no strip.
+- **Unreadable:** no strip and no claim either way.
+
+## Phase 13a - Gateway and Router follow-ups
+
+- **The awareness lease:** `prepareFor`, then `commit` on acceptance or `release`, which merges back any
+  changes observed meanwhile. Liveness is checked for every non-empty bank, and the bank owns the output
+  bound. The deadline push commits only once it is delivered.
+- **Friend presence freshness:** `friendProjection` skips rows whose Gateway is unreachable, since a friend
+  cannot reach them either.
+- **Purge Gateway self-retirement:** a Gateway-signed retirement the Router honours beside owner
+  revocations. It changes what a Gateway may say about itself, so it is designed under `/security` first.
+  A design that needs the owner's ruling stops the cycle and asks rather than building on a guess.
+
+## Phase 13b - Phone follow-ups
+
+- **A refused draft write is visible:** a per-window and per-file save-failure state, reported by the
+  store and drawn beside EDITED, and cleared by the next save that lands.
+- **Board and vault write before they publish:** the `RunbookManager` shape, with one write-failure test
+  each.
+- **One forget teardown:** a session lifecycle owner used by all three surfaces in `MainActivity`.
+- **One presence word:** a pure rule beside `Presence.kt`, used by `App` and `SessionCard` and tested per
+  case.
+- **Cancellation is never swallowed:** a residue test over every phone `runCatching` and broad catch
+  around a suspend call, and a fix at each site it finds.
+- **Zero-width and banned punctuation are fenced:** the control-byte residue extends to U+FEFF,
+  U+200B-U+200D, em dashes and smart quotes over Kotlin, TypeScript and markdown, with the
+  construct-it-instead advice in its failure message.
+
+## Phase 13c - Lexicon and suite follow-ups
+
+- **A lossy decode refuses a write:** in `nyaa-lexicon`, `SourceRead` reports whether the decode was
+  lossless, and every writer refuses a lossy module with a refusal naming the file. Reads stay lenient.
+  It ships as a Lexicon release, then a pin move here.
+- **The Lexicon suite hang:** run the full suite with its output kept, name the file that hangs, and fix it.
+- **The unreproduced Switchboard suite failure:** repeated full runs with their logs kept, and a review of
+  the vector test for a file-level throw. Close it with the file named and fixed, or with the runs that
+  prove it gone and the reason it cannot recur.
 
 # Painpoints
 

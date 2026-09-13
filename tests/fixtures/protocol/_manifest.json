@@ -40,6 +40,7 @@
 		{ "file": "console-op-workspace-move-file.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "invalid-workspace-delete-file-missing-identity.json", "schema": "ConsoleOp", "expect": "fail" },
 		{ "file": "console-op-workspace-file-state.json", "schema": "ConsoleOp", "expect": "pass" },
-		{ "file": "workspace-file-state-answer.json", "schema": "WorkspaceFileStateAnswer", "expect": "pass" }
+		{ "file": "workspace-file-state-answer.json", "schema": "WorkspaceFileStateAnswer", "expect": "pass" },
+		{ "file": "workspace-knowledge-answer.json", "schema": "WorkspaceKnowledgeAnswer", "expect": "pass" }
 	]
 }

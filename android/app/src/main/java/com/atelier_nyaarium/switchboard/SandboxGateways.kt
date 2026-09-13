@@ -27,6 +27,8 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeEntry
+import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeFacts
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineSymbol
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
@@ -418,11 +420,39 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 
 	override suspend fun knowledge(target: WorkspaceTarget, symbolId: String) =
 		asSeeded(target) {
+			val refusal = symbolId.contains("routineRefusal")
 			WorkspaceKnowledgeAnswer(
 				symbolId = symbolId,
-				text = "Describe: returns the reason a routine cannot be stored, or null when it can.\n\n" +
-					"Why: a rule that parses can still name nothing, so the refusal asks the recurrence " +
-					"calculator rather than trusting the parse.",
+				name = if (refusal) "routineRefusal" else "MAX_ROUTINE_MEMORY_BYTES",
+				symbolKind = if (refusal) "function" else "constant",
+				module = module,
+				documentation = if (refusal) "Why a routine cannot be stored, or null." else "What a routine may remember, in UTF-8 BYTES.",
+				// Every row shape draws.
+				answers = listOf(
+					WorkspaceKnowledgeEntry(
+						question = "describe",
+						prose = "Returns the reason a routine cannot be stored, or null when it can.",
+						thin = true,
+					),
+					WorkspaceKnowledgeEntry(
+						question = "why",
+						prose = "A rule that parses can still name nothing, so the refusal asks the recurrence calculator.",
+						stale = true,
+					),
+					WorkspaceKnowledgeEntry(question = "relate"),
+					WorkspaceKnowledgeEntry(question = "contract"),
+					WorkspaceKnowledgeEntry(question = "effects"),
+					WorkspaceKnowledgeEntry(question = "usage"),
+				),
+				facts = WorkspaceKnowledgeFacts(
+					members = 0,
+					references = 4,
+					fanIn = 3,
+					fanOut = 5,
+					supertypes = 0,
+					subtypes = 0,
+					comments = 1,
+				),
 			)
 		}
 

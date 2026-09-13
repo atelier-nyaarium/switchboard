@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard.workspace
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -8,6 +9,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
@@ -30,6 +33,7 @@ import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspacePlace
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.holdsWorkspace
+import com.atelier_nyaarium.switchboard.kindBadge
 import com.atelier_nyaarium.switchboard.placeOf
 import com.atelier_nyaarium.switchboard.placeTitle
 import com.atelier_nyaarium.switchboard.targetOf
@@ -160,6 +164,24 @@ internal fun <T> WorkspaceAnswerBox(
 internal fun WorkspaceNotice(text: String, modifier: Modifier = Modifier) {
 	OutlinedCard(modifier.fillMaxWidth().padding(12.dp)) {
 		Text(text, Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+	}
+}
+
+@Composable
+internal fun KindBadge(symbolKind: String?, modifier: Modifier = Modifier) {
+	val letter = kindBadge(symbolKind)
+	val colors = MaterialTheme.colorScheme
+	val (container, content) = when (letter) {
+		"F" -> colors.primaryContainer to colors.onPrimaryContainer
+		"C" -> colors.tertiaryContainer to colors.onTertiaryContainer
+		"T", "K" -> colors.secondaryContainer to colors.onSecondaryContainer
+		else -> colors.surfaceVariant to colors.onSurfaceVariant
+	}
+	Box(
+		modifier.size(22.dp).background(container, RoundedCornerShape(5.dp)),
+		contentAlignment = Alignment.Center,
+	) {
+		Text(letter, style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace, color = content)
 	}
 }
 

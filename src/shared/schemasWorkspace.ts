@@ -73,12 +73,49 @@ export const SymbolSourceAnswerSchema = z
 	})
 	.meta({ id: "WorkspaceSymbolSourceAnswer" });
 
+export const KnowledgeEntrySchema = z
+	.object({
+		question: z.enum(["describe", "why", "relate", "contract", "effects", "usage"]),
+		/** Absent: not recorded. */
+		prose: z.string().optional(),
+		/** Cites nothing beyond the declaration. */
+		thin: z.boolean().optional(),
+		/** A cited fact moved. */
+		stale: z.boolean().optional(),
+		doubted: z.boolean().optional(),
+		/** Its subject no longer resolves. */
+		stranded: z.boolean().optional(),
+	})
+	.meta({ id: "WorkspaceKnowledgeEntry" });
+
+export const KnowledgeFactsSchema = z
+	.object({
+		members: z.number().int().nonnegative(),
+		references: z.number().int().nonnegative(),
+		fanIn: z.number().int().nonnegative(),
+		fanOut: z.number().int().nonnegative(),
+		supertypes: z.number().int().nonnegative(),
+		subtypes: z.number().int().nonnegative(),
+		comments: z.number().int().nonnegative(),
+	})
+	.meta({ id: "WorkspaceKnowledgeFacts" });
+
 export const KnowledgeAnswerSchema = z
 	.object({
 		kind: z.literal("symbolKnowledge"),
 		symbolId: z.string().min(1).max(1024),
-		/** Opaque to the phone. */
-		text: z.string(),
+		// These five required from 2026-09-27, once plugins before 8.11 are gone.
+		name: z.string().max(512).optional(),
+		symbolKind: z.string().max(64).optional(),
+		module: z.string().max(512).optional(),
+		answers: z.array(KnowledgeEntrySchema).max(16).optional(),
+		facts: KnowledgeFactsSchema.optional(),
+		startLine: z.number().int().positive().optional(),
+		endLine: z.number().int().positive().optional(),
+		signature: z.string().optional(),
+		documentation: z.string().optional(),
+		// Remove 2026-09-27: phones before this build require it and draw nothing else.
+		text: z.string().optional(),
 	})
 	.meta({ id: "WorkspaceKnowledgeAnswer" });
 
@@ -217,6 +254,7 @@ export type OutlineSymbol = z.infer<typeof OutlineSymbolSchema>;
 export type OutlineAnswer = z.infer<typeof OutlineAnswerSchema>;
 export type SymbolSourceAnswer = z.infer<typeof SymbolSourceAnswerSchema>;
 export type KnowledgeAnswer = z.infer<typeof KnowledgeAnswerSchema>;
+export type KnowledgeEntry = z.infer<typeof KnowledgeEntrySchema>;
 export type SaveSpanAnswer = z.infer<typeof SaveSpanAnswerSchema>;
 export type FileMutation = z.infer<typeof FileMutationSchema>;
 export type FileMutationAnswer = z.infer<typeof FileMutationAnswerSchema>;

@@ -130,6 +130,7 @@ private fun appliedNotice(applied: Applied): String =
 		is Applied.Sent -> if (applied.spans == 1) "Asked. The agent answers in the thread." else
 			"Asked about ${applied.spans} spans. The agent answers in the thread."
 		Applied.NothingEdited -> "Nothing to ask about"
+		Applied.AlreadySending -> "Already asking"
 		Applied.Failed -> "That did not leave the phone"
 	}
 

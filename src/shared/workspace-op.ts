@@ -106,6 +106,7 @@ export type {
 	FileMutationAnswer,
 	FileStateAnswer,
 	KnowledgeAnswer,
+	KnowledgeEntry,
 	OutlineAnswer,
 	OutlineSymbol,
 	ReadAnswer,

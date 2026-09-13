@@ -15,6 +15,8 @@ internal sealed interface Applied {
 
 	data object NothingEdited : Applied
 
+	data object AlreadySending : Applied
+
 	data object Failed : Applied
 }
 
@@ -27,7 +29,10 @@ internal sealed interface Applied {
 internal class WindowOps(
 	private val host: WorkspaceHost,
 	private val drafts: WorkspaceDraftStore,
+	private val outbox: SessionRequests = SessionRequests(host),
 ) : ClearsOnReprovision {
+	val requestStates: StateFlow<Map<RequestKey, RequestState>> = outbox.states
+
 	private val reads = GatewayReadFence()
 
 	private val held = HeldEdits<Window>(drafts)
@@ -273,17 +278,15 @@ internal class WindowOps(
 	suspend fun agentApply(target: WorkspaceTarget): Applied {
 		val requests = agentRequests(target)
 		val text = applyMessage(requests) ?: return Applied.NothingEdited
-		// A throwing send would otherwise take the screen's coroutine with it and say nothing at all.
-		val sent = try {
-			host.send(target.address, text)
-		} catch (e: CancellationException) {
-			throw e
-		} catch (e: Exception) {
-			DebugLog.log("Window", "apply failed: ${e.message}")
-			false
+		return when (outbox.submit(RequestKey(target.address, RequestKind.APPLY, ""), text)) {
+			Submitted.Sent -> Applied.Sent(requests.size)
+			Submitted.AlreadySending -> Applied.AlreadySending
+			Submitted.Failed -> Applied.Failed
 		}
-		return if (sent) Applied.Sent(requests.size) else Applied.Failed
 	}
+
+	suspend fun askKnowledge(target: WorkspaceTarget, answer: WorkspaceKnowledgeAnswer, question: String): Submitted =
+		outbox.submit(knowledgeRequest(target, answer.symbolId, question), knowledgeAsk(answer, question))
 
 	/** A re-provision takes the previous owner's code with it, on disk as well as in memory. */
 	override suspend fun clearInMemory() {

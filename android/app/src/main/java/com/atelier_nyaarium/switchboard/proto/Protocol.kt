@@ -2177,7 +2177,16 @@ data class WorkspaceKnowledgeAnswer(
 	@EncodeDefault
 	val kind: String = "symbolKnowledge",
 	val symbolId: String,
-	val text: String,
+	val name: String? = null,
+	val symbolKind: String? = null,
+	val module: String? = null,
+	val answers: List<WorkspaceKnowledgeEntry>? = null,
+	val facts: WorkspaceKnowledgeFacts? = null,
+	val startLine: Long? = null,
+	val endLine: Long? = null,
+	val signature: String? = null,
+	val documentation: String? = null,
+	val text: String? = null,
 )
 
 @Serializable
@@ -2738,4 +2747,25 @@ data class EnabledPlugin(
 	val id: String,
 	/** Agent-facing usage guidance for this capability, surfaced to the session. */
 	val instructions: String? = null,
+)
+
+@Serializable
+data class WorkspaceKnowledgeEntry(
+	val question: String,
+	val prose: String? = null,
+	val thin: Boolean? = null,
+	val stale: Boolean? = null,
+	val doubted: Boolean? = null,
+	val stranded: Boolean? = null,
+)
+
+@Serializable
+data class WorkspaceKnowledgeFacts(
+	val members: Long,
+	val references: Long,
+	val fanIn: Long,
+	val fanOut: Long,
+	val supertypes: Long,
+	val subtypes: Long,
+	val comments: Long,
 )

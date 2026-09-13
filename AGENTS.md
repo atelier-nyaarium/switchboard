@@ -303,11 +303,14 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     source and its knowledge cancel each other. `WindowOps` passes a sealed `ReadSlot`, so no string
     reaches this from there; the other callers still pass one. A read that fills a per-module cache is
     not fenced at all, since nothing an older answer could overwrite exists.
-- `android/.../WindowOps.kt` / `WindowRules.kt` / `RawFileOps.kt` / `RawFileRules.kt` / `WorkspaceFileOps.kt` /
-  `FileOpRules.kt` / `HeldEdits.kt` / `PublishedViews.kt` / `WorkspaceDraftStore.kt` / `WorkspacePorts.kt` /
-  `WorkspaceFileTable.kt` / `WorkspaceNav.kt` / `workspace/` - a conversation's Files: the open windows, the
-  raw files being edited, the file operations, their drafts, every rule the surface applies, the place rules,
-  and the five screens. `docs/console.md` holds the whole of it
+- `android/.../WindowOps.kt` / `WindowRules.kt` / `KnowledgeRules.kt` / `SessionRequests.kt` / `RawFileOps.kt` /
+  `RawFileRules.kt` / `WorkspaceFileOps.kt` / `FileOpRules.kt` / `HeldEdits.kt` / `PublishedViews.kt` /
+  `WorkspaceDraftStore.kt` / `WorkspacePorts.kt` / `WorkspaceFileTable.kt` / `WorkspaceNav.kt` / `workspace/` - a
+  conversation's Files: the open windows, the raw files being edited, the file operations, their drafts, every
+  rule the surface applies, the place rules, and the five screens. `docs/console.md` holds the whole of it
+  - **A message the phone composes for a session goes through `SessionRequests`:** claimed by address, kind
+    and subject before it is sent, so a repeat tap sends nothing while one is out. Agent Apply and a
+    knowledge Ask both take it; a new composed message is a `RequestKind`, not a new guard.
   - **Keyed by SESSION, never by Gateway:** two sessions of one Gateway hold different workspaces, so
     a Gateway-keyed map serves one session's span for the other. The fence, the draft filenames and
     the held maps all take the qualified session address.
