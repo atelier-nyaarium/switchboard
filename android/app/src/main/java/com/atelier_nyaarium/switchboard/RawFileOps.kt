@@ -5,28 +5,37 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * Whole files open in the raw editor, and their drafts. Keyed by SESSION and path, as windows are.
+ * Whole files open in the raw editor, their drafts, and what each screen draws. Keyed by SESSION and path,
+ * as windows are.
  *
- * Held from the first editable read until left with nothing typed, so typing outlives the screen.
+ * Held from the first editable read until left with nothing typed, so typing outlives the screen. The view
+ * is decided here rather than in the screen, since no gate reaches a Composable.
  */
 internal class RawFileOps(
-	private val host: WindowHost,
-	private val drafts: WindowDraftStore,
+	private val host: WorkspaceHost,
+	private val drafts: WorkspaceDraftStore,
 ) : ClearsOnReprovision {
 	private val held = HeldEdits<RawEdit>(drafts)
+
+	private val drawn = MutableStateFlow<Map<Pair<WorkspaceTarget, String>, RawView>>(emptyMap())
 
 	private val incarnations = AtomicLong(0)
 
 	/** Moves on a re-provision, so a read in flight lands nothing after it. */
 	private val epoch = AtomicLong(0)
 
-	/** Counts each leave of a path, so an open still reading when its screen went lands nothing. */
-	private val leaves = ConcurrentHashMap<Pair<WorkspaceTarget, String>, Long>()
+	/**
+	 * The one open of each path that may still land. A newer open or a leave replaces or drops it, so an older
+	 * read settles nothing, and it goes when that open settles.
+	 */
+	private val opening = ConcurrentHashMap<Pair<WorkspaceTarget, String>, Any>()
 
 	/** One save at a time, or a second tap sends text the first is still writing. */
 	private val saving = Mutex()
@@ -36,83 +45,93 @@ internal class RawFileOps(
 
 	val edits: StateFlow<Map<WorkspaceTarget, List<RawEdit>>> = held.all
 
-	/** Moves on a re-provision; a screen compares it before reopening a file it lost. */
-	val generation: Long get() = epoch.get()
+	/** What each open file's screen draws. Absent: no screen has asked, or it left. */
+	val views: StateFlow<Map<Pair<WorkspaceTarget, String>, RawView>> = drawn
 
 	fun editOf(target: WorkspaceTarget, path: String): RawEdit? = held.of(target).firstOrNull { it.path == path }
 
-	private fun applyTo(target: WorkspaceTarget, incarnation: Long, transform: (RawEdit) -> RawEdit) =
-		held.apply(target) { edits -> edits.map { if (it.incarnation == incarnation) transform(it) else it } }
+	fun viewOf(target: WorkspaceTarget, path: String): RawView? = drawn.value[target to path]
 
-	/**
-	 * Lands only on the opening the work began from, still holding the hash it began from. A read that
-	 * began before a save landed is older news than the save, and would put the old text back. Null lets
-	 * the file go.
-	 */
-	private fun landUnmoved(target: WorkspaceTarget, stamp: RawStamp, transform: (RawEdit) -> RawEdit?) =
-		held.apply(target) { edits -> edits.mapNotNull { if (it.stamp == stamp) transform(it) else it } }
+	private fun edit(target: WorkspaceTarget, path: String, change: (RawEdit) -> RawEdit) =
+		held.apply(target) { edits -> edits.map { if (it.path == path) change(it) else it } }
+
+	/** Replaces the view of a screen still showing, and only that. */
+	private fun redraw(target: WorkspaceTarget, path: String, view: RawView) {
+		drawn.update { all -> if ((target to path) in all) all + ((target to path) to view) else all }
+	}
 
 	private suspend fun read(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceReadAnswer> =
 		host.workspace?.file(target, path) ?: WorkspaceAnswer.Unreachable
 
-	/** Holds an editable file, restoring any draft. One already held is re-read against what it holds. */
-	suspend fun open(target: WorkspaceTarget, path: String): WorkspaceAnswer<RawOpened> {
+	/**
+	 * Holds an editable file, restoring any draft, and draws what it is. One already held is re-read against
+	 * what it holds. Nothing lands for a screen that left, or across a re-provision, while this read.
+	 */
+	suspend fun open(target: WorkspaceTarget, path: String): RawView {
+		val key = target to path
 		val began = epoch.get()
-		val leftBefore = leaves[target to path]
-		val heldWhenAsked = editOf(target, path)?.stamp
-		val file = when (val answer = read(target, path)) {
-			is WorkspaceAnswer.Read -> answer.value
-			is WorkspaceAnswer.Refused -> return answer
-			WorkspaceAnswer.Unreachable -> return WorkspaceAnswer.Unreachable
+		val mine = Any()
+		opening[key] = mine
+		val wanted = { epoch.get() == began && opening[key] === mine }
+		val settle = { view: RawView ->
+			drawn.update { all -> if (wanted()) all + (key to view) else all }
+			view
 		}
-		if (heldWhenAsked != null) {
-			landUnmoved(target, heldWhenAsked) { refreshRaw(it, file) }
-			if (editOf(target, path) != null) return WorkspaceAnswer.Read(RawOpened.Editable)
-			if (file.hash == null) return WorkspaceAnswer.Read(readOnlyOf(file))
-			// Left during the read, so it is held afresh.
+		try {
+			drawn.update { all -> if (key in all) all else all + (key to RawView.Loading) }
+			val before = editOf(target, path)
+			val answer = read(target, path)
+			val file = (answer as? WorkspaceAnswer.Read)?.value
+			if (file == null) {
+				// Held typing stays on screen; a failed read is no reason to hide it.
+				return settle(if (editOf(target, path) != null) RawView.Editable else rawViewOf(answer) ?: RawView.Unreachable)
+			}
+			if (before != null) {
+				held.land(target, before, Landing.Folded { refreshRaw(it, file) })
+				if (editOf(target, path) != null) return settle(RawView.Editable)
+				if (file.hash == null) return settle(readOnlyOf(file))
+				// Left during the read, so it is held afresh.
+			}
+			val edit = rawEditOf(path, file, incarnations.incrementAndGet()) ?: return settle(readOnlyOf(file))
+			val opened = restoredRaw(edit, drafts.load(target, DraftKey.File(path)))
+			held.apply(target) { edits -> if (!wanted() || edits.any { it.path == path }) edits else edits + opened }
+			return settle(RawView.Editable)
+		} finally {
+			opening.remove(key, mine)
 		}
-		val edit = rawEditOf(path, file, incarnations.incrementAndGet())
-			?: return WorkspaceAnswer.Read(readOnlyOf(file))
-		val opened = restoredRaw(edit, drafts.load(target, DraftKey.File(path)))
-		held.apply(target) { edits ->
-			val wanted = epoch.get() == began && leaves[target to path] == leftBefore
-			if (!wanted || edits.any { it.path == path }) edits else edits + opened
-		}
-		return WorkspaceAnswer.Read(RawOpened.Editable)
 	}
 
+	/** Memory only; the disk follows from the value. A caret move is not typing. */
 	fun type(target: WorkspaceTarget, path: String, text: String) {
-		val edit = editOf(target, path) ?: return
-		applyTo(target, edit.incarnation) { it.copy(draft = text) }
+		edit(target, path) { if (it.shown == text) it else it.copy(draft = text) }
 	}
 
 	/** Drops the typing and keeps the file open. */
 	fun discard(target: WorkspaceTarget, path: String) {
-		val edit = editOf(target, path) ?: return
-		applyTo(target, edit.incarnation) { it.copy(draft = null) }
+		edit(target, path) { it.copy(draft = null) }
 	}
 
 	/** Leaving the screen lets go of a file with nothing typed. Typing stays held, and on disk. */
 	fun leave(target: WorkspaceTarget, path: String) {
-		leaves.merge(target to path, 1L, Long::plus)
+		opening.remove(target to path)
 		held.apply(target) { edits -> edits.filterNot { it.path == path && !it.edited } }
+		drawn.update { it - (target to path) }
 	}
 
-	/** The banner's Refresh: the owner chose the file's text, so the draft goes. */
-	suspend fun adopt(target: WorkspaceTarget, path: String): WorkspaceAnswer<RawOpened> {
-		val current = editOf(target, path) ?: return open(target, path)
-		val file = when (val answer = read(target, path)) {
-			is WorkspaceAnswer.Read -> answer.value
-			is WorkspaceAnswer.Refused -> return answer
-			WorkspaceAnswer.Unreachable -> return WorkspaceAnswer.Unreachable
-		}
+	/**
+	 * The banner's Refresh: the owner chose the file's text, so the draft goes. Answers a notice when the file
+	 * could not be read, which leaves the editor and its typing on screen.
+	 */
+	suspend fun adopt(target: WorkspaceTarget, path: String): String? {
+		val tapped = editOf(target, path) ?: return refreshNotice(open(target, path))
+		val answer = read(target, path)
+		val file = (answer as? WorkspaceAnswer.Read)?.value ?: return refreshNotice(rawViewOf(answer))
 		// Null when the file can no longer be edited, which lets it go.
-		val next = rawEditOf(path, file, current.incarnation)
+		val next = rawEditOf(path, file, tapped.incarnation)
 		// Typing or a save since the tap outranks it, and keeps the banner.
-		val untouched = { edit: RawEdit -> edit.stamp == current.stamp && edit.draft == current.draft }
-		held.apply(target) { edits -> edits.mapNotNull { if (untouched(it)) next else it } }
-		val letGo = next == null && editOf(target, path) == null
-		return WorkspaceAnswer.Read(if (letGo) readOnlyOf(file) else RawOpened.Editable)
+		val landed = held.land(target, tapped, Landing.OverUntouched(next))
+		if (landed && next == null) redraw(target, path, readOnlyOf(file))
+		return null
 	}
 
 	/** Only while the file still hashes to what the owner was shown. An unanswered write is read back. */
@@ -134,11 +153,11 @@ internal class RawFileOps(
 				val hash = value.hash
 				when {
 					value.outcome == MUTATION_DONE && hash != null -> {
-						landUnmoved(target, edit.stamp) { written(it, sent, hash) }
+						held.land(target, edit, Landing.Folded { written(it, sent, hash) })
 						RawSave.Written
 					}
 					value.outcome == MUTATION_STALE -> {
-						landUnmoved(target, edit.stamp) { it.copy(stale = true) }
+						held.land(target, edit, Landing.Folded { it.copy(stale = true) })
 						RawSave.Stale(gone = value.gone == true)
 					}
 					// Includes an outcome this build does not know, which may have written.
@@ -154,22 +173,26 @@ internal class RawFileOps(
 		val fresh = (read(target, edit.path) as? WorkspaceAnswer.Read)?.value ?: return RawSave.Unconfirmed
 		return when (val found = readBackOf(sent, edit.hash, fresh)) {
 			is ReadBack.Landed -> {
-				landUnmoved(target, edit.stamp) { written(it, sent, found.hash) }
+				held.land(target, edit, Landing.Folded { written(it, sent, found.hash) })
 				RawSave.Written
 			}
 			ReadBack.Untouched -> RawSave.NotWritten(reason)
 			ReadBack.Moved -> {
-				landUnmoved(target, edit.stamp) { refreshRaw(it, fresh) }
+				held.land(target, edit, Landing.Folded { refreshRaw(it, fresh) })
 				RawSave.Stale(gone = false)
 			}
 		}
 	}
 
-	/** Unfenced, and guarded by the hash each file held when its read began. */
+	/** Unfenced: each file's answer lands only on the opening and version its read began from. */
 	suspend fun recheck(target: WorkspaceTarget) = sweeping.withLock {
-		for ((path, stamp) in held.of(target).map { it.path to it.stamp }) {
-			val fresh = (read(target, path) as? WorkspaceAnswer.Read)?.value ?: continue
-			landUnmoved(target, stamp) { refreshRaw(it, fresh) }
+		for (before in held.of(target)) {
+			val fresh = (read(target, before.path) as? WorkspaceAnswer.Read)?.value ?: continue
+			val landed = held.land(target, before, Landing.Folded { refreshRaw(it, fresh) })
+			// Let go, since it can no longer be written, so its screen shows it read-only.
+			if (landed && fresh.hash == null && editOf(target, before.path) == null) {
+				redraw(target, before.path, readOnlyOf(fresh))
+			}
 		}
 	}
 
@@ -180,7 +203,8 @@ internal class RawFileOps(
 	/** A re-provision takes the previous owner's files with it, on disk as well as in memory. */
 	override suspend fun clearInMemory() {
 		epoch.incrementAndGet()
-		leaves.clear()
+		opening.clear()
+		drawn.value = emptyMap()
 		for (target in held.targets()) held.apply(target) { emptyList() }
 		drafts.clearAll()
 	}

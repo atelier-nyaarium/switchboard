@@ -41,19 +41,20 @@ class RawFileOpsTest {
 		val writes = mutableListOf<String>()
 
 		override suspend fun file(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceReadAnswer> {
-			// Read first; held answer stays older.
+			// Answered before the hold, so a held answer is wholly the older one.
 			val text = files[path]
+			val answer = when {
+				unreadable -> WorkspaceAnswer.Unreachable
+				text == null -> WorkspaceAnswer.Refused("$path does not exist")
+				path in readOnly -> WorkspaceAnswer.Read(
+					WorkspaceReadAnswer(path = path, text = text, lines = text.lines().size.toLong(), readOnly = "too large"),
+				)
+				else -> WorkspaceAnswer.Read(
+					WorkspaceReadAnswer(path = path, text = text, lines = text.lines().size.toLong(), hash = hashOf(text)),
+				)
+			}
 			readHolds.removeFirstOrNull()?.pass()
-			if (unreadable) return WorkspaceAnswer.Unreachable
-			text ?: return WorkspaceAnswer.Refused("$path does not exist")
-			val lines = text.split("\n").size.toLong()
-			return WorkspaceAnswer.Read(
-				if (path in readOnly) {
-					WorkspaceReadAnswer(path = path, text = text, lines = lines, readOnly = "too large")
-				} else {
-					WorkspaceReadAnswer(path = path, text = text, lines = lines, hash = hashOf(text))
-				},
-			)
+			return answer
 		}
 
 		override suspend fun mutateFile(
@@ -95,7 +96,7 @@ class RawFileOpsTest {
 		): WorkspaceAnswer<WorkspaceSaveSpanAnswer> = error("not reached")
 	}
 
-	private class Host(override val workspace: WorkspaceGateway?) : WindowHost {
+	private class Host(override val workspace: WorkspaceGateway?) : WorkspaceHost {
 		override suspend fun send(address: String, text: String) = error("not reached")
 	}
 
@@ -105,7 +106,7 @@ class RawFileOpsTest {
 	private val one = WorkspaceTarget(gatewayId = "sakura", address = "home.sakura.host.aaa")
 
 	private fun opsOver(over: File = dir, gateway: WorkspaceGateway? = files) =
-		RawFileOps(Host(gateway), WindowDraftStore(over, CoroutineScope(Dispatchers.Unconfined)))
+		RawFileOps(Host(gateway), WorkspaceDraftStore(over, CoroutineScope(Dispatchers.Unconfined)))
 
 	private fun edit(held: RawFileOps = ops) = held.editOf(one, PATH)
 
@@ -123,7 +124,10 @@ class RawFileOpsTest {
 
 	@Test
 	fun `a save writes over what was read, and the file becomes what is held`() = runBlocking {
-		assertEquals(WorkspaceAnswer.Read(RawOpened.Editable), ops.open(one, PATH))
+		assertEquals(RawView.Editable, ops.open(one, PATH))
+		// The field reports a caret move as the same text, which drafts nothing.
+		ops.type(one, PATH, "const x = 1;")
+		assertNull(edit()!!.draft)
 		ops.type(one, PATH, "const x = 2;")
 
 		assertEquals(RawSave.Written, ops.save(one, PATH))
@@ -141,7 +145,8 @@ class RawFileOpsTest {
 	fun `a file that cannot be written opens read-only and holds nothing`() = runBlocking {
 		files.readOnly += PATH
 
-		assertEquals(WorkspaceAnswer.Read(RawOpened.ReadOnly("const x = 1;", "too large")), ops.open(one, PATH))
+		assertEquals(RawView.ReadOnly("const x = 1;", "too large"), ops.open(one, PATH))
+		assertEquals(RawView.ReadOnly("const x = 1;", "too large"), ops.viewOf(one, PATH))
 		assertNull(edit())
 	}
 
@@ -186,9 +191,21 @@ class RawFileOpsTest {
 		assertEquals(RawSave.Stale(gone = false), ops.save(one, PATH))
 		assertEquals(true to "const x = 2;", edit()!!.stale to edit()!!.shown)
 
-		assertEquals(WorkspaceAnswer.Read(RawOpened.Editable), ops.adopt(one, PATH))
+		assertNull(ops.adopt(one, PATH))
 		assertEquals(false to "const x = 3;", edit()!!.stale to edit()!!.shown)
 		assertFalse(edit()!!.edited)
+	}
+
+	// Losing the editor to a notice would hide the typing the banner is protecting.
+	@Test
+	fun `Refresh that cannot read says so and leaves the editor and its typing`() = runBlocking {
+		ops.open(one, PATH)
+		ops.type(one, PATH, "const x = 2;")
+		files.unreadable = true
+
+		assertEquals("This session could not be reached", ops.adopt(one, PATH))
+		assertEquals(RawView.Editable, ops.viewOf(one, PATH))
+		assertEquals("const x = 2;", edit()?.shown)
 	}
 
 	@Test
@@ -198,7 +215,8 @@ class RawFileOpsTest {
 		files.files[PATH] = "huge"
 		files.readOnly += PATH
 
-		assertEquals(WorkspaceAnswer.Read(RawOpened.ReadOnly("huge", "too large")), ops.adopt(one, PATH))
+		assertNull(ops.adopt(one, PATH))
+		assertEquals(RawView.ReadOnly("huge", "too large"), ops.viewOf(one, PATH))
 		assertNull(edit())
 		assertNull(opsOverAfterOpen().let { edit(it) })
 	}
@@ -223,7 +241,7 @@ class RawFileOpsTest {
 		val nowhere = RawFileOps(Host(object : WorkspaceGateway by files {
 			override suspend fun mutateFile(target: WorkspaceTarget, mutation: WorkspaceFileMutation) =
 				WorkspaceAnswer.Read(WorkspaceFileMutationAnswer(path = PATH, outcome = "unknown", reason = "timeout: slow"))
-		}), WindowDraftStore(dir, CoroutineScope(Dispatchers.Unconfined)))
+		}), WorkspaceDraftStore(dir, CoroutineScope(Dispatchers.Unconfined)))
 		nowhere.open(one, PATH)
 
 		assertEquals(RawSave.NotWritten("timeout: slow"), nowhere.save(one, PATH))
@@ -286,7 +304,7 @@ class RawFileOpsTest {
 
 		ops.recheck(one)
 		assertNull(edit())
-		assertEquals(WorkspaceAnswer.Read(RawOpened.ReadOnly("huge", "too large")), ops.open(one, PATH))
+		assertEquals(RawView.ReadOnly("huge", "too large"), ops.viewOf(one, PATH))
 
 		files.readOnly -= PATH
 		ops.open(one, PATH)
@@ -294,7 +312,7 @@ class RawFileOpsTest {
 		files.readOnly += PATH
 		files.files[PATH] = "huger"
 
-		assertEquals(WorkspaceAnswer.Read(RawOpened.Editable), ops.open(one, PATH))
+		assertEquals(RawView.Editable, ops.open(one, PATH))
 		assertEquals(true to "mine", edit()!!.stale to edit()!!.shown)
 	}
 
@@ -315,6 +333,33 @@ class RawFileOpsTest {
 	}
 
 	@Test
+	fun `reopening held typing while the file cannot be read still draws the editor`() = runBlocking {
+		ops.open(one, PATH)
+		ops.type(one, PATH, "const x = 2;")
+		ops.leave(one, PATH)
+		files.unreadable = true
+
+		assertEquals(RawView.Editable, ops.open(one, PATH))
+		assertEquals("const x = 2;", edit()?.shown)
+	}
+
+	@Test
+	fun `of two opens of one path, the older answer lands nothing`() = runBlocking {
+		files.readOnly += PATH
+		val hold = TestHold().also { files.readHolds += it }
+		val older = async(Dispatchers.Default) { ops.open(one, PATH) }
+		hold.entered.await()
+
+		files.readOnly -= PATH
+		assertEquals(RawView.Editable, ops.open(one, PATH))
+		hold.release()
+		older.await()
+
+		assertEquals(RawView.Editable, ops.viewOf(one, PATH))
+		assertEquals("const x = 1;", edit()?.shown)
+	}
+
+	@Test
 	fun `leaving while the open still reads holds nothing once it answers`() = runBlocking {
 		val hold = TestHold().also { files.readHolds += it }
 
@@ -325,6 +370,7 @@ class RawFileOpsTest {
 		opening.await()
 
 		assertNull(edit())
+		assertNull(ops.viewOf(one, PATH))
 	}
 
 	// Remove 2026-09-26, with `UNKNOWN_BASE`.
@@ -351,6 +397,7 @@ class RawFileOpsTest {
 		ops.clearInMemory()
 
 		assertNull(edit())
+		assertNull(ops.viewOf(one, PATH))
 		assertNull(opsOverAfterOpen().let { edit(it)?.draft })
 	}
 }

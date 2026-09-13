@@ -39,7 +39,7 @@ internal const val UNKNOWN_BASE = "unknown-base"
  * after it and leave the file holding text the window has already dropped. A caller says what the
  * draft is and never when the disk gets there, so the two cannot be ordered wrongly from outside.
  */
-internal class WindowDraftStore(private val dir: File, scope: CoroutineScope) {
+internal class WorkspaceDraftStore(private val dir: File, scope: CoroutineScope) {
 	private val work = Channel<() -> Unit>(Channel.UNLIMITED)
 
 	private sealed interface Intent {

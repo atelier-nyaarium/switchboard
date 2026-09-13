@@ -20,7 +20,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -34,11 +33,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.atelier_nyaarium.switchboard.RawEdit
 import com.atelier_nyaarium.switchboard.RawFileOps
-import com.atelier_nyaarium.switchboard.RawOpened
-import com.atelier_nyaarium.switchboard.WorkspaceAnswer
+import com.atelier_nyaarium.switchboard.RawNotice
+import com.atelier_nyaarium.switchboard.RawView
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
 import com.atelier_nyaarium.switchboard.fileLines
 import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.noticeShown
 import com.atelier_nyaarium.switchboard.rawSaveNotice
 import kotlinx.coroutines.launch
 
@@ -50,32 +50,24 @@ internal fun WorkspaceRawFile(
 	path: String,
 	modifier: Modifier = Modifier,
 ) {
-	var opened by remember(target.key, path) { mutableStateOf<WorkspaceAnswer<RawOpened>?>(null) }
-	var openedIn by remember(target.key, path) { mutableLongStateOf(ops.generation) }
-	LaunchedEffect(target.key, path) { opened = ops.open(target, path) }
+	LaunchedEffect(target.key, path) { ops.open(target, path) }
 	DisposableEffect(target.key, path) { onDispose { ops.leave(target, path) } }
+	val views by ops.views.collectAsState()
 	val held by ops.edits.collectAsState()
 	val edit = held[target]?.firstOrNull { it.path == path }
-	// Let go by a recheck, so the read says what it is now. Asked of the ops class, since the collected
-	// map can trail the open that just landed by a frame. A re-provision took it instead, and is not reopened.
-	val letGo = edit == null && ops.editOf(target, path) == null && ops.generation == openedIn &&
-		(opened as? WorkspaceAnswer.Read)?.value == RawOpened.Editable
-	LaunchedEffect(target.key, path, letGo) {
-		if (!letGo) return@LaunchedEffect
-		openedIn = ops.generation
-		opened = ops.open(target, path)
-	}
 
-	WorkspaceAnswerBox(if (letGo) null else opened, modifier) { view ->
-		when (view) {
-			is RawOpened.ReadOnly -> ReadOnlyFile(view)
-			RawOpened.Editable -> edit?.let { RawEditor(ops, target, it, onReopened = { answer -> opened = answer }) }
-		}
+	when (val view = views[target to path]) {
+		is RawView.ReadOnly -> ReadOnlyFile(view)
+		is RawView.Refused -> WorkspaceNotice(view.reason, modifier)
+		RawView.Unreachable -> WorkspaceNotice("This session could not be reached", modifier)
+		// The two flows land a frame apart, so an editable view can briefly precede its edit.
+		RawView.Editable -> if (edit == null) WorkspaceAnswerBox<Unit>(null, modifier) {} else RawEditor(ops, target, edit)
+		RawView.Loading, null -> WorkspaceAnswerBox<Unit>(null, modifier) {}
 	}
 }
 
 @Composable
-private fun ReadOnlyFile(view: RawOpened.ReadOnly) {
+private fun ReadOnlyFile(view: RawView.ReadOnly) {
 	// Lazy, or a long file builds one composable per line before anything is drawn.
 	val lines = remember(view.text) { fileLines(view.text) }
 	Column(Modifier.fillMaxSize()) {
@@ -91,10 +83,9 @@ private fun RawEditor(
 	ops: RawFileOps,
 	target: WorkspaceTarget,
 	edit: RawEdit,
-	onReopened: (WorkspaceAnswer<RawOpened>) -> Unit,
 ) {
 	val scope = rememberCoroutineScope()
-	var notice by remember(target.key, edit.path) { mutableStateOf<String?>(null) }
+	var notice by remember(target.key, edit.path) { mutableStateOf<RawNotice?>(null) }
 	var busy by remember(target.key, edit.path) { mutableStateOf(false) }
 
 	// One action at a time; finally, or a cancellation leaves the buttons disabled.
@@ -121,17 +112,8 @@ private fun RawEditor(
 					Text("Changed on disk", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
 					TextButton(
 						onClick = hapticClick {
-							submit {
-								// Only a read replaces the editor; anything else keeps the typing on screen.
-								when (val reopened = ops.adopt(target, edit.path)) {
-									is WorkspaceAnswer.Read -> {
-										notice = null
-										onReopened(reopened)
-									}
-									is WorkspaceAnswer.Refused -> notice = reopened.reason
-									WorkspaceAnswer.Unreachable -> notice = "This session could not be reached"
-								}
-							}
+							val asked = edit.shown
+							submit { notice = ops.adopt(target, edit.path)?.let { RawNotice(asked, it) } }
 						},
 						enabled = !busy,
 					) {
@@ -140,29 +122,25 @@ private fun RawEditor(
 				}
 			}
 		}
-		RawField(edit, Modifier.weight(1f)) {
-			// A notice describes the text it answered, not what was typed after.
-			notice = null
-			ops.type(target, edit.path, it)
-		}
-		notice?.let { WorkspaceNotice(it) }
+		RawField(edit, Modifier.weight(1f)) { ops.type(target, edit.path, it) }
+		noticeShown(notice, edit.shown)?.let { WorkspaceNotice(it) }
 		if (edit.edited) {
 			Row(
 				Modifier.fillMaxWidth().padding(12.dp),
 				horizontalArrangement = Arrangement.spacedBy(8.dp),
 			) {
 				OutlinedButton(
-					onClick = hapticClick {
-						notice = null
-						ops.discard(target, edit.path)
-					},
+					onClick = hapticClick { ops.discard(target, edit.path) },
 					enabled = !busy,
 					modifier = Modifier.weight(1f),
 				) {
 					Text("Discard")
 				}
 				Button(
-					onClick = hapticClick { submit { notice = rawSaveNotice(ops.save(target, edit.path)) } },
+					onClick = hapticClick {
+						val asked = edit.shown
+						submit { notice = rawSaveNotice(ops.save(target, edit.path))?.let { RawNotice(asked, it) } }
+					},
 					enabled = !busy,
 					modifier = Modifier.weight(1f),
 				) {
@@ -185,10 +163,8 @@ private fun RawField(edit: RawEdit, modifier: Modifier, onType: (String) -> Unit
 	OutlinedTextField(
 		value = value,
 		onValueChange = {
-			// A caret move is not typing.
-			val typed = it.text != value.text
 			value = it
-			if (typed) onType(it.text)
+			onType(it.text)
 		},
 		modifier = modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
 		textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),

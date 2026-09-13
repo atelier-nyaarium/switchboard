@@ -348,13 +348,18 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 			}
 		}
 
-	/** AGENTS.md always reads as moved, so the stale banner is reachable. */
+	/**
+	 * AGENTS.md always reads as moved, so the stale banner is reachable. Every other write checks its hash, as
+	 * the plugin does, or a restored stale draft would save here and nowhere else.
+	 */
 	override suspend fun mutateFile(target: WorkspaceTarget, mutation: WorkspaceFileMutation) =
 		asSeeded(target) {
 			when (mutation) {
 				is WorkspaceFileMutation.Write ->
 					if (mutation.path == "AGENTS.md") {
 						written[mutation.path] = "# Agents\n\nChanged by the agent."
+						WorkspaceFileMutationAnswer(path = mutation.path, outcome = MUTATION_STALE)
+					} else if (hashOf(written[mutation.path] ?: file.joinToString("\n")) != mutation.expectedHash) {
 						WorkspaceFileMutationAnswer(path = mutation.path, outcome = MUTATION_STALE)
 					} else {
 						written[mutation.path] = mutation.text

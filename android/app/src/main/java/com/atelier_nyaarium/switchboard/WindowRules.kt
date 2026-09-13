@@ -114,15 +114,12 @@ internal data class Window(
 	val edited: Boolean get() = draft != null && draft != original
 	val shown: String get() = draft ?: original
 
-	/** Which opening, holding which span: what an answer that awaited the gateway must still find. */
-	val stamp: WindowStamp get() = WindowStamp(incarnation, descriptor.spanHash)
+	override val version: String get() = descriptor.spanHash
 
 	override val draftKey: DraftKey get() = DraftKey.Span(descriptor.symbolId)
 
 	override val heldDraft: HeldDraft? get() = draft?.let { HeldDraft(descriptor.spanHash, it) }
 }
-
-internal data class WindowStamp(val incarnation: Long, val spanHash: String)
 
 /**
  * A window reopened over a draft. Typing done over another version of the span keeps that version's hash

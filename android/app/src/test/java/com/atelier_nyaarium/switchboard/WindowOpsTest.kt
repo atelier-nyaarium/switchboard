@@ -135,7 +135,7 @@ class WindowOpsTest {
 	}
 
 	/** Records what was sent, since an apply is an ordinary message and nothing else marks it. */
-	private class FakeHost(override val workspace: WorkspaceGateway?) : WindowHost {
+	private class FakeHost(override val workspace: WorkspaceGateway?) : WorkspaceHost {
 		val sent = mutableListOf<Pair<String, String>>()
 		var sends = true
 		var throws = false
@@ -151,16 +151,16 @@ class WindowOpsTest {
 	private lateinit var dir: File
 	private lateinit var gateway: FakeWorkspace
 	private lateinit var host: FakeHost
-	private lateinit var drafts: WindowDraftStore
+	private lateinit var drafts: WorkspaceDraftStore
 	private lateinit var ops: WindowOps
 
 	private val one = WorkspaceTarget(gatewayId = "sakura", address = "home.sakura.host.aaa")
 	private val two = WorkspaceTarget(gatewayId = "sakura", address = "home.sakura.host.bbb")
 
 	/** Unconfined, so the store's queue drains on the calling thread. */
-	private fun draftsOver(over: File) = WindowDraftStore(over, CoroutineScope(Dispatchers.Unconfined))
+	private fun draftsOver(over: File) = WorkspaceDraftStore(over, CoroutineScope(Dispatchers.Unconfined))
 
-	private fun opsOver(store: WindowDraftStore, over: WindowHost = host) = WindowOps(over, store)
+	private fun opsOver(store: WorkspaceDraftStore, over: WorkspaceHost = host) = WindowOps(over, store)
 
 	@Before
 	fun setUp() {

@@ -371,8 +371,9 @@ class ChatRepository(
 	internal val routineOps = RoutineOps(state = _state, host = ChatRepositoryRoutineHost(this))
 	internal val policyOps = PolicyOps(state = _state, host = ChatRepositoryPolicyHost(this))
 	/** One shared draft writer. */
-	private val workspaceDrafts = WindowDraftStore(File(filesDir, "window-drafts"), repoScope)
-	private val workspaceHost = ChatRepositoryWindowHost(this)
+	// Keep this directory name, since another name would orphan every held draft.
+	private val workspaceDrafts = WorkspaceDraftStore(File(filesDir, "window-drafts"), repoScope)
+	private val workspaceHost = ChatRepositoryWorkspaceHost(this)
 	internal val windowOps = WindowOps(host = workspaceHost, drafts = workspaceDrafts)
 	internal val rawFileOps = RawFileOps(host = workspaceHost, drafts = workspaceDrafts)
 	internal val attachments = AttachmentOps(

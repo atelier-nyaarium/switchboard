@@ -3,7 +3,8 @@
 // NOT a security boundary: the session here can already run commands, so this adds no authority. It
 // buys a tree that cannot wander and a refused mis-tap.
 //
-// An admitted path is a decision, not a handle. A mutating caller re-compares `fileIdentity`.
+// An admitted path is a decision, not a handle. A write compares a content hash; `fileIdentity` is for a
+// mutation that must bind a file, which identical bytes in a recreated one do not.
 
 import fs from "node:fs";
 import path from "node:path";

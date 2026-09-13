@@ -217,7 +217,7 @@ internal class ConsoleWorkspaceGateway(private val client: ConsoleClient) : Work
 		client.workspaceMutateFile(target.gatewayId, target.address, mutation)
 }
 
-internal class ChatRepositoryWindowHost(private val repo: ChatRepository) : WindowHost {
+internal class ChatRepositoryWorkspaceHost(private val repo: ChatRepository) : WorkspaceHost {
 	// The sandbox answers as a session's plugin would, since `isSandbox` reaches no socket at all.
 	private val sandbox by lazy { SandboxWorkspaceGateway() }
 

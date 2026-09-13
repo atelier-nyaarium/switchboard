@@ -1,49 +1,14 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
-import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-
-/** A port, so a test drives the whole class without a socket. */
-internal interface WorkspaceGateway {
-	suspend fun tree(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceTreeAnswer>
-
-	suspend fun file(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceReadAnswer>
-
-	suspend fun outline(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceOutlineAnswer>
-
-	suspend fun symbolSource(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<WorkspaceSymbolSourceAnswer>
-
-	suspend fun knowledge(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<WorkspaceKnowledgeAnswer>
-
-	suspend fun saveSpan(
-		target: WorkspaceTarget,
-		symbolId: String,
-		expectedSpanHash: String,
-		text: String,
-	): WorkspaceAnswer<WorkspaceSaveSpanAnswer>
-
-	suspend fun mutateFile(
-		target: WorkspaceTarget,
-		mutation: WorkspaceFileMutation,
-	): WorkspaceAnswer<WorkspaceFileMutationAnswer>
-}
-
-internal interface WindowHost {
-	val workspace: WorkspaceGateway?
-
-	/** An apply is an ordinary message to the session, not a write plane. */
-	suspend fun send(address: String, text: String): Boolean
-}
 
 /** What Agent Apply did, never a bare Boolean: nothing to send is not a failure to send. */
 internal sealed interface Applied {
@@ -61,8 +26,8 @@ internal sealed interface Applied {
  * Keyed by SESSION: two sessions of one gateway hold different workspaces.
  */
 internal class WindowOps(
-	private val host: WindowHost,
-	private val drafts: WindowDraftStore,
+	private val host: WorkspaceHost,
+	private val drafts: WorkspaceDraftStore,
 ) : ClearsOnReprovision {
 	private val reads = GatewayReadFence()
 
@@ -91,48 +56,21 @@ internal class WindowOps(
 	 */
 	private val epoch = java.util.concurrent.atomic.AtomicLong(0)
 
+	private fun settled(target: WorkspaceTarget): (List<Window>, List<Window>) -> Unit = { before, after ->
+		// A window leaving the set is what the epoch guards.
+		if (after.size < before.size) epoch.incrementAndGet()
+		// A whole file is held for context, so it goes as soon as no window of it is open.
+		val open = after.mapTo(HashSet()) { it.descriptor.module }
+		for (module in before.map { it.descriptor.module }.distinct()) {
+			if (module !in open) context.remove(target to module)
+		}
+	}
+
 	private fun apply(target: WorkspaceTarget, transform: (List<Window>) -> List<Window>) =
-		held.apply(
-			target,
-			settled = { before, after ->
-				// Drop context when no window needs it.
-				val open = after.mapTo(HashSet()) { it.descriptor.module }
-				for (module in before.map { it.descriptor.module }.distinct()) {
-					if (module !in open) context.remove(target to module)
-				}
-			},
-			transform = transform,
-		)
+		held.apply(target, settled(target), transform)
 
-	/**
-	 * One window, found by the incarnation the caller read. A window closed and reopened during a wait
-	 * is a DIFFERENT window, so an answer about the old one lands nowhere.
-	 */
-	private fun applyTo(target: WorkspaceTarget, incarnation: Long, transform: (Window) -> Window) {
-		apply(target) { windows ->
-			if (windows.none { it.incarnation == incarnation }) {
-				windows
-			} else {
-				windows.map { if (it.incarnation == incarnation) transform(it) else it }
-			}
-		}
-	}
-
-	/**
-	 * An answer about a window lands only if the window is still the one read AND still holds the span
-	 * the read began from; anything else has moved past what the answer knows. Null removes it.
-	 *
-	 * The one road for work that awaits the gateway over a window it did not open, so a new road cannot
-	 * forget half the guard.
-	 */
-	private fun landUnmoved(target: WorkspaceTarget, stamp: WindowStamp, transform: (Window) -> Window?) {
-		apply(target) { windows ->
-			val next = windows.mapNotNull { if (it.stamp == stamp) transform(it) else it }
-			// A window leaving the set is what the epoch guards.
-			if (next.size != windows.size) epoch.incrementAndGet()
-			next
-		}
-	}
+	private fun land(target: WorkspaceTarget, before: Window, landing: Landing<Window>): Boolean =
+		held.land(target, before, landing, settled(target))
 
 	private fun windowFor(target: WorkspaceTarget, symbolId: String): Window? =
 		windowsOf(target).firstOrNull { it.descriptor.symbolId == symbolId }
@@ -207,10 +145,12 @@ internal class WindowOps(
 		apply(target) { withoutWindow(it, symbolId) }
 	}
 
-	/** Memory only; the disk follows from the value, off the caller's thread. */
+	/** Memory only; the disk follows from the value, off the caller's thread. A caret move is not typing. */
 	fun type(target: WorkspaceTarget, symbolId: String, text: String) {
 		val window = windowFor(target, symbolId) ?: return
-		applyTo(target, window.incarnation) { it.copy(draft = text) }
+		apply(target) { windows ->
+			windows.map { if (it.incarnation == window.incarnation && it.shown != text) it.copy(draft = text) else it }
+		}
 	}
 
 	/**
@@ -241,7 +181,7 @@ internal class WindowOps(
 					incarnation = tapped.incarnation,
 				)
 				// Typing or a save since the tap outranks it, and keeps the banner.
-				landUnmoved(target, tapped.stamp) { if (it.draft == tapped.draft) next else it }
+				land(target, tapped, Landing.OverUntouched(next))
 				WorkspaceAnswer.Read(next)
 			}
 			is WorkspaceAnswer.Refused -> fresh
@@ -261,17 +201,16 @@ internal class WindowOps(
 	 */
 	suspend fun recheck(target: WorkspaceTarget) = sweeping.withLock {
 		val gate = host.workspace ?: return@withLock
-		for (held in windowsOf(target).map { it.descriptor.symbolId to it.stamp }) {
-			val (symbolId, stamp) = held
-			val fresh = gate.symbolSource(target, symbolId)
+		for (before in windowsOf(target)) {
+			val fresh = gate.symbolSource(target, before.descriptor.symbolId)
 			if (fresh !is WorkspaceAnswer.Read) continue
-			landUnmoved(target, stamp) { current ->
+			land(target, before, Landing.Folded { current ->
 				when (val outcome = refreshWith(current, fresh.value)) {
 					RefreshOutcome.Unchanged -> current
 					is RefreshOutcome.Adopted -> outcome.window
 					is RefreshOutcome.Conflicts -> outcome.window
 				}
-			}
+			})
 		}
 	}
 
@@ -298,7 +237,7 @@ internal class WindowOps(
 			report = when (answer) {
 				is WorkspaceAnswer.Read -> {
 					val saved = answer.value
-					landUnmoved(target, window.stamp) { afterSave(it, sent, saved) }
+					land(target, window, Landing.Folded { afterSave(it, sent, saved) })
 					when (saved.outcome) {
 						SAVE_SAVED -> report.copy(
 							saved = report.saved + 1,

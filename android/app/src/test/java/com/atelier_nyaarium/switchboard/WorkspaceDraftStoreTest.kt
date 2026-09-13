@@ -37,13 +37,13 @@ private class ReversingDispatcher : CoroutineDispatcher() {
 	}
 }
 
-class WindowDraftStoreTest {
+class WorkspaceDraftStoreTest {
 	private lateinit var dir: File
-	private lateinit var store: WindowDraftStore
+	private lateinit var store: WorkspaceDraftStore
 	private val one = WorkspaceTarget(gatewayId = "sakura", address = "home.sakura.host.aaa")
 	private val two = WorkspaceTarget(gatewayId = "sakura", address = "home.sakura.host.bbb")
 
-	private fun storeOver(over: File) = WindowDraftStore(over, CoroutineScope(Dispatchers.Unconfined))
+	private fun storeOver(over: File) = WorkspaceDraftStore(over, CoroutineScope(Dispatchers.Unconfined))
 
 	private suspend fun textOf(key: DraftKey, target: WorkspaceTarget = one) = store.load(target, key)?.text
 
@@ -115,7 +115,7 @@ class WindowDraftStoreTest {
 	@Test
 	fun `a save and a clear land in the order they were asked for, not the dispatcher's`() {
 		val reversing = ReversingDispatcher()
-		val reordered = WindowDraftStore(dir, CoroutineScope(reversing))
+		val reordered = WorkspaceDraftStore(dir, CoroutineScope(reversing))
 
 		reordered.save(one, F_ID, typed("typed"))
 		reordered.save(one, G_ID, typed("kept"))
@@ -197,7 +197,7 @@ class WindowDraftStoreTest {
 		val reversing = ReversingDispatcher()
 		val occupied = File(dir, "occupied").apply { writeText("a file, not a directory") }
 		val under = File(occupied, "drafts")
-		val store = WindowDraftStore(under, CoroutineScope(reversing))
+		val store = WorkspaceDraftStore(under, CoroutineScope(reversing))
 
 		store.save(one, F_ID, typed("doomed"))
 		reversing.drain()
@@ -213,7 +213,7 @@ class WindowDraftStoreTest {
 	@Test
 	fun `a read after the scope is cancelled still answers`() = runBlocking {
 		val scope = CoroutineScope(Dispatchers.Unconfined)
-		val abandoned = WindowDraftStore(dir, scope)
+		val abandoned = WorkspaceDraftStore(dir, scope)
 		abandoned.save(one, F_ID, typed("before the cancel"))
 
 		scope.cancel()
