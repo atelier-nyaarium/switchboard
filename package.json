@@ -18,7 +18,7 @@
 		"postinstall": "bun scripts/link-lexicon.mjs || node scripts/link-lexicon.mjs"
 	},
 	"dependencies": {
-		"@modelcontextprotocol/sdk": "1.29.0",
+		"@modelcontextprotocol/sdk": "1.30.0",
 		"qrcode-generator": "2.0.4",
 		"unbash": "4.0.10",
 		"vscode-jsonrpc": "9.0.1",
