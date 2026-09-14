@@ -1,11 +1,11 @@
-<!-- @dsCard group="Lexicon editing" width="430" height="1060" -->
+<!-- @dsCard group="Lexicon editing" width="430" height="1680" -->
 <meta charset="utf-8">
 <title>Knowledge Fill</title>
 <meta name="viewport" content="width=430, initial-scale=1">
 <style>
 	* { box-sizing: border-box; }
 	body {
-		margin: 0; width: 430px; min-height: 1060px;
+		margin: 0; width: 430px; min-height: 1680px;
 		background: #0B0A0E; color: #E6E0E9;
 		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
 		-webkit-font-smoothing: antialiased;
@@ -41,6 +41,18 @@
 	.order { font-family: ui-monospace, monospace; font-size: 11px; color: #B7B0C1; margin-top: 7px; line-height: 1.6; }
 
 	.btn { text-align: center; border-radius: 22px; padding: 11px 0 12px; font-size: 13.5px; font-weight: 600; background: #D0BCFF; color: #381E72; margin-top: 14px; }
+	.more { color: #D0BCFF; font-weight: 600; }
+
+	.msgwrap { background: #1D1B20; padding: 0 14px 16px; }
+	.msg { background: #141218; border: 1px solid #332F38; border-radius: 10px; padding: 10px 12px; font-size: 12px; line-height: 1.5; color: #CFC9D6; }
+	.msg p { margin: 0 0 8px; }
+	.msg .h { font-weight: 700; color: #E6E0E9; margin: 10px 0 4px; }
+	.msg ul { margin: 0; padding-left: 18px; }
+	.msg li { margin: 2px 0; }
+	.msg code { font-family: ui-monospace, monospace; font-size: 11px; color: #D0BCFF; }
+	.msg .tree ul { padding-left: 16px; }
+	.msg .id { font-family: ui-monospace, monospace; font-size: 10px; color: #7E7889; }
+	.msg .note { color: #6F6A76; font-size: 10.5px; margin: 8px 0 0; }
 
 	.page { background: #141218; margin-top: 22px; border-top: 1px solid #49454F; }
 	.phead { background: #1D1B20; padding: 10px 14px 12px; border-bottom: 1px solid #49454F; }
@@ -84,11 +96,40 @@
 
 	<div class="sum">
 		<div class="big">16 answers across 8 symbols</div>
-		<div class="small">One message, members before the interface that holds them.</div>
-		<div class="order">openThread, startTurn, steerTurn, interruptTurn,<br>onActivity, onClosed, close, then LocalBackendSession</div>
+		<div class="small">One message holding the whole tree. <span class="more">Preview &#8964;</span></div>
 	</div>
 
 	<div class="btn">Send to session</div>
+</div>
+
+<div class="msgwrap">
+	<div class="sec">Preview</div>
+	<div class="msg">
+		<p>Record Lexicon knowledge for <code>LocalBackendSession</code> and its members in <code>src/mcp/local/localAgentSession.ts</code>: 16 answers across 8 symbols. The owner chose this set, so record every one without asking first.</p>
+		<p class="h">How</p>
+		<ul>
+			<li>Work bottom up: a symbol's members before the symbol.</li>
+			<li>Each answer: <code>symbol_facts</code>, then <code>record_answer</code> citing the facts it rests on.</li>
+			<li>A stale answer that still holds: <code>reaffirm_answer</code>, not a rewrite.</li>
+			<li>Sibling branches do not depend on each other. Hand them to subagents when that is faster.</li>
+			<li>Reply once at the end: how many recorded or reaffirmed, and each one you could not answer, with why.</li>
+		</ul>
+		<p class="h">Tree</p>
+		<ul class="tree">
+			<li><code>LocalBackendSession</code> interface: describe, contract<div class="id">lexicon typescript src/mcp/local/localAgentSession.ts LocalBackendSession#</div>
+				<ul>
+					<li><code>openThread</code> method: describe, contract<div class="id">... LocalBackendSession#openThread().</div></li>
+					<li><code>startTurn</code> method: describe, contract<div class="id">... LocalBackendSession#startTurn().</div></li>
+					<li><code>steerTurn</code> method: describe, contract<div class="id">... LocalBackendSession#steerTurn().</div></li>
+					<li><code>interruptTurn</code> method: describe, contract<div class="id">... LocalBackendSession#interruptTurn().</div></li>
+					<li><code>onActivity</code> method: describe, contract<div class="id">... LocalBackendSession#onActivity().</div></li>
+					<li><code>onClosed</code> method: describe, contract<div class="id">... LocalBackendSession#onClosed().</div></li>
+					<li><code>close</code> method: describe, contract<div class="id">... LocalBackendSession#close().</div></li>
+				</ul>
+			</li>
+		</ul>
+		<p class="note">The preview shortens ids with "..."; the message carries each one whole.</p>
+	</div>
 </div>
 
 <div class="page">

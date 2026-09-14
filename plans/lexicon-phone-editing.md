@@ -2174,8 +2174,15 @@ Not started. The owner answered the first round; the Ask design waits on review.
 - **The sheet:** scope (this symbol, with members, whole file), question chips with their count in the
   scope, and what to include: not recorded, stale or doubted or thin, already asked, parameters and
   locals. It shows the answer count, and for a wider scope the leaves-first order, before sending.
-- **One message per send,** saying the owner chose the set, so the session records each without
-  confirming and reaffirms a stale answer that still holds.
+- **One message per send, holding the whole tree,** as the owner words work for a subagent. A preview in
+  the sheet shows it before sending. Its parts, in order:
+  - **Intent:** subject, module, answer and symbol counts, and that the owner chose the set, so the
+    session records every one without asking first.
+  - **How:** bottom up, members before their symbol; `symbol_facts` then `record_answer` citing facts;
+    `reaffirm_answer` for a stale answer that still holds; sibling branches are independent and may go to
+    subagents; one reply at the end with counts and each answer it could not give, with why.
+  - **Tree:** a nested list mirroring containment. Each node is the name, its kind, its questions, and its
+    whole symbol id. A whole-file scope has one branch per top-level symbol.
 - **Asked** is a pair still out and not recorded since. The next send leaves it out unless Already asked
   is ticked, so repeated taps cannot send the same question twice.
 - **Progress is read back from Lexicon,** never taken from the session's reply. The Knowledge header
