@@ -2167,56 +2167,57 @@ Design locked by the owner. Built as 14a to 14d, in deploy order: Lexicon, plugi
 
 ## Phase 14a - Lexicon
 
-Ships from `nyaa-lexicon` as a major release, since Kotlin bindings change for unchanged source. The new
-reads are additive, a protocol minor. Conformance for every provider and `grade.js` against this checkout
+Ships from `nyaa-lexicon` as a major release: Kotlin facts, bindings and refusals change for unchanged
+source, TypeScript and Kotlin declarations gain `contains`, and a C# lambda-field misparse is fixed. The new
+reads, fields and the `forgetModule` notification are a protocol minor (3.3.0); the narrowed meanings of
+`describe.members` and the use counts are noted there. Conformance for every provider and `grade.js`
 before the release, then a pin move here.
 
-- **Kotlin binds across a package.** `resolveImport` maps a package to ONE module and answers `Ambiguous`
-  when several files declare it, which is every real Kotlin package, and a same-package name is looked up
-  in its own file only. A package declaration index replaces both, keyed by package and name. Each entry
-  holds the declaration's symbol id, container path, kind, visibility and module:
-  - **Explicit import:** `pkg.Name` binds among the package's top-level declarations; `pkg.Outer.Nested`
-    and `pkg.Obj.member` walk containers, checking visibility at every step; an alias binds at its use
-    sites.
-  - **Same package:** a name the file does not declare binds among the package's other files.
-  - **Star import:** `pkg.*` binds by name among that package's top-level declarations.
-  - **Precedence, in Kotlin's order:** locals and parameters, then implicit receivers (enclosing classes,
-    their companions, supertypes the index resolves, an extension's receiver type), then explicit imports
-    and aliases, then the package with this file in it, then star imports pooled. The first set holding
-    candidates decides; a receiver the index cannot resolve is skipped.
-  - **Visibility:** a `private` top-level declaration binds only in its own file. `internal` binds
-    workspace-wide, since Gradle modules are not modelled; a multi-module build can over-bind it.
-  - **Several candidates** in the deciding set, overloads and two star imports included, stay `ambiguous`
-    with every candidate, as today. No default-import table: a name no set holds stays unbound.
-  - **Order does not matter:** the first lookup parses every discovered Kotlin file, as
-    `modulesDeclaringPackage` does today, so a file parsed first still binds into one not yet parsed.
-    `parseFile` replaces a module's entries, dropping them from a package it left; `discoverProject`
-    rebuilds. Other files' stored bindings refresh when they are parsed again, as every provider's
-    cross-file bindings do.
-  - **Proof:** conformance cases in `protocol/src/conformance/corpus.ts` for two files in one package, a
-    same-package use, a star import, two star imports colliding, an explicit import over a same-package
-    name, an alias, nested and companion member imports, a private sibling refused, `internal` across
-    files, and overloads ambiguous. A provider test that parses only the importing file. A `grade.js`
-    Kotlin check that `ContentSealing` answers its two subclasses and their references.
-- **Uses from:** a read returning every reference written in a symbol and its members, resolved and
-  unresolved, each with its target's summary when bound. `referencesFrom` filters unbound rows, so this is a
-  separate read; `graphSummary` keeps its bound-only walk.
-- **The top-level symbol of a use** is computed at read time from `fromId` up the `containerId` chain, and
-  `findReferences` rows carry it with the language of the file the use is written in. Neither is stored
-  nor part of a reference's fact id, so no citation goes stale.
-- **Dependents:** `describe`'s graph answers the number of distinct top-level symbols holding a use; a use
-  at module level counts its file, as the By symbol list groups it. A namespace, module or package groups
-  and holds nothing, so the top-level symbol is the outermost declaration below one.
-- **Import and export lines are not uses.** `findReferences`, `usesFrom`, `dependents` and
-  `referenceCount` leave them out; rename planning keeps them.
-- **`knowledgeScope`:** a new read over a symbol, a symbol with its members, or a module: the containment
-  tree, members before their container, each symbol with every question's state (missing, recorded, thin,
-  stale, shaky, doubted), the recorded answer's `createdAt`, and its ask count, parameters and locals
-  excluded unless asked. A symbol the index does not hold answers null. `knowledgeGaps` is unchanged. The tree is Lexicon's to build; the hand exercise
-  below read it off the module listing only because this read did not exist.
-- **Comments on locals:** `symbol_facts` also lists comments whose nearest non-local enclosing declaration
-  is the symbol. Stored anchors and comment fact ids do not change.
-- **Docs:** the daemon protocol, knowledge layer and Kotlin provider notes.
+- **Kotlin parses through tree-sitter.** `web-tree-sitter` 0.27.0 with the grammar's wasm vendored beside
+  the provider, both shipped in the bundle. `tree.ts` copies the tree, `repairs.ts` runs the ordered grammar
+  repairs (soft keywords as names, a damaged top-level statement, line-opening block comments, delegation
+  bodies), `diagnostics.ts` refuses only text no valid source produces. `declarations.ts` keeps the old
+  descriptor scheme and declares every binder; `references.ts` builds frames and receivers.
+- **Kotlin binds in Kotlin's order.** Locals and parameters, implicit receivers (enclosing classes, their
+  companions, supertypes the index resolves, an extension's receiver type), explicit imports and aliases,
+  the package with this file in it, star imports pooled. The first set holding candidates decides; several
+  stay `ambiguous`, sorted. A receiver the index cannot resolve is skipped. `Type.member` reaches only
+  static members; `expr.x` stays unbound. No default-import table.
+  - **Access:** `PackageIndex` admits every candidate through one policy over a use site: public,
+    file-private top level, member, companion and protected. `internal` binds workspace-wide.
+  - **The index:** filled on first lookup from outline parses of files the core would read, taking only
+    facts without an error diagnostic, retrying unreadable files. `forgetModule` from the core drops a
+    module; a forgotten module answers nothing until parsed again. C# handles the same notification.
+  - **Stated limits** in `docs/provider-protocol.md`: receiver lambdas, external supertypes, value
+    receivers, typealias qualifiers, a local class member against an outer local.
+  - **Proof:** 52 Kotlin conformance cases (binders, receivers, multi-line bodies and headers, accessors,
+    owners through `from`, soft keywords, text cut mid-edit), provider tests, both corpora (Switchboard
+    `android/`, kotlinx-coroutines) with 0 refused files, and a `grade.js` check that `ContentSealing`
+    answers its two subclasses.
+- **Uses from:** every reference written in a symbol and its members, each with its target's summary and
+  `status` (bound, ambiguous, unbound) and `reason`.
+- **The top-level symbol of a use** is computed at read time up the `containerId` chain, stopping below a
+  grouping kind (namespace, module, package, file). `findReferences` rows carry it with the use's language.
+  Neither is stored nor part of a fact id.
+- **Dependents:** distinct top-level holders of a use; a module-level use counts its file.
+- **Import and export lines are not uses.** One role table in the store generates the use filter and the
+  use-only reads (`usesTo`, `usesFrom`, `usesIn`, `useEdges`) that `findReferences`, `usesFrom`,
+  `dependents`, `referenceCount`, fanIn, fanOut, `mostReferenced`, cycles, gaps and seeding read. Rename
+  planning and `factsFor` keep the raw rows, pinned by a residue test.
+- **Declared members:** a declaration is local when it is a parameter or a container above it holds locals.
+  A container holds locals when it says `contains: "locals"`, or says nothing and runs (function, method,
+  constructor, operator). `describe.members`, `knowledgeScope`, `factsFor` and describe notes read this one
+  rule.
+- **`knowledgeScope`:** a symbol, a symbol with its members, or a module; members before their container;
+  each question's state (missing, recorded, thin, stale, shaky, doubted), `createdAt` and ask count;
+  locals excluded unless asked. An unknown symbol answers null. Linear in the module's declarations.
+- **Answer health:** `answerHealth` owns it: own `stale` and `doubted`, `upstreamStale`, `upstreamDoubted`,
+  and `shaky` as either upstream one. Gaps, scopes, recall, MCP and LSP read it. A gap row carries `shaky`
+  beside a `why` an older client parses.
+- **Evidence on locals:** a local's comments and literals are facts about its nearest non-local
+  declaration.
+- **Conformance:** expectations name `from`, `bindsToModule` and an occurrence `at`; rows that disagree
+  fail; contradictory expectations are refused at load.
 
 ### Bug Classes
 
@@ -2244,12 +2245,24 @@ before the release, then a pin move here.
     those names parses every file clean.
 - **Answer health is decided in four places.** `gapWhy`, `demandOf`, the recall renderer and
   `knowledgeScope` each read a recalled answer's state, and `knowledgeScope` folded inherited staleness
-  into `stale`. One health function now serves all four.
+  into `stale`. One health function serves all of them; its fields name upstream staleness and doubt apart.
 - **"Local" is read three ways.** The id's `local` segment, `visibility: "local"`, and a function-kind
-  ancestor. TypeScript arrow constants and getters escaped the third, so their locals listed as members.
+  ancestor. TypeScript arrow constants and getters escaped the third. Round 2: the first fix read any value
+  kind as a body, so JSON and YAML nested keys dropped out of members. Core cannot tell a data value from a
+  function value by kind, so providers say it through `contains`.
 - **Whether a row is a use is decided per reader.** Round 1: `findReferences` and `dependents` counted
-  import lines. Round 2: `fanIn`, `fanOut` and `mostReferenced` still did after the first fix. The
-  predicate now lives once, read by the store's graph readers and the read model alike.
+  import lines. Round 2: `fanIn`, `fanOut` and `mostReferenced` still did after the first fix. One role table
+  generates the filter and the use-only reads; a residue test pins the raw readers.
+- **A conformance reference expectation passes on a lucky row.** Mechanism: `checkFacts` matching rows by
+  name. Round 1: any same-named row passed, so an import line satisfied a use; patched with role-aware
+  import rows and an `at` selector. Round 2: rows that disagreed still passed; patched with a disagreement
+  failure and load-time refusal of contradictions. Round 3: a role-specific expectation compared unrelated
+  roles, and `at` let a contradictory duplicate pass. Closed in the checker's shape rather than a fourth
+  patch: every stated field (name, role, `at`) selects rows, every selected row must satisfy the verdict or
+  the case fails naming both positions, and rows are reported in source order.
+- **Kotlin access is decided per lookup.** Round 1: a top-level extension reached private members. Round 2:
+  import and type paths still admitted a private nested class. One policy in `PackageIndex` admits every
+  candidate.
 - **Grouping kinds are decided in two places.** `spansModules` and the drill-in reads each decided that a
   namespace holds nothing, differently, so C#, C++, TypeScript namespaces and Rust `mod` grouped every use
   under the namespace.
