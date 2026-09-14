@@ -1,0 +1,59 @@
+<!-- @dsCard group="Lexicon editing" width="430" height="620" -->
+<meta charset="utf-8">
+<title>Fact Comments</title>
+<meta name="viewport" content="width=430, initial-scale=1">
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; width: 430px; min-height: 620px;
+		background: #141218; color: #E6E0E9;
+		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
+		-webkit-font-smoothing: antialiased;
+	}
+	header { background: #1D1B20; border-bottom: 1px solid #49454F; padding: 10px 14px 12px; }
+	.back { color: #CAC4D0; font-size: 15px; margin-bottom: 5px; }
+	.title { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
+	.sub { color: #948F9A; font-size: 11.5px; margin-top: 2px; }
+
+	main { padding: 12px 12px 30px; }
+	.cmt { background: #211F26; border: 1px solid #332F38; border-radius: 10px; padding: 9px 11px 10px; margin-bottom: 8px; }
+	.chead { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; }
+	.form { border-radius: 10px; padding: 2px 7px; font-size: 9.5px; font-weight: 700; letter-spacing: .4px; background: #2A2830; color: #948F9A; }
+	.where { color: #948F9A; font-size: 11px; }
+	.where span { font-family: ui-monospace, monospace; color: #B7B0C1; }
+	.line { margin-left: auto; color: #6F6A76; font-family: ui-monospace, monospace; font-size: 10.5px; }
+	.chev { color: #847E8E; font-size: 16px; line-height: 1; }
+	.text { border-left: 2px solid #3F5B46; padding: 1px 0 1px 9px; color: #BDB7C6; font-size: 12.5px; line-height: 1.5; }
+	.text code { font-family: ui-monospace, monospace; font-size: 11.5px; color: #CFC9D6; }
+	.more { color: #7E7889; font-size: 11.5px; padding: 4px 4px 0; line-height: 1.45; }
+</style>
+
+<header>
+	<div class="back">&#8592;&nbsp; LocalBackendSession</div>
+	<div class="title">Comments</div>
+	<div class="sub">5 inside it</div>
+</header>
+
+<main>
+	<div class="cmt">
+		<div class="chead"><div class="form">LEADING</div><div class="where">on <span>openThread</span></div><div class="line">27</div><div class="chev">&#8250;</div></div>
+		<div class="text">The working directory is fixed here for the thread's life.</div>
+	</div>
+	<div class="cmt">
+		<div class="chead"><div class="form">LEADING</div><div class="where">on <span>startTurn</span></div><div class="line">29</div><div class="chev">&#8250;</div></div>
+		<div class="text">A backend without service tiers ignores <code>turn</code>. <code>model</code> is the thread's, for the tier check.</div>
+	</div>
+	<div class="cmt">
+		<div class="chead"><div class="form">LEADING</div><div class="where">on <span>steerTurn</span></div><div class="line">35</div><div class="chev">&#8250;</div></div>
+		<div class="text">Absent on a backend with no steer, making "cannot follow up while working" a type-level fact.</div>
+	</div>
+	<div class="cmt">
+		<div class="chead"><div class="form">LEADING</div><div class="where">on <span>onActivity</span></div><div class="line">38</div><div class="chev">&#8250;</div></div>
+		<div class="text">Text only: the runtime caps and numbers what it keeps.</div>
+	</div>
+	<div class="cmt">
+		<div class="chead"><div class="form">LEADING</div><div class="where">on <span>onClosed</span></div><div class="line">40</div><div class="chev">&#8250;</div></div>
+		<div class="text">Load-bearing: the runtime caches the session, so a dead child would stay cached forever.</div>
+	</div>
+	<div class="more">Tap opens a window on the member at that line.</div>
+</main>

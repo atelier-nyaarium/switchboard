@@ -1,0 +1,73 @@
+<!-- @dsCard group="Lexicon editing" width="430" height="640" -->
+<meta charset="utf-8">
+<title>Fact Last Changed</title>
+<meta name="viewport" content="width=430, initial-scale=1">
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; width: 430px; min-height: 640px;
+		background: #141218; color: #E6E0E9;
+		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
+		-webkit-font-smoothing: antialiased;
+	}
+	header { background: #1D1B20; border-bottom: 1px solid #49454F; padding: 10px 14px 12px; }
+	.back { color: #CAC4D0; font-size: 15px; margin-bottom: 5px; }
+	.title { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
+
+	main { padding: 12px 12px 30px; }
+	.sec { color: #8C8795; font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; margin: 16px 2px 7px; }
+	.sec:first-child { margin-top: 2px; }
+	.note { color: #7E7889; font-size: 11.5px; margin: 0 2px 8px; line-height: 1.45; }
+	.note span { font-family: ui-monospace, monospace; color: #9A94A4; }
+
+	.stats { display: flex; gap: 7px; }
+	.stat { flex: 1; background: #211F26; border: 1px solid #332F38; border-radius: 10px; padding: 8px 10px 9px; }
+	.sv { font-size: 15px; font-weight: 600; }
+	.sl { color: #8C8795; font-size: 10.5px; margin-top: 1px; }
+	.add { color: #9BD4A3; }
+	.del { color: #F2B8B5; }
+
+	.list { background: #211F26; border: 1px solid #332F38; border-radius: 10px; overflow: hidden; }
+	.commit { display: flex; gap: 10px; padding: 9px 11px 10px; border-bottom: 1px solid #2A2731; }
+	.commit:last-child { border-bottom: none; }
+	.hash { flex: none; font-family: ui-monospace, monospace; font-size: 10.5px; color: #D0BCFF; padding-top: 2px; }
+	.cbody { flex: 1; min-width: 0; }
+	.subj { font-size: 12.5px; line-height: 1.4; color: #DDD7E4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+	.meta { color: #7E7889; font-size: 10.5px; margin-top: 3px; }
+	.meta .add, .meta .del { font-family: ui-monospace, monospace; }
+	.empty { background: #211F26; border: 1px solid #332F38; border-radius: 10px; padding: 11px; color: #6F6A76; font-size: 12px; }
+</style>
+
+<header>
+	<div class="back">&#8592;&nbsp; LocalBackendSession</div>
+	<div class="title">Last changed</div>
+</header>
+
+<main>
+	<div class="sec">Its file</div>
+	<div class="note">Git keeps history per file, so this is <span>localAgentSession.ts</span>.</div>
+	<div class="stats">
+		<div class="stat"><div class="sv">12 days</div><div class="sl">since last change</div></div>
+		<div class="stat"><div class="sv">3</div><div class="sl">commits in 32 days</div></div>
+		<div class="stat"><div class="sv"><span class="add">+67</span> <span class="del">-24</span></div><div class="sl">lines</div></div>
+	</div>
+
+	<div class="sec">Recent commits</div>
+	<div class="list">
+		<div class="commit">
+			<div class="hash">4b54a28</div>
+			<div class="cbody"><div class="subj">Let a Codex agent run at the priority tier, and change tier between turns</div><div class="meta">12 days ago &#183; <span class="add">+9</span> <span class="del">-2</span></div></div>
+		</div>
+		<div class="commit">
+			<div class="hash">0ab0bd6</div>
+			<div class="cbody"><div class="subj">Trim comments to short notes in src/mcp/local and src/mcp/channel</div><div class="meta">30 days ago &#183; <span class="add">+10</span> <span class="del">-22</span></div></div>
+		</div>
+		<div class="commit">
+			<div class="hash">a129095</div>
+			<div class="cbody"><div class="subj">Serve Codex and Copilot agents locally when no daemon declares them</div><div class="meta">32 days ago &#183; <span class="add">+48</span> <span class="del">-0</span></div></div>
+		</div>
+	</div>
+
+	<div class="sec">Commits naming LocalBackendSession</div>
+	<div class="empty">No commit subject names it.</div>
+</main>

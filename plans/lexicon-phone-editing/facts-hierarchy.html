@@ -1,0 +1,94 @@
+<!-- @dsCard group="Lexicon editing" width="430" height="700" -->
+<meta charset="utf-8">
+<title>Fact Type Hierarchy</title>
+<meta name="viewport" content="width=430, initial-scale=1">
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; width: 430px; min-height: 700px;
+		background: #141218; color: #E6E0E9;
+		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
+		-webkit-font-smoothing: antialiased;
+	}
+	header { background: #1D1B20; border-bottom: 1px solid #49454F; padding: 10px 14px 12px; }
+	.back { color: #CAC4D0; font-size: 15px; margin-bottom: 5px; }
+	.title { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
+
+	main { padding: 10px 12px 30px; }
+	.sec { color: #8C8795; font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; margin: 14px 2px 7px; }
+
+	.node { display: flex; align-items: center; gap: 10px; background: #211F26; border: 1px solid #332F38; border-radius: 10px; padding: 9px 11px 10px; }
+	.node.self { background: #26223B; border-color: #6B5B95; }
+	.node.out { background: transparent; border: 1px dashed #3C3845; }
+	.kind {
+		flex: none; width: 19px; height: 19px; border-radius: 4px;
+		font-family: ui-monospace, monospace; font-size: 11px; font-weight: 700;
+		display: flex; align-items: center; justify-content: center;
+		background: #1F2B3D; color: #8AB4F8;
+	}
+	.body { flex: 1; min-width: 0; }
+	.nm { font-size: 13.5px; font-weight: 500; }
+	.self .nm { font-weight: 700; color: #E9DDFF; }
+	.mod { font-family: ui-monospace, monospace; font-size: 10.5px; color: #7E7889; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.tag { flex: none; color: #948F9A; font-size: 10.5px; }
+	.chev { flex: none; color: #847E8E; font-size: 16px; line-height: 1; }
+	.none { color: #6F6A76; font-size: 12px; padding: 2px 4px 4px; }
+	.gone { color: #6F6A76; font-size: 10.5px; }
+
+	.link { width: 2px; height: 14px; background: #3C3845; margin-left: 20px; }
+	.kids { margin-left: 20px; border-left: 2px solid #3C3845; padding: 7px 0 0 12px; display: flex; flex-direction: column; gap: 7px; }
+
+	.state { margin-top: 26px; border-top: 10px solid #0F0E12; margin-left: -12px; margin-right: -12px; padding: 4px 12px 0; }
+	.note { color: #7E7889; font-size: 11.5px; margin: 0 2px 8px; line-height: 1.45; }
+</style>
+
+<header>
+	<div class="back">&#8592;&nbsp; LocalBackendSession</div>
+	<div class="title">Type hierarchy</div>
+</header>
+
+<main>
+	<div class="sec">Supertypes</div>
+	<div class="none">None.</div>
+
+	<div class="node self">
+		<div class="kind">I</div>
+		<div class="body"><div class="nm">LocalBackendSession</div><div class="mod">src/mcp/local/localAgentSession.ts : 26</div></div>
+		<div class="tag">interface</div>
+	</div>
+
+	<div class="kids">
+		<div class="node">
+			<div class="kind">K</div>
+			<div class="body"><div class="nm">CodexLocalSession</div><div class="mod">src/mcp/local/codexLocalSession.ts : 20</div></div>
+			<div class="tag">implements</div><div class="chev">&#8250;</div>
+		</div>
+		<div class="node">
+			<div class="kind">K</div>
+			<div class="body"><div class="nm">CopilotLocalSession</div><div class="mod">src/mcp/local/copilotLocalSession.ts : 29</div></div>
+			<div class="tag">implements</div><div class="chev">&#8250;</div>
+		</div>
+		<div class="node">
+			<div class="kind">K</div>
+			<div class="body"><div class="nm">ValueBackendAdapter</div><div class="mod">src/__tests__/local-agent-publication.test.ts : 19</div></div>
+			<div class="tag">implements</div><div class="chev">&#8250;</div>
+		</div>
+	</div>
+
+	<div class="state">
+		<div class="sec">On SourceMoved</div>
+		<div class="note">Ancestors read top down to the symbol. A base the index cannot resolve is dashed and does not open.</div>
+		<div class="node out">
+			<div class="body"><div class="nm">Error</div><div class="gone">not indexed</div></div>
+			<div class="tag">extends</div>
+		</div>
+		<div class="link"></div>
+		<div class="node self">
+			<div class="kind">K</div>
+			<div class="body"><div class="nm">SourceMoved</div><div class="mod">src/mcp/workspace/mutateFile.ts : 47</div></div>
+			<div class="tag">class</div>
+		</div>
+		<div class="sec">Subtypes</div>
+		<div class="none">None.</div>
+	</div>
+</main>
