@@ -1,0 +1,75 @@
+<!-- @dsCard group="Lexicon editing" width="430" height="900" -->
+<meta charset="utf-8">
+<title>Knowledge Ask</title>
+<meta name="viewport" content="width=430, initial-scale=1">
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; width: 430px; min-height: 900px;
+		background: #141218; color: #E6E0E9;
+		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
+		-webkit-font-smoothing: antialiased;
+	}
+	header { background: #1D1B20; border-bottom: 1px solid #49454F; padding: 10px 14px 12px; }
+	.back { color: #CAC4D0; font-size: 15px; margin-bottom: 5px; }
+	.titlerow { display: flex; align-items: center; gap: 8px; }
+	.kind { flex: none; width: 21px; height: 21px; border-radius: 4px; font-family: ui-monospace, monospace; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; background: #1F2B3D; color: #8AB4F8; }
+	.nm { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
+	.where { color: #948F9A; font-size: 11px; margin-top: 3px; font-family: ui-monospace, monospace; }
+	main { padding: 12px 12px 30px; }
+	.sechead { display: flex; align-items: baseline; margin: 16px 2px 7px; }
+	.sechead:first-child { margin-top: 2px; }
+	.sec { color: #8C8795; font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; }
+	.link { margin-left: auto; color: #D0BCFF; font-size: 12px; font-weight: 600; }
+
+	.q { display: flex; align-items: center; gap: 10px; background: #211F26; border: 1px solid #332F38; border-radius: 10px; padding: 8px 8px 8px 12px; margin-bottom: 6px; }
+	.q.picked { border-color: #6B5B95; background: #26223B; }
+	.qn { font-size: 12px; font-weight: 700; letter-spacing: .5px; color: #CAC4D0; width: 74px; }
+	.qs { color: #948F9A; font-size: 12px; flex: 1; }
+	.qs.asked { color: #D9C28A; }
+	.pick { flex: none; border: 1px solid #49454F; border-radius: 16px; padding: 5px 12px 6px; font-size: 12px; color: #CAC4D0; }
+	.picked .pick { background: #D0BCFF; border-color: #D0BCFF; color: #381E72; font-weight: 700; }
+	.pick.off { color: #6F6A76; border-color: #332F38; }
+
+	.bar { margin: 12px -12px 0; background: #1D1B20; border-top: 1px solid #49454F; padding: 10px 12px 13px; display: flex; gap: 8px; align-items: center; }
+	.btn { flex: 1; text-align: center; border-radius: 22px; padding: 11px 0 12px; font-size: 13.5px; font-weight: 600; background: #D0BCFF; color: #381E72; }
+	.ghost { flex: none; padding: 11px 14px 12px; color: #CAC4D0; font-size: 13px; }
+
+	.state { border-top: 10px solid #0F0E12; margin: 22px -12px 0; padding: 4px 12px 0; }
+	.note { color: #7E7889; font-size: 11.5px; margin: 0 2px 8px; line-height: 1.45; }
+	.msg { background: #1B1920; border: 1px solid #2A2731; border-radius: 10px; padding: 9px 11px; font-size: 12px; line-height: 1.5; color: #BDB7C6; }
+	.msg code { font-family: ui-monospace, monospace; font-size: 11px; color: #D0BCFF; }
+	.fill { display: flex; align-items: center; gap: 10px; background: #211F26; border: 1px solid #332F38; border-radius: 10px; padding: 11px 11px 12px; font-size: 13.5px; margin-top: 6px; }
+	.fill .fval { margin-left: auto; color: #B7B0C1; font-size: 12px; }
+	.chev { color: #847E8E; font-size: 17px; line-height: 1; }
+</style>
+
+<header>
+	<div class="back">&#8592;&nbsp; localAgentSession.ts</div>
+	<div class="titlerow"><div class="kind">T</div><div class="nm">LocalBackendSession</div></div>
+	<div class="where">src/mcp/local/localAgentSession.ts : 26-43</div>
+</header>
+
+<main>
+	<div class="sechead"><div class="sec">Knowledge</div><div class="link">Pick all missing</div></div>
+	<div class="q picked"><div class="qn">DESCRIBE</div><div class="qs">not recorded</div><div class="pick">&#10003; Picked</div></div>
+	<div class="q picked"><div class="qn">WHY</div><div class="qs">not recorded</div><div class="pick">&#10003; Picked</div></div>
+	<div class="q"><div class="qn">RELATE</div><div class="qs">not recorded</div><div class="pick">Pick</div></div>
+	<div class="q picked"><div class="qn">CONTRACT</div><div class="qs">not recorded</div><div class="pick">&#10003; Picked</div></div>
+	<div class="q"><div class="qn">EFFECTS</div><div class="qs">not recorded</div><div class="pick">Pick</div></div>
+	<div class="q"><div class="qn">USAGE</div><div class="qs">not recorded</div><div class="pick">Pick</div></div>
+	<div class="fill">Fill this and its members<div class="fval">8 symbols</div><div class="chev">&#8250;</div></div>
+
+	<div class="bar"><div class="ghost">Clear</div><div class="btn">Ask 3 questions</div></div>
+
+	<div class="state">
+		<div class="sechead"><div class="sec">What the session receives</div></div>
+		<div class="note">One message, however many were picked or however fast they were tapped.</div>
+		<div class="msg">Record Lexicon's <code>describe</code>, <code>why</code> and <code>contract</code> answers for <code>LocalBackendSession</code> in <code>src/mcp/local/localAgentSession.ts</code>, citing the facts each rests on. The owner picked all three on purpose: record every one without asking first. Symbol id: <code>lexicon typescript src/mcp/local/localAgentSession.ts LocalBackendSession#</code>.</div>
+
+		<div class="sechead"><div class="sec">After sending</div></div>
+		<div class="q"><div class="qn">DESCRIBE</div><div class="qs asked">asked 1 min ago</div><div class="pick off">Pick</div></div>
+		<div class="q"><div class="qn">WHY</div><div class="qs asked">asked 1 min ago</div><div class="pick off">Pick</div></div>
+		<div class="note" style="margin-top: 8px;">An asked question stays marked until its answer lands, and Pick all missing skips it. Picking it again asks again.</div>
+	</div>
+</main>

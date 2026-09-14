@@ -1,0 +1,113 @@
+<!-- @dsCard group="Lexicon editing" width="430" height="1120" -->
+<meta charset="utf-8">
+<title>Fact Reference Opened</title>
+<meta name="viewport" content="width=430, initial-scale=1">
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; width: 430px; min-height: 1120px;
+		background: #141218; color: #E6E0E9;
+		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
+		-webkit-font-smoothing: antialiased;
+	}
+	header { background: #1D1B20; border-bottom: 1px solid #49454F; padding: 10px 14px 12px; }
+	.back { color: #CAC4D0; font-size: 15px; margin-bottom: 5px; }
+	.titlerow { display: flex; align-items: center; gap: 8px; }
+	.kind {
+		flex: none; width: 21px; height: 21px; border-radius: 4px;
+		font-family: ui-monospace, monospace; font-size: 12px; font-weight: 700;
+		display: flex; align-items: center; justify-content: center;
+		background: #332A45; color: #D0BCFF;
+	}
+	.nm { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
+	.nm span { color: #948F9A; font-weight: 400; }
+	.where { color: #948F9A; font-size: 11px; margin-top: 3px; font-family: ui-monospace, monospace; }
+	main { padding: 12px 12px 86px; }
+	.sec { color: #8C8795; font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; margin: 16px 2px 7px; }
+	.sec:first-child { margin-top: 2px; }
+
+	.arrived { background: #2A2419; border: 1px solid #5C4A1E; border-radius: 10px; padding: 9px 11px 10px; }
+	.arow { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #E6D9B8; }
+	.arow b { font-family: ui-monospace, monospace; font-weight: 600; }
+	.role { border-radius: 10px; padding: 1px 7px 2px; font-size: 9.5px; font-weight: 700; letter-spacing: .4px; background: #3A3120; color: #D9C28A; text-transform: uppercase; }
+	.jump { margin-left: auto; color: #D0BCFF; font-size: 12px; font-weight: 600; }
+
+	.facts { background: #211F26; border: 1px solid #332F38; border-radius: 10px; overflow: hidden; }
+	.frow { display: flex; align-items: center; gap: 10px; padding: 10px 11px 11px; border-bottom: 1px solid #2A2731; font-size: 13.5px; }
+	.frow:last-child { border-bottom: none; }
+	.fval { margin-left: auto; color: #B7B0C1; font-size: 12.5px; }
+	.chev { flex: none; color: #847E8E; font-size: 17px; line-height: 1; width: 8px; }
+	.frow.none { color: #6F6A76; }
+	.frow.none .fval { color: #5E5966; }
+	.frow.none .chev { visibility: hidden; }
+
+	.src { background: #0D1117; border: 1px solid #30363D; border-radius: 10px; padding: 8px 0 9px; overflow: hidden; }
+	.l { display: block; font-family: ui-monospace, "Roboto Mono", monospace; font-size: 10.5px; line-height: 1.6; color: #C9D1D9; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+	.l .n { display: inline-block; width: 34px; text-align: right; margin-right: 10px; color: #6E7681; }
+	.l.mark { background: rgba(210, 153, 34, 0.18); box-shadow: inset 3px 0 0 #D29922; }
+	.l.mark .n { color: #D29922; }
+	.kw { color: #FF7B72; } .ty { color: #FFA657; } .fn { color: #D2A8FF; } .st { color: #A5D6FF; } .nu { color: #79C0FF; } .cm { color: #8B949E; }
+
+	footer { position: fixed; left: 0; right: 0; bottom: 0; width: 430px; background: #1D1B20; border-top: 1px solid #49454F; padding: 10px 12px 13px; }
+	.btn { text-align: center; border-radius: 22px; padding: 11px 0 12px; font-size: 13.5px; font-weight: 600; background: #D0BCFF; color: #381E72; }
+</style>
+
+<header>
+	<div class="back">&#8592;&nbsp; References of LocalBackendSession</div>
+	<div class="titlerow">
+		<div class="kind">F</div>
+		<div class="nm"><span>LocalAgentHandlers.</span>start</div>
+	</div>
+	<div class="where">src/mcp/local/localAgentHandlers.ts : 93-130</div>
+</header>
+
+<main>
+	<div class="sec">Reached from</div>
+	<div class="arrived">
+		<div class="arow"><b>LocalBackendSession</b><div class="role">Type</div>at line 99<div class="jump">Line &#8595;</div></div>
+	</div>
+
+	<div class="sec">Facts</div>
+	<div class="facts">
+		<div class="frow none">Members<div class="fval">none</div><div class="chev">&#8250;</div></div>
+		<div class="frow">References<div class="fval">1 use</div><div class="chev">&#8250;</div></div>
+		<div class="frow">Uses<div class="fval">37 symbols</div><div class="chev">&#8250;</div></div>
+		<div class="frow none">Type hierarchy<div class="fval">not a type</div><div class="chev">&#8250;</div></div>
+		<div class="frow">Comments<div class="fval">1</div><div class="chev">&#8250;</div></div>
+		<div class="frow">Last changed<div class="fval">9 days ago</div><div class="chev">&#8250;</div></div>
+	</div>
+
+	<div class="sec">Knowledge</div>
+	<div class="facts">
+		<div class="frow">6 questions<div class="fval">none recorded</div><div class="chev">&#8250;</div></div>
+	</div>
+
+	<div class="sec">Source</div>
+	<div class="src">
+		<div class="l"><span class="n">93</span><span class="kw">async</span> <span class="fn">start</span>(request: <span class="ty">LocalRequest</span>): <span class="ty">Promise</span>&lt;<span class="ty">LocalAgentAnswer</span>&gt; {</div>
+		<div class="l"><span class="n">94</span>  <span class="cm">// Preserve a caller-supplied operation identity for agent derivation.</span></div>
+		<div class="l"><span class="n">95</span>  <span class="kw">const</span> operationId = request.operationId ?? crypto.<span class="fn">randomUUID</span>();</div>
+		<div class="l"><span class="n">96</span>  <span class="kw">const</span> agentId = <span class="fn">agentIdForOperation</span>(<span class="kw">this</span>.host.spec.backendId, operationId);</div>
+		<div class="l"><span class="n">97</span>  <span class="kw">const</span> prompt = request.prompt ?? <span class="st">""</span>;</div>
+		<div class="l"><span class="n">98</span></div>
+		<div class="l mark"><span class="n">99</span>  <span class="kw">let</span> session: <span class="ty">LocalBackendSession</span>;</div>
+		<div class="l"><span class="n">100</span>  <span class="kw">try</span> {</div>
+		<div class="l"><span class="n">101</span>    session = <span class="kw">await</span> <span class="kw">this</span>.host.<span class="fn">open</span>();</div>
+		<div class="l"><span class="n">102</span>  } <span class="kw">catch</span> (error) {</div>
+		<div class="l"><span class="n">103</span>    <span class="kw">return</span> <span class="kw">this</span>.<span class="fn">fail</span>(agentId, <span class="st">"app_server_unavailable"</span>, <span class="fn">errorText</span>(error), <span class="nu">true</span>);</div>
+		<div class="l"><span class="n">104</span>  }</div>
+		<div class="l"><span class="n">105</span></div>
+		<div class="l"><span class="n">106</span>  <span class="kw">const</span> createdAt = <span class="kw">this</span>.host.<span class="fn">now</span>();</div>
+		<div class="l"><span class="n">107</span>  <span class="kw">let</span> threadId: <span class="ty">string</span>;</div>
+		<div class="l"><span class="n">108</span>  <span class="kw">try</span> {</div>
+		<div class="l"><span class="n">109</span>    threadId = <span class="kw">await</span> session.<span class="fn">openThread</span>({</div>
+		<div class="l"><span class="n">110</span>      cwd: request.cwd ?? <span class="kw">this</span>.host.spec.<span class="fn">defaultCwd</span>(),</div>
+		<div class="l"><span class="n">111</span>      model: request.model,</div>
+		<div class="l"><span class="n">112</span>      serviceTier: request.serviceTier,</div>
+		<div class="l"><span class="n">113</span>    });</div>
+	</div>
+</main>
+
+<footer>
+	<div class="btn">Open Window</div>
+</footer>

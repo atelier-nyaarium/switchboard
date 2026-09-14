@@ -25,7 +25,8 @@
 	.body { flex: 1; min-width: 0; }
 	.nm { font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.tag { color: #6F6A76; font-size: 10.5px; font-weight: 400; margin-left: 5px; }
-	.sig { font-family: ui-monospace, monospace; font-size: 10.5px; color: #7E7889; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+	.sig { font-family: ui-monospace, monospace; font-size: 10.5px; color: #C9D1D9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+	.kw { color: #FF7B72; } .ty { color: #FFA657; }
 	.at { flex: none; color: #6F6A76; font-size: 10.5px; font-family: ui-monospace, monospace; }
 	.chev { flex: none; color: #847E8E; font-size: 16px; line-height: 1; }
 	.cap { color: #7E7889; font-size: 11.5px; padding: 12px 14px; line-height: 1.45; }
@@ -38,39 +39,39 @@
 </header>
 
 <div class="row">
-	<div class="kind">M</div>
-	<div class="body"><div class="nm">openThread</div><div class="sig">(options: { cwd: string; model?: string; serviceTier?: CodexServiceTier }): Promise&lt;string&gt;</div></div>
+	<div class="kind">F</div>
+	<div class="body"><div class="nm">openThread</div><div class="sig">(options: { cwd: <span class="ty">string</span>; model?: <span class="ty">string</span>; serviceTier?: <span class="ty">CodexServiceTier</span> }): <span class="ty">Promise</span>&lt;<span class="ty">string</span>&gt;</div></div>
 	<div class="at">28</div><div class="chev">&#8250;</div>
 </div>
 <div class="row">
-	<div class="kind">M</div>
-	<div class="body"><div class="nm">startTurn</div><div class="sig">(threadId: string, prompt: string, turn?: { model?: string; serviceTier?: CodexServiceTier }): Promise&lt;LocalTurnHandle&gt;</div></div>
+	<div class="kind">F</div>
+	<div class="body"><div class="nm">startTurn</div><div class="sig">(threadId: <span class="ty">string</span>, prompt: <span class="ty">string</span>, turn?: { model?: <span class="ty">string</span>; serviceTier?: <span class="ty">CodexServiceTier</span> }): <span class="ty">Promise</span>&lt;<span class="ty">LocalTurnHandle</span>&gt;</div></div>
 	<div class="at">30</div><div class="chev">&#8250;</div>
 </div>
 <div class="row">
-	<div class="kind">M</div>
-	<div class="body"><div class="nm">steerTurn<span class="tag">optional</span></div><div class="sig">(threadId: string, turnId: string, prompt: string): Promise&lt;void&gt;</div></div>
+	<div class="kind">F</div>
+	<div class="body"><div class="nm">steerTurn<span class="tag">optional</span></div><div class="sig">(threadId: <span class="ty">string</span>, turnId: <span class="ty">string</span>, prompt: <span class="ty">string</span>): <span class="ty">Promise</span>&lt;<span class="kw">void</span>&gt;</div></div>
 	<div class="at">36</div><div class="chev">&#8250;</div>
 </div>
 <div class="row">
-	<div class="kind">M</div>
-	<div class="body"><div class="nm">interruptTurn</div><div class="sig">(threadId: string, turnId: string): Promise&lt;void&gt;</div></div>
+	<div class="kind">F</div>
+	<div class="body"><div class="nm">interruptTurn</div><div class="sig">(threadId: <span class="ty">string</span>, turnId: <span class="ty">string</span>): <span class="ty">Promise</span>&lt;<span class="kw">void</span>&gt;</div></div>
 	<div class="at">37</div><div class="chev">&#8250;</div>
 </div>
 <div class="row">
-	<div class="kind">M</div>
-	<div class="body"><div class="nm">onActivity</div><div class="sig">(listener: (turnId: string, text: string) =&gt; void): void</div></div>
+	<div class="kind">F</div>
+	<div class="body"><div class="nm">onActivity</div><div class="sig">(listener: (turnId: <span class="ty">string</span>, text: <span class="ty">string</span>) =&gt; <span class="kw">void</span>): <span class="kw">void</span></div></div>
 	<div class="at">39</div><div class="chev">&#8250;</div>
 </div>
 <div class="row">
-	<div class="kind">M</div>
-	<div class="body"><div class="nm">onClosed</div><div class="sig">(listener: () =&gt; void): void</div></div>
+	<div class="kind">F</div>
+	<div class="body"><div class="nm">onClosed</div><div class="sig">(listener: () =&gt; <span class="kw">void</span>): <span class="kw">void</span></div></div>
 	<div class="at">41</div><div class="chev">&#8250;</div>
 </div>
 <div class="row">
-	<div class="kind">M</div>
-	<div class="body"><div class="nm">close</div><div class="sig">(): void</div></div>
+	<div class="kind">F</div>
+	<div class="body"><div class="nm">close</div><div class="sig">(): <span class="kw">void</span></div></div>
 	<div class="at">42</div><div class="chev">&#8250;</div>
 </div>
 
-<div class="cap">Kind chips appear only when members span more than one kind, as on the file outline. Tap reads the member.</div>
+<div class="cap">Declared members only; a function's locals and parameters are not members here. Kind chips appear when members span more than one kind.</div>

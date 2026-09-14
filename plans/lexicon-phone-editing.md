@@ -2121,43 +2121,65 @@ cross-file Kotlin reference (see the painpoint on Kotlin binding) and a Kotlin s
 | File | Screen |
 |---|---|
 | `facts-rows.html` | The Facts card with units, and the zero-row state |
-| `facts-references.html` | Every reference grouped by file, role chips, a capped list |
-| `facts-dependencies.html` | Used by and Uses, one toggle, unresolved names dashed |
-| `facts-members.html` | Direct members in source order |
+| `facts-references.html` | Every use, By symbol or By file, with highlighted code |
+| `facts-reference-open.html` | Where a use opens: facts first, the source below with the line marked |
+| `facts-uses.html` | What the symbol reaches, grouped by target, unresolved names dashed |
+| `facts-members.html` | Declared members in source order |
 | `facts-hierarchy.html` | Supertypes over the subject, subtypes under it, an unresolved base dashed |
 | `facts-comments.html` | Comments inside the symbol, each opening its line |
-| `facts-history.html` | The file's history, and commits whose subject names the symbol |
+| `facts-history.html` | Commits that touched the symbol's lines, and the file's history from the outline |
+| `knowledge-ask.html` | Pick questions, send one message |
+| `knowledge-fill.html` | Fill a symbol, its members or a file, and the progress read back |
 
 ## Phase 14 - Facts drill-ins
 
-Not started. Waits on the owner's review of the mocks and the questions below.
+Not started. The owner answered the first round; the Ask design waits on review.
+
+### Owner rulings
+
+- **Facts first, code below:** a use opens the symbol it sits in, facts on top, source under them with the
+  line marked. Code is highlighted for its language everywhere it is drawn: the detail's source, every use
+  row, member signatures.
+- **Every use, grouped:** References and Used by are one list of every use, By symbol (top-level symbol,
+  most uses first) or By file (line order). The References row opens By file, the Used by row By symbol.
+  Uses is the same shape pointed outward.
+- **No cap, no pages:** the list is lazy, so off-screen rows do not draw. An answer over
+  `MAX_WORKSPACE_OP_BYTES` refuses with its count rather than truncating.
+- **History:** the file outline shows the file's history. A symbol shows commits that touched its lines,
+  through `git log -L` run by the plugin.
+- **Kotlin:** Lexicon binding Kotlin across files is part of this phase.
+
+### Build
 
 - **Rows:** each value carries its unit. A zero row dims, reads `none`, and does not open. A row counts
   exactly what its drill-in lists.
-- **Reads, one workspace op each:** references, dependents, dependencies, members, hierarchy, comments,
-  history. Each answers under the op's one deadline and says when it was capped.
-- **What Lexicon lacks, shipped as a Lexicon minor and a pin move first:**
-  - **Uses:** no read lists references from a symbol and its members. `graphSummary` counts them from
-    `referencesFrom`; a method returns them grouped by target, unresolved names included.
-  - **Used by:** `findReferences` names the innermost declaration. A method groups by the top-level
-    symbol and names the members inside it. `fanIn` is a reference count, so the row's "N symbols" comes
-    from this read, not from `fanIn`.
-  - **Role tallies:** a capped `findReferences` answers `total` but no count per role, so chips over a
-    capped list would count only the page.
-- **History:** `fileHistory` for the file and `commitsMentioning` for the name. Both are about the file or
-  the subject line, never the span.
+- **Members:** declared members only. A function's locals and parameters are not members.
+- **Reads, one workspace op each:** uses of, uses from, members, hierarchy, comments, range history, file
+  history.
+- **Highlighting:** one highlighter the thread and the workspace share, painted as styled text. The thread
+  already ships highlight.js with the github-dark palette.
+- **What Lexicon lacks, shipped as a Lexicon release and a pin move first:**
+  - **Uses from:** no read lists references from a symbol and its members. `graphSummary` counts them
+    from `referencesFrom`; a method returns them, unresolved names included.
+  - **Top-level symbol per use:** `findReferences` names the innermost declaration only.
+  - **`fanIn` is a reference count,** so the Used by row's "N symbols" comes from the grouped read.
+  - **Kotlin cross-file binding:** `ContentSealing` answers 0 references and no subtypes while two classes
+    extend it.
 
-### Open questions
+### Ask
 
-1. **A reference's tap:** a window on the enclosing symbol scrolled to the line (the mock), the enclosing
-   symbol's detail, or the raw file at the line.
-2. **Used by granularity:** top-level symbols with a member line (the mock), or every innermost declaration.
-3. **Chips on a capped list:** Lexicon tallies roles over the whole set (the mock), or chips count the
-   loaded page.
-4. **Last changed:** file history only (the mock), or also the span's own history through `git log -L`,
-   which the plugin would run itself.
-5. **Kotlin:** the drill-ins read `none` for most phone classes until Lexicon binds Kotlin across files.
-   Fold that into this phase, or leave it to its own.
+- **One message per send:** Ask chips pick, a bar sends "Ask N questions". The message says the owner
+  picked them on purpose, so the session records every one without confirming.
+- **Asked stays marked** until the answer lands. Pick all missing skips an asked question; picking it
+  again asks again.
+- **Fill:** a sheet with scope (this symbol, with members, whole file), questions, and whether to include
+  stale or doubted answers and parameters. It shows the answer count and the leaves-first order before
+  sending, and a scope cannot be filled twice while one is out.
+- **Progress is read back from Lexicon,** never taken from the session's reply.
+- **What Lexicon lacks:** `knowledgeGaps` under a root walks the fan-out graph from the root alone, so a
+  class or interface answers only itself: its references belong to its members, the case `graphSummary`
+  already fixed. Fill needs a containment walk, members leaves first, with parameters and locals
+  skippable.
 
 # Painpoints
 

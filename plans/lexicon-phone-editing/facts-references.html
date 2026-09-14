@@ -1,11 +1,11 @@
-<!-- @dsCard group="Lexicon editing" width="430" height="1040" -->
+<!-- @dsCard group="Lexicon editing" width="430" height="1180" -->
 <meta charset="utf-8">
 <title>Fact References</title>
 <meta name="viewport" content="width=430, initial-scale=1">
 <style>
 	* { box-sizing: border-box; }
 	body {
-		margin: 0; width: 430px; min-height: 1040px;
+		margin: 0; width: 430px; min-height: 1180px;
 		background: #141218; color: #E6E0E9;
 		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
 		-webkit-font-smoothing: antialiased;
@@ -15,132 +15,167 @@
 	.title { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
 	.sub { color: #948F9A; font-size: 11.5px; margin-top: 2px; }
 
-	.chips { display: flex; gap: 7px; padding: 10px 12px 4px; overflow: hidden; white-space: nowrap; }
+	.seg { display: flex; margin: 10px 12px 2px; border: 1px solid #49454F; border-radius: 20px; overflow: hidden; }
+	.seg div { flex: 1; text-align: center; padding: 7px 0 8px; font-size: 12.5px; color: #CAC4D0; }
+	.seg .on { background: #332A45; color: #D0BCFF; font-weight: 600; }
+	.chips { display: flex; gap: 7px; padding: 8px 12px 4px; }
 	.chip { flex: none; border: 1px solid #49454F; border-radius: 16px; padding: 5px 11px 6px; font-size: 11.5px; color: #CAC4D0; }
 	.chip.on { background: #332A45; border-color: #332A45; color: #D0BCFF; font-weight: 600; }
 
-	.file {
-		display: flex; align-items: center; gap: 8px;
-		padding: 12px 14px 5px; color: #948F9A;
-		font-family: ui-monospace, monospace; font-size: 11px;
+	.group { display: flex; align-items: center; gap: 9px; padding: 13px 12px 6px 14px; }
+	.kind {
+		flex: none; width: 19px; height: 19px; border-radius: 4px;
+		font-family: ui-monospace, monospace; font-size: 11px; font-weight: 700;
+		display: flex; align-items: center; justify-content: center;
 	}
-	.file b { color: #CAC4D0; font-weight: 600; }
-	.count { margin-left: auto; font-family: system-ui, Roboto, sans-serif; font-size: 10.5px; color: #6F6A76; }
-
-	.ref { display: flex; align-items: center; gap: 10px; padding: 7px 12px 8px 14px; border-bottom: 1px solid #201E25; }
-	.ln { flex: none; width: 26px; text-align: right; color: #6F6A76; font-family: ui-monospace, monospace; font-size: 10.5px; }
-	.body { flex: 1; min-width: 0; }
-	.code {
-		font-family: ui-monospace, "Roboto Mono", monospace; font-size: 11px; color: #CFC9D6;
-		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-	}
-	mark { background: rgba(210, 153, 34, 0.38); color: inherit; border-radius: 2px; }
-	.in { color: #7E7889; font-size: 10.5px; margin-top: 2px; }
-	.in span { font-family: ui-monospace, monospace; color: #9A94A4; }
-	.role { flex: none; border-radius: 10px; padding: 2px 7px; font-size: 9.5px; font-weight: 700; letter-spacing: .4px; background: #2A2830; color: #948F9A; text-transform: uppercase; }
-	.r-impl { background: #1F2B3D; color: #8AB4F8; }
+	.k-fn { background: #332A45; color: #D0BCFF; }
+	.k-ty { background: #1F2B3D; color: #8AB4F8; }
+	.gbody { flex: 1; min-width: 0; }
+	.gname { font-size: 13.5px; font-weight: 600; }
+	.gmod { font-family: ui-monospace, monospace; font-size: 10.5px; color: #7E7889; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.gcount { flex: none; color: #948F9A; font-size: 11px; }
 	.chev { flex: none; color: #847E8E; font-size: 16px; line-height: 1; }
 
-	.cap { border-top: 10px solid #0F0E12; padding: 12px 14px 14px; color: #948F9A; font-size: 11.5px; line-height: 1.5; }
-	.cap .sec { color: #8C8795; font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; margin-bottom: 6px; }
-	.capped { background: #211F26; border: 1px solid #332F38; border-radius: 10px; padding: 10px 11px; color: #B7B0C1; font-size: 12px; margin-top: 7px; }
-	.capped b { color: #E6E0E9; }
-	.capped .more { color: #D0BCFF; font-weight: 600; margin-top: 6px; }
+	.use { margin: 0 12px 6px 14px; background: #1B1920; border: 1px solid #2A2731; border-radius: 8px; padding: 7px 10px 8px; }
+	.urow { display: flex; align-items: center; gap: 8px; }
+	.member { font-family: ui-monospace, monospace; font-size: 11.5px; color: #CAC4D0; }
+	.role { border-radius: 10px; padding: 1px 7px 2px; font-size: 9.5px; font-weight: 700; letter-spacing: .4px; background: #2A2830; color: #948F9A; text-transform: uppercase; }
+	.r-impl { background: #1F2B3D; color: #8AB4F8; }
+	.ln { margin-left: auto; color: #6F6A76; font-family: ui-monospace, monospace; font-size: 10.5px; }
+	.code {
+		margin-top: 5px; font-family: ui-monospace, "Roboto Mono", monospace; font-size: 11px; color: #C9D1D9;
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+	}
+	.kw { color: #FF7B72; } .ty { color: #FFA657; } .fn { color: #D2A8FF; } .st { color: #A5D6FF; } .nu { color: #79C0FF; } .cm { color: #8B949E; }
+	.hit { border-bottom: 2px solid #D29922; }
+
+	.foot { color: #7E7889; font-size: 11.5px; padding: 10px 14px 16px; line-height: 1.5; }
+	.byfile { border-top: 10px solid #0F0E12; margin-top: 8px; }
+	.file { display: flex; align-items: center; gap: 8px; padding: 10px 14px 6px; font-family: ui-monospace, monospace; font-size: 11px; color: #CAC4D0; }
+	.file .gcount { margin-left: auto; font-family: system-ui, Roboto, sans-serif; }
 </style>
 
 <header>
 	<div class="back">&#8592;&nbsp; LocalBackendSession</div>
 	<div class="title">References</div>
-	<div class="sub">13 places in 7 files</div>
+	<div class="sub">13 uses in 8 symbols, 7 files</div>
 </header>
 
+<div class="seg"><div class="on">By symbol</div><div>By file</div></div>
 <div class="chips">
 	<div class="chip on">All 13</div>
 	<div class="chip">Type 10</div>
 	<div class="chip">Implements 3</div>
 </div>
 
-<div class="file"><b>src/mcp/local/localAgentHandlers.ts</b><div class="count">5</div></div>
-<div class="ref">
-	<div class="ln">19</div>
-	<div class="body"><div class="code">open(): Promise&lt;<mark>LocalBackendSession</mark>&gt;;</div><div class="in">in <span>LocalHandlerHost.open</span></div></div>
-	<div class="role">Type</div><div class="chev">&#8250;</div>
+<div class="group">
+	<div class="kind k-ty">K</div>
+	<div class="gbody"><div class="gname">LocalAgentHandlers</div><div class="gmod">src/mcp/local/localAgentHandlers.ts : 61</div></div>
+	<div class="gcount">4</div><div class="chev">&#8250;</div>
 </div>
-<div class="ref">
-	<div class="ln">99</div>
-	<div class="body"><div class="code">let session: <mark>LocalBackendSession</mark>;</div><div class="in">in <span>LocalAgentHandlers.start</span></div></div>
-	<div class="role">Type</div><div class="chev">&#8250;</div>
+<div class="use">
+	<div class="urow"><div class="member">start</div><div class="role">Type</div><div class="ln">99</div></div>
+	<div class="code"><span class="kw">let</span> session: <span class="ty hit">LocalBackendSession</span>;</div>
 </div>
-<div class="ref">
-	<div class="ln">136</div>
-	<div class="body"><div class="code">let session: <mark>LocalBackendSession</mark>;</div><div class="in">in <span>LocalAgentHandlers.message</span></div></div>
-	<div class="role">Type</div><div class="chev">&#8250;</div>
+<div class="use">
+	<div class="urow"><div class="member">message</div><div class="role">Type</div><div class="ln">136</div></div>
+	<div class="code"><span class="kw">let</span> session: <span class="ty hit">LocalBackendSession</span>;</div>
 </div>
-<div class="ref">
-	<div class="ln">186</div>
-	<div class="body"><div class="code">let session: <mark>LocalBackendSession</mark>;</div><div class="in">in <span>LocalAgentHandlers.stop</span></div></div>
-	<div class="role">Type</div><div class="chev">&#8250;</div>
+<div class="use">
+	<div class="urow"><div class="member">stop</div><div class="role">Type</div><div class="ln">186</div></div>
+	<div class="code"><span class="kw">let</span> session: <span class="ty hit">LocalBackendSession</span>;</div>
 </div>
-<div class="ref">
-	<div class="ln">223</div>
-	<div class="body"><div class="code">session: <mark>LocalBackendSession</mark>,</div><div class="in">in <span>LocalAgentHandlers.dispatchTurn</span></div></div>
-	<div class="role">Type</div><div class="chev">&#8250;</div>
+<div class="use">
+	<div class="urow"><div class="member">dispatchTurn</div><div class="role">Type</div><div class="ln">223</div></div>
+	<div class="code">session: <span class="ty hit">LocalBackendSession</span>,</div>
 </div>
 
-<div class="file"><b>src/mcp/local/localChildSession.ts</b><div class="count">3</div></div>
-<div class="ref">
-	<div class="ln">16</div>
-	<div class="body"><div class="code">private session?: <mark>LocalBackendSession</mark>;</div><div class="in">in <span>LocalChildSession.session</span></div></div>
-	<div class="role">Type</div><div class="chev">&#8250;</div>
+<div class="group">
+	<div class="kind k-ty">K</div>
+	<div class="gbody"><div class="gname">LocalChildSession</div><div class="gmod">src/mcp/local/localChildSession.ts : 15</div></div>
+	<div class="gcount">3</div><div class="chev">&#8250;</div>
 </div>
-<div class="ref">
-	<div class="ln">17</div>
-	<div class="body"><div class="code">private opening?: Promise&lt;<mark>LocalBackendSession</mark>&gt;;</div><div class="in">in <span>LocalChildSession.opening</span></div></div>
-	<div class="role">Type</div><div class="chev">&#8250;</div>
+<div class="use">
+	<div class="urow"><div class="member">session</div><div class="role">Type</div><div class="ln">16</div></div>
+	<div class="code"><span class="kw">private</span> session?: <span class="ty hit">LocalBackendSession</span>;</div>
 </div>
-<div class="ref">
-	<div class="ln">40</div>
-	<div class="body"><div class="code">open(): Promise&lt;<mark>LocalBackendSession</mark>&gt; {</div><div class="in">in <span>LocalChildSession.open</span></div></div>
-	<div class="role">Type</div><div class="chev">&#8250;</div>
+<div class="use">
+	<div class="urow"><div class="member">opening</div><div class="role">Type</div><div class="ln">17</div></div>
+	<div class="code"><span class="kw">private</span> opening?: <span class="ty">Promise</span>&lt;<span class="ty hit">LocalBackendSession</span>&gt;;</div>
 </div>
-
-<div class="file"><b>src/__tests__/local-agent-publication.test.ts</b><div class="count">1</div></div>
-<div class="ref">
-	<div class="ln">19</div>
-	<div class="body"><div class="code">class ValueBackendAdapter implements <mark>LocalBackendSession</mark> {</div><div class="in">in <span>ValueBackendAdapter</span></div></div>
-	<div class="role r-impl">Implements</div><div class="chev">&#8250;</div>
+<div class="use">
+	<div class="urow"><div class="member">open</div><div class="role">Type</div><div class="ln">40</div></div>
+	<div class="code"><span class="fn">open</span>(): <span class="ty">Promise</span>&lt;<span class="ty hit">LocalBackendSession</span>&gt; {</div>
 </div>
 
-<div class="file"><b>src/mcp/local/codexLocalSession.ts</b><div class="count">1</div></div>
-<div class="ref">
-	<div class="ln">20</div>
-	<div class="body"><div class="code">export class CodexLocalSession implements <mark>LocalBackendSession</mark> {</div><div class="in">in <span>CodexLocalSession</span></div></div>
-	<div class="role r-impl">Implements</div><div class="chev">&#8250;</div>
+<div class="group">
+	<div class="kind k-ty">K</div>
+	<div class="gbody"><div class="gname">CodexLocalSession</div><div class="gmod">src/mcp/local/codexLocalSession.ts : 20</div></div>
+	<div class="gcount">1</div><div class="chev">&#8250;</div>
+</div>
+<div class="use">
+	<div class="urow"><div class="member">declaration</div><div class="role r-impl">Implements</div><div class="ln">20</div></div>
+	<div class="code"><span class="kw">export class</span> <span class="ty">CodexLocalSession</span> <span class="kw">implements</span> <span class="ty hit">LocalBackendSession</span> {</div>
 </div>
 
-<div class="file"><b>src/mcp/local/copilotLocalSession.ts</b><div class="count">1</div></div>
-<div class="ref">
-	<div class="ln">29</div>
-	<div class="body"><div class="code">export class CopilotLocalSession implements <mark>LocalBackendSession</mark> {</div><div class="in">in <span>CopilotLocalSession</span></div></div>
-	<div class="role r-impl">Implements</div><div class="chev">&#8250;</div>
+<div class="group">
+	<div class="kind k-ty">K</div>
+	<div class="gbody"><div class="gname">CopilotLocalSession</div><div class="gmod">src/mcp/local/copilotLocalSession.ts : 29</div></div>
+	<div class="gcount">1</div><div class="chev">&#8250;</div>
+</div>
+<div class="use">
+	<div class="urow"><div class="member">declaration</div><div class="role r-impl">Implements</div><div class="ln">29</div></div>
+	<div class="code"><span class="kw">export class</span> <span class="ty">CopilotLocalSession</span> <span class="kw">implements</span> <span class="ty hit">LocalBackendSession</span> {</div>
 </div>
 
-<div class="file"><b>src/mcp/local/localAgentHost.ts</b><div class="count">1</div></div>
-<div class="ref">
-	<div class="ln">132</div>
-	<div class="body"><div class="code">openSession: async (): Promise&lt;<mark>LocalBackendSession</mark>&gt; =&gt; {</div><div class="in">in <span>createLocalAgentBackend</span></div></div>
-	<div class="role">Type</div><div class="chev">&#8250;</div>
+<div class="group">
+	<div class="kind k-ty">K</div>
+	<div class="gbody"><div class="gname">ValueBackendAdapter</div><div class="gmod">src/__tests__/local-agent-publication.test.ts : 19</div></div>
+	<div class="gcount">1</div><div class="chev">&#8250;</div>
+</div>
+<div class="use">
+	<div class="urow"><div class="member">declaration</div><div class="role r-impl">Implements</div><div class="ln">19</div></div>
+	<div class="code"><span class="kw">class</span> <span class="ty">ValueBackendAdapter</span> <span class="kw">implements</span> <span class="ty hit">LocalBackendSession</span> {</div>
 </div>
 
-<div class="file"><b>src/mcp/local/localAgentRuntime.ts</b><div class="count">1</div></div>
-<div class="ref">
-	<div class="ln">50</div>
-	<div class="body"><div class="code">openSession(): Promise&lt;<mark>LocalBackendSession</mark>&gt;;</div><div class="in">in <span>LocalBackendSpec.openSession</span></div></div>
-	<div class="role">Type</div><div class="chev">&#8250;</div>
+<div class="group">
+	<div class="kind k-fn">F</div>
+	<div class="gbody"><div class="gname">createLocalAgentBackend</div><div class="gmod">src/mcp/local/localAgentHost.ts : 106</div></div>
+	<div class="gcount">1</div><div class="chev">&#8250;</div>
+</div>
+<div class="use">
+	<div class="urow"><div class="member">body</div><div class="role">Type</div><div class="ln">132</div></div>
+	<div class="code"><span class="fn">openSession</span>: <span class="kw">async</span> (): <span class="ty">Promise</span>&lt;<span class="ty hit">LocalBackendSession</span>&gt; =&gt; {</div>
 </div>
 
-<div class="cap">
-	<div class="sec">A capped list</div>
-	Tap opens a window on the symbol the reference sits in, scrolled to the line. A reference outside any declaration opens the raw file there.
-	<div class="capped"><b>processAmbient</b> is referenced in 482 places. Showing the first 200, grouped by file.<div class="more">Load 200 more</div></div>
+<div class="group">
+	<div class="kind k-ty">T</div>
+	<div class="gbody"><div class="gname">LocalBackendSpec</div><div class="gmod">src/mcp/local/localAgentRuntime.ts : 48</div></div>
+	<div class="gcount">1</div><div class="chev">&#8250;</div>
+</div>
+<div class="use">
+	<div class="urow"><div class="member">openSession</div><div class="role">Type</div><div class="ln">50</div></div>
+	<div class="code"><span class="fn">openSession</span>(): <span class="ty">Promise</span>&lt;<span class="ty hit">LocalBackendSession</span>&gt;;</div>
+</div>
+
+<div class="group">
+	<div class="kind k-ty">T</div>
+	<div class="gbody"><div class="gname">LocalHandlerHost</div><div class="gmod">src/mcp/local/localAgentHandlers.ts : 16</div></div>
+	<div class="gcount">1</div><div class="chev">&#8250;</div>
+</div>
+<div class="use">
+	<div class="urow"><div class="member">open</div><div class="role">Type</div><div class="ln">19</div></div>
+	<div class="code"><span class="fn">open</span>(): <span class="ty">Promise</span>&lt;<span class="ty hit">LocalBackendSession</span>&gt;;</div>
+</div>
+
+<div class="foot">Every use, no cap. The list is lazy, so only rows on screen draw. A group header opens that symbol; a use opens the symbol it sits in, at that line.</div>
+
+<div class="byfile">
+	<div class="seg"><div>By symbol</div><div class="on">By file</div></div>
+	<div class="file">src/mcp/local/localChildSession.ts<div class="gcount">3</div></div>
+	<div class="use">
+		<div class="urow"><div class="member">LocalChildSession.session</div><div class="role">Type</div><div class="ln">16</div></div>
+		<div class="code"><span class="kw">private</span> session?: <span class="ty hit">LocalBackendSession</span>;</div>
+	</div>
+	<div class="foot">Same uses, grouped by file and in line order. The References row opens By file; the Used by row opens By symbol.</div>
 </div>
