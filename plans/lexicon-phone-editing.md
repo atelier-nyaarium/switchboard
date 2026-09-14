@@ -2174,8 +2174,9 @@ Not started. The owner answered the first round; the Ask design waits on review.
 - **The sheet:** scope (this symbol, with members, whole file), question chips with their count in the
   scope, and what to include: not recorded, stale or doubted or thin, already asked, parameters and
   locals. It shows the answer count, and for a wider scope the leaves-first order, before sending.
-- **One message per send, holding the whole tree,** as the owner words work for a subagent. A preview in
-  the sheet shows it before sending. Its parts, in order:
+- **One message per send, holding the whole tree,** as the owner words work for a subagent. No preview:
+  the sheet's counts are what the owner checks. Whole-file fills are expected often, since a cold Lexicon
+  on a new codebase has nothing recorded. The message's parts, in order:
   - **Intent:** subject, module, answer and symbol counts, and that the owner chose the set, so the
     session records every one without asking first.
   - **How:** per symbol, `symbol_facts` for ids, then read the code at the declaration and reference

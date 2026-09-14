@@ -1,11 +1,11 @@
-<!-- @dsCard group="Lexicon editing" width="430" height="1680" -->
+<!-- @dsCard group="Lexicon editing" width="430" height="1080" -->
 <meta charset="utf-8">
 <title>Knowledge Fill</title>
 <meta name="viewport" content="width=430, initial-scale=1">
 <style>
 	* { box-sizing: border-box; }
 	body {
-		margin: 0; width: 430px; min-height: 1680px;
+		margin: 0; width: 430px; min-height: 1080px;
 		background: #0B0A0E; color: #E6E0E9;
 		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
 		-webkit-font-smoothing: antialiased;
@@ -96,42 +96,12 @@
 
 	<div class="sum">
 		<div class="big">16 answers across 8 symbols</div>
-		<div class="small">One message holding the whole tree. <span class="more">Preview &#8964;</span></div>
+		<div class="small">One message holding the whole tree, members before the symbol that holds them.</div>
 	</div>
 
 	<div class="btn">Send to session</div>
 </div>
 
-<div class="msgwrap">
-	<div class="sec">Preview</div>
-	<div class="msg">
-		<p>Record Lexicon knowledge for <code>LocalBackendSession</code> and its members in <code>src/mcp/local/localAgentSession.ts</code>: 16 answers across 8 symbols. The owner chose this set, so record every one without asking first.</p>
-		<p class="h">How</p>
-		<ul>
-			<li>Per symbol: <code>symbol_facts</code> for its fact ids, then read the code at its declaration and reference sites. Facts are locations, not content.</li>
-			<li>One <code>record_answer</code> per question, one or two sentences, citing a fact beyond the declaration. Declaration alone grades THIN, which is right for a plain field's "effects: none".</li>
-			<li>Members before their symbol. A symbol's answers cite its members' answer ids.</li>
-			<li>A stale answer that still holds: <code>reaffirm_answer</code>, not a rewrite.</li>
-			<li>Sibling branches are independent and may go to subagents; each returns its answer ids for the parent.</li>
-			<li>Reply once at the end: how many recorded or reaffirmed, and each one you could not answer, with why.</li>
-		</ul>
-		<p class="h">Tree</p>
-		<ul class="tree">
-			<li><code>LocalBackendSession</code> interface: describe, contract<div class="id">lexicon typescript src/mcp/local/localAgentSession.ts LocalBackendSession#</div>
-				<ul>
-					<li><code>openThread</code> method: describe, contract<div class="id">... LocalBackendSession#openThread().</div></li>
-					<li><code>startTurn</code> method: describe, contract<div class="id">... LocalBackendSession#startTurn().</div></li>
-					<li><code>steerTurn</code> method: describe, contract<div class="id">... LocalBackendSession#steerTurn().</div></li>
-					<li><code>interruptTurn</code> method: describe, contract<div class="id">... LocalBackendSession#interruptTurn().</div></li>
-					<li><code>onActivity</code> method: describe, contract<div class="id">... LocalBackendSession#onActivity().</div></li>
-					<li><code>onClosed</code> method: describe, contract<div class="id">... LocalBackendSession#onClosed().</div></li>
-					<li><code>close</code> method: describe, contract<div class="id">... LocalBackendSession#close().</div></li>
-				</ul>
-			</li>
-		</ul>
-		<p class="note">The preview shortens ids with "..."; the message carries each one whole.</p>
-	</div>
-</div>
 
 <div class="page">
 	<div class="phead">
