@@ -2180,8 +2180,10 @@ before the release, then a pin move here.
     sites.
   - **Same package:** a name the file does not declare binds among the package's other files.
   - **Star import:** `pkg.*` binds by name among that package's top-level declarations.
-  - **Precedence:** the file's own declarations, then explicit imports and aliases, then the same
-    package, then star imports pooled. The first set holding candidates decides.
+  - **Precedence, in Kotlin's order:** locals and parameters, then implicit receivers (enclosing classes,
+    their companions, supertypes the index resolves, an extension's receiver type), then explicit imports
+    and aliases, then the package with this file in it, then star imports pooled. The first set holding
+    candidates decides; a receiver the index cannot resolve is skipped.
   - **Visibility:** a `private` top-level declaration binds only in its own file. `internal` binds
     workspace-wide, since Gradle modules are not modelled; a multi-module build can over-bind it.
   - **Several candidates** in the deciding set, overloads and two star imports included, stay `ambiguous`
@@ -2202,15 +2204,55 @@ before the release, then a pin move here.
 - **The top-level symbol of a use** is computed at read time from `fromId` up the `containerId` chain, and
   `findReferences` rows carry it with the language of the file the use is written in. Neither is stored
   nor part of a reference's fact id, so no citation goes stale.
-- **Dependents:** `describe`'s graph answers the number of distinct top-level symbols holding a use.
+- **Dependents:** `describe`'s graph answers the number of distinct top-level symbols holding a use; a use
+  at module level counts its file, as the By symbol list groups it. A namespace, module or package groups
+  and holds nothing, so the top-level symbol is the outermost declaration below one.
+- **Import and export lines are not uses.** `findReferences`, `usesFrom`, `dependents` and
+  `referenceCount` leave them out; rename planning keeps them.
 - **`knowledgeScope`:** a new read over a symbol, a symbol with its members, or a module: the containment
   tree, members before their container, each symbol with every question's state (missing, recorded, thin,
-  stale, doubted, stranded), the recorded answer's `createdAt`, and its ask count, parameters and locals
-  excluded unless asked. `knowledgeGaps` is unchanged. The tree is Lexicon's to build; the hand exercise
+  stale, shaky, doubted), the recorded answer's `createdAt`, and its ask count, parameters and locals
+  excluded unless asked. A symbol the index does not hold answers null. `knowledgeGaps` is unchanged. The tree is Lexicon's to build; the hand exercise
   below read it off the module listing only because this read did not exist.
 - **Comments on locals:** `symbol_facts` also lists comments whose nearest non-local enclosing declaration
   is the symbol. Stored anchors and comment fact ids do not change.
 - **Docs:** the daemon protocol, knowledge layer and Kotlin provider notes.
+
+### Bug Classes
+
+- **Kotlin reference ownership comes from body scope spans alone.** `scopeAt` answers the innermost span
+  holding a token, and spans exist only for class and block bodies. Anything a declaration owns outside its
+  body reads as owned by the enclosing scope. Widening lookup to the whole package turned each such hole
+  into a wrong cross-file binding.
+  - **Round 1:** a supertype sits in the class header, so `extends` rows carried no `fromId` and no Kotlin
+    class had subtypes. Patched with `heritageOwners` in `collectHeritage`.
+  - **Round 2:** an expression body (`fun f(x: T) = x`) had no span, so a parameter shadowing a package
+    name bound to the package name. Patched with a span from `=` to the declaration's end.
+  - **Round 3:** a default value (`fun f(limit: Int, other: Int = limit)`, and a constructor's) sits in the
+    signature, so `limit` bound to another file's package `val`. Left for the architecture step.
+  - **Round 4, from the red team:** the class is wider than ownership. Binders the parser never declares
+    (lambda parameters, `it`, `for` and `catch` variables, destructuring, `when` subjects, type parameters,
+    accessor parameters) fell through to the package. `statementEnd` stops at a newline, so a multi-line
+    expression body or class header turned locals and members into package-wide top-level names: 132 in
+    Switchboard's `android/`, with 406 uses in other files bound to them. Implicit receivers are no tier.
+    Named arguments emit writes. Every hand-rolled bracket scanner counts a different subset of brackets.
+  - **The design fix:** Lexicon's parsing law, rule 1. The Kotlin provider parses through tree-sitter's
+    Kotlin grammar (`web-tree-sitter` 0.27.0, the grammar's wasm vendored from
+    `@tree-sitter-grammars/tree-sitter-kotlin` 1.1.0), and scopes, ownership and lookup are built from the
+    tree. Measured: Switchboard's 525 Kotlin files, 3 MB, parse in 1 second under node. Its only failures
+    are soft modifier keywords used as names (`open`, `sealed`, `final`); a same-length respelling at
+    those names parses every file clean.
+- **Answer health is decided in four places.** `gapWhy`, `demandOf`, the recall renderer and
+  `knowledgeScope` each read a recalled answer's state, and `knowledgeScope` folded inherited staleness
+  into `stale`. One health function now serves all four.
+- **"Local" is read three ways.** The id's `local` segment, `visibility: "local"`, and a function-kind
+  ancestor. TypeScript arrow constants and getters escaped the third, so their locals listed as members.
+- **Whether a row is a use is decided per reader.** Round 1: `findReferences` and `dependents` counted
+  import lines. Round 2: `fanIn`, `fanOut` and `mostReferenced` still did after the first fix. The
+  predicate now lives once, read by the store's graph readers and the read model alike.
+- **Grouping kinds are decided in two places.** `spansModules` and the drill-in reads each decided that a
+  namespace holds nothing, differently, so C#, C++, TypeScript namespaces and Rust `mod` grouped every use
+  under the namespace.
 
 ## Phase 14b - Plugin and wire
 
