@@ -1,11 +1,11 @@
-<!-- @dsCard group="Lexicon editing" width="430" height="900" -->
+<!-- @dsCard group="Lexicon editing" width="430" height="1700" -->
 <meta charset="utf-8">
 <title>Knowledge Ask</title>
 <meta name="viewport" content="width=430, initial-scale=1">
 <style>
 	* { box-sizing: border-box; }
 	body {
-		margin: 0; width: 430px; min-height: 900px;
+		margin: 0; width: 430px; min-height: 1700px;
 		background: #141218; color: #E6E0E9;
 		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
 		-webkit-font-smoothing: antialiased;
@@ -16,32 +16,52 @@
 	.kind { flex: none; width: 21px; height: 21px; border-radius: 4px; font-family: ui-monospace, monospace; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; background: #1F2B3D; color: #8AB4F8; }
 	.nm { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
 	.where { color: #948F9A; font-size: 11px; margin-top: 3px; font-family: ui-monospace, monospace; }
-	main { padding: 12px 12px 30px; }
-	.sechead { display: flex; align-items: baseline; margin: 16px 2px 7px; }
-	.sechead:first-child { margin-top: 2px; }
-	.sec { color: #8C8795; font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; }
-	.link { margin-left: auto; color: #D0BCFF; font-size: 12px; font-weight: 600; }
+	main { padding: 12px 12px 18px; }
 
-	.q { display: flex; align-items: center; gap: 10px; background: #211F26; border: 1px solid #332F38; border-radius: 10px; padding: 8px 8px 8px 12px; margin-bottom: 6px; }
-	.q.picked { border-color: #6B5B95; background: #26223B; }
-	.qn { font-size: 12px; font-weight: 700; letter-spacing: .5px; color: #CAC4D0; width: 74px; }
+	.sechead { display: flex; align-items: center; margin: 2px 2px 8px; gap: 8px; }
+	.sec { color: #8C8795; font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; }
+	.count { color: #7E7889; font-size: 11.5px; }
+	.askbtn { margin-left: auto; background: #D0BCFF; color: #381E72; border-radius: 16px; padding: 6px 14px 7px; font-size: 12.5px; font-weight: 700; }
+
+	.q { display: flex; align-items: center; gap: 10px; background: #211F26; border: 1px solid #332F38; border-radius: 10px; padding: 11px 12px; margin-bottom: 6px; }
+	.qn { font-size: 12px; font-weight: 700; letter-spacing: .5px; color: #CAC4D0; width: 78px; flex: none; }
 	.qs { color: #948F9A; font-size: 12px; flex: 1; }
 	.qs.asked { color: #D9C28A; }
-	.pick { flex: none; border: 1px solid #49454F; border-radius: 16px; padding: 5px 12px 6px; font-size: 12px; color: #CAC4D0; }
-	.picked .pick { background: #D0BCFF; border-color: #D0BCFF; color: #381E72; font-weight: 700; }
-	.pick.off { color: #6F6A76; border-color: #332F38; }
-
-	.bar { margin: 12px -12px 0; background: #1D1B20; border-top: 1px solid #49454F; padding: 10px 12px 13px; display: flex; gap: 8px; align-items: center; }
-	.btn { flex: 1; text-align: center; border-radius: 22px; padding: 11px 0 12px; font-size: 13.5px; font-weight: 600; background: #D0BCFF; color: #381E72; }
-	.ghost { flex: none; padding: 11px 14px 12px; color: #CAC4D0; font-size: 13px; }
-
-	.state { border-top: 10px solid #0F0E12; margin: 22px -12px 0; padding: 4px 12px 0; }
-	.note { color: #7E7889; font-size: 11.5px; margin: 0 2px 8px; line-height: 1.45; }
-	.msg { background: #1B1920; border: 1px solid #2A2731; border-radius: 10px; padding: 9px 11px; font-size: 12px; line-height: 1.5; color: #BDB7C6; }
-	.msg code { font-family: ui-monospace, monospace; font-size: 11px; color: #D0BCFF; }
-	.fill { display: flex; align-items: center; gap: 10px; background: #211F26; border: 1px solid #332F38; border-radius: 10px; padding: 11px 11px 12px; font-size: 13.5px; margin-top: 6px; }
-	.fill .fval { margin-left: auto; color: #B7B0C1; font-size: 12px; }
+	.qs.done { color: #9BD4A3; }
+	.skel { height: 7px; border-radius: 4px; background: #332F38; margin-top: 6px; }
 	.chev { color: #847E8E; font-size: 17px; line-height: 1; }
+
+	.label { color: #8C8795; font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; margin: 22px 14px 0; }
+	.sheet { background: #1D1B20; border-radius: 22px 22px 0 0; margin-top: 8px; padding: 8px 14px 18px; border-top: 1px solid #49454F; }
+	.grab { width: 36px; height: 4px; border-radius: 2px; background: #49454F; margin: 2px auto 12px; }
+	.stitle { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
+	.ssub { color: #948F9A; font-size: 11.5px; margin-top: 2px; font-family: ui-monospace, monospace; }
+	.ssec { color: #8C8795; font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; margin: 16px 2px 7px; }
+	.seg { display: flex; border: 1px solid #49454F; border-radius: 20px; overflow: hidden; }
+	.seg div { flex: 1; text-align: center; padding: 7px 0 8px; font-size: 12px; color: #CAC4D0; }
+	.seg .on { background: #332A45; color: #D0BCFF; font-weight: 600; }
+	.segnote { display: flex; font-size: 10.5px; color: #7E7889; margin-top: 4px; }
+	.segnote div { flex: 1; text-align: center; }
+	.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+	.chip { border: 1px solid #49454F; border-radius: 16px; padding: 5px 11px 6px; font-size: 11.5px; color: #CAC4D0; }
+	.chip.on { background: #332A45; border-color: #332A45; color: #D0BCFF; font-weight: 600; }
+	.chip.rec { color: #6F6A76; border-color: #332F38; }
+	.opt { display: flex; align-items: center; gap: 10px; padding: 7px 2px; font-size: 13px; }
+	.box { width: 18px; height: 18px; border-radius: 4px; border: 2px solid #938F99; flex: none; }
+	.box.on { background: #D0BCFF; border-color: #D0BCFF; position: relative; }
+	.box.on::after { content: ""; position: absolute; left: 4px; top: 0; width: 5px; height: 10px; border: solid #381E72; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+	.opt .val { margin-left: auto; color: #948F9A; font-size: 11.5px; }
+	.opt .hint { color: #7E7889; font-size: 11px; }
+	.sum { background: #211F26; border: 1px solid #332F38; border-radius: 10px; padding: 10px 11px 11px; margin-top: 12px; }
+	.big { font-size: 15px; font-weight: 600; }
+	.small { color: #948F9A; font-size: 11.5px; margin-top: 3px; line-height: 1.45; }
+	.btn { text-align: center; border-radius: 22px; padding: 11px 0 12px; font-size: 13.5px; font-weight: 600; background: #D0BCFF; color: #381E72; margin-top: 14px; }
+
+	.prog { display: flex; align-items: center; gap: 10px; margin: 0 2px 10px; }
+	.track { flex: 1; height: 6px; border-radius: 3px; background: #332F38; overflow: hidden; }
+	.track div { width: 33%; height: 100%; background: #D0BCFF; }
+	.ptext { color: #D0BCFF; font-size: 12px; font-weight: 600; }
+	.divider { border-top: 10px solid #0F0E12; margin-top: 22px; }
 </style>
 
 <header>
@@ -51,25 +71,68 @@
 </header>
 
 <main>
-	<div class="sechead"><div class="sec">Knowledge</div><div class="link">Pick all missing</div></div>
-	<div class="q picked"><div class="qn">DESCRIBE</div><div class="qs">not recorded</div><div class="pick">&#10003; Picked</div></div>
-	<div class="q picked"><div class="qn">WHY</div><div class="qs">not recorded</div><div class="pick">&#10003; Picked</div></div>
-	<div class="q"><div class="qn">RELATE</div><div class="qs">not recorded</div><div class="pick">Pick</div></div>
-	<div class="q picked"><div class="qn">CONTRACT</div><div class="qs">not recorded</div><div class="pick">&#10003; Picked</div></div>
-	<div class="q"><div class="qn">EFFECTS</div><div class="qs">not recorded</div><div class="pick">Pick</div></div>
-	<div class="q"><div class="qn">USAGE</div><div class="qs">not recorded</div><div class="pick">Pick</div></div>
-	<div class="fill">Fill this and its members<div class="fval">8 symbols</div><div class="chev">&#8250;</div></div>
+	<div class="sechead"><div class="sec">Knowledge</div><div class="count">0 of 6 recorded</div><div class="askbtn">Ask</div></div>
+	<div class="q"><div class="qn">DESCRIBE</div><div class="qs">not recorded</div><div class="chev">&#8250;</div></div>
+	<div class="q"><div class="qn">WHY</div><div class="qs">not recorded</div><div class="chev">&#8250;</div></div>
+	<div class="q"><div class="qn">RELATE</div><div class="qs">not recorded</div><div class="chev">&#8250;</div></div>
+	<div class="q"><div class="qn">CONTRACT</div><div class="qs">not recorded</div><div class="chev">&#8250;</div></div>
+	<div class="q"><div class="qn">EFFECTS</div><div class="qs">not recorded</div><div class="chev">&#8250;</div></div>
+	<div class="q"><div class="qn">USAGE</div><div class="qs">not recorded</div><div class="chev">&#8250;</div></div>
+</main>
 
-	<div class="bar"><div class="ghost">Clear</div><div class="btn">Ask 3 questions</div></div>
+<div class="label">Ask opens the sheet</div>
+<div class="sheet">
+	<div class="grab"></div>
+	<div class="stitle">Ask</div>
+	<div class="ssub">LocalBackendSession</div>
 
-	<div class="state">
-		<div class="sechead"><div class="sec">What the session receives</div></div>
-		<div class="note">One message, however many were picked or however fast they were tapped.</div>
-		<div class="msg">Record Lexicon's <code>describe</code>, <code>why</code> and <code>contract</code> answers for <code>LocalBackendSession</code> in <code>src/mcp/local/localAgentSession.ts</code>, citing the facts each rests on. The owner picked all three on purpose: record every one without asking first. Symbol id: <code>lexicon typescript src/mcp/local/localAgentSession.ts LocalBackendSession#</code>.</div>
+	<div class="ssec">Scope</div>
+	<div class="seg"><div class="on">This symbol</div><div>With members</div><div>Whole file</div></div>
+	<div class="segnote"><div>1 symbol</div><div>8 symbols</div><div>15 symbols</div></div>
 
-		<div class="sechead"><div class="sec">After sending</div></div>
-		<div class="q"><div class="qn">DESCRIBE</div><div class="qs asked">asked 1 min ago</div><div class="pick off">Pick</div></div>
-		<div class="q"><div class="qn">WHY</div><div class="qs asked">asked 1 min ago</div><div class="pick off">Pick</div></div>
-		<div class="note" style="margin-top: 8px;">An asked question stays marked until its answer lands, and Pick all missing skips it. Picking it again asks again.</div>
+	<div class="ssec">Questions</div>
+	<div class="chips">
+		<div class="chip on">Describe</div>
+		<div class="chip on">Why</div>
+		<div class="chip on">Relate</div>
+		<div class="chip on">Contract</div>
+		<div class="chip on">Effects</div>
+		<div class="chip on">Usage</div>
 	</div>
+
+	<div class="ssec">Include</div>
+	<div class="opt"><div class="box on"></div>Not recorded<div class="val">6</div></div>
+	<div class="opt"><div class="box on"></div><div>Stale, doubted or thin</div><div class="val">0</div></div>
+	<div class="opt"><div class="box"></div><div>Already asked <span class="hint">and not yet answered</span></div><div class="val">0</div></div>
+
+	<div class="sum">
+		<div class="big">6 answers</div>
+		<div class="small">One message. The session records each without asking first, and reaffirms a stale answer that still holds rather than rewriting it.</div>
+	</div>
+	<div class="btn">Send to session</div>
+</div>
+
+<div class="label">Tapping an unrecorded row opens the same sheet on that question alone</div>
+<div class="sheet">
+	<div class="chips" style="margin-top: 6px;">
+		<div class="chip on">Describe</div>
+		<div class="chip">Why</div>
+		<div class="chip">Relate</div>
+		<div class="chip">Contract</div>
+		<div class="chip">Effects</div>
+		<div class="chip">Usage</div>
+	</div>
+	<div class="sum"><div class="big">1 answer</div></div>
+	<div class="btn">Send to session</div>
+</div>
+
+<div class="divider"></div>
+<main>
+	<div class="label" style="margin: 4px 2px 10px;">While it is out</div>
+	<div class="sechead"><div class="sec">Knowledge</div><div class="count">2 of 6 recorded</div><div class="askbtn">Ask</div></div>
+	<div class="prog"><div class="track"><div></div></div><div class="ptext">Asked 3 min ago</div></div>
+	<div class="q"><div class="qn">DESCRIBE</div><div class="qs done">recorded<div class="skel"></div></div><div class="chev">&#8250;</div></div>
+	<div class="q"><div class="qn">WHY</div><div class="qs done">recorded<div class="skel" style="width: 70%;"></div></div><div class="chev">&#8250;</div></div>
+	<div class="q"><div class="qn">RELATE</div><div class="qs asked">asked</div><div class="chev">&#8250;</div></div>
+	<div class="q"><div class="qn">CONTRACT</div><div class="qs asked">asked</div><div class="chev">&#8250;</div></div>
 </main>

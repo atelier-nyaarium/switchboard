@@ -1,11 +1,11 @@
-<!-- @dsCard group="Lexicon editing" width="430" height="1000" -->
+<!-- @dsCard group="Lexicon editing" width="430" height="1060" -->
 <meta charset="utf-8">
 <title>Knowledge Fill</title>
 <meta name="viewport" content="width=430, initial-scale=1">
 <style>
 	* { box-sizing: border-box; }
 	body {
-		margin: 0; width: 430px; min-height: 1000px;
+		margin: 0; width: 430px; min-height: 1060px;
 		background: #0B0A0E; color: #E6E0E9;
 		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
 		-webkit-font-smoothing: antialiased;
@@ -25,12 +25,15 @@
 	.chips { display: flex; flex-wrap: wrap; gap: 7px; }
 	.chip { border: 1px solid #49454F; border-radius: 16px; padding: 5px 11px 6px; font-size: 11.5px; color: #CAC4D0; }
 	.chip.on { background: #332A45; border-color: #332A45; color: #D0BCFF; font-weight: 600; }
+	.chip span { color: #948F9A; font-weight: 400; margin-left: 4px; }
+	.chip.on span { color: #B9A6E8; }
 
-	.opt { display: flex; align-items: center; gap: 10px; padding: 8px 2px; font-size: 13px; }
+	.opt { display: flex; align-items: center; gap: 10px; padding: 7px 2px; font-size: 13px; }
 	.box { width: 18px; height: 18px; border-radius: 4px; border: 2px solid #938F99; flex: none; }
 	.box.on { background: #D0BCFF; border-color: #D0BCFF; position: relative; }
-	.box.on::after { content: ""; position: absolute; left: 4px; top: 0px; width: 5px; height: 10px; border: solid #381E72; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+	.box.on::after { content: ""; position: absolute; left: 4px; top: 0; width: 5px; height: 10px; border: solid #381E72; border-width: 0 2px 2px 0; transform: rotate(45deg); }
 	.opt .val { margin-left: auto; color: #948F9A; font-size: 11.5px; }
+	.opt .hint { color: #7E7889; font-size: 11px; }
 
 	.sum { background: #211F26; border: 1px solid #332F38; border-radius: 10px; padding: 10px 11px 11px; margin-top: 12px; }
 	.big { font-size: 15px; font-weight: 600; }
@@ -51,37 +54,37 @@
 	.r .m { font-family: ui-monospace, monospace; }
 	.r .s { margin-left: auto; font-size: 11px; color: #6F6A76; }
 	.r .s.done { color: #9BD4A3; }
-	.r .s.work { color: #D9C28A; }
 	.pnote { color: #7E7889; font-size: 11.5px; padding: 8px 2px 0; line-height: 1.45; }
 </style>
 
 <div class="sheet">
 	<div class="grab"></div>
-	<div class="title">Fill knowledge</div>
+	<div class="title">Ask</div>
 	<div class="sub">LocalBackendSession</div>
 
 	<div class="sec">Scope</div>
 	<div class="seg"><div>This symbol</div><div class="on">With members</div><div>Whole file</div></div>
-	<div class="segnote"><div>1</div><div>8 symbols</div><div>15 symbols</div></div>
+	<div class="segnote"><div>1 symbol</div><div>8 symbols</div><div>15 symbols</div></div>
 
 	<div class="sec">Questions</div>
 	<div class="chips">
-		<div class="chip on">Describe</div>
-		<div class="chip on">Contract</div>
-		<div class="chip">Why</div>
-		<div class="chip">Relate</div>
-		<div class="chip">Effects</div>
-		<div class="chip">Usage</div>
+		<div class="chip on">Describe<span>8</span></div>
+		<div class="chip on">Contract<span>8</span></div>
+		<div class="chip">Why<span>8</span></div>
+		<div class="chip">Relate<span>8</span></div>
+		<div class="chip">Effects<span>8</span></div>
+		<div class="chip">Usage<span>8</span></div>
 	</div>
 
 	<div class="sec">Include</div>
-	<div class="opt"><div class="box on"></div>Missing<div class="val">16</div></div>
-	<div class="opt"><div class="box on"></div>Stale or doubted<div class="val">0</div></div>
-	<div class="opt"><div class="box"></div>Parameters and locals<div class="val">skipped</div></div>
+	<div class="opt"><div class="box on"></div>Not recorded<div class="val">16</div></div>
+	<div class="opt"><div class="box on"></div>Stale, doubted or thin<div class="val">0</div></div>
+	<div class="opt"><div class="box"></div><div>Already asked <span class="hint">and not yet answered</span></div><div class="val">0</div></div>
+	<div class="opt"><div class="box"></div>Parameters and locals<div class="val">18</div></div>
 
 	<div class="sum">
 		<div class="big">16 answers across 8 symbols</div>
-		<div class="small">Leaves first, so the interface is described after the methods it holds.</div>
+		<div class="small">One message, members before the interface that holds them.</div>
 		<div class="order">openThread, startTurn, steerTurn, interruptTurn,<br>onActivity, onClosed, close, then LocalBackendSession</div>
 	</div>
 
@@ -91,17 +94,17 @@
 <div class="page">
 	<div class="phead">
 		<div class="pname">LocalBackendSession</div>
-		<div class="prog"><div class="track"><div></div></div><div class="ptext">Filling, 6 of 16</div></div>
+		<div class="prog"><div class="track"><div></div></div><div class="ptext">6 of 16 recorded</div></div>
 	</div>
 	<div class="rows">
 		<div class="r"><span class="m">openThread</span><span class="s done">describe, contract</span></div>
 		<div class="r"><span class="m">startTurn</span><span class="s done">describe, contract</span></div>
 		<div class="r"><span class="m">steerTurn</span><span class="s done">describe, contract</span></div>
-		<div class="r"><span class="m">interruptTurn</span><span class="s">waiting</span></div>
-		<div class="r"><span class="m">onActivity</span><span class="s">waiting</span></div>
-		<div class="r"><span class="m">onClosed</span><span class="s">waiting</span></div>
-		<div class="r"><span class="m">close</span><span class="s">waiting</span></div>
-		<div class="r"><span class="m">LocalBackendSession</span><span class="s">waiting</span></div>
-		<div class="pnote">Progress is the phone re-reading what Lexicon holds, not the session's word for it. A fill of this scope cannot be sent twice while one is out.</div>
+		<div class="r"><span class="m">interruptTurn</span><span class="s">asked</span></div>
+		<div class="r"><span class="m">onActivity</span><span class="s">asked</span></div>
+		<div class="r"><span class="m">onClosed</span><span class="s">asked</span></div>
+		<div class="r"><span class="m">close</span><span class="s">asked</span></div>
+		<div class="r"><span class="m">LocalBackendSession</span><span class="s">asked</span></div>
+		<div class="pnote">Progress is the phone re-reading what Lexicon holds, not the session's word for it. Anything still asked is left out of the next send unless Already asked is ticked.</div>
 	</div>
 </div>

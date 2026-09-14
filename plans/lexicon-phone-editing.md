@@ -2128,8 +2128,8 @@ cross-file Kotlin reference (see the painpoint on Kotlin binding) and a Kotlin s
 | `facts-hierarchy.html` | Supertypes over the subject, subtypes under it, an unresolved base dashed |
 | `facts-comments.html` | Comments inside the symbol, each opening its line |
 | `facts-history.html` | Commits that touched the symbol's lines, and the file's history from the outline |
-| `knowledge-ask.html` | Pick questions, send one message |
-| `knowledge-fill.html` | Fill a symbol, its members or a file, and the progress read back |
+| `knowledge-ask.html` | Ask opens one sheet: scope, questions, what to include, one message |
+| `knowledge-fill.html` | The same sheet over a symbol's members, and the progress read back |
 
 ## Phase 14 - Facts drill-ins
 
@@ -2168,14 +2168,18 @@ Not started. The owner answered the first round; the Ask design waits on review.
 
 ### Ask
 
-- **One message per send:** Ask chips pick, a bar sends "Ask N questions". The message says the owner
-  picked them on purpose, so the session records every one without confirming.
-- **Asked stays marked** until the answer lands. Pick all missing skips an asked question; picking it
-  again asks again.
-- **Fill:** a sheet with scope (this symbol, with members, whole file), questions, and whether to include
-  stale or doubted answers and parameters. It shows the answer count and the leaves-first order before
-  sending, and a scope cannot be filled twice while one is out.
-- **Progress is read back from Lexicon,** never taken from the session's reply.
+- **One sheet, no per-question chips:** the owner ruled the pick-and-submit bar still too manual. The
+  Knowledge header's Ask opens the sheet with every question preselected; an unrecorded row opens it on
+  that question alone. Fill is the same sheet at a wider scope.
+- **The sheet:** scope (this symbol, with members, whole file), question chips with their count in the
+  scope, and what to include: not recorded, stale or doubted or thin, already asked, parameters and
+  locals. It shows the answer count, and for a wider scope the leaves-first order, before sending.
+- **One message per send,** saying the owner chose the set, so the session records each without
+  confirming and reaffirms a stale answer that still holds.
+- **Asked** is a pair still out and not recorded since. The next send leaves it out unless Already asked
+  is ticked, so repeated taps cannot send the same question twice.
+- **Progress is read back from Lexicon,** never taken from the session's reply. The Knowledge header
+  shows it while anything is out.
 - **What Lexicon lacks:** `knowledgeGaps` under a root walks the fan-out graph from the root alone, so a
   class or interface answers only itself: its references belong to its members, the case `graphSummary`
   already fixed. Fill needs a containment walk, members leaves first, with parameters and locals
