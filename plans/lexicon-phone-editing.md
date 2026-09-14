@@ -2173,33 +2173,41 @@ before the release, then a pin move here.
 
 - **Kotlin binds across a package.** `resolveImport` maps a package to ONE module and answers `Ambiguous`
   when several files declare it, which is every real Kotlin package, and a same-package name is looked up
-  in its own file only. A package declaration index replaces both, keyed by package and name, holding each
-  declaration's kind, visibility and module:
+  in its own file only. A package declaration index replaces both, keyed by package and name. Each entry
+  holds the declaration's symbol id, container path, kind, visibility and module:
   - **Explicit import:** `pkg.Name` binds among the package's top-level declarations; `pkg.Outer.Nested`
-    and `pkg.Obj.member` walk containers; an alias binds at its use sites.
+    and `pkg.Obj.member` walk containers, checking visibility at every step; an alias binds at its use
+    sites.
   - **Same package:** a name the file does not declare binds among the package's other files.
   - **Star import:** `pkg.*` binds by name among that package's top-level declarations.
+  - **Precedence:** the file's own declarations, then explicit imports and aliases, then the same
+    package, then star imports pooled. The first set holding candidates decides.
   - **Visibility:** a `private` top-level declaration binds only in its own file. `internal` binds
     workspace-wide, since Gradle modules are not modelled; a multi-module build can over-bind it.
-  - **Several candidates,** overloads included, stay `ambiguous` with every candidate, as today. Default
-    imports stay external.
-  - **Lifecycle:** the index derives from parsed facts. `parseFile` replaces a module's entries, dropping
-    them from a package it left; `discoverProject` rebuilds. Other files' stored bindings refresh when they
-    are parsed again, as every provider's cross-file bindings do.
-  - **Proof:** conformance cases for two files in one package, a same-package use, a star import, an alias,
-    nested and companion member imports, a private sibling refused, and duplicate names ambiguous. A
-    `grade.js` Kotlin check that `ContentSealing` answers its two subclasses and their references.
+  - **Several candidates** in the deciding set, overloads and two star imports included, stay `ambiguous`
+    with every candidate, as today. No default-import table: a name no set holds stays unbound.
+  - **Order does not matter:** the first lookup parses every discovered Kotlin file, as
+    `modulesDeclaringPackage` does today, so a file parsed first still binds into one not yet parsed.
+    `parseFile` replaces a module's entries, dropping them from a package it left; `discoverProject`
+    rebuilds. Other files' stored bindings refresh when they are parsed again, as every provider's
+    cross-file bindings do.
+  - **Proof:** conformance cases in `protocol/src/conformance/corpus.ts` for two files in one package, a
+    same-package use, a star import, two star imports colliding, an explicit import over a same-package
+    name, an alias, nested and companion member imports, a private sibling refused, `internal` across
+    files, and overloads ambiguous. A provider test that parses only the importing file. A `grade.js`
+    Kotlin check that `ContentSealing` answers its two subclasses and their references.
 - **Uses from:** a read returning every reference written in a symbol and its members, resolved and
   unresolved, each with its target's summary when bound. `referencesFrom` filters unbound rows, so this is a
   separate read; `graphSummary` keeps its bound-only walk.
 - **The top-level symbol of a use** is computed at read time from `fromId` up the `containerId` chain, and
-  `findReferences` rows carry it. It is not stored and not part of a reference's fact id, so no citation
-  goes stale.
+  `findReferences` rows carry it with the language of the file the use is written in. Neither is stored
+  nor part of a reference's fact id, so no citation goes stale.
 - **Dependents:** `describe`'s graph answers the number of distinct top-level symbols holding a use.
 - **`knowledgeScope`:** a new read over a symbol, a symbol with its members, or a module: the containment
   tree, members before their container, each symbol with every question's state (missing, recorded, thin,
-  stale, doubted, stranded) and its ask count, parameters and locals excluded unless asked.
-  `knowledgeGaps` is unchanged.
+  stale, doubted, stranded), the recorded answer's `createdAt`, and its ask count, parameters and locals
+  excluded unless asked. `knowledgeGaps` is unchanged. The tree is Lexicon's to build; the hand exercise
+  below read it off the module listing only because this read did not exist.
 - **Comments on locals:** `symbol_facts` also lists comments whose nearest non-local enclosing declaration
   is the symbol. Stored anchors and comment fact ids do not change.
 - **Docs:** the daemon protocol, knowledge layer and Kotlin provider notes.
@@ -2207,16 +2215,21 @@ before the release, then a pin move here.
 ## Phase 14b - Plugin and wire
 
 - **One op for every drill-in,** `symbolFacet`, carrying a strict facet variant, as `mutateFile` carries
-  its mutation. A reader that does not know a facet refuses it. Each answer carries its own count.
+  its mutation. A reader that does not know a facet refuses it. Each answer carries its own count, in the
+  unit its row shows.
   - **`uses`:** every use of a symbol: module, line, role, innermost and top-level declaration, and the
-    line's text with its spans. A row in a file `confine` withholds is dropped before any read, with no
-    path or text, and counted as `withheld`.
+    line's text with its spans. Count: uses. A row in a file `confine` withholds is dropped before any read
+    and appears in no count, so nothing reveals it existed.
   - **`usesFrom`:** every reference written in the symbol, grouped by target, unresolved names by spelling.
-  - **`members`:** declared members in source order with signatures and spans.
-  - **`hierarchy`:** supertypes up to the roots, subtypes below, unresolved bases by name.
-  - **`comments`:** comments inside the symbol, locals' included, with form, line and anchor.
+    Count: targets, with the reference total beside it.
+  - **`members`:** declared members in source order with signatures and spans. Count: members.
+  - **`hierarchy`:** supertypes up to the roots, subtypes below, unresolved bases by name. Count:
+    supertypes plus subtypes.
+  - **`comments`:** comments inside the symbol and its declared members, locals' included, each with its
+    owning declaration, form and line. Count: comments.
   - **`history`:** commits touching the symbol's line range from `git log -L`, bounded to 200 commits and
-    killed at the deadline. Typed outcomes: commits, untracked, not a repository, and no history.
+    killed at the deadline. Typed outcomes: commits, untracked, not a repository, and no history. Count:
+    commits.
 - **`fileHistory`** for the outline, from Lexicon's `fileHistory`, with the same untracked outcome.
 - **`knowledgeScope`** for the Ask sheet, from 14a's read, carrying the plugin's root label so a send can
   tell a rebound workspace.
@@ -2225,16 +2238,21 @@ before the release, then a pin move here.
   `workspace_knowledge_scope`, `consoleHandler` dispatch, and the phone's port and console adapter.
 - **Bounded work:** one handler deadline, 15 seconds. Each distinct file holding a use is read once and
   highlighted once, then sliced. highlight.js does 4.25 MB of this repo's TypeScript in 1.4 seconds and
-  2 MB of Kotlin in 0.2, measured. Spans stop before the deadline and later rows go plain, counted as
-  `plain`. Size is counted before serialising.
+  2 MB of Kotlin in 0.2, measured. Highlighting is synchronous, so the deadline is checked before each
+  file; once it has passed, later rows go plain, counted as `plain`. One file can overrun by its own cost.
+- **One size rule:** every workspace answer is measured as its serialised UTF-8 bytes before framing,
+  replacing the `symbolSource` text-only case. Over `MAX_WORKSPACE_OP_BYTES` answers `too_large` with typed
+  `rows` and `bytes`.
 - **Highlighting:** `highlight.js` pinned exactly at 11.11.1, the thread's version, through its core entry
-  with a fixed language set, and a bundle-size check. The language comes from the symbol id's Lexicon
-  language through one table in the plugin; an unknown language answers no spans. Spans are compact
-  per-line triples (UTF-16 start, length, token) over a closed token set, built from highlight.js's token
-  tree, never its HTML. `symbolSource` gains optional spans; `RefPayload.kt` keeps its own table for the
+  with a fixed language set, and a bundle-size check. A row's language is the language of the file it is
+  written in, from 14a's reference rows; a symbol's own source takes its id's. One table maps a Lexicon
+  language to a highlight.js language; an unknown language answers no spans. The public `highlight()`
+  answers HTML holding only `span` tags and five entities; a strict parser turns it into compact per-line
+  triples (UTF-16 start, length, token) over a closed token set, pinned by vectors, and the HTML never
+  leaves the plugin. `symbolSource` gains optional spans; `RefPayload.kt` keeps its own table for the
   thread's refs.
 - **Counts on the knowledge answer** come from the same reads, withheld uses excluded: uses, dependents,
-  declared members, supertypes and subtypes, comments with locals'.
+  declared members, supertypes and subtypes, comments with members' and locals'.
 - **Version skew:** an older Gateway refuses the new console kinds and an older plugin refuses the new op,
   and the phone draws each refusal as an update notice. New fields on existing answers are optional by
   meaning and carry no date.
@@ -2276,12 +2294,15 @@ before the release, then a pin move here.
   in-flight dedupe only. A send uses a scope answer under a minute old, or reads it again first; a changed
   root label drops the selection.
 - **Message budget:** 256 KB of UTF-8. A larger scope is refused in the sheet with its size.
-- **Asked pairs** live in an `AskedStore` beside the ops class, written before they are shown, keyed by
-  session, root label, symbol and question, each with its send time. A pair clears when the scope shows it
-  recorded after that time, after 24 hours, or when the owner sends it again. A re-provision clears the
-  store.
-- **Progress:** while a pair is out for an open detail or scope page, the foreground sweep re-reads that
-  page's one `knowledgeScope`.
+- **Asked pairs** live in an `AskedStore` beside the ops class, keyed by session, root label, symbol and
+  question, each with its send time from `PhoneAmbient`. Written before the send; kept when the send lands
+  or its outcome is unknown; removed when it definitely failed. A pair clears when its answer's `createdAt`
+  is after the send, after 24 hours, or when the owner sends it again. A re-provision clears the store.
+- **Progress:** the ops class holds the scopes currently shown, registered by the page's keep. While a pair
+  is out, `onForeground` re-reads each shown scope's one `knowledgeScope`; nothing enumerates
+  `PublishedViews`.
+- **Clock:** the ops class takes `repo.ambient.now`, so the minute and the 24 hours are tested with a fake
+  clock.
 - **An older plugin** refuses `knowledgeScope`, and the sheet draws the update notice.
 
 ### The Ask design
@@ -2315,7 +2336,7 @@ Before wording the message, every gap under `LocalTurnHandle` was answered throu
 the interface and its two fields, six questions each, 18 answers, none refused.
 
 - **The tree came from the module, not the walk.** `knowledge_gaps` under the root answered the root alone
-  for each question, so the members were read off the module listing. The phone builds the tree.
+  for each question, so the members were read off the module listing. 14a's `knowledgeScope` builds it.
 - **Facts are locations.** `symbol_facts` gave ids and sites; every answer needed the code read at them.
   The message says so, or a session writes from the ids alone.
 - **A method's facts omit comments attached to its locals.** Copilot's "Minted here: ACP names no turn" and
