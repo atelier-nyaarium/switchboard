@@ -2178,9 +2178,11 @@ Not started. The owner answered the first round; the Ask design waits on review.
   the sheet shows it before sending. Its parts, in order:
   - **Intent:** subject, module, answer and symbol counts, and that the owner chose the set, so the
     session records every one without asking first.
-  - **How:** bottom up, members before their symbol; `symbol_facts` then `record_answer` citing facts;
-    `reaffirm_answer` for a stale answer that still holds; sibling branches are independent and may go to
-    subagents; one reply at the end with counts and each answer it could not give, with why.
+  - **How:** per symbol, `symbol_facts` for ids, then read the code at the declaration and reference
+    sites; one `record_answer` per question citing a fact beyond the declaration; members before their
+    symbol, whose answers cite the members' answer ids; `reaffirm_answer` for a stale answer that still
+    holds; sibling branches may go to subagents, each returning its answer ids; one reply at the end with
+    counts and each answer it could not give, with why.
   - **Tree:** a nested list mirroring containment. Each node is the name, its kind, its questions, and its
     whole symbol id. A whole-file scope has one branch per top-level symbol.
 - **Asked** is a pair still out and not recorded since. The next send leaves it out unless Already asked
@@ -2191,6 +2193,24 @@ Not started. The owner answered the first round; the Ask design waits on review.
   class or interface answers only itself: its references belong to its members, the case `graphSummary`
   already fixed. Fill needs a containment walk, members leaves first, with parameters and locals
   skippable.
+
+### Answering a tree by hand
+
+Before wording the message, every gap under `LocalTurnHandle` was answered through Lexicon's own tools:
+the interface and its two fields, six questions each, 18 answers, none refused.
+
+- **The tree came from the module, not the walk.** `knowledge_gaps` under the root answered the root alone
+  for each question, so the members were read off the module listing. The phone builds the tree.
+- **Facts are locations.** `symbol_facts` gave ids and sites; every answer needed the code read at them.
+  The message says so, or a session writes from the ids alone.
+- **A method's facts omit comments attached to its locals.** Copilot's "Minted here: ACP names no turn" and
+  the handler's "Register the turn before racing its terminal" were the clearest rationale and could not
+  be cited from the methods that hold them. A Lexicon item for this phase.
+- **Declaration-only answers grade THIN.** A plain field's "effects: none" earns it, correctly.
+- **Leaves first compounds.** The interface's six answers cite its fields' answer ids and were accepted.
+- **Progress reads back:** the file's `why` gaps went from 33 to 30.
+- **Every result repeats a five-file parse notice,** two of them `thread.js` and `highlight.min.js`
+  timing out. Switchboard should keep the phone's bundled web assets out of the index.
 
 # Painpoints
 
