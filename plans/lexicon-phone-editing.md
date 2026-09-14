@@ -530,6 +530,7 @@ the file operations are half the feature and a clean tree would not show them.
 
 Proposed in `symbol-knowledge.html`. The normal-tap destination, so it leads with the symbol's SOURCE
 read-only, then its documentation, then knowledge. `Open Window` at the foot is what makes it editable.
+Superseded in Phase 14: Facts first, code below.
 
 > Details look pretty good.
 
@@ -1861,7 +1862,7 @@ Mock: `symbol-knowledge.html`. Closes the board item for the structured answer.
   - **Documentation:** the `describe` comments that are the symbol's own doc comment.
 - **Phone:** `SymbolDetail` draws what the mock draws.
   - A header with the kind badge, the name and `path : lines`.
-  - Source, then Documentation.
+  - Source, then Documentation. Superseded in Phase 14c.
   - Knowledge: one row per question with a THIN, STALE, DOUBTED or STRANDED badge. A missing answer reads
     "not recorded" with an Ask chip.
   - Facts as rows, zero counts included.
@@ -2133,7 +2134,7 @@ cross-file Kotlin reference (see the painpoint on Kotlin binding) and a Kotlin s
 
 ## Phase 14 - Facts drill-ins
 
-Not started. The owner answered the first round; the Ask design waits on review.
+Design locked by the owner. Built as 14a to 14d, in deploy order: Lexicon, plugin and wire, phone, Ask.
 
 ### Owner rulings
 
@@ -2147,26 +2148,143 @@ Not started. The owner answered the first round; the Ask design waits on review.
   `MAX_WORKSPACE_OP_BYTES` refuses with its count rather than truncating.
 - **History:** the file outline shows the file's history. A symbol shows commits that touched its lines,
   through `git log -L` run by the plugin.
-- **Kotlin:** Lexicon binding Kotlin across files is part of this phase.
+- **Kotlin:** Lexicon binding Kotlin across files is part of this phase. Reference binding only; Kotlin
+  rename edits stay unimplemented and the rename painpoint stays open.
+- **Detail order supersedes Phase 12a:** "Source, then Documentation" gave way to Facts first and code
+  below.
 
-### Build
+### Rules every sub-phase keeps
 
-- **Rows:** each value carries its unit. A zero row dims, reads `none`, and does not open. A row counts
-  exactly what its drill-in lists.
-- **Members:** declared members only. A function's locals and parameters are not members.
-- **Reads, one workspace op each:** uses of, uses from, members, hierarchy, comments, range history, file
-  history.
-- **Highlighting:** one highlighter the thread and the workspace share, painted as styled text. The thread
-  already ships highlight.js with the github-dark palette.
-- **What Lexicon lacks, shipped as a Lexicon release and a pin move first:**
-  - **Uses from:** no read lists references from a symbol and its members. `graphSummary` counts them
-    from `referencesFrom`; a method returns them, unresolved names included.
-  - **Top-level symbol per use:** `findReferences` names the innermost declaration only.
-  - **`fanIn` is a reference count,** so the Used by row's "N symbols" comes from the grouped read.
-  - **Kotlin cross-file binding:** `ContentSealing` answers 0 references and no subtypes while two classes
-    extend it.
+- **A row counts what its drill-in lists,** from the same Lexicon read. A use in a file `confine`
+  withholds counts in neither.
+- **Zero rows** dim, read `none`, and do not open.
+- **Members are declared members.** A function's locals and parameters are not members.
+- **Every use, no cap.** A read over `MAX_WORKSPACE_OP_BYTES` refuses with its row count and size.
+- **Decisions sit beside the ops classes,** never in a Composable: grouping, counts, chips, the Ask
+  selection and message, the highlight paint model.
+- **Every new wire shape** regenerates `Protocol.kt` in the same commit and carries TS and Kotlin fixtures;
+  `check:fixtures`, `kotlin-gate.sh` and `check:boot` pass before a push.
 
-### Ask
+## Phase 14a - Lexicon
+
+Ships from `nyaa-lexicon` as a major release, since Kotlin bindings change for unchanged source. The new
+reads are additive, a protocol minor. Conformance for every provider and `grade.js` against this checkout
+before the release, then a pin move here.
+
+- **Kotlin binds across a package.** `resolveImport` maps a package to ONE module and answers `Ambiguous`
+  when several files declare it, which is every real Kotlin package, and a same-package name is looked up
+  in its own file only. A package declaration index replaces both, keyed by package and name, holding each
+  declaration's kind, visibility and module:
+  - **Explicit import:** `pkg.Name` binds among the package's top-level declarations; `pkg.Outer.Nested`
+    and `pkg.Obj.member` walk containers; an alias binds at its use sites.
+  - **Same package:** a name the file does not declare binds among the package's other files.
+  - **Star import:** `pkg.*` binds by name among that package's top-level declarations.
+  - **Visibility:** a `private` top-level declaration binds only in its own file. `internal` binds
+    workspace-wide, since Gradle modules are not modelled; a multi-module build can over-bind it.
+  - **Several candidates,** overloads included, stay `ambiguous` with every candidate, as today. Default
+    imports stay external.
+  - **Lifecycle:** the index derives from parsed facts. `parseFile` replaces a module's entries, dropping
+    them from a package it left; `discoverProject` rebuilds. Other files' stored bindings refresh when they
+    are parsed again, as every provider's cross-file bindings do.
+  - **Proof:** conformance cases for two files in one package, a same-package use, a star import, an alias,
+    nested and companion member imports, a private sibling refused, and duplicate names ambiguous. A
+    `grade.js` Kotlin check that `ContentSealing` answers its two subclasses and their references.
+- **Uses from:** a read returning every reference written in a symbol and its members, resolved and
+  unresolved, each with its target's summary when bound. `referencesFrom` filters unbound rows, so this is a
+  separate read; `graphSummary` keeps its bound-only walk.
+- **The top-level symbol of a use** is computed at read time from `fromId` up the `containerId` chain, and
+  `findReferences` rows carry it. It is not stored and not part of a reference's fact id, so no citation
+  goes stale.
+- **Dependents:** `describe`'s graph answers the number of distinct top-level symbols holding a use.
+- **`knowledgeScope`:** a new read over a symbol, a symbol with its members, or a module: the containment
+  tree, members before their container, each symbol with every question's state (missing, recorded, thin,
+  stale, doubted, stranded) and its ask count, parameters and locals excluded unless asked.
+  `knowledgeGaps` is unchanged.
+- **Comments on locals:** `symbol_facts` also lists comments whose nearest non-local enclosing declaration
+  is the symbol. Stored anchors and comment fact ids do not change.
+- **Docs:** the daemon protocol, knowledge layer and Kotlin provider notes.
+
+## Phase 14b - Plugin and wire
+
+- **One op for every drill-in,** `symbolFacet`, carrying a strict facet variant, as `mutateFile` carries
+  its mutation. A reader that does not know a facet refuses it. Each answer carries its own count.
+  - **`uses`:** every use of a symbol: module, line, role, innermost and top-level declaration, and the
+    line's text with its spans. A row in a file `confine` withholds is dropped before any read, with no
+    path or text, and counted as `withheld`.
+  - **`usesFrom`:** every reference written in the symbol, grouped by target, unresolved names by spelling.
+  - **`members`:** declared members in source order with signatures and spans.
+  - **`hierarchy`:** supertypes up to the roots, subtypes below, unresolved bases by name.
+  - **`comments`:** comments inside the symbol, locals' included, with form, line and anchor.
+  - **`history`:** commits touching the symbol's line range from `git log -L`, bounded to 200 commits and
+    killed at the deadline. Typed outcomes: commits, untracked, not a repository, and no history.
+- **`fileHistory`** for the outline, from Lexicon's `fileHistory`, with the same untracked outcome.
+- **`knowledgeScope`** for the Ask sheet, from 14a's read, carrying the plugin's root label so a send can
+  tell a rebound workspace.
+- **Every edit site:** `WorkspaceOp` and `boundsOf`, the plane parser, the answer schemas,
+  `schemasConsoleOp` kinds `workspace_symbol_facet`, `workspace_file_history` and
+  `workspace_knowledge_scope`, `consoleHandler` dispatch, and the phone's port and console adapter.
+- **Bounded work:** one handler deadline, 15 seconds. Each distinct file holding a use is read once and
+  highlighted once, then sliced. highlight.js does 4.25 MB of this repo's TypeScript in 1.4 seconds and
+  2 MB of Kotlin in 0.2, measured. Spans stop before the deadline and later rows go plain, counted as
+  `plain`. Size is counted before serialising.
+- **Highlighting:** `highlight.js` pinned exactly at 11.11.1, the thread's version, through its core entry
+  with a fixed language set, and a bundle-size check. The language comes from the symbol id's Lexicon
+  language through one table in the plugin; an unknown language answers no spans. Spans are compact
+  per-line triples (UTF-16 start, length, token) over a closed token set, built from highlight.js's token
+  tree, never its HTML. `symbolSource` gains optional spans; `RefPayload.kt` keeps its own table for the
+  thread's refs.
+- **Counts on the knowledge answer** come from the same reads, withheld uses excluded: uses, dependents,
+  declared members, supertypes and subtypes, comments with locals'.
+- **Version skew:** an older Gateway refuses the new console kinds and an older plugin refuses the new op,
+  and the phone draws each refusal as an update notice. New fields on existing answers are optional by
+  meaning and carry no date.
+- **The index:** a `lexicon.json` excludes `android/app/src/main/assets/**` bundles, which time out on
+  every scan and put a five-file notice on every Lexicon answer.
+- **Tests:** a fake Lexicon session per facet, withheld rows, the deadline fallback, the size refusal,
+  history outcomes, unknown-facet refusal end to end, `workspace-bounds.test.ts` for the new ops.
+
+## Phase 14c - Phone drill-ins
+
+- **Places:** `WorkspacePlace.Facet(symbolId, module, facet)`, and `Detail` gains the use it was reached
+  from. `WorkspaceNav`, `placeTitle` and `WorkspaceScreen` dispatch hold them; `WorkspaceNavTest` and
+  `ShellNavTest` prove back returns one place at a time. No new back handler.
+- **Views:** `SymbolViews.keepFacet` publishes through `PublishedViews` keyed by target, symbol and facet,
+  so one facet's late answer cannot land on another. Tests for two facets at once, leaving before the
+  answer, and a re-provision.
+- **Symbol detail:** header, the use it was reached from, Facts, Knowledge, Documentation, then Source
+  with the reached line marked. Facts rows carry units and open their facet; References opens By file and
+  Used by opens By symbol.
+- **Screens:** the uses list (lazy, stable keys, sticky group headers, By symbol and By file, role chips),
+  uses from, members, hierarchy, comments, and history. The outline gains the file's history.
+- **Paint:** `CodePaint` turns an answer's spans into a paint model (clipped, reached line marked) in the
+  github-dark palette, tested on the JVM. `CodeLines` renders it, and a lazy row builds its styled text
+  inside its own item, never the whole answer at once.
+- **Rules:** `FacetRules` holds grouping, group order, chip counts, row values and zero rows, tested on
+  the JVM.
+- **Ports:** `WorkspaceGateway` gains the three calls; the console adapter, `SandboxGateways` and every
+  test fake follow.
+- **Sandbox:** `LocalBackendSession` with its real uses, a generated hub with 1,200 uses across 90 files,
+  `ContentSealing` with subclasses in two files, a withheld use, and history that answers commits and
+  untracked.
+- **Emulator walk** through every mock flow, compared against the mocks.
+
+## Phase 14d - Ask
+
+- **The sheet** replaces the per-question Ask chips, from the Knowledge header and from an unrecorded row.
+  `AskRules` holds the defaults, counts, the containment order and the message text, tested on the JVM.
+- **Sending** goes through `SessionRequests` as `RequestKind.KNOWLEDGE` with the scope as subject, for
+  in-flight dedupe only. A send uses a scope answer under a minute old, or reads it again first; a changed
+  root label drops the selection.
+- **Message budget:** 256 KB of UTF-8. A larger scope is refused in the sheet with its size.
+- **Asked pairs** live in an `AskedStore` beside the ops class, written before they are shown, keyed by
+  session, root label, symbol and question, each with its send time. A pair clears when the scope shows it
+  recorded after that time, after 24 hours, or when the owner sends it again. A re-provision clears the
+  store.
+- **Progress:** while a pair is out for an open detail or scope page, the foreground sweep re-reads that
+  page's one `knowledgeScope`.
+- **An older plugin** refuses `knowledgeScope`, and the sheet draws the update notice.
+
+### The Ask design
 
 - **One sheet, no per-question chips:** the owner ruled the pick-and-submit bar still too manual. The
   Knowledge header's Ask opens the sheet with every question preselected; an unrecorded row opens it on
@@ -2186,14 +2304,10 @@ Not started. The owner answered the first round; the Ask design waits on review.
     counts and each answer it could not give, with why.
   - **Tree:** a nested list mirroring containment. Each node is the name, its kind, its questions, and its
     whole symbol id. A whole-file scope has one branch per top-level symbol.
-- **Asked** is a pair still out and not recorded since. The next send leaves it out unless Already asked
-  is ticked, so repeated taps cannot send the same question twice.
+- **Asked** is a pair still out and not recorded since, for up to 24 hours. The next send leaves it out
+  unless Already asked is ticked, so repeated taps cannot send the same question twice.
 - **Progress is read back from Lexicon,** never taken from the session's reply. The Knowledge header
   shows it while anything is out.
-- **What Lexicon lacks:** `knowledgeGaps` under a root walks the fan-out graph from the root alone, so a
-  class or interface answers only itself: its references belong to its members, the case `graphSummary`
-  already fixed. Fill needs a containment walk, members leaves first, with parameters and locals
-  skippable.
 
 ### Answering a tree by hand
 
@@ -2212,6 +2326,16 @@ the interface and its two fields, six questions each, 18 answers, none refused.
 - **Progress reads back:** the file's `why` gaps went from 33 to 30.
 - **Every result repeats a five-file parse notice,** two of them `thread.js` and `highlight.min.js`
   timing out. Switchboard should keep the phone's bundled web assets out of the index.
+
+## Phase 14 deploy
+
+1. **Lexicon:** `bun run build major` in `lexicon/`, push `nyaa-lexicon`, commit the pin move here, then
+   `bun run lint`, `bun run test` and `check:boot`.
+2. **Plugin:** `bun run build minor`, push, `reload_plugins` on the sessions.
+3. **Gateway:** restart, then `./setup.sh --verify`.
+4. **Phone:** `scripts/phone-install.sh` while iterating; the push releases it through CI.
+5. **Docs:** `docs/console.md` for the facets, paint and Ask; `docs/testing.md` for the sandbox cases; the
+   `AGENTS.md` map for new files; Lexicon's docs ride its release.
 
 # Painpoints
 
