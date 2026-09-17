@@ -8,7 +8,6 @@ import com.atelier_nyaarium.switchboard.proto.SyncAdvance
 import com.atelier_nyaarium.switchboard.proto.SyncCursor
 import com.atelier_nyaarium.switchboard.proto.SyncPollResult
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
@@ -29,7 +28,6 @@ internal interface DrainHost {
 	/** Tombstoned by a forget. */
 	fun isForgotten(team: String): Boolean
 	fun advanceMailbox(result: SyncPollResult<Drained>): SyncAdvance<Drained>
-	fun setGap(value: Boolean)
 	fun markCommsActivity(now: Long)
 	fun reconcileSent(team: String, message: Message)
 	fun appendInbound(team: String, message: Message, beforeCommit: () -> Unit = {}): Boolean
@@ -62,7 +60,6 @@ internal class ChatRepositoryDrainHost(private val repo: ChatRepository) : Drain
 	override fun fromCanonical(value: String) = repo.fromCanonical(value)
 	override fun isForgotten(team: String) = (repo.forgottenUntil[team] ?: 0L) > System.currentTimeMillis()
 	override fun advanceMailbox(result: SyncPollResult<Drained>) = repo.mailboxSync.advance(result)
-	override fun setGap(value: Boolean) { repo._state.update { it.copy(gap = value) } }
 	override fun markCommsActivity(now: Long) { repo.pushback.onCommsActivity(now, repo.isVisible) }
 	override fun reconcileSent(team: String, message: Message) = repo.reconcileSent(team, message)
 	override fun appendInbound(team: String, message: Message, beforeCommit: () -> Unit) =

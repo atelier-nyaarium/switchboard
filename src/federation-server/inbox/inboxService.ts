@@ -239,12 +239,11 @@ export class InboxService {
 		const owner = this.ownerAddress(domainId);
 		const floor = floorOf(store, this.registry, domainId);
 		// Mailbox epochs are random tags. Compare equality only across re-mints.
-		if (
-			!consumer ||
-			(cursorEpoch !== undefined && cursorEpoch !== Number(consumer.clear.cursorEpoch)) ||
-			fromSeq < floor
-		)
-			return { outcome: "cursor_stale", floor, dropped: Math.max(0, floor - fromSeq) };
+		if (!consumer) return this.stale("read", domainId, "no consumer", fromSeq, floor);
+		if (cursorEpoch !== undefined && cursorEpoch !== Number(consumer.clear.cursorEpoch)) {
+			return this.stale("read", domainId, "epoch moved", fromSeq, floor);
+		}
+		if (fromSeq < floor) return this.stale("read", domainId, "below floor", fromSeq, floor);
 		if (this.now() - Number(consumer.clear.lastSeen ?? 0) > CONSUMER_SEEN_REFRESH_MS)
 			store.put("consumer", id, consumer.version, { clear: { ...consumer.clear, lastSeen: this.now() } });
 		return this.rows(owner, fromSeq, limit);
@@ -267,12 +266,23 @@ export class InboxService {
 		const id = `consumer:${signerSignPub}`;
 		const current = store.get("consumer", id);
 		const floor = floorOf(store, this.registry, domainId);
-		if (!current || cursorEpoch !== Number(current.clear.cursorEpoch) || cursor < floor)
-			return { outcome: "cursor_stale", floor, dropped: Math.max(0, floor - cursor) };
+		if (!current) return this.stale("advance", domainId, "no consumer", cursor, floor);
+		if (cursorEpoch !== Number(current.clear.cursorEpoch)) {
+			return this.stale("advance", domainId, "epoch moved", cursor, floor);
+		}
+		if (cursor < floor) return this.stale("advance", domainId, "below floor", cursor, floor);
 		const result = store.put("consumer", id, current.version, {
 			clear: { cursor, cursorEpoch, lastSeen: this.now(), incarnation: Number(current.clear.incarnation ?? 0) },
 		});
 		return landed(result) ? { outcome: "ok" } : { outcome: "cursor_stale", floor, dropped: 0 };
+	}
+
+	/** Logged, since a release phone reports nothing. */
+	private stale(road: "read" | "advance", domainId: string, reason: string, cursor: number, floor: number) {
+		const dropped = Math.max(0, floor - cursor);
+		const line = `stale ${road} cursor for ${domainId}: ${reason}, cursor ${cursor}, floor ${floor}, dropped ${dropped}`;
+		console.warn(`[inbox] ${line}`);
+		return { outcome: "cursor_stale" as const, floor, dropped };
 	}
 
 	compactOwnerInbox(domainId: string): void {

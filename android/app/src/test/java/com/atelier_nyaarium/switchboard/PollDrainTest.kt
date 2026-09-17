@@ -43,7 +43,6 @@ class PollDrainTest {
 		val forgotten = mutableSetOf<String>()
 		override fun isForgotten(team: String) = team in forgotten
 		override fun advanceMailbox(result: SyncPollResult<Drained>) = SyncAdvance(SyncCursor.initial(), result.entries, false)
-		override fun setGap(value: Boolean) = Unit
 		override fun markCommsActivity(now: Long) = Unit
 		override fun reconcileSent(team: String, message: Message) = Unit
 		val appended = mutableListOf<Pair<String, Message>>()

@@ -256,7 +256,6 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 
 	internal suspend fun processEntries(entries: List<MailboxEntry>, cursor: Long, epoch: Long, dropped: Long) {
 		val advanced = host.advanceMailbox(SyncPollResult(entries.map { Drained(it) }, cursor, epoch, dropped))
-		host.setGap(advanced.gap)
 		if (advanced.fresh.isNotEmpty()) host.markCommsActivity(System.currentTimeMillis())
 		val burst = mutableMapOf<String, MutableList<Message>>()
 		for (drained in advanced.fresh) {
@@ -330,7 +329,7 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 		withDrainMutex {
 			val outcome = host.poll(knownPlanes, ::observe)
 			knownPlanes = outcome.known
-			if (outcome.cursorStale) host.setGap(true)
+			if (outcome.cursorStale) DebugLog.log("Inbox", "cursor below the Router's floor; adopting it")
 		}
 	}
 

@@ -62,8 +62,6 @@ class ChatRepository(
 		authenticate = { activity -> requireOwnerPresent(true, activity) },
 	)
 
-	@Volatile internal var gapFloor: Long = 0L
-	@Volatile internal var gapDropped: Long = 0L
 	internal val planeFetchedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
 	internal var onScheduledResult: (com.atelier_nyaarium.switchboard.proto.ScheduledResultRow) -> Unit = {}
 	internal var onBoardObservation: (com.atelier_nyaarium.switchboard.proto.BoardObservationRow) -> Unit = {}
@@ -183,9 +181,7 @@ class ChatRepository(
 			repoScope.launch(Dispatchers.IO) { drain.applyPlane(name, lineage, payload, observedAt) }
 		},
 		onGapDetailed = { floor, dropped ->
-			gapFloor = floor
-			gapDropped = dropped
-			_state.update { it.copy(gap = true) }
+			DebugLog.log("Inbox", "$dropped rows expired before this phone read them; floor $floor")
 		},
 		kick = { drain.kickPoll() },
 		onUnreachable = { client().transport.unreachable(client().transport.proxyBase) },

@@ -4,12 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -208,20 +206,6 @@ fun SessionsScreen(
 			val onboarding = (byGateway.isEmpty() && linkedDomains.isEmpty()) ||
 				(local.isEmpty() && linkedDomains.isEmpty() && emptyBoardHasCause(state))
 			if (!onboarding) HealthHeader(state)
-			if (state.gap) {
-				Surface(
-					color = MaterialTheme.colorScheme.errorContainer,
-					modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-					shape = MaterialTheme.shapes.medium,
-				) {
-					Text(
-						"Some messages were dropped. Pull history from your Gateway to recover.",
-						Modifier.padding(12.dp),
-						color = MaterialTheme.colorScheme.onErrorContainer,
-						style = MaterialTheme.typography.bodySmall,
-					)
-				}
-			}
 			if (onboarding) {
 				EmptyBoard(
 					state,

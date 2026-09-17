@@ -26,7 +26,6 @@ data class ChatState(
 	val status: String = "",
 	val drafts: Map<String, Draft> = emptyMap(),
 	val error: String? = null,
-	val gap: Boolean = false,
 	val biometricLock: Boolean = false,
 	val deviceName: String = "",
 	val labels: Map<String, String> = emptyMap(),
