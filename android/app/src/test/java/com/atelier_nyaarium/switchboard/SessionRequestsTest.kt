@@ -14,9 +14,11 @@ class SessionRequestsTest {
 		val sent = mutableListOf<String>()
 		val holds = mutableListOf<TestHold>()
 		var sends = true
+		var throws = false
 
 		override suspend fun send(address: String, text: String): Boolean {
 			holds.removeFirstOrNull()?.pass()
+			if (throws) throw IllegalStateException("socket gone")
 			sent += text
 			return sends
 		}
@@ -59,6 +61,19 @@ class SessionRequestsTest {
 		cancelled.join()
 		assertEquals(RequestState.SENT, requests.states.value[other])
 		assertEquals(listOf("record why", "record why", "record usage"), host.sent.toList())
+	}
+
+	@Test
+	fun `a send that throws is unknown rather than failed, and can be sent again`() = runBlocking {
+		host.throws = true
+		assertEquals(Submitted.Unknown, requests.submit(key, "record why"))
+		assertEquals(RequestState.FAILED, requests.states.value[key])
+		assertTrue(host.sent.isEmpty())
+
+		host.throws = false
+		assertEquals(Submitted.Sent, requests.submit(key, "record why"))
+		assertEquals(listOf("record why"), host.sent.toList())
+		assertEquals(RequestState.SENT, requests.states.value[key])
 	}
 
 	@Test

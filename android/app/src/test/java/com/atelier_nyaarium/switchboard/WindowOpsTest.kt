@@ -643,14 +643,14 @@ class WindowOpsTest {
 	}
 
 	@Test
-	fun `an ask sends the session the question, and a send that throws fails`() = runBlocking {
+	fun `an ask sends the session the question, and a send that throws is unknown`() = runBlocking {
 		val answer = WorkspaceKnowledgeAnswer(symbolId = F_ID, name = "f", module = "src/a.ts")
 
 		assertEquals(Submitted.Sent, ops.askKnowledge(one, answer, "why"))
 		assertEquals(listOf(one.address to knowledgeAsk(answer, "why")), host.sent.toList())
 
 		host.throws = true
-		assertEquals(Submitted.Failed, ops.askKnowledge(one, answer, "usage"))
+		assertEquals(Submitted.Unknown, ops.askKnowledge(one, answer, "usage"))
 	}
 
 	@Test

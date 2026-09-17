@@ -48,6 +48,7 @@ class ClearsOnReprovisionTest {
 				"playback",
 				"workspaceHost",
 				"sessionRequests",
+				"askOps",
 				"windowOps",
 				"symbolViews",
 				"windowRequests",

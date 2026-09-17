@@ -1523,7 +1523,7 @@ Every view is classified before it is placed. Proposed to the owner and accepted
 
 - **Root drawer** holds the global column and replaces the tab row.
 - **Conversation drawer** holds Chat, Terminal and Files, then the filtered views.
-- **Handedness is a setting**, right by default. The drawer opens from the thumb's edge; the other edge stays
+- **Handedness is a setting**, left by default. The drawer opens from the thumb's edge; the other edge stays
   Back.
 - **Mockups first**, in the design dock, before any code.
 - A ref's exits land in the conversation's Files, since the message names its session.
@@ -1546,7 +1546,7 @@ The mockups are `plans/lexicon-phone-editing/drawer-*.html`. One ruling on them:
   Gateway, Routines on its spawn point, Vault's requests and grants the session holds, Backlog the
   session's tree at full height. New creates only on that Gateway, Fire opens aimed at the session, and the
   scope row leads to the whole view at the root.
-- **Drawer side is a setting under System**, right by default, persisted in `AppStateStore.drawerSide`.
+- **Drawer side is a setting under System**, left by default, persisted in `AppStateStore.drawerSide`.
 - **Files left the root.** A ref's exit opens the conversation it names on Files at the asked place.
 - **The shell's navigation is one `ShellNav` value** with pure transitions, and Back is one handler ordered
   by `shellScreen` and `backLayer`, fenced by `back-handler-residue.test.ts`.

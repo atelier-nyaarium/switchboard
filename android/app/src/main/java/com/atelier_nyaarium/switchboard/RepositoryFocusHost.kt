@@ -31,6 +31,7 @@ internal class ChatRepositoryFocusHost(private val repo: ChatRepository) : Repos
 		repo.repoScope.launch {
 			repo.windowOps.recheckAll()
 			repo.rawFileOps.recheckAll()
+			repo.askOps.onForeground()
 		}
 	}
 

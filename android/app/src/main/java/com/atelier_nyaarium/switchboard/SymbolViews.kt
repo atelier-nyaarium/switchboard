@@ -86,6 +86,13 @@ internal class SymbolViews(private val host: WorkspaceHost) : ClearsOnReprovisio
 			}
 		}
 
+	/** The prose a recorded answer just gained. Nothing when the page is not showing that symbol. */
+	suspend fun reloadKnowledge(target: WorkspaceTarget, symbolId: String) {
+		val showing = details.current(target to symbolId) ?: return
+		val read = read { it.knowledge(target, symbolId) }
+		details.update(showing) { view -> view.copy(knowledge = read) }
+	}
+
 	private val facets = PublishedViews<FacetKey, FacetView>(host.generation)
 
 	private val fileHistories = PublishedViews<Pair<WorkspaceTarget, String>, FileHistoryView>(host.generation)

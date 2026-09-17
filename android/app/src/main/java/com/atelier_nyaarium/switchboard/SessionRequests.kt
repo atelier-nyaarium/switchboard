@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +20,9 @@ internal sealed interface Submitted {
 	data object AlreadySending : Submitted
 
 	data object Failed : Submitted
+
+	/** The send threw, so it may still have landed. Never a refusal. */
+	data object Unknown : Submitted
 }
 
 /**
@@ -43,16 +47,23 @@ internal class SessionRequests(private val host: WorkspaceHost) : ClearsOnReprov
 		}
 		// Outlives the screen that asked, landing included: a cancelled caller discards what this returns.
 		return withContext(NonCancellable) {
+			// Null is a throw, which is neither a send nor a refusal.
 			val sent = try {
 				host.send(key.address, text)
+			} catch (e: CancellationException) {
+				throw e
 			} catch (e: Exception) {
 				DebugLog.log("Requests", "send failed: ${e.message}")
-				false
+				null
 			}
 			if (host.generation.isCurrent(generation)) {
-				held.update { it + (key to if (sent) RequestState.SENT else RequestState.FAILED) }
+				held.update { it + (key to if (sent == true) RequestState.SENT else RequestState.FAILED) }
 			}
-			if (sent) Submitted.Sent else Submitted.Failed
+			when (sent) {
+				true -> Submitted.Sent
+				false -> Submitted.Failed
+				null -> Submitted.Unknown
+			}
 		}
 	}
 

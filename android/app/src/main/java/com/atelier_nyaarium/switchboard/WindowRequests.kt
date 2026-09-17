@@ -52,7 +52,7 @@ internal fun windowsAskNotice(submitted: Submitted): String? =
 	when (submitted) {
 		Submitted.Sent -> null
 		Submitted.AlreadySending -> "Already asking"
-		Submitted.Failed -> "That did not leave the phone"
+		Submitted.Failed, Submitted.Unknown -> "That did not leave the phone"
 	}
 
 /**
