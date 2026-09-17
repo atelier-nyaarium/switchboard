@@ -25,8 +25,12 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # The runner image ships the SDK, so this is for the env and the licences. The action's default
+      # package list asks for `tools`, which the SDK repository no longer carries.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ""
 
       # Decode the stable signing keystore so every release shares one signature.
       - name: Decode signing keystore
