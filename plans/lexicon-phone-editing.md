@@ -2267,7 +2267,7 @@ before the release, then a pin move here.
   namespace holds nothing, differently, so C#, C++, TypeScript namespaces and Rust `mod` grouped every use
   under the namespace.
 
-## Phase 14b - Plugin and wire
+## Phase 14b - Plugin and wire ✅
 
 - **One op for every drill-in,** `symbolFacet`, carrying a strict facet variant, as `mutateFile` carries
   its mutation. A reader that does not know a facet refuses it. Each answer carries its own count, in the

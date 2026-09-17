@@ -442,6 +442,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **The comment page is this plugin's, not the daemon's promise:** the answer slices to its own cap and
     sets `truncated` when Lexicon hands back more, and `total` says how many there are so the row and the
     list agree.
+- `src/mcp/workspace/answerGate.ts` - the last check before an answer leaves: every field the answer schemas declare as a path or a symbol id is read against `servedGate`
+  - **An answer is gated on what came BACK, not on what was asked:** the requested id being served says
+    nothing about the module Lexicon answers with, so the fields come off the schemas rather than a hand
+    list, and a field added later is covered without anyone remembering. A write refuses as a failure,
+    never as a refusal, since a refusal tells the phone nothing was written.
 - `src/mcp/workspace/highlight.ts` - the fixed highlight.js language set, the strict HTML-to-triples parser, and `CODE_TOKENS`; `tests/fixtures/code-spans/vectors.json` pins it
   - **The HTML never leaves the plugin:** anything but a known span class, `</span>` and five entities is
     refused rather than guessed. `bun run build` fails if the bundle carries the full language set, by
