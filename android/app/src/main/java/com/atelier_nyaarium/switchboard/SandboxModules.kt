@@ -159,8 +159,11 @@ internal const val BOARD_SEALING_MODULE = "android/app/src/main/java/com/atelier
 
 internal const val UNTRACKED_MODULE = "scratch/probe.ts"
 
-/** Its uses are dropped before any row or count, as the plugin drops them. */
-internal const val WITHHELD_MODULE = "node_modules/local-agent/index.ts"
+/** A secret by its name alone: its uses are dropped before any row or count, as the plugin drops them. */
+internal const val WITHHELD_MODULE = "src/config/.env.ts"
+
+/** Bulk rather than secrets: served when named, hidden from a listing. */
+internal const val UNLISTED_MODULE = "node_modules/local-agent/index.ts"
 
 private const val TS = "typescript"
 
@@ -583,9 +586,8 @@ private fun boardSealing() = module(
 	add("BoardSealing", "class", 11, 13)
 }
 
-/** Real text, so only the withholding rule keeps its use out of a row. */
 private fun vendored() = module(
-	WITHHELD_MODULE,
+	UNLISTED_MODULE,
 	TS,
 	filled(
 		12,
@@ -598,6 +600,23 @@ private fun vendored() = module(
 	),
 ) {
 	add("VendoredSession", "class", 6, 8)
+}
+
+/** Real text, so only the withholding rule keeps its use out of a row. */
+private fun envConfig() = module(
+	WITHHELD_MODULE,
+	TS,
+	filled(
+		10,
+		*from(
+			4,
+			"export class EnvBackedSession implements LocalBackendSession {",
+			"\tconstructor(private readonly token: string) {}",
+			"}",
+		),
+	),
+) {
+	add("EnvBackedSession", "class", 4, 6)
 }
 
 private fun probe() = module(
@@ -689,6 +708,7 @@ internal fun sandboxModules(): Map<String, SandboxModule> {
 		vaultSealing(),
 		boardSealing(),
 		vendored(),
+		envConfig(),
 		probe(),
 		hub(),
 	) + HUB_USER_INDICES.map(::hubUser)

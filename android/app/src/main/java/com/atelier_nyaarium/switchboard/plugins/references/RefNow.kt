@@ -40,7 +40,6 @@ internal fun refNow(key: RefKeyMeta, sent: List<String>?, declared: LongRange?, 
 	val start = declared.first + (key.startLine - sentStart)
 	val count = (key.endLine - key.startLine + 1).toInt()
 	val slice = file.split("\n").drop((start - 1).toInt()).take(count)
-	if (slice.isEmpty()) return RefNow.Unknown
 	val inside = start + count - 1 <= declared.last
 	if (inside && hashContent(slice.joinToString("\n")) == sentHash) return RefNow.Matches
 	val changed = slice.indices.filter { sent?.getOrNull(it) != slice[it] }.map { start + it }.toSet()

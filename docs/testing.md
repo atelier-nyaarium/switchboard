@@ -154,13 +154,21 @@ The `emulator` variant draws every phone screen with no onboarding and no Gatewa
 appears only on a refusal is reachable at all. `SandboxSeeder.kt` holds the boot and the network
 doors; `SandboxGateways.kt` answers the Gateway calls as ports rather than sockets, and
 `SandboxModules.kt` holds one canned module per path, so the Files tree walks real folders rather
-than answering one outline for every file. `SandboxFacets.kt` derives each drill-in from those
-modules, and `SandboxFacetsTest` asserts every count equals what its drill-in lists, so a screen
-cannot claim a number the next screen contradicts.
+than answering one outline for every file. `SandboxFacets.kt` holds invented drill-in data and
+`SandboxFacetRules.kt` turns it into answers by the plugin's rules, pinned by
+`tests/fixtures/workspace-facets/vectors.json`: `bun run gen:facets` runs the plugin's
+`facets.ts` over invented inputs and writes the corpus, `workspace-facet-vectors.test.ts` replays it
+against the plugin, `SandboxFacetVectorsTest` runs the same inputs through the sandbox's rules, and
+`bun run check:facets` in CI regenerates and diffs. The corpus covers withheld rows, the supertype
+count, a symbol's own leading comment, the comment page, holder fallback, target binding and counts
+taken after filtering. Columns, line text and paint are left out, since those come from the file and
+`code-spans/vectors.json` pins the paint. `SandboxFacetsTest` still asserts every count equals what
+its drill-in lists, so a screen cannot claim a number the next screen contradicts.
 
 | case | module | shows |
 |---|---|---|
-| `LocalBackendSession` | `src/mcp/local/localAgentSession.ts` | every fact row with a count: 13 uses over 7 files, 8 dependents, 2 bound targets, 7 members, 3 implementations, 5 comments, 3 commits |
+| `LocalBackendSession` | `src/mcp/local/localAgentSession.ts` | every fact row with a count: 14 uses over 8 files, 9 dependents, 2 bound targets, 7 members, 3 implementations, 5 comments, 3 commits |
+| withheld and unlisted | `src/config/.env.ts`, `node_modules/local-agent/index.ts` | the secret's use dropped and counted nowhere; the bulk folder's use served and counted, its folder hidden from the tree |
 | reached use | `LocalAgentHandlers.start` | the reached card, the jump to its line, and a source window opening at the declaration |
 | zero rows | `LOCAL_IDLE_REAP_MS` | every dim row: `none`, `not a type`, no chevron |
 | unresolved base | `SourceMoved` in `mutateFile.ts` | a dashed hierarchy node that does not open |

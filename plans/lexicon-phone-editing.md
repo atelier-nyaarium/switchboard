@@ -631,7 +631,7 @@ Carried to crust collection rather than renamed mid-phase.
 
 # Codebase Facts
 
-Read out of both repos 2026-09-12.
+Read out of both repos 2026-09-12. A phase that records otherwise supersedes a line here.
 
 ## Lexicon
 
@@ -711,8 +711,8 @@ Read out of both repos 2026-09-12.
 
 # Plan
 
-Two releases, settled in Question 20, and rewritten after the audit lap. Eleven phases. Nothing in the first
-release touches Lexicon, so the Lexicon patch is never on the critical path.
+Two releases, settled in Question 20, and rewritten after the audit lap. Eleven phases, then an encore and a
+bonus. Nothing in the first release touches Lexicon, so the Lexicon patch is never on the critical path.
 
 **Agent Apply belongs in the first release,** because the agent writes through its own Lexicon tools. The
 phone only composes a message carrying the window's identity and the owner's text. No write plane, no
@@ -2190,7 +2190,7 @@ before the release, then a pin move here.
     module; a forgotten module answers nothing until parsed again. C# handles the same notification.
   - **Stated limits** in `docs/provider-protocol.md`: receiver lambdas, external supertypes, value
     receivers, typealias qualifiers, a local class member against an outer local.
-  - **Proof:** 52 Kotlin conformance cases (binders, receivers, multi-line bodies and headers, accessors,
+  - **Proof:** 50 Kotlin conformance cases (binders, receivers, multi-line bodies and headers, accessors,
     owners through `from`, soft keywords, text cut mid-edit), provider tests, both corpora (Switchboard
     `android/`, kotlinx-coroutines) with 0 refused files, and a `grade.js` check that `ContentSealing`
     answers its two subclasses.
@@ -2240,7 +2240,8 @@ before the release, then a pin move here.
   - **The design fix:** Lexicon's parsing law, rule 1. The Kotlin provider parses through tree-sitter's
     Kotlin grammar (`web-tree-sitter` 0.27.0, the grammar's wasm vendored from
     `@tree-sitter-grammars/tree-sitter-kotlin` 1.1.0), and scopes, ownership and lookup are built from the
-    tree. Measured: Switchboard's 525 Kotlin files, 3 MB, parse in 1 second under node. Its only failures
+    tree. Measured in Lexicon's `docs/parsing.md`: Switchboard's 522 Kotlin files, 2.9 MB, 590 ms for the
+    bare parse and 1.40 s for full facts under node. Its only failures
     are soft modifier keywords used as names (`open`, `sealed`, `final`); a same-length respelling at
     those names parses every file clean.
 - **Answer health is decided in four places.** `gapWhy`, `demandOf`, the recall renderer and
@@ -2348,8 +2349,11 @@ before the release, then a pin move here.
 - **Ports:** `WorkspaceGateway` gains the three calls; the console adapter, `SandboxGateways` and every
   test fake follow.
 - **Sandbox:** `LocalBackendSession` with its real uses, a generated hub with 1,200 uses across 90 files,
-  `ContentSealing` with subclasses in two files, a withheld use, and history that answers commits and
-  untracked.
+  `ContentSealing` with an interface above it and subclasses in two files, a use in a secret `.env.ts`
+  dropped beside one in `node_modules` served, and history that answers commits and untracked. The data
+  lives in `SandboxFacets.kt`; the rules that turn it into answers live in `SandboxFacetRules.kt`, take the
+  withheld rule from `WorkspaceFileTable`, and are pinned to the plugin by
+  `tests/fixtures/workspace-facets/vectors.json`.
 - **Emulator walk** through every mock flow, compared against the mocks.
 
 ### Bug Classes
@@ -2369,9 +2373,14 @@ before the release, then a pin move here.
   scanned from the subject's start line, where Lexicon's scope begins a line earlier, so the plugin's rule
   that a symbol's own leading comment is documentation had no counterpart here to be right or wrong about.
   Both were written against a reading of the plugin rather than against the plugin, and both were latent:
-  no canned symbol had an ancestor or a leading comment, so the emulator drew the same screens either way. The file-operations sandbox reached this point twice and was closed by `WorkspaceFileTable` with
-  `tests/fixtures/workspace-file-ops/vectors.json` running in both runtimes; the drill-ins have no such
-  pin. Raised to `architecture-fan-out`.
+  no canned symbol had an ancestor or a leading comment, so the emulator drew the same screens either way.
+  The file-operations sandbox reached this point twice and was closed by `WorkspaceFileTable` with
+  `tests/fixtures/workspace-file-ops/vectors.json` running in both runtimes. Structural fix, the same
+  shape: `tests/fixtures/workspace-facets/vectors.json` is generated from the plugin over invented
+  inputs, `workspace-facet-vectors.test.ts` replays it against the plugin, `SandboxFacetVectorsTest`
+  runs the same inputs through `SandboxFacetRules`, and `check:facets` in CI catches an input edited
+  without regenerating. The sandbox's rules moved out of its data into `SandboxFacetRules.kt`, since a
+  vector can only drive a rule that takes explicit input.
 
 - **Rulings where the mocks, the plan and the wire disagreed:**
   - The Uses row counts bound targets (`counts.boundTargets`); names outside the index show on its screen.

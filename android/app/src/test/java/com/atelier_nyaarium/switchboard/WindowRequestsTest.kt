@@ -109,6 +109,29 @@ class WindowRequestsTest {
 	}
 
 	@Test
+	fun `a replaced ask opens nothing more from the reply that answered the one it replaced`() = runBlocking {
+		val hold = TestHold()
+		val localOpened = mutableListOf<String>()
+		val local = WindowRequests(
+			generation = host.generation,
+			outbox = SessionRequests(host),
+			open = { _, symbolId -> hold.pass(); localOpened += symbolId; true },
+			scope = CoroutineScope(Dispatchers.Unconfined),
+			now = { clock },
+		)
+
+		local.ask(one, MODULE, "windows")
+		local.onMessage(one.address, reply("id-a", "id-b"))
+
+		// Same target, text, and millisecond as the ask the reply answered.
+		local.dismiss(one)
+		local.ask(one, MODULE, "windows")
+		hold.release()
+
+		assertEquals(listOf("id-a"), localOpened)
+	}
+
+	@Test
 	fun `a send that fails drops the ask, and a second ask while one is sending keeps the first`() = runBlocking {
 		host.sends = false
 		assertEquals(Submitted.Failed, asks.ask(one, MODULE, "windows"))

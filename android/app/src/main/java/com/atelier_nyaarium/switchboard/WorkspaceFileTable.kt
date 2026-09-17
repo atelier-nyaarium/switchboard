@@ -18,6 +18,23 @@ import java.util.Locale
  *
  * Links, encodings, size caps and races are the disk's, and are not modelled.
  */
+
+private val SERVED_ENV_SUFFIXES = setOf("example", "sample", "template")
+
+/** A secret by its name alone. Committed suffixes are served. */
+internal fun workspaceWithheldLeaf(lower: String): Boolean =
+	lower == ".env" || (lower.startsWith(".env.") && lower.removePrefix(".env.") !in SERVED_ENV_SUFFIXES)
+
+/**
+ * Whether the plugin withholds a file path: `.git` at any depth, and a secret leaf. `node_modules` is
+ * bulk rather than secrets, so it is hidden from a listing and served when named.
+ */
+internal fun workspaceWithheldPath(path: String): Boolean {
+	val segments = path.split('/')
+	if (segments.any { it.lowercase() == ".git" }) return true
+	return workspaceWithheldLeaf(segments.last().lowercase())
+}
+
 internal class WorkspaceFileTable(folders: Iterable<String> = emptyList(), files: Map<String, String> = emptyMap()) {
 	internal data class Entry(val text: String, val identity: String)
 
@@ -82,7 +99,7 @@ internal class WorkspaceFileTable(folders: Iterable<String> = emptyList(), files
 		val leafIsFile = relative !in folders
 		for ((index, segment) in segments.withIndex()) {
 			val lower = segment.lowercase()
-			if (lower == ".git" || (index == segments.lastIndex && leafIsFile && withheldLeaf(lower))) {
+			if (lower == ".git" || (index == segments.lastIndex && leafIsFile && workspaceWithheldLeaf(lower))) {
 				return Placed.Refused("$segment is not served")
 			}
 		}
@@ -291,13 +308,8 @@ internal class WorkspaceFileTable(folders: Iterable<String> = emptyList(), files
 	}
 
 	private companion object {
-		val SERVED_ENV_SUFFIXES = setOf("example", "sample", "template")
-
 		/** The plugin's `localeCompare`, so `b.md` lists before `C.md`. */
 		val BY_NAME: Comparator<String> = compareBy(Collator.getInstance(Locale.ROOT)) { it.substringAfterLast('/') }
-
-		fun withheldLeaf(lower: String): Boolean =
-			lower == ".env" || (lower.startsWith(".env.") && lower.removePrefix(".env.") !in SERVED_ENV_SUFFIXES)
 
 		fun bytesOf(text: String) = text.toByteArray(Charsets.UTF_8).size.toLong()
 

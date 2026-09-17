@@ -46,6 +46,11 @@ class RefNowTest {
 	}
 
 	@Test
+	fun `a declaration shortened to nothing differs, not unknown`() {
+		assertTrue(refNow(key, sent, declared = 1L..1L, file = "") is RefNow.Differs)
+	}
+
+	@Test
 	fun `nothing is claimed for an inexact key, or without the send-time start, the declaration now, or the file`() {
 		assertEquals(RefNow.Unknown, refNow(key.copy(quality = "fuzzy"), sent, 3L..6L, sentFile))
 		assertEquals(RefNow.Unknown, refNow(key.copy(symbolStartLine = null), sent, 3L..6L, sentFile))

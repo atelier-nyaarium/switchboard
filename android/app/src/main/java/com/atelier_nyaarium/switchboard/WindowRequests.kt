@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
@@ -15,6 +16,8 @@ internal data class WindowRequest(
 	val module: String,
 	val text: String,
 	val sentAt: Long,
+	/** Which ask this is, not which text, so a replacement is never mistaken for what it replaced. */
+	val incarnation: Long,
 	/** Null while it waits. */
 	val opened: List<String>? = null,
 	val landed: Boolean = false,
@@ -66,13 +69,15 @@ internal class WindowRequests(
 ) : ClearsOnReprovision, InboundSubscriber {
 	private val held = MutableStateFlow<Map<String, WindowRequest>>(emptyMap())
 
+	private val incarnations = AtomicLong(0)
+
 	val requests: StateFlow<Map<String, WindowRequest>> = held
 
 	/** Held before the send, so a reply that beats the send's answer still finds it. */
 	suspend fun ask(target: WorkspaceTarget, module: String, text: String): Submitted {
 		val address = target.address
 		val captured = generation.capture()
-		val request = WindowRequest(target, module, text.trim(), now())
+		val request = WindowRequest(target, module, text.trim(), now(), incarnations.incrementAndGet())
 		val previous = held.value[address]
 		held.update { it + (address to request) }
 		return withContext(NonCancellable) {
@@ -139,7 +144,7 @@ internal class WindowRequests(
 		}
 
 	private fun sameAsk(held: WindowRequest?, request: WindowRequest): Boolean =
-		held != null && held.target == request.target && held.sentAt == request.sentAt && held.text == request.text
+		held != null && held.incarnation == request.incarnation
 
 	override suspend fun clearInMemory() {
 		held.value = emptyMap()

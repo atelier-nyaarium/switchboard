@@ -24,6 +24,7 @@
 		"transport-request",
 		"versioned-list",
 		"versioned-slot",
+		"workspace-facets",
 		"workspace-file-ops",
 		"xdomain-link"
 	]

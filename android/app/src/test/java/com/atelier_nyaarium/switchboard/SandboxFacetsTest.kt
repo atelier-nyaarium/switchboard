@@ -112,9 +112,9 @@ class SandboxFacetsTest {
 	fun `the local session answers the numbers its screens were drawn for`() {
 		val counts = facets.counts(sessionId)!!
 
-		assertEquals(13L, counts.uses)
-		assertEquals(7L, counts.useFiles)
-		assertEquals(8L, counts.dependents)
+		assertEquals(14L, counts.uses)
+		assertEquals(8L, counts.useFiles)
+		assertEquals(9L, counts.dependents)
 		assertEquals(3L, counts.targets)
 		assertEquals(2L, counts.boundTargets)
 		assertEquals(7L, counts.references)
@@ -124,11 +124,13 @@ class SandboxFacetsTest {
 		assertEquals(5L, counts.comments)
 	}
 
+	/** Bulk is served when named; only a secret is dropped. */
 	@Test
-	fun `a withheld use appears in no row and no count`() {
+	fun `a withheld use appears in no row and no count, an unlisted one in both`() {
 		val rows = usesOf(sessionId)!!.rows
 
-		assertTrue(rows.none { sandboxWithheld(it.module) })
+		assertTrue(rows.none { workspaceWithheldPath(it.module) })
+		assertTrue(rows.any { it.module == UNLISTED_MODULE })
 		assertEquals(rows.size.toLong(), facets.counts(sessionId)!!.uses)
 	}
 

@@ -164,10 +164,18 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../ChatRepository.kt` - console process singleton and OwnerOp client
 - `android/.../GatewayRegistry.kt` - the Router's roster as the phone holds it: provenance, per-Gateway answers, and the reads the views use; `docs/console.md` holds the rules
 - `android/.../PhoneIdentity.kt` / `PhoneBootstrap.kt` / `PhoneAmbient.kt` - the one door for identity facts, the boot value it publishes, and the ambient record (clock, entropy, ids, timer)
-- `android/.../SandboxSeeder.kt` / `SandboxGateways.kt` / `SandboxModules.kt` / `SandboxFacets.kt` - the
-  emulator build's seam: `isSandbox`, the identity facts a sandbox boot needs, the canned state it
-  publishes, the Gateway answers as ports rather than sockets, one canned module per path, and each
-  drill-in derived from those modules. `docs/testing.md` holds the case table and what it cannot show
+- `android/.../SandboxSeeder.kt` / `SandboxGateways.kt` / `SandboxModules.kt` / `SandboxFacets.kt` /
+  `SandboxFacetRules.kt` - the emulator build's seam: `isSandbox`, the identity facts a sandbox boot needs,
+  the canned state it publishes, the Gateway answers as ports rather than sockets, one canned module per
+  path, the invented drill-in data, and the rules that turn it into answers. `docs/testing.md` holds the
+  case table and what it cannot show
+  - **The drill-in rules are the plugin's, pinned by `tests/fixtures/workspace-facets/vectors.json`:**
+    `scripts/gen-facet-vectors.ts` runs `src/mcp/workspace/facets.ts` over invented inputs and writes the
+    corpus, `workspace-facet-vectors.test.ts` replays it against the plugin, `SandboxFacetVectorsTest` runs
+    the same inputs through `SandboxFacetRules`, and `check:facets` catches an input edited without
+    regenerating. A hand-written sandbox drifted from the plugin twice on the counts before this existed.
+    The data in `SandboxFacets.kt` stays invented; only a rule is pinned, and a rule takes explicit input
+    so a vector can drive it.
   - **A count is derived from the rows it names, never declared beside them:** `SandboxFacetsTest`
     asserts every count equals what its drill-in lists, so no screen claims a number the next contradicts.
     `HubRegistry` is the one exception, since a too-large drill-in lists nothing to count.

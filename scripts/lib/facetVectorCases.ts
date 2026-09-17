@@ -1,0 +1,571 @@
+// The invented inputs the facet corpus runs over. Only the shapes are load-bearing; the data is free.
+//
+// Every rule a vector exists for is named in its `name`. A symbol id embeds its module, which is what
+// both runtimes gate on, so an id naming `.env` is withheld however served its summary claims to be.
+
+import type { FacetCase, FacetDeclared, FacetModule } from "../../src/testing/facetVectors.js";
+
+////////////////////////////////
+//  Constants
+
+const TS = "typescript";
+
+const PORT_MODULE = "src/port.ts";
+
+const USE_MODULE = "src/use.ts";
+
+const SEAL_MODULE = "src/seal.ts";
+
+const ENV_MODULE = ".env";
+
+/** A secret by its name alone, though its text is TypeScript the index reads. */
+const ENV_LEAF_MODULE = "src/config/.env.ts";
+
+/** Bulk rather than secrets: served when named, hidden only from a listing. */
+const VENDOR_MODULE = "node_modules/local-agent/index.ts";
+
+const PORT = "lexicon typescript src/port.ts Port#";
+
+const PORT_OPEN = "lexicon typescript src/port.ts Port#open().";
+
+const PORT_CLOSE = "lexicon typescript src/port.ts Port#close().";
+
+const HANDLER = "lexicon typescript src/use.ts Handler#";
+
+const HANDLER_START = "lexicon typescript src/use.ts Handler#start().";
+
+/** Never declared, so it stands for a local no outline holds. */
+const HELD = "lexicon typescript src/use.ts Handler#start().held";
+
+const SECRET = "lexicon typescript .env Secret#";
+
+/** Its id names `.env`; its summary claims a served module. */
+const CLOAKED = "lexicon typescript .env Cloaked#";
+
+/** Another declaration spelled `Port`, in another module. */
+const OTHER_PORT = "lexicon typescript src/seal.ts Port#";
+
+const VENDORED = "lexicon typescript node_modules/local-agent/index.ts Vendored#";
+
+const ENV_BACKED = "lexicon typescript src/config/.env.ts EnvBacked#";
+
+const SEALING = "lexicon typescript src/seal.ts Sealing#";
+
+const CONTENT = "lexicon typescript src/seal.ts ContentSealing#";
+
+const VAULT = "lexicon typescript src/seal.ts VaultSealing#";
+
+////////////////////////////////
+//  Files
+
+const portFile: FacetModule = {
+	path: PORT_MODULE,
+	language: TS,
+	lines: [
+		"/** What a port opens onto. */",
+		"export interface Port {",
+		"\t/** Opens it. */",
+		"\topen(handler: Handler): void;",
+		"\tclose(): void;",
+		"}",
+	],
+};
+
+const useFile: FacetModule = {
+	path: USE_MODULE,
+	language: TS,
+	lines: [
+		'import type { Port } from "./port.js";',
+		"",
+		"export class Handler implements Port {",
+		"\tstart(port: Port, spare: Port) {}",
+		"}",
+		"",
+		"const top: Port = null as unknown as Port;",
+	],
+};
+
+const sealFile: FacetModule = {
+	path: SEAL_MODULE,
+	language: TS,
+	lines: [
+		"export interface Sealing {",
+		"\tseal(text: string): string;",
+		"}",
+		"export class ContentSealing implements Sealing {",
+		"\tseal(text: string): string {",
+		"\t\treturn text;",
+		"\t}",
+		"}",
+		"export class VaultSealing extends ContentSealing implements Error {",
+		'\tname = "VaultSealing";',
+		"}",
+	],
+};
+
+const envFile: FacetModule = { path: ENV_MODULE, language: TS, lines: ["PORT=1"] };
+
+const vendorFile: FacetModule = {
+	path: VENDOR_MODULE,
+	language: TS,
+	lines: ["export class Vendored implements Port {", "\topen() {}", "}"],
+};
+
+const envLeafFile: FacetModule = {
+	path: ENV_LEAF_MODULE,
+	language: TS,
+	lines: ["export class EnvBacked implements Port {", "\topen() {}", "}"],
+};
+
+////////////////////////////////
+//  Declarations
+
+const portSymbols: FacetDeclared[] = [
+	{ id: PORT, name: "Port", kind: "interface", module: PORT_MODULE, startLine: 2, endLine: 6 },
+	{
+		id: PORT_OPEN,
+		name: "open",
+		kind: "method",
+		module: PORT_MODULE,
+		startLine: 4,
+		endLine: 4,
+		container: PORT,
+		signature: "open(handler: Handler): void",
+	},
+	{
+		id: PORT_CLOSE,
+		name: "close",
+		kind: "method",
+		module: PORT_MODULE,
+		startLine: 5,
+		endLine: 5,
+		container: PORT,
+		signature: "close(): void",
+	},
+];
+
+const useSymbols: FacetDeclared[] = [
+	{ id: HANDLER, name: "Handler", kind: "class", module: USE_MODULE, startLine: 3, endLine: 5 },
+	{
+		id: HANDLER_START,
+		name: "start",
+		kind: "method",
+		module: USE_MODULE,
+		startLine: 4,
+		endLine: 4,
+		container: HANDLER,
+		signature: "start(port: Port, spare: Port): void",
+	},
+];
+
+const secret: FacetDeclared = {
+	id: SECRET,
+	name: "Secret",
+	kind: "class",
+	module: ENV_MODULE,
+	startLine: 1,
+	endLine: 1,
+};
+
+/** Declared in a served module, while its id names a withheld one. */
+const cloaked: FacetDeclared = {
+	id: CLOAKED,
+	name: "Cloaked",
+	kind: "class",
+	module: USE_MODULE,
+	startLine: 3,
+	endLine: 5,
+};
+
+const vendored: FacetDeclared = {
+	id: VENDORED,
+	name: "Vendored",
+	kind: "class",
+	module: VENDOR_MODULE,
+	startLine: 1,
+	endLine: 3,
+};
+
+const envBacked: FacetDeclared = {
+	id: ENV_BACKED,
+	name: "EnvBacked",
+	kind: "class",
+	module: ENV_LEAF_MODULE,
+	startLine: 1,
+	endLine: 3,
+};
+
+const otherPort: FacetDeclared = {
+	id: OTHER_PORT,
+	name: "Port",
+	kind: "interface",
+	module: SEAL_MODULE,
+	startLine: 1,
+	endLine: 3,
+};
+
+const sealSymbols: FacetDeclared[] = [
+	{ id: SEALING, name: "Sealing", kind: "interface", module: SEAL_MODULE, startLine: 1, endLine: 3 },
+	{ id: CONTENT, name: "ContentSealing", kind: "class", module: SEAL_MODULE, startLine: 4, endLine: 8 },
+	{ id: VAULT, name: "VaultSealing", kind: "class", module: SEAL_MODULE, startLine: 9, endLine: 11 },
+];
+
+////////////////////////////////
+//  Cases
+
+const withheldRows: FacetCase = {
+	name: "a withheld module's rows are dropped before any row is built, and counted nowhere",
+	modules: [portFile, useFile, envFile],
+	symbols: [...portSymbols, ...useSymbols, secret, cloaked],
+	subject: PORT,
+	uses: [
+		{
+			module: USE_MODULE,
+			line: 4,
+			column: 13,
+			name: "Port",
+			role: "typeUse",
+			holder: HANDLER_START,
+			topLevel: HANDLER,
+		},
+		{
+			module: USE_MODULE,
+			line: 3,
+			column: 32,
+			name: "Port",
+			role: "implements",
+			holder: HANDLER,
+			topLevel: HANDLER,
+		},
+		{ module: ENV_MODULE, line: 1, column: 0, name: "Port", role: "typeUse", holder: SECRET, topLevel: SECRET },
+		{ module: USE_MODULE, line: 7, column: 11, name: "Port", role: "typeUse", holder: CLOAKED, topLevel: CLOAKED },
+	],
+	targets: [
+		{
+			module: PORT_MODULE,
+			line: 4,
+			column: 15,
+			name: "Handler",
+			role: "typeUse",
+			holder: PORT_OPEN,
+			topLevel: PORT,
+			status: "bound",
+			target: HANDLER,
+		},
+		{ module: ENV_MODULE, line: 1, column: 0, name: "Handler", role: "typeUse", status: "bound", target: HANDLER },
+	],
+	members: [PORT_OPEN, CLOAKED, PORT_CLOSE],
+	hierarchy: {
+		subtypes: [
+			{ name: "Port", symbol: HANDLER, role: "implements" },
+			{ name: "Port", symbol: SECRET, role: "implements" },
+		],
+	},
+};
+
+const supertypeCount: FacetCase = {
+	name: "the supertype count spans direct supertypes, ancestors and unbound names",
+	modules: [sealFile, envFile],
+	symbols: [...sealSymbols, secret],
+	subject: VAULT,
+	targets: [
+		{
+			module: SEAL_MODULE,
+			line: 9,
+			column: 34,
+			name: "ContentSealing",
+			role: "extends",
+			holder: VAULT,
+			topLevel: VAULT,
+			status: "bound",
+			target: CONTENT,
+		},
+		{
+			module: SEAL_MODULE,
+			line: 9,
+			column: 60,
+			name: "Error",
+			role: "implements",
+			holder: VAULT,
+			topLevel: VAULT,
+			status: "unbound",
+			reason: "ExternalDependency",
+		},
+	],
+	hierarchy: {
+		supertypes: [
+			{ name: "ContentSealing", symbol: CONTENT, role: "extends" },
+			{ name: "Error", role: "implements" },
+			{ name: "Error", role: "implements" },
+		],
+		// The direct supertype is listed again, and one ancestor is withheld.
+		ancestors: [SEALING, CONTENT, SECRET],
+	},
+};
+
+const ownComment: FacetCase = {
+	name: "a symbol's own leading comment is documentation, in no row and in no count",
+	modules: [portFile],
+	symbols: portSymbols,
+	subject: PORT,
+	comments: [
+		{ module: PORT_MODULE, line: 1, text: "What a port opens onto.", form: "leading", anchor: PORT },
+		{ module: PORT_MODULE, line: 3, text: "Opens it.", form: "leading", anchor: PORT_OPEN },
+		{ module: PORT_MODULE, line: 4, text: "Held briefly.", form: "inline", anchor: PORT_OPEN },
+	],
+	commentTotal: 3,
+};
+
+const commentPage: FacetCase = {
+	name: "the comment page caps, and the total says how many there are",
+	modules: [portFile],
+	symbols: portSymbols,
+	subject: PORT,
+	// One past the page, which is all it takes to cross it.
+	comments: [
+		{ module: PORT_MODULE, line: 1, text: "What a port opens onto.", form: "leading", anchor: PORT },
+		...Array.from({ length: 200 }, (_, index) => ({
+			module: PORT_MODULE,
+			line: 4,
+			text: `n${index}`,
+			form: "inline",
+			anchor: PORT_OPEN,
+		})),
+	],
+	commentTotal: 201,
+};
+
+const holderFallback: FacetCase = {
+	name: "a use falls back from its holder to its top level, and then to file level",
+	modules: [useFile, portFile],
+	symbols: [...useSymbols, ...portSymbols],
+	subject: PORT,
+	uses: [
+		{
+			module: USE_MODULE,
+			line: 4,
+			column: 13,
+			name: "Port",
+			role: "typeUse",
+			holder: HANDLER_START,
+			topLevel: HANDLER,
+		},
+		// A local no outline declares.
+		{ module: USE_MODULE, line: 4, column: 26, name: "Port", role: "typeUse", holder: HELD, topLevel: HANDLER },
+		{ module: USE_MODULE, line: 7, column: 11, name: "Port", role: "typeUse" },
+	],
+};
+
+const targetStatuses: FacetCase = {
+	name: "targets group by target when bound and by spelling when not, ambiguous kept as it stands",
+	modules: [useFile, portFile, sealFile, envFile],
+	symbols: [...useSymbols, ...portSymbols, ...sealSymbols, otherPort, secret],
+	subject: HANDLER,
+	uses: [
+		{
+			module: PORT_MODULE,
+			line: 4,
+			column: 15,
+			name: "Handler",
+			role: "typeUse",
+			holder: PORT_OPEN,
+			topLevel: PORT,
+		},
+	],
+	targets: [
+		{
+			module: USE_MODULE,
+			line: 4,
+			column: 13,
+			name: "Port",
+			role: "typeUse",
+			holder: HANDLER_START,
+			topLevel: HANDLER,
+			status: "bound",
+			target: PORT,
+		},
+		{
+			module: USE_MODULE,
+			line: 4,
+			column: 26,
+			name: "Port",
+			role: "typeUse",
+			holder: HANDLER_START,
+			topLevel: HANDLER,
+			status: "bound",
+			target: PORT,
+		},
+		// Another declaration under the same spelling, so a group keyed by spelling would swallow it.
+		{
+			module: USE_MODULE,
+			line: 1,
+			column: 20,
+			name: "Port",
+			role: "typeUse",
+			holder: HANDLER,
+			topLevel: HANDLER,
+			status: "bound",
+			target: OTHER_PORT,
+		},
+		// The same declaration under another spelling, which the bound group takes in.
+		{
+			module: USE_MODULE,
+			line: 3,
+			column: 26,
+			name: "Gate",
+			role: "typeUse",
+			holder: HANDLER,
+			topLevel: HANDLER,
+			status: "bound",
+			target: PORT,
+		},
+		{
+			module: USE_MODULE,
+			line: 7,
+			column: 11,
+			name: "Promise",
+			role: "typeUse",
+			status: "unbound",
+			reason: "ExternalDependency",
+		},
+		{
+			module: USE_MODULE,
+			line: 7,
+			column: 30,
+			name: "Promise",
+			role: "typeUse",
+			status: "unbound",
+			reason: "ExternalDependency",
+		},
+		{
+			module: USE_MODULE,
+			line: 1,
+			column: 14,
+			name: "Emit",
+			role: "typeUse",
+			holder: HANDLER,
+			topLevel: HANDLER,
+			status: "ambiguous",
+		},
+		{
+			module: USE_MODULE,
+			line: 3,
+			column: 7,
+			name: "Secret",
+			role: "typeUse",
+			holder: HANDLER,
+			topLevel: HANDLER,
+			status: "bound",
+			target: SECRET,
+		},
+		{ module: ENV_MODULE, line: 1, column: 0, name: "Port", role: "typeUse", status: "bound", target: PORT },
+	],
+};
+
+const countsAfterFilter: FacetCase = {
+	name: "every count is taken after the filter, never from what the index answered",
+	modules: [portFile, useFile, sealFile, envFile],
+	symbols: [...portSymbols, ...useSymbols, ...sealSymbols, secret, cloaked],
+	subject: PORT,
+	uses: [
+		{
+			module: USE_MODULE,
+			line: 4,
+			column: 13,
+			name: "Port",
+			role: "typeUse",
+			holder: HANDLER_START,
+			topLevel: HANDLER,
+		},
+		{ module: ENV_MODULE, line: 1, column: 0, name: "Port", role: "typeUse", holder: SECRET, topLevel: SECRET },
+		{ module: SEAL_MODULE, line: 2, column: 1, name: "Port", role: "typeUse", holder: CLOAKED, topLevel: CLOAKED },
+		{ module: ENV_MODULE, line: 1, column: 0, name: "Port", role: "read" },
+	],
+	targets: [
+		{
+			module: PORT_MODULE,
+			line: 4,
+			column: 15,
+			name: "Handler",
+			role: "typeUse",
+			holder: PORT_OPEN,
+			topLevel: PORT,
+			status: "bound",
+			target: HANDLER,
+		},
+		{
+			module: PORT_MODULE,
+			line: 4,
+			column: 15,
+			name: "Secret",
+			role: "typeUse",
+			holder: PORT_OPEN,
+			topLevel: PORT,
+			status: "bound",
+			target: SECRET,
+		},
+		{ module: ENV_MODULE, line: 1, column: 0, name: "Handler", role: "typeUse", status: "bound", target: HANDLER },
+	],
+	members: [PORT_OPEN, CLOAKED],
+	hierarchy: {
+		supertypes: [
+			{ name: "Sealing", symbol: SEALING },
+			{ name: "Secret", symbol: SECRET },
+		],
+		ancestors: [CONTENT, SECRET],
+		subtypes: [
+			{ name: "Port", symbol: HANDLER },
+			{ name: "Port", symbol: SECRET },
+		],
+	},
+	comments: [
+		{ module: PORT_MODULE, line: 1, text: "What a port opens onto.", form: "leading", anchor: PORT },
+		{ module: PORT_MODULE, line: 3, text: "Opens it.", form: "leading", anchor: PORT_OPEN },
+	],
+	commentTotal: 9,
+};
+
+const bulkAndSecrets: FacetCase = {
+	name: "bulk under node_modules is served and counted; a secret .env leaf is dropped and counted nowhere",
+	modules: [portFile, vendorFile, envLeafFile],
+	symbols: [...portSymbols, vendored, envBacked],
+	subject: PORT,
+	uses: [
+		{
+			module: VENDOR_MODULE,
+			line: 1,
+			column: 33,
+			name: "Port",
+			role: "implements",
+			holder: VENDORED,
+			topLevel: VENDORED,
+		},
+		{
+			module: ENV_LEAF_MODULE,
+			line: 1,
+			column: 34,
+			name: "Port",
+			role: "implements",
+			holder: ENV_BACKED,
+			topLevel: ENV_BACKED,
+		},
+	],
+	members: [PORT_OPEN],
+	hierarchy: {
+		subtypes: [
+			{ name: "Port", symbol: VENDORED, role: "implements" },
+			{ name: "Port", symbol: ENV_BACKED, role: "implements" },
+		],
+	},
+};
+
+export const FACET_CASES: FacetCase[] = [
+	withheldRows,
+	supertypeCount,
+	ownComment,
+	commentPage,
+	holderFallback,
+	targetStatuses,
+	countsAfterFilter,
+	bulkAndSecrets,
+];

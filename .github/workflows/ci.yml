@@ -77,6 +77,12 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run check:fixtures
 
+      # The suite replays the committed facet corpus, which catches a plugin that moved. This
+      # regenerates it from the authoring inputs, which catches those edited without regenerating.
+      - name: Facet vector drift check
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run check:facets
+
       - name: Codegen drift check
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         # --exit-code alone is vacuous for untracked output; the porcelain

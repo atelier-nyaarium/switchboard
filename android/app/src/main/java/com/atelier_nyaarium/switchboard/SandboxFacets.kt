@@ -2,11 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFacet
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFacetAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceFacetComment
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFacetSymbol
-import com.atelier_nyaarium.switchboard.proto.WorkspaceFacetTarget
-import com.atelier_nyaarium.switchboard.proto.WorkspaceFacetType
-import com.atelier_nyaarium.switchboard.proto.WorkspaceFacetUnboundType
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFacetUse
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileHistoryAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceHistoryCommit
@@ -14,15 +10,12 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeCounts
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolFacetAnswer
 
 /**
- * The drill-ins the sandbox answers over its canned modules. Every count is taken from the rows the
- * drill-in lists, so a row that says seven and a screen that lists six cannot both be drawn.
+ * The canned drill-ins, and only the data half. Every decision is in `SandboxFacetRules`, where the
+ * shared vector corpus reaches it.
  */
 
 /** What an older plugin refuses with, which is what draws the update notice. */
 internal const val SANDBOX_PLUGIN_UPDATE = "this session's plugin cannot read that workspace op; update it"
-
-internal fun sandboxWithheld(module: String): Boolean =
-	module.startsWith("node_modules/") || module == ".env" || module.startsWith(".env.")
 
 private const val ROLE_TYPE = "typeUse"
 
@@ -87,7 +80,8 @@ private fun sessionUses() = listOf(
 	Site(HOST_MODULE, 132, "createLocalAgentBackend"),
 	Site(RUNTIME_MODULE, 50, "openSession"),
 	Site(HANDLERS_MODULE, 19, "open"),
-	Site(WITHHELD_MODULE, 6, "VendoredSession", ROLE_IMPLEMENTS),
+	Site(UNLISTED_MODULE, 6, "VendoredSession", ROLE_IMPLEMENTS),
+	Site(WITHHELD_MODULE, 4, "EnvBackedSession", ROLE_IMPLEMENTS),
 )
 
 private fun sessionTargets() = listOf(
@@ -223,6 +217,8 @@ internal class SandboxFacets(private val modules: Map<String, SandboxModule>, pr
 	private val byId: Map<String, Found> =
 		modules.values.flatMap { module -> module.symbols.map { it.symbolId to Found(module, it) } }.toMap()
 
+	private val symbols = FacetSymbols { id -> byId[id]?.let { facetSymbol(it.module, it.symbol) } }
+
 	private val drills: Map<String, Drill> =
 		drillTable().mapNotNull { (ref, drill) -> idOf(ref)?.let { it to drill } }.toMap()
 
@@ -282,29 +278,18 @@ internal class SandboxFacets(private val modules: Map<String, SandboxModule>, pr
 		val found = byId[symbolId] ?: return null
 		val drill = drills[symbolId] ?: Drill()
 		drill.counts?.let { return it }
-		val rows = useRows(found, drill)
-		val targets = targetRows(drill)
-		val hierarchy = hierarchyAnswer(found, drill)
-		return WorkspaceKnowledgeCounts(
-			uses = rows.size.toLong(),
-			useFiles = rows.map { it.module }.distinct().size.toLong(),
-			dependents = rows.mapNotNull { it.topLevel?.symbolId }.distinct().size.toLong(),
-			dependentFiles = rows.filter { it.topLevel == null }.map { it.module }.distinct().size.toLong(),
-			targets = targets.size.toLong(),
-			boundTargets = targets.count { it.status == STATUS_BOUND && it.target != null }.toLong(),
-			references = targets.sumOf { it.uses.size }.toLong(),
-			members = found.module.members(found.symbol).size.toLong(),
-			supertypes = hierarchy.supertypeCount,
-			subtypes = hierarchy.subtypeCount,
-			comments = commentRows(found).size.toLong(),
+		return sandboxCounts(
+			uses = sandboxUsesAnswer(useSites(found, drill), symbols).rows,
+			targets = sandboxTargetsAnswer(targetSites(drill), symbols).targets,
+			members = sandboxMembers(memberIds(found), symbols),
+			hierarchy = hierarchyAnswer(found, drill),
+			comments = commentsAnswer(found),
 		)
 	}
 
-	/** The comment right above the declaration. */
 	fun documentation(symbolId: String): String? {
 		val found = byId[symbolId] ?: return null
-		val above = found.module.lineAt(found.symbol.startLine - 1).trim()
-		return if (isComment(above)) commentText(above) else null
+		return sandboxDocumentation(symbolId, commentSites(found))
 	}
 
 	fun symbolOf(symbolId: String): Pair<SandboxModule, SandboxSymbol>? = byId[symbolId]?.let { it.module to it.symbol }
@@ -315,45 +300,30 @@ internal class SandboxFacets(private val modules: Map<String, SandboxModule>, pr
 		WorkspaceListing.Listed(WorkspaceSymbolFacetAnswer(symbolId = symbolId, facet = answer))
 
 	private fun usesAnswer(found: Found, drill: Drill): WorkspaceFacetAnswer.Uses {
-		val rows = useRows(found, drill)
-		return WorkspaceFacetAnswer.Uses(rows = rows, uses = rows.size.toLong(), plain = 0)
+		val answer = sandboxUsesAnswer(useSites(found, drill), symbols)
+		return answer.copy(rows = dressed(answer.rows))
 	}
 
 	private fun targetsAnswer(drill: Drill): WorkspaceFacetAnswer.UsesFrom {
-		val rows = targetRows(drill)
-		return WorkspaceFacetAnswer.UsesFrom(
-			targets = rows,
-			targetCount = rows.size.toLong(),
-			references = rows.sumOf { it.uses.size }.toLong(),
-			plain = 0,
-		)
+		val answer = sandboxTargetsAnswer(targetSites(drill), symbols)
+		return answer.copy(targets = answer.targets.map { it.copy(uses = dressed(it.uses)) })
 	}
 
-	private fun membersAnswer(found: Found) = WorkspaceFacetAnswer.Members(
-		members = found.module.members(found.symbol).map { facetSymbol(found.module, it) },
-		plain = 0,
+	private fun membersAnswer(found: Found) =
+		WorkspaceFacetAnswer.Members(members = sandboxMembers(memberIds(found), symbols), plain = 0)
+
+	private fun hierarchyAnswer(found: Found, drill: Drill) = sandboxHierarchy(
+		subject = facetSymbol(found.module, found.symbol),
+		supertypes = drill.supertypes.mapNotNull { (ref, role) -> idOf(ref)?.let { FacetTypeSite(it, role) } },
+		ancestorIds = drill.ancestors.mapNotNull { idOf(it) },
+		unbound = drill.unbound.map { (name, role) -> FacetUnboundSite(name, role) },
+		subtypes = drill.subtypes.mapNotNull { (ref, role) -> idOf(ref)?.let { FacetTypeSite(it, role) } },
+		symbols = symbols,
 	)
 
-	private fun hierarchyAnswer(found: Found, drill: Drill): WorkspaceFacetAnswer.Hierarchy {
-		val supertypes = drill.supertypes.mapNotNull { (ref, role) -> symbolAt(ref)?.let { WorkspaceFacetType(it, role) } }
-		val ancestors = drill.ancestors.mapNotNull { symbolAt(it) }
-		val unbound = drill.unbound.map { (name, role) -> WorkspaceFacetUnboundType(name, role) }
-		val subtypes = drill.subtypes.mapNotNull { (ref, role) -> symbolAt(ref)?.let { WorkspaceFacetType(it, role) } }
-		return WorkspaceFacetAnswer.Hierarchy(
-			subject = facetSymbol(found.module, found.symbol),
-			supertypes = supertypes,
-			ancestors = ancestors,
-			unbound = unbound,
-			subtypes = subtypes,
-			// The plugin counts ancestors too.
-			supertypeCount = (supertypes.size + ancestors.size + unbound.size).toLong(),
-			subtypeCount = subtypes.size.toLong(),
-		)
-	}
-
 	private fun commentsAnswer(found: Found): WorkspaceFacetAnswer.Comments {
-		val rows = commentRows(found)
-		return WorkspaceFacetAnswer.Comments(comments = rows, total = rows.size.toLong(), truncated = false)
+		val sites = commentSites(found)
+		return sandboxComments(found.symbol.symbolId, sites, sites.size.toLong(), false, symbols)
 	}
 
 	private fun historyAnswer(found: Found) = WorkspaceFacetAnswer.History(
@@ -365,65 +335,70 @@ internal class SandboxFacets(private val modules: Map<String, SandboxModule>, pr
 		truncated = false,
 	)
 
-	private fun useRows(found: Found, drill: Drill): List<WorkspaceFacetUse> =
-		drill.uses.mapNotNull { useOf(it, found.symbol.name) }
+	private fun useSites(found: Found, drill: Drill): List<FacetUseSite> =
+		drill.uses.map { siteOf(it, found.symbol.name) }
 
-	private fun targetRows(drill: Drill): List<WorkspaceFacetTarget> =
-		drill.targets.mapNotNull { spec ->
-			val uses = spec.uses.mapNotNull { useOf(it, spec.name) }
-			if (uses.isEmpty()) return@mapNotNull null
-			val bound = spec.at?.let { symbolAt(it) }
-			WorkspaceFacetTarget(
-				name = spec.name,
-				status = if (bound == null) STATUS_UNBOUND else STATUS_BOUND,
-				target = bound,
-				reason = spec.reason,
-				uses = uses,
-			)
+	private fun targetSites(drill: Drill): List<FacetTargetSite> =
+		drill.targets.flatMap { spec ->
+			val bound = spec.at?.let { idOf(it) }
+			spec.uses.map { site ->
+				FacetTargetSite(
+					use = siteOf(site, spec.name),
+					name = spec.name,
+					status = if (bound == null) STATUS_UNBOUND else STATUS_BOUND,
+					targetId = bound,
+					reason = spec.reason,
+				)
+			}
 		}
 
-	/** Withheld before any row is built, so nothing counts what nothing lists. */
-	private fun useOf(site: Site, name: String): WorkspaceFacetUse? {
-		if (sandboxWithheld(site.module)) return null
-		val module = modules[site.module] ?: return null
-		val text = module.lineAt(site.line)
-		val at = text.indexOf(name).coerceAtLeast(0)
-		val holder = site.holder?.let { module.symbol(it) }
-		return WorkspaceFacetUse(
+	private fun memberIds(found: Found): List<String> = found.module.members(found.symbol).map { it.symbolId }
+
+	/** A holder and its outermost container, each read on its own. */
+	private fun siteOf(site: Site, name: String): FacetUseSite {
+		val module = modules[site.module]
+		val holder = site.holder?.let { module?.symbol(it) }
+		return FacetUseSite(
 			module = site.module,
 			line = site.line,
-			startColumn = at.toLong(),
-			endColumn = (at + name.length).toLong(),
 			name = name,
 			role = site.role,
-			holder = holder?.let { facetSymbol(module, it) },
-			topLevel = holder?.let { facetSymbol(module, module.topLevel(it)) },
-			language = module.language,
-			text = text,
-			spans = sandboxSpans(module.language, text),
+			holderId = holder?.symbolId,
+			topLevelId = holder?.let { module?.topLevel(it)?.symbolId },
 		)
 	}
 
 	/**
 	 * Scanned from the line above, which is the scope the plugin reads. A comment leading the subject
-	 * itself is documentation, which the detail draws under its own heading, so no row and no count.
+	 * itself is its documentation, which the rules keep out of every row and count.
 	 */
-	private fun commentRows(found: Found): List<WorkspaceFacetComment> =
+	private fun commentSites(found: Found): List<FacetCommentSite> =
 		(found.symbol.startLine - 1..found.symbol.endLine).mapNotNull { line ->
 			val raw = found.module.lineAt(line).trim()
 			if (!isComment(raw)) return@mapNotNull null
 			val next = found.module.startingAt(line + 1)
-			if (next?.symbolId == found.symbol.symbolId) return@mapNotNull null
-			WorkspaceFacetComment(
+			FacetCommentSite(
 				text = commentText(raw),
 				form = if (next != null) "leading" else "standalone",
 				line = line,
-				holder = (next ?: found.module.holderAt(line))?.let { facetSymbol(found.module, it) },
+				anchorId = next?.symbolId,
+				holderId = (next ?: found.module.holderAt(line))?.symbolId,
 			)
 		}
 
-	private fun symbolAt(ref: Ref): WorkspaceFacetSymbol? =
-		modules[ref.module]?.let { module -> module.symbol(ref.name)?.let { facetSymbol(module, it) } }
+	/** The line a row points into, and its paint. */
+	private fun dressed(rows: List<WorkspaceFacetUse>): List<WorkspaceFacetUse> = rows.map { row ->
+		val module = modules[row.module] ?: return@map row
+		val text = module.lineAt(row.line)
+		val at = text.indexOf(row.name).coerceAtLeast(0)
+		row.copy(
+			startColumn = at.toLong(),
+			endColumn = (at + row.name.length).toLong(),
+			language = module.language,
+			text = text,
+			spans = sandboxSpans(module.language, text),
+		)
+	}
 
 	private fun facetSymbol(module: SandboxModule, symbol: SandboxSymbol) = WorkspaceFacetSymbol(
 		symbolId = symbol.symbolId,

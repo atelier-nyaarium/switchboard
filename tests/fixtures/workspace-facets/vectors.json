@@ -1,0 +1,4399 @@
+{
+	"_comment": "The workspace drill-in rules, as the plugin answers them over invented inputs. src/mcp/workspace/facets.ts is the authority and the phone's SandboxFacetRules.kt is pinned to it. Each case declares its modules, symbols and index rows; `answer` is the structure both sides reach. A row's columns, line text and paint are left out, since those come from the file rather than a rule, and tests/fixtures/code-spans/vectors.json already pins the paint. Regenerate with `bun scripts/gen-facet-vectors.ts`.",
+	"cases": [
+		{
+			"name": "a withheld module's rows are dropped before any row is built, and counted nowhere",
+			"modules": [
+				{
+					"path": "src/port.ts",
+					"language": "typescript",
+					"lines": [
+						"/** What a port opens onto. */",
+						"export interface Port {",
+						"\t/** Opens it. */",
+						"\topen(handler: Handler): void;",
+						"\tclose(): void;",
+						"}"
+					]
+				},
+				{
+					"path": "src/use.ts",
+					"language": "typescript",
+					"lines": [
+						"import type { Port } from \"./port.js\";",
+						"",
+						"export class Handler implements Port {",
+						"\tstart(port: Port, spare: Port) {}",
+						"}",
+						"",
+						"const top: Port = null as unknown as Port;"
+					]
+				},
+				{
+					"path": ".env",
+					"language": "typescript",
+					"lines": ["PORT=1"]
+				}
+			],
+			"symbols": [
+				{
+					"id": "lexicon typescript src/port.ts Port#",
+					"name": "Port",
+					"kind": "interface",
+					"module": "src/port.ts",
+					"startLine": 2,
+					"endLine": 6
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#open().",
+					"name": "open",
+					"kind": "method",
+					"module": "src/port.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"container": "lexicon typescript src/port.ts Port#",
+					"signature": "open(handler: Handler): void"
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#close().",
+					"name": "close",
+					"kind": "method",
+					"module": "src/port.ts",
+					"startLine": 5,
+					"endLine": 5,
+					"container": "lexicon typescript src/port.ts Port#",
+					"signature": "close(): void"
+				},
+				{
+					"id": "lexicon typescript src/use.ts Handler#",
+					"name": "Handler",
+					"kind": "class",
+					"module": "src/use.ts",
+					"startLine": 3,
+					"endLine": 5
+				},
+				{
+					"id": "lexicon typescript src/use.ts Handler#start().",
+					"name": "start",
+					"kind": "method",
+					"module": "src/use.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"container": "lexicon typescript src/use.ts Handler#",
+					"signature": "start(port: Port, spare: Port): void"
+				},
+				{
+					"id": "lexicon typescript .env Secret#",
+					"name": "Secret",
+					"kind": "class",
+					"module": ".env",
+					"startLine": 1,
+					"endLine": 1
+				},
+				{
+					"id": "lexicon typescript .env Cloaked#",
+					"name": "Cloaked",
+					"kind": "class",
+					"module": "src/use.ts",
+					"startLine": 3,
+					"endLine": 5
+				}
+			],
+			"subject": "lexicon typescript src/port.ts Port#",
+			"uses": [
+				{
+					"module": "src/use.ts",
+					"line": 4,
+					"column": 13,
+					"name": "Port",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/use.ts Handler#start().",
+					"topLevel": "lexicon typescript src/use.ts Handler#"
+				},
+				{
+					"module": "src/use.ts",
+					"line": 3,
+					"column": 32,
+					"name": "Port",
+					"role": "implements",
+					"holder": "lexicon typescript src/use.ts Handler#",
+					"topLevel": "lexicon typescript src/use.ts Handler#"
+				},
+				{
+					"module": ".env",
+					"line": 1,
+					"column": 0,
+					"name": "Port",
+					"role": "typeUse",
+					"holder": "lexicon typescript .env Secret#",
+					"topLevel": "lexicon typescript .env Secret#"
+				},
+				{
+					"module": "src/use.ts",
+					"line": 7,
+					"column": 11,
+					"name": "Port",
+					"role": "typeUse",
+					"holder": "lexicon typescript .env Cloaked#",
+					"topLevel": "lexicon typescript .env Cloaked#"
+				}
+			],
+			"targets": [
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"column": 15,
+					"name": "Handler",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/port.ts Port#open().",
+					"topLevel": "lexicon typescript src/port.ts Port#",
+					"status": "bound",
+					"target": "lexicon typescript src/use.ts Handler#"
+				},
+				{
+					"module": ".env",
+					"line": 1,
+					"column": 0,
+					"name": "Handler",
+					"role": "typeUse",
+					"status": "bound",
+					"target": "lexicon typescript src/use.ts Handler#"
+				}
+			],
+			"members": [
+				"lexicon typescript src/port.ts Port#open().",
+				"lexicon typescript .env Cloaked#",
+				"lexicon typescript src/port.ts Port#close()."
+			],
+			"hierarchy": {
+				"subtypes": [
+					{
+						"name": "Port",
+						"symbol": "lexicon typescript src/use.ts Handler#",
+						"role": "implements"
+					},
+					{
+						"name": "Port",
+						"symbol": "lexicon typescript .env Secret#",
+						"role": "implements"
+					}
+				]
+			},
+			"answer": {
+				"uses": {
+					"rows": [
+						{
+							"module": "src/use.ts",
+							"line": 4,
+							"name": "Port",
+							"role": "typeUse",
+							"holder": "lexicon typescript src/use.ts Handler#start().",
+							"topLevel": "lexicon typescript src/use.ts Handler#"
+						},
+						{
+							"module": "src/use.ts",
+							"line": 3,
+							"name": "Port",
+							"role": "implements",
+							"holder": "lexicon typescript src/use.ts Handler#",
+							"topLevel": "lexicon typescript src/use.ts Handler#"
+						},
+						{
+							"module": "src/use.ts",
+							"line": 7,
+							"name": "Port",
+							"role": "typeUse",
+							"holder": null,
+							"topLevel": null
+						}
+					],
+					"uses": 3,
+					"plain": 0
+				},
+				"usesFrom": {
+					"targets": [
+						{
+							"name": "Handler",
+							"status": "bound",
+							"target": "lexicon typescript src/use.ts Handler#",
+							"reason": null,
+							"uses": [
+								{
+									"module": "src/port.ts",
+									"line": 4,
+									"name": "Handler",
+									"role": "typeUse",
+									"holder": "lexicon typescript src/port.ts Port#open().",
+									"topLevel": "lexicon typescript src/port.ts Port#"
+								}
+							]
+						}
+					],
+					"targetCount": 1,
+					"references": 1,
+					"plain": 0
+				},
+				"members": {
+					"members": [
+						"lexicon typescript src/port.ts Port#open().",
+						"lexicon typescript src/port.ts Port#close()."
+					]
+				},
+				"hierarchy": {
+					"subject": "lexicon typescript src/port.ts Port#",
+					"supertypes": [],
+					"ancestors": [],
+					"unbound": [],
+					"subtypes": [
+						{
+							"symbol": "lexicon typescript src/use.ts Handler#",
+							"role": "implements"
+						}
+					],
+					"supertypeCount": 0,
+					"subtypeCount": 1
+				},
+				"comments": {
+					"comments": [],
+					"total": 0,
+					"truncated": false
+				},
+				"counts": {
+					"uses": 3,
+					"useFiles": 1,
+					"dependents": 1,
+					"dependentFiles": 1,
+					"targets": 1,
+					"boundTargets": 1,
+					"references": 1,
+					"members": 2,
+					"supertypes": 0,
+					"subtypes": 1,
+					"comments": 0
+				}
+			}
+		},
+		{
+			"name": "the supertype count spans direct supertypes, ancestors and unbound names",
+			"modules": [
+				{
+					"path": "src/seal.ts",
+					"language": "typescript",
+					"lines": [
+						"export interface Sealing {",
+						"\tseal(text: string): string;",
+						"}",
+						"export class ContentSealing implements Sealing {",
+						"\tseal(text: string): string {",
+						"\t\treturn text;",
+						"\t}",
+						"}",
+						"export class VaultSealing extends ContentSealing implements Error {",
+						"\tname = \"VaultSealing\";",
+						"}"
+					]
+				},
+				{
+					"path": ".env",
+					"language": "typescript",
+					"lines": ["PORT=1"]
+				}
+			],
+			"symbols": [
+				{
+					"id": "lexicon typescript src/seal.ts Sealing#",
+					"name": "Sealing",
+					"kind": "interface",
+					"module": "src/seal.ts",
+					"startLine": 1,
+					"endLine": 3
+				},
+				{
+					"id": "lexicon typescript src/seal.ts ContentSealing#",
+					"name": "ContentSealing",
+					"kind": "class",
+					"module": "src/seal.ts",
+					"startLine": 4,
+					"endLine": 8
+				},
+				{
+					"id": "lexicon typescript src/seal.ts VaultSealing#",
+					"name": "VaultSealing",
+					"kind": "class",
+					"module": "src/seal.ts",
+					"startLine": 9,
+					"endLine": 11
+				},
+				{
+					"id": "lexicon typescript .env Secret#",
+					"name": "Secret",
+					"kind": "class",
+					"module": ".env",
+					"startLine": 1,
+					"endLine": 1
+				}
+			],
+			"subject": "lexicon typescript src/seal.ts VaultSealing#",
+			"targets": [
+				{
+					"module": "src/seal.ts",
+					"line": 9,
+					"column": 34,
+					"name": "ContentSealing",
+					"role": "extends",
+					"holder": "lexicon typescript src/seal.ts VaultSealing#",
+					"topLevel": "lexicon typescript src/seal.ts VaultSealing#",
+					"status": "bound",
+					"target": "lexicon typescript src/seal.ts ContentSealing#"
+				},
+				{
+					"module": "src/seal.ts",
+					"line": 9,
+					"column": 60,
+					"name": "Error",
+					"role": "implements",
+					"holder": "lexicon typescript src/seal.ts VaultSealing#",
+					"topLevel": "lexicon typescript src/seal.ts VaultSealing#",
+					"status": "unbound",
+					"reason": "ExternalDependency"
+				}
+			],
+			"hierarchy": {
+				"supertypes": [
+					{
+						"name": "ContentSealing",
+						"symbol": "lexicon typescript src/seal.ts ContentSealing#",
+						"role": "extends"
+					},
+					{
+						"name": "Error",
+						"role": "implements"
+					},
+					{
+						"name": "Error",
+						"role": "implements"
+					}
+				],
+				"ancestors": [
+					"lexicon typescript src/seal.ts Sealing#",
+					"lexicon typescript src/seal.ts ContentSealing#",
+					"lexicon typescript .env Secret#"
+				]
+			},
+			"answer": {
+				"uses": {
+					"rows": [],
+					"uses": 0,
+					"plain": 0
+				},
+				"usesFrom": {
+					"targets": [
+						{
+							"name": "ContentSealing",
+							"status": "bound",
+							"target": "lexicon typescript src/seal.ts ContentSealing#",
+							"reason": null,
+							"uses": [
+								{
+									"module": "src/seal.ts",
+									"line": 9,
+									"name": "ContentSealing",
+									"role": "extends",
+									"holder": "lexicon typescript src/seal.ts VaultSealing#",
+									"topLevel": "lexicon typescript src/seal.ts VaultSealing#"
+								}
+							]
+						},
+						{
+							"name": "Error",
+							"status": "unbound",
+							"target": null,
+							"reason": "ExternalDependency",
+							"uses": [
+								{
+									"module": "src/seal.ts",
+									"line": 9,
+									"name": "Error",
+									"role": "implements",
+									"holder": "lexicon typescript src/seal.ts VaultSealing#",
+									"topLevel": "lexicon typescript src/seal.ts VaultSealing#"
+								}
+							]
+						}
+					],
+					"targetCount": 2,
+					"references": 2,
+					"plain": 0
+				},
+				"members": {
+					"members": []
+				},
+				"hierarchy": {
+					"subject": "lexicon typescript src/seal.ts VaultSealing#",
+					"supertypes": [
+						{
+							"symbol": "lexicon typescript src/seal.ts ContentSealing#",
+							"role": "extends"
+						}
+					],
+					"ancestors": ["lexicon typescript src/seal.ts Sealing#"],
+					"unbound": [
+						{
+							"name": "Error",
+							"role": "implements"
+						}
+					],
+					"subtypes": [],
+					"supertypeCount": 3,
+					"subtypeCount": 0
+				},
+				"comments": {
+					"comments": [],
+					"total": 0,
+					"truncated": false
+				},
+				"counts": {
+					"uses": 0,
+					"useFiles": 0,
+					"dependents": 0,
+					"dependentFiles": 0,
+					"targets": 2,
+					"boundTargets": 1,
+					"references": 2,
+					"members": 0,
+					"supertypes": 3,
+					"subtypes": 0,
+					"comments": 0
+				}
+			}
+		},
+		{
+			"name": "a symbol's own leading comment is documentation, in no row and in no count",
+			"modules": [
+				{
+					"path": "src/port.ts",
+					"language": "typescript",
+					"lines": [
+						"/** What a port opens onto. */",
+						"export interface Port {",
+						"\t/** Opens it. */",
+						"\topen(handler: Handler): void;",
+						"\tclose(): void;",
+						"}"
+					]
+				}
+			],
+			"symbols": [
+				{
+					"id": "lexicon typescript src/port.ts Port#",
+					"name": "Port",
+					"kind": "interface",
+					"module": "src/port.ts",
+					"startLine": 2,
+					"endLine": 6
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#open().",
+					"name": "open",
+					"kind": "method",
+					"module": "src/port.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"container": "lexicon typescript src/port.ts Port#",
+					"signature": "open(handler: Handler): void"
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#close().",
+					"name": "close",
+					"kind": "method",
+					"module": "src/port.ts",
+					"startLine": 5,
+					"endLine": 5,
+					"container": "lexicon typescript src/port.ts Port#",
+					"signature": "close(): void"
+				}
+			],
+			"subject": "lexicon typescript src/port.ts Port#",
+			"comments": [
+				{
+					"module": "src/port.ts",
+					"line": 1,
+					"text": "What a port opens onto.",
+					"form": "leading",
+					"anchor": "lexicon typescript src/port.ts Port#"
+				},
+				{
+					"module": "src/port.ts",
+					"line": 3,
+					"text": "Opens it.",
+					"form": "leading",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "Held briefly.",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				}
+			],
+			"commentTotal": 3,
+			"answer": {
+				"uses": {
+					"rows": [],
+					"uses": 0,
+					"plain": 0
+				},
+				"usesFrom": {
+					"targets": [],
+					"targetCount": 0,
+					"references": 0,
+					"plain": 0
+				},
+				"members": {
+					"members": []
+				},
+				"hierarchy": {
+					"subject": "lexicon typescript src/port.ts Port#",
+					"supertypes": [],
+					"ancestors": [],
+					"unbound": [],
+					"subtypes": [],
+					"supertypeCount": 0,
+					"subtypeCount": 0
+				},
+				"comments": {
+					"comments": [
+						{
+							"text": "Opens it.",
+							"form": "leading",
+							"line": 3,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "Held briefly.",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						}
+					],
+					"total": 2,
+					"truncated": false
+				},
+				"counts": {
+					"uses": 0,
+					"useFiles": 0,
+					"dependents": 0,
+					"dependentFiles": 0,
+					"targets": 0,
+					"boundTargets": 0,
+					"references": 0,
+					"members": 0,
+					"supertypes": 0,
+					"subtypes": 0,
+					"comments": 2
+				}
+			}
+		},
+		{
+			"name": "the comment page caps, and the total says how many there are",
+			"modules": [
+				{
+					"path": "src/port.ts",
+					"language": "typescript",
+					"lines": [
+						"/** What a port opens onto. */",
+						"export interface Port {",
+						"\t/** Opens it. */",
+						"\topen(handler: Handler): void;",
+						"\tclose(): void;",
+						"}"
+					]
+				}
+			],
+			"symbols": [
+				{
+					"id": "lexicon typescript src/port.ts Port#",
+					"name": "Port",
+					"kind": "interface",
+					"module": "src/port.ts",
+					"startLine": 2,
+					"endLine": 6
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#open().",
+					"name": "open",
+					"kind": "method",
+					"module": "src/port.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"container": "lexicon typescript src/port.ts Port#",
+					"signature": "open(handler: Handler): void"
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#close().",
+					"name": "close",
+					"kind": "method",
+					"module": "src/port.ts",
+					"startLine": 5,
+					"endLine": 5,
+					"container": "lexicon typescript src/port.ts Port#",
+					"signature": "close(): void"
+				}
+			],
+			"subject": "lexicon typescript src/port.ts Port#",
+			"comments": [
+				{
+					"module": "src/port.ts",
+					"line": 1,
+					"text": "What a port opens onto.",
+					"form": "leading",
+					"anchor": "lexicon typescript src/port.ts Port#"
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n0",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n1",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n2",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n3",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n4",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n5",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n6",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n7",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n8",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n9",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n10",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n11",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n12",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n13",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n14",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n15",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n16",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n17",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n18",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n19",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n20",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n21",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n22",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n23",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n24",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n25",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n26",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n27",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n28",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n29",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n30",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n31",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n32",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n33",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n34",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n35",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n36",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n37",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n38",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n39",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n40",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n41",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n42",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n43",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n44",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n45",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n46",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n47",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n48",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n49",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n50",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n51",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n52",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n53",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n54",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n55",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n56",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n57",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n58",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n59",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n60",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n61",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n62",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n63",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n64",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n65",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n66",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n67",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n68",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n69",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n70",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n71",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n72",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n73",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n74",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n75",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n76",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n77",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n78",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n79",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n80",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n81",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n82",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n83",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n84",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n85",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n86",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n87",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n88",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n89",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n90",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n91",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n92",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n93",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n94",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n95",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n96",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n97",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n98",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n99",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n100",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n101",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n102",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n103",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n104",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n105",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n106",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n107",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n108",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n109",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n110",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n111",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n112",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n113",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n114",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n115",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n116",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n117",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n118",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n119",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n120",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n121",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n122",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n123",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n124",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n125",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n126",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n127",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n128",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n129",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n130",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n131",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n132",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n133",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n134",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n135",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n136",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n137",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n138",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n139",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n140",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n141",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n142",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n143",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n144",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n145",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n146",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n147",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n148",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n149",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n150",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n151",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n152",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n153",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n154",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n155",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n156",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n157",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n158",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n159",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n160",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n161",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n162",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n163",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n164",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n165",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n166",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n167",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n168",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n169",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n170",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n171",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n172",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n173",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n174",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n175",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n176",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n177",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n178",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n179",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n180",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n181",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n182",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n183",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n184",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n185",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n186",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n187",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n188",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n189",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n190",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n191",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n192",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n193",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n194",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n195",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n196",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n197",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n198",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"text": "n199",
+					"form": "inline",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				}
+			],
+			"commentTotal": 201,
+			"answer": {
+				"uses": {
+					"rows": [],
+					"uses": 0,
+					"plain": 0
+				},
+				"usesFrom": {
+					"targets": [],
+					"targetCount": 0,
+					"references": 0,
+					"plain": 0
+				},
+				"members": {
+					"members": []
+				},
+				"hierarchy": {
+					"subject": "lexicon typescript src/port.ts Port#",
+					"supertypes": [],
+					"ancestors": [],
+					"unbound": [],
+					"subtypes": [],
+					"supertypeCount": 0,
+					"subtypeCount": 0
+				},
+				"comments": {
+					"comments": [
+						{
+							"text": "n0",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n1",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n2",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n3",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n4",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n5",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n6",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n7",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n8",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n9",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n10",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n11",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n12",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n13",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n14",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n15",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n16",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n17",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n18",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n19",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n20",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n21",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n22",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n23",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n24",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n25",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n26",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n27",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n28",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n29",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n30",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n31",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n32",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n33",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n34",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n35",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n36",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n37",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n38",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n39",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n40",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n41",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n42",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n43",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n44",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n45",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n46",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n47",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n48",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n49",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n50",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n51",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n52",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n53",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n54",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n55",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n56",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n57",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n58",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n59",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n60",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n61",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n62",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n63",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n64",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n65",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n66",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n67",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n68",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n69",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n70",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n71",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n72",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n73",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n74",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n75",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n76",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n77",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n78",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n79",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n80",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n81",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n82",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n83",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n84",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n85",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n86",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n87",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n88",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n89",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n90",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n91",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n92",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n93",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n94",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n95",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n96",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n97",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n98",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n99",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n100",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n101",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n102",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n103",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n104",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n105",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n106",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n107",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n108",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n109",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n110",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n111",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n112",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n113",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n114",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n115",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n116",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n117",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n118",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n119",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n120",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n121",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n122",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n123",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n124",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n125",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n126",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n127",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n128",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n129",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n130",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n131",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n132",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n133",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n134",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n135",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n136",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n137",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n138",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n139",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n140",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n141",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n142",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n143",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n144",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n145",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n146",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n147",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n148",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n149",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n150",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n151",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n152",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n153",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n154",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n155",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n156",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n157",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n158",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n159",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n160",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n161",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n162",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n163",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n164",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n165",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n166",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n167",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n168",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n169",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n170",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n171",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n172",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n173",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n174",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n175",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n176",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n177",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n178",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n179",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n180",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n181",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n182",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n183",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n184",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n185",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n186",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n187",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n188",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n189",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n190",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n191",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n192",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n193",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n194",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n195",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n196",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n197",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						},
+						{
+							"text": "n198",
+							"form": "inline",
+							"line": 4,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						}
+					],
+					"total": 200,
+					"truncated": true
+				},
+				"counts": {
+					"uses": 0,
+					"useFiles": 0,
+					"dependents": 0,
+					"dependentFiles": 0,
+					"targets": 0,
+					"boundTargets": 0,
+					"references": 0,
+					"members": 0,
+					"supertypes": 0,
+					"subtypes": 0,
+					"comments": 200
+				}
+			}
+		},
+		{
+			"name": "a use falls back from its holder to its top level, and then to file level",
+			"modules": [
+				{
+					"path": "src/use.ts",
+					"language": "typescript",
+					"lines": [
+						"import type { Port } from \"./port.js\";",
+						"",
+						"export class Handler implements Port {",
+						"\tstart(port: Port, spare: Port) {}",
+						"}",
+						"",
+						"const top: Port = null as unknown as Port;"
+					]
+				},
+				{
+					"path": "src/port.ts",
+					"language": "typescript",
+					"lines": [
+						"/** What a port opens onto. */",
+						"export interface Port {",
+						"\t/** Opens it. */",
+						"\topen(handler: Handler): void;",
+						"\tclose(): void;",
+						"}"
+					]
+				}
+			],
+			"symbols": [
+				{
+					"id": "lexicon typescript src/use.ts Handler#",
+					"name": "Handler",
+					"kind": "class",
+					"module": "src/use.ts",
+					"startLine": 3,
+					"endLine": 5
+				},
+				{
+					"id": "lexicon typescript src/use.ts Handler#start().",
+					"name": "start",
+					"kind": "method",
+					"module": "src/use.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"container": "lexicon typescript src/use.ts Handler#",
+					"signature": "start(port: Port, spare: Port): void"
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#",
+					"name": "Port",
+					"kind": "interface",
+					"module": "src/port.ts",
+					"startLine": 2,
+					"endLine": 6
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#open().",
+					"name": "open",
+					"kind": "method",
+					"module": "src/port.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"container": "lexicon typescript src/port.ts Port#",
+					"signature": "open(handler: Handler): void"
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#close().",
+					"name": "close",
+					"kind": "method",
+					"module": "src/port.ts",
+					"startLine": 5,
+					"endLine": 5,
+					"container": "lexicon typescript src/port.ts Port#",
+					"signature": "close(): void"
+				}
+			],
+			"subject": "lexicon typescript src/port.ts Port#",
+			"uses": [
+				{
+					"module": "src/use.ts",
+					"line": 4,
+					"column": 13,
+					"name": "Port",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/use.ts Handler#start().",
+					"topLevel": "lexicon typescript src/use.ts Handler#"
+				},
+				{
+					"module": "src/use.ts",
+					"line": 4,
+					"column": 26,
+					"name": "Port",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/use.ts Handler#start().held",
+					"topLevel": "lexicon typescript src/use.ts Handler#"
+				},
+				{
+					"module": "src/use.ts",
+					"line": 7,
+					"column": 11,
+					"name": "Port",
+					"role": "typeUse"
+				}
+			],
+			"answer": {
+				"uses": {
+					"rows": [
+						{
+							"module": "src/use.ts",
+							"line": 4,
+							"name": "Port",
+							"role": "typeUse",
+							"holder": "lexicon typescript src/use.ts Handler#start().",
+							"topLevel": "lexicon typescript src/use.ts Handler#"
+						},
+						{
+							"module": "src/use.ts",
+							"line": 4,
+							"name": "Port",
+							"role": "typeUse",
+							"holder": null,
+							"topLevel": "lexicon typescript src/use.ts Handler#"
+						},
+						{
+							"module": "src/use.ts",
+							"line": 7,
+							"name": "Port",
+							"role": "typeUse",
+							"holder": null,
+							"topLevel": null
+						}
+					],
+					"uses": 3,
+					"plain": 0
+				},
+				"usesFrom": {
+					"targets": [],
+					"targetCount": 0,
+					"references": 0,
+					"plain": 0
+				},
+				"members": {
+					"members": []
+				},
+				"hierarchy": {
+					"subject": "lexicon typescript src/port.ts Port#",
+					"supertypes": [],
+					"ancestors": [],
+					"unbound": [],
+					"subtypes": [],
+					"supertypeCount": 0,
+					"subtypeCount": 0
+				},
+				"comments": {
+					"comments": [],
+					"total": 0,
+					"truncated": false
+				},
+				"counts": {
+					"uses": 3,
+					"useFiles": 1,
+					"dependents": 1,
+					"dependentFiles": 1,
+					"targets": 0,
+					"boundTargets": 0,
+					"references": 0,
+					"members": 0,
+					"supertypes": 0,
+					"subtypes": 0,
+					"comments": 0
+				}
+			}
+		},
+		{
+			"name": "targets group by target when bound and by spelling when not, ambiguous kept as it stands",
+			"modules": [
+				{
+					"path": "src/use.ts",
+					"language": "typescript",
+					"lines": [
+						"import type { Port } from \"./port.js\";",
+						"",
+						"export class Handler implements Port {",
+						"\tstart(port: Port, spare: Port) {}",
+						"}",
+						"",
+						"const top: Port = null as unknown as Port;"
+					]
+				},
+				{
+					"path": "src/port.ts",
+					"language": "typescript",
+					"lines": [
+						"/** What a port opens onto. */",
+						"export interface Port {",
+						"\t/** Opens it. */",
+						"\topen(handler: Handler): void;",
+						"\tclose(): void;",
+						"}"
+					]
+				},
+				{
+					"path": "src/seal.ts",
+					"language": "typescript",
+					"lines": [
+						"export interface Sealing {",
+						"\tseal(text: string): string;",
+						"}",
+						"export class ContentSealing implements Sealing {",
+						"\tseal(text: string): string {",
+						"\t\treturn text;",
+						"\t}",
+						"}",
+						"export class VaultSealing extends ContentSealing implements Error {",
+						"\tname = \"VaultSealing\";",
+						"}"
+					]
+				},
+				{
+					"path": ".env",
+					"language": "typescript",
+					"lines": ["PORT=1"]
+				}
+			],
+			"symbols": [
+				{
+					"id": "lexicon typescript src/use.ts Handler#",
+					"name": "Handler",
+					"kind": "class",
+					"module": "src/use.ts",
+					"startLine": 3,
+					"endLine": 5
+				},
+				{
+					"id": "lexicon typescript src/use.ts Handler#start().",
+					"name": "start",
+					"kind": "method",
+					"module": "src/use.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"container": "lexicon typescript src/use.ts Handler#",
+					"signature": "start(port: Port, spare: Port): void"
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#",
+					"name": "Port",
+					"kind": "interface",
+					"module": "src/port.ts",
+					"startLine": 2,
+					"endLine": 6
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#open().",
+					"name": "open",
+					"kind": "method",
+					"module": "src/port.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"container": "lexicon typescript src/port.ts Port#",
+					"signature": "open(handler: Handler): void"
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#close().",
+					"name": "close",
+					"kind": "method",
+					"module": "src/port.ts",
+					"startLine": 5,
+					"endLine": 5,
+					"container": "lexicon typescript src/port.ts Port#",
+					"signature": "close(): void"
+				},
+				{
+					"id": "lexicon typescript src/seal.ts Sealing#",
+					"name": "Sealing",
+					"kind": "interface",
+					"module": "src/seal.ts",
+					"startLine": 1,
+					"endLine": 3
+				},
+				{
+					"id": "lexicon typescript src/seal.ts ContentSealing#",
+					"name": "ContentSealing",
+					"kind": "class",
+					"module": "src/seal.ts",
+					"startLine": 4,
+					"endLine": 8
+				},
+				{
+					"id": "lexicon typescript src/seal.ts VaultSealing#",
+					"name": "VaultSealing",
+					"kind": "class",
+					"module": "src/seal.ts",
+					"startLine": 9,
+					"endLine": 11
+				},
+				{
+					"id": "lexicon typescript src/seal.ts Port#",
+					"name": "Port",
+					"kind": "interface",
+					"module": "src/seal.ts",
+					"startLine": 1,
+					"endLine": 3
+				},
+				{
+					"id": "lexicon typescript .env Secret#",
+					"name": "Secret",
+					"kind": "class",
+					"module": ".env",
+					"startLine": 1,
+					"endLine": 1
+				}
+			],
+			"subject": "lexicon typescript src/use.ts Handler#",
+			"uses": [
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"column": 15,
+					"name": "Handler",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/port.ts Port#open().",
+					"topLevel": "lexicon typescript src/port.ts Port#"
+				}
+			],
+			"targets": [
+				{
+					"module": "src/use.ts",
+					"line": 4,
+					"column": 13,
+					"name": "Port",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/use.ts Handler#start().",
+					"topLevel": "lexicon typescript src/use.ts Handler#",
+					"status": "bound",
+					"target": "lexicon typescript src/port.ts Port#"
+				},
+				{
+					"module": "src/use.ts",
+					"line": 4,
+					"column": 26,
+					"name": "Port",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/use.ts Handler#start().",
+					"topLevel": "lexicon typescript src/use.ts Handler#",
+					"status": "bound",
+					"target": "lexicon typescript src/port.ts Port#"
+				},
+				{
+					"module": "src/use.ts",
+					"line": 1,
+					"column": 20,
+					"name": "Port",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/use.ts Handler#",
+					"topLevel": "lexicon typescript src/use.ts Handler#",
+					"status": "bound",
+					"target": "lexicon typescript src/seal.ts Port#"
+				},
+				{
+					"module": "src/use.ts",
+					"line": 3,
+					"column": 26,
+					"name": "Gate",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/use.ts Handler#",
+					"topLevel": "lexicon typescript src/use.ts Handler#",
+					"status": "bound",
+					"target": "lexicon typescript src/port.ts Port#"
+				},
+				{
+					"module": "src/use.ts",
+					"line": 7,
+					"column": 11,
+					"name": "Promise",
+					"role": "typeUse",
+					"status": "unbound",
+					"reason": "ExternalDependency"
+				},
+				{
+					"module": "src/use.ts",
+					"line": 7,
+					"column": 30,
+					"name": "Promise",
+					"role": "typeUse",
+					"status": "unbound",
+					"reason": "ExternalDependency"
+				},
+				{
+					"module": "src/use.ts",
+					"line": 1,
+					"column": 14,
+					"name": "Emit",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/use.ts Handler#",
+					"topLevel": "lexicon typescript src/use.ts Handler#",
+					"status": "ambiguous"
+				},
+				{
+					"module": "src/use.ts",
+					"line": 3,
+					"column": 7,
+					"name": "Secret",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/use.ts Handler#",
+					"topLevel": "lexicon typescript src/use.ts Handler#",
+					"status": "bound",
+					"target": "lexicon typescript .env Secret#"
+				},
+				{
+					"module": ".env",
+					"line": 1,
+					"column": 0,
+					"name": "Port",
+					"role": "typeUse",
+					"status": "bound",
+					"target": "lexicon typescript src/port.ts Port#"
+				}
+			],
+			"answer": {
+				"uses": {
+					"rows": [
+						{
+							"module": "src/port.ts",
+							"line": 4,
+							"name": "Handler",
+							"role": "typeUse",
+							"holder": "lexicon typescript src/port.ts Port#open().",
+							"topLevel": "lexicon typescript src/port.ts Port#"
+						}
+					],
+					"uses": 1,
+					"plain": 0
+				},
+				"usesFrom": {
+					"targets": [
+						{
+							"name": "Port",
+							"status": "bound",
+							"target": "lexicon typescript src/port.ts Port#",
+							"reason": null,
+							"uses": [
+								{
+									"module": "src/use.ts",
+									"line": 4,
+									"name": "Port",
+									"role": "typeUse",
+									"holder": "lexicon typescript src/use.ts Handler#start().",
+									"topLevel": "lexicon typescript src/use.ts Handler#"
+								},
+								{
+									"module": "src/use.ts",
+									"line": 4,
+									"name": "Port",
+									"role": "typeUse",
+									"holder": "lexicon typescript src/use.ts Handler#start().",
+									"topLevel": "lexicon typescript src/use.ts Handler#"
+								},
+								{
+									"module": "src/use.ts",
+									"line": 3,
+									"name": "Gate",
+									"role": "typeUse",
+									"holder": "lexicon typescript src/use.ts Handler#",
+									"topLevel": "lexicon typescript src/use.ts Handler#"
+								}
+							]
+						},
+						{
+							"name": "Port",
+							"status": "bound",
+							"target": "lexicon typescript src/seal.ts Port#",
+							"reason": null,
+							"uses": [
+								{
+									"module": "src/use.ts",
+									"line": 1,
+									"name": "Port",
+									"role": "typeUse",
+									"holder": "lexicon typescript src/use.ts Handler#",
+									"topLevel": "lexicon typescript src/use.ts Handler#"
+								}
+							]
+						},
+						{
+							"name": "Promise",
+							"status": "unbound",
+							"target": null,
+							"reason": "ExternalDependency",
+							"uses": [
+								{
+									"module": "src/use.ts",
+									"line": 7,
+									"name": "Promise",
+									"role": "typeUse",
+									"holder": null,
+									"topLevel": null
+								},
+								{
+									"module": "src/use.ts",
+									"line": 7,
+									"name": "Promise",
+									"role": "typeUse",
+									"holder": null,
+									"topLevel": null
+								}
+							]
+						},
+						{
+							"name": "Emit",
+							"status": "ambiguous",
+							"target": null,
+							"reason": null,
+							"uses": [
+								{
+									"module": "src/use.ts",
+									"line": 1,
+									"name": "Emit",
+									"role": "typeUse",
+									"holder": "lexicon typescript src/use.ts Handler#",
+									"topLevel": "lexicon typescript src/use.ts Handler#"
+								}
+							]
+						},
+						{
+							"name": "Secret",
+							"status": "unbound",
+							"target": null,
+							"reason": null,
+							"uses": [
+								{
+									"module": "src/use.ts",
+									"line": 3,
+									"name": "Secret",
+									"role": "typeUse",
+									"holder": "lexicon typescript src/use.ts Handler#",
+									"topLevel": "lexicon typescript src/use.ts Handler#"
+								}
+							]
+						}
+					],
+					"targetCount": 5,
+					"references": 8,
+					"plain": 0
+				},
+				"members": {
+					"members": []
+				},
+				"hierarchy": {
+					"subject": "lexicon typescript src/use.ts Handler#",
+					"supertypes": [],
+					"ancestors": [],
+					"unbound": [],
+					"subtypes": [],
+					"supertypeCount": 0,
+					"subtypeCount": 0
+				},
+				"comments": {
+					"comments": [],
+					"total": 0,
+					"truncated": false
+				},
+				"counts": {
+					"uses": 1,
+					"useFiles": 1,
+					"dependents": 1,
+					"dependentFiles": 0,
+					"targets": 5,
+					"boundTargets": 2,
+					"references": 8,
+					"members": 0,
+					"supertypes": 0,
+					"subtypes": 0,
+					"comments": 0
+				}
+			}
+		},
+		{
+			"name": "every count is taken after the filter, never from what the index answered",
+			"modules": [
+				{
+					"path": "src/port.ts",
+					"language": "typescript",
+					"lines": [
+						"/** What a port opens onto. */",
+						"export interface Port {",
+						"\t/** Opens it. */",
+						"\topen(handler: Handler): void;",
+						"\tclose(): void;",
+						"}"
+					]
+				},
+				{
+					"path": "src/use.ts",
+					"language": "typescript",
+					"lines": [
+						"import type { Port } from \"./port.js\";",
+						"",
+						"export class Handler implements Port {",
+						"\tstart(port: Port, spare: Port) {}",
+						"}",
+						"",
+						"const top: Port = null as unknown as Port;"
+					]
+				},
+				{
+					"path": "src/seal.ts",
+					"language": "typescript",
+					"lines": [
+						"export interface Sealing {",
+						"\tseal(text: string): string;",
+						"}",
+						"export class ContentSealing implements Sealing {",
+						"\tseal(text: string): string {",
+						"\t\treturn text;",
+						"\t}",
+						"}",
+						"export class VaultSealing extends ContentSealing implements Error {",
+						"\tname = \"VaultSealing\";",
+						"}"
+					]
+				},
+				{
+					"path": ".env",
+					"language": "typescript",
+					"lines": ["PORT=1"]
+				}
+			],
+			"symbols": [
+				{
+					"id": "lexicon typescript src/port.ts Port#",
+					"name": "Port",
+					"kind": "interface",
+					"module": "src/port.ts",
+					"startLine": 2,
+					"endLine": 6
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#open().",
+					"name": "open",
+					"kind": "method",
+					"module": "src/port.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"container": "lexicon typescript src/port.ts Port#",
+					"signature": "open(handler: Handler): void"
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#close().",
+					"name": "close",
+					"kind": "method",
+					"module": "src/port.ts",
+					"startLine": 5,
+					"endLine": 5,
+					"container": "lexicon typescript src/port.ts Port#",
+					"signature": "close(): void"
+				},
+				{
+					"id": "lexicon typescript src/use.ts Handler#",
+					"name": "Handler",
+					"kind": "class",
+					"module": "src/use.ts",
+					"startLine": 3,
+					"endLine": 5
+				},
+				{
+					"id": "lexicon typescript src/use.ts Handler#start().",
+					"name": "start",
+					"kind": "method",
+					"module": "src/use.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"container": "lexicon typescript src/use.ts Handler#",
+					"signature": "start(port: Port, spare: Port): void"
+				},
+				{
+					"id": "lexicon typescript src/seal.ts Sealing#",
+					"name": "Sealing",
+					"kind": "interface",
+					"module": "src/seal.ts",
+					"startLine": 1,
+					"endLine": 3
+				},
+				{
+					"id": "lexicon typescript src/seal.ts ContentSealing#",
+					"name": "ContentSealing",
+					"kind": "class",
+					"module": "src/seal.ts",
+					"startLine": 4,
+					"endLine": 8
+				},
+				{
+					"id": "lexicon typescript src/seal.ts VaultSealing#",
+					"name": "VaultSealing",
+					"kind": "class",
+					"module": "src/seal.ts",
+					"startLine": 9,
+					"endLine": 11
+				},
+				{
+					"id": "lexicon typescript .env Secret#",
+					"name": "Secret",
+					"kind": "class",
+					"module": ".env",
+					"startLine": 1,
+					"endLine": 1
+				},
+				{
+					"id": "lexicon typescript .env Cloaked#",
+					"name": "Cloaked",
+					"kind": "class",
+					"module": "src/use.ts",
+					"startLine": 3,
+					"endLine": 5
+				}
+			],
+			"subject": "lexicon typescript src/port.ts Port#",
+			"uses": [
+				{
+					"module": "src/use.ts",
+					"line": 4,
+					"column": 13,
+					"name": "Port",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/use.ts Handler#start().",
+					"topLevel": "lexicon typescript src/use.ts Handler#"
+				},
+				{
+					"module": ".env",
+					"line": 1,
+					"column": 0,
+					"name": "Port",
+					"role": "typeUse",
+					"holder": "lexicon typescript .env Secret#",
+					"topLevel": "lexicon typescript .env Secret#"
+				},
+				{
+					"module": "src/seal.ts",
+					"line": 2,
+					"column": 1,
+					"name": "Port",
+					"role": "typeUse",
+					"holder": "lexicon typescript .env Cloaked#",
+					"topLevel": "lexicon typescript .env Cloaked#"
+				},
+				{
+					"module": ".env",
+					"line": 1,
+					"column": 0,
+					"name": "Port",
+					"role": "read"
+				}
+			],
+			"targets": [
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"column": 15,
+					"name": "Handler",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/port.ts Port#open().",
+					"topLevel": "lexicon typescript src/port.ts Port#",
+					"status": "bound",
+					"target": "lexicon typescript src/use.ts Handler#"
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"column": 15,
+					"name": "Secret",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/port.ts Port#open().",
+					"topLevel": "lexicon typescript src/port.ts Port#",
+					"status": "bound",
+					"target": "lexicon typescript .env Secret#"
+				},
+				{
+					"module": ".env",
+					"line": 1,
+					"column": 0,
+					"name": "Handler",
+					"role": "typeUse",
+					"status": "bound",
+					"target": "lexicon typescript src/use.ts Handler#"
+				}
+			],
+			"members": ["lexicon typescript src/port.ts Port#open().", "lexicon typescript .env Cloaked#"],
+			"hierarchy": {
+				"supertypes": [
+					{
+						"name": "Sealing",
+						"symbol": "lexicon typescript src/seal.ts Sealing#"
+					},
+					{
+						"name": "Secret",
+						"symbol": "lexicon typescript .env Secret#"
+					}
+				],
+				"ancestors": ["lexicon typescript src/seal.ts ContentSealing#", "lexicon typescript .env Secret#"],
+				"subtypes": [
+					{
+						"name": "Port",
+						"symbol": "lexicon typescript src/use.ts Handler#"
+					},
+					{
+						"name": "Port",
+						"symbol": "lexicon typescript .env Secret#"
+					}
+				]
+			},
+			"comments": [
+				{
+					"module": "src/port.ts",
+					"line": 1,
+					"text": "What a port opens onto.",
+					"form": "leading",
+					"anchor": "lexicon typescript src/port.ts Port#"
+				},
+				{
+					"module": "src/port.ts",
+					"line": 3,
+					"text": "Opens it.",
+					"form": "leading",
+					"anchor": "lexicon typescript src/port.ts Port#open()."
+				}
+			],
+			"commentTotal": 9,
+			"answer": {
+				"uses": {
+					"rows": [
+						{
+							"module": "src/use.ts",
+							"line": 4,
+							"name": "Port",
+							"role": "typeUse",
+							"holder": "lexicon typescript src/use.ts Handler#start().",
+							"topLevel": "lexicon typescript src/use.ts Handler#"
+						},
+						{
+							"module": "src/seal.ts",
+							"line": 2,
+							"name": "Port",
+							"role": "typeUse",
+							"holder": null,
+							"topLevel": null
+						}
+					],
+					"uses": 2,
+					"plain": 0
+				},
+				"usesFrom": {
+					"targets": [
+						{
+							"name": "Handler",
+							"status": "bound",
+							"target": "lexicon typescript src/use.ts Handler#",
+							"reason": null,
+							"uses": [
+								{
+									"module": "src/port.ts",
+									"line": 4,
+									"name": "Handler",
+									"role": "typeUse",
+									"holder": "lexicon typescript src/port.ts Port#open().",
+									"topLevel": "lexicon typescript src/port.ts Port#"
+								}
+							]
+						},
+						{
+							"name": "Secret",
+							"status": "unbound",
+							"target": null,
+							"reason": null,
+							"uses": [
+								{
+									"module": "src/port.ts",
+									"line": 4,
+									"name": "Secret",
+									"role": "typeUse",
+									"holder": "lexicon typescript src/port.ts Port#open().",
+									"topLevel": "lexicon typescript src/port.ts Port#"
+								}
+							]
+						}
+					],
+					"targetCount": 2,
+					"references": 2,
+					"plain": 0
+				},
+				"members": {
+					"members": ["lexicon typescript src/port.ts Port#open()."]
+				},
+				"hierarchy": {
+					"subject": "lexicon typescript src/port.ts Port#",
+					"supertypes": [
+						{
+							"symbol": "lexicon typescript src/seal.ts Sealing#",
+							"role": null
+						}
+					],
+					"ancestors": ["lexicon typescript src/seal.ts ContentSealing#"],
+					"unbound": [],
+					"subtypes": [
+						{
+							"symbol": "lexicon typescript src/use.ts Handler#",
+							"role": null
+						}
+					],
+					"supertypeCount": 2,
+					"subtypeCount": 1
+				},
+				"comments": {
+					"comments": [
+						{
+							"text": "Opens it.",
+							"form": "leading",
+							"line": 3,
+							"holder": "lexicon typescript src/port.ts Port#open()."
+						}
+					],
+					"total": 8,
+					"truncated": false
+				},
+				"counts": {
+					"uses": 2,
+					"useFiles": 2,
+					"dependents": 1,
+					"dependentFiles": 1,
+					"targets": 2,
+					"boundTargets": 1,
+					"references": 2,
+					"members": 1,
+					"supertypes": 2,
+					"subtypes": 1,
+					"comments": 8
+				}
+			}
+		},
+		{
+			"name": "bulk under node_modules is served and counted; a secret .env leaf is dropped and counted nowhere",
+			"modules": [
+				{
+					"path": "src/port.ts",
+					"language": "typescript",
+					"lines": [
+						"/** What a port opens onto. */",
+						"export interface Port {",
+						"\t/** Opens it. */",
+						"\topen(handler: Handler): void;",
+						"\tclose(): void;",
+						"}"
+					]
+				},
+				{
+					"path": "node_modules/local-agent/index.ts",
+					"language": "typescript",
+					"lines": ["export class Vendored implements Port {", "\topen() {}", "}"]
+				},
+				{
+					"path": "src/config/.env.ts",
+					"language": "typescript",
+					"lines": ["export class EnvBacked implements Port {", "\topen() {}", "}"]
+				}
+			],
+			"symbols": [
+				{
+					"id": "lexicon typescript src/port.ts Port#",
+					"name": "Port",
+					"kind": "interface",
+					"module": "src/port.ts",
+					"startLine": 2,
+					"endLine": 6
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#open().",
+					"name": "open",
+					"kind": "method",
+					"module": "src/port.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"container": "lexicon typescript src/port.ts Port#",
+					"signature": "open(handler: Handler): void"
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#close().",
+					"name": "close",
+					"kind": "method",
+					"module": "src/port.ts",
+					"startLine": 5,
+					"endLine": 5,
+					"container": "lexicon typescript src/port.ts Port#",
+					"signature": "close(): void"
+				},
+				{
+					"id": "lexicon typescript node_modules/local-agent/index.ts Vendored#",
+					"name": "Vendored",
+					"kind": "class",
+					"module": "node_modules/local-agent/index.ts",
+					"startLine": 1,
+					"endLine": 3
+				},
+				{
+					"id": "lexicon typescript src/config/.env.ts EnvBacked#",
+					"name": "EnvBacked",
+					"kind": "class",
+					"module": "src/config/.env.ts",
+					"startLine": 1,
+					"endLine": 3
+				}
+			],
+			"subject": "lexicon typescript src/port.ts Port#",
+			"uses": [
+				{
+					"module": "node_modules/local-agent/index.ts",
+					"line": 1,
+					"column": 33,
+					"name": "Port",
+					"role": "implements",
+					"holder": "lexicon typescript node_modules/local-agent/index.ts Vendored#",
+					"topLevel": "lexicon typescript node_modules/local-agent/index.ts Vendored#"
+				},
+				{
+					"module": "src/config/.env.ts",
+					"line": 1,
+					"column": 34,
+					"name": "Port",
+					"role": "implements",
+					"holder": "lexicon typescript src/config/.env.ts EnvBacked#",
+					"topLevel": "lexicon typescript src/config/.env.ts EnvBacked#"
+				}
+			],
+			"members": ["lexicon typescript src/port.ts Port#open()."],
+			"hierarchy": {
+				"subtypes": [
+					{
+						"name": "Port",
+						"symbol": "lexicon typescript node_modules/local-agent/index.ts Vendored#",
+						"role": "implements"
+					},
+					{
+						"name": "Port",
+						"symbol": "lexicon typescript src/config/.env.ts EnvBacked#",
+						"role": "implements"
+					}
+				]
+			},
+			"answer": {
+				"uses": {
+					"rows": [
+						{
+							"module": "node_modules/local-agent/index.ts",
+							"line": 1,
+							"name": "Port",
+							"role": "implements",
+							"holder": "lexicon typescript node_modules/local-agent/index.ts Vendored#",
+							"topLevel": "lexicon typescript node_modules/local-agent/index.ts Vendored#"
+						}
+					],
+					"uses": 1,
+					"plain": 0
+				},
+				"usesFrom": {
+					"targets": [],
+					"targetCount": 0,
+					"references": 0,
+					"plain": 0
+				},
+				"members": {
+					"members": ["lexicon typescript src/port.ts Port#open()."]
+				},
+				"hierarchy": {
+					"subject": "lexicon typescript src/port.ts Port#",
+					"supertypes": [],
+					"ancestors": [],
+					"unbound": [],
+					"subtypes": [
+						{
+							"symbol": "lexicon typescript node_modules/local-agent/index.ts Vendored#",
+							"role": "implements"
+						}
+					],
+					"supertypeCount": 0,
+					"subtypeCount": 1
+				},
+				"comments": {
+					"comments": [],
+					"total": 0,
+					"truncated": false
+				},
+				"counts": {
+					"uses": 1,
+					"useFiles": 1,
+					"dependents": 1,
+					"dependentFiles": 0,
+					"targets": 0,
+					"boundTargets": 0,
+					"references": 0,
+					"members": 1,
+					"supertypes": 0,
+					"subtypes": 1,
+					"comments": 0
+				}
+			}
+		}
+	]
+}
