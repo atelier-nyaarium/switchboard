@@ -6,7 +6,7 @@ provider's conformance, `grade.js`), a commit and its docs; the task board holds
 release build covers the four before the pin moves into switchboard.
 
 1. ✅ `bd_a09deee16410576fccffba6cabb2eee9` One `ReadContext` derives a read's topology; `locals.ts` holds the container walk. Shipped `09c5ec8`.
-2. `bd_13b6c85cbd1e4a5d9281b447443adc38` Provider cross-file state follows what the core admitted.
+2. ✅ `bd_13b6c85cbd1e4a5d9281b447443adc38` The core publishes `moduleAdmission` after the commit; every binding provider keeps an `AdmissionLedger`; two lifecycle conformance cases. Shipped `8017fdd`.
 3. `bd_6ca2288387a50a6c59b7d3f4870cd612` Kotlin scopes as an immutable environment.
 4. `bd_4e6e9f40f7f3e0b1906a0246ea8259ff` Python signature references carry an owner.
 
