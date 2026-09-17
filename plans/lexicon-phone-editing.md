@@ -2328,7 +2328,7 @@ before the release, then a pin move here.
   carrying a module or symbol id the gate does not serve, checked once over the built answer, with the
   row-level omissions kept where a row is legitimately dropped.
 
-## Phase 14c - Phone drill-ins
+## Phase 14c - Phone drill-ins ✅
 
 - **Places:** `WorkspacePlace.Facet(symbolId, module, facet)`, and `Detail` gains the use it was reached
   from. `WorkspaceNav`, `placeTitle` and `WorkspaceScreen` dispatch hold them; `WorkspaceNavTest` and
@@ -2741,6 +2741,13 @@ Recovery meant rewriting five files from the session's own copies. The later pas
 applied what held; they produced two to five findings each, and none damaged anything. An edit-mode comment
 pass is not safe over a rewritten file.
 
+Phase 14c's report-only passes were told, in the prompt, that a rule stated with its reason is sanctioned and
+that a string literal is data. Both still reported the codebase's own `//  Section` dividers as narration,
+the plan's mandated `### Bug Classes` heading as change history, and a comment inside a canned source string
+as a code comment; one proposed "Eleven phases." over "Eleven phases, then an encore and a bonus." as a cure
+for puffery. Of roughly sixty findings across three passes, five held. The pass cannot tell sanctioned
+structure from pollution, so its yield is a handful of real trims per lap and the rest is triage cost.
+
 ## Confident audit claims about Compose behaviour are refuted only by the emulator
 
 Three auditors asserted, with code citations, that the drawer's swipe would steal a board row's sideways drag
@@ -2826,3 +2833,26 @@ a retriever's release into the failure branch. Only a pure rename to a second na
 An edit containing a `\u` escape writes the character, and `biome check --write` turned the control-byte
 fence's escaped `RegExp` string into a literal. Neither shows in a diff at a glance. A line like that is
 restored from git, never retyped.
+
+## An expectation derived from the code under test proves the code agrees with itself
+
+`SandboxFacetsTest` asserted that every Facts count equalled the rows its drill-in listed, and both came
+from the same `Drill`. The hierarchy count omitted ancestors for the whole of 14c and the test was green,
+because the list omitted them too. A fixture whose expected values are computed by the thing it tests is a
+consistency check, not a test. The corpus in `tests/fixtures/workspace-facets/` exists because the only
+honest expectation is one written by something else, here the plugin.
+
+## The board closes a parent when its only children are incidental
+
+Two defects found by the status audit went on the board as children of the 14c entry so they would survive
+the turn. Ticking the second closed 14c, whose own cycle had four steps left, and it had to be reopened by
+hand. `taskBoardUpdate` documents the cascade, but a parent with work of its own has no way to say so
+short of adding a child for each remaining step. A child that is a note against a parent is not a part of
+it, and the cascade cannot tell the two apart.
+
+## Asking an agent for its output hands back its whole transcript
+
+`TaskOutput` on a running subagent returns the agent's JSONL transcript, hundreds of kilobytes of tool
+calls, rather than its report. It happened twice this phase, once after the lesson was already written
+down. The report only ever arrives through the completion notification, so a running agent is checked by
+its file timestamps and its diff, never asked.
