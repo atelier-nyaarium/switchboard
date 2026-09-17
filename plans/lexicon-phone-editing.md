@@ -2398,8 +2398,11 @@ before the release, then a pin move here.
 - **The sheet** replaces the per-question Ask chips, from the Knowledge header and from an unrecorded row.
   `AskRules` holds the defaults, counts, the containment order and the message text, tested on the JVM.
 - **Sending** goes through `SessionRequests` as `RequestKind.KNOWLEDGE` with the scope as subject, for
-  in-flight dedupe only. A send uses a scope answer under a minute old, or reads it again first; a changed
-  root label drops the selection.
+  in-flight dedupe only. A send uses a scope answer under a minute old, or reads it again first; the read,
+  the picks and the record run one send at a time, so two taps that both computed picks cannot both send.
+  The sheet passes the pairs it showed and a fresh read that picks another set is refused as `Changed`,
+  not only one that picks more. The selected scope's read decides the root; a changed root drops the
+  selection.
 - **Message budget:** 256,000 bytes of UTF-8. A larger scope is refused in the sheet with its size.
 - **Asked pairs** live in an `AskedStore` beside the ops class, keyed by session, root label, symbol and
   question, each with its send time from `PhoneAmbient`. Written before the send; kept when the send lands
@@ -2409,9 +2412,9 @@ before the release, then a pin move here.
   re-provision clears the store; asked pairs live in memory only.
 - **Unknown outcome:** `SessionRequests` answers `Submitted.Unknown` when the send throws, so a lost answer
   keeps its pairs where a refused send drops them.
-- **Progress:** the ops class holds the scopes currently shown, registered by the page's keep. While a pair
-  is out, `onForeground` re-reads each shown scope's one `knowledgeScope`; nothing enumerates
-  `PublishedViews`.
+- **Progress:** the scopes a screen keeps shown are `PublishedViews.kept()`. While a pair is out,
+  `onForeground` re-reads each kept scope's one `knowledgeScope` under a ticket minted before the read;
+  nothing enumerates the drawn map.
 - **Clock:** the ops class takes `repo.ambient.now`, so the minute and the 24 hours are tested with a fake
   clock.
 - **An older plugin** refuses `knowledgeScope`, and the sheet draws the update notice.
@@ -2454,8 +2457,13 @@ before the release, then a pin move here.
   key on one showing at once, the older answer can land last, `update` takes it because the showing never
   moved, and `settle` records a newer send off a stale `createdAt`. A showing token orders a read against
   a leave, not against another read of the same key; that is `GatewayReadFence`'s question, which AGENTS.md
-  says a drawn read does not need. Raised to `architecture-fan-out`: either the fence keyed by `ScopeKey`,
-  or reads serialised per key.
+  said a drawn read does not need. The same race sat in `SymbolViews.reloadKnowledge` against the detail's
+  own read, and `WorkspaceFileOps` had hand-built a fence for it. Structural fix: `PublishedViews` mints a
+  `ReadTicket` before a read awaits, per showing and per slot, and `update` and `claim` take the ticket
+  and refuse a landing older than one that landed; `keep` hands its load a ticket, so a keeper cannot
+  forget, and the showing-based `update` and `current` are gone. A detail's source and knowledge are two
+  slots, as are a folder's tree and its op, so one does not refuse the other. `AskOps.shown` and
+  `WorkspaceFileOps.reading` were the same fence kept twice and are deleted.
 
 ### Answering a tree by hand
 

@@ -67,11 +67,6 @@ internal class AskOps(
 
 	private val scopes = PublishedViews<ScopeKey, ScopeView>(host.generation)
 
-	/** Which scopes a screen is showing, so a sweep reads them by key rather than enumerating views. */
-	private val shownLock = Any()
-
-	private val shown = HashMap<ScopeKey, Int>()
-
 	/** One sweep at a time, or an older sweep's answer lands after a newer one's. */
 	private val sweeping = Mutex()
 
@@ -82,17 +77,7 @@ internal class AskOps(
 
 	val requestStates: StateFlow<Map<RequestKey, RequestState>> = outbox.states
 
-	suspend fun keepScope(key: ScopeKey) {
-		synchronized(shownLock) { shown[key] = (shown[key] ?: 0) + 1 }
-		try {
-			scopes.keep(key, ::ScopeView) { showing -> refreshScope(key, showing) }
-		} finally {
-			synchronized(shownLock) {
-				val left = (shown[key] ?: 1) - 1
-				if (left > 0) shown[key] = left else shown.remove(key)
-			}
-		}
-	}
+	suspend fun keepScope(key: ScopeKey) = scopes.keep(key, ::ScopeView) { ticket -> landScope(ticket, readScope(key)) }
 
 	/**
 	 * A read under a minute old is what the sheet counted, so it goes as it is. Anything older is read
@@ -135,8 +120,9 @@ internal class AskOps(
 	/** Progress is read back from Lexicon, so a scope on screen is re-read while any pair is out. */
 	suspend fun onForeground() = sweeping.withLock {
 		if (!store.anyOutstanding()) return@withLock
-		for (key in synchronized(shownLock) { shown.keys.toList() }) {
-			refreshScope(key, scopes.current(key) ?: continue)
+		for (key in scopes.kept()) {
+			val ticket = scopes.begin(key) ?: continue
+			landScope(ticket, readScope(key))
 		}
 	}
 
@@ -145,25 +131,22 @@ internal class AskOps(
 		store.clear()
 	}
 
-	private suspend fun refreshScope(key: ScopeKey, showing: PublishedViews.Showing<ScopeKey>) =
-		landScope(showing, readScope(key))
-
-	/** The showing is captured before the read, so a newer one never takes an older read's answer. */
+	/** The ticket is taken before the read, so a newer one never takes an older read's answer. */
 	private suspend fun readAgain(key: ScopeKey): WorkspaceAnswer<WorkspaceListing<WorkspaceKnowledgeScopeAnswer>> {
-		val showing = scopes.current(key)
+		val ticket = scopes.begin(key)
 		val read = readScope(key)
-		if (showing != null) landScope(showing, read)
+		if (ticket != null) landScope(ticket, read)
 		return read
 	}
 
-	/** A showing that ended took its answer with it, so nothing lands and nothing settles. */
+	/** A read the ticket no longer covers lands nothing and settles nothing. */
 	private suspend fun landScope(
-		showing: PublishedViews.Showing<ScopeKey>,
+		ticket: PublishedViews.ReadTicket<ScopeKey>,
 		read: WorkspaceAnswer<WorkspaceListing<WorkspaceKnowledgeScopeAnswer>>,
 	) {
-		if (!scopes.update(showing) { it.copy(read = ScopeRead(read, now())) }) return
+		if (!scopes.update(ticket) { it.copy(read = ScopeRead(read, now())) }) return
 		val answer = (scopeState(read) as? ScopeState.Listed)?.answer ?: return
-		val target = showing.key.target
+		val target = ticket.key.target
 		for (symbolId in store.settle(target.address, answer)) onRecorded(target, symbolId)
 	}
 

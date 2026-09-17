@@ -10,9 +10,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 /**
- * What each shown screen draws, keyed by what it shows. Awaited work lands only on the showing it began in: a
- * leave, a newer showing of the key or a re-provision ends that showing, and its answer is dropped. The one
- * guard for a view map an ops class publishes beside `HeldEdits`, so none chooses its own.
+ * What each shown screen draws, keyed by what it shows. Awaited work lands only through a `ReadTicket`
+ * minted before it awaits: a leave, a newer showing of the key, a re-provision or a later ticket of the
+ * same slot landing first all drop its answer. The one guard for a view map an ops class publishes beside
+ * `HeldEdits`, so none chooses its own.
  */
 internal class PublishedViews<K : Any, V : Any>(private val generation: WorkspaceGeneration) {
 	/** Where work began. Opaque, so no caller compares its parts. */
@@ -24,7 +25,19 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 	 */
 	class Opened<K> internal constructor(val showing: Showing<K>, val started: Boolean)
 
-	/** Tokens, keepers and `drawn` change only under it, so no reader sees one moved without the others. */
+	/**
+	 * One read's place in the order of its key and slot. Minted before the read awaits, or it orders
+	 * nothing. A null slot is a view one read fills; a view whose halves land apart names a slot each.
+	 */
+	class ReadTicket<K> internal constructor(
+		val showing: Showing<K>,
+		internal val slot: Any?,
+		internal val order: Long,
+	) {
+		val key: K get() = showing.key
+	}
+
+	/** Tokens, keepers, orders and `drawn` change only under it, so no reader sees one moved without the others. */
 	private val lock = Any()
 
 	private val tokens = HashMap<K, Any>()
@@ -35,12 +48,20 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 	/** A showing's read, held by its key rather than by the keeper that started it. */
 	private val reads = HashMap<K, Job>()
 
+	/** The newest ticket that landed on each key and slot. */
+	private val landings = HashMap<Pair<K, Any?>, Long>()
+
+	private var minted = 0L
+
 	private val drawn = MutableStateFlow<Map<K, V>>(emptyMap())
 
 	/** Absent: no screen has asked, or it left. */
 	val all: StateFlow<Map<K, V>> = drawn
 
 	fun of(key: K): V? = drawn.value[key]
+
+	/** The keys a screen is holding open, for a sweep that reads them by key. */
+	fun kept(): Set<K> = synchronized(lock) { keepers.keys.toSet() }
 
 	/** Joins the showing of `key` already open, or starts one drawn as `initial`. */
 	fun show(key: K, initial: () -> V): Opened<K> =
@@ -61,36 +82,61 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 		return Showing(key, token, generation.capture())
 	}
 
-	/** The showing open now, for work begun without one. */
-	fun current(key: K): Showing<K>? = synchronized(lock) { tokens[key]?.let { Showing(key, it, generation.capture()) } }
+	/** A ticket on a showing in hand, for a second slot of it or for work about to begin. */
+	fun ticket(showing: Showing<K>, slot: Any? = null): ReadTicket<K> =
+		synchronized(lock) { ReadTicket(showing, slot, ++minted) }
+
+	/** A ticket on the showing open now; null when nothing shows the key. */
+	fun begin(key: K, slot: Any? = null): ReadTicket<K>? =
+		synchronized(lock) {
+			val token = tokens[key] ?: return null
+			ReadTicket(Showing(key, token, generation.capture()), slot, ++minted)
+		}
 
 	fun isCurrent(showing: Showing<K>): Boolean = synchronized(lock) { currentLocked(showing) }
 
 	private fun currentLocked(showing: Showing<K>): Boolean =
 		tokens[showing.key] === showing.token && generation.isCurrent(showing.generation)
 
-	/** False when the showing has ended, which changes nothing. `change` runs under the lock, so it must not block. */
-	fun update(showing: Showing<K>, change: (V) -> V): Boolean =
+	private fun landsLocked(ticket: ReadTicket<K>): Boolean =
+		currentLocked(ticket.showing) && (landings[ticket.key to ticket.slot] ?: 0L) <= ticket.order
+
+	/**
+	 * False when the showing has ended or a later read of this slot landed first, which changes nothing.
+	 * `change` runs under the lock, so it must not block.
+	 */
+	fun update(ticket: ReadTicket<K>, change: (V) -> V): Boolean =
 		synchronized(lock) {
-			val view = drawn.value[showing.key]
-			if (view == null || !currentLocked(showing)) return false
-			drawn.value = drawn.value + (showing.key to change(view))
+			val view = drawn.value[ticket.key]
+			if (view == null || !landsLocked(ticket)) return false
+			landings[ticket.key to ticket.slot] = ticket.order
+			drawn.value = drawn.value + (ticket.key to change(view))
 			true
 		}
 
 	/** The view as it was, when `take` accepts it and it is replaced by `taken`; null otherwise. */
-	fun claim(showing: Showing<K>, take: (V) -> Boolean, taken: (V) -> V): V? =
+	fun claim(ticket: ReadTicket<K>, take: (V) -> Boolean, taken: (V) -> V): V? =
 		synchronized(lock) {
-			val view = drawn.value[showing.key]?.takeIf { currentLocked(showing) && take(it) } ?: return null
-			drawn.value = drawn.value + (showing.key to taken(view))
+			val view = drawn.value[ticket.key]?.takeIf { landsLocked(ticket) && take(it) } ?: return null
+			landings[ticket.key to ticket.slot] = ticket.order
+			drawn.value = drawn.value + (ticket.key to taken(view))
 			view
+		}
+
+	/** A change that awaited nothing, on whatever showing stands. False when nothing draws the key. */
+	fun now(key: K, change: (V) -> V): Boolean =
+		synchronized(lock) {
+			val view = drawn.value[key] ?: return false
+			drawn.value = drawn.value + (key to change(view))
+			true
 		}
 
 	/**
 	 * Shows `key` while the caller runs, and loads it again whenever a re-provision clears it. A second
-	 * keeper of one key joins what is drawn and loads nothing.
+	 * keeper of one key joins what is drawn and loads nothing. The ticket is minted here, so a keeper
+	 * cannot forget to take one.
 	 */
-	suspend fun keep(key: K, initial: () -> V, load: suspend (Showing<K>) -> Unit) {
+	suspend fun keep(key: K, initial: () -> V, load: suspend (ReadTicket<K>) -> Unit) {
 		synchronized(lock) { keepers[key] = (keepers[key] ?: 0) + 1 }
 		try {
 			coroutineScope {
@@ -98,7 +144,10 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 					// Asked of every value, since a conflated collector can miss a present one, and asked
 					// rather than read off the value, which another keeper can be between.
 					val opened = show(key, initial)
-					if (opened.started) read(opened.showing) { load(opened.showing) }
+					if (opened.started) {
+						val ticket = ticket(opened.showing)
+						read(opened.showing) { load(ticket) }
+					}
 				}
 			}
 		} finally {
@@ -157,6 +206,7 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 	private fun leaveLocked(key: K) {
 		tokens.remove(key)
 		reads.remove(key)?.cancel()
+		landings.keys.removeAll { it.first == key }
 		drawn.value = drawn.value - key
 	}
 
@@ -165,6 +215,7 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 			tokens.clear()
 			for (job in reads.values) job.cancel()
 			reads.clear()
+			landings.clear()
 			drawn.value = emptyMap()
 		}
 	}

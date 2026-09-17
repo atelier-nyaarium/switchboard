@@ -29,6 +29,13 @@ internal data class DetailView(
 		get() = identityOf((source as? WorkspaceAnswer.Read)?.value, (knowledge as? WorkspaceAnswer.Read)?.value)
 }
 
+/** Which half of a two-read view an answer fills, so a late one never refuses the other. */
+internal enum class SymbolSlot {
+	SOURCE,
+	KNOWLEDGE,
+	FILE,
+}
+
 /** A facet belongs to one symbol, so two facets of one symbol land apart. */
 internal data class FacetKey(val target: WorkspaceTarget, val symbolId: String, val facet: WorkspaceFacet)
 
@@ -68,29 +75,31 @@ internal class SymbolViews(private val host: WorkspaceHost) : ClearsOnReprovisio
 	val detailViews: StateFlow<Map<Pair<WorkspaceTarget, String>, DetailView>> = details.all
 
 	suspend fun keepOutline(target: WorkspaceTarget, path: String) =
-		outlines.keep(target to path, ::OutlineView) { showing ->
+		outlines.keep(target to path, ::OutlineView) { ticket ->
 			val read = read { it.outline(target, path) }
-			outlines.update(showing) { view -> view.copy(outline = read) }
+			outlines.update(ticket) { view -> view.copy(outline = read) }
 		}
 
-	/** Each half lands as it arrives. */
+	/** Each half lands as it arrives, under a slot of its own. */
 	suspend fun keepDetail(target: WorkspaceTarget, symbolId: String) =
-		details.keep(target to symbolId, ::DetailView) { showing ->
+		details.keep(target to symbolId, ::DetailView) { ticket ->
+			val span = details.ticket(ticket.showing, SymbolSlot.SOURCE)
+			val known = details.ticket(ticket.showing, SymbolSlot.KNOWLEDGE)
 			coroutineScope {
 				launch {
 					val read = read { it.symbolSource(target, symbolId) }
-					details.update(showing) { view -> view.copy(source = read) }
+					details.update(span) { view -> view.copy(source = read) }
 				}
 				val read = read { it.knowledge(target, symbolId) }
-				details.update(showing) { view -> view.copy(knowledge = read) }
+				details.update(known) { view -> view.copy(knowledge = read) }
 			}
 		}
 
 	/** The prose a recorded answer just gained. Nothing when the page is not showing that symbol. */
 	suspend fun reloadKnowledge(target: WorkspaceTarget, symbolId: String) {
-		val showing = details.current(target to symbolId) ?: return
+		val ticket = details.begin(target to symbolId, SymbolSlot.KNOWLEDGE) ?: return
 		val read = read { it.knowledge(target, symbolId) }
-		details.update(showing) { view -> view.copy(knowledge = read) }
+		details.update(ticket) { view -> view.copy(knowledge = read) }
 	}
 
 	private val facets = PublishedViews<FacetKey, FacetView>(host.generation)
@@ -102,15 +111,15 @@ internal class SymbolViews(private val host: WorkspaceHost) : ClearsOnReprovisio
 	val fileHistoryViews: StateFlow<Map<Pair<WorkspaceTarget, String>, FileHistoryView>> = fileHistories.all
 
 	suspend fun keepFacet(target: WorkspaceTarget, symbolId: String, facet: WorkspaceFacet) =
-		facets.keep(FacetKey(target, symbolId, facet), ::FacetView) { showing ->
+		facets.keep(FacetKey(target, symbolId, facet), ::FacetView) { ticket ->
 			val read = read { it.symbolFacet(target, symbolId, facet) }
-			facets.update(showing) { view -> view.copy(answer = read) }
+			facets.update(ticket) { view -> view.copy(answer = read) }
 		}
 
 	suspend fun keepFileHistory(target: WorkspaceTarget, path: String) =
-		fileHistories.keep(target to path, ::FileHistoryView) { showing ->
+		fileHistories.keep(target to path, ::FileHistoryView) { ticket ->
 			val read = read { it.fileHistory(target, path) }
-			fileHistories.update(showing) { view -> view.copy(answer = read) }
+			fileHistories.update(ticket) { view -> view.copy(answer = read) }
 		}
 
 	private val refNows = PublishedViews<Pair<WorkspaceTarget, String>, RefNowView>(host.generation)
@@ -119,12 +128,14 @@ internal class SymbolViews(private val host: WorkspaceHost) : ClearsOnReprovisio
 
 	/** The file is read after the span, from the module the span names. */
 	suspend fun keepRefNow(target: WorkspaceTarget, symbolId: String) =
-		refNows.keep(target to symbolId, ::RefNowView) { showing ->
+		refNows.keep(target to symbolId, ::RefNowView) { ticket ->
+			val span = refNows.ticket(ticket.showing, SymbolSlot.SOURCE)
 			val source = read { it.symbolSource(target, symbolId) }
-			refNows.update(showing) { view -> view.copy(source = source) }
+			refNows.update(span) { view -> view.copy(source = source) }
 			val module = (source as? WorkspaceAnswer.Read)?.value?.module ?: return@keep
+			val inFile = refNows.ticket(ticket.showing, SymbolSlot.FILE)
 			val file = read { it.file(target, module) }
-			refNows.update(showing) { view -> view.copy(file = file) }
+			refNows.update(inFile) { view -> view.copy(file = file) }
 		}
 
 	override suspend fun clearInMemory() {

@@ -337,9 +337,9 @@ no TTL.
   opening of it; the window set also carries an epoch that moves on every close, so an open begun before
   one lands nothing.
 - **View maps** (`PublishedViews`): what a screen draws, published per key beside `HeldEdits`. A `Showing`
-  is the key's token and the generation; `update` and `claim` land only on a current one, `show` joins the
-  showing already open and says whether it started it, and `reshow` ends what came before. A leave, a newer
-  showing or a re-provision drops an answer still out. `RawFileOps.views`, `WorkspaceFileOps.views` and
+  is the key's token and the generation; `show` joins the showing already open and says whether it started
+  it, and `reshow` ends what came before. A leave, a newer showing or a re-provision drops an answer still
+  out. `RawFileOps.views`, `WorkspaceFileOps.views` and
   `SymbolViews` all take it, so no map chooses its own guard. Tokens, keepers and the drawn map change only
   under one lock, and the map is published before it is released. `keep` is the one road for a screen that
   shows a key while it is composed: it asks to show the key on every value rather than deciding from the
@@ -353,6 +353,16 @@ no TTL.
     ends without finishing drops the view, so the keepers left ask for another rather than sitting on
     `initial` with nothing to reload them. A read that throws is logged and not asked again, since asking
     again at once would spin.
+  - **An awaited answer lands only through a `ReadTicket`, taken before the read awaits.** `update` and
+    `claim` take one; it is refused once the showing ended, or once a later ticket of the same slot landed.
+    A showing alone orders a read against a leave and a reshow, and not against another read of the same
+    key, which is how a sweep's older answer overwrote a send's newer one. `keep` mints the ticket and hands
+    it to `load`. A ticket that landed may land again, which is one op redrawing its own view. A slot names
+    what an answer fills, so a detail's source and knowledge, a ref's span and file, and a folder's tree and
+    its op land apart; no slot means the view one read fills. A change that awaited nothing goes through
+    `now`, which takes the key, since a tap has no read to order.
+  - **`kept()` is what a sweep walks**, not the drawn map, which can hold a key no screen shows. Nothing
+    counts keepers a second time beside it.
 - **Awaited answers land through `HeldEdits.land`**, never through `apply`: the caller passes the edit the
   answer was computed from and a `Landing`. `OverUntouched` lands only over exactly that value, which is
   Refresh: typing or a save since the tap outranks it. `Folded` lands over the same opening still bound to
@@ -448,11 +458,12 @@ no TTL.
     on it the same as on a confirmed send. `Submitted.Failed` and `Submitted.AlreadySending` withdraw the
     send `AskOps` had already recorded.
   - **Progress is read back from Lexicon, never taken from the session's reply.** While any pair from a
-    scope is out, `onForeground` re-reads every scope a screen currently keeps shown; nothing enumerates
-    `PublishedViews` itself. The Knowledge header's progress bar and, past one symbol, its per-symbol rows
+    scope is out, `onForeground` re-reads every scope a screen currently keeps shown, which is
+    `PublishedViews.kept()`. The Knowledge header's progress bar and, past one symbol, its per-symbol rows
     (the questions recorded, or the one word for a symbol nothing has come back on) all come from that
-    reread. Every scope read, a send's own included, captures its showing before it reads and lands only
-    on that one; a read whose showing ended lands nothing and settles nothing.
+    reread. Every scope read, a send's own included, takes its ticket before it reads and lands only on
+    that; a read whose showing ended, or that a later read of the key overtook, lands nothing and settles
+    nothing.
   - **Knowledge section rows** read amber for asked and green for recorded, with the recorded prose and
     its badges. A not-recorded or asked row opens the sheet on that one question; a recorded row shows its
     prose and does not open.

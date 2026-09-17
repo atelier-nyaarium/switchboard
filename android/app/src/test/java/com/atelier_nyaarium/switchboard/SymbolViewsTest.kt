@@ -9,6 +9,7 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolFacetAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -26,6 +27,7 @@ private const val ID = "lexicon typescript src/a.ts f()."
 class SymbolViewsTest {
 	private class Reads : WorkspaceGateway {
 		val sourceHolds = mutableListOf<TestHold>()
+		val knowledgeHolds = mutableListOf<TestHold>()
 		val outlineHolds = mutableListOf<TestHold>()
 		val facetHolds = mutableMapOf<WorkspaceFacet, MutableList<TestHold>>()
 		val facetReads = mutableMapOf<WorkspaceFacet, Int>()
@@ -57,8 +59,12 @@ class SymbolViewsTest {
 			)
 		}
 
-		override suspend fun knowledge(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<WorkspaceKnowledgeAnswer> =
-			WorkspaceAnswer.Read(WorkspaceKnowledgeAnswer(symbolId = symbolId, name = knowledgeName, symbolKind = "function"))
+		/** Read before the hold, so a held call answers what it found rather than what arrived since. */
+		override suspend fun knowledge(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<WorkspaceKnowledgeAnswer> {
+			val name = knowledgeName
+			knowledgeHolds.removeFirstOrNull()?.pass()
+			return WorkspaceAnswer.Read(WorkspaceKnowledgeAnswer(symbolId = symbolId, name = name, symbolKind = "function"))
+		}
 
 		override suspend fun tree(target: WorkspaceTarget, path: String) = error("not reached")
 
@@ -133,6 +139,34 @@ class SymbolViewsTest {
 
 		keeping.cancelAndJoin()
 		assertNull(views.detailViews.value[one to ID])
+	}
+
+	private fun knownName(): String? =
+		(views.detailViews.value[one to ID]?.knowledge as? WorkspaceAnswer.Read)?.value?.name
+
+	@Test
+	fun `a knowledge read landing after a later one draws nothing, the keep's own and a reload's alike`() = runBlocking {
+		val opening = TestHold().also { reads.knowledgeHolds += it }
+		val reloading = TestHold().also { reads.knowledgeHolds += it }
+		val keeping = launch { views.keepDetail(one, ID) }
+		opening.entered.await()
+
+		reads.knowledgeName = "older"
+		val older = async { views.reloadKnowledge(one, ID) }
+		reloading.entered.await()
+
+		reads.knowledgeName = "newer"
+		views.reloadKnowledge(one, ID)
+		assertEquals("newer", knownName())
+
+		reloading.release()
+		older.await()
+		opening.release()
+		repeat(5) { yield() }
+
+		assertEquals("newer", knownName())
+
+		keeping.cancelAndJoin()
 	}
 
 	// A screen's successor can start before the screen it replaces has finished leaving.

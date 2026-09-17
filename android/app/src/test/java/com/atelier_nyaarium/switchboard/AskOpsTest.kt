@@ -290,6 +290,31 @@ class AskOpsTest {
 	}
 
 	@Test
+	fun `a sweep's read landing after a send's re-read draws nothing and settles nothing`() = runBlocking {
+		gate.answer = { _, at -> listed(if (at == 2) membersAnswer(recorded = setOf(ROOT_ID)) else membersAnswer()) }
+		val keeping = launch { ops.keepScope(membersKey) }
+		awaitRead(membersKey)
+		assertEquals(AskSent.Sent(48), ops.send(subject, selection(), shown()))
+		clock += SCOPE_FRESH_MS
+
+		// The sweep reads first and is held; its answer says the root was recorded.
+		val held = TestHold().also { gate.holds += it }
+		val sweeping = async { ops.onForeground() }
+		held.entered.await()
+
+		// The send's own re-read begins after it and lands first, still finding nothing recorded.
+		assertEquals(AskSent.NothingToAsk, ops.send(subject, selection(), shown()))
+
+		held.release()
+		sweeping.await()
+
+		assertTrue(reloaded.isEmpty())
+		assertTrue(outstanding(ROOT_ID, "why"))
+
+		keeping.cancelAndJoin()
+	}
+
+	@Test
 	fun `a message over the budget is refused before anything is written`() = runBlocking {
 		val wide = (1..2_000).map { scopeSymbol("lexicon typescript src/hub/hub.ts ${"declaration".repeat(8)}$it", "d$it", null, null) }
 		val answer = WorkspaceKnowledgeScopeAnswer(root = ROOT, module = "src/hub/hub.ts", symbols = wide, localsExcluded = 0)

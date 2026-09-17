@@ -14,6 +14,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -47,10 +48,12 @@ class WorkspaceFileOpsTest {
 		/** State reads fail once more than this many mutations were sent. */
 		var unreadableAfter: Int? = null
 
+		/** Read before the hold, so a held call answers what it found rather than what arrived since. */
 		override suspend fun tree(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceTreeAnswer> {
 			treeReads++
+			val answer = table.tree(path)
 			treeHolds.removeFirstOrNull()?.pass()
-			return table.tree(path)
+			return answer
 		}
 
 		override suspend fun fileState(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceFileStateAnswer> {
@@ -387,6 +390,38 @@ class WorkspaceFileOpsTest {
 		ops.confirm(one, "src")
 		assertNull(ops.viewOf(one, "src"))
 		assertEquals(1, disk.sent.size)
+	}
+
+	private fun lists(name: String) = (view().listing as WorkspaceAnswer.Read).value.entries.any { it.name == name }
+
+	@Test
+	fun `a tree read that began earlier lands nothing once a newer one has`() = runBlocking {
+		val held = TestHold().also { disk.treeHolds += it }
+		val opening = async { ops.open(one, "src") }
+		held.entered.await()
+
+		disk.table.put("src/new.ts", "n")
+		ops.open(one, "src")
+		assertTrue(lists("new.ts"))
+
+		held.release()
+		opening.await()
+
+		assertTrue(lists("new.ts"))
+	}
+
+	@Test
+	fun `a tree read landing while an op is arming leaves the confirmation it then draws`() = runBlocking {
+		val held = TestHold().also { disk.stateHolds += it }
+		val arming = async { ops.begin(one, "src", ArmedAction.Delete(APP)) }
+		held.entered.await()
+
+		ops.open(one, "src")
+
+		held.release()
+		arming.await()
+
+		assertNotNull(view().confirming)
 	}
 
 	@Test

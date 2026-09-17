@@ -317,7 +317,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     other. `WindowOps` passes a sealed `ReadSlot`, one per span, so no string reaches this from there;
     the other callers still pass one. A read that fills a per-module cache is not fenced at all, since
     nothing an older answer could overwrite exists. A read a screen draws is not fenced either: it lands
-    through its `PublishedViews` showing.
+    through its `PublishedViews` ticket.
 - `android/.../WindowOps.kt` / `WindowRules.kt` / `WindowRequests.kt` / `SymbolViews.kt` / `KnowledgeRules.kt` /
   `AskRules.kt` / `AskedStore.kt` / `AskOps.kt` / `SessionRequests.kt` / `RawFileOps.kt` /
   `RawFileRules.kt` / `WorkspaceFileOps.kt` / `FileOpRules.kt` / `FacetRules.kt` / `CodePaint.kt` / `HeldEdits.kt` / `PublishedViews.kt` /
@@ -358,10 +358,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     `AskedStore`; `WindowRequests.ask` leaves the ask it already held. Only `Submitted.Failed` and
     `Submitted.AlreadySending` clear them: `AskedStore` always withdraws, and `WindowRequests` withdraws
     too, unless an `AlreadySending` collision has something to restore.
-  - **A foreground re-read walks what `AskOps` counts as shown, never the `PublishedViews` map:**
-    `keepScope` increments and decrements its own count per key, and `onForeground`, while any pair is
-    out, re-reads only those keys' `knowledgeScope`; nothing enumerates `PublishedViews` itself, whose map
-    can hold a key nothing currently shows.
+  - **A foreground re-read walks the keys with keepers, `PublishedViews.kept()`, never the drawn map:**
+    the drawn map can hold a key nothing currently shows. `AskOps` once counted its own keepers beside
+    `keep`'s, which is one count kept twice.
   - **Keyed by SESSION, never by Gateway:** two sessions of one Gateway hold different workspaces, so
     a Gateway-keyed map serves one session's span for the other. The fence, the draft filenames and
     the held maps all take the qualified session address.
@@ -385,12 +384,23 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A re-provision is ONE generation, `WorkspaceHost.generation`:** advanced first in the re-provision
     roster and read by every workspace ops class, where each once kept its own epoch and one kept none.
   - **A view map beside `HeldEdits` is a `PublishedViews`:** its `Showing` is the key's token and the
-    generation, and `update` and `claim` land only on a current one. The raw editor's and the tree's maps each
-    hand-wrote this guard and each missed a case of it. A screen shown while composed goes through `keep`,
-    and every token, keeper count and drawn view changes under its one lock: split across three structures,
-    they disagreed three different ways. A showing's read belongs to the key, under a job of its own: one
-    keeper of two leaving must not take the read with it, and only `show` answering as the starter may
-    begin one, or two keepers each read the same key.
+    generation. The raw editor's and the tree's maps each hand-wrote this guard and each missed a case of it.
+    A screen shown while composed goes through `keep`, and every token, keeper count, landing order and drawn
+    view changes under its one lock: split across three structures, they disagreed three different ways. A
+    showing's read belongs to the key, under a job of its own: one keeper of two leaving must not take the
+    read with it, and only `show` answering as the starter may begin one, or two keepers each read the same key.
+  - **An awaited answer lands only through a `ReadTicket`, taken BEFORE the read awaits:** `update` and
+    `claim` take one, and refuse it once the showing has ended or a later ticket of the same slot landed.
+    `keep` mints its own and hands it to `load`, so a keeper cannot forget. A showing orders a read against a
+    leave, a reshow and a re-provision, and orders nothing against another read of the same key, which is the
+    defect three ops classes each wrote out: `AskOps` settled a newer send off a stale answer, `SymbolViews`
+    drew a reload's prose then the keep's older prose over it, and `WorkspaceFileOps` hand-built a per-folder
+    read fence outside the class. A ticket that landed may land again, which is one op redrawing its own view.
+  - **A slot names what an answer FILLS, so two halves of one view land apart:** a detail's source and
+    knowledge, a ref's span and file, a folder's tree and its op. No slot means the view one read fills.
+    Sharing one slot makes the half that lands first refuse the other.
+  - **A change that awaited nothing goes through `now`, which takes the KEY:** a tap has no read to order.
+    Anything that awaited must name the ticket it began with, and cannot honestly reach for a key instead.
   - **A file operation is armed from a state read, confirmed once, and read back rather than resent:**
     `WorkspaceFileOps` builds the mutation only from the facts the confirmation showed, a folder's claim is
     taken once, and `settledOf` decides an unanswered one.

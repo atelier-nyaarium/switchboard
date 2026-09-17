@@ -8,6 +8,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+/** Where a read of one open file began. */
+private typealias RawTicket = PublishedViews.ReadTicket<Pair<WorkspaceTarget, String>>
+
 /**
  * Whole files open in the raw editor, their drafts, and what each screen draws. Keyed by SESSION and path,
  * as windows are.
@@ -50,8 +53,8 @@ internal class RawFileOps(
 		held.apply(target) { edits -> edits.map { if (it.path == path) change(it) else it } }
 
 	/** Replaces the view of a screen still showing, and only that. */
-	private fun redraw(target: WorkspaceTarget, path: String, view: RawView) {
-		shown.current(target to path)?.let { showing -> shown.update(showing) { view } }
+	private fun redraw(ticket: RawTicket?, view: RawView) {
+		if (ticket != null) shown.update(ticket) { view }
 	}
 
 	private suspend fun read(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceReadAnswer> =
@@ -63,8 +66,9 @@ internal class RawFileOps(
 	 */
 	suspend fun open(target: WorkspaceTarget, path: String): RawView {
 		val showing = shown.reshow(target to path) { RawView.Loading }
+		val ticket = shown.ticket(showing)
 		val settle = { view: RawView ->
-			shown.update(showing) { view }
+			shown.update(ticket) { view }
 			view
 		}
 		val before = editOf(target, path)
@@ -108,13 +112,14 @@ internal class RawFileOps(
 	 */
 	suspend fun adopt(target: WorkspaceTarget, path: String): String? {
 		val tapped = editOf(target, path) ?: return refreshNotice(open(target, path))
+		val ticket = shown.begin(target to path)
 		val answer = read(target, path)
 		val file = (answer as? WorkspaceAnswer.Read)?.value ?: return refreshNotice(rawViewOf(answer))
 		// Null when the file can no longer be edited, which lets it go.
 		val next = rawEditOf(path, file, tapped.incarnation)
 		// Typing or a save since the tap outranks it, and keeps the banner.
 		val landed = held.land(target, tapped, Landing.OverUntouched(next))
-		if (landed && next == null) redraw(target, path, readOnlyOf(file))
+		if (landed && next == null) redraw(ticket, readOnlyOf(file))
 		return null
 	}
 
@@ -171,11 +176,12 @@ internal class RawFileOps(
 	/** Unfenced: each file's answer lands only on the opening and version its read began from. */
 	suspend fun recheck(target: WorkspaceTarget) = sweeping.withLock {
 		for (before in held.of(target)) {
+			val ticket = shown.begin(target to before.path)
 			val fresh = (read(target, before.path) as? WorkspaceAnswer.Read)?.value ?: continue
 			val landed = held.land(target, before, Landing.Folded { refreshRaw(it, fresh) })
 			// Let go, since it can no longer be written, so its screen shows it read-only.
 			if (landed && fresh.hash == null && editOf(target, before.path) == null) {
-				redraw(target, before.path, readOnlyOf(fresh))
+				redraw(ticket, readOnlyOf(fresh))
 			}
 		}
 	}
