@@ -2165,9 +2165,9 @@ Design locked by the owner. Built as 14a to 14d, in deploy order: Lexicon, plugi
 - **Every new wire shape** regenerates `Protocol.kt` in the same commit and carries TS and Kotlin fixtures;
   `check:fixtures`, `kotlin-gate.sh` and `check:boot` pass before a push.
 
-## Phase 14a - Lexicon
+## Phase 14a - Lexicon ✅
 
-Ships from `nyaa-lexicon` as a major release: Kotlin facts, bindings and refusals change for unchanged
+Shipped as Lexicon 4.0.0, pinned here. Ships from `nyaa-lexicon` as a major release: Kotlin facts, bindings and refusals change for unchanged
 source, TypeScript and Kotlin declarations gain `contains`, and a C# lambda-field misparse is fixed. The new
 reads, fields and the `forgetModule` notification are a protocol minor (3.3.0); the narrowed meanings of
 `describe.members` and the use counts are noted there. Conformance for every provider and `grade.js`
@@ -2340,6 +2340,16 @@ before the release, then a pin move here.
   `ContentSealing` with subclasses in two files, a withheld use, and history that answers commits and
   untracked.
 - **Emulator walk** through every mock flow, compared against the mocks.
+- **Rulings where the mocks, the plan and the wire disagreed:**
+  - The Uses row counts bound targets (`counts.boundTargets`); names outside the index show on its screen.
+  - Last changed reads the `history` facet, kept by the detail beside its knowledge read.
+  - Comments list Lexicon's first 200 and say so when there are more.
+  - The hierarchy answer carries its own subject for the self node.
+  - Colours follow the mocks, which paint types orange, not github-dark's red and purple.
+  - A comment opens its holder at its line. The members mock's "optional" tag is dropped.
+  - Every Facts row is drawn on every detail, zero rows dim.
+  - An update notice is read from the refusal's text, since an older plugin or Gateway sends no code.
+  - A facet's read lives while its place is on the Files stack, so Back returns to drawn rows.
 
 ## Phase 14d - Ask
 
@@ -2352,7 +2362,11 @@ before the release, then a pin move here.
 - **Asked pairs** live in an `AskedStore` beside the ops class, keyed by session, root label, symbol and
   question, each with its send time from `PhoneAmbient`. Written before the send; kept when the send lands
   or its outcome is unknown; removed when it definitely failed. A pair clears when its answer's `createdAt`
-  is after the send, after 24 hours, or when the owner sends it again. A re-provision clears the store.
+  differs from the value in the scope read the send used, after 24 hours, or when the owner sends it again.
+  Comparing to the read's value, not the send time, keeps the phone's clock out of Lexicon's. A
+  re-provision clears the store; asked pairs live in memory only.
+- **Unknown outcome:** `SessionRequests` answers `Submitted.Unknown` when the send throws, so a lost answer
+  keeps its pairs where a refused send drops them.
 - **Progress:** the ops class holds the scopes currently shown, registered by the page's keep. While a pair
   is out, `onForeground` re-reads each shown scope's one `knowledgeScope`; nothing enumerates
   `PublishedViews`.
@@ -2414,6 +2428,48 @@ the interface and its two fields, six questions each, 18 answers, none refused.
    `AGENTS.md` map for new files; Lexicon's docs ride its release.
 
 # Painpoints
+
+## A law with no residue check is advice
+
+Lexicon's `docs/parsing.md` has said "check for a library before writing the parser" since before the
+Kotlin provider existed, and the Kotlin provider was 2,500 lines of hand-rolled token scanning. Nothing
+in the gate reads that rule, so it cost a red team and a rewrite to find. Every rule in that file that
+a repository can check should have a residue test; the ones that cannot should say so.
+
+## A provider passes every gate while misreading the language
+
+The old Kotlin parser passed 40 conformance cases, 88 unit tests and `grade.js` while turning 132
+declarations in Switchboard's `android/` into fake top-level names. Conformance cases test what someone
+thought to write; nothing measured facts against a real corpus. The metric that found it (a declaration
+with no container whose line starts indented) is four lines of script. A provider's gate should carry a
+few such corpus invariants, per language.
+
+## `dist` is committed, so every build is a ritual
+
+`bun run build --build-only` writes `dist/`, which is tracked, and now also drops three untracked wasm
+files. Four agents in this phase each rediscovered `git restore dist` plus deleting the new files, and
+one of them built while another's half-finished provider was in the tree. Either keep `dist` out of the
+working tree during a check build, or give the build a `--check` mode that writes to a temp directory.
+
+## A test that reads a live sibling repository is not a fixture
+
+`providers/kotlin/src/__tests__/lifecycle.test.ts` walks `/home/nyaarium/projects/switchboard/android`.
+While the phone work was editing those files, a golden snapshot taken from that test differed between
+runs for reasons that had nothing to do with the code. The corpora that prove parsing belong in a
+frozen copy, as the Kotlin agent ended up making by hand.
+
+## Codex cannot write outside the session's project
+
+Codex agents may only write this session's project and the temp directory, so Lexicon work in
+`nyaa-lexicon` could not be handed to them at all: every edit went to Claude agents, and Codex was left
+doing read-only audits. Worth knowing before planning a fan-out: the model split is decided by where
+the files are, not by the task.
+
+## The planning agent type cannot save its own plan
+
+A `Plan` subagent is read-only, which includes the scratchpad, so a two-file build spec came back as one
+message and had to be parsed out of the agent transcript. Either give that agent type a writable
+scratchpad, or ask a general agent for planning work that has to be kept.
 
 ## Asking where a project lives takes four functions and three processes
 
