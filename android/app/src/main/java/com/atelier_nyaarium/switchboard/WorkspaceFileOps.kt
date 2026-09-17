@@ -65,6 +65,7 @@ internal class WorkspaceFileOps(
 
 	suspend fun open(target: WorkspaceTarget, path: String) {
 		shown.show(target to path) { FolderView() }
+		// Reads even when joined.
 		reload(target to path)
 	}
 

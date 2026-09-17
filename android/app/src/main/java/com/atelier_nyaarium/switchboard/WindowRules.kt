@@ -392,15 +392,17 @@ internal fun inFileOrder(held: List<Window>): List<Window> =
 /** A null kind is every symbol. */
 internal data class OutlineKind(val kind: String?, val label: String, val count: Int)
 
+internal fun outlineKinds(symbols: List<WorkspaceOutlineSymbol>): List<OutlineKind> = kindChips(symbols.map { it.symbolKind })
+
 /**
- * The chips a file earns, commonest first. The labels are Lexicon's own kind words rather than a table
- * of abbreviations here, which would go stale the moment a language names a kind this does not know.
+ * Commonest first. The labels are Lexicon's own kind words rather than a table of abbreviations here,
+ * which would go stale the moment a language names a kind this does not know.
  */
-internal fun outlineKinds(symbols: List<WorkspaceOutlineSymbol>): List<OutlineKind> {
-	val counted = symbols.groupBy { it.symbolKind }
-		.map { (kind, rows) -> OutlineKind(kind, kind.replaceFirstChar { it.uppercase() }, rows.size) }
+internal fun kindChips(kinds: List<String>): List<OutlineKind> {
+	val counted = kinds.groupingBy { it }.eachCount()
+		.map { (kind, count) -> OutlineKind(kind, kind.replaceFirstChar { it.uppercase() }, count) }
 		.sortedWith(compareByDescending<OutlineKind> { it.count }.thenBy { it.label })
-	return listOf(OutlineKind(null, "All", symbols.size)) + counted
+	return listOf(OutlineKind(null, "All", kinds.size)) + counted
 }
 
 internal fun outlineOfKind(symbols: List<WorkspaceOutlineSymbol>, kind: String?): List<WorkspaceOutlineSymbol> =

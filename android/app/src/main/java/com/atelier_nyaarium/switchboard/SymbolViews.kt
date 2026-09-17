@@ -1,8 +1,11 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFacet
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFileHistoryAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolFacetAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.coroutineScope
@@ -25,6 +28,13 @@ internal data class DetailView(
 	val identity: SymbolIdentity?
 		get() = identityOf((source as? WorkspaceAnswer.Read)?.value, (knowledge as? WorkspaceAnswer.Read)?.value)
 }
+
+/** A facet belongs to one symbol, so two facets of one symbol land apart. */
+internal data class FacetKey(val target: WorkspaceTarget, val symbolId: String, val facet: WorkspaceFacet)
+
+internal data class FacetView(val answer: WorkspaceAnswer<WorkspaceListing<WorkspaceSymbolFacetAnswer>>? = null)
+
+internal data class FileHistoryView(val answer: WorkspaceAnswer<WorkspaceListing<WorkspaceFileHistoryAnswer>>? = null)
 
 internal data class SymbolIdentity(
 	val name: String,
@@ -76,6 +86,26 @@ internal class SymbolViews(private val host: WorkspaceHost) : ClearsOnReprovisio
 			}
 		}
 
+	private val facets = PublishedViews<FacetKey, FacetView>(host.generation)
+
+	private val fileHistories = PublishedViews<Pair<WorkspaceTarget, String>, FileHistoryView>(host.generation)
+
+	val facetViews: StateFlow<Map<FacetKey, FacetView>> = facets.all
+
+	val fileHistoryViews: StateFlow<Map<Pair<WorkspaceTarget, String>, FileHistoryView>> = fileHistories.all
+
+	suspend fun keepFacet(target: WorkspaceTarget, symbolId: String, facet: WorkspaceFacet) =
+		facets.keep(FacetKey(target, symbolId, facet), ::FacetView) { showing ->
+			val read = read { it.symbolFacet(target, symbolId, facet) }
+			facets.update(showing) { view -> view.copy(answer = read) }
+		}
+
+	suspend fun keepFileHistory(target: WorkspaceTarget, path: String) =
+		fileHistories.keep(target to path, ::FileHistoryView) { showing ->
+			val read = read { it.fileHistory(target, path) }
+			fileHistories.update(showing) { view -> view.copy(answer = read) }
+		}
+
 	private val refNows = PublishedViews<Pair<WorkspaceTarget, String>, RefNowView>(host.generation)
 
 	val refNowViews: StateFlow<Map<Pair<WorkspaceTarget, String>, RefNowView>> = refNows.all
@@ -94,6 +124,8 @@ internal class SymbolViews(private val host: WorkspaceHost) : ClearsOnReprovisio
 		outlines.clear()
 		details.clear()
 		refNows.clear()
+		facets.clear()
+		fileHistories.clear()
 	}
 
 	/** A throw is no answer. */

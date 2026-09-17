@@ -57,6 +57,34 @@ class ShellNavTest {
 		)
 	}
 
+	// Each drill-in is a place, so Back unwinds the walk before it leaves Files.
+	@Test
+	fun `Back walks a drill-in one place at a time before leaving Files`() {
+		val detail = WorkspacePlace.Detail("lexicon typescript src/a.ts f().", "src/a.ts", "f")
+		val refs = WorkspacePlace.Facet(detail.symbolId, detail.module, FacetEntry.REFERENCES, FacetSubject("f"))
+		val reached = detail.copy(reached = Reached("f", "Type", 99))
+		val uses = refs.copy(entry = FacetEntry.USES)
+		val drilled = ShellNav().arrive(a, Arrival.OUTSIDE, facts).showView(ConversationView.FILES)
+			.pushFiles(WorkspacePlace.Outline("src/a.ts"))
+			.pushFiles(detail)
+			.pushFiles(refs)
+			.pushFiles(reached)
+			.pushFiles(uses)
+
+		assertEquals(
+			listOf(
+				BackLayer.FILES,
+				BackLayer.FILES,
+				BackLayer.FILES,
+				BackLayer.FILES,
+				BackLayer.FILES,
+				BackLayer.VIEW,
+				BackLayer.CONVERSATION,
+			),
+			backAll(drilled),
+		)
+	}
+
 	@Test
 	fun `another session's Files start at the root`() {
 		val deep = ShellNav().arrive(a, Arrival.OUTSIDE, facts).pushFiles(WorkspacePlace.Tree("src"))

@@ -18,6 +18,11 @@ afterEach(() => {
 
 const SYMBOL = "lexicon typescript src/app.ts f().";
 
+const FACET_RULES = path.join(
+	__dirname,
+	"../../android/app/src/main/java/com/atelier_nyaarium/switchboard/FacetRules.kt",
+);
+
 function directory(): string {
 	const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "wshistory-")));
 	roots.push(root);
@@ -221,5 +226,16 @@ describe("a file's history", () => {
 		expect(await ask(root, "src/new.ts")).toMatchObject({ ok: true, answer: { outcome: "untracked", count: 0 } });
 		expect(await ask(bare, "src/app.ts")).toMatchObject({ ok: true, answer: { outcome: "notRepository" } });
 		expect(await ask(root, ".env")).toMatchObject({ ok: false, failure: "refused" });
+	});
+});
+
+// The wire carries no total, so the phone names this cap rather than counting the rows it was sent.
+describe("the cut a truncated symbol history is named by", () => {
+	it("is the bound this handler stops at, as the phone declares it", () => {
+		const kotlin = fs.readFileSync(FACET_RULES, "utf8");
+		const declared = kotlin.match(/HISTORY_COMMIT_CAP\s*=\s*([\d_]+)\b/);
+
+		expect(declared, "FacetRules.HISTORY_COMMIT_CAP is no longer declared as a literal").not.toBeNull();
+		expect(Number((declared?.[1] ?? "").replaceAll("_", ""))).toBe(MAX_HISTORY_COMMITS);
 	});
 });

@@ -2351,6 +2351,28 @@ before the release, then a pin move here.
   `ContentSealing` with subclasses in two files, a withheld use, and history that answers commits and
   untracked.
 - **Emulator walk** through every mock flow, compared against the mocks.
+
+### Bug Classes
+
+- **A showing's read belongs to whichever keeper started it.** Mechanism: `PublishedViews.keep`. Round 1:
+  the decision to read came from an unsynchronised check before `show`, so a second keeper arriving during
+  a read started a second one; `show` now says whether it created the showing and only the creator reads.
+  Round 2: the read still ran in the creator's own scope, so a creator leaving while another keeper
+  remained cancelled it and left the survivor on a spinner nothing reloaded. Structural fix: `reads` holds
+  one job per key, parented to a job of its own, so the keeper's scope neither waits for it nor ends it.
+  The last keeper leaving, a `leave` and a `clear` end it; a read that ends without landing drops the drawn
+  entry, so the keepers left re-show and exactly one reads again.
+
+- **The drill-in sandbox reproduces the plugin's logic by hand, with nothing pinning the two.** Mechanism:
+  `SandboxFacets`. Round 1: the hierarchy count added direct supertypes and unbound ones while the plugin
+  also counts ancestors, so the Facts row would disagree with the list under it. Round 2: comments were
+  scanned from the subject's start line, where Lexicon's scope begins a line earlier, so the plugin's rule
+  that a symbol's own leading comment is documentation had no counterpart here to be right or wrong about.
+  Both were written against a reading of the plugin rather than against the plugin, and both were latent:
+  no canned symbol had an ancestor or a leading comment, so the emulator drew the same screens either way. The file-operations sandbox reached this point twice and was closed by `WorkspaceFileTable` with
+  `tests/fixtures/workspace-file-ops/vectors.json` running in both runtimes; the drill-ins have no such
+  pin. Raised to `architecture-fan-out`.
+
 - **Rulings where the mocks, the plan and the wire disagreed:**
   - The Uses row counts bound targets (`counts.boundTargets`); names outside the index show on its screen.
   - Last changed reads the `history` facet, kept by the detail beside its knowledge read.
@@ -2439,6 +2461,14 @@ the interface and its two fields, six questions each, 18 answers, none refused.
    `AGENTS.md` map for new files; Lexicon's docs ride its release.
 
 # Painpoints
+
+## A confinement rule that each reader applies itself is applied three ways
+
+`confine` is one function, and every workspace read calls it on what the phone ASKED for. Nothing called it
+on what came back, so three separate audits found three separate leaks: summaries inside a facet, the
+subject of a source or knowledge answer, and rows counted without being opened. The rule was never wrong;
+its application was per reader, and a reader that forgets is invisible. Whatever a plane must never emit
+belongs at the plane's edge, read off the schemas, not in each builder's head.
 
 ## A law with no residue check is advice
 

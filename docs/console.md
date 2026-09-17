@@ -338,13 +338,21 @@ no TTL.
   one lands nothing.
 - **View maps** (`PublishedViews`): what a screen draws, published per key beside `HeldEdits`. A `Showing`
   is the key's token and the generation; `update` and `claim` land only on a current one, `show` joins the
-  showing already open and `reshow` ends what came before. A leave, a newer showing or a re-provision drops
-  an answer still out. `RawFileOps.views`, `WorkspaceFileOps.views` and `SymbolViews` all take it, so no map
-  chooses its own guard. Tokens, keepers and the drawn map change only under one lock, and the map is published
-  before it is released. `keep` is the one road for a screen that shows a key while it is composed: it shows
-  the key before the next value is read, since a conflated collector can miss the key being present and
-  then miss the re-provision that clears it, and it counts its callers, so a leaving screen's late exit
-  cannot drop the view its successor shows.
+  showing already open and says whether it started it, and `reshow` ends what came before. A leave, a newer
+  showing or a re-provision drops an answer still out. `RawFileOps.views`, `WorkspaceFileOps.views` and
+  `SymbolViews` all take it, so no map chooses its own guard. Tokens, keepers and the drawn map change only
+  under one lock, and the map is published before it is released. `keep` is the one road for a screen that
+  shows a key while it is composed: it asks to show the key on every value rather than deciding from the
+  drawn map, since a conflated collector can miss the key being present and then miss the re-provision that
+  clears it, and since a second keeper can arrive between that read and the ask. Only the keeper `show`
+  answers as the starter loads, so two screens on one key read it once. It counts its callers, so a leaving
+  screen's late exit cannot drop the view its successor shows.
+  - **A showing's read belongs to its key, not to the keeper that started it.** The read runs under a job
+    of its own, so a keeper leaving while others remain does not take it with it and the screen left behind
+    still gets the answer; the last keeper leaving, a `leave` and a `clear` are what end one. A read that
+    ends without finishing drops the view, so the keepers left ask for another rather than sitting on
+    `initial` with nothing to reload them. A read that throws is logged and not asked again, since asking
+    again at once would spin.
 - **Awaited answers land through `HeldEdits.land`**, never through `apply`: the caller passes the edit the
   answer was computed from and a `Landing`. `OverUntouched` lands only over exactly that value, which is
   Refresh: typing or a save since the tap outranks it. `Folded` lands over the same opening still bound to
@@ -423,6 +431,54 @@ no TTL.
   and refused whole over `MAX_WORKSPACE_OP_BYTES`, never truncated. The three drill-ins answer
   `WorkspaceTooLargeAnswer` with `rows` and `bytes`, which `listingOf` reads as `WorkspaceListing.TooLarge`;
   older reads keep the refusal text, since an older phone decodes only its own answer.
+- **Facets on the phone** (`FacetRules.kt`, `workspace/FacetScreen.kt`, `FacetUses.kt`, `FacetLists.kt`):
+  the detail's Facts card lists Members, References, Used by, Uses, Type hierarchy, Comments and Last
+  changed, each in the unit its drill-in lists, and each row opens a `WorkspacePlace.Facet` on the Files
+  stack. `FacetRules` holds every decision, since no gate here reaches a Composable: the rows and their
+  units, the grouping and its keys, the role chips, the hierarchy column, the comment and commit items,
+  the file stats, the ages and the detail's own item order.
+  - **A row counts what its drill-in lists.** A row reading zero is dim, holds its chevron's width and
+    does not open; a declaration that is not a type reads `not a type`, an interface's subtypes read as
+    implementations. Last changed reads the `history` facet the detail keeps beside its own read, so the
+    row shows a value only once that answer lands.
+  - **An older plugin answers no counts** (`FactRows.Legacy`): its own numbers are drawn, nothing opens,
+    and a notice names the update. Nothing typed marks version skew, so `refusalOf` reads the three
+    refusals that mean it by their words: the plugin's, Lexicon's, and an older Gateway's schema issue
+    array. Every other refusal draws its own reason, and an answer for another symbol or facet draws as
+    unreachable rather than as itself.
+  - **References opens By file and Used by opens By symbol** (`initialGrouping`), since a reference list
+    is read by where it is and a dependent list by who it is. A role chip counts its role over every row,
+    so choosing one does not change the counts; groups it empties are dropped. A role an answer leaves
+    blank is still labelled, since an unlabelled chip cannot be read or pressed; the raw role stays the
+    filter key.
+  - **Last changed also draws the file's own history under the commits**, which is the outline's strip
+    read again for the symbol's module (`stripModule`): a symbol's lines and its file are different
+    questions, and the strip only appears once that read lands. A cut list of commits names
+    `HISTORY_COMMIT_CAP`, the plugin's own bound, rather than the rows it was sent, since the wire carries
+    no total; `workspace-history.test.ts` pins the two.
+  - **A facet's showing lives while its place is on the Files stack** (`WorkspaceScreen`), kept for each
+    distinct `Facet` place rather than by the screen, so Back returns to drawn rows. The screen state
+    beside it, the grouping, the chosen chip and the scroll, is held by a `SaveableStateHolder` keyed by
+    `placeKey`: a place that leaves composition would otherwise lose it, and two places drawn by one
+    branch would share it.
+- **The paint model** (`CodePaint.kt`, `workspace/CodeLines.kt`): `CodeToken` is the Kotlin copy of
+  `CODE_TOKENS`, its ordinal the wire contract, pinned to the plugin by
+  `tests/fixtures/code-spans/vectors.json`. `CodePalette.styleOf` has no else branch, so a token added to
+  the wire is a compile error rather than a colour nobody chose; a token past this build's end paints
+  plain. `runsOf` orders and disjoins whatever arrives, since a painter that overlaps draws one token over
+  another.
+  - **A use row exists to show the name, so the row cuts to it.** A hit ending past `USE_ROW_COLUMNS`,
+    which is under what a phone row draws, opens the row `USE_ROW_LEAD` before the name and marks it with
+    three ASCII dots. Left at the plugin's own width the ellipsis ate the underlined name on almost every
+    row. The hit is underlined rather than recoloured, so the name keeps its token's colour.
+  - **A source window opens at the declaration**, or `REACHED_LEAD_LINES` above a reached line that lies
+    past the preview, and the reached line takes the amber band, bar and number that `Line` scrolls to.
+  - **Font padding is trimmed on every code line, the number column included** (`codeStyle`): the number
+    otherwise sets a row half a line taller than the code beside it, and the declaration no longer fits
+    one screen.
+  - **A `module : line` cuts at the front** (`WhereLine`), since a path's tail names the file and the
+    line; ending the cut there left every deep path reading as its first folders. `whereText` gives one
+    line one line rather than a range of itself.
 - **Composed requests** (`SessionRequests`): the one road for a message the phone writes for a session,
   Agent Apply and a knowledge Ask. A request is keyed by address, kind and subject and claimed before it
   is sent, so a second tap or a second screen sends nothing while one is out. The send outlives the screen

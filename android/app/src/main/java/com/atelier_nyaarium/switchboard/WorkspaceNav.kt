@@ -1,5 +1,24 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFacet
+
+/** A row of the Facts card: what it is titled, and the facet its drill-in reads. */
+internal enum class FacetEntry(val title: String, val facet: WorkspaceFacet) {
+	REFERENCES("References", WorkspaceFacet.Uses),
+	USED_BY("Used by", WorkspaceFacet.Uses),
+	USES("Uses", WorkspaceFacet.UsesFrom),
+	MEMBERS("Members", WorkspaceFacet.Members),
+	HIERARCHY("Type hierarchy", WorkspaceFacet.Hierarchy),
+	COMMENTS("Comments", WorkspaceFacet.Comments),
+	HISTORY("Last changed", WorkspaceFacet.History),
+}
+
+/** The use a detail was opened from: its card, and the line marked in the source. */
+internal data class Reached(val name: String, val role: String, val line: Long)
+
+/** What a facet place knows about the symbol it belongs to, for its header. */
+internal data class FacetSubject(val name: String, val kind: String? = null, val startLine: Long? = null)
+
 /** A stack, so Back is one rule rather than a flag per screen. */
 internal sealed interface WorkspacePlace {
 	/** Empty is the workspace root. */
@@ -10,7 +29,20 @@ internal sealed interface WorkspacePlace {
 	/** Whole file, no Lexicon. */
 	data class Raw(val path: String) : WorkspacePlace
 
-	data class Detail(val symbolId: String, val module: String) : WorkspacePlace
+	/** A detail reached from a use is its own step, so `reached` is part of the place. */
+	data class Detail(
+		val symbolId: String,
+		val module: String,
+		val name: String,
+		val reached: Reached? = null,
+	) : WorkspacePlace
+
+	data class Facet(
+		val symbolId: String,
+		val module: String,
+		val entry: FacetEntry,
+		val subject: FacetSubject,
+	) : WorkspacePlace
 
 	data object Windows : WorkspacePlace
 }
@@ -35,14 +67,48 @@ internal fun jumpPlace(stack: List<WorkspacePlace>, place: WorkspacePlace): List
 	return if (at >= 0) stack.take(at + 1) else pushPlace(stack, place)
 }
 
-/** A detail names its file, since the screen draws the symbol's name. */
 internal fun placeTitle(place: WorkspacePlace): String =
 	when (place) {
 		is WorkspacePlace.Tree -> place.path.ifEmpty { "Files" }
 		is WorkspacePlace.Outline -> place.path.substringAfterLast('/')
 		is WorkspacePlace.Raw -> place.path.substringAfterLast('/')
-		is WorkspacePlace.Detail -> place.module.substringAfterLast('/')
+		is WorkspacePlace.Detail -> place.name
+		is WorkspacePlace.Facet -> "${facetBackWord(place.entry)} of ${place.subject.name}"
 		WorkspacePlace.Windows -> "Windows"
+	}
+
+/** Both Uses-facet entries read as References: "Used by of X" does not read. */
+private fun facetBackWord(entry: FacetEntry): String =
+	when (entry) {
+		FacetEntry.REFERENCES, FacetEntry.USED_BY -> "References"
+		FacetEntry.USES -> "Uses"
+		FacetEntry.MEMBERS -> "Members"
+		FacetEntry.HIERARCHY -> "Hierarchy"
+		FacetEntry.COMMENTS -> "Comments"
+		FacetEntry.HISTORY -> "History"
+	}
+
+/** Only the history facet draws the file's own history under it. */
+internal fun stripModule(place: WorkspacePlace.Facet): String? =
+	place.module.takeIf { place.entry == FacetEntry.HISTORY }
+
+/** What Back returns to, which is the place under the one drawn. */
+internal fun backTitle(stack: List<WorkspacePlace>): String =
+	placeTitle(stack.getOrNull(stack.size - 2) ?: WORKSPACE_ROOT)
+
+/**
+ * A string, since the screen state a place keeps is saved in a Bundle and a place is not
+ * parcelable. Two different places never share one, or Back restores the wrong screen's scroll.
+ */
+internal fun placeKey(place: WorkspacePlace): String =
+	when (place) {
+		is WorkspacePlace.Tree -> separated("tree", place.path)
+		is WorkspacePlace.Outline -> separated("outline", place.path)
+		is WorkspacePlace.Raw -> separated("raw", place.path)
+		is WorkspacePlace.Detail ->
+			separated("detail", separated(place.symbolId, place.reached?.let { "${it.name}:${it.role}:${it.line}" } ?: ""))
+		is WorkspacePlace.Facet -> separated("facet", separated(place.symbolId, place.entry.name))
+		WorkspacePlace.Windows -> "windows"
 	}
 
 /** The directory a tree row opens, with no leading separator at the root. */

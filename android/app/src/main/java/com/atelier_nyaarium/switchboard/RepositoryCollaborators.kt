@@ -232,7 +232,7 @@ internal class ConsoleWorkspaceGateway(private val client: ConsoleClient) : Work
 
 internal class ChatRepositoryWorkspaceHost(private val repo: ChatRepository) : WorkspaceHost, ClearsOnReprovision {
 	// The sandbox answers as a session's plugin would, since `isSandbox` reaches no socket at all.
-	private val sandbox by lazy { SandboxWorkspaceGateway() }
+	private val sandbox by lazy { SandboxWorkspaceGateway(repo.ambient.now) }
 
 	override val generation = WorkspaceGeneration()
 

@@ -25,8 +25,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -38,12 +40,15 @@ import com.atelier_nyaarium.switchboard.Crumb
 import com.atelier_nyaarium.switchboard.Team
 import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspacePlace
+import com.atelier_nyaarium.switchboard.backTitle
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.holdsWorkspace
 import com.atelier_nyaarium.switchboard.kindBadge
 import com.atelier_nyaarium.switchboard.landsOnWindows
 import com.atelier_nyaarium.switchboard.placeOf
+import com.atelier_nyaarium.switchboard.placeKey
 import com.atelier_nyaarium.switchboard.placeTitle
+import com.atelier_nyaarium.switchboard.stripModule
 import com.atelier_nyaarium.switchboard.targetOf
 import kotlinx.coroutines.launch
 
@@ -85,68 +90,93 @@ internal fun WorkspaceScreen(
 			onPush(WorkspacePlace.Windows)
 		}
 	}
+	// A facet's showing lives while its place is on the stack, so Back returns to drawn rows.
+	for (kept in stack.filterIsInstance<WorkspacePlace.Facet>().distinct()) {
+		key(kept) {
+			LaunchedEffect(target.key, kept) { repo.symbolViews.keepFacet(target, kept.symbolId, kept.entry.facet) }
+			stripModule(kept)?.let { module ->
+				LaunchedEffect(target.key, module) { repo.symbolViews.keepFileHistory(target, module) }
+			}
+		}
+	}
 
+	// Per place, so two drawn by one branch never share a scroll.
+	val screens = rememberSaveableStateHolder()
 	Column(modifier.fillMaxSize()) {
-		when (place) {
-			is WorkspacePlace.Tree -> WorkspaceTree(
-				fileOps = repo.fileOps,
-				requests = repo.sessionRequests,
-				target = target,
-				session = session.shortName,
-				path = place.path,
-				openWindows = windows.size,
-				onOpenDirectory = { onPush(WorkspacePlace.Tree(it)) },
-				onOpenFolder = { onJump(WorkspacePlace.Tree(it)) },
-				onOpenOutline = { onPush(WorkspacePlace.Outline(it)) },
-				onOpenRaw = { onPush(WorkspacePlace.Raw(it)) },
-				onOpenWindows = { onPush(WorkspacePlace.Windows) },
-			)
-			is WorkspacePlace.Outline -> WorkspaceOutline(
-				views = repo.symbolViews,
-				asks = repo.windowRequests,
-				target = target,
-				path = place.path,
-				held = windows,
-				onOpenFolder = { onJump(WorkspacePlace.Tree(it)) },
-				onOpenDetail = { id -> onPush(WorkspacePlace.Detail(id, place.path)) },
-				onOpenWindow = { id -> scope.launch { repo.windowOps.openWindow(target, id) } },
-				onOpenRaw = { onPush(WorkspacePlace.Raw(place.path)) },
-				onOpenWindows = { onPush(WorkspacePlace.Windows) },
-			)
-			is WorkspacePlace.Raw -> {
-				BackLine(placeTitle(place), onPop)
-				WorkspaceRawFile(repo.rawFileOps, target, place.path)
-			}
-			is WorkspacePlace.Detail -> {
-				BackLine(placeTitle(place), onPop)
-				SymbolDetail(
+		screens.SaveableStateProvider(placeKey(place)) {
+			when (place) {
+				is WorkspacePlace.Tree -> WorkspaceTree(
+					fileOps = repo.fileOps,
+					requests = repo.sessionRequests,
+					target = target,
+					session = session.shortName,
+					path = place.path,
+					openWindows = windows.size,
+					onOpenDirectory = { onPush(WorkspacePlace.Tree(it)) },
+					onOpenFolder = { onJump(WorkspacePlace.Tree(it)) },
+					onOpenOutline = { onPush(WorkspacePlace.Outline(it)) },
+					onOpenRaw = { onPush(WorkspacePlace.Raw(it)) },
+					onOpenWindows = { onPush(WorkspacePlace.Windows) },
+				)
+				is WorkspacePlace.Outline -> WorkspaceOutline(
 					views = repo.symbolViews,
-					ops = repo.windowOps,
+					asks = repo.windowRequests,
 					target = target,
-					symbolId = place.symbolId,
-					onOpenWindow = {
-						scope.launch { repo.windowOps.openWindow(target, place.symbolId) }
-						onPush(WorkspacePlace.Windows)
-					},
+					path = place.path,
+					held = windows,
+					now = repo.ambient.now,
+					onOpenFolder = { onJump(WorkspacePlace.Tree(it)) },
+					onOpenDetail = { id, name -> onPush(WorkspacePlace.Detail(id, place.path, name)) },
+					onOpenWindow = { id -> scope.launch { repo.windowOps.openWindow(target, id) } },
+					onOpenRaw = { onPush(WorkspacePlace.Raw(place.path)) },
+					onOpenWindows = { onPush(WorkspacePlace.Windows) },
 				)
-			}
-			WorkspacePlace.Windows -> {
-				BackLine(placeTitle(place), onPop)
-				WindowView(
-					ops = repo.windowOps,
+				is WorkspacePlace.Raw -> {
+					BackLine(placeTitle(place), onPop)
+					WorkspaceRawFile(repo.rawFileOps, target, place.path)
+				}
+				is WorkspacePlace.Detail -> {
+					BackLine(backTitle(stack), onPop)
+					SymbolDetail(
+						views = repo.symbolViews,
+						ops = repo.windowOps,
+						target = target,
+						place = place,
+						now = repo.ambient.now,
+						onOpen = onPush,
+						onOpenWindow = {
+							scope.launch { repo.windowOps.openWindow(target, place.symbolId) }
+							onPush(WorkspacePlace.Windows)
+						},
+					)
+				}
+				is WorkspacePlace.Facet -> FacetScreen(
+					views = repo.symbolViews,
 					target = target,
-					windows = windows,
-					ask = ask,
-					onDismissAsk = { repo.windowRequests.dismiss(target) },
-					onClose = { repo.windowOps.closeWindow(target, it) },
+					place = place,
+					backTitle = backTitle(stack),
+					now = repo.ambient.now,
+					onBack = onPop,
+					onOpen = onPush,
 				)
+				WorkspacePlace.Windows -> {
+					BackLine(placeTitle(place), onPop)
+					WindowView(
+						ops = repo.windowOps,
+						target = target,
+						windows = windows,
+						ask = ask,
+						onDismissAsk = { repo.windowRequests.dismiss(target) },
+						onClose = { repo.windowOps.closeWindow(target, it) },
+					)
+				}
 			}
 		}
 	}
 }
 
 @Composable
-private fun BackLine(title: String, onBack: () -> Unit) {
+internal fun BackLine(title: String, onBack: () -> Unit) {
 	Row(
 		Modifier.fillMaxWidth().clickable(onClick = hapticClick(onBack)).padding(horizontal = 12.dp, vertical = 12.dp),
 		horizontalArrangement = Arrangement.spacedBy(10.dp),

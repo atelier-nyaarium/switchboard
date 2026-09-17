@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.atelier_nyaarium.switchboard.FacetState
 import com.atelier_nyaarium.switchboard.Submitted
 import com.atelier_nyaarium.switchboard.SymbolViews
 import com.atelier_nyaarium.switchboard.Window
@@ -45,6 +46,8 @@ import com.atelier_nyaarium.switchboard.WindowRequests
 import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
 import com.atelier_nyaarium.switchboard.crumbsOf
+import com.atelier_nyaarium.switchboard.fileHistoryState
+import com.atelier_nyaarium.switchboard.fileStrip
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.holdsWindow
 import com.atelier_nyaarium.switchboard.linesText
@@ -64,22 +67,26 @@ internal fun WorkspaceOutline(
 	target: WorkspaceTarget,
 	path: String,
 	held: List<Window>,
+	now: () -> Long,
 	onOpenFolder: (String) -> Unit,
-	onOpenDetail: (String) -> Unit,
+	onOpenDetail: (String, String) -> Unit,
 	onOpenWindow: (String) -> Unit,
 	onOpenRaw: () -> Unit,
 	onOpenWindows: () -> Unit,
 	modifier: Modifier = Modifier,
 ) {
 	val shown by views.outlineViews.collectAsState()
+	val histories by views.fileHistoryViews.collectAsState()
 	val requests by asks.requests.collectAsState()
 	val answer = shown[target to path]?.outline
 	val outline = (answer as? WorkspaceAnswer.Read)?.value
+	val history = fileHistoryState(path, histories[target to path]?.answer)
 	var kind by remember(target.key, path) { mutableStateOf<String?>(null) }
 	var typed by rememberSaveable(target.key, path) { mutableStateOf("") }
 	var notice by remember(target.key, path) { mutableStateOf<String?>(null) }
 	val scope = rememberCoroutineScope()
 	LaunchedEffect(target.key, path) { views.keepOutline(target, path) }
+	LaunchedEffect(target.key, path) { views.keepFileHistory(target, path) }
 
 	Column(modifier.fillMaxSize()) {
 		Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)) {
@@ -102,6 +109,8 @@ internal fun WorkspaceOutline(
 					)
 				}
 			}
+			// Hidden unless it lands: a history the session cannot answer says nothing about the file.
+			(history as? FacetState.Shown)?.let { FileHistoryStrip(remember(it.value) { fileStrip(it.value, now()) }) }
 			Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
 				OutlinedTextField(
 					value = typed,
@@ -155,7 +164,7 @@ internal fun WorkspaceOutline(
 								symbol = symbol,
 								depth = depths[symbol.symbolId] ?: 0,
 								windowed = holdsWindow(held, symbol.symbolId),
-								onClick = { onOpenDetail(symbol.symbolId) },
+								onClick = { onOpenDetail(symbol.symbolId, symbol.name) },
 								onLongClick = { onOpenWindow(symbol.symbolId) },
 							)
 							HorizontalDivider()

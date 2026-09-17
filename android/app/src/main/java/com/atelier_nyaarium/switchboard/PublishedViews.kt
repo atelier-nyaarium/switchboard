@@ -1,5 +1,9 @@
 package com.atelier_nyaarium.switchboard
 
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,6 +18,12 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 	/** Where work began. Opaque, so no caller compares its parts. */
 	class Showing<K> internal constructor(val key: K, internal val token: Any, internal val generation: Long)
 
+	/**
+	 * A showing, and whether this call started it. Only the starter loads, or two keepers arriving on one
+	 * key each read it.
+	 */
+	class Opened<K> internal constructor(val showing: Showing<K>, val started: Boolean)
+
 	/** Tokens, keepers and `drawn` change only under it, so no reader sees one moved without the others. */
 	private val lock = Any()
 
@@ -21,6 +31,9 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 
 	/** Outlives a clear: a kept screen shows its key again. */
 	private val keepers = HashMap<K, Int>()
+
+	/** A showing's read, held by its key rather than by the keeper that started it. */
+	private val reads = HashMap<K, Job>()
 
 	private val drawn = MutableStateFlow<Map<K, V>>(emptyMap())
 
@@ -30,12 +43,18 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 	fun of(key: K): V? = drawn.value[key]
 
 	/** Joins the showing of `key` already open, or starts one drawn as `initial`. */
-	fun show(key: K, initial: () -> V): Showing<K> =
-		synchronized(lock) { start(key, tokens.getOrPut(key) { Any() }, initial) }
+	fun show(key: K, initial: () -> V): Opened<K> =
+		synchronized(lock) {
+			val started = key !in drawn.value
+			Opened(start(key, tokens.getOrPut(key) { Any() }, initial), started)
+		}
 
-	/** A new showing that ends any before it, keeping what is drawn. */
+	/** A new showing that ends any before it, its read included, keeping what is drawn. */
 	fun reshow(key: K, initial: () -> V): Showing<K> =
-		synchronized(lock) { start(key, Any().also { tokens[key] = it }, initial) }
+		synchronized(lock) {
+			reads.remove(key)?.cancel()
+			start(key, Any().also { tokens[key] = it }, initial)
+		}
 
 	private fun start(key: K, token: Any, initial: () -> V): Showing<K> {
 		if (key !in drawn.value) drawn.value = drawn.value + (key to initial())
@@ -67,17 +86,19 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 			view
 		}
 
-	/** Shows `key` while the caller runs, and loads it again whenever a re-provision clears it. */
+	/**
+	 * Shows `key` while the caller runs, and loads it again whenever a re-provision clears it. A second
+	 * keeper of one key joins what is drawn and loads nothing.
+	 */
 	suspend fun keep(key: K, initial: () -> V, load: suspend (Showing<K>) -> Unit) {
 		synchronized(lock) { keepers[key] = (keepers[key] ?: 0) + 1 }
 		try {
 			coroutineScope {
-				all.collect { views ->
-					// Shown before the next value, since a conflated collector can miss a present one.
-					if (key !in views) {
-						val showing = show(key, initial)
-						launch { load(showing) }
-					}
+				all.collect {
+					// Asked of every value, since a conflated collector can miss a present one, and asked
+					// rather than read off the value, which another keeper can be between.
+					val opened = show(key, initial)
+					if (opened.started) read(opened.showing) { load(opened.showing) }
 				}
 			}
 		} finally {
@@ -93,18 +114,57 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 		}
 	}
 
+	/**
+	 * The showing's read, parented to a job of its own rather than to the keeper that started it: a keeper
+	 * leaving while others remain must not take the read with it. The last keeper leaving, a `leave` and a
+	 * `clear` are what end one.
+	 */
+	private fun CoroutineScope.read(showing: Showing<K>, load: suspend () -> Unit) {
+		val job = launch(Job(), CoroutineStart.LAZY) {
+			try {
+				load()
+			} catch (e: CancellationException) {
+				reopen(showing)
+				throw e
+			} catch (e: Exception) {
+				// Reopening a read that throws would ask again at once, and again.
+				DebugLog.log("PublishedViews", "read failed: ${e.message}")
+			}
+		}
+		synchronized(lock) {
+			if (!currentLocked(showing)) {
+				job.cancel()
+				return
+			}
+			reads.put(showing.key, job)?.cancel()
+		}
+		job.invokeOnCompletion { synchronized(lock) { if (reads[showing.key] === job) reads.remove(showing.key) } }
+		job.start()
+	}
+
+	/** A read that ended without finishing draws nothing, so the keepers left ask for another. */
+	private fun reopen(showing: Showing<K>) {
+		synchronized(lock) {
+			if (!currentLocked(showing) || showing.key !in keepers) return
+			drawn.value = drawn.value - showing.key
+		}
+	}
+
 	fun leave(key: K) {
 		synchronized(lock) { leaveLocked(key) }
 	}
 
 	private fun leaveLocked(key: K) {
 		tokens.remove(key)
+		reads.remove(key)?.cancel()
 		drawn.value = drawn.value - key
 	}
 
 	fun clear() {
 		synchronized(lock) {
 			tokens.clear()
+			for (job in reads.values) job.cancel()
+			reads.clear()
 			drawn.value = emptyMap()
 		}
 	}

@@ -164,8 +164,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../ChatRepository.kt` - console process singleton and OwnerOp client
 - `android/.../GatewayRegistry.kt` - the Router's roster as the phone holds it: provenance, per-Gateway answers, and the reads the views use; `docs/console.md` holds the rules
 - `android/.../PhoneIdentity.kt` / `PhoneBootstrap.kt` / `PhoneAmbient.kt` - the one door for identity facts, the boot value it publishes, and the ambient record (clock, entropy, ids, timer)
-- `android/.../SandboxSeeder.kt` - the emulator build's seam: `isSandbox`, the identity facts a
-  sandbox boot needs, and the canned state it publishes
+- `android/.../SandboxSeeder.kt` / `SandboxGateways.kt` / `SandboxModules.kt` / `SandboxFacets.kt` - the
+  emulator build's seam: `isSandbox`, the identity facts a sandbox boot needs, the canned state it
+  publishes, the Gateway answers as ports rather than sockets, one canned module per path, and each
+  drill-in derived from those modules. `docs/testing.md` holds the case table and what it cannot show
+  - **A count is derived from the rows it names, never declared beside them:** `SandboxFacetsTest`
+    asserts every count equals what its drill-in lists, so no screen claims a number the next contradicts.
+    `HubRegistry` is the one exception, since a too-large drill-in lists nothing to count.
 - `android/.../RepositoryPorts.kt` / `RepositoryCollaborators.kt` - role ports for the ops classes and their repository adapters
 - `android/.../Message.kt` / `MessageFile.kt` / `MessageText.kt` / `Draft.kt` / `ThreadOps.kt` / `ReadAnchor.kt` / `ChatState.kt` / `ConnError.kt` / `FederationTypes.kt` / `ScheduledSend.kt` - repository value types and pure helpers
 - `android/.../ChatPersistence.kt` - JSON codec between repository state and AppStateStore
@@ -305,10 +310,28 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     nothing an older answer could overwrite exists. A read a screen draws is not fenced either: it lands
     through its `PublishedViews` showing.
 - `android/.../WindowOps.kt` / `WindowRules.kt` / `WindowRequests.kt` / `SymbolViews.kt` / `KnowledgeRules.kt` / `SessionRequests.kt` / `RawFileOps.kt` /
-  `RawFileRules.kt` / `WorkspaceFileOps.kt` / `FileOpRules.kt` / `HeldEdits.kt` / `PublishedViews.kt` /
+  `RawFileRules.kt` / `WorkspaceFileOps.kt` / `FileOpRules.kt` / `FacetRules.kt` / `CodePaint.kt` / `HeldEdits.kt` / `PublishedViews.kt` /
   `WorkspaceDraftStore.kt` / `WorkspacePorts.kt` / `WorkspaceFileTable.kt` / `WorkspaceNav.kt` / `workspace/` - a
-  conversation's Files: the open windows, the raw files being edited, the file operations, their drafts, every
-  rule the surface applies, the place rules, and the five screens. `docs/console.md` holds the whole of it
+  conversation's Files: the open windows, the raw files being edited, the file operations, their drafts, the
+  drill-ins and their paint, every rule the surface applies, the place rules, and the screens.
+  `docs/console.md` holds the whole of it
+  - **One drill-in screen, three bodies:** `workspace/FacetScreen.kt` is the frame (back line, title,
+    subtitle, notices) and dispatches on the answer's class to `FacetUses.kt` (References, Used by, Uses)
+    or `FacetLists.kt` (members, hierarchy, comments, history, and the outline's file-history strip).
+  - **A facet's showing lives while its place is on the Files stack:** kept by `WorkspaceScreen` for each
+    distinct `Facet` place rather than by the screen that draws it, so Back returns to drawn rows. The
+    screen state beside it, the grouping, the chosen chip and the scroll, is held by a
+    `SaveableStateHolder` keyed by `placeKey`, since a place that leaves composition loses a
+    `rememberSaveable` and two places drawn by one branch would otherwise share one.
+  - **Every drill-in decision is in `FacetRules`, none in a Composable:** the fact rows and their units,
+    the grouping and its keys, the role chips, the hierarchy column, the comment and commit items, the
+    file stats, the ages, the notices and the detail's item order. `countText` and `whereText` are the one
+    reading of a count and of `module : line`, so two screens cannot group digits or name a line
+    differently.
+  - **`CodePaint` owns the wire's tokens and the mocks' palette:** `CodeToken`'s ordinal is the contract,
+    pinned by `tests/fixtures/code-spans/vectors.json`, and `styleOf` has no else branch, so a token added
+    to the wire is a compile error. `USE_ROW_COLUMNS` sits under what a phone row draws, or the ellipsis
+    eats the underlined name the row exists to show.
   - **A message the phone composes for a session goes through `SessionRequests`:** claimed by address, kind
     and subject before it is sent, so a repeat tap sends nothing while one is out. Agent Apply and a
     knowledge Ask both take it; a new composed message is a `RequestKind`, not a new guard.
@@ -338,7 +361,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     generation, and `update` and `claim` land only on a current one. The raw editor's and the tree's maps each
     hand-wrote this guard and each missed a case of it. A screen shown while composed goes through `keep`,
     and every token, keeper count and drawn view changes under its one lock: split across three structures,
-    they disagreed three different ways.
+    they disagreed three different ways. A showing's read belongs to the key, under a job of its own: one
+    keeper of two leaving must not take the read with it, and only `show` answering as the starter may
+    begin one, or two keepers each read the same key.
   - **A file operation is armed from a state read, confirmed once, and read back rather than resent:**
     `WorkspaceFileOps` builds the mutation only from the facts the confirmation showed, a folder's claim is
     taken once, and `settledOf` decides an unanswered one.

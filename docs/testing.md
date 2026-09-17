@@ -148,6 +148,42 @@ schema and derives the manifest from it. `check:fixtures` validates every commit
 manifest entry on both sides. The n-th random draw of a case is the first N bytes of
 `sha256("<producer>:<composer>:<case>:<n>")`, recorded in `inputs`.
 
+## The emulator sandbox
+
+The `emulator` variant draws every phone screen with no onboarding and no Gateway, so a screen that
+appears only on a refusal is reachable at all. `SandboxSeeder.kt` holds the boot and the network
+doors; `SandboxGateways.kt` answers the Gateway calls as ports rather than sockets, and
+`SandboxModules.kt` holds one canned module per path, so the Files tree walks real folders rather
+than answering one outline for every file. `SandboxFacets.kt` derives each drill-in from those
+modules, and `SandboxFacetsTest` asserts every count equals what its drill-in lists, so a screen
+cannot claim a number the next screen contradicts.
+
+| case | module | shows |
+|---|---|---|
+| `LocalBackendSession` | `src/mcp/local/localAgentSession.ts` | every fact row with a count: 13 uses over 7 files, 8 dependents, 2 bound targets, 7 members, 3 implementations, 5 comments, 3 commits |
+| reached use | `LocalAgentHandlers.start` | the reached card, the jump to its line, and a source window opening at the declaration |
+| zero rows | `LOCAL_IDLE_REAP_MS` | every dim row: `none`, `not a type`, no chevron |
+| unresolved base | `SourceMoved` in `mutateFile.ts` | a dashed hierarchy node that does not open |
+| Kotlin | `crypto/ContentSealing.kt` | Kotlin spans, two subtypes in two files, and deep paths cut at the front |
+| hub | `src/hub/hub.ts` `hubEvent` | 1,200 uses over 90 files, sticky group headers, module-level uses |
+| too large | `HubRegistry` | the two refusals: rows with a size, and rows as a floor |
+| older plugin | `src/shared/schemasRoutine.ts` | knowledge without counts, so the facts read as `Legacy` and nothing opens |
+| untracked | `scratch/probe.ts` | `untracked` on the row and on the outline strip |
+| second session | `.other` | every workspace read refused |
+
+Each seeded Gateway answers differently, or a grouping bug has nowhere to show: one holds the full
+set, one holds the same record ids as different records in another zone, and one answers empty,
+which is not a Gateway that could not be read.
+
+**What it cannot show.** The sandbox answers after a round trip rather than at once, which is what
+makes a screen keyed on its own load visible here, but it is still one process with no socket: a
+dropped plane, a re-provision landing mid-read, a stale fence and a Gateway that answers slowly are
+none of them reachable. Those live in the JVM benches beside their ops classes. No gate here renders
+a Composable either, since there is no `androidTest` source set, so layout, sticky headers, scroll
+restoration and every colour are proven by the walk in `plans/lexicon-phone-editing/` against the
+mocks, and the decisions behind them are pulled out into `FacetRules`, `CodePaint` and
+`WorkspaceNav`, where a JVM test can call them.
+
 ## Wire vocabulary
 
 `src/shared/wire-vocabulary.ts` declares the Router paths, the console header and Bearer prefix,

@@ -3,11 +3,8 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.ConsolePolicyDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsolePolicyPutResult
-import com.atelier_nyaarium.switchboard.proto.PolicyBinding
-import com.atelier_nyaarium.switchboard.proto.RefFileMeta
-import com.atelier_nyaarium.switchboard.proto.RefKeyMeta
-import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineDeleteResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineNextResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineOccurrenceResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutinePutResult
@@ -17,6 +14,9 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookFireResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookPutResult
+import com.atelier_nyaarium.switchboard.proto.PolicyBinding
+import com.atelier_nyaarium.switchboard.proto.RefFileMeta
+import com.atelier_nyaarium.switchboard.proto.RefKeyMeta
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineAttention
 import com.atelier_nyaarium.switchboard.proto.RoutineMiss
@@ -317,8 +317,14 @@ internal fun sandboxWindowsReply(text: String, now: Long): Message? {
 	)
 }
 
+private val KNOWLEDGE_QUESTIONS = listOf("describe", "why", "relate", "contract", "effects", "usage")
+
 /** A canned workspace, so every workspace screen draws with no session to reach. */
-internal class SandboxWorkspaceGateway : WorkspaceGateway {
+internal class SandboxWorkspaceGateway(now: () -> Long) : WorkspaceGateway {
+	private val modules = sandboxModules()
+
+	private val facets = SandboxFacets(modules, now)
+
 	private val file = listOf(
 		"import { z } from \"zod\";",
 		"",
@@ -337,23 +343,23 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 
 	private fun idOf(name: String) = "lexicon typescript $module $name."
 
+	private suspend fun <T> asSeeded(target: WorkspaceTarget, answer: () -> T): WorkspaceAnswer<T> =
+		seeded(target) { WorkspaceAnswer.Read(answer()) }
+
 	/**
 	 * Keyed by SESSION, which is what a workspace belongs to. One of the two seeded sessions refuses,
 	 * so the refusal notice is reachable; the empty Gateway holds no session to ask.
 	 */
-	private suspend fun <T> asSeeded(target: WorkspaceTarget, answer: () -> T): WorkspaceAnswer<T> {
+	private suspend fun <T> seeded(target: WorkspaceTarget, answer: () -> WorkspaceAnswer<T>): WorkspaceAnswer<T> {
 		delay(WORKSPACE_ROUND_TRIP_MS)
-		return if (target.address.endsWith(".other")) {
-			WorkspaceAnswer.Refused("this workspace is not served here")
-		} else {
-			WorkspaceAnswer.Read(answer())
-		}
+		return if (target.address.endsWith(".other")) notServed else answer()
 	}
 
 	/** The plugin's rules over a canned tree. `src/generated` stays empty for its notice. */
 	private val table = WorkspaceFileTable(
-		folders = listOf("src", "src/generated", "src/shared"),
-		files = listOf("AGENTS.md", READ_ONLY_FILE, UNHASHED_FILE, module, MANY_KINDS_FILE).associateWith { file.joinToString("\n") },
+		folders = listOf("src", "src/generated", "src/shared") + sandboxFolders(modules.keys),
+		files = listOf("AGENTS.md", READ_ONLY_FILE, UNHASHED_FILE, module, MANY_KINDS_FILE)
+			.associateWith { file.joinToString("\n") } + modules.mapValues { it.value.text },
 	)
 
 	private suspend fun served(target: WorkspaceTarget): Boolean {
@@ -403,12 +409,15 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 		return WorkspaceAnswer.Read(if (shown.path == UNHASHED_FILE) shown.copy(hash = null, identity = null) else shown)
 	}
 
-	override suspend fun symbolFacet(target: WorkspaceTarget, symbolId: String, facet: WorkspaceFacet) = notServed
+	override suspend fun symbolFacet(target: WorkspaceTarget, symbolId: String, facet: WorkspaceFacet) =
+		seeded(target) { facets.facet(symbolId, facet) }
 
-	override suspend fun fileHistory(target: WorkspaceTarget, path: String) = notServed
+	override suspend fun fileHistory(target: WorkspaceTarget, path: String) =
+		seeded(target) { facets.fileHistory(table.canonical(path) ?: path) }
 
+	/** No canned scope, refused after the round trip. */
 	override suspend fun knowledgeScope(target: WorkspaceTarget, scope: WorkspaceKnowledgeScopeTarget, includeLocals: Boolean) =
-		notServed
+		seeded(target) { notServed }
 
 	/** AGENTS.md always reads as moved on a write, so the stale banner is reachable. */
 	override suspend fun mutateFile(
@@ -428,8 +437,67 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 		"interface" to 1, "enum" to 1,
 	).flatMap { (kind, count) -> (1..count).map { kind to "$kind$it" } }
 
+	private fun outlineOf(canned: SandboxModule) = WorkspaceOutlineAnswer(
+		path = canned.path,
+		root = SANDBOX_ROOT,
+		lines = canned.lines.size.toLong(),
+		symbols = canned.symbols.map {
+			WorkspaceOutlineSymbol(
+				symbolId = it.symbolId,
+				name = it.name,
+				symbolKind = it.kind,
+				containerId = it.containerId,
+				signature = it.signature,
+				startLine = it.startLine,
+			)
+		},
+	)
+
+	private fun sourceOf(canned: SandboxModule, symbol: SandboxSymbol): WorkspaceSymbolSourceAnswer {
+		val from = (symbol.startLine - 1).toInt().coerceIn(0, canned.lines.size)
+		val to = symbol.endLine.toInt().coerceIn(from, canned.lines.size)
+		val span = canned.lines.subList(from, to)
+		return WorkspaceSymbolSourceAnswer(
+			symbolId = symbol.symbolId,
+			module = canned.path,
+			name = symbol.name,
+			text = span.joinToString("\n"),
+			startLine = symbol.startLine,
+			endLine = symbol.endLine,
+			spanHash = "sandbox-${symbol.symbolId.hashCode()}",
+			container = symbol.containerId?.let { id -> canned.symbols.firstOrNull { it.symbolId == id }?.name },
+			spans = span.map { sandboxSpans(canned.language, it) },
+		)
+	}
+
+	/** Every question, none recorded, as a symbol nobody has written about answers. */
+	private fun knowledgeOf(canned: SandboxModule, symbol: SandboxSymbol): WorkspaceKnowledgeAnswer {
+		val counts = facets.counts(symbol.symbolId)
+		return WorkspaceKnowledgeAnswer(
+			symbolId = symbol.symbolId,
+			name = symbol.name,
+			symbolKind = symbol.kind,
+			module = canned.path,
+			documentation = facets.documentation(symbol.symbolId),
+			answers = KNOWLEDGE_QUESTIONS.map { WorkspaceKnowledgeEntry(question = it) },
+			facts = counts?.let {
+				WorkspaceKnowledgeFacts(
+					members = it.members,
+					references = it.uses,
+					fanIn = it.dependents,
+					fanOut = it.targets,
+					supertypes = it.supertypes,
+					subtypes = it.subtypes,
+					comments = it.comments,
+					counts = it,
+				)
+			},
+		)
+	}
+
 	override suspend fun outline(target: WorkspaceTarget, path: String) =
 		asSeeded(target) {
+			modules[table.canonical(path)]?.let { return@asSeeded outlineOf(it) }
 			if (table.canonical(path) == MANY_KINDS_FILE) {
 				return@asSeeded WorkspaceOutlineAnswer(
 					path = path,
@@ -470,6 +538,7 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 
 	override suspend fun symbolSource(target: WorkspaceTarget, symbolId: String) =
 		asSeeded(target) {
+			facets.symbolOf(symbolId)?.let { (canned, symbol) -> return@asSeeded sourceOf(canned, symbol) }
 			val wholeFunction = symbolId.contains("routineRefusal")
 			val start = if (wholeFunction) 6 else 3
 			val end = if (wholeFunction) 11 else 4
@@ -486,6 +555,7 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 
 	override suspend fun knowledge(target: WorkspaceTarget, symbolId: String) =
 		asSeeded(target) {
+			facets.symbolOf(symbolId)?.let { (canned, symbol) -> return@asSeeded knowledgeOf(canned, symbol) }
 			val refusal = symbolId.contains("routineRefusal")
 			WorkspaceKnowledgeAnswer(
 				symbolId = symbolId,
