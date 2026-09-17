@@ -98,6 +98,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   the loop that walks one; `compose/composeRoutines.ts` arms it from federation activation
   - **`advance` is the only door:** the timer, the reconcile tick, Run missed and a pressed Run all
     enter there, so none of them can walk an occurrence another is already walking.
+  - **`rearm` wakes for what follows the clock reading the walk used, never a fresh one:** a platform
+    timer runs a hair before its instant, so the walk it woke finds the slot still ahead; a fresh
+    reading past the slot names the week after, and the slot waits on the reconcile tick.
+    `routine-runner.test.ts` pins it.
   - **`dispatched` is written before delivery is attempted:** a crash between them loses the run
     visibly rather than repeating it, which is the at-most-once choice. Enablement and the deadline
     are re-read immediately before that write, since preparation is awaited.

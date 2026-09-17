@@ -64,10 +64,13 @@ one scenario never mint the same nonce. Its timers have two drives:
   promises a real elapsed second would have settled do settle. A timer that throws still lets the
   rest of that move's due timers run, then rejects the `advance`. `startFederationHarness({ drive:
   "manual" })` selects it; the fake is exposed as `h.ambient` for the harness's own Gateway,
-  `h.routerAmbient` for the Router, and `peer.ambient` for a Domain added with `addDomain`.
+  `h.routerAmbient` for the Router, and `peer.ambient` for a Domain added with `addDomain`. A
+  scenario that moves the harness `now` by hand leaves held intervals behind it; `advance(0)` then
+  fires each once and resumes it from the clock, as a platform interval does after a suspended
+  process, rather than once per period missed.
 
-Only a scenario that must move a deadline needs manual drive. The handshake re-send window and the
-handshake expiry sweep are the two that do.
+Only a scenario that must move a deadline needs manual drive. The handshake re-send window, the
+handshake expiry sweep, and a routine's own timer reaching its slot are the three that do.
 
 The fake host is also the Codex daemon. It answers `codex_command` frames through a responder:
 `stockCodexResponder` accepts and completes at once, and a scenario installs its own for a running

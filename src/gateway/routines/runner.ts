@@ -302,29 +302,34 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			// Deletion is root-first, so a failed clear leaves memory nothing can reach. This collects it.
 			sweepMemory?.(new Set(routines.list().flatMap((r) => (r.incarnation ? [r.incarnation] : []))));
 		} finally {
-			rearm();
+			rearm(now);
 		}
 	}
 
-	/** The earliest thing worth waking for, whether a deadline or a due instant. */
-	function earliest(): number | null {
-		const now = ambient.now();
+	/** The earliest thing worth waking for after `from`, whether a deadline or a due instant. */
+	function earliest(from: number): number | null {
 		const instants: number[] = [];
 		for (const occurrence of occurrences.all()) {
 			if (occurrence.state === "waiting_idle") instants.push(occurrence.deadlineAt);
 		}
 		for (const routine of routines.list()) {
-			const at = nextAt(routine, now);
+			const at = nextAt(routine, from);
 			if (at !== null) instants.push(at);
 		}
 		return instants.length === 0 ? null : Math.min(...instants);
 	}
 
-	function rearm(): void {
+	/**
+	 * Wakes for whatever comes after `from`, the instant the caller's walk read the clock at. A
+	 * platform timer can run a hair before its instant, so a walk woken for a slot can find it still
+	 * ahead; read afresh here, the clock may have crossed it meanwhile, and the slot would be skipped
+	 * until the next tick.
+	 */
+	function rearm(from: number): void {
 		if (timer) ambient.clearTimer(timer);
 		timer = null;
 		if (!admitting) return;
-		const at = earliest();
+		const at = earliest(from);
 		if (at === null) return;
 		const delay = Math.max(0, at - ambient.now());
 		timer = chainedTimer(ambient, delay, () => fireAndForget("routine sweep", queue(sweepDue))).handle();
@@ -379,7 +384,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 				await advance(made);
 				// A pressed run can land waiting on a busy session, and its deadline is a new instant
 				// worth waking for.
-				rearm();
+				rearm(at);
 				// What became of it, not that a row was opened: preparation is awaited, and a deadline
 				// or a moved revision can settle it first.
 				const settled = occurrences.at(routineId, at)?.state;

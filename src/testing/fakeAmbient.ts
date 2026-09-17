@@ -111,7 +111,8 @@ export function fakeAmbient(options: FakeAmbientOptions = {}): FakeAmbient {
 				if (!entry) break;
 				setClock(entry.at);
 				if (entry.everyMs === null) held.delete(entry.id);
-				else entry.at += entry.everyMs;
+				// Left behind by a hand-moved base: once, then from now.
+				else entry.at = Math.max(entry.at, now()) + entry.everyMs;
 				try {
 					entry.run();
 				} catch (error) {

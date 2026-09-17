@@ -12,8 +12,8 @@ import { type FederationHarness, startFederationHarness } from "../testing/feder
 /** Mondays at 09:00 UTC. */
 const FIRST = Date.parse("2026-09-14T09:00:00Z");
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-/** Under the harness's ten-second wait, with room for the save's round trip. */
-const HEADROOM_MS = 5_000;
+/** How far ahead of its first slot the routine is saved. */
+const LEAD_MS = 5_000;
 const TEAM = "host.routine-triage";
 
 const routine: Routine = {
@@ -49,18 +49,12 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 	let reserved: FakeSession | undefined;
 	let creations = 0;
 	/**
-	 * Real time, moved to wherever the scenario says. It has to flow rather than stand still: a timer
-	 * the runner arms fires against a real clock, and a frozen one would never reach its own instant.
-	 * It starts a few seconds before the first slot, wide enough that the routine is saved before the
-	 * slot passes, since a routine is never handed a run from before it existed. The headroom is
-	 * measured from the save itself, not from the harness being up, or a slow put on a loaded runner
-	 * lands the routine after its slot and its timer arms a week out.
+	 * The clock every part of the harness reads, and only this file moves it. Under manual drive
+	 * nothing fires on its own: a timer the gateway armed runs when `passTo` carries the clock past
+	 * its instant, and never at any other moment.
 	 */
-	let offset = FIRST - HEADROOM_MS - Date.now();
-	const rewind = (): void => {
-		offset = FIRST - HEADROOM_MS - Date.now();
-	};
-	const now = (): number => Date.now() + offset;
+	let clock = FIRST - LEAD_MS;
+	const now = (): number => clock;
 	/** Minted per launch. A reconnecting plugin presents the one its record still holds. */
 	let token: string | undefined;
 
@@ -77,6 +71,7 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 	beforeAll(async () => {
 		h = await startFederationHarness({
 			now,
+			drive: "manual",
 			wakeTimeoutMs: 300,
 			host: {
 				onCreateSession: (op) => {
@@ -90,7 +85,6 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 				},
 			},
 		});
-		rewind();
 	}, 30_000);
 
 	afterAll(async () => {
@@ -98,9 +92,15 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 		if (h) await h.close();
 	});
 
+	/** Time passes to `instant`, and whatever the gateway armed for an instant now behind it fires. */
+	const passTo = async (instant: number): Promise<void> => {
+		clock = instant;
+		await h.ambient.advance(0);
+	};
+
 	/** Time passed and the gateway looks again. Nothing swept in between, which is the honest gap. */
 	const at = async (instant: number): Promise<void> => {
-		offset = instant - Date.now();
+		clock = instant;
 		await h.gateway.faults.sweepRoutines();
 	};
 
@@ -126,15 +126,16 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 			},
 		});
 		expect(stored.result).toMatchObject({ stored: true });
-		rewind();
 		expect((await h.phone.value({ kind: "routine_put", routine })).result).toMatchObject({ stored: true });
 
-		// No sweep is asked for here. Saving rearms, and the timer it armed asks the host for the
-		// session, which nothing else in this test could have done.
+		// No sweep is asked for here. Saving rearms, and the clock reaching the slot fires the timer
+		// it armed, which asks the host for the session; nothing else in this test could have done that.
+		await passTo(FIRST);
 		await h.waitFor(async () => creations === 1 || undefined, "the session its own timer asked for");
 
-		// A session being launched is not one that can be nudged yet, so the run lands on the look after.
-		await at(FIRST + 60_000);
+		// A session just launched is woken before it can be nudged, and the nudge lands once that
+		// wake has settled.
+		await passTo(FIRST + 60_000);
 		await h.waitFor(async () => nudges(FIRST) === 1 || undefined, "the first nudge");
 		expect((await shown())?.lastRanAt).toBe(FIRST);
 	});
@@ -340,12 +341,14 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 		reserved?.close();
 		reserved = undefined;
 
+		// The look that makes the session again also wakes it, and waits on that wake settling. Made
+		// rather than reattached, so the nudge lands once the clock has carried the settle along.
 		const slot = FIRST + 7 * WEEK_MS;
-		await at(slot + 60_000);
-
+		clock = slot + 60_000;
+		const looked = h.gateway.faults.sweepRoutines();
 		await h.waitFor(async () => (creations > before ? creations : undefined), "the session made again");
-		// Made rather than reattached, so this run lands on the look after, as the first one did.
-		await at(slot + 120_000);
+		await passTo(slot + 120_000);
+		await looked;
 		await h.waitFor(async () => nudges(slot) === 1 || undefined, "the nudge in the new session");
 	});
 });

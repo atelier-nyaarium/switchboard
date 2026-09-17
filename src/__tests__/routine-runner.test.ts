@@ -42,7 +42,7 @@ const A_YEAR_BEFORE = MONDAY_0900_LA - 365 * 24 * 60 * 60 * 1000;
 const ready = { ok: true, revision: 3, snapshot: "do the thing", team: "host.routine-triage" } as const;
 const moved = { ok: false, reason: "revision_moved" } as const;
 
-function world(over: Partial<RoutineAttempt> = {}, took = A_YEAR_BEFORE) {
+function world(over: Partial<RoutineAttempt> = {}, took = A_YEAR_BEFORE, clock: { driftMs?: number } = {}) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "routine-runner-"));
 	roots.push(root);
 	// The gateway stamps when it took a routine, so a test says so by moving this clock.
@@ -52,6 +52,8 @@ function world(over: Partial<RoutineAttempt> = {}, took = A_YEAR_BEFORE) {
 	const occurrences = openDurable(root, "routine-occurrences", (store) => createOccurrenceStore({ store }));
 	let now = MONDAY_0900_LA;
 	const delivered: string[] = [];
+	/** The delay of each timer the runner armed. */
+	const armed: number[] = [];
 	const attempt: RoutineAttempt = {
 		sessionIdle: () => true,
 		hasSession: () => false,
@@ -66,9 +68,17 @@ function world(over: Partial<RoutineAttempt> = {}, took = A_YEAR_BEFORE) {
 		routines,
 		occurrences,
 		ambient: {
-			now: () => now,
+			// A drift moves the clock on every read, the way a real one moves under a walk.
+			now: () => {
+				const read = now;
+				now += clock.driftMs ?? 0;
+				return read;
+			},
 			// Nothing fires on its own; every wakeup in these tests is an explicit reconcile.
-			setTimer: () => ({}) as ReturnType<Ambient["setTimer"]>,
+			setTimer: (_run, ms) => {
+				armed.push(ms);
+				return {} as ReturnType<Ambient["setTimer"]>;
+			},
 			clearTimer: () => undefined,
 		},
 		attempt: () => attempt,
@@ -80,6 +90,7 @@ function world(over: Partial<RoutineAttempt> = {}, took = A_YEAR_BEFORE) {
 		occurrences,
 		runner,
 		delivered,
+		armed,
 		at: (instant: number) => {
 			now = instant;
 		},
@@ -476,5 +487,23 @@ describe("the routine runner", () => {
 		const missed = w.occurrences.forRoutine("triage").filter((row) => row.state === "missed");
 		expect(missed).toHaveLength(1);
 		expect(missed[0]?.scheduledAt).toBe(back - 7 * 24 * 60 * 60 * 1000);
+	});
+
+	it("wakes again for a slot a hair ahead of an early timer, rather than for the week after", async () => {
+		// A platform timer can run a moment before its instant, and the clock moves on while the
+		// walk it woke is still going.
+		const w = world({}, A_YEAR_BEFORE, { driftMs: 1 });
+		// The walk `start` queued runs before the routine exists.
+		await w.runner.reconcile();
+		w.routines.put(routine());
+		w.at(MONDAY_0900_LA - 1);
+
+		await w.runner.reconcile();
+		expect(w.delivered).toEqual([]);
+		// Armed for an instant the clock has already reached, not for next Monday.
+		expect(w.armed.at(-1)).toBe(0);
+
+		await w.runner.reconcile();
+		expect(w.delivered).toEqual([`triage:${MONDAY_0900_LA}`]);
 	});
 });
