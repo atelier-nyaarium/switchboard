@@ -433,9 +433,9 @@ no TTL.
     claimed by its scope, not by which questions are ticked. A scope answer under a minute old sends as
     read; an older one is read again first. One preflight runs at a time, so a second send picks after
     the first recorded rather than beside it. A send whose own read reports a different root, or picks
-    another set of pairs than the sheet showed, refuses with a notice ("This workspace moved", "This
-    changed since you looked") instead of sending stale counts. The set is compared as a set: one that
-    changed without growing is refused too.
+    another set of pairs than the sheet showed, refuses with a notice ("This workspace moved", "Changed
+    since you looked") instead of sending stale counts. The set is compared as a set: one that changed
+    without growing is refused too.
   - **The message is one per send, holding the whole tree, with no preview:** the sheet's counts are what
     the owner checks. Its parts, in order: the intent (subject, module, the answer and symbol counts, and
     that the owner chose the set so the session records every one without asking first), how

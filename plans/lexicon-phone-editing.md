@@ -2393,7 +2393,7 @@ before the release, then a pin move here.
   - An update notice is read from the refusal's text, since an older plugin or Gateway sends no code.
   - A facet's read lives while its place is on the Files stack, so Back returns to drawn rows.
 
-## Phase 14d - Ask
+## Phase 14d - Ask ✅
 
 - **The sheet** replaces the per-question Ask chips, from the Knowledge header and from an unrecorded row.
   `AskRules` holds the defaults, counts, the containment order and the message text, tested on the JVM.
@@ -2607,6 +2607,10 @@ and then treats any call of that name, in any file, as a suspending call. A new 
 suspend call, and the fix was a rename to `refreshScope`. A short, common name for a new suspend
 function turns an unrelated file red, and the message names the wrong file.
 
+It happened again in 14d with `land`, and the message naming the wrong file did the rest: the builder
+checked the offender list against the files it had touched, found no overlap, and reported the failure
+as pre-existing at HEAD. The residue knows which new name caused a classification and does not say.
+
 ## Adding one console op still touches a dozen files
 
 The save is one op, and it reached the schema, the value-op kind list, the codegen roots, the console
@@ -2635,6 +2639,10 @@ second feature to need it will build a second one.
 The runner still replays Phase 1's original wording, including the premise this lap rejected. The plan moved
 and the spec shown each step did not. Nothing warns about it, so a later lap could audit against text that no
 longer describes the intent. Read the plan file, never the runner's copy.
+
+It bit in 14d: the runner's copy still said a pair clears when its `createdAt` is "after the send", the
+plan file had said "differs from the value the read carried" for a day, and an alignment auditor quoted
+the runner's copy back as the rule the code broke.
 
 ## The emulator is the only gate for a screen, and it is driven by pixels
 
@@ -2878,7 +2886,8 @@ Two defects found by the status audit went on the board as children of the 14c e
 the turn. Ticking the second closed 14c, whose own cycle had four steps left, and it had to be reopened by
 hand. `taskBoardUpdate` documents the cascade, but a parent with work of its own has no way to say so
 short of adding a child for each remaining step. A child that is a note against a parent is not a part of
-it, and the cascade cannot tell the two apart.
+it, and the cascade cannot tell the two apart. In 14d the last stage ticking closed 14d and then Phase 14
+above it, with the deploy list still open; the deploy needed an entry of its own to hold the parent.
 
 ## Asking an agent for its output hands back its whole transcript
 
@@ -2886,3 +2895,11 @@ it, and the cascade cannot tell the two apart.
 calls, rather than its report. It happened twice this phase, once after the lesson was already written
 down. The report only ever arrives through the completion notification, so a running agent is checked by
 its file timestamps and its diff, never asked.
+
+## A ruling that overrides a mock leaves the mock lying
+
+The owner ruled that every explanatory sentence comes out, and the Ask and Fill sheets' copy was cut to
+the count. The mocks in `plans/lexicon-phone-editing/` kept their `.pnote`, and the 14d fidelity walk,
+told to match the mocks, put the sentence back as `PROGRESS_NOTE`; the alignment audit took it out
+again. A walk compares pixels to the mock, not to the rulings, so a ruling that changes a mock has to be
+made in the mock file too, or every walk re-imports what was cut.
