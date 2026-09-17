@@ -12,6 +12,8 @@ import { type FederationHarness, startFederationHarness } from "../testing/feder
 /** Mondays at 09:00 UTC. */
 const FIRST = Date.parse("2026-09-14T09:00:00Z");
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+/** Under the harness's ten-second wait, with room for the save's round trip. */
+const HEADROOM_MS = 5_000;
 const TEAM = "host.routine-triage";
 
 const routine: Routine = {
@@ -51,11 +53,12 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 	 * the runner arms fires against a real clock, and a frozen one would never reach its own instant.
 	 * It starts a few seconds before the first slot, wide enough that the routine is saved before the
 	 * slot passes, since a routine is never handed a run from before it existed. The headroom is
-	 * measured from the harness being up, not from this file loading, or a slow boot eats it.
+	 * measured from the save itself, not from the harness being up, or a slow put on a loaded runner
+	 * lands the routine after its slot and its timer arms a week out.
 	 */
-	let offset = FIRST - 3_000 - Date.now();
+	let offset = FIRST - HEADROOM_MS - Date.now();
 	const rewind = (): void => {
-		offset = FIRST - 3_000 - Date.now();
+		offset = FIRST - HEADROOM_MS - Date.now();
 	};
 	const now = (): number => Date.now() + offset;
 	/** Minted per launch. A reconnecting plugin presents the one its record still holds. */
@@ -123,6 +126,7 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 			},
 		});
 		expect(stored.result).toMatchObject({ stored: true });
+		rewind();
 		expect((await h.phone.value({ kind: "routine_put", routine })).result).toMatchObject({ stored: true });
 
 		// No sweep is asked for here. Saving rearms, and the timer it armed asks the host for the
