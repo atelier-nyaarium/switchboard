@@ -76,6 +76,9 @@ export interface FacetCase {
 	/** What the index says there are, which the page may be short of. */
 	commentTotal?: number;
 	commentTruncated?: boolean;
+	/** Stands in for the 100,000 rows the plugin asks for, which no fixture fills. */
+	usePage?: number;
+	targetPage?: number;
 }
 
 interface Row {
@@ -87,14 +90,21 @@ interface Row {
 	topLevel: string | null;
 }
 
+/** Refused whole once the index truncated: the served rows the page held, and no row. */
+export interface FacetTooLarge {
+	tooLarge: number;
+}
+
 export interface FacetVectorAnswer {
-	uses: { rows: Row[]; uses: number; plain: number };
-	usesFrom: {
-		targets: { name: string; status: string; target: string | null; reason: string | null; uses: Row[] }[];
-		targetCount: number;
-		references: number;
-		plain: number;
-	};
+	uses: { rows: Row[]; uses: number; plain: number } | FacetTooLarge;
+	usesFrom:
+		| {
+				targets: { name: string; status: string; target: string | null; reason: string | null; uses: Row[] }[];
+				targetCount: number;
+				references: number;
+				plain: number;
+		  }
+		| FacetTooLarge;
 	members: { members: string[] };
 	hierarchy: {
 		subject: string;
@@ -110,7 +120,8 @@ export interface FacetVectorAnswer {
 		total: number;
 		truncated: boolean;
 	};
-	counts: KnowledgeCounts;
+	/** Null once a reference read truncated, since its rows count nothing. */
+	counts: KnowledgeCounts | null;
 }
 
 ////////////////////////////////
@@ -224,13 +235,50 @@ function hierarchyOf(vector: FacetCase, symbols: Map<string, FacetDeclared>) {
 	};
 }
 
+/** The daemon's order: module, then line, then character. */
+function bySource(left: FacetUseInput, right: FacetUseInput): number {
+	if (left.module !== right.module) return left.module < right.module ? -1 : 1;
+	return left.line - right.line || left.column - right.column;
+}
+
+/** Uses from are read in one module, so the index orders them by line, then character. */
+function byLine(left: FacetUseInput, right: FacetUseInput): number {
+	return left.line - right.line || left.column - right.column;
+}
+
+function pageOf<T>(rows: readonly T[], page: number | undefined, limit: number) {
+	const cap = Math.min(page ?? rows.length, limit);
+	return { references: rows.slice(0, cap), total: rows.length, truncated: rows.length > cap };
+}
+
+function heldBy(symbols: Map<string, FacetDeclared>, subject: string, id: string): boolean {
+	for (let at: string | undefined = id; at !== undefined; at = symbols.get(at)?.container)
+		if (at === subject) return true;
+	return false;
+}
+
+/** A use from a subject is written inside it, in its module, or the index never answers it. */
+function targetsOf(vector: FacetCase, subject: FacetDeclared, symbols: Map<string, FacetDeclared>) {
+	for (const target of vector.targets ?? []) {
+		const at = `${vector.name}: a use from ${subject.name} at ${target.module}:${target.line}`;
+		if (target.module !== subject.module) throw new Error(`${at} is outside ${subject.module}`);
+		const holder = target.holder === undefined ? undefined : declaredOf(symbols, target.holder, at);
+		if (holder === undefined || !heldBy(symbols, subject.id, holder.id)) {
+			throw new Error(`${at} is held outside ${subject.name}`);
+		}
+		if (target.line < holder.startLine || target.line > holder.endLine)
+			throw new Error(`${at} is outside ${holder.name}`);
+	}
+	return [...(vector.targets ?? [])].sort(byLine).map((target) => useFromOf(target, symbols));
+}
+
 /** Every read the facet handlers make, answered from the case's own rows. */
 function sessionOf(vector: FacetCase): () => Promise<Session> {
 	const symbols = new Map(vector.symbols.map((symbol) => [symbol.id, symbol]));
 	const subject = declaredOf(symbols, vector.subject, `${vector.name} subject`);
 	const comments = vector.comments ?? [];
-	const uses = (vector.uses ?? []).map((use) => referenceOf(use, symbols));
-	const targets = (vector.targets ?? []).map((target) => useFromOf(target, symbols));
+	const uses = [...(vector.uses ?? [])].sort(bySource).map((use) => referenceOf(use, symbols));
+	const targets = targetsOf(vector, subject, symbols);
 	const session = {
 		declarationOf: async () => declarationOf(subject),
 		describe: async () => ({
@@ -241,17 +289,13 @@ function sessionOf(vector: FacetCase): () => Promise<Session> {
 			hierarchy: hierarchyOf(vector, symbols),
 		}),
 		recallAnswer: async () => [],
-		findReferences: async () => ({
+		findReferences: async ({ limit }: { limit: number }) => ({
 			symbolId: vector.subject,
-			references: uses,
-			total: uses.length,
-			truncated: false,
+			...pageOf(uses, vector.usePage, limit),
 		}),
-		usesFrom: async () => ({
+		usesFrom: async ({ limit }: { limit: number }) => ({
 			symbolId: vector.subject,
-			references: targets,
-			total: targets.length,
-			truncated: false,
+			...pageOf(targets, vector.targetPage, limit),
 		}),
 		typeHierarchy: async () => hierarchyOf(vector, symbols),
 		// The index slices to the asked limit and says there were more, as the daemon does.
@@ -302,46 +346,60 @@ function facetOf(result: WorkspaceOpResult, at: string): FacetAnswer {
 	return result.answer.facet;
 }
 
+/** Null where the answer stands, a row count where the index truncated. */
+function tooLargeOf(result: WorkspaceOpResult, at: string): FacetTooLarge | null {
+	if (result.ok) return null;
+	if (result.failure !== "too_large" || result.rows === undefined)
+		throw new Error(`${at}: ${JSON.stringify(result)}`);
+	return { tooLarge: result.rows };
+}
+
+function usesOf(result: WorkspaceOpResult, at: string): FacetVectorAnswer["uses"] {
+	const refused = tooLargeOf(result, at);
+	if (refused !== null) return refused;
+	const facet = facetOf(result, at);
+	if (facet.kind !== "uses") throw new Error(`${at}: a facet answered the wrong kind`);
+	return { rows: facet.rows.map(rowOf), uses: facet.uses, plain: facet.plain };
+}
+
+function usesFromOf(result: WorkspaceOpResult, at: string): FacetVectorAnswer["usesFrom"] {
+	const refused = tooLargeOf(result, at);
+	if (refused !== null) return refused;
+	const facet = facetOf(result, at);
+	if (facet.kind !== "usesFrom") throw new Error(`${at}: a facet answered the wrong kind`);
+	return {
+		targets: facet.targets.map((target) => ({
+			name: target.name,
+			status: target.status,
+			target: target.target?.symbolId ?? null,
+			reason: target.reason ?? null,
+			uses: target.uses.map(rowOf),
+		})),
+		targetCount: facet.targetCount,
+		references: facet.references,
+		plain: facet.plain,
+	};
+}
+
 export async function facetAnswerOf(vector: FacetCase): Promise<FacetVectorAnswer> {
 	const deps = { root: () => workspace(vector.modules), session: sessionOf(vector) };
-	const read = async (facet: SymbolFacet) =>
-		facetOf(
-			await answerWorkspaceOp(deps, { kind: "symbolFacet", symbolId: vector.subject, facet }),
-			`${vector.name} ${facet.kind}`,
-		);
+	const ask = (facet: SymbolFacet) =>
+		answerWorkspaceOp(deps, { kind: "symbolFacet", symbolId: vector.subject, facet });
+	const read = async (facet: SymbolFacet) => facetOf(await ask(facet), `${vector.name} ${facet.kind}`);
 
-	const uses = await read({ kind: "uses" });
-	const usesFrom = await read({ kind: "usesFrom" });
+	const uses = usesOf(await ask({ kind: "uses" }), `${vector.name} uses`);
+	const usesFrom = usesFromOf(await ask({ kind: "usesFrom" }), `${vector.name} usesFrom`);
 	const members = await read({ kind: "members" });
 	const hierarchy = await read({ kind: "hierarchy" });
 	const comments = await read({ kind: "comments" });
 	const knowledge = await answerWorkspaceOp(deps, { kind: "symbolKnowledge", symbolId: vector.subject });
 	if (!knowledge.ok || knowledge.answer.kind !== "symbolKnowledge") throw new Error(`${vector.name}: no knowledge`);
-	const counts = knowledge.answer.facts?.counts;
-	if (counts === undefined) throw new Error(`${vector.name}: the knowledge answer carried no counts`);
-	if (
-		uses.kind !== "uses" ||
-		usesFrom.kind !== "usesFrom" ||
-		members.kind !== "members" ||
-		hierarchy.kind !== "hierarchy" ||
-		comments.kind !== "comments"
-	) {
+	if (members.kind !== "members" || hierarchy.kind !== "hierarchy" || comments.kind !== "comments") {
 		throw new Error(`${vector.name}: a facet answered the wrong kind`);
 	}
 	return {
-		uses: { rows: uses.rows.map(rowOf), uses: uses.uses, plain: uses.plain },
-		usesFrom: {
-			targets: usesFrom.targets.map((target) => ({
-				name: target.name,
-				status: target.status,
-				target: target.target?.symbolId ?? null,
-				reason: target.reason ?? null,
-				uses: target.uses.map(rowOf),
-			})),
-			targetCount: usesFrom.targetCount,
-			references: usesFrom.references,
-			plain: usesFrom.plain,
-		},
+		uses,
+		usesFrom,
 		members: { members: members.members.map((member) => member.symbolId) },
 		hierarchy: {
 			subject: hierarchy.subject.symbolId,
@@ -362,6 +420,6 @@ export async function facetAnswerOf(vector: FacetCase): Promise<FacetVectorAnswe
 			total: comments.total,
 			truncated: comments.truncated ?? false,
 		},
-		counts,
+		counts: knowledge.answer.facts?.counts ?? null,
 	};
 }

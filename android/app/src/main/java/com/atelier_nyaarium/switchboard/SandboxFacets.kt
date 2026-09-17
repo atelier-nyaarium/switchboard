@@ -228,8 +228,8 @@ internal class SandboxFacets(private val modules: Map<String, SandboxModule>, pr
 		val found = byId[symbolId] ?: return WorkspaceAnswer.Refused(SANDBOX_PLUGIN_UPDATE)
 		val drill = drills[symbolId] ?: Drill()
 		val listing = when (facet) {
-			WorkspaceFacet.Uses -> drill.tooLargeUses ?: listed(symbolId, usesAnswer(found, drill))
-			WorkspaceFacet.UsesFrom -> drill.tooLargeTargets ?: listed(symbolId, targetsAnswer(drill))
+			WorkspaceFacet.Uses -> drill.tooLargeUses ?: usesAnswer(symbolId, found, drill)
+			WorkspaceFacet.UsesFrom -> drill.tooLargeTargets ?: targetsAnswer(symbolId, drill)
 			WorkspaceFacet.Members -> listed(symbolId, membersAnswer(found))
 			WorkspaceFacet.Hierarchy -> listed(symbolId, hierarchyAnswer(found, drill))
 			WorkspaceFacet.Comments -> listed(symbolId, commentsAnswer(found))
@@ -279,8 +279,8 @@ internal class SandboxFacets(private val modules: Map<String, SandboxModule>, pr
 		val drill = drills[symbolId] ?: Drill()
 		drill.counts?.let { return it }
 		return sandboxCounts(
-			uses = sandboxUsesAnswer(useSites(found, drill), symbols).rows,
-			targets = sandboxTargetsAnswer(targetSites(drill), symbols).targets,
+			uses = sandboxUsesAnswer(useSites(found, drill), symbols),
+			targets = sandboxTargetsAnswer(targetSites(drill), symbols),
 			members = sandboxMembers(memberIds(found), symbols),
 			hierarchy = hierarchyAnswer(found, drill),
 			comments = commentsAnswer(found),
@@ -299,15 +299,19 @@ internal class SandboxFacets(private val modules: Map<String, SandboxModule>, pr
 	private fun listed(symbolId: String, answer: WorkspaceFacetAnswer) =
 		WorkspaceListing.Listed(WorkspaceSymbolFacetAnswer(symbolId = symbolId, facet = answer))
 
-	private fun usesAnswer(found: Found, drill: Drill): WorkspaceFacetAnswer.Uses {
-		val answer = sandboxUsesAnswer(useSites(found, drill), symbols)
-		return answer.copy(rows = dressed(answer.rows))
-	}
+	private fun usesAnswer(symbolId: String, found: Found, drill: Drill): WorkspaceListing<WorkspaceSymbolFacetAnswer> =
+		when (val answer = sandboxUsesAnswer(useSites(found, drill), symbols)) {
+			is WorkspaceListing.Listed -> listed(symbolId, answer.value.copy(rows = dressed(answer.value.rows)))
+			is WorkspaceListing.TooLarge -> answer
+		}
 
-	private fun targetsAnswer(drill: Drill): WorkspaceFacetAnswer.UsesFrom {
-		val answer = sandboxTargetsAnswer(targetSites(drill), symbols)
-		return answer.copy(targets = answer.targets.map { it.copy(uses = dressed(it.uses)) })
-	}
+	private fun targetsAnswer(symbolId: String, drill: Drill): WorkspaceListing<WorkspaceSymbolFacetAnswer> =
+		when (val answer = sandboxTargetsAnswer(targetSites(drill), symbols)) {
+			is WorkspaceListing.Listed ->
+				listed(symbolId, answer.value.copy(targets = answer.value.targets.map { it.copy(uses = dressed(it.uses)) }))
+
+			is WorkspaceListing.TooLarge -> answer
+		}
 
 	private fun membersAnswer(found: Found) =
 		WorkspaceFacetAnswer.Members(members = sandboxMembers(memberIds(found), symbols), plain = 0)
@@ -354,7 +358,7 @@ internal class SandboxFacets(private val modules: Map<String, SandboxModule>, pr
 
 	private fun memberIds(found: Found): List<String> = found.module.members(found.symbol).map { it.symbolId }
 
-	/** A holder and its outermost container, each read on its own. */
+	/** A holder and its outermost container, each read on its own; the column is where the line names it. */
 	private fun siteOf(site: Site, name: String): FacetUseSite {
 		val module = modules[site.module]
 		val holder = site.holder?.let { module?.symbol(it) }
@@ -365,6 +369,7 @@ internal class SandboxFacets(private val modules: Map<String, SandboxModule>, pr
 			role = site.role,
 			holderId = holder?.symbolId,
 			topLevelId = holder?.let { module?.topLevel(it)?.symbolId },
+			column = (module?.lineAt(site.line)?.indexOf(name) ?: -1).coerceAtLeast(0).toLong(),
 		)
 	}
 
@@ -390,14 +395,7 @@ internal class SandboxFacets(private val modules: Map<String, SandboxModule>, pr
 	private fun dressed(rows: List<WorkspaceFacetUse>): List<WorkspaceFacetUse> = rows.map { row ->
 		val module = modules[row.module] ?: return@map row
 		val text = module.lineAt(row.line)
-		val at = text.indexOf(row.name).coerceAtLeast(0)
-		row.copy(
-			startColumn = at.toLong(),
-			endColumn = (at + row.name.length).toLong(),
-			language = module.language,
-			text = text,
-			spans = sandboxSpans(module.language, text),
-		)
+		row.copy(language = module.language, text = text, spans = sandboxSpans(module.language, text))
 	}
 
 	private fun facetSymbol(module: SandboxModule, symbol: SandboxSymbol) = WorkspaceFacetSymbol(

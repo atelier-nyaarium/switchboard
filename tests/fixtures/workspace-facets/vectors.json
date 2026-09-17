@@ -149,15 +149,6 @@
 					"topLevel": "lexicon typescript src/port.ts Port#",
 					"status": "bound",
 					"target": "lexicon typescript src/use.ts Handler#"
-				},
-				{
-					"module": ".env",
-					"line": 1,
-					"column": 0,
-					"name": "Handler",
-					"role": "typeUse",
-					"status": "bound",
-					"target": "lexicon typescript src/use.ts Handler#"
 				}
 			],
 			"members": [
@@ -184,18 +175,18 @@
 					"rows": [
 						{
 							"module": "src/use.ts",
-							"line": 4,
-							"name": "Port",
-							"role": "typeUse",
-							"holder": "lexicon typescript src/use.ts Handler#start().",
-							"topLevel": "lexicon typescript src/use.ts Handler#"
-						},
-						{
-							"module": "src/use.ts",
 							"line": 3,
 							"name": "Port",
 							"role": "implements",
 							"holder": "lexicon typescript src/use.ts Handler#",
+							"topLevel": "lexicon typescript src/use.ts Handler#"
+						},
+						{
+							"module": "src/use.ts",
+							"line": 4,
+							"name": "Port",
+							"role": "typeUse",
+							"holder": "lexicon typescript src/use.ts Handler#start().",
 							"topLevel": "lexicon typescript src/use.ts Handler#"
 						},
 						{
@@ -274,7 +265,7 @@
 			}
 		},
 		{
-			"name": "the supertype count spans direct supertypes, ancestors and unbound names",
+			"name": "the supertype count spans direct supertypes, ancestors and unbound names, a repeated direct one twice",
 			"modules": [
 				{
 					"path": "src/seal.ts",
@@ -366,6 +357,11 @@
 						"role": "extends"
 					},
 					{
+						"name": "ContentSealing",
+						"symbol": "lexicon typescript src/seal.ts ContentSealing#",
+						"role": "extends"
+					},
+					{
 						"name": "Error",
 						"role": "implements"
 					},
@@ -434,6 +430,10 @@
 						{
 							"symbol": "lexicon typescript src/seal.ts ContentSealing#",
 							"role": "extends"
+						},
+						{
+							"symbol": "lexicon typescript src/seal.ts ContentSealing#",
+							"role": "extends"
 						}
 					],
 					"ancestors": ["lexicon typescript src/seal.ts Sealing#"],
@@ -444,7 +444,7 @@
 						}
 					],
 					"subtypes": [],
-					"supertypeCount": 3,
+					"supertypeCount": 4,
 					"subtypeCount": 0
 				},
 				"comments": {
@@ -461,83 +461,80 @@
 					"boundTargets": 1,
 					"references": 2,
 					"members": 0,
-					"supertypes": 3,
+					"supertypes": 4,
 					"subtypes": 0,
 					"comments": 0
 				}
 			}
 		},
 		{
-			"name": "a symbol's own leading comment is documentation, in no row and in no count",
+			"name": "every own leading comment is documentation, in no row and in no count, not only the first",
 			"modules": [
 				{
-					"path": "src/port.ts",
+					"path": "src/doc.ts",
 					"language": "typescript",
 					"lines": [
-						"/** What a port opens onto. */",
-						"export interface Port {",
-						"\t/** Opens it. */",
-						"\topen(handler: Handler): void;",
-						"\tclose(): void;",
+						"/** What a doc holds. */",
+						"/** Written once, read many. */",
+						"export interface Doc {",
+						"\t/** Reads it. */",
+						"\tread(): string;",
 						"}"
 					]
 				}
 			],
 			"symbols": [
 				{
-					"id": "lexicon typescript src/port.ts Port#",
-					"name": "Port",
+					"id": "lexicon typescript src/doc.ts Doc#",
+					"name": "Doc",
 					"kind": "interface",
-					"module": "src/port.ts",
-					"startLine": 2,
+					"module": "src/doc.ts",
+					"startLine": 3,
 					"endLine": 6
 				},
 				{
-					"id": "lexicon typescript src/port.ts Port#open().",
-					"name": "open",
+					"id": "lexicon typescript src/doc.ts Doc#read().",
+					"name": "read",
 					"kind": "method",
-					"module": "src/port.ts",
-					"startLine": 4,
-					"endLine": 4,
-					"container": "lexicon typescript src/port.ts Port#",
-					"signature": "open(handler: Handler): void"
-				},
-				{
-					"id": "lexicon typescript src/port.ts Port#close().",
-					"name": "close",
-					"kind": "method",
-					"module": "src/port.ts",
+					"module": "src/doc.ts",
 					"startLine": 5,
 					"endLine": 5,
-					"container": "lexicon typescript src/port.ts Port#",
-					"signature": "close(): void"
+					"container": "lexicon typescript src/doc.ts Doc#",
+					"signature": "read(): string"
 				}
 			],
-			"subject": "lexicon typescript src/port.ts Port#",
+			"subject": "lexicon typescript src/doc.ts Doc#",
 			"comments": [
 				{
-					"module": "src/port.ts",
+					"module": "src/doc.ts",
 					"line": 1,
-					"text": "What a port opens onto.",
+					"text": "What a doc holds.",
 					"form": "leading",
-					"anchor": "lexicon typescript src/port.ts Port#"
+					"anchor": "lexicon typescript src/doc.ts Doc#"
 				},
 				{
-					"module": "src/port.ts",
-					"line": 3,
-					"text": "Opens it.",
+					"module": "src/doc.ts",
+					"line": 2,
+					"text": "Written once, read many.",
 					"form": "leading",
-					"anchor": "lexicon typescript src/port.ts Port#open()."
+					"anchor": "lexicon typescript src/doc.ts Doc#"
 				},
 				{
-					"module": "src/port.ts",
+					"module": "src/doc.ts",
 					"line": 4,
+					"text": "Reads it.",
+					"form": "leading",
+					"anchor": "lexicon typescript src/doc.ts Doc#read()."
+				},
+				{
+					"module": "src/doc.ts",
+					"line": 5,
 					"text": "Held briefly.",
 					"form": "inline",
-					"anchor": "lexicon typescript src/port.ts Port#open()."
+					"anchor": "lexicon typescript src/doc.ts Doc#read()."
 				}
 			],
-			"commentTotal": 3,
+			"commentTotal": 4,
 			"answer": {
 				"uses": {
 					"rows": [],
@@ -554,7 +551,7 @@
 					"members": []
 				},
 				"hierarchy": {
-					"subject": "lexicon typescript src/port.ts Port#",
+					"subject": "lexicon typescript src/doc.ts Doc#",
 					"supertypes": [],
 					"ancestors": [],
 					"unbound": [],
@@ -565,16 +562,16 @@
 				"comments": {
 					"comments": [
 						{
-							"text": "Opens it.",
+							"text": "Reads it.",
 							"form": "leading",
-							"line": 3,
-							"holder": "lexicon typescript src/port.ts Port#open()."
+							"line": 4,
+							"holder": "lexicon typescript src/doc.ts Doc#read()."
 						},
 						{
 							"text": "Held briefly.",
 							"form": "inline",
-							"line": 4,
-							"holder": "lexicon typescript src/port.ts Port#open()."
+							"line": 5,
+							"holder": "lexicon typescript src/doc.ts Doc#read()."
 						}
 					],
 					"total": 2,
@@ -596,7 +593,7 @@
 			}
 		},
 		{
-			"name": "the comment page caps, and the total says how many there are",
+			"name": "the comment page caps, and the total drops only the own comments the page held",
 			"modules": [
 				{
 					"path": "src/port.ts",
@@ -2049,9 +2046,16 @@
 					"text": "n199",
 					"form": "inline",
 					"anchor": "lexicon typescript src/port.ts Port#open()."
+				},
+				{
+					"module": "src/port.ts",
+					"line": 2,
+					"text": "Opened once.",
+					"form": "leading",
+					"anchor": "lexicon typescript src/port.ts Port#"
 				}
 			],
-			"commentTotal": 201,
+			"commentTotal": 202,
 			"answer": {
 				"uses": {
 					"rows": [],
@@ -3273,7 +3277,7 @@
 							"holder": "lexicon typescript src/port.ts Port#open()."
 						}
 					],
-					"total": 200,
+					"total": 201,
 					"truncated": true
 				},
 				"counts": {
@@ -3287,12 +3291,12 @@
 					"members": 0,
 					"supertypes": 0,
 					"subtypes": 0,
-					"comments": 200
+					"comments": 201
 				}
 			}
 		},
 		{
-			"name": "a use falls back from its holder to its top level, and then to file level",
+			"name": "a holder and a top level are each read on their own, whether absent or present and withheld",
 			"modules": [
 				{
 					"path": "src/use.ts",
@@ -3366,6 +3370,14 @@
 					"endLine": 5,
 					"container": "lexicon typescript src/port.ts Port#",
 					"signature": "close(): void"
+				},
+				{
+					"id": "lexicon typescript .env Cloaked#",
+					"name": "Cloaked",
+					"kind": "class",
+					"module": "src/use.ts",
+					"startLine": 3,
+					"endLine": 5
 				}
 			],
 			"subject": "lexicon typescript src/port.ts Port#",
@@ -3394,11 +3406,37 @@
 					"column": 11,
 					"name": "Port",
 					"role": "typeUse"
+				},
+				{
+					"module": "src/use.ts",
+					"line": 3,
+					"column": 32,
+					"name": "Port",
+					"role": "implements",
+					"holder": "lexicon typescript .env Cloaked#",
+					"topLevel": "lexicon typescript src/use.ts Handler#"
+				},
+				{
+					"module": "src/use.ts",
+					"line": 7,
+					"column": 37,
+					"name": "Port",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/use.ts Handler#start().",
+					"topLevel": "lexicon typescript .env Cloaked#"
 				}
 			],
 			"answer": {
 				"uses": {
 					"rows": [
+						{
+							"module": "src/use.ts",
+							"line": 3,
+							"name": "Port",
+							"role": "implements",
+							"holder": null,
+							"topLevel": "lexicon typescript src/use.ts Handler#"
+						},
 						{
 							"module": "src/use.ts",
 							"line": 4,
@@ -3422,9 +3460,17 @@
 							"role": "typeUse",
 							"holder": null,
 							"topLevel": null
+						},
+						{
+							"module": "src/use.ts",
+							"line": 7,
+							"name": "Port",
+							"role": "typeUse",
+							"holder": "lexicon typescript src/use.ts Handler#start().",
+							"topLevel": null
 						}
 					],
-					"uses": 3,
+					"uses": 5,
 					"plain": 0
 				},
 				"usesFrom": {
@@ -3451,7 +3497,7 @@
 					"truncated": false
 				},
 				"counts": {
-					"uses": 3,
+					"uses": 5,
 					"useFiles": 1,
 					"dependents": 1,
 					"dependentFiles": 1,
@@ -3641,8 +3687,8 @@
 				},
 				{
 					"module": "src/use.ts",
-					"line": 1,
-					"column": 20,
+					"line": 3,
+					"column": 40,
 					"name": "Port",
 					"role": "typeUse",
 					"holder": "lexicon typescript src/use.ts Handler#",
@@ -3663,26 +3709,30 @@
 				},
 				{
 					"module": "src/use.ts",
-					"line": 7,
-					"column": 11,
+					"line": 4,
+					"column": 20,
 					"name": "Promise",
 					"role": "typeUse",
+					"holder": "lexicon typescript src/use.ts Handler#start().",
+					"topLevel": "lexicon typescript src/use.ts Handler#",
 					"status": "unbound",
 					"reason": "ExternalDependency"
 				},
 				{
 					"module": "src/use.ts",
-					"line": 7,
-					"column": 30,
+					"line": 4,
+					"column": 34,
 					"name": "Promise",
 					"role": "typeUse",
+					"holder": "lexicon typescript src/use.ts Handler#start().",
+					"topLevel": "lexicon typescript src/use.ts Handler#",
 					"status": "unbound",
 					"reason": "ExternalDependency"
 				},
 				{
 					"module": "src/use.ts",
-					"line": 1,
-					"column": 14,
+					"line": 5,
+					"column": 1,
 					"name": "Emit",
 					"role": "typeUse",
 					"holder": "lexicon typescript src/use.ts Handler#",
@@ -3699,15 +3749,6 @@
 					"topLevel": "lexicon typescript src/use.ts Handler#",
 					"status": "bound",
 					"target": "lexicon typescript .env Secret#"
-				},
-				{
-					"module": ".env",
-					"line": 1,
-					"column": 0,
-					"name": "Port",
-					"role": "typeUse",
-					"status": "bound",
-					"target": "lexicon typescript src/port.ts Port#"
 				}
 			],
 			"answer": {
@@ -3728,6 +3769,22 @@
 				"usesFrom": {
 					"targets": [
 						{
+							"name": "Secret",
+							"status": "unbound",
+							"target": null,
+							"reason": null,
+							"uses": [
+								{
+									"module": "src/use.ts",
+									"line": 3,
+									"name": "Secret",
+									"role": "typeUse",
+									"holder": "lexicon typescript src/use.ts Handler#",
+									"topLevel": "lexicon typescript src/use.ts Handler#"
+								}
+							]
+						},
+						{
 							"name": "Port",
 							"status": "bound",
 							"target": "lexicon typescript src/port.ts Port#",
@@ -3735,26 +3792,26 @@
 							"uses": [
 								{
 									"module": "src/use.ts",
-									"line": 4,
-									"name": "Port",
-									"role": "typeUse",
-									"holder": "lexicon typescript src/use.ts Handler#start().",
-									"topLevel": "lexicon typescript src/use.ts Handler#"
-								},
-								{
-									"module": "src/use.ts",
-									"line": 4,
-									"name": "Port",
-									"role": "typeUse",
-									"holder": "lexicon typescript src/use.ts Handler#start().",
-									"topLevel": "lexicon typescript src/use.ts Handler#"
-								},
-								{
-									"module": "src/use.ts",
 									"line": 3,
 									"name": "Gate",
 									"role": "typeUse",
 									"holder": "lexicon typescript src/use.ts Handler#",
+									"topLevel": "lexicon typescript src/use.ts Handler#"
+								},
+								{
+									"module": "src/use.ts",
+									"line": 4,
+									"name": "Port",
+									"role": "typeUse",
+									"holder": "lexicon typescript src/use.ts Handler#start().",
+									"topLevel": "lexicon typescript src/use.ts Handler#"
+								},
+								{
+									"module": "src/use.ts",
+									"line": 4,
+									"name": "Port",
+									"role": "typeUse",
+									"holder": "lexicon typescript src/use.ts Handler#start().",
 									"topLevel": "lexicon typescript src/use.ts Handler#"
 								}
 							]
@@ -3767,7 +3824,7 @@
 							"uses": [
 								{
 									"module": "src/use.ts",
-									"line": 1,
+									"line": 3,
 									"name": "Port",
 									"role": "typeUse",
 									"holder": "lexicon typescript src/use.ts Handler#",
@@ -3783,19 +3840,19 @@
 							"uses": [
 								{
 									"module": "src/use.ts",
-									"line": 7,
+									"line": 4,
 									"name": "Promise",
 									"role": "typeUse",
-									"holder": null,
-									"topLevel": null
+									"holder": "lexicon typescript src/use.ts Handler#start().",
+									"topLevel": "lexicon typescript src/use.ts Handler#"
 								},
 								{
 									"module": "src/use.ts",
-									"line": 7,
+									"line": 4,
 									"name": "Promise",
 									"role": "typeUse",
-									"holder": null,
-									"topLevel": null
+									"holder": "lexicon typescript src/use.ts Handler#start().",
+									"topLevel": "lexicon typescript src/use.ts Handler#"
 								}
 							]
 						},
@@ -3807,24 +3864,8 @@
 							"uses": [
 								{
 									"module": "src/use.ts",
-									"line": 1,
+									"line": 5,
 									"name": "Emit",
-									"role": "typeUse",
-									"holder": "lexicon typescript src/use.ts Handler#",
-									"topLevel": "lexicon typescript src/use.ts Handler#"
-								}
-							]
-						},
-						{
-							"name": "Secret",
-							"status": "unbound",
-							"target": null,
-							"reason": null,
-							"uses": [
-								{
-									"module": "src/use.ts",
-									"line": 3,
-									"name": "Secret",
 									"role": "typeUse",
 									"holder": "lexicon typescript src/use.ts Handler#",
 									"topLevel": "lexicon typescript src/use.ts Handler#"
@@ -4059,22 +4100,13 @@
 				{
 					"module": "src/port.ts",
 					"line": 4,
-					"column": 15,
+					"column": 24,
 					"name": "Secret",
 					"role": "typeUse",
 					"holder": "lexicon typescript src/port.ts Port#open().",
 					"topLevel": "lexicon typescript src/port.ts Port#",
 					"status": "bound",
 					"target": "lexicon typescript .env Secret#"
-				},
-				{
-					"module": ".env",
-					"line": 1,
-					"column": 0,
-					"name": "Handler",
-					"role": "typeUse",
-					"status": "bound",
-					"target": "lexicon typescript src/use.ts Handler#"
 				}
 			],
 			"members": ["lexicon typescript src/port.ts Port#open().", "lexicon typescript .env Cloaked#"],
@@ -4122,20 +4154,20 @@
 				"uses": {
 					"rows": [
 						{
-							"module": "src/use.ts",
-							"line": 4,
-							"name": "Port",
-							"role": "typeUse",
-							"holder": "lexicon typescript src/use.ts Handler#start().",
-							"topLevel": "lexicon typescript src/use.ts Handler#"
-						},
-						{
 							"module": "src/seal.ts",
 							"line": 2,
 							"name": "Port",
 							"role": "typeUse",
 							"holder": null,
 							"topLevel": null
+						},
+						{
+							"module": "src/use.ts",
+							"line": 4,
+							"name": "Port",
+							"role": "typeUse",
+							"holder": "lexicon typescript src/use.ts Handler#start().",
+							"topLevel": "lexicon typescript src/use.ts Handler#"
 						}
 					],
 					"uses": 2,
@@ -4393,6 +4425,218 @@
 					"subtypes": 1,
 					"comments": 0
 				}
+			}
+		},
+		{
+			"name": "a truncated reference page refuses the drill-in whole, counts the page's served rows and opens no file",
+			"modules": [
+				{
+					"path": "src/port.ts",
+					"language": "typescript",
+					"lines": [
+						"/** What a port opens onto. */",
+						"export interface Port {",
+						"\t/** Opens it. */",
+						"\topen(handler: Handler): void;",
+						"\tclose(): void;",
+						"}"
+					]
+				},
+				{
+					"path": "src/use.ts",
+					"language": "typescript",
+					"lines": [
+						"import type { Port } from \"./port.js\";",
+						"",
+						"export class Handler implements Port {",
+						"\tstart(port: Port, spare: Port) {}",
+						"}",
+						"",
+						"const top: Port = null as unknown as Port;"
+					]
+				},
+				{
+					"path": ".env",
+					"language": "typescript",
+					"lines": ["PORT=1"]
+				}
+			],
+			"symbols": [
+				{
+					"id": "lexicon typescript src/port.ts Port#",
+					"name": "Port",
+					"kind": "interface",
+					"module": "src/port.ts",
+					"startLine": 2,
+					"endLine": 6
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#open().",
+					"name": "open",
+					"kind": "method",
+					"module": "src/port.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"container": "lexicon typescript src/port.ts Port#",
+					"signature": "open(handler: Handler): void"
+				},
+				{
+					"id": "lexicon typescript src/port.ts Port#close().",
+					"name": "close",
+					"kind": "method",
+					"module": "src/port.ts",
+					"startLine": 5,
+					"endLine": 5,
+					"container": "lexicon typescript src/port.ts Port#",
+					"signature": "close(): void"
+				},
+				{
+					"id": "lexicon typescript src/use.ts Handler#",
+					"name": "Handler",
+					"kind": "class",
+					"module": "src/use.ts",
+					"startLine": 3,
+					"endLine": 5
+				},
+				{
+					"id": "lexicon typescript src/use.ts Handler#start().",
+					"name": "start",
+					"kind": "method",
+					"module": "src/use.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"container": "lexicon typescript src/use.ts Handler#",
+					"signature": "start(port: Port, spare: Port): void"
+				},
+				{
+					"id": "lexicon typescript .env Secret#",
+					"name": "Secret",
+					"kind": "class",
+					"module": ".env",
+					"startLine": 1,
+					"endLine": 1
+				}
+			],
+			"subject": "lexicon typescript src/port.ts Port#",
+			"usePage": 3,
+			"targetPage": 2,
+			"uses": [
+				{
+					"module": "src/use.ts",
+					"line": 4,
+					"column": 13,
+					"name": "Port",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/use.ts Handler#start().",
+					"topLevel": "lexicon typescript src/use.ts Handler#"
+				},
+				{
+					"module": "src/use.ts",
+					"line": 3,
+					"column": 32,
+					"name": "Port",
+					"role": "implements",
+					"holder": "lexicon typescript src/use.ts Handler#",
+					"topLevel": "lexicon typescript src/use.ts Handler#"
+				},
+				{
+					"module": "src/port.ts",
+					"line": 99,
+					"column": 1,
+					"name": "Port",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/port.ts Port#open().",
+					"topLevel": "lexicon typescript src/port.ts Port#"
+				},
+				{
+					"module": ".env",
+					"line": 1,
+					"column": 0,
+					"name": "Port",
+					"role": "typeUse",
+					"holder": "lexicon typescript .env Secret#",
+					"topLevel": "lexicon typescript .env Secret#"
+				},
+				{
+					"module": "src/use.ts",
+					"line": 7,
+					"column": 11,
+					"name": "Port",
+					"role": "typeUse"
+				}
+			],
+			"targets": [
+				{
+					"module": "src/port.ts",
+					"line": 5,
+					"column": 8,
+					"name": "Promise",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/port.ts Port#close().",
+					"topLevel": "lexicon typescript src/port.ts Port#",
+					"status": "unbound",
+					"reason": "ExternalDependency"
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"column": 15,
+					"name": "Handler",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/port.ts Port#open().",
+					"topLevel": "lexicon typescript src/port.ts Port#",
+					"status": "bound",
+					"target": "lexicon typescript src/use.ts Handler#"
+				},
+				{
+					"module": "src/port.ts",
+					"line": 2,
+					"column": 20,
+					"name": "Secret",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/port.ts Port#",
+					"topLevel": "lexicon typescript src/port.ts Port#",
+					"status": "bound",
+					"target": "lexicon typescript .env Secret#"
+				},
+				{
+					"module": "src/port.ts",
+					"line": 4,
+					"column": 24,
+					"name": "Port",
+					"role": "typeUse",
+					"holder": "lexicon typescript src/port.ts Port#open().",
+					"topLevel": "lexicon typescript src/port.ts Port#",
+					"status": "bound",
+					"target": "lexicon typescript src/port.ts Port#"
+				}
+			],
+			"members": ["lexicon typescript src/port.ts Port#open()."],
+			"answer": {
+				"uses": {
+					"tooLarge": 2
+				},
+				"usesFrom": {
+					"tooLarge": 2
+				},
+				"members": {
+					"members": ["lexicon typescript src/port.ts Port#open()."]
+				},
+				"hierarchy": {
+					"subject": "lexicon typescript src/port.ts Port#",
+					"supertypes": [],
+					"ancestors": [],
+					"unbound": [],
+					"subtypes": [],
+					"supertypeCount": 0,
+					"subtypeCount": 0
+				},
+				"comments": {
+					"comments": [],
+					"total": 0,
+					"truncated": false
+				},
+				"counts": null
 			}
 		}
 	]

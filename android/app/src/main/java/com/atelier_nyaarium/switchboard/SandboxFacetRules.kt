@@ -37,6 +37,7 @@ internal data class FacetUseSite(
 	val holderId: String? = null,
 	/** Outermost declaration, read apart from the holder. */
 	val topLevelId: String? = null,
+	val column: Long,
 )
 
 /** One use and what it points at, ungrouped as the index answers it. */
@@ -84,14 +85,31 @@ internal fun sandboxShown(symbols: FacetSymbols, symbolId: String?): WorkspaceFa
 }
 
 ////////////////////////////////
+//  The index's order and its page
+
+/** The index answers by module, then line, then character. */
+private val BY_SOURCE = compareBy<FacetUseSite>({ it.module }, { it.line }, { it.column })
+
+private data class Page<T>(val rows: List<T>, val truncated: Boolean)
+
+private fun <T> pageOf(sites: List<T>, page: Int?, order: Comparator<T>): Page<T> {
+	val sorted = sites.sortedWith(order)
+	val cap = page ?: sorted.size
+	return Page(sorted.take(cap), sorted.size > cap)
+}
+
+/** Rows without a size: nothing was read, so nothing was measured. */
+private fun tooLargePage(served: Int) = WorkspaceListing.TooLarge(served.toLong(), null)
+
+////////////////////////////////
 //  Rows
 
-/** Columns and the line's own text are dressed on afterwards, from the file. */
+/** The line's own text and its paint are dressed on afterwards, from the file. */
 private fun useRowOf(site: FacetUseSite, symbols: FacetSymbols) = WorkspaceFacetUse(
 	module = site.module,
 	line = site.line,
-	startColumn = 0,
-	endColumn = site.name.length.toLong(),
+	startColumn = site.column,
+	endColumn = site.column + site.name.length,
 	name = site.name,
 	role = site.role,
 	holder = sandboxShown(symbols, site.holderId),
@@ -103,9 +121,15 @@ internal fun sandboxUseRows(sites: List<FacetUseSite>, symbols: FacetSymbols): L
 	sites.filterNot { workspaceWithheldPath(it.module) }.map { useRowOf(it, symbols) }
 
 /** Every row is painted in place here, so none is ever left plain. */
-internal fun sandboxUsesAnswer(sites: List<FacetUseSite>, symbols: FacetSymbols): WorkspaceFacetAnswer.Uses {
-	val rows = sandboxUseRows(sites, symbols)
-	return WorkspaceFacetAnswer.Uses(rows = rows, uses = rows.size.toLong(), plain = 0)
+internal fun sandboxUsesAnswer(
+	sites: List<FacetUseSite>,
+	symbols: FacetSymbols,
+	page: Int? = null,
+): WorkspaceListing<WorkspaceFacetAnswer.Uses> {
+	val held = pageOf(sites, page, BY_SOURCE)
+	if (held.truncated) return tooLargePage(held.rows.count { !workspaceWithheldPath(it.module) })
+	val rows = sandboxUseRows(held.rows, symbols)
+	return WorkspaceListing.Listed(WorkspaceFacetAnswer.Uses(rows = rows, uses = rows.size.toLong(), plain = 0))
 }
 
 /** Unresolved names key by spelling, bound ones by target. */
@@ -138,13 +162,18 @@ internal fun sandboxTargetRows(sites: List<FacetTargetSite>, symbols: FacetSymbo
 internal fun sandboxTargetsAnswer(
 	sites: List<FacetTargetSite>,
 	symbols: FacetSymbols,
-): WorkspaceFacetAnswer.UsesFrom {
-	val rows = sandboxTargetRows(sites, symbols)
-	return WorkspaceFacetAnswer.UsesFrom(
-		targets = rows,
-		targetCount = rows.size.toLong(),
-		references = rows.sumOf { it.uses.size }.toLong(),
-		plain = 0,
+	page: Int? = null,
+): WorkspaceListing<WorkspaceFacetAnswer.UsesFrom> {
+	val held = pageOf(sites, page, compareBy(BY_SOURCE) { it.use })
+	if (held.truncated) return tooLargePage(held.rows.count { !workspaceWithheldPath(it.use.module) })
+	val rows = sandboxTargetRows(held.rows, symbols)
+	return WorkspaceListing.Listed(
+		WorkspaceFacetAnswer.UsesFrom(
+			targets = rows,
+			targetCount = rows.size.toLong(),
+			references = rows.sumOf { it.uses.size }.toLong(),
+			plain = 0,
+		),
 	)
 }
 
@@ -220,21 +249,25 @@ internal fun sandboxComments(
 
 /** Every count comes off the rows its drill-in listed, so a row dropped is a row counted nowhere. */
 internal fun sandboxCounts(
-	uses: List<WorkspaceFacetUse>,
-	targets: List<WorkspaceFacetTarget>,
+	uses: WorkspaceListing<WorkspaceFacetAnswer.Uses>,
+	targets: WorkspaceListing<WorkspaceFacetAnswer.UsesFrom>,
 	members: List<WorkspaceFacetSymbol>,
 	hierarchy: WorkspaceFacetAnswer.Hierarchy,
 	comments: WorkspaceFacetAnswer.Comments,
-): WorkspaceKnowledgeCounts = WorkspaceKnowledgeCounts(
-	uses = uses.size.toLong(),
-	useFiles = uses.map { it.module }.distinct().size.toLong(),
-	dependents = uses.mapNotNull { it.topLevel?.symbolId }.distinct().size.toLong(),
-	dependentFiles = uses.filter { it.topLevel == null }.map { it.module }.distinct().size.toLong(),
-	targets = targets.size.toLong(),
-	boundTargets = targets.mapNotNull { it.target?.symbolId }.distinct().size.toLong(),
-	references = targets.sumOf { it.uses.size }.toLong(),
-	members = members.size.toLong(),
-	supertypes = hierarchy.supertypeCount,
-	subtypes = hierarchy.subtypeCount,
-	comments = comments.total,
-)
+): WorkspaceKnowledgeCounts? {
+	val useRows: List<WorkspaceFacetUse> = (uses as? WorkspaceListing.Listed)?.value?.rows ?: return null
+	val targetRows: List<WorkspaceFacetTarget> = (targets as? WorkspaceListing.Listed)?.value?.targets ?: return null
+	return WorkspaceKnowledgeCounts(
+		uses = useRows.size.toLong(),
+		useFiles = useRows.map { it.module }.distinct().size.toLong(),
+		dependents = useRows.mapNotNull { it.topLevel?.symbolId }.distinct().size.toLong(),
+		dependentFiles = useRows.filter { it.topLevel == null }.map { it.module }.distinct().size.toLong(),
+		targets = targetRows.size.toLong(),
+		boundTargets = targetRows.mapNotNull { it.target?.symbolId }.distinct().size.toLong(),
+		references = targetRows.sumOf { it.uses.size }.toLong(),
+		members = members.size.toLong(),
+		supertypes = hierarchy.supertypeCount,
+		subtypes = hierarchy.subtypeCount,
+		comments = comments.total,
+	)
+}

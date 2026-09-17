@@ -13,6 +13,7 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -35,7 +36,7 @@ class SandboxFacetVectorsTest {
 	/** Every vector is reported, or the first mismatch hides which other rules also broke. */
 	@Test
 	fun `every vector answers what the plugin answered`() {
-		assertTrue(cases.size >= 7)
+		assertTrue(cases.size >= 9)
 		val broken = cases.filter { answerOf(it) != it["answer"]!!.jsonObject }.map { it.text("name") }
 
 		assertEquals(emptyList<String>(), broken)
@@ -47,31 +48,41 @@ class SandboxFacetVectorsTest {
 		val symbols = FacetSymbols { declared[it] }
 		val subject = declared[case.text("subject")]!!
 
-		val uses = sandboxUsesAnswer(case.rows("uses").map(::useSiteOf), symbols)
-		val targets = sandboxTargetsAnswer(case.rows("targets").map(::targetSiteOf), symbols)
+		val uses = sandboxUsesAnswer(case.rows("uses").map(::useSiteOf), symbols, case.pageOrNull("usePage"))
+		val targets = sandboxTargetsAnswer(case.rows("targets").map(::targetSiteOf), symbols, case.pageOrNull("targetPage"))
 		val members = sandboxMembers(case.names("members"), symbols)
 		val hierarchy = hierarchyOf(case, subject, symbols)
 		val comments = commentsOf(case, subject, symbols)
+		val counts = sandboxCounts(uses, targets, members, hierarchy, comments)
 
 		return buildJsonObject {
-			put("uses", buildJsonObject {
-				put("rows", buildJsonArray { for (row in uses.rows) add(rowOf(row)) })
-				put("uses", uses.uses)
-				put("plain", uses.plain)
-			})
-			put("usesFrom", buildJsonObject {
-				put("targets", buildJsonArray { for (target in targets.targets) add(targetOf(target)) })
-				put("targetCount", targets.targetCount)
-				put("references", targets.references)
-				put("plain", targets.plain)
-			})
+			put("uses", refusedOr(uses) { usesJsonOf(it) })
+			put("usesFrom", refusedOr(targets) { targetsJsonOf(it) })
 			put("members", buildJsonObject {
 				put("members", buildJsonArray { for (member in members) add(member.symbolId) })
 			})
 			put("hierarchy", hierarchyJsonOf(hierarchy))
 			put("comments", commentsJsonOf(comments))
-			put("counts", countsOf(sandboxCounts(uses.rows, targets.targets, members, hierarchy, comments)))
+			put("counts", if (counts == null) JsonNull else countsOf(counts))
 		}
+	}
+
+	private fun <T> refusedOr(listing: WorkspaceListing<T>, listed: (T) -> JsonObject): JsonObject = when (listing) {
+		is WorkspaceListing.TooLarge -> buildJsonObject { put("tooLarge", listing.rows) }
+		is WorkspaceListing.Listed -> listed(listing.value)
+	}
+
+	private fun usesJsonOf(uses: WorkspaceFacetAnswer.Uses) = buildJsonObject {
+		put("rows", buildJsonArray { for (row in uses.rows) add(rowOf(row)) })
+		put("uses", uses.uses)
+		put("plain", uses.plain)
+	}
+
+	private fun targetsJsonOf(targets: WorkspaceFacetAnswer.UsesFrom) = buildJsonObject {
+		put("targets", buildJsonArray { for (target in targets.targets) add(targetOf(target)) })
+		put("targetCount", targets.targetCount)
+		put("references", targets.references)
+		put("plain", targets.plain)
 	}
 
 	////////////////////////////////
@@ -94,6 +105,7 @@ class SandboxFacetVectorsTest {
 		role = row.text("role"),
 		holderId = row.textOrNull("holder"),
 		topLevelId = row.textOrNull("topLevel"),
+		column = row.number("column"),
 	)
 
 	private fun targetSiteOf(row: JsonObject) = FacetTargetSite(
@@ -235,6 +247,8 @@ private fun JsonObject.textOrNull(key: String): String? =
 	this[key]?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
 
 private fun JsonObject.number(key: String): Long = this[key]!!.jsonPrimitive.long
+
+private fun JsonObject.pageOrNull(key: String): Int? = this[key]?.jsonPrimitive?.int
 
 private fun JsonObject.rows(key: String): List<JsonObject> =
 	(this[key] as? JsonArray)?.map { it.jsonObject } ?: emptyList()

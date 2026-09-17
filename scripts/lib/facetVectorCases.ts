@@ -2,6 +2,9 @@
 //
 // Every rule a vector exists for is named in its `name`. A symbol id embeds its module, which is what
 // both runtimes gate on, so an id naming `.env` is withheld however served its summary claims to be.
+//
+// Rows are unordered; both runtimes sort before they page. A use from a subject is written inside it,
+// in its module, and the generator refuses a case that says otherwise.
 
 import type { FacetCase, FacetDeclared, FacetModule } from "../../src/testing/facetVectors.js";
 
@@ -15,6 +18,8 @@ const PORT_MODULE = "src/port.ts";
 const USE_MODULE = "src/use.ts";
 
 const SEAL_MODULE = "src/seal.ts";
+
+const DOC_MODULE = "src/doc.ts";
 
 const ENV_MODULE = ".env";
 
@@ -48,6 +53,10 @@ const OTHER_PORT = "lexicon typescript src/seal.ts Port#";
 const VENDORED = "lexicon typescript node_modules/local-agent/index.ts Vendored#";
 
 const ENV_BACKED = "lexicon typescript src/config/.env.ts EnvBacked#";
+
+const DOC = "lexicon typescript src/doc.ts Doc#";
+
+const DOC_READ = "lexicon typescript src/doc.ts Doc#read().";
 
 const SEALING = "lexicon typescript src/seal.ts Sealing#";
 
@@ -99,6 +108,20 @@ const sealFile: FacetModule = {
 		"}",
 		"export class VaultSealing extends ContentSealing implements Error {",
 		'\tname = "VaultSealing";',
+		"}",
+	],
+};
+
+/** Two leading comments over one declaration. */
+const docFile: FacetModule = {
+	path: DOC_MODULE,
+	language: TS,
+	lines: [
+		"/** What a doc holds. */",
+		"/** Written once, read many. */",
+		"export interface Doc {",
+		"\t/** Reads it. */",
+		"\tread(): string;",
 		"}",
 	],
 };
@@ -155,6 +178,20 @@ const useSymbols: FacetDeclared[] = [
 		endLine: 4,
 		container: HANDLER,
 		signature: "start(port: Port, spare: Port): void",
+	},
+];
+
+const docSymbols: FacetDeclared[] = [
+	{ id: DOC, name: "Doc", kind: "interface", module: DOC_MODULE, startLine: 3, endLine: 6 },
+	{
+		id: DOC_READ,
+		name: "read",
+		kind: "method",
+		module: DOC_MODULE,
+		startLine: 5,
+		endLine: 5,
+		container: DOC,
+		signature: "read(): string",
 	},
 ];
 
@@ -252,7 +289,6 @@ const withheldRows: FacetCase = {
 			status: "bound",
 			target: HANDLER,
 		},
-		{ module: ENV_MODULE, line: 1, column: 0, name: "Handler", role: "typeUse", status: "bound", target: HANDLER },
 	],
 	members: [PORT_OPEN, CLOAKED, PORT_CLOSE],
 	hierarchy: {
@@ -264,7 +300,7 @@ const withheldRows: FacetCase = {
 };
 
 const supertypeCount: FacetCase = {
-	name: "the supertype count spans direct supertypes, ancestors and unbound names",
+	name: "the supertype count spans direct supertypes, ancestors and unbound names, a repeated direct one twice",
 	modules: [sealFile, envFile],
 	symbols: [...sealSymbols, secret],
 	subject: VAULT,
@@ -293,7 +329,9 @@ const supertypeCount: FacetCase = {
 		},
 	],
 	hierarchy: {
+		// A direct supertype stands twice; an unbound name is named once however often it appears.
 		supertypes: [
+			{ name: "ContentSealing", symbol: CONTENT, role: "extends" },
 			{ name: "ContentSealing", symbol: CONTENT, role: "extends" },
 			{ name: "Error", role: "implements" },
 			{ name: "Error", role: "implements" },
@@ -304,24 +342,25 @@ const supertypeCount: FacetCase = {
 };
 
 const ownComment: FacetCase = {
-	name: "a symbol's own leading comment is documentation, in no row and in no count",
-	modules: [portFile],
-	symbols: portSymbols,
-	subject: PORT,
+	name: "every own leading comment is documentation, in no row and in no count, not only the first",
+	modules: [docFile],
+	symbols: docSymbols,
+	subject: DOC,
 	comments: [
-		{ module: PORT_MODULE, line: 1, text: "What a port opens onto.", form: "leading", anchor: PORT },
-		{ module: PORT_MODULE, line: 3, text: "Opens it.", form: "leading", anchor: PORT_OPEN },
-		{ module: PORT_MODULE, line: 4, text: "Held briefly.", form: "inline", anchor: PORT_OPEN },
+		{ module: DOC_MODULE, line: 1, text: "What a doc holds.", form: "leading", anchor: DOC },
+		{ module: DOC_MODULE, line: 2, text: "Written once, read many.", form: "leading", anchor: DOC },
+		{ module: DOC_MODULE, line: 4, text: "Reads it.", form: "leading", anchor: DOC_READ },
+		{ module: DOC_MODULE, line: 5, text: "Held briefly.", form: "inline", anchor: DOC_READ },
 	],
-	commentTotal: 3,
+	commentTotal: 4,
 };
 
 const commentPage: FacetCase = {
-	name: "the comment page caps, and the total says how many there are",
+	name: "the comment page caps, and the total drops only the own comments the page held",
 	modules: [portFile],
 	symbols: portSymbols,
 	subject: PORT,
-	// One past the page, which is all it takes to cross it.
+	// Past the page, so the last own comment is documentation the total never drops.
 	comments: [
 		{ module: PORT_MODULE, line: 1, text: "What a port opens onto.", form: "leading", anchor: PORT },
 		...Array.from({ length: 200 }, (_, index) => ({
@@ -331,14 +370,15 @@ const commentPage: FacetCase = {
 			form: "inline",
 			anchor: PORT_OPEN,
 		})),
+		{ module: PORT_MODULE, line: 2, text: "Opened once.", form: "leading", anchor: PORT },
 	],
-	commentTotal: 201,
+	commentTotal: 202,
 };
 
 const holderFallback: FacetCase = {
-	name: "a use falls back from its holder to its top level, and then to file level",
+	name: "a holder and a top level are each read on their own, whether absent or present and withheld",
 	modules: [useFile, portFile],
-	symbols: [...useSymbols, ...portSymbols],
+	symbols: [...useSymbols, ...portSymbols, cloaked],
 	subject: PORT,
 	uses: [
 		{
@@ -353,6 +393,26 @@ const holderFallback: FacetCase = {
 		// A local no outline declares.
 		{ module: USE_MODULE, line: 4, column: 26, name: "Port", role: "typeUse", holder: HELD, topLevel: HANDLER },
 		{ module: USE_MODULE, line: 7, column: 11, name: "Port", role: "typeUse" },
+		// The outline holds it and its id names a withheld module, so the top level stands alone.
+		{
+			module: USE_MODULE,
+			line: 3,
+			column: 32,
+			name: "Port",
+			role: "implements",
+			holder: CLOAKED,
+			topLevel: HANDLER,
+		},
+		// A withheld top level leaves the holder, and counts the row at file level.
+		{
+			module: USE_MODULE,
+			line: 7,
+			column: 37,
+			name: "Port",
+			role: "typeUse",
+			holder: HANDLER_START,
+			topLevel: CLOAKED,
+		},
 	],
 };
 
@@ -398,8 +458,8 @@ const targetStatuses: FacetCase = {
 		// Another declaration under the same spelling, so a group keyed by spelling would swallow it.
 		{
 			module: USE_MODULE,
-			line: 1,
-			column: 20,
+			line: 3,
+			column: 40,
 			name: "Port",
 			role: "typeUse",
 			holder: HANDLER,
@@ -421,26 +481,30 @@ const targetStatuses: FacetCase = {
 		},
 		{
 			module: USE_MODULE,
-			line: 7,
-			column: 11,
+			line: 4,
+			column: 20,
 			name: "Promise",
 			role: "typeUse",
+			holder: HANDLER_START,
+			topLevel: HANDLER,
 			status: "unbound",
 			reason: "ExternalDependency",
 		},
 		{
 			module: USE_MODULE,
-			line: 7,
-			column: 30,
+			line: 4,
+			column: 34,
 			name: "Promise",
 			role: "typeUse",
+			holder: HANDLER_START,
+			topLevel: HANDLER,
 			status: "unbound",
 			reason: "ExternalDependency",
 		},
 		{
 			module: USE_MODULE,
-			line: 1,
-			column: 14,
+			line: 5,
+			column: 1,
 			name: "Emit",
 			role: "typeUse",
 			holder: HANDLER,
@@ -458,7 +522,6 @@ const targetStatuses: FacetCase = {
 			status: "bound",
 			target: SECRET,
 		},
-		{ module: ENV_MODULE, line: 1, column: 0, name: "Port", role: "typeUse", status: "bound", target: PORT },
 	],
 };
 
@@ -496,7 +559,7 @@ const countsAfterFilter: FacetCase = {
 		{
 			module: PORT_MODULE,
 			line: 4,
-			column: 15,
+			column: 24,
 			name: "Secret",
 			role: "typeUse",
 			holder: PORT_OPEN,
@@ -504,7 +567,6 @@ const countsAfterFilter: FacetCase = {
 			status: "bound",
 			target: SECRET,
 		},
-		{ module: ENV_MODULE, line: 1, column: 0, name: "Handler", role: "typeUse", status: "bound", target: HANDLER },
 	],
 	members: [PORT_OPEN, CLOAKED],
 	hierarchy: {
@@ -559,6 +621,86 @@ const bulkAndSecrets: FacetCase = {
 	},
 };
 
+const truncatedPage: FacetCase = {
+	name: "a truncated reference page refuses the drill-in whole, counts the page's served rows and opens no file",
+	modules: [portFile, useFile, envFile],
+	symbols: [...portSymbols, ...useSymbols, secret],
+	subject: PORT,
+	usePage: 3,
+	targetPage: 2,
+	uses: [
+		{
+			module: USE_MODULE,
+			line: 4,
+			column: 13,
+			name: "Port",
+			role: "typeUse",
+			holder: HANDLER_START,
+			topLevel: HANDLER,
+		},
+		{
+			module: USE_MODULE,
+			line: 3,
+			column: 32,
+			name: "Port",
+			role: "implements",
+			holder: HANDLER,
+			topLevel: HANDLER,
+		},
+		// Past the file's end, and still counted, since a refused answer opens no file.
+		{ module: PORT_MODULE, line: 99, column: 1, name: "Port", role: "typeUse", holder: PORT_OPEN, topLevel: PORT },
+		{ module: ENV_MODULE, line: 1, column: 0, name: "Port", role: "typeUse", holder: SECRET, topLevel: SECRET },
+		{ module: USE_MODULE, line: 7, column: 11, name: "Port", role: "typeUse" },
+	],
+	targets: [
+		{
+			module: PORT_MODULE,
+			line: 5,
+			column: 8,
+			name: "Promise",
+			role: "typeUse",
+			holder: PORT_CLOSE,
+			topLevel: PORT,
+			status: "unbound",
+			reason: "ExternalDependency",
+		},
+		{
+			module: PORT_MODULE,
+			line: 4,
+			column: 15,
+			name: "Handler",
+			role: "typeUse",
+			holder: PORT_OPEN,
+			topLevel: PORT,
+			status: "bound",
+			target: HANDLER,
+		},
+		{
+			module: PORT_MODULE,
+			line: 2,
+			column: 20,
+			name: "Secret",
+			role: "typeUse",
+			holder: PORT,
+			topLevel: PORT,
+			status: "bound",
+			target: SECRET,
+		},
+		{
+			module: PORT_MODULE,
+			line: 4,
+			column: 24,
+			name: "Port",
+			role: "typeUse",
+			holder: PORT_OPEN,
+			topLevel: PORT,
+			status: "bound",
+			target: PORT,
+		},
+	],
+	members: [PORT_OPEN],
+};
+
 export const FACET_CASES: FacetCase[] = [
 	withheldRows,
 	supertypeCount,
@@ -568,4 +710,5 @@ export const FACET_CASES: FacetCase[] = [
 	targetStatuses,
 	countsAfterFilter,
 	bulkAndSecrets,
+	truncatedPage,
 ];

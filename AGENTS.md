@@ -177,6 +177,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     regenerating. A hand-written sandbox drifted from the plugin twice on the counts before this existed.
     The data in `SandboxFacets.kt` stays invented; only a rule is pinned, and a rule takes explicit input
     so a vector can drive it.
+  - **A reference row's order is the index's, module then line then character, so no list is authored
+    into it:** `SandboxFacetRules` sorts before it pages, since the sandbox has no daemon to order for
+    it. A page is what the index answered; truncating one refuses the drill-in whole, names the served
+    rows the page held, opens no file and answers no counts.
   - **A count is derived from the rows it names, never declared beside them:** `SandboxFacetsTest`
     asserts every count equals what its drill-in lists, so no screen claims a number the next contradicts.
     `HubRegistry` is the one exception, since a too-large drill-in lists nothing to count.

@@ -159,11 +159,30 @@ than answering one outline for every file. `SandboxFacets.kt` holds invented dri
 `tests/fixtures/workspace-facets/vectors.json`: `bun run gen:facets` runs the plugin's
 `facets.ts` over invented inputs and writes the corpus, `workspace-facet-vectors.test.ts` replays it
 against the plugin, `SandboxFacetVectorsTest` runs the same inputs through the sandbox's rules, and
-`bun run check:facets` in CI regenerates and diffs. The corpus covers withheld rows, the supertype
-count, a symbol's own leading comment, the comment page, holder fallback, target binding and counts
-taken after filtering. Columns, line text and paint are left out, since those come from the file and
-`code-spans/vectors.json` pins the paint. `SandboxFacetsTest` still asserts every count equals what
-its drill-in lists, so a screen cannot claim a number the next screen contradicts.
+`bun run check:facets` in CI regenerates and diffs. Columns, line text and paint are left out, since
+those come from the file and `code-spans/vectors.json` pins the paint. `SandboxFacetsTest` still
+asserts every count equals what its drill-in lists, so a screen cannot claim a number the next screen
+contradicts.
+
+Three rules hold across every case. The index answers references by module, then line, then character,
+so both runtimes sort before they page and a case's rows are authored in whatever order reads best. A
+use from a subject is written inside it, in its module, since the index reads only that module and
+keeps only rows held by the subject or something declared in it; the generator refuses a case that says
+otherwise. A case may declare `usePage` or `targetPage`, standing in for the 100,000 rows the plugin
+asks for, since no fixture fills that and the refusal past it would be unreachable. The comment page is
+200 on both sides, Lexicon's cap and this plugin's bound alike.
+
+| case | pins |
+|---|---|
+| withheld rows | a withheld module's rows dropped before any row is built, and counted nowhere |
+| supertype count | direct supertypes, ancestors and unbound names counted together, a repeated direct one twice and a repeated unbound name once |
+| own comments | every own leading comment is documentation, not only the first a scan matches |
+| comment page | the page caps at 200, and the total drops only the own comments the page held |
+| holder fallback | a holder and a top level read on their own, whether absent or present and withheld |
+| target statuses | grouping by target when bound and by spelling when not, ambiguous kept as it stands |
+| counts after filter | every count taken after the filter, never from what the index answered |
+| bulk and secrets | `node_modules` served and counted, a `.env` leaf dropped and counted nowhere |
+| truncated page | a truncated read refused whole, counting the page's served rows, opening no file and answering no counts |
 
 | case | module | shows |
 |---|---|---|
