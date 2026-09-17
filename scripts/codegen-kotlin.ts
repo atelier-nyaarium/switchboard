@@ -522,7 +522,12 @@ function pascal(value: string): string {
 		.join("");
 }
 
+/** A nullable field arrives as a type array holding null, or as a two-member union with a null member. */
 function nullableInner(node: Json): Json | null {
+	const types = node.type;
+	if (Array.isArray(types) && types.length === 2 && types.includes("null")) {
+		return { ...node, type: types.find((type) => type !== "null") };
+	}
 	const members = (node.anyOf ?? node.oneOf) as Json[] | undefined;
 	if (members?.length !== 2) return null;
 	const nullIndex = members.findIndex((m) => (m as Json).type === "null");
@@ -654,6 +659,8 @@ for (const schema of ROOTS) {
 	const json = zodToCleanJsonSchema(schema);
 	const nested = (json.$defs ?? {}) as Record<string, Json>;
 	delete json.$defs;
+	// A registered root converts to a $ref into its own $defs; the body there is the root's shape.
+	const body = json.$ref === `#/$defs/${id}` ? (nested[id] as Json) : json;
 	const guardedSet = (name: string, body: Json) => {
 		const existing = defs.get(name);
 		if (existing && JSON.stringify(existing) !== JSON.stringify(body)) {
@@ -661,7 +668,7 @@ for (const schema of ROOTS) {
 		}
 		defs.set(name, body);
 	};
-	guardedSet(id, json);
+	guardedSet(id, body);
 	for (const [name, body] of Object.entries(nested)) {
 		if (name === id) continue;
 		guardedSet(name, body);
