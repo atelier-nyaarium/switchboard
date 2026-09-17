@@ -197,7 +197,7 @@ dropped plane, a re-provision landing mid-read, a stale fence and a Gateway that
 none of them reachable. Those live in the JVM benches beside their ops classes. No gate here renders
 a Composable either, since there is no `androidTest` source set, so layout, sticky headers, scroll
 restoration and every colour are proven by the walk in `plans/lexicon-phone-editing/` against the
-mocks, and the decisions behind them are pulled out into `FacetRules`, `CodePaint` and
+mocks, and the decisions behind them are pulled out into the `Facet*Rules` files, `CodePaint` and
 `WorkspaceNav`, where a JVM test can call them.
 
 ## Wire vocabulary

@@ -514,12 +514,17 @@ no TTL.
   and refused whole over `MAX_WORKSPACE_OP_BYTES`, never truncated. The three drill-ins answer
   `WorkspaceTooLargeAnswer` with `rows` and `bytes`, which `listingOf` reads as `WorkspaceListing.TooLarge`;
   older reads keep the refusal text, since an older phone decodes only its own answer.
-- **Facets on the phone** (`FacetRules.kt`, `workspace/FacetScreen.kt`, `FacetUses.kt`, `FacetLists.kt`):
-  the detail's Facts card lists Members, References, Used by, Uses, Type hierarchy, Comments and Last
-  changed, each in the unit its drill-in lists, and each row opens a `WorkspacePlace.Facet` on the Files
-  stack. `FacetRules` holds every decision, since no gate here reaches a Composable: the rows and their
-  units, the grouping and its keys, the role chips, the hierarchy column, the comment and commit items,
-  the file stats, the ages and the detail's own item order.
+- **Facets on the phone** (`workspace/FacetScreen.kt`, `FacetUses.kt`, `FacetLists.kt`): the detail's Facts
+  card lists Members, References, Used by, Uses, Type hierarchy, Comments and Last changed, each in the unit
+  its drill-in lists, and each row opens a `WorkspacePlace.Facet` on the Files stack. Every decision sits
+  outside a Composable, since no gate here reaches one, and each domain owns a file: `FacetFactsRules` the
+  rows, `FacetUseRules` the grouping, its keys and the role chips, `FacetStructureRules` the members, the
+  hierarchy column and the comments inside a declaration, `FacetHistoryRules` the commit items, the file
+  stats and the cap, `FacetDetailRules` what opens a detail and its own item order. What the drill-ins share
+  with the rest of the surface sits apart, and Ask reads both: `FacetStateRules` for the state an answer
+  reads as, the unit each facet counts in (`facetUnit`, `facetOf`) and the notices they draw, and `FacetText`
+  for `countText`, `whereText`, `plural` and the ages, one reading of a count, of `module : line` and of a
+  span.
   - **A row counts what its drill-in lists.** A row reading zero is dim, holds its chevron's width and
     does not open; a declaration that is not a type reads `not a type`, an interface's subtypes read as
     implementations. Last changed reads the `history` facet the detail keeps beside its own read, so the

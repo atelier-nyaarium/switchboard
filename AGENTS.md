@@ -320,7 +320,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     either: its order is its `PublishedViews` ticket, minted before it awaits.
 - `android/.../WindowOps.kt` / `WindowRules.kt` / `WindowRequests.kt` / `SymbolViews.kt` / `KnowledgeRules.kt` /
   `AskRules.kt` / `AskGrammar.kt` / `AskedStore.kt` / `AskOps.kt` / `ComposedRequests.kt` / `RawFileOps.kt` /
-  `RawFileRules.kt` / `WorkspaceFileOps.kt` / `FileOpRules.kt` / `FacetRules.kt` / `CodePaint.kt` / `HeldEdits.kt` / `PublishedViews.kt` /
+  `RawFileRules.kt` / `WorkspaceFileOps.kt` / `FileOpRules.kt` / `FacetText.kt` / `FacetStateRules.kt` /
+  `FacetFactsRules.kt` / `FacetUseRules.kt` / `FacetStructureRules.kt` / `FacetHistoryRules.kt` /
+  `FacetDetailRules.kt` / `CodePaint.kt` / `HeldEdits.kt` / `PublishedViews.kt` /
   `WorkspaceDraftStore.kt` / `WorkspacePorts.kt` / `WorkspaceFileTable.kt` / `WorkspaceNav.kt` / `workspace/` - a
   conversation's Files: the open windows, the raw files being edited, the file operations, their drafts, the
   drill-ins and their paint, every rule the surface applies, the place rules, and the screens.
@@ -333,11 +335,15 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     screen state beside it, the grouping, the chosen chip and the scroll, is held by a
     `SaveableStateHolder` keyed by `placeKey`, since a place that leaves composition loses a
     `rememberSaveable` and two places drawn by one branch would otherwise share one.
-  - **Every drill-in decision is in `FacetRules`, none in a Composable:** the fact rows and their units,
-    the grouping and its keys, the role chips, the hierarchy column, the comment and commit items, the
-    file stats, the ages, the notices and the detail's item order. `countText` and `whereText` are the one
-    reading of a count and of `module : line`, so two screens cannot group digits or name a line
-    differently.
+  - **Every drill-in decision sits outside a Composable, one file per domain:** `FacetFactsRules` the fact
+    rows, `FacetUseRules` the use listings with their grouping, keys and role chips,
+    `FacetStructureRules` the members, the hierarchy column and the comments inside a declaration,
+    `FacetHistoryRules` the commit items, the file stats and the cap, `FacetDetailRules` what opens a
+    detail and the order of its items. What the drill-ins share with the rest of the surface sits apart,
+    and Ask reads both: `FacetStateRules` holds the state an answer reads as, the unit each facet counts
+    in (`facetUnit`, `facetOf`) and the notices they draw, and `FacetText` holds `countText`, `whereText`,
+    `plural` and the ages, one reading of a count, of `module : line` and of a span, so two screens cannot
+    group digits or name a line differently.
   - **`CodePaint` owns the wire's tokens and the mocks' palette:** `CodeToken`'s ordinal is the contract,
     pinned by `tests/fixtures/code-spans/vectors.json`, and `styleOf` has no else branch, so a token added
     to the wire is a compile error. `USE_ROW_COLUMNS` sits under what a phone row draws, or the ellipsis
