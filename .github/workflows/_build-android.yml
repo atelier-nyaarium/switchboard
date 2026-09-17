@@ -139,7 +139,8 @@ jobs:
           NOTES
           retry git push --force origin "HEAD:refs/tags/android-app" || echo "tag not moved; the notes name the build" >&2
           if gh release view android-app >/dev/null 2>&1; then
-            retry gh release edit android-app --title "Switchboard Android (latest)" --notes-file "$notes" --latest
+            # A publish that failed after its upload leaves a draft, which latest refuses.
+            retry gh release edit android-app --title "Switchboard Android (latest)" --notes-file "$notes" --draft=false --prerelease=false --latest
           else
             retry gh release create android-app --title "Switchboard Android (latest)" --notes-file "$notes" --latest --target "${{ github.sha }}"
           fi
