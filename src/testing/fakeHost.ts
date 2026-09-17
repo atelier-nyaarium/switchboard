@@ -23,7 +23,7 @@ export interface FakeHostHandlers {
 	onCodexCommand?: CodexResponder;
 }
 
-export type CodexResponder = (command: CodexDaemonCommand, daemon: FakeCodexDaemon) => Array<Frame> | void;
+export type CodexResponder = (command: CodexDaemonCommand, daemon: FakeCodexDaemon) => Array<Frame> | undefined;
 
 export type FakeTurnState = "inProgress" | "completed" | "failed" | "interrupted";
 

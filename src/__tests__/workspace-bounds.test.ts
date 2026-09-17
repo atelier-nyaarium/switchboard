@@ -27,13 +27,14 @@ describe("the bounds on one workspace op, outermost first", () => {
 		expect(Number((declared?.[1] ?? "").replaceAll("_", ""))).toBe(CONSOLE_ANSWER_WAIT_MS);
 	});
 
-	it.each(
-		Object.entries(WORKSPACE_BOUNDS),
-	)("nests the %s bounds inside the phone and the Router", (_name, bounds) => {
-		expect(bounds.handlerBudgetMs).toBeLessThan(bounds.planeWaitMs);
-		expect(bounds.planeWaitMs + WORKSPACE_HOP_MARGIN_MS).toBeLessThanOrEqual(CONSOLE_ANSWER_WAIT_MS);
-		expect(GATEWAY_RELAY_TIMEOUT_MS).toBeGreaterThanOrEqual(CONSOLE_ANSWER_WAIT_MS);
-	});
+	it.each(Object.entries(WORKSPACE_BOUNDS))(
+		"nests the %s bounds inside the phone and the Router",
+		(_name, bounds) => {
+			expect(bounds.handlerBudgetMs).toBeLessThan(bounds.planeWaitMs);
+			expect(bounds.planeWaitMs + WORKSPACE_HOP_MARGIN_MS).toBeLessThanOrEqual(CONSOLE_ANSWER_WAIT_MS);
+			expect(GATEWAY_RELAY_TIMEOUT_MS).toBeGreaterThanOrEqual(CONSOLE_ANSWER_WAIT_MS);
+		},
+	);
 
 	it("gives a write the save bounds and every read the read bounds", () => {
 		const reads: WorkspaceOp[] = [
@@ -72,24 +73,22 @@ describe("what the phone is told when the plane fails", () => {
 	const read: WorkspaceOp = { kind: "symbolSource", symbolId: "s" };
 
 	// Only refusal proves no write; other failures may land, so reread.
-	it.each([
-		"timeout",
-		"disconnected",
-		"failed",
-		"too_large",
-	] as const)("answers a write that %s as unknown", (failure) => {
-		expect(answerForConsole(save, { ok: false, failure, detail: "d" })).toMatchObject({
-			kind: "saveSpan",
-			outcome: "unknown",
-		});
-		for (const mutation of mutations) {
-			expect(answerForConsole(mutation, { ok: false, failure, detail: "d" })).toMatchObject({
-				kind: "mutateFile",
-				path: "src/a.ts",
+	it.each(["timeout", "disconnected", "failed", "too_large"] as const)(
+		"answers a write that %s as unknown",
+		(failure) => {
+			expect(answerForConsole(save, { ok: false, failure, detail: "d" })).toMatchObject({
+				kind: "saveSpan",
 				outcome: "unknown",
 			});
-		}
-	});
+			for (const mutation of mutations) {
+				expect(answerForConsole(mutation, { ok: false, failure, detail: "d" })).toMatchObject({
+					kind: "mutateFile",
+					path: "src/a.ts",
+					outcome: "unknown",
+				});
+			}
+		},
+	);
 
 	it("answers an oversized listing with its count, and an older read's as the error", () => {
 		const listings: WorkspaceOp[] = [

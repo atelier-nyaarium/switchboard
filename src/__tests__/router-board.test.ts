@@ -384,17 +384,17 @@ describe("router board service", () => {
 		registry.close();
 	});
 
-	it.each([
-		"durability_failure",
-		"quarantined",
-	])("refuses storage outcome %s without reporting a conflict", (kind) => {
-		const { service, registry } = make();
-		const store = registry.for("a");
-		vi.spyOn(store, "batch").mockReturnValue({ kind } as never);
-		const result = service.write("a", { expectedRevision: 0, ops: [entry("one")] }, { kind: "owner" });
-		expect(result).toMatchObject({ outcome: "refused", refusal: "durability_failure" });
-		registry.close();
-	});
+	it.each(["durability_failure", "quarantined"])(
+		"refuses storage outcome %s without reporting a conflict",
+		(kind) => {
+			const { service, registry } = make();
+			const store = registry.for("a");
+			vi.spyOn(store, "batch").mockReturnValue({ kind } as never);
+			const result = service.write("a", { expectedRevision: 0, ops: [entry("one")] }, { kind: "owner" });
+			expect(result).toMatchObject({ outcome: "refused", refusal: "durability_failure" });
+			registry.close();
+		},
+	);
 
 	it("answers applied when only the fsync was in doubt, since the batch was already applied", () => {
 		const { service, registry } = make();
@@ -643,8 +643,8 @@ describe("router board service", () => {
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.address).toEqual({ kind: "session", domainId: "a", gatewayId: "g", sessionId: "s" });
 		expect(rows[0]?.row.body).toMatchObject({ identity: "one" });
-		expect((rows[0]?.row.body as { pre: { sealed: unknown } }).pre.sealed).toEqual({ title: envelope() });
-		expect((rows[0]?.row.body as { post: { sealed: unknown } }).post.sealed).toEqual({ title: envelope() });
+		expect((rows[0]!.row.body as { pre: { sealed: unknown } }).pre.sealed).toEqual({ title: envelope() });
+		expect((rows[0]!.row.body as { post: { sealed: unknown } }).post.sealed).toEqual({ title: envelope() });
 		rows.length = 0;
 		const self = service.write(
 			"a",

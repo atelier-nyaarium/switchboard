@@ -151,7 +151,7 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 	 */
 	const noteWork = (routineId: string, scheduledAt: number, work: "started" | "done"): boolean => {
 		const held = at(routineId, scheduledAt);
-		if (!held || held.state !== "dispatched" || held.work === undefined) return false;
+		if (held?.state !== "dispatched" || held.work === undefined) return false;
 		if (WORK_ORDER.indexOf(work) <= WORK_ORDER.indexOf(held.work)) return false;
 		const moved: Occurrence = { ...held, work };
 		return commit(rows.map((row) => (row === held ? moved : row)));
@@ -173,7 +173,7 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		memory?: { proposed: string; base: number },
 	): Occurrence | null => {
 		const held = at(routineId, scheduledAt);
-		if (!held || held.state !== "dispatched") return null;
+		if (held?.state !== "dispatched") return null;
 		const moved: Occurrence = {
 			...held,
 			report,

@@ -27,7 +27,7 @@ import { composeVault, type VaultStage } from "./compose/composeVault.js";
 import { composeWebSockets, type WebSocketsStage } from "./compose/composeWebSockets.js";
 import { FederationContext } from "./compose/federationContext.js";
 import type { GatewayDeps, GatewayGraph } from "./compose/gatewayTypes.js";
-import { routineOwns, routineTeam } from "./routines/reservation.js";
+import { routineOwns } from "./routines/reservation.js";
 
 export { createProjectPredicates } from "./compose/composeSessions.js";
 export type {

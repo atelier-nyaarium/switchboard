@@ -59,11 +59,10 @@ describe("thread markdown links", () => {
 		});
 	});
 
-	it.each([
-		"javascript:alert(1)",
-		"vbscript:x",
-		"data:text/html;base64,PGI+",
-	])("refuses a blocked destination: %s", (url) => expect(render(`[x](${url})`)).not.toContain("<a"));
+	it.each(["javascript:alert(1)", "vbscript:x", "data:text/html;base64,PGI+"])(
+		"refuses a blocked destination: %s",
+		(url) => expect(render(`[x](${url})`)).not.toContain("<a"),
+	);
 
 	it("keeps data images as image output", () => {
 		expect(render("![dot](data:image/png;base64,iVBORw0KGgo=)")).toContain(

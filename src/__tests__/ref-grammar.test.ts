@@ -40,28 +40,34 @@ describe("the ref grammar vectors", () => {
 		expect(canonicalizeUri(vector.uri)).toBe(vector.canonical);
 	});
 
-	it.each(
-		CORPUS.vectors.filter((v) => v.distinctFrom).map((v) => [v.id, v] as const),
-	)("keeps %s distinct from the ref it could collide with", (_id, vector) => {
-		const other = CORPUS.vectors.find((v) => v.id === vector.distinctFrom);
+	it.each(CORPUS.vectors.filter((v) => v.distinctFrom).map((v) => [v.id, v] as const))(
+		"keeps %s distinct from the ref it could collide with",
+		(_id, vector) => {
+			const other = CORPUS.vectors.find((v) => v.id === vector.distinctFrom);
 
-		expect(other, `vectors.json names a distinctFrom that does not exist: ${vector.distinctFrom}`).toBeDefined();
-		expect(vector.canonical).not.toBe(other?.canonical);
-	});
+			expect(
+				other,
+				`vectors.json names a distinctFrom that does not exist: ${vector.distinctFrom}`,
+			).toBeDefined();
+			expect(vector.canonical).not.toBe(other?.canonical);
+		},
+	);
 
-	it.each(
-		CORPUS.errors.map((e) => [e.id, e] as const),
-	)("refuses %s with its declared code and offset", (_id, vector) => {
-		expect(tryParseRef(vector.uri)).toMatchObject({ kind: "error", code: vector.code, offset: vector.offset });
-	});
+	it.each(CORPUS.errors.map((e) => [e.id, e] as const))(
+		"refuses %s with its declared code and offset",
+		(_id, vector) => {
+			expect(tryParseRef(vector.uri)).toMatchObject({ kind: "error", code: vector.code, offset: vector.offset });
+		},
+	);
 
-	it.each(
-		CORPUS.notRefs.map((s) => [JSON.stringify(s), s] as const),
-	)("declines %s, which is not a ref at all", (_l, uri) => {
-		// The classification matters, not just the null: a malformed ref is ALSO null through
-		// parseRef, so asserting only that cannot tell "not a ref" from "a broken one".
-		expect(tryParseRef(uri)).toEqual({ kind: "not-a-ref" });
-	});
+	it.each(CORPUS.notRefs.map((s) => [JSON.stringify(s), s] as const))(
+		"declines %s, which is not a ref at all",
+		(_l, uri) => {
+			// The classification matters, not just the null: a malformed ref is ALSO null through
+			// parseRef, so asserting only that cannot tell "not a ref" from "a broken one".
+			expect(tryParseRef(uri)).toEqual({ kind: "not-a-ref" });
+		},
+	);
 });
 
 describe("canonical keys", () => {

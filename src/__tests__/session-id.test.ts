@@ -96,11 +96,12 @@ describe("address vectors", () => {
 		expect(t.canonical).toBe(v.canonical);
 	});
 
-	it.each(
-		vectors.parseQualifiedTargetReject.map((s) => [JSON.stringify(s), s] as const),
-	)("parseQualifiedTarget rejects %s", (_, s) => {
-		expect(() => parseQualifiedTarget(s)).toThrow();
-	});
+	it.each(vectors.parseQualifiedTargetReject.map((s) => [JSON.stringify(s), s] as const))(
+		"parseQualifiedTarget rejects %s",
+		(_, s) => {
+			expect(() => parseQualifiedTarget(s)).toThrow();
+		},
+	);
 
 	it.each(vectors.storeKey.map((v) => [v.key, v] as const))("storeKey %s", (_, v) => {
 		const k: SessionKey =
@@ -116,11 +117,12 @@ describe("address vectors", () => {
 		expect(parseStoreKey(v.key)).toEqual(k);
 	});
 
-	it.each(
-		vectors.parseStoreKeyReject.map((s) => [JSON.stringify(s), s] as const),
-	)("parseStoreKey rejects %s", (_, s) => {
-		expect(parseStoreKey(s)).toBeNull();
-	});
+	it.each(vectors.parseStoreKeyReject.map((s) => [JSON.stringify(s), s] as const))(
+		"parseStoreKey rejects %s",
+		(_, s) => {
+			expect(parseStoreKey(s)).toBeNull();
+		},
+	);
 
 	it.each(vectors.sessionName.map((v) => [v.input, v] as const))("local team-field codec %s", (_, v) => {
 		expect(parseSessionName(v.input)).toEqual({ project: v.project, session: v.session });

@@ -153,6 +153,7 @@ describe("windows spawn point", () => {
 		);
 		expect(withToken).toContain("PROJECT_NAME/w:SWITCHBOARD_SESSION_TOKEN/w");
 		// ${WSLENV:+$WSLENV:} keeps whatever the environment was already propagating.
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
 		expect(withToken).toContain('export WSLENV="${WSLENV:+$WSLENV:}');
 		// No token, no token entry: naming a variable that does not exist is not free.
 		expect(buildHostLaunch(WINDOWS_SPAWN, ctx())).not.toContain("SWITCHBOARD_SESSION_TOKEN");

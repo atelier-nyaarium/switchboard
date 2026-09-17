@@ -142,7 +142,6 @@ import {
 	ConsoleRoutineOccurrenceResultSchema,
 	ConsoleRoutinePutResultSchema,
 	ConsoleRoutineRunResultSchema,
-	RoutineAttentionSchema,
 	RoutineMissSchema,
 	RoutineSchema,
 	RoutineStateSchema,

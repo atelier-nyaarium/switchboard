@@ -77,7 +77,8 @@ describe("child environment", () => {
 		[{ COPILOT_API_KEY: "k", CODEX_API_KEY: "c" }, "COPILOT_", { COPILOT_API_KEY: "k" }],
 		[{ PATH: "/usr/bin", EMPTY: undefined }, "CODEX_", { PATH: "/usr/bin" }],
 	] as const)("scrubs %j for %s", (source, prefix, expected) =>
-		expect(scrubChildEnv(source, prefix)).toEqual(expected));
+		expect(scrubChildEnv(source, prefix)).toEqual(expected),
+	);
 
 	it("forwards only the agent settings to a container", () => {
 		expect(
@@ -98,13 +99,15 @@ describe("target values", () => {
 		expect(() => realLauncher.launch({ ...CONTAINER, targetId }, {})).toThrow();
 	});
 	it.each([HOST, CONTAINER])("accepts %j", (target) =>
-		expect(CodexResolvedTargetSchema.safeParse(target).success).toBe(true));
+		expect(CodexResolvedTargetSchema.safeParse(target).success).toBe(true),
+	);
 	it.each([
 		{ ...HOST, targetId: "container:app" },
 		{ ...CONTAINER, targetId: "host" },
 		{ ...CONTAINER, targetId: "container:Not A Slug" },
 	] as const)("rejects contradictory values: %j", (target) =>
-		expect(CodexResolvedTargetSchema.safeParse(target).success).toBe(false));
+		expect(CodexResolvedTargetSchema.safeParse(target).success).toBe(false),
+	);
 });
 
 describe("execution target lifecycle", () => {

@@ -55,7 +55,7 @@ export function registerHumanTools(mcpServer: McpServer, capabilities: Capabilit
 			inputSchema: notifySchema,
 		},
 		async (args: NotifyHumanArgs) => {
-			const { title, summary, full, fullSpoken, attachments } = args;
+			const { full, attachments } = args;
 			// Before file reads and the POST, so a reject costs nothing. `full` is this surface's own
 			// body field name, which renames per surface.
 			for (const field of [...SPOKEN_TIER_FIELDS, "full"] as const) {

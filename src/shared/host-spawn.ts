@@ -152,8 +152,10 @@ const WINDOWS: HostSpawnPoint = {
 		}
 		const script = `Set-Location -LiteralPath '${ctx.workdir}'\nclaude.exe ${ctx.claudeArgs}\n`;
 		const crossed = ctx.exportToken
-			? 'export WSLENV="${WSLENV:+$WSLENV:}PROJECT_NAME/w:SWITCHBOARD_SESSION_TOKEN/w"; '
-			: 'export WSLENV="${WSLENV:+$WSLENV:}PROJECT_NAME/w"; ';
+			? // biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+				'export WSLENV="${WSLENV:+$WSLENV:}PROJECT_NAME/w:SWITCHBOARD_SESSION_TOKEN/w"; '
+			: // biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+				'export WSLENV="${WSLENV:+$WSLENV:}PROJECT_NAME/w"; ';
 		return `bash -c 'source ~/.bashrc; export PROJECT_NAME=${ctx.composite}; ${ctx.exportToken}${crossed}exec ${WINDOWS_SHELL} -NoLogo -NoExit -EncodedCommand ${encodePowerShellCommand(script)}'`;
 	},
 };

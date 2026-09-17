@@ -55,13 +55,14 @@ describe("the thread stylesheet's custom properties", () => {
 	// element the page hides by attribute renders anyway. That is how the ref viewer's drift banner
 	// came to show on EVERY reference, empty: pale enough to miss in the light theme, a solid amber bar
 	// in dark. Any page that hides something by attribute needs the reset that wins.
-	it.each(
-		PAGES.filter(([, html]) => fs.readFileSync(html, "utf8").includes("hidden")),
-	)("%s resets [hidden] so an id rule cannot un-hide an element", (_name, _html, cssPath) => {
-		const css = fs.readFileSync(cssPath, "utf8").replace(/\s+/g, " ");
+	it.each(PAGES.filter(([, html]) => fs.readFileSync(html, "utf8").includes("hidden")))(
+		"%s resets [hidden] so an id rule cannot un-hide an element",
+		(_name, _html, cssPath) => {
+			const css = fs.readFileSync(cssPath, "utf8").replace(/\s+/g, " ");
 
-		expect(css).toContain("[hidden] { display: none !important; }");
-	});
+			expect(css).toContain("[hidden] { display: none !important; }");
+		},
+	);
 
 	it("defines every theme variable in both the light and dark blocks", () => {
 		// A variable defined only under `:root` renders light-theme colours on a dark background, and
