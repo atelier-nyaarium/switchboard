@@ -92,7 +92,7 @@ class PublishedViewsTest {
 		assertEquals("busy", views.of("a"))
 
 		val older = views.ticket(showing)
-		views.update(views.ticket(showing)) { "idle" }
+		assertTrue(views.update(views.ticket(showing)) { "idle" })
 		assertNull(views.claim(older, take = { it == "idle" }, taken = { "taken" }))
 		assertEquals("idle", views.of("a"))
 	}
@@ -283,7 +283,15 @@ class PublishedViewsTest {
 	@Test
 	fun `a keeper's read landing after a later read of its key draws nothing`() = runBlocking {
 		val held = TestHold()
-		val keeping = launch { views.keep("a", { "loading" }, holding(held)) }
+		val landed = CompletableDeferred<Unit>()
+		val keeping = launch {
+			views.keep("a", { "loading" }) { ticket ->
+				val at = reads.incrementAndGet()
+				held.pass()
+				views.update(ticket) { "read $at" }
+				landed.complete(Unit)
+			}
+		}
 		held.entered.await()
 
 		// A sweep of the same key, begun after the keeper's read and landing before it.
@@ -291,7 +299,7 @@ class PublishedViewsTest {
 		assertTrue(views.update(sweep) { "swept" })
 
 		held.release()
-		repeat(5) { yield() }
+		withTimeout(5_000) { landed.await() }
 
 		assertEquals("swept", views.of("a"))
 

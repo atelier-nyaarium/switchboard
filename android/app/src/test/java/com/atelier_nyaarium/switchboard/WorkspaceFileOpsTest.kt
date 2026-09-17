@@ -215,8 +215,9 @@ class WorkspaceFileOpsTest {
 	fun `an op begun in a folder left and reopened lands nothing on the new showing`() = runBlocking {
 		val hold = TestHold().also { disk.mutationHolds += it }
 		ops.ask(one, "src", PathAsk(PathAsk.Kind.Create, "src"))
+		assertNotNull(view().asking)
 		val creating = async { ops.choose(one, "src", CreateFile("src/new.ts")) }
-		hold.entered.await()
+		withTimeout(5_000) { hold.entered.await() }
 		ops.leave(one, "src")
 		ops.open(one, "src")
 		hold.release()
