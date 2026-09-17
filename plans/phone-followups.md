@@ -6,7 +6,7 @@ gates, a commit and its docs; the task board holds the status.
 1. ✅ `bd_5465b1d07f2498b744bb0af338e015a6` ComposedRequests: one road for a composed request's lifecycle, admission included. Shipped `4b80c6a2`.
 2. ✅ `bd_05317acf3d06ae839e721c38bc444c73` AskedStore settles against an observation; the preflight's claim is one value. Shipped `020183d1`.
 3. ✅ `bd_717e3a19d49b736f6796974b297f5233` `AskGrammar` renders and parses the Ask message's tree, pinned by `tests/fixtures/ask-grammar/vectors.json`. Shipped `094abc11`.
-4. `bd_eb11a34b18d4335a7e0248d43268b354` FacetRules split.
+4. ✅ `bd_eb11a34b18d4335a7e0248d43268b354` `FacetRules` split into seven owners (`FacetText`, `FacetStateRules`, `FacetFactsRules`, `FacetUseRules`, `FacetStructureRules`, `FacetHistoryRules`, `FacetDetailRules`), every rule moved unchanged. Shipped `21a9818f`.
 
 ## ComposedRequests
 
