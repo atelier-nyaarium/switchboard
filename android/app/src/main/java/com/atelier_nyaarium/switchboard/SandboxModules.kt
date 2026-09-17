@@ -24,7 +24,7 @@ internal data class SandboxModule(
 	val lines: List<String>,
 	val symbols: List<SandboxSymbol>,
 	val tracked: Boolean = true,
-	/** Parameters, which only a knowledge scope asked for them lists. */
+	/** Listed only by a scope asked for locals. */
 	val locals: List<SandboxSymbol> = emptyList(),
 ) {
 	val text: String get() = lines.joinToString("\n")

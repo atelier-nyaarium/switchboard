@@ -121,7 +121,7 @@ internal fun AskSheet(ops: AskOps, subject: AskSubject, openedOn: String?, onClo
 	val sending = selection.root?.let { requests[requestKey(subject, it, selection.scope)] } == RequestState.SENDING
 	val notRead = (selectedState as? ScopeState.NotRead)?.state
 
-	// Half open clips the summary and the button away, and a clipped sheet does not scroll to them.
+	// Half open clips the button away.
 	ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(true)) {
 		Column(
 			Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp),

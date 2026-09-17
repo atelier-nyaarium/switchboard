@@ -68,6 +68,14 @@ class AskedStoreTest {
 	}
 
 	@Test
+	fun `a pair asked while stale clears when its answer is invalidated away`() {
+		store.record(ADDRESS, ROOT, "SYMBOL", mapOf(why to 4.0))
+
+		assertEquals(setOf(ID), store.settle(ADDRESS, answer(null)))
+		assertFalse(store.outstanding(why))
+	}
+
+	@Test
 	fun `a pair clears 24 hours after its send and not a millisecond before`() {
 		store.record(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
 

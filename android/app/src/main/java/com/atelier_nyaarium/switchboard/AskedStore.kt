@@ -66,8 +66,7 @@ internal class AskedStore(private val now: () -> Long) {
 				val moved = answer.symbols.flatMap { symbol ->
 					symbol.questions.mapNotNull { asked ->
 						AskedKey(address, answer.root, symbol.symbolId, asked.question).takeIf { key ->
-							key in send.pairs && key !in send.recorded &&
-								asked.createdAt != null && asked.createdAt != send.pairs[key]
+							key in send.pairs && key !in send.recorded && asked.createdAt != send.pairs[key]
 						}
 					}
 				}

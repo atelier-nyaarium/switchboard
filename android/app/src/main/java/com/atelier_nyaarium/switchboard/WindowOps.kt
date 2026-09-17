@@ -260,7 +260,6 @@ internal class WindowOps(
 		return when (outbox.submit(RequestKey(target.address, RequestKind.APPLY, ""), text)) {
 			Submitted.Sent -> Applied.Sent(requests.size)
 			Submitted.AlreadySending -> Applied.AlreadySending
-			// The drafts stay either way, so an unknown outcome needs no word of its own here.
 			Submitted.Failed -> Applied.Failed
 			Submitted.Unknown -> Applied.Unknown
 		}

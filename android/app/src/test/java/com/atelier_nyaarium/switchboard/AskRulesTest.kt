@@ -369,7 +369,7 @@ class AskRulesTest {
 		)
 
 		assertEquals(listOf(RowWord.RECORDED, RowWord.ASKED, RowWord.NOT_RECORDED), rows.map { it.word })
-		assertEquals(listOf("recorded", "asked", "not recorded"), rows.map { rowWordText(it.word) })
+		assertEquals(listOf(false, true, true), rows.map { it.opens })
 	}
 
 	@Test

@@ -66,10 +66,6 @@ private val RECORDED_TINT = Color(0xFF9BD4A3)
 /** One column for the question, so the words beside it line up. */
 private val QUESTION_COLUMN = 78.dp
 
-private const val PROGRESS_NOTE =
-	"Progress is the phone re-reading what Lexicon holds, not the session's word for it. Anything still asked " +
-		"is left out of the next send unless Already asked is ticked."
-
 /**
  * A symbol's knowledge: how much of it is recorded, what a send left out, and the rows an Ask opens
  * from. Progress is read back from Lexicon through the scope this page keeps, never from a reply.
@@ -167,11 +163,6 @@ private fun ProgressBlock(progress: AskProgress, now: Long) {
 		}
 		if (!progress.oneSymbol) {
 			for (row in progress.rows) ProgressRowLine(row)
-			Text(
-				PROGRESS_NOTE,
-				style = MaterialTheme.typography.labelSmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-			)
 		}
 	}
 }
@@ -199,10 +190,9 @@ private fun ProgressRowLine(row: ProgressRow) {
 @Composable
 private fun QuestionCard(row: AskRow, onAsk: () -> Unit) {
 	val colors = MaterialTheme.colorScheme
-	val opens = row.word != RowWord.RECORDED
 	OutlinedCard(
 		Modifier.fillMaxWidth().padding(horizontal = 12.dp)
-			.let { if (!opens) it else it.clickable(onClick = hapticClick(onAsk)) },
+			.let { if (!row.opens) it else it.clickable(onClick = hapticClick(onAsk)) },
 	) {
 		Column(
 			Modifier.padding(horizontal = 12.dp, vertical = if (row.prose == null) 6.dp else 12.dp),
@@ -227,7 +217,7 @@ private fun QuestionCard(row: AskRow, onAsk: () -> Unit) {
 					},
 				)
 				for (badge in row.badges) BadgeLabel(badge)
-				if (opens) Chevron()
+				if (row.opens) Chevron()
 			}
 			row.prose?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 		}

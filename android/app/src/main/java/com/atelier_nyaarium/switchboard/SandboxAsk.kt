@@ -30,7 +30,8 @@ private data class Answered(
 
 private data class ScopePlace(val module: SandboxModule, val roots: List<SandboxSymbol>, val members: Boolean)
 
-private val TREE_LINE = Regex("\\s*- `([^`]+)` \\S+: ([a-z, ]+)\\. `(lexicon [^`]+)`\\s*")
+/** Fences widen and pad around a backtick, as `codeSpan` writes them. */
+private val TREE_LINE = Regex("\\s*- `+ ?(.+?) ?`+ \\S+: ([a-z, ]+)\\. `+ ?(lexicon .+?) ?`+\\s*")
 
 /** The symbols and questions a message's tree names, so a send reads back as work to record. */
 internal fun sandboxAskedPairs(text: String): List<Pair<String, List<String>>> =

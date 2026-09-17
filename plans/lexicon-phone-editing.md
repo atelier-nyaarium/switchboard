@@ -2400,7 +2400,7 @@ before the release, then a pin move here.
 - **Sending** goes through `SessionRequests` as `RequestKind.KNOWLEDGE` with the scope as subject, for
   in-flight dedupe only. A send uses a scope answer under a minute old, or reads it again first; a changed
   root label drops the selection.
-- **Message budget:** 256 KB of UTF-8. A larger scope is refused in the sheet with its size.
+- **Message budget:** 256,000 bytes of UTF-8. A larger scope is refused in the sheet with its size.
 - **Asked pairs** live in an `AskedStore` beside the ops class, keyed by session, root label, symbol and
   question, each with its send time from `PhoneAmbient`. Written before the send; kept when the send lands
   or its outcome is unknown; removed when it definitely failed. A pair clears when its answer's `createdAt`

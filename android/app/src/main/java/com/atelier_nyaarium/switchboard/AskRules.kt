@@ -395,8 +395,17 @@ internal fun rowWordText(word: RowWord): String =
 		RowWord.RECORDED -> "recorded"
 	}
 
-/** A question row: the detail's answers carry the prose, the scope read says what is still out. */
-internal data class AskRow(val question: String, val prose: String?, val badges: List<KnowledgeBadge>, val word: RowWord)
+/**
+ * A question row: the detail's answers carry the prose, the scope read says what is still out.
+ * A recorded row has nothing left to ask, so it does not open.
+ */
+internal data class AskRow(
+	val question: String,
+	val prose: String?,
+	val badges: List<KnowledgeBadge>,
+	val word: RowWord,
+	val opens: Boolean,
+)
 
 internal fun askRows(
 	rows: List<KnowledgeRow>,
@@ -405,15 +414,17 @@ internal fun askRows(
 	asked: AskedLookup,
 ): List<AskRow> =
 	rows.map { row ->
+		val word = rowWord(
+			scope?.questions?.firstOrNull { it.question == row.question },
+			row.prose,
+			asked.asked(symbolId, row.question),
+		)
 		AskRow(
 			question = row.question,
 			prose = row.prose,
 			badges = row.badges,
-			word = rowWord(
-				scope?.questions?.firstOrNull { it.question == row.question },
-				row.prose,
-				asked.asked(symbolId, row.question),
-			),
+			word = word,
+			opens = word != RowWord.RECORDED,
 		)
 	}
 
