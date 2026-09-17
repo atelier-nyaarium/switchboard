@@ -42,8 +42,9 @@ fails the whole snapshot's metadata.
 that carries all three reads the declaration and its file now, finds the key's lines at the same offset
 inside the declaration, and hashes them with the Kotlin twin of Lexicon's `hashContent`, which
 `tests/fixtures/content-hash/vectors.json` pins to the original. A different hash, or lines the declaration
-no longer reaches, draws the strip and a Sent / Now toggle, with Now marking the lines that differ. A
-matching hash draws nothing, and anything unread or missing makes no claim either way.
+no longer reaches, all of them included, draws the strip and a Sent / Now toggle, with Now marking the
+lines that differ. A matching hash draws nothing. A key missing its hash or start line, or a declaration or
+file that could not be read, makes no claim either way.
 
 **Refused, naming the fix:** outside-root chain, missing or ambiguous name, or no matcher result.
 `exact` requires one hash-verified declaration.

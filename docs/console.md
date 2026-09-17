@@ -349,7 +349,7 @@ no TTL.
   screen's late exit cannot drop the view its successor shows.
   - **A showing's read belongs to its key, not to the keeper that started it.** The read runs under a job
     of its own, so a keeper leaving while others remain does not take it with it and the screen left behind
-    still gets the answer; the last keeper leaving, a `leave` and a `clear` are what end one. A read that
+    still gets the answer; the last keeper leaving, a `leave`, a `reshow` and a `clear` are what end one. A read that
     ends without finishing drops the view, so the keepers left ask for another rather than sitting on
     `initial` with nothing to reload them. A read that throws is logged and not asked again, since asking
     again at once would spin.
@@ -371,7 +371,9 @@ no TTL.
   cap shows its line count; above it, or holding a NUL, its size.
 - **Asking for windows** (`WindowRequests`, `answeredWindows`): the outline's field sends the session a
   `WINDOWS` request naming the module and asking for one `ref://` link per declaration. One ask is held per
-  session, in memory, recorded before the send so a fast reply still finds it; a newer ask replaces it. The
+  session, in memory, recorded before the send so a fast reply still finds it; a newer ask replaces it. Each
+  hold mints an incarnation and a reply is matched on that alone, so one that answered a displaced ask opens
+  nothing more, however alike the replacement's target, text and time. The
   first inbound row after it from the session itself (not the owner, a peer, or a status row) whose refs
   carry symbol ids opens those windows through `WindowOps.openWindow`. The Files screen then lands on Windows
   with the ask above the cards. A reply naming none, or naming only windows that fail to open, leaves it
