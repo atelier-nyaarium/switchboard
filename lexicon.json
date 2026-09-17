@@ -1,0 +1,3 @@
+{
+	"exclude": ["android/app/src/main/assets/**"]
+}

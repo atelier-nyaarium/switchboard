@@ -12,7 +12,9 @@ import com.atelier_nyaarium.switchboard.proto.SignedRemoveTenant
 import com.atelier_nyaarium.switchboard.proto.SignedSetDisplayName
 import com.atelier_nyaarium.switchboard.proto.SignedAdmission
 import com.atelier_nyaarium.switchboard.proto.SttsProvider
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFacet
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
+import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.ScheduledTarget
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
@@ -217,6 +219,15 @@ internal class ConsoleWorkspaceGateway(private val client: ConsoleClient) : Work
 
 	override suspend fun fileState(target: WorkspaceTarget, path: String) =
 		client.workspaceFileState(target.gatewayId, target.address, path)
+
+	override suspend fun symbolFacet(target: WorkspaceTarget, symbolId: String, facet: WorkspaceFacet) =
+		client.workspaceSymbolFacet(target.gatewayId, target.address, symbolId, facet)
+
+	override suspend fun fileHistory(target: WorkspaceTarget, path: String) =
+		client.workspaceFileHistory(target.gatewayId, target.address, path)
+
+	override suspend fun knowledgeScope(target: WorkspaceTarget, scope: WorkspaceKnowledgeScopeTarget, includeLocals: Boolean) =
+		client.workspaceKnowledgeScope(target.gatewayId, target.address, scope, includeLocals)
 }
 
 internal class ChatRepositoryWorkspaceHost(private val repo: ChatRepository) : WorkspaceHost, ClearsOnReprovision {

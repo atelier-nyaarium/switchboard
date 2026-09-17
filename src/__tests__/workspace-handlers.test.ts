@@ -7,6 +7,7 @@ import type { Session } from "@nyaa-lexicon/client";
 import { composeSymbolId } from "@nyaa-lexicon/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { answerWorkspaceOp, type HandlerDeps } from "../mcp/workspace/handlers.js";
+import { CODE_TOKENS } from "../shared/schemasWorkspace.js";
 import {
 	type FileDestination,
 	type FileMutation,
@@ -74,6 +75,9 @@ function fakeSession(answers: Partial<Record<string, unknown>>): () => Promise<S
 			symbolSource: async () => answers.symbolSource,
 			describe: async () => answers.describe ?? null,
 			recallAnswer: async () => answers.recallAnswer ?? [],
+			findReferences: async () => answers.findReferences ?? { references: [], total: 0, truncated: false },
+			usesFrom: async () => answers.usesFrom ?? { references: [], total: 0, truncated: false },
+			findComments: async () => answers.findComments ?? { comments: [], total: 0, truncated: false },
 		}) as unknown as Session;
 }
 
@@ -230,16 +234,18 @@ describe("reading a file", () => {
 
 describe("the index-backed reads", () => {
 	it("renumbers an outline's lines from one, the way an editor shows them", async () => {
+		const outer = "lexicon typescript src/app.ts x.";
+		const inner = "lexicon typescript src/app.ts x.inner().";
 		const session = fakeSession({
 			outlineModule: [
-				{ symbolId: "id-a", name: "x", kind: "constant", module: "src/app.ts", visibility: "public" },
+				{ symbolId: outer, name: "x", kind: "constant", module: "src/app.ts", visibility: "public" },
 				{
-					symbolId: "id-b",
+					symbolId: inner,
 					name: "inner",
 					kind: "function",
 					module: "src/app.ts",
 					visibility: "public",
-					containerId: "id-a",
+					containerId: outer,
 					signature: "() => void",
 					lines: { start: 4, end: 9 },
 				},
@@ -250,16 +256,39 @@ describe("the index-backed reads", () => {
 
 		expect(result.ok && result.answer.kind === "outline" && result.answer.lines).toBe(2);
 		expect(result.ok && result.answer.kind === "outline" && result.answer.symbols).toEqual([
-			{ symbolId: "id-a", name: "x", symbolKind: "constant" },
+			{ symbolId: outer, name: "x", symbolKind: "constant" },
 			{
-				symbolId: "id-b",
+				symbolId: inner,
 				name: "inner",
 				symbolKind: "function",
-				containerId: "id-a",
+				containerId: outer,
 				signature: "() => void",
 				startLine: 5,
 			},
 		]);
+	});
+
+	it("drops an outline symbol whose id names a withheld module, and a container it may not name", async () => {
+		const served = "lexicon typescript src/app.ts x.";
+		const session = fakeSession({
+			outlineModule: [
+				{ symbolId: WITHHELD_ID, name: "Secret", kind: "constant", module: "src/app.ts", visibility: "public" },
+				{
+					symbolId: served,
+					name: "x",
+					kind: "constant",
+					module: "src/app.ts",
+					visibility: "public",
+					containerId: WITHHELD_ID,
+				},
+			],
+		});
+
+		const result = await ask(workspace(), { kind: "outline", path: "src/app.ts" }, session);
+		const symbols = result.ok && result.answer.kind === "outline" ? result.answer.symbols : [];
+
+		expect(symbols.map((symbol) => symbol.symbolId)).toEqual([served]);
+		expect(symbols[0]?.containerId).toBeUndefined();
 	});
 
 	// Opening a FIFO blocks until a writer arrives, which would hold the plugin's only thread.
@@ -303,6 +332,27 @@ describe("the index-backed reads", () => {
 		);
 	});
 
+	it("highlights a source in its id's language, and drops the spans rather than the source when both do not fit", async () => {
+		const found = (text: string) =>
+			fakeSession({
+				symbolSource: { found: true, module: "src/app.ts", name: "f", text, range: SPAN, spanHash: "h" },
+			});
+		const sourceOf = async (text: string) => {
+			const result = await ask(workspace(), { kind: "symbolSource", symbolId: SERVED_ID }, found(text));
+			return result.ok && result.answer.kind === "symbolSource" ? result.answer : undefined;
+		};
+
+		expect((await sourceOf("function f() {\n\treturn 1;\n}"))?.spans).toEqual([
+			[0, 8, CODE_TOKENS.indexOf("keyword"), 9, 1, CODE_TOKENS.indexOf("function")],
+			[1, 6, CODE_TOKENS.indexOf("keyword"), 8, 1, CODE_TOKENS.indexOf("number")],
+			[],
+		]);
+		const crowded = "1\n".repeat(450_000);
+		const answer = await sourceOf(crowded);
+		expect(answer?.text).toBe(crowded);
+		expect(answer).not.toHaveProperty("spans");
+	});
+
 	it("keeps a stale index apart from a missing symbol", async () => {
 		const stale = fakeSession({ symbolSource: { found: false, reason: "the file moved", stale: true } });
 		const gone = fakeSession({ symbolSource: { found: false, reason: "no such symbol" } });
@@ -316,7 +366,12 @@ describe("the index-backed reads", () => {
 	});
 
 	it("answers every question in order, with each recorded answer's health and the symbol's facts", async () => {
-		const summary = (name: string) => ({ symbolId: `id ${name}`, name, kind: "class", module: "src/app.ts" });
+		const summary = (name: string) => ({
+			symbolId: `lexicon typescript src/app.ts ${name}#`,
+			name,
+			kind: "class",
+			module: "src/app.ts",
+		});
 		const recalled = (question: string, extra: Record<string, unknown> = {}) => ({
 			answer: {
 				symbolId: SERVED_ID,
@@ -391,7 +446,28 @@ describe("the index-backed reads", () => {
 				{ question: "effects" },
 				{ question: "usage", prose: "usage prose", thin: false, stale: false, doubted: true, stranded: false },
 			],
-			facts: { members: 2, references: 7, fanIn: 5, fanOut: 3, supertypes: 1, subtypes: 0, comments: 3 },
+			facts: {
+				members: 2,
+				references: 7,
+				fanIn: 5,
+				fanOut: 3,
+				supertypes: 1,
+				subtypes: 0,
+				comments: 3,
+				counts: {
+					uses: 0,
+					useFiles: 0,
+					dependents: 0,
+					dependentFiles: 0,
+					targets: 0,
+					boundTargets: 0,
+					references: 0,
+					members: 2,
+					supertypes: 1,
+					subtypes: 0,
+					comments: 0,
+				},
+			},
 			text: "What F is.\n\ndescribe: describe prose\n\nwhy: why prose\n\nusage: usage prose",
 		});
 	});

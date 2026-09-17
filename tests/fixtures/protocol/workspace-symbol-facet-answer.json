@@ -1,0 +1,38 @@
+{
+	"kind": "symbolFacet",
+	"symbolId": "lexicon typescript src/shared/schemasRoutine.ts routineRefusal().",
+	"facet": {
+		"kind": "uses",
+		"rows": [
+			{
+				"module": "src/gateway/routines/store.ts",
+				"line": 88,
+				"startColumn": 14,
+				"endColumn": 28,
+				"name": "routineRefusal",
+				"role": "call",
+				"holder": {
+					"symbolId": "lexicon typescript src/gateway/routines/store.ts RoutineStore#put().",
+					"name": "put",
+					"symbolKind": "method",
+					"module": "src/gateway/routines/store.ts",
+					"startLine": 80,
+					"endLine": 102
+				},
+				"topLevel": {
+					"symbolId": "lexicon typescript src/gateway/routines/store.ts RoutineStore#",
+					"name": "RoutineStore",
+					"symbolKind": "class",
+					"module": "src/gateway/routines/store.ts",
+					"startLine": 40,
+					"endLine": 190
+				},
+				"language": "typescript",
+				"text": "\t\tconst why = routineRefusal(routine);",
+				"spans": [2, 5, 0, 14, 14, 2]
+			}
+		],
+		"uses": 1,
+		"plain": 0
+	}
+}

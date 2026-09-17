@@ -2316,6 +2316,17 @@ before the release, then a pin move here.
 - **Tests:** a fake Lexicon session per facet, withheld rows, the deadline fallback, the size refusal,
   history outcomes, unknown-facet refusal end to end, `workspace-bounds.test.ts` for the new ops.
 
+### Bug Classes
+
+- **An answer is gated on what was asked, not on what came back.** Mechanism: every workspace read that
+  builds its answer from Lexicon rows. Round 1: a facet's summaries (holder, top level, target, member,
+  hierarchy node, scope symbol) carried ids for withheld modules; patched with one `servedGate` over every
+  summary. Round 2: the subject-bearing answers (`symbolSource`, `symbolKnowledge`, the hierarchy's own
+  subject, a save's `current` and issues) serialised whatever module Lexicon answered with. Round 3: the
+  truncated branch counted rows it never opened. Closed at the boundary: no answer leaves the plugin
+  carrying a module or symbol id the gate does not serve, checked once over the built answer, with the
+  row-level omissions kept where a row is legitimately dropped.
+
 ## Phase 14c - Phone drill-ins
 
 - **Places:** `WorkspacePlace.Facet(symbolId, module, facet)`, and `Detail` gains the use it was reached

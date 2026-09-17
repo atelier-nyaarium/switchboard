@@ -3,6 +3,7 @@
 	"directories": [
 		"agent-screen",
 		"board-rank",
+		"code-spans",
 		"cross-domain-sas",
 		"content-envelope",
 		"content-hash",

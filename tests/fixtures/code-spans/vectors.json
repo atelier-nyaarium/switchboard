@@ -1,0 +1,126 @@
+{
+	"_comment": "Code spans a text highlights to, per line, as flat [start, length, token] triples in UTF-16 units. A token is its index in `tokens`. `lines` is null for a language with no grammar. The plugin produces these; the phone's paint model reads the same file.",
+	"tokens": [
+		"keyword",
+		"type",
+		"function",
+		"builtin",
+		"string",
+		"escape",
+		"interpolation",
+		"regexp",
+		"number",
+		"literal",
+		"comment",
+		"doctag",
+		"meta",
+		"attribute",
+		"property",
+		"variable",
+		"params",
+		"operator",
+		"punctuation",
+		"tag",
+		"name",
+		"selector",
+		"section",
+		"bullet",
+		"emphasis",
+		"strong",
+		"addition",
+		"deletion",
+		"link",
+		"quote",
+		"code"
+	],
+	"cases": [
+		{
+			"name": "a comment spans lines and each line's triples stop before its carriage return",
+			"language": "typescript",
+			"text": "/* first\r\n   second */\r\nlet x = 1;\r\n",
+			"lines": [[0, 8, 10], [0, 12, 10], [0, 3, 0, 8, 1, 8], []]
+		},
+		{
+			"name": "an interpolation inside a template string splits the string around it",
+			"language": "typescript",
+			"text": "const s = `a${b}c`;",
+			"lines": [[0, 5, 0, 10, 2, 4, 12, 4, 6, 16, 2, 4]]
+		},
+		{
+			"name": "escaped characters count once each",
+			"language": "typescript",
+			"text": "if (a < b && c > d) return \"q\" + 'r';",
+			"lines": [[0, 2, 0, 20, 6, 0, 27, 3, 4, 33, 3, 4]]
+		},
+		{
+			"name": "a class and its supertype are types",
+			"language": "typescript",
+			"text": "class Port extends Base implements Open {}",
+			"lines": [[0, 5, 0, 6, 4, 1, 11, 7, 0, 19, 4, 1, 24, 10, 0, 35, 4, 1]]
+		},
+		{
+			"name": "a container scope colours nothing, so its text keeps the enclosing token",
+			"language": "kotlin",
+			"text": "@Ann fun f(x: Int = 1): String = \"a$x\"",
+			"lines": [
+				[
+					0, 4, 12, 5, 3, 0, 9, 1, 2, 10, 4, 16, 14, 3, 1, 17, 3, 16, 20, 1, 8, 21, 1, 16, 33, 2, 4, 35, 2,
+					15, 37, 1, 4
+				]
+			]
+		},
+		{
+			"name": "units are UTF-16, so a surrogate pair is two",
+			"language": "python",
+			"text": "def f():\n    return \"😀\" + x  # hi",
+			"lines": [[0, 3, 0, 4, 1, 2], [4, 6, 0, 11, 4, 4, 21, 4, 10]]
+		},
+		{
+			"name": "markup nests a name inside a tag",
+			"language": "xml",
+			"text": "<div a=\"1\">&amp;</div>",
+			"lines": [
+				[
+					0, 1, 19, 1, 3, 20, 4, 1, 19, 5, 1, 13, 6, 1, 19, 7, 3, 4, 10, 1, 19, 11, 5, 3, 16, 2, 19, 18, 3,
+					20, 21, 1, 19
+				]
+			]
+		},
+		{
+			"name": "json keys are attributes",
+			"language": "json",
+			"text": "{\"a\": [1, true]}",
+			"lines": [[0, 1, 18, 1, 3, 13, 4, 1, 18, 6, 1, 18, 7, 1, 8, 8, 1, 18, 10, 4, 0, 14, 2, 18]]
+		},
+		{
+			"name": "an escape inside a string",
+			"language": "rust",
+			"text": "let c = '\\n';",
+			"lines": [[0, 3, 0, 4, 1, 15, 8, 1, 4, 9, 2, 5, 11, 1, 4]]
+		},
+		{
+			"name": "gdscript reads through the python grammar",
+			"language": "gdscript",
+			"text": "func f():\n\treturn \"s\"",
+			"lines": [[], [1, 6, 0, 8, 3, 4]]
+		},
+		{
+			"name": "a heading and a list item",
+			"language": "markdown",
+			"text": "# Title\n- item `code`",
+			"lines": [[0, 7, 22], [0, 1, 23, 7, 6, 30]]
+		},
+		{
+			"name": "a css selector, its property and its value",
+			"language": "css",
+			"text": ".card a {\n\tcolor: #fff;\n}\n",
+			"lines": [[0, 5, 21, 6, 1, 20], [1, 5, 13, 8, 4, 8], [], []]
+		},
+		{
+			"name": "a language with no grammar answers no spans",
+			"language": "text",
+			"text": "plain words",
+			"lines": null
+		}
+	]
+}

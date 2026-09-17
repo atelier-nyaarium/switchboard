@@ -1,8 +1,10 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFacet
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
@@ -134,6 +136,14 @@ class WindowOpsTest {
 		): WorkspaceAnswer<WorkspaceFileMutationAnswer> = WorkspaceAnswer.Refused("not a file test")
 
 		override suspend fun fileState(target: WorkspaceTarget, path: String) = error("not reached")
+
+		override suspend fun symbolFacet(target: WorkspaceTarget, symbolId: String, facet: WorkspaceFacet) =
+			error("not reached")
+
+		override suspend fun fileHistory(target: WorkspaceTarget, path: String) = error("not reached")
+
+		override suspend fun knowledgeScope(target: WorkspaceTarget, scope: WorkspaceKnowledgeScopeTarget, includeLocals: Boolean) =
+			error("not reached")
 	}
 
 	/** Records what was sent, since an apply is an ordinary message and nothing else marks it. */

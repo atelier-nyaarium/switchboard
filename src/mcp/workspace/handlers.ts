@@ -5,7 +5,6 @@
 // owns the one socket per process and this must not reach into it.
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { DaemonError, type Session } from "@nyaa-lexicon/client";
 import {
@@ -19,6 +18,7 @@ import {
 import {
 	boundsOf,
 	type KnowledgeAnswer,
+	type KnowledgeCounts,
 	type KnowledgeEntry,
 	MAX_TREE_ENTRIES,
 	MAX_WORKSPACE_OP_BYTES,
@@ -27,82 +27,35 @@ import {
 	type SymbolSourceAnswer,
 	type TreeEntry,
 	type WorkspaceOp,
-	type WorkspaceOpAnswer,
 	type WorkspaceOpResult,
 } from "../../shared/workspace-op.js";
+import { withinServed } from "./answerGate.js";
 import { confine, listable } from "./confine.js";
+import { knowledgeCountsOf, symbolFacetOf } from "./facets.js";
+import {
+	byDeadline,
+	confinedModule,
+	failed,
+	type HandlerDeps,
+	type OpContext,
+	refused,
+	rootLabel,
+	servedGate,
+	withinCap,
+} from "./handlerKit.js";
+import { highlightable, lineSpansOf } from "./highlight.js";
+import { fileHistoryOf } from "./history.js";
+import { knowledgeScopeOf } from "./knowledgeScope.js";
 import { loadWorkspaceFile } from "./loadFile.js";
 import { fileStateOf, mutateFile, readOnlyReason } from "./mutateFile.js";
 
-////////////////////////////////
-//  Interfaces & Types
-
-export interface HandlerDeps {
-	/** This process's workspace, the same root Lexicon indexes. */
-	root: () => string;
-	/** Lazy: an op that needs no index never opens a socket. */
-	session: () => Promise<Session>;
-	/** Defaults to the op's `handlerBudgetMs`; a test drives it short. */
-	budgetMs?: number;
-}
+export type { HandlerDeps } from "./handlerKit.js";
 
 ////////////////////////////////
 //  Functions & Helpers
 
-const refused = (detail: string): WorkspaceOpResult => ({ ok: false, failure: "refused", detail });
-
 /** Half the answer cap, since a saved span's answer carries the span back. */
 const MAX_SAVED_SPAN_BYTES = MAX_WORKSPACE_OP_BYTES / 2;
-const failed = (detail: string): WorkspaceOpResult => ({ ok: false, failure: "failed", detail });
-
-/**
- * ONE deadline for the whole op, never a budget per call: two calls each given the full budget can
- * together outlast the plane's timeout, which is the blind timeout this exists to prevent.
- */
-async function byDeadline<T>(
-	deadline: number,
-	work: () => Promise<T>,
-	late = "the index did not answer in time",
-): Promise<T> {
-	const left = deadline - Date.now();
-	if (left <= 0) throw new Error(late);
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const spent = new Promise<never>((_, reject) => {
-		timer = setTimeout(() => reject(new Error(late)), left);
-	});
-	try {
-		return await Promise.race([work(), spent]);
-	} finally {
-		clearTimeout(timer);
-	}
-}
-
-/** The text IS the weight of every answer that has one, so measuring it skips a second full copy. */
-function answerBytes(answer: WorkspaceOpAnswer): number {
-	switch (answer.kind) {
-		case "read":
-		case "symbolSource":
-			return Buffer.byteLength(answer.text, "utf8");
-		case "saveSpan":
-			return (
-				Buffer.byteLength(answer.current?.text ?? "", "utf8") + Buffer.byteLength(answer.reason ?? "", "utf8")
-			);
-		default:
-			return Buffer.byteLength(JSON.stringify(answer), "utf8");
-	}
-}
-
-/** Refused whole, since a truncated answer would be saved back truncated. */
-function withinCap(result: WorkspaceOpResult): WorkspaceOpResult {
-	if (!result.ok) return result;
-	const bytes = answerBytes(result.answer);
-	if (bytes <= MAX_WORKSPACE_OP_BYTES) return result;
-	return {
-		ok: false,
-		failure: "too_large",
-		detail: `the answer is ${bytes} bytes, over the ${MAX_WORKSPACE_OP_BYTES}-byte limit`,
-	};
-}
 
 /** Per file; above it a row shows its size. */
 const MAX_COUNTED_BYTES = 256_000;
@@ -134,13 +87,6 @@ function lineCountOf(file: string, buffer: Buffer, { follow = false } = {}): num
 
 const countingBuffer = () => Buffer.alloc(MAX_COUNTED_BYTES + 1);
 
-/** The root as the owner would type it. */
-function rootLabel(root: string): string {
-	const home = os.homedir();
-	const shown = root === home || root.startsWith(home + path.sep) ? `~${root.slice(home.length)}` : root;
-	return shown.split(path.sep).join("/");
-}
-
 /** Counts what a tap would list, or the number says a withheld name is in there. */
 function childCount(dir: string): number | undefined {
 	try {
@@ -148,16 +94,6 @@ function childCount(dir: string): number | undefined {
 	} catch {
 		return undefined;
 	}
-}
-
-/**
- * A symbol id embeds its module, and nothing else confines one. Lexicon checks lexical containment
- * and knows nothing of what this plane withholds, so an indexed `.env` would answer without this.
- */
-function confinedModule(root: string, symbolId: string): string | null {
-	const parsed = parseSymbolId(symbolId);
-	if (parsed === null) return null;
-	return confine(root, parsed.module).ok ? parsed.module : null;
 }
 
 function treeOf(root: string, written: string): WorkspaceOpResult {
@@ -252,15 +188,21 @@ async function outlineOf(
 
 	const session = await byDeadline(deadline, deps.session);
 	const summaries = await byDeadline(deadline, () => session.outlineModule({ module: place.relative }));
-	const symbols: OutlineSymbol[] = summaries.map((summary) => ({
-		symbolId: summary.symbolId,
-		name: summary.name,
-		symbolKind: summary.kind,
-		...(summary.containerId === undefined ? {} : { containerId: summary.containerId }),
-		...(summary.signature === undefined ? {} : { signature: summary.signature }),
-		// Lexicon counts lines from zero; the phone shows what an editor shows.
-		...(summary.lines === undefined ? {} : { startLine: summary.lines.start + 1 }),
-	}));
+	// An id embeds its own module, which need not be the one this asked for.
+	const gate = servedGate(root);
+	const symbols: OutlineSymbol[] = summaries
+		.filter((summary) => gate.id(summary.symbolId))
+		.map((summary) => ({
+			symbolId: summary.symbolId,
+			name: summary.name,
+			symbolKind: summary.kind,
+			...(summary.containerId === undefined || !gate.id(summary.containerId)
+				? {}
+				: { containerId: summary.containerId }),
+			...(summary.signature === undefined ? {} : { signature: summary.signature }),
+			// Lexicon counts lines from zero; the phone shows what an editor shows.
+			...(summary.lines === undefined ? {} : { startLine: summary.lines.start + 1 }),
+		}));
 	// Confined already, so a link's target is counted.
 	const lines = lineCountOf(place.absolute, countingBuffer(), { follow: true });
 	return {
@@ -307,7 +249,13 @@ async function symbolSourceOf(
 	if (!answer.found) {
 		return answer.stale === true ? { ok: false, failure: "stale", detail: answer.reason } : refused(answer.reason);
 	}
-	return { ok: true, answer: sourceAnswerOf(symbolId, answer) };
+	const bare: WorkspaceOpResult = { ok: true, answer: sourceAnswerOf(symbolId, answer) };
+	const language = parseSymbolId(symbolId)?.language;
+	const spans = highlightable(language) && Date.now() < deadline ? lineSpansOf(language, answer.text) : null;
+	if (spans === null) return bare;
+	const lit = withinCap({ ok: true, answer: { ...sourceAnswerOf(symbolId, answer), spans } });
+	// Never costs the source.
+	return lit.ok ? lit : bare;
 }
 
 /**
@@ -400,18 +348,15 @@ async function saveSpanOf(
 	return { ok: true, answer };
 }
 
-async function knowledgeOf(
-	deps: HandlerDeps,
-	root: string,
-	symbolId: string,
-	deadline: number,
-): Promise<WorkspaceOpResult> {
+async function knowledgeOf(context: OpContext, symbolId: string): Promise<WorkspaceOpResult> {
+	const { deps, root, deadline } = context;
 	if (confinedModule(root, symbolId) === null) return refused("that symbol's module is not served");
 	const session = await byDeadline(deadline, deps.session);
 	const described = await byDeadline(deadline, () => session.describe({ symbolId }));
 	if (described === null) return refused(`no symbol with that id is indexed`);
 	const recalled = await byDeadline(deadline, () => session.recallAnswer({ symbolId }));
-	return { ok: true, answer: knowledgeAnswerOf(symbolId, described, recalled) };
+	const counts = await knowledgeCountsOf(context, session, described);
+	return { ok: true, answer: knowledgeAnswerOf(symbolId, described, recalled, counts) };
 }
 
 /** Unrecorded questions included. */
@@ -419,6 +364,7 @@ export function knowledgeAnswerOf(
 	symbolId: string,
 	described: DescribeResult,
 	recalled: RecallAnswerResult,
+	counts?: KnowledgeCounts,
 ): KnowledgeAnswer {
 	const { symbol } = described;
 	const held = new Map(
@@ -451,6 +397,7 @@ export function knowledgeAnswerOf(
 			supertypes: described.hierarchy.supertypes.length,
 			subtypes: described.hierarchy.subtypes.length,
 			comments: (described.comments?.length ?? 0) + (described.moreComments ?? 0),
+			...(counts === undefined ? {} : { counts }),
 		},
 		// Lexicon counts lines from zero.
 		...(symbol.lines === undefined ? {} : { startLine: symbol.lines.start + 1, endLine: symbol.lines.end + 1 }),
@@ -468,29 +415,42 @@ function legacyKnowledgeText(documentation: string | undefined, answers: Knowled
 	return [documentation, ...recorded].filter((part) => part !== undefined).join("\n\n");
 }
 
+function answerOf(context: OpContext, op: WorkspaceOp): WorkspaceOpResult | Promise<WorkspaceOpResult> {
+	const { deps, root, deadline } = context;
+	switch (op.kind) {
+		case "tree":
+			return treeOf(root, op.path);
+		case "read":
+			return readOf(root, op.path);
+		case "fileState":
+			return fileStateOf(root, op.path);
+		case "outline":
+			return outlineOf(deps, root, op.path, deadline);
+		case "symbolSource":
+			return symbolSourceOf(deps, root, op.symbolId, deadline);
+		case "symbolKnowledge":
+			return knowledgeOf(context, op.symbolId);
+		case "saveSpan":
+			return saveSpanOf(deps, root, op, deadline);
+		case "mutateFile":
+			return mutateFile(root, op.mutation);
+		case "symbolFacet":
+			return symbolFacetOf(context, op.symbolId, op.facet);
+		case "fileHistory":
+			return fileHistoryOf(context, op.path);
+		case "knowledgeScope":
+			return knowledgeScopeOf(context, op.scope, op.includeLocals);
+	}
+}
+
 /** A thrown op is answered as `failed`, never swallowed, so the phone sees a cause rather than a hang. */
 export async function answerWorkspaceOp(deps: HandlerDeps, op: WorkspaceOp): Promise<WorkspaceOpResult> {
 	const root = deps.root();
 	const deadline = Date.now() + (deps.budgetMs ?? boundsOf(op).handlerBudgetMs);
+	const context: OpContext = { deps, root, deadline };
 	try {
-		switch (op.kind) {
-			case "tree":
-				return withinCap(treeOf(root, op.path));
-			case "read":
-				return withinCap(readOf(root, op.path));
-			case "fileState":
-				return withinCap(fileStateOf(root, op.path));
-			case "outline":
-				return withinCap(await outlineOf(deps, root, op.path, deadline));
-			case "symbolSource":
-				return withinCap(await symbolSourceOf(deps, root, op.symbolId, deadline));
-			case "symbolKnowledge":
-				return withinCap(await knowledgeOf(deps, root, op.symbolId, deadline));
-			case "saveSpan":
-				return withinCap(await saveSpanOf(deps, root, op, deadline));
-			case "mutateFile":
-				return withinCap(mutateFile(root, op.mutation));
-		}
+		const wrote = op.kind === "saveSpan" || op.kind === "mutateFile";
+		return withinCap(withinServed(await answerOf(context, op), servedGate(root), wrote));
 	} catch (error) {
 		// Every Lexicon read: an older daemon is an update, not a failure.
 		if (error instanceof DaemonError && error.cause === "unknownMethod") {

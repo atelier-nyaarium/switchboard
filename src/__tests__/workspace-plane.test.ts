@@ -70,6 +70,27 @@ describe("reading a workspace op frame", () => {
 		});
 	});
 
+	it("takes a drill-in only with a facet and a scope its schemas read", () => {
+		const refusedFrame = { reqId: "r", refused: expect.any(String) };
+		const facet = { kind: "symbolFacet", symbolId: "s", facet: { kind: "uses" } };
+		const scope = { kind: "knowledgeScope", scope: { kind: "members", symbolId: "s" }, includeLocals: false };
+
+		expect(parseWorkspaceOpRequest(frame(facet))).toEqual({ reqId: "r", key: "k", op: facet });
+		expect(parseWorkspaceOpRequest(frame(scope))).toEqual({ reqId: "r", key: "k", op: scope });
+		expect(parseWorkspaceOpRequest(frame({ kind: "fileHistory", path: "a.ts" }))).toMatchObject({
+			op: { kind: "fileHistory", path: "a.ts" },
+		});
+		for (const op of [
+			{ ...facet, facet: { kind: "callers" } },
+			{ ...facet, facet: { kind: "uses", limit: 5 } },
+			{ kind: "symbolFacet", facet: { kind: "uses" } },
+			{ ...scope, scope: { kind: "folder", path: "src" } },
+			{ kind: "knowledgeScope", scope: scope.scope },
+		]) {
+			expect(parseWorkspaceOpRequest(frame(op))).toMatchObject(refusedFrame);
+		}
+	});
+
 	// Silence would hold the Gateway to its full timeout for an op an older plugin cannot read.
 	it("refuses an op it cannot read at once, and ignores only a frame with no request to answer", () => {
 		expect(parseWorkspaceOpRequest(frame({ kind: "delete", path: "a" }))).toMatchObject({

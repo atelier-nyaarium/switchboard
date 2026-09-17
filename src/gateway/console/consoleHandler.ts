@@ -279,6 +279,19 @@ export function createConsoleDispatcher({
 					"change a file in the workspace of",
 				);
 
+			case "workspace_symbol_facet":
+				return workspaceOf(op.target, { kind: "symbolFacet", symbolId: op.symbolId, facet: op.facet });
+
+			case "workspace_file_history":
+				return workspaceOf(op.target, { kind: "fileHistory", path: op.path });
+
+			case "workspace_knowledge_scope":
+				return workspaceOf(op.target, {
+					kind: "knowledgeScope",
+					scope: op.scope,
+					includeLocals: op.includeLocals,
+				});
+
 			case "create_session":
 				return sessionLifecycle.createSession(op, conversationId, opId);
 

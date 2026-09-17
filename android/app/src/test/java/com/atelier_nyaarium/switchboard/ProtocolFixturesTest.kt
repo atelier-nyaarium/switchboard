@@ -12,10 +12,14 @@ import com.atelier_nyaarium.switchboard.proto.MailboxEntry
 import com.atelier_nyaarium.switchboard.proto.OwnerOp
 import com.atelier_nyaarium.switchboard.proto.PlanesReadResult
 import com.atelier_nyaarium.switchboard.proto.PlanesReadValue
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFileHistoryAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolFacetAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceTooLargeAnswer
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -51,6 +55,10 @@ class ProtocolFixturesTest {
 			"WorkspaceFileMutationAnswer" -> wireJson.decodeFromString<WorkspaceFileMutationAnswer>(body)
 			"WorkspaceFileStateAnswer" -> wireJson.decodeFromString<WorkspaceFileStateAnswer>(body)
 			"WorkspaceKnowledgeAnswer" -> wireJson.decodeFromString<WorkspaceKnowledgeAnswer>(body)
+			"WorkspaceSymbolFacetAnswer" -> wireJson.decodeFromString<WorkspaceSymbolFacetAnswer>(body)
+			"WorkspaceFileHistoryAnswer" -> wireJson.decodeFromString<WorkspaceFileHistoryAnswer>(body)
+			"WorkspaceKnowledgeScopeAnswer" -> wireJson.decodeFromString<WorkspaceKnowledgeScopeAnswer>(body)
+			"WorkspaceTooLargeAnswer" -> wireJson.decodeFromString<WorkspaceTooLargeAnswer>(body)
 			else -> error("unknown manifest schema: $schema")
 		}
 

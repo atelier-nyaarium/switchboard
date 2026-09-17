@@ -1,0 +1,19 @@
+{
+	"kind": "knowledgeScope",
+	"root": "~/projects/switchboard",
+	"module": "src/shared/schemasRoutine.ts",
+	"symbols": [
+		{
+			"symbolId": "lexicon typescript src/shared/schemasRoutine.ts routineRefusal().",
+			"name": "routineRefusal",
+			"symbolKind": "function",
+			"depth": 0,
+			"startLine": 309,
+			"questions": [
+				{ "question": "describe", "createdAt": 1757000000000, "thin": true, "askCount": 2 },
+				{ "question": "why", "askCount": 0 }
+			]
+		}
+	],
+	"localsExcluded": 3
+}

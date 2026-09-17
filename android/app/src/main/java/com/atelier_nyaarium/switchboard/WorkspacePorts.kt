@@ -1,12 +1,17 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFacet
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFileHistoryAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolFacetAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
 import java.util.concurrent.atomic.AtomicLong
@@ -36,6 +41,20 @@ internal interface WorkspaceGateway {
 	): WorkspaceAnswer<WorkspaceFileMutationAnswer>
 
 	suspend fun fileState(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceFileStateAnswer>
+
+	suspend fun symbolFacet(
+		target: WorkspaceTarget,
+		symbolId: String,
+		facet: WorkspaceFacet,
+	): WorkspaceAnswer<WorkspaceListing<WorkspaceSymbolFacetAnswer>>
+
+	suspend fun fileHistory(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceListing<WorkspaceFileHistoryAnswer>>
+
+	suspend fun knowledgeScope(
+		target: WorkspaceTarget,
+		scope: WorkspaceKnowledgeScopeTarget,
+		includeLocals: Boolean,
+	): WorkspaceAnswer<WorkspaceListing<WorkspaceKnowledgeScopeAnswer>>
 }
 
 internal interface WorkspaceHost {

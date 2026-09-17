@@ -25,8 +25,10 @@ import com.atelier_nyaarium.switchboard.proto.RoutineTarget
 import com.atelier_nyaarium.switchboard.proto.Runbook
 import com.atelier_nyaarium.switchboard.proto.RunbookFireTarget
 import com.atelier_nyaarium.switchboard.proto.RunbookParameter
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFacet
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeEntry
@@ -400,6 +402,13 @@ internal class SandboxWorkspaceGateway : WorkspaceGateway {
 		val shown = state.value.copy(bytes = shownBytes(state.value.path, state.value.bytes))
 		return WorkspaceAnswer.Read(if (shown.path == UNHASHED_FILE) shown.copy(hash = null, identity = null) else shown)
 	}
+
+	override suspend fun symbolFacet(target: WorkspaceTarget, symbolId: String, facet: WorkspaceFacet) = notServed
+
+	override suspend fun fileHistory(target: WorkspaceTarget, path: String) = notServed
+
+	override suspend fun knowledgeScope(target: WorkspaceTarget, scope: WorkspaceKnowledgeScopeTarget, includeLocals: Boolean) =
+		notServed
 
 	/** AGENTS.md always reads as moved on a write, so the stale banner is reachable. */
 	override suspend fun mutateFile(

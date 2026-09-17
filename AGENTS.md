@@ -424,7 +424,32 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     the full timeout for an answer that can never come.
   - **One socket per session, chosen by `resolveLiveIncarnation`:** a session can hold several plugin
     sockets keyed team then `subId`. Nothing broadcasts, and no second selector exists.
-- `src/mcp/workspace/plane.ts` / `handlers.ts` / `mutateFile.ts` / `opDedupe.ts` - the plugin's end: the frame it answers, the six reads, the span save, the file mutations, and at-most-once
+- `src/mcp/workspace/plane.ts` / `handlers.ts` / `handlerKit.ts` / `mutateFile.ts` / `opDedupe.ts` - the plugin's end: the frame it answers, the reads, the shared deadline, confinement and size rule, the span save, the file mutations, and at-most-once
+  - **`withinCap` is the one size rule:** every answer is measured as serialised UTF-8 and refused whole
+    with `rows` and `bytes`. `answerForConsole` types that refusal for the drill-ins alone, since an older
+    phone decodes an older read as its own answer.
+- `src/mcp/workspace/facets.ts` / `history.ts` / `knowledgeScope.ts` - the drill-ins: a symbol's uses, uses from, members, hierarchy, comments and line history, a file's history, and the Ask scope
+  - **A withheld row is dropped before any read** and counts nowhere, so no count reveals it existed. So
+    is a row whose file or line has left the disk, since the index can be behind it, and every count is
+    taken after that filtering.
+  - **EVERY id an answer carries is gated, never only the op's subject:** a holder, a top level, a target,
+    a member, a hierarchy node, an outline symbol and a scope symbol each name their OWN module, which
+    need not be the module of the row that led to it. `servedGate` is the one rule, and a summary is shown
+    only when its module and its id both pass.
+  - **A use is gated on the row's own module, not its target's:** a reference written in a served file
+    whose target is withheld reads as unresolved under its written name, or a symbol's own uses vanish
+    for pointing somewhere this plane does not serve.
+  - **The comment page is this plugin's, not the daemon's promise:** the answer slices to its own cap and
+    sets `truncated` when Lexicon hands back more, and `total` says how many there are so the row and the
+    list agree.
+- `src/mcp/workspace/highlight.ts` - the fixed highlight.js language set, the strict HTML-to-triples parser, and `CODE_TOKENS`; `tests/fixtures/code-spans/vectors.json` pins it
+  - **The HTML never leaves the plugin:** anything but a known span class, `</span>` and five entities is
+    refused rather than guessed. `bun run build` fails if the bundle carries the full language set, by
+    name AND by weight: a sentinel reads a spelling, `MAX_PLUGIN_BUNDLE_BYTES` reads the bytes, so bulk
+    carried under another spelling still shows.
+  - **A registered grammar nothing maps to is dead weight and a silent hole:** `GRAMMAR_OF` is the only
+    road from a Lexicon language to a grammar, and `css` sat registered and unreachable through it.
+    `workspace-highlight.test.ts` walks every registered grammar rather than trusting the table.
   - **A file write is plain file work, never Lexicon:** `writeOf` compares the sha256 of the bytes on disk,
     fills a sibling temp through `writeFileAtomic`, hashes the file again, confines the resolved path again,
     and renames. The gap between that hash and the rename is not closed, and the rename gives the path a new
@@ -952,6 +977,7 @@ The build derives versions, bundles `dist/`, and commits the release. Do not han
 `lexicon/` supplies the client at build and test time. `postinstall` links its packages into `node_modules/@nyaa-lexicon/`; runtime uses the bundled client.
 
 - Fresh clone: `git submodule update --init` before `bun install`.
+- `lexicon.json` keeps the shipped `android/app/src/main/assets/**` bundles out of this repo's index.
 - Pin moves require a committed submodule change before release.
 - Never install inside `lexicon/`. Nested `node_modules` shadow root dependency pins and produce duplicate packages.
 - A real `node_modules/@nyaa-lexicon` directory is invalid. It must link into `lexicon/`.

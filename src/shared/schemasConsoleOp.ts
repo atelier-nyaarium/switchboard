@@ -6,7 +6,7 @@ import { AuthorizationPolicySchema } from "./schemasPolicy.js";
 import { RoutineSchema } from "./schemasRoutine.js";
 import { RunbookFireTargetSchema, RunbookSchema } from "./schemasRunbook.js";
 import { VaultDecisionSchema } from "./schemasVault.js";
-import { FileMutationSchema } from "./schemasWorkspace.js";
+import { FileMutationSchema, KnowledgeScopeTargetSchema, SymbolFacetSchema } from "./schemasWorkspace.js";
 
 export { SealedEnvelopeSchema } from "./crypto.js";
 
@@ -132,6 +132,23 @@ export const ConsoleOpSchema = z
 			kind: z.literal("workspace_mutate_file"),
 			target: z.string().min(1).max(128),
 			mutation: FileMutationSchema,
+		}),
+		z.object({
+			kind: z.literal("workspace_symbol_facet"),
+			target: z.string().min(1).max(128),
+			symbolId: z.string().min(1).max(1024),
+			facet: SymbolFacetSchema,
+		}),
+		z.object({
+			kind: z.literal("workspace_file_history"),
+			target: z.string().min(1).max(128),
+			path: z.string().max(512),
+		}),
+		z.object({
+			kind: z.literal("workspace_knowledge_scope"),
+			target: z.string().min(1).max(128),
+			scope: KnowledgeScopeTargetSchema,
+			includeLocals: z.boolean(),
 		}),
 		z.object({ kind: z.literal("cross_domain_listen") }),
 		z.object({
@@ -285,6 +302,9 @@ export const VALUE_OP_KINDS = new Set([
 	"workspace_save_span",
 	"workspace_file_state",
 	"workspace_mutate_file",
+	"workspace_symbol_facet",
+	"workspace_file_history",
+	"workspace_knowledge_scope",
 	"create_session",
 	"reload_plugins",
 	"cross_domain_listen",

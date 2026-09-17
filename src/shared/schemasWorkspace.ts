@@ -69,6 +69,46 @@ export const OutlineAnswerSchema = z
 	})
 	.meta({ id: "WorkspaceOutlineAnswer" });
 
+/** Append only: index order is a wire contract with the phone and fixtures. */
+export const CODE_TOKENS = [
+	"keyword",
+	"type",
+	"function",
+	"builtin",
+	"string",
+	"escape",
+	"interpolation",
+	"regexp",
+	"number",
+	"literal",
+	"comment",
+	"doctag",
+	"meta",
+	"attribute",
+	"property",
+	"variable",
+	"params",
+	"operator",
+	"punctuation",
+	"tag",
+	"name",
+	"selector",
+	"section",
+	"bullet",
+	"emphasis",
+	"strong",
+	"addition",
+	"deletion",
+	"link",
+	"quote",
+	"code",
+] as const;
+
+/** Per line: flat `[start, length, token]` triples, UTF-16 units. */
+export const LineSpansSchema = z
+	.array(z.number().int().nonnegative())
+	.refine((triples) => triples.length % 3 === 0, "spans come in triples");
+
 export const SymbolSourceAnswerSchema = z
 	.object({
 		kind: z.literal("symbolSource"),
@@ -82,6 +122,8 @@ export const SymbolSourceAnswerSchema = z
 		spanHash: z.string().min(1).max(128),
 		/** The enclosing declaration's name; absent at the top level. */
 		container: z.string().max(512).optional(),
+		/** Per line of `text`; unhighlighted absent. */
+		spans: z.array(LineSpansSchema).optional(),
 	})
 	.meta({ id: "WorkspaceSymbolSourceAnswer" });
 
@@ -100,6 +142,31 @@ export const KnowledgeEntrySchema = z
 	})
 	.meta({ id: "WorkspaceKnowledgeEntry" });
 
+/** Drill-in counts, withheld rows excluded. */
+export const KnowledgeCountsSchema = z
+	.object({
+		uses: z.number().int().nonnegative(),
+		/** Files holding a use. */
+		useFiles: z.number().int().nonnegative(),
+		/** Top-level declarations holding a use. */
+		dependents: z.number().int().nonnegative(),
+		/** Files with a module-level use. */
+		dependentFiles: z.number().int().nonnegative(),
+		/** Target names; unresolved grouped by spelling. */
+		targets: z.number().int().nonnegative(),
+		/** Bound subset of `targets`. */
+		boundTargets: z.number().int().nonnegative(),
+		/** References written inside it. */
+		references: z.number().int().nonnegative(),
+		/** Declared members. */
+		members: z.number().int().nonnegative(),
+		supertypes: z.number().int().nonnegative(),
+		subtypes: z.number().int().nonnegative(),
+		/** Its members' and locals' included. */
+		comments: z.number().int().nonnegative(),
+	})
+	.meta({ id: "WorkspaceKnowledgeCounts" });
+
 export const KnowledgeFactsSchema = z
 	.object({
 		members: z.number().int().nonnegative(),
@@ -109,6 +176,8 @@ export const KnowledgeFactsSchema = z
 		supertypes: z.number().int().nonnegative(),
 		subtypes: z.number().int().nonnegative(),
 		comments: z.number().int().nonnegative(),
+		/** Absent from an older Lexicon. */
+		counts: KnowledgeCountsSchema.optional(),
 	})
 	.meta({ id: "WorkspaceKnowledgeFacts" });
 
@@ -248,6 +317,265 @@ export const FileMutationAnswerSchema = z
 	})
 	.meta({ id: "WorkspaceFileMutationAnswer" });
 
+const SymbolIdSchema = z.string().min(1).max(1024);
+
+const LineSchema = z.number().int().positive();
+
+/** Strict, so an unknown facet refuses. */
+export const SymbolFacetSchema = z
+	.discriminatedUnion("kind", [
+		z.strictObject({ kind: z.literal("uses") }),
+		z.strictObject({ kind: z.literal("usesFrom") }),
+		z.strictObject({ kind: z.literal("members") }),
+		z.strictObject({ kind: z.literal("hierarchy") }),
+		z.strictObject({ kind: z.literal("comments") }),
+		z.strictObject({ kind: z.literal("history") }),
+	])
+	// Not `WorkspaceSymbolFacet`: `ConsoleOp`'s member would shadow it.
+	.meta({ id: "WorkspaceFacet" });
+
+/** What an Ask covers. A file takes everything in it. */
+export const KnowledgeScopeTargetSchema = z
+	.discriminatedUnion("kind", [
+		z.strictObject({ kind: z.literal("symbol"), symbolId: SymbolIdSchema }),
+		z.strictObject({ kind: z.literal("members"), symbolId: SymbolIdSchema }),
+		z.strictObject({ kind: z.literal("file"), path: MutationPathSchema }),
+	])
+	.meta({ id: "WorkspaceKnowledgeScopeTarget" });
+
+/** A declaration a row names. */
+export const FacetSymbolSchema = z
+	.object({
+		symbolId: SymbolIdSchema,
+		name: z.string().max(512),
+		symbolKind: z.string().max(64),
+		module: z.string().max(512),
+		startLine: LineSchema.optional(),
+		endLine: LineSchema.optional(),
+		signature: z.string().max(4096).optional(),
+		/** Per signature line, members only. */
+		signatureSpans: z.array(LineSpansSchema).optional(),
+	})
+	.meta({ id: "WorkspaceFacetSymbol" });
+
+/** One reference, as listed. */
+export const FacetUseSchema = z
+	.object({
+		module: z.string().max(512),
+		line: LineSchema,
+		/** UTF-16 columns of the name. */
+		startColumn: z.number().int().nonnegative(),
+		endColumn: z.number().int().nonnegative(),
+		/** As written. */
+		name: z.string().max(512),
+		role: z.string().max(32),
+		/** Innermost declaration; absent at module level. */
+		holder: FacetSymbolSchema.optional(),
+		/** Outermost declaration; absent at module level. */
+		topLevel: FacetSymbolSchema.optional(),
+		/** Of the use's file. */
+		language: z.string().max(64).optional(),
+		/** Line, or a window; absent if unreadable. */
+		text: z.string().max(4096).optional(),
+		/** Column a window starts at. */
+		textStart: z.number().int().positive().optional(),
+		/** Over `text`; absent when not highlighted. */
+		spans: LineSpansSchema.optional(),
+	})
+	.meta({ id: "WorkspaceFacetUse" });
+
+/** A symbol's references to one target. */
+export const FacetTargetSchema = z
+	.object({
+		/** Keys an unresolved name. */
+		name: z.string().max(512),
+		/** `bound`, `ambiguous` or `unbound`. */
+		status: z.string().max(32),
+		/** Absent unless bound. */
+		target: FacetSymbolSchema.optional(),
+		/** Why not bound. */
+		reason: z.string().max(64).optional(),
+		uses: z.array(FacetUseSchema),
+	})
+	.meta({ id: "WorkspaceFacetTarget" });
+
+export const FacetTypeSchema = z
+	.object({
+		symbol: FacetSymbolSchema,
+		/** `extends` or `implements`. */
+		role: z.string().max(32).optional(),
+	})
+	.meta({ id: "WorkspaceFacetType" });
+
+export const FacetUnboundTypeSchema = z
+	.object({ name: z.string().max(512), role: z.string().max(32).optional() })
+	.meta({ id: "WorkspaceFacetUnboundType" });
+
+export const FacetCommentSchema = z
+	.object({
+		/** Markers stripped, wrapping joined. */
+		text: z.string(),
+		form: z.string().max(32),
+		line: LineSchema,
+		/** Nearest non-local declaration. */
+		holder: FacetSymbolSchema.optional(),
+	})
+	.meta({ id: "WorkspaceFacetComment" });
+
+export const HistoryCommitSchema = z
+	.object({
+		hash: z.string().min(1).max(64),
+		/** Author time, unix seconds. */
+		at: z.number().int(),
+		author: z.string().max(512).optional(),
+		subject: z.string().max(4096),
+		added: z.number().int().nonnegative(),
+		removed: z.number().int().nonnegative(),
+	})
+	.meta({ id: "WorkspaceHistoryCommit" });
+
+/** Rows left without spans. */
+const PlainSchema = z.number().int().nonnegative();
+
+/** `none`: tracked, no touching commit. */
+const HistoryOutcomeSchema = z.enum(["commits", "untracked", "notRepository", "none"]);
+
+export const FacetAnswerSchema = z
+	.discriminatedUnion("kind", [
+		z.object({
+			kind: z.literal("uses"),
+			rows: z.array(FacetUseSchema),
+			uses: z.number().int().nonnegative(),
+			plain: PlainSchema,
+		}),
+		z.object({
+			kind: z.literal("usesFrom"),
+			targets: z.array(FacetTargetSchema),
+			/** Groups, unresolved names by spelling. */
+			targetCount: z.number().int().nonnegative(),
+			references: z.number().int().nonnegative(),
+			plain: PlainSchema,
+		}),
+		z.object({
+			kind: z.literal("members"),
+			members: z.array(FacetSymbolSchema),
+			plain: PlainSchema,
+		}),
+		z.object({
+			kind: z.literal("hierarchy"),
+			/** Symbol itself, for the self node. */
+			subject: FacetSymbolSchema,
+			/** Direct. */
+			supertypes: z.array(FacetTypeSchema),
+			/** Above the direct ones, nearest first. */
+			ancestors: z.array(FacetSymbolSchema),
+			unbound: z.array(FacetUnboundTypeSchema),
+			/** Direct. */
+			subtypes: z.array(FacetTypeSchema),
+			/** Direct, further and unbound. */
+			supertypeCount: z.number().int().nonnegative(),
+			subtypeCount: z.number().int().nonnegative(),
+		}),
+		z.object({
+			kind: z.literal("comments"),
+			comments: z.array(FacetCommentSchema),
+			/** Own documentation excluded; floor is `comments.length`. */
+			total: z.number().int().nonnegative(),
+			/** Lexicon's page was capped. */
+			truncated: z.boolean().optional(),
+		}),
+		z.object({
+			kind: z.literal("history"),
+			outcome: HistoryOutcomeSchema,
+			module: z.string().max(512),
+			startLine: LineSchema,
+			endLine: LineSchema,
+			commits: z.array(HistoryCommitSchema),
+			/** Stopped at the commit bound. */
+			truncated: z.boolean(),
+		}),
+	])
+	.meta({ id: "WorkspaceFacetAnswer" });
+
+export const SymbolFacetAnswerSchema = z
+	.object({
+		kind: z.literal("symbolFacet"),
+		symbolId: SymbolIdSchema,
+		facet: FacetAnswerSchema,
+	})
+	.meta({ id: "WorkspaceSymbolFacetAnswer" });
+
+export const FileHistoryAnswerSchema = z
+	.object({
+		kind: z.literal("fileHistory"),
+		path: z.string().max(512),
+		outcome: HistoryOutcomeSchema,
+		/** Newest first, a page. */
+		commits: z.array(HistoryCommitSchema),
+		/** Within Lexicon's history window. */
+		count: z.number().int().nonnegative(),
+		added: z.number().int().nonnegative(),
+		removed: z.number().int().nonnegative(),
+		/** Author time, unix seconds. */
+		firstSeen: z.number().int().optional(),
+		lastTouched: z.number().int().optional(),
+		/** `firstSeen` is a floor. */
+		truncated: z.boolean(),
+	})
+	.meta({ id: "WorkspaceFileHistoryAnswer" });
+
+export const ScopeQuestionSchema = z
+	.object({
+		question: KnowledgeEntrySchema.shape.question,
+		/** Absent: not recorded. */
+		createdAt: z.number().optional(),
+		thin: z.boolean().optional(),
+		/** Its own citations moved. */
+		stale: z.boolean().optional(),
+		/** Cites a stale or doubted answer. */
+		shaky: z.boolean().optional(),
+		doubted: z.boolean().optional(),
+		askCount: z.number().int().nonnegative(),
+	})
+	.meta({ id: "WorkspaceScopeQuestion" });
+
+export const ScopeSymbolSchema = z
+	.object({
+		symbolId: SymbolIdSchema,
+		name: z.string().max(512),
+		symbolKind: z.string().max(64),
+		/** 0 for the named symbol or file top. */
+		depth: z.number().int().nonnegative(),
+		startLine: LineSchema.optional(),
+		containerId: SymbolIdSchema.optional(),
+		questions: z.array(ScopeQuestionSchema).max(16),
+	})
+	.meta({ id: "WorkspaceScopeSymbol" });
+
+export const KnowledgeScopeAnswerSchema = z
+	.object({
+		kind: z.literal("knowledgeScope"),
+		/** Root, `~` for home; flags a rebound workspace. */
+		root: z.string().max(4096),
+		module: z.string().max(512),
+		/** Members before the declaration holding them. */
+		symbols: z.array(ScopeSymbolSchema),
+		/** Parameters and locals left out. */
+		localsExcluded: z.number().int().nonnegative(),
+	})
+	.meta({ id: "WorkspaceKnowledgeScopeAnswer" });
+
+/** Listing over cap, refused whole. */
+export const TooLargeAnswerSchema = z
+	.object({
+		kind: z.literal("tooLarge"),
+		/** Counted in the listing's unit. */
+		rows: z.number().int().nonnegative(),
+		/** Absent unless every row was read. */
+		bytes: z.number().int().nonnegative().optional(),
+	})
+	.meta({ id: "WorkspaceTooLargeAnswer" });
+
 export const WorkspaceOpAnswerSchema = z.discriminatedUnion("kind", [
 	TreeAnswerSchema,
 	ReadAnswerSchema,
@@ -257,6 +585,10 @@ export const WorkspaceOpAnswerSchema = z.discriminatedUnion("kind", [
 	SaveSpanAnswerSchema,
 	FileMutationAnswerSchema,
 	FileStateAnswerSchema,
+	SymbolFacetAnswerSchema,
+	FileHistoryAnswerSchema,
+	KnowledgeScopeAnswerSchema,
+	TooLargeAnswerSchema,
 ]);
 
 export type TreeEntry = z.infer<typeof TreeEntrySchema>;
@@ -272,4 +604,19 @@ export type FileMutation = z.infer<typeof FileMutationSchema>;
 export type FileMutationAnswer = z.infer<typeof FileMutationAnswerSchema>;
 export type FileStateAnswer = z.infer<typeof FileStateAnswerSchema>;
 export type FileDestination = z.infer<typeof FileDestinationSchema>;
+export type KnowledgeCounts = z.infer<typeof KnowledgeCountsSchema>;
+export type SymbolFacet = z.infer<typeof SymbolFacetSchema>;
+export type KnowledgeScopeTarget = z.infer<typeof KnowledgeScopeTargetSchema>;
+export type FacetSymbol = z.infer<typeof FacetSymbolSchema>;
+export type FacetUse = z.infer<typeof FacetUseSchema>;
+export type FacetTarget = z.infer<typeof FacetTargetSchema>;
+export type FacetType = z.infer<typeof FacetTypeSchema>;
+export type FacetComment = z.infer<typeof FacetCommentSchema>;
+export type HistoryCommit = z.infer<typeof HistoryCommitSchema>;
+export type FacetAnswer = z.infer<typeof FacetAnswerSchema>;
+export type SymbolFacetAnswer = z.infer<typeof SymbolFacetAnswerSchema>;
+export type FileHistoryAnswer = z.infer<typeof FileHistoryAnswerSchema>;
+export type ScopeSymbol = z.infer<typeof ScopeSymbolSchema>;
+export type KnowledgeScopeAnswer = z.infer<typeof KnowledgeScopeAnswerSchema>;
+export type TooLargeAnswer = z.infer<typeof TooLargeAnswerSchema>;
 export type WorkspaceOpAnswer = z.infer<typeof WorkspaceOpAnswerSchema>;

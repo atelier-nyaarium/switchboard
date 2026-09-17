@@ -1,0 +1,9 @@
+{
+	"kind": "workspace_knowledge_scope",
+	"target": "a95dd4e979aa3be5.sakura.host.89753c",
+	"scope": {
+		"kind": "members",
+		"symbolId": "lexicon kotlin android/app/src/main/java/ContentSealing.kt ContentSealing#"
+	},
+	"includeLocals": false
+}

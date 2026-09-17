@@ -391,7 +391,38 @@ no TTL.
   prose and health, and the counts `describe` holds. Stale is the answer's own staleness or an inherited
   one, doubted is its own doubt or one upstream, and stranded is Lexicon's mark. An older plugin answers
   none of it, and the screen asks for an update. A Lexicon too old for any read the plugin makes answers a
-  refusal naming the update, not a failure.
+  refusal naming the update, not a failure. The facts also carry `counts`, each in the unit its drill-in
+  lists, withheld uses excluded.
+- **Drill-ins** (`src/mcp/workspace/facets.ts`, `history.ts`, `knowledgeScope.ts`): three reads, all under
+  the read bounds with one handler deadline.
+  - `workspace_symbol_facet` carries a strict facet: `uses`, `usesFrom`, `members`, `hierarchy`, `comments`
+    or `history`. A reader that does not know a facet refuses it. Each answer counts in the unit its rows
+    show: uses; targets beside the reference total; members; supertypes and subtypes; comments; commits.
+  - A use in a file `confine` withholds is dropped before any read and counts nowhere, and so is one whose
+    file or line is no longer on disk, since the index can be behind it. Each file holding a row is read,
+    outlined and highlighted once, then sliced per row.
+  - Every id an answer carries is gated, not only the op's subject: a holder, a top level, a target, a
+    member, a hierarchy node, an outline symbol and a scope symbol all name their own module. A row whose
+    id is withheld is dropped; a `usesFrom` row whose TARGET is withheld keeps its use and reads as
+    unresolved under its written name, so a symbol's own references never vanish.
+  - `comments` lists the plugin's own page of 200, carries `total` for the symbol, and sets `truncated`
+    when there are more, whatever Lexicon's page says.
+  - `history` runs `git log -L` over the symbol's committed lines, bounded to 200 commits and killed at the
+    deadline, git leading its own process group so a descendant cannot hold the answer past it.
+    `workspace_file_history` answers the outline's file from Lexicon. Both answer `commits`, `untracked`,
+    `notRepository` or `none`.
+  - `workspace_knowledge_scope` answers a symbol, a symbol with its members, or a file as a containment
+    tree with every question's state, plus the root label, so a send can tell a rebound workspace.
+  - An older Gateway refuses the kinds and an older plugin the ops; both reach the phone as `Refused`.
+- **Spans** (`src/mcp/workspace/highlight.ts`): code is highlighted in the plugin and leaves it as per-line
+  triples `[start, length, token]` in UTF-16 units, the token an index into `CODE_TOKENS`, which only
+  grows. A use row's spans cover its `text`; `symbolSource` and member signatures carry one list per line.
+  An unknown language answers no spans. Rows past the deadline go plain and are counted in `plain`.
+  `tests/fixtures/code-spans/vectors.json` pins text to triples.
+- **One size rule** (`withinCap`): every workspace answer is measured as serialised UTF-8 before framing
+  and refused whole over `MAX_WORKSPACE_OP_BYTES`, never truncated. The three drill-ins answer
+  `WorkspaceTooLargeAnswer` with `rows` and `bytes`, which `listingOf` reads as `WorkspaceListing.TooLarge`;
+  older reads keep the refusal text, since an older phone decodes only its own answer.
 - **Composed requests** (`SessionRequests`): the one road for a message the phone writes for a session,
   Agent Apply and a knowledge Ask. A request is keyed by address, kind and subject and claimed before it
   is sent, so a second tap or a second screen sends nothing while one is out. The send outlives the screen

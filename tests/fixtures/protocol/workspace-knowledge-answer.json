@@ -30,5 +30,26 @@
 		{ "question": "effects" },
 		{ "question": "usage" }
 	],
-	"facts": { "members": 0, "references": 4, "fanIn": 3, "fanOut": 5, "supertypes": 0, "subtypes": 0, "comments": 1 }
+	"facts": {
+		"members": 0,
+		"references": 4,
+		"fanIn": 3,
+		"fanOut": 5,
+		"supertypes": 0,
+		"subtypes": 0,
+		"comments": 1,
+		"counts": {
+			"uses": 4,
+			"useFiles": 3,
+			"dependents": 3,
+			"dependentFiles": 3,
+			"targets": 5,
+			"boundTargets": 3,
+			"references": 9,
+			"members": 0,
+			"supertypes": 0,
+			"subtypes": 0,
+			"comments": 2
+		}
+	}
 }

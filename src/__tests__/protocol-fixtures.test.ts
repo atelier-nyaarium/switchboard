@@ -17,10 +17,14 @@ import {
 } from "../shared/schemas.js";
 import { MailboxEntrySchema } from "../shared/schemasConsoleOp.js";
 import {
+	FileHistoryAnswerSchema,
 	FileMutationAnswerSchema,
 	FileStateAnswerSchema,
 	KnowledgeAnswerSchema,
+	KnowledgeScopeAnswerSchema,
 	SaveSpanAnswerSchema,
+	SymbolFacetAnswerSchema,
+	TooLargeAnswerSchema,
 } from "../shared/schemasWorkspace.js";
 
 const FIXTURES = path.join(__dirname, "../../tests/fixtures/protocol");
@@ -42,6 +46,10 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	WorkspaceFileMutationAnswer: FileMutationAnswerSchema,
 	WorkspaceFileStateAnswer: FileStateAnswerSchema,
 	WorkspaceKnowledgeAnswer: KnowledgeAnswerSchema,
+	WorkspaceSymbolFacetAnswer: SymbolFacetAnswerSchema,
+	WorkspaceFileHistoryAnswer: FileHistoryAnswerSchema,
+	WorkspaceKnowledgeScopeAnswer: KnowledgeScopeAnswerSchema,
+	WorkspaceTooLargeAnswer: TooLargeAnswerSchema,
 };
 
 interface ManifestEntry {

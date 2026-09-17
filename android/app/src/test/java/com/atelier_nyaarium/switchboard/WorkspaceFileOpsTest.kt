@@ -1,8 +1,10 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.WorkspaceFacet
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
@@ -99,6 +101,14 @@ class WorkspaceFileOpsTest {
 		override suspend fun mutateFile(target: WorkspaceTarget, mutation: WorkspaceFileMutation) = error("not reached")
 
 		override suspend fun fileState(target: WorkspaceTarget, path: String) = error("not reached")
+
+		override suspend fun symbolFacet(target: WorkspaceTarget, symbolId: String, facet: WorkspaceFacet) =
+			error("not reached")
+
+		override suspend fun fileHistory(target: WorkspaceTarget, path: String) = error("not reached")
+
+		override suspend fun knowledgeScope(target: WorkspaceTarget, scope: WorkspaceKnowledgeScopeTarget, includeLocals: Boolean) =
+			error("not reached")
 	}
 
 	private class Host(override val workspace: WorkspaceGateway?) : WorkspaceHost {

@@ -130,6 +130,9 @@ object Protocol {
 			const val WORKSPACE_SAVE_SPAN: String = "workspace_save_span"
 			const val WORKSPACE_FILE_STATE: String = "workspace_file_state"
 			const val WORKSPACE_MUTATE_FILE: String = "workspace_mutate_file"
+			const val WORKSPACE_SYMBOL_FACET: String = "workspace_symbol_facet"
+			const val WORKSPACE_FILE_HISTORY: String = "workspace_file_history"
+			const val WORKSPACE_KNOWLEDGE_SCOPE: String = "workspace_knowledge_scope"
 			const val CROSS_DOMAIN_LISTEN: String = "cross_domain_listen"
 			const val CROSS_DOMAIN_REQUEST: String = "cross_domain_request"
 			const val CROSS_DOMAIN_CONFIRM: String = "cross_domain_confirm"
@@ -423,6 +426,29 @@ sealed class ConsoleOp {
 	data class WorkspaceMutateFile(
 		val target: String,
 		val mutation: WorkspaceFileMutation,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("workspace_symbol_facet")
+	data class WorkspaceSymbolFacet(
+		val target: String,
+		val symbolId: String,
+		val facet: WorkspaceFacet,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("workspace_file_history")
+	data class WorkspaceFileHistory(
+		val target: String,
+		val path: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("workspace_knowledge_scope")
+	data class WorkspaceKnowledgeScope(
+		val target: String,
+		val scope: WorkspaceKnowledgeScopeTarget,
+		val includeLocals: Boolean,
 	) : ConsoleOp()
 
 	@Serializable
@@ -2176,6 +2202,7 @@ data class WorkspaceSymbolSourceAnswer(
 	val endLine: Long,
 	val spanHash: String,
 	val container: String? = null,
+	val spans: List<List<Long>>? = null,
 )
 
 @Serializable
@@ -2299,6 +2326,263 @@ data class WorkspaceFileStateAnswer(
 	val bytes: Long? = null,
 	val hash: String? = null,
 	val identity: String? = null,
+)
+
+@Serializable
+data class WorkspaceKnowledgeCounts(
+	val uses: Long,
+	val useFiles: Long,
+	val dependents: Long,
+	val dependentFiles: Long,
+	val targets: Long,
+	val boundTargets: Long,
+	val references: Long,
+	val members: Long,
+	val supertypes: Long,
+	val subtypes: Long,
+	val comments: Long,
+)
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class WorkspaceFacet {
+	@Serializable
+	@SerialName("uses")
+	data object Uses : WorkspaceFacet()
+
+	@Serializable
+	@SerialName("usesFrom")
+	data object UsesFrom : WorkspaceFacet()
+
+	@Serializable
+	@SerialName("members")
+	data object Members : WorkspaceFacet()
+
+	@Serializable
+	@SerialName("hierarchy")
+	data object Hierarchy : WorkspaceFacet()
+
+	@Serializable
+	@SerialName("comments")
+	data object Comments : WorkspaceFacet()
+
+	@Serializable
+	@SerialName("history")
+	data object History : WorkspaceFacet()
+}
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class WorkspaceKnowledgeScopeTarget {
+	@Serializable
+	@SerialName("symbol")
+	data class Symbol(
+		val symbolId: String,
+	) : WorkspaceKnowledgeScopeTarget()
+
+	@Serializable
+	@SerialName("members")
+	data class Members(
+		val symbolId: String,
+	) : WorkspaceKnowledgeScopeTarget()
+
+	@Serializable
+	@SerialName("file")
+	data class File(
+		val path: String,
+	) : WorkspaceKnowledgeScopeTarget()
+}
+
+@Serializable
+data class WorkspaceFacetSymbol(
+	val symbolId: String,
+	val name: String,
+	val symbolKind: String,
+	val module: String,
+	val startLine: Long? = null,
+	val endLine: Long? = null,
+	val signature: String? = null,
+	val signatureSpans: List<List<Long>>? = null,
+)
+
+@Serializable
+data class WorkspaceFacetUse(
+	val module: String,
+	val line: Long,
+	val startColumn: Long,
+	val endColumn: Long,
+	val name: String,
+	val role: String,
+	val holder: WorkspaceFacetSymbol? = null,
+	val topLevel: WorkspaceFacetSymbol? = null,
+	val language: String? = null,
+	val text: String? = null,
+	val textStart: Long? = null,
+	val spans: List<Long>? = null,
+)
+
+@Serializable
+data class WorkspaceFacetTarget(
+	val name: String,
+	val status: String,
+	val target: WorkspaceFacetSymbol? = null,
+	val reason: String? = null,
+	val uses: List<WorkspaceFacetUse>,
+)
+
+@Serializable
+data class WorkspaceFacetType(
+	val symbol: WorkspaceFacetSymbol,
+	val role: String? = null,
+)
+
+@Serializable
+data class WorkspaceFacetUnboundType(
+	val name: String,
+	val role: String? = null,
+)
+
+@Serializable
+data class WorkspaceFacetComment(
+	val text: String,
+	val form: String,
+	val line: Long,
+	val holder: WorkspaceFacetSymbol? = null,
+)
+
+@Serializable
+data class WorkspaceHistoryCommit(
+	val hash: String,
+	val at: Long,
+	val author: String? = null,
+	val subject: String,
+	val added: Long,
+	val removed: Long,
+)
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class WorkspaceFacetAnswer {
+	@Serializable
+	@SerialName("uses")
+	data class Uses(
+		val rows: List<WorkspaceFacetUse>,
+		val uses: Long,
+		val plain: Long,
+	) : WorkspaceFacetAnswer()
+
+	@Serializable
+	@SerialName("usesFrom")
+	data class UsesFrom(
+		val targets: List<WorkspaceFacetTarget>,
+		val targetCount: Long,
+		val references: Long,
+		val plain: Long,
+	) : WorkspaceFacetAnswer()
+
+	@Serializable
+	@SerialName("members")
+	data class Members(
+		val members: List<WorkspaceFacetSymbol>,
+		val plain: Long,
+	) : WorkspaceFacetAnswer()
+
+	@Serializable
+	@SerialName("hierarchy")
+	data class Hierarchy(
+		val subject: WorkspaceFacetSymbol,
+		val supertypes: List<WorkspaceFacetType>,
+		val ancestors: List<WorkspaceFacetSymbol>,
+		val unbound: List<WorkspaceFacetUnboundType>,
+		val subtypes: List<WorkspaceFacetType>,
+		val supertypeCount: Long,
+		val subtypeCount: Long,
+	) : WorkspaceFacetAnswer()
+
+	@Serializable
+	@SerialName("comments")
+	data class Comments(
+		val comments: List<WorkspaceFacetComment>,
+		val total: Long,
+		val truncated: Boolean? = null,
+	) : WorkspaceFacetAnswer()
+
+	@Serializable
+	@SerialName("history")
+	data class History(
+		val outcome: String,
+		val module: String,
+		val startLine: Long,
+		val endLine: Long,
+		val commits: List<WorkspaceHistoryCommit>,
+		val truncated: Boolean,
+	) : WorkspaceFacetAnswer()
+}
+
+@Serializable
+data class WorkspaceSymbolFacetAnswer(
+	@EncodeDefault
+	val kind: String = "symbolFacet",
+	val symbolId: String,
+	val facet: WorkspaceFacetAnswer,
+)
+
+@Serializable
+data class WorkspaceFileHistoryAnswer(
+	@EncodeDefault
+	val kind: String = "fileHistory",
+	val path: String,
+	val outcome: String,
+	val commits: List<WorkspaceHistoryCommit>,
+	val count: Long,
+	val added: Long,
+	val removed: Long,
+	val firstSeen: Long? = null,
+	val lastTouched: Long? = null,
+	val truncated: Boolean,
+)
+
+@Serializable
+data class WorkspaceScopeQuestion(
+	val question: String,
+	val createdAt: Double? = null,
+	val thin: Boolean? = null,
+	val stale: Boolean? = null,
+	val shaky: Boolean? = null,
+	val doubted: Boolean? = null,
+	val askCount: Long,
+)
+
+@Serializable
+data class WorkspaceScopeSymbol(
+	val symbolId: String,
+	val name: String,
+	val symbolKind: String,
+	val depth: Long,
+	val startLine: Long? = null,
+	val containerId: String? = null,
+	val questions: List<WorkspaceScopeQuestion>,
+)
+
+@Serializable
+data class WorkspaceKnowledgeScopeAnswer(
+	@EncodeDefault
+	val kind: String = "knowledgeScope",
+	val root: String,
+	val module: String,
+	val symbols: List<WorkspaceScopeSymbol>,
+	val localsExcluded: Long,
+)
+
+@Serializable
+data class WorkspaceTooLargeAnswer(
+	@EncodeDefault
+	val kind: String = "tooLarge",
+	val rows: Long,
+	val bytes: Long? = null,
 )
 
 @Serializable
@@ -2775,4 +3059,5 @@ data class WorkspaceKnowledgeFacts(
 	val supertypes: Long,
 	val subtypes: Long,
 	val comments: Long,
+	val counts: WorkspaceKnowledgeCounts? = null,
 )

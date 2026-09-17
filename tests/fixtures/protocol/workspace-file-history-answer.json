@@ -1,0 +1,21 @@
+{
+	"kind": "fileHistory",
+	"path": "src/shared/schemasRoutine.ts",
+	"outcome": "commits",
+	"commits": [
+		{
+			"hash": "d085327d1c2e4f5a6b7c8d9e0f1a2b3c4d5e6f70",
+			"at": 4294967296,
+			"author": "Nyaarium",
+			"subject": "Refuse a routine whose rule never comes around",
+			"added": 12,
+			"removed": 3
+		}
+	],
+	"count": 1,
+	"added": 12,
+	"removed": 3,
+	"firstSeen": 1757000000,
+	"lastTouched": 4294967296,
+	"truncated": false
+}

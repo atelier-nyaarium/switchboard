@@ -7,7 +7,7 @@
 // Two writes: a span save, checked by Lexicon under its writer gate, and a file mutation, which is plain
 // file work checked in the plugin.
 
-import type { FileMutation, WorkspaceOpAnswer } from "./schemasWorkspace.js";
+import type { FileMutation, KnowledgeScopeTarget, SymbolFacet, WorkspaceOpAnswer } from "./schemasWorkspace.js";
 
 ////////////////////////////////
 //  Constants
@@ -69,11 +69,17 @@ export type WorkspaceOp =
 	| { kind: "symbolSource"; symbolId: string }
 	| { kind: "symbolKnowledge"; symbolId: string }
 	| { kind: "saveSpan"; symbolId: string; expectedSpanHash: string; text: string }
-	| { kind: "mutateFile"; mutation: FileMutation };
+	| { kind: "mutateFile"; mutation: FileMutation }
+	| { kind: "symbolFacet"; symbolId: string; facet: SymbolFacet }
+	| { kind: "fileHistory"; path: string }
+	| { kind: "knowledgeScope"; scope: KnowledgeScopeTarget; includeLocals: boolean };
 
 export function boundsOf(op: WorkspaceOp): WorkspaceBounds {
 	return WORKSPACE_BOUNDS[unknownAnswerOf(op, "") === null ? "read" : "save"];
 }
+
+/** Unlisted kinds stay a thrown refusal (older phones' compat). */
+const TYPED_TOO_LARGE: ReadonlySet<WorkspaceOp["kind"]> = new Set(["symbolFacet", "fileHistory", "knowledgeScope"]);
 
 /** Writes may land; the phone rereads. */
 function unknownAnswerOf(op: WorkspaceOp, reason: string): WorkspaceOpAnswer | null {
@@ -89,11 +95,14 @@ function unknownAnswerOf(op: WorkspaceOp, reason: string): WorkspaceOpAnswer | n
 
 /**
  * A plane result as the phone reads it. A failure rides the thrown message, which is how the phone
- * tells refused from failed. Only a refusal is known to have written nothing, so any other failure of a
+ * tells refused from failed, except an oversized drill-in, which answers its count. Only a refusal is known to have written nothing, so any other failure of a
  * write answers `unknown`, which the phone settles by reading back.
  */
 export function answerForConsole(op: WorkspaceOp, result: WorkspaceOpResult): WorkspaceOpAnswer {
 	if (result.ok) return result.answer;
+	if (result.failure === "too_large" && result.rows !== undefined && TYPED_TOO_LARGE.has(op.kind)) {
+		return { kind: "tooLarge", rows: result.rows, ...(result.bytes === undefined ? {} : { bytes: result.bytes }) };
+	}
 	const unknown =
 		result.failure === "refused" ? null : unknownAnswerOf(op, `${result.failure}: ${result.detail}`.slice(0, 2048));
 	if (unknown !== null) return unknown;
@@ -101,17 +110,32 @@ export function answerForConsole(op: WorkspaceOp, result: WorkspaceOpResult): Wo
 }
 
 export type {
+	FacetAnswer,
+	FacetComment,
+	FacetSymbol,
+	FacetTarget,
+	FacetType,
+	FacetUse,
 	FileDestination,
+	FileHistoryAnswer,
 	FileMutation,
 	FileMutationAnswer,
 	FileStateAnswer,
+	HistoryCommit,
 	KnowledgeAnswer,
+	KnowledgeCounts,
 	KnowledgeEntry,
+	KnowledgeScopeAnswer,
+	KnowledgeScopeTarget,
 	OutlineAnswer,
 	OutlineSymbol,
 	ReadAnswer,
 	SaveSpanAnswer,
+	ScopeSymbol,
+	SymbolFacet,
+	SymbolFacetAnswer,
 	SymbolSourceAnswer,
+	TooLargeAnswer,
 	TreeAnswer,
 	TreeEntry,
 	WorkspaceOpAnswer,
@@ -125,7 +149,15 @@ export type WorkspaceOpFailure = "refused" | "failed" | "timeout" | "disconnecte
 
 export type WorkspaceOpResult =
 	| { ok: true; answer: import("./schemasWorkspace.js").WorkspaceOpAnswer }
-	| { ok: false; failure: WorkspaceOpFailure; detail: string };
+	| {
+			ok: false;
+			failure: WorkspaceOpFailure;
+			detail: string;
+			/** `too_large`: the rows the answer would list. */
+			rows?: number;
+			/** `too_large`: its serialised size, absent when not every row was read. */
+			bytes?: number;
+	  };
 
 /** `key` is the idempotency key; a replay of it answers the first result rather than acting again. */
 export interface WorkspaceOpRequest {
