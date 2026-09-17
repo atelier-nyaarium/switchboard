@@ -7,6 +7,7 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolFacetAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import kotlinx.coroutines.async
@@ -68,7 +69,8 @@ class SymbolViewsTest {
 
 		override suspend fun tree(target: WorkspaceTarget, path: String) = error("not reached")
 
-		override suspend fun file(target: WorkspaceTarget, path: String) = error("not reached")
+		override suspend fun file(target: WorkspaceTarget, path: String) =
+			WorkspaceAnswer.Read(WorkspaceReadAnswer(path = path, text = "file text", lines = 1))
 
 		override suspend fun saveSpan(target: WorkspaceTarget, symbolId: String, expectedSpanHash: String, text: String) =
 			error("not reached")
@@ -287,5 +289,23 @@ class SymbolViewsTest {
 		assertNull(views.fileHistoryViews.value[one to "src/a.ts"])
 		assertNotNull(views.outlineViews.value[one to "src/a.ts"]?.outline)
 		outline.cancelAndJoin()
+	}
+
+	@Test
+	fun `a ref now reads its span, then the file the span names`() = runBlocking {
+		val hold = TestHold().also { reads.sourceHolds += it }
+		val keeping = launch { views.keepRefNow(one, ID) }
+		hold.entered.await()
+
+		assertNull(views.refNowViews.value[one to ID]?.file)
+
+		hold.release()
+		val landed = withTimeout(5_000) { views.refNowViews.first { it[one to ID]?.file != null } }.getValue(one to ID)
+
+		assertEquals("src/a.ts", (landed.source as WorkspaceAnswer.Read).value.module)
+		assertEquals("src/a.ts", (landed.file as WorkspaceAnswer.Read).value.path)
+
+		keeping.cancelAndJoin()
+		assertNull(views.refNowViews.value[one to ID])
 	}
 }

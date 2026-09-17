@@ -316,8 +316,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A key names the SLOT a read fills, not merely the holder:** two reads sharing a key cancel each
     other. `WindowOps` passes a sealed `ReadSlot`, one per span, so no string reaches this from there;
     the other callers still pass one. A read that fills a per-module cache is not fenced at all, since
-    nothing an older answer could overwrite exists. A read a screen draws is not fenced either: it lands
-    through its `PublishedViews` ticket.
+    nothing an older answer could overwrite exists. A read a screen draws takes no `GatewayReadFence`
+    either: its order is its `PublishedViews` ticket, minted before it awaits.
 - `android/.../WindowOps.kt` / `WindowRules.kt` / `WindowRequests.kt` / `SymbolViews.kt` / `KnowledgeRules.kt` /
   `AskRules.kt` / `AskedStore.kt` / `AskOps.kt` / `SessionRequests.kt` / `RawFileOps.kt` /
   `RawFileRules.kt` / `WorkspaceFileOps.kt` / `FileOpRules.kt` / `FacetRules.kt` / `CodePaint.kt` / `HeldEdits.kt` / `PublishedViews.kt` /

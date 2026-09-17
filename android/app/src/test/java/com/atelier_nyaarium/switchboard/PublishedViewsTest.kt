@@ -56,6 +56,19 @@ class PublishedViewsTest {
 	}
 
 	@Test
+	fun `a begin minted in a re-provision's window, before the clear, lands nothing`() {
+		views.show("a") { "loading" }
+		generation.advance()
+		val ticket = views.begin("a")!!
+		assertFalse(views.update(ticket) { "stale" })
+
+		views.clear()
+		views.show("a") { "fresh" }
+		assertTrue(views.update(views.begin("a")!!) { "landed" })
+		assertEquals("landed", views.of("a"))
+	}
+
+	@Test
 	fun `a read that began earlier lands nothing once a later one has, and nothing begins on a key not shown`() {
 		val showing = views.show("a") { "loading" }.showing
 		val older = views.ticket(showing)

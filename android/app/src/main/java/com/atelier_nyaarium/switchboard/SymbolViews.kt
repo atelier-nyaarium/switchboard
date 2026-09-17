@@ -130,10 +130,10 @@ internal class SymbolViews(private val host: WorkspaceHost) : ClearsOnReprovisio
 	suspend fun keepRefNow(target: WorkspaceTarget, symbolId: String) =
 		refNows.keep(target to symbolId, ::RefNowView) { ticket ->
 			val span = refNows.ticket(ticket.showing, SymbolSlot.SOURCE)
+			val inFile = refNows.ticket(ticket.showing, SymbolSlot.FILE)
 			val source = read { it.symbolSource(target, symbolId) }
 			refNows.update(span) { view -> view.copy(source = source) }
 			val module = (source as? WorkspaceAnswer.Read)?.value?.module ?: return@keep
-			val inFile = refNows.ticket(ticket.showing, SymbolSlot.FILE)
 			val file = read { it.file(target, module) }
 			refNows.update(inFile) { view -> view.copy(file = file) }
 		}

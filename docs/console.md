@@ -369,8 +369,9 @@ no TTL.
   the same `version` (the span or file hash) and folds in what arrived since, which is a save keeping typing
   that came during it and a sweep applying the refresh rule. No road names its own fields to compare.
 - **Read slots** (`ReadSlot`): a fence key names what a read FILLS, one per span, so opening two windows
-  at once does not cancel either. An outline and a symbol's detail are not fenced: `SymbolViews` lands them
-  on their showing, each half of a detail as it arrives. A read that fills a per-module cache is not fenced
+  at once does not cancel either. An outline and a symbol's detail take no `GatewayReadFence`: `SymbolViews`
+  lands them by a `PublishedViews` ticket minted before the read, each half of a detail under a slot of its
+  own. A read that fills a per-module cache is not fenced
   at all, since there is nothing an older answer could overwrite. `separated` escapes each half rather than
   refusing one holding the record separator, because a Lexicon symbol id can carry one and a workspace file
   does not get to decide whether the view crashes.

@@ -37,10 +37,11 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 		val key: K get() = showing.key
 	}
 
-	/** Tokens, keepers, orders and `drawn` change only under it, so no reader sees one moved without the others. */
+	/** Showings, keepers, orders and `drawn` change only under it, so no reader sees one moved without the others. */
 	private val lock = Any()
 
-	private val tokens = HashMap<K, Any>()
+	/** The showing open now for each key, as it was minted. */
+	private val showings = HashMap<K, Showing<K>>()
 
 	/** Outlives a clear: a kept screen shows its key again. */
 	private val keepers = HashMap<K, Int>()
@@ -67,36 +68,39 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 	fun show(key: K, initial: () -> V): Opened<K> =
 		synchronized(lock) {
 			val started = key !in drawn.value
-			Opened(start(key, tokens.getOrPut(key) { Any() }, initial), started)
+			val showing = if (started) start(key, initial) else showings.getValue(key)
+			Opened(showing, started)
 		}
 
 	/** A new showing that ends any before it, its read included, keeping what is drawn. */
 	fun reshow(key: K, initial: () -> V): Showing<K> =
 		synchronized(lock) {
 			reads.remove(key)?.cancel()
-			start(key, Any().also { tokens[key] = it }, initial)
+			start(key, initial)
 		}
 
-	private fun start(key: K, token: Any, initial: () -> V): Showing<K> {
+	private fun start(key: K, initial: () -> V): Showing<K> {
 		if (key !in drawn.value) drawn.value = drawn.value + (key to initial())
-		return Showing(key, token, generation.capture())
+		val showing = Showing(key, Any(), generation.capture())
+		showings[key] = showing
+		return showing
 	}
 
 	/** A ticket on a showing in hand, for a second slot of it or for work about to begin. */
 	fun ticket(showing: Showing<K>, slot: Any? = null): ReadTicket<K> =
 		synchronized(lock) { ReadTicket(showing, slot, ++minted) }
 
-	/** A ticket on the showing open now; null when nothing shows the key. */
+	/** A ticket on the showing open now, as it was minted; null when nothing shows the key. */
 	fun begin(key: K, slot: Any? = null): ReadTicket<K>? =
 		synchronized(lock) {
-			val token = tokens[key] ?: return null
-			ReadTicket(Showing(key, token, generation.capture()), slot, ++minted)
+			val showing = showings[key] ?: return null
+			ReadTicket(showing, slot, ++minted)
 		}
 
 	fun isCurrent(showing: Showing<K>): Boolean = synchronized(lock) { currentLocked(showing) }
 
 	private fun currentLocked(showing: Showing<K>): Boolean =
-		tokens[showing.key] === showing.token && generation.isCurrent(showing.generation)
+		showings[showing.key]?.token === showing.token && generation.isCurrent(showing.generation)
 
 	private fun landsLocked(ticket: ReadTicket<K>): Boolean =
 		currentLocked(ticket.showing) && (landings[ticket.key to ticket.slot] ?: 0L) <= ticket.order
@@ -204,7 +208,7 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 	}
 
 	private fun leaveLocked(key: K) {
-		tokens.remove(key)
+		showings.remove(key)
 		reads.remove(key)?.cancel()
 		landings.keys.removeAll { it.first == key }
 		drawn.value = drawn.value - key
@@ -212,7 +216,7 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 
 	fun clear() {
 		synchronized(lock) {
-			tokens.clear()
+			showings.clear()
 			for (job in reads.values) job.cancel()
 			reads.clear()
 			landings.clear()
