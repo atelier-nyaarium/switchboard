@@ -1,0 +1,4 @@
+# Refuse a dependency version younger than seven days, so a compromised release has time to be
+# flagged before it lands here.
+[install]
+minimumReleaseAge = 604800
