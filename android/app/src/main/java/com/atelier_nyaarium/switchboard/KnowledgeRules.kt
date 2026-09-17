@@ -35,26 +35,6 @@ internal fun knowledgeFacts(facts: WorkspaceKnowledgeFacts): List<KnowledgeFact>
 		KnowledgeFact("Comments", facts.comments),
 	)
 
-/** Only while it is sending; asking again is on purpose. */
-internal fun askable(state: RequestState?): Boolean = state != RequestState.SENDING
-
-internal fun askLabel(state: RequestState?): String =
-	when (state) {
-		null -> "Ask"
-		RequestState.SENDING -> "Asking"
-		RequestState.SENT -> "Asked"
-		RequestState.FAILED -> "Retry"
-	}
-
-internal fun knowledgeRequest(target: WorkspaceTarget, symbolId: String, question: String): RequestKey =
-	RequestKey(target.address, RequestKind.KNOWLEDGE, separated(symbolId, question))
-
-internal fun knowledgeAsk(answer: WorkspaceKnowledgeAnswer, question: String): String {
-	val name = answer.name ?: answer.symbolId
-	val where = answer.module?.let { " in `$it`" } ?: ""
-	return "Record Lexicon's `$question` answer for `$name`$where, citing the facts it rests on. Symbol id: `${answer.symbolId}`."
-}
-
 internal fun kindBadge(symbolKind: String?): String =
 	when (symbolKind) {
 		"function", "method", "constructor", "operator" -> "F"

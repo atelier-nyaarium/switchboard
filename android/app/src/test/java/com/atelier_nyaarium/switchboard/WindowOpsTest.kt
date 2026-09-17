@@ -643,17 +643,6 @@ class WindowOpsTest {
 	}
 
 	@Test
-	fun `an ask sends the session the question, and a send that throws is unknown`() = runBlocking {
-		val answer = WorkspaceKnowledgeAnswer(symbolId = F_ID, name = "f", module = "src/a.ts")
-
-		assertEquals(Submitted.Sent, ops.askKnowledge(one, answer, "why"))
-		assertEquals(listOf(one.address to knowledgeAsk(answer, "why")), host.sent.toList())
-
-		host.throws = true
-		assertEquals(Submitted.Unknown, ops.askKnowledge(one, answer, "usage"))
-	}
-
-	@Test
 	fun `a save writes only the edited spans and leaves each window showing what is on disk`() = runBlocking {
 		ops.openWindow(one, F_ID)
 		ops.openWindow(one, G_ID)

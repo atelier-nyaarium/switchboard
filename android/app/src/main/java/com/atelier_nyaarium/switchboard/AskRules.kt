@@ -355,6 +355,16 @@ internal fun progressOf(send: AskSend?, answer: WorkspaceKnowledgeScopeAnswer?, 
 	)
 }
 
+internal data class ProgressLine(val text: String, val word: RowWord)
+
+/** A row reads the questions it recorded, or the one word for a row nothing has come back on. */
+internal fun progressLine(row: ProgressRow): ProgressLine =
+	if (row.recorded.isEmpty()) {
+		ProgressLine(rowWordText(RowWord.ASKED), RowWord.ASKED)
+	} else {
+		ProgressLine(row.recorded.joinToString(", "), RowWord.RECORDED)
+	}
+
 internal fun progressText(progress: AskProgress, now: Long): String =
 	if (progress.oneSymbol) {
 		"Asked ${agoText(progress.sentAt, now)}"
@@ -377,3 +387,149 @@ internal fun recordedText(questions: List<WorkspaceScopeQuestion>?, answers: Lis
 	val recorded = questions?.count { it.createdAt != null } ?: answers?.count { it.prose != null } ?: 0
 	return "${countText(recorded)} of ${countText(of)} recorded"
 }
+
+internal fun rowWordText(word: RowWord): String =
+	when (word) {
+		RowWord.NOT_RECORDED -> "not recorded"
+		RowWord.ASKED -> "asked"
+		RowWord.RECORDED -> "recorded"
+	}
+
+/** A question row: the detail's answers carry the prose, the scope read says what is still out. */
+internal data class AskRow(val question: String, val prose: String?, val badges: List<KnowledgeBadge>, val word: RowWord)
+
+internal fun askRows(
+	rows: List<KnowledgeRow>,
+	symbolId: String,
+	scope: WorkspaceScopeSymbol?,
+	asked: AskedLookup,
+): List<AskRow> =
+	rows.map { row ->
+		AskRow(
+			question = row.question,
+			prose = row.prose,
+			badges = row.badges,
+			word = rowWord(
+				scope?.questions?.firstOrNull { it.question == row.question },
+				row.prose,
+				asked.asked(symbolId, row.question),
+			),
+		)
+	}
+
+internal fun interface SendLookup {
+	fun latest(scopeSubject: String): AskSend?
+}
+
+/** The newest send made from this subject, whichever scope it was made at. */
+internal fun pageSend(subject: AskSubject, sends: SendLookup): AskSend? =
+	AskScope.entries.mapNotNull { sends.latest(scopeSubject(subject, it)) }.maxByOrNull { it.id }
+
+/** One symbol and its members share a read, so only a whole-file send moves which scope a page keeps. */
+internal fun pageScope(subject: AskSubject, send: AskSend?): AskScope =
+	if (send?.scopeSubject == scopeSubject(subject, AskScope.FILE)) AskScope.FILE else AskScope.MEMBERS
+
+////////////////////////////////
+//  The sheet
+
+internal fun scopeLabel(scope: AskScope): String =
+	when (scope) {
+		AskScope.SYMBOL -> "This symbol"
+		AskScope.MEMBERS -> "With members"
+		AskScope.FILE -> "Whole file"
+	}
+
+internal fun scopeNote(symbols: Int?): String? = symbols?.let { counted(it, "symbol") }
+
+internal data class QuestionChip(val question: String, val label: String, val on: Boolean)
+
+/** One symbol's chips would each read 1, which the summary under them already says. */
+internal fun questionChips(counts: AskCounts, selection: AskSelection): List<QuestionChip> {
+	val many = (counts.scopeSymbols[selection.scope] ?: 0) > 1
+	return QUESTION_CLASSES.map { question ->
+		val titled = question.replaceFirstChar { it.uppercase() }
+		QuestionChip(
+			question = question,
+			label = if (many) "$titled ${countText(counts.perQuestion[question] ?: 0)}" else titled,
+			on = question in selection.questions,
+		)
+	}
+}
+
+internal data class IncludeRow(val include: Include, val label: String, val count: Int, val on: Boolean)
+
+/** The locals row is hidden where the scope excludes none, which is one symbol on its own. */
+internal fun includeRows(counts: AskCounts, selection: AskSelection): List<IncludeRow> =
+	Include.entries.mapNotNull { include ->
+		val count = when (include) {
+			Include.NOT_RECORDED -> counts.notRecorded
+			Include.WEAK -> counts.weak
+			Include.ASKED -> counts.asked
+			Include.LOCALS -> counts.locals ?: return@mapNotNull null
+		}
+		IncludeRow(include, includeLabel(include), count, include in selection.include)
+	}
+
+private fun includeLabel(include: Include): String =
+	when (include) {
+		Include.NOT_RECORDED -> "Not recorded"
+		Include.WEAK -> "Stale, doubted or thin"
+		Include.ASKED -> "Already asked"
+		Include.LOCALS -> "Parameters and locals"
+	}
+
+/** What the sheet draws from one read: its counts, the order it would ask in, and what refuses a send. */
+internal data class AskOffer(val counts: AskCounts, val order: String?, val tooLarge: Int?)
+
+internal fun askOffer(
+	members: WorkspaceKnowledgeScopeAnswer?,
+	file: WorkspaceKnowledgeScopeAnswer?,
+	selected: WorkspaceKnowledgeScopeAnswer?,
+	subject: AskSubject,
+	selection: AskSelection,
+	asked: AskedLookup,
+): AskOffer {
+	val picked = selected?.let { picks(scopeSymbols(it, subject, selection.scope), selection, asked) }.orEmpty()
+	return AskOffer(
+		counts = askCounts(members, file, selected, subject, selection, asked),
+		order = orderLine(picked),
+		tooLarge = if (picked.isEmpty() || selected == null) {
+			null
+		} else {
+			overBudget(askMessage(subject, selection.scope, selected, picked))
+		},
+	)
+}
+
+internal fun offerText(offer: AskOffer): String = offer.tooLarge?.let(::tooLargeSendText) ?: summaryText(offer.counts)
+
+internal fun canSend(offer: AskOffer, sending: Boolean): Boolean =
+	!sending && offer.tooLarge == null && offer.counts.answers > 0
+
+internal fun tooLargeSendText(bytes: Int): String = "Too large to send · ${prettySize(bytes.toLong())}"
+
+/**
+ * What a send did, in what the sheet does about it. A send that read again landed that read on the
+ * sheet's own showing, so a moved root or a grown scope redraws its counts without being told to.
+ */
+internal sealed interface AskOutcome {
+	data object Close : AskOutcome
+
+	data class Said(val notice: String) : AskOutcome
+
+	data class NotRead(val state: FacetState<Nothing>) : AskOutcome
+}
+
+internal fun askOutcome(sent: AskSent): AskOutcome =
+	when (sent) {
+		is AskSent.Sent, is AskSent.Unknown -> AskOutcome.Close
+		AskSent.AlreadySending -> AskOutcome.Said("Already asking")
+		AskSent.Failed -> AskOutcome.Said("That did not leave the phone")
+		AskSent.NothingToAsk -> AskOutcome.Said("Nothing to ask")
+		is AskSent.TooLarge -> AskOutcome.Said(tooLargeSendText(sent.bytes))
+		AskSent.RootChanged -> AskOutcome.Said("This workspace moved")
+		AskSent.Changed -> AskOutcome.Said("More to ask than this showed")
+		is AskSent.NotRead -> AskOutcome.NotRead(sent.state)
+	}
+
+internal fun <T> toggled(set: Set<T>, value: T): Set<T> = if (value in set) set - value else set + value

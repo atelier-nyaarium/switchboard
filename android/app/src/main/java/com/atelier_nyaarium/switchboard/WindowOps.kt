@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -262,9 +261,6 @@ internal class WindowOps(
 			Submitted.Failed, Submitted.Unknown -> Applied.Failed
 		}
 	}
-
-	suspend fun askKnowledge(target: WorkspaceTarget, answer: WorkspaceKnowledgeAnswer, question: String): Submitted =
-		outbox.submit(knowledgeRequest(target, answer.symbolId, question), knowledgeAsk(answer, question))
 
 	/** A re-provision takes the previous owner's code with it, on disk as well as in memory. */
 	override suspend fun clearInMemory() {

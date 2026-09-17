@@ -336,6 +336,102 @@ class AskRulesTest {
 		assertNotEquals(key.subject, requestKey(subject, "/work/other", AskScope.MEMBERS).subject)
 	}
 
+	@Test
+	fun `the page keeps the scope of the newest send made from this subject`() {
+		val wide = send(listOf(keyOf(ROOT_ID, "why")), 0).copy(id = 4, scopeSubject = scopeSubject(subject, AskScope.FILE))
+		val narrow = send(listOf(keyOf(ROOT_ID, "why")), 0).copy(id = 7, scopeSubject = scopeSubject(subject, AskScope.SYMBOL))
+		val held = listOf(wide, narrow).associateBy { it.scopeSubject }
+
+		assertEquals(AskScope.MEMBERS, pageScope(subject, null))
+		assertEquals(AskScope.FILE, pageScope(subject, pageSend(subject) { if (it == wide.scopeSubject) wide else null }))
+		// One symbol and its members share a read, so the newer narrow send leaves the page on Members.
+		assertEquals(AskScope.MEMBERS, pageScope(subject, pageSend(subject) { held[it] }))
+	}
+
+	@Test
+	fun `a question row reads recorded, asked or not recorded, and only an open one is tapped`() {
+		val entry = symbol(
+			ROOT_ID,
+			"LocalBackendSession",
+			"class",
+			0,
+			questions = listOf(question("describe", createdAt = 4.0), question("why"), question("relate")),
+		)
+		val rows = askRows(
+			listOf(
+				KnowledgeRow("describe", "It opens threads.", emptyList()),
+				KnowledgeRow("why", null, emptyList()),
+				KnowledgeRow("relate", null, emptyList()),
+			),
+			ROOT_ID,
+			entry,
+			AskedLookup { _, question -> question == "why" },
+		)
+
+		assertEquals(listOf(RowWord.RECORDED, RowWord.ASKED, RowWord.NOT_RECORDED), rows.map { it.word })
+		assertEquals(listOf("recorded", "asked", "not recorded"), rows.map { rowWordText(it.word) })
+	}
+
+	@Test
+	fun `a progress row reads what it recorded, or the one word for a row nothing came back on`() {
+		assertEquals(
+			ProgressLine("describe, contract", RowWord.RECORDED),
+			progressLine(ProgressRow(ROOT_ID, "close", listOf("describe", "contract"), 4)),
+		)
+		assertEquals(ProgressLine("asked", RowWord.ASKED), progressLine(ProgressRow(ROOT_ID, "close", emptyList(), 6)))
+	}
+
+	@Test
+	fun `a chip counts its question only where the scope holds more than one symbol`() {
+		val wide = questionChips(countsFor(fillSelection), fillSelection)
+		val narrow = questionChips(countsFor(defaultSelection(null)), defaultSelection(null))
+
+		assertEquals("Describe 8", wide.first().label)
+		assertEquals(listOf(true, false, false, true, false, false), wide.map { it.on })
+		assertEquals("Describe", narrow.first().label)
+	}
+
+	@Test
+	fun `the include rows carry the ticked questions' counts, and locals only where a scope excludes some`() {
+		val rows = includeRows(countsFor(fillSelection), fillSelection)
+
+		assertEquals(listOf(16, 0, 0, 18), rows.map { it.count })
+		assertEquals(listOf(true, true, false, false), rows.map { it.on })
+		assertEquals(3, includeRows(countsFor(defaultSelection(null)), defaultSelection(null)).size)
+	}
+
+	@Test
+	fun `an offer sends what it counts, and a message over the budget refuses with its size`() {
+		val offer = askOffer(members, file, members, subject, fillSelection, none)
+
+		assertEquals("16 answers across 8 symbols", offerText(offer))
+		assertTrue(canSend(offer, sending = false))
+		assertTrue(!canSend(offer, sending = true))
+
+		val huge = (1..3_000).map { symbol("$ROOT_ID ${"declaration".repeat(4)}$it", "d$it", "constant", 0) }
+		val over = askOffer(
+			members,
+			file,
+			WorkspaceKnowledgeScopeAnswer(root = ROOT, module = MODULE, symbols = huge, localsExcluded = 0),
+			subject,
+			fillSelection.copy(scope = AskScope.FILE),
+			none,
+		)
+
+		assertTrue(offerText(over).startsWith("Too large to send · "))
+		assertTrue(!canSend(over, sending = false))
+	}
+
+	@Test
+	fun `a send that landed closes the sheet, a lost one says so, and a refused read is drawn`() {
+		assertEquals(AskOutcome.Close, askOutcome(AskSent.Sent(6)))
+		assertEquals(AskOutcome.Close, askOutcome(AskSent.Unknown(6)))
+		assertEquals(AskOutcome.Said("That did not leave the phone"), askOutcome(AskSent.Failed))
+		assertEquals(AskOutcome.Said("Already asking"), askOutcome(AskSent.AlreadySending))
+		assertEquals(AskOutcome.Said("Nothing to ask"), askOutcome(AskSent.NothingToAsk))
+		assertTrue(askOutcome(AskSent.NotRead(FacetState.Unreachable)) is AskOutcome.NotRead)
+	}
+
 	private val fillSelection = defaultSelection(null).copy(
 		scope = AskScope.MEMBERS,
 		questions = setOf("describe", "contract"),

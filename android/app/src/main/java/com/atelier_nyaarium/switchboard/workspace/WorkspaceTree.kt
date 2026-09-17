@@ -54,7 +54,7 @@ import com.atelier_nyaarium.switchboard.SessionRequests
 import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspaceFileOps
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
-import com.atelier_nyaarium.switchboard.askable
+import com.atelier_nyaarium.switchboard.sendable
 import com.atelier_nyaarium.switchboard.childPath
 import com.atelier_nyaarium.switchboard.confirmOf
 import com.atelier_nyaarium.switchboard.crumbsOf
@@ -212,7 +212,7 @@ internal fun WorkspaceTree(
 						act { fileOps.ask(target, path, PathAsk(PathAsk.Kind.Rename, file)) }
 					}
 				}
-				SheetAction(Icons.AutoMirrored.Filled.Send, sendLabel(state), enabled = askable(state)) {
+				SheetAction(Icons.AutoMirrored.Filled.Send, sendLabel(state), enabled = sendable(state)) {
 					scope.launch { requests.sendFile(target, file) }
 				}
 				if (view?.busy != true) {

@@ -169,6 +169,9 @@ internal fun fileRequest(target: WorkspaceTarget, path: String): RequestKey = Re
 
 internal fun fileMention(path: String): String = "Look at `$path` in this workspace."
 
+/** Only while it is sending; sending again is on purpose. */
+internal fun sendable(state: RequestState?): Boolean = state != RequestState.SENDING
+
 internal fun sendLabel(state: RequestState?): String =
 	when (state) {
 		null -> "Send to agent"

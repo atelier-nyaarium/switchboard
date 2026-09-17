@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,7 +22,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,6 +41,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.atelier_nyaarium.switchboard.AskOps
+import com.atelier_nyaarium.switchboard.AskSubject
 import com.atelier_nyaarium.switchboard.CodePalette
 import com.atelier_nyaarium.switchboard.DetailItem
 import com.atelier_nyaarium.switchboard.DetailView
@@ -53,10 +53,7 @@ import com.atelier_nyaarium.switchboard.FacetSubject
 import com.atelier_nyaarium.switchboard.FactRow
 import com.atelier_nyaarium.switchboard.FactRows
 import com.atelier_nyaarium.switchboard.KnowledgeBadge
-import com.atelier_nyaarium.switchboard.KnowledgeRow
 import com.atelier_nyaarium.switchboard.Reached
-import com.atelier_nyaarium.switchboard.RequestKey
-import com.atelier_nyaarium.switchboard.RequestState
 import com.atelier_nyaarium.switchboard.RoleTone
 import com.atelier_nyaarium.switchboard.SymbolIdentity
 import com.atelier_nyaarium.switchboard.SymbolViews
@@ -64,14 +61,10 @@ import com.atelier_nyaarium.switchboard.WindowOps
 import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspacePlace
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
-import com.atelier_nyaarium.switchboard.askLabel
-import com.atelier_nyaarium.switchboard.askable
 import com.atelier_nyaarium.switchboard.detailItems
 import com.atelier_nyaarium.switchboard.facetState
 import com.atelier_nyaarium.switchboard.factRows
 import com.atelier_nyaarium.switchboard.hapticClick
-import com.atelier_nyaarium.switchboard.knowledgeRequest
-import com.atelier_nyaarium.switchboard.knowledgeRows
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFacet
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFacetAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
@@ -88,6 +81,7 @@ import kotlinx.coroutines.launch
 internal fun SymbolDetail(
 	views: SymbolViews,
 	ops: WindowOps,
+	askOps: AskOps,
 	target: WorkspaceTarget,
 	place: WorkspacePlace.Detail,
 	now: () -> Long,
@@ -100,10 +94,12 @@ internal fun SymbolDetail(
 	val facets by views.facetViews.collectAsState()
 	val view = details[target to symbolId] ?: DetailView()
 	val history = facetState(FacetEntry.HISTORY, symbolId, facets[FacetKey(target, symbolId, WorkspaceFacet.History)]?.answer)
-	val requests by ops.requestStates.collectAsState()
 	val scope = rememberCoroutineScope()
 	val listState = rememberLazyListState()
 	var whole by rememberSaveable(symbolId) { mutableStateOf(false) }
+	// Null is every question, so the sheet needs a flag of its own to say whether it is open.
+	var asking by rememberSaveable(symbolId) { mutableStateOf<String?>(null) }
+	var askOpen by rememberSaveable(symbolId) { mutableStateOf(false) }
 	LaunchedEffect(target.key, symbolId) {
 		coroutineScope {
 			launch { views.keepDetail(target, symbolId) }
@@ -112,6 +108,9 @@ internal fun SymbolDetail(
 	}
 	val items = remember(view, place.reached, whole) { detailItems(view, place.reached, whole) }
 	val identity = view.identity
+	val subject = remember(target, symbolId, identity, place) {
+		AskSubject(target, symbolId, identity?.name ?: place.name, identity?.module ?: place.module)
+	}
 	val openFacet: (FacetEntry) -> Unit = { entry ->
 		onOpen(
 			WorkspacePlace.Facet(
@@ -137,8 +136,11 @@ internal fun SymbolDetail(
 							reachedIndex(items)?.let { at -> scope.launch { listState.animateScrollToItem(at) } }
 						}
 						DetailItem.Facts -> FactsBlock(view.knowledge, history, now, openFacet)
-						DetailItem.Knowledge -> KnowledgeBlock(view.knowledge, requests, target) { answer, question ->
-							scope.launch { ops.askKnowledge(target, answer, question) }
+						DetailItem.Knowledge -> WorkspaceAnswerBox(view.knowledge) { answer ->
+							KnowledgeSection(askOps, subject, answer, now) { question ->
+								asking = question
+								askOpen = true
+							}
 						}
 						DetailItem.Documentation -> DocumentationBlock(view.knowledge)
 						DetailItem.SourceTitle -> SourceTitle(view.source)
@@ -165,6 +167,8 @@ internal fun SymbolDetail(
 			Text("Open Window")
 		}
 	}
+
+	if (askOpen) AskSheet(askOps, subject, asking) { askOpen = false }
 }
 
 @Composable
@@ -296,34 +300,6 @@ private fun FactRowLine(row: FactRow, onOpen: (FacetEntry) -> Unit) {
 }
 
 @Composable
-private fun KnowledgeBlock(
-	knowledge: WorkspaceAnswer<WorkspaceKnowledgeAnswer>?,
-	requests: Map<RequestKey, RequestState>,
-	target: WorkspaceTarget,
-	onAsk: (WorkspaceKnowledgeAnswer, String) -> Unit,
-) {
-	Column(Modifier.fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-		FacetSection("Knowledge")
-		WorkspaceAnswerBox(knowledge) { answer ->
-			val rows = knowledgeRows(answer)
-			Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-				if (rows == null) {
-					WorkspaceNotice("Update this session's plugin to see what Lexicon knows")
-				} else {
-					for (row in rows) {
-						KnowledgeCard(
-							row = row,
-							state = requests[knowledgeRequest(target, answer.symbolId, row.question)],
-							onAsk = { onAsk(answer, row.question) },
-						)
-					}
-				}
-			}
-		}
-	}
-}
-
-@Composable
 private fun DocumentationBlock(knowledge: WorkspaceAnswer<WorkspaceKnowledgeAnswer>?) {
 	val doc = (knowledge as? WorkspaceAnswer.Read)?.value?.documentation ?: return
 	Column(Modifier.fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -349,47 +325,7 @@ private fun SourceTitle(source: WorkspaceAnswer<*>?) {
 }
 
 @Composable
-private fun KnowledgeCard(row: KnowledgeRow, state: RequestState?, onAsk: () -> Unit) {
-	OutlinedCard(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-		Column(
-			Modifier.padding(horizontal = 12.dp, vertical = if (row.prose == null) 6.dp else 12.dp),
-			verticalArrangement = Arrangement.spacedBy(6.dp),
-		) {
-			Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-				Text(
-					row.question.uppercase(),
-					style = MaterialTheme.typography.labelMedium,
-					fontWeight = FontWeight.SemiBold,
-					color = if (row.prose == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
-				)
-				if (row.prose == null) {
-					Text(
-						"not recorded",
-						Modifier.weight(1f),
-						style = MaterialTheme.typography.labelSmall,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-					)
-					OutlinedButton(
-						onClick = hapticClick(onAsk),
-						enabled = askable(state),
-						modifier = Modifier.height(32.dp),
-						contentPadding = PaddingValues(horizontal = 14.dp),
-					) {
-						Text(askLabel(state), style = MaterialTheme.typography.labelMedium)
-					}
-				} else {
-					Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End) {
-						for (badge in row.badges) BadgeLabel(badge)
-					}
-				}
-			}
-			row.prose?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-		}
-	}
-}
-
-@Composable
-private fun BadgeLabel(badge: KnowledgeBadge) {
+internal fun BadgeLabel(badge: KnowledgeBadge) {
 	val colors = MaterialTheme.colorScheme
 	Text(
 		badge.name,

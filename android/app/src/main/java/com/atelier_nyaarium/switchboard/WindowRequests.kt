@@ -83,7 +83,8 @@ internal class WindowRequests(
 		return withContext(NonCancellable) {
 			val key = RequestKey(address, RequestKind.WINDOWS, "")
 			val submitted = outbox.submit(key, windowsAsk(module, request.text), captured)
-			if (submitted != Submitted.Sent) {
+			// An unknown outcome may have landed, and a reply to it needs this ask to open anything.
+			if (submitted == Submitted.Failed || submitted == Submitted.AlreadySending) {
 				held.update { all ->
 					when {
 						all[address] !== request -> all

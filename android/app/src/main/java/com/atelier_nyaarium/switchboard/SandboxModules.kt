@@ -24,6 +24,8 @@ internal data class SandboxModule(
 	val lines: List<String>,
 	val symbols: List<SandboxSymbol>,
 	val tracked: Boolean = true,
+	/** Parameters, which only a knowledge scope asked for them lists. */
+	val locals: List<SandboxSymbol> = emptyList(),
 ) {
 	val text: String get() = lines.joinToString("\n")
 
@@ -182,6 +184,10 @@ private fun from(first: Int, vararg text: String): Array<Pair<Int, String>> = Ar
 private class Symbols(private val path: String, private val language: String) {
 	val all = mutableListOf<SandboxSymbol>()
 
+	val locals = mutableListOf<SandboxSymbol>()
+
+	private val chains = mutableMapOf<String, String>()
+
 	fun add(
 		name: String,
 		kind: String,
@@ -189,8 +195,25 @@ private class Symbols(private val path: String, private val language: String) {
 		endLine: Long = startLine,
 		container: SandboxSymbol? = null,
 		signature: String? = null,
+	): SandboxSymbol = declared(chainOf(container, name), name, kind, startLine, endLine, container, signature).also { all += it }
+
+	/** Lexicon names a parameter under its declaration's argument list. */
+	fun local(name: String, startLine: Long, container: SandboxSymbol, signature: String? = null): SandboxSymbol =
+		declared(chainOf(container, "arguments:$name"), name, "parameter", startLine, startLine, container, signature)
+			.also { locals += it }
+
+	private fun chainOf(container: SandboxSymbol?, name: String): String =
+		container?.let { "${chains.getValue(it.symbolId)}:$name" } ?: name
+
+	private fun declared(
+		chain: String,
+		name: String,
+		kind: String,
+		startLine: Long,
+		endLine: Long,
+		container: SandboxSymbol?,
+		signature: String?,
 	): SandboxSymbol {
-		val chain = container?.let { "${it.name}:$name" } ?: name
 		val symbol = SandboxSymbol(
 			symbolId = sandboxSymbolId(language, path, chain),
 			name = name,
@@ -200,7 +223,7 @@ private class Symbols(private val path: String, private val language: String) {
 			containerId = container?.symbolId,
 			signature = signature,
 		)
-		all += symbol
+		chains[symbol.symbolId] = chain
 		return symbol
 	}
 }
@@ -213,7 +236,14 @@ private fun module(
 	build: Symbols.() -> Unit,
 ): SandboxModule {
 	val symbols = Symbols(path, language).apply(build)
-	return SandboxModule(path = path, language = language, lines = lines, symbols = symbols.all, tracked = tracked)
+	return SandboxModule(
+		path = path,
+		language = language,
+		lines = lines,
+		symbols = symbols.all,
+		tracked = tracked,
+		locals = symbols.locals,
+	)
 }
 
 ////////////////////////////////
@@ -228,10 +258,21 @@ private fun localAgentSession() = module(
 			1,
 			"import type { CodexServiceTier } from \"../../shared/codexAgentIdentity.js\";",
 			"",
-			"/** The handle a turn is followed through. */",
+			"/** The three outcomes a turn settles on. */",
+			"export type LocalTerminal =",
+			"\t| { status: \"completed\"; finalResponse?: string }",
+			"\t| { status: \"failed\"; error: string }",
+			"\t| { status: \"interrupted\" };",
+			"",
+			"/** How long a turn may sit unsettled before the runtime stops waiting. */",
+			"export const LOCAL_TURN_SETTLE_MS = 30_000;",
+			"",
+			"/** Which backend runs under a session. */",
+			"export type LocalBackendId = \"codex\" | \"copilot\";",
 		),
 		*from(
-			20,
+			19,
+			"/** The handle a turn is followed through. */",
 			"export interface LocalTurnHandle {",
 			"\treadonly turnId: string;",
 			"\treadonly threadId: string;",
@@ -259,16 +300,26 @@ private fun localAgentSession() = module(
 		),
 	),
 ) {
-	add("LocalTurnHandle", "interface", 20, 24)
+	add("LocalTerminal", "type", 4, 7)
+	add("LOCAL_TURN_SETTLE_MS", "constant", 10, signature = "= 30_000")
+	add("LocalBackendId", "type", 13, signature = "= \"codex\" | \"copilot\"")
+	val handle = add("LocalTurnHandle", "interface", 20, 24)
+	add("turnId", "property", 21, container = handle, signature = ": string")
+	add("threadId", "property", 22, container = handle, signature = ": string")
+	add("wait", "method", 23, container = handle, signature = "(): Promise<void>")
 	val session = add("LocalBackendSession", "interface", 26, 43)
-	add(
+	val openThread = add(
 		"openThread",
 		"method",
 		28,
 		container = session,
 		signature = "(options: { cwd: string; model?: string; serviceTier?: CodexServiceTier }): Promise<string>",
 	)
-	add(
+	local("options", 28, openThread, ": { cwd: string; model?: string; serviceTier?: CodexServiceTier }")
+	local("cwd", 28, openThread, ": string")
+	local("model", 28, openThread, "?: string")
+	local("serviceTier", 28, openThread, "?: CodexServiceTier")
+	val startTurn = add(
 		"startTurn",
 		"method",
 		30,
@@ -277,10 +328,27 @@ private fun localAgentSession() = module(
 		"(threadId: string, prompt: string, turn?: { model?: string; serviceTier?: CodexServiceTier }): " +
 			"Promise<LocalTurnHandle>",
 	)
-	add("steerTurn", "method", 36, container = session, signature = "(threadId: string, turnId: string, prompt: string): Promise<void>")
-	add("interruptTurn", "method", 37, container = session, signature = "(threadId: string, turnId: string): Promise<void>")
-	add("onActivity", "method", 39, container = session, signature = "(listener: (turnId: string, text: string) => void): void")
-	add("onClosed", "method", 41, container = session, signature = "(listener: () => void): void")
+	local("threadId", 31, startTurn, ": string")
+	local("prompt", 32, startTurn, ": string")
+	local("turn", 33, startTurn, "?: { model?: string; serviceTier?: CodexServiceTier }")
+	local("model", 33, startTurn, "?: string")
+	local("serviceTier", 33, startTurn, "?: CodexServiceTier")
+	val steerTurn =
+		add("steerTurn", "method", 36, container = session, signature = "(threadId: string, turnId: string, prompt: string): Promise<void>")
+	local("threadId", 36, steerTurn, ": string")
+	local("turnId", 36, steerTurn, ": string")
+	local("prompt", 36, steerTurn, ": string")
+	val interruptTurn =
+		add("interruptTurn", "method", 37, container = session, signature = "(threadId: string, turnId: string): Promise<void>")
+	local("threadId", 37, interruptTurn, ": string")
+	local("turnId", 37, interruptTurn, ": string")
+	val onActivity =
+		add("onActivity", "method", 39, container = session, signature = "(listener: (turnId: string, text: string) => void): void")
+	local("listener", 39, onActivity, ": (turnId: string, text: string) => void")
+	local("turnId", 39, onActivity, ": string")
+	local("text", 39, onActivity, ": string")
+	val onClosed = add("onClosed", "method", 41, container = session, signature = "(listener: () => void): void")
+	local("listener", 41, onClosed, ": () => void")
 	add("close", "method", 42, container = session, signature = "(): void")
 }
 
@@ -664,11 +732,21 @@ private fun hubUser(index: Int): SandboxModule {
 	}
 }
 
+private const val HUB_KEY_LINE = 120
+
+/** More declarations than one Ask message naming them all can carry. */
+internal const val HUB_KEY_COUNT = 3_000
+
+internal fun hubKeyName(index: Int): String = "hubKey%04d".format(Locale.ROOT, index)
+
+private fun hubKeyLines(): Array<Pair<Int, String>> =
+	Array(HUB_KEY_COUNT) { HUB_KEY_LINE + 1 + it to "export const ${hubKeyName(it + 1)} = \"hub-${it + 1}\";" }
+
 private fun hub() = module(
 	HUB_MODULE,
 	TS,
 	filled(
-		120,
+		HUB_KEY_LINE + HUB_KEY_COUNT,
 		*from(
 			12,
 			"export function hubEvent(input: HubInput): HubEvent {",
@@ -676,10 +754,14 @@ private fun hub() = module(
 			"}",
 		),
 		*from(40, "export class HubRegistry {"),
+		*hubKeyLines(),
 	),
 ) {
 	add("hubEvent", "function", 12, 14, signature = "(input: HubInput): HubEvent")
-	add("HubRegistry", "class", 40, 120)
+	add("HubRegistry", "class", 40, HUB_KEY_LINE.toLong())
+	for (index in 1..HUB_KEY_COUNT) {
+		add(hubKeyName(index), "constant", (HUB_KEY_LINE + index).toLong(), signature = "= \"hub-$index\"")
+	}
 }
 
 ////////////////////////////////

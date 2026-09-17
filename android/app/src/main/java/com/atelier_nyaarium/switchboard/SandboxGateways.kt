@@ -64,7 +64,7 @@ private const val MANY_KINDS_FILE = "src/shared/schemasWorkspace.ts"
 /** A real session answers later, or a screen racing its own read passes here. */
 private const val WORKSPACE_ROUND_TRIP_MS = 400L
 
-private const val SANDBOX_ROOT = "~/projects/sandbox"
+internal const val SANDBOX_ROOT = "~/projects/sandbox"
 
 private fun day(offsetMs: Long): Long = System.currentTimeMillis() + offsetMs
 
@@ -325,6 +325,9 @@ internal class SandboxWorkspaceGateway(now: () -> Long) : WorkspaceGateway {
 
 	private val facets = SandboxFacets(modules, now)
 
+	/** The host feeds every sent message here, so an Ask records itself over the next few reads. */
+	val scopes = SandboxScopes(modules, now)
+
 	private val file = listOf(
 		"import { z } from \"zod\";",
 		"",
@@ -415,9 +418,8 @@ internal class SandboxWorkspaceGateway(now: () -> Long) : WorkspaceGateway {
 	override suspend fun fileHistory(target: WorkspaceTarget, path: String) =
 		seeded(target) { facets.fileHistory(table.canonical(path) ?: path) }
 
-	/** No canned scope, refused after the round trip. */
 	override suspend fun knowledgeScope(target: WorkspaceTarget, scope: WorkspaceKnowledgeScopeTarget, includeLocals: Boolean) =
-		seeded(target) { notServed }
+		seeded(target) { scopes.scope(target.address, scope, includeLocals) }
 
 	/** AGENTS.md always reads as moved on a write, so the stale banner is reachable. */
 	override suspend fun mutateFile(

@@ -140,6 +140,7 @@ internal fun WorkspaceScreen(
 					SymbolDetail(
 						views = repo.symbolViews,
 						ops = repo.windowOps,
+						askOps = repo.askOps,
 						target = target,
 						place = place,
 						now = repo.ambient.now,

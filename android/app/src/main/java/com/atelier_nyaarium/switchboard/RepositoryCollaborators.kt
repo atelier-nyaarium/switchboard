@@ -251,6 +251,7 @@ internal class ChatRepositoryWorkspaceHost(private val repo: ChatRepository) : W
 	override suspend fun send(address: String, text: String): Boolean {
 		if (isSandbox) {
 			sandboxWindowsReply(text, repo.ambient.now())?.let { repo.windowRequests.onMessage(address, it) }
+			sandbox.scopes.onMessage(address, text)
 			return true
 		}
 		val opId = repo.send(address, text) ?: return false

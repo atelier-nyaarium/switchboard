@@ -20,6 +20,10 @@ internal data class ScopeRead(val answer: WorkspaceAnswer<WorkspaceListing<Works
 
 internal data class ScopeView(val read: ScopeRead? = null)
 
+/** The answer a key's showing holds, or null while it is loading, refused or too large. */
+internal fun listedScope(views: Map<ScopeKey, ScopeView>, key: ScopeKey): WorkspaceKnowledgeScopeAnswer? =
+	(scopeState(views[key]?.read?.answer) as? ScopeState.Listed)?.answer
+
 /** What a send did, never a bare Boolean: nothing to ask is not a failure to send. */
 internal sealed interface AskSent {
 	data class Sent(val answers: Int) : AskSent

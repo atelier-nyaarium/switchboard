@@ -2577,6 +2577,12 @@ different word spelled the same, and the only way through was renaming the wire 
 rule is right for what it guards; nothing lets a schema's own enum words be generated as constants the
 phone could name instead.
 
+`cancellation-residue.test.ts` has the same shape: it collects every `suspend fun` name across the phone
+and then treats any call of that name, in any file, as a suspending call. A new `suspend fun land` in
+`AskOps` made `Attachments.land(` inside a `runIsolated` in `RepositoryCollaborators` read as an unguarded
+suspend call, and the fix was a rename to `refreshScope`. A short, common name for a new suspend
+function turns an unrelated file red, and the message names the wrong file.
+
 ## Adding one console op still touches a dozen files
 
 The save is one op, and it reached the schema, the value-op kind list, the codegen roots, the console

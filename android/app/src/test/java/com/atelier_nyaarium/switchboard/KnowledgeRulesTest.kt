@@ -4,7 +4,6 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeEntry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class KnowledgeRulesTest {
@@ -30,25 +29,5 @@ class KnowledgeRulesTest {
 			knowledgeRows(answer),
 		)
 		assertNull(knowledgeRows(WorkspaceKnowledgeAnswer(symbolId = id)))
-	}
-
-	@Test
-	fun `an ask can be tapped at any time but while it is sending`() {
-		assertEquals(
-			listOf(true to "Ask", false to "Asking", true to "Asked", true to "Retry"),
-			listOf(null, RequestState.SENDING, RequestState.SENT, RequestState.FAILED).map { askable(it) to askLabel(it) },
-		)
-	}
-
-	@Test
-	fun `an ask names the question, the symbol, its module and its id`() {
-		val text = knowledgeAsk(
-			WorkspaceKnowledgeAnswer(symbolId = id, name = "routineRefusal", module = "src/shared/schemasRoutine.ts"),
-			"why",
-		)
-
-		for (part in listOf("`why`", "`routineRefusal`", "`src/shared/schemasRoutine.ts`", "`$id`")) {
-			assertTrue("missing $part in $text", part in text)
-		}
 	}
 }

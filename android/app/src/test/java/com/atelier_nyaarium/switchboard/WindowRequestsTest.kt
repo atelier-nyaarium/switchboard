@@ -8,6 +8,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -21,9 +22,11 @@ class WindowRequestsTest {
 		val sent = mutableListOf<String>()
 		val holds = mutableListOf<TestHold>()
 		var sends = true
+		var throws = false
 
 		override suspend fun send(address: String, text: String): Boolean {
 			holds.removeFirstOrNull()?.pass()
+			if (throws) throw IllegalStateException("socket gone")
 			sent += text
 			return sends
 		}
@@ -148,6 +151,19 @@ class WindowRequestsTest {
 		assertEquals(Submitted.Sent, first.await())
 		asks.dismiss(one)
 		assertNull(asks.requests.value[one.address])
+	}
+
+	// A lost answer may still have landed, so the reply to it needs its ask to open anything.
+	@Test
+	fun `a send whose outcome is unknown keeps its ask, and a reply still opens its windows`() = runBlocking {
+		host.throws = true
+
+		assertEquals(Submitted.Unknown, asks.ask(one, MODULE, "windows"))
+		assertNotNull(asks.requests.value[one.address])
+
+		asks.onMessage(one.address, reply("id-a"))
+
+		assertEquals(listOf(one.address to "id-a"), opened)
 	}
 
 	@Test
