@@ -122,8 +122,9 @@ jobs:
             done
             return 1
           }
-          release="android/app/build/outputs/apk/release/switchboard-release.apk"
-          debug="android/app/build/outputs/apk/debug/switchboard-debug.apk"
+          # Run steps start in android/, so the paths are absolute.
+          release="$GITHUB_WORKSPACE/android/app/build/outputs/apk/release/switchboard-release.apk"
+          debug="$GITHUB_WORKSPACE/android/app/build/outputs/apk/debug/switchboard-debug.apk"
           notes="$RUNNER_TEMP/release-notes.md"
           cat > "$notes" <<'NOTES'
           Switchboard Android app, built from ${{ github.sha }}.
