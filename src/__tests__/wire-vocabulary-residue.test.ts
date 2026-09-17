@@ -80,6 +80,14 @@ describe("wire vocabulary residue", () => {
 				);
 	});
 
+	// The asked ledger settles against an observation, so one reader turns a scope read into it.
+	it("keeps the wire out of the asked ledger", () => {
+		const ledger = readFileSync(join(kotlinRoot, "AskedStore.kt"), "utf8");
+
+		expect(ledger, "AskedStore.kt no longer declares the ledger").toContain("internal class AskedStore");
+		expect(ledger.match(/\bproto\./g), "AskedStore.kt reads the wire").toBeNull();
+	});
+
 	it("emits each vocabulary value once in Protocol Wire", () => {
 		const protocol = readFileSync(join(kotlinRoot, "proto/Protocol.kt"), "utf8");
 		const wire = protocol.match(/object Wire \{([\s\S]*?)\n\t\}/)?.[1] ?? "";

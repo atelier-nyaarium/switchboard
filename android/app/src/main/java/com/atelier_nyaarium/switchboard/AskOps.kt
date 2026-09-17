@@ -56,9 +56,6 @@ internal fun askSentOf(submitted: Submitted, answers: Int): AskSent =
 
 internal const val SCOPE_FRESH_MS = 60_000L
 
-/** What one preflight claimed, which the send then submits. */
-private data class Claimed(val send: AskSend, val answers: Int, val root: String, val text: String)
-
 /**
  * The scope reads the Ask surfaces draw from, the sends they make, and the pairs each send leaves out.
  *
@@ -92,7 +89,7 @@ internal class AskOps(
 	 */
 	suspend fun send(subject: AskSubject, selection: AskSelection, reviewed: Set<AskedKey>): AskSent {
 		val admission = outbox.admit()
-		val claimed = preflight.withLock {
+		val claim = preflight.withLock {
 			val key = ScopeKey(subject.target, readTarget(subject, selection.scope), Include.LOCALS in selection.include)
 			val fresh =
 				scopes.of(key)?.read?.takeIf { now() - it.readAt < SCOPE_FRESH_MS && scopeState(it.answer) is ScopeState.Listed }
@@ -100,27 +97,19 @@ internal class AskOps(
 				is ScopeState.Listed -> state.answer
 				is ScopeState.NotRead -> return AskSent.NotRead(state.state)
 			}
-			if (answer.root != selection.root) return AskSent.RootChanged
 			val address = subject.target.address
 			val outstanding = AskedLookup { id, question -> store.outstanding(AskedKey(address, answer.root, id, question)) }
-			val picked = picks(scopeSymbols(answer, subject, selection.scope), selection, outstanding)
-			val answers = picked.sumOf { it.questions.size }
-			if (answers == 0) return AskSent.NothingToAsk
-			val pairs = askedPairs(address, answer, picked)
-			if (reviewChanged(reviewed, pairs.keys)) return AskSent.Changed
-			val text = askMessage(subject, selection.scope, answer, picked)
-			overBudget(text)?.let { return AskSent.TooLarge(it) }
+			val decided = when (val claimed = askClaim(subject, selection, answer, reviewed, outstanding)) {
+				is AskClaimed.Refused -> return claimed.sent
+				is AskClaim -> claimed
+			}
 			// Recorded under this lock, or a second send picks the same pairs before either writes them.
-			val sent = store.record(admission.incarnation, address, answer.root, scopeSubject(subject, selection.scope), pairs)
-			Claimed(sent, answers, answer.root, text)
+			store.record(admission.incarnation, decided.address, decided.root, decided.scopeSubject, decided.pairs)
+			decided
 		}
-		val submitted = outbox.submit(
-			requestKey(subject, claimed.root, selection.scope),
-			claimed.text,
-			admission,
-			RequestHold { store.withdraw(claimed.send) },
-		)
-		return askSentOf(submitted, claimed.answers)
+		val submitted =
+			outbox.submit(claim.key, claim.text, admission, RequestHold { store.withdraw(admission.incarnation) })
+		return askSentOf(submitted, claim.answers)
 	}
 
 	/** Progress is read back from Lexicon, so a scope on screen is re-read while any pair is out. */
@@ -153,7 +142,7 @@ internal class AskOps(
 		if (!scopes.update(ticket) { it.copy(read = ScopeRead(read, now())) }) return
 		val answer = (scopeState(read) as? ScopeState.Listed)?.answer ?: return
 		val target = ticket.key.target
-		for (symbolId in store.settle(target.address, answer)) onRecorded(target, symbolId)
+		for (symbolId in store.settle(askObservation(target.address, answer))) onRecorded(target, symbolId)
 	}
 
 	/** A throw is no answer. */

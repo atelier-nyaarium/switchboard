@@ -1,8 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceScopeQuestion
-import com.atelier_nyaarium.switchboard.proto.WorkspaceScopeSymbol
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -22,67 +19,70 @@ class AskedStoreTest {
 	private var minted = 0L
 
 	/** The road names each send; a counter stands in for it here. */
-	private fun recordSend(address: String, root: String, scopeSubject: String, pairs: Map<AskedKey, Double?>) =
-		store.record(++minted, address, root, scopeSubject, pairs)
+	private fun recordSend(scopeSubject: String, pairs: Map<AskedKey, Double?>) =
+		store.record(++minted, ADDRESS, ROOT, scopeSubject, pairs)
 
-	private fun answer(
-		createdAt: Double?,
-		root: String = ROOT,
-		question: String = "why",
-		symbolId: String = ID,
-	): WorkspaceKnowledgeScopeAnswer =
-		WorkspaceKnowledgeScopeAnswer(
-			root = root,
-			module = "src/a.ts",
-			symbols = listOf(
-				WorkspaceScopeSymbol(
-					symbolId = symbolId,
-					name = "f",
-					symbolKind = "function",
-					depth = 0,
-					questions = listOf(WorkspaceScopeQuestion(question = question, createdAt = createdAt, askCount = 0)),
-				),
-			),
-			localsExcluded = 0,
-		)
+	/** A read in the ledger's own words: only the pairs it listed, each as it now stands. */
+	private fun observed(vararg listed: Pair<AskedKey, Double?>, address: String = ADDRESS, root: String = ROOT) =
+		AskObservation(address, root, listed.toMap())
 
 	@Test
-	fun `a pair is out from its send until its answer's createdAt moves`() {
-		recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
+	fun `a pair is out from its send until the read's createdAt moves`() {
+		recordSend("SYMBOL", mapOf(why to null))
 
 		assertTrue(store.outstanding(why))
 		assertTrue(store.anyOutstanding())
 
-		assertEquals(emptySet<String>(), store.settle(ADDRESS, answer(null)))
+		assertEquals(emptySet<String>(), store.settle(observed(why to null)))
 		assertTrue(store.outstanding(why))
 
-		assertEquals(setOf(ID), store.settle(ADDRESS, answer(9.0)))
+		assertEquals(setOf(ID), store.settle(observed(why to 9.0)))
 		assertFalse(store.outstanding(why))
 		assertFalse(store.anyOutstanding())
 	}
 
 	@Test
-	fun `a pair asked while stale clears when it is reaffirmed`() {
-		recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to 4.0))
+	fun `a pair settled once is not reported by a later read`() {
+		recordSend("SYMBOL", mapOf(why to null))
 
-		assertEquals(emptySet<String>(), store.settle(ADDRESS, answer(4.0)))
+		assertEquals(setOf(ID), store.settle(observed(why to 9.0)))
+		assertEquals(emptySet<String>(), store.settle(observed(why to 9.0)))
+		assertEquals(emptySet<String>(), store.settle(observed(why to 12.0)))
+	}
+
+	@Test
+	fun `a pair asked while stale clears when it is reaffirmed`() {
+		recordSend("SYMBOL", mapOf(why to 4.0))
+
+		assertEquals(emptySet<String>(), store.settle(observed(why to 4.0)))
 		assertTrue(store.outstanding(why))
 
-		assertEquals(setOf(ID), store.settle(ADDRESS, answer(7.0)))
+		assertEquals(setOf(ID), store.settle(observed(why to 7.0)))
 		assertFalse(store.outstanding(why))
 	}
 
 	@Test
 	fun `a pair asked while stale clears when its answer is invalidated away`() {
-		recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to 4.0))
+		recordSend("SYMBOL", mapOf(why to 4.0))
 
-		assertEquals(setOf(ID), store.settle(ADDRESS, answer(null)))
+		assertEquals(setOf(ID), store.settle(observed(why to null)))
 		assertFalse(store.outstanding(why))
 	}
 
 	@Test
+	fun `a pair the read no longer lists is left out, since a dropped pair has not moved`() {
+		recordSend("SYMBOL", mapOf(why to 4.0))
+
+		assertEquals(emptySet<String>(), store.settle(observed()))
+		assertTrue(store.outstanding(why))
+
+		assertEquals(emptySet<String>(), store.settle(observed(why.copy(question = "usage") to 9.0)))
+		assertTrue(store.outstanding(why))
+	}
+
+	@Test
 	fun `a pair clears 24 hours after its send and not a millisecond before`() {
-		recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
+		recordSend("SYMBOL", mapOf(why to null))
 
 		clock += ASKED_TTL_MS - 1
 		assertTrue(store.outstanding(why))
@@ -96,41 +96,47 @@ class AskedStoreTest {
 
 	@Test
 	fun `sending a pair again makes the newer send the one it is out on`() {
-		recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
-		store.settle(ADDRESS, answer(5.0))
+		recordSend("SYMBOL", mapOf(why to null))
+		store.settle(observed(why to 5.0))
 		assertFalse(store.outstanding(why))
 
 		clock += 1_000
-		val again = recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to 5.0))
+		val again = recordSend("SYMBOL", mapOf(why to 5.0))
 
 		assertTrue(store.outstanding(why))
 		assertEquals(again.id, store.latestFor(ADDRESS, ROOT, "SYMBOL")?.id)
 
-		store.settle(ADDRESS, answer(6.0))
+		store.settle(observed(why to 6.0))
 		assertFalse(store.outstanding(why))
 	}
 
 	@Test
 	fun `withdrawing a failed send puts back the send it replaced`() {
-		val first = recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
-		val second = recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to 5.0))
+		val first = recordSend("SYMBOL", mapOf(why to null))
+		val second = recordSend("SYMBOL", mapOf(why to 5.0))
 
 		// Moves the first send's pair and leaves the second's, which captured it already at 5.
-		store.settle(ADDRESS, answer(5.0))
+		store.settle(observed(why to 5.0))
 		assertTrue(store.outstanding(why))
 
-		store.withdraw(second)
+		store.withdraw(second.id)
 
 		assertFalse(store.outstanding(why))
 		assertEquals(first.id, store.latestFor(ADDRESS, ROOT, "SYMBOL")?.id)
 	}
 
 	@Test
-	fun `an answer from another root clears nothing`() {
-		recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
+	fun `a read of another workspace or another session clears nothing`() {
+		recordSend("SYMBOL", mapOf(why to null))
 
-		assertEquals(emptySet<String>(), store.settle(ADDRESS, answer(9.0, root = "/work/other")))
-		assertEquals(emptySet<String>(), store.settle("home.sakura.host.bbb", answer(9.0)))
+		val elsewhere = why.copy(root = "/work/other")
+		val elsewhen = why.copy(address = "home.sakura.host.bbb")
+		assertEquals(emptySet<String>(), store.settle(observed(elsewhere to 9.0, root = "/work/other")))
+		assertEquals(emptySet<String>(), store.settle(observed(elsewhen to 9.0, address = "home.sakura.host.bbb")))
+
+		// The observation's own root and address scope it, whatever keys it carries.
+		assertEquals(emptySet<String>(), store.settle(observed(why to 9.0, root = "/work/other")))
+		assertEquals(emptySet<String>(), store.settle(observed(why to 9.0, address = "home.sakura.host.bbb")))
 
 		assertTrue(store.outstanding(why))
 		assertNull(store.latestFor(ADDRESS, "/work/other", "SYMBOL"))
@@ -138,8 +144,8 @@ class AskedStoreTest {
 
 	@Test
 	fun `clearing drops every send`() {
-		recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
-		recordSend(ADDRESS, ROOT, "FILE", mapOf(why.copy(question = "usage") to null))
+		recordSend("SYMBOL", mapOf(why to null))
+		recordSend("FILE", mapOf(why.copy(question = "usage") to null))
 
 		store.clear()
 

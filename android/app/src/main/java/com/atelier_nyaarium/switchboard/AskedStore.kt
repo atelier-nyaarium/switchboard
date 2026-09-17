@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeAnswer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -19,12 +18,21 @@ internal data class AskSend(
 	val recorded: Set<AskedKey> = emptySet(),
 )
 
+/**
+ * What one read says about a session's pairs, in the ledger's own words. `listed` holds only the pairs
+ * the read carried, so an absent key is one it no longer lists and settles nothing.
+ */
+internal data class AskObservation(val address: String, val root: String, val listed: Map<AskedKey, Double?>) {
+	fun moved(key: AskedKey, stamped: Double?): Boolean = listed.containsKey(key) && listed[key] != stamped
+}
+
 internal const val ASKED_TTL_MS = 24L * 60 * 60 * 1000
 
 /**
- * The sends still out and their pairs, keyed by SESSION. A pair clears when its answer's `createdAt`
- * moves from the value the read the send used carried, never by comparing the phone's clock to
- * Lexicon's. Memory only, so a re-provision and a process death both drop it.
+ * The sends still out and their pairs, keyed by SESSION. A pair clears when an observation's
+ * `createdAt` moves from the value the read the send used carried, never by comparing the phone's
+ * clock to Lexicon's. A ledger of sends and pairs alone, so it names no wire type. Memory only, so a
+ * re-provision and a process death both drop it.
  */
 internal class AskedStore(private val now: () -> Long) {
 	/** Pruning and writing under one lock, or a read prunes what a write just appended. */
@@ -48,25 +56,21 @@ internal class AskedStore(private val now: () -> Long) {
 		return send
 	}
 
-	fun withdraw(send: AskSend) {
-		synchronized(lock) { held.value = live().filterNot { it.id == send.id } }
+	fun withdraw(id: Long) {
+		synchronized(lock) { held.value = live().filterNot { it.id == id } }
 	}
 
 	/**
-	 * The symbols whose recorded set grew, so the caller reloads only those. An answer under another
+	 * The symbols whose recorded set grew, so the caller reloads only those. An observation under another
 	 * root matches nothing, since the pairs were keyed by the root the send read.
 	 */
-	fun settle(address: String, answer: WorkspaceKnowledgeScopeAnswer): Set<String> =
+	fun settle(observation: AskObservation): Set<String> =
 		synchronized(lock) {
 			val grew = mutableSetOf<String>()
 			held.value = live().map { send ->
-				if (send.address != address || send.root != answer.root) return@map send
-				val moved = answer.symbols.flatMap { symbol ->
-					symbol.questions.mapNotNull { asked ->
-						AskedKey(address, answer.root, symbol.symbolId, asked.question).takeIf { key ->
-							key in send.pairs && key !in send.recorded && asked.createdAt != send.pairs[key]
-						}
-					}
+				if (send.address != observation.address || send.root != observation.root) return@map send
+				val moved = send.pairs.keys.filter { key ->
+					key !in send.recorded && observation.moved(key, send.pairs[key])
 				}
 				if (moved.isEmpty()) return@map send
 				moved.mapTo(grew) { it.symbolId }

@@ -432,10 +432,13 @@ no TTL.
   - **Send** goes through `ComposedRequests` as `RequestKind.KNOWLEDGE` keyed by the scope: an Ask is
     claimed by its scope, not by which questions are ticked. A scope answer under a minute old sends as
     read; an older one is read again first. One preflight runs at a time, so a second send picks after
-    the first recorded rather than beside it. A send whose own read reports a different root, or picks
-    another set of pairs than the sheet showed, refuses with a notice ("This workspace moved", "Changed
-    since you looked") instead of sending stale counts. The set is compared as a set: one that changed
-    without growing is refused too.
+    the first recorded rather than beside it. What that preflight decides is one `AskClaim` from
+    `askClaim`: the pairs, the count, the root, the request key and the message text, or an
+    `AskClaimed.Refused` carrying the `AskSent` that `askOutcome` reads. `AskOps` records it and submits it, deciding nothing
+    of its own, so the sheet's `AskOffer` and the send read one set of rules. A send whose own read
+    reports a different root, or picks another set of pairs than the sheet showed, refuses with a notice
+    ("This workspace moved", "Changed since you looked") instead of sending stale counts. The set is
+    compared as a set: one that changed without growing is refused too.
   - **The message is one per send, holding the whole tree, with no preview:** the sheet's counts are what
     the owner checks. Its parts, in order: the intent (subject, module, the answer and symbol counts, and
     that the owner chose the set so the session records every one without asking first), how
@@ -451,10 +454,16 @@ no TTL.
   - **Asked pairs** live in `AskedStore`, keyed by session, root label, symbol and question, each carrying
     the `createdAt` the read the send used carried. Recorded under the preflight lock, before the send, so
     a second send cannot pick the same pairs and a reply that beats the send's own answer still finds them.
-    A send is named by the road's incarnation. A pair clears when its answer's `createdAt` moves from that
-    stamped value, after 24 hours on the phone's own clock, or when the owner sends it again; comparing to
-    the read's value, not the send time, keeps the phone's clock out of Lexicon's. A re-provision clears
-    the store; asked pairs live in memory only.
+    A send is named by the road's incarnation, which is also what withdraws it. A pair clears when its
+    `createdAt` moves from that stamped value, or after 24 hours on the phone's own clock; sending it
+    again makes the newer send the one it is out on. Comparing to the read's value, not the send time,
+    keeps the phone's clock out of Lexicon's. A re-provision clears the store; asked pairs live in memory
+    only.
+  - **The ledger settles against an `AskObservation`, never a scope answer:** the address, the root, and
+    the `createdAt` of each pair the read listed. A key the read does not list has not moved, so a symbol
+    that left the scope keeps its pairs out rather than clearing them. `askObservation` in `AskRules` is
+    the one road from a scope read to that value, so `AskedStore` names no wire type and a wire change
+    touches one reader; `wire-vocabulary-residue.test.ts` pins it.
   - **An unknown send outcome keeps its pairs; a failed one drops them.** The rule is the road's, over the
     hold `AskOps` hands it, and the sheet closes on an unknown outcome the same as on a confirmed send.
   - **Progress is read back from Lexicon, never taken from the session's reply.** While any pair from a

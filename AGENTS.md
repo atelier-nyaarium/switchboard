@@ -369,9 +369,16 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     message text and its budget, and the progress and row words, so a JVM test reaches every one.
   - **One message per send holds the whole tree; there is no preview:** the sheet's counts are what the
     owner checks before sending, as the owner worded work for a subagent.
-  - **A pair in `AskedStore` clears when its answer's `createdAt` moves from the value the read the send
-    used carried, never by comparing clocks:** `AskedStore.settle` compares only that stamped value; the
+  - **A pair in `AskedStore` clears when its `createdAt` moves from the value the read the send used
+    carried, never by comparing clocks:** `AskedStore.settle` compares only that stamped value; the
     phone's clock enters nowhere but the 24-hour expiry.
+  - **The ledger settles against an `AskObservation` and names no wire type:** the address, the root,
+    and the `createdAt` of each pair the read listed, so a key it does not list has not moved.
+    `askObservation` is the one road from a scope read to it, which is what leaves the wire one reader;
+    `wire-vocabulary-residue.test.ts` refuses a `proto` import in `AskedStore.kt`.
+  - **A preflight's whole decision is one `AskClaim`:** the pairs, the count, the root, the request key
+    and the message text, or an `AskClaimed.Refused` carrying the `AskSent` that `askOutcome` reads. `AskOps` records
+    and submits it and decides nothing itself, so the sheet's offer and the send read one set of rules.
   - **`AskOps` records its pairs under the lock that picked them,** since two sends of different scopes
     run against one store and a record taken outside it lets the second pick what the first is sending.
   - **A foreground re-read walks the keys with keepers, `PublishedViews.kept()`, never the drawn map:**

@@ -456,6 +456,72 @@ class AskRulesTest {
 		assertTrue(askOutcome(AskSent.NotRead(FacetState.Unreachable)) is AskOutcome.NotRead)
 	}
 
+	@Test
+	fun `a read clears the pairs it moved, leaves the ones it repeats, and never one it dropped`() {
+		val store = AskedStore { 0L }
+		val close = memberId("close")
+		val dropped = memberId("startTurn")
+		store.record(
+			1,
+			ADDRESS,
+			ROOT,
+			"MEMBERS",
+			mapOf(keyOf(ROOT_ID, "why") to 4.0, keyOf(close, "why") to null, keyOf(dropped, "why") to 4.0),
+		)
+		val read = members.copy(
+			symbols = members.symbols.mapNotNull { held ->
+				when (held.symbolId) {
+					ROOT_ID -> held.copy(questions = QUESTION_CLASSES.map { question(it, createdAt = 4.0) })
+					close -> held.copy(questions = QUESTION_CLASSES.map { question(it, createdAt = 9.0) })
+					dropped -> null
+					else -> held
+				}
+			},
+		)
+
+		assertEquals(setOf(close), store.settle(askObservation(ADDRESS, read)))
+		assertTrue(store.outstanding(keyOf(ROOT_ID, "why")))
+		assertTrue(store.outstanding(keyOf(dropped, "why")))
+	}
+
+	@Test
+	fun `the sheet's offer and the send's claim pick the same pairs`() {
+		val offer = askOffer(members, file, members, subject, fillSelection, none)
+		val claim = askClaim(subject, fillSelection, members, offer.pairs, none) as AskClaim
+
+		assertEquals(offer.pairs, claim.pairs.keys)
+		assertEquals(offer.counts.answers, claim.answers)
+		assertEquals(ADDRESS, claim.address)
+		assertEquals(ROOT, claim.root)
+		assertTrue(claim.text.startsWith("Record Lexicon knowledge for `LocalBackendSession` and its members"))
+		assertNull(overBudget(claim.text))
+	}
+
+	@Test
+	fun `a claim refuses a moved root, a changed set, an empty pick and an oversized message`() {
+		val offer = askOffer(members, file, members, subject, fillSelection, none)
+
+		assertEquals(
+			AskClaimed.Refused(AskSent.RootChanged),
+			askClaim(subject, fillSelection.copy(root = "/work/other"), members, offer.pairs, none),
+		)
+		assertEquals(
+			AskClaimed.Refused(AskSent.Changed),
+			askClaim(subject, fillSelection, members, offer.pairs.drop(1).toSet(), none),
+		)
+		assertEquals(
+			AskClaimed.Refused(AskSent.NothingToAsk),
+			askClaim(subject, fillSelection.copy(questions = emptySet()), members, emptySet(), none),
+		)
+
+		val huge = (1..3_000).map { symbol("$ROOT_ID ${"declaration".repeat(4)}$it", "d$it", "constant", 0) }
+		val wide = WorkspaceKnowledgeScopeAnswer(root = ROOT, module = MODULE, symbols = huge, localsExcluded = 0)
+		val whole = fillSelection.copy(scope = AskScope.FILE)
+		val shown = askOffer(members, file, wide, subject, whole, none).pairs
+
+		assertTrue((askClaim(subject, whole, wide, shown, none) as AskClaimed.Refused).sent is AskSent.TooLarge)
+	}
+
 	private val fillSelection = defaultSelection(null).copy(
 		scope = AskScope.MEMBERS,
 		questions = setOf("describe", "contract"),

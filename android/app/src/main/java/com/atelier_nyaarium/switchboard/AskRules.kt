@@ -151,6 +151,20 @@ internal fun askedPairs(address: String, answer: WorkspaceKnowledgeScopeAnswer, 
 		}
 	}
 
+/** The one road from a read to what the ledger settles against, so the wire has one reader. */
+internal fun askObservation(address: String, answer: WorkspaceKnowledgeScopeAnswer): AskObservation =
+	AskObservation(
+		address = address,
+		root = answer.root,
+		listed = buildMap {
+			for (symbol in answer.symbols) {
+				for (entry in symbol.questions) {
+					put(AskedKey(address, answer.root, symbol.symbolId, entry.question), entry.createdAt)
+				}
+			}
+		},
+	)
+
 /** The owner committed to a set, so one that changed without growing is refused too. */
 internal fun reviewChanged(shown: Set<AskedKey>, fresh: Set<AskedKey>): Boolean = shown != fresh
 
@@ -327,6 +341,56 @@ internal fun codeSpan(text: String): String {
 	val pad = if (text.startsWith("`") || text.endsWith("`")) " " else ""
 	val fence = "`".repeat(longest + 1)
 	return "$fence$pad$text$pad$fence"
+}
+
+////////////////////////////////
+//  The claim
+
+/** What one preflight decided: the claim a send submits, or the word that refuses it. */
+internal sealed interface AskClaimed {
+	data class Refused(val sent: AskSent) : AskClaimed
+}
+
+/** Everything one send needs, so recording and submitting decide nothing of their own. */
+internal data class AskClaim(
+	val address: String,
+	val root: String,
+	val scopeSubject: String,
+	val key: RequestKey,
+	val pairs: Map<AskedKey, Double?>,
+	val answers: Int,
+	val text: String,
+) : AskClaimed
+
+/**
+ * One read to one claim: the pairs, the count, the root, the request key and the message text are all
+ * picked here, so the sheet's offer and the send's claim read the same rules.
+ */
+internal fun askClaim(
+	subject: AskSubject,
+	selection: AskSelection,
+	answer: WorkspaceKnowledgeScopeAnswer,
+	reviewed: Set<AskedKey>,
+	asked: AskedLookup,
+): AskClaimed {
+	if (answer.root != selection.root) return AskClaimed.Refused(AskSent.RootChanged)
+	val address = subject.target.address
+	val picked = picks(scopeSymbols(answer, subject, selection.scope), selection, asked)
+	val answers = picked.sumOf { it.questions.size }
+	if (answers == 0) return AskClaimed.Refused(AskSent.NothingToAsk)
+	val pairs = askedPairs(address, answer, picked)
+	if (reviewChanged(reviewed, pairs.keys)) return AskClaimed.Refused(AskSent.Changed)
+	val text = askMessage(subject, selection.scope, answer, picked)
+	overBudget(text)?.let { return AskClaimed.Refused(AskSent.TooLarge(it)) }
+	return AskClaim(
+		address = address,
+		root = answer.root,
+		scopeSubject = scopeSubject(subject, selection.scope),
+		key = requestKey(subject, answer.root, selection.scope),
+		pairs = pairs,
+		answers = answers,
+		text = text,
+	)
 }
 
 ////////////////////////////////
