@@ -2,8 +2,6 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
-import com.atelier_nyaarium.switchboard.proto.WorkspaceScopeQuestion
-import com.atelier_nyaarium.switchboard.proto.WorkspaceScopeSymbol
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -104,29 +102,6 @@ class SandboxAskTest {
 
 		assertTrue(file.symbols.size > HUB_KEY_COUNT)
 		assertNotNull(overBudget(askMessage(hub, AskScope.FILE, file, picksOf(file, hub, AskScope.FILE))))
-	}
-
-	@Test
-	fun `a name holding a backtick reads back out of the message's tree`() {
-		val odd = WorkspaceScopeSymbol(
-			symbolId = "lexicon typescript src/a.ts f`",
-			name = "a`b",
-			symbolKind = "function",
-			depth = 0,
-			startLine = 1,
-			questions = listOf(WorkspaceScopeQuestion(question = "describe", createdAt = null, askCount = 0)),
-		)
-		val answer = WorkspaceKnowledgeScopeAnswer(
-			root = SANDBOX_ROOT,
-			module = "src/a.ts",
-			symbols = listOf(odd),
-			localsExcluded = 0,
-		)
-		val of = AskSubject(target, odd.symbolId, odd.name, answer.module)
-
-		val text = askMessage(of, AskScope.FILE, answer, picksOf(answer, of, AskScope.FILE))
-
-		assertEquals(listOf(odd.symbolId to listOf("describe")), sandboxAskedPairs(text))
 	}
 
 	@Test

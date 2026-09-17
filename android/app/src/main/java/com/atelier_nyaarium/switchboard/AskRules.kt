@@ -8,8 +8,8 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceScopeSymbol
 
 /**
  * Every decision the Ask sheet and the Knowledge section make, outside a Composable so a gate can
- * reach it: the defaults, the counts, what a send picks, the containment order, the message and its
- * budget, the progress and the row words.
+ * reach it: the defaults, the counts, what a send picks, the containment order, the message's prose
+ * and its budget, the progress and the row words. `AskGrammar` owns the tree's own shape.
  */
 
 internal val QUESTION_CLASSES = listOf("describe", "why", "relate", "contract", "effects", "usage")
@@ -276,8 +276,6 @@ private val HOW_LINES = listOf(
 	"- One reply at the end: how many you recorded and reaffirmed, and each answer you could not give, with why.",
 )
 
-private const val NOTHING_HERE = ": nothing to record here. "
-
 internal fun askMessage(
 	subject: AskSubject,
 	scope: AskScope,
@@ -288,7 +286,8 @@ internal fun askMessage(
 	val intent = "Record Lexicon knowledge for ${subjectText(subject, scope)} in ${codeSpan(answer.module)}: " +
 		"${counted(answers, "answer")} across ${counted(picks.size, "symbol")}. " +
 		"I chose this set on my phone, so record every one without asking me first."
-	return (listOf(intent, "", "How:") + HOW_LINES + listOf("", "Tree:") + treeLines(answer, picks)).joinToString("\n")
+	val tree = askTreeLines(askNodes(answer, picks))
+	return (listOf(intent, "", "How:") + HOW_LINES + listOf("", "Tree:") + tree).joinToString("\n")
 }
 
 internal fun overBudget(text: String): Int? =
@@ -302,7 +301,7 @@ private fun subjectText(subject: AskSubject, scope: AskScope): String =
 	}
 
 /** Containment, not the answer's post-order: a container the picks sit under is drawn above them. */
-private fun treeLines(answer: WorkspaceKnowledgeScopeAnswer, picks: List<AskPick>): List<String> {
+private fun askNodes(answer: WorkspaceKnowledgeScopeAnswer, picks: List<AskPick>): List<AskNode> {
 	val chosen = picks.associate { it.symbol.symbolId to it.questions }
 	val byId = answer.symbols.associateBy { it.symbolId }
 	val drawn = LinkedHashSet<String>()
@@ -312,35 +311,14 @@ private fun treeLines(answer: WorkspaceKnowledgeScopeAnswer, picks: List<AskPick
 	}
 	val held = answer.symbols.filter { it.symbolId in drawn }
 	val children = held.groupBy { it.containerId }
-	val lines = mutableListOf<String>()
-	fun walk(symbol: WorkspaceScopeSymbol, depth: Int) {
-		lines += nodeLine(symbol, chosen[symbol.symbolId], depth)
-		children[symbol.symbolId].orEmpty().forEach { walk(it, depth + 1) }
-	}
-	held.filter { it.containerId == null || it.containerId !in drawn }.forEach { walk(it, 0) }
-	return lines
-}
-
-private fun nodeLine(symbol: WorkspaceScopeSymbol, questions: List<String>?, depth: Int): String {
-	val body = questions?.let { ": ${it.joinToString(", ")}. " } ?: NOTHING_HERE
-	return "  ".repeat(depth) + "- " + codeSpan(symbol.name) + " " + symbol.symbolKind + body + codeSpan(symbol.symbolId)
-}
-
-/**
- * The shortest fence longer than any backtick run inside, which is CommonMark's inline rule. A block
- * fence never goes under three, so `fenceFor` is not it. The pad keeps a leading or trailing backtick
- * out of the fence; CommonMark strips one space from each end.
- */
-internal fun codeSpan(text: String): String {
-	var longest = 0
-	var run = 0
-	for (character in text) {
-		run = if (character == '`') run + 1 else 0
-		if (run > longest) longest = run
-	}
-	val pad = if (text.startsWith("`") || text.endsWith("`")) " " else ""
-	val fence = "`".repeat(longest + 1)
-	return "$fence$pad$text$pad$fence"
+	fun nodeOf(symbol: WorkspaceScopeSymbol): AskNode = AskNode(
+		name = symbol.name,
+		kind = symbol.symbolKind,
+		symbolId = symbol.symbolId,
+		questions = chosen[symbol.symbolId].orEmpty(),
+		children = children[symbol.symbolId].orEmpty().map { nodeOf(it) },
+	)
+	return held.filter { it.containerId == null || it.containerId !in drawn }.map { nodeOf(it) }
 }
 
 ////////////////////////////////

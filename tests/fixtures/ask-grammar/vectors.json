@@ -1,0 +1,189 @@
+{
+	"_comment": "The Ask message's tree, both halves at once. `nodes` is what the writer is handed, `lines` the exact text it writes, and `pairs` what the reader recovers from that text. A render then a parse is an identity on the pairs, so a change to a line's spelling shows here before it reaches a session or the sandbox. Hand-authored: no TypeScript writes this message.",
+	"cases": [
+		{
+			"name": "a branch three deep indents two spaces a level",
+			"nodes": [
+				{
+					"name": "LocalBackendSession",
+					"kind": "class",
+					"symbolId": "lexicon typescript src/session.ts LocalBackendSession",
+					"questions": ["describe"],
+					"children": [
+						{
+							"name": "Thread",
+							"kind": "class",
+							"symbolId": "lexicon typescript src/session.ts LocalBackendSession:Thread",
+							"questions": ["why", "usage"],
+							"children": [
+								{
+									"name": "open",
+									"kind": "method",
+									"symbolId": "lexicon typescript src/session.ts LocalBackendSession:Thread:open",
+									"questions": ["describe"],
+									"children": []
+								}
+							]
+						}
+					]
+				}
+			],
+			"lines": [
+				"- `LocalBackendSession` class: describe. `lexicon typescript src/session.ts LocalBackendSession`",
+				"  - `Thread` class: why, usage. `lexicon typescript src/session.ts LocalBackendSession:Thread`",
+				"    - `open` method: describe. `lexicon typescript src/session.ts LocalBackendSession:Thread:open`"
+			],
+			"pairs": [
+				{ "symbolId": "lexicon typescript src/session.ts LocalBackendSession", "questions": ["describe"] },
+				{
+					"symbolId": "lexicon typescript src/session.ts LocalBackendSession:Thread",
+					"questions": ["why", "usage"]
+				},
+				{
+					"symbolId": "lexicon typescript src/session.ts LocalBackendSession:Thread:open",
+					"questions": ["describe"]
+				}
+			]
+		},
+		{
+			"name": "a container with nothing picked still holds its members, and names nothing itself",
+			"nodes": [
+				{
+					"name": "A",
+					"kind": "class",
+					"symbolId": "lexicon typescript src/a.ts A",
+					"questions": [],
+					"children": [
+						{
+							"name": "a1",
+							"kind": "method",
+							"symbolId": "lexicon typescript src/a.ts A:a1",
+							"questions": ["describe"],
+							"children": []
+						}
+					]
+				},
+				{
+					"name": "B",
+					"kind": "function",
+					"symbolId": "lexicon typescript src/a.ts B",
+					"questions": ["describe"],
+					"children": []
+				}
+			],
+			"lines": [
+				"- `A` class: nothing to record here. `lexicon typescript src/a.ts A`",
+				"  - `a1` method: describe. `lexicon typescript src/a.ts A:a1`",
+				"- `B` function: describe. `lexicon typescript src/a.ts B`"
+			],
+			"pairs": [
+				{ "symbolId": "lexicon typescript src/a.ts A:a1", "questions": ["describe"] },
+				{ "symbolId": "lexicon typescript src/a.ts B", "questions": ["describe"] }
+			]
+		},
+		{
+			"name": "one backtick in a name widens the fence to two",
+			"nodes": [
+				{
+					"name": "a`b",
+					"kind": "function",
+					"symbolId": "lexicon typescript src/b.ts odd",
+					"questions": ["relate"],
+					"children": []
+				}
+			],
+			"lines": ["- ``a`b`` function: relate. `lexicon typescript src/b.ts odd`"],
+			"pairs": [{ "symbolId": "lexicon typescript src/b.ts odd", "questions": ["relate"] }]
+		},
+		{
+			"name": "two backticks in a row widen it to three",
+			"nodes": [
+				{
+					"name": "a``b",
+					"kind": "function",
+					"symbolId": "lexicon typescript src/b.ts pair",
+					"questions": ["contract"],
+					"children": []
+				}
+			],
+			"lines": ["- ```a``b``` function: contract. `lexicon typescript src/b.ts pair`"],
+			"pairs": [{ "symbolId": "lexicon typescript src/b.ts pair", "questions": ["contract"] }]
+		},
+		{
+			"name": "a longer run widens the fence past it, and an id ending in a backtick is padded off it",
+			"nodes": [
+				{
+					"name": "a```b",
+					"kind": "function",
+					"symbolId": "lexicon typescript src/b.ts trail`",
+					"questions": ["describe"],
+					"children": []
+				}
+			],
+			"lines": ["- ````a```b```` function: describe. `` lexicon typescript src/b.ts trail` ``"],
+			"pairs": [{ "symbolId": "lexicon typescript src/b.ts trail`", "questions": ["describe"] }]
+		},
+		{
+			"name": "a name opening with a backtick is padded off the fence",
+			"nodes": [
+				{
+					"name": "`lead",
+					"kind": "function",
+					"symbolId": "lexicon typescript src/b.ts lead",
+					"questions": ["effects"],
+					"children": []
+				}
+			],
+			"lines": ["- `` `lead `` function: effects. `lexicon typescript src/b.ts lead`"],
+			"pairs": [{ "symbolId": "lexicon typescript src/b.ts lead", "questions": ["effects"] }]
+		},
+		{
+			"name": "an id holding spaces reads back whole",
+			"nodes": [
+				{
+					"name": "spaced",
+					"kind": "method",
+					"symbolId": "lexicon typescript src/b.ts Outer inner space",
+					"questions": ["usage"],
+					"children": []
+				}
+			],
+			"lines": ["- `spaced` method: usage. `lexicon typescript src/b.ts Outer inner space`"],
+			"pairs": [{ "symbolId": "lexicon typescript src/b.ts Outer inner space", "questions": ["usage"] }]
+		},
+		{
+			"name": "two questions on one symbol are joined by a comma",
+			"nodes": [
+				{
+					"name": "pair",
+					"kind": "function",
+					"symbolId": "lexicon typescript src/b.ts pairq",
+					"questions": ["describe", "why"],
+					"children": []
+				}
+			],
+			"lines": ["- `pair` function: describe, why. `lexicon typescript src/b.ts pairq`"],
+			"pairs": [{ "symbolId": "lexicon typescript src/b.ts pairq", "questions": ["describe", "why"] }]
+		},
+		{
+			"name": "a kind holding a colon leaves the questions after the last one",
+			"nodes": [
+				{
+					"name": "Alias",
+					"kind": "type: alias",
+					"symbolId": "lexicon typescript src/b.ts Alias",
+					"questions": ["relate"],
+					"children": []
+				}
+			],
+			"lines": ["- `Alias` type: alias: relate. `lexicon typescript src/b.ts Alias`"],
+			"pairs": [{ "symbolId": "lexicon typescript src/b.ts Alias", "questions": ["relate"] }]
+		},
+		{
+			"name": "an empty tree writes nothing and names nothing",
+			"nodes": [],
+			"lines": [],
+			"pairs": []
+		}
+	]
+}

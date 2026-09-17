@@ -279,21 +279,6 @@ class AskRulesTest {
 	}
 
 	@Test
-	fun `a name holding a backtick keeps its code span whole`() {
-		assertEquals("`plain`", codeSpan("plain"))
-		assertEquals("``a`b``", codeSpan("a`b"))
-		assertEquals("`` id` ``", codeSpan("id`"))
-		assertEquals("`` `lead ``", codeSpan("`lead"))
-
-		val odd = symbol("id`", "a```b", "function", 0, null, listOf(question("describe")))
-		val answer = WorkspaceKnowledgeScopeAnswer(root = ROOT, module = MODULE, symbols = listOf(odd), localsExcluded = 0)
-
-		val line = askMessage(subject, AskScope.FILE, answer, picks(answer.symbols, defaultSelection(null), none)).split("\n").last()
-
-		assertEquals("- ````a```b```` function: describe. `` id` ``", line)
-	}
-
-	@Test
 	fun `a message at the budget sends and one byte over is refused with its size`() {
 		assertNull(overBudget("x".repeat(ASK_MESSAGE_BUDGET_BYTES)))
 		assertEquals(ASK_MESSAGE_BUDGET_BYTES + 1, overBudget("x".repeat(ASK_MESSAGE_BUDGET_BYTES + 1)))

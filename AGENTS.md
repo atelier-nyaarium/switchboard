@@ -319,7 +319,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     nothing an older answer could overwrite exists. A read a screen draws takes no `GatewayReadFence`
     either: its order is its `PublishedViews` ticket, minted before it awaits.
 - `android/.../WindowOps.kt` / `WindowRules.kt` / `WindowRequests.kt` / `SymbolViews.kt` / `KnowledgeRules.kt` /
-  `AskRules.kt` / `AskedStore.kt` / `AskOps.kt` / `ComposedRequests.kt` / `RawFileOps.kt` /
+  `AskRules.kt` / `AskGrammar.kt` / `AskedStore.kt` / `AskOps.kt` / `ComposedRequests.kt` / `RawFileOps.kt` /
   `RawFileRules.kt` / `WorkspaceFileOps.kt` / `FileOpRules.kt` / `FacetRules.kt` / `CodePaint.kt` / `HeldEdits.kt` / `PublishedViews.kt` /
   `WorkspaceDraftStore.kt` / `WorkspacePorts.kt` / `WorkspaceFileTable.kt` / `WorkspaceNav.kt` / `workspace/` - a
   conversation's Files: the open windows, the raw files being edited, the file operations, their drafts, the
@@ -366,7 +366,14 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
       no surface spells the mapping twice.
   - **Every decision `workspace/AskSheet.kt` and `workspace/KnowledgeSection.kt` draw is in `AskRules`,
     none in a Composable:** the defaults, the counts, what a send picks, the containment order, the
-    message text and its budget, and the progress and row words, so a JVM test reaches every one.
+    message's prose and its budget, and the progress and row words, so a JVM test reaches every one.
+  - **The Ask message's tree has ONE owner, `AskGrammar`, writing and reading it together:** the line,
+    its indentation, the kind and question spelling, and the code span's fence. `AskRules` hands it a
+    tree of `AskNode` and writes the prose around it; the sandbox reads a sent message back through
+    `askTreePairs` and holds no line rule of its own. `tests/fixtures/ask-grammar/vectors.json` pins
+    both halves at once, a render against its exact lines and a parse against the pairs it recovers,
+    so a spelling change shows there before it reaches a session and the reader cannot drift from the
+    writer. The parse reads pairs alone; indentation and prose are not read back.
   - **One message per send holds the whole tree; there is no preview:** the sheet's counts are what the
     owner checks before sending, as the owner worded work for a subagent.
   - **A pair in `AskedStore` clears when its `createdAt` moves from the value the read the send used

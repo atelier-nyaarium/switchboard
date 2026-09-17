@@ -30,17 +30,6 @@ private data class Answered(
 
 private data class ScopePlace(val module: SandboxModule, val roots: List<SandboxSymbol>, val members: Boolean)
 
-/** Fences widen and pad around a backtick, as `codeSpan` writes them. */
-private val TREE_LINE = Regex("\\s*- `+ ?(.+?) ?`+ \\S+: ([a-z, ]+)\\. `+ ?(lexicon .+?) ?`+\\s*")
-
-/** The symbols and questions a message's tree names, so a send reads back as work to record. */
-internal fun sandboxAskedPairs(text: String): List<Pair<String, List<String>>> =
-	text.lineSequence().mapNotNull { line ->
-		val match = TREE_LINE.matchEntire(line) ?: return@mapNotNull null
-		val questions = match.groupValues[2].split(", ").filter { it in QUESTION_CLASSES }
-		if (questions.isEmpty()) null else match.groupValues[3] to questions
-	}.toList()
-
 internal class SandboxScopes(private val modules: Map<String, SandboxModule>, private val now: () -> Long) {
 	/** Reading drains the queue, so both run under one lock. */
 	private val lock = Any()
@@ -81,7 +70,7 @@ internal class SandboxScopes(private val modules: Map<String, SandboxModule>, pr
 	 * canned module holds is dropped, as Lexicon would refuse it, rather than spending a read's budget.
 	 */
 	fun onMessage(address: String, text: String) {
-		val pairs = sandboxAskedPairs(text)
+		val pairs = askTreePairs(text)
 			.filter { (symbolId, _) -> symbolId in byId }
 			.flatMap { (symbolId, questions) -> questions.map { ScopePair(symbolId, it) } }
 			.sortedByDescending { hopsOf(it.symbolId) }

@@ -417,7 +417,8 @@ no TTL.
   none of it, and the screen asks for an update. A Lexicon too old for any read the plugin makes answers a
   refusal naming the update, not a failure. The facts also carry `counts`, each in the unit its drill-in
   lists, withheld uses excluded.
-- **Ask** (`AskOps.kt`, `AskRules.kt`, `AskedStore.kt`, `workspace/AskSheet.kt`, `workspace/KnowledgeSection.kt`):
+- **Ask** (`AskOps.kt`, `AskRules.kt`, `AskGrammar.kt`, `AskedStore.kt`, `workspace/AskSheet.kt`,
+  `workspace/KnowledgeSection.kt`):
   the sheet that replaces the Knowledge header's per-question chips. `SymbolDetail` holds the open question
   and an `askOpen` flag and draws the sheet over the Knowledge item; every decision the sheet and
   `KnowledgeSection` draw lives in `AskRules`, tested on the JVM, so the Composables only render.
@@ -446,9 +447,16 @@ no TTL.
     question citing a fact beyond the declaration, members before their container, `reaffirm_answer` for a
     stale answer that still holds, sibling branches to subagents, one reply at the end), and a tree
     mirroring containment, not the answer's post-order: each node the name, its kind, its questions, and
-    its whole symbol id. Every name and id in the tree goes through `codeSpan`, the shortest backtick
-    fence longer than any run inside the text, padded so a leading or trailing backtick does not merge
-    into it.
+    its whole symbol id.
+  - **`AskGrammar` owns the tree's shape, writing and reading it together.** `AskRules` picks the
+    containment and writes the prose around it; the grammar spells every line, two spaces of indent a
+    level, the kind then its questions, and the nothing marker on a node with no questions. Every name
+    and id goes through `codeSpan`, the shortest backtick fence longer than any run inside the text,
+    padded so a leading or trailing backtick does not merge into it. `askTreePairs` reads a rendered
+    message back into the symbol ids and questions it names, and nothing else: indentation and prose are
+    not read back, and a question outside the classes is dropped, which is all the sandbox needs to
+    record what a send asked for. `tests/fixtures/ask-grammar/vectors.json` pins both halves: each case
+    a tree, the exact lines it writes, and the pairs the parse recovers from them.
   - **Message budget:** 256,000 bytes of UTF-8. A scope over it is refused in the sheet with its size, the
     button disabled, rather than sent and re-refused.
   - **Asked pairs** live in `AskedStore`, keyed by session, root label, symbol and question, each carrying
