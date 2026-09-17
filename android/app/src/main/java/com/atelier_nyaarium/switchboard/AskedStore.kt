@@ -1,7 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeAnswer
-import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -9,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 internal data class AskedKey(val address: String, val root: String, val symbolId: String, val question: String)
 
 internal data class AskSend(
+	/** The road's incarnation for this send, so a replacement is never mistaken for what it replaced. */
 	val id: Long,
 	val sentAt: Long,
 	val address: String,
@@ -30,16 +30,14 @@ internal class AskedStore(private val now: () -> Long) {
 	/** Pruning and writing under one lock, or a read prunes what a write just appended. */
 	private val lock = Any()
 
-	private val ids = AtomicLong(0)
-
 	private val held = MutableStateFlow<List<AskSend>>(emptyList())
 
 	/** Newest last. */
 	val sends: StateFlow<List<AskSend>> = held
 
-	fun record(address: String, root: String, scopeSubject: String, pairs: Map<AskedKey, Double?>): AskSend {
+	fun record(id: Long, address: String, root: String, scopeSubject: String, pairs: Map<AskedKey, Double?>): AskSend {
 		val send = AskSend(
-			id = ids.incrementAndGet(),
+			id = id,
 			sentAt = now(),
 			address = address,
 			root = root,

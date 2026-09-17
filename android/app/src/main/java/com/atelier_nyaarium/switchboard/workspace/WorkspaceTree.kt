@@ -50,7 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ArmedAction
 import com.atelier_nyaarium.switchboard.PathAsk
-import com.atelier_nyaarium.switchboard.SessionRequests
+import com.atelier_nyaarium.switchboard.ComposedRequests
 import com.atelier_nyaarium.switchboard.WorkspaceAnswer
 import com.atelier_nyaarium.switchboard.WorkspaceFileOps
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
@@ -76,7 +76,7 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun WorkspaceTree(
 	fileOps: WorkspaceFileOps,
-	requests: SessionRequests,
+	requests: ComposedRequests,
 	target: WorkspaceTarget,
 	session: String,
 	path: String,

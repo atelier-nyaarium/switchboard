@@ -274,7 +274,7 @@ class ChatRepository(
 
 	internal val clearedOnReprovision: List<ClearsOnReprovision>
 		get() = listOf(
-			this, board, vault, runbooks, presence, trust, drain, playback, workspaceHost, sessionRequests, askOps, windowOps,
+			this, board, vault, runbooks, presence, trust, drain, playback, workspaceHost, composedRequests, askOps, windowOps,
 			symbolViews, windowRequests, rawFileOps, fileOps,
 		)
 
@@ -377,15 +377,14 @@ class ChatRepository(
 	// Keep this directory name, since another name would orphan every held draft.
 	private val workspaceDrafts = WorkspaceDraftStore(File(filesDir, "window-drafts"), repoScope)
 	private val workspaceHost = ChatRepositoryWorkspaceHost(this)
-	internal val sessionRequests = SessionRequests(workspaceHost)
-	internal val windowOps = WindowOps(host = workspaceHost, drafts = workspaceDrafts, outbox = sessionRequests)
+	internal val composedRequests = ComposedRequests(workspaceHost)
+	internal val windowOps = WindowOps(host = workspaceHost, drafts = workspaceDrafts, outbox = composedRequests)
 	internal val symbolViews = SymbolViews(workspaceHost)
-	internal val askOps = AskOps(workspaceHost, sessionRequests, ambient.now) { target, symbolId ->
+	internal val askOps = AskOps(workspaceHost, composedRequests, ambient.now) { target, symbolId ->
 		symbolViews.reloadKnowledge(target, symbolId)
 	}
 	internal val windowRequests = WindowRequests(
-		generation = workspaceHost.generation,
-		outbox = sessionRequests,
+		outbox = composedRequests,
 		open = { target, symbolId -> windowOps.openWindow(target, symbolId) is WorkspaceAnswer.Read },
 		scope = repoScope,
 		now = ambient.now,

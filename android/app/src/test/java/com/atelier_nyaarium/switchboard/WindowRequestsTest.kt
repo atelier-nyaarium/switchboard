@@ -37,8 +37,7 @@ class WindowRequestsTest {
 	private val refused = mutableSetOf<String>()
 	private var clock = 1_000_000L
 	private val asks = WindowRequests(
-		generation = host.generation,
-		outbox = SessionRequests(host),
+		outbox = ComposedRequests(host),
 		open = { target, symbolId ->
 			if (symbolId !in refused) opened += target.address to symbolId
 			symbolId !in refused
@@ -116,8 +115,7 @@ class WindowRequestsTest {
 		val hold = TestHold()
 		val localOpened = mutableListOf<String>()
 		val local = WindowRequests(
-			generation = host.generation,
-			outbox = SessionRequests(host),
+			outbox = ComposedRequests(host),
 			open = { _, symbolId -> hold.pass(); localOpened += symbolId; true },
 			scope = CoroutineScope(Dispatchers.Unconfined),
 			now = { clock },
@@ -135,20 +133,29 @@ class WindowRequestsTest {
 	}
 
 	@Test
-	fun `a send that fails drops the ask, and a second ask while one is sending keeps the first`() = runBlocking {
+	fun `a send that fails puts back the ask it replaced, and a second ask while one is sending keeps the first`() = runBlocking {
 		host.sends = false
 		assertEquals(Submitted.Failed, asks.ask(one, MODULE, "windows"))
 		assertNull(asks.requests.value[one.address])
 
 		host.sends = true
+		assertEquals(Submitted.Sent, asks.ask(one, MODULE, "kept"))
+		host.sends = false
+		assertEquals(Submitted.Failed, asks.ask(one, MODULE, "windows"))
+		assertEquals("kept", asks.requests.value[one.address]?.text)
+
+		host.sends = true
 		val hold = TestHold().also { host.holds += it }
 		val first = async { asks.ask(one, MODULE, "first") }
 		hold.entered.await()
-		assertEquals(Submitted.AlreadySending, asks.ask(one, MODULE, "second"))
-		assertEquals("first", asks.requests.value.getValue(one.address).text)
+		// Released before asserting, or a broken rule hangs.
+		val second = asks.ask(one, MODULE, "second")
+		val whileSending = asks.requests.value[one.address]?.text
 
 		hold.release()
 		assertEquals(Submitted.Sent, first.await())
+		assertEquals(Submitted.AlreadySending, second)
+		assertEquals("first", whileSending)
 		asks.dismiss(one)
 		assertNull(asks.requests.value[one.address])
 	}

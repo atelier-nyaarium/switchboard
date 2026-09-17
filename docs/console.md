@@ -319,7 +319,7 @@ no TTL.
   over revision N" tap performs). The binding picker offers only entries with a value that
   `allowedOn` that Gateway. A row's toggle and a routine's carry the row's revision and show the
   gateway's refusal under the row until a toggle of that row lands.
-- **Files** (`WindowOps.kt`, `WindowRules.kt`, `KnowledgeRules.kt`, `SessionRequests.kt`, `RawFileOps.kt`,
+- **Files** (`WindowOps.kt`, `WindowRules.kt`, `KnowledgeRules.kt`, `ComposedRequests.kt`, `RawFileOps.kt`,
   `RawFileRules.kt`, `WorkspaceFileOps.kt`, `FileOpRules.kt`, `HeldEdits.kt`, `PublishedViews.kt`, `WorkspaceDraftStore.kt`, `WorkspacePorts.kt`,
   `WorkspaceFileTable.kt`, `WorkspaceNav.kt`, `workspace/`): a conversation's workspace, read through the
   plugin that holds it. The tree, an outline, a symbol's detail, the open windows and a raw file sit behind
@@ -396,7 +396,7 @@ no TTL.
   declaration by the plugin.
 - **The file sheet** (`FileOpRules`: `PathAsk`, `fileSummary`, `sendFile`): Duplicate is the copy, Rename is
   a move that types a name alone and stays in its folder, and Send to agent is a `FILE` request on
-  `SessionRequests` naming the path.
+  `ComposedRequests` naming the path.
 - **The foreground sweep is not fenced** (`WindowOps.recheck`, `RawFileOps.recheck`): the fence hands a key
   to whoever claimed last, so a sweep would discard the Refresh the owner just tapped and answer them
   nothing. Each answer lands `Folded` over the edit its read began from, so one arriving at an edit that has
@@ -429,7 +429,7 @@ no TTL.
     `FacetNotice` in place of that body, an older plugin's `knowledgeScope` refusal included; the sheet
     still opens with its title and the subject name. The root the counts are stamped with comes from the
     selected scope's read once it has landed (`scopeRoot`), and from whichever read landed otherwise.
-  - **Send** goes through `SessionRequests` as `RequestKind.KNOWLEDGE` keyed by the scope: an Ask is
+  - **Send** goes through `ComposedRequests` as `RequestKind.KNOWLEDGE` keyed by the scope: an Ask is
     claimed by its scope, not by which questions are ticked. A scope answer under a minute old sends as
     read; an older one is read again first. One preflight runs at a time, so a second send picks after
     the first recorded rather than beside it. A send whose own read reports a different root, or picks
@@ -449,15 +449,14 @@ no TTL.
   - **Message budget:** 256,000 bytes of UTF-8. A scope over it is refused in the sheet with its size, the
     button disabled, rather than sent and re-refused.
   - **Asked pairs** live in `AskedStore`, keyed by session, root label, symbol and question, each carrying
-    the `createdAt` the read the send used carried. Written before the send, so a reply that beats the
-    send's own answer still finds its pairs. A pair clears when its answer's `createdAt` moves from that
+    the `createdAt` the read the send used carried. Recorded under the preflight lock, before the send, so
+    a second send cannot pick the same pairs and a reply that beats the send's own answer still finds them.
+    A send is named by the road's incarnation. A pair clears when its answer's `createdAt` moves from that
     stamped value, after 24 hours on the phone's own clock, or when the owner sends it again; comparing to
     the read's value, not the send time, keeps the phone's clock out of Lexicon's. A re-provision clears
     the store; asked pairs live in memory only.
-  - **An unknown send outcome keeps its pairs; a failed one drops them.** `SessionRequests` answers
-    `Submitted.Unknown` when the send throws, since the message may still have landed, and the sheet closes
-    on it the same as on a confirmed send. `Submitted.Failed` and `Submitted.AlreadySending` withdraw the
-    send `AskOps` had already recorded.
+  - **An unknown send outcome keeps its pairs; a failed one drops them.** The rule is the road's, over the
+    hold `AskOps` hands it, and the sheet closes on an unknown outcome the same as on a confirmed send.
   - **Progress is read back from Lexicon, never taken from the session's reply.** While any pair from a
     scope is out, `onForeground` re-reads every scope a screen currently keeps shown, which is
     `PublishedViews.kept()`. The Knowledge header's progress bar and, past one symbol, its per-symbol rows
@@ -546,12 +545,31 @@ no TTL.
   - **A `module : line` cuts at the front** (`WhereLine`), since a path's tail names the file and the
     line; ending the cut there left every deep path reading as its first folders. `whereText` gives one
     line one line rather than a range of itself.
-- **Composed requests** (`SessionRequests`): the one road for a message the phone writes for a session,
-  Agent Apply and a knowledge Ask. A request is keyed by address, kind and subject and claimed before it
-  is sent, so a second tap or a second screen sends nothing while one is out. An Ask's subject is its
-  scope, not the questions ticked, so a different question pick against the same open scope still claims
-  the same key. The send outlives the screen that asked, so the state it lands is what happened; a
-  re-provision drops it. Asking again once sent is allowed on purpose.
+- **Composed requests** (`ComposedRequests`): the one road for a message the phone writes for a session,
+  Agent Apply, a knowledge Ask, a window ask and a file mention. A request is keyed by address, kind and
+  subject and claimed before it is sent, so a second tap or a second screen sends nothing while one is out.
+  An Ask's subject is its scope, not the questions ticked, so a different question pick against the same
+  open scope still claims the same key. Asking again once sent is allowed on purpose.
+  - **Admission and the claim are decided together**, so no site reads the generation itself. A caller
+    takes a `RequestAdmission` when its work begins (`admit()`), which also names the one hold that work
+    may write. The road's ledger carries the generation it was cleared into, and one CAS reads it with
+    the claim, so the clear refuses a claim or a landing outright rather than through a check beside
+    either. An admission older than the ledger is refused as `Failed` before its key is read, so a stale
+    caller is never told a newer send is already out, and nothing draws as sending; one that claimed
+    before the clear has its message in flight, and only its landing is refused. The roster clears the
+    road right after the generation advances; a tap in that gap either leaves under the old generation
+    or is refused, and nothing lands from it.
+  - **A site writes its state before the send and hands the road a `RequestHold`** naming how the write
+    comes back out, putting back whatever it replaced. The road says when: `Sent` and `Unknown` keep it,
+    since an unknown send may still have landed and a reply to it needs the write to find; `Failed` and
+    `AlreadySending` take it back out. An `Unknown` publishes `FAILED`, so the row offers a retry while
+    the write stays; the retry is a tap, never automatic. `WindowRequests`
+    holds one ask per session and puts back the ask it replaced; `AskOps` records its pairs and has
+    nothing to put back.
+  - **The whole submission is non-cancellable**, claim and landing included, so it outlives the screen that
+    asked and a cancelled caller merely discards what it answers.
+  - **Each site reads the outcome as its own word through one function**, `appliedOf` and `askSentOf`, so
+    no surface spells the mapping twice.
 - **Raw files** (`RawFileOps`, `RawFileRules`, `WorkspaceRawFile`): the tree's `Edit raw` and the
   outline's Raw open a whole file in one field. The read answers the sha256 of the bytes on disk only when
   the file can be written back; a UTF-16 file or one over `MAX_RAW_EDIT_BYTES` opens read-only with its

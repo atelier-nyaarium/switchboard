@@ -19,6 +19,15 @@ internal sealed interface Applied {
 	data object Unknown : Applied
 }
 
+/** The one reading of a send's outcome as this surface's word. */
+internal fun appliedOf(submitted: Submitted, spans: Int): Applied =
+	when (submitted) {
+		Submitted.Sent -> Applied.Sent(spans)
+		Submitted.AlreadySending -> Applied.AlreadySending
+		Submitted.Failed -> Applied.Failed
+		Submitted.Unknown -> Applied.Unknown
+	}
+
 /**
  * The open windows and their drafts, the only workspace state the phone holds. Everything else is
  * re-read, as the other per-gateway tabs do.
@@ -28,7 +37,7 @@ internal sealed interface Applied {
 internal class WindowOps(
 	private val host: WorkspaceHost,
 	private val drafts: WorkspaceDraftStore,
-	private val outbox: SessionRequests = SessionRequests(host),
+	private val outbox: ComposedRequests = ComposedRequests(host),
 ) : ClearsOnReprovision {
 	val requestStates: StateFlow<Map<RequestKey, RequestState>> = outbox.states
 
@@ -255,14 +264,10 @@ internal class WindowOps(
 	 * raises the stale banner once the file actually changes, and Refresh is how they let it go.
 	 */
 	suspend fun agentApply(target: WorkspaceTarget): Applied {
+		val admission = outbox.admit()
 		val requests = agentRequests(target)
 		val text = applyMessage(requests) ?: return Applied.NothingEdited
-		return when (outbox.submit(RequestKey(target.address, RequestKind.APPLY, ""), text)) {
-			Submitted.Sent -> Applied.Sent(requests.size)
-			Submitted.AlreadySending -> Applied.AlreadySending
-			Submitted.Failed -> Applied.Failed
-			Submitted.Unknown -> Applied.Unknown
-		}
+		return appliedOf(outbox.submit(RequestKey(target.address, RequestKind.APPLY, ""), text, admission), requests.size)
 	}
 
 	/** A re-provision takes the previous owner's code with it, on disk as well as in memory. */

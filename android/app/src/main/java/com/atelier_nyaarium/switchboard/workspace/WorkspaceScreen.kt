@@ -107,7 +107,7 @@ internal fun WorkspaceScreen(
 			when (place) {
 				is WorkspacePlace.Tree -> WorkspaceTree(
 					fileOps = repo.fileOps,
-					requests = repo.sessionRequests,
+					requests = repo.composedRequests,
 					target = target,
 					session = session.shortName,
 					path = place.path,

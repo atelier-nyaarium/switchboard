@@ -1,14 +1,12 @@
 package com.atelier_nyaarium.switchboard
 
-import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /** An outline's ask for windows, held until a reply names symbols to open. */
 internal data class WindowRequest(
@@ -61,8 +59,7 @@ internal fun windowsAskNotice(submitted: Submitted): String? =
  * one road a window opens by; a reply naming none leaves it waiting. Memory only.
  */
 internal class WindowRequests(
-	private val generation: WorkspaceGeneration,
-	private val outbox: SessionRequests,
+	private val outbox: ComposedRequests,
 	/** True when the window opened. */
 	private val open: suspend (WorkspaceTarget, String) -> Boolean,
 	private val scope: CoroutineScope,
@@ -70,31 +67,30 @@ internal class WindowRequests(
 ) : ClearsOnReprovision, InboundSubscriber {
 	private val held = MutableStateFlow<Map<String, WindowRequest>>(emptyMap())
 
-	private val incarnations = AtomicLong(0)
-
 	val requests: StateFlow<Map<String, WindowRequest>> = held
 
 	/** Held before the send, so a reply that beats the send's answer still finds it. */
 	suspend fun ask(target: WorkspaceTarget, module: String, text: String): Submitted {
 		val address = target.address
-		val captured = generation.capture()
-		val request = WindowRequest(target, module, text.trim(), now(), incarnations.incrementAndGet())
-		val previous = held.value[address]
-		held.update { it + (address to request) }
-		return withContext(NonCancellable) {
-			val key = RequestKey(address, RequestKind.WINDOWS, "")
-			val submitted = outbox.submit(key, windowsAsk(module, request.text), captured)
-			// An unknown outcome may have landed, and a reply to it needs this ask to open anything.
-			if (submitted == Submitted.Failed || submitted == Submitted.AlreadySending) {
-				held.update { all ->
-					when {
-						all[address] !== request -> all
-						submitted == Submitted.AlreadySending && previous != null -> all + (address to previous)
-						else -> all - address
-					}
-				}
+		val admission = outbox.admit()
+		val request = WindowRequest(target, module, text.trim(), now(), admission.incarnation)
+		val previous = held.getAndUpdate { it + (address to request) }[address]
+		return outbox.submit(
+			RequestKey(address, RequestKind.WINDOWS, ""),
+			windowsAsk(module, request.text),
+			admission,
+			RequestHold { putBack(address, request, previous) },
+		)
+	}
+
+	/** Only while the ask is still the one held. */
+	private fun putBack(address: String, request: WindowRequest, previous: WindowRequest?) {
+		held.update { all ->
+			when {
+				all[address] !== request -> all
+				previous != null -> all + (address to previous)
+				else -> all - address
 			}
-			submitted
 		}
 	}
 

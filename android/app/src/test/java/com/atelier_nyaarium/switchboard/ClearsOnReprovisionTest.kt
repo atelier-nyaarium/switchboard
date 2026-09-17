@@ -47,7 +47,7 @@ class ClearsOnReprovisionTest {
 				"drain",
 				"playback",
 				"workspaceHost",
-				"sessionRequests",
+				"composedRequests",
 				"askOps",
 				"windowOps",
 				"symbolViews",

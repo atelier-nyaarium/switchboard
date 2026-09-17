@@ -123,7 +123,7 @@ class AskOpsTest {
 	private val gate = Scopes()
 	private val host = Host(gate)
 	private val reloaded = mutableListOf<Pair<WorkspaceTarget, String>>()
-	private val ops = AskOps(host, SessionRequests(host), { clock }) { target, symbolId -> reloaded += target to symbolId }
+	private val ops = AskOps(host, ComposedRequests(host), { clock }) { target, symbolId -> reloaded += target to symbolId }
 
 	private val target = WorkspaceTarget(gatewayId = "sakura", address = ADDRESS)
 	private val subject = AskSubject(target, ROOT_ID, "LocalBackendSession", MODULE)

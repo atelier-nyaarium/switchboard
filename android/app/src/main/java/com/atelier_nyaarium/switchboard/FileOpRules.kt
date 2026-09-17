@@ -180,7 +180,7 @@ internal fun sendLabel(state: RequestState?): String =
 		RequestState.FAILED -> "Retry send"
 	}
 
-internal suspend fun SessionRequests.sendFile(target: WorkspaceTarget, path: String): Submitted =
+internal suspend fun ComposedRequests.sendFile(target: WorkspaceTarget, path: String): Submitted =
 	submit(fileRequest(target, path), fileMention(path))
 
 /** Trimmed. A trailing slash names the folder `name` goes into. Null names no file. */

@@ -319,7 +319,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     nothing an older answer could overwrite exists. A read a screen draws takes no `GatewayReadFence`
     either: its order is its `PublishedViews` ticket, minted before it awaits.
 - `android/.../WindowOps.kt` / `WindowRules.kt` / `WindowRequests.kt` / `SymbolViews.kt` / `KnowledgeRules.kt` /
-  `AskRules.kt` / `AskedStore.kt` / `AskOps.kt` / `SessionRequests.kt` / `RawFileOps.kt` /
+  `AskRules.kt` / `AskedStore.kt` / `AskOps.kt` / `ComposedRequests.kt` / `RawFileOps.kt` /
   `RawFileRules.kt` / `WorkspaceFileOps.kt` / `FileOpRules.kt` / `FacetRules.kt` / `CodePaint.kt` / `HeldEdits.kt` / `PublishedViews.kt` /
   `WorkspaceDraftStore.kt` / `WorkspacePorts.kt` / `WorkspaceFileTable.kt` / `WorkspaceNav.kt` / `workspace/` - a
   conversation's Files: the open windows, the raw files being edited, the file operations, their drafts, the
@@ -342,9 +342,28 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     pinned by `tests/fixtures/code-spans/vectors.json`, and `styleOf` has no else branch, so a token added
     to the wire is a compile error. `USE_ROW_COLUMNS` sits under what a phone row draws, or the ellipsis
     eats the underlined name the row exists to show.
-  - **A message the phone composes for a session goes through `SessionRequests`:** claimed by address, kind
-    and subject before it is sent, so a repeat tap sends nothing while one is out. Agent Apply and a
-    knowledge Ask both take it; a new composed message is a `RequestKind`, not a new guard.
+  - **A message the phone composes for a session goes through `ComposedRequests`:** claimed by address,
+    kind and subject before it is sent, so a repeat tap sends nothing while one is out. Agent Apply, a
+    knowledge Ask, a window ask and a file mention all take it; a new composed message is a `RequestKind`,
+    not a new guard.
+    - **Admission is decided with the claim, in the road, and nowhere else:** a caller takes a
+      `RequestAdmission` when its work begins, and no site reads the generation itself. The road's ledger
+      carries the generation it was cleared into, and one CAS reads it with the claim, so the clear refuses
+      a claim or a landing outright; a check beside either has a gap, and a key claimed through it stays
+      `SENDING` with nothing left to settle it. An admission older than the ledger is refused before its
+      key is read and writes nothing; one that
+      claimed before the clear has its message in flight, and only its landing is refused. The claim, the
+      send and the settle are one non-cancellable step, so a cancelled caller merely discards what it answers.
+    - **A `RequestAdmission` names the one hold its work may write,** so `WindowRequests`' ask and
+      `AskedStore`'s send are named by the same counter and a replacement is never mistaken for what it
+      replaced. Neither site mints its own.
+    - **A site writes before the send and hands the road a `RequestHold` naming how the write comes back
+      out, what it replaced included; the road alone says when:** `Sent` and `Unknown` keep it, `Failed`
+      and `AlreadySending` take it back out. An `Unknown` publishes `FAILED`, so the row offers a retry
+      while the write stays. The road takes the written hold rather than writing it, since `AskOps` must
+      record under the lock that picked the pairs.
+    - **Each site reads the outcome as its own word through one function,** `appliedOf` and `askSentOf`, so
+      no surface spells the mapping twice.
   - **Every decision `workspace/AskSheet.kt` and `workspace/KnowledgeSection.kt` draw is in `AskRules`,
     none in a Composable:** the defaults, the counts, what a send picks, the containment order, the
     message text and its budget, and the progress and row words, so a JVM test reaches every one.
@@ -353,11 +372,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A pair in `AskedStore` clears when its answer's `createdAt` moves from the value the read the send
     used carried, never by comparing clocks:** `AskedStore.settle` compares only that stamped value; the
     phone's clock enters nowhere but the 24-hour expiry.
-  - **An unknown send outcome keeps what was held, never drops it:** `Submitted.Unknown` answers a send
-    that threw, so it may still have landed. `AskOps.send` leaves the send it already recorded in
-    `AskedStore`; `WindowRequests.ask` leaves the ask it already held. Only `Submitted.Failed` and
-    `Submitted.AlreadySending` clear them: `AskedStore` always withdraws, and `WindowRequests` withdraws
-    too, unless an `AlreadySending` collision has something to restore.
+  - **`AskOps` records its pairs under the lock that picked them,** since two sends of different scopes
+    run against one store and a record taken outside it lets the second pick what the first is sending.
   - **A foreground re-read walks the keys with keepers, `PublishedViews.kept()`, never the drawn map:**
     the drawn map can hold a key nothing currently shows. `AskOps` once counted its own keepers beside
     `keep`'s, which is one count kept twice.
@@ -382,7 +398,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **The foreground sweep is unfenced, and lands `Folded` instead:** the fence gives a key to whoever
     claimed last, so a sweep would discard the Refresh the owner just tapped.
   - **A re-provision is ONE generation, `WorkspaceHost.generation`:** advanced first in the re-provision
-    roster and read by every workspace ops class, where each once kept its own epoch and one kept none.
+    roster and read by every workspace ops class, where each once kept its own epoch and one kept none. It
+    recalls work that has not started and refuses what lands after, never a message already in flight.
   - **A view map beside `HeldEdits` is a `PublishedViews`:** its `Showing` is the key's token and the
     generation. The raw editor's and the tree's maps each hand-wrote this guard and each missed a case of it.
     A screen shown while composed goes through `keep`, and every token, keeper count, landing order and drawn

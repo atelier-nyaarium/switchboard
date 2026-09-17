@@ -19,6 +19,11 @@ class AskedStoreTest {
 	private var clock = 1_000L
 	private val store = AskedStore { clock }
 	private val why = AskedKey(ADDRESS, ROOT, ID, "why")
+	private var minted = 0L
+
+	/** The road names each send; a counter stands in for it here. */
+	private fun recordSend(address: String, root: String, scopeSubject: String, pairs: Map<AskedKey, Double?>) =
+		store.record(++minted, address, root, scopeSubject, pairs)
 
 	private fun answer(
 		createdAt: Double?,
@@ -43,7 +48,7 @@ class AskedStoreTest {
 
 	@Test
 	fun `a pair is out from its send until its answer's createdAt moves`() {
-		store.record(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
+		recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
 
 		assertTrue(store.outstanding(why))
 		assertTrue(store.anyOutstanding())
@@ -58,7 +63,7 @@ class AskedStoreTest {
 
 	@Test
 	fun `a pair asked while stale clears when it is reaffirmed`() {
-		store.record(ADDRESS, ROOT, "SYMBOL", mapOf(why to 4.0))
+		recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to 4.0))
 
 		assertEquals(emptySet<String>(), store.settle(ADDRESS, answer(4.0)))
 		assertTrue(store.outstanding(why))
@@ -69,7 +74,7 @@ class AskedStoreTest {
 
 	@Test
 	fun `a pair asked while stale clears when its answer is invalidated away`() {
-		store.record(ADDRESS, ROOT, "SYMBOL", mapOf(why to 4.0))
+		recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to 4.0))
 
 		assertEquals(setOf(ID), store.settle(ADDRESS, answer(null)))
 		assertFalse(store.outstanding(why))
@@ -77,7 +82,7 @@ class AskedStoreTest {
 
 	@Test
 	fun `a pair clears 24 hours after its send and not a millisecond before`() {
-		store.record(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
+		recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
 
 		clock += ASKED_TTL_MS - 1
 		assertTrue(store.outstanding(why))
@@ -91,12 +96,12 @@ class AskedStoreTest {
 
 	@Test
 	fun `sending a pair again makes the newer send the one it is out on`() {
-		store.record(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
+		recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
 		store.settle(ADDRESS, answer(5.0))
 		assertFalse(store.outstanding(why))
 
 		clock += 1_000
-		val again = store.record(ADDRESS, ROOT, "SYMBOL", mapOf(why to 5.0))
+		val again = recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to 5.0))
 
 		assertTrue(store.outstanding(why))
 		assertEquals(again.id, store.latestFor(ADDRESS, ROOT, "SYMBOL")?.id)
@@ -107,8 +112,8 @@ class AskedStoreTest {
 
 	@Test
 	fun `withdrawing a failed send puts back the send it replaced`() {
-		val first = store.record(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
-		val second = store.record(ADDRESS, ROOT, "SYMBOL", mapOf(why to 5.0))
+		val first = recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
+		val second = recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to 5.0))
 
 		// Moves the first send's pair and leaves the second's, which captured it already at 5.
 		store.settle(ADDRESS, answer(5.0))
@@ -122,7 +127,7 @@ class AskedStoreTest {
 
 	@Test
 	fun `an answer from another root clears nothing`() {
-		store.record(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
+		recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
 
 		assertEquals(emptySet<String>(), store.settle(ADDRESS, answer(9.0, root = "/work/other")))
 		assertEquals(emptySet<String>(), store.settle("home.sakura.host.bbb", answer(9.0)))
@@ -133,8 +138,8 @@ class AskedStoreTest {
 
 	@Test
 	fun `clearing drops every send`() {
-		store.record(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
-		store.record(ADDRESS, ROOT, "FILE", mapOf(why.copy(question = "usage") to null))
+		recordSend(ADDRESS, ROOT, "SYMBOL", mapOf(why to null))
+		recordSend(ADDRESS, ROOT, "FILE", mapOf(why.copy(question = "usage") to null))
 
 		store.clear()
 

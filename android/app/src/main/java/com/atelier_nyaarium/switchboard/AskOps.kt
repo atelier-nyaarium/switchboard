@@ -3,11 +3,9 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 
 /** One `knowledgeScope` read. SYMBOL and MEMBERS share one, since both read the same Members target. */
 internal data class ScopeKey(
@@ -47,6 +45,15 @@ internal sealed interface AskSent {
 	data class NotRead(val state: FacetState<Nothing>) : AskSent
 }
 
+/** The one reading of a send's outcome as this surface's word. */
+internal fun askSentOf(submitted: Submitted, answers: Int): AskSent =
+	when (submitted) {
+		Submitted.Sent -> AskSent.Sent(answers)
+		Submitted.Unknown -> AskSent.Unknown(answers)
+		Submitted.Failed -> AskSent.Failed
+		Submitted.AlreadySending -> AskSent.AlreadySending
+	}
+
 internal const val SCOPE_FRESH_MS = 60_000L
 
 /** What one preflight claimed, which the send then submits. */
@@ -59,7 +66,7 @@ private data class Claimed(val send: AskSend, val answers: Int, val root: String
  */
 internal class AskOps(
 	private val host: WorkspaceHost,
-	private val outbox: SessionRequests,
+	private val outbox: ComposedRequests,
 	private val now: () -> Long,
 	private val onRecorded: suspend (WorkspaceTarget, String) -> Unit = { _, _ -> },
 ) : ClearsOnReprovision {
@@ -84,7 +91,7 @@ internal class AskOps(
 	 * again first, since the owner is about to commit a session to every answer in it.
 	 */
 	suspend fun send(subject: AskSubject, selection: AskSelection, reviewed: Set<AskedKey>): AskSent {
-		val generation = host.generation.capture()
+		val admission = outbox.admit()
 		val claimed = preflight.withLock {
 			val key = ScopeKey(subject.target, readTarget(subject, selection.scope), Include.LOCALS in selection.include)
 			val fresh =
@@ -103,18 +110,17 @@ internal class AskOps(
 			if (reviewChanged(reviewed, pairs.keys)) return AskSent.Changed
 			val text = askMessage(subject, selection.scope, answer, picked)
 			overBudget(text)?.let { return AskSent.TooLarge(it) }
-			// Written before the send, so a reply that beats the send's answer already finds its pairs.
-			val sent = store.record(address, answer.root, scopeSubject(subject, selection.scope), pairs)
+			// Recorded under this lock, or a second send picks the same pairs before either writes them.
+			val sent = store.record(admission.incarnation, address, answer.root, scopeSubject(subject, selection.scope), pairs)
 			Claimed(sent, answers, answer.root, text)
 		}
-		return withContext(NonCancellable) {
-			when (outbox.submit(requestKey(subject, claimed.root, selection.scope), claimed.text, generation)) {
-				Submitted.Sent -> AskSent.Sent(claimed.answers)
-				Submitted.Unknown -> AskSent.Unknown(claimed.answers)
-				Submitted.Failed -> AskSent.Failed.also { store.withdraw(claimed.send) }
-				Submitted.AlreadySending -> AskSent.AlreadySending.also { store.withdraw(claimed.send) }
-			}
-		}
+		val submitted = outbox.submit(
+			requestKey(subject, claimed.root, selection.scope),
+			claimed.text,
+			admission,
+			RequestHold { store.withdraw(claimed.send) },
+		)
+		return askSentOf(submitted, claimed.answers)
 	}
 
 	/** Progress is read back from Lexicon, so a scope on screen is re-read while any pair is out. */
