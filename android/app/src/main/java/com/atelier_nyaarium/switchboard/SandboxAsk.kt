@@ -76,9 +76,13 @@ internal class SandboxScopes(private val modules: Map<String, SandboxModule>, pr
 		}
 	}
 
-	/** Leaves first, as the message asks for, so a container's answers land after its members'. */
+	/**
+	 * Leaves first, as the message asks for, so a container's answers land after its members'. An id no
+	 * canned module holds is dropped, as Lexicon would refuse it, rather than spending a read's budget.
+	 */
 	fun onMessage(address: String, text: String) {
 		val pairs = sandboxAskedPairs(text)
+			.filter { (symbolId, _) -> symbolId in byId }
 			.flatMap { (symbolId, questions) -> questions.map { ScopePair(symbolId, it) } }
 			.sortedByDescending { hopsOf(it.symbolId) }
 		if (pairs.isEmpty()) return

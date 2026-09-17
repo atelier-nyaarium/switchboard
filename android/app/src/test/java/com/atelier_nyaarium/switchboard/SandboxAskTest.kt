@@ -81,6 +81,23 @@ class SandboxAskTest {
 	}
 
 	@Test
+	fun `a tree line naming a symbol the sandbox does not hold records nothing and delays no known pair`() {
+		val known = members().symbols.single { it.symbolId == sessionId }
+		val unknown = known.copy(symbolId = "lexicon typescript src/gone.ts vanished", name = "vanished")
+		val answer = WorkspaceKnowledgeScopeAnswer(
+			root = SANDBOX_ROOT,
+			module = SESSION_MODULE,
+			symbols = listOf(unknown, known),
+			localsExcluded = 0,
+		)
+
+		scopes.onMessage(ADDRESS, askMessage(subject, AskScope.FILE, answer, picksOf(answer, subject, AskScope.FILE)))
+		clock += 60_000
+
+		assertEquals(6, recordedIn(members(), sessionId))
+	}
+
+	@Test
 	fun `a whole-file message over the hub exceeds the budget`() {
 		val hub = AskSubject(target, sandboxSymbolId("typescript", HUB_MODULE, "hubEvent"), "hubEvent", HUB_MODULE)
 		val file = read(WorkspaceKnowledgeScopeTarget.File(HUB_MODULE))

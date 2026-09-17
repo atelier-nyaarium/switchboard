@@ -126,6 +126,30 @@ class AskRulesTest {
 	}
 
 	@Test
+	fun `the selected scope's read says which root the counts are under`() {
+		assertEquals("/work/other", scopeRoot(members = ROOT, file = "/work/other", scope = AskScope.FILE))
+		assertEquals(ROOT, scopeRoot(members = ROOT, file = "/work/other", scope = AskScope.MEMBERS))
+		assertEquals(ROOT, scopeRoot(members = ROOT, file = null, scope = AskScope.FILE))
+		assertEquals("/work/other", scopeRoot(members = null, file = "/work/other", scope = AskScope.SYMBOL))
+		assertNull(scopeRoot(members = null, file = null, scope = AskScope.FILE))
+	}
+
+	@Test
+	fun `a reviewed set that changed without growing is refused`() {
+		val shown = askOffer(members, file, members, subject, fillSelection, none).pairs
+		val swapped = members.copy(
+			symbols = members.symbols.map {
+				if (it.symbolId == memberId("close")) symbol(memberId("drain"), "drain", "method", 1, ROOT_ID) else it
+			},
+		)
+		val fresh = askOffer(swapped, file, swapped, subject, fillSelection, none).pairs
+
+		assertEquals(shown.size, fresh.size)
+		assertTrue(reviewChanged(shown, fresh))
+		assertTrue(!reviewChanged(shown, shown))
+	}
+
+	@Test
 	fun `scope notes count one symbol, the symbol with its members, and the file`() {
 		val counts = countsFor(defaultSelection(null))
 		assertEquals(mapOf(AskScope.SYMBOL to 1, AskScope.MEMBERS to 8, AskScope.FILE to 15), counts.scopeSymbols)

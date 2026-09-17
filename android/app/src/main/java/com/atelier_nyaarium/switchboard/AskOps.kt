@@ -39,7 +39,7 @@ internal sealed interface AskSent {
 
 	data object RootChanged : AskSent
 
-	/** The fresh read holds more than the sheet showed, so the owner sees the new counts first. */
+	/** The fresh read picks another set than the sheet showed, so the owner sees it first. */
 	data object Changed : AskSent
 
 	data object NothingToAsk : AskSent
@@ -48,6 +48,9 @@ internal sealed interface AskSent {
 }
 
 internal const val SCOPE_FRESH_MS = 60_000L
+
+/** What one preflight claimed, which the send then submits. */
+private data class Claimed(val send: AskSend, val answers: Int, val root: String, val text: String)
 
 /**
  * The scope reads the Ask surfaces draw from, the sends they make, and the pairs each send leaves out.
@@ -72,6 +75,9 @@ internal class AskOps(
 	/** One sweep at a time, or an older sweep's answer lands after a newer one's. */
 	private val sweeping = Mutex()
 
+	/** One preflight at a time, or two sends pick the same pairs before either records them. */
+	private val preflight = Mutex()
+
 	val scopeViews: StateFlow<Map<ScopeKey, ScopeView>> = scopes.all
 
 	val requestStates: StateFlow<Map<RequestKey, RequestState>> = outbox.states
@@ -92,31 +98,36 @@ internal class AskOps(
 	 * A read under a minute old is what the sheet counted, so it goes as it is. Anything older is read
 	 * again first, since the owner is about to commit a session to every answer in it.
 	 */
-	suspend fun send(subject: AskSubject, selection: AskSelection, shownAnswers: Int): AskSent {
-		val key = ScopeKey(subject.target, readTarget(subject, selection.scope), Include.LOCALS in selection.include)
+	suspend fun send(subject: AskSubject, selection: AskSelection, reviewed: Set<AskedKey>): AskSent {
 		val generation = host.generation.capture()
-		val fresh = scopes.of(key)?.read?.takeIf { now() - it.readAt < SCOPE_FRESH_MS && scopeState(it.answer) is ScopeState.Listed }
-		val answer = when (val state = scopeState(fresh?.answer ?: readAgain(key))) {
-			is ScopeState.Listed -> state.answer
-			is ScopeState.NotRead -> return AskSent.NotRead(state.state)
+		val claimed = preflight.withLock {
+			val key = ScopeKey(subject.target, readTarget(subject, selection.scope), Include.LOCALS in selection.include)
+			val fresh =
+				scopes.of(key)?.read?.takeIf { now() - it.readAt < SCOPE_FRESH_MS && scopeState(it.answer) is ScopeState.Listed }
+			val answer = when (val state = scopeState(fresh?.answer ?: readAgain(key))) {
+				is ScopeState.Listed -> state.answer
+				is ScopeState.NotRead -> return AskSent.NotRead(state.state)
+			}
+			if (answer.root != selection.root) return AskSent.RootChanged
+			val address = subject.target.address
+			val outstanding = AskedLookup { id, question -> store.outstanding(AskedKey(address, answer.root, id, question)) }
+			val picked = picks(scopeSymbols(answer, subject, selection.scope), selection, outstanding)
+			val answers = picked.sumOf { it.questions.size }
+			if (answers == 0) return AskSent.NothingToAsk
+			val pairs = askedPairs(address, answer, picked)
+			if (reviewChanged(reviewed, pairs.keys)) return AskSent.Changed
+			val text = askMessage(subject, selection.scope, answer, picked)
+			overBudget(text)?.let { return AskSent.TooLarge(it) }
+			// Written before the send, so a reply that beats the send's answer already finds its pairs.
+			val sent = store.record(address, answer.root, scopeSubject(subject, selection.scope), pairs)
+			Claimed(sent, answers, answer.root, text)
 		}
-		if (answer.root != selection.root) return AskSent.RootChanged
-		val address = subject.target.address
-		val outstanding = AskedLookup { id, question -> store.outstanding(AskedKey(address, answer.root, id, question)) }
-		val picked = picks(scopeSymbols(answer, subject, selection.scope), selection, outstanding)
-		val answers = picked.sumOf { it.questions.size }
-		if (answers == 0) return AskSent.NothingToAsk
-		if (answers > shownAnswers) return AskSent.Changed
-		val text = askMessage(subject, selection.scope, answer, picked)
-		overBudget(text)?.let { return AskSent.TooLarge(it) }
-		// Written before the send, so a reply that beats the send's answer already finds its pairs.
 		return withContext(NonCancellable) {
-			val sent = store.record(address, answer.root, scopeSubject(subject, selection.scope), askedPairs(address, answer, picked))
-			when (outbox.submit(requestKey(subject, answer.root, selection.scope), text, generation)) {
-				Submitted.Sent -> AskSent.Sent(answers)
-				Submitted.Unknown -> AskSent.Unknown(answers)
-				Submitted.Failed -> AskSent.Failed.also { store.withdraw(sent) }
-				Submitted.AlreadySending -> AskSent.AlreadySending.also { store.withdraw(sent) }
+			when (outbox.submit(requestKey(subject, claimed.root, selection.scope), claimed.text, generation)) {
+				Submitted.Sent -> AskSent.Sent(claimed.answers)
+				Submitted.Unknown -> AskSent.Unknown(claimed.answers)
+				Submitted.Failed -> AskSent.Failed.also { store.withdraw(claimed.send) }
+				Submitted.AlreadySending -> AskSent.AlreadySending.also { store.withdraw(claimed.send) }
 			}
 		}
 	}
@@ -134,18 +145,26 @@ internal class AskOps(
 		store.clear()
 	}
 
-	/** Settles only what was drawn: a showing that ended took its answer with it. */
-	private suspend fun refreshScope(key: ScopeKey, showing: PublishedViews.Showing<ScopeKey>) {
+	private suspend fun refreshScope(key: ScopeKey, showing: PublishedViews.Showing<ScopeKey>) =
+		landScope(showing, readScope(key))
+
+	/** The showing is captured before the read, so a newer one never takes an older read's answer. */
+	private suspend fun readAgain(key: ScopeKey): WorkspaceAnswer<WorkspaceListing<WorkspaceKnowledgeScopeAnswer>> {
+		val showing = scopes.current(key)
 		val read = readScope(key)
-		if (!scopes.update(showing) { it.copy(read = ScopeRead(read, now())) }) return
-		val answer = (scopeState(read) as? ScopeState.Listed)?.answer ?: return
-		for (symbolId in store.settle(key.target.address, answer)) onRecorded(key.target, symbolId)
+		if (showing != null) landScope(showing, read)
+		return read
 	}
 
-	private suspend fun readAgain(key: ScopeKey): WorkspaceAnswer<WorkspaceListing<WorkspaceKnowledgeScopeAnswer>> {
-		val read = readScope(key)
-		scopes.current(key)?.let { showing -> scopes.update(showing) { it.copy(read = ScopeRead(read, now())) } }
-		return read
+	/** A showing that ended took its answer with it, so nothing lands and nothing settles. */
+	private suspend fun landScope(
+		showing: PublishedViews.Showing<ScopeKey>,
+		read: WorkspaceAnswer<WorkspaceListing<WorkspaceKnowledgeScopeAnswer>>,
+	) {
+		if (!scopes.update(showing) { it.copy(read = ScopeRead(read, now())) }) return
+		val answer = (scopeState(read) as? ScopeState.Listed)?.answer ?: return
+		val target = showing.key.target
+		for (symbolId in store.settle(target.address, answer)) onRecorded(target, symbolId)
 	}
 
 	/** A throw is no answer. */

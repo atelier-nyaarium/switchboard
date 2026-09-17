@@ -51,6 +51,13 @@ internal fun selectionForRoot(selection: AskSelection, root: String): AskSelecti
 		)
 	}
 
+/** The selected scope's read says which workspace the counts are under; another landed read stands in. */
+internal fun scopeRoot(members: String?, file: String?, scope: AskScope): String? =
+	when (scope) {
+		AskScope.SYMBOL, AskScope.MEMBERS -> members ?: file
+		AskScope.FILE -> file ?: members
+	}
+
 /** One symbol is the root entry of its own Members read, so both scopes share one read. */
 internal fun readTarget(subject: AskSubject, scope: AskScope): WorkspaceKnowledgeScopeTarget =
 	when (scope) {
@@ -143,6 +150,9 @@ internal fun askedPairs(address: String, answer: WorkspaceKnowledgeScopeAnswer, 
 			}
 		}
 	}
+
+/** The owner committed to a set, so one that changed without growing is refused too. */
+internal fun reviewChanged(shown: Set<AskedKey>, fresh: Set<AskedKey>): Boolean = shown != fresh
 
 private fun included(state: PairState, asked: Boolean, include: Set<Include>): Boolean {
 	val byState = when (state) {
@@ -489,8 +499,16 @@ private fun includeLabel(include: Include): String =
 		Include.LOCALS -> "Parameters and locals"
 	}
 
-/** What the sheet draws from one read: its counts, the order it would ask in, and what refuses a send. */
-internal data class AskOffer(val counts: AskCounts, val order: String?, val tooLarge: Int?)
+/**
+ * What the sheet draws from one read: its counts, the order it would ask in, and what refuses a send.
+ * `pairs` is the set the owner reviewed, which the send is refused against.
+ */
+internal data class AskOffer(
+	val counts: AskCounts,
+	val order: String?,
+	val pairs: Set<AskedKey>,
+	val tooLarge: Int?,
+)
 
 internal fun askOffer(
 	members: WorkspaceKnowledgeScopeAnswer?,
@@ -504,6 +522,7 @@ internal fun askOffer(
 	return AskOffer(
 		counts = askCounts(members, file, selected, subject, selection, asked),
 		order = orderLine(picked),
+		pairs = selected?.let { askedPairs(subject.target.address, it, picked).keys }.orEmpty(),
 		tooLarge = if (picked.isEmpty() || selected == null) {
 			null
 		} else {
@@ -539,7 +558,7 @@ internal fun askOutcome(sent: AskSent): AskOutcome =
 		AskSent.NothingToAsk -> AskOutcome.Said("Nothing to ask")
 		is AskSent.TooLarge -> AskOutcome.Said(tooLargeSendText(sent.bytes))
 		AskSent.RootChanged -> AskOutcome.Said("This workspace moved")
-		AskSent.Changed -> AskOutcome.Said("More to ask than this showed")
+		AskSent.Changed -> AskOutcome.Said("Changed since you looked")
 		is AskSent.NotRead -> AskOutcome.NotRead(sent.state)
 	}
 

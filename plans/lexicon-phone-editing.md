@@ -2441,6 +2441,22 @@ before the release, then a pin move here.
 - **Progress is read back from Lexicon,** never taken from the session's reply. The Knowledge header
   shows it while anything is out.
 
+### Bug Classes
+
+- **A read lands on the showing current at landing time, not the one it began in.** Mechanism:
+  `AskOps.readAgain`. Round 1: it read first and asked `scopes.current(key)` afterwards, so a read begun
+  on one showing landed on a newer one, and an old answer could mark a newer send's pair recorded through
+  `AskedStore.settle`. Patched by capturing the showing before the read and settling only on a landing that
+  took. This is the class `PublishedViews` closed for `SymbolViews` and the tree, in a fourth ops class:
+  nothing in `PublishedViews` makes a reader capture before it awaits, so each new reader can forget. The
+  structural close is an API that hands the showing to the read rather than leaving it to be asked for.
+  Round 2, found by the same red team and left open: a send's re-read and a foreground sweep can read one
+  key on one showing at once, the older answer can land last, `update` takes it because the showing never
+  moved, and `settle` records a newer send off a stale `createdAt`. A showing token orders a read against
+  a leave, not against another read of the same key; that is `GatewayReadFence`'s question, which AGENTS.md
+  says a drawn read does not need. Raised to `architecture-fan-out`: either the fence keyed by `ScopeKey`,
+  or reads serialised per key.
+
 ### Answering a tree by hand
 
 Before wording the message, every gap under `LocalTurnHandle` was answered through Lexicon's own tools:

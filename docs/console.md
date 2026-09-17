@@ -416,12 +416,15 @@ no TTL.
     excludes none). A summary card shows the answer count and, past one symbol, the leaves-first
     containment order, before Send. A scope read that is loading, refused, too large or unreachable draws
     `FacetNotice` in place of that body, an older plugin's `knowledgeScope` refusal included; the sheet
-    still opens with its title and the subject name.
+    still opens with its title and the subject name. The root the counts are stamped with comes from the
+    selected scope's read once it has landed (`scopeRoot`), and from whichever read landed otherwise.
   - **Send** goes through `SessionRequests` as `RequestKind.KNOWLEDGE` keyed by the scope: an Ask is
     claimed by its scope, not by which questions are ticked. A scope answer under a minute old sends as
-    read; an older one is read again first. A send whose own read reports a different root, or more
-    answers than the sheet showed, refuses with a notice ("This workspace moved", "More to ask than this
-    showed") instead of sending stale counts.
+    read; an older one is read again first. One preflight runs at a time, so a second send picks after
+    the first recorded rather than beside it. A send whose own read reports a different root, or picks
+    another set of pairs than the sheet showed, refuses with a notice ("This workspace moved", "This
+    changed since you looked") instead of sending stale counts. The set is compared as a set: one that
+    changed without growing is refused too.
   - **The message is one per send, holding the whole tree, with no preview:** the sheet's counts are what
     the owner checks. Its parts, in order: the intent (subject, module, the answer and symbol counts, and
     that the owner chose the set so the session records every one without asking first), how
@@ -448,7 +451,8 @@ no TTL.
     scope is out, `onForeground` re-reads every scope a screen currently keeps shown; nothing enumerates
     `PublishedViews` itself. The Knowledge header's progress bar and, past one symbol, its per-symbol rows
     (the questions recorded, or the one word for a symbol nothing has come back on) all come from that
-    reread.
+    reread. Every scope read, a send's own included, captures its showing before it reads and lands only
+    on that one; a read whose showing ended lands nothing and settles nothing.
   - **Knowledge section rows** read amber for asked and green for recorded, with the recorded prose and
     its badges. A not-recorded or asked row opens the sheet on that one question; a recorded row shows its
     prose and does not open.

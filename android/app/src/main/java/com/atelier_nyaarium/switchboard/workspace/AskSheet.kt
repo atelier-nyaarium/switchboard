@@ -61,6 +61,7 @@ import com.atelier_nyaarium.switchboard.readTarget
 import com.atelier_nyaarium.switchboard.requestKey
 import com.atelier_nyaarium.switchboard.scopeLabel
 import com.atelier_nyaarium.switchboard.scopeNote
+import com.atelier_nyaarium.switchboard.scopeRoot
 import com.atelier_nyaarium.switchboard.scopeState
 import com.atelier_nyaarium.switchboard.selectionForRoot
 import com.atelier_nyaarium.switchboard.toggled
@@ -110,8 +111,8 @@ internal fun AskSheet(ops: AskOps, subject: AskSubject, openedOn: String?, onClo
 	val file = listedScope(views, fileKey)
 	val selectedState = scopeState(views[selectedKey]?.read?.answer)
 	val selected = (selectedState as? ScopeState.Listed)?.answer
-	LaunchedEffect(members?.root, file?.root) {
-		(members?.root ?: file?.root)?.let { selection = selectionForRoot(selection, it) }
+	LaunchedEffect(members?.root, file?.root, selection.scope) {
+		scopeRoot(members?.root, file?.root, selection.scope)?.let { selection = selectionForRoot(selection, it) }
 	}
 	val offer = remember(members, file, selected, selection, sends) {
 		askOffer(members, file, selected, subject, selection) { id, question ->
@@ -222,7 +223,7 @@ internal fun AskSheet(ops: AskOps, subject: AskSubject, openedOn: String?, onClo
 			Button(
 				onClick = hapticClick {
 					scope.launch {
-						when (val outcome = askOutcome(ops.send(subject, selection, offer.counts.answers))) {
+						when (val outcome = askOutcome(ops.send(subject, selection, offer.pairs))) {
 							AskOutcome.Close -> onClose()
 							is AskOutcome.Said -> notice = outcome.notice
 							// The read that refused landed on this sheet's own showing, which already draws it.
