@@ -105,33 +105,44 @@ jobs:
           path: android/app/build/outputs/apk/debug/switchboard-debug.apk
           retention-days: 7
 
-      # Single latest release: delete the fixed-tag release, then recreate it.
-      - name: Delete previous release
+      # One release at a fixed tag, moved to this build. Every call retries, the upload replaces,
+      # and the step passes once the release holds both APKs: a transient after the upload is not
+      # a failed build, and no moment exists in which the release is gone.
+      - name: Create Release
         if: ${{ fromJSON(inputs.create_release) }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release delete android-app --yes --cleanup-tag 2>/dev/null || true
+        run: |
+          set -euo pipefail
+          retry() {
+            for attempt in 1 2 3 4 5; do
+              "$@" && return 0
+              echo "attempt $attempt failed: $*" >&2
+              sleep $((attempt * 15))
+            done
+            return 1
+          }
+          release="android/app/build/outputs/apk/release/switchboard-release.apk"
+          debug="android/app/build/outputs/apk/debug/switchboard-debug.apk"
+          notes="$RUNNER_TEMP/release-notes.md"
+          cat > "$notes" <<'NOTES'
+          Switchboard Android app, built from ${{ github.sha }}.
 
-      - name: Create Release
-        if: ${{ fromJSON(inputs.create_release) }}
-        uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        with:
-          tag_name: android-app
-          name: Switchboard Android (latest)
-          files: |
-            android/app/build/outputs/apk/release/switchboard-release.apk
-            android/app/build/outputs/apk/debug/switchboard-debug.apk
-          make_latest: true
-          body: |
-            Switchboard Android app, built from ${{ github.sha }}.
+          **switchboard-release.apk** - production build, signed with the stable release key.
+          Updates install over each other. Install this one manually once; after it,
+          in-app updates resume. Sideload: `adb install -r switchboard-release.apk`
 
-            **switchboard-release.apk** - production build, signed with the stable release key.
-            Updates install over each other. Install this one manually once; after it,
-            in-app updates resume. Sideload: `adb install -r switchboard-release.apk`
-
-            **switchboard-debug.apk** - debug build with ingest log streaming to the Federation Router,
-            signed with the SAME stable key as the release, so it installs straight
-            over the release build (and back) for a one-tap side-step to debug.
-            Sideload: `adb install -r switchboard-debug.apk`
+          **switchboard-debug.apk** - debug build with ingest log streaming to the Federation Router,
+          signed with the SAME stable key as the release, so it installs straight
+          over the release build (and back) for a one-tap side-step to debug.
+          Sideload: `adb install -r switchboard-debug.apk`
+          NOTES
+          retry git push --force origin "HEAD:refs/tags/android-app" || echo "tag not moved; the notes name the build" >&2
+          if gh release view android-app >/dev/null 2>&1; then
+            retry gh release edit android-app --title "Switchboard Android (latest)" --notes-file "$notes" --latest
+          else
+            retry gh release create android-app --title "Switchboard Android (latest)" --notes-file "$notes" --latest --target "${{ github.sha }}"
+          fi
+          retry gh release upload android-app --clobber "$release" "$debug"
+          held=$(retry gh release view android-app --json assets --jq '[.assets[].name | select(test("^switchboard-(release|debug)\\.apk$"))] | length')
+          test "$held" = "2"
