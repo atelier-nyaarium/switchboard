@@ -177,11 +177,19 @@ its drill-in lists, so a screen cannot claim a number the next screen contradict
 | too large | `HubRegistry` | the two refusals: rows with a size, and rows as a floor |
 | older plugin | `src/shared/schemasRoutine.ts` | knowledge without counts, so the facts read as `Legacy` and nothing opens |
 | untracked | `scratch/probe.ts` | `untracked` on the row and on the outline strip |
-| second session | `.other` | every workspace read refused |
+| second session | `.other` | every workspace read refused, `knowledgeScope` included |
+| Ask scope | `LocalBackendSession` in `localAgentSession.ts` | 1, 8 and 15 symbols for the symbol, members and file scopes; 18 locals excluded from members and file; `LocalBackendSession` and its members none recorded; the file scope's sibling `LocalTurnHandle` already recorded describe thin, why stale, relate shaky |
+| Ask over budget | `src/hub/hub.ts` whole file | the tree over the module's 3,000 generated declarations exceeds the 256,000-byte message budget |
+| Ask update | `src/shared/schemasRoutine.ts` | `knowledgeScope` refused with the update notice, unlike the same module's Facts, which still read as `Legacy` |
 
 Each seeded Gateway answers differently, or a grouping bug has nowhere to show: one holds the full
 set, one holds the same record ids as different records in another zone, and one answers empty,
 which is not a Gateway that could not be read.
+
+A sent Ask message's tree is read back through `SandboxScopes.onMessage`, which queues each
+symbol's questions leaves first; every later scope read records up to six queued pairs, so a send's
+progress advances a few pairs per foreground rather than landing at once. Reopening the sheet is itself
+a read, so a send of six pairs or fewer is recorded before `asked` can be seen; the walk sends more.
 
 **What it cannot show.** The sandbox answers after a round trip rather than at once, which is what
 makes a screen keyed on its own load visible here, but it is still one process with no socket: a

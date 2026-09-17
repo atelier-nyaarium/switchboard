@@ -14,6 +14,9 @@ internal sealed interface Applied {
 	data object AlreadySending : Applied
 
 	data object Failed : Applied
+
+	/** May have landed; the thread says. */
+	data object Unknown : Applied
 }
 
 /**
@@ -258,7 +261,8 @@ internal class WindowOps(
 			Submitted.Sent -> Applied.Sent(requests.size)
 			Submitted.AlreadySending -> Applied.AlreadySending
 			// The drafts stay either way, so an unknown outcome needs no word of its own here.
-			Submitted.Failed, Submitted.Unknown -> Applied.Failed
+			Submitted.Failed -> Applied.Failed
+			Submitted.Unknown -> Applied.Unknown
 		}
 	}
 

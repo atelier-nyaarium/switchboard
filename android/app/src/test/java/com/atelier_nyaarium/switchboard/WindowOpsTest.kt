@@ -634,12 +634,12 @@ class WindowOpsTest {
 
 	// A throw would otherwise take the screen's coroutine with it, leaving the button looking dead.
 	@Test
-	fun `a send that throws is a failure, not a lost coroutine`() = runBlocking {
+	fun `a send that throws is unknown, not a failure and not a lost coroutine`() = runBlocking {
 		ops.openWindow(one, F_ID)
 		ops.type(one, F_ID, "mine")
 		host.throws = true
 
-		assertEquals(Applied.Failed, ops.agentApply(one))
+		assertEquals(Applied.Unknown, ops.agentApply(one))
 	}
 
 	@Test

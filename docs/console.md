@@ -371,7 +371,10 @@ no TTL.
   cap shows its line count; above it, or holding a NUL, its size.
 - **Asking for windows** (`WindowRequests`, `answeredWindows`): the outline's field sends the session a
   `WINDOWS` request naming the module and asking for one `ref://` link per declaration. One ask is held per
-  session, in memory, recorded before the send so a fast reply still finds it; a newer ask replaces it. Each
+  session, in memory, recorded before the send so a fast reply still finds it; a newer ask replaces it. An
+  unknown send outcome leaves the hold in place, since the ask may still have landed; only a definite
+  failure clears it, restoring what it replaced on an `AlreadySending` collision. The notice says which:
+  "That did not leave the phone" for a failure, "Not sure it left the phone" for an unknown outcome. Each
   hold mints an incarnation and a reply is matched on that alone, so one that answered a displaced ask opens
   nothing more, however alike the replacement's target, text and time. The
   first inbound row after it from the session itself (not the owner, a peer, or a status row) whose refs
@@ -403,6 +406,52 @@ no TTL.
   none of it, and the screen asks for an update. A Lexicon too old for any read the plugin makes answers a
   refusal naming the update, not a failure. The facts also carry `counts`, each in the unit its drill-in
   lists, withheld uses excluded.
+- **Ask** (`AskOps.kt`, `AskRules.kt`, `AskedStore.kt`, `workspace/AskSheet.kt`, `workspace/KnowledgeSection.kt`):
+  the sheet that replaces the Knowledge header's per-question chips. `SymbolDetail` holds the open question
+  and an `askOpen` flag and draws the sheet over the Knowledge item; every decision the sheet and
+  `KnowledgeSection` draw lives in `AskRules`, tested on the JVM, so the Composables only render.
+  - **Scope, questions, includes:** this symbol, with members, or whole file; the six question classes,
+    each chip's count read in the scope once more than one symbol is in play; and what to include: not
+    recorded, stale or doubted or thin, already asked, parameters and locals (hidden where the scope
+    excludes none). A summary card shows the answer count and, past one symbol, the leaves-first
+    containment order, before Send. A scope read that is loading, refused, too large or unreachable draws
+    `FacetNotice` in place of that body, an older plugin's `knowledgeScope` refusal included; the sheet
+    still opens with its title and the subject name.
+  - **Send** goes through `SessionRequests` as `RequestKind.KNOWLEDGE` keyed by the scope: an Ask is
+    claimed by its scope, not by which questions are ticked. A scope answer under a minute old sends as
+    read; an older one is read again first. A send whose own read reports a different root, or more
+    answers than the sheet showed, refuses with a notice ("This workspace moved", "More to ask than this
+    showed") instead of sending stale counts.
+  - **The message is one per send, holding the whole tree, with no preview:** the sheet's counts are what
+    the owner checks. Its parts, in order: the intent (subject, module, the answer and symbol counts, and
+    that the owner chose the set so the session records every one without asking first), how
+    (`symbol_facts` then the code at the declaration and its reference sites, one `record_answer` per
+    question citing a fact beyond the declaration, members before their container, `reaffirm_answer` for a
+    stale answer that still holds, sibling branches to subagents, one reply at the end), and a tree
+    mirroring containment, not the answer's post-order: each node the name, its kind, its questions, and
+    its whole symbol id. Every name and id in the tree goes through `codeSpan`, the shortest backtick
+    fence longer than any run inside the text, padded so a leading or trailing backtick does not merge
+    into it.
+  - **Message budget:** 256,000 bytes of UTF-8. A scope over it is refused in the sheet with its size, the
+    button disabled, rather than sent and re-refused.
+  - **Asked pairs** live in `AskedStore`, keyed by session, root label, symbol and question, each carrying
+    the `createdAt` the read the send used carried. Written before the send, so a reply that beats the
+    send's own answer still finds its pairs. A pair clears when its answer's `createdAt` moves from that
+    stamped value, after 24 hours on the phone's own clock, or when the owner sends it again; comparing to
+    the read's value, not the send time, keeps the phone's clock out of Lexicon's. A re-provision clears
+    the store; asked pairs live in memory only.
+  - **An unknown send outcome keeps its pairs; a failed one drops them.** `SessionRequests` answers
+    `Submitted.Unknown` when the send throws, since the message may still have landed, and the sheet closes
+    on it the same as on a confirmed send. `Submitted.Failed` and `Submitted.AlreadySending` withdraw the
+    send `AskOps` had already recorded.
+  - **Progress is read back from Lexicon, never taken from the session's reply.** While any pair from a
+    scope is out, `onForeground` re-reads every scope a screen currently keeps shown; nothing enumerates
+    `PublishedViews` itself. The Knowledge header's progress bar and, past one symbol, its per-symbol rows
+    (the questions recorded, or the one word for a symbol nothing has come back on) all come from that
+    reread.
+  - **Knowledge section rows** read amber for asked and green for recorded, with the recorded prose and
+    its badges. A not-recorded or asked row opens the sheet on that one question; a recorded row shows its
+    prose and does not open.
 - **Drill-ins** (`src/mcp/workspace/facets.ts`, `history.ts`, `knowledgeScope.ts`): three reads, all under
   the read bounds with one handler deadline.
   - `workspace_symbol_facet` carries a strict facet: `uses`, `usesFrom`, `members`, `hierarchy`, `comments`
@@ -483,9 +532,10 @@ no TTL.
     line one line rather than a range of itself.
 - **Composed requests** (`SessionRequests`): the one road for a message the phone writes for a session,
   Agent Apply and a knowledge Ask. A request is keyed by address, kind and subject and claimed before it
-  is sent, so a second tap or a second screen sends nothing while one is out. The send outlives the screen
-  that asked, so the state it lands is what happened; a re-provision drops it. Asking again once sent is
-  allowed on purpose.
+  is sent, so a second tap or a second screen sends nothing while one is out. An Ask's subject is its
+  scope, not the questions ticked, so a different question pick against the same open scope still claims
+  the same key. The send outlives the screen that asked, so the state it lands is what happened; a
+  re-provision drops it. Asking again once sent is allowed on purpose.
 - **Raw files** (`RawFileOps`, `RawFileRules`, `WorkspaceRawFile`): the tree's `Edit raw` and the
   outline's Raw open a whole file in one field. The read answers the sha256 of the bytes on disk only when
   the file can be written back; a UTF-16 file or one over `MAX_RAW_EDIT_BYTES` opens read-only with its

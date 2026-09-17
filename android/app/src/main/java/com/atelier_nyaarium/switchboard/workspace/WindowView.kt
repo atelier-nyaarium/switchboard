@@ -152,6 +152,7 @@ private fun appliedNotice(applied: Applied): String =
 		Applied.NothingEdited -> "Nothing to ask about"
 		Applied.AlreadySending -> "Already asking"
 		Applied.Failed -> "That did not leave the phone"
+		Applied.Unknown -> "Not sure it left the phone"
 	}
 
 @Composable

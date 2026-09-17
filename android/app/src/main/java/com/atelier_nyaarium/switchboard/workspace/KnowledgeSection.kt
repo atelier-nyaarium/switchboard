@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -60,7 +61,14 @@ private val ASKED_TINT = Color(0xFFD9C28A)
 
 private val PROGRESS_ASKED_TINT = Color(0xFF6F6A76)
 
-private val RECORDED_TINT = Color(0xFF7EE787)
+private val RECORDED_TINT = Color(0xFF9BD4A3)
+
+/** One column for the question, so the words beside it line up. */
+private val QUESTION_COLUMN = 78.dp
+
+private const val PROGRESS_NOTE =
+	"Progress is the phone re-reading what Lexicon holds, not the session's word for it. Anything still asked " +
+		"is left out of the next send unless Already asked is ticked."
 
 /**
  * A symbol's knowledge: how much of it is recorded, what a send left out, and the rows an Ask opens
@@ -141,16 +149,30 @@ private fun ProgressBlock(progress: AskProgress, now: Long) {
 		Modifier.fillMaxWidth().padding(horizontal = 14.dp),
 		verticalArrangement = Arrangement.spacedBy(6.dp),
 	) {
-		LinearProgressIndicator(
-			progress = { if (progress.sent == 0) 0f else progress.recorded.toFloat() / progress.sent },
-			modifier = Modifier.fillMaxWidth(),
-		)
-		Text(
-			progressText(progress, now),
-			style = MaterialTheme.typography.labelSmall,
-			color = MaterialTheme.colorScheme.primary,
-		)
-		if (!progress.oneSymbol) for (row in progress.rows) ProgressRowLine(row)
+		Row(
+			Modifier.fillMaxWidth(),
+			horizontalArrangement = Arrangement.spacedBy(10.dp),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			LinearProgressIndicator(
+				progress = { if (progress.sent == 0) 0f else progress.recorded.toFloat() / progress.sent },
+				modifier = Modifier.weight(1f),
+			)
+			Text(
+				progressText(progress, now),
+				style = MaterialTheme.typography.labelSmall,
+				fontWeight = FontWeight.SemiBold,
+				color = MaterialTheme.colorScheme.primary,
+			)
+		}
+		if (!progress.oneSymbol) {
+			for (row in progress.rows) ProgressRowLine(row)
+			Text(
+				PROGRESS_NOTE,
+				style = MaterialTheme.typography.labelSmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
 	}
 }
 
@@ -189,9 +211,10 @@ private fun QuestionCard(row: AskRow, onAsk: () -> Unit) {
 			Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 				Text(
 					row.question.uppercase(),
+					Modifier.widthIn(min = QUESTION_COLUMN),
 					style = MaterialTheme.typography.labelMedium,
 					fontWeight = FontWeight.SemiBold,
-					color = if (opens) colors.onSurfaceVariant else colors.primary,
+					color = colors.onSurfaceVariant,
 				)
 				Text(
 					rowWordText(row.word),

@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -18,6 +20,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -118,7 +121,8 @@ internal fun AskSheet(ops: AskOps, subject: AskSubject, openedOn: String?, onClo
 	val sending = selection.root?.let { requests[requestKey(subject, it, selection.scope)] } == RequestState.SENDING
 	val notRead = (selectedState as? ScopeState.NotRead)?.state
 
-	ModalBottomSheet(onDismissRequest = onClose) {
+	// Half open clips the summary and the button away, and a clipped sheet does not scroll to them.
+	ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(true)) {
 		Column(
 			Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp),
 			verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -135,59 +139,65 @@ internal fun AskSheet(ops: AskOps, subject: AskSubject, openedOn: String?, onClo
 			if (notRead != null) {
 				FacetNotice(notRead)
 			} else {
-				SheetLabel("Scope")
-				SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-					AskScope.entries.forEachIndexed { index, option ->
-						SegmentedButton(
-							selected = selection.scope == option,
-							onClick = hapticClick { selection = selection.copy(scope = option) },
-							shape = SegmentedButtonDefaults.itemShape(index = index, count = AskScope.entries.size),
-							icon = {},
-						) {
-							Column(horizontalAlignment = Alignment.CenterHorizontally) {
-								Text(scopeLabel(option), style = MaterialTheme.typography.labelMedium, maxLines = 1)
-								scopeNote(offer.counts.scopeSymbols[option])?.let {
-									Text(
-										it,
-										style = MaterialTheme.typography.labelSmall,
-										color = MaterialTheme.colorScheme.onSurfaceVariant,
-										maxLines = 1,
-									)
+				// The summary and the button are what a send is checked against, so they never scroll away.
+				Column(
+					Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+					verticalArrangement = Arrangement.spacedBy(12.dp),
+				) {
+					SheetLabel("Scope")
+					SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+						AskScope.entries.forEachIndexed { index, option ->
+							SegmentedButton(
+								selected = selection.scope == option,
+								onClick = hapticClick { selection = selection.copy(scope = option) },
+								shape = SegmentedButtonDefaults.itemShape(index = index, count = AskScope.entries.size),
+								icon = {},
+							) {
+								Column(horizontalAlignment = Alignment.CenterHorizontally) {
+									Text(scopeLabel(option), style = MaterialTheme.typography.labelMedium, maxLines = 1)
+									scopeNote(offer.counts.scopeSymbols[option])?.let {
+										Text(
+											it,
+											style = MaterialTheme.typography.labelSmall,
+											color = MaterialTheme.colorScheme.onSurfaceVariant,
+											maxLines = 1,
+										)
+									}
 								}
 							}
 						}
 					}
-				}
-				SheetLabel("Questions")
-				FlowRow(
-					horizontalArrangement = Arrangement.spacedBy(6.dp),
-					verticalArrangement = Arrangement.spacedBy(6.dp),
-				) {
-					for (chip in questionChips(offer.counts, selection)) {
-						FilterChip(
-							selected = chip.on,
-							onClick = hapticClick {
-								selection = selection.copy(questions = toggled(selection.questions, chip.question))
-							},
-							label = { Text(chip.label, maxLines = 1, softWrap = false) },
-						)
-					}
-				}
-				SheetLabel("Include")
-				for (row in includeRows(offer.counts, selection)) {
-					Row(
-						Modifier.fillMaxWidth()
-							.clickable(onClick = hapticClick { selection = selection.copy(include = toggled(selection.include, row.include)) }),
-						horizontalArrangement = Arrangement.spacedBy(10.dp),
-						verticalAlignment = Alignment.CenterVertically,
+					SheetLabel("Questions")
+					FlowRow(
+						horizontalArrangement = Arrangement.spacedBy(6.dp),
+						verticalArrangement = Arrangement.spacedBy(6.dp),
 					) {
-						Checkbox(checked = row.on, onCheckedChange = null)
-						Text(row.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-						Text(
-							countText(row.count),
-							style = MaterialTheme.typography.labelMedium,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-						)
+						for (chip in questionChips(offer.counts, selection)) {
+							FilterChip(
+								selected = chip.on,
+								onClick = hapticClick {
+									selection = selection.copy(questions = toggled(selection.questions, chip.question))
+								},
+								label = { Text(chip.label, maxLines = 1, softWrap = false) },
+							)
+						}
+					}
+					SheetLabel("Include")
+					for (row in includeRows(offer.counts, selection)) {
+						Row(
+							Modifier.fillMaxWidth()
+								.clickable(onClick = hapticClick { selection = selection.copy(include = toggled(selection.include, row.include)) }),
+							horizontalArrangement = Arrangement.spacedBy(10.dp),
+							verticalAlignment = Alignment.CenterVertically,
+						) {
+							Checkbox(checked = row.on, onCheckedChange = null)
+							Text(row.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+							Text(
+								countText(row.count),
+								style = MaterialTheme.typography.labelMedium,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+							)
+						}
 					}
 				}
 				OutlinedCard(Modifier.fillMaxWidth()) {

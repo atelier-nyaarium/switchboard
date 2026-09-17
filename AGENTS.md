@@ -165,10 +165,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../GatewayRegistry.kt` - the Router's roster as the phone holds it: provenance, per-Gateway answers, and the reads the views use; `docs/console.md` holds the rules
 - `android/.../PhoneIdentity.kt` / `PhoneBootstrap.kt` / `PhoneAmbient.kt` - the one door for identity facts, the boot value it publishes, and the ambient record (clock, entropy, ids, timer)
 - `android/.../SandboxSeeder.kt` / `SandboxGateways.kt` / `SandboxModules.kt` / `SandboxFacets.kt` /
-  `SandboxFacetRules.kt` - the emulator build's seam: `isSandbox`, the identity facts a sandbox boot needs,
-  the canned state it publishes, the Gateway answers as ports rather than sockets, one canned module per
-  path, the invented drill-in data, and the rules that turn it into answers. `docs/testing.md` holds the
-  case table and what it cannot show
+  `SandboxFacetRules.kt` / `SandboxAsk.kt` - the emulator build's seam: `isSandbox`, the identity facts a
+  sandbox boot needs, the canned state it publishes, the Gateway answers as ports rather than sockets, one
+  canned module per path, the invented drill-in data and the rules that turn it into answers, and the Ask
+  scope answers and recorded state built over the same canned modules. `docs/testing.md` holds the case
+  table and what it cannot show
   - **The drill-in rules are the plugin's, pinned by `tests/fixtures/workspace-facets/vectors.json`:**
     `scripts/gen-facet-vectors.ts` runs `src/mcp/workspace/facets.ts` over invented inputs and writes the
     corpus, `workspace-facet-vectors.test.ts` replays it against the plugin, `SandboxFacetVectorsTest` runs
@@ -317,7 +318,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     the other callers still pass one. A read that fills a per-module cache is not fenced at all, since
     nothing an older answer could overwrite exists. A read a screen draws is not fenced either: it lands
     through its `PublishedViews` showing.
-- `android/.../WindowOps.kt` / `WindowRules.kt` / `WindowRequests.kt` / `SymbolViews.kt` / `KnowledgeRules.kt` / `SessionRequests.kt` / `RawFileOps.kt` /
+- `android/.../WindowOps.kt` / `WindowRules.kt` / `WindowRequests.kt` / `SymbolViews.kt` / `KnowledgeRules.kt` /
+  `AskRules.kt` / `AskedStore.kt` / `AskOps.kt` / `SessionRequests.kt` / `RawFileOps.kt` /
   `RawFileRules.kt` / `WorkspaceFileOps.kt` / `FileOpRules.kt` / `FacetRules.kt` / `CodePaint.kt` / `HeldEdits.kt` / `PublishedViews.kt` /
   `WorkspaceDraftStore.kt` / `WorkspacePorts.kt` / `WorkspaceFileTable.kt` / `WorkspaceNav.kt` / `workspace/` - a
   conversation's Files: the open windows, the raw files being edited, the file operations, their drafts, the
@@ -343,6 +345,23 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A message the phone composes for a session goes through `SessionRequests`:** claimed by address, kind
     and subject before it is sent, so a repeat tap sends nothing while one is out. Agent Apply and a
     knowledge Ask both take it; a new composed message is a `RequestKind`, not a new guard.
+  - **Every decision `workspace/AskSheet.kt` and `workspace/KnowledgeSection.kt` draw is in `AskRules`,
+    none in a Composable:** the defaults, the counts, what a send picks, the containment order, the
+    message text and its budget, and the progress and row words, so a JVM test reaches every one.
+  - **One message per send holds the whole tree; there is no preview:** the sheet's counts are what the
+    owner checks before sending, as the owner worded work for a subagent.
+  - **A pair in `AskedStore` clears when its answer's `createdAt` moves from the value the read the send
+    used carried, never by comparing clocks:** `AskedStore.settle` compares only that stamped value; the
+    phone's clock enters nowhere but the 24-hour expiry.
+  - **An unknown send outcome keeps what was held, never drops it:** `Submitted.Unknown` answers a send
+    that threw, so it may still have landed. `AskOps.send` leaves the send it already recorded in
+    `AskedStore`; `WindowRequests.ask` leaves the ask it already held. Only `Submitted.Failed` and
+    `Submitted.AlreadySending` clear them: `AskedStore` always withdraws, and `WindowRequests` withdraws
+    too, unless an `AlreadySending` collision has something to restore.
+  - **A foreground re-read walks what `AskOps` counts as shown, never the `PublishedViews` map:**
+    `keepScope` increments and decrements its own count per key, and `onForeground`, while any pair is
+    out, re-reads only those keys' `knowledgeScope`; nothing enumerates `PublishedViews` itself, whose map
+    can hold a key nothing currently shows.
   - **Keyed by SESSION, never by Gateway:** two sessions of one Gateway hold different workspaces, so
     a Gateway-keyed map serves one session's span for the other. The fence, the draft filenames and
     the held maps all take the qualified session address.
