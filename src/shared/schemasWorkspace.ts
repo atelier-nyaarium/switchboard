@@ -565,6 +565,18 @@ export const KnowledgeScopeAnswerSchema = z
 	})
 	.meta({ id: "WorkspaceKnowledgeScopeAnswer" });
 
+export const PaintTextAnswerSchema = z
+	.object({
+		kind: z.literal("paintText"),
+		path: z.string().max(512),
+		/** The same hash a `read` answers for its text, so the phone matches this to what it holds. */
+		textHash: z.string().min(1).max(128),
+		/** Null when the module is unowned or the text does not parse. */
+		spans: z.array(LineSpansSchema).nullable(),
+		reason: z.string().max(2048).optional(),
+	})
+	.meta({ id: "WorkspacePaintTextAnswer" });
+
 /** Listing over cap, refused whole. */
 export const TooLargeAnswerSchema = z
 	.object({
@@ -588,6 +600,7 @@ export const WorkspaceOpAnswerSchema = z.discriminatedUnion("kind", [
 	SymbolFacetAnswerSchema,
 	FileHistoryAnswerSchema,
 	KnowledgeScopeAnswerSchema,
+	PaintTextAnswerSchema,
 	TooLargeAnswerSchema,
 ]);
 
@@ -618,5 +631,6 @@ export type SymbolFacetAnswer = z.infer<typeof SymbolFacetAnswerSchema>;
 export type FileHistoryAnswer = z.infer<typeof FileHistoryAnswerSchema>;
 export type ScopeSymbol = z.infer<typeof ScopeSymbolSchema>;
 export type KnowledgeScopeAnswer = z.infer<typeof KnowledgeScopeAnswerSchema>;
+export type PaintTextAnswer = z.infer<typeof PaintTextAnswerSchema>;
 export type TooLargeAnswer = z.infer<typeof TooLargeAnswerSchema>;
 export type WorkspaceOpAnswer = z.infer<typeof WorkspaceOpAnswerSchema>;

@@ -9,6 +9,7 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspacePaintTextAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolFacetAnswer
@@ -21,6 +22,8 @@ internal interface WorkspaceGateway {
 	suspend fun tree(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceTreeAnswer>
 
 	suspend fun file(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceReadAnswer>
+
+	suspend fun paintText(target: WorkspaceTarget, path: String, text: String): WorkspaceAnswer<WorkspacePaintTextAnswer>
 
 	suspend fun outline(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceOutlineAnswer>
 

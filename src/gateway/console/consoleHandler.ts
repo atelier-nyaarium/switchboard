@@ -292,6 +292,9 @@ export function createConsoleDispatcher({
 					includeLocals: op.includeLocals,
 				});
 
+			case "workspace_paint_text":
+				return workspaceOf(op.target, { kind: "paintText", path: op.path, text: op.text });
+
 			case "create_session":
 				return sessionLifecycle.createSession(op, conversationId, opId);
 

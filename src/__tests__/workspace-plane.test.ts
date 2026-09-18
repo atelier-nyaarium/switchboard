@@ -91,6 +91,20 @@ describe("reading a workspace op frame", () => {
 		}
 	});
 
+	it("takes a paintText op only with both a path and text", () => {
+		const paint = { kind: "paintText", path: "a.ts", text: "const x = 1;" };
+
+		expect(parseWorkspaceOpRequest(frame(paint))).toEqual({ reqId: "r", key: "k", op: paint });
+		expect(parseWorkspaceOpRequest(frame({ kind: "paintText", path: "a.ts" }))).toMatchObject({
+			reqId: "r",
+			refused: expect.any(String),
+		});
+		expect(parseWorkspaceOpRequest(frame({ kind: "paintText", text: "x" }))).toMatchObject({
+			reqId: "r",
+			refused: expect.any(String),
+		});
+	});
+
 	// Silence would hold the Gateway to its full timeout for an op an older plugin cannot read.
 	it("refuses an op it cannot read at once, and ignores only a frame with no request to answer", () => {
 		expect(parseWorkspaceOpRequest(frame({ kind: "delete", path: "a" }))).toMatchObject({

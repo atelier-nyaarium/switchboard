@@ -26,19 +26,30 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.atelier_nyaarium.switchboard.CodePalette
 import com.atelier_nyaarium.switchboard.RawEdit
 import com.atelier_nyaarium.switchboard.RawFileOps
 import com.atelier_nyaarium.switchboard.RawNotice
+import com.atelier_nyaarium.switchboard.RawPaint
 import com.atelier_nyaarium.switchboard.RawView
 import com.atelier_nyaarium.switchboard.WorkspaceTarget
 import com.atelier_nyaarium.switchboard.fileLines
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.noticeShown
+import com.atelier_nyaarium.switchboard.paintRuns
 import com.atelier_nyaarium.switchboard.rawSaveNotice
 import kotlinx.coroutines.launch
 
@@ -86,6 +97,7 @@ private fun RawEditor(
 ) {
 	val scope = rememberCoroutineScope()
 	val unsaved by ops.unsaved.collectAsState()
+	val paints by ops.paints.collectAsState()
 	var notice by remember(target.key, edit.path) { mutableStateOf<RawNotice?>(null) }
 	var busy by remember(target.key, edit.path) { mutableStateOf(false) }
 
@@ -123,7 +135,7 @@ private fun RawEditor(
 				}
 			}
 		}
-		RawField(edit, Modifier.weight(1f)) { ops.type(target, edit.path, it) }
+		RawField(edit, paints[target to edit.path], Modifier.weight(1f)) { ops.type(target, edit.path, it) }
 		noticeShown(notice, edit.shown)?.let { WorkspaceNotice(it) }
 		if (edit.edited) {
 			Row(
@@ -159,9 +171,10 @@ private fun RawEditor(
  * recreation: a whole file in saved instance state can exceed the parcel limit.
  */
 @Composable
-private fun RawField(edit: RawEdit, modifier: Modifier, onType: (String) -> Unit) {
+private fun RawField(edit: RawEdit, paint: RawPaint?, modifier: Modifier, onType: (String) -> Unit) {
 	var value by remember(edit.incarnation) { mutableStateOf(TextFieldValue(edit.shown)) }
 	if (value.text != edit.shown) value = TextFieldValue(edit.shown, TextRange(value.selection.start.coerceAtMost(edit.shown.length)))
+	val transformation = remember(paint) { rawPaintTransformation(paint) }
 
 	OutlinedTextField(
 		value = value,
@@ -171,9 +184,36 @@ private fun RawField(edit: RawEdit, modifier: Modifier, onType: (String) -> Unit
 		},
 		modifier = modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
 		textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
+		visualTransformation = transformation,
 		colors = OutlinedTextFieldDefaults.colors(
 			focusedBorderColor = MaterialTheme.colorScheme.primary,
 			unfocusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
 		),
 	)
 }
+
+/**
+ * Styles the field's text from its paint, never changes it: a stale paint, its text not the field's,
+ * draws plain rather than staining text it was never computed over.
+ */
+private fun rawPaintTransformation(paint: RawPaint?): VisualTransformation =
+	VisualTransformation { text ->
+		val runs = if (paint != null && paint.text == text.text) paintRuns(paint) else emptyList()
+		val annotated = buildAnnotatedString {
+			append(text.text)
+			for (run in runs) {
+				val style = CodePalette.styleOf(run.token)
+				addStyle(
+					SpanStyle(
+						color = Color(style.argb),
+						fontWeight = if (style.bold) FontWeight.Bold else null,
+						fontStyle = if (style.italic) FontStyle.Italic else null,
+						background = style.background?.let { Color(it) } ?: Color.Unspecified,
+					),
+					run.start,
+					run.end,
+				)
+			}
+		}
+		TransformedText(annotated, OffsetMapping.Identity)
+	}

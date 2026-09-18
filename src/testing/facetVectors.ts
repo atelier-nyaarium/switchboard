@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Session } from "@nyaa-lexicon/client";
+import { hashContent } from "@nyaa-lexicon/protocol";
 import { answerWorkspaceOp } from "../mcp/workspace/handlers.js";
 import type { FacetAnswer, KnowledgeCounts, SymbolFacet, WorkspaceOpResult } from "../shared/workspace-op.js";
 
@@ -318,6 +319,18 @@ function sessionOf(vector: FacetCase): () => Promise<Session> {
 		}),
 		outlineModule: async ({ module }: { module: string }) =>
 			vector.symbols.filter((symbol) => symbol.module === module).map(summaryOf),
+		// Structure only, per the module comment: empty but successful, so painting never counts a row plain.
+		moduleFacts: async ({ module }: { module: string }) => ({ module, known: false, reason: "notIndexed" }),
+		parseFacts: async ({ text }: { text: string }) => ({
+			ok: true,
+			contentHash: hashContent(text),
+			words: { keywords: [], builtins: [], literals: [] },
+			depth: "full",
+			declarations: [],
+			references: [],
+			literals: [],
+			comments: [],
+		}),
 	};
 	return async () => session as unknown as Session;
 }

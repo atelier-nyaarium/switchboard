@@ -4,14 +4,13 @@
 // The knowledge answer's counts come from these same reads, so a row counts what its drill-in lists.
 
 import type { Session } from "@nyaa-lexicon/client";
-import {
-	type DescribeResult,
-	type FoundComment,
-	parseSymbolId,
-	type StoredDeclaration,
-	type SymbolSummary,
-	type TypeHierarchy,
-	type UseFrom,
+import type {
+	DescribeResult,
+	FoundComment,
+	StoredDeclaration,
+	SymbolSummary,
+	TypeHierarchy,
+	UseFrom,
 } from "@nyaa-lexicon/protocol";
 import type {
 	FacetAnswer,
@@ -32,9 +31,9 @@ import {
 	servedGate,
 	tooLarge,
 } from "./handlerKit.js";
-import { highlightable, lineSpansOf, sliceSpans } from "./highlight.js";
 import { symbolHistoryOf } from "./history.js";
 import { loadWorkspaceFile } from "./loadFile.js";
+import { factsForModule, lineStartsOf, linesOf, paintBuffer, sliceSpans, spansFromFacts } from "./paint.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -168,9 +167,11 @@ function useRowOf(
 	};
 }
 
-/** Past the deadline, null. */
-function spansBy(context: OpContext, language: string, text: string): number[][] | null {
-	return Date.now() < context.deadline ? lineSpansOf(language, text) : null;
+/** Past the deadline, or the module cannot be painted, null. */
+async function spansBy(context: OpContext, session: Session, module: string, text: string): Promise<number[][] | null> {
+	if (Date.now() >= context.deadline) return null;
+	const outcome = await factsForModule(session, module, text, context.deadline);
+	return "reason" in outcome ? null : spansFromFacts(text, outcome.facts);
 }
 
 /** Each served module read once, withheld ones never opened. */
@@ -240,13 +241,11 @@ async function useRowsOf(
 		}
 	}
 
-	// Highlighting is synchronous, so after every await.
 	let plain = 0;
 	for (const [module, indexes] of byModule) {
 		const text = sources.get(module)?.text;
-		const language = written[indexes[0] as number]?.language;
-		if (text === undefined || !highlightable(language)) continue;
-		const spans = spansBy(context, language, text);
+		if (text === undefined) continue;
+		const spans = await spansBy(context, session, module, text);
 		for (const index of indexes) {
 			const row = rows[index] as FacetUse;
 			if (row.text === undefined) continue;
@@ -399,18 +398,61 @@ async function usesFromAnswerOf(context: OpContext, session: Session, symbolId: 
 	};
 }
 
+/** Where `signature` sits in `text`, bound to the summary's own lines so an identical rendered
+ * signature elsewhere in the module is never mistaken for this one. Null when it is not a literal
+ * slice there at all: a provider that reformats its rendering is not guessed at. */
+function signatureOffsetIn(
+	text: string,
+	lineStarts: readonly number[],
+	summary: SymbolSummary,
+	signature: string,
+): number | null {
+	if (summary.lines === undefined) return null;
+	const from = lineStarts[summary.lines.start] ?? text.length;
+	const to = lineStarts[summary.lines.end + 1] ?? text.length;
+	const at = text.indexOf(signature, from);
+	return at !== -1 && at + signature.length <= to ? at : null;
+}
+
+/** Each module's members painted from ONE `factsForModule` call, never one per member. */
 async function membersAnswerOf(context: OpContext, session: Session, symbolId: string): Promise<FacetOutcome> {
 	const gate = servedGate(context.root);
 	const described = await byDeadline(context.deadline, () => session.describe({ symbolId }));
 	if (described === null) return { refused: "no symbol with that id is indexed" };
-	let plain = 0;
 	const served = described.members.filter((summary) => shown(gate, summary) !== undefined);
+
+	const byModule = new Map<string, SymbolSummary[]>();
+	for (const summary of served) {
+		const list = byModule.get(summary.module);
+		if (list === undefined) byModule.set(summary.module, [summary]);
+		else list.push(summary);
+	}
+
+	const spansOf = new Map<string, number[][]>();
+	for (const [module, summaries] of byModule) {
+		if (Date.now() >= context.deadline) break;
+		const absolute = gate.module(module);
+		const loaded = absolute === null ? null : loadWorkspaceFile(absolute, module);
+		if (!loaded?.ok) continue;
+		const outcome = await factsForModule(session, module, loaded.file.text, context.deadline);
+		if ("reason" in outcome) continue;
+		const buffer = paintBuffer(loaded.file.text, outcome.facts);
+		const lineStarts = lineStartsOf(loaded.file.text);
+		for (const summary of summaries) {
+			const signature = facetSymbolOf(summary).signature;
+			if (signature === undefined) continue;
+			const at = signatureOffsetIn(loaded.file.text, lineStarts, summary, signature);
+			if (at === null) continue;
+			spansOf.set(summary.symbolId, linesOf(signature, buffer.slice(at, at + signature.length)));
+		}
+	}
+
+	let plain = 0;
 	const members = served.map((summary): FacetSymbol => {
 		const member = facetSymbolOf(summary);
-		const language = parseSymbolId(summary.symbolId)?.language;
-		if (member.signature === undefined || !highlightable(language)) return member;
-		const signatureSpans = spansBy(context, language, member.signature);
-		if (signatureSpans === null) {
+		if (member.signature === undefined) return member;
+		const signatureSpans = spansOf.get(summary.symbolId);
+		if (signatureSpans === undefined) {
 			plain++;
 			return member;
 		}

@@ -133,6 +133,7 @@ object Protocol {
 			const val WORKSPACE_SYMBOL_FACET: String = "workspace_symbol_facet"
 			const val WORKSPACE_FILE_HISTORY: String = "workspace_file_history"
 			const val WORKSPACE_KNOWLEDGE_SCOPE: String = "workspace_knowledge_scope"
+			const val WORKSPACE_PAINT_TEXT: String = "workspace_paint_text"
 			const val CROSS_DOMAIN_LISTEN: String = "cross_domain_listen"
 			const val CROSS_DOMAIN_REQUEST: String = "cross_domain_request"
 			const val CROSS_DOMAIN_CONFIRM: String = "cross_domain_confirm"
@@ -449,6 +450,14 @@ sealed class ConsoleOp {
 		val target: String,
 		val scope: WorkspaceKnowledgeScopeTarget,
 		val includeLocals: Boolean,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("workspace_paint_text")
+	data class WorkspacePaintText(
+		val target: String,
+		val path: String,
+		val text: String,
 	) : ConsoleOp()
 
 	@Serializable
@@ -2583,6 +2592,16 @@ data class WorkspaceTooLargeAnswer(
 	val kind: String = "tooLarge",
 	val rows: Long,
 	val bytes: Long? = null,
+)
+
+@Serializable
+data class WorkspacePaintTextAnswer(
+	@EncodeDefault
+	val kind: String = "paintText",
+	val path: String,
+	val textHash: String,
+	val spans: List<List<Long>>? = null,
+	val reason: String? = null,
 )
 
 @Serializable

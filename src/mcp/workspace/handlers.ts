@@ -20,9 +20,11 @@ import {
 	type KnowledgeAnswer,
 	type KnowledgeCounts,
 	type KnowledgeEntry,
+	MAX_RAW_EDIT_BYTES,
 	MAX_TREE_ENTRIES,
 	MAX_WORKSPACE_OP_BYTES,
 	type OutlineSymbol,
+	type PaintTextAnswer,
 	type SaveSpanAnswer,
 	type SymbolSourceAnswer,
 	type TreeEntry,
@@ -43,11 +45,11 @@ import {
 	servedGate,
 	withinCap,
 } from "./handlerKit.js";
-import { highlightable, lineSpansOf } from "./highlight.js";
 import { fileHistoryOf } from "./history.js";
 import { knowledgeScopeOf } from "./knowledgeScope.js";
-import { loadWorkspaceFile } from "./loadFile.js";
+import { hashBytes, loadWorkspaceFile } from "./loadFile.js";
 import { fileStateOf, mutateFile, readOnlyReason } from "./mutateFile.js";
+import { factsForModule, spansFromFacts, spansOfSpan } from "./paint.js";
 
 export type { HandlerDeps } from "./handlerKit.js";
 
@@ -237,22 +239,44 @@ function sourceAnswerOf(symbolId: string, found: Extract<SymbolSource, { found: 
 	};
 }
 
+/**
+ * Painted from the whole module, never the isolated span: a member's text alone rarely parses on its
+ * own. Only while a fresh read hashes to what the daemon read for this span, or the two answers may
+ * disagree about what `range` addresses.
+ */
+async function spanSpans(
+	root: string,
+	module: string,
+	session: Session,
+	found: Extract<SymbolSource, { found: true }>,
+	deadline: number,
+): Promise<number[][] | undefined> {
+	if (Date.now() >= deadline) return undefined;
+	const place = confine(root, module);
+	if (!place.ok) return undefined;
+	const loaded = loadWorkspaceFile(place.absolute, module);
+	if (!loaded.ok || hashContent(loaded.file.text) !== found.contentHash) return undefined;
+	const outcome = await factsForModule(session, module, loaded.file.text, deadline);
+	if ("reason" in outcome) return undefined;
+	return spansOfSpan(loaded.file.text, outcome.facts, found.range, found.text);
+}
+
 async function symbolSourceOf(
 	deps: HandlerDeps,
 	root: string,
 	symbolId: string,
 	deadline: number,
 ): Promise<WorkspaceOpResult> {
-	if (confinedModule(root, symbolId) === null) return refused("that symbol's module is not served");
+	const module = confinedModule(root, symbolId);
+	if (module === null) return refused("that symbol's module is not served");
 	const session = await byDeadline(deadline, deps.session);
 	const answer = await byDeadline(deadline, () => session.symbolSource({ symbolId }));
 	if (!answer.found) {
 		return answer.stale === true ? { ok: false, failure: "stale", detail: answer.reason } : refused(answer.reason);
 	}
 	const bare: WorkspaceOpResult = { ok: true, answer: sourceAnswerOf(symbolId, answer) };
-	const language = parseSymbolId(symbolId)?.language;
-	const spans = highlightable(language) && Date.now() < deadline ? lineSpansOf(language, answer.text) : null;
-	if (spans === null) return bare;
+	const spans = await spanSpans(root, module, session, answer, deadline);
+	if (spans === undefined) return bare;
 	const lit = withinCap({ ok: true, answer: { ...sourceAnswerOf(symbolId, answer), spans } });
 	// Never costs the source.
 	return lit.ok ? lit : bare;
@@ -415,6 +439,37 @@ function legacyKnowledgeText(documentation: string | undefined, answers: Knowled
 	return [documentation, ...recorded].filter((part) => part !== undefined).join("\n\n");
 }
 
+/**
+ * The phone's own held text, painted whether or not it matches disk. Never a guess: an unowned
+ * module or a refused parse answers `spans: null` with the reason, not a throw.
+ */
+async function paintTextOf(
+	deps: HandlerDeps,
+	root: string,
+	written: string,
+	text: string,
+	deadline: number,
+): Promise<WorkspaceOpResult> {
+	const place = confine(root, written);
+	if (!place.ok) return refused(place.refusal.detail);
+	if (place.relative === "") return refused("a path is required");
+	const bytes = Buffer.byteLength(text, "utf8");
+	if (bytes > MAX_RAW_EDIT_BYTES) {
+		return refused(`the text is ${bytes} bytes, over the ${MAX_RAW_EDIT_BYTES}-byte editing limit`);
+	}
+	const bare: PaintTextAnswer = {
+		kind: "paintText",
+		path: place.relative,
+		textHash: hashBytes(Buffer.from(text, "utf8")),
+		spans: null,
+	};
+	if (Date.now() >= deadline) return { ok: true, answer: bare };
+	const session = await byDeadline(deadline, deps.session);
+	const outcome = await factsForModule(session, place.relative, text, deadline);
+	if ("reason" in outcome) return { ok: true, answer: { ...bare, reason: outcome.reason.slice(0, 2048) } };
+	return { ok: true, answer: { ...bare, spans: spansFromFacts(text, outcome.facts) } };
+}
+
 function answerOf(context: OpContext, op: WorkspaceOp): WorkspaceOpResult | Promise<WorkspaceOpResult> {
 	const { deps, root, deadline } = context;
 	switch (op.kind) {
@@ -440,6 +495,8 @@ function answerOf(context: OpContext, op: WorkspaceOp): WorkspaceOpResult | Prom
 			return fileHistoryOf(context, op.path);
 		case "knowledgeScope":
 			return knowledgeScopeOf(context, op.scope, op.includeLocals);
+		case "paintText":
+			return paintTextOf(deps, root, op.path, op.text, deadline);
 	}
 }
 

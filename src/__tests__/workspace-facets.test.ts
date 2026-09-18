@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Session } from "@nyaa-lexicon/client";
+import { hashContent } from "@nyaa-lexicon/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { answerWorkspaceOp } from "../mcp/workspace/handlers.js";
 import { CODE_TOKENS } from "../shared/schemasWorkspace.js";
@@ -88,7 +89,67 @@ const usesOfPort = [
 
 type Methods = Record<string, (params: Record<string, unknown>) => unknown>;
 
-/** Unlisted reads throw. */
+/** Empty but successful, so a module nothing here cares about still paints (and stays out of `plain`). */
+function emptyFacts(text: string) {
+	return {
+		ok: true as const,
+		contentHash: hashContent(text),
+		words: { keywords: [], builtins: [], literals: [] },
+		depth: "full" as const,
+		declarations: [],
+		references: [],
+		literals: [],
+		comments: [],
+	};
+}
+
+/** The paint facts a real Lexicon would answer for the fixed workspace text, by module. */
+function paintFactsFor(module: string, text: string) {
+	if (module === "src/use.ts") {
+		return {
+			...emptyFacts(text),
+			references: [
+				{
+					role: "typeUse",
+					range: { start: { line: 1, character: 13 }, end: { line: 1, character: 17 } },
+					bound: true,
+				},
+				{
+					role: "typeUse",
+					range: { start: { line: 5, character: 11 }, end: { line: 5, character: 15 } },
+					bound: true,
+				},
+			],
+		};
+	}
+	if (module === "src/lit.ts") {
+		return {
+			...emptyFacts(text),
+			comments: [{ range: { start: { line: 0, character: 0 }, end: { line: 1, character: 7 } } }],
+			literals: [
+				{
+					kind: "string" as const,
+					range: { start: { line: 2, character: 10 }, end: { line: 2, character: 1_512 } },
+				},
+			],
+		};
+	}
+	if (module === "src/lib.ts") {
+		return {
+			...emptyFacts(text),
+			declarations: [
+				// "open" in "\topen(): void;", the workspace's fixed src/lib.ts, line 1.
+				{
+					kind: "function" as const,
+					range: { start: { line: 1, character: 1 }, end: { line: 1, character: 5 } },
+				},
+			],
+		};
+	}
+	return emptyFacts(text);
+}
+
+/** Unlisted reads throw, except the paint facts, which default to matching the fixed workspace text. */
 function sessionOf(methods: Methods, asked: string[] = []): () => Promise<Session> {
 	const names = [
 		"declarationOf",
@@ -101,13 +162,19 @@ function sessionOf(methods: Methods, asked: string[] = []): () => Promise<Sessio
 		"knowledgeScope",
 		"outlineModule",
 		"recallAnswer",
+		"moduleFacts",
+		"parseFacts",
 	];
+	const defaults: Methods = {
+		moduleFacts: (params) => ({ module: String(params.module), known: false, reason: "notIndexed" }),
+		parseFacts: (params) => paintFactsFor(String(params.module), String(params.text)),
+	};
 	const session = Object.fromEntries(
 		names.map((name) => [
 			name,
 			async (params: Record<string, unknown>) => {
 				asked.push(`${name} ${String(params.module ?? params.symbolId ?? "")}`);
-				const method = methods[name];
+				const method = methods[name] ?? defaults[name];
 				if (method === undefined) throw new Error(`${name} was asked`);
 				return method(params);
 			},
@@ -285,8 +352,8 @@ describe("every use of a symbol", () => {
 				},
 			);
 
-			// No language, no count.
-			expect(facet).toMatchObject({ plain: 1 });
+			// Past the deadline, both modules' attempts count as plain.
+			expect(facet).toMatchObject({ plain: 2 });
 			expect(facet?.kind === "uses" && facet.rows.map((row) => [row.text !== undefined, row.spans])).toEqual([
 				[true, undefined],
 				[true, undefined],
@@ -549,6 +616,63 @@ describe("declared members", () => {
 		);
 
 		expect(facet?.kind === "members" && facet.members.map((member) => member.symbolId)).toEqual([PORT_OPEN]);
+	});
+
+	it("paints every member's signature from one shared module read, not one daemon round trip each", async () => {
+		const memberCount = 100;
+		const lines = ["class Big {"];
+		const members: unknown[] = [];
+		for (let index = 0; index < memberCount; index++) {
+			lines.push(`\tm${index}(): void;`);
+			members.push({
+				...summary(
+					`lexicon typescript src/big.ts Big#m${index}().`,
+					`m${index}`,
+					"method",
+					"src/big.ts",
+					index + 1,
+				),
+				signature: `m${index}(): void`,
+			});
+		}
+		lines.push("}");
+		const root = workspace();
+		fs.writeFileSync(path.join(root, "src", "big.ts"), `${lines.join("\n")}\n`);
+
+		const asked: string[] = [];
+		const result = await answerWorkspaceOp(
+			{
+				root: () => root,
+				session: sessionOf(
+					{
+						...declared,
+						describe: () => ({ members }),
+						moduleFacts: () => ({ module: "src/big.ts", known: false, reason: "notIndexed" }),
+						parseFacts: () => ({
+							ok: true,
+							contentHash: "irrelevant",
+							words: { keywords: [], builtins: [], literals: [] },
+							depth: "full",
+							declarations: [],
+							references: [],
+							literals: [],
+							comments: [],
+						}),
+					},
+					asked,
+				),
+			},
+			{ kind: "symbolFacet", symbolId: PORT, facet: { kind: "members" } },
+		);
+
+		const facet = result.ok && result.answer.kind === "symbolFacet" ? result.answer.facet : undefined;
+		expect(facet?.kind === "members" && facet.plain).toBe(0);
+		expect(facet?.kind === "members" && facet.members.length).toBe(memberCount);
+		expect(facet?.kind === "members" && facet.members.every((member) => member.signatureSpans !== undefined)).toBe(
+			true,
+		);
+		const daemonCalls = asked.filter((call) => call.startsWith("moduleFacts") || call.startsWith("parseFacts"));
+		expect(daemonCalls.length).toBeLessThanOrEqual(2);
 	});
 });
 

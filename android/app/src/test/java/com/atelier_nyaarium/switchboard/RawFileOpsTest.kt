@@ -1,11 +1,13 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.crypto.sha256Hex
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFacet
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspacePaintTextAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
@@ -40,7 +42,17 @@ class RawFileOpsTest {
 		var unreadable = false
 		val writeHolds = mutableListOf<TestHold>()
 		val readHolds = mutableListOf<TestHold>()
+		val paintHolds = mutableListOf<TestHold>()
 		val writes = mutableListOf<String>()
+		val paints = mutableListOf<String>()
+
+		/** Real spans for `text`; each line a made-up single keyword token, so a landed paint is visible. */
+		override suspend fun paintText(target: WorkspaceTarget, path: String, text: String): WorkspaceAnswer<WorkspacePaintTextAnswer> {
+			paints += text
+			paintHolds.removeFirstOrNull()?.pass()
+			val lines = text.split("\n").map { listOf(0L, it.length.toLong(), 0L) }
+			return WorkspaceAnswer.Read(WorkspacePaintTextAnswer(path = path, textHash = sha256Hex(text), spans = lines))
+		}
 
 		override suspend fun file(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceReadAnswer> {
 			// Answered before the hold, so a held answer is wholly the older one.
@@ -114,13 +126,32 @@ class RawFileOpsTest {
 		override suspend fun send(address: String, text: String) = error("not reached")
 	}
 
+	/** Replaces a key's pending task rather than queuing it, as the debounce it stands in for does. */
+	private class FakePaintTimer : RawPaintTimer {
+		private val pending = mutableMapOf<Any, suspend () -> Unit>()
+
+		override fun debounce(key: Any, delayMs: Long, task: suspend () -> Unit) {
+			pending[key] = task
+		}
+
+		fun pendingCount(): Int = pending.size
+
+		suspend fun runDue() {
+			val due = pending.values.toList()
+			pending.clear()
+			due.forEach { it() }
+		}
+	}
+
 	private lateinit var dir: File
 	private lateinit var files: FakeFiles
+	private lateinit var timer: FakePaintTimer
 	private lateinit var ops: RawFileOps
 	private val one = WorkspaceTarget(gatewayId = "sakura", address = "home.sakura.host.aaa")
 
-	private fun opsOver(over: File = dir, gateway: WorkspaceGateway? = files) =
-		RawFileOps(Host(gateway), WorkspaceDraftStore(over, CoroutineScope(Dispatchers.Unconfined)))
+	// A fresh timer per call by default, so two `RawFileOps` over the same path never share a debounce.
+	private fun opsOver(over: File = dir, gateway: WorkspaceGateway? = files, paintTimer: RawPaintTimer = FakePaintTimer()) =
+		RawFileOps(Host(gateway), WorkspaceDraftStore(over, CoroutineScope(Dispatchers.Unconfined)), paintTimer)
 
 	private fun edit(held: RawFileOps = ops) = held.editOf(one, PATH)
 
@@ -128,7 +159,8 @@ class RawFileOpsTest {
 	fun setUp() {
 		dir = Files.createTempDirectory("raw-files-").toFile()
 		files = FakeFiles()
-		ops = opsOver()
+		timer = FakePaintTimer()
+		ops = opsOver(paintTimer = timer)
 	}
 
 	@After
@@ -252,10 +284,16 @@ class RawFileOpsTest {
 	fun `an unknown write that read back unchanged is not written, and one that read back moved is stale`() = runBlocking {
 		ops.open(one, PATH)
 		ops.type(one, PATH, "const x = 2;")
-		val nowhere = RawFileOps(Host(object : WorkspaceGateway by files {
-			override suspend fun mutateFile(target: WorkspaceTarget, mutation: WorkspaceFileMutation) =
-				WorkspaceAnswer.Read(WorkspaceFileMutationAnswer(path = PATH, outcome = "unknown", reason = "timeout: slow"))
-		}), WorkspaceDraftStore(dir, CoroutineScope(Dispatchers.Unconfined)))
+		val nowhere = RawFileOps(
+			Host(
+				object : WorkspaceGateway by files {
+					override suspend fun mutateFile(target: WorkspaceTarget, mutation: WorkspaceFileMutation) =
+						WorkspaceAnswer.Read(WorkspaceFileMutationAnswer(path = PATH, outcome = "unknown", reason = "timeout: slow"))
+				},
+			),
+			WorkspaceDraftStore(dir, CoroutineScope(Dispatchers.Unconfined)),
+			FakePaintTimer(),
+		)
 		nowhere.open(one, PATH)
 
 		assertEquals(RawSave.NotWritten("timeout: slow"), nowhere.save(one, PATH))
@@ -387,6 +425,84 @@ class RawFileOpsTest {
 		assertNull(ops.viewOf(one, PATH))
 	}
 
+	@Test
+	fun `opening paints, and a burst of keystrokes since sends one request, for the newest text`() = runBlocking {
+		ops.open(one, PATH)
+		assertEquals(1, timer.pendingCount())
+
+		ops.type(one, PATH, "const x = 12;")
+		ops.type(one, PATH, "const x = 123;")
+		ops.type(one, PATH, "const x = 1234;")
+		assertEquals(1, timer.pendingCount())
+
+		timer.runDue()
+
+		assertEquals(listOf("const x = 1234;"), files.paints)
+		assertEquals(listOf(listOf(0L, 15L, 0L)), ops.paintOf(one, PATH)?.lines)
+	}
+
+	@Test
+	fun `leaving and reopening refuses a paint answer sent before the leave, through the ticket`() = runBlocking {
+		ops.open(one, PATH)
+		timer.runDue()
+		val hold = TestHold().also { files.paintHolds += it }
+
+		ops.type(one, PATH, "const x = 2;")
+		val sending = async(Dispatchers.Default) { timer.runDue() }
+		hold.entered.await()
+
+		ops.leave(one, PATH)
+		ops.open(one, PATH)
+		val reopened = ops.paintOf(one, PATH)
+
+		hold.release()
+		sending.await()
+
+		assertEquals(reopened, ops.paintOf(one, PATH))
+	}
+
+	@Test
+	fun `a Refresh that adopts new text paints again without a keystroke`() = runBlocking {
+		ops.open(one, PATH)
+		timer.runDue()
+
+		files.files[PATH] = "const x = 9;"
+		assertNull(ops.adopt(one, PATH))
+		timer.runDue()
+
+		assertEquals(listOf("const x = 1;", "const x = 9;"), files.paints)
+		assertEquals("const x = 9;" to listOf(listOf(0L, 12L, 0L)), ops.paintOf(one, PATH)!!.let { it.text to it.lines })
+	}
+
+	@Test
+	fun `a foreground recheck that finds moved text paints again`() = runBlocking {
+		ops.open(one, PATH)
+		timer.runDue()
+
+		files.files[PATH] = "const x = 9;"
+		ops.recheck(one)
+		timer.runDue()
+
+		assertEquals(listOf("const x = 1;", "const x = 9;"), files.paints)
+		assertEquals("const x = 9;", ops.paintOf(one, PATH)?.text)
+	}
+
+	@Test
+	fun `a Discard that reverts typing paints again`() = runBlocking {
+		ops.open(one, PATH)
+		timer.runDue()
+
+		ops.type(one, PATH, "const x = 2;")
+		timer.runDue()
+		files.paints.clear()
+
+		ops.discard(one, PATH)
+		timer.runDue()
+
+		assertEquals(listOf("const x = 1;"), files.paints)
+		assertEquals("const x = 1;", ops.paintOf(one, PATH)?.text)
+	}
+
 	// Remove 2026-09-26, with `UNKNOWN_BASE`.
 	@Test
 	fun `typing from before bases were kept, reopened over a moved file, is stale and its save writes nothing`() =
@@ -412,6 +528,7 @@ class RawFileOpsTest {
 
 		assertNull(edit())
 		assertNull(ops.viewOf(one, PATH))
+		assertNull(ops.paintOf(one, PATH))
 		assertNull(opsOverAfterOpen().let { edit(it)?.draft })
 	}
 }

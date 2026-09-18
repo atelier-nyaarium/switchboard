@@ -43,16 +43,7 @@ const PLUGIN_MANIFEST_DIR = path.join("android", "app", "src", "main", "assets",
 const ENTRYPOINTS = [path.join("src", "main-mcp.ts"), path.join("src", "main-vault-askpass.ts")];
 const DIST_DIR = "dist";
 
-/** Unique to full grammars. */
-const FULL_GRAMMAR_SENTINELS = ["1C:Enterprise", "Augmented Backus-Naur Form", "Brainfuck", "Mathematica"];
-
-/** Catches bloat a name-based check misses. */
 export const MAX_PLUGIN_BUNDLE_BYTES = 1_400_000;
-
-/** Plugin registers a fixed set. */
-export function fullGrammarSentinels(bundle: string): string[] {
-	return FULL_GRAMMAR_SENTINELS.filter((name) => bundle.includes(name));
-}
 
 export function overBundleCeiling(bytes: number): number | null {
 	return bytes > MAX_PLUGIN_BUNDLE_BYTES ? bytes : null;
@@ -294,13 +285,6 @@ function main(argv: string[]): void {
 	}
 
 	const plugin = path.join(ROOT, DIST_DIR, "main-mcp.js");
-	const carried = fullGrammarSentinels(readFileSync(plugin, "utf8"));
-	if (carried.length > 0) {
-		if (!buildOnly) git(["checkout", "--", ...targets], ROOT);
-		console.error(`\nthe plugin bundle carries highlight.js's full language set (${carried.join(", ")})`);
-		process.exit(1);
-	}
-
 	const heavy = overBundleCeiling(statSync(plugin).size);
 	if (heavy !== null) {
 		if (!buildOnly) git(["checkout", "--", ...targets], ROOT);

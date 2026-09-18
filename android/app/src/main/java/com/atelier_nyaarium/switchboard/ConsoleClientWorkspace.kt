@@ -10,6 +10,7 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspacePaintTextAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolFacetAnswer
@@ -106,6 +107,14 @@ internal suspend fun ConsoleClient.workspaceFile(
 	target: String,
 	path: String,
 ): WorkspaceAnswer<WorkspaceReadAnswer> = workspaceRead(gatewayId, ConsoleOp.WorkspaceFile(target = target, path = path))
+
+internal suspend fun ConsoleClient.workspacePaintText(
+	gatewayId: String,
+	target: String,
+	path: String,
+	text: String,
+): WorkspaceAnswer<WorkspacePaintTextAnswer> =
+	workspaceRead(gatewayId, ConsoleOp.WorkspacePaintText(target = target, path = path, text = text))
 
 internal suspend fun ConsoleClient.workspaceOutline(
 	gatewayId: String,

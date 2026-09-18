@@ -491,7 +491,7 @@ no TTL.
     show: uses; targets beside the reference total; members; supertypes and subtypes; comments; commits.
   - A use in a file `confine` withholds is dropped before any read and counts nowhere, and so is one whose
     file or line is no longer on disk, since the index can be behind it. Each file holding a row is read,
-    outlined and highlighted once, then sliced per row.
+    outlined and painted once, then sliced per row.
   - Every id an answer carries is gated, not only the op's subject: a holder, a top level, a target, a
     member, a hierarchy node, an outline symbol and a scope symbol all name their own module. A row whose
     id is withheld is dropped; a `usesFrom` row whose TARGET is withheld keeps its use and reads as
@@ -505,11 +505,76 @@ no TTL.
   - `workspace_knowledge_scope` answers a symbol, a symbol with its members, or a file as a containment
     tree with every question's state, plus the root label, so a send can tell a rebound workspace.
   - An older Gateway refuses the kinds and an older plugin the ops; both reach the phone as `Refused`.
-- **Spans** (`src/mcp/workspace/highlight.ts`): code is highlighted in the plugin and leaves it as per-line
-  triples `[start, length, token]` in UTF-16 units, the token an index into `CODE_TOKENS`, which only
-  grows. A use row's spans cover its `text`; `symbolSource` and member signatures carry one list per line.
-  An unknown language answers no spans. Rows past the deadline go plain and are counted in `plain`.
-  `tests/fixtures/code-spans/vectors.json` pins text to triples.
+- **Spans** (`src/mcp/workspace/paint.ts`): code is painted from Lexicon's own facts, never a second
+  parser, and leaves it as per-line triples `[start, length, token]` in UTF-16 units, the token an index
+  into `CODE_TOKENS`, which only grows. `factsForModule` takes `moduleFacts`'s stored rows when they are
+  full depth and their `contentHash` matches the text being painted, otherwise falls through to
+  `parseFacts` with that text as the candidate. A module no provider owns, or a candidate that does not
+  parse, answers no spans at all, never a guess. A use row's spans cover its `text`; `symbolSource` paints
+  the whole module and slices the symbol's own range out of it, since a member's text alone rarely parses
+  standalone; the `members` facet does the same for every member's signature in one shared read (below).
+  Rows past the deadline go plain and are counted in `plain`. `tests/fixtures/code-spans/vectors.json`
+  pins real Lexicon facts to the triples they paint, and `workspace-paint.test.ts` pins the algorithm
+  against hand-built facts.
+  - **Every fact becomes a span, and the narrower one wins.** A declaration's kind, a reference's role and
+    a literal's kind each map to one `CODE_TOKENS` entry (below); every span from every fact is sorted
+    widest first, then painted in that order, so a span nested inside another overwrites exactly the cells
+    it covers. This is what a whole-body declaration needs: a kind with no name of its own (GDScript's
+    implicit file-level class, for one) reports its selection range as its whole body, and a literal or a
+    reference sitting inside it must still win. Ties break on start, then a fixed category order
+    (comment, literal, declaration, reference), so painting stays deterministic.
+  - **A position is clamped to its own line's content, `\r` excluded**, before it becomes a span: a fact
+    whose column runs past its line's end, whether reported that way or landing there after a stale range,
+    would otherwise bleed its token into the next line rather than stopping at the line it names.
+  - **A reference nested inside a string literal's range paints as `interpolation`**, not its own role,
+    since it is a piece of code sitting inside a piece of text. This TypeScript provider does not yet
+    extract a template literal's own text as a `string` fact (only a plain quoted string), so the case is
+    reachable today only through a language, or a future provider version, that does.
+  - **Keywords, builtins and literal words fill identifier-shaped runs no fact covers**, from the owning
+    provider's own vocabulary (`words`), after every fact has painted: a run already covered is left alone,
+    so a word inside a whole-body declaration's leftover paint is not recoloured a second time. A run
+    immediately preceded by `@` or `r#`, or enclosed in backticks, is left alone too, even when the word
+    itself is one of the provider's own keywords: a C# `@class`, a Rust raw `r#type` and a Kotlin
+    `` `class` `` are identifiers escaped out of meaning the keyword, not the keyword written plainly.
+  - **Punctuation and operators are always plain**: no `CODE_TOKENS` entry is produced for either, since
+    Lexicon's facts carry no operator role and no punctuation kind to paint from.
+  - **Every member's signature is sliced from one painted read of its module**, never one `factsForModule`
+    round trip per member: the drill-in groups the class's members by module, reads and paints each
+    module once, then finds each member's own rendered `signature` as a literal substring within that
+    member's own declared lines and slices the paint out from there. A signature a provider reformatted,
+    so it is not a literal slice of its module, is left plain rather than guessed at.
+
+  | Fact | Value | Token |
+  | --- | --- | --- |
+  | declaration kind | `class`, `interface`, `struct`, `enum`, `typeParameter`, `namespace`, `module`, `package`, `file` | `type` |
+  | declaration kind | `function`, `method`, `constructor`, `operator` | `function` |
+  | declaration kind | `field` | `attribute` |
+  | declaration kind | `property` | `property` |
+  | declaration kind | `variable`, `constant`, `event` | `variable` |
+  | declaration kind | `heading` | `section` |
+  | reference role | `call` | `function` |
+  | reference role | `typeUse`, `extends`, `implements`, `instantiate` | `type` |
+  | reference role | `read`, `write`, `import`, `export` | `variable` |
+  | reference role | any, nested inside a string literal's range | `interpolation` |
+  | literal kind | `string` | `string` |
+  | literal kind | `number` | `number` |
+  | literal kind | `boolean` | `literal` |
+  | comment | (every comment fact) | `comment` |
+  | word | a provider's own `keywords` | `keyword` |
+  | word | a provider's own `builtins` | `builtin` |
+  | word | a provider's own `literals` | `literal` |
+
+  Every other `CODE_TOKENS` entry (`escape`, `regexp`, `doctag`, `meta`, `params`, `operator`,
+  `punctuation`, `tag`, `name`, `selector`, `bullet`, `emphasis`, `strong`, `addition`, `deletion`, `link`,
+  `quote`, `code`) is reserved wire vocabulary that this painter does not currently produce, since Lexicon's
+  facts carry nothing that maps to it; a future fact could still use one.
+- **Painting held text** (`workspace_paint_text` / `{ kind: "paintText" }`): a read-class op carrying the
+  phone's own held text, which may not match disk, since the raw editor paints what the owner is looking
+  at rather than what `read` last answered. The path is confined and gated exactly as `read`'s is; text
+  over `MAX_RAW_EDIT_BYTES` is refused before anything is asked. The answer carries `textHash`, the same
+  hash a `read` answers for its text, so the phone can tell its held text apart from what it last read;
+  `spans` is `null` with a `reason` when nothing paints, which is a normal successful answer, not a
+  refusal.
 - **One size rule** (`withinCap`): every workspace answer is measured as serialised UTF-8 before framing
   and refused whole over `MAX_WORKSPACE_OP_BYTES`, never truncated. The three drill-ins answer
   `WorkspaceTooLargeAnswer` with `rows` and `bytes`, which `listingOf` reads as `WorkspaceListing.TooLarge`;

@@ -71,6 +71,11 @@ export function parseWorkspaceOpRequest(msg: Record<string, unknown>): ParsedWor
 			? { reqId, key, op: { kind, scope: parsed.data, includeLocals } }
 			: malformed;
 	}
+	if (kind === "paintText") {
+		return typeof path === "string" && typeof text === "string"
+			? { reqId, key, op: { kind, path, text } }
+			: malformed;
+	}
 	return malformed;
 }
 

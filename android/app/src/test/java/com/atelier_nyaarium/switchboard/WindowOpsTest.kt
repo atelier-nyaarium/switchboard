@@ -59,6 +59,8 @@ class WindowOpsTest {
 			return WorkspaceAnswer.Read(WorkspaceReadAnswer(path = path, text = "whole file", lines = 1))
 		}
 
+		override suspend fun paintText(target: WorkspaceTarget, path: String, text: String) = error("not reached")
+
 		override suspend fun outline(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceOutlineAnswer> {
 			asked += target
 			return WorkspaceAnswer.Read(WorkspaceOutlineAnswer(path = path, symbols = emptyList()))

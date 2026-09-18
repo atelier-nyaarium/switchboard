@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Session } from "@nyaa-lexicon/client";
-import { composeSymbolId } from "@nyaa-lexicon/protocol";
+import { composeSymbolId, hashContent } from "@nyaa-lexicon/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { answerWorkspaceOp, type HandlerDeps } from "../mcp/workspace/handlers.js";
 import { CODE_TOKENS } from "../shared/schemasWorkspace.js";
@@ -78,6 +78,8 @@ function fakeSession(answers: Partial<Record<string, unknown>>): () => Promise<S
 			findReferences: async () => answers.findReferences ?? { references: [], total: 0, truncated: false },
 			usesFrom: async () => answers.usesFrom ?? { references: [], total: 0, truncated: false },
 			findComments: async () => answers.findComments ?? { comments: [], total: 0, truncated: false },
+			moduleFacts: async () => answers.moduleFacts,
+			parseFacts: async () => answers.parseFacts,
 		}) as unknown as Session;
 }
 
@@ -332,23 +334,71 @@ describe("the index-backed reads", () => {
 		);
 	});
 
-	it("highlights a source in its id's language, and drops the spans rather than the source when both do not fit", async () => {
-		const found = (text: string) =>
-			fakeSession({
-				symbolSource: { found: true, module: "src/app.ts", name: "f", text, range: SPAN, spanHash: "h" },
+	it("paints a source from Lexicon's facts, and drops the spans rather than the source when both do not fit", async () => {
+		const wholeRange = (text: string) => {
+			const lines = text.split("\n");
+			return {
+				start: { line: 0, character: 0 },
+				end: { line: lines.length - 1, character: (lines.at(-1) ?? "").length },
+			};
+		};
+		const sourceOf = async (text: string, parseFacts: Record<string, unknown>) => {
+			const root = workspace();
+			fs.writeFileSync(path.join(root, "src", "app.ts"), text);
+			const session = fakeSession({
+				symbolSource: {
+					found: true,
+					module: "src/app.ts",
+					name: "f",
+					text,
+					range: wholeRange(text),
+					contentHash: hashContent(text),
+					spanHash: "h",
+				},
+				moduleFacts: { module: "src/app.ts", known: false, reason: "notIndexed" },
+				parseFacts: {
+					ok: true,
+					contentHash: hashContent(text),
+					words: { keywords: [], builtins: [], literals: [] },
+					depth: "full",
+					declarations: [],
+					references: [],
+					literals: [],
+					comments: [],
+					...parseFacts,
+				},
 			});
-		const sourceOf = async (text: string) => {
-			const result = await ask(workspace(), { kind: "symbolSource", symbolId: SERVED_ID }, found(text));
+			const result = await ask(root, { kind: "symbolSource", symbolId: SERVED_ID }, session);
 			return result.ok && result.answer.kind === "symbolSource" ? result.answer : undefined;
 		};
 
-		expect((await sourceOf("function f() {\n\treturn 1;\n}"))?.spans).toEqual([
+		expect(
+			(
+				await sourceOf("function f() {\n\treturn 1;\n}", {
+					words: { keywords: ["function", "return"], builtins: [], literals: [] },
+					declarations: [
+						{
+							kind: "function",
+							range: { start: { line: 0, character: 9 }, end: { line: 0, character: 10 } },
+						},
+					],
+					literals: [
+						{ kind: "number", range: { start: { line: 1, character: 8 }, end: { line: 1, character: 9 } } },
+					],
+				})
+			)?.spans,
+		).toEqual([
 			[0, 8, CODE_TOKENS.indexOf("keyword"), 9, 1, CODE_TOKENS.indexOf("function")],
 			[1, 6, CODE_TOKENS.indexOf("keyword"), 8, 1, CODE_TOKENS.indexOf("number")],
 			[],
 		]);
+
 		const crowded = "1\n".repeat(450_000);
-		const answer = await sourceOf(crowded);
+		const crowdedLiterals = Array.from({ length: 450_000 }, (_, line) => ({
+			kind: "number",
+			range: { start: { line, character: 0 }, end: { line, character: 1 } },
+		}));
+		const answer = await sourceOf(crowded, { literals: crowdedLiterals });
 		expect(answer?.text).toBe(crowded);
 		expect(answer).not.toHaveProperty("spans");
 	});
@@ -566,6 +616,74 @@ describe("the index-backed reads", () => {
 		expect((await answerOf(member))?.container).toBe("RoutineSchema");
 		expect(await answerOf(SERVED_ID)).not.toHaveProperty("container");
 		expect(await answerOf(parameter)).not.toHaveProperty("container");
+	});
+});
+
+describe("painting held text", () => {
+	const paint = (path: string, text: string) => ({ kind: "paintText", path, text }) as const;
+
+	it("paints the phone's own held text, whether or not it matches disk", async () => {
+		const text = "return 1;";
+		const session = fakeSession({
+			moduleFacts: { module: "src/app.ts", known: false, reason: "notIndexed" },
+			parseFacts: {
+				ok: true,
+				contentHash: sha256(text),
+				words: { keywords: ["return"], builtins: [], literals: [] },
+				depth: "full",
+				declarations: [],
+				references: [],
+				literals: [
+					{ kind: "number", range: { start: { line: 0, character: 7 }, end: { line: 0, character: 8 } } },
+				],
+				comments: [],
+			},
+		});
+
+		const result = await ask(workspace(), paint("src/app.ts", text), session);
+
+		expect(result).toEqual({
+			ok: true,
+			answer: {
+				kind: "paintText",
+				path: "src/app.ts",
+				textHash: sha256(text),
+				spans: [[0, 6, CODE_TOKENS.indexOf("keyword"), 7, 1, CODE_TOKENS.indexOf("number")]],
+			},
+		});
+	});
+
+	it("answers null spans with a reason when nothing paints, never a guess", async () => {
+		const session = fakeSession({
+			moduleFacts: { module: "a.zzz", known: false, reason: "notIndexed" },
+			parseFacts: { ok: false, reason: "no provider owns a.zzz" },
+		});
+
+		const result = await ask(workspace(), paint("a.zzz", "plain words"), session);
+
+		expect(result).toEqual({
+			ok: true,
+			answer: {
+				kind: "paintText",
+				path: "a.zzz",
+				textHash: sha256("plain words"),
+				spans: null,
+				reason: "no provider owns a.zzz",
+			},
+		});
+	});
+
+	it("refuses text over the raw-editing limit before asking the daemon anything", async () => {
+		expect(await ask(workspace(), paint("src/app.ts", "x".repeat(MAX_RAW_EDIT_BYTES + 1)), unopened)).toMatchObject(
+			{ ok: false, failure: "refused" },
+		);
+	});
+
+	it("refuses a path outside the workspace, before asking the daemon anything", async () => {
+		expect(await ask(workspace(), paint("../elsewhere.ts", "x"), unopened)).toMatchObject({
+			ok: false,
+			failure: "refused",
+		});
 	});
 });
 

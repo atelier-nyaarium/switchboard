@@ -6,7 +6,6 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
 	checkDerivedSites,
 	dirtyTrackedFiles,
-	fullGrammarSentinels,
 	MAX_PLUGIN_BUNDLE_BYTES,
 	nextVersion,
 	overBundleCeiling,
@@ -14,7 +13,6 @@ import {
 	setVersion,
 	versionTargets,
 } from "../../scripts/build.js";
-import { GRAMMARS } from "../mcp/workspace/highlight.js";
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -38,52 +36,15 @@ function bundleBytes(entry: string): number {
 	return fs.statSync(path.join(outdir, written as string)).size;
 }
 
-/** Uses every import, or tree-shaking skews the measurement. */
-function entryBytes(name: string, imports: readonly string[]): number {
-	const at = fs.mkdtempSync(path.join(os.tmpdir(), "entry-"));
-	bundles.push(at);
-	const lines = imports.map((from, index) => `import g${index} from ${JSON.stringify(from)};`);
-	const used = imports.map((_, index) => `g${index}`).join(", ");
-	const entry = path.join(at, `${name}.ts`);
-	fs.writeFileSync(entry, `${lines.join("\n")}\nconsole.log(${used});\n`);
-	return bundleBytes(entry);
-}
-
 ////////////////////////////////
 //  Tests
 
-describe("the highlight.js bundle check", () => {
-	const grammars = path.join(ROOT, "node_modules", "highlight.js", "es", "languages");
-	const grammar = (name: string) => fs.readFileSync(path.join(grammars, `${name}.js`), "utf8");
-
-	it("flags highlight.js's full language set and passes the fixed set the plugin registers", () => {
-		const full = fs
-			.readdirSync(grammars)
-			.filter((name) => !name.endsWith(".js.js"))
-			.map((name) => fs.readFileSync(path.join(grammars, name), "utf8"))
-			.join("\n");
-		const fixed = Object.keys(GRAMMARS).map(grammar).join("\n");
-
-		expect(fullGrammarSentinels(full)).not.toEqual([]);
-		expect(fullGrammarSentinels(fixed)).toEqual([]);
-	});
-});
-
 describe("the plugin bundle ceiling", () => {
-	const hljs = path.join(ROOT, "node_modules", "highlight.js", "lib");
-
-	it("passes the bundle the release writes and would not pass highlight.js's full language set", () => {
+	it("passes the bundle the release writes, with headroom for growth", () => {
 		const plugin = bundleBytes(path.join("src", "main-mcp.ts"));
-		const fixed = entryBytes("fixed", [
-			path.join(hljs, "core.js"),
-			...Object.keys(GRAMMARS).map((name) => path.join(hljs, "languages", `${name}.js`)),
-		]);
-		const full = entryBytes("full", [path.join(hljs, "index.js")]);
 
 		expect(overBundleCeiling(plugin)).toBeNull();
-		// Headroom for growth, not grammars.
 		expect(plugin).toBeLessThan(MAX_PLUGIN_BUNDLE_BYTES * 0.95);
-		expect(overBundleCeiling(plugin + (full - fixed))).not.toBeNull();
 	});
 });
 

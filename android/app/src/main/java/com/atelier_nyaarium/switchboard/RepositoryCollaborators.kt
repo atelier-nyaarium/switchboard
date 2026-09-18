@@ -202,6 +202,9 @@ internal class ConsoleWorkspaceGateway(private val client: ConsoleClient) : Work
 	override suspend fun file(target: WorkspaceTarget, path: String) =
 		client.workspaceFile(target.gatewayId, target.address, path)
 
+	override suspend fun paintText(target: WorkspaceTarget, path: String, text: String) =
+		client.workspacePaintText(target.gatewayId, target.address, path, text)
+
 	override suspend fun outline(target: WorkspaceTarget, path: String) =
 		client.workspaceOutline(target.gatewayId, target.address, path)
 

@@ -237,6 +237,7 @@ describe("the fields the gate reads off the schemas", () => {
 			"subject",
 			"symbolKind",
 			"text",
+			"textHash",
 		]);
 	});
 

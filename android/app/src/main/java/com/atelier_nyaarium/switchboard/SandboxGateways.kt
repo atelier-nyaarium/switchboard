@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.crypto.sha256Hex
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.ConsolePolicyDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsolePolicyPutResult
@@ -35,6 +36,7 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeEntry
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeFacts
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineSymbol
+import com.atelier_nyaarium.switchboard.proto.WorkspacePaintTextAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
@@ -403,6 +405,19 @@ internal class SandboxWorkspaceGateway(now: () -> Long) : WorkspaceGateway {
 		val read = table.read(path) as? WorkspaceAnswer.Read ?: return table.read(path)
 		if (canonical != READ_ONLY_FILE) return read
 		return WorkspaceAnswer.Read(read.value.copy(hash = null, readOnly = "$path is over the editing limit"))
+	}
+
+	/**
+	 * Real spans only over the canned text, unedited; any typing past that draws plain. Several paths
+	 * share the generic `file` body, as `table`'s own construction does.
+	 */
+	override suspend fun paintText(target: WorkspaceTarget, path: String, text: String): WorkspaceAnswer<WorkspacePaintTextAnswer> {
+		if (!served(target)) return notServed
+		val canned = modules[table.canonical(path)]
+		val cannedText = canned?.text ?: file.joinToString("\n")
+		val language = canned?.language ?: "typescript"
+		val spans = if (text == cannedText) text.split("\n").map { sandboxSpans(language, it) } else null
+		return WorkspaceAnswer.Read(WorkspacePaintTextAnswer(path = path, textHash = sha256Hex(text), spans = spans))
 	}
 
 	override suspend fun fileState(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceFileStateAnswer> {

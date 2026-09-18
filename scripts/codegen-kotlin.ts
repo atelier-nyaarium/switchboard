@@ -219,6 +219,7 @@ import {
 	KnowledgeScopeTargetSchema,
 	OutlineAnswerSchema,
 	OutlineSymbolSchema,
+	PaintTextAnswerSchema,
 	ReadAnswerSchema,
 	SaveIssueSchema,
 	SaveSpanAnswerSchema,
@@ -457,6 +458,7 @@ const ROOTS: z.ZodType[] = [
 	ScopeSymbolSchema,
 	KnowledgeScopeAnswerSchema,
 	TooLargeAnswerSchema,
+	PaintTextAnswerSchema,
 ];
 
 const SEALED_ROOTS = new Set([

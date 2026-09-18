@@ -88,6 +88,8 @@ class AskOpsTest {
 
 		override suspend fun file(target: WorkspaceTarget, path: String) = error("not reached")
 
+		override suspend fun paintText(target: WorkspaceTarget, path: String, text: String) = error("not reached")
+
 		override suspend fun outline(target: WorkspaceTarget, path: String) = error("not reached")
 
 		override suspend fun symbolSource(target: WorkspaceTarget, symbolId: String) = error("not reached")

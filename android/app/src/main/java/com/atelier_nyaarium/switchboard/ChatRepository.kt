@@ -385,7 +385,7 @@ class ChatRepository(
 		scope = repoScope,
 		now = ambient.now,
 	).also { drain.addInboundSubscriber(it) }
-	internal val rawFileOps = RawFileOps(host = workspaceHost, drafts = workspaceDrafts)
+	internal val rawFileOps = RawFileOps(host = workspaceHost, drafts = workspaceDrafts, paintTimer = CoroutinePaintTimer())
 	// A draft on disk counts; one loads only on open.
 	internal val fileOps = WorkspaceFileOps(host = workspaceHost) { target, path ->
 		rawFileOps.editOf(target, path)?.edited == true || workspaceDrafts.load(target, DraftKey.File(path)) != null

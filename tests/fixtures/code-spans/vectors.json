@@ -1,5 +1,5 @@
 {
-	"_comment": "Code spans a text highlights to, per line, as flat [start, length, token] triples in UTF-16 units. A token is its index in `tokens`. `lines` is null for a language with no grammar. The plugin produces these; the phone's paint model reads the same file.",
+	"_comment": "Code spans painted from Lexicon's facts, per line, as flat [start, length, token] triples in UTF-16 units. A token is its index in `tokens`. `lines` is null when no provider owns the module. `facts` is the plugin's own input (a PaintFacts-shaped object) so this file replays through spansFromFacts with no daemon; `module` is a representative path only, for the provider a real Lexicon call would pick. The Kotlin side reads only `tokens`, `name`, `text` and `lines`.",
 	"tokens": [
 		"keyword",
 		"type",
@@ -35,91 +35,989 @@
 	],
 	"cases": [
 		{
-			"name": "a comment spans lines and each line's triples stop before its carriage return",
-			"language": "typescript",
-			"text": "/* first\r\n   second */\r\nlet x = 1;\r\n",
-			"lines": [[0, 8, 10], [0, 12, 10], [0, 3, 0, 8, 1, 8], []]
+			"name": "a comment spans lines, and each line's triples stop before the next",
+			"module": "src/a.ts",
+			"text": "/* first\n   second */\nlet x = 1;\n",
+			"facts": {
+				"ok": true,
+				"contentHash": "85036c3bd9e3aa42dbe36ef2bc29d3b2",
+				"words": {
+					"keywords": ["let"],
+					"builtins": [],
+					"literals": []
+				},
+				"depth": "full",
+				"declarations": [
+					{
+						"kind": "variable",
+						"range": {
+							"start": {
+								"line": 2,
+								"character": 4
+							},
+							"end": {
+								"line": 2,
+								"character": 5
+							}
+						}
+					}
+				],
+				"references": [],
+				"literals": [
+					{
+						"kind": "number",
+						"range": {
+							"start": {
+								"line": 2,
+								"character": 8
+							},
+							"end": {
+								"line": 2,
+								"character": 9
+							}
+						}
+					}
+				],
+				"comments": [
+					{
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 0
+							},
+							"end": {
+								"line": 1,
+								"character": 12
+							}
+						}
+					}
+				]
+			},
+			"lines": [[0, 8, 10], [0, 12, 10], [0, 3, 0, 4, 1, 15, 8, 1, 8], []]
 		},
 		{
 			"name": "an interpolation inside a template string splits the string around it",
-			"language": "typescript",
-			"text": "const s = `a${b}c`;",
-			"lines": [[0, 5, 0, 10, 2, 4, 12, 4, 6, 16, 2, 4]]
-		},
-		{
-			"name": "escaped characters count once each",
-			"language": "typescript",
-			"text": "if (a < b && c > d) return \"q\" + 'r';",
-			"lines": [[0, 2, 0, 20, 6, 0, 27, 3, 4, 33, 3, 4]]
+			"module": "src/b.ts",
+			"text": "const s = `a${b}c`;\n",
+			"facts": {
+				"ok": true,
+				"contentHash": "26232577dc37a8e767082f6e268f61df",
+				"words": {
+					"keywords": ["const"],
+					"builtins": [],
+					"literals": []
+				},
+				"depth": "full",
+				"declarations": [
+					{
+						"kind": "constant",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 6
+							},
+							"end": {
+								"line": 0,
+								"character": 7
+							}
+						}
+					}
+				],
+				"references": [
+					{
+						"role": "read",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 14
+							},
+							"end": {
+								"line": 0,
+								"character": 15
+							}
+						},
+						"bound": false
+					}
+				],
+				"literals": [
+					{
+						"kind": "string",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 10
+							},
+							"end": {
+								"line": 0,
+								"character": 14
+							}
+						}
+					},
+					{
+						"kind": "string",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 15
+							},
+							"end": {
+								"line": 0,
+								"character": 18
+							}
+						}
+					}
+				],
+				"comments": []
+			},
+			"lines": [[0, 5, 0, 6, 1, 15, 10, 4, 4, 14, 1, 6, 15, 3, 4], []]
 		},
 		{
 			"name": "a class and its supertype are types",
-			"language": "typescript",
-			"text": "class Port extends Base implements Open {}",
-			"lines": [[0, 5, 0, 6, 4, 1, 11, 7, 0, 19, 4, 1, 24, 10, 0, 35, 4, 1]]
+			"module": "src/c.ts",
+			"text": "class Port extends Base implements Open {}\n",
+			"facts": {
+				"ok": true,
+				"contentHash": "eec58a12b24a96d0789d0a521cc5db53",
+				"words": {
+					"keywords": ["class", "extends", "implements"],
+					"builtins": [],
+					"literals": []
+				},
+				"depth": "full",
+				"declarations": [
+					{
+						"kind": "class",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 6
+							},
+							"end": {
+								"line": 0,
+								"character": 10
+							}
+						}
+					}
+				],
+				"references": [
+					{
+						"role": "extends",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 19
+							},
+							"end": {
+								"line": 0,
+								"character": 23
+							}
+						},
+						"bound": false
+					},
+					{
+						"role": "implements",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 35
+							},
+							"end": {
+								"line": 0,
+								"character": 39
+							}
+						},
+						"bound": false
+					}
+				],
+				"literals": [],
+				"comments": []
+			},
+			"lines": [[0, 5, 0, 6, 4, 1, 11, 7, 0, 19, 4, 1, 24, 10, 0, 35, 4, 1], []]
+		},
+		{
+			"name": "a template literal holding a regex does not desync the lines after it",
+			"module": "src/d.ts",
+			"text": "const bin = \"b\";\nconst projectPath = \"p\";\nconst installSteps = \"s\";\nexecSync(`\"${bin}\" exec --workspace-folder \"${projectPath}\" bash -lc \"${installSteps.replace(/\"/g, '\\\\\"')}\"`, {\n\tencoding: \"utf-8\",\n});\nconst after = 1;\n",
+			"facts": {
+				"ok": true,
+				"contentHash": "2316903c3e960d6c1f6830b1bbf927bb",
+				"words": {
+					"keywords": ["const"],
+					"builtins": [],
+					"literals": []
+				},
+				"depth": "full",
+				"declarations": [
+					{
+						"kind": "constant",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 6
+							},
+							"end": {
+								"line": 0,
+								"character": 9
+							}
+						}
+					},
+					{
+						"kind": "constant",
+						"range": {
+							"start": {
+								"line": 1,
+								"character": 6
+							},
+							"end": {
+								"line": 1,
+								"character": 17
+							}
+						}
+					},
+					{
+						"kind": "constant",
+						"range": {
+							"start": {
+								"line": 2,
+								"character": 6
+							},
+							"end": {
+								"line": 2,
+								"character": 18
+							}
+						}
+					},
+					{
+						"kind": "constant",
+						"range": {
+							"start": {
+								"line": 6,
+								"character": 6
+							},
+							"end": {
+								"line": 6,
+								"character": 11
+							}
+						}
+					}
+				],
+				"references": [
+					{
+						"role": "call",
+						"range": {
+							"start": {
+								"line": 3,
+								"character": 0
+							},
+							"end": {
+								"line": 3,
+								"character": 8
+							}
+						},
+						"bound": false
+					},
+					{
+						"role": "read",
+						"range": {
+							"start": {
+								"line": 3,
+								"character": 13
+							},
+							"end": {
+								"line": 3,
+								"character": 16
+							}
+						},
+						"bound": true
+					},
+					{
+						"role": "read",
+						"range": {
+							"start": {
+								"line": 3,
+								"character": 46
+							},
+							"end": {
+								"line": 3,
+								"character": 57
+							}
+						},
+						"bound": true
+					},
+					{
+						"role": "read",
+						"range": {
+							"start": {
+								"line": 3,
+								"character": 72
+							},
+							"end": {
+								"line": 3,
+								"character": 84
+							}
+						},
+						"bound": true
+					},
+					{
+						"role": "call",
+						"range": {
+							"start": {
+								"line": 3,
+								"character": 85
+							},
+							"end": {
+								"line": 3,
+								"character": 92
+							}
+						},
+						"bound": false
+					}
+				],
+				"literals": [
+					{
+						"kind": "string",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 12
+							},
+							"end": {
+								"line": 0,
+								"character": 15
+							}
+						}
+					},
+					{
+						"kind": "string",
+						"range": {
+							"start": {
+								"line": 1,
+								"character": 20
+							},
+							"end": {
+								"line": 1,
+								"character": 23
+							}
+						}
+					},
+					{
+						"kind": "string",
+						"range": {
+							"start": {
+								"line": 2,
+								"character": 21
+							},
+							"end": {
+								"line": 2,
+								"character": 24
+							}
+						}
+					},
+					{
+						"kind": "string",
+						"range": {
+							"start": {
+								"line": 3,
+								"character": 9
+							},
+							"end": {
+								"line": 3,
+								"character": 13
+							}
+						}
+					},
+					{
+						"kind": "string",
+						"range": {
+							"start": {
+								"line": 3,
+								"character": 16
+							},
+							"end": {
+								"line": 3,
+								"character": 46
+							}
+						}
+					},
+					{
+						"kind": "string",
+						"range": {
+							"start": {
+								"line": 3,
+								"character": 57
+							},
+							"end": {
+								"line": 3,
+								"character": 72
+							}
+						}
+					},
+					{
+						"kind": "string",
+						"range": {
+							"start": {
+								"line": 3,
+								"character": 99
+							},
+							"end": {
+								"line": 3,
+								"character": 104
+							}
+						}
+					},
+					{
+						"kind": "string",
+						"range": {
+							"start": {
+								"line": 3,
+								"character": 105
+							},
+							"end": {
+								"line": 3,
+								"character": 108
+							}
+						}
+					},
+					{
+						"kind": "string",
+						"range": {
+							"start": {
+								"line": 4,
+								"character": 11
+							},
+							"end": {
+								"line": 4,
+								"character": 18
+							}
+						}
+					},
+					{
+						"kind": "number",
+						"range": {
+							"start": {
+								"line": 6,
+								"character": 14
+							},
+							"end": {
+								"line": 6,
+								"character": 15
+							}
+						}
+					}
+				],
+				"comments": []
+			},
+			"lines": [
+				[0, 5, 0, 6, 3, 15, 12, 3, 4],
+				[0, 5, 0, 6, 11, 15, 20, 3, 4],
+				[0, 5, 0, 6, 12, 15, 21, 3, 4],
+				[0, 8, 2, 9, 4, 4, 13, 3, 6, 16, 30, 4, 46, 11, 6, 57, 15, 4, 72, 12, 6, 85, 7, 2, 99, 5, 4, 105, 3, 4],
+				[11, 7, 4],
+				[],
+				[0, 5, 0, 6, 5, 15, 14, 1, 8],
+				[]
+			]
 		},
 		{
 			"name": "a container scope colours nothing, so its text keeps the enclosing token",
-			"language": "kotlin",
-			"text": "@Ann fun f(x: Int = 1): String = \"a$x\"",
+			"module": "src/a.kt",
+			"text": "@Ann fun f(x: Int = 1): String = \"a$x\"\n",
+			"facts": {
+				"ok": true,
+				"contentHash": "6a28f1b561be1d7045320c40de79189d",
+				"words": {
+					"keywords": ["fun"],
+					"builtins": ["Int", "String"],
+					"literals": []
+				},
+				"depth": "full",
+				"declarations": [
+					{
+						"kind": "function",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 9
+							},
+							"end": {
+								"line": 0,
+								"character": 10
+							}
+						}
+					},
+					{
+						"kind": "variable",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 11
+							},
+							"end": {
+								"line": 0,
+								"character": 12
+							}
+						}
+					}
+				],
+				"references": [
+					{
+						"role": "typeUse",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 1
+							},
+							"end": {
+								"line": 0,
+								"character": 4
+							}
+						},
+						"bound": false
+					},
+					{
+						"role": "typeUse",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 14
+							},
+							"end": {
+								"line": 0,
+								"character": 17
+							}
+						},
+						"bound": false
+					},
+					{
+						"role": "typeUse",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 24
+							},
+							"end": {
+								"line": 0,
+								"character": 30
+							}
+						},
+						"bound": false
+					},
+					{
+						"role": "read",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 36
+							},
+							"end": {
+								"line": 0,
+								"character": 37
+							}
+						},
+						"bound": true
+					}
+				],
+				"literals": [
+					{
+						"kind": "number",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 20
+							},
+							"end": {
+								"line": 0,
+								"character": 21
+							}
+						}
+					},
+					{
+						"kind": "string",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 33
+							},
+							"end": {
+								"line": 0,
+								"character": 38
+							}
+						}
+					}
+				],
+				"comments": []
+			},
 			"lines": [
-				[
-					0, 4, 12, 5, 3, 0, 9, 1, 2, 10, 4, 16, 14, 3, 1, 17, 3, 16, 20, 1, 8, 21, 1, 16, 33, 2, 4, 35, 2,
-					15, 37, 1, 4
-				]
+				[1, 3, 1, 5, 3, 0, 9, 1, 2, 11, 1, 15, 14, 3, 1, 20, 1, 8, 24, 6, 1, 33, 3, 4, 36, 1, 6, 37, 1, 4],
+				[]
 			]
 		},
 		{
-			"name": "units are UTF-16, so a surrogate pair is two",
-			"language": "python",
-			"text": "def f():\n    return \"😀\" + x  # hi",
-			"lines": [[0, 3, 0, 4, 1, 2], [4, 6, 0, 11, 4, 4, 21, 4, 10]]
-		},
-		{
-			"name": "markup nests a name inside a tag",
-			"language": "xml",
-			"text": "<div a=\"1\">&amp;</div>",
-			"lines": [
-				[
-					0, 1, 19, 1, 3, 20, 4, 1, 19, 5, 1, 13, 6, 1, 19, 7, 3, 4, 10, 1, 19, 11, 5, 3, 16, 2, 19, 18, 3,
-					20, 21, 1, 19
+			"name": "a comment and a string",
+			"module": "src/a.py",
+			"text": "def f():\n    return \"hi\" + x  # note\n",
+			"facts": {
+				"ok": true,
+				"contentHash": "676b0facb5b039b58f3873e915f66e0d",
+				"words": {
+					"keywords": ["def", "return"],
+					"builtins": [],
+					"literals": []
+				},
+				"depth": "full",
+				"declarations": [
+					{
+						"kind": "function",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 2
+							},
+							"end": {
+								"line": 0,
+								"character": 3
+							}
+						}
+					}
+				],
+				"references": [
+					{
+						"role": "read",
+						"range": {
+							"start": {
+								"line": 1,
+								"character": 18
+							},
+							"end": {
+								"line": 1,
+								"character": 19
+							}
+						},
+						"bound": false
+					}
+				],
+				"literals": [
+					{
+						"kind": "string",
+						"range": {
+							"start": {
+								"line": 1,
+								"character": 11
+							},
+							"end": {
+								"line": 1,
+								"character": 15
+							}
+						}
+					}
+				],
+				"comments": [
+					{
+						"range": {
+							"start": {
+								"line": 1,
+								"character": 21
+							},
+							"end": {
+								"line": 1,
+								"character": 27
+							}
+						}
+					}
 				]
-			]
+			},
+			"lines": [[2, 1, 2], [4, 6, 0, 11, 4, 4, 18, 1, 15, 21, 6, 10], []]
 		},
 		{
-			"name": "json keys are attributes",
-			"language": "json",
-			"text": "{\"a\": [1, true]}",
-			"lines": [[0, 1, 18, 1, 3, 13, 4, 1, 18, 6, 1, 18, 7, 1, 8, 8, 1, 18, 10, 4, 0, 14, 2, 18]]
+			"name": "json values",
+			"module": "src/a.json",
+			"text": "{\"a\": [1, true]}\n",
+			"facts": {
+				"ok": true,
+				"contentHash": "2f051c08c55c536659ae8a490cd33496",
+				"words": {
+					"keywords": [],
+					"builtins": [],
+					"literals": ["true"]
+				},
+				"depth": "full",
+				"declarations": [
+					{
+						"kind": "property",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 1
+							},
+							"end": {
+								"line": 0,
+								"character": 4
+							}
+						}
+					}
+				],
+				"references": [],
+				"literals": [
+					{
+						"kind": "number",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 7
+							},
+							"end": {
+								"line": 0,
+								"character": 8
+							}
+						}
+					},
+					{
+						"kind": "boolean",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 10
+							},
+							"end": {
+								"line": 0,
+								"character": 14
+							}
+						}
+					}
+				],
+				"comments": []
+			},
+			"lines": [[1, 3, 14, 7, 1, 8, 10, 4, 9], []]
 		},
 		{
-			"name": "an escape inside a string",
-			"language": "rust",
-			"text": "let c = '\\n';",
-			"lines": [[0, 3, 0, 4, 1, 15, 8, 1, 4, 9, 2, 5, 11, 1, 4]]
+			"name": "markup nests an attribute and its value inside a tag",
+			"module": "src/a.xml",
+			"text": "<div a=\"1\">&amp;</div>\n",
+			"facts": {
+				"ok": true,
+				"contentHash": "5ac209f093dc00a63f19934399460bf5",
+				"words": {
+					"keywords": [],
+					"builtins": [],
+					"literals": []
+				},
+				"depth": "full",
+				"declarations": [
+					{
+						"kind": "property",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 1
+							},
+							"end": {
+								"line": 0,
+								"character": 4
+							}
+						}
+					},
+					{
+						"kind": "field",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 5
+							},
+							"end": {
+								"line": 0,
+								"character": 6
+							}
+						}
+					}
+				],
+				"references": [],
+				"literals": [
+					{
+						"kind": "string",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 7
+							},
+							"end": {
+								"line": 0,
+								"character": 10
+							}
+						}
+					},
+					{
+						"kind": "string",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 11
+							},
+							"end": {
+								"line": 0,
+								"character": 16
+							}
+						}
+					}
+				],
+				"comments": []
+			},
+			"lines": [[1, 3, 14, 5, 1, 13, 7, 3, 4, 11, 5, 4], []]
 		},
 		{
-			"name": "gdscript reads through the python grammar",
-			"language": "gdscript",
-			"text": "func f():\n\treturn \"s\"",
-			"lines": [[], [1, 6, 0, 8, 3, 4]]
+			"name": "a heading",
+			"module": "src/a.md",
+			"text": "# Title\n- item `code`\n",
+			"facts": {
+				"ok": true,
+				"contentHash": "543c032acb4bb10a49db63dfb4f2070d",
+				"words": {
+					"keywords": [],
+					"builtins": [],
+					"literals": []
+				},
+				"depth": "full",
+				"declarations": [
+					{
+						"kind": "heading",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 2
+							},
+							"end": {
+								"line": 0,
+								"character": 7
+							}
+						}
+					}
+				],
+				"references": [],
+				"literals": [],
+				"comments": []
+			},
+			"lines": [[2, 5, 22], [], []]
 		},
 		{
-			"name": "a heading and a list item",
-			"language": "markdown",
-			"text": "# Title\n- item `code`",
-			"lines": [[0, 7, 22], [0, 1, 23, 7, 6, 30]]
+			"name": "a written value is a write, not a read",
+			"module": "src/a.rs",
+			"text": "let c = '\\n';\n",
+			"facts": {
+				"ok": true,
+				"contentHash": "b8b6b1d8ce4c9552116f70e41d2df45c",
+				"words": {
+					"keywords": ["let"],
+					"builtins": [],
+					"literals": []
+				},
+				"depth": "full",
+				"declarations": [],
+				"references": [
+					{
+						"role": "write",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 4
+							},
+							"end": {
+								"line": 0,
+								"character": 5
+							}
+						},
+						"bound": false
+					}
+				],
+				"literals": [],
+				"comments": []
+			},
+			"lines": [[0, 3, 0, 4, 1, 15], []]
 		},
 		{
-			"name": "a css selector, its property and its value",
-			"language": "css",
-			"text": ".card a {\n\tcolor: #fff;\n}\n",
-			"lines": [[0, 5, 21, 6, 1, 20], [1, 5, 13, 8, 4, 8], [], []]
+			"name": "a wide declaration with no name of its own colours only what nothing narrower covers",
+			"module": "src/a.gd",
+			"text": "func f():\n\treturn \"s\"\n",
+			"facts": {
+				"ok": true,
+				"contentHash": "4a29262616b0f806b53edb9d4a753ddc",
+				"words": {
+					"keywords": ["func", "return"],
+					"builtins": [],
+					"literals": []
+				},
+				"depth": "full",
+				"declarations": [
+					{
+						"kind": "class",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 0
+							},
+							"end": {
+								"line": 1,
+								"character": 11
+							}
+						}
+					},
+					{
+						"kind": "method",
+						"range": {
+							"start": {
+								"line": 0,
+								"character": 5
+							},
+							"end": {
+								"line": 0,
+								"character": 6
+							}
+						}
+					}
+				],
+				"references": [],
+				"literals": [
+					{
+						"kind": "string",
+						"range": {
+							"start": {
+								"line": 1,
+								"character": 8
+							},
+							"end": {
+								"line": 1,
+								"character": 11
+							}
+						}
+					}
+				],
+				"comments": []
+			},
+			"lines": [[0, 5, 1, 5, 1, 2, 6, 3, 1], [0, 8, 1, 8, 3, 4], []]
 		},
 		{
-			"name": "a language with no grammar answers no spans",
-			"language": "text",
-			"text": "plain words",
+			"name": "the text provider's fallback claims a plain file and extracts nothing",
+			"module": "plain.foo",
+			"text": "plain words\n",
+			"facts": {
+				"ok": true,
+				"contentHash": "7e7c22e739587dff41c64bd42309ff51",
+				"words": {
+					"keywords": [],
+					"builtins": [],
+					"literals": []
+				},
+				"depth": "full",
+				"declarations": [],
+				"references": [],
+				"literals": [],
+				"comments": []
+			},
+			"lines": [[], []]
+		},
+		{
+			"name": "no fact at all answers no spans, never a guess",
+			"module": "unowned.zzz",
+			"text": "plain words\n",
+			"facts": null,
 			"lines": null
 		}
 	]

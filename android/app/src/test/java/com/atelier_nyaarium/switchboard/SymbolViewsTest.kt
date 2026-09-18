@@ -72,6 +72,8 @@ class SymbolViewsTest {
 		override suspend fun file(target: WorkspaceTarget, path: String) =
 			WorkspaceAnswer.Read(WorkspaceReadAnswer(path = path, text = "file text", lines = 1))
 
+		override suspend fun paintText(target: WorkspaceTarget, path: String, text: String) = error("not reached")
+
 		override suspend fun saveSpan(target: WorkspaceTarget, symbolId: String, expectedSpanHash: String, text: String) =
 			error("not reached")
 

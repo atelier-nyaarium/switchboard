@@ -72,7 +72,8 @@ export type WorkspaceOp =
 	| { kind: "mutateFile"; mutation: FileMutation }
 	| { kind: "symbolFacet"; symbolId: string; facet: SymbolFacet }
 	| { kind: "fileHistory"; path: string }
-	| { kind: "knowledgeScope"; scope: KnowledgeScopeTarget; includeLocals: boolean };
+	| { kind: "knowledgeScope"; scope: KnowledgeScopeTarget; includeLocals: boolean }
+	| { kind: "paintText"; path: string; text: string };
 
 export function boundsOf(op: WorkspaceOp): WorkspaceBounds {
 	return WORKSPACE_BOUNDS[unknownAnswerOf(op, "") === null ? "read" : "save"];
@@ -129,6 +130,7 @@ export type {
 	KnowledgeScopeTarget,
 	OutlineAnswer,
 	OutlineSymbol,
+	PaintTextAnswer,
 	ReadAnswer,
 	SaveSpanAnswer,
 	ScopeSymbol,
