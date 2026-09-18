@@ -38,9 +38,11 @@ import com.atelier_nyaarium.switchboard.CodePalette
 import com.atelier_nyaarium.switchboard.Expanded
 import com.atelier_nyaarium.switchboard.PaintRun
 import com.atelier_nyaarium.switchboard.PaintedLine
+import com.atelier_nyaarium.switchboard.ProseSegment
 import com.atelier_nyaarium.switchboard.RawPaint
 import com.atelier_nyaarium.switchboard.expandTabs
 import com.atelier_nyaarium.switchboard.paintRuns
+import com.atelier_nyaarium.switchboard.proseSegments
 
 /** Blue bands the lines in range; amber names the symbol. The ref viewer's two colours. */
 internal object Highlight {
@@ -120,6 +122,22 @@ internal fun paintedAnnotated(
 		// Underlined rather than recoloured, so the name keeps its token's colour.
 		hit?.let { addStyle(SpanStyle(textDecoration = TextDecoration.Underline), expanded.expandedOffset(it.first), expanded.expandedOffset(it.last + 1)) }
 		mark?.let { addStyle(SpanStyle(background = Highlight.mark), expanded.expandedOffset(it.first), expanded.expandedOffset(it.last + 1)) }
+	}
+
+/** A backtick span reads as inline code, with the backticks dropped. */
+internal fun inlineCodeAnnotated(text: String): AnnotatedString =
+	buildAnnotatedString {
+		for (segment in proseSegments(text)) {
+			val start = length
+			append(segment.text)
+			if (segment is ProseSegment.Code) {
+				addStyle(
+					SpanStyle(fontFamily = FontFamily.Monospace, background = Color(CodePalette.USE_CARD)),
+					start,
+					length,
+				)
+			}
+		}
 	}
 
 /** Tab runs map to their tab. */

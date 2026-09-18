@@ -49,8 +49,7 @@ import com.atelier_nyaarium.switchboard.progressOf
 import com.atelier_nyaarium.switchboard.progressText
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.readTarget
-import com.atelier_nyaarium.switchboard.recordedText
-import com.atelier_nyaarium.switchboard.rowWordText
+import com.atelier_nyaarium.switchboard.cardWordText
 import kotlinx.coroutines.delay
 
 /** The age line is minutes, so a minute is as often as it can change. */
@@ -105,7 +104,7 @@ internal fun KnowledgeSection(
 	val progress = remember(send, read, at) { progressOf(send, read, at) }
 
 	Column(Modifier.fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-		KnowledgeHeader(recordedText(entry?.questions, answer.answers)) { onAsk(null) }
+		KnowledgeHeader { onAsk(null) }
 		progress?.let { ProgressBlock(it, at) }
 		if (rows == null) {
 			WorkspaceNotice("Update this session's plugin to see what Lexicon knows")
@@ -116,19 +115,13 @@ internal fun KnowledgeSection(
 }
 
 @Composable
-private fun KnowledgeHeader(recorded: String, onAsk: () -> Unit) {
+private fun KnowledgeHeader(onAsk: () -> Unit) {
 	Row(
 		Modifier.fillMaxWidth().padding(end = 12.dp),
 		horizontalArrangement = Arrangement.spacedBy(8.dp),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
-		FacetSection("Knowledge")
-		Text(
-			recorded,
-			Modifier.weight(1f),
-			style = MaterialTheme.typography.labelSmall,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-		)
+		FacetSection("Knowledge", Modifier.weight(1f))
 		Button(
 			onClick = hapticClick(onAsk),
 			modifier = Modifier.height(32.dp),
@@ -207,19 +200,15 @@ private fun QuestionCard(row: AskRow, onAsk: () -> Unit) {
 					color = colors.onSurfaceVariant,
 				)
 				Text(
-					rowWordText(row.word),
+					cardWordText(row.word).orEmpty(),
 					Modifier.weight(1f),
 					style = MaterialTheme.typography.labelSmall,
-					color = when (row.word) {
-						RowWord.ASKED -> ASKED_TINT
-						RowWord.RECORDED -> RECORDED_TINT
-						RowWord.NOT_RECORDED -> colors.onSurfaceVariant
-					},
+					color = if (row.word == RowWord.ASKED) ASKED_TINT else colors.onSurfaceVariant,
 				)
 				for (badge in row.badges) BadgeLabel(badge)
 				if (row.opens) Chevron()
 			}
-			row.prose?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+			row.prose?.let { Text(remember(it) { inlineCodeAnnotated(it) }, style = MaterialTheme.typography.bodySmall) }
 		}
 	}
 }

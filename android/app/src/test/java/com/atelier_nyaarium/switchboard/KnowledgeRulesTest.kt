@@ -30,4 +30,17 @@ class KnowledgeRulesTest {
 		)
 		assertNull(knowledgeRows(WorkspaceKnowledgeAnswer(symbolId = id)))
 	}
+
+	@Test
+	fun `a sound describe's prose is read out, and an unrecorded or badged one is not`() {
+		val answer = WorkspaceKnowledgeAnswer(
+			symbolId = id,
+			answers = listOf(WorkspaceKnowledgeEntry(question = "describe", prose = "Returns the reason.")),
+		)
+		assertEquals("Returns the reason.", describeProse(answer))
+		assertNull(describeProse(WorkspaceKnowledgeAnswer(symbolId = id, answers = listOf(WorkspaceKnowledgeEntry("describe")))))
+		val stale = WorkspaceKnowledgeEntry(question = "describe", prose = "Returns the reason.", stale = true)
+		assertNull(describeProse(WorkspaceKnowledgeAnswer(symbolId = id, answers = listOf(stale))))
+		assertNull(describeProse(WorkspaceKnowledgeAnswer(symbolId = id)))
+	}
 }

@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeEntry
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.WorkspaceScopeQuestion
@@ -433,19 +432,15 @@ internal fun rowWord(entry: WorkspaceScopeQuestion?, prose: String?, asked: Bool
 		else -> RowWord.NOT_RECORDED
 	}
 
-/** The scope read knows every question; the detail's own answers carry only what is recorded. */
-internal fun recordedText(questions: List<WorkspaceScopeQuestion>?, answers: List<WorkspaceKnowledgeEntry>?): String {
-	val of = questions?.size ?: QUESTION_CLASSES.size
-	val recorded = questions?.count { it.createdAt != null } ?: answers?.count { it.prose != null } ?: 0
-	return "${countText(recorded)} of ${countText(of)} recorded"
-}
-
 internal fun rowWordText(word: RowWord): String =
 	when (word) {
 		RowWord.NOT_RECORDED -> "not recorded"
 		RowWord.ASKED -> "asked"
 		RowWord.RECORDED -> "recorded"
 	}
+
+/** A card's prose already shows it is recorded. */
+internal fun cardWordText(word: RowWord): String? = if (word == RowWord.RECORDED) null else rowWordText(word)
 
 /**
  * A question row: the detail's answers carry the prose, the scope read says what is still out.
@@ -459,13 +454,15 @@ internal data class AskRow(
 	val opens: Boolean,
 )
 
+/** A dissolved describe is page text, so it has no card. */
 internal fun askRows(
 	rows: List<KnowledgeRow>,
 	symbolId: String,
 	scope: WorkspaceScopeSymbol?,
 	asked: AskedLookup,
 ): List<AskRow> =
-	rows.map { row ->
+	rows.mapNotNull { row ->
+		if (dissolves(row)) return@mapNotNull null
 		val word = rowWord(
 			scope?.questions?.firstOrNull { it.question == row.question },
 			row.prose,

@@ -11,12 +11,12 @@ internal sealed interface DetailItem {
 		override val key = "h"
 	}
 
-	data class ReachedCard(val reached: Reached) : DetailItem {
-		override val key = "r"
+	data class Describe(val prose: String) : DetailItem {
+		override val key = "ds"
 	}
 
-	data object Facts : DetailItem {
-		override val key = "f"
+	data class ReachedCard(val reached: Reached) : DetailItem {
+		override val key = "r"
 	}
 
 	data object Knowledge : DetailItem {
@@ -38,25 +38,32 @@ internal sealed interface DetailItem {
 	data class ShowAll(val lines: Int) : DetailItem {
 		override val key = "all"
 	}
+
+	data object Facts : DetailItem {
+		override val key = "f"
+	}
 }
 
 internal fun detailItems(view: DetailView, reached: Reached?, whole: Boolean): List<DetailItem> {
 	val knowledge = (view.knowledge as? WorkspaceAnswer.Read)?.value
 	val source = (view.source as? WorkspaceAnswer.Read)?.value
 	val documentation = knowledge?.documentation
+	val describe = knowledge?.let(::describeProse)
 	return buildList {
 		add(DetailItem.Header)
+		describe?.let { add(DetailItem.Describe(it)) }
 		reached?.let { add(DetailItem.ReachedCard(it)) }
-		add(DetailItem.Facts)
 		add(DetailItem.Knowledge)
 		if (!documentation.isNullOrBlank()) add(DetailItem.Documentation)
 		// Always titled: the screen draws the read's own refusal under it.
 		add(DetailItem.SourceTitle)
-		if (source == null) return@buildList
-		val painted = paintSource(source.text, source.spans, source.startLine)
-		val window = sourceWindow(painted, reached?.line, whole)
-		window.lines.forEach { add(DetailItem.SourceLine(it)) }
-		if (window.hiddenAbove + window.hiddenBelow > 0) add(DetailItem.ShowAll(painted.size))
+		if (source != null) {
+			val painted = paintSource(source.text, source.spans, source.startLine)
+			val window = sourceWindow(painted, reached?.line, whole)
+			window.lines.forEach { add(DetailItem.SourceLine(it)) }
+			if (window.hiddenAbove + window.hiddenBelow > 0) add(DetailItem.ShowAll(painted.size))
+		}
+		add(DetailItem.Facts)
 	}
 }
 

@@ -132,10 +132,10 @@ internal fun SymbolDetail(
 				item(key = row.key) {
 					when (row) {
 						DetailItem.Header -> SymbolHeader(identity, place.name)
+						is DetailItem.Describe -> DescribeBlock(row.prose)
 						is DetailItem.ReachedCard -> ReachedCard(row.reached) {
 							reachedIndex(items)?.let { at -> scope.launch { listState.animateScrollToItem(at) } }
 						}
-						DetailItem.Facts -> FactsBlock(view.knowledge, history, now, openFacet)
 						DetailItem.Knowledge -> WorkspaceAnswerBox(view.knowledge) { answer ->
 							KnowledgeSection(askOps, subject, answer, now) { question ->
 								asking = question
@@ -155,6 +155,7 @@ internal fun SymbolDetail(
 						) {
 							Text("Show all ${row.lines} lines")
 						}
+						DetailItem.Facts -> FactsBlock(view.knowledge, history, now, openFacet)
 					}
 				}
 			}
@@ -202,6 +203,15 @@ private fun SymbolHeader(identity: SymbolIdentity?, fallback: String) {
 			)
 		}
 	}
+}
+
+@Composable
+private fun DescribeBlock(prose: String) {
+	Text(
+		remember(prose) { inlineCodeAnnotated(prose) },
+		Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+		style = MaterialTheme.typography.bodyMedium,
+	)
 }
 
 @Composable

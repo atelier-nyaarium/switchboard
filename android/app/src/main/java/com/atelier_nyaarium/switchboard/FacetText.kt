@@ -46,3 +46,35 @@ internal fun whereText(module: String, startLine: Long?, endLine: Long? = null):
 		endLine == null || endLine == startLine -> "$module : $startLine"
 		else -> "$module : $startLine-$endLine"
 	}
+
+/** A run of prose, either plain or a backtick span with the backticks stripped. */
+internal sealed interface ProseSegment {
+	val text: String
+
+	data class Plain(override val text: String) : ProseSegment
+
+	data class Code(override val text: String) : ProseSegment
+}
+
+/** An unmatched backtick has no span to close, so it stays literal. */
+internal fun proseSegments(text: String): List<ProseSegment> {
+	val segments = mutableListOf<ProseSegment>()
+	val plain = StringBuilder()
+	var at = 0
+	while (at < text.length) {
+		val close = if (text[at] == '`') text.indexOf('`', at + 1) else -1
+		if (close < 0) {
+			plain.append(text[at])
+			at++
+			continue
+		}
+		if (plain.isNotEmpty()) {
+			segments += ProseSegment.Plain(plain.toString())
+			plain.clear()
+		}
+		segments += ProseSegment.Code(text.substring(at + 1, close))
+		at = close + 1
+	}
+	if (plain.isNotEmpty()) segments += ProseSegment.Plain(plain.toString())
+	return segments
+}

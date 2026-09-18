@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeEntry
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.WorkspaceScopeQuestion
@@ -319,17 +318,6 @@ class AskRulesTest {
 		assertEquals(RowWord.RECORDED, rowWord(null, "it answers", false))
 		assertEquals(RowWord.ASKED, rowWord(question("why"), null, true))
 		assertEquals(RowWord.NOT_RECORDED, rowWord(null, null, false))
-
-		assertEquals("0 of 6 recorded", recordedText(QUESTION_CLASSES.map { question(it) }, null))
-		assertEquals(
-			"2 of 6 recorded",
-			recordedText(QUESTION_CLASSES.mapIndexed { at, it -> question(it, createdAt = if (at < 2) 4.0 else null) }, null),
-		)
-		assertEquals(
-			"2 of 6 recorded",
-			recordedText(null, listOf(WorkspaceKnowledgeEntry("why", "a"), WorkspaceKnowledgeEntry("usage", "b"))),
-		)
-		assertEquals("0 of 6 recorded", recordedText(null, null))
 	}
 
 	@Test
@@ -358,7 +346,7 @@ class AskRulesTest {
 	}
 
 	@Test
-	fun `a question row reads recorded, asked or not recorded, and only an open one is tapped`() {
+	fun `a question row reads recorded, asked or not recorded, a recorded describe dissolves, and only an open one is tapped`() {
 		val entry = symbol(
 			ROOT_ID,
 			"LocalBackendSession",
@@ -377,8 +365,22 @@ class AskRulesTest {
 			AskedLookup { _, question -> question == "why" },
 		)
 
-		assertEquals(listOf(RowWord.RECORDED, RowWord.ASKED, RowWord.NOT_RECORDED), rows.map { it.word })
-		assertEquals(listOf(false, true, true), rows.map { it.opens })
+		// The recorded describe draws as body text on the page, so its card is left out here.
+		assertEquals(listOf("why", "relate"), rows.map { it.question })
+		assertEquals(listOf(RowWord.ASKED, RowWord.NOT_RECORDED), rows.map { it.word })
+		assertEquals(listOf(true, true), rows.map { it.opens })
+	}
+
+	@Test
+	fun `an unrecorded or badged describe stays a card, and a recorded card carries no word`() {
+		val unrecorded = askRows(listOf(KnowledgeRow("describe", null, emptyList())), ROOT_ID, null, none)
+		assertEquals(listOf("describe"), unrecorded.map { it.question })
+		assertEquals("not recorded", cardWordText(unrecorded.single().word))
+		assertTrue(unrecorded.single().opens)
+
+		val stale = askRows(listOf(KnowledgeRow("describe", "It opens threads.", listOf(KnowledgeBadge.STALE))), ROOT_ID, null, none)
+		assertEquals(listOf(KnowledgeBadge.STALE), stale.single().badges)
+		assertNull(cardWordText(stale.single().word))
 	}
 
 	@Test

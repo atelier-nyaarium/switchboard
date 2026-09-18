@@ -41,4 +41,21 @@ class FacetTextTest {
 		assertEquals("a.ts : 26-43", whereText("a.ts", 26, 43))
 		assertEquals("a.ts", whereText("a.ts", null, null))
 	}
+
+	@Test
+	fun `prose reads a backtick span as code, and an unmatched backtick stays literal`() {
+		assertEquals(
+			listOf(ProseSegment.Plain("See "), ProseSegment.Code("answerBlobOp"), ProseSegment.Plain(" for details")),
+			proseSegments("See `answerBlobOp` for details"),
+		)
+		assertEquals(
+			listOf(ProseSegment.Code("a"), ProseSegment.Plain(" and "), ProseSegment.Code("b")),
+			proseSegments("`a` and `b`"),
+		)
+		assertEquals(listOf(ProseSegment.Plain("it's `weird")), proseSegments("it's `weird"))
+		assertEquals(
+			listOf(ProseSegment.Plain("a "), ProseSegment.Code(""), ProseSegment.Plain(" b")),
+			proseSegments("a `` b"),
+		)
+	}
 }

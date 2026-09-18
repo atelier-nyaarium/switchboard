@@ -24,6 +24,11 @@ internal fun knowledgeRows(answer: WorkspaceKnowledgeAnswer): List<KnowledgeRow>
 		)
 	}
 
+/** A sound recorded describe is page text; a badged one stays a card. */
+internal fun dissolves(row: KnowledgeRow): Boolean = row.question == "describe" && row.prose != null && row.badges.isEmpty()
+
+internal fun describeProse(answer: WorkspaceKnowledgeAnswer): String? = knowledgeRows(answer)?.firstOrNull(::dissolves)?.prose
+
 internal fun knowledgeFacts(facts: WorkspaceKnowledgeFacts): List<KnowledgeFact> =
 	listOf(
 		KnowledgeFact("Members", facts.members),

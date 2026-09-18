@@ -584,12 +584,12 @@ internal class SandboxWorkspaceGateway(now: () -> Long) : WorkspaceGateway {
 				answers = listOf(
 					WorkspaceKnowledgeEntry(
 						question = "describe",
-						prose = "Returns the reason a routine cannot be stored, or null when it can.",
+						prose = "Returns the reason `routineRefusal` cannot store a routine, or null when it can.",
 						thin = true,
 					),
 					WorkspaceKnowledgeEntry(
 						question = "why",
-						prose = "A rule that parses can still name nothing, so the refusal asks the recurrence calculator.",
+						prose = "A rule that parses can still name nothing, so the refusal asks `nextOccurrence`.",
 						stale = true,
 					),
 					WorkspaceKnowledgeEntry(question = "relate"),
