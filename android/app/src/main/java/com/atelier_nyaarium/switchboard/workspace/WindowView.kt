@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.atelier_nyaarium.switchboard.Applied
+import com.atelier_nyaarium.switchboard.RawPaint
 import com.atelier_nyaarium.switchboard.Window
 import com.atelier_nyaarium.switchboard.WindowOps
 import com.atelier_nyaarium.switchboard.WindowRequest
@@ -190,6 +191,7 @@ private fun WindowScroll(
 ) {
 	val scope = rememberCoroutineScope()
 	val unsaved by ops.unsaved.collectAsState()
+	val paints by ops.paints.collectAsState()
 
 	LazyColumn(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 		for ((index, window) in ordered.withIndex()) {
@@ -214,6 +216,8 @@ private fun WindowScroll(
 					window = window,
 					unsaved = ops.isUnsaved(unsaved, target, window),
 					file = context[window.descriptor.module],
+					siblings = ordered.filter { it.descriptor.module == window.descriptor.module },
+					modulePaint = paints[target to window.descriptor.module],
 					previousEnd = previousEnd,
 					nextStart = nextStart,
 					onType = { ops.type(target, window.descriptor.symbolId, it) },
@@ -263,11 +267,12 @@ private fun GapRow(skipped: Int) {
  * refresh or an adopt, replaces the whole value; that window is no longer theirs to be typing in.
  */
 @Composable
-private fun SpanField(key: String, text: String, onType: (String) -> Unit) {
+private fun SpanField(key: String, text: String, paint: RawPaint?, onType: (String) -> Unit) {
 	var value by rememberSaveable(key, stateSaver = TextFieldValue.Saver) {
 		mutableStateOf(TextFieldValue(text))
 	}
 	if (value.text != text) value = TextFieldValue(text, TextRange(text.length))
+	val transformation = remember(paint) { paintTransformation(paint) }
 
 	OutlinedTextField(
 		value = value,
@@ -277,6 +282,7 @@ private fun SpanField(key: String, text: String, onType: (String) -> Unit) {
 		},
 		modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
 		textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
+		visualTransformation = transformation,
 		colors = OutlinedTextFieldDefaults.colors(
 			focusedBorderColor = MaterialTheme.colorScheme.primary,
 			unfocusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
@@ -289,6 +295,8 @@ private fun WindowCard(
 	window: Window,
 	unsaved: Boolean,
 	file: List<String>?,
+	siblings: List<Window>,
+	modulePaint: RawPaint?,
 	previousEnd: Int?,
 	nextStart: Int?,
 	onType: (String) -> Unit,
@@ -349,9 +357,16 @@ private fun WindowCard(
 					}
 				}
 			}
-			val parts = windowParts(window, file, previousEnd = previousEnd, nextStart = nextStart)
+			val parts = windowParts(
+				window,
+				file,
+				previousEnd = previousEnd,
+				nextStart = nextStart,
+				windows = siblings,
+				modulePaint = modulePaint,
+			)
 			CodeLines(parts.above, Modifier.padding(top = 6.dp))
-			SpanField(window.descriptor.symbolId, parts.span, onType)
+			SpanField(window.descriptor.symbolId, parts.span, parts.spanPaint, onType)
 			CodeLines(parts.below, Modifier.padding(bottom = 6.dp))
 		}
 	}

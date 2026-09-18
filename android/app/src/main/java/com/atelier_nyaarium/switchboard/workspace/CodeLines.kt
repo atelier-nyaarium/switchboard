@@ -24,6 +24,9 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
@@ -32,7 +35,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.atelier_nyaarium.switchboard.CodeLine
 import com.atelier_nyaarium.switchboard.CodePalette
+import com.atelier_nyaarium.switchboard.Expanded
+import com.atelier_nyaarium.switchboard.PaintRun
 import com.atelier_nyaarium.switchboard.PaintedLine
+import com.atelier_nyaarium.switchboard.RawPaint
+import com.atelier_nyaarium.switchboard.expandTabs
+import com.atelier_nyaarium.switchboard.paintRuns
 
 /** Blue bands the lines in range; amber names the symbol. The ref viewer's two colours. */
 internal object Highlight {
@@ -40,11 +48,7 @@ internal object Highlight {
 	val mark = Color(0x61D29922)
 }
 
-private fun lineText(line: CodeLine): AnnotatedString =
-	buildAnnotatedString {
-		append(line.text)
-		line.mark?.let { addStyle(SpanStyle(background = Highlight.mark), it.first, it.last + 1) }
-	}
+private fun lineText(line: CodeLine): AnnotatedString = paintedAnnotated(expandTabs(line.text), line.runs, mark = line.mark)
 
 /** Wraps rather than scrolling sideways. */
 @Composable
@@ -89,10 +93,18 @@ private const val USE_CODE_SIZE = 11f
 
 private const val NUMBER_COLUMN = 34
 
-internal fun annotatedOf(line: PaintedLine): AnnotatedString =
+internal fun annotatedOf(line: PaintedLine): AnnotatedString = paintedAnnotated(expandTabs(line.text), line.runs, hit = line.hit)
+
+/** Paints runs, hits, and marks. */
+internal fun paintedAnnotated(
+	expanded: Expanded,
+	runs: List<PaintRun>,
+	hit: IntRange? = null,
+	mark: IntRange? = null,
+): AnnotatedString =
 	buildAnnotatedString {
-		append(line.text)
-		for (run in line.runs) {
+		append(expanded.text)
+		for (run in runs) {
 			val style = CodePalette.styleOf(run.token)
 			addStyle(
 				SpanStyle(
@@ -101,12 +113,29 @@ internal fun annotatedOf(line: PaintedLine): AnnotatedString =
 					fontStyle = if (style.italic) FontStyle.Italic else null,
 					background = style.background?.let { Color(it) } ?: Color.Unspecified,
 				),
-				run.start,
-				run.end,
+				expanded.expandedOffset(run.start),
+				expanded.expandedOffset(run.end),
 			)
 		}
 		// Underlined rather than recoloured, so the name keeps its token's colour.
-		line.hit?.let { addStyle(SpanStyle(textDecoration = TextDecoration.Underline), it.first, it.last + 1) }
+		hit?.let { addStyle(SpanStyle(textDecoration = TextDecoration.Underline), expanded.expandedOffset(it.first), expanded.expandedOffset(it.last + 1)) }
+		mark?.let { addStyle(SpanStyle(background = Highlight.mark), expanded.expandedOffset(it.first), expanded.expandedOffset(it.last + 1)) }
+	}
+
+/** Tab runs map to their tab. */
+internal fun tabOffsetMapping(expanded: Expanded): OffsetMapping =
+	object : OffsetMapping {
+		override fun originalToTransformed(offset: Int): Int = expanded.expandedOffset(offset)
+
+		override fun transformedToOriginal(offset: Int): Int = expanded.originalOffset(offset)
+	}
+
+/** Stale paint draws plain. */
+internal fun paintTransformation(paint: RawPaint?): VisualTransformation =
+	VisualTransformation { text ->
+		val expanded = expandTabs(text.text)
+		val runs = if (paint != null && paint.text == text.text) paintRuns(paint) else emptyList()
+		TransformedText(paintedAnnotated(expanded, runs), tabOffsetMapping(expanded))
 	}
 
 /** One source line, numbered, with the amber band on the line a use reached. */

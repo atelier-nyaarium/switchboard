@@ -38,6 +38,7 @@ internal class WindowOps(
 	private val host: WorkspaceHost,
 	private val drafts: WorkspaceDraftStore,
 	private val outbox: ComposedRequests = ComposedRequests(host),
+	private val paintTimer: RawPaintTimer = CoroutinePaintTimer(),
 ) : ClearsOnReprovision {
 	val requestStates: StateFlow<Map<RequestKey, RequestState>> = outbox.states
 
@@ -47,6 +48,9 @@ internal class WindowOps(
 
 	/** The file around each open window, so leaving the screen and coming back re-reads nothing. */
 	private val context = java.util.concurrent.ConcurrentHashMap<Pair<WorkspaceTarget, String>, List<String>>()
+
+	/** Spliced paint by module. */
+	private val paint = PublishedViews<Pair<WorkspaceTarget, String>, RawPaint>(host.generation)
 
 	/** One sweep at a time, or an older sweep's answer lands after a newer one's. */
 	private val sweeping = Mutex()
@@ -58,6 +62,11 @@ internal class WindowOps(
 	val windows: StateFlow<Map<WorkspaceTarget, List<Window>>> = held.all
 
 	fun windowsOf(target: WorkspaceTarget): List<Window> = held.of(target)
+
+	/** Paint for each open module. */
+	val paints: StateFlow<Map<Pair<WorkspaceTarget, String>, RawPaint>> = paint.all
+
+	fun paintOf(target: WorkspaceTarget, module: String): RawPaint? = paint.of(target to module)
 
 	val unsaved: StateFlow<Set<String>> = held.unsaved
 
@@ -79,8 +88,50 @@ internal class WindowOps(
 		// A whole file is held for context, so it goes as soon as no window of it is open.
 		val open = after.mapTo(HashSet()) { it.descriptor.module }
 		for (module in before.map { it.descriptor.module }.distinct()) {
-			if (module !in open) context.remove(target to module)
+			if (module !in open) {
+				context.remove(target to module)
+				paint.leave(target to module)
+			}
 		}
+		// Resync after any window change.
+		for (module in open) syncModulePaint(target, module, after.filter { it.descriptor.module == module })
+	}
+
+	/** Resyncs paint for a module. */
+	private fun syncModulePaint(target: WorkspaceTarget, module: String, windowsOfModule: List<Window>) {
+		if (windowsOfModule.isEmpty()) return
+		val file = context[target to module] ?: return
+		val text = spliceModule(file, windowsOfModule).text
+		val key = target to module
+		val changed = when {
+			paint.of(key) == null -> {
+				paint.reshow(key) { plainPaint(text) }
+				true
+			}
+			paint.of(key)?.text == text -> false
+			else -> paint.now(key) { adjustPaint(it, text) }
+		}
+		if (changed) paintTimer.debounce(key, RAW_PAINT_DEBOUNCE_MS) { sendModulePaint(target, module) }
+	}
+
+	private suspend fun sendModulePaint(target: WorkspaceTarget, module: String) {
+		val key = target to module
+		val ticket = paint.begin(key) ?: return
+		val file = context[target to module] ?: return
+		val windowsOfModule = windowsOf(target).filter { it.descriptor.module == module }
+		if (windowsOfModule.isEmpty()) return
+		val text = spliceModule(file, windowsOfModule).text
+		val gate = host.workspace ?: return
+		val answer = try {
+			gate.paintText(target, module, text)
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			DebugLog.log("Window", "paint failed: ${e.message}")
+			return
+		}
+		val value = (answer as? WorkspaceAnswer.Read)?.value ?: return
+		paint.update(ticket) { current -> landPaint(current, value.textHash, value.spans) }
 	}
 
 	private fun apply(target: WorkspaceTarget, transform: (List<Window>) -> List<Window>) =
@@ -155,8 +206,12 @@ internal class WindowOps(
 		val answer = gate.file(target, module)
 		if (answer !is WorkspaceAnswer.Read || !host.generation.isCurrent(generation)) return null
 		val lines = answer.value.text.split("\n")
+		val windowsOfModule = windowsOf(target).filter { it.descriptor.module == module }
 		// Kept only while a window still needs it, or a close during the read leaves bytes nothing drops.
-		if (windowsOf(target).any { it.descriptor.module == module }) context[target to module] = lines
+		if (windowsOfModule.isNotEmpty()) {
+			context[target to module] = lines
+			syncModulePaint(target, module, windowsOfModule)
+		}
 		return lines
 	}
 
@@ -274,6 +329,7 @@ internal class WindowOps(
 	override suspend fun clearInMemory() {
 		for (target in held.targets()) apply(target) { emptyList() }
 		context.clear()
+		paint.clear()
 		drafts.clearAll()
 	}
 }

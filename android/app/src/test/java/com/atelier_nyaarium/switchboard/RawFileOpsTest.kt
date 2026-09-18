@@ -126,23 +126,6 @@ class RawFileOpsTest {
 		override suspend fun send(address: String, text: String) = error("not reached")
 	}
 
-	/** Replaces a key's pending task rather than queuing it, as the debounce it stands in for does. */
-	private class FakePaintTimer : RawPaintTimer {
-		private val pending = mutableMapOf<Any, suspend () -> Unit>()
-
-		override fun debounce(key: Any, delayMs: Long, task: suspend () -> Unit) {
-			pending[key] = task
-		}
-
-		fun pendingCount(): Int = pending.size
-
-		suspend fun runDue() {
-			val due = pending.values.toList()
-			pending.clear()
-			due.forEach { it() }
-		}
-	}
-
 	private lateinit var dir: File
 	private lateinit var files: FakeFiles
 	private lateinit var timer: FakePaintTimer

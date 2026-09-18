@@ -245,6 +245,86 @@ class WindowRulesTest {
 		)
 	}
 
+	@Test
+	fun `two windows splice into one module, each at its own lines`() {
+		val file = (1..10).map { "l$it" }
+		val a = window(text = "l2\nl3", hash = "ha", symbolId = F_ID, startLine = 2)
+		val b = window(text = "l7\nl8", hash = "hb", symbolId = G_ID, startLine = 7)
+
+		val spliced = spliceModule(file, listOf(a, b))
+
+		assertEquals("l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10", spliced.text)
+		assertEquals(mapOf(1 to 0, 4 to 3, 5 to 4, 6 to 5, 9 to 8, 10 to 9), spliced.contextLine)
+		assertEquals(1 until 3, spliced.windowSpan[F_ID])
+		assertEquals(6 until 8, spliced.windowSpan[G_ID])
+	}
+
+	// Replaces, rather than appends.
+	@Test
+	fun `an edited span replaces the file's own lines rather than joining them`() {
+		val file = listOf("one", "two", "three", "four", "five")
+		val edited = window(text = "two\nthree", hash = "h1", symbolId = F_ID, startLine = 2, draft = "TWO")
+
+		assertEquals("one\nTWO\nfour\nfive", spliceModule(file, listOf(edited)).text)
+	}
+
+	// Growth shifts lower content.
+	@Test
+	fun `a span that grows shifts a window below it, and the context between and after`() {
+		val file = (1..10).map { "l$it" }
+		val a = window(text = "l2\nl3", hash = "ha", symbolId = F_ID, startLine = 2, draft = "l2\nl2b\nl3")
+		val b = window(text = "l7\nl8", hash = "hb", symbolId = G_ID, startLine = 7)
+
+		val spliced = spliceModule(file, listOf(a, b))
+
+		assertEquals("l1\nl2\nl2b\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10", spliced.text)
+		assertEquals(4, spliced.contextLine[4])
+		assertEquals(7 until 9, spliced.windowSpan[G_ID])
+	}
+
+	// Nested windows can overlap.
+	@Test
+	fun `a member already covered by an open container is left out of the splice`() {
+		val file = (1..30).map { "l$it" }
+		val container = window(text = "l20\nl21\nl22\nl23\nl24", hash = "hc", symbolId = F_ID, startLine = 20)
+		val member = window(text = "l22", hash = "hm", symbolId = G_ID, startLine = 22)
+
+		val alone = spliceModule(file, listOf(container))
+		val withMember = spliceModule(file, listOf(container, member))
+
+		assertEquals(alone.text, withMember.text)
+		assertNull(withMember.windowSpan[G_ID])
+	}
+
+	// Overlap must not duplicate lines.
+	@Test
+	fun `a paint computed for an older, shorter splice draws plain rather than throwing over a grown span`() {
+		val file = listOf("line 1", "line 2", "line 3", "line 4", "line 5")
+		val original = window(text = "five", startLine = 5)
+		val stale = spliceModule(file, listOf(original))
+		val modulePaint = RawPaint(stale.text, stale.text.split("\n").map { listOf(0L, it.length.toLong(), 0L) })
+		val grown = original.copy(draft = "five\nFIVE2\nFIVE3")
+
+		val parts = windowParts(grown, file, windows = listOf(grown), modulePaint = modulePaint)
+
+		assertEquals(emptyList<PaintRun>(), parts.above.flatMap { it.runs })
+		assertNull(parts.spanPaint)
+	}
+
+	@Test
+	fun `a window draws its own paint and the context lines carry theirs`() {
+		val file = (1..8).map { "line $it" }
+		val held = window(text = "four\nfive", startLine = 4)
+		val spliced = spliceModule(file, listOf(held))
+		val modulePaint = RawPaint(spliced.text, spliced.text.split("\n").map { listOf(0L, it.length.toLong(), 0L) })
+
+		val parts = windowParts(held, file, windows = listOf(held), modulePaint = modulePaint)
+
+		assertEquals(listOf(PaintRun(0, 6, CodeToken.KEYWORD)), parts.above[0].runs)
+		assertEquals(listOf(PaintRun(0, 6, CodeToken.KEYWORD)), parts.above[1].runs)
+		assertEquals(RawPaint("four\nfive", listOf(listOf(0L, 4L, 0L), listOf(0L, 4L, 0L))), parts.spanPaint)
+	}
+
 	// The count is what neither card draws, or it announces a skip over lines both are showing.
 	@Test
 	fun `a gap counts only the lines no card draws`() {

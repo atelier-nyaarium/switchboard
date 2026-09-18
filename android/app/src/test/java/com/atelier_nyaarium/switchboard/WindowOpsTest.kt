@@ -1,11 +1,13 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.crypto.sha256Hex
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFacet
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
+import com.atelier_nyaarium.switchboard.proto.WorkspacePaintTextAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
@@ -28,14 +30,14 @@ import org.junit.Test
 private const val F_ID = "lexicon typescript src/a.ts f()."
 private const val G_ID = "lexicon typescript src/a.ts g()."
 
-private fun sourceAnswer(symbolId: String, text: String, hash: String) =
+private fun sourceAnswer(symbolId: String, text: String, hash: String, startLine: Long = 4) =
 	WorkspaceSymbolSourceAnswer(
 		symbolId = symbolId,
 		module = "src/a.ts",
 		name = symbolId.substringAfterLast(' ').takeWhile { it != '(' },
 		text = text,
-		startLine = 4,
-		endLine = 9,
+		startLine = startLine,
+		endLine = startLine + text.split("\n").size - 1,
 		spanHash = hash,
 	)
 
@@ -43,6 +45,8 @@ class WindowOpsTest {
 	/** Spans per symbol, and a hold the next read of one waits at. */
 	private class FakeWorkspace : WorkspaceGateway {
 		val spans = mutableMapOf<String, Pair<String, String>>()
+		/** Test span start lines. */
+		val startLines = mutableMapOf<String, Long>()
 		val refusing = mutableSetOf<String>()
 		val holds = mutableMapOf<String, TestHold>()
 
@@ -54,12 +58,26 @@ class WindowOpsTest {
 			return WorkspaceAnswer.Read(WorkspaceTreeAnswer(path = path, entries = emptyList(), truncated = false))
 		}
 
+		var wholeFile = "whole file"
+
 		override suspend fun file(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceReadAnswer> {
 			asked += target
-			return WorkspaceAnswer.Read(WorkspaceReadAnswer(path = path, text = "whole file", lines = 1))
+			val lines = wholeFile.split("\n")
+			return WorkspaceAnswer.Read(WorkspaceReadAnswer(path = path, text = wholeFile, lines = lines.size.toLong()))
 		}
 
-		override suspend fun paintText(target: WorkspaceTarget, path: String, text: String) = error("not reached")
+		/** Test paint responses. */
+		var paintNull = false
+		val paintHolds = mutableMapOf<String, TestHold>()
+		val paints = mutableListOf<String>()
+
+		override suspend fun paintText(target: WorkspaceTarget, path: String, text: String): WorkspaceAnswer<WorkspacePaintTextAnswer> {
+			asked += target
+			paints += text
+			paintHolds.remove(path)?.pass()
+			val lines = if (paintNull) null else text.split("\n").map { listOf(0L, it.length.toLong(), 0L) }
+			return WorkspaceAnswer.Read(WorkspacePaintTextAnswer(path = path, textHash = sha256Hex(text), spans = lines))
+		}
 
 		override suspend fun outline(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceOutlineAnswer> {
 			asked += target
@@ -76,7 +94,7 @@ class WindowOpsTest {
 			holds.remove(symbolId)?.pass()
 			if (symbolId in refusing) return WorkspaceAnswer.Refused("withheld")
 			val (text, hash) = span ?: return WorkspaceAnswer.Refused("no such symbol")
-			return WorkspaceAnswer.Read(sourceAnswer(symbolId, text, hash))
+			return WorkspaceAnswer.Read(sourceAnswer(symbolId, text, hash, startLines[symbolId] ?: 4))
 		}
 
 		override suspend fun knowledge(
@@ -167,6 +185,7 @@ class WindowOpsTest {
 	private lateinit var gateway: FakeWorkspace
 	private lateinit var host: FakeHost
 	private lateinit var drafts: WorkspaceDraftStore
+	private lateinit var timer: FakePaintTimer
 	private lateinit var ops: WindowOps
 
 	private val one = WorkspaceTarget(gatewayId = "sakura", address = "home.sakura.host.aaa")
@@ -175,7 +194,9 @@ class WindowOpsTest {
 	/** Unconfined, so the store's queue drains on the calling thread. */
 	private fun draftsOver(over: File) = WorkspaceDraftStore(over, CoroutineScope(Dispatchers.Unconfined))
 
-	private fun opsOver(store: WorkspaceDraftStore, over: WorkspaceHost = host) = WindowOps(over, store)
+	// Isolates debounce state between instances.
+	private fun opsOver(store: WorkspaceDraftStore, over: WorkspaceHost = host, paintTimer: RawPaintTimer = FakePaintTimer()) =
+		WindowOps(over, store, paintTimer = paintTimer)
 
 	@Before
 	fun setUp() {
@@ -185,7 +206,8 @@ class WindowOpsTest {
 		gateway.spans[G_ID] = "fun g() {}" to "h2"
 		host = FakeHost(gateway)
 		drafts = draftsOver(dir)
-		ops = opsOver(drafts)
+		timer = FakePaintTimer()
+		ops = opsOver(drafts, paintTimer = timer)
 	}
 
 	@After
@@ -838,5 +860,92 @@ class WindowOpsTest {
 			),
 			ops.agentRequests(one),
 		)
+	}
+
+	@Test
+	fun `opening paints the module, and a burst of keystrokes across two windows sends one request`() = runBlocking {
+		gateway.wholeFile = (1..10).joinToString("\n") { "line $it" }
+		gateway.startLines[G_ID] = 8
+		ops.openWindow(one, F_ID)
+		ops.contextFor(one, "src/a.ts")
+		assertEquals(1, timer.pendingCount())
+
+		ops.openWindow(one, G_ID)
+		ops.type(one, F_ID, "fun f() { a }")
+		ops.type(one, G_ID, "fun g() { b }")
+		ops.type(one, F_ID, "fun f() { a, more }")
+		assertEquals(1, timer.pendingCount())
+
+		timer.runDue()
+
+		assertEquals(
+			listOf("line 1\nline 2\nline 3\nfun f() { a, more }\nline 5\nline 6\nline 7\nfun g() { b }\nline 9\nline 10"),
+			gateway.paints,
+		)
+		assertEquals(gateway.paints.single(), ops.paintOf(one, "src/a.ts")?.text)
+	}
+
+	@Test
+	fun `closing and reopening a window refuses a paint answer sent before the close, through the ticket`() = runBlocking {
+		gateway.wholeFile = (1..6).joinToString("\n") { "line $it" }
+		ops.openWindow(one, F_ID)
+		ops.contextFor(one, "src/a.ts")
+		timer.runDue()
+		val hold = TestHold().also { gateway.paintHolds["src/a.ts"] = it }
+
+		ops.type(one, F_ID, "fun f() { a }")
+		val sending = async(Dispatchers.Default) { timer.runDue() }
+		hold.entered.await()
+
+		ops.closeWindow(one, F_ID)
+		ops.openWindow(one, F_ID)
+		ops.contextFor(one, "src/a.ts")
+		val reopened = ops.paintOf(one, "src/a.ts")
+
+		hold.release()
+		sending.await()
+
+		assertEquals(reopened, ops.paintOf(one, "src/a.ts"))
+	}
+
+	@Test
+	fun `typing that inserts a line into one window's span shifts a window and context below it`() = runBlocking {
+		gateway.wholeFile = (1..10).joinToString("\n") { "line $it" }
+		gateway.spans[F_ID] = "line 2\nline 3" to "h1"
+		gateway.startLines[F_ID] = 2
+		gateway.spans[G_ID] = "line 7\nline 8" to "h2"
+		gateway.startLines[G_ID] = 7
+		ops.openWindow(one, F_ID)
+		ops.openWindow(one, G_ID)
+		ops.contextFor(one, "src/a.ts")
+		timer.runDue()
+		val before = ops.paintOf(one, "src/a.ts")!!
+
+		ops.type(one, F_ID, "line 2\nnew\nline 3")
+		val adjusted = ops.paintOf(one, "src/a.ts")!!
+
+		assertEquals(
+			"line 1\nline 2\nnew\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10",
+			adjusted.text,
+		)
+		// Existing paint shifts with the inserted line.
+		assertEquals(before.lines[6], adjusted.lines[7])
+		// Inserted lines draw plain until repaint.
+		assertNull(adjusted.lines[2])
+	}
+
+	@Test
+	fun `an edited module's null-spans answer keeps the adjusted paint`() = runBlocking {
+		gateway.wholeFile = (1..6).joinToString("\n") { "line $it" }
+		ops.openWindow(one, F_ID)
+		ops.contextFor(one, "src/a.ts")
+		timer.runDue()
+		val before = ops.paintOf(one, "src/a.ts")!!
+
+		gateway.paintNull = true
+		ops.type(one, F_ID, "fun f() { edited }")
+		timer.runDue()
+
+		assertEquals(before.lines[0], ops.paintOf(one, "src/a.ts")?.lines?.get(0))
 	}
 }

@@ -293,14 +293,14 @@ internal fun withoutWindow(held: List<Window>, symbolId: String): List<Window> =
 internal fun editedWindows(held: List<Window>): List<Window> = held.filter { it.edited }
 
 /**
- * One rendered line: its number as the file counts them, whether the blue band marks it, and the
- * half-open range of `text` the amber mark covers.
+ * One rendered line with syntax paint.
  */
 internal data class CodeLine(
 	val number: Int,
 	val text: String,
 	val banded: Boolean = false,
 	val mark: IntRange? = null,
+	val runs: List<PaintRun> = emptyList(),
 )
 
 /**
@@ -351,8 +351,10 @@ private fun marked(lines: List<CodeLine>, name: String): List<CodeLine> {
  * A card's three parts. The span is text rather than lines because it is edited as one field: a
  * gutter cannot stay true beside a wrapping editor, and per-line fields would break selection and
  * paste across lines. The context keeps its numbers, where they can be trusted.
+ *
+ * `spanPaint` is null until painted.
  */
-internal data class WindowParts(val above: List<CodeLine>, val span: String, val below: List<CodeLine>)
+internal data class WindowParts(val above: List<CodeLine>, val span: String, val below: List<CodeLine>, val spanPaint: RawPaint? = null)
 
 internal fun windowParts(
 	window: Window,
@@ -360,6 +362,9 @@ internal fun windowParts(
 	context: Int = 2,
 	previousEnd: Int? = null,
 	nextStart: Int? = null,
+	/** Windows contributing to the module paint. */
+	windows: List<Window> = listOf(window),
+	modulePaint: RawPaint? = null,
 ): WindowParts {
 	val start = window.descriptor.startLine.toInt()
 	val end = window.descriptor.endLine.toInt()
@@ -367,10 +372,54 @@ internal fun windowParts(
 	// Context stops at the neighbouring window, or the gap between two cards would count lines both draw.
 	val first = maxOf(1, start - context, (previousEnd ?: 0) + 1)
 	val last = minOf(file.size, end + context, (nextStart ?: Int.MAX_VALUE) - 1)
+	val spliced = modulePaint?.let { spliceModule(file, windows) }
+	// Paint can lag the windows; only an exact match paints.
+	val paint = modulePaint?.takeIf { spliced != null && it.text == spliced.text }
 	// Indexed directly, with no default: a line the file does not hold is a bug, not a blank row.
-	val above = (first until minOf(start, file.size + 1)).map { CodeLine(it, file[it - 1]) }
-	val below = (end + 1..last).map { CodeLine(it, file[it - 1]) }
-	return WindowParts(above, window.shown, below)
+	if (paint == null || spliced == null) {
+		val above = (first until minOf(start, file.size + 1)).map { CodeLine(it, file[it - 1]) }
+		val below = (end + 1..last).map { CodeLine(it, file[it - 1]) }
+		return WindowParts(above, window.shown, below)
+	}
+	fun paintedLine(number: Int): CodeLine {
+		val text = file[number - 1]
+		val triples = spliced.contextLine[number]?.let { paint.lines.getOrNull(it) }
+		return CodeLine(number, text, runs = runsOf(text, triples))
+	}
+	val above = (first until minOf(start, file.size + 1)).map { paintedLine(it) }
+	val below = (end + 1..last).map { paintedLine(it) }
+	val spanPaint = spliced.windowSpan[window.descriptor.symbolId]?.let { range -> RawPaint(window.shown, paint.lines.slice(range)) }
+	return WindowParts(above, window.shown, below, spanPaint)
+}
+
+/** Splices open windows into the module text. */
+internal data class SplicedModule(val text: String, val contextLine: Map<Int, Int>, val windowSpan: Map<String, IntRange>)
+
+internal fun spliceModule(file: List<String>, windows: List<Window>): SplicedModule {
+	val ordered = windows.sortedBy { it.descriptor.startLine }
+	val lines = mutableListOf<String>()
+	val contextLine = mutableMapOf<Int, Int>()
+	val windowSpan = mutableMapOf<String, IntRange>()
+	var cursor = 1
+	for (window in ordered) {
+		val start = window.descriptor.startLine.toInt()
+		val end = window.descriptor.endLine.toInt()
+		// Nested windows stay out and draw plain.
+		if (start < cursor) continue
+		for (line in cursor until start) {
+			contextLine[line] = lines.size
+			lines += file.getOrElse(line - 1) { "" }
+		}
+		val shown = window.shown.split("\n")
+		windowSpan[window.descriptor.symbolId] = lines.size until (lines.size + shown.size)
+		lines += shown
+		cursor = maxOf(cursor, end + 1)
+	}
+	for (line in cursor..file.size) {
+		contextLine[line] = lines.size
+		lines += file.getOrElse(line - 1) { "" }
+	}
+	return SplicedModule(lines.joinToString("\n"), contextLine, windowSpan)
 }
 
 /**
