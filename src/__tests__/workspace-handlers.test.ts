@@ -415,7 +415,7 @@ describe("the index-backed reads", () => {
 		});
 	});
 
-	it("answers every question in order, with each recorded answer's health and the symbol's facts", async () => {
+	it("answers its kind's questions in order, with each recorded answer's health and the symbol's facts", async () => {
 		const summary = (name: string) => ({
 			symbolId: `lexicon typescript src/app.ts ${name}#`,
 			name,
@@ -460,6 +460,7 @@ describe("the index-backed reads", () => {
 				tier: "bound",
 			},
 			recallAnswer: [
+				recalled("effects"),
 				recalled("why", { stale: ["fact gone"] }),
 				{ ...recalled("describe"), answer: { ...recalled("describe").answer, thin: true } },
 				{
@@ -492,8 +493,8 @@ describe("the index-backed reads", () => {
 				},
 				{ question: "why", prose: "why prose", thin: false, stale: true, doubted: false, stranded: false },
 				{ question: "relate" },
+				// A class takes no effects, so a stored one stays hidden.
 				{ question: "contract" },
-				{ question: "effects" },
 				{ question: "usage", prose: "usage prose", thin: false, stale: false, doubted: true, stranded: false },
 			],
 			facts: {

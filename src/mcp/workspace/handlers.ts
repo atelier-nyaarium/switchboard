@@ -11,7 +11,7 @@ import {
 	type DescribeResult,
 	hashContent,
 	parseSymbolId,
-	QUESTION_CLASSES,
+	questionsFor,
 	type RecallAnswerResult,
 	type SymbolSource,
 } from "@nyaa-lexicon/protocol";
@@ -383,7 +383,7 @@ async function knowledgeOf(context: OpContext, symbolId: string): Promise<Worksp
 	return { ok: true, answer: knowledgeAnswerOf(symbolId, described, recalled, counts) };
 }
 
-/** Unrecorded questions included. */
+/** The kind's questions, unrecorded included. */
 export function knowledgeAnswerOf(
 	symbolId: string,
 	described: DescribeResult,
@@ -394,7 +394,7 @@ export function knowledgeAnswerOf(
 	const held = new Map(
 		(Array.isArray(recalled) ? recalled : recalled ? [recalled] : []).map((r) => [r.answer.question, r]),
 	);
-	const answers = QUESTION_CLASSES.map((question): KnowledgeEntry => {
+	const answers = questionsFor(symbol).map((question): KnowledgeEntry => {
 		const found = held.get(question);
 		if (found === undefined) return { question };
 		return {
