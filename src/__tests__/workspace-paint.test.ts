@@ -124,37 +124,27 @@ describe("painting from facts", () => {
 		expect(lines).toEqual([[0, 6, code("keyword")]]);
 	});
 
-	it("paints a reference nested inside a string literal's range as interpolation", () => {
+	it("paints every name in a template substitution by its role, first and middle alike", () => {
 		// biome-ignore lint/suspicious/noTemplateCurlyInString: source text, not a template
-		const text = "`a${b}c`";
+		const text = '`x${a.b ?? "c"}y`';
 		const facts: PaintFacts = {
 			...emptyFacts,
-			references: [{ role: "read", range: range(0, 3, 0, 4), bound: true }],
-			literals: [{ kind: "string", range: range(0, 0, 0, 8) }],
-		};
-
-		const lines = spansFromFacts(text, facts);
-
-		expect(lines).toEqual([[0, 3, code("string"), 3, 1, code("interpolation"), 4, 4, code("string")]]);
-	});
-
-	it("paints a substitution in the gap between a template's head and tail fragments as interpolation", () => {
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: source text, not a template
-		const text = "`a${b}c`";
-		const facts: PaintFacts = {
-			...emptyFacts,
-			// TemplateHead "`a${" and TemplateTail "}c`" each their own literal; "b" sits in the gap
-			// between them, covered by neither.
-			references: [{ role: "read", range: range(0, 4, 0, 5), bound: true }],
+			references: [
+				{ role: "read", range: range(0, 4, 0, 5), bound: true },
+				{ role: "read", range: range(0, 6, 0, 7), bound: true },
+			],
 			literals: [
 				{ kind: "string", range: range(0, 0, 0, 4) },
-				{ kind: "string", range: range(0, 5, 0, 8) },
+				{ kind: "string", range: range(0, 11, 0, 14) },
+				{ kind: "string", range: range(0, 14, 0, 17) },
 			],
 		};
 
 		const lines = spansFromFacts(text, facts);
 
-		expect(lines).toEqual([[0, 4, code("string"), 4, 1, code("interpolation"), 5, 3, code("string")]]);
+		expect(lines).toEqual([
+			[0, 4, code("string"), 4, 1, code("variable"), 6, 1, code("variable"), 11, 6, code("string")],
+		]);
 	});
 
 	it("resolves an overlap by width: the narrower span wins regardless of which fact carries it", () => {

@@ -1,10 +1,10 @@
 // Code spans painted from Lexicon's own facts, never a second parser.
 //
 // A declaration's kind, a reference's role and a literal's kind each map to one of CODE_TOKENS. A
-// reference inside, or in the gap a template's own head/middle/tail fragments leave around a
-// substitution, paints as interpolation instead of its role. Where facts overlap, the narrower one
-// wins, since a declaration's range can be its whole body when it has no name of its own. Keywords,
-// builtins and literal words fill identifier-shaped runs no fact covers.
+// reference paints by its role inside a template substitution too, since nothing language-agnostic
+// tells a substitution's extent from any other gap between two strings. Where facts overlap, the
+// narrower one wins, since a declaration's range can be its whole body when it has no name of its
+// own. Keywords, builtins and literal words fill identifier-shaped runs no fact covers.
 
 import type { Session } from "@nyaa-lexicon/client";
 import { hashContent, type PaintFacts, type Position, type ProviderWords, type Range } from "@nyaa-lexicon/protocol";
@@ -46,7 +46,6 @@ const DECLARATION_TOKEN: ReadonlyMap<string, CodeToken> = new Map([
 	["heading", "section"],
 ]);
 
-/** A reference's role, unless it sits inside a string literal's range: then interpolation. */
 const REFERENCE_TOKEN: ReadonlyMap<string, CodeToken> = new Map([
 	["call", "function"],
 	["typeUse", "type"],
@@ -169,11 +168,9 @@ export function paintBuffer(text: string, facts: PaintFacts): number[] {
 
 	const spans: PaintSpan[] = [];
 
-	const stringRanges: [number, number][] = [];
 	for (const literal of facts.literals) {
 		const [start, end] = offsetsOf(literal.range);
 		spans.push({ start, end, token: code(LITERAL_TOKEN.get(literal.kind) ?? "literal"), category: "literal" });
-		if (literal.kind === "string") stringRanges.push([start, end]);
 	}
 
 	for (const declaration of facts.declarations) {
@@ -185,11 +182,12 @@ export function paintBuffer(text: string, facts: PaintFacts): number[] {
 
 	for (const reference of facts.references) {
 		const [start, end] = offsetsOf(reference.range);
-		// Contained in one string literal, or sitting in the gap a template's head/middle/tail
-		// leaves around a substitution: neither literal covers the substitution itself.
-		const nested = stringRanges.some(([from, to]) => (from <= start && end <= to) || to === start || from === end);
-		const token = nested ? "interpolation" : (REFERENCE_TOKEN.get(reference.role) ?? "variable");
-		spans.push({ start, end, token: code(token), category: "reference" });
+		spans.push({
+			start,
+			end,
+			token: code(REFERENCE_TOKEN.get(reference.role) ?? "variable"),
+			category: "reference",
+		});
 	}
 
 	for (const comment of facts.comments) {
