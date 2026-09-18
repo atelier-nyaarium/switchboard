@@ -446,6 +446,7 @@ describe("the index-backed reads", () => {
 					lines: { start: 2, end: 9 },
 				},
 				members: [summary("a"), summary("b")],
+				questions: ["describe", "why", "relate", "contract", "usage"],
 				comments: [{ form: "inline", placement: "body", line: 4, text: "note" }],
 				moreComments: 2,
 				referenceCount: 7,

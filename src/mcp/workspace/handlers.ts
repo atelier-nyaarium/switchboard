@@ -11,7 +11,7 @@ import {
 	type DescribeResult,
 	hashContent,
 	parseSymbolId,
-	questionsFor,
+	QUESTION_CLASSES,
 	type RecallAnswerResult,
 	type SymbolSource,
 } from "@nyaa-lexicon/protocol";
@@ -394,7 +394,7 @@ export function knowledgeAnswerOf(
 	const held = new Map(
 		(Array.isArray(recalled) ? recalled : recalled ? [recalled] : []).map((r) => [r.answer.question, r]),
 	);
-	const answers = questionsFor(symbol).map((question): KnowledgeEntry => {
+	const answers = (described.questions ?? QUESTION_CLASSES).map((question): KnowledgeEntry => {
 		const found = held.get(question);
 		if (found === undefined) return { question };
 		return {
