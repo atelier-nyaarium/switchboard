@@ -18,7 +18,8 @@ Root discovery is bounded by `HOST_ROOTS_TIMEOUT_MS`.
 selects a range. `#text@before:anchor` and `#text@after:anchor` select the nearest occurrence.
 
 Escape spaces and closing parentheses, or use angle brackets. Percent-encode literal `..` and
-`@after:`.
+`@after:`. A bare destination ends at its first space, so prose holding `](ref://` outside a parsed
+link refuses the send, naming the fix.
 
 One worked example per matcher. A test pins them:
 

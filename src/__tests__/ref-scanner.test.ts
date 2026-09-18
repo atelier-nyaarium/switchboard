@@ -194,4 +194,24 @@ describe("a malformed ref", () => {
 		expect(found.map((f) => f.key)).toEqual(["ref://b.ts:Foo"]);
 		expect(problems).toHaveLength(1);
 	});
+
+	it("is refused when a space keeps it from parsing as a link, and parses once wrapped in angle brackets", () => {
+		const bare = scanRefs("every minute ([RECONCILE_MS](ref://src/runner.ts#RECONCILE_MS = 60_000)). The bus");
+		expect(bare.refs).toEqual([]);
+		expect(bare.problems).toEqual([
+			expect.objectContaining({
+				code: "not-a-link",
+				raw: "ref://src/runner.ts#RECONCILE_MS = 60_000",
+				offset: 32,
+			}),
+		]);
+
+		const wrapped = scanRefs("every minute ([RECONCILE_MS](<ref://src/runner.ts#RECONCILE_MS = 60_000>)).");
+		expect(wrapped.problems).toEqual([]);
+		expect(wrapped.refs).toHaveLength(1);
+	});
+
+	it("is not reported from inline code, where a failed link is only an example", () => {
+		expect(scanRefs("Write `[x](ref://a.ts#a b)` with brackets.").problems).toEqual([]);
+	});
 });

@@ -57,11 +57,11 @@ Scanned in \`full\` only. Not other fields, code fences, inline code.
 - \`#from..to\` line range
 - \`#text@before:anchor\`, \`#text@after:anchor\` nearest that anchor
 
-To match a literal \`..\` or \`@after:\`, percent-encode it: \`%2E%2E\`, \`%40\`.
+A destination with a space or \`)\` goes in angle brackets. To match a literal \`..\` or \`@after:\`, percent-encode it: \`%2E%2E\`, \`%40\`.
 
 **Refuses, naming the fix:** chain outside the root. Missing or ambiguous name. Matcher finding nothing. \`exact\` needs one hash-verified declaration.
 
-**Degrades to \`fuzzy\` or \`unresolved\`, with a notice:** only lexicon unable to answer. Absent, incompatible, warming, dead daemon, or an index refusing the workspace or file.
+**Degrades to \`fuzzy\` or \`unresolved\`, with a notice naming why:** only when lexicon cannot answer.
 
 Examples:
 

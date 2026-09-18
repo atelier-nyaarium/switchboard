@@ -7,8 +7,16 @@ import { pluginRoot } from "../../shared/plugin-root.js";
 
 interface MarkdownToken {
 	type: string;
+	content: string;
 	children?: MarkdownToken[] | null;
 	attrGet(name: string): string | null;
+}
+
+export interface LinkScan {
+	/** In document order, duplicates kept: the caller dedupes on canonical key, not written string. */
+	destinations: string[];
+	/** A ref link's destination that did not parse as a link, to its first `)`. */
+	unlinked: string[];
 }
 
 interface MarkdownParser {
@@ -56,20 +64,39 @@ function load(): MarkdownParser {
 	return parser;
 }
 
-/** In document order, duplicates kept: the caller dedupes on canonical key, not written string. */
-export function linkDestinations(body: string): string[] {
+const UNLINKED_REF = "](ref://";
+
+/** Adjacent text tokens are read as one run, since a failed link can split across several. */
+export function scanLinks(body: string): LinkScan {
 	const destinations: string[] = [];
+	const unlinked: string[] = [];
 
 	const walk = (tokens: MarkdownToken[] | null | undefined): void => {
+		let run = "";
+		const flush = () => {
+			const at = run.toLowerCase().indexOf(UNLINKED_REF);
+			if (at !== -1) {
+				const rest = run.slice(at + 2);
+				const close = rest.indexOf(")");
+				unlinked.push(close === -1 ? rest.slice(0, 120) : rest.slice(0, close));
+			}
+			run = "";
+		};
 		for (const token of tokens ?? []) {
+			if (token.type === "text") {
+				run += token.content;
+				continue;
+			}
+			flush();
 			if (token.type === "link_open") {
 				const href = token.attrGet("href");
 				if (href !== null) destinations.push(href);
 			}
 			walk(token.children);
 		}
+		flush();
 	};
 
 	walk(load().parse(body, {}));
-	return destinations;
+	return { destinations, unlinked };
 }

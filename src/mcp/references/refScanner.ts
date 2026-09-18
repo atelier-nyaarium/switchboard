@@ -1,4 +1,4 @@
-import { linkDestinations } from "./markdown.js";
+import { scanLinks } from "./markdown.js";
 import { canonicalKey, type ParseErrorCode, REF_SCHEME, type Ref, tryParseRef } from "./refGrammar.js";
 
 ////////////////////////////////
@@ -16,7 +16,7 @@ export interface FoundRef {
 /** A destination that meant to be a ref and was not a well-formed one. */
 export interface RefProblem {
 	raw: string;
-	code: ParseErrorCode;
+	code: ParseErrorCode | "not-a-link";
 	message: string;
 	offset: number;
 }
@@ -41,8 +41,19 @@ export function scanRefs(body: string): ScanResult {
 
 	const refs = new Map<string, FoundRef>();
 	const problems: RefProblem[] = [];
+	const { destinations, unlinked } = scanLinks(body);
 
-	for (const raw of linkDestinations(body)) {
+	for (const raw of unlinked) {
+		problems.push({
+			raw,
+			code: "not-a-link",
+			message:
+				"not parsed as a link; wrap a destination holding a space or `)` in angle brackets: `[label](<ref://a.ts#some text>)`",
+			offset: Math.max(0, raw.search(/\s/)),
+		});
+	}
+
+	for (const raw of destinations) {
 		const result = tryParseRef(raw);
 		if (result.kind === "not-a-ref") continue;
 		if (result.kind === "error") {
