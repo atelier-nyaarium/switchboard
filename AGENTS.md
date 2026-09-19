@@ -479,6 +479,12 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     a cancel of an accepted record is pending until `schedule_cancel` is, and a reschedule is a
     fresh intent naming the version it replaces. `drainPending`, `cancelNow`, `rescheduleNow` and
     `applyRouterResult` are the only transitions, so a JVM test drives every one.
+  - **A refusal is read against what the Router holds, never assumed to leave it empty:** a conflict
+    adopts the armed record before handing the local text back, or the phone shows nothing scheduled
+    while a send it cannot reach is still armed. A `sent` row matching no held record is resolved
+    through `routerRecord` and echoed, since a record replaced or taken back before its row arrived
+    still fired. The thread's own op ids gate that echo, because `ChatRepository.append` dedupes
+    nothing and a replayed row would otherwise show the message twice.
 - `android/.../GoalOps.kt` / `Goal.kt` - armed goals and `/goal` line production
 - `android/.../PresenceOps.kt` - team presence and read-anchor reporting
 - `android/.../SessionOps.kt` - terminal and session controls

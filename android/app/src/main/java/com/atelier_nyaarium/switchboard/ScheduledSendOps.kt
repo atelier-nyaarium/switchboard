@@ -178,7 +178,12 @@ internal class ScheduledSendOps(
 						else -> put(team, current.copy(routerVersion = version, replacesVersion = null))
 					}
 				}
-				"conflict" -> if (current.replacesVersion == null || !adoptRouterRecord(team)) takeBack(team, current, "conflict")
+				"conflict" -> {
+					val adopted = adoptRouterRecord(team)
+					if (current.replacesVersion == null || !adopted) {
+						takeBack(team, current, if (adopted) "another send is already scheduled" else "conflict")
+					}
+				}
 				Protocol.Wire.SocketFrame.REFUSED -> takeBack(team, current, answer.jsonObject["reason"]?.jsonPrimitive?.content ?: outcome)
 			}
 		}
@@ -199,6 +204,10 @@ internal class ScheduledSendOps(
 				collaborators.append(team, Message(true, rec.text, System.currentTimeMillis(), files = rec.fileRefs, opId = rec.opId))
 				remove(team, rec)
 				if (!rec.draftTaken) deleteSourcesIfUnreferenced(team, rec)
+			} ?: routerRecord(row.opId)?.let { (team, wire) ->
+				if (state.value.threads[team]?.any { it.opId == wire.opId } == true) return@withLock
+				val (text, files) = decodedBody(wire) ?: return@withLock
+				collaborators.append(team, Message(true, text, System.currentTimeMillis(), files = files, opId = wire.opId))
 			}
 			"failed" -> found?.let { (team, rec) -> remove(team, rec); onScheduledSendFailed?.invoke(team, rec.opId) }
 		}
@@ -228,17 +237,27 @@ internal class ScheduledSendOps(
 
 	/** Adopts Router record. */
 	private fun adopt(team: String, wire: ScheduledRecord): Boolean {
-		val plain = collaborators.openScheduledBody(wire.body, wire.opId) ?: return false
-		val json = org.json.JSONObject(String(plain))
-		val files = loadFiles(json).mapIndexed { index, file -> file.copy(src = null, blobId = wire.files.getOrNull(index)) }
-		put(team, ScheduledSend(json.optString("text"), files, wire.fireAt, wire.opId, null, wire.createdAt, wire.version))
+		val (text, files) = decodedBody(wire) ?: return false
+		put(team, ScheduledSend(text, files, wire.fireAt, wire.opId, null, wire.createdAt, wire.version))
 		return true
 	}
 
+	private fun decodedBody(wire: ScheduledRecord): Pair<String, List<MessageFile>>? {
+		val plain = collaborators.openScheduledBody(wire.body, wire.opId) ?: return null
+		val json = org.json.JSONObject(String(plain))
+		val files = loadFiles(json).mapIndexed { index, file -> file.copy(src = null, blobId = wire.files.getOrNull(index)) }
+		return json.optString("text") to files
+	}
+
 	private suspend fun mirror(row: ScheduledResultRow) {
-		val wire = routerRecords(row.opId).firstOrNull { it.opId == row.opId } ?: return
-		val team = collaborators.teamOf(wire.target) ?: return
+		val (team, wire) = routerRecord(row.opId) ?: return
 		adopt(team, wire)
+	}
+
+	private suspend fun routerRecord(opId: String): Pair<String, ScheduledRecord>? {
+		val wire = routerRecords(opId).firstOrNull { it.opId == opId } ?: return null
+		val team = collaborators.teamOf(wire.target) ?: return null
+		return team to wire
 	}
 
 	private suspend fun adoptRouterRecord(team: String): Boolean {

@@ -765,3 +765,7 @@ no TTL.
   fires it and writes a `scheduled_result` row, which the phone echoes into the thread. A cancel of
   an accepted record is an intent too, re-posted until answered; a reschedule is a fresh intent
   naming the version it replaces. Every transition runs under one mutex beside the ops class.
+  A refused post reads what the Router holds before the text goes back to the composer, so an armed
+  record another device placed is adopted rather than left invisible. A `sent` row naming a record
+  this phone no longer holds is resolved from the Router and echoed once, since the message did go
+  out; the thread's own op ids are what stop a replayed row echoing it twice.

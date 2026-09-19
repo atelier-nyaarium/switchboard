@@ -34,6 +34,7 @@ class ScheduledSendOpsTest {
 		val uploaded = mutableListOf<String>()
 		val drafts = mutableListOf<Pair<String, List<MessageFile>>>()
 		val appended = mutableListOf<Message>()
+		val appendedTeams = mutableListOf<String>()
 		val deleted = mutableListOf<String>()
 		var answers: (String) -> JsonElement? = { buildJsonObject { put("outcome", "accepted"); put("version", 4) } }
 		var plaintext: ByteArray? = null
@@ -41,7 +42,7 @@ class ScheduledSendOpsTest {
 		override fun fromCanonical(team: String) = team
 		override fun scheduleAttachmentDelete(srcs: List<String>) { deleted += srcs }
 		override fun takeBackIntoDraft(team: String, text: String, files: List<MessageFile>) { drafts += text to files }
-		override fun append(team: String, message: Message): Long { appended += message; return appended.size.toLong() }
+		override fun append(team: String, message: Message): Long { appendedTeams += team; appended += message; return appended.size.toLong() }
 		override suspend fun postOwnerOp(op: JsonObject, opId: String): JsonElement? {
 			posted += op
 			return answers(op["kind"]!!.jsonPrimitive.content)
@@ -61,8 +62,11 @@ class ScheduledSendOpsTest {
 		fireAt: Long = System.currentTimeMillis() + 60_000,
 	) = ScheduledSend("text", files, fireAt, opId, null, 1, routerVersion)
 
-	private fun world(vararg records: ScheduledSend): Triple<MutableStateFlow<ChatState>, Fake, ScheduledSendOps> {
-		val state = MutableStateFlow(ChatState(scheduledSends = records.associateBy { team }))
+	private fun world(
+		vararg records: ScheduledSend,
+		threads: Map<String, List<Message>> = emptyMap(),
+	): Triple<MutableStateFlow<ChatState>, Fake, ScheduledSendOps> {
+		val state = MutableStateFlow(ChatState(scheduledSends = records.associateBy { team }, threads = threads))
 		val fake = Fake()
 		val ops = ScheduledSendOps(state, ChatPersistence(testStore()), File("/tmp/scheduled"), CoroutineScope(Dispatchers.Unconfined), fake)
 		return Triple(state, fake, ops)
@@ -208,6 +212,40 @@ class ScheduledSendOpsTest {
 	}
 
 	@Test
+	fun aFreshConflictAdoptsTheArmedRecordAndReturnsTheLocalTextToTheDraft() = runBlocking {
+		val (state, fake, ops) = world(record())
+		val held = ScheduledRecord(target, 555L, 100L, "old", ScheduledSender("conv", "device"), emptyList(), envelope, "armed", 0, 4)
+		fake.answers = { kind ->
+			when (kind) {
+				Protocol.Wire.OWNER_OP_SCHEDULE_SEND -> buildJsonObject { put("outcome", "conflict") }
+				Protocol.Wire.OWNER_OP_SCHEDULE_LIST -> JsonArray(listOf(wireJson.encodeToJsonElement(ScheduledRecord.serializer(), held)))
+				else -> null
+			}
+		}
+		fake.plaintext = """{"text":"old text","messageId":"old","files":[]}""".toByteArray()
+		ops.drainPending()
+		assertEquals("old", state.value.scheduledSends.getValue(team).opId)
+		assertEquals("text", fake.drafts.single().first)
+		assertTrue(state.value.error!!.contains("another send is already scheduled"))
+	}
+
+	@Test
+	fun aFreshConflictWithNoArmedRecordRemovesTheRecordAndReturnsTheTextToTheDraft() = runBlocking {
+		val (state, fake, ops) = world(record())
+		fake.answers = { kind ->
+			when (kind) {
+				Protocol.Wire.OWNER_OP_SCHEDULE_SEND -> buildJsonObject { put("outcome", "conflict") }
+				Protocol.Wire.OWNER_OP_SCHEDULE_LIST -> JsonArray(emptyList())
+				else -> null
+			}
+		}
+		ops.drainPending()
+		assertTrue(state.value.scheduledSends.isEmpty())
+		assertEquals("text", fake.drafts.single().first)
+		assertTrue(state.value.error!!.contains("conflict"))
+	}
+
+	@Test
 	fun anAcceptedAnswerForARecordAlreadyFiredEchoesItAndClears() = runBlocking {
 		val (state, fake, ops) = world(record())
 		fake.answers = { buildJsonObject { put("outcome", "accepted"); put("state", "fired"); put("version", 4) } }
@@ -253,5 +291,31 @@ class ScheduledSendOpsTest {
 		assertEquals(123_456L, mirrored.fireAtMillis)
 		assertEquals("sha256-a", mirrored.fileRefs.single().blobId)
 		assertNull(mirrored.fileRefs.single().src)
+	}
+
+	@Test
+	fun aSentResultForARecordThisPhoneDoesNotHoldEchoesTheRouterRecordIntoItsThread() = runBlocking {
+		val (_, fake, ops) = world()
+		val wire = ScheduledRecord(target, 123_456L, 100L, "op9", ScheduledSender("conv", "device"), listOf("sha256-a"), envelope, "fired", 0, 11)
+		fake.answers = { kind ->
+			if (kind == Protocol.Wire.OWNER_OP_SCHEDULE_LIST) JsonArray(listOf(wireJson.encodeToJsonElement(ScheduledRecord.serializer(), wire))) else null
+		}
+		fake.plaintext = """{"text":"later","messageId":"op9","files":[{"name":"a.png","mime":"image/png"}]}""".toByteArray()
+		ops.applyRouterResult(ScheduledResultRow("op9", "sent", null, envelope))
+		assertEquals(listOf(team), fake.appendedTeams)
+		assertEquals("op9", fake.appended.single().opId)
+		assertEquals("sha256-a", fake.appended.single().files.single().blobId)
+	}
+
+	@Test
+	fun aRepeatedSentResultForAnExistingThreadMessageIsIgnored() = runBlocking {
+		val existing = Message(true, "later", 1L, opId = "op9")
+		val (_, fake, ops) = world(threads = mapOf(team to listOf(existing)))
+		val wire = ScheduledRecord(target, 123_456L, 100L, "op9", ScheduledSender("conv", "device"), emptyList(), envelope, "armed", 0, 11)
+		fake.answers = { kind ->
+			if (kind == Protocol.Wire.OWNER_OP_SCHEDULE_LIST) JsonArray(listOf(wireJson.encodeToJsonElement(ScheduledRecord.serializer(), wire))) else null
+		}
+		ops.applyRouterResult(ScheduledResultRow("op9", "sent", null, envelope))
+		assertTrue(fake.appended.isEmpty())
 	}
 }
