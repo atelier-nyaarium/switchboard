@@ -140,9 +140,12 @@ export function createScheduledService(deps: ScheduledDeps) {
 		const id = recordId(input.target);
 		const current = store.get("scheduled", id);
 		if (current?.clear.state === "firing") return envelope(sender, "conflict", { version: current.version });
-		const expected = current ? (input.expectedVersion ?? null) : null;
-		if (current ? expected !== current.version : input.expectedVersion !== undefined)
-			return envelope(sender, "conflict", { version: current?.version });
+		// Settled keeps the slot for its opId echo only.
+		const settled = current !== null && TERMINAL.has(String(current.clear.state));
+		const admitted = current
+			? input.expectedVersion === current.version || (settled && input.expectedVersion === undefined)
+			: input.expectedVersion === undefined;
+		if (!admitted) return envelope(sender, "conflict", { version: current?.version });
 		const record = {
 			target: input.target,
 			fireAt: input.fireAt,
@@ -154,7 +157,7 @@ export function createScheduledService(deps: ScheduledDeps) {
 			state: "armed",
 			attempts: 0,
 		};
-		const write = putHolding(domainId, input.target, input.files, id, current ? expected : null, record);
+		const write = putHolding(domainId, input.target, input.files, id, current ? current.version : null, record);
 		if (write.kind === "blob_missing") return envelope(sender, "refused", { reason: "file" });
 		const folded = foldWriteResult(write);
 		if (!folded.applied) return envelope(sender, folded.outcome === "conflict" ? "conflict" : folded.outcome);

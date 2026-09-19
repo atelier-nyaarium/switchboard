@@ -416,6 +416,31 @@ describe("scheduled service", () => {
 		registry.close();
 	});
 
+	it("arms a fresh opId over a settled record without naming its version", async () => {
+		const { service, registry, rows, timers } = make();
+		const send = (opId: string) =>
+			service.schedule(
+				"domain-a",
+				{ conversationId: "conversation", device: "phone", opId },
+				{ kind: "schedule_send", target, fireAt: 200, opId, files: [], body },
+			);
+		send("op-1");
+		expect(service.cancel("domain-a", target, 1)).toMatchObject({ outcome: "accepted", version: 2 });
+		expect(send("op-2")).toMatchObject({ outcome: "accepted", version: 3 });
+		expect(service.list("domain-a")).toMatchObject([{ opId: "op-2", state: "armed" }]);
+		await service.fire("domain-a", target);
+		expect(send("op-3")).toMatchObject({ outcome: "accepted", version: 6 });
+		expect(service.list("domain-a")).toMatchObject([{ opId: "op-3", state: "armed" }]);
+		expect(timers).toHaveLength(1);
+		expect(rows.map((row) => (row as { opKey: { opId: string } }).opKey.opId)).toEqual([
+			"op-1.pending",
+			"op-2.pending",
+			"op-2.sent",
+			"op-3.pending",
+		]);
+		registry.close();
+	});
+
 	it("dedupes a message after reopening following a crash", async () => {
 		const first = make({ durableInbox: true });
 		first.service.schedule(

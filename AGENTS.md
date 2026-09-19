@@ -687,6 +687,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     that crashes on the phone can pass every gate. `icu-regex-residue.test.ts` now reads every phone
     `Regex` literal for it, since nothing that runs Kotlin can.
 - `src/federation-server/scheduled/` - scheduled sends: versioned records, timers, fire through the op ledger, result rows
+  - **A settled record keeps the slot for its opId echo, not for the owner's intent:** a fresh
+    schedule over it names no version, and the write is still a CAS over it. The phone has no
+    version to name once a cancel or a fire lands. Deleting settled records instead would break
+    the echo a send retried after a crash relies on.
 - `src/federation-server/tier1/` - capability fold and read anchors
 - `src/federation-server/migration/` - leases, serve gate, and cursor translation
 - `src/shared/board-authority.ts` / `board-cascade.ts` / `board-structure.ts` / `board-observations.ts` - pure board rules shared by the gateway and the Router
