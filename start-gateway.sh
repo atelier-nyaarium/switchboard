@@ -17,6 +17,8 @@ if ! git pull; then
 fi
 echo "Deploying commit $(git rev-parse HEAD)"
 
+bun ci
+
 # Default GATEWAY_ID to this machine's hostname when .env sets none, so two machines never both
 # silently fall back to "switchboard". docker compose reads .env on its own; this export only fills
 # the gap when .env has no GATEWAY_ID.
