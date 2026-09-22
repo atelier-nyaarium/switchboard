@@ -114,5 +114,5 @@ A session can delegate a self-contained task to a logged-in Copilot CLI through 
 wait for the previous turn, because ACP has no steer operation.
 
 **Enabling it:** `copilot` on `PATH` announces the capability. Login uses the CLI and `/login`; no
-API key is forwarded. Default model `gpt-5.6-luna`, with agent permissions enabled for the supervised
+API key is forwarded. Default model `gpt-6-luna`, with agent permissions enabled for the supervised
 target.

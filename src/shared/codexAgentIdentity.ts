@@ -39,7 +39,7 @@ export const CODEX_AGENT_ID_RE = /^codex_[0-9a-f]{32}$/;
 export const CODEX_WAIT_BUDGET_MS = CODEX_BACKEND.waitBudgetMs;
 /** Deliberately not the App Server's own default: a thread runs whatever tier this names, so leaving
  * the choice to the server would silently change what a delegated sub-task is worth. */
-export const CODEX_DEFAULT_MODEL = "gpt-5.6-luna";
+export const CODEX_DEFAULT_MODEL = "gpt-6-luna";
 /** The faster tier's id, as `serviceTiers` names it. The deprecated spelling `fast` is not it. */
 export const CODEX_PRIORITY_SERVICE_TIER = "priority";
 /** Not a server id. It travels as a null override, which the App Server answers as its `default`

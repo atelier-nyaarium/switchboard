@@ -18,7 +18,7 @@ export const COPILOT_ACTIVITY_MAX_BYTES = AGENT_ACTIVITY_MAX_BYTES;
 export const COPILOT_ACTIVITY_MAX_ITEMS = AGENT_ACTIVITY_MAX_ITEMS;
 export const COPILOT_ERROR_MAX_BYTES = AGENT_ERROR_MAX_BYTES;
 export const COPILOT_WAIT_BUDGET_MS = COPILOT_BACKEND.waitBudgetMs;
-export const COPILOT_DEFAULT_MODEL = "gpt-5.6-luna";
+export const COPILOT_DEFAULT_MODEL = "gpt-6-luna";
 export const COPILOT_AGENT_ID_RE = /^copilot_[0-9a-f]{32}$/;
 
 export const CopilotAgentIdSchema = z.string().regex(COPILOT_AGENT_ID_RE);

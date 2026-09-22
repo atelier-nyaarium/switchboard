@@ -25,10 +25,9 @@ Start a session-owned Codex agent for a self-contained subtask.
 
 Waits for the turn. A turn beyond the wait budget keeps running and is returned later.
 
-Models:
-- gpt-5.6-sol - Flagship for the hardest reasoning and coding. Ask permission first.
-- gpt-5.6-terra - Balanced workhorse for strong everyday reasoning and implementation.
-- gpt-5.6-luna - Efficient for long-running exploration, audits, and implementation. Use it by default.
+Models, spelled exactly:
+- \`gpt-6-luna\` - Efficient for long-running exploration, audits, and implementation. Use it by default.
+- \`gpt-6-sol\` - For the hardest reasoning and coding. Ask permission first.
 
 ## Prompt
 

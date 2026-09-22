@@ -69,9 +69,9 @@ describe("child environment", () => {
 		],
 		[{ ACME_API_KEY: "x", GH_TOKEN: "y" }, "CODEX_", {}],
 		[
-			{ CODEX_API_KEY: "k", CODEX_AGENT_MODEL: "gpt-5.6-luna" },
+			{ CODEX_API_KEY: "k", CODEX_AGENT_MODEL: "gpt-6-luna" },
 			"CODEX_",
-			{ CODEX_API_KEY: "k", CODEX_AGENT_MODEL: "gpt-5.6-luna" },
+			{ CODEX_API_KEY: "k", CODEX_AGENT_MODEL: "gpt-6-luna" },
 		],
 		[{ COPILOT_API_KEY: "k", CODEX_API_KEY: "c" }, "CODEX_", { CODEX_API_KEY: "c" }],
 		[{ COPILOT_API_KEY: "k", CODEX_API_KEY: "c" }, "COPILOT_", { COPILOT_API_KEY: "k" }],
@@ -82,11 +82,8 @@ describe("child environment", () => {
 
 	it("forwards only the agent settings to a container", () => {
 		expect(
-			containerEnvArgs(
-				{ CODEX_AGENT_MODEL: "gpt-5.6-luna", PATH: "/usr/bin", HOST_WS_TOKEN: "secret" },
-				"CODEX_",
-			),
-		).toEqual(["-e", "CODEX_AGENT_MODEL=gpt-5.6-luna"]);
+			containerEnvArgs({ CODEX_AGENT_MODEL: "gpt-6-luna", PATH: "/usr/bin", HOST_WS_TOKEN: "secret" }, "CODEX_"),
+		).toEqual(["-e", "CODEX_AGENT_MODEL=gpt-6-luna"]);
 	});
 });
 

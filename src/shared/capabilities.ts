@@ -37,6 +37,12 @@ You are the triage gate for what Codex says and does. A confident tone is not ev
 
 Codex sandbox denies outbound network access. Writes can only happen in the directory you start it in. Otherwise, all other executions are permitted.
 
+## Codex Models
+
+\`model\` on \`codexStartAgent\`, spelled exactly:
+- \`gpt-6-luna\` - Default. Exploration, audits, implementation.
+- \`gpt-6-sol\` - Hardest reasoning and coding. Ask permission first.
+
 ## Driving a Codex Agent Workflow
 
 To keep your context free of clutter, it's recommended to use Workflows.

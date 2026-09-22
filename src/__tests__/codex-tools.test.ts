@@ -21,7 +21,7 @@ describe("Codex request identities", () => {
 			model: expect.any(String),
 			serviceTier: "priority",
 		});
-		expect(codexRequestBody("start", { prompt: "Audit", model: "gpt-5.6-sol" })).not.toHaveProperty("serviceTier");
+		expect(codexRequestBody("start", { prompt: "Audit", model: "gpt-6-sol" })).not.toHaveProperty("serviceTier");
 		expect(
 			codexRequestBody("message", { agentId: "codex_0123456789abcdef0123456789abcdef", prompt: "Continue" }),
 		).not.toHaveProperty("model");
