@@ -153,8 +153,9 @@ export function buildLaunchCommand(
 	}
 	const exportToken = opts.sessionToken ? `export SWITCHBOARD_SESSION_TOKEN=${opts.sessionToken}; ` : "";
 	// Everything after argv[0]. The binary itself belongs to the spawn point: a Windows session runs
-	// `claude.exe`, since bare `claude` does not resolve from PowerShell.
-	const claudeArgs = `--model opus --effort xhigh ${CLAUDE_FLAGS}${resume}`;
+	// `claude.exe`, since bare `claude` does not resolve from PowerShell. Quoted: the brackets would
+	// otherwise glob in the nested `bash -c`.
+	const claudeArgs = `--model "opus[1m]" --effort xhigh ${CLAUDE_FLAGS}${resume}`;
 	if (target.kind === "host") {
 		// Either quote would break out of the nesting, so a workdir bearing one is dropped.
 		const safeWorkdir = opts.workdir && !opts.workdir.includes("'") && !opts.workdir.includes('"');
