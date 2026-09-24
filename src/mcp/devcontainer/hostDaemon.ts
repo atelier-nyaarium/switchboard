@@ -443,7 +443,6 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 			lastScreen = res.screen;
 			launchAlive = res.alive;
 			limit = res.limit;
-			if (res.ready) spawnReloadPlugins(target);
 			greetFreshLaunch(target, { created, resumeSessionId: msg.resumeSessionId, ready: res.ready });
 			if (limit)
 				console.error(
