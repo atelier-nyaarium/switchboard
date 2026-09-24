@@ -278,7 +278,7 @@ export const SessionReportAnswerSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("unknown_occurrence") }),
 	z.object({ kind: z.literal("wrong_session") }),
 	z.object({ kind: z.literal("unauthenticated") }),
-	/** The run is over, by deadline or by the session having gone quiet. Nothing left to narrow. */
+	/** The run is over, by its window or its session ending. Nothing left to narrow. */
 	z.object({ kind: z.literal("not_working") }),
 	/**
 	 * Another run wrote history since this one read it. Carries what is held now so the session can

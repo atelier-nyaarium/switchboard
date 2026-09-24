@@ -8,7 +8,7 @@ import { createRoutineRunner, GRACE_MS, type RoutineAttempt } from "../gateway/r
 import { createRoutineStore } from "../gateway/routines/store.js";
 import type { Ambient } from "../shared/ambient.js";
 import { openDurable } from "../shared/durable-store.js";
-import type { Routine } from "../shared/schemasRoutine.js";
+import { ROUTINE_REPORT_GRACE_MS, type Routine } from "../shared/schemasRoutine.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -252,23 +252,22 @@ describe("the routine runner", () => {
 		expect(w.delivered).toEqual([]);
 	});
 
-	it("holds the work open from dispatch until the session has worked and gone quiet again", async () => {
+	it("holds the work open while the session goes quiet between turns, until the report's window passes", async () => {
 		let working = false;
 		const w = world({ sessionIdle: () => !working });
 		w.routines.put(routine());
 		await w.runner.reconcile();
 
 		const team = "host.routine-triage";
-		// Dispatched and not yet picked up. An idle read here says nothing, so the work stays open.
-		expect(w.runner.firstWorkingOccurrence(team)?.routineId).toBe("triage");
-		await w.runner.reconcile();
-		expect(w.runner.firstWorkingOccurrence(team)?.routineId).toBe("triage");
+		for (const turn of [false, true, false]) {
+			working = turn;
+			await w.runner.reconcile();
+			expect(w.runner.firstWorkingOccurrence(team)?.routineId).toBe("triage");
+		}
 
-		working = true;
-		await w.runner.reconcile();
-		expect(w.runner.firstWorkingOccurrence(team)?.routineId).toBe("triage");
-
-		working = false;
+		const filedAt = MONDAY_0900_LA + 60_000;
+		w.occurrences.noteReport("triage", MONDAY_0900_LA, "done", filedAt, filedAt + ROUTINE_REPORT_GRACE_MS);
+		w.at(filedAt + ROUTINE_REPORT_GRACE_MS + 1);
 		await w.runner.reconcile();
 		expect(w.runner.firstWorkingOccurrence(team)).toBeNull();
 	});

@@ -176,9 +176,11 @@ occurrence id and the run's own account of what it did.
 
 Filing is what narrows a run's authority. Without it the work window runs its full twelve hours from
 dispatch, and a standing grant lives with the window, so a routine that finished at noon could still
-reach its secrets at midnight if its session never went quiet. A filed report pulls `workUntil` in to
-`ROUTINE_REPORT_GRACE_MS`, about half an hour, which is long enough for a run that spoke too soon to
-finish.
+reach its secrets at midnight. A filed report pulls `workUntil` in to `ROUTINE_REPORT_GRACE_MS`,
+about half an hour, which is long enough for a run that spoke too soon to finish.
+
+**Idle leaves work open.** Owner replies may span idle turns. Work closes at its deadline or when the
+session ends.
 
 **The window only ever moves earlier.** `noteReport` floors it with `Math.min`, so filing again
 replaces the words and buys no time. Without that a session holds its routine's secrets open

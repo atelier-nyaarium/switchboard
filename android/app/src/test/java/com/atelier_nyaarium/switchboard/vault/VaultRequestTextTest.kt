@@ -100,7 +100,10 @@ class VaultRequestTextTest {
 	}
 
 	@Test
-	fun theCountdownStepsIntoSecondsUnderTwoMinutesAndReadsUrgent() {
+	fun theCountdownStepsFromHoursToSecondsAndReadsUrgentUnderTwoMinutes() {
+		assertEquals(Expiry("Expires in 19 h", false), expiresIn(20 * 3_600_000L - 1, now = 0L))
+		assertEquals(Expiry("Expires in 1 h", false), expiresIn(3_600_000L, now = 0L))
+		assertEquals(Expiry("Expires in 59 min", false), expiresIn(3_600_000L - 1, now = 0L))
 		assertEquals(Expiry("Expires in 8 min", false), expiresIn(8 * 60_000L + 30_000L, now = 0L))
 		assertEquals(Expiry("Expires in 2 min", false), expiresIn(EXPIRY_SECONDS_BELOW_MS, now = 0L))
 		assertEquals(Expiry("Expires in 120 s", true), expiresIn(EXPIRY_SECONDS_BELOW_MS - 1, now = 0L))

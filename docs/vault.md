@@ -80,8 +80,8 @@ and the delta list are in `docs/federation.md` under Owner state.
 `gateway/vault/requests.ts`.
 
 - A request carries an id, the operation text, its `displayShape`, the `coveredShapes` it names, the
-  session target, and a deadline nine minutes out. It names an entry, or it is `typed` and asks the
-  owner for a value.
+  session target, and a deadline twenty hours out (`VAULT_REQUEST_DEADLINE_MS`). It names an entry,
+  or it is `typed` and asks the owner for a value.
 - **It reaches the phone as a `plugin_action` row:** `pluginId` `vault`, `actionType` `request`,
   delivered through `deliverToOwner` into the session's conversation thread. The row is volatile: a
   restart drops it, because the waiting answer lived in the process that died.

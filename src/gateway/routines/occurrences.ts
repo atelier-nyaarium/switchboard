@@ -28,11 +28,7 @@ export const OccurrenceSchema = z.object({
 	snapshot: z.string().optional(),
 	/** The session it was bound to, resolved from the target policy at preparation. */
 	team: z.string().optional(),
-	/**
-	 * How far the dispatched work has got, which is the only thing a standing grant reads. `open` is
-	 * from dispatch until the session is seen working, `started` while it is, and `done` once it has
-	 * gone idle again. The deadline closes it whatever was observed.
-	 */
+	/** Standing grants read this. Idle closes nothing; only `workUntil` or session end. */
 	work: z.enum(["open", "started", "done"]).optional(),
 	/**
 	 * The hard edge on the work, twelve hours from when it began. Its own, not the occurrence's: a

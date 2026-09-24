@@ -184,11 +184,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		await attempt().deliver(routine, dispatched);
 	}
 
-	/**
-	 * Carries a dispatched occurrence's work along. Idle before the session has been seen working
-	 * says nothing, since a nudge just handed over has not been picked up yet; idle after it does.
-	 * The work's own deadline closes it whatever was ever observed.
-	 */
+	/** Idle leaves work open. Reports may shorten its deadline. */
 	function noteWork(occurrence: Occurrence, now: number): void {
 		if (occurrence.work === undefined || occurrence.work === "done") return;
 		if (now > (occurrence.workUntil ?? occurrence.deadlineAt)) {
@@ -196,11 +192,8 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			return;
 		}
 		const team = occurrence.team;
-		if (!team) return;
-		const idle = attempt().sessionIdle(team);
-		if (!idle) occurrences.noteWork(occurrence.routineId, occurrence.scheduledAt, "started");
-		else if (occurrence.work === "started")
-			occurrences.noteWork(occurrence.routineId, occurrence.scheduledAt, "done");
+		if (team && !attempt().sessionIdle(team))
+			occurrences.noteWork(occurrence.routineId, occurrence.scheduledAt, "started");
 	}
 
 	/**

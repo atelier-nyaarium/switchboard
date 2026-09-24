@@ -46,13 +46,14 @@ internal fun grantCovers(coveredShapes: List<String>?): String? = coveredShapes?
 
 internal data class Expiry(val text: String, val urgent: Boolean)
 
-/** Whole minutes left; seconds, rounded up, under two minutes. */
+/** Hours, minutes, then seconds. */
 internal fun expiresIn(deadlineAt: Long, now: Long = System.currentTimeMillis()): Expiry {
 	val left = deadlineAt - now
 	return when {
 		left <= 0 -> Expiry("Expired", true)
 		left < EXPIRY_SECONDS_BELOW_MS -> Expiry("Expires in ${(left + 999) / 1000} s", true)
-		else -> Expiry("Expires in ${left / 60_000} min", false)
+		left < 3_600_000 -> Expiry("Expires in ${left / 60_000} min", false)
+		else -> Expiry("Expires in ${left / 3_600_000} h", false)
 	}
 }
 
