@@ -209,9 +209,14 @@ function assertLexiconInputs(root: string): void {
 		throw new Error("lexicon/client/package.json may depend only on @nyaa-lexicon/protocol");
 	}
 
-	for (const entry of readdirSync(path.join(root, LEXICON_DIR), { withFileTypes: true })) {
-		if (!entry.isDirectory()) continue;
-		const nested = path.join(root, LEXICON_DIR, entry.name, "node_modules");
+	const lexicon = path.join(root, LEXICON_DIR);
+	const installs = [
+		path.join(lexicon, "node_modules"),
+		...readdirSync(lexicon, { withFileTypes: true })
+			.filter((entry) => entry.isDirectory())
+			.map((entry) => path.join(lexicon, entry.name, "node_modules")),
+	];
+	for (const nested of installs) {
 		if (existsSync(nested)) {
 			throw new Error(`Remove ${nested} before building; nested lexicon installs shadow root pins`);
 		}

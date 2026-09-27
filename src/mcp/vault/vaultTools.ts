@@ -1,7 +1,12 @@
 import crypto from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { MAX_VAULT_CAPTURE_CHARS, VAULT_ROUTE_WAIT_CAP_MS, VaultValueAnswerSchema } from "../../shared/schemasVault.js";
+import {
+	MAX_VAULT_CAPTURE_CHARS,
+	VAULT_OPERATION_MAX,
+	VAULT_ROUTE_WAIT_CAP_MS,
+	VaultValueAnswerSchema,
+} from "../../shared/schemasVault.js";
 import { routerPost } from "../bridge/helpers.js";
 import {
 	DEFAULT_ENV_NAME,
@@ -38,8 +43,10 @@ const RunInputSchema = {
 	command: z
 		.string()
 		.min(1)
-		.max(4096)
-		.describe(`Shell line, run with \`sh -c\`. The owner reads it before approving.`),
+		.max(VAULT_OPERATION_MAX)
+		.describe(
+			`Shell line, run with \`sh -c\`, at most ${VAULT_OPERATION_MAX} characters. The owner reads it before approving.`,
+		),
 	cwd: z
 		.string()
 		.max(4096)

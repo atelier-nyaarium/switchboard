@@ -108,7 +108,10 @@ export const VaultDecisionSchema = z
 	.enum(["once", "window", "session", "deny"])
 	.meta({ id: "VaultDecision", catalog: "decision" });
 
-const operation = z.string().trim().min(1).max(512);
+/** An operation's longest spelling, shown whole on the phone. */
+export const VAULT_OPERATION_MAX = 512;
+
+const operation = z.string().trim().min(1).max(VAULT_OPERATION_MAX);
 
 /** One run of the program asking: the helper's parent pid and start ticks. A second ask under the same asker is a rejected value. */
 const asker = z.string().min(1).max(128).optional();
