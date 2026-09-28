@@ -45,14 +45,14 @@ private fun ChatRepository.revisionPlane(
 	fetch: () -> Unit,
 ): Boolean {
 	val now = System.currentTimeMillis()
-	return when (val decision = revisionPlaneDecision(held, incoming, planeFetchedAt[name], now)) {
+	return when (val decision = revisionPlaneDecision(held, incoming, planeFetches[name], now)) {
 		RevisionPlaneDecision.Acknowledge -> {
-			planeFetchedAt.remove(name)
+			planeFetches.remove(name)
 			true
 		}
 		RevisionPlaneDecision.Wait -> false
 		is RevisionPlaneDecision.Fetch -> {
-			planeFetchedAt[name] = now
+			planeFetches[name] = PlaneFetch(incoming, now)
 			adopt(decision.epoch)
 			fetch()
 			false

@@ -62,7 +62,7 @@ class ChatRepository(
 		authenticate = { activity -> requireOwnerPresent(true, activity) },
 	)
 
-	internal val planeFetchedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+	internal val planeFetches = java.util.concurrent.ConcurrentHashMap<String, PlaneFetch>()
 	internal var onScheduledResult: (com.atelier_nyaarium.switchboard.proto.ScheduledResultRow) -> Unit = {}
 	internal var onBoardObservation: (com.atelier_nyaarium.switchboard.proto.BoardObservationRow) -> Unit = {}
 
@@ -282,7 +282,7 @@ class ChatRepository(
 		keyDeliveryBoot = null
 		keyDeliveryValue = null
 		mailboxSync.clearInMemory()
-		planeFetchedAt.clear()
+		planeFetches.clear()
 		forgottenUntil.clear()
 		reconciled.clear()
 		enrollInvites.clear()
