@@ -228,7 +228,7 @@ describe("Codex delegation through the gateway and the daemon", () => {
 		expect(answered).toMatchObject({ turn: { state: "completed" }, finalResponse: "done: after restart" });
 	});
 
-	it("after a daemon restart, the first message is retryable and the retry lands once the agent is re-fenced", async () => {
+	it("after a daemon restart, an idle agent's first message lands on the new daemon", async () => {
 		const caller = sessions.at(-1) as FakeSession;
 		const started = await codex(caller, {
 			kind: "start",
@@ -242,23 +242,6 @@ describe("Codex delegation through the gateway and the daemon", () => {
 			agentId: started.agentId,
 			prompt: "who are you now?",
 		});
-		expect(first).toMatchObject({
-			observation: "indeterminate",
-			error: { code: "indeterminate", retryable: true },
-		});
-		const recovered = await h.waitFor(async () => {
-			const listed = (await (await caller.post("/codex", { kind: "list" })).json()) as {
-				agents: Array<{ agentId: string; agentState: string }>;
-			};
-			return listed.agents.find((agent) => agent.agentId === started.agentId && agent.agentState === "idle");
-		}, "the agent back to idle");
-		expect(recovered.agentId).toBe(started.agentId);
-		const retried = await codex(caller, {
-			kind: "message",
-			operationId: operationId(),
-			agentId: started.agentId,
-			prompt: "who are you now?",
-		});
-		expect(retried).toMatchObject({ turn: { state: "completed" }, finalResponse: "done: who are you now?" });
+		expect(first).toMatchObject({ turn: { state: "completed" }, finalResponse: "done: who are you now?" });
 	});
 });

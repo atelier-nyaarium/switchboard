@@ -1,4 +1,4 @@
-import { advancesFence, sameFence } from "../shared/agent-fence.js";
+import { advancesFence, classifyAcceptanceFence, sameFence } from "../shared/agent-fence.js";
 import { appendAgentActivity } from "../shared/agent-record.js";
 import {
 	CODEX_ACTIVITY_MAX_ITEMS,
@@ -73,6 +73,22 @@ export function refenceUnverified(
 	);
 }
 
+/**
+ * An idle agent's new turn, accepted by another child than the one fenced at dispatch. Only the child
+ * that took this command can name its operation, so a foreign fence here is a reaped target relaunched
+ * or a restarted daemon serving it, and no turn was in flight to misplace. Waiting on reconciliation
+ * instead moves the fence, and the replayed receipt no longer matches it.
+ */
+function servedByNewChild(operation: CodexStoredOperation, delivery: string, fence: CodexReconciliationFence): boolean {
+	return (
+		operation.kind === "message" &&
+		operation.preDispatch.agentState === "idle" &&
+		delivery === "started" &&
+		operation.preDispatch.fence !== undefined &&
+		classifyAcceptanceFence(operation.preDispatch.fence, fence) === "foreign"
+	);
+}
+
 export function decideAcceptance(args: {
 	current: CodexPersistedAgent;
 	operation: CodexStoredOperation;
@@ -141,7 +157,10 @@ export function decideAcceptance(args: {
 		!sameFence(current.fence, operation.preDispatch.fence)
 	) {
 		return refuse;
-	} else if (!advancesFence(operation.preDispatch.fence, fence)) {
+	} else if (
+		!advancesFence(operation.preDispatch.fence, fence) &&
+		!servedByNewChild(operation, input.delivery, fence)
+	) {
 		// Do not acknowledge receipts from an older supervisor fence.
 		return { kind: "unresolved" };
 	}

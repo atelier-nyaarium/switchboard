@@ -305,6 +305,54 @@ describe("Codex relay behavior", () => {
 		await first;
 	});
 
+	it.each([
+		["a reaped target relaunched", "daemon-1", 2],
+		["a restarted daemon", "daemon-2", 1],
+	])("delivers an idle agent's follow-up to %s", async (_name, daemonInstanceId, generation) => {
+		const context = setup({ waitBudgetMs: 1_000 });
+		await startWorking(context);
+		context.feed(event(context, 1, { kind: "terminal", state: "completed", finalResponse: "done" }));
+		await settle();
+		const agentId = codexAgentIdForOperation(operations.start);
+		const pending = context.route.handle(context.request(), {
+			kind: "message",
+			operationId: operations.message,
+			agentId,
+			prompt: "Again",
+		});
+		await settle();
+		const command = context.commands().find((frame) => frame.kind === "message")!;
+		const stream = { ownerKey: context.store.teamOf(context.owner), daemonInstanceId, targetId, generation };
+		context.feed(
+			CodexDaemonReceiptSchema.parse({
+				type: "codex_receipt",
+				kind: "accepted",
+				requestId: command.requestId,
+				...stream,
+				eventId: 0,
+				agentId,
+				operationId: operations.message,
+				resolvedTarget,
+				threadId: "thread-1",
+				turnId: "turn-2",
+				delivery: "started",
+			}),
+		);
+		context.feed(
+			CodexDaemonEventSchema.parse({
+				...event(context, 1, { kind: "terminal", state: "completed", finalResponse: "again" }),
+				...stream,
+				turnId: "turn-2",
+			}),
+		);
+
+		expect(CodexAgentResultSchema.parse(await (await pending).json())).toMatchObject({
+			agentState: "idle",
+			observation: "terminal",
+			finalResponse: "again",
+		});
+	});
+
 	it("re-fences held frames after a new hello generation and ignores stale frames", async () => {
 		const context = setup();
 		await startWorking(context);

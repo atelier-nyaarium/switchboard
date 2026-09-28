@@ -6,7 +6,13 @@ child per execution target; the gateway owns the durable record.
 ## Codex delegation
 
 **A fence is `(daemonInstanceId, targetId, generation, lastEventId)`.** Reconciliation is the only
-path that may install a non-advancing fence.
+path that may install a non-advancing fence, with one exception: an idle agent's follow-up that
+starts a new turn, accepted by another child than the one fenced at dispatch (`servedByNewChild`).
+Only the child that took the command can name its operation, so that is a reaped target relaunched
+or a restarted daemon serving it, and no turn was in flight to misplace. The fence alone cannot order
+two children; the operation id is what does. Waiting on reconciliation there moves the fence, and the
+replayed receipt no longer matches the fence it was dispatched against, so the turn runs and its
+answer is dropped.
 
 **An acknowledgement retires the daemon's only copy.** `ignored` and `applied` permit it; only a
 withheld decision does not. Held frames are keyed by agent, although the stream is per target.
