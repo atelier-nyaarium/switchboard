@@ -1,4 +1,4 @@
-// A routine is a schedule the gateway runs, bound to a runbook the owner already approved.
+// A routine is a schedule the gateway runs, bound to a stored runbook.
 
 import { z } from "zod";
 import { instantOf, type LocalDate, nextOccurrence, parseLocalDate, parseLocalTime } from "./routine-recurrence.js";
@@ -62,7 +62,7 @@ export const RoutineSchema = z
 		 */
 		zone: z.string().min(1),
 		runbookId: z.string().min(1),
-		/** The revision the owner approved. A runbook that moves past it stops this routine. */
+		/** Last revision shown by the editor. */
 		approvedRevision: z.number().int().positive(),
 		/** Complete at save, so nothing is asked at fire time. */
 		values: z.record(z.string(), z.string()),
@@ -133,8 +133,10 @@ export const RoutineStateSchema = z
 		/** When that run's session read its instructions. Absent means it never did. */
 		lastReadAt: z.number().int().nonnegative().optional(),
 		missed: RoutineMissSchema.optional(),
-		/** When it last refused a moved revision. Saving the routine again is what clears it. */
+		/** When a run last stopped for review. */
 		reviewAt: z.number().int().nonnegative().optional(),
+		/** Why, as it stands now. */
+		reviewReason: z.string().optional(),
 		attention: RoutineAttentionSchema.optional(),
 	})
 	.meta({ id: "RoutineState" });

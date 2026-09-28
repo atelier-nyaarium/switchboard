@@ -21,6 +21,10 @@ export function routineTeam(routine: Routine): string {
 	return `${routine.target.spawn}.${routineSessionName(routine.id)}`;
 }
 
+export function takenReason(routine: Routine): string {
+	return `a session called ${routineTeam(routine)} is already open and is not this routine's`;
+}
+
 /** Nothing holds the name, or what holds it is this routine's own. */
 export function routineOwns(held: SessionRecord | undefined, routine: Routine): boolean {
 	return held === undefined || held.mintedFrom === reserveKey(routine);

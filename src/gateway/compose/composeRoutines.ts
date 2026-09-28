@@ -14,7 +14,8 @@ import { fireAndForget } from "../fireAndForget.js";
 import { type Attention, createAttentionStore } from "../routines/attention.js";
 import { createRoutineMemoryStore } from "../routines/memory.js";
 import { createOccurrenceStore, type Occurrence } from "../routines/occurrences.js";
-import { routineTeam } from "../routines/reservation.js";
+import { renderRoutine } from "../routines/render.js";
+import { routineTeam, takenReason } from "../routines/reservation.js";
 import { createRoutineRoutes, type Handler as RoutineRouteHandler } from "../routines/routineRoutes.js";
 import { createRoutineRunner, type RoutineAttempt } from "../routines/runner.js";
 import type { FileOutcome } from "../routines/sessionRoutine.js";
@@ -55,7 +56,7 @@ export interface RoutineStage {
 	workingRoutine: (sessionTarget: string) => string | null;
 	/** Whether a stored routine reserves that session, which keeps it from being swept as idle. */
 	reserves: (sessionTarget: string) => boolean;
-	/** A runbook moved or went, so every routine pinned to it settles its grants again. */
+	/** A runbook moved or went, so a routine it stopped may run again. */
 	runbookMoved: (runbookId: string) => void;
 	/** A secret the owner never answered for, recorded against the occurrence that wanted it. */
 	secretUnanswered: (sessionTarget: string, entryId: string) => void;
@@ -149,6 +150,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 				rows.filter((row) => row.state === state).sort((a, b) => b.scheduledAt - a.scheduledAt)[0];
 			const ran = newestOf("dispatched");
 			const review = newestOf("needs_review");
+			const reviewReason = review ? reviewText(routine, review) : null;
 			const nextAt = runner.nextAt(routine, now);
 			const missed = panelFor(rows, now);
 			const wanted = attentionFor(attention.forRoutine(routine.id));
@@ -160,24 +162,31 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 				...(ran?.readAt === undefined ? {} : { lastReadAt: ran.readAt }),
 				...(missed ? { missed } : {}),
 				...(review ? { reviewAt: review.scheduledAt } : {}),
+				...(reviewReason ? { reviewReason } : {}),
 				...(wanted ? { attention: wanted } : {}),
 			};
 		});
 	};
 
-	/** Whether the words this routine pinned are the ones stored, which is what its authority rests on. */
-	const pinIsHeld = (routine: Routine): boolean =>
-		deps.getRunbook === undefined || deps.getRunbook(routine.runbookId)?.revision === routine.approvedRevision;
+	/** Why this routine cannot render now, or null. */
+	const blockedBy = (routine: Routine): string | null => {
+		if (!deps.getRunbook) return null;
+		const rendered = renderRoutine(deps.getRunbook(routine.runbookId), routine);
+		return rendered.ok ? null : rendered.reason;
+	};
+
+	/** A render stop reads the runbook as it is now. */
+	const reviewText = (routine: Routine, row: Occurrence): string | null =>
+		row.reviewCause === "session_taken" ? takenReason(routine) : blockedBy(routine);
 
 	/**
-	 * A routine's authority is exactly what its stored record links, so a save, an enable, a disable,
-	 * a delete and a runbook moving past its pin all settle it by rewriting from the record. Only the
-	 * owner reaches these, and nothing inside a session does.
+	 * A routine's authority is exactly what its stored record links, so a save, an enable, a disable
+	 * and a delete all settle it by rewriting from the record. Only the owner reaches these, and
+	 * nothing inside a session does.
 	 */
 	const settleGrants = (routineId: string): void => {
 		const held = store.get(routineId);
-		const authorized = held?.enabled && pinIsHeld(held) ? held.linkedEntries : [];
-		deps.setRoutineGrants?.(routineId, authorized);
+		deps.setRoutineGrants?.(routineId, held?.enabled ? held.linkedEntries : []);
 	};
 
 	/**
@@ -189,16 +198,20 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		fireAndForget("routine rearm", runner.reconcile());
 	}
 
-	/** Every routine pinned to that runbook, since one whose pin moved stops running. */
-	const runbookMoved = (runbookId: string): void => {
-		let touched = false;
-		for (const routine of store.list()) {
-			if (routine.runbookId !== runbookId) continue;
-			settleGrants(routine.id);
-			touched = true;
+	/** Clears render stops that now render. */
+	const settleRenderReviews = (routines: readonly Routine[]): void => {
+		for (const routine of routines) {
+			if (blockedBy(routine) === null) occurrences.clearReview(routine.id, "unrenderable");
 		}
-		// A run waiting on words that just came back to its pin can be prepared now.
-		if (touched) storeMoved();
+	};
+
+	/** A runbook edit can unblock a routine as a save can. */
+	const runbookMoved = (runbookId: string): void => {
+		const using = store.list().filter((routine) => routine.runbookId === runbookId);
+		if (using.length === 0) return;
+		settleRenderReviews(using);
+		// A stopped slot still in its window runs now.
+		storeMoved();
 	};
 
 	/** Empty for a routine the store no longer holds, and for one stored before incarnations. */
@@ -333,7 +346,11 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 					? { applied: true }
 					: { applied: false, reason: "that occurrence is not waiting to be dismissed" },
 		},
-		start: () => runner.start(),
+		start: () => {
+			// A review can outlive its cause.
+			settleRenderReviews(store.list());
+			runner.start();
+		},
 		stop: () => runner.stop(),
 		reconcile: () => runner.reconcile(),
 		bindExecution: (attempt) => {

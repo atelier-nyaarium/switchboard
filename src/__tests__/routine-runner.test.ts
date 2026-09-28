@@ -40,7 +40,7 @@ const routine = (over: Partial<Routine> = {}): Routine => ({
 const A_YEAR_BEFORE = MONDAY_0900_LA - 365 * 24 * 60 * 60 * 1000;
 
 const ready = { ok: true, revision: 3, snapshot: "do the thing", team: "host.routine-triage" } as const;
-const moved = { ok: false, reason: "revision_moved" } as const;
+const unrenderable = { ok: false, reason: "unrenderable" } as const;
 
 function world(over: Partial<RoutineAttempt> = {}, took = A_YEAR_BEFORE, clock: { driftMs?: number } = {}) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "routine-runner-"));
@@ -150,13 +150,28 @@ describe("the routine runner", () => {
 		expect(w.delivered).toEqual([]);
 	});
 
-	it("sends a routine whose pinned revision moved for review, rather than firing it", async () => {
-		const w = world({ prepare: async () => moved });
+	it("sends a routine that cannot render for review, rather than firing it", async () => {
+		const w = world({ prepare: async () => unrenderable });
 		w.routines.put(routine());
 
 		await w.runner.reconcile();
-		expect(w.occurrences.at("triage", MONDAY_0900_LA)?.state).toBe("needs_review");
+		expect(w.occurrences.at("triage", MONDAY_0900_LA)).toMatchObject({
+			state: "needs_review",
+			reviewCause: "unrenderable",
+		});
 		expect(w.delivered).toEqual([]);
+	});
+
+	it("sends a run that waited on a busy session for review once it frees and cannot render", async () => {
+		let busy = true;
+		const w = world({ sessionIdle: () => !busy, prepare: async () => unrenderable });
+		w.routines.put(routine());
+		await w.runner.reconcile();
+
+		busy = false;
+		await w.runner.reconcile();
+
+		expect(w.occurrences.at("triage", MONDAY_0900_LA)?.state).toBe("needs_review");
 	});
 
 	it("does not dispatch after the routine is disabled during preparation", async () => {
@@ -302,7 +317,7 @@ describe("the routine runner", () => {
 				sessionIdle: () => true,
 				hasSession: () => false,
 				forgetSession: () => {},
-				prepare: async () => (prepared ? ready : moved),
+				prepare: async () => (prepared ? ready : unrenderable),
 				deliver: async (_routine, occurrence) => {
 					delivered.push(String(occurrence.scheduledAt));
 				},
@@ -444,8 +459,8 @@ describe("the routine runner", () => {
 		expect(w.delivered).toEqual([]);
 	});
 
-	it("says a pressed run did not happen when its words moved before it could be sent", async () => {
-		const w = world({ prepare: async () => moved });
+	it("says a pressed run did not happen when its words could not render", async () => {
+		const w = world({ prepare: async () => unrenderable });
 		w.routines.put(routine());
 
 		// Refused for review, so nothing was delivered and the answer must not say otherwise.

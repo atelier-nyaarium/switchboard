@@ -4,7 +4,7 @@ import { createRunbookStore } from "../runbooks/store.js";
 
 export interface RunbookStageDeps {
 	dataDir: string;
-	/** A stored runbook moved or went, which is what stops a routine pinned to an older revision. */
+	/** A stored runbook moved or went. */
 	onRunbookMoved?: (runbookId: string) => void;
 }
 

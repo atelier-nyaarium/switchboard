@@ -3,10 +3,10 @@
 import { z } from "zod";
 import { canonicalJson } from "../../shared/canonical-json.js";
 import { type DurableStore, DurableStoreInstalledError } from "../../shared/durable-store.js";
-import { renderRunbook } from "../../shared/runbook-grammar.js";
 import { type Routine, RoutineSchema, routineRefusal } from "../../shared/schemasRoutine.js";
 import { REVISION_CEILING, type Runbook } from "../../shared/schemasRunbook.js";
-import { routineTeam } from "./reservation.js";
+import { renderRoutine } from "./render.js";
+import { takenReason } from "./reservation.js";
 
 export interface RoutineStoreDeps {
 	/** Opened through `openDurable`, so a poisoned file starts this store fresh. */
@@ -76,15 +76,10 @@ function contextRefusal(routine: Routine, deps: RoutineStoreDeps): string | null
 		return `this Gateway has no spawn point called ${routine.target.spawn}`;
 	}
 	if (deps.sessionTaken?.(routine)) {
-		return `a session called ${routineTeam(routine)} is already open and is not this routine's`;
+		return takenReason(routine);
 	}
 	if (!deps.getRunbook) return null;
-	const runbook = deps.getRunbook(routine.runbookId);
-	if (!runbook) return `no runbook called ${routine.runbookId} is stored here`;
-	if (runbook.revision !== routine.approvedRevision) {
-		return `revision ${runbook.revision} is stored; this routine approved ${routine.approvedRevision}`;
-	}
-	const rendered = renderRunbook(runbook.body, runbook.parameters, routine.values);
+	const rendered = renderRoutine(deps.getRunbook(routine.runbookId), routine);
 	return rendered.ok ? null : rendered.reason;
 }
 

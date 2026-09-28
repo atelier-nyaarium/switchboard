@@ -21,6 +21,10 @@ describe("what an occurrence may become", () => {
 		expect(canTransition("due", "dispatched")).toBe(false);
 	});
 
+	it("lets a waiting occurrence need review once its session frees", () => {
+		expect(canTransition("waiting_idle", "needs_review")).toBe(true);
+	});
+
 	it("dispatches only from prepared, or from missed when the owner asks again", () => {
 		expect(canTransition("prepared", "dispatched")).toBe(true);
 		expect(canTransition("missed", "dispatched")).toBe(true);

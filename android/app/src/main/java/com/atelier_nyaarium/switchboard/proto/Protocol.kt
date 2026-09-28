@@ -1946,6 +1946,7 @@ data class RoutineState(
 	val lastReadAt: Long? = null,
 	val missed: RoutineMiss? = null,
 	val reviewAt: Long? = null,
+	val reviewReason: String? = null,
 	val attention: RoutineAttention? = null,
 )
 

@@ -1,7 +1,7 @@
 # Routines
 
-A routine is a schedule the gateway runs, bound to a runbook the owner already approved. The phone
-configures one and watches it. It never decides that a routine should run.
+A routine is a schedule the gateway runs, bound to a stored runbook. The phone configures one and
+watches it. It never decides that a routine should run.
 
 The gateway holds the runbook, the reserved session, the idleness fact, the clock and the dispatch,
 so a routine is one gateway-local aggregate rather than a record reaching across a service boundary.
@@ -9,8 +9,14 @@ so a routine is one gateway-local aggregate rather than a record reaching across
 ## The record
 
 `src/shared/schemasRoutine.ts` is the wire truth: the weekday set, the week interval, the start date,
-the time, the zone, the bound values, the runbook id with the revision the owner approved, the
-target, and the enabled flag.
+the time, the zone, the bound values, the runbook id, the target, and the enabled flag.
+
+**A run takes the runbook as stored now.** `renderRoutine` is the one reading, shared by the store's
+save check, preparation and the list. Values for undeclared parameters are dropped. A run that does
+not render, or whose session something else holds, settles `needs_review` with that cause, and the
+list carries `reviewReason` as it stands now. A save clears either cause. A runbook edit that
+renders clears a render stop, as does the stage starting, and a slot still inside its window then
+runs. `approvedRevision` is only what the editor last showed.
 
 Every calendar field is read in the routine's own recorded zone. Without recording it the canonical
 zone would be a line in the Dockerfile, and editing that line would reinterpret every stored routine
@@ -117,8 +123,8 @@ named state and version, and `src/shared/routine-occurrence.ts` says which moves
 as everything else, so it cannot race the timer or the tick.
 
 - **It bypasses enablement and nothing else.** Disable stops the schedule, not the routine, and
-  pressing a button is not the schedule firing. Idleness, preparation, the revision fence and the
-  deadline all still apply, so a pressed run on a busy session waits exactly as a scheduled one does.
+  pressing a button is not the schedule firing. Idleness, preparation and the deadline all still
+  apply, so a pressed run on a busy session waits exactly as a scheduled one does.
 - **It walks only a row it opened itself.** Occurrences are keyed by routine and instant, and `open`
   answers whatever is already there. A press landing on a millisecond the rule already named would
   otherwise run the rule's own row down a road that skips the gates a scheduled run keeps, so a row
@@ -134,7 +140,7 @@ as everything else, so it cannot race the timer or the tick.
   routine rather than the run, since `routineTeam` derives the session target from the routine id and
   one session therefore belongs to exactly one routine.
 - **The answer says what became of the run, not that a row was opened.** Preparation is awaited, so
-  the deadline or a moved revision can settle the occurrence before the operation answers.
+  the deadline or a render failure can settle the occurrence before the operation answers.
 
 The stage is armed from the federation context's activation callback, so it cannot fire before the
 routes exist, and both the already-active boot and a later enrollment go through it. Shutdown stops

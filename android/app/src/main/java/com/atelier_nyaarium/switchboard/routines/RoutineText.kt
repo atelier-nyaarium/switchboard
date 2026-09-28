@@ -58,8 +58,8 @@ internal fun missLine(miss: RoutineMiss, zone: java.time.ZoneId): String {
 	return "Did not run at ${absoluteTimeText(miss.scheduledAt, zone)}: $story."
 }
 
-internal fun reviewLine(reviewAt: Long, zone: java.time.ZoneId): String =
-	"Stopped at ${absoluteTimeText(reviewAt, zone)}: its runbook changed. Open it to approve the new words."
+internal fun reviewLine(reviewAt: Long, reason: String?, zone: java.time.ZoneId): String =
+	"Stopped at ${absoluteTimeText(reviewAt, zone)}: ${reason ?: "its runbook could not run"}."
 
 /** Only a new request can use a link, so this run cannot be given the secret afterwards. */
 internal fun attentionLine(attention: RoutineAttention, zone: java.time.ZoneId): String {
@@ -70,7 +70,7 @@ internal fun attentionLine(attention: RoutineAttention, zone: java.time.ZoneId):
 
 /**
  * Names are not unique; ids are. Two runbooks called the same thing are one choice the owner cannot
- * tell apart, and picking the wrong one pins a routine to words they never read.
+ * tell apart, and picking the wrong one binds a routine to words they never read.
  */
 internal fun runbookChipLabel(name: String, id: String, names: List<String>): String =
 	if (names.count { it == name } > 1) "$name ($id)" else name

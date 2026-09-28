@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { composeRoutines } from "../gateway/compose/composeRoutines.js";
+import { renderRoutine } from "../gateway/routines/render.js";
 import type { Ambient } from "../shared/ambient.js";
 import type { Routine } from "../shared/schemasRoutine.js";
 import type { Runbook } from "../shared/schemasRunbook.js";
@@ -59,7 +60,12 @@ function stage(over: Partial<Runbook> = {}) {
 			sessionIdle: () => true,
 			hasSession: () => false,
 			forgetSession: () => {},
-			prepare: async () => ({ ok: true, revision: 1, snapshot: "do it", team: TEAM }),
+			prepare: async (held) => {
+				if (!ownsSession) return { ok: false, reason: "session_taken" };
+				const rendered = renderRoutine(runbook, held);
+				if (!rendered.ok) return { ok: false, reason: "unrenderable" };
+				return { ok: true, revision: rendered.revision, snapshot: rendered.text, team: TEAM };
+			},
 			deliver: async () => undefined,
 		}),
 	});
@@ -118,24 +124,56 @@ describe("what a routine is authorized to reach", () => {
 		expect(s.latest()).toEqual([]);
 	});
 
-	it("holds nothing once the runbook moves past the revision it pinned, and takes it back on re-approval", () => {
+	it("keeps its links when its runbook is edited or goes", () => {
 		const s = stage();
 		s.routines.console.put(routine());
 
 		s.moveRunbook({ id: "book", name: "Book", body: "do something else", parameters: [], revision: 2 });
-		expect(s.latest()).toEqual([]);
-
-		// The owner re-approves by saving the routine against the revision now stored.
-		expect(s.routines.console.put(routine({ approvedRevision: 2 }), 1).stored).toBe(true);
-		expect(s.latest()).toEqual(["deploy"]);
+		s.moveRunbook(null);
+		expect(s.authorized).toEqual([["deploy"]]);
 	});
+});
 
-	it("holds nothing once the runbook it pinned is gone", () => {
+describe("a stopped routine", () => {
+	const shown = (s: ReturnType<typeof stage>) =>
+		s.routines.console.list().routines.find((row) => row.routine.id === "triage");
+	const fires = async (s: ReturnType<typeof stage>) => {
+		s.at(MONDAY_0900_LA);
+		await s.routines.reconcile();
+	};
+
+	it("stays stopped while its runbook still does not render, naming the reason as it is now", async () => {
 		const s = stage();
 		s.routines.console.put(routine());
+		s.moveRunbook({
+			id: "book",
+			name: "Book",
+			body: "do {{it}}",
+			parameters: [{ name: "it", label: "It", kind: "text" }],
+			revision: 2,
+		});
+		await fires(s);
 
 		s.moveRunbook(null);
-		expect(s.latest()).toEqual([]);
+
+		expect(shown(s)).toMatchObject({
+			reviewAt: MONDAY_0900_LA,
+			reviewReason: "no runbook called book is stored here",
+		});
+	});
+
+	it("by a taken session names the session, and a runbook edit does not clear it", async () => {
+		const s = stage();
+		s.routines.console.put(routine());
+		s.loseSession();
+		await fires(s);
+
+		s.moveRunbook({ id: "book", name: "Book", body: "do more", parameters: [], revision: 2 });
+
+		expect(shown(s)).toMatchObject({
+			reviewAt: MONDAY_0900_LA,
+			reviewReason: `a session called ${TEAM} is already open and is not this routine's`,
+		});
 	});
 });
 

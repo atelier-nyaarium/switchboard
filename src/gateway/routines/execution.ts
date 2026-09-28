@@ -1,10 +1,10 @@
 // What a routine does when its moment comes. The runner owns when; none of that is decided here.
 
-import { renderRunbook } from "../../shared/runbook-grammar.js";
 import { type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
-import { type Runbook, runbookRefusal } from "../../shared/schemasRunbook.js";
+import type { Runbook } from "../../shared/schemasRunbook.js";
 import { SESSION_COMMANDS } from "../../shared/session-commands.js";
 import { deliveryKey, type Occurrence } from "./occurrences.js";
+import { renderRoutine } from "./render.js";
 import { type ReserveResult, routineTeam } from "./reservation.js";
 import type { PrepareResult, RoutineAttempt } from "./runner.js";
 
@@ -49,21 +49,14 @@ export function createRoutineExecution(deps: RoutineExecutionDeps): RoutineAttem
 		forgetSession: deps.forgetSession,
 
 		async prepare(routine: Routine, _occurrence: Occurrence): Promise<PrepareResult> {
-			const runbook = deps.getRunbook(routine.runbookId);
-			if (!runbook || runbook.revision !== routine.approvedRevision) {
-				return { ok: false, reason: "revision_moved" };
-			}
-			// A stored record is checked again, so a rule it no longer passes reaches the owner.
-			if (runbookRefusal(runbook)) return { ok: false, reason: "revision_moved" };
-
-			const rendered = renderRunbook(runbook.body, runbook.parameters, routine.values);
-			if (!rendered.ok) return { ok: false, reason: "revision_moved" };
+			const rendered = renderRoutine(deps.getRunbook(routine.runbookId), routine);
+			if (!rendered.ok) return { ok: false, reason: "unrenderable" };
 
 			// One routine's dead machine must not end the sweep.
 			const reserved = await deps.reserveSession(routine).catch((): ReserveResult => ({ kind: "pending" }));
 			if (reserved.kind === "taken") return { ok: false, reason: "session_taken" };
 			if (reserved.kind === "pending") return { ok: false, reason: "unreachable" };
-			return { ok: true, revision: runbook.revision, snapshot: rendered.text, team: reserved.team };
+			return { ok: true, revision: rendered.revision, snapshot: rendered.text, team: reserved.team };
 		},
 
 		async deliver(routine: Routine, occurrence: Occurrence): Promise<void> {

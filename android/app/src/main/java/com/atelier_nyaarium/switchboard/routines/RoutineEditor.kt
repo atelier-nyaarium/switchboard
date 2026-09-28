@@ -60,7 +60,7 @@ fun RoutineEditor(
 	routineId: String?,
 	onClose: () -> Unit,
 ) {
-	// Routine and pinned runbook share a Gateway.
+	// Routine and runbook share a Gateway.
 	val group = remember(gatewayId, state.gateways) { state.gateways.entry(gatewayId) }
 	val held: Routine? = remember(gatewayId, routineId, state.gateways) {
 		routineId?.let { state.gateways.routineOn(gatewayId, it)?.routine }
@@ -84,7 +84,7 @@ fun RoutineEditor(
 	var granting by remember(routineId) { mutableStateOf(false) }
 	var pickingTime by remember(routineId) { mutableStateOf(false) }
 
-	// This gateway's only. A routine cannot pin words another machine holds.
+	// This gateway's only. A routine cannot run words another machine holds.
 	val library = remember(gatewayId, state.gateways) { state.gateways.runbooksOn(gatewayId) }
 	val names = library.map { it.name }
 	val picked = library.find { it.id == draft.runbookId }

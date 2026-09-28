@@ -2,7 +2,7 @@
 
 /**
  * `dispatched`, `missed` and `dismissed` are terminal. `needs_review` is terminal for the occurrence
- * and cleared only by re-saving the routine, which supersedes it.
+ * and cleared by what resolves its cause.
  */
 export const OCCURRENCE_STATES = [
 	"due",
@@ -19,7 +19,7 @@ export type OccurrenceState = (typeof OCCURRENCE_STATES)[number];
 /** Every move the runner may make, named by where it comes from. */
 const ALLOWED: Readonly<Record<OccurrenceState, readonly OccurrenceState[]>> = {
 	due: ["waiting_idle", "prepared", "needs_review", "missed"],
-	waiting_idle: ["prepared", "missed"],
+	waiting_idle: ["prepared", "needs_review", "missed"],
 	prepared: ["dispatched", "missed"],
 	// Run now carries a fresh authorization, and Dismiss closes the panel.
 	missed: ["dispatched", "dismissed"],
@@ -40,3 +40,8 @@ export function isTerminal(state: OccurrenceState): boolean {
 export const MISS_REASONS = ["gateway_down", "session_busy", "host_unreachable", "disabled"] as const;
 
 export type MissReason = (typeof MISS_REASONS)[number];
+
+/** Why an occurrence waits on the owner. A runbook edit resolves only the first. */
+export const REVIEW_CAUSES = ["unrenderable", "session_taken"] as const;
+
+export type ReviewCause = (typeof REVIEW_CAUSES)[number];

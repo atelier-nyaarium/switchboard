@@ -258,6 +258,7 @@ internal class SandboxRoutineGateway : RoutineGateway {
 				RoutineState(
 					routine = routine("deploy", "Nightly deploy", enabled = false),
 					reviewAt = day(-5 * 86_400_000L),
+					reviewReason = "target has no value",
 					attention = RoutineAttention(
 						occurrenceId = "deploy:1",
 						scheduledAt = day(-5 * 86_400_000L),

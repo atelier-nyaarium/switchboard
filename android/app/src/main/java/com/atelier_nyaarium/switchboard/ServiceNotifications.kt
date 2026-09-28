@@ -102,10 +102,11 @@ internal class ServiceNotifications(private val context: Context) {
 		}
 		for ((gatewayId, row) in rows) {
 			val id = routineNotificationId(gatewayId, row.routine.id)
-			// A review stops the schedule until the owner reads the new words, so it is told as a miss
-			// is. A miss is the more urgent of the two when a routine has both.
+			// Misses take priority.
 			val told = row.missed?.let { "${row.routine.name} did not run" to routineMissText(it.reason) }
-				?: row.reviewAt?.let { "${row.routine.name} stopped" to "Its runbook changed" }
+				?: row.reviewAt?.let {
+					"${row.routine.name} stopped" to (row.reviewReason?.replaceFirstChar { c -> c.uppercase() } ?: "Its runbook could not run")
+				}
 			if (told == null) {
 				if (id in active) nmc.cancel(id)
 				continue

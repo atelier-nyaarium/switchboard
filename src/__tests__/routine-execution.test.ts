@@ -59,18 +59,32 @@ function seam(over: Partial<Parameters<typeof createRoutineExecution>[0]> = {}) 
 }
 
 describe("what a routine does when its moment comes", () => {
-	it("renders the approved revision and binds the routine's own session", async () => {
+	it("renders the stored revision, whatever the editor last showed, and binds the routine's own session", async () => {
 		const { execution } = seam();
 
-		const prepared = await execution.prepare(routine(), occurrence);
-
-		expect(prepared).toEqual({ ok: true, revision: 3, snapshot: "read main", team: "host.routine-triage" });
+		expect(await execution.prepare(routine({ approvedRevision: 1 }), occurrence)).toEqual({
+			ok: true,
+			revision: 3,
+			snapshot: "read main",
+			team: "host.routine-triage",
+		});
 	});
 
-	it("refuses for review when the words that would run are not the ones approved", async () => {
-		for (const held of [runbook({ revision: 4 }), null]) {
+	it("renders past a value its runbook no longer declares", async () => {
+		const { execution } = seam({ getRunbook: () => runbook({ body: "read all", parameters: [], revision: 4 }) });
+
+		expect(await execution.prepare(routine(), occurrence)).toMatchObject({ ok: true, snapshot: "read all" });
+	});
+
+	it("refuses for review when its values do not render against the stored runbook", async () => {
+		const gone = null;
+		const unfilled = runbook({
+			body: "read {{branch}} as {{who}}",
+			parameters: [...runbook().parameters, { name: "who", label: "Who", kind: "text" }],
+		});
+		for (const held of [gone, unfilled]) {
 			const { execution } = seam({ getRunbook: () => held });
-			expect(await execution.prepare(routine(), occurrence)).toEqual({ ok: false, reason: "revision_moved" });
+			expect(await execution.prepare(routine(), occurrence)).toEqual({ ok: false, reason: "unrenderable" });
 		}
 	});
 

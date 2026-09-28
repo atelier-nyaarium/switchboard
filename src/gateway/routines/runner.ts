@@ -22,8 +22,8 @@ const KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 /** Why an occurrence could not be prepared, which decides where it goes rather than the loop. */
 export type PrepareResult =
 	| { ok: true; revision: number; snapshot: string; team: string }
-	/** The words the owner approved are not what would run. */
-	| { ok: false; reason: "revision_moved" }
+	/** Its values do not render against the stored runbook. */
+	| { ok: false; reason: "unrenderable" }
 	/** Something else holds the session this routine reserves, so only the owner can settle it. */
 	| { ok: false; reason: "session_taken" }
 	/** Nothing is wrong with the routine; the session could not be reached. */
@@ -139,6 +139,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 					held.scheduledAt,
 					{ state: held.state, version: held.version },
 					"needs_review",
+					{ reviewCause: prepared.reason },
 				);
 				return;
 			}

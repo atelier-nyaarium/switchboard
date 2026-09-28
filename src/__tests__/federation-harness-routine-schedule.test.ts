@@ -253,25 +253,31 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 		await h.phone.value({ kind: "routine_enable", routineId: routine.id, enabled: true });
 	});
 
-	it("stops rather than running words the owner has not read, and says so on the phone", async () => {
-		const moved = await h.phone.value({
-			kind: "runbook_put",
-			runbook: {
-				id: "triage",
-				name: "Triage",
-				body: "Read the overnight failures on {{branch}}, then page me.",
-				parameters: [{ name: "branch", label: "Branch", kind: "text" }],
-				revision: 2,
-			},
-			baseRevision: 1,
+	it("stops while its runbook does not render, says why, and resumes once the runbook alone is fixed", async () => {
+		const edited = (revision: number, whoDefault?: string) => ({
+			id: "triage",
+			name: "Triage",
+			body: "Read the overnight failures on {{branch}}, then page {{who}}.",
+			parameters: [
+				{ name: "branch", label: "Branch", kind: "text" as const },
+				{ name: "who", label: "Who", kind: "text" as const, ...(whoDefault ? { default: whoDefault } : {}) },
+			],
+			revision,
 		});
-		expect(moved.result).toMatchObject({ stored: true, revision: 2 });
+		const unfilled = await h.phone.value({ kind: "runbook_put", runbook: edited(2), baseRevision: 1 });
+		expect(unfilled.result).toMatchObject({ stored: true, revision: 2 });
 
 		const slot = FIRST + 5 * WEEK_MS;
 		await at(slot + 60_000);
 
-		expect((await shown())?.reviewAt).toBe(slot);
+		expect(await shown()).toMatchObject({ reviewAt: slot, reviewReason: "who has no value" });
 		expect(nudges(slot)).toBe(0);
+
+		const filled = await h.phone.value({ kind: "runbook_put", runbook: edited(3, "me"), baseRevision: 2 });
+		expect(filled.result).toMatchObject({ stored: true, revision: 3 });
+		expect((await shown())?.reviewAt).toBeUndefined();
+		// Still inside its window.
+		await h.waitFor(async () => nudges(slot) === 1 || undefined, "the stopped run, once its runbook renders");
 	});
 
 	it("keeps answering the words a run was issued with, a revision later", async () => {
@@ -284,15 +290,6 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 	});
 
 	it("settles a dismissal once, so a second phone tapping it changes nothing", async () => {
-		// The owner approves the new words, which clears the review and lets it schedule again. The
-		// held record is what a save rebases on; the one this file declares is several revisions old.
-		const held = (await shown())?.routine as Routine;
-		const approved = await h.phone.value({
-			kind: "routine_put",
-			routine: { ...held, approvedRevision: 2 },
-			baseRevision: held.revision,
-		});
-		expect(approved.result).toMatchObject({ stored: true });
 		const slot = FIRST + 6 * WEEK_MS;
 		h.host.reportWorking(TEAM, true);
 		await at(slot + GRACE_MS + 60_000);

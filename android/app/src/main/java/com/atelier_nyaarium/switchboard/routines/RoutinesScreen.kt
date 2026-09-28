@@ -168,7 +168,7 @@ private fun RoutineRow(
 			lastRunLine(row, zone)?.let {
 				Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			}
-			row.reviewAt?.let { Panel(reviewLine(it, zone)) }
+			row.reviewAt?.let { Panel(reviewLine(it, row.reviewReason, zone)) }
 			row.attention?.let { wanted ->
 				// Linking is the owner's other answer, and the editor is where it is given.
 				Panel(attentionLine(wanted, zone)) {

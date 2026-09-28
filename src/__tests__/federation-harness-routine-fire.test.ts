@@ -107,7 +107,7 @@ describe("federation harness: a routine firing on its own", () => {
 		await h.phone.value({ kind: "routine_delete", routineId: "triage" });
 	});
 
-	it("refuses a routine whose runbook moved, and leaves the occurrence for the owner to see", async () => {
+	it("runs its runbook as edited, with no save of the routine after the edit", async () => {
 		// A later Monday, taken an hour before its slot.
 		const slot = SLOT + 21 * 24 * 60 * 60 * 1000;
 		clock = slot - 60 * 60 * 1000;
@@ -121,10 +121,8 @@ describe("federation harness: a routine firing on its own", () => {
 				revision: 1,
 			},
 		});
-		await h.phone.value({
-			kind: "routine_put",
-			routine: { ...routine, id: "drifts", runbookId: "moved", values: {} },
-		});
+		const drifts: Routine = { ...routine, id: "drifts", runbookId: "moved", values: {} };
+		await h.phone.value({ kind: "routine_put", routine: drifts });
 		const moved = await h.phone.value({
 			kind: "runbook_put",
 			runbook: { id: "moved", name: "Moved", body: "Do a different thing.", parameters: [], revision: 2 },
@@ -132,14 +130,26 @@ describe("federation harness: a routine firing on its own", () => {
 		});
 		expect(moved.result).toMatchObject({ stored: true, revision: 2 });
 
+		let reserved: FakeSession | undefined;
+		h.host.handlers.onCreateSession = (op) => {
+			if (op.target.sessionName !== "routine-drifts" || reserved) return;
+			reserved = attachFakeSession(h.gateway, {
+				team: composeSessionName(op.target.name, op.target.sessionName),
+				conversationId: "conv-routine-drifts",
+				sessionToken: op.sessionToken,
+			});
+			sessions.push(reserved);
+		};
+
 		clock = slot + 60_000;
 		await h.gateway.faults.sweepRoutines();
 
-		const listed = await h.phone.value({ kind: "routine_list" });
-		const rows = (listed.result as { routines: Array<{ routine: { id: string } } & Record<string, unknown>> })
-			.routines;
-		const drifts = rows.find((row) => row.routine.id === "drifts");
-		expect(drifts).toMatchObject({ reviewAt: slot });
-		expect(drifts?.lastRanAt).toBeUndefined();
+		const nudge = nudgeFor(drifts, occurrenceAt(slot));
+		await h.waitFor(
+			async () => reserved?.inbound.find((frame) => frame.body === nudge),
+			"the edited routine's nudge",
+		);
+		const answer = await reserved?.post("/routine/session", { occurrenceId: String(slot) });
+		expect(await answer?.json()).toMatchObject({ text: "Do a different thing." });
 	});
 });

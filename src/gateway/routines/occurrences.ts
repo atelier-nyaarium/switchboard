@@ -7,6 +7,8 @@ import {
 	MISS_REASONS,
 	OCCURRENCE_STATES,
 	type OccurrenceState,
+	REVIEW_CAUSES,
+	type ReviewCause,
 } from "../../shared/routine-occurrence.js";
 
 export const OccurrenceSchema = z.object({
@@ -19,6 +21,8 @@ export const OccurrenceSchema = z.object({
 	/** Bumped on every write, so a stale reader cannot act twice. */
 	version: z.number().int().positive(),
 	reason: z.enum(MISS_REASONS).optional(),
+	/** Absent on rows older than causes. */
+	reviewCause: z.enum(REVIEW_CAUSES).optional(),
 	/** The runbook revision this occurrence was prepared against. */
 	preparedRevision: z.number().int().positive().optional(),
 	/**
@@ -128,7 +132,7 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		from: { state: OccurrenceState; version: number },
 		to: OccurrenceState,
 		patch: Partial<
-			Pick<Occurrence, "reason" | "preparedRevision" | "snapshot" | "team" | "work" | "workUntil">
+			Pick<Occurrence, "reason" | "reviewCause" | "preparedRevision" | "snapshot" | "team" | "work" | "workUntil">
 		> = {},
 	): Occurrence | null => {
 		const held = at(routineId, scheduledAt);
@@ -202,11 +206,16 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 	};
 
 	/**
-	 * A re-save supersedes an occurrence waiting on review, and nothing else. A miss the owner has
+	 * Supersedes review occurrences, of one cause when named, and nothing else. A miss the owner has
 	 * not dealt with is still theirs to answer, and what already ran still happened.
 	 */
-	const clearReview = (routineId: string): boolean => {
-		const kept = rows.filter((row) => !(row.routineId === routineId && row.state === "needs_review"));
+	const clearReview = (routineId: string, cause?: ReviewCause): boolean => {
+		const matches = (row: Occurrence) =>
+			row.routineId === routineId &&
+			row.state === "needs_review" &&
+			// A row older than causes was a runbook stop.
+			(cause === undefined || (row.reviewCause ?? "unrenderable") === cause);
+		const kept = rows.filter((row) => !matches(row));
 		if (kept.length === rows.length) return true;
 		return commit(kept);
 	};
