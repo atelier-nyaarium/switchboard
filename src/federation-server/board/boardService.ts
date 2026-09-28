@@ -5,10 +5,13 @@ import { observationsFor } from "../../shared/board-observations.js";
 import { isValidRank } from "../../shared/board-rank.js";
 import {
 	BOARD_TRASH_TTL_MS,
+	livesUnderTrash,
 	MAX_ENTRIES_PER_OWNER,
 	orphanedParents,
 	promoteOrphans,
 	prunableSubtrees,
+	restoreBrings,
+	trashTakes,
 } from "../../shared/board-structure.js";
 import { canonicalJson, sha256Hex } from "../../shared/canonical-json.js";
 import type { BoardEntry } from "../../shared/console-protocol.js";
@@ -170,7 +173,10 @@ export function createBoardService(deps: Deps) {
 		const replaceAttachments = (e: BoardEntry, attachments: NonNullable<BoardEntry["attachments"]>) => {
 			e.attachments = attachments;
 		};
+		// A subtree op names entries an earlier trash already took.
+		const trashedHere = new Set<string>();
 		for (const op of input.ops) {
+			if (op.kind === "trash" && trashedHere.has(op.id)) continue;
 			const e = next.entries.get(op.id);
 			if (op.kind === "upsert") {
 				if (!e && next.entries.size >= MAX_ENTRIES_PER_OWNER) return rememberRefusal("board_full");
@@ -178,7 +184,8 @@ export function createBoardService(deps: Deps) {
 				if (denied) return rememberRefusal(denied);
 				if (op.parent) {
 					const parent = next.entries.get(op.parent);
-					if (!parent) return rememberRefusal("parent_missing");
+					if (!parent || livesUnderTrash(parent, op.trashedAt ?? e?.trashedAt))
+						return rememberRefusal("parent_missing");
 					const parentDenied = mayWrite(parent, a);
 					if (parentDenied) return rememberRefusal(parentDenied);
 				}
@@ -266,7 +273,7 @@ export function createBoardService(deps: Deps) {
 					if (!isValidRank(op.rank)) return rememberRefusal("bad_rank");
 					if (op.parent) {
 						const parent = next.entries.get(op.parent);
-						if (!parent) return rememberRefusal("parent_missing");
+						if (!parent || livesUnderTrash(parent, e.trashedAt)) return rememberRefusal("parent_missing");
 						const parentDenied = mayWrite(parent, a);
 						if (parentDenied) return rememberRefusal(parentDenied);
 					}
@@ -278,8 +285,21 @@ export function createBoardService(deps: Deps) {
 				} else if (op.kind === "set_attachments") {
 					if (!attachmentsHeld(domainId, op.attachments)) return rememberRefusal("attachment_missing");
 					replaceAttachments(e, op.attachments as unknown as NonNullable<BoardEntry["attachments"]>);
-				} else if (op.kind === "trash") e.trashedAt = at;
-				else delete e.trashedAt;
+				} else if (op.kind === "trash") {
+					for (const id of trashTakes(next.entries, op.id)) {
+						const taken = next.entries.get(id) as BoardEntry;
+						const takenDenied = mayWrite(taken, a);
+						if (takenDenied) return rememberRefusal(takenDenied);
+						taken.trashedAt = at;
+						touched.add(id);
+						trashedHere.add(id);
+					}
+				} else {
+					for (const id of restoreBrings(next.entries, op.id)) {
+						delete (next.entries.get(id) as BoardEntry).trashedAt;
+						touched.add(id);
+					}
+				}
 				touched.add(op.id);
 			}
 		}

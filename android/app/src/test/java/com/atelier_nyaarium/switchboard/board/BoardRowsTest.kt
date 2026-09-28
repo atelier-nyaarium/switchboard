@@ -144,4 +144,20 @@ class BoardRowsTest {
 		// Children of trash become roots.
 		assertEquals(listOf("kidOfTrashed"), rows.unassigned.rows.map { it.entry.id })
 	}
+
+	@Test
+	fun aSubtreeTrashedTogetherReadsAsOneTree() {
+		val rows = flattenBoard(
+			listOf(
+				entry("parent", trashedAt = 5L),
+				entry("b", parent = "parent", rank = "b", trashedAt = 5L),
+				entry("a", parent = "parent", rank = "a", trashedAt = 5L),
+				entry("alone", trashedAt = 9L),
+			),
+		)
+		assertEquals(
+			listOf("alone" to 0, "parent" to 0, "a" to 1, "b" to 1),
+			rows.trash.map { it.entry.id to it.depth },
+		)
+	}
 }

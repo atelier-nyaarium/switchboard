@@ -39,8 +39,8 @@ fun applyPending(entries: List<BoardEntry>, pending: List<PendingWrite>): List<B
 				is BoardIntent.SetSession ->
 					byId.replace(intent.id) { it.copy(session = intent.session, sessionId = intent.session?.sessionId) }
 				is BoardIntent.SetAttachments -> Unit
-				is BoardIntent.Trash -> byId.replace(intent.id) { it.copy(trashedAt = it.trashedAt ?: 1L) }
-				is BoardIntent.Restore -> byId.replace(intent.id) { it.copy(trashedAt = null) }
+				is BoardIntent.Trash -> for (id in trashTakes(byId, intent.id)) byId.replace(id) { it.copy(trashedAt = 1L) }
+				is BoardIntent.Restore -> for (id in restoreBrings(byId, intent.id)) byId.replace(id) { it.copy(trashedAt = null) }
 				is BoardIntent.Remove -> byId.remove(intent.id)
 			}
 		}
@@ -50,4 +50,45 @@ fun applyPending(entries: List<BoardEntry>, pending: List<PendingWrite>): List<B
 
 private inline fun LinkedHashMap<String, BoardEntry>.replace(id: String, edit: (BoardEntry) -> BoardEntry) {
 	this[id]?.let { this[id] = edit(it) }
+}
+
+private fun childrenOf(byId: Map<String, BoardEntry>): Map<String, List<String>> =
+	byId.values.mapNotNull { e -> e.parent?.let { it to e.id } }.groupBy({ it.first }, { it.second })
+
+/** Twin of `trashTakes` in board-structure.ts. */
+internal fun trashTakes(byId: Map<String, BoardEntry>, rootId: String): List<String> {
+	val kids = childrenOf(byId)
+	val out = mutableListOf<String>()
+	val seen = mutableSetOf<String>()
+	val queue = ArrayDeque(listOf(rootId))
+	while (queue.isNotEmpty()) {
+		val id = queue.removeFirst()
+		if (!seen.add(id)) continue
+		if (byId[id]?.let { it.trashedAt == null } == true) out.add(id)
+		queue.addAll(kids[id].orEmpty())
+	}
+	return out
+}
+
+/** Twin of `restoreBrings` in board-structure.ts. */
+internal fun restoreBrings(byId: Map<String, BoardEntry>, id: String): List<String> {
+	val since = byId[id]?.trashedAt ?: return emptyList()
+	val up = mutableListOf<String>()
+	val seen = mutableSetOf(id)
+	var at = byId[id]?.parent
+	while (at != null && seen.add(at)) {
+		if (byId[at]?.trashedAt != null) up.add(at)
+		at = byId[at]?.parent
+	}
+	val kids = childrenOf(byId)
+	val down = mutableListOf<String>()
+	val queue = ArrayDeque(listOf(id))
+	while (queue.isNotEmpty()) {
+		val next = queue.removeFirst()
+		val trashedAt = byId[next]?.trashedAt
+		if (trashedAt == null || trashedAt < since || next in down) continue
+		down.add(next)
+		queue.addAll(kids[next].orEmpty())
+	}
+	return up.reversed() + down
 }

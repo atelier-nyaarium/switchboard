@@ -36,15 +36,6 @@ export function boardEntryIdForOperation(from: string, operationId: string): str
 	return `bd_${digest.slice(0, 32)}`;
 }
 
-/**
- * Which entries can be set aside without breaking the tree: those `eligible` accepts whose every live
- * child is also going. A parent whose child survives is KEPT, so no pass can leave a survivor pointing
- * at an entry that is no longer in any list.
- *
- * Eligibility alone is not enough, and that is the whole point: a done parent can easily own a child
- * that is unfinished, or finished but held by another session, and either one has to keep its parent.
- * Bad data with a parent cycle resolves to not-prunable rather than hanging.
- */
 /** Returns a subtree in root-first order. */
 export function subtreeIds(entries: Iterable<BoardEntry>, rootId: string): string[] {
 	const children = new Map<string, string[]>();
@@ -67,6 +58,15 @@ export function subtreeIds(entries: Iterable<BoardEntry>, rootId: string): strin
 	return out;
 }
 
+/**
+ * Which entries can be set aside without breaking the tree: those `eligible` accepts whose every live
+ * child is also going. A parent whose child survives is KEPT, so no pass can leave a survivor pointing
+ * at an entry that is no longer in any list.
+ *
+ * Eligibility alone is not enough, and that is the whole point: a done parent can easily own a child
+ * that is unfinished, or finished but held by another session, and either one has to keep its parent.
+ * Bad data with a parent cycle resolves to not-prunable rather than hanging.
+ */
 export function prunableSubtrees(
 	entries: Map<string, BoardEntry>,
 	eligible: (entry: BoardEntry) => boolean,
@@ -95,6 +95,54 @@ export function prunableSubtrees(
 		if (e.trashedAt === undefined && canPrune(e)) out.add(e.id);
 	}
 	return out;
+}
+
+/** A live entry never sits under a trashed parent. */
+export function livesUnderTrash(parent: BoardEntry, childTrashedAt: number | undefined): boolean {
+	return parent.trashedAt !== undefined && childTrashedAt === undefined;
+}
+
+/**
+ * What a trash of `rootId` takes: it and every live descendant, root first. A live entry under a
+ * trashed parent floats to the top of the board and holds that parent in trash forever.
+ */
+export function trashTakes(entries: Map<string, BoardEntry>, rootId: string): string[] {
+	return subtreeIds(entries.values(), rootId).filter((id) => {
+		const e = entries.get(id);
+		return e !== undefined && e.trashedAt === undefined;
+	});
+}
+
+/**
+ * What a restore of `id` brings back: its trashed ancestors, so it lands where it was, then it and
+ * every descendant trashed with it or later. One trashed earlier on its own stays, with its subtree.
+ */
+export function restoreBrings(entries: Map<string, BoardEntry>, id: string): string[] {
+	const since = entries.get(id)?.trashedAt;
+	if (since === undefined) return [];
+	const up: string[] = [];
+	const seen = new Set([id]);
+	for (let at = entries.get(id)?.parent; at !== undefined && !seen.has(at); at = entries.get(at)?.parent) {
+		seen.add(at);
+		if (entries.get(at)?.trashedAt !== undefined) up.push(at);
+	}
+	const kids = new Map<string, string[]>();
+	for (const e of entries.values()) {
+		if (e.parent === undefined) continue;
+		const list = kids.get(e.parent);
+		if (list) list.push(e.id);
+		else kids.set(e.parent, [e.id]);
+	}
+	const down: string[] = [];
+	const queue = [id];
+	while (queue.length > 0) {
+		const at = queue.shift() as string;
+		const trashedAt = entries.get(at)?.trashedAt;
+		if (trashedAt === undefined || trashedAt < since || down.includes(at)) continue;
+		down.push(at);
+		queue.push(...(kids.get(at) ?? []));
+	}
+	return [...up.reverse(), ...down];
 }
 
 /**

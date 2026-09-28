@@ -1,0 +1,80 @@
+{
+	"cases": [
+		{
+			"name": "a trash takes the whole live subtree",
+			"entries": [
+				{ "id": "parent" },
+				{ "id": "kept", "parent": "parent" },
+				{ "id": "gone", "parent": "parent" },
+				{ "id": "grand", "parent": "kept" }
+			],
+			"op": "trash",
+			"id": "parent",
+			"expected": ["gone", "grand", "kept", "parent"]
+		},
+		{
+			"name": "a trash leaves what was already trashed at its own time",
+			"entries": [
+				{ "id": "parent" },
+				{ "id": "kept", "parent": "parent" },
+				{ "id": "gone", "parent": "parent", "trashedAt": 4000 },
+				{ "id": "grand", "parent": "kept" }
+			],
+			"op": "trash",
+			"id": "parent",
+			"expected": ["grand", "kept", "parent"]
+		},
+		{
+			"name": "a trash of a trashed subtree takes nothing",
+			"entries": [{ "id": "parent", "trashedAt": 5000 }, { "id": "kept", "parent": "parent", "trashedAt": 5000 }],
+			"op": "trash",
+			"id": "parent",
+			"expected": []
+		},
+		{
+			"name": "a trash ends on a parent cycle",
+			"entries": [{ "id": "a", "parent": "b" }, { "id": "b", "parent": "a" }],
+			"op": "trash",
+			"id": "a",
+			"expected": ["a", "b"]
+		},
+		{
+			"name": "a restore brings back what went with it, not what went earlier alone",
+			"entries": [
+				{ "id": "parent", "trashedAt": 5000 },
+				{ "id": "kept", "parent": "parent", "trashedAt": 5000 },
+				{ "id": "gone", "parent": "parent", "trashedAt": 4000 },
+				{ "id": "grand", "parent": "kept", "trashedAt": 5000 }
+			],
+			"op": "restore",
+			"id": "parent",
+			"expected": ["grand", "kept", "parent"]
+		},
+		{
+			"name": "a restore of a descendant brings back the path to it",
+			"entries": [
+				{ "id": "parent", "trashedAt": 5000 },
+				{ "id": "kept", "parent": "parent", "trashedAt": 5000 },
+				{ "id": "gone", "parent": "parent", "trashedAt": 5000 },
+				{ "id": "grand", "parent": "kept", "trashedAt": 5000 }
+			],
+			"op": "restore",
+			"id": "grand",
+			"expected": ["grand", "kept", "parent"]
+		},
+		{
+			"name": "a restore of something trashed alone brings back only it",
+			"entries": [{ "id": "parent" }, { "id": "gone", "parent": "parent", "trashedAt": 4000 }],
+			"op": "restore",
+			"id": "gone",
+			"expected": ["gone"]
+		},
+		{
+			"name": "a restore of a live entry brings back nothing",
+			"entries": [{ "id": "parent" }],
+			"op": "restore",
+			"id": "parent",
+			"expected": []
+		}
+	]
+}

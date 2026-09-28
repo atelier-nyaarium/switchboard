@@ -129,6 +129,23 @@ class BoardOptimisticTest {
 	}
 
 	@Test
+	fun trashTakesTheLiveSubtreeAndRestoreBringsBackWhatWentWithIt() {
+		val board = listOf(
+			entry("parent"),
+			entry("kept", parent = "parent"),
+			entry("gone", parent = "parent", trashedAt = 1L),
+			entry("grand", parent = "kept"),
+		)
+		fun trashed(entries: List<BoardEntry>) = entries.filter { it.trashedAt != null }.map { it.id }.toSet()
+
+		val binned = applyPending(board, pending(BoardIntent.Trash("parent")))
+		assertEquals(setOf("parent", "kept", "gone", "grand"), trashed(binned))
+
+		val stamped = binned.map { if (it.id == "gone") it else it.copy(trashedAt = 5L) }
+		assertEquals(setOf("gone"), trashed(applyPending(stamped, pending(BoardIntent.Restore("grand")))))
+	}
+
+	@Test
 	fun missingNonCreateIntentIsDropped() {
 		val pending = listOf(PendingWrite("op", listOf(BoardIntent.SetState("missing", "done"))))
 

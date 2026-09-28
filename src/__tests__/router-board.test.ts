@@ -946,6 +946,123 @@ describe("router board service", () => {
 		registry.close();
 	});
 
+	describe("trash and a subtree", () => {
+		const DAY = 24 * 60 * 60 * 1000;
+		const S = { domainId: "a", gatewayId: "g", sessionId: "s" };
+		const tree = (holder?: typeof S, other?: typeof S) => {
+			const made = make();
+			const held = holder ? { session: holder } : {};
+			made.service.write(
+				"a",
+				{
+					expectedRevision: 0,
+					ops: [
+						entry("parent", held),
+						entry("kept", { parent: "parent", ...held }),
+						entry("gone", { parent: "parent", ...(other ? { session: other } : held) }),
+						entry("grand", { parent: "kept", ...held }),
+					],
+				},
+				{ kind: "owner" },
+			);
+			return made;
+		};
+		const trashed = (service: ReturnType<typeof make>["service"]) =>
+			Object.fromEntries(service.read("a").entries.map((e) => [e.clear.id, e.clear.trashedAt ?? null]));
+
+		it("takes the whole live subtree, so the sweep can empty it", () => {
+			const { service, registry } = tree();
+
+			service.write(
+				"a",
+				{ expectedRevision: 1, ops: [{ kind: "trash", id: "parent" }] },
+				{ kind: "owner" },
+				undefined,
+				5000,
+			);
+
+			expect(trashed(service)).toEqual({ parent: 5000, kept: 5000, gone: 5000, grand: 5000 });
+			expect(service.sweepTrash("a", 5000 + 31 * DAY)).toBe(4);
+			registry.close();
+		});
+
+		it("restores what went with an entry and the path back to it, but not what went earlier alone", () => {
+			const { service, registry } = tree();
+			service.write(
+				"a",
+				{ expectedRevision: 1, ops: [{ kind: "trash", id: "gone" }] },
+				{ kind: "owner" },
+				undefined,
+				4000,
+			);
+			service.write(
+				"a",
+				{ expectedRevision: 2, ops: [{ kind: "trash", id: "parent" }] },
+				{ kind: "owner" },
+				undefined,
+				5000,
+			);
+
+			service.write("a", { expectedRevision: 3, ops: [{ kind: "restore", id: "grand" }] }, { kind: "owner" });
+			expect(trashed(service)).toEqual({ parent: null, kept: null, gone: 4000, grand: null });
+
+			service.write("a", { expectedRevision: 4, ops: [{ kind: "restore", id: "gone" }] }, { kind: "owner" });
+			expect(trashed(service)).toEqual({ parent: null, kept: null, gone: null, grand: null });
+			registry.close();
+		});
+
+		it("lets a session clear a subtree it holds, naming every entry in it", () => {
+			const { service, registry } = tree(S);
+
+			const cleared = service.write(
+				"a",
+				{
+					expectedRevision: 1,
+					ops: ["parent", "kept", "gone", "grand"].map((id) => ({ kind: "trash" as const, id })),
+				},
+				{ kind: "session", session: S },
+			);
+
+			expect(cleared.outcome).toBe("applied");
+			expect(Object.values(trashed(service)).every((at) => at !== null)).toBe(true);
+			registry.close();
+		});
+
+		it("refuses to put a live entry under a trashed parent, even for the owner", () => {
+			const { service, registry } = tree();
+			service.write("a", { expectedRevision: 1, ops: [{ kind: "trash", id: "kept" }] }, { kind: "owner" });
+
+			const moved = service.write(
+				"a",
+				{ expectedRevision: 2, ops: [{ kind: "set_parent", id: "gone", parent: "kept", rank: "B" }] },
+				{ kind: "owner" },
+			);
+			const made = service.write(
+				"a",
+				{ expectedRevision: 2, ops: [entry("new", { parent: "kept" })] },
+				{ kind: "owner" },
+			);
+
+			expect(moved).toMatchObject({ outcome: "refused", refusal: "parent_missing" });
+			expect(made).toMatchObject({ outcome: "refused", refusal: "parent_missing" });
+			registry.close();
+		});
+
+		it("refuses a session trash that would take another session's entry", () => {
+			const { service, registry } = tree(S, { ...S, sessionId: "other" });
+
+			const refused = service.write(
+				"a",
+				{ expectedRevision: 1, ops: [{ kind: "trash", id: "parent" }] },
+				{ kind: "session", session: S },
+			);
+
+			expect(refused).toMatchObject({ outcome: "refused", refusal: "held" });
+			expect(Object.values(trashed(service)).every((at) => at === null)).toBe(true);
+			registry.close();
+		});
+	});
+
 	it("uses registration and frame session identity for board operations", async () => {
 		const { service, registry } = make();
 		service.write(

@@ -77,13 +77,25 @@ fun cardBranchOf(rows: List<BoardRow>, currentId: String?, max: Int = CARD_BRANC
 	return CardBranch(kept, branch.size - shown)
 }
 
+/** A subtree trashed together reads as one tree, newest first. */
+private fun trashRows(trashed: List<BoardEntry>): List<BoardRow> {
+	val byId = trashed.associateBy { it.id }
+	val kids = trashed.filter { it.parent in byId }.groupBy { it.parent }
+	val rows = mutableListOf<BoardRow>()
+	val visited = mutableSetOf<String>()
+	fun walk(e: BoardEntry, depth: Int) {
+		if (!visited.add(e.id)) return
+		rows.add(BoardRow(e, e.session?.gatewayId ?: "", depth))
+		for (kid in kids[e.id].orEmpty().sortedBy { it.rank }) walk(kid, depth + 1)
+	}
+	for (root in trashed.filter { it.parent !in byId }.sortedByDescending { it.trashedAt }) walk(root, 0)
+	return rows
+}
+
 /** Each entry id appears at most once. */
 fun flattenBoard(entries: List<BoardEntry>): BoardRows {
 	val live = entries.filter { it.trashedAt == null }
-	val trash = entries
-		.filter { it.trashedAt != null }
-		.sortedByDescending { it.trashedAt }
-		.map { BoardRow(it, it.session?.gatewayId ?: "", depth = 0) }
+	val trash = trashRows(entries.filter { it.trashedAt != null })
 
 	val liveById = live.associateBy { it.id }
 	val childrenOf = HashMap<String, MutableList<BoardEntry>>()
