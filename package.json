@@ -16,7 +16,7 @@
 		"gen:facets": "bun scripts/gen-facet-vectors.ts",
 		"check:facets": "bun scripts/check-facet-vectors.ts",
 		"check:pinning": "bun run scripts/check-pinning-runtime.ts",
-		"check:boot": "bun run scripts/check-boot-runtime.ts",
+		"check:boot": "bun --no-env-file scripts/check-boot-runtime.ts",
 		"postinstall": "bun scripts/link-lexicon.mjs || node scripts/link-lexicon.mjs"
 	},
 	"dependencies": {

@@ -29,7 +29,11 @@ async function waitFor<T>(probe: () => Promise<T | undefined>, label: string, ti
 }
 
 function start(name: string, args: string[], env: NodeJS.ProcessEnv): { child: Child; output: string[] } {
-	const child = spawn(process.execPath, args, { cwd: path.resolve(import.meta.dirname, ".."), env });
+	// The repo's .env points at the real Router.
+	const child = spawn(process.execPath, ["--no-env-file", ...args], {
+		cwd: path.resolve(import.meta.dirname, ".."),
+		env,
+	});
 	const output: string[] = [];
 	children.push({ name, child, output });
 	child.stdout?.on("data", (data: Buffer) => output.push(...data.toString().split(/\r?\n/).filter(Boolean)));
