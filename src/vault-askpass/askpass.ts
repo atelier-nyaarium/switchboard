@@ -3,6 +3,7 @@
 import {
 	VAULT_REQUEST_DEADLINE_MS,
 	VAULT_ROUTE_WAIT_CAP_MS,
+	VaultAskpassRequestSchema,
 	type VaultValueAnswer,
 	VaultValueAnswerSchema,
 } from "../shared/schemasVault.js";
@@ -38,6 +39,7 @@ export interface AskpassPorts {
 export type AskpassOutcome =
 	| { kind: "value"; value: string; from: "phone" | "tty" }
 	| { kind: "refused"; note?: string }
+	| { kind: "invalid"; issue: string }
 	| { kind: "unreachable" }
 	| { kind: "no-answer" };
 
@@ -87,6 +89,12 @@ async function askPhone(
 	now: () => number,
 	signal: AbortSignal,
 ): Promise<AskpassOutcome> {
+	// The port loses a 400's reason.
+	const request = VaultAskpassRequestSchema.safeParse({ cmdline, waitMs: 0, asker });
+	if (!request.success) {
+		const issue = request.error.issues[0];
+		return { kind: "invalid", issue: issue ? `${issue.path.join(".")}: ${issue.message}` : "unknown" };
+	}
 	let pendingId: string | null = null;
 	let answer = await gateway.askpass(cmdline, 0, signal, asker);
 	for (;;) {

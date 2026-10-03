@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { VaultValueAnswer } from "../shared/schemasVault.js";
+import { VAULT_OPERATION_MAX, type VaultValueAnswer } from "../shared/schemasVault.js";
 import {
 	askerOf,
 	askpassBrief,
@@ -126,6 +126,17 @@ describe("the askpass helper's race", () => {
 		expect(await runAskpass(input, { gateway: fakeGateway(pending("old", 999)).gateway, tty: null, now })).toEqual({
 			kind: "no-answer",
 		});
+	});
+
+	it("a request the gateway's schema refuses never asks, and leaves the tty as the road", async () => {
+		const long = { ...input, cmdline: `sudo ${"x".repeat(VAULT_OPERATION_MAX)}` };
+		const g = fakeGateway(pending("never"));
+		expect(await runAskpass(long, { gateway: g.gateway, tty: null, now })).toMatchObject({ kind: "invalid" });
+		const t = fakeTty();
+		const typed = runAskpass(long, { gateway: g.gateway, tty: t.tty, now });
+		t.type("typed-instead");
+		expect(await typed).toEqual({ kind: "value", value: "typed-instead", from: "tty" });
+		expect(g.asks).toEqual([]);
 	});
 
 	it("the caller giving up abandons the tty and withdraws the phone's request", async () => {

@@ -127,7 +127,12 @@ async function main(): Promise<number> {
 	);
 	if (outcome.kind !== "value") {
 		// The owner's note is steering; it goes where the caller's own output goes.
-		const note = outcome.kind === "refused" && outcome.note ? `: ${outcome.note}` : "";
+		const note =
+			outcome.kind === "refused" && outcome.note
+				? `: ${outcome.note}`
+				: outcome.kind === "invalid"
+					? `: ${outcome.issue}`
+					: "";
 		console.error(`[vault-askpass] no value: ${outcome.kind}${note}`);
 		return 1;
 	}

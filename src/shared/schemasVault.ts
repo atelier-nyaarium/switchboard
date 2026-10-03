@@ -109,7 +109,7 @@ export const VaultDecisionSchema = z
 	.meta({ id: "VaultDecision", catalog: "decision" });
 
 /** An operation's longest spelling, shown whole on the phone. */
-export const VAULT_OPERATION_MAX = 512;
+export const VAULT_OPERATION_MAX = 4096;
 
 const operation = z.string().trim().min(1).max(VAULT_OPERATION_MAX);
 
@@ -120,9 +120,10 @@ const asker = z.string().min(1).max(128).optional();
 export const VAULT_SHAPES_MAX = 64;
 
 /** Every program the operation names, each as its shape; a window grant covers exactly this set. */
-const shapes = z.array(z.string().min(1).max(512)).min(1).max(VAULT_SHAPES_MAX);
+const shapes = z.array(z.string().min(1).max(VAULT_OPERATION_MAX)).min(1).max(VAULT_SHAPES_MAX);
 
-const displayShape = z.string().min(1).max(256);
+/** Flag-led, it spells the whole line. */
+const displayShape = z.string().min(1).max(VAULT_OPERATION_MAX);
 
 /** The policy a request or grant was resolved through, at the one revision that answered. */
 export const VaultPolicyRefSchema = z
