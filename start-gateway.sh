@@ -25,6 +25,8 @@ EFF_ID="$(sed -n 's/^GATEWAY_ID=//p' .env 2>/dev/null | head -1)"; EFF_ID="${EFF
 grep -qE '^HOST_WS_TOKEN=' .env 2>/dev/null || echo "HOST_WS_TOKEN=$(openssl rand -hex 32)" >> .env
 
 docker network inspect switchboard-federation >/dev/null 2>&1 || docker network create switchboard-federation >/dev/null
+# GATEWAY_NETWORK in src/shared/gateway-network.ts.
+docker network inspect switchboard >/dev/null 2>&1 || docker network create switchboard >/dev/null
 
 docker compose down --remove-orphans 2>/dev/null || true
 docker compose build --pull || echo "WARNING: could not pull a fresh base image, building on the cached one" >&2

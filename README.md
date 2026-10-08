@@ -48,10 +48,10 @@ DevContainers (one per project)
 ## Starting the gateway
 
 ```bash
-docker compose up -d
+./start-gateway.sh
 ```
 
-The gateway listens on port 20000 and uses the external network `switchboard`.
+The gateway listens on port 20000 on the external network `switchboard`, which the script creates.
 
 ## Setup
 
@@ -74,23 +74,11 @@ tmp=$(mktemp) && jq '. * {extraKnownMarketplaces: {"atelier-nyaarium": {autoUpda
 - `PROJECT_NAME` - Your team's name on the bridge (e.g. `my-project`)
 - `BRIDGE_ROUTER_URL` - Router URL (default: `http://switchboard:20000`)
 
-**3. Add the Docker network** to your devcontainer:
-
-```bash
-/path/to/switchboard/install.sh
-```
-
-This adds `switchboard-network` to your `.devcontainer/compose.yml`.
-
-**4. Rebuild the Devcontainer.**
+**3. Rebuild the Devcontainer.**
 
 - **F1** then `Dev Containers: Rebuild Container`
 
-**To remove the network config:**
-
-```bash
-/path/to/switchboard/uninstall.sh
-```
+The host daemon attaches each devcontainer it wakes to `switchboard`, aliased by project.
 
 ### Optional: Android console app and cross-machine federation
 

@@ -1,7 +1,8 @@
-import { execSync, spawn } from "node:child_process";
+import { execFileSync, execSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { GATEWAY_NETWORK } from "../../shared/gateway-network.js";
 import { appendBuildTranscript, beginBuildTranscript } from "./buildTranscript.js";
 
 ////////////////////////////////
@@ -203,8 +204,31 @@ function runDevcontainer(project: string, args: string[]): Promise<{ code: numbe
 	});
 }
 
+/** Runs the docker CLI and answers its stdout; throws on a non-zero exit. */
+export type DockerRun = (args: string[]) => string;
+
+const runDocker: DockerRun = (args) => execFileSync("docker", args, { encoding: "utf-8", stdio: "pipe" });
+
+/**
+ * On every wake, so a container recreated elsewhere heals. Throws, since a plugin off the network
+ * starts and never connects.
+ */
+export function joinGatewayNetwork(projectPath: string, docker: DockerRun = runDocker): void {
+	const [container] = docker(["ps", "-q", "--filter", `label=devcontainer.local_folder=${projectPath}`])
+		.split("\n")
+		.filter(Boolean);
+	if (!container) throw new Error(`no running container for '${projectPath}' to join ${GATEWAY_NETWORK}`);
+	const networks = JSON.parse(docker(["inspect", "-f", "{{json .NetworkSettings.Networks}}", container]));
+	if (networks && GATEWAY_NETWORK in networks) return;
+	docker(["network", "connect", "--alias", path.basename(projectPath), GATEWAY_NETWORK, container]);
+	console.error(`[devcontainer] joined ${GATEWAY_NETWORK}: ${path.basename(projectPath)}`);
+}
+
 export async function ensureContainerUpAsync(projectPath: string): Promise<ContainerUpResult> {
-	if (isContainerReady(projectPath)) return { wasAlreadyRunning: true, pluginsProvisioned: false };
+	if (isContainerReady(projectPath)) {
+		joinGatewayNetwork(projectPath);
+		return { wasAlreadyRunning: true, pluginsProvisioned: false };
+	}
 
 	const project = path.basename(projectPath);
 	beginBuildTranscript(project);
@@ -213,6 +237,8 @@ export async function ensureContainerUpAsync(projectPath: string): Promise<Conta
 	const up = await runDevcontainer(project, ["up", "--workspace-folder", projectPath, "--remove-existing-container"]);
 	if (up.code !== 0) throw new Error(`devcontainer up failed for '${projectPath}' (exit ${up.code ?? "signal"})`);
 	parseDevcontainerOutput(up.stdout, projectPath);
+	// Before lifecycle commands, which may reach the Gateway.
+	joinGatewayNetwork(projectPath);
 
 	const lifecycle = await runDevcontainer(project, ["run-user-commands", "--workspace-folder", projectPath]);
 	if (lifecycle.code !== 0) console.error(`[devcontainer] run-user-commands failed for '${projectPath}' (non-fatal)`);

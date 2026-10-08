@@ -90,6 +90,12 @@ passed to `wslpath`.
 Devcontainer sessions are loose `project.session` peers. The daemon sets `PROJECT_NAME` to the
 composite name before launch.
 
+**The daemon, not a project's compose, puts a devcontainer on the Gateway's network.** The plugin
+reaches the Gateway as `switchboard`, which resolves only there, so a container left off it starts
+Claude and never connects. `joinGatewayNetwork` attaches on every wake, built or already running,
+and a wake that cannot attach fails rather than leave a session `connecting`. The network is external
+to the Gateway's compose, so a Gateway restart never removes it from under a container.
+
 The host is another spawn point and uses the same create, resume, and forget path. Its default
 workdir is `~/projects/<label>`.
 

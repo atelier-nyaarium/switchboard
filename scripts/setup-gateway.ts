@@ -5,6 +5,7 @@ import { randomBytes } from "node:crypto";
 import os from "node:os";
 import { $ } from "bun";
 import { fingerprint } from "../src/shared/crypto.js";
+import { GATEWAY_NETWORK } from "../src/shared/gateway-network.js";
 import { requireDocker } from "./lib/docker-probe.js";
 import {
 	ask,
@@ -108,9 +109,9 @@ async function armGateway(): Promise<{ nonce: string; deadline: number }> {
 	const nonce = randomBytes(16).toString("hex");
 	const host = await detectLanHost();
 	console.log(`Starting gateway, enrollment on ${host}:20000`);
-	// Compose declares this network external and will not create it. A machine that runs the Router
-	// has one already; a gateway-only machine does not, and compose then refuses to start anything.
+	// Compose declares these external and will not create them, so a missing one refuses the start.
 	await ensureNetwork(FEDERATION_NETWORK);
+	await ensureNetwork(GATEWAY_NETWORK);
 	// Before `up`, so the container starts holding it: without this the host slot is fail-closed and
 	// the daemon can never attach, leaving a correctly-enrolled gateway with nothing to show.
 	await ensureHostWsToken();

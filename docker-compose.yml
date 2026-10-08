@@ -46,6 +46,7 @@ services:
 networks:
   switchboard-network:
     name: switchboard
+    external: true
   switchboard-federation:
     name: switchboard-federation
     external: true
