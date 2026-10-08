@@ -27,7 +27,7 @@ Waits for the turn. A turn beyond the wait budget keeps running and is returned 
 
 Models, spelled exactly:
 - \`gpt-6-luna\` - Efficient for long-running exploration, audits, and implementation. Use it by default.
-- \`gpt-6-sol\` - For the hardest reasoning and coding. Ask permission first.
+- \`gpt-6.1-sol\` - For the hardest reasoning and coding. Ask permission first.
 
 ## Prompt
 

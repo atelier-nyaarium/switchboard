@@ -41,7 +41,7 @@ Codex sandbox denies outbound network access. Writes can only happen in the dire
 
 \`model\` on \`codexStartAgent\`, spelled exactly:
 - \`gpt-6-luna\` - Default. Exploration, audits, implementation.
-- \`gpt-6-sol\` - Hardest reasoning and coding. Ask permission first.
+- \`gpt-6.1-sol\` - Hardest reasoning and coding. Ask permission first.
 
 ## Driving a Codex Agent Workflow
 
