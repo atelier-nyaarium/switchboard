@@ -61,9 +61,6 @@ internal class PublishedViews<K : Any, V : Any>(private val generation: Workspac
 
 	fun of(key: K): V? = drawn.value[key]
 
-	/** The keys a screen is holding open, for a sweep that reads them by key. */
-	fun kept(): Set<K> = synchronized(lock) { keepers.keys.toSet() }
-
 	/** Joins the showing of `key` already open, or starts one drawn as `initial`. */
 	fun show(key: K, initial: () -> V): Opened<K> =
 		synchronized(lock) {

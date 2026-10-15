@@ -1,7 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeEntry
+import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeNote
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -10,7 +9,7 @@ import org.junit.Test
 
 class FacetDetailRulesTest {
 	@Test
-	fun `the detail reads header, reached use, knowledge, documentation, source, then facts last, and the jump finds the reached line`() {
+	fun `the detail reads header, reached use, note, documentation, source, then facts last, and the jump finds the reached line`() {
 		val view = DetailView(
 			source = WorkspaceAnswer.Read(
 				WorkspaceSymbolSourceAnswer(
@@ -23,35 +22,34 @@ class FacetDetailRulesTest {
 					spanHash = "h",
 				),
 			),
-			knowledge = WorkspaceAnswer.Read(WorkspaceKnowledgeAnswer(symbolId = "s", documentation = "what it does")),
+			knowledge = WorkspaceAnswer.Read(knowledgeOf("s", note = note, documentation = "what it does")),
 		)
 		val reached = Reached("LocalBackendSession", "Type", 99)
 		val items = detailItems(view, reached, whole = false)
 
-		assertEquals(listOf("h", "r", "k", "d", "st"), items.take(5).map { it.key })
+		assertEquals(listOf("h", "r", "n", "d", "st"), items.take(5).map { it.key })
 		assertEquals("f", items.last().key)
 		assertEquals(99, reachedIndex(items)!!.let { items[it] as DetailItem.SourceLine }.line.number!!.toInt())
 		assertTrue(items.none { it is DetailItem.ShowAll })
 
 		val plain = detailItems(view.copy(knowledge = null), null, whole = false)
-		assertEquals(listOf("h", "k", "st"), plain.take(3).map { it.key })
+		assertEquals(listOf("h", "st"), plain.take(2).map { it.key })
 		assertEquals("f", plain.last().key)
 		assertNull(reachedIndex(plain))
 	}
 
 	@Test
-	fun `a recorded describe draws under the header, and an unrecorded one stays out`() {
-		val recorded = DetailView(
-			knowledge = WorkspaceAnswer.Read(
-				WorkspaceKnowledgeAnswer(
-					symbolId = "s",
-					answers = listOf(WorkspaceKnowledgeEntry("describe", "It opens threads.")),
-				),
-			),
-		)
-		assertEquals(DetailItem.Describe("It opens threads."), detailItems(recorded, null, whole = false)[1])
-
-		val unrecorded = DetailView(knowledge = WorkspaceAnswer.Read(WorkspaceKnowledgeAnswer(symbolId = "s")))
-		assertTrue(detailItems(unrecorded, null, whole = false).none { it is DetailItem.Describe })
+	fun `a symbol with no note draws no note`() {
+		val unnoted = DetailView(knowledge = WorkspaceAnswer.Read(knowledgeOf("s")))
+		assertTrue(detailItems(unnoted, null, whole = false).none { it is DetailItem.Note })
 	}
+
+	private val note = WorkspaceKnowledgeNote(
+		text = "It opens threads.",
+		revision = 1,
+		sourceChanged = false,
+		proposal = false,
+		changedRefs = 0,
+		brokenRefs = 0,
+	)
 }

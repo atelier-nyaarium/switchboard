@@ -21,7 +21,6 @@ import {
 	FileMutationAnswerSchema,
 	FileStateAnswerSchema,
 	KnowledgeAnswerSchema,
-	KnowledgeScopeAnswerSchema,
 	SaveSpanAnswerSchema,
 	SymbolFacetAnswerSchema,
 	TooLargeAnswerSchema,
@@ -48,7 +47,6 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	WorkspaceKnowledgeAnswer: KnowledgeAnswerSchema,
 	WorkspaceSymbolFacetAnswer: SymbolFacetAnswerSchema,
 	WorkspaceFileHistoryAnswer: FileHistoryAnswerSchema,
-	WorkspaceKnowledgeScopeAnswer: KnowledgeScopeAnswerSchema,
 	WorkspaceTooLargeAnswer: TooLargeAnswerSchema,
 };
 

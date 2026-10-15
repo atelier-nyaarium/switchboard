@@ -127,20 +127,22 @@ export const SymbolSourceAnswerSchema = z
 	})
 	.meta({ id: "WorkspaceSymbolSourceAnswer" });
 
-export const KnowledgeEntrySchema = z
+/** A symbol's note and its advisories. */
+export const KnowledgeNoteSchema = z
 	.object({
-		question: z.enum(["describe", "why", "relate", "contract", "effects", "usage"]),
-		/** Absent: not recorded. */
-		prose: z.string().optional(),
-		/** Cites nothing beyond the declaration. */
-		thin: z.boolean().optional(),
-		/** A cited fact moved. */
-		stale: z.boolean().optional(),
-		doubted: z.boolean().optional(),
-		/** Its subject no longer resolves. */
-		stranded: z.boolean().optional(),
+		/** Markdown, refs reduced to labels. */
+		text: z.string(),
+		revision: z.number().int().positive(),
+		/** Source moved since save. */
+		sourceChanged: z.boolean(),
+		/** Why this revision misled. */
+		doubt: z.string().optional(),
+		/** Replacement awaits review. */
+		proposal: z.boolean(),
+		changedRefs: z.number().int().nonnegative(),
+		brokenRefs: z.number().int().nonnegative(),
 	})
-	.meta({ id: "WorkspaceKnowledgeEntry" });
+	.meta({ id: "WorkspaceKnowledgeNote" });
 
 /** Drill-in counts, withheld rows excluded. */
 export const KnowledgeCountsSchema = z
@@ -176,7 +178,7 @@ export const KnowledgeFactsSchema = z
 		supertypes: z.number().int().nonnegative(),
 		subtypes: z.number().int().nonnegative(),
 		comments: z.number().int().nonnegative(),
-		/** Absent from an older Lexicon. */
+		/** Absent when a count read failed or was cut short. */
 		counts: KnowledgeCountsSchema.optional(),
 	})
 	.meta({ id: "WorkspaceKnowledgeFacts" });
@@ -185,18 +187,16 @@ export const KnowledgeAnswerSchema = z
 	.object({
 		kind: z.literal("symbolKnowledge"),
 		symbolId: z.string().min(1).max(1024),
-		// These five required from 2026-09-27, once plugins before 8.11 are gone.
-		name: z.string().max(512).optional(),
-		symbolKind: z.string().max(64).optional(),
-		module: z.string().max(512).optional(),
-		answers: z.array(KnowledgeEntrySchema).max(16).optional(),
-		facts: KnowledgeFactsSchema.optional(),
+		name: z.string().max(512),
+		symbolKind: z.string().max(64),
+		module: z.string().max(512),
+		/** Absent: no note stands. */
+		note: KnowledgeNoteSchema.optional(),
+		facts: KnowledgeFactsSchema,
 		startLine: z.number().int().positive().optional(),
 		endLine: z.number().int().positive().optional(),
 		signature: z.string().optional(),
 		documentation: z.string().optional(),
-		// Remove 2026-09-27: phones before this build require it and draw nothing else.
-		text: z.string().optional(),
 	})
 	.meta({ id: "WorkspaceKnowledgeAnswer" });
 
@@ -334,15 +334,6 @@ export const SymbolFacetSchema = z
 	// Not `WorkspaceSymbolFacet`: `ConsoleOp`'s member would shadow it.
 	.meta({ id: "WorkspaceFacet" });
 
-/** What an Ask covers. A file takes everything in it. */
-export const KnowledgeScopeTargetSchema = z
-	.discriminatedUnion("kind", [
-		z.strictObject({ kind: z.literal("symbol"), symbolId: SymbolIdSchema }),
-		z.strictObject({ kind: z.literal("members"), symbolId: SymbolIdSchema }),
-		z.strictObject({ kind: z.literal("file"), path: MutationPathSchema }),
-	])
-	.meta({ id: "WorkspaceKnowledgeScopeTarget" });
-
 /** A declaration a row names. */
 export const FacetSymbolSchema = z
 	.object({
@@ -413,7 +404,7 @@ export const FacetUnboundTypeSchema = z
 
 export const FacetCommentSchema = z
 	.object({
-		/** Markers stripped, wrapping joined. */
+		/** As written, markers included. */
 		text: z.string(),
 		form: z.string().max(32),
 		line: LineSchema,
@@ -524,47 +515,6 @@ export const FileHistoryAnswerSchema = z
 	})
 	.meta({ id: "WorkspaceFileHistoryAnswer" });
 
-export const ScopeQuestionSchema = z
-	.object({
-		question: KnowledgeEntrySchema.shape.question,
-		/** Absent: not recorded. */
-		createdAt: z.number().optional(),
-		thin: z.boolean().optional(),
-		/** Its own citations moved. */
-		stale: z.boolean().optional(),
-		/** Cites a stale or doubted answer. */
-		shaky: z.boolean().optional(),
-		doubted: z.boolean().optional(),
-		askCount: z.number().int().nonnegative(),
-	})
-	.meta({ id: "WorkspaceScopeQuestion" });
-
-export const ScopeSymbolSchema = z
-	.object({
-		symbolId: SymbolIdSchema,
-		name: z.string().max(512),
-		symbolKind: z.string().max(64),
-		/** 0 for the named symbol or file top. */
-		depth: z.number().int().nonnegative(),
-		startLine: LineSchema.optional(),
-		containerId: SymbolIdSchema.optional(),
-		questions: z.array(ScopeQuestionSchema).max(16),
-	})
-	.meta({ id: "WorkspaceScopeSymbol" });
-
-export const KnowledgeScopeAnswerSchema = z
-	.object({
-		kind: z.literal("knowledgeScope"),
-		/** Root, `~` for home; flags a rebound workspace. */
-		root: z.string().max(4096),
-		module: z.string().max(512),
-		/** Members before the declaration holding them. */
-		symbols: z.array(ScopeSymbolSchema),
-		/** Parameters and locals left out. */
-		localsExcluded: z.number().int().nonnegative(),
-	})
-	.meta({ id: "WorkspaceKnowledgeScopeAnswer" });
-
 export const PaintTextAnswerSchema = z
 	.object({
 		kind: z.literal("paintText"),
@@ -599,7 +549,6 @@ export const WorkspaceOpAnswerSchema = z.discriminatedUnion("kind", [
 	FileStateAnswerSchema,
 	SymbolFacetAnswerSchema,
 	FileHistoryAnswerSchema,
-	KnowledgeScopeAnswerSchema,
 	PaintTextAnswerSchema,
 	TooLargeAnswerSchema,
 ]);
@@ -611,7 +560,7 @@ export type OutlineSymbol = z.infer<typeof OutlineSymbolSchema>;
 export type OutlineAnswer = z.infer<typeof OutlineAnswerSchema>;
 export type SymbolSourceAnswer = z.infer<typeof SymbolSourceAnswerSchema>;
 export type KnowledgeAnswer = z.infer<typeof KnowledgeAnswerSchema>;
-export type KnowledgeEntry = z.infer<typeof KnowledgeEntrySchema>;
+export type KnowledgeNote = z.infer<typeof KnowledgeNoteSchema>;
 export type SaveSpanAnswer = z.infer<typeof SaveSpanAnswerSchema>;
 export type FileMutation = z.infer<typeof FileMutationSchema>;
 export type FileMutationAnswer = z.infer<typeof FileMutationAnswerSchema>;
@@ -619,7 +568,6 @@ export type FileStateAnswer = z.infer<typeof FileStateAnswerSchema>;
 export type FileDestination = z.infer<typeof FileDestinationSchema>;
 export type KnowledgeCounts = z.infer<typeof KnowledgeCountsSchema>;
 export type SymbolFacet = z.infer<typeof SymbolFacetSchema>;
-export type KnowledgeScopeTarget = z.infer<typeof KnowledgeScopeTargetSchema>;
 export type FacetSymbol = z.infer<typeof FacetSymbolSchema>;
 export type FacetUse = z.infer<typeof FacetUseSchema>;
 export type FacetTarget = z.infer<typeof FacetTargetSchema>;
@@ -629,8 +577,6 @@ export type HistoryCommit = z.infer<typeof HistoryCommitSchema>;
 export type FacetAnswer = z.infer<typeof FacetAnswerSchema>;
 export type SymbolFacetAnswer = z.infer<typeof SymbolFacetAnswerSchema>;
 export type FileHistoryAnswer = z.infer<typeof FileHistoryAnswerSchema>;
-export type ScopeSymbol = z.infer<typeof ScopeSymbolSchema>;
-export type KnowledgeScopeAnswer = z.infer<typeof KnowledgeScopeAnswerSchema>;
 export type PaintTextAnswer = z.infer<typeof PaintTextAnswerSchema>;
 export type TooLargeAnswer = z.infer<typeof TooLargeAnswerSchema>;
 export type WorkspaceOpAnswer = z.infer<typeof WorkspaceOpAnswerSchema>;

@@ -136,19 +136,6 @@ class PublishedViewsTest {
 		assertTrue(views.show("a") { "loading" }.started)
 	}
 
-	@Test
-	fun `the keys with keepers are what a sweep reads, and a key merely shown is not one`() = runBlocking {
-		assertTrue(views.kept().isEmpty())
-		val keeping = launch { views.keep("a", { "loading" }, load) }
-		withTimeout(5_000) { views.all.first { it["a"] == "read 1" } }
-		views.show("b") { "shown" }
-
-		assertEquals(setOf("a"), views.kept())
-
-		keeping.cancelAndJoin()
-		assertTrue(views.kept().isEmpty())
-	}
-
 	/**
 	 * A keeper looks for a drawn view before it asks to show one, so a second keeper arriving in that
 	 * window finds nothing drawn either. Only one of them may read.

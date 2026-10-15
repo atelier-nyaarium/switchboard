@@ -1,44 +1,19 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeFacts
+import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeNote
 
-internal enum class KnowledgeBadge { THIN, STALE, DOUBTED, STRANDED }
+internal data class NoteBadge(val text: String, val warning: Boolean)
 
-internal data class KnowledgeRow(val question: String, val prose: String?, val badges: List<KnowledgeBadge>)
-
-internal data class KnowledgeFact(val label: String, val count: Long)
-
-/** Null from an older plugin. */
-internal fun knowledgeRows(answer: WorkspaceKnowledgeAnswer): List<KnowledgeRow>? =
-	answer.answers?.map { entry ->
-		KnowledgeRow(
-			question = entry.question,
-			prose = entry.prose,
-			badges = buildList {
-				if (entry.thin == true) add(KnowledgeBadge.THIN)
-				if (entry.stale == true) add(KnowledgeBadge.STALE)
-				if (entry.doubted == true) add(KnowledgeBadge.DOUBTED)
-				if (entry.stranded == true) add(KnowledgeBadge.STRANDED)
-			},
-		)
+internal fun noteBadges(note: WorkspaceKnowledgeNote): List<NoteBadge> =
+	buildList {
+		if (note.sourceChanged) add(NoteBadge("SOURCE CHANGED", warning = true))
+		if (note.doubt != null) add(NoteBadge("DOUBTED", warning = true))
+		if (note.proposal) add(NoteBadge("PROPOSAL", warning = false))
+		if (note.changedRefs > 0) add(NoteBadge(refsText(note.changedRefs, "CHANGED"), warning = true))
+		if (note.brokenRefs > 0) add(NoteBadge(refsText(note.brokenRefs, "BROKEN"), warning = true))
 	}
 
-/** A sound recorded describe is page text; a badged one stays a card. */
-internal fun dissolves(row: KnowledgeRow): Boolean = row.question == "describe" && row.prose != null && row.badges.isEmpty()
-
-internal fun describeProse(answer: WorkspaceKnowledgeAnswer): String? = knowledgeRows(answer)?.firstOrNull(::dissolves)?.prose
-
-internal fun knowledgeFacts(facts: WorkspaceKnowledgeFacts): List<KnowledgeFact> =
-	listOf(
-		KnowledgeFact("Members", facts.members),
-		KnowledgeFact("References", facts.references),
-		KnowledgeFact("Used by", facts.fanIn),
-		KnowledgeFact("Uses", facts.fanOut),
-		KnowledgeFact("Supertypes", facts.supertypes),
-		KnowledgeFact("Subtypes", facts.subtypes),
-		KnowledgeFact("Comments", facts.comments),
-	)
+private fun refsText(count: Long, state: String): String = "${countText(count)} ${if (count == 1L) "REF" else "REFS"} $state"
 
 internal fun kindBadge(symbolKind: String?): String =
 	when (symbolKind) {

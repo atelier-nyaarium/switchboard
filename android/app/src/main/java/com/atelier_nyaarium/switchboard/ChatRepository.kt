@@ -270,7 +270,7 @@ class ChatRepository(
 
 	internal val clearedOnReprovision: List<ClearsOnReprovision>
 		get() = listOf(
-			this, board, vault, runbooks, presence, trust, drain, playback, workspaceHost, composedRequests, askOps, windowOps,
+			this, board, vault, runbooks, presence, trust, drain, playback, workspaceHost, composedRequests, windowOps,
 			symbolViews, windowRequests, rawFileOps, fileOps,
 		)
 
@@ -376,9 +376,6 @@ class ChatRepository(
 	internal val composedRequests = ComposedRequests(workspaceHost)
 	internal val windowOps = WindowOps(host = workspaceHost, drafts = workspaceDrafts, outbox = composedRequests)
 	internal val symbolViews = SymbolViews(workspaceHost)
-	internal val askOps = AskOps(workspaceHost, composedRequests, ambient.now) { target, symbolId ->
-		symbolViews.reloadKnowledge(target, symbolId)
-	}
 	internal val windowRequests = WindowRequests(
 		outbox = composedRequests,
 		open = { target, symbolId -> windowOps.openWindow(target, symbolId) is WorkspaceAnswer.Read },

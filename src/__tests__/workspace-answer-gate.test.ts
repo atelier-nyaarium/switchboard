@@ -38,7 +38,7 @@ function sessionOf(methods: Record<string, () => unknown>): () => Promise<Sessio
 		"declarationOf",
 		"describe",
 		"indexFile",
-		"recallAnswer",
+		"readNote",
 		"refactorReplaceSpan",
 		"symbolSource",
 		"typeHierarchy",
@@ -135,7 +135,7 @@ describe("what a built answer may name", () => {
 		);
 		const knowledge = await ask(
 			{ kind: "symbolKnowledge", symbolId: SERVED_ID },
-			{ describe: describedIn("src/app.ts"), recallAnswer: () => [] },
+			{ describe: describedIn("src/app.ts"), readNote: () => null },
 		);
 		const hierarchy = await ask(
 			{ kind: "symbolFacet", symbolId: SERVED_ID, facet: { kind: "hierarchy" } },
@@ -159,7 +159,7 @@ describe("what a built answer may name", () => {
 	it("refuses knowledge naming a withheld module", async () => {
 		const result = await ask(
 			{ kind: "symbolKnowledge", symbolId: SERVED_ID },
-			{ describe: describedIn(WITHHELD), recallAnswer: () => [] },
+			{ describe: describedIn(WITHHELD), readNote: () => null },
 		);
 
 		expect(result).toMatchObject({ ok: false, failure: "refused" });
@@ -217,6 +217,7 @@ describe("the fields the gate reads off the schemas", () => {
 			"container",
 			"detail",
 			"documentation",
+			"doubt",
 			"form",
 			"hash",
 			"identity",
@@ -224,8 +225,6 @@ describe("the fields the gate reads off the schemas", () => {
 			"language",
 			"name",
 			"outcome",
-			"prose",
-			"question",
 			"readOnly",
 			"reason",
 			"role",

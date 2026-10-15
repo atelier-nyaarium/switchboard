@@ -46,7 +46,6 @@ describe("the bounds on one workspace op, outermost first", () => {
 			{ kind: "fileState", path: "a" },
 			{ kind: "symbolFacet", symbolId: "s", facet: { kind: "uses" } },
 			{ kind: "fileHistory", path: "a" },
-			{ kind: "knowledgeScope", scope: { kind: "file", path: "a" }, includeLocals: true },
 		];
 		for (const op of reads) expect(boundsOf(op)).toBe(WORKSPACE_BOUNDS.read);
 		expect(boundsOf({ kind: "saveSpan", symbolId: "s", expectedSpanHash: "h", text: "" })).toBe(
@@ -94,7 +93,6 @@ describe("what the phone is told when the plane fails", () => {
 		const listings: WorkspaceOp[] = [
 			{ kind: "symbolFacet", symbolId: "s", facet: { kind: "uses" } },
 			{ kind: "fileHistory", path: "a" },
-			{ kind: "knowledgeScope", scope: { kind: "symbol", symbolId: "s" }, includeLocals: false },
 		];
 		for (const op of listings) {
 			expect(answerForConsole(op, { ok: false, failure: "too_large", detail: "d", rows: 9, bytes: 5 })).toEqual({

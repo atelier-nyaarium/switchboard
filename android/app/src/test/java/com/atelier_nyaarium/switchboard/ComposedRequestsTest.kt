@@ -27,7 +27,7 @@ class ComposedRequestsTest {
 
 	private val host = HeldHost()
 	private val requests = ComposedRequests(host)
-	private val key = RequestKey("home.sakura.host.aaa", RequestKind.KNOWLEDGE, "why")
+	private val key = RequestKey("home.sakura.host.aaa", RequestKind.APPLY, "why")
 
 	/** One write per key, as a site's own map holds it. */
 	private val written = mutableMapOf<String, String>()

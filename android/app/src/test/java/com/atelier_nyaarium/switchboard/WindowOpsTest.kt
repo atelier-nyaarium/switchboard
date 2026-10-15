@@ -5,7 +5,6 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceFacet
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspacePaintTextAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
@@ -102,7 +101,7 @@ class WindowOpsTest {
 			symbolId: String,
 		): WorkspaceAnswer<WorkspaceKnowledgeAnswer> {
 			asked += target
-			return WorkspaceAnswer.Read(WorkspaceKnowledgeAnswer(symbolId = symbolId, name = "known"))
+			return WorkspaceAnswer.Read(knowledgeOf(symbolId))
 		}
 
 		/**
@@ -161,9 +160,6 @@ class WindowOpsTest {
 			error("not reached")
 
 		override suspend fun fileHistory(target: WorkspaceTarget, path: String) = error("not reached")
-
-		override suspend fun knowledgeScope(target: WorkspaceTarget, scope: WorkspaceKnowledgeScopeTarget, includeLocals: Boolean) =
-			error("not reached")
 	}
 
 	/** Records what was sent, since an apply is an ordinary message and nothing else marks it. */

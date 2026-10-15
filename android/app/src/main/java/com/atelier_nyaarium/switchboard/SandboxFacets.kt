@@ -273,7 +273,7 @@ internal class SandboxFacets(private val modules: Map<String, SandboxModule>, pr
 		)
 	}
 
-	/** Null where no canned module holds the symbol, which leaves the older plugin's plain facts. */
+	/** Null where no canned module holds the symbol: plain facts, uncounted. */
 	fun counts(symbolId: String): WorkspaceKnowledgeCounts? {
 		val found = byId[symbolId] ?: return null
 		val drill = drills[symbolId] ?: Drill()

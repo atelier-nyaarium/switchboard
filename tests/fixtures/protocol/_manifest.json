@@ -45,14 +45,8 @@
 		{ "file": "console-op-workspace-symbol-facet.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "invalid-workspace-symbol-facet-unknown.json", "schema": "ConsoleOp", "expect": "fail" },
 		{ "file": "console-op-workspace-file-history.json", "schema": "ConsoleOp", "expect": "pass" },
-		{ "file": "console-op-workspace-knowledge-scope.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "workspace-symbol-facet-answer.json", "schema": "WorkspaceSymbolFacetAnswer", "expect": "pass" },
 		{ "file": "workspace-file-history-answer.json", "schema": "WorkspaceFileHistoryAnswer", "expect": "pass" },
-		{
-			"file": "workspace-knowledge-scope-answer.json",
-			"schema": "WorkspaceKnowledgeScopeAnswer",
-			"expect": "pass"
-		},
 		{ "file": "workspace-too-large-answer.json", "schema": "WorkspaceTooLargeAnswer", "expect": "pass" }
 	]
 }

@@ -21,6 +21,7 @@
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "1.30.0",
+		"micromark": "4.0.2",
 		"qrcode-generator": "2.0.4",
 		"unbash": "4.0.11",
 		"vscode-jsonrpc": "9.0.2",

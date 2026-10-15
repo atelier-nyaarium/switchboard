@@ -1,46 +1,33 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeEntry
+import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeNote
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 class KnowledgeRulesTest {
-	private val id = "lexicon typescript src/shared/schemasRoutine.ts routineRefusal()."
+	private val sound = WorkspaceKnowledgeNote(
+		text = "Returns the reason.",
+		revision = 1,
+		sourceChanged = false,
+		proposal = false,
+		changedRefs = 0,
+		brokenRefs = 0,
+	)
 
 	@Test
-	fun `every question draws a row, recorded ones with their badges, and an older plugin draws none`() {
-		val answer = WorkspaceKnowledgeAnswer(
-			symbolId = id,
-			answers = listOf(
-				WorkspaceKnowledgeEntry(question = "describe", prose = "Returns the reason.", thin = true),
-				WorkspaceKnowledgeEntry(question = "why", prose = "A rule can name nothing.", stale = true, doubted = true),
-				WorkspaceKnowledgeEntry(question = "usage"),
-			),
-		)
+	fun `a note badges what moved since it was saved, and a sound one badges nothing`() {
+		assertEquals(emptyList<NoteBadge>(), noteBadges(sound))
 
+		val moved = sound.copy(sourceChanged = true, doubt = "Moved.", proposal = true, changedRefs = 1, brokenRefs = 1_200)
 		assertEquals(
 			listOf(
-				KnowledgeRow("describe", "Returns the reason.", listOf(KnowledgeBadge.THIN)),
-				KnowledgeRow("why", "A rule can name nothing.", listOf(KnowledgeBadge.STALE, KnowledgeBadge.DOUBTED)),
-				KnowledgeRow("usage", null, emptyList()),
+				NoteBadge("SOURCE CHANGED", warning = true),
+				NoteBadge("DOUBTED", warning = true),
+				NoteBadge("PROPOSAL", warning = false),
+				NoteBadge("1 REF CHANGED", warning = true),
+				NoteBadge("1,200 REFS BROKEN", warning = true),
 			),
-			knowledgeRows(answer),
+			noteBadges(moved),
 		)
-		assertNull(knowledgeRows(WorkspaceKnowledgeAnswer(symbolId = id)))
-	}
-
-	@Test
-	fun `a sound describe's prose is read out, and an unrecorded or badged one is not`() {
-		val answer = WorkspaceKnowledgeAnswer(
-			symbolId = id,
-			answers = listOf(WorkspaceKnowledgeEntry(question = "describe", prose = "Returns the reason.")),
-		)
-		assertEquals("Returns the reason.", describeProse(answer))
-		assertNull(describeProse(WorkspaceKnowledgeAnswer(symbolId = id, answers = listOf(WorkspaceKnowledgeEntry("describe")))))
-		val stale = WorkspaceKnowledgeEntry(question = "describe", prose = "Returns the reason.", stale = true)
-		assertNull(describeProse(WorkspaceKnowledgeAnswer(symbolId = id, answers = listOf(stale))))
-		assertNull(describeProse(WorkspaceKnowledgeAnswer(symbolId = id)))
 	}
 }

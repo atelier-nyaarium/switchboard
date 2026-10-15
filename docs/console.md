@@ -355,14 +355,12 @@ no TTL.
     again at once would spin.
   - **An awaited answer lands only through a `ReadTicket`, taken before the read awaits.** `update` and
     `claim` take one; it is refused once the showing ended, or once a later ticket of the same slot landed.
-    A showing alone orders a read against a leave and a reshow, and not against another read of the same
-    key, which is how a sweep's older answer overwrote a send's newer one. `keep` mints the ticket and hands
+    A showing alone orders a read against a leave and a reshow; the ticket orders it against another read
+    of the same key. `keep` mints the ticket and hands
     it to `load`. A ticket that landed may land again, which is one op redrawing its own view. A slot names
     what an answer fills, so a detail's source and knowledge, a ref's span and file, and a folder's tree and
     its op land apart; no slot means the view one read fills. A change that awaited nothing goes through
     `now`, which takes the key, since a tap has no read to order.
-  - **`kept()` is what a sweep walks**, not the drawn map, which can hold a key no screen shows. Nothing
-    counts keepers a second time beside it.
 - **Awaited answers land through `HeldEdits.land`**, never through `apply`: the caller passes the edit the
   answer was computed from and a `Landing`. `OverUntouched` lands only over exactly that value, which is
   Refresh: typing or a save since the tap outranks it. `Folded` lands over the same opening still bound to
@@ -410,82 +408,16 @@ no TTL.
   the save deleted closes its window. `unknown`, which is any save that may have landed without saying
   so, and a save whose span was not read back, re-read their windows. A save into an agent's open
   refactor says so in the notice, since that session can still undo it.
-- **Knowledge** (`KnowledgeRules.kt`, `workspace/SymbolDetail.kt`): `workspace_symbol_knowledge` answers the
-  symbol (name, kind, module, lines, signature, doc comment), one entry per Lexicon question class with its
-  prose and health, and the counts `describe` holds. Stale is the answer's own staleness or an inherited
-  one, doubted is its own doubt or one upstream, and stranded is Lexicon's mark. An older plugin answers
-  none of it, and the screen asks for an update. A Lexicon too old for any read the plugin makes answers a
-  refusal naming the update, not a failure. The facts also carry `counts`, each in the unit its drill-in
-  lists, withheld uses excluded.
-- **Ask** (`AskOps.kt`, `AskRules.kt`, `AskGrammar.kt`, `AskedStore.kt`, `workspace/AskSheet.kt`,
-  `workspace/KnowledgeSection.kt`):
-  the sheet that replaces the Knowledge header's per-question chips. `SymbolDetail` holds the open question
-  and an `askOpen` flag and draws the sheet over the Knowledge item; every decision the sheet and
-  `KnowledgeSection` draw lives in `AskRules`, tested on the JVM, so the Composables only render.
-  - **Scope, questions, includes:** this symbol, with members, or whole file; the six question classes,
-    each chip's count read in the scope once more than one symbol is in play; and what to include: not
-    recorded, stale or doubted or thin, already asked, parameters and locals (hidden where the scope
-    excludes none). A summary card shows the answer count and, past one symbol, the leaves-first
-    containment order, before Send. A scope read that is loading, refused, too large or unreachable draws
-    `FacetNotice` in place of that body, an older plugin's `knowledgeScope` refusal included; the sheet
-    still opens with its title and the subject name. The root the counts are stamped with comes from the
-    selected scope's read once it has landed (`scopeRoot`), and from whichever read landed otherwise.
-  - **Send** goes through `ComposedRequests` as `RequestKind.KNOWLEDGE` keyed by the scope: an Ask is
-    claimed by its scope, not by which questions are ticked. A scope answer under a minute old sends as
-    read; an older one is read again first. One preflight runs at a time, so a second send picks after
-    the first recorded rather than beside it. What that preflight decides is one `AskClaim` from
-    `askClaim`: the pairs, the count, the root, the request key and the message text, or an
-    `AskClaimed.Refused` carrying the `AskSent` that `askOutcome` reads. `AskOps` records it and submits it, deciding nothing
-    of its own, so the sheet's `AskOffer` and the send read one set of rules. A send whose own read
-    reports a different root, or picks another set of pairs than the sheet showed, refuses with a notice
-    ("This workspace moved", "Changed since you looked") instead of sending stale counts. The set is
-    compared as a set: one that changed without growing is refused too.
-  - **The message is one per send, holding the whole tree, with no preview:** the sheet's counts are what
-    the owner checks. Its parts, in order: the intent (subject, module, the answer and symbol counts, and
-    that the owner chose the set so the session records every one without asking first), how
-    (`symbol_facts` then the code at the declaration and its reference sites, one `record_answer` per
-    question citing a fact beyond the declaration, members before their container, `reaffirm_answer` for a
-    stale answer that still holds, sibling branches to subagents, one reply at the end), and a tree
-    mirroring containment, not the answer's post-order: each node the name, its kind, its questions, and
-    its whole symbol id.
-  - **`AskGrammar` owns the tree's shape, writing and reading it together.** `AskRules` picks the
-    containment and writes the prose around it; the grammar spells every line, two spaces of indent a
-    level, the kind then its questions, and the nothing marker on a node with no questions. Every name
-    and id goes through `codeSpan`, the shortest backtick fence longer than any run inside the text,
-    padded so a leading or trailing backtick does not merge into it. `askTreePairs` reads a rendered
-    message back into the symbol ids and questions it names, and nothing else: indentation and prose are
-    not read back, and a question outside the classes is dropped, which is all the sandbox needs to
-    record what a send asked for. `tests/fixtures/ask-grammar/vectors.json` pins both halves: each case
-    a tree, the exact lines it writes, and the pairs the parse recovers from them.
-  - **Message budget:** 256,000 bytes of UTF-8. A scope over it is refused in the sheet with its size, the
-    button disabled, rather than sent and re-refused.
-  - **Asked pairs** live in `AskedStore`, keyed by session, root label, symbol and question, each carrying
-    the `createdAt` the read the send used carried. Recorded under the preflight lock, before the send, so
-    a second send cannot pick the same pairs and a reply that beats the send's own answer still finds them.
-    A send is named by the road's incarnation, which is also what withdraws it. A pair clears when its
-    `createdAt` moves from that stamped value, or after 24 hours on the phone's own clock; sending it
-    again makes the newer send the one it is out on. Comparing to the read's value, not the send time,
-    keeps the phone's clock out of Lexicon's. A re-provision clears the store; asked pairs live in memory
-    only.
-  - **The ledger settles against an `AskObservation`, never a scope answer:** the address, the root, and
-    the `createdAt` of each pair the read listed. A key the read does not list has not moved, so a symbol
-    that left the scope keeps its pairs out rather than clearing them. `askObservation` in `AskRules` is
-    the one road from a scope read to that value, so `AskedStore` names no wire type and a wire change
-    touches one reader; `wire-vocabulary-residue.test.ts` pins it.
-  - **An unknown send outcome keeps its pairs; a failed one drops them.** The rule is the road's, over the
-    hold `AskOps` hands it, and the sheet closes on an unknown outcome the same as on a confirmed send.
-  - **Progress is read back from Lexicon, never taken from the session's reply.** While any pair from a
-    scope is out, `onForeground` re-reads every scope a screen currently keeps shown, which is
-    `PublishedViews.kept()`. The Knowledge header's progress bar and, past one symbol, its per-symbol rows
-    (the questions recorded, or the one word for a symbol nothing has come back on) all come from that
-    reread. Every scope read, a send's own included, takes its ticket before it reads and lands only on
-    that; a read whose showing ended, or that a later read of the key overtook, lands nothing and settles
-    nothing.
-  - **Knowledge section rows** read amber for asked and green for recorded, with the recorded prose and
-    its badges. A not-recorded or asked row opens the sheet on that one question; a recorded row shows its
-    prose and does not open.
-- **Drill-ins** (`src/mcp/workspace/facets.ts`, `history.ts`, `knowledgeScope.ts`): three reads, all under
-  the read bounds with one handler deadline.
+- **Knowledge** (`KnowledgeRules.kt`, `workspace/NoteSection.kt`, `workspace/SymbolDetail.kt`):
+  `workspace_symbol_knowledge` answers the symbol (name, kind, module, lines, signature, doc comment), the
+  counts `describe` holds, and its Lexicon note when one stands. The note carries its markdown text,
+  revision, and what moved since it was saved: source changed, a doubt's reason, a pending proposal, and
+  changed or broken refs. The plugin reduces every ref to its label first, since a ref can name a
+  withheld module, and the phone draws the note read only, badges first. A Lexicon
+  too old for any read the plugin makes answers a refusal naming the update, not a failure. The facts also
+  carry `counts`, each in the unit its drill-in lists, withheld uses excluded.
+- **Drill-ins** (`src/mcp/workspace/facets.ts`, `history.ts`): two reads, both under the read bounds with
+  one handler deadline.
   - `workspace_symbol_facet` carries a strict facet: `uses`, `usesFrom`, `members`, `hierarchy`, `comments`
     or `history`. A reader that does not know a facet refuses it. Each answer counts in the unit its rows
     show: uses; targets beside the reference total; members; supertypes and subtypes; comments; commits.
@@ -493,17 +425,15 @@ no TTL.
     file or line is no longer on disk, since the index can be behind it. Each file holding a row is read,
     outlined and painted once, then sliced per row.
   - Every id an answer carries is gated, not only the op's subject: a holder, a top level, a target, a
-    member, a hierarchy node, an outline symbol and a scope symbol all name their own module. A row whose
+    member, a hierarchy node and an outline symbol all name their own module. A row whose
     id is withheld is dropped; a `usesFrom` row whose TARGET is withheld keeps its use and reads as
     unresolved under its written name, so a symbol's own references never vanish.
   - `comments` lists the plugin's own page of 200, carries `total` for the symbol, and sets `truncated`
-    when there are more, whatever Lexicon's page says.
+    when there are more, whatever Lexicon's page says. Each comment is its raw text, markers included.
   - `history` runs `git log -L` over the symbol's committed lines, bounded to 200 commits and killed at the
     deadline, git leading its own process group so a descendant cannot hold the answer past it.
     `workspace_file_history` answers the outline's file from Lexicon. Both answer `commits`, `untracked`,
     `notRepository` or `none`.
-  - `workspace_knowledge_scope` answers a symbol, a symbol with its members, or a file as a containment
-    tree with every question's state, plus the root label, so a send can tell a rebound workspace.
   - An older Gateway refuses the kinds and an older plugin the ops; both reach the phone as `Refused`.
 - **Spans** (`src/mcp/workspace/paint.ts`): code is painted from Lexicon's own facts, never a second
   parser, and leaves it as per-line triples `[start, length, token]` in UTF-16 units, the token an index
@@ -586,7 +516,7 @@ no TTL.
   rows, `FacetUseRules` the grouping, its keys and the role chips, `FacetStructureRules` the members, the
   hierarchy column and the comments inside a declaration, `FacetHistoryRules` the commit items, the file
   stats and the cap, `FacetDetailRules` what opens a detail and its own item order. What the drill-ins share
-  with the rest of the surface sits apart, and Ask reads both: `FacetStateRules` for the state an answer
+  with the rest of the surface sits apart: `FacetStateRules` for the state an answer
   reads as, the unit each facet counts in (`facetUnit`, `facetOf`) and the notices they draw, and `FacetText`
   for `countText`, `whereText`, `plural` and the ages, one reading of a count, of `module : line` and of a
   span.
@@ -594,8 +524,8 @@ no TTL.
     does not open; a declaration that is not a type reads `not a type`, an interface's subtypes read as
     implementations. Last changed reads the `history` facet the detail keeps beside its own read, so the
     row shows a value only once that answer lands.
-  - **An older plugin answers no counts** (`FactRows.Legacy`): its own numbers are drawn, nothing opens,
-    and a notice names the update. Nothing typed marks version skew, so `refusalOf` reads the three
+  - **A count read that failed or was cut short answers no counts** (`FactRows.Uncounted`): the plain
+    numbers are drawn, nothing opens, and a notice says so. Nothing typed marks version skew, so `refusalOf` reads the three
     refusals that mean it by their words: the plugin's, Lexicon's, and an older Gateway's schema issue
     array. Every other refusal draws its own reason, and an answer for another symbol or facet draws as
     unreachable rather than as itself.
@@ -633,10 +563,9 @@ no TTL.
     line; ending the cut there left every deep path reading as its first folders. `whereText` gives one
     line one line rather than a range of itself.
 - **Composed requests** (`ComposedRequests`): the one road for a message the phone writes for a session,
-  Agent Apply, a knowledge Ask, a window ask and a file mention. A request is keyed by address, kind and
-  subject and claimed before it is sent, so a second tap or a second screen sends nothing while one is out.
-  An Ask's subject is its scope, not the questions ticked, so a different question pick against the same
-  open scope still claims the same key. Asking again once sent is allowed on purpose.
+  Agent Apply, a window ask and a file mention. A request is keyed by address, kind and subject and
+  claimed before it is sent, so a second tap or a second screen sends nothing while one is out. Sending
+  again once sent is allowed on purpose.
   - **Admission and the claim are decided together**, so no site reads the generation itself. A caller
     takes a `RequestAdmission` when its work begins (`admit()`), which also names the one hold that work
     may write. The road's ledger carries the generation it was cleared into, and one CAS reads it with
@@ -651,12 +580,11 @@ no TTL.
     since an unknown send may still have landed and a reply to it needs the write to find; `Failed` and
     `AlreadySending` take it back out. An `Unknown` publishes `FAILED`, so the row offers a retry while
     the write stays; the retry is a tap, never automatic. `WindowRequests`
-    holds one ask per session and puts back the ask it replaced; `AskOps` records its pairs and has
-    nothing to put back.
+    holds one ask per session and puts back the ask it replaced.
   - **The whole submission is non-cancellable**, claim and landing included, so it outlives the screen that
     asked and a cancelled caller merely discards what it answers.
-  - **Each site reads the outcome as its own word through one function**, `appliedOf` and `askSentOf`, so
-    no surface spells the mapping twice.
+  - **Each site reads the outcome as its own word through one function**, `appliedOf` and
+    `windowsAskNotice`, so no surface spells the mapping twice.
 - **Raw files** (`RawFileOps`, `RawFileRules`, `WorkspaceRawFile`): the tree's `Edit raw` and the
   outline's Raw open a whole file in one field. The read answers the sha256 of the bytes on disk only when
   the file can be written back; a UTF-16 file or one over `MAX_RAW_EDIT_BYTES` opens read-only with its

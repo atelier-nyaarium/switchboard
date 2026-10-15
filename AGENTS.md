@@ -169,11 +169,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../GatewayRegistry.kt` - the Router's roster as the phone holds it: provenance, per-Gateway answers, and the reads the views use; `docs/console.md` holds the rules
 - `android/.../PhoneIdentity.kt` / `PhoneBootstrap.kt` / `PhoneAmbient.kt` - the one door for identity facts, the boot value it publishes, and the ambient record (clock, entropy, ids, timer)
 - `android/.../SandboxSeeder.kt` / `SandboxGateways.kt` / `SandboxModules.kt` / `SandboxFacets.kt` /
-  `SandboxFacetRules.kt` / `SandboxAsk.kt` - the emulator build's seam: `isSandbox`, the identity facts a
-  sandbox boot needs, the canned state it publishes, the Gateway answers as ports rather than sockets, one
-  canned module per path, the invented drill-in data and the rules that turn it into answers, and the Ask
-  scope answers and recorded state built over the same canned modules. `docs/testing.md` holds the case
-  table and what it cannot show
+  `SandboxFacetRules.kt` - the emulator build's seam: `isSandbox`, the identity facts a sandbox boot
+  needs, the canned state it publishes, the Gateway answers as ports rather than sockets, one canned
+  module per path, and the invented drill-in data and the rules that turn it into answers.
+  `docs/testing.md` holds the case table and what it cannot show
   - **The drill-in rules are the plugin's, pinned by `tests/fixtures/workspace-facets/vectors.json`:**
     `scripts/gen-facet-vectors.ts` runs `src/mcp/workspace/facets.ts` over invented inputs and writes the
     corpus, `workspace-facet-vectors.test.ts` replays it against the plugin, `SandboxFacetVectorsTest` runs
@@ -327,9 +326,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     nothing an older answer could overwrite exists. A read a screen draws takes no `GatewayReadFence`
     either: its order is its `PublishedViews` ticket, minted before it awaits.
 - `android/.../WindowOps.kt` / `WindowRules.kt` / `WindowRequests.kt` / `SymbolViews.kt` / `KnowledgeRules.kt` /
-  `AskRules.kt` / `AskGrammar.kt` / `AskedStore.kt` / `AskOps.kt` / `ComposedRequests.kt` / `RawFileOps.kt` /
-  `RawFileRules.kt` / `WorkspaceFileOps.kt` / `FileOpRules.kt` / `FacetText.kt` / `FacetStateRules.kt` /
-  `FacetFactsRules.kt` / `FacetUseRules.kt` / `FacetStructureRules.kt` / `FacetHistoryRules.kt` /
+  `ComposedRequests.kt` / `RawFileOps.kt` / `RawFileRules.kt` / `WorkspaceFileOps.kt` / `FileOpRules.kt` /
+  `FacetText.kt` / `FacetStateRules.kt` / `FacetFactsRules.kt` / `FacetUseRules.kt` / `FacetStructureRules.kt` /
+  `FacetHistoryRules.kt` /
   `FacetDetailRules.kt` / `CodePaint.kt` / `HeldEdits.kt` / `PublishedViews.kt` /
   `WorkspaceDraftStore.kt` / `WorkspacePorts.kt` / `WorkspaceFileTable.kt` / `WorkspaceNav.kt` / `workspace/` - a
   conversation's Files: the open windows, the raw files being edited, the file operations, their drafts, the
@@ -347,8 +346,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     rows, `FacetUseRules` the use listings with their grouping, keys and role chips,
     `FacetStructureRules` the members, the hierarchy column and the comments inside a declaration,
     `FacetHistoryRules` the commit items, the file stats and the cap, `FacetDetailRules` what opens a
-    detail and the order of its items. What the drill-ins share with the rest of the surface sits apart,
-    and Ask reads both: `FacetStateRules` holds the state an answer reads as, the unit each facet counts
+    detail and the order of its items. What the drill-ins share with the rest of the surface sits apart:
+    `FacetStateRules` holds the state an answer reads as, the unit each facet counts
     in (`facetUnit`, `facetOf`) and the notices they draw, and `FacetText` holds `countText`, `whereText`,
     `plural` and the ages, one reading of a count, of `module : line` and of a span, so two screens cannot
     group digits or name a line differently.
@@ -358,8 +357,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     eats the underlined name the row exists to show.
   - **A message the phone composes for a session goes through `ComposedRequests`:** claimed by address,
     kind and subject before it is sent, so a repeat tap sends nothing while one is out. Agent Apply, a
-    knowledge Ask, a window ask and a file mention all take it; a new composed message is a `RequestKind`,
-    not a new guard.
+    window ask and a file mention all take it; a new composed message is a `RequestKind`, not a new guard.
     - **Admission is decided with the claim, in the road, and nowhere else:** a caller takes a
       `RequestAdmission` when its work begins, and no site reads the generation itself. The road's ledger
       carries the generation it was cleared into, and one CAS reads it with the claim, so the clear refuses
@@ -368,43 +366,17 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
       key is read and writes nothing; one that
       claimed before the clear has its message in flight, and only its landing is refused. The claim, the
       send and the settle are one non-cancellable step, so a cancelled caller merely discards what it answers.
-    - **A `RequestAdmission` names the one hold its work may write,** so `WindowRequests`' ask and
-      `AskedStore`'s send are named by the same counter and a replacement is never mistaken for what it
-      replaced. Neither site mints its own.
+    - **A `RequestAdmission` names the one hold its work may write,** so a replacement is never mistaken
+      for what it replaced. No site mints its own.
     - **A site writes before the send and hands the road a `RequestHold` naming how the write comes back
       out, what it replaced included; the road alone says when:** `Sent` and `Unknown` keep it, `Failed`
       and `AlreadySending` take it back out. An `Unknown` publishes `FAILED`, so the row offers a retry
-      while the write stays. The road takes the written hold rather than writing it, since `AskOps` must
-      record under the lock that picked the pairs.
-    - **Each site reads the outcome as its own word through one function,** `appliedOf` and `askSentOf`, so
-      no surface spells the mapping twice.
-  - **Every decision `workspace/AskSheet.kt` and `workspace/KnowledgeSection.kt` draw is in `AskRules`,
-    none in a Composable:** the defaults, the counts, what a send picks, the containment order, the
-    message's prose and its budget, and the progress and row words, so a JVM test reaches every one.
-  - **The Ask message's tree has ONE owner, `AskGrammar`, writing and reading it together:** the line,
-    its indentation, the kind and question spelling, and the code span's fence. `AskRules` hands it a
-    tree of `AskNode` and writes the prose around it; the sandbox reads a sent message back through
-    `askTreePairs` and holds no line rule of its own. `tests/fixtures/ask-grammar/vectors.json` pins
-    both halves at once, a render against its exact lines and a parse against the pairs it recovers,
-    so a spelling change shows there before it reaches a session and the reader cannot drift from the
-    writer. The parse reads pairs alone; indentation and prose are not read back.
-  - **One message per send holds the whole tree; there is no preview:** the sheet's counts are what the
-    owner checks before sending, as the owner worded work for a subagent.
-  - **A pair in `AskedStore` clears when its `createdAt` moves from the value the read the send used
-    carried, never by comparing clocks:** `AskedStore.settle` compares only that stamped value; the
-    phone's clock enters nowhere but the 24-hour expiry.
-  - **The ledger settles against an `AskObservation` and names no wire type:** the address, the root,
-    and the `createdAt` of each pair the read listed, so a key it does not list has not moved.
-    `askObservation` is the one road from a scope read to it, which is what leaves the wire one reader;
-    `wire-vocabulary-residue.test.ts` refuses a `proto` import in `AskedStore.kt`.
-  - **A preflight's whole decision is one `AskClaim`:** the pairs, the count, the root, the request key
-    and the message text, or an `AskClaimed.Refused` carrying the `AskSent` that `askOutcome` reads. `AskOps` records
-    and submits it and decides nothing itself, so the sheet's offer and the send read one set of rules.
-  - **`AskOps` records its pairs under the lock that picked them,** since two sends of different scopes
-    run against one store and a record taken outside it lets the second pick what the first is sending.
-  - **A foreground re-read walks the keys with keepers, `PublishedViews.kept()`, never the drawn map:**
-    the drawn map can hold a key nothing currently shows. `AskOps` once counted its own keepers beside
-    `keep`'s, which is one count kept twice.
+      while the write stays. The road takes the written hold rather than writing it.
+    - **Each site reads the outcome as its own word through one function,** `appliedOf` and
+      `windowsAskNotice`, so no surface spells the mapping twice.
+  - **A symbol's note is read only, and `KnowledgeRules` decides its badges:** `NoteSection` only
+    renders. The plugin reduces every ref to its label before the note leaves, since a ref can name a
+    withheld module.
   - **Keyed by SESSION, never by Gateway:** two sessions of one Gateway hold different workspaces, so
     a Gateway-keyed map serves one session's span for the other. The fence, the draft filenames and
     the held maps all take the qualified session address.
@@ -437,10 +409,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **An awaited answer lands only through a `ReadTicket`, taken BEFORE the read awaits:** `update` and
     `claim` take one, and refuse it once the showing has ended or a later ticket of the same slot landed.
     `keep` mints its own and hands it to `load`, so a keeper cannot forget. A showing orders a read against a
-    leave, a reshow and a re-provision, and orders nothing against another read of the same key, which is the
-    defect three ops classes each wrote out: `AskOps` settled a newer send off a stale answer, `SymbolViews`
-    drew a reload's prose then the keep's older prose over it, and `WorkspaceFileOps` hand-built a per-folder
-    read fence outside the class. A ticket that landed may land again, which is one op redrawing its own view.
+    leave, a reshow and a re-provision; the ticket orders it against another read of the same key, so no ops
+    class builds its own read fence. A ticket that landed may land again, which is one op redrawing its own view.
   - **A slot names what an answer FILLS, so two halves of one view land apart:** a detail's source and
     knowledge, a ref's span and file, a folder's tree and its op. No slot means the view one read fills.
     Sharing one slot makes the half that lands first refuse the other.
@@ -541,12 +511,12 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **`withinCap` is the one size rule:** every answer is measured as serialised UTF-8 and refused whole
     with `rows` and `bytes`. `answerForConsole` types that refusal for the drill-ins alone, since an older
     phone decodes an older read as its own answer.
-- `src/mcp/workspace/facets.ts` / `history.ts` / `knowledgeScope.ts` - the drill-ins: a symbol's uses, uses from, members, hierarchy, comments and line history, a file's history, and the Ask scope
+- `src/mcp/workspace/facets.ts` / `history.ts` - the drill-ins: a symbol's uses, uses from, members, hierarchy, comments and line history, and a file's history
   - **A withheld row is dropped before any read** and counts nowhere, so no count reveals it existed. So
     is a row whose file or line has left the disk, since the index can be behind it, and every count is
     taken after that filtering.
   - **EVERY id an answer carries is gated, never only the op's subject:** a holder, a top level, a target,
-    a member, a hierarchy node, an outline symbol and a scope symbol each name their OWN module, which
+    a member, a hierarchy node and an outline symbol each name their OWN module, which
     need not be the module of the row that led to it. `servedGate` is the one rule, and a summary is shown
     only when its module and its id both pass.
   - **A use is gated on the row's own module, not its target's:** a reference written in a served file
@@ -554,7 +524,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     for pointing somewhere this plane does not serve.
   - **The comment page is this plugin's, not the daemon's promise:** the answer slices to its own cap and
     sets `truncated` when Lexicon hands back more, and `total` says how many there are so the row and the
-    list agree.
+    list agree. A comment is its raw text, as Lexicon's own `find_comments` shows it.
 - `src/mcp/workspace/answerGate.ts` - the last check before an answer leaves: every field the answer schemas declare as a path or a symbol id is read against `servedGate`
   - **An answer is gated on what came BACK, not on what was asked:** the requested id being served says
     nothing about the module Lexicon answers with, so the fields come off the schemas rather than a hand

@@ -1,5 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeNote
+
 /** What opens a symbol detail, and the order of the items it draws. */
 
 internal data class DetailOpen(val symbolId: String, val module: String, val name: String, val reached: Reached? = null)
@@ -11,16 +13,12 @@ internal sealed interface DetailItem {
 		override val key = "h"
 	}
 
-	data class Describe(val prose: String) : DetailItem {
-		override val key = "ds"
-	}
-
 	data class ReachedCard(val reached: Reached) : DetailItem {
 		override val key = "r"
 	}
 
-	data object Knowledge : DetailItem {
-		override val key = "k"
+	data class Note(val note: WorkspaceKnowledgeNote) : DetailItem {
+		override val key = "n"
 	}
 
 	data object Documentation : DetailItem {
@@ -48,12 +46,10 @@ internal fun detailItems(view: DetailView, reached: Reached?, whole: Boolean): L
 	val knowledge = (view.knowledge as? WorkspaceAnswer.Read)?.value
 	val source = (view.source as? WorkspaceAnswer.Read)?.value
 	val documentation = knowledge?.documentation
-	val describe = knowledge?.let(::describeProse)
 	return buildList {
 		add(DetailItem.Header)
-		describe?.let { add(DetailItem.Describe(it)) }
 		reached?.let { add(DetailItem.ReachedCard(it)) }
-		add(DetailItem.Knowledge)
+		knowledge?.note?.let { add(DetailItem.Note(it)) }
 		if (!documentation.isNullOrBlank()) add(DetailItem.Documentation)
 		// Always titled: the screen draws the read's own refusal under it.
 		add(DetailItem.SourceTitle)

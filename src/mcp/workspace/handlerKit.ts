@@ -3,7 +3,7 @@
 
 import os from "node:os";
 import path from "node:path";
-import type { Session } from "@nyaa-lexicon/client";
+import { DaemonError, Incompatible, NotInstalled, type Session } from "@nyaa-lexicon/client";
 import { parseSymbolId } from "@nyaa-lexicon/protocol";
 import { MAX_WORKSPACE_OP_BYTES, type WorkspaceOpAnswer, type WorkspaceOpResult } from "../../shared/workspace-op.js";
 import { confine } from "./confine.js";
@@ -33,6 +33,19 @@ export interface OpContext {
 export const refused = (detail: string): WorkspaceOpResult => ({ ok: false, failure: "refused", detail });
 
 export const failed = (detail: string): WorkspaceOpResult => ({ ok: false, failure: "failed", detail });
+
+/** A Lexicon this plugin cannot use is an update, never a failure. */
+export function lexiconRefusal(error: unknown): string | null {
+	if (error instanceof NotInstalled)
+		return `this machine has no Lexicon (${error.message}); install the lexicon plugin`;
+	if (error instanceof Incompatible) {
+		return `this machine's Lexicon does not match this plugin (${error.message}); update the older one`;
+	}
+	if (error instanceof DaemonError && error.cause === "unknownMethod") {
+		return `this machine's Lexicon is too old (${error.message}); update the lexicon plugin`;
+	}
+	return null;
+}
 
 export const LATE = "the index did not answer in time";
 
@@ -112,8 +125,6 @@ function rowsOf(answer: WorkspaceOpAnswer): number | undefined {
 		case "tree":
 			return answer.entries.length;
 		case "outline":
-			return answer.symbols.length;
-		case "knowledgeScope":
 			return answer.symbols.length;
 		case "fileHistory":
 			return answer.commits.length;

@@ -16,7 +16,6 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceFileHistoryAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSaveSpanAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolFacetAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTooLargeAnswer
@@ -57,7 +56,6 @@ class ProtocolFixturesTest {
 			"WorkspaceKnowledgeAnswer" -> wireJson.decodeFromString<WorkspaceKnowledgeAnswer>(body)
 			"WorkspaceSymbolFacetAnswer" -> wireJson.decodeFromString<WorkspaceSymbolFacetAnswer>(body)
 			"WorkspaceFileHistoryAnswer" -> wireJson.decodeFromString<WorkspaceFileHistoryAnswer>(body)
-			"WorkspaceKnowledgeScopeAnswer" -> wireJson.decodeFromString<WorkspaceKnowledgeScopeAnswer>(body)
 			"WorkspaceTooLargeAnswer" -> wireJson.decodeFromString<WorkspaceTooLargeAnswer>(body)
 			else -> error("unknown manifest schema: $schema")
 		}

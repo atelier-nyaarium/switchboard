@@ -70,13 +70,11 @@ describe("reading a workspace op frame", () => {
 		});
 	});
 
-	it("takes a drill-in only with a facet and a scope its schemas read", () => {
+	it("takes a drill-in only with a facet its schema reads", () => {
 		const refusedFrame = { reqId: "r", refused: expect.any(String) };
 		const facet = { kind: "symbolFacet", symbolId: "s", facet: { kind: "uses" } };
-		const scope = { kind: "knowledgeScope", scope: { kind: "members", symbolId: "s" }, includeLocals: false };
 
 		expect(parseWorkspaceOpRequest(frame(facet))).toEqual({ reqId: "r", key: "k", op: facet });
-		expect(parseWorkspaceOpRequest(frame(scope))).toEqual({ reqId: "r", key: "k", op: scope });
 		expect(parseWorkspaceOpRequest(frame({ kind: "fileHistory", path: "a.ts" }))).toMatchObject({
 			op: { kind: "fileHistory", path: "a.ts" },
 		});
@@ -84,8 +82,6 @@ describe("reading a workspace op frame", () => {
 			{ ...facet, facet: { kind: "callers" } },
 			{ ...facet, facet: { kind: "uses", limit: 5 } },
 			{ kind: "symbolFacet", facet: { kind: "uses" } },
-			{ ...scope, scope: { kind: "folder", path: "src" } },
-			{ kind: "knowledgeScope", scope: scope.scope },
 		]) {
 			expect(parseWorkspaceOpRequest(frame(op))).toMatchObject(refusedFrame);
 		}

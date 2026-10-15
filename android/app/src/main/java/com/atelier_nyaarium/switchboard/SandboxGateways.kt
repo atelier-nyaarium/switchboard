@@ -29,10 +29,9 @@ import com.atelier_nyaarium.switchboard.proto.RunbookParameter
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFacet
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeEntry
+import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeNote
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeFacts
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineSymbol
@@ -320,16 +319,11 @@ internal fun sandboxWindowsReply(text: String, now: Long): Message? {
 	)
 }
 
-private val KNOWLEDGE_QUESTIONS = listOf("describe", "why", "relate", "contract", "effects", "usage")
-
 /** A canned workspace, so every workspace screen draws with no session to reach. */
 internal class SandboxWorkspaceGateway(now: () -> Long) : WorkspaceGateway {
 	private val modules = sandboxModules()
 
 	private val facets = SandboxFacets(modules, now)
-
-	/** The host feeds every sent message here, so an Ask records itself over the next few reads. */
-	val scopes = SandboxScopes(modules, now)
 
 	private val file = listOf(
 		"import { z } from \"zod\";",
@@ -434,9 +428,6 @@ internal class SandboxWorkspaceGateway(now: () -> Long) : WorkspaceGateway {
 	override suspend fun fileHistory(target: WorkspaceTarget, path: String) =
 		seeded(target) { facets.fileHistory(table.canonical(path) ?: path) }
 
-	override suspend fun knowledgeScope(target: WorkspaceTarget, scope: WorkspaceKnowledgeScopeTarget, includeLocals: Boolean) =
-		seeded(target) { scopes.scope(target.address, scope, includeLocals) }
-
 	/** AGENTS.md always reads as moved on a write, so the stale banner is reachable. */
 	override suspend fun mutateFile(
 		target: WorkspaceTarget,
@@ -488,28 +479,25 @@ internal class SandboxWorkspaceGateway(now: () -> Long) : WorkspaceGateway {
 		)
 	}
 
-	/** Every question, none recorded, as a symbol nobody has written about answers. */
+	/** No note. */
 	private fun knowledgeOf(canned: SandboxModule, symbol: SandboxSymbol): WorkspaceKnowledgeAnswer {
-		val counts = facets.counts(symbol.symbolId)
+		val counts = checkNotNull(facets.counts(symbol.symbolId)) { "a canned symbol has counts" }
 		return WorkspaceKnowledgeAnswer(
 			symbolId = symbol.symbolId,
 			name = symbol.name,
 			symbolKind = symbol.kind,
 			module = canned.path,
 			documentation = facets.documentation(symbol.symbolId),
-			answers = KNOWLEDGE_QUESTIONS.map { WorkspaceKnowledgeEntry(question = it) },
-			facts = counts?.let {
-				WorkspaceKnowledgeFacts(
-					members = it.members,
-					references = it.uses,
-					fanIn = it.dependents,
-					fanOut = it.targets,
-					supertypes = it.supertypes,
-					subtypes = it.subtypes,
-					comments = it.comments,
-					counts = it,
-				)
-			},
+			facts = WorkspaceKnowledgeFacts(
+				members = counts.members,
+				references = counts.uses,
+				fanIn = counts.dependents,
+				fanOut = counts.targets,
+				supertypes = counts.supertypes,
+				subtypes = counts.subtypes,
+				comments = counts.comments,
+				counts = counts,
+			),
 		)
 	}
 
@@ -581,22 +569,16 @@ internal class SandboxWorkspaceGateway(now: () -> Long) : WorkspaceGateway {
 				symbolKind = if (refusal) "function" else "constant",
 				module = module,
 				documentation = if (refusal) "Why a routine cannot be stored, or null." else "What a routine may remember, in UTF-8 BYTES.",
-				// Every row shape draws.
-				answers = listOf(
-					WorkspaceKnowledgeEntry(
-						question = "describe",
-						prose = "Returns the reason `routineRefusal` cannot store a routine, or null when it can.",
-						thin = true,
-					),
-					WorkspaceKnowledgeEntry(
-						question = "why",
-						prose = "A rule that parses can still name nothing, so the refusal asks `nextOccurrence`.",
-						stale = true,
-					),
-					WorkspaceKnowledgeEntry(question = "relate"),
-					WorkspaceKnowledgeEntry(question = "contract"),
-					WorkspaceKnowledgeEntry(question = "effects"),
-					WorkspaceKnowledgeEntry(question = "usage"),
+				// Every badge draws.
+				note = if (!refusal) null else WorkspaceKnowledgeNote(
+					text = "Returns the reason `routineRefusal` cannot store a routine, or null when it can.\n\n" +
+						"A rule that parses can still name nothing, so the refusal asks `nextOccurrence`.",
+					revision = 3,
+					sourceChanged = true,
+					doubt = "The weekday check moved into the schema.",
+					proposal = true,
+					changedRefs = 1,
+					brokenRefs = 2,
 				),
 				facts = WorkspaceKnowledgeFacts(
 					members = 0,

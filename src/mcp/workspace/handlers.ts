@@ -6,20 +6,21 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { DaemonError, type Session } from "@nyaa-lexicon/client";
+import type { Session } from "@nyaa-lexicon/client";
 import {
 	type DescribeResult,
+	findRefLinks,
+	findRefs,
 	hashContent,
+	type Note,
 	parseSymbolId,
-	QUESTION_CLASSES,
-	type RecallAnswerResult,
 	type SymbolSource,
 } from "@nyaa-lexicon/protocol";
 import {
 	boundsOf,
 	type KnowledgeAnswer,
 	type KnowledgeCounts,
-	type KnowledgeEntry,
+	type KnowledgeNote,
 	MAX_RAW_EDIT_BYTES,
 	MAX_TREE_ENTRIES,
 	MAX_WORKSPACE_OP_BYTES,
@@ -39,6 +40,7 @@ import {
 	confinedModule,
 	failed,
 	type HandlerDeps,
+	lexiconRefusal,
 	type OpContext,
 	refused,
 	rootLabel,
@@ -46,7 +48,6 @@ import {
 	withinCap,
 } from "./handlerKit.js";
 import { fileHistoryOf } from "./history.js";
-import { knowledgeScopeOf } from "./knowledgeScope.js";
 import { hashBytes, loadWorkspaceFile } from "./loadFile.js";
 import { fileStateOf, mutateFile, readOnlyReason } from "./mutateFile.js";
 import { factsForModule, spansFromFacts, spansOfSpan } from "./paint.js";
@@ -335,9 +336,8 @@ async function saveSpanOf(
 			"the save did not answer in time, so whether it landed is unknown",
 		);
 	} catch (error) {
-		if (error instanceof DaemonError && error.cause === "unknownMethod") {
-			return refused("this machine's Lexicon cannot save a span yet; update the lexicon plugin");
-		}
+		const refusal = lexiconRefusal(error);
+		if (refusal !== null) return refused(refusal);
 		// Asked and not answered: the write may land after this, so the phone reads the span back.
 		return {
 			ok: true,
@@ -378,41 +378,25 @@ async function knowledgeOf(context: OpContext, symbolId: string): Promise<Worksp
 	const session = await byDeadline(deadline, deps.session);
 	const described = await byDeadline(deadline, () => session.describe({ symbolId }));
 	if (described === null) return refused(`no symbol with that id is indexed`);
-	const recalled = await byDeadline(deadline, () => session.recallAnswer({ symbolId }));
+	const note = await byDeadline(deadline, () => session.readNote({ symbolId }));
 	const counts = await knowledgeCountsOf(context, session, described);
-	return { ok: true, answer: knowledgeAnswerOf(symbolId, described, recalled, counts) };
+	return { ok: true, answer: knowledgeAnswerOf(symbolId, described, note, counts) };
 }
 
-/** The kind's questions, unrecorded included. */
 export function knowledgeAnswerOf(
 	symbolId: string,
 	described: DescribeResult,
-	recalled: RecallAnswerResult,
+	note: Note | null,
 	counts?: KnowledgeCounts,
 ): KnowledgeAnswer {
 	const { symbol } = described;
-	const held = new Map(
-		(Array.isArray(recalled) ? recalled : recalled ? [recalled] : []).map((r) => [r.answer.question, r]),
-	);
-	const answers = (described.questions ?? QUESTION_CLASSES).map((question): KnowledgeEntry => {
-		const found = held.get(question);
-		if (found === undefined) return { question };
-		return {
-			question,
-			prose: found.answer.prose,
-			thin: found.answer.thin,
-			stale: found.stale.length > 0 || found.inheritedStale.length > 0,
-			doubted: found.answer.doubt !== undefined || found.doubtedUpstream.length > 0,
-			stranded: found.stranded !== undefined,
-		};
-	});
 	return {
 		kind: "symbolKnowledge",
 		symbolId,
 		name: symbol.name,
 		symbolKind: symbol.kind,
 		module: symbol.module,
-		answers,
+		...(note === null ? {} : { note: knowledgeNoteOf(note) }),
 		facts: {
 			members: described.members.length,
 			references: described.referenceCount,
@@ -427,16 +411,35 @@ export function knowledgeAnswerOf(
 		...(symbol.lines === undefined ? {} : { startLine: symbol.lines.start + 1, endLine: symbol.lines.end + 1 }),
 		...(symbol.signature === undefined ? {} : { signature: symbol.signature }),
 		...(symbol.docComment === undefined ? {} : { documentation: symbol.docComment }),
-		text: legacyKnowledgeText(symbol.docComment, answers),
 	};
 }
 
-// Remove 2026-09-27 with the wire field.
-function legacyKnowledgeText(documentation: string | undefined, answers: KnowledgeEntry[]): string {
-	const recorded = answers.flatMap((entry) =>
-		entry.prose === undefined ? [] : [`${entry.question}: ${entry.prose}`],
-	);
-	return [documentation, ...recorded].filter((part) => part !== undefined).join("\n\n");
+/** A ref can name a withheld module, so none leaves: a link keeps its label, a click its quotes. */
+function withoutRefs(text: string): string {
+	const links = findRefLinks(text, { legacy: true });
+	const inLink = (index: number) => links.some((link) => index >= link.from && index < link.to);
+	const cuts = [
+		...links.map((link) => ({ from: link.from, to: link.to, put: link.label })),
+		...findRefs(text, { legacy: true })
+			.filter((found) => !inLink(found.index))
+			.map((found) => ({ from: found.index, to: found.index + found.ref.length, put: "" })),
+	].sort((a, b) => b.from - a.from);
+	let out = text;
+	for (const cut of cuts) out = out.slice(0, cut.from) + cut.put + out.slice(cut.to);
+	return out;
+}
+
+function knowledgeNoteOf(note: Note): KnowledgeNote {
+	const refsIn = (state: "changed" | "broken") => note.links.filter((link) => link.state === state).length;
+	return {
+		text: withoutRefs(note.text),
+		revision: note.revision,
+		sourceChanged: note.sourceChanged,
+		...(note.doubt === null ? {} : { doubt: note.doubt.reason }),
+		proposal: note.proposal !== null,
+		changedRefs: refsIn("changed"),
+		brokenRefs: refsIn("broken"),
+	};
 }
 
 /**
@@ -493,8 +496,6 @@ function answerOf(context: OpContext, op: WorkspaceOp): WorkspaceOpResult | Prom
 			return symbolFacetOf(context, op.symbolId, op.facet);
 		case "fileHistory":
 			return fileHistoryOf(context, op.path);
-		case "knowledgeScope":
-			return knowledgeScopeOf(context, op.scope, op.includeLocals);
 		case "paintText":
 			return paintTextOf(deps, root, op.path, op.text, deadline);
 	}
@@ -509,10 +510,8 @@ export async function answerWorkspaceOp(deps: HandlerDeps, op: WorkspaceOp): Pro
 		const wrote = op.kind === "saveSpan" || op.kind === "mutateFile";
 		return withinCap(withinServed(await answerOf(context, op), servedGate(root), wrote));
 	} catch (error) {
-		// Every Lexicon read: an older daemon is an update, not a failure.
-		if (error instanceof DaemonError && error.cause === "unknownMethod") {
-			return refused(`this machine's Lexicon is too old (${error.message}); update the lexicon plugin`);
-		}
+		const refusal = lexiconRefusal(error);
+		if (refusal !== null) return refused(refusal);
 		return failed(error instanceof Error ? error.message : String(error));
 	}
 }

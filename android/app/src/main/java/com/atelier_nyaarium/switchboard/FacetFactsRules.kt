@@ -16,20 +16,19 @@ internal data class FactRow(val entry: FacetEntry, val label: String, val value:
 internal sealed interface FactRows {
 	data class Counted(val rows: List<FactRow>) : FactRows
 
-	/** An older plugin: its numbers, nothing opens. */
-	data class Legacy(val rows: List<FactRow>) : FactRows
+	/** Counts failed: plain numbers, nothing opens. */
+	data class Uncounted(val rows: List<FactRow>) : FactRows
 }
 
 internal val TYPE_KINDS: Set<String> = setOf("class", "interface", "struct", "enum")
 
-/** Null when the plugin carries no facts at all. */
 internal fun factRows(
 	knowledge: WorkspaceKnowledgeAnswer,
 	history: FacetState<WorkspaceFacetAnswer>?,
 	now: Long,
-): FactRows? {
-	val facts = knowledge.facts ?: return null
-	val counts = facts.counts ?: return FactRows.Legacy(
+): FactRows {
+	val facts = knowledge.facts
+	val counts = facts.counts ?: return FactRows.Uncounted(
 		listOf(
 			plainRow(FacetEntry.MEMBERS, facts.members),
 			plainRow(FacetEntry.REFERENCES, facts.references),

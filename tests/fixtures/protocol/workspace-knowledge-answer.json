@@ -8,28 +8,15 @@
 	"endLine": 334,
 	"signature": "(routine: Routine): string | null",
 	"documentation": "Why a routine cannot be stored, or null.",
-	"answers": [
-		{
-			"question": "describe",
-			"prose": "Returns the reason a routine cannot be stored.",
-			"thin": true,
-			"stale": false,
-			"doubted": false,
-			"stranded": false
-		},
-		{
-			"question": "why",
-			"prose": "A rule that parses can still name nothing.",
-			"thin": false,
-			"stale": true,
-			"doubted": false,
-			"stranded": false
-		},
-		{ "question": "relate" },
-		{ "question": "contract" },
-		{ "question": "effects" },
-		{ "question": "usage" }
-	],
+	"note": {
+		"text": "Returns the reason a routine cannot be stored.\n\nA rule that parses can still name nothing.",
+		"revision": 3,
+		"sourceChanged": true,
+		"doubt": "The cap moved.",
+		"proposal": false,
+		"changedRefs": 1,
+		"brokenRefs": 0
+	},
 	"facts": {
 		"members": 0,
 		"references": 4,

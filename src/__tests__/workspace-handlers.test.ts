@@ -74,7 +74,7 @@ function fakeSession(answers: Partial<Record<string, unknown>>): () => Promise<S
 			outlineModule: async () => answers.outlineModule ?? [],
 			symbolSource: async () => answers.symbolSource,
 			describe: async () => answers.describe ?? null,
-			recallAnswer: async () => answers.recallAnswer ?? [],
+			readNote: async () => answers.readNote ?? null,
 			findReferences: async () => answers.findReferences ?? { references: [], total: 0, truncated: false },
 			usesFrom: async () => answers.usesFrom ?? { references: [], total: 0, truncated: false },
 			findComments: async () => answers.findComments ?? { comments: [], total: 0, truncated: false },
@@ -415,27 +415,12 @@ describe("the index-backed reads", () => {
 		});
 	});
 
-	it("answers its kind's questions in order, with each recorded answer's health and the symbol's facts", async () => {
+	it("answers the symbol's facts, and no note when none stands", async () => {
 		const summary = (name: string) => ({
 			symbolId: `lexicon typescript src/app.ts ${name}#`,
 			name,
 			kind: "class",
 			module: "src/app.ts",
-		});
-		const recalled = (question: string, extra: Record<string, unknown> = {}) => ({
-			answer: {
-				symbolId: SERVED_ID,
-				question,
-				factId: `f ${question}`,
-				prose: `${question} prose`,
-				citations: [],
-				thin: false,
-				createdAt: 1,
-			},
-			stale: [],
-			inheritedStale: [],
-			doubtedUpstream: [],
-			...extra,
 		});
 		const session = fakeSession({
 			describe: {
@@ -446,7 +431,6 @@ describe("the index-backed reads", () => {
 					lines: { start: 2, end: 9 },
 				},
 				members: [summary("a"), summary("b")],
-				questions: ["describe", "why", "relate", "contract", "usage"],
 				comments: [{ form: "inline", placement: "body", line: 4, text: "note" }],
 				moreComments: 2,
 				referenceCount: 7,
@@ -460,15 +444,6 @@ describe("the index-backed reads", () => {
 				},
 				tier: "bound",
 			},
-			recallAnswer: [
-				recalled("effects"),
-				recalled("why", { stale: ["fact gone"] }),
-				{ ...recalled("describe"), answer: { ...recalled("describe").answer, thin: true } },
-				{
-					...recalled("usage"),
-					answer: { ...recalled("usage").answer, doubt: { factId: "d", reason: "r", at: 1 } },
-				},
-			],
 		});
 
 		const result = await ask(workspace(), { kind: "symbolKnowledge", symbolId: SERVED_ID }, session);
@@ -483,21 +458,6 @@ describe("the index-backed reads", () => {
 			endLine: 10,
 			signature: "class F",
 			documentation: "What F is.",
-			answers: [
-				{
-					question: "describe",
-					prose: "describe prose",
-					thin: true,
-					stale: false,
-					doubted: false,
-					stranded: false,
-				},
-				{ question: "why", prose: "why prose", thin: false, stale: true, doubted: false, stranded: false },
-				{ question: "relate" },
-				// A class takes no effects, so a stored one stays hidden.
-				{ question: "contract" },
-				{ question: "usage", prose: "usage prose", thin: false, stale: false, doubted: true, stranded: false },
-			],
 			facts: {
 				members: 2,
 				references: 7,
@@ -520,17 +480,74 @@ describe("the index-backed reads", () => {
 					comments: 0,
 				},
 			},
-			text: "What F is.\n\ndescribe: describe prose\n\nwhy: why prose\n\nusage: usage prose",
 		});
 	});
 
-	it("refuses knowledge from a Lexicon that cannot recall answers", async () => {
+	it("carries a note's advisories, and none of its refs' destinations", async () => {
+		const text = [
+			"Reads [the secret](project-ref://ws/.env.ts:SECRET) once.",
+			"",
+			"Code keeps `[x](project-ref://ws/a.ts)` as written.",
+			"",
+			"```mermaid",
+			"flowchart LR",
+			"  A --> B",
+			'  click B "project-ref://ws/.env.ts"',
+			"```",
+		].join("\n");
+		const link = (state: string) => ({ written: "r", current: "r", state });
+		const session = fakeSession({
+			describe: {
+				symbol: { symbolId: SERVED_ID, name: "f", kind: "class", module: "src/app.ts" },
+				members: [],
+				referenceCount: 0,
+				graph: { symbolId: SERVED_ID, fanIn: 0, fanOut: 0 },
+				hierarchy: { symbolId: SERVED_ID, supertypes: [], subtypes: [], ancestors: [], unboundSupertypes: [] },
+				tier: "bound",
+			},
+			readNote: {
+				symbolId: SERVED_ID,
+				recordedAs: SERVED_ID,
+				revision: 2,
+				text,
+				summary: "Reads the secret once.",
+				restAt: 0,
+				author: { kind: "person" },
+				authoredAt: 1,
+				editedBy: null,
+				editedAt: 5,
+				confirmedBy: null,
+				confirmedAt: null,
+				doubt: { by: null, reason: "Opened twice now.", at: 6 },
+				sourceChanged: true,
+				links: [link("ok"), link("changed"), link("broken"), link("broken")],
+				proposal: { text: "", baseRevision: 2, by: null, at: 7, links: [] },
+			},
+		});
+
+		const result = await ask(workspace(), { kind: "symbolKnowledge", symbolId: SERVED_ID }, session);
+		const note = result.ok && result.answer.kind === "symbolKnowledge" ? result.answer.note : undefined;
+
+		expect(note).toMatchObject({
+			revision: 2,
+			sourceChanged: true,
+			doubt: "Opened twice now.",
+			proposal: true,
+			changedRefs: 1,
+			brokenRefs: 2,
+		});
+		expect(note?.text).toContain("Reads the secret once.");
+		expect(note?.text).toContain("`[x](project-ref://ws/a.ts)`");
+		expect(note?.text).not.toContain(".env");
+	});
+
+	it("refuses knowledge from a Lexicon that cannot read notes", async () => {
 		const { DaemonError } = await import("@nyaa-lexicon/client");
 		const session = async () =>
 			({
 				describe: async () => ({ symbol: { name: "f" } }),
-				recallAnswer: async () => {
-					throw new DaemonError("unknown method: recallAnswer", "unknownMethod");
+				readNote: async () => {
+					throw new DaemonError("unknown method: readNote", "unknownMethod");
 				},
 			}) as unknown as Session;
 

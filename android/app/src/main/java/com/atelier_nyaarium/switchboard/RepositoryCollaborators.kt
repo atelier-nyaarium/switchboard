@@ -14,7 +14,6 @@ import com.atelier_nyaarium.switchboard.proto.SignedAdmission
 import com.atelier_nyaarium.switchboard.proto.SttsProvider
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFacet
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.ScheduledTarget
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
@@ -228,9 +227,6 @@ internal class ConsoleWorkspaceGateway(private val client: ConsoleClient) : Work
 
 	override suspend fun fileHistory(target: WorkspaceTarget, path: String) =
 		client.workspaceFileHistory(target.gatewayId, target.address, path)
-
-	override suspend fun knowledgeScope(target: WorkspaceTarget, scope: WorkspaceKnowledgeScopeTarget, includeLocals: Boolean) =
-		client.workspaceKnowledgeScope(target.gatewayId, target.address, scope, includeLocals)
 }
 
 internal class ChatRepositoryWorkspaceHost(private val repo: ChatRepository) : WorkspaceHost, ClearsOnReprovision {
@@ -254,7 +250,6 @@ internal class ChatRepositoryWorkspaceHost(private val repo: ChatRepository) : W
 	override suspend fun send(address: String, text: String): Boolean {
 		if (isSandbox) {
 			sandboxWindowsReply(text, repo.ambient.now())?.let { repo.windowRequests.onMessage(address, it) }
-			sandbox.scopes.onMessage(address, text)
 			return true
 		}
 		val opId = repo.send(address, text) ?: return false

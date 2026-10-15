@@ -285,13 +285,6 @@ export function createConsoleDispatcher({
 			case "workspace_file_history":
 				return workspaceOf(op.target, { kind: "fileHistory", path: op.path });
 
-			case "workspace_knowledge_scope":
-				return workspaceOf(op.target, {
-					kind: "knowledgeScope",
-					scope: op.scope,
-					includeLocals: op.includeLocals,
-				});
-
 			case "workspace_paint_text":
 				return workspaceOf(op.target, { kind: "paintText", path: op.path, text: op.text });
 

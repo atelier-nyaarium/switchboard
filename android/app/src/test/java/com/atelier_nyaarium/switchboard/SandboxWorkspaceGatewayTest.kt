@@ -1,7 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFacet
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
@@ -35,6 +34,5 @@ class SandboxWorkspaceGatewayTest {
 	fun `every drill-in answers after a round trip, never at once`() {
 		assertFalse(atOnce { gateway.symbolFacet(target, "missing", WorkspaceFacet.Uses) })
 		assertFalse(atOnce { gateway.fileHistory(target, "AGENTS.md") })
-		assertFalse(atOnce { gateway.knowledgeScope(target, WorkspaceKnowledgeScopeTarget.File("AGENTS.md"), false) })
 	}
 }

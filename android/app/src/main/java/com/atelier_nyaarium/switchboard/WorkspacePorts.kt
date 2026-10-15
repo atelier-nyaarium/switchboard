@@ -6,8 +6,6 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspacePaintTextAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
@@ -52,12 +50,6 @@ internal interface WorkspaceGateway {
 	): WorkspaceAnswer<WorkspaceListing<WorkspaceSymbolFacetAnswer>>
 
 	suspend fun fileHistory(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceListing<WorkspaceFileHistoryAnswer>>
-
-	suspend fun knowledgeScope(
-		target: WorkspaceTarget,
-		scope: WorkspaceKnowledgeScopeTarget,
-		includeLocals: Boolean,
-	): WorkspaceAnswer<WorkspaceListing<WorkspaceKnowledgeScopeAnswer>>
 }
 
 internal interface WorkspaceHost {

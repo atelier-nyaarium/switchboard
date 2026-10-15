@@ -43,7 +43,7 @@ const PLUGIN_MANIFEST_DIR = path.join("android", "app", "src", "main", "assets",
 const ENTRYPOINTS = [path.join("src", "main-mcp.ts"), path.join("src", "main-vault-askpass.ts")];
 const DIST_DIR = "dist";
 
-export const MAX_PLUGIN_BUNDLE_BYTES = 1_400_000;
+export const MAX_PLUGIN_BUNDLE_BYTES = 1_500_000;
 
 export function overBundleCeiling(bytes: number): number | null {
 	return bytes > MAX_PLUGIN_BUNDLE_BYTES ? bytes : null;

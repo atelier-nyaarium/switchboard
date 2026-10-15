@@ -209,7 +209,7 @@ function commentOf(comment: FacetCommentInput) {
 		range: { start: { line: comment.line - 1, character: 0 }, end: { line: comment.line - 1, character: 4 } },
 		form: comment.form,
 		placement: comment.form === "leading" ? "above" : "body",
-		raw: `// ${comment.text}`,
+		raw: comment.text,
 		anchor:
 			comment.anchor === undefined
 				? null
@@ -289,7 +289,7 @@ function sessionOf(vector: FacetCase): () => Promise<Session> {
 			graph: { symbolId: vector.subject, fanIn: 0, fanOut: 0 },
 			hierarchy: hierarchyOf(vector, symbols),
 		}),
-		recallAnswer: async () => [],
+		readNote: async () => null,
 		findReferences: async ({ limit }: { limit: number }) => ({
 			symbolId: vector.subject,
 			...pageOf(uses, vector.usePage, limit),
@@ -305,16 +305,8 @@ function sessionOf(vector: FacetCase): () => Promise<Session> {
 			total: vector.commentTotal ?? comments.length,
 			truncated: vector.commentTruncated ?? comments.length > limit,
 		}),
-		resolveFacts: async () => ({
-			resolved: comments.map((comment) => ({
-				fact: "comment",
-				factId: `${comment.line}:${comment.text}`,
-				normalized: comment.text,
-			})),
-			missing: [],
-		}),
-		knowledgeScope: async () => ({
-			symbols: vector.symbols.map((symbol) => ({ symbol: summaryOf(symbol), depth: 1, questions: [] })),
+		scopeSymbols: async () => ({
+			symbols: vector.symbols.map((symbol) => ({ symbol: summaryOf(symbol), depth: 1 })),
 			localsExcluded: 0,
 		}),
 		outlineModule: async ({ module }: { module: string }) =>

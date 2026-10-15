@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
-internal enum class RequestKind { APPLY, KNOWLEDGE, FILE, WINDOWS }
+internal enum class RequestKind { APPLY, FILE, WINDOWS }
 
 /** What a request is about, so a second tap on the same one sends nothing. */
 internal data class RequestKey(val address: String, val kind: RequestKind, val subject: String)

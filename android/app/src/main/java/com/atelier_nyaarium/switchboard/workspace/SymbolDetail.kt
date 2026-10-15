@@ -41,8 +41,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.atelier_nyaarium.switchboard.AskOps
-import com.atelier_nyaarium.switchboard.AskSubject
 import com.atelier_nyaarium.switchboard.CodePalette
 import com.atelier_nyaarium.switchboard.DetailItem
 import com.atelier_nyaarium.switchboard.DetailView
@@ -52,7 +50,7 @@ import com.atelier_nyaarium.switchboard.FacetState
 import com.atelier_nyaarium.switchboard.FacetSubject
 import com.atelier_nyaarium.switchboard.FactRow
 import com.atelier_nyaarium.switchboard.FactRows
-import com.atelier_nyaarium.switchboard.KnowledgeBadge
+import com.atelier_nyaarium.switchboard.NoteBadge
 import com.atelier_nyaarium.switchboard.Reached
 import com.atelier_nyaarium.switchboard.RoleTone
 import com.atelier_nyaarium.switchboard.SymbolIdentity
@@ -81,7 +79,6 @@ import kotlinx.coroutines.launch
 internal fun SymbolDetail(
 	views: SymbolViews,
 	ops: WindowOps,
-	askOps: AskOps,
 	target: WorkspaceTarget,
 	place: WorkspacePlace.Detail,
 	now: () -> Long,
@@ -97,9 +94,6 @@ internal fun SymbolDetail(
 	val scope = rememberCoroutineScope()
 	val listState = rememberLazyListState()
 	var whole by rememberSaveable(symbolId) { mutableStateOf(false) }
-	// Null is every question, so the sheet needs a flag of its own to say whether it is open.
-	var asking by rememberSaveable(symbolId) { mutableStateOf<String?>(null) }
-	var askOpen by rememberSaveable(symbolId) { mutableStateOf(false) }
 	LaunchedEffect(target.key, symbolId) {
 		coroutineScope {
 			launch { views.keepDetail(target, symbolId) }
@@ -108,9 +102,6 @@ internal fun SymbolDetail(
 	}
 	val items = remember(view, place.reached, whole) { detailItems(view, place.reached, whole) }
 	val identity = view.identity
-	val subject = remember(target, symbolId, identity, place) {
-		AskSubject(target, symbolId, identity?.name ?: place.name, identity?.module ?: place.module)
-	}
 	val openFacet: (FacetEntry) -> Unit = { entry ->
 		onOpen(
 			WorkspacePlace.Facet(
@@ -132,16 +123,10 @@ internal fun SymbolDetail(
 				item(key = row.key) {
 					when (row) {
 						DetailItem.Header -> SymbolHeader(identity, place.name)
-						is DetailItem.Describe -> DescribeBlock(row.prose)
 						is DetailItem.ReachedCard -> ReachedCard(row.reached) {
 							reachedIndex(items)?.let { at -> scope.launch { listState.animateScrollToItem(at) } }
 						}
-						DetailItem.Knowledge -> WorkspaceAnswerBox(view.knowledge) { answer ->
-							KnowledgeSection(askOps, subject, answer, now) { question ->
-								asking = question
-								askOpen = true
-							}
-						}
+						is DetailItem.Note -> NoteSection(row.note)
 						DetailItem.Documentation -> DocumentationBlock(view.knowledge)
 						DetailItem.SourceTitle -> SourceTitle(view.source)
 						is DetailItem.SourceLine -> Box(
@@ -168,8 +153,6 @@ internal fun SymbolDetail(
 			Text("Open Window")
 		}
 	}
-
-	if (askOpen) AskSheet(askOps, subject, asking) { askOpen = false }
 }
 
 @Composable
@@ -203,15 +186,6 @@ private fun SymbolHeader(identity: SymbolIdentity?, fallback: String) {
 			)
 		}
 	}
-}
-
-@Composable
-private fun DescribeBlock(prose: String) {
-	Text(
-		remember(prose) { inlineCodeAnnotated(prose) },
-		Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-		style = MaterialTheme.typography.bodyMedium,
-	)
 }
 
 @Composable
@@ -262,11 +236,10 @@ private fun FactsBlock(
 		FacetSection("Facts")
 		WorkspaceAnswerBox(knowledge) { answer ->
 			when (val rows = remember(answer, history) { factRows(answer, history, now()) }) {
-				null -> WorkspaceNotice("Update this session's plugin to see what Lexicon counts")
 				is FactRows.Counted -> FactsCard(rows.rows, onOpen)
-				is FactRows.Legacy -> Column(Modifier.fillMaxWidth()) {
+				is FactRows.Uncounted -> Column(Modifier.fillMaxWidth()) {
 					FactsCard(rows.rows, onOpen)
-					WorkspaceNotice("Update this session's plugin to open these")
+					WorkspaceNotice("Lexicon could not count these")
 				}
 			}
 		}
@@ -335,14 +308,14 @@ private fun SourceTitle(source: WorkspaceAnswer<*>?) {
 }
 
 @Composable
-internal fun BadgeLabel(badge: KnowledgeBadge) {
+internal fun BadgeLabel(badge: NoteBadge) {
 	val colors = MaterialTheme.colorScheme
 	Text(
-		badge.name,
-		Modifier.padding(start = 6.dp),
+		badge.text,
+		Modifier.padding(end = 8.dp),
 		style = MaterialTheme.typography.labelSmall,
 		fontFamily = FontFamily.Monospace,
-		color = if (badge == KnowledgeBadge.THIN) colors.onSurfaceVariant else colors.error,
+		color = if (badge.warning) colors.error else colors.onSurfaceVariant,
 	)
 }
 

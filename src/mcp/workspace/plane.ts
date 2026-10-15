@@ -3,7 +3,7 @@
 // Wired at startup so the socket handler needs no knowledge of where the root or the Lexicon session
 // come from. Unwired, every op is refused rather than answered with a guess at the workspace.
 
-import { FileMutationSchema, KnowledgeScopeTargetSchema, SymbolFacetSchema } from "../../shared/schemasWorkspace.js";
+import { FileMutationSchema, SymbolFacetSchema } from "../../shared/schemasWorkspace.js";
 import {
 	WORKSPACE_OP_DEDUPE_MS,
 	WORKSPACE_OP_REPLY_FRAME,
@@ -37,10 +37,7 @@ export function parseWorkspaceOpRequest(msg: Record<string, unknown>): ParsedWor
 	if (typeof reqId !== "string") return null;
 	const malformed = { reqId, refused: "this session's plugin cannot read that workspace op; update it" };
 	if (typeof key !== "string" || typeof op !== "object" || op === null) return malformed;
-	const { kind, path, symbolId, expectedSpanHash, text, mutation, facet, scope, includeLocals } = op as Record<
-		string,
-		unknown
-	>;
+	const { kind, path, symbolId, expectedSpanHash, text, mutation, facet } = op as Record<string, unknown>;
 	if (kind === "tree" || kind === "read" || kind === "outline" || kind === "fileState" || kind === "fileHistory") {
 		return typeof path === "string" ? { reqId, key, op: { kind, path } } : malformed;
 	}
@@ -63,12 +60,6 @@ export function parseWorkspaceOpRequest(msg: Record<string, unknown>): ParsedWor
 		const parsed = SymbolFacetSchema.safeParse(facet);
 		return typeof symbolId === "string" && parsed.success
 			? { reqId, key, op: { kind, symbolId, facet: parsed.data } }
-			: malformed;
-	}
-	if (kind === "knowledgeScope") {
-		const parsed = KnowledgeScopeTargetSchema.safeParse(scope);
-		return typeof includeLocals === "boolean" && parsed.success
-			? { reqId, key, op: { kind, scope: parsed.data, includeLocals } }
 			: malformed;
 	}
 	if (kind === "paintText") {

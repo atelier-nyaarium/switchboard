@@ -7,7 +7,6 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeCounts
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeFacts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -42,10 +41,12 @@ class FacetFactsRulesTest {
 		comments = comments,
 	)
 
-	private fun knowledge(kind: String?, counted: WorkspaceKnowledgeCounts?) =
+	private fun knowledge(kind: String, counted: WorkspaceKnowledgeCounts?) =
 		WorkspaceKnowledgeAnswer(
 			symbolId = "src/a.ts#Sub",
+			name = "Sub",
 			symbolKind = kind,
+			module = "src/a.ts",
 			facts = WorkspaceKnowledgeFacts(
 				members = 7,
 				references = 13,
@@ -129,12 +130,11 @@ class FacetFactsRulesTest {
 	}
 
 	@Test
-	fun `facts from an older plugin keep their numbers, read none at zero, and open nothing`() {
-		val legacy = factRows(knowledge("interface", null), null, NOW) as FactRows.Legacy
+	fun `uncounted facts keep their numbers, read none at zero, and open nothing`() {
+		val legacy = factRows(knowledge("interface", null), null, NOW) as FactRows.Uncounted
 		assertEquals(listOf("7", "13", "8", "2", "4"), legacy.rows.map { it.value })
 		assertTrue(legacy.rows.none { it.opens })
 		assertTrue(legacy.rows.none { it.entry == FacetEntry.HISTORY })
-		assertNull(factRows(WorkspaceKnowledgeAnswer(symbolId = "s"), null, NOW))
 
 		val nothing = WorkspaceKnowledgeFacts(
 			members = 0,
@@ -145,7 +145,7 @@ class FacetFactsRulesTest {
 			subtypes = 0,
 			comments = 0,
 		)
-		val empty = factRows(WorkspaceKnowledgeAnswer(symbolId = "s", facts = nothing), null, NOW) as FactRows.Legacy
+		val empty = factRows(knowledge("interface", null).copy(facts = nothing), null, NOW) as FactRows.Uncounted
 		val counted = factRows(knowledge("interface", counts()), null, NOW) as FactRows.Counted
 		assertTrue(empty.rows.all { it.value == valueOf(counted.rows, FacetEntry.MEMBERS) })
 	}

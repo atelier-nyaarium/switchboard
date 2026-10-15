@@ -524,14 +524,8 @@ async function commentsAnswerOf(
 		return { facet: { kind: "comments", comments: [], total: count, ...(truncated ? { truncated } : {}) } };
 	}
 
-	const resolved = await byDeadline(context.deadline, () =>
-		session.resolveFacts({ factIds: listed.map((comment) => comment.factId) }),
-	);
-	const prose = new Map<string, string>();
-	for (const fact of resolved.resolved) if (fact.fact === "comment") prose.set(fact.factId, fact.normalized);
-
 	const scope = await byDeadline(context.deadline, () =>
-		session.knowledgeScope({ symbolId, members: true, includeLocals: false }),
+		session.scopeSymbols({ symbolId, members: true, includeLocals: false }),
 	);
 	const declared = new Map(
 		(scope?.symbols ?? [])
@@ -554,7 +548,7 @@ async function commentsAnswerOf(
 	const comments = listed.map((comment): FacetComment => {
 		const holder = comment.anchor === null ? undefined : holderOf(comment.anchor.symbolId);
 		return {
-			text: prose.get(comment.factId) ?? comment.raw,
+			text: comment.raw,
 			form: comment.form,
 			line: comment.range.start.line + 1,
 			...(holder === undefined ? {} : { holder: facetSymbolOf(holder) }),

@@ -7,7 +7,7 @@
 // Two writes: a span save, checked by Lexicon under its writer gate, and a file mutation, which is plain
 // file work checked in the plugin.
 
-import type { FileMutation, KnowledgeScopeTarget, SymbolFacet, WorkspaceOpAnswer } from "./schemasWorkspace.js";
+import type { FileMutation, SymbolFacet, WorkspaceOpAnswer } from "./schemasWorkspace.js";
 
 ////////////////////////////////
 //  Constants
@@ -72,7 +72,6 @@ export type WorkspaceOp =
 	| { kind: "mutateFile"; mutation: FileMutation }
 	| { kind: "symbolFacet"; symbolId: string; facet: SymbolFacet }
 	| { kind: "fileHistory"; path: string }
-	| { kind: "knowledgeScope"; scope: KnowledgeScopeTarget; includeLocals: boolean }
 	| { kind: "paintText"; path: string; text: string };
 
 export function boundsOf(op: WorkspaceOp): WorkspaceBounds {
@@ -80,7 +79,7 @@ export function boundsOf(op: WorkspaceOp): WorkspaceBounds {
 }
 
 /** Unlisted kinds stay a thrown refusal (older phones' compat). */
-const TYPED_TOO_LARGE: ReadonlySet<WorkspaceOp["kind"]> = new Set(["symbolFacet", "fileHistory", "knowledgeScope"]);
+const TYPED_TOO_LARGE: ReadonlySet<WorkspaceOp["kind"]> = new Set(["symbolFacet", "fileHistory"]);
 
 /** Writes may land; the phone rereads. */
 function unknownAnswerOf(op: WorkspaceOp, reason: string): WorkspaceOpAnswer | null {
@@ -125,15 +124,12 @@ export type {
 	HistoryCommit,
 	KnowledgeAnswer,
 	KnowledgeCounts,
-	KnowledgeEntry,
-	KnowledgeScopeAnswer,
-	KnowledgeScopeTarget,
+	KnowledgeNote,
 	OutlineAnswer,
 	OutlineSymbol,
 	PaintTextAnswer,
 	ReadAnswer,
 	SaveSpanAnswer,
-	ScopeSymbol,
 	SymbolFacet,
 	SymbolFacetAnswer,
 	SymbolSourceAnswer,

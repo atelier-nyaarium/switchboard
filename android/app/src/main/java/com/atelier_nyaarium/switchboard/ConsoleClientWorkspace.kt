@@ -7,8 +7,6 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutation
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileMutationAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileStateAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeAnswer
-import com.atelier_nyaarium.switchboard.proto.WorkspaceKnowledgeScopeTarget
 import com.atelier_nyaarium.switchboard.proto.WorkspaceOutlineAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspacePaintTextAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceReadAnswer
@@ -184,16 +182,4 @@ internal suspend fun ConsoleClient.workspaceFileHistory(
 		gatewayId,
 		ConsoleOp.WorkspaceFileHistory(target = target, path = path),
 		WorkspaceFileHistoryAnswer.serializer(),
-	)
-
-internal suspend fun ConsoleClient.workspaceKnowledgeScope(
-	gatewayId: String,
-	target: String,
-	scope: WorkspaceKnowledgeScopeTarget,
-	includeLocals: Boolean,
-): WorkspaceAnswer<WorkspaceListing<WorkspaceKnowledgeScopeAnswer>> =
-	workspaceListing(
-		gatewayId,
-		ConsoleOp.WorkspaceKnowledgeScope(target = target, scope = scope, includeLocals = includeLocals),
-		WorkspaceKnowledgeScopeAnswer.serializer(),
 	)

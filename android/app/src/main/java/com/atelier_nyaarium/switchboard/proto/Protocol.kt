@@ -132,7 +132,6 @@ object Protocol {
 			const val WORKSPACE_MUTATE_FILE: String = "workspace_mutate_file"
 			const val WORKSPACE_SYMBOL_FACET: String = "workspace_symbol_facet"
 			const val WORKSPACE_FILE_HISTORY: String = "workspace_file_history"
-			const val WORKSPACE_KNOWLEDGE_SCOPE: String = "workspace_knowledge_scope"
 			const val WORKSPACE_PAINT_TEXT: String = "workspace_paint_text"
 			const val CROSS_DOMAIN_LISTEN: String = "cross_domain_listen"
 			const val CROSS_DOMAIN_REQUEST: String = "cross_domain_request"
@@ -442,14 +441,6 @@ sealed class ConsoleOp {
 	data class WorkspaceFileHistory(
 		val target: String,
 		val path: String,
-	) : ConsoleOp()
-
-	@Serializable
-	@SerialName("workspace_knowledge_scope")
-	data class WorkspaceKnowledgeScope(
-		val target: String,
-		val scope: WorkspaceKnowledgeScopeTarget,
-		val includeLocals: Boolean,
 	) : ConsoleOp()
 
 	@Serializable
@@ -2220,16 +2211,15 @@ data class WorkspaceKnowledgeAnswer(
 	@EncodeDefault
 	val kind: String = "symbolKnowledge",
 	val symbolId: String,
-	val name: String? = null,
-	val symbolKind: String? = null,
-	val module: String? = null,
-	val answers: List<WorkspaceKnowledgeEntry>? = null,
-	val facts: WorkspaceKnowledgeFacts? = null,
+	val name: String,
+	val symbolKind: String,
+	val module: String,
+	val note: WorkspaceKnowledgeNote? = null,
+	val facts: WorkspaceKnowledgeFacts,
 	val startLine: Long? = null,
 	val endLine: Long? = null,
 	val signature: String? = null,
 	val documentation: String? = null,
-	val text: String? = null,
 )
 
 @Serializable
@@ -2383,29 +2373,6 @@ sealed class WorkspaceFacet {
 }
 
 @Serializable
-@OptIn(ExperimentalSerializationApi::class)
-@JsonClassDiscriminator("kind")
-sealed class WorkspaceKnowledgeScopeTarget {
-	@Serializable
-	@SerialName("symbol")
-	data class Symbol(
-		val symbolId: String,
-	) : WorkspaceKnowledgeScopeTarget()
-
-	@Serializable
-	@SerialName("members")
-	data class Members(
-		val symbolId: String,
-	) : WorkspaceKnowledgeScopeTarget()
-
-	@Serializable
-	@SerialName("file")
-	data class File(
-		val path: String,
-	) : WorkspaceKnowledgeScopeTarget()
-}
-
-@Serializable
 data class WorkspaceFacetSymbol(
 	val symbolId: String,
 	val name: String,
@@ -2553,38 +2520,6 @@ data class WorkspaceFileHistoryAnswer(
 	val firstSeen: Long? = null,
 	val lastTouched: Long? = null,
 	val truncated: Boolean,
-)
-
-@Serializable
-data class WorkspaceScopeQuestion(
-	val question: String,
-	val createdAt: Double? = null,
-	val thin: Boolean? = null,
-	val stale: Boolean? = null,
-	val shaky: Boolean? = null,
-	val doubted: Boolean? = null,
-	val askCount: Long,
-)
-
-@Serializable
-data class WorkspaceScopeSymbol(
-	val symbolId: String,
-	val name: String,
-	val symbolKind: String,
-	val depth: Long,
-	val startLine: Long? = null,
-	val containerId: String? = null,
-	val questions: List<WorkspaceScopeQuestion>,
-)
-
-@Serializable
-data class WorkspaceKnowledgeScopeAnswer(
-	@EncodeDefault
-	val kind: String = "knowledgeScope",
-	val root: String,
-	val module: String,
-	val symbols: List<WorkspaceScopeSymbol>,
-	val localsExcluded: Long,
 )
 
 @Serializable
@@ -3061,13 +2996,14 @@ data class EnabledPlugin(
 )
 
 @Serializable
-data class WorkspaceKnowledgeEntry(
-	val question: String,
-	val prose: String? = null,
-	val thin: Boolean? = null,
-	val stale: Boolean? = null,
-	val doubted: Boolean? = null,
-	val stranded: Boolean? = null,
+data class WorkspaceKnowledgeNote(
+	val text: String,
+	val revision: Long,
+	val sourceChanged: Boolean,
+	val doubt: String? = null,
+	val proposal: Boolean,
+	val changedRefs: Long,
+	val brokenRefs: Long,
 )
 
 @Serializable

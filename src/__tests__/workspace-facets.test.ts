@@ -158,10 +158,9 @@ function sessionOf(methods: Methods, asked: string[] = []): () => Promise<Sessio
 		"usesFrom",
 		"typeHierarchy",
 		"findComments",
-		"resolveFacts",
-		"knowledgeScope",
+		"scopeSymbols",
 		"outlineModule",
-		"recallAnswer",
+		"readNote",
 		"moduleFacts",
 		"parseFacts",
 	];
@@ -764,13 +763,13 @@ describe("the type hierarchy", () => {
 describe("comments inside a symbol", () => {
 	it("lists its members' and locals' comments on the nearest declaration a window opens, without its own documentation", async () => {
 		const local = "lexicon typescript src/lib.ts local0";
-		const found = (factId: string, anchorId: string | null, form: string, line: number) => ({
+		const found = (factId: string, raw: string, anchorId: string | null, form: string, line: number) => ({
 			factId,
 			module: "src/lib.ts",
 			range: { start: { line, character: 0 }, end: { line, character: 9 } },
 			form,
 			placement: "above",
-			raw: `// ${factId}`,
+			raw,
 			anchor: anchorId === null ? null : { symbolId: anchorId, name: "n", kind: "method", line },
 		});
 		const { facet } = await facetOf(
@@ -779,24 +778,17 @@ describe("comments inside a symbol", () => {
 			{
 				findComments: () => ({
 					comments: [
-						found("doc", PORT, "leading", 0),
-						found("member", PORT_OPEN, "leading", 1),
-						found("inner", local, "inline", 2),
+						found("doc", "// Port.", PORT, "leading", 0),
+						found("member", "// Opens it.", PORT_OPEN, "leading", 1),
+						found("inner", "// Held briefly.", local, "inline", 2),
 					],
 					total: 3,
 					truncated: true,
 				}),
-				resolveFacts: () => ({
-					resolved: [
-						{ fact: "comment", factId: "member", normalized: "Opens it." },
-						{ fact: "comment", factId: "inner", normalized: "Held briefly." },
-					],
-					missing: [],
-				}),
-				knowledgeScope: () => ({
+				scopeSymbols: () => ({
 					symbols: [
-						{ symbol: summary(PORT_OPEN, "open", "method", "src/lib.ts", 1), depth: 1, questions: [] },
-						{ symbol: summary(PORT, "Port", "interface", "src/lib.ts"), depth: 0, questions: [] },
+						{ symbol: summary(PORT_OPEN, "open", "method", "src/lib.ts", 1), depth: 1 },
+						{ symbol: summary(PORT, "Port", "interface", "src/lib.ts"), depth: 0 },
 					],
 					localsExcluded: 1,
 				}),
@@ -813,8 +805,8 @@ describe("comments inside a symbol", () => {
 			truncated: true,
 			total: 2,
 			comments: [
-				{ text: "Opens it.", form: "leading", line: 2, holder: { symbolId: PORT_OPEN } },
-				{ text: "Held briefly.", form: "inline", line: 3, holder: { symbolId: PORT_OPEN } },
+				{ text: "// Opens it.", form: "leading", line: 2, holder: { symbolId: PORT_OPEN } },
+				{ text: "// Held briefly.", form: "inline", line: 3, holder: { symbolId: PORT_OPEN } },
 			],
 		});
 	});
@@ -834,8 +826,7 @@ describe("comments inside a symbol", () => {
 			{ kind: "comments" },
 			{
 				findComments: () => ({ comments: many, total: 250, truncated: false }),
-				resolveFacts: () => ({ resolved: [], missing: [] }),
-				knowledgeScope: () => ({ symbols: [], localsExcluded: 0 }),
+				scopeSymbols: () => ({ symbols: [], localsExcluded: 0 }),
 				outlineModule: () => [],
 			},
 		);
@@ -864,11 +855,8 @@ describe("comments inside a symbol", () => {
 					total: 0,
 					truncated: false,
 				}),
-				resolveFacts: () => ({ resolved: [], missing: [] }),
-				knowledgeScope: () => ({
-					symbols: [
-						{ symbol: summary(CLOAKED, "Cloaked", "method", "src/lib.ts", 1), depth: 1, questions: [] },
-					],
+				scopeSymbols: () => ({
+					symbols: [{ symbol: summary(CLOAKED, "Cloaked", "method", "src/lib.ts", 1), depth: 1 }],
 					localsExcluded: 0,
 				}),
 				outlineModule: () => [summary(CLOAKED, "Cloaked", "method", "src/lib.ts", 1)],
@@ -899,7 +887,7 @@ describe("the knowledge answer's counts", () => {
 							subtypes: [summary(SECRET, "Secret", "class", ".env")],
 						},
 					}),
-					recallAnswer: () => [],
+					readNote: () => null,
 					findReferences: () => ({ references: usesOfPort, total: 4, truncated: false }),
 					usesFrom: () => ({
 						references: [
@@ -955,7 +943,7 @@ describe("the knowledge answer's counts", () => {
 							subtypes: [],
 						},
 					}),
-					recallAnswer: () => [],
+					readNote: () => null,
 					findReferences: () => ({ references: usesOfPort, total: 4, truncated: true }),
 					usesFrom: () => ({ references: [], total: 0, truncated: false }),
 					findComments: () => ({ comments: [], total: 0, truncated: false }),
@@ -986,7 +974,7 @@ describe("the knowledge answer's counts", () => {
 							subtypes: [],
 						},
 					}),
-					recallAnswer: () => [],
+					readNote: () => null,
 					findReferences: () => new Promise(() => {}),
 				}),
 				budgetMs: 50,
@@ -1017,7 +1005,7 @@ describe("the knowledge answer's counts", () => {
 							subtypes: [],
 						},
 					}),
-					recallAnswer: () => [],
+					readNote: () => null,
 					findReferences: () => ({ references: [], total: 0, truncated: false }),
 					usesFrom: () => {
 						throw new DaemonError("unknown method: usesFrom", "unknownMethod");
@@ -1029,101 +1017,5 @@ describe("the knowledge answer's counts", () => {
 
 		expect(result).toMatchObject({ ok: true, answer: { kind: "symbolKnowledge", facts: { members: 0 } } });
 		expect(result.ok && result.answer.kind === "symbolKnowledge" && result.answer.facts?.counts).toBeUndefined();
-	});
-});
-
-describe("the scope an Ask covers", () => {
-	it("answers each declaration's questions with the root label, and refuses a withheld file", async () => {
-		const root = workspace();
-		const scope = {
-			symbols: [
-				{
-					symbol: { ...summary(PORT_OPEN, "open", "method", "src/lib.ts", 1), containerId: PORT },
-					depth: 1,
-					questions: [
-						{ question: "describe", askCount: 0, createdAt: 9, thin: true },
-						{ question: "why", askCount: 2 },
-					],
-				},
-				{ symbol: summary(PORT, "Port", "interface", "src/lib.ts"), depth: 0, questions: [] },
-			],
-			localsExcluded: 4,
-		};
-		const asked: Record<string, unknown>[] = [];
-		const result = await answerWorkspaceOp(
-			{
-				root: () => root,
-				session: sessionOf({
-					knowledgeScope: (params) => {
-						asked.push(params);
-						return scope;
-					},
-				}),
-			},
-			{ kind: "knowledgeScope", scope: { kind: "members", symbolId: PORT }, includeLocals: false },
-		);
-
-		expect(asked).toEqual([{ symbolId: PORT, members: true, includeLocals: false }]);
-		expect(result.ok && result.answer).toMatchObject({
-			kind: "knowledgeScope",
-			module: "src/lib.ts",
-			localsExcluded: 4,
-			symbols: [
-				{
-					symbolId: PORT_OPEN,
-					name: "open",
-					symbolKind: "method",
-					depth: 1,
-					startLine: 2,
-					containerId: PORT,
-					questions: [
-						{ question: "describe", askCount: 0, createdAt: 9, thin: true },
-						{ question: "why", askCount: 2 },
-					],
-				},
-				{ symbolId: PORT, depth: 0, questions: [] },
-			],
-		});
-		expect(result.ok && result.answer.kind === "knowledgeScope" && result.answer.root).toBeTruthy();
-
-		const withheld = await answerWorkspaceOp(
-			{ root: () => root, session: sessionOf({ knowledgeScope: () => scope }) },
-			{ kind: "knowledgeScope", scope: { kind: "file", path: ".env" }, includeLocals: true },
-		);
-		expect(withheld).toMatchObject({ ok: false, failure: "refused" });
-	});
-
-	it("drops a symbol whose id names a withheld module, and a container it may not name", async () => {
-		const root = workspace();
-		const result = await answerWorkspaceOp(
-			{
-				root: () => root,
-				session: sessionOf({
-					knowledgeScope: () => ({
-						symbols: [
-							{
-								symbol: summary(CLOAKED, "Cloaked", "method", "src/lib.ts", 1),
-								depth: 1,
-								questions: [],
-							},
-							{
-								symbol: {
-									...summary(PORT_OPEN, "open", "method", "src/lib.ts", 1),
-									containerId: CLOAKED,
-								},
-								depth: 1,
-								questions: [],
-							},
-						],
-						localsExcluded: 0,
-					}),
-				}),
-			},
-			{ kind: "knowledgeScope", scope: { kind: "members", symbolId: PORT }, includeLocals: false },
-		);
-		const symbols = result.ok && result.answer.kind === "knowledgeScope" ? result.answer.symbols : [];
-
-		expect(symbols.map((symbol) => symbol.symbolId)).toEqual([PORT_OPEN]);
-		expect(symbols[0]?.containerId).toBeUndefined();
 	});
 });
