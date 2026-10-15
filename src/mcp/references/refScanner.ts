@@ -59,7 +59,7 @@ export function scanRefs(body: string): ScanResult {
 			problems.push({
 				raw,
 				code: "note-ref",
-				message: "a Lexicon note ref; write it as `ref://<module>:<chain>`, without `project-ref://<key>/`",
+				message: "a project-ref link not rewritten; write it as `ref://<module>:<chain>`",
 				offset: 0,
 			});
 			continue;

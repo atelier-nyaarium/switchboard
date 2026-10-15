@@ -52,6 +52,7 @@ export async function handleChannelReply(args: ChannelReplyArgs): Promise<ToolTe
 	// on purpose: the agent is still here to correct the ref.
 	const withRefs = await appendRefArtifacts(args.full, files);
 	if (!withRefs.ok) return toolError(withRefs.error);
+	payload.response = withRefs.body;
 	if (withRefs.files.length > 0) payload.files = withRefs.files;
 
 	const sent = await postReply(payload, {

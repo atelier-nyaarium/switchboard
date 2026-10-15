@@ -86,7 +86,7 @@ export function registerHumanTools(mcpServer: McpServer, capabilities: Capabilit
 					from: bridgeProjectName() || "unknown",
 					// Spread, never hand-listed: a new spoken tier must not need an edit here to survive.
 					...pickTiers(args),
-					full,
+					full: withRefs.body,
 					...(files ? { files } : {}),
 				})) as { delivered?: boolean };
 				return withNotices(

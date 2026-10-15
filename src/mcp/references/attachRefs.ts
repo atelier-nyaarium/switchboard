@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { connect, type Session } from "@nyaa-lexicon/client";
+import { REF_SCHEME as PROJECT_REF_SCHEME } from "@nyaa-lexicon/protocol";
 import type { ChannelFile } from "../../shared/types.js";
 import { uploadBytes } from "../blobTransfer.js";
 import type { ToolTextResult } from "../bridge/replyTool.js";
 import { loadWorkspaceFile } from "../workspace/loadFile.js";
 import { buildArtifacts } from "./artifactBuilder.js";
+import { rewriteProjectRefs } from "./projectRefs.js";
 import { resolveRefs } from "./refResolve.js";
 import { scanRefs } from "./refScanner.js";
 import { hostRootsSettled, workspaceRoot } from "./refWorkspace.js";
@@ -16,8 +18,10 @@ import { hostRootsSettled, workspaceRoot } from "./refWorkspace.js";
 /** Bytes ride the blob plane, named by `blobId`. */
 type ReplyFile = ChannelFile;
 
-/** `notices` are what drifted without blocking the send, one line per cause, for the tool's text. */
-export type AttachResult = { ok: true; files: ReplyFile[]; notices: string[] } | { ok: false; error: string };
+/** The body to send, and drift notices. */
+export type AttachResult =
+	| { ok: true; body: string; files: ReplyFile[]; notices: string[] }
+	| { ok: false; error: string };
 
 ////////////////////////////////
 //  Constants
@@ -105,8 +109,18 @@ export function withNotices(result: ToolTextResult, notices: string[]): ToolText
  * or several things, and a matcher that finds nothing are HARD errors the agent can still fix.
  * Only lexicon being unable to answer degrades, shipping a text match with a banner and a notice.
  */
-export async function appendRefArtifacts(body: string, attachments: ReplyFile[]): Promise<AttachResult> {
-	if (!enabled) return { ok: true, files: attachments, notices: [] };
+export async function appendRefArtifacts(written: string, attachments: ReplyFile[]): Promise<AttachResult> {
+	if (!enabled) return { ok: true, body: written, files: attachments, notices: [] };
+
+	let body = written;
+	let rewriteNotices: string[] = [];
+	if (body.includes(PROJECT_REF_SCHEME)) {
+		await hostRootsSettled();
+		const rewritten = rewriteProjectRefs(body, workspaceRoot().root);
+		if (!rewritten.ok) return rewritten;
+		body = rewritten.body;
+		rewriteNotices = rewritten.notices;
+	}
 
 	const { refs: found, problems } = scanRefs(body);
 	// The agent is right here to fix its own typo.
@@ -114,7 +128,7 @@ export async function appendRefArtifacts(body: string, attachments: ReplyFile[])
 		const first = problems[0];
 		return { ok: false, error: `${first.raw}: ${first.message} (at offset ${first.offset})` };
 	}
-	if (found.length === 0) return { ok: true, files: attachments, notices: [] };
+	if (found.length === 0) return { ok: true, body, files: attachments, notices: rewriteNotices };
 
 	await hostRootsSettled();
 	const workspace = workspaceRoot();
@@ -152,5 +166,5 @@ export async function appendRefArtifacts(body: string, attachments: ReplyFile[])
 		});
 	}
 
-	return { ok: true, files: [...attachments, ...snapshots], notices: outcome.notices };
+	return { ok: true, body, files: [...attachments, ...snapshots], notices: [...rewriteNotices, ...outcome.notices] };
 }

@@ -21,6 +21,12 @@ Escape spaces and closing parentheses, or use angle brackets. Percent-encode lit
 `@after:`. A bare destination ends at its first space, so prose holding `](ref://` outside a parsed
 link refuses the send, naming the fix.
 
+**A Lexicon `project-ref://` link is sent as `ref://`.** `projectRefs.ts` rewrites it before the scan,
+so a link pasted from a note opens on the console, which holds one scheme and one grammar twin. Its key
+must name this workspace; a key with only the same directory name is read here with a notice, and any
+other is refused. A line selection has no `ref://` form and is refused. The rewrite percent-escapes what
+markdown would decode in a destination, so the console reads back the module and chain Lexicon wrote.
+
 One worked example per matcher. A test pins them:
 
     [chain](ref://src/App.tsx:App:render)
