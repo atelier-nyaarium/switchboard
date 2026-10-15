@@ -1,3 +1,4 @@
+import { fromReplacedDaemon } from "../shared/agent-fence.js";
 import type { Ambient } from "../shared/ambient.js";
 import {
 	type CopilotDaemonCommand,
@@ -57,14 +58,19 @@ export class CopilotRelay {
 	private readonly sections = new Map<string, Promise<unknown>>();
 	private readonly streams = new Map<string, StreamProgress>();
 	private readonly listeners = new Map<string, Set<() => void>>();
-	// Reconciliation guards expire so a silent daemon cannot hold frames forever.
-	private readonly reconciling = new Map<string, number>();
+	// Guards expire; only their own answer clears one.
+	private readonly reconciling = new Map<string, { requestId: string; askedAt: number }>();
 	private readonly deferred = new Map<string, Array<CopilotDaemonEvent | CopilotDaemonReceipt>>();
+	private liveInstanceId: string | undefined;
 
 	constructor(private readonly deps: CopilotRelayDeps) {}
 
 	dispatch(command: CopilotCommandRequest): boolean {
-		const message = { type: "copilot_command", requestId: this.deps.ambient.newId(), ...command };
+		return this.send(this.deps.ambient.newId(), command);
+	}
+
+	private send(requestId: string, command: CopilotCommandRequest): boolean {
+		const message = { type: "copilot_command", requestId, ...command };
 		if (!CopilotDaemonCommandSchema.safeParse(message).success) return false;
 		return this.deps.sendToHost(message);
 	}
@@ -125,6 +131,7 @@ export class CopilotRelay {
 			console.warn(`[copilot] dropped a malformed hello: ${hello.error.issues[0]?.message ?? "invalid"}`);
 			return;
 		}
+		this.liveInstanceId = hello.data.daemonInstanceId;
 		this.reconciling.clear();
 		for (const owner of this.deps.sessionStore.list()) {
 			const ownerKey = this.deps.sessionStore.teamOf(owner);
@@ -155,12 +162,15 @@ export class CopilotRelay {
 	}
 
 	private reduceReceipt(receipt: CopilotDaemonReceipt): void {
+		// Would install a dead fence.
+		if (receipt.kind === "reconciled" && fromReplacedDaemon(this.liveInstanceId, receipt)) return;
 		const application = this.deps.service.applyReceipt(receipt, this.now());
 		this.settle(receipt, application);
 		if (receipt.kind === "rejected" && receipt.operationId !== undefined) return;
 		if (receipt.kind !== "reconciled" && receipt.kind !== "rejected") return;
 		const key = agentKey(receipt.ownerKey, receipt.agentId);
-		if (!this.reconciling.delete(key)) return;
+		if (this.reconciling.get(key)?.requestId !== receipt.requestId) return;
+		this.reconciling.delete(key);
 		if (application.disposition === "applied") this.drainDeferred(receipt.ownerKey, receipt.agentId);
 	}
 
@@ -231,10 +241,11 @@ export class CopilotRelay {
 	private requestReconciliation(ownerKey: string, agent: CopilotAgent): void {
 		if (!agent.sessionId || !agent.resolvedTarget) return;
 		const key = agentKey(ownerKey, agent.agentId);
-		const askedAt = this.reconciling.get(key);
-		if (askedAt !== undefined && this.now() - askedAt < RECONCILE_GUARD_MS) return;
-		this.reconciling.set(key, this.now());
-		const sent = this.dispatch({
+		const asked = this.reconciling.get(key);
+		if (asked !== undefined && this.now() - asked.askedAt < RECONCILE_GUARD_MS) return;
+		const requestId = this.deps.ambient.newId();
+		this.reconciling.set(key, { requestId, askedAt: this.now() });
+		const sent = this.send(requestId, {
 			kind: "reconcile",
 			ownerKey,
 			agentId: agent.agentId,

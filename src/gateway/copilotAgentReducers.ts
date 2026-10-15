@@ -20,6 +20,20 @@ export function sameResolvedTarget(left: CopilotResolvedTarget, right: CopilotRe
 	return left.kind === right.kind && left.targetId === right.targetId && left.cwd === right.cwd;
 }
 
+/** Idle follow-up a relaunched child took. Reconciling first would drop it. */
+export function followUpOnNewChild(
+	current: CopilotPersistedAgent,
+	operation: CopilotPersistedAgent["operations"][number],
+	delivery: string,
+): boolean {
+	return (
+		operation.kind === "message" &&
+		delivery === "followup" &&
+		current.agentState === "idle" &&
+		current.activeTurnId === undefined
+	);
+}
+
 export function resolvedTargetMatchesRequest(
 	requested: CopilotPersistedAgent["requestedTarget"],
 	resolved: CopilotResolvedTarget,

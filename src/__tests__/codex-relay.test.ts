@@ -150,7 +150,7 @@ async function startWorking(context: ReturnType<typeof setup>) {
 }
 
 async function settle() {
-	for (let index = 0; index < 12; index += 1) await Promise.resolve();
+	await new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
 function event(context: ReturnType<typeof setup>, eventId: number, extra: Record<string, unknown>) {
@@ -366,7 +366,10 @@ describe("Codex relay behavior", () => {
 			}),
 		);
 		await settle();
-		const reconcile = context.commands().find((frame) => frame.kind === "reconcile");
+		const reconcile = context
+			.commands()
+			.filter((frame) => frame.kind === "reconcile")
+			.at(-1);
 		expect(reconcile).toMatchObject({ agentId: codexAgentIdForOperation(operations.start), threadId: "thread-1" });
 		context.feed(
 			CodexDaemonReceiptSchema.parse({
@@ -397,6 +400,67 @@ describe("Codex relay behavior", () => {
 		expect(
 			context.agent()?.turns[0]?.activities.flatMap((item) => (item.kind === "commentary" ? [item.itemId] : [])),
 		).toEqual(["fresh"]);
+
+		// Neither late answer moves the fence.
+		const late = (stream: { daemonInstanceId: string; generation: number }) =>
+			CodexDaemonReceiptSchema.parse({
+				type: "codex_receipt",
+				kind: "reconciled",
+				requestId: reconcile!.requestId,
+				ownerKey: context.store.teamOf(context.owner),
+				...stream,
+				targetId,
+				eventId: 9,
+				agentId: reconcile!.agentId,
+				resolvedTarget,
+				threadId: "thread-1",
+			});
+		context.feed(late({ daemonInstanceId: "daemon-1", generation: 1 }));
+		context.feed(late({ daemonInstanceId: "daemon-2", generation: 1 }));
+		await settle();
+		expect(context.agent()?.fence).toMatchObject({ daemonInstanceId: "daemon-2", generation: 2 });
+	});
+
+	it("releases held frames only on the answer to its own reconciliation", async () => {
+		const context = setup();
+		await startWorking(context);
+		context.feed(event(context, 1, { kind: "activity", turnId: "unknown-turn", itemId: "held", text: "held" }));
+		await settle();
+		const reconcile = context.commands().find((frame) => frame.kind === "reconcile")!;
+		const ownerKey = context.store.teamOf(context.owner);
+		context.feed(
+			CodexDaemonReceiptSchema.parse({
+				type: "codex_receipt",
+				kind: "rejected",
+				requestId: operations.stop,
+				ownerKey,
+				daemonInstanceId: "daemon-1",
+				eventId: 0,
+				agentId: reconcile.agentId,
+				error: "target unavailable",
+			}),
+		);
+		context.feed(
+			CodexDaemonReceiptSchema.parse({
+				type: "codex_receipt",
+				kind: "reconciled",
+				requestId: reconcile.requestId,
+				ownerKey,
+				daemonInstanceId: "daemon-1",
+				targetId,
+				generation: 1,
+				eventId: 2,
+				agentId: reconcile.agentId,
+				resolvedTarget,
+				threadId: "thread-1",
+				turnId: "turn-1",
+				turnState: "inProgress",
+			}),
+		);
+		await settle();
+		expect(context.outbound).toContainEqual(
+			expect.objectContaining({ type: "codex_ack", daemonInstanceId: "daemon-1", throughEventId: 2 }),
+		);
 	});
 
 	it("maps disconnect and timeout answers, isolates owners, and replays an operation answer", async () => {

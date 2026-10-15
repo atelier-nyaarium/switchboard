@@ -1,4 +1,4 @@
-import { classifyEventFence, fenceOf } from "../shared/agent-fence.js";
+import { classifyEventFence, classifyReconciliationFence, fenceOf } from "../shared/agent-fence.js";
 import {
 	type CodexAgentCatalog,
 	CodexAgentIdSchema,
@@ -183,7 +183,9 @@ export function createCodexReceiptApplier(deps: CodexReceiptApplierDeps): CodexR
 			return ignore("reconciliation names a different execution target");
 		}
 		const fence = fenceOf(receipt);
-		if (classifyEventFence(agent.fence, fence) === "duplicate") return ignore("reconciliation was already applied");
+		const standing = classifyReconciliationFence(agent.fence, fence);
+		if (standing === "duplicate") return ignore("reconciliation was already applied");
+		if (standing === "stale") return ignore("reconciliation comes from an older generation");
 
 		const active = agent.activeTurnId
 			? agent.turns.find((turn) => turn.id === agent.activeTurnId && turn.state === "inProgress")

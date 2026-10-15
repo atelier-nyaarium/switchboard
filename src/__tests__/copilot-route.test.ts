@@ -81,12 +81,15 @@ function commandFor(context: ReturnType<typeof setup>, operationId: string): Rec
 	return command;
 }
 
+const FIRST_CHILD = { daemonInstanceId: "daemon-1", generation: 1 };
+
 async function accept(
 	context: ReturnType<typeof setup>,
 	operationId: string,
 	turnId: string,
 	eventId: number,
 	delivery: "started" | "followup",
+	stream = FIRST_CHILD,
 ): Promise<void> {
 	const command = commandFor(context, operationId);
 	context.relay.handleHostMessage({
@@ -94,9 +97,8 @@ async function accept(
 		kind: "accepted",
 		requestId: command.requestId,
 		ownerKey: context.sessionStore.teamOf(context.owner),
-		daemonInstanceId: "daemon-1",
+		...stream,
 		targetId: "container:recipe-app",
-		generation: 1,
 		eventId,
 		agentId: command.agentId,
 		operationId,
@@ -114,14 +116,14 @@ async function terminal(
 	turnId: string,
 	eventId: number,
 	finalResponse = "Done.",
+	stream = FIRST_CHILD,
 ): Promise<void> {
 	context.relay.handleHostMessage({
 		type: "copilot_event",
 		kind: "terminal",
 		ownerKey: context.sessionStore.teamOf(context.owner),
-		daemonInstanceId: "daemon-1",
+		...stream,
 		targetId: "container:recipe-app",
-		generation: 1,
 		eventId,
 		agentId,
 		sessionId: "session-1",
@@ -236,5 +238,53 @@ describe("Copilot gateway route", () => {
 		expect(agent.operations.find((operation) => operation.operationId === STOP_OPERATION_ID)?.state).toBe(
 			"accepted",
 		);
+	});
+
+	it("takes an idle agent's follow-up from a relaunched child, then drops a replaced daemon's reconciliation", async () => {
+		const context = setup();
+		const agentId = copilotAgentIdForOperation(START_OPERATION_ID);
+		const start = context.route.handle(post(context.token), {
+			kind: "start",
+			operationId: START_OPERATION_ID,
+			prompt: "Review the parser",
+		});
+		await flush();
+		await accept(context, START_OPERATION_ID, "turn-1", 0, "started");
+		await terminal(context, agentId, "turn-1", 1);
+		await start;
+
+		const relaunched = { daemonInstanceId: "daemon-2", generation: 1 };
+		const message = context.route.handle(post(context.token), {
+			kind: "message",
+			operationId: MESSAGE_OPERATION_ID,
+			agentId,
+			prompt: "Continue",
+		});
+		await flush();
+		await accept(context, MESSAGE_OPERATION_ID, "turn-2", 0, "followup", relaunched);
+		await terminal(context, agentId, "turn-2", 1, "Continued.", relaunched);
+
+		expect(await (await message).json()).toMatchObject({ turn: { id: "turn-2", state: "completed" } });
+		expect(context.sent.filter((frame) => frame.kind === "reconcile")).toEqual([]);
+
+		context.relay.handleHostMessage({
+			type: "copilot_hello",
+			daemonInstanceId: relaunched.daemonInstanceId,
+			targets: [],
+		});
+		context.relay.handleHostMessage({
+			type: "copilot_receipt",
+			kind: "reconciled",
+			requestId: "123e4567-e89b-42d3-a456-426614174009",
+			ownerKey: context.sessionStore.teamOf(context.owner),
+			...FIRST_CHILD,
+			targetId: "container:recipe-app",
+			eventId: 9,
+			agentId,
+			sessionId: "session-1",
+			active: false,
+		});
+		await flush();
+		expect(context.service.listOwnedAgents(context.owner)[0]?.fence?.daemonInstanceId).toBe("daemon-2");
 	});
 });

@@ -12,7 +12,14 @@ Only the child that took the command can name its operation, so that is a reaped
 or a restarted daemon serving it, and no turn was in flight to misplace. The fence alone cannot order
 two children; the operation id is what does. Waiting on reconciliation there moves the fence, and the
 replayed receipt no longer matches the fence it was dispatched against, so the turn runs and its
-answer is dropped.
+answer is dropped. Copilot's twin is `followUpOnNewChild`, read off the agent itself, since a Copilot
+follow-up is only dispatched to an idle agent with no turn in flight.
+
+**A reconciliation adopts another stream, never a dead one.** `classifyReconciliationFence` refuses
+an older generation of the stream an agent already follows, and each relay drops a reconciliation
+from a daemon instance a later hello replaced (`fromReplacedDaemon`). Both families take these rules
+from `agent-fence.ts`. A reconciliation guard clears only on the answer carrying its own request id,
+so a replayed answer to an earlier request cannot strand held frames.
 
 **An acknowledgement retires the daemon's only copy.** `ignored` and `applied` permit it; only a
 withheld decision does not. Held frames are keyed by agent, although the stream is per target.

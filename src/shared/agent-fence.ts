@@ -63,6 +63,22 @@ export function advancesFence(current: AgentFence | undefined, next: AgentFence)
 	return classifyAcceptanceFence(current, next) === "advances";
 }
 
+/** Adopts another stream; an older generation of the same one is stale. */
+export function classifyReconciliationFence(
+	current: AgentFence | undefined,
+	next: AgentFence,
+): "adopts" | "duplicate" | "stale" {
+	if (!current) return "adopts";
+	const sameTarget = current.daemonInstanceId === next.daemonInstanceId && current.targetId === next.targetId;
+	if (sameTarget && next.generation < current.generation) return "stale";
+	return classifyAcceptanceFence(current, next) === "duplicate" ? "duplicate" : "adopts";
+}
+
+/** From a daemon a later hello replaced. None before the first hello. */
+export function fromReplacedDaemon(liveInstanceId: string | undefined, message: { daemonInstanceId: string }): boolean {
+	return liveInstanceId !== undefined && message.daemonInstanceId !== liveInstanceId;
+}
+
 /** The EVENT-side rule: an unfenced record cannot place an event at all (only reconciliation or an
  * acceptance installs a first fence), so `foreign` is the answer that holds it rather than noise. */
 export function classifyEventFence(

@@ -1,4 +1,4 @@
-import { classifyAcceptanceFence, fenceOf } from "../shared/agent-fence.js";
+import { classifyAcceptanceFence, classifyReconciliationFence, fenceOf } from "../shared/agent-fence.js";
 import {
 	type CopilotDaemonEvent,
 	type CopilotDaemonFailureCode,
@@ -10,7 +10,13 @@ import {
 } from "../shared/copilot-agent.js";
 import type { SessionRecord } from "../shared/session-store.js";
 import { applyCopilotAgent, type CopilotCatalogDeps } from "./copilotAgentPersistence.js";
-import { appendActivity, replaceAt, resolvedTargetMatchesRequest, sameResolvedTarget } from "./copilotAgentReducers.js";
+import {
+	appendActivity,
+	followUpOnNewChild,
+	replaceAt,
+	resolvedTargetMatchesRequest,
+	sameResolvedTarget,
+} from "./copilotAgentReducers.js";
 import type { CopilotApplication } from "./copilotAgentTypes.js";
 
 export interface CopilotReceiptApplier {
@@ -39,7 +45,8 @@ export function createCopilotReceiptApplier(deps: CopilotCatalogDeps): CopilotRe
 		const fence = fenceOf(receipt);
 		const fencePosition = classifyAcceptanceFence(current.fence, fence);
 		if (fencePosition === "duplicate") return { disposition: "ignored", reason: "duplicate acceptance fence" };
-		if (fencePosition === "foreign") return { disposition: "reconcile", owner, agent: current };
+		if (fencePosition === "foreign" && !followUpOnNewChild(current, operation, receipt.delivery))
+			return { disposition: "reconcile", owner, agent: current };
 		if (
 			(operation.kind === "start" &&
 				(receipt.delivery !== "started" ||
@@ -125,8 +132,9 @@ export function createCopilotReceiptApplier(deps: CopilotCatalogDeps): CopilotRe
 		)
 			return { disposition: "ignored", reason: "reconciliation names a different session" };
 		const fence = fenceOf(receipt);
-		if (classifyAcceptanceFence(current.fence, fence) === "duplicate")
-			return { disposition: "ignored", reason: "duplicate reconciliation" };
+		const standing = classifyReconciliationFence(current.fence, fence);
+		if (standing === "duplicate") return { disposition: "ignored", reason: "duplicate reconciliation" };
+		if (standing === "stale") return { disposition: "ignored", reason: "reconciliation from an older generation" };
 		const activeTurn = receipt.active && receipt.turnId ? receipt.turnId : undefined;
 		if (current.activeTurnId && activeTurn && current.activeTurnId !== activeTurn)
 			return { disposition: "reconcile", owner, agent: current };

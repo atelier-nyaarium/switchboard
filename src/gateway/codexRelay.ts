@@ -1,3 +1,4 @@
+import { fromReplacedDaemon } from "../shared/agent-fence.js";
 import type { Ambient } from "../shared/ambient.js";
 import {
 	type CodexDaemonCommand,
@@ -61,14 +62,19 @@ export class CodexRelay {
 	private readonly sections = new Map<string, Promise<unknown>>();
 	private readonly streams = new Map<string, StreamProgress>();
 	private readonly listeners = new Map<string, Set<() => void>>();
-	// Timestamps bound reconciliation suppression.
-	private readonly reconciling = new Map<string, number>();
+	// Only its own answer clears a guard.
+	private readonly reconciling = new Map<string, { requestId: string; askedAt: number }>();
 	private readonly deferred = new Map<string, Array<CodexDaemonEvent | CodexDaemonReceipt>>();
+	private liveInstanceId: string | undefined;
 
 	constructor(private readonly deps: CodexRelayDeps) {}
 
 	dispatch(command: CodexCommandRequest): boolean {
-		const message = { type: "codex_command", requestId: this.deps.ambient.newId(), ...command };
+		return this.send(this.deps.ambient.newId(), command);
+	}
+
+	private send(requestId: string, command: CodexCommandRequest): boolean {
+		const message = { type: "codex_command", requestId, ...command };
 		if (!CodexDaemonCommandSchema.safeParse(message).success) return false;
 		return this.deps.sendToHost(message);
 	}
@@ -128,6 +134,7 @@ export class CodexRelay {
 			console.warn(`[codex] dropped a malformed hello: ${hello.error.issues[0]?.message ?? "invalid"}`);
 			return;
 		}
+		this.liveInstanceId = hello.data.daemonInstanceId;
 		// A hello invalidates outstanding reconciliation guards.
 		this.reconciling.clear();
 		// The gateway owns the reconciliation candidate list.
@@ -161,12 +168,16 @@ export class CodexRelay {
 	}
 
 	private reduceReceipt(receipt: CodexDaemonReceipt): void {
+		// Would install a dead fence.
+		if (receipt.kind === "reconciled" && fromReplacedDaemon(this.liveInstanceId, receipt)) return;
 		const application = this.deps.service.applyReceipt(receipt, this.now());
 		this.settle(receipt, application);
-		// Any reconciliation answer clears its guard; other refusals carry operationId.
+		// Refusals with operationId answer an operation.
 		if (receipt.kind === "rejected" && receipt.operationId !== undefined) return;
 		if (receipt.kind !== "reconciled" && receipt.kind !== "rejected") return;
-		if (!this.reconciling.delete(agentKey(receipt.ownerKey, receipt.agentId))) return;
+		const key = agentKey(receipt.ownerKey, receipt.agentId);
+		if (this.reconciling.get(key)?.requestId !== receipt.requestId) return;
+		this.reconciling.delete(key);
 		if (application.disposition !== "applied") return;
 		this.drainDeferred(receipt.ownerKey, receipt.agentId);
 	}
@@ -282,10 +293,11 @@ export class CodexRelay {
 		if (!agent.threadId || !agent.resolvedTarget) return;
 		const key = agentKey(ownerKey, agent.agentId);
 		// Allow one time-bounded reconciliation request per agent.
-		const askedAt = this.reconciling.get(key);
-		if (askedAt !== undefined && this.now() - askedAt < RECONCILE_GUARD_MS) return;
-		this.reconciling.set(key, this.now());
-		const sent = this.dispatch({
+		const asked = this.reconciling.get(key);
+		if (asked !== undefined && this.now() - asked.askedAt < RECONCILE_GUARD_MS) return;
+		const requestId = this.deps.ambient.newId();
+		this.reconciling.set(key, { requestId, askedAt: this.now() });
+		const sent = this.send(requestId, {
 			kind: "reconcile",
 			ownerKey,
 			agentId: agent.agentId,

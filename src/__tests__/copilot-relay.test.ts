@@ -134,11 +134,11 @@ function acceptedReceipt(eventId: number): CopilotDaemonReceipt {
 	});
 }
 
-function reconciledReceipt(eventId: number): CopilotDaemonReceipt {
+function reconciledReceipt(eventId: number, requestId: unknown = REQUEST_ID): CopilotDaemonReceipt {
 	return CopilotDaemonReceiptSchema.parse({
 		type: "copilot_receipt",
 		kind: "reconciled",
-		requestId: REQUEST_ID,
+		requestId,
 		ownerKey: OWNER_KEY,
 		daemonInstanceId: DAEMON_INSTANCE_ID,
 		targetId: TARGET_ID,
@@ -260,7 +260,7 @@ describe("Copilot relay acknowledgement", () => {
 		});
 	});
 
-	it("releases a held event when reconciliation applies", async () => {
+	it("releases a held event only on the answer to its own reconciliation", async () => {
 		let hold = true;
 		const context = setup({
 			onEvent: (owner, agent) => (hold ? reconcile(owner, agent) : applied(owner, agent)),
@@ -271,10 +271,12 @@ describe("Copilot relay acknowledgement", () => {
 		hold = false;
 		context.relay.handleHostMessage(reconciledReceipt(5));
 		await settleRelay();
+		expect(messagesOf(context, "copilot_ack").some((ack) => (ack.throughEventId as number) >= 4)).toBe(false);
 
-		const acks = messagesOf(context, "copilot_ack");
-		expect(acks.at(-1)?.throughEventId).toBe(5);
-		expect(acks.some((ack) => (ack.throughEventId as number) >= 4)).toBe(true);
+		const command = messagesOf(context, "copilot_command")[0];
+		context.relay.handleHostMessage(reconciledReceipt(6, command?.requestId));
+		await settleRelay();
+		expect(messagesOf(context, "copilot_ack").at(-1)?.throughEventId).toBe(6);
 	});
 
 	it("evicts activity before terminal and receipt frames", async () => {
@@ -293,7 +295,7 @@ describe("Copilot relay acknowledgement", () => {
 		const receiptCallsBeforeDrain = context.receiptCalls.length;
 
 		hold = false;
-		context.relay.handleHostMessage(reconciledReceipt(132));
+		context.relay.handleHostMessage(reconciledReceipt(132, messagesOf(context, "copilot_command")[0]?.requestId));
 		await settleRelay();
 
 		const replayedEvents = context.eventCalls.slice(eventCallsBeforeDrain);
