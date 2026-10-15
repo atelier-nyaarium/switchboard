@@ -8,7 +8,6 @@ import type {
 } from "../shared/codex-agent.js";
 import type { CodexCatalogWriter, SessionRecord, SessionStore } from "../shared/session-store.js";
 import type { AgentApplication } from "./agentRelayCore.js";
-import type { AgentTransitionErrorCode } from "./agentRouteEnvelope.js";
 import type { SessionAuthority } from "./sessionAuthority.js";
 
 ////////////////////////////////
@@ -87,19 +86,3 @@ export interface CodexAcceptanceResult extends OwnedCodexOperation {
 }
 
 export type CodexApplication = AgentApplication<CodexPersistedAgent>;
-
-export type CodexTransitionErrorCode = AgentTransitionErrorCode;
-
-////////////////////////////////
-//  Class
-
-export class CodexTransitionError extends Error {
-	constructor(
-		readonly code: CodexTransitionErrorCode,
-		message: string,
-		options?: ErrorOptions,
-	) {
-		super(message, options);
-		this.name = "CodexTransitionError";
-	}
-}

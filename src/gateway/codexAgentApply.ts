@@ -1,6 +1,6 @@
 import { sameResolvedTarget } from "../shared/agent-execution-target.js";
 import { classifyEventFence, classifyReconciliationFence, fenceOf } from "../shared/agent-fence.js";
-import { replaceAt } from "../shared/agent-record.js";
+import { replaceAt, uncertainDeliveryState } from "../shared/agent-record.js";
 import {
 	CodexAgentIdSchema,
 	type CodexDaemonEvent,
@@ -92,12 +92,7 @@ export function createCodexReceiptApplier(deps: CodexReceiptApplierDeps): CodexR
 		try {
 			const next = CodexPersistedAgentSchema.parse({
 				...agent,
-				agentState:
-					operation.kind === "start"
-						? "unavailable"
-						: operation.kind === "message"
-							? "recovering"
-							: agent.agentState,
+				agentState: uncertainDeliveryState(operation.kind, agent.agentState),
 				pendingInterrupt:
 					agent.pendingInterrupt?.operationId === receipt.operationId ? undefined : agent.pendingInterrupt,
 				exchanges:

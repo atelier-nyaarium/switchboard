@@ -421,48 +421,6 @@ describe("Codex relay behavior", () => {
 		expect(context.agent()?.fence).toMatchObject({ daemonInstanceId: "daemon-2", generation: 2 });
 	});
 
-	it("releases held frames only on the answer to its own reconciliation", async () => {
-		const context = setup();
-		await startWorking(context);
-		context.feed(event(context, 1, { kind: "activity", turnId: "unknown-turn", itemId: "held", text: "held" }));
-		await settle();
-		const reconcile = context.commands().find((frame) => frame.kind === "reconcile")!;
-		const ownerKey = context.store.teamOf(context.owner);
-		context.feed(
-			CodexDaemonReceiptSchema.parse({
-				type: "codex_receipt",
-				kind: "rejected",
-				requestId: operations.stop,
-				ownerKey,
-				daemonInstanceId: "daemon-1",
-				eventId: 0,
-				agentId: reconcile.agentId,
-				error: "target unavailable",
-			}),
-		);
-		context.feed(
-			CodexDaemonReceiptSchema.parse({
-				type: "codex_receipt",
-				kind: "reconciled",
-				requestId: reconcile.requestId,
-				ownerKey,
-				daemonInstanceId: "daemon-1",
-				targetId,
-				generation: 1,
-				eventId: 2,
-				agentId: reconcile.agentId,
-				resolvedTarget,
-				threadId: "thread-1",
-				turnId: "turn-1",
-				turnState: "inProgress",
-			}),
-		);
-		await settle();
-		expect(context.outbound).toContainEqual(
-			expect.objectContaining({ type: "codex_ack", daemonInstanceId: "daemon-1", throughEventId: 2 }),
-		);
-	});
-
 	it("maps disconnect and timeout answers, isolates owners, and replays an operation answer", async () => {
 		const disconnected = setup({ attached: false, waitBudgetMs: 1_000 });
 		const disconnectedBody = CodexAgentResultSchema.parse(

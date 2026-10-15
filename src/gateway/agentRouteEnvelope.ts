@@ -1,6 +1,4 @@
-// The route envelope both agent backends share: the JSON answer helper, the transition-error code
-// union, and the one table saying how each failure code is answered. The result shaping stays per
-// backend; only what was a verbatim twin lives here.
+// The route envelope both agent families share. Result shaping stays per family.
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -22,6 +20,13 @@ export type AgentFailureAnswer =
 
 export function jsonResponse(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+}
+
+export function validateTimestamp(at: number): number {
+	if (!Number.isSafeInteger(at) || at < 0) {
+		throw new AgentTransitionError("invalid_input", "transition timestamp must be a nonnegative integer");
+	}
+	return at;
 }
 
 /**
@@ -46,3 +51,18 @@ export const AGENT_FAILURE_ANSWERS: Record<AgentTransitionErrorCode, AgentFailur
 	target_unavailable: { kind: "agent", code: "daemon_unavailable", retryable: true },
 	persistence_failed: { kind: "agent", code: "daemon_unavailable", retryable: true },
 };
+
+////////////////////////////////
+//  Class
+
+/** Answered through `AGENT_FAILURE_ANSWERS`. */
+export class AgentTransitionError extends Error {
+	constructor(
+		readonly code: AgentTransitionErrorCode,
+		message: string,
+		options?: ErrorOptions,
+	) {
+		super(message, options);
+		this.name = "AgentTransitionError";
+	}
+}

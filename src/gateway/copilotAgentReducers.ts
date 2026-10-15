@@ -4,13 +4,6 @@ import {
 	type CopilotPersistedAgent,
 	type CopilotResolvedTarget,
 } from "../shared/copilot-agent.js";
-import { CopilotTransitionError } from "./copilotAgentTypes.js";
-
-export function validateTimestamp(at: number): number {
-	if (!Number.isSafeInteger(at) || at < 0)
-		throw new CopilotTransitionError("invalid_input", "invalid transition timestamp");
-	return at;
-}
 
 /** Idle follow-up a relaunched child took. Reconciling first would drop it. */
 export function followUpOnNewChild(

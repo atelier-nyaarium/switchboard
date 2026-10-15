@@ -15,9 +15,8 @@ import {
 } from "../shared/copilot-agent.js";
 import { isHostSpawn } from "../shared/host-spawn.js";
 import type { SessionRecord } from "../shared/session-store.js";
-import { AGENT_FAILURE_ANSWERS, jsonResponse as json } from "./agentRouteEnvelope.js";
+import { AGENT_FAILURE_ANSWERS, AgentTransitionError, jsonResponse as json } from "./agentRouteEnvelope.js";
 import type { CopilotAgentService } from "./copilotAgentService.js";
-import { CopilotTransitionError } from "./copilotAgentTypes.js";
 import type { CopilotRelay } from "./copilotRelay.js";
 import { presentedByRequest } from "./sessionAuthority.js";
 
@@ -133,7 +132,7 @@ export class CopilotRoute {
 					return json(this.list(owner));
 			}
 		} catch (error) {
-			if (error instanceof CopilotTransitionError) {
+			if (error instanceof AgentTransitionError) {
 				const answer = AGENT_FAILURE_ANSWERS[error.code];
 				if (answer.kind === "request")
 					return json(
@@ -167,7 +166,7 @@ export class CopilotRoute {
 	): Promise<CopilotAgentResult> {
 		const agentId = copilotAgentIdForOperation(request.operationId);
 		if (request.cwd !== undefined && !isHostSpawn(owner.spawn))
-			throw new CopilotTransitionError("invalid_input", "cwd applies to host sessions only");
+			throw new AgentTransitionError("invalid_input", "cwd applies to host sessions only");
 		const target = this.deps.service.resolveExecutionTarget(owner, request.cwd);
 		if (!target) return unavailable(agentId, "daemon_unavailable", "no trusted execution target for this session");
 		const committed = this.deps.service.beginStart(req, {

@@ -387,6 +387,16 @@ export function restoreAgentCatalog<
 	return { version: 1, revision: envelope.revision, agents };
 }
 
+/** A start never ran; a prompt may have; a refused stop leaves the turn as it was. */
+export function uncertainDeliveryState<State extends string>(
+	kind: "start" | "message" | "stop",
+	current: State,
+): State | "unavailable" | "recovering" {
+	if (kind === "start") return "unavailable";
+	if (kind === "message") return "recovering";
+	return current;
+}
+
 export function replaceAt<T>(values: readonly T[], index: number, value: T): T[] {
 	return values.map((current, currentIndex) => (currentIndex === index ? value : current));
 }

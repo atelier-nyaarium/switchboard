@@ -1,19 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { type AgentCatalog, AgentCatalogPersistence } from "../gateway/agentCatalogPersistence.js";
+import { AgentTransitionError } from "../gateway/agentRouteEnvelope.js";
 import type { SessionRecord } from "../shared/session-store.js";
 
 interface TestAgent {
 	agentId: string;
 	operations: Array<{ operationId: string; fingerprint: string; state: string }>;
-}
-
-class Refusal extends Error {
-	constructor(
-		readonly code: string,
-		message: string,
-	) {
-		super(message);
-	}
 }
 
 function agent(agentId: string, state = "requested"): TestAgent {
@@ -44,7 +36,6 @@ function setup(write: Write = "lands", agents = [agent("a"), agent("b")], checkp
 					: { confirmed: true, catalog };
 			},
 		},
-		refuse: (code, message) => new Refusal(code, message),
 	});
 	return { owner, persistence };
 }
@@ -53,7 +44,7 @@ function refusalOf(action: () => unknown): string | undefined {
 	try {
 		action();
 	} catch (error) {
-		return error instanceof Refusal ? error.code : "other";
+		return error instanceof AgentTransitionError ? error.code : "other";
 	}
 	return undefined;
 }

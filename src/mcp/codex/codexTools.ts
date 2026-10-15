@@ -1,6 +1,5 @@
-import crypto from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { agentHttpPath } from "../../shared/agent-backend.js";
+import { agentHttpPath, CODEX_BACKEND } from "../../shared/agent-backend.js";
 import {
 	CODEX_DEFAULT_MODEL,
 	CODEX_PRIORITY_SERVICE_TIER,
@@ -13,6 +12,7 @@ import {
 	CodexStopAgentInputSchema,
 } from "../../shared/codex-agent.js";
 import type { AgentDispatch } from "../agentDispatch.js";
+import { type AgentRequestKind, postAgentRequest, requestHead } from "../agentRequest.js";
 import { routerPost } from "../bridge/helpers.js";
 
 ////////////////////////////////
@@ -102,12 +102,6 @@ List Codex agents. Defaults to a bounded summary, newest first.
 Agents outlive their callers. Use this to resume work after a subagent or workflow ends.
 `.trim();
 
-/** Minted once per call, reused across retries, so a retry replays rather than delegates twice.
- * Never shown to Claude: a caller-chosen id could collide two separate requests. */
-function operationId(): string {
-	return crypto.randomUUID();
-}
-
 /** A start naming neither gets the efficient model at priority. Naming either is deliberate, so a
  * heavier model does not also buy the tier it charges extra for. */
 export function codexStartDefaults(args: { model?: string; serviceTier?: CodexServiceTier }): {
@@ -120,7 +114,7 @@ export function codexStartDefaults(args: { model?: string; serviceTier?: CodexSe
 
 /** Absent is OMITTED, since the gateway's schemas are strict. */
 export function codexRequestBody(
-	kind: "start" | "message" | "await" | "stop" | "list",
+	kind: AgentRequestKind,
 	args: {
 		agentId?: string;
 		prompt?: string;
@@ -131,11 +125,9 @@ export function codexRequestBody(
 		limit?: number;
 	} = {},
 ): Record<string, unknown> {
-	const mutating = kind === "start" || kind === "message" || kind === "stop";
 	const chosen = kind === "start" ? codexStartDefaults(args) : { serviceTier: args.serviceTier };
 	return {
-		kind,
-		...(mutating ? { operationId: operationId() } : {}),
+		...requestHead(kind),
 		...(args.agentId === undefined ? {} : { agentId: args.agentId }),
 		...(kind === "list" && args.detail === undefined ? {} : kind === "list" ? { detail: args.detail } : {}),
 		...(kind === "list" && args.limit === undefined ? {} : kind === "list" ? { limit: args.limit } : {}),
@@ -150,17 +142,8 @@ export function codexRequestBody(
 
 export const gatewayDispatch: AgentDispatch = (body) => routerPost(agentHttpPath("codex"), body);
 
-function post(
-	dispatch: AgentDispatch,
-	body: Record<string, unknown>,
-): Promise<{ content: Array<{ type: "text"; text: string }> }> {
-	return dispatch(body).then(
-		(result) => ({ content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] }),
-		(error: unknown) => {
-			const message = error instanceof Error ? error.message : String(error);
-			return { content: [{ type: "text" as const, text: `Codex request failed: ${message}` }] };
-		},
-	);
+function post(dispatch: AgentDispatch, body: Record<string, unknown>) {
+	return postAgentRequest(CODEX_BACKEND, dispatch, body);
 }
 
 ////////////////////////////////

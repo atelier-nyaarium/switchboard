@@ -1,6 +1,5 @@
-import crypto from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { agentHttpPath } from "../../shared/agent-backend.js";
+import { agentHttpPath, COPILOT_BACKEND } from "../../shared/agent-backend.js";
 import {
 	CopilotAwaitAgentInputSchema,
 	CopilotListAgentsInputSchema,
@@ -9,20 +8,15 @@ import {
 	CopilotStopAgentInputSchema,
 } from "../../shared/copilot-agent.js";
 import type { AgentDispatch } from "../agentDispatch.js";
+import { type AgentRequestKind, postAgentRequest, requestHead } from "../agentRequest.js";
 import { routerPost } from "../bridge/helpers.js";
 
-function operationId(): string {
-	return crypto.randomUUID();
-}
-
 export function copilotRequestBody(
-	kind: "start" | "message" | "await" | "stop" | "list",
+	kind: AgentRequestKind,
 	args: { agentId?: string; prompt?: string; model?: string; cwd?: string } = {},
 ): Record<string, unknown> {
-	const mutating = kind === "start" || kind === "message" || kind === "stop";
 	return {
-		kind,
-		...(mutating ? { operationId: operationId() } : {}),
+		...requestHead(kind),
 		...(args.agentId === undefined ? {} : { agentId: args.agentId }),
 		...(args.prompt === undefined ? {} : { prompt: args.prompt }),
 		...(kind === "start" && args.model !== undefined ? { model: args.model } : {}),
@@ -32,17 +26,8 @@ export function copilotRequestBody(
 
 export const gatewayDispatch: AgentDispatch = (body) => routerPost(agentHttpPath("copilot"), body);
 
-function post(
-	dispatch: AgentDispatch,
-	body: Record<string, unknown>,
-): Promise<{ content: Array<{ type: "text"; text: string }> }> {
-	return dispatch(body).then(
-		(result) => ({ content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] }),
-		(error: unknown) => {
-			const message = error instanceof Error ? error.message : String(error);
-			return { content: [{ type: "text" as const, text: `Copilot request failed: ${message}` }] };
-		},
-	);
+function post(dispatch: AgentDispatch, body: Record<string, unknown>) {
+	return postAgentRequest(COPILOT_BACKEND, dispatch, body);
 }
 
 export function registerCopilotTools(mcpServer: McpServer, dispatch: AgentDispatch = gatewayDispatch): void {

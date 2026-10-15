@@ -15,7 +15,7 @@ import {
 	sanitizeCodexErrorText,
 } from "../shared/codex-agent.js";
 import type { SessionRecord } from "../shared/session-store.js";
-import { type CodexAcceptanceResult, type CodexApplication, CodexTransitionError } from "./codexAgentTypes.js";
+import type { CodexAcceptanceResult, CodexApplication } from "./codexAgentTypes.js";
 
 export type CodexAcceptanceVerdict =
 	| { kind: "replayed" }
@@ -24,13 +24,6 @@ export type CodexAcceptanceVerdict =
 	| { kind: "refuse" }
 	| { kind: "unresolved" }
 	| { kind: "accept"; steeredIntoSettledTurn: boolean };
-
-export function validateTimestamp(at: number): number {
-	if (!Number.isSafeInteger(at) || at < 0) {
-		throw new CodexTransitionError("invalid_input", "transition timestamp must be a nonnegative integer");
-	}
-	return at;
-}
 
 // Count only requested operations or one refusal wedges the agent.
 export function hasPendingPrompt(agent: CodexPersistedAgent): boolean {

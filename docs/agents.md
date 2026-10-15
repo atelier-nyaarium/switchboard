@@ -21,6 +21,10 @@ from a daemon instance a later hello replaced (`fromReplacedDaemon`). A reconcil
 only on the answer carrying its own request id, so a replayed answer to an earlier request cannot
 strand held frames.
 
+**An uncertain delivery has one rule, `uncertainDeliveryState`.** A refused or unconfirmed start leaves
+the agent unavailable, a prompt leaves it recovering, and a refused stop leaves it as it was. Both families'
+refusal and abandonment paths take it, and both throw one `AgentTransitionError`.
+
 **One relay, two adapters.** The fence rules live in `agent-fence.ts` and the relay mechanics in
 `AgentRelayCore`: acknowledgement, held frames, the reconcile guard, and per-agent serialization.
 `CodexRelay` and `CopilotRelay` supply only their wire schemas, applier, agent listing, and

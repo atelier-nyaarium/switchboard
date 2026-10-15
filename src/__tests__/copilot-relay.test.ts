@@ -269,6 +269,18 @@ describe("Copilot relay acknowledgement", () => {
 		context.relay.handleHostMessage(eventFrame(4));
 		await settleRelay();
 		hold = false;
+		context.relay.handleHostMessage(
+			CopilotDaemonReceiptSchema.parse({
+				type: "copilot_receipt",
+				kind: "rejected",
+				requestId: REQUEST_ID,
+				ownerKey: OWNER_KEY,
+				daemonInstanceId: DAEMON_INSTANCE_ID,
+				agentId: AGENT_ID,
+				eventId: 0,
+				error: "target unavailable",
+			}),
+		);
 		context.relay.handleHostMessage(reconciledReceipt(5));
 		await settleRelay();
 		expect(messagesOf(context, "copilot_ack").some((ack) => (ack.throughEventId as number) >= 4)).toBe(false);

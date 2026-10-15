@@ -609,6 +609,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/local/localChildSession.ts` - the one child: open, idle reap, shutdown
 - `src/mcp/local/localOperationLedger.ts` - operation identity claim and release
 - `src/mcp/agentDispatch.ts` - agent tool serving seam
+- `src/mcp/agentRequest.ts` - both families' request kinds, operation ids, and posted answer
 - `src/mcp/codex/codexTools.ts` - five Codex tools and per-invocation replay ids
 - `src/mcp/capabilities.ts` / `capabilitiesTool.ts` - capability gating and guidance
 - `src/federation-server/` - live self-hosted federation Router

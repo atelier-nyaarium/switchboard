@@ -1,6 +1,6 @@
 import { sameResolvedTarget } from "../shared/agent-execution-target.js";
 import { classifyAcceptanceFence, classifyReconciliationFence, fenceOf } from "../shared/agent-fence.js";
-import { replaceAt } from "../shared/agent-record.js";
+import { replaceAt, uncertainDeliveryState } from "../shared/agent-record.js";
 import {
 	type CopilotDaemonEvent,
 	type CopilotDaemonFailureCode,
@@ -181,7 +181,7 @@ export function createCopilotReceiptApplier(deps: CopilotReceiptApplierDeps): Co
 		const timestamp = Math.max(at, current.updatedAt);
 		const next = CopilotPersistedAgentSchema.parse({
 			...current,
-			agentState: current.agentState === "creating" ? "unavailable" : "recovering",
+			agentState: uncertainDeliveryState(current.operations[index]!.kind, current.agentState),
 			operations: replaceAt(current.operations, index, {
 				...current.operations[index]!,
 				state: "indeterminate",

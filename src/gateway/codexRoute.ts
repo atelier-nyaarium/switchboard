@@ -16,9 +16,8 @@ import {
 } from "../shared/codex-agent.js";
 import { isHostSpawn } from "../shared/host-spawn.js";
 import type { SessionRecord } from "../shared/session-store.js";
-import { AGENT_FAILURE_ANSWERS, jsonResponse as json } from "./agentRouteEnvelope.js";
+import { AGENT_FAILURE_ANSWERS, AgentTransitionError, jsonResponse as json } from "./agentRouteEnvelope.js";
 import type { CodexAgentService } from "./codexAgentService.js";
-import { CodexTransitionError } from "./codexAgentTypes.js";
 import type { CodexRelay } from "./codexRelay.js";
 import { presentedByRequest } from "./sessionAuthority.js";
 
@@ -146,7 +145,7 @@ export class CodexRoute {
 					return json({ error: "unsupported Codex request" }, 400);
 			}
 		} catch (error) {
-			if (error instanceof CodexTransitionError) {
+			if (error instanceof AgentTransitionError) {
 				const answer = AGENT_FAILURE_ANSWERS[error.code];
 				if (answer.kind === "request") {
 					return json(
@@ -182,7 +181,7 @@ export class CodexRoute {
 		const agentId = codexAgentIdForOperation(request.operationId);
 		// Only host sessions may override the execution working directory.
 		if (request.cwd !== undefined && !isHostSpawn(owner.spawn)) {
-			throw new CodexTransitionError("invalid_input", "cwd applies to host sessions only");
+			throw new AgentTransitionError("invalid_input", "cwd applies to host sessions only");
 		}
 		const target = this.deps.service.resolveExecutionTarget(owner, request.cwd);
 		if (!target) return unavailable(agentId, TARGET_UNAVAILABLE, "no trusted execution target for this session");

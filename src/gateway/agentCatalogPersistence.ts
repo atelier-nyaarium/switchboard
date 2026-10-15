@@ -6,7 +6,7 @@ import {
 } from "../shared/agent-record.js";
 import type { AgentCatalogWriter, SessionRecord } from "../shared/session-store.js";
 import type { AgentApplication } from "./agentRelayCore.js";
-import type { AgentTransitionErrorCode } from "./agentRouteEnvelope.js";
+import { AgentTransitionError } from "./agentRouteEnvelope.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -34,7 +34,6 @@ export interface AgentTransitionResult<TAgent extends AgentCatalogAgent> {
 export interface AgentCatalogFamily<TAgent extends AgentCatalogAgent> {
 	read(owner: SessionRecord): AgentCatalog<TAgent> | undefined;
 	writer: AgentCatalogWriter<AgentCatalog<TAgent>, TAgent>;
-	refuse(code: AgentTransitionErrorCode, message: string, options?: ErrorOptions): Error;
 }
 
 ////////////////////////////////
@@ -57,7 +56,7 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 
 	indexOf(catalog: AgentCatalog<TAgent>, agentId: string): number {
 		const index = this.matchOf(catalog, agentId);
-		if (index === undefined) throw this.family.refuse("not_found", "agent was not found");
+		if (index === undefined) throw new AgentTransitionError("not_found", "agent was not found");
 		return index;
 	}
 
@@ -81,13 +80,13 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 		try {
 			committed = this.family.writer.commit(owner, catalog.revision, agents);
 		} catch (error) {
-			throw this.family.refuse("persistence_failed", "transition could not be persisted", { cause: error });
+			throw new AgentTransitionError("persistence_failed", "transition could not be persisted", { cause: error });
 		}
 		if (!committed.committed && committed.reason === "owner_missing") {
-			throw this.family.refuse("not_found", "managed session was not found");
+			throw new AgentTransitionError("not_found", "managed session was not found");
 		}
 		// A retry rereads the catalog.
-		if (!committed.committed) throw this.family.refuse("persistence_failed", "catalog changed while saving");
+		if (!committed.committed) throw new AgentTransitionError("persistence_failed", "catalog changed while saving");
 		const stored = committed.catalog.agents.find((candidate) => candidate.agentId === agent.agentId)!;
 		return {
 			owner,
@@ -124,7 +123,7 @@ export class AgentCatalogPersistence<TAgent extends AgentCatalogAgent> {
 			this.durable(owner, catalog.revision),
 		);
 		if (found.kind === "none") return null;
-		if (found.kind === "conflict") throw this.family.refuse("operation_conflict", found.reason);
+		if (found.kind === "conflict") throw new AgentTransitionError("operation_conflict", found.reason);
 		return {
 			owner,
 			agent: found.agent,

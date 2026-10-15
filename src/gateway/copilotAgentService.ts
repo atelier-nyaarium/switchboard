@@ -1,4 +1,9 @@
-import { type AgentOperationIdentity, agentOperationFingerprintOf, replaceAt } from "../shared/agent-record.js";
+import {
+	type AgentOperationIdentity,
+	agentOperationFingerprintOf,
+	replaceAt,
+	uncertainDeliveryState,
+} from "../shared/agent-record.js";
 import {
 	type CopilotAgentCatalog,
 	CopilotAgentIdSchema,
@@ -16,17 +21,16 @@ import {
 import type { SessionRecord } from "../shared/session-store.js";
 import { AgentCatalogPersistence } from "./agentCatalogPersistence.js";
 import { resolveAgentExecutionTarget } from "./agentExecutionTarget.js";
+import { AgentTransitionError, validateTimestamp } from "./agentRouteEnvelope.js";
 import { type CopilotReceiptApplier, createCopilotReceiptApplier } from "./copilotAgentApply.js";
-import { validateTimestamp } from "./copilotAgentReducers.js";
-import {
-	type CopilotAgentServiceDeps,
-	type CopilotApplication,
-	type CopilotExistingAgentIntentInput,
-	type CopilotIntentInput,
-	type CopilotStopIntentInput,
-	CopilotTransitionError,
-	type CopilotTransitionResult,
-	type OwnedCopilotAgent,
+import type {
+	CopilotAgentServiceDeps,
+	CopilotApplication,
+	CopilotExistingAgentIntentInput,
+	CopilotIntentInput,
+	CopilotStopIntentInput,
+	CopilotTransitionResult,
+	OwnedCopilotAgent,
 } from "./copilotAgentTypes.js";
 
 export class CopilotAgentService {
@@ -37,7 +41,6 @@ export class CopilotAgentService {
 		this.persistence = new AgentCatalogPersistence({
 			read: (owner) => deps.sessionStore.copilotCatalog(owner),
 			writer: deps.catalogWriter,
-			refuse: (code, message, options) => new CopilotTransitionError(code, message, options),
 		});
 		this.receiptApplier = createCopilotReceiptApplier({
 			sessionStore: deps.sessionStore,
@@ -82,7 +85,7 @@ export class CopilotAgentService {
 		if (replay) return replay;
 		const catalog = this.catalog(owner);
 		if (catalog.agents.some((agent) => agent.agentId === agentId))
-			throw new CopilotTransitionError("operation_conflict", "agent ID is already in use");
+			throw new AgentTransitionError("operation_conflict", "agent ID is already in use");
 		const agent = CopilotPersistedAgentSchema.parse({
 			version: 1,
 			agentId,
@@ -121,9 +124,9 @@ export class CopilotAgentService {
 		const index = this.indexOf(catalog, agentId);
 		const current = catalog.agents[index]!;
 		if (!current.sessionId || !current.resolvedTarget || current.agentState !== "idle")
-			throw new CopilotTransitionError("state_conflict", "Copilot agent is not idle");
+			throw new AgentTransitionError("state_conflict", "Copilot agent is not idle");
 		if (current.operations.some((operation) => operation.state === "requested"))
-			throw new CopilotTransitionError("state_conflict", "Copilot agent has an unresolved operation");
+			throw new AgentTransitionError("state_conflict", "Copilot agent has an unresolved operation");
 		const timestamp = Math.max(at, current.updatedAt);
 		const next = CopilotPersistedAgentSchema.parse({
 			...current,
@@ -162,10 +165,10 @@ export class CopilotAgentService {
 			!current.resolvedTarget ||
 			(current.agentState !== "idle" && current.agentState !== "working")
 		) {
-			throw new CopilotTransitionError("state_conflict", "Copilot agent cannot be stopped now");
+			throw new AgentTransitionError("state_conflict", "Copilot agent cannot be stopped now");
 		}
 		if (current.operations.some((operation) => operation.state === "requested"))
-			throw new CopilotTransitionError("state_conflict", "Copilot agent has an unresolved operation");
+			throw new AgentTransitionError("state_conflict", "Copilot agent has an unresolved operation");
 		const timestamp = Math.max(at, current.updatedAt);
 		const noOp = current.agentState === "idle";
 		const operation = {
@@ -211,7 +214,7 @@ export class CopilotAgentService {
 		};
 		const next = CopilotPersistedAgentSchema.parse({
 			...current,
-			agentState: current.agentState === "creating" ? "unavailable" : "recovering",
+			agentState: uncertainDeliveryState(operation.kind, current.agentState),
 			operations: replaceAt(current.operations, operationIndex, operation),
 			updatedAt: Math.max(at, current.updatedAt),
 		});
@@ -243,7 +246,7 @@ export class CopilotAgentService {
 
 	private requireOwner(req: Request): SessionRecord {
 		const owner = this.resolveOwner(req);
-		if (!owner) throw new CopilotTransitionError("not_found", "session was not found");
+		if (!owner) throw new AgentTransitionError("not_found", "session was not found");
 		return owner;
 	}
 

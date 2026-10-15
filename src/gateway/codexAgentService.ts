@@ -1,4 +1,9 @@
-import { type AgentOperationIdentity, agentOperationFingerprintOf, replaceAt } from "../shared/agent-record.js";
+import {
+	type AgentOperationIdentity,
+	agentOperationFingerprintOf,
+	replaceAt,
+	uncertainDeliveryState,
+} from "../shared/agent-record.js";
 import {
 	type CodexAgentCatalog,
 	CodexAgentIdSchema,
@@ -18,21 +23,21 @@ import {
 import type { SessionRecord, SessionStore } from "../shared/session-store.js";
 import { AgentCatalogPersistence } from "./agentCatalogPersistence.js";
 import { resolveAgentExecutionTarget } from "./agentExecutionTarget.js";
+import { AgentTransitionError, validateTimestamp } from "./agentRouteEnvelope.js";
 import { type CodexReceiptApplier, createCodexReceiptApplier } from "./codexAgentApply.js";
-import { decideAcceptance, hasPendingPrompt, indeterminate, validateTimestamp } from "./codexAgentReducers.js";
-import {
-	type CodexAcceptanceResult,
-	type CodexAgentServiceDeps,
-	type CodexApplication,
-	type CodexDaemonDeliveryAcceptance,
-	type CodexDeliveryAcceptance,
-	type CodexExistingAgentIntentInput,
-	type CodexStartIntentInput,
-	type CodexStopIntentInput,
-	CodexTransitionError,
-	type CodexTransitionResult,
-	type OwnedCodexAgent,
-	type OwnedCodexOperation,
+import { decideAcceptance, hasPendingPrompt, indeterminate } from "./codexAgentReducers.js";
+import type {
+	CodexAcceptanceResult,
+	CodexAgentServiceDeps,
+	CodexApplication,
+	CodexDaemonDeliveryAcceptance,
+	CodexDeliveryAcceptance,
+	CodexExistingAgentIntentInput,
+	CodexStartIntentInput,
+	CodexStopIntentInput,
+	CodexTransitionResult,
+	OwnedCodexAgent,
+	OwnedCodexOperation,
 } from "./codexAgentTypes.js";
 import type { SessionAuthority } from "./sessionAuthority.js";
 
@@ -50,7 +55,6 @@ export class CodexAgentService {
 		this.persistence = new AgentCatalogPersistence({
 			read: (owner) => deps.sessionStore.codexCatalog(owner),
 			writer: deps.catalogWriter,
-			refuse: (code, message, options) => new CodexTransitionError(code, message, options),
 		});
 		this.receiptApplier = createCodexReceiptApplier({
 			sessionStore: deps.sessionStore,
@@ -104,7 +108,7 @@ export class CodexAgentService {
 		if (replay) return replay;
 		const catalog = this.catalog(owner);
 		if (catalog.agents.some((agent) => agent.agentId === agentId)) {
-			throw new CodexTransitionError("operation_conflict", "agent ID is already in use");
+			throw new AgentTransitionError("operation_conflict", "agent ID is already in use");
 		}
 		const agent = CodexPersistedAgentSchema.parse({
 			version: 1,
@@ -159,13 +163,13 @@ export class CodexAgentService {
 			!current.fence ||
 			(current.agentState !== "idle" && current.agentState !== "working")
 		) {
-			throw new CodexTransitionError("state_conflict", "agent cannot accept a follow-up in its current state");
+			throw new AgentTransitionError("state_conflict", "agent cannot accept a follow-up in its current state");
 		}
 		if (current.pendingInterrupt) {
-			throw new CodexTransitionError("state_conflict", "agent cannot accept a message while interrupting");
+			throw new AgentTransitionError("state_conflict", "agent cannot accept a message while interrupting");
 		}
 		if (hasPendingPrompt(current)) {
-			throw new CodexTransitionError("state_conflict", "agent already has an unresolved prompt delivery");
+			throw new AgentTransitionError("state_conflict", "agent already has an unresolved prompt delivery");
 		}
 		const timestamp = Math.max(at, current.updatedAt);
 		const next = CodexPersistedAgentSchema.parse({
@@ -223,13 +227,13 @@ export class CodexAgentService {
 			!current.fence ||
 			(current.agentState !== "idle" && current.agentState !== "working")
 		) {
-			throw new CodexTransitionError("state_conflict", "agent cannot be stopped in its current state");
+			throw new AgentTransitionError("state_conflict", "agent cannot be stopped in its current state");
 		}
 		if (current.pendingInterrupt) {
-			throw new CodexTransitionError("state_conflict", "an interrupt is already pending");
+			throw new AgentTransitionError("state_conflict", "an interrupt is already pending");
 		}
 		if (hasPendingPrompt(current)) {
-			throw new CodexTransitionError("state_conflict", "agent has an unresolved prompt delivery");
+			throw new AgentTransitionError("state_conflict", "agent has an unresolved prompt delivery");
 		}
 		const timestamp = Math.max(at, current.updatedAt);
 		const noOp = current.agentState === "idle";
@@ -273,7 +277,7 @@ export class CodexAgentService {
 				agent.operations.some((operation) => operation.operationId === operationId),
 		);
 		if (!owner || matches.length !== 1) {
-			throw new CodexTransitionError("not_found", "receipt did not resolve to one managed operation");
+			throw new AgentTransitionError("not_found", "receipt did not resolve to one managed operation");
 		}
 		return this.acceptDeliveryForOwner(owner, input);
 	}
@@ -290,7 +294,7 @@ export class CodexAgentService {
 		const operationIndex = current.operations.findIndex((operation) => operation.operationId === operationId);
 		const exchangeIndex = current.exchanges.findIndex((exchange) => exchange.operationId === operationId);
 		if (operationIndex < 0 || exchangeIndex < 0) {
-			throw new CodexTransitionError("not_found", "operation was not found for this agent");
+			throw new AgentTransitionError("not_found", "operation was not found for this agent");
 		}
 		const operation = current.operations[operationIndex]!;
 		const exchange = current.exchanges[exchangeIndex]!;
@@ -306,7 +310,7 @@ export class CodexAgentService {
 			case "unplaceable":
 				return indeterminate(owner, current, operation, catalog.revision, true);
 			case "conflict":
-				throw new CodexTransitionError("operation_conflict", "accepted delivery does not match its receipt");
+				throw new AgentTransitionError("operation_conflict", "accepted delivery does not match its receipt");
 			case "replayed":
 				if (!this.ensureCatalogDurable(owner, catalog.revision)) {
 					return indeterminate(owner, current, operation, catalog.revision, true);
@@ -379,10 +383,10 @@ export class CodexAgentService {
 		}
 		const timestamp = Math.max(at, current.updatedAt);
 		try {
-			// Refusal settles the operation and enters recovery when delivery is uncertain.
+			// The delivery is uncertain.
 			const next = CodexPersistedAgentSchema.parse({
 				...current,
-				agentState: operation.kind === "start" ? "unavailable" : "recovering",
+				agentState: uncertainDeliveryState(operation.kind, current.agentState),
 				operations: replaceAt(current.operations, operationIndex, {
 					...operation,
 					state: "indeterminate" as const,
@@ -438,7 +442,7 @@ export class CodexAgentService {
 
 	private requireOwner(req: Request): SessionRecord {
 		const owner = this.resolveOwner(req);
-		if (!owner) throw new CodexTransitionError("not_found", "managed session was not found");
+		if (!owner) throw new AgentTransitionError("not_found", "managed session was not found");
 		return owner;
 	}
 
