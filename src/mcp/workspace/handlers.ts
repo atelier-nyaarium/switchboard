@@ -36,10 +36,13 @@ import { withinServed } from "./answerGate.js";
 import { confine, listable } from "./confine.js";
 import { knowledgeCountsOf, symbolFacetOf } from "./facets.js";
 import {
+	boundedSession,
 	byDeadline,
 	confinedModule,
 	failed,
 	type HandlerDeps,
+	heldPastDeadline,
+	LATE,
 	lexiconRefusal,
 	type OpContext,
 	refused,
@@ -505,13 +508,15 @@ function answerOf(context: OpContext, op: WorkspaceOp): WorkspaceOpResult | Prom
 export async function answerWorkspaceOp(deps: HandlerDeps, op: WorkspaceOp): Promise<WorkspaceOpResult> {
 	const root = deps.root();
 	const deadline = Date.now() + (deps.budgetMs ?? boundsOf(op).handlerBudgetMs);
-	const context: OpContext = { deps, root, deadline };
+	const bounded: HandlerDeps = { ...deps, session: async () => boundedSession(await deps.session(), deadline) };
+	const context: OpContext = { deps: bounded, root, deadline };
 	try {
 		const wrote = op.kind === "saveSpan" || op.kind === "mutateFile";
 		return withinCap(withinServed(await answerOf(context, op), servedGate(root), wrote));
 	} catch (error) {
 		const refusal = lexiconRefusal(error);
 		if (refusal !== null) return refused(refusal);
+		if (heldPastDeadline(error)) return failed(LATE);
 		return failed(error instanceof Error ? error.message : String(error));
 	}
 }

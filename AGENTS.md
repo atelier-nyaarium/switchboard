@@ -564,7 +564,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A symbol id is confined too, not just a path:** an id EMBEDS its module, and Lexicon checks only
     lexical containment. Without `confinedModule` an indexed `.env` would answer through `symbolSource`.
   - **ONE deadline per op, never a budget per call:** two calls each given the full budget outlast the
-    plane's wait and reinstate the blind timeout the budget exists to prevent.
+    plane's wait and reinstate the blind timeout the budget exists to prevent. `boundedSession` hands
+    each read what is left as Lexicon's `gateWaitMs`, so a read held behind an index write past it
+    never runs; a write keeps no bound.
 - `src/mcp/workspace/loadFile.ts` - the one reader of a workspace file: regular files only, sized before the read, text or nothing, with the hash of its bytes and whether it was transcoded. Shared by the refs snapshot road and the phone's file road; containment is the caller's.
 - `src/mcp/workspace/confine.ts` - which project files the phone's file road may reach, `fileIdentity` for a mutation that must bind a file rather than bytes, and `namesOneFile` for two names of one file
   - **Every rule runs against what a path RESOLVES to, never its spelling:** a link defeated containment

@@ -4,7 +4,14 @@
 import os from "node:os";
 import path from "node:path";
 import { DaemonError, Incompatible, NotInstalled, type Session } from "@nyaa-lexicon/client";
-import { parseSymbolId } from "@nyaa-lexicon/protocol";
+import {
+	DAEMON_METHODS,
+	GATE_BUSY_CODE,
+	GATE_WAIT_CAP_MS,
+	isDaemonMethod,
+	parseSymbolId,
+	type RequestOptions,
+} from "@nyaa-lexicon/protocol";
 import { MAX_WORKSPACE_OP_BYTES, type WorkspaceOpAnswer, type WorkspaceOpResult } from "../../shared/workspace-op.js";
 import { confine } from "./confine.js";
 
@@ -34,6 +41,10 @@ export const refused = (detail: string): WorkspaceOpResult => ({ ok: false, fail
 
 export const failed = (detail: string): WorkspaceOpResult => ({ ok: false, failure: "failed", detail });
 
+/** A bounded read the gate held past its deadline never ran. */
+export const heldPastDeadline = (error: unknown): boolean =>
+	error instanceof DaemonError && error.code === GATE_BUSY_CODE;
+
 /** A Lexicon this plugin cannot use is an update, never a failure. */
 export function lexiconRefusal(error: unknown): string | null {
 	if (error instanceof NotInstalled)
@@ -48,6 +59,20 @@ export function lexiconRefusal(error: unknown): string | null {
 }
 
 export const LATE = "the index did not answer in time";
+
+/** A read the deadline outlasts never runs, rather than running for nobody. */
+export function boundedSession(session: Session, deadline: number): Session {
+	return new Proxy(session, {
+		get(target, name, receiver) {
+			const method = Reflect.get(target, name, receiver);
+			if (typeof method !== "function" || typeof name !== "string" || !isDaemonMethod(name)) return method;
+			if (DAEMON_METHODS[name].mutates) return method.bind(target);
+			const gateWaitMs = () => Math.min(GATE_WAIT_CAP_MS, Math.max(0, Math.floor(deadline - Date.now())));
+			return (params: unknown, options?: RequestOptions) =>
+				method.call(target, params, options ?? { gateWaitMs: gateWaitMs() });
+		},
+	});
+}
 
 /**
  * ONE deadline for the whole op, never a budget per call: two calls each given the full budget can

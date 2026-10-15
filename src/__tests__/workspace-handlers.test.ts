@@ -6,6 +6,7 @@ import path from "node:path";
 import type { Session } from "@nyaa-lexicon/client";
 import { composeSymbolId, hashContent } from "@nyaa-lexicon/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { boundedSession } from "../mcp/workspace/handlerKit.js";
 import { answerWorkspaceOp, type HandlerDeps } from "../mcp/workspace/handlers.js";
 import { CODE_TOKENS } from "../shared/schemasWorkspace.js";
 import {
@@ -1215,5 +1216,44 @@ describe("the index deadline", () => {
 		// Shared: 150 then 50. Per call: 150 then 200.
 		expect(Date.now() - started).toBeLessThan(300);
 		expect(result).toMatchObject({ ok: false, failure: "failed" });
+	});
+
+	it("bounds a read's wait behind an index write by what the deadline leaves, and answers one held past it as late", async () => {
+		const { DaemonError } = await import("@nyaa-lexicon/client");
+		const asked: unknown[] = [];
+		const session = async () =>
+			({
+				outlineModule: async (_params: unknown, options?: unknown) => {
+					asked.push(options);
+					throw new DaemonError("the workspace gate stayed busy", "daemon", { code: "busy" });
+				},
+			}) as unknown as Session;
+
+		const result = await answerWorkspaceOp(
+			{ root: () => workspace(), session, budgetMs: 5_000 },
+			{ kind: "outline", path: "src/app.ts" },
+		);
+
+		const [options] = asked as Array<{ gateWaitMs: number }>;
+		expect(options?.gateWaitMs).toBeGreaterThan(0);
+		expect(options?.gateWaitMs).toBeLessThanOrEqual(5_000);
+		expect(result).toMatchObject({ ok: false, failure: "failed", detail: "the index did not answer in time" });
+	});
+
+	it("leaves a write's wait unbounded, since a write that never ran is not a late read", async () => {
+		const asked: unknown[] = [];
+		const bounded = boundedSession(
+			{
+				refactorReplaceSpan: async (_params: unknown, options?: unknown) => {
+					asked.push(options);
+					return {};
+				},
+			} as unknown as Session,
+			Date.now() + 5_000,
+		);
+
+		await bounded.refactorReplaceSpan({ symbolId: "s", expectedSpanHash: "h", newText: "x", standalone: true });
+
+		expect(asked).toEqual([undefined]);
 	});
 });
