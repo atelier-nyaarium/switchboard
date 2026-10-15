@@ -9,6 +9,7 @@ import com.atelier_nyaarium.switchboard.proto.RosterEntry
 import com.atelier_nyaarium.switchboard.proto.TeamInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonNull
 import org.junit.Assert.assertEquals
@@ -24,10 +25,15 @@ class PresenceOpsTest {
 		var failSlotWrite = false
 		var savedLabels: Map<String, String>? = null
 		var savedAbsence: Map<String, Int>? = null
+		var pulls = 0
+		val pullHolds = mutableListOf<TestHold>()
 
 		override suspend fun <T> withDrainMutex(block: suspend () -> T): T = block()
 		override suspend fun reportRead(team: String, anchor: ReadAnchor) = Unit
-		override suspend fun pullPlanes(everything: Boolean) = Unit
+		override suspend fun pullPlanes(everything: Boolean) {
+			pulls++
+			pullHolds.removeFirstOrNull()?.pass()
+		}
 		override fun storedRunbooks(gatewayId: String): List<com.atelier_nyaarium.switchboard.proto.Runbook>? = null
 		override fun loadRouterState(kind: String) = slot
 		override fun saveRouterState(kind: String, slot: RouterStateSlot) {
@@ -77,6 +83,25 @@ class PresenceOpsTest {
 	)
 
 	private val withMikan = listOf(RosterEntry("local", true, 1, 1), RosterEntry("mikan", true, 1, 1))
+
+	@Test
+	fun actionsDuringAPullEarnOneMorePullAfterItRatherThanNone() = runBlocking {
+		val host = FakeHost()
+		val ops = PresenceOps(host)
+		val held = TestHold().also { host.pullHolds += it }
+		val first = launch { ops.refreshAfterAction() }
+		held.entered.await()
+
+		repeat(3) { ops.refreshAfterAction() }
+		assertEquals(1, host.pulls)
+
+		held.release()
+		first.join()
+		assertEquals(2, host.pulls)
+
+		ops.refreshAfterAction()
+		assertEquals(3, host.pulls)
+	}
 
 	@Test
 	fun projectedSpawnPointsReachThePickerAndLeaveWhenAGatewayStopsAdvertising() = runBlocking {

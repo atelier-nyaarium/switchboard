@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceEntry
 import com.atelier_nyaarium.switchboard.proto.OwnerFacts
 import com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
@@ -133,14 +134,20 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 		return row.withReceipt(host.receiptFor(row.name, System.currentTimeMillis()))
 	}
 
-	private var lastActionPullAt = 0L
-	private val ACTION_PULL_DEBOUNCE_MS = 2_000L
+	private val actionPulls = Mutex()
 
+	private val actionPullWanted = AtomicBoolean(false)
+
+	/** An action during a pull earns one more pull after it. */
 	suspend fun refreshAfterAction() {
-		val now = System.currentTimeMillis()
-		if (now - lastActionPullAt < ACTION_PULL_DEBOUNCE_MS) return
-		lastActionPullAt = now
-		runCatchingCancellable { host.pullPlanes() }
+		actionPullWanted.set(true)
+		while (actionPullWanted.get() && actionPulls.tryLock()) {
+			try {
+				while (actionPullWanted.getAndSet(false)) runCatchingCancellable { host.pullPlanes() }
+			} finally {
+				actionPulls.unlock()
+			}
+		}
 	}
 
 	suspend fun reapplyCachedTeams() {
