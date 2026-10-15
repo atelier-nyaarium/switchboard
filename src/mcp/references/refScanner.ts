@@ -1,3 +1,4 @@
+import { REF_SCHEME as NOTE_REF_SCHEME } from "@nyaa-lexicon/protocol";
 import { scanLinks } from "./markdown.js";
 import { canonicalKey, type ParseErrorCode, REF_SCHEME, type Ref, tryParseRef } from "./refGrammar.js";
 
@@ -16,7 +17,7 @@ export interface FoundRef {
 /** A destination that meant to be a ref and was not a well-formed one. */
 export interface RefProblem {
 	raw: string;
-	code: ParseErrorCode | "not-a-link";
+	code: ParseErrorCode | "not-a-link" | "note-ref";
 	message: string;
 	offset: number;
 }
@@ -54,6 +55,15 @@ export function scanRefs(body: string): ScanResult {
 	}
 
 	for (const raw of destinations) {
+		if (raw.toLowerCase().startsWith(NOTE_REF_SCHEME)) {
+			problems.push({
+				raw,
+				code: "note-ref",
+				message: "a Lexicon note ref; write it as `ref://<module>:<chain>`, without `project-ref://<key>/`",
+				offset: 0,
+			});
+			continue;
+		}
 		const result = tryParseRef(raw);
 		if (result.kind === "not-a-ref") continue;
 		if (result.kind === "error") {

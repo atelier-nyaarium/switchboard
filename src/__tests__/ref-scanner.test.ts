@@ -211,6 +211,15 @@ describe("a malformed ref", () => {
 		expect(wrapped.refs).toHaveLength(1);
 	});
 
+	it("refuses a Lexicon note ref, naming the ref:// spelling, rather than dropping it", () => {
+		const { refs: found, problems } = scanRefs("See [Foo](project-ref://ws-1/src/a.ts:Foo).");
+
+		expect(found).toEqual([]);
+		expect(problems).toEqual([
+			expect.objectContaining({ code: "note-ref", raw: "project-ref://ws-1/src/a.ts:Foo" }),
+		]);
+	});
+
 	it("is not reported from inline code, where a failed link is only an example", () => {
 		expect(scanRefs("Write `[x](ref://a.ts#a b)` with brackets.").problems).toEqual([]);
 	});
