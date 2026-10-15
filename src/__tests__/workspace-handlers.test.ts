@@ -517,12 +517,8 @@ describe("the index-backed reads", () => {
 				authoredAt: 1,
 				editedBy: null,
 				editedAt: 5,
-				confirmedBy: null,
-				confirmedAt: null,
-				doubt: { by: null, reason: "Opened twice now.", at: 6 },
 				sourceChanged: true,
 				links: [link("ok"), link("changed"), link("broken"), link("broken")],
-				proposal: { text: "", baseRevision: 2, by: null, at: 7, links: [] },
 			},
 		});
 
