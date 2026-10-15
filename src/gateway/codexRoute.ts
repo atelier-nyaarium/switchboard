@@ -307,8 +307,8 @@ export class CodexRoute {
 		if (!agent) return unavailable(agentId, AGENT_NOT_FOUND, "codex agent was not found");
 		const turnId = accepted?.turnId;
 		if (!turnId) {
-			// Do not report delivery or a turn without confirmed acceptance.
-			if (agent.agentState === "creating") {
+			// Nothing asks about an unsent start again.
+			if (agent.agentState === "creating" && dispatched) {
 				return CodexAgentResultSchema.parse({
 					agentId,
 					agentState: "creating",
@@ -317,6 +317,13 @@ export class CodexRoute {
 				});
 			}
 			const recovering = this.deps.service.abandonDelivery(owner, agentId, operationId, this.now());
+			if (!dispatched) {
+				return unavailable(
+					agentId,
+					{ code: "daemon_unavailable", retryable: true },
+					"the host daemon is not connected, so codex never received this",
+				);
+			}
 			// Unconfirmed delivery is reported as recovery, never as idle.
 			return CodexAgentResultSchema.parse({
 				agentId,

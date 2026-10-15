@@ -410,7 +410,18 @@ describe("Codex relay behavior", () => {
 				})
 			).json(),
 		);
-		expect(disconnectedBody).toMatchObject({ agentState: "creating", observation: "waitTimedOut" });
+		expect(disconnectedBody).toMatchObject({
+			agentState: "unavailable",
+			error: { code: "daemon_unavailable", retryable: true },
+		});
+		expect(disconnected.commands()).toEqual([]);
+		const awaited = await (
+			await disconnected.route.handle(disconnected.request(), {
+				kind: "await",
+				agentId: codexAgentIdForOperation(operations.start),
+			})
+		).json();
+		expect(awaited).toMatchObject({ agentState: "unavailable" });
 
 		const context = setup({ waitBudgetMs: 10 });
 		const first = { kind: "start", operationId: operations.start, prompt: "Audit" } as const;
