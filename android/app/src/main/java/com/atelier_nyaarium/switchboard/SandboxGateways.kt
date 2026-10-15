@@ -577,8 +577,6 @@ internal class SandboxWorkspaceGateway(now: () -> Long) : WorkspaceGateway {
 						"A rule that parses can still name nothing, so the refusal asks `nextOccurrence`.",
 					revision = 3,
 					sourceChanged = true,
-					doubt = "The weekday check moved into the schema.",
-					proposal = true,
 					changedRefs = 1,
 					brokenRefs = 2,
 				),

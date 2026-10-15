@@ -3000,8 +3000,6 @@ data class WorkspaceKnowledgeNote(
 	val text: String,
 	val revision: Long,
 	val sourceChanged: Boolean,
-	val doubt: String? = null,
-	val proposal: Boolean,
 	val changedRefs: Long,
 	val brokenRefs: Long,
 )

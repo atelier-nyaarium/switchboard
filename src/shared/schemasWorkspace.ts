@@ -133,10 +133,6 @@ export const KnowledgeNoteSchema = z
 		revision: z.number().int().positive(),
 		/** Source moved since save. */
 		sourceChanged: z.boolean(),
-		/** Why this revision misled. */
-		doubt: z.string().optional(),
-		/** Replacement awaits review. */
-		proposal: z.boolean(),
 		changedRefs: z.number().int().nonnegative(),
 		brokenRefs: z.number().int().nonnegative(),
 	})

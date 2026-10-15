@@ -12,8 +12,6 @@
 		"text": "Returns the reason a routine cannot be stored.\n\nA rule that parses can still name nothing.",
 		"revision": 3,
 		"sourceChanged": true,
-		"doubt": "The cap moved.",
-		"proposal": false,
 		"changedRefs": 1,
 		"brokenRefs": 0
 	},

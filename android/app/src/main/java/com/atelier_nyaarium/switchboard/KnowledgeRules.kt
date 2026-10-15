@@ -7,8 +7,6 @@ internal data class NoteBadge(val text: String, val warning: Boolean)
 internal fun noteBadges(note: WorkspaceKnowledgeNote): List<NoteBadge> =
 	buildList {
 		if (note.sourceChanged) add(NoteBadge("SOURCE CHANGED", warning = true))
-		if (note.doubt != null) add(NoteBadge("DOUBTED", warning = true))
-		if (note.proposal) add(NoteBadge("PROPOSAL", warning = false))
 		if (note.changedRefs > 0) add(NoteBadge(refsText(note.changedRefs, "CHANGED"), warning = true))
 		if (note.brokenRefs > 0) add(NoteBadge(refsText(note.brokenRefs, "BROKEN"), warning = true))
 	}

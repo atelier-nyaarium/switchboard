@@ -438,8 +438,6 @@ function knowledgeNoteOf(note: Note): KnowledgeNote {
 		text: withoutRefs(note.text),
 		revision: note.revision,
 		sourceChanged: note.sourceChanged,
-		...(note.doubt === null ? {} : { doubt: note.doubt.reason }),
-		proposal: note.proposal !== null,
 		changedRefs: refsIn("changed"),
 		brokenRefs: refsIn("broken"),
 	};

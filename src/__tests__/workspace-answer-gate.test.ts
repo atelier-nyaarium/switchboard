@@ -217,7 +217,6 @@ describe("the fields the gate reads off the schemas", () => {
 			"container",
 			"detail",
 			"documentation",
-			"doubt",
 			"form",
 			"hash",
 			"identity",

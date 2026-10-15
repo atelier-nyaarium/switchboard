@@ -25,9 +25,6 @@ internal fun NoteSection(note: WorkspaceKnowledgeNote) {
 		OutlinedCard(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
 			Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
 				if (badges.isNotEmpty()) FlowRow { for (badge in badges) BadgeLabel(badge) }
-				note.doubt?.let {
-					Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-				}
 				Text(text, style = MaterialTheme.typography.bodySmall)
 			}
 		}

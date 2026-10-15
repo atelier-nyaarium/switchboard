@@ -48,7 +48,6 @@ class FacetDetailRulesTest {
 		text = "It opens threads.",
 		revision = 1,
 		sourceChanged = false,
-		proposal = false,
 		changedRefs = 0,
 		brokenRefs = 0,
 	)

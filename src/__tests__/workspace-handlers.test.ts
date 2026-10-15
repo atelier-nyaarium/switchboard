@@ -529,11 +529,10 @@ describe("the index-backed reads", () => {
 		const result = await ask(workspace(), { kind: "symbolKnowledge", symbolId: SERVED_ID }, session);
 		const note = result.ok && result.answer.kind === "symbolKnowledge" ? result.answer.note : undefined;
 
-		expect(note).toMatchObject({
+		expect(note).toEqual({
+			text: expect.any(String),
 			revision: 2,
 			sourceChanged: true,
-			doubt: "Opened twice now.",
-			proposal: true,
 			changedRefs: 1,
 			brokenRefs: 2,
 		});

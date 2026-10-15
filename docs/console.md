@@ -411,8 +411,7 @@ no TTL.
 - **Knowledge** (`KnowledgeRules.kt`, `workspace/NoteSection.kt`, `workspace/SymbolDetail.kt`):
   `workspace_symbol_knowledge` answers the symbol (name, kind, module, lines, signature, doc comment), the
   counts `describe` holds, and its Lexicon note when one stands. The note carries its markdown text,
-  revision, and what moved since it was saved: source changed, a doubt's reason, a pending proposal, and
-  changed or broken refs. The plugin reduces every ref to its label first, since a ref can name a
+  revision, and what moved since it was saved: source changed, and changed or broken refs. The plugin reduces every ref to its label first, since a ref can name a
   withheld module, and the phone draws the note read only, badges first. A Lexicon
   too old for any read the plugin makes answers a refusal naming the update, not a failure. The facts also
   carry `counts`, each in the unit its drill-in lists, withheld uses excluded.

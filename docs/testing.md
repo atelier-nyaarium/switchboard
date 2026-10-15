@@ -198,7 +198,7 @@ asks for, since no fixture fills that and the refusal past it would be unreachab
 | hub | `src/hub/hub.ts` `hubEvent` | 1,200 uses over 90 files, sticky group headers, module-level uses |
 | too large | `HubRegistry` | the two refusals: rows with a size, and rows as a floor |
 | older plugin | `src/shared/schemasRoutine.ts` | knowledge without counts, so the facts read as `Uncounted` and nothing opens |
-| note | `routineRefusal` in `src/shared/schemasRoutine.ts` | a note with every badge and its doubt |
+| note | `routineRefusal` in `src/shared/schemasRoutine.ts` | a note with every badge |
 | untracked | `scratch/probe.ts` | `untracked` on the row and on the outline strip |
 | second session | `.other` | every workspace read refused |
 
