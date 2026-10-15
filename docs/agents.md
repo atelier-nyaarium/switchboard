@@ -16,10 +16,15 @@ answer is dropped. Copilot's twin is `followUpOnNewChild`, read off the agent it
 follow-up is only dispatched to an idle agent with no turn in flight.
 
 **A reconciliation adopts another stream, never a dead one.** `classifyReconciliationFence` refuses
-an older generation of the stream an agent already follows, and each relay drops a reconciliation
-from a daemon instance a later hello replaced (`fromReplacedDaemon`). Both families take these rules
-from `agent-fence.ts`. A reconciliation guard clears only on the answer carrying its own request id,
-so a replayed answer to an earlier request cannot strand held frames.
+an older generation of the stream an agent already follows, and the relay drops a reconciliation
+from a daemon instance a later hello replaced (`fromReplacedDaemon`). A reconciliation guard clears
+only on the answer carrying its own request id, so a replayed answer to an earlier request cannot
+strand held frames.
+
+**One relay, two adapters.** The fence rules live in `agent-fence.ts` and the relay mechanics in
+`AgentRelayCore`: acknowledgement, held frames, the reconcile guard, and per-agent serialization.
+`CodexRelay` and `CopilotRelay` supply only their wire schemas, applier, agent listing, and
+reconcile request. An agent is askable exactly when its family can build that request.
 
 **An acknowledgement retires the daemon's only copy.** `ignored` and `applied` permit it; only a
 withheld decision does not. Held frames are keyed by agent, although the stream is per target.

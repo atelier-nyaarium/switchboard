@@ -5,8 +5,7 @@ import { filesUnder } from "./helpers/residue.js";
 
 const SRC = path.join(import.meta.dirname, "..", "gateway");
 const ALLOWLIST = new Map([
-	["codexRelay.ts", "serialize answers its own failure"],
-	["copilotRelay.ts", "serialize answers its own failure"],
+	["agentRelayCore.ts", "serialize answers its own failure"],
 	["sessionRegistryReporter.ts", "a refused write stays pending and retries"],
 	["keyRequester.ts", "the batch reports its own failure"],
 	["relay.ts", "tryOnce catches every attempt and resolves the outcome"],

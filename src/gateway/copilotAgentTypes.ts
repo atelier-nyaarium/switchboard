@@ -1,5 +1,6 @@
 import type { CopilotPersistedAgent, CopilotStoredOperation } from "../shared/copilot-agent.js";
 import type { CopilotCatalogWriter, SessionRecord, SessionStore } from "../shared/session-store.js";
+import type { AgentApplication } from "./agentRelayCore.js";
 import type { AgentTransitionErrorCode } from "./agentRouteEnvelope.js";
 import type { SessionAuthority } from "./sessionAuthority.js";
 
@@ -48,11 +49,7 @@ export interface CopilotTransitionResult extends OwnedCopilotOperation {
 
 export type CopilotTransitionErrorCode = AgentTransitionErrorCode;
 
-export type CopilotApplication =
-	| { disposition: "applied"; owner: SessionRecord; agent: CopilotPersistedAgent; catalogRevision: number }
-	| { disposition: "ignored"; reason: string }
-	| { disposition: "reconcile"; owner: SessionRecord; agent: CopilotPersistedAgent }
-	| { disposition: "failed"; reason: string };
+export type CopilotApplication = AgentApplication<CopilotPersistedAgent>;
 
 export class CopilotTransitionError extends Error {
 	constructor(
