@@ -12,14 +12,6 @@ export function validateTimestamp(at: number): number {
 	return at;
 }
 
-export function replaceAt<T>(values: readonly T[], index: number, value: T): T[] {
-	return values.map((current, currentIndex) => (currentIndex === index ? value : current));
-}
-
-export function sameResolvedTarget(left: CopilotResolvedTarget, right: CopilotResolvedTarget): boolean {
-	return left.kind === right.kind && left.targetId === right.targetId && left.cwd === right.cwd;
-}
-
 /** Idle follow-up a relaunched child took. Reconciling first would drop it. */
 export function followUpOnNewChild(
 	current: CopilotPersistedAgent,

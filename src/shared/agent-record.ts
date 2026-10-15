@@ -386,3 +386,7 @@ export function restoreAgentCatalog<
 	);
 	return { version: 1, revision: envelope.revision, agents };
 }
+
+export function replaceAt<T>(values: readonly T[], index: number, value: T): T[] {
+	return values.map((current, currentIndex) => (currentIndex === index ? value : current));
+}

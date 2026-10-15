@@ -1,6 +1,7 @@
+import { sameResolvedTarget } from "../shared/agent-execution-target.js";
 import { classifyEventFence, classifyReconciliationFence, fenceOf } from "../shared/agent-fence.js";
+import { replaceAt } from "../shared/agent-record.js";
 import {
-	type CodexAgentCatalog,
 	CodexAgentIdSchema,
 	type CodexDaemonEvent,
 	CodexDaemonEventSchema,
@@ -9,20 +10,14 @@ import {
 	type CodexPersistedAgent,
 	CodexPersistedAgentSchema,
 } from "../shared/codex-agent.js";
-import type { SessionRecord } from "../shared/session-store.js";
-import { applyCodexAgent, type CodexCatalogDeps, readCodexCatalog } from "./codexAgentPersistence.js";
-import {
-	failed,
-	ignore,
-	refenceUnverified,
-	replaceAt,
-	sameTarget,
-	withActivity,
-	withTerminal,
-} from "./codexAgentReducers.js";
+import type { SessionRecord, SessionStore } from "../shared/session-store.js";
+import type { AgentCatalogPersistence } from "./agentCatalogPersistence.js";
+import { failed, ignore, refenceUnverified, withActivity, withTerminal } from "./codexAgentReducers.js";
 import type { CodexAcceptanceResult, CodexApplication, CodexDaemonDeliveryAcceptance } from "./codexAgentTypes.js";
 
-export interface CodexReceiptApplierDeps extends CodexCatalogDeps {
+export interface CodexReceiptApplierDeps {
+	sessionStore: SessionStore;
+	catalog: AgentCatalogPersistence<CodexPersistedAgent>;
 	acceptDeliveryFromDaemon: (input: CodexDaemonDeliveryAcceptance) => CodexAcceptanceResult;
 }
 
@@ -33,18 +28,13 @@ export interface CodexReceiptApplier {
 }
 
 export function createCodexReceiptApplier(deps: CodexReceiptApplierDeps): CodexReceiptApplier {
-	function locate(
-		ownerKey: string,
-		agentId: string,
-	): { owner: SessionRecord; catalog: CodexAgentCatalog; index: number; agent: CodexPersistedAgent } | null {
+	function locate(ownerKey: string, agentId: string): { owner: SessionRecord; agent: CodexPersistedAgent } | null {
 		if (!CodexOwnerKeySchema.safeParse(ownerKey).success) return null;
 		if (!CodexAgentIdSchema.safeParse(agentId).success) return null;
 		const owner = deps.sessionStore.getByTeam(ownerKey);
 		if (!owner) return null;
-		const catalog = readCodexCatalog(deps, owner);
-		const matches = catalog.agents.flatMap((agent, index) => (agent.agentId === agentId ? [index] : []));
-		if (matches.length !== 1) return null;
-		return { owner, catalog, index: matches[0]!, agent: catalog.agents[matches[0]!]! };
+		const agent = deps.catalog.find(owner, agentId);
+		return agent ? { owner, agent } : null;
 	}
 
 	function applyEvent(event: CodexDaemonEvent, at: number): CodexApplication {
@@ -52,7 +42,7 @@ export function createCodexReceiptApplier(deps: CodexReceiptApplierDeps): CodexR
 		if (!parsed.success) return ignore("event failed validation");
 		const located = locate(parsed.data.ownerKey, parsed.data.agentId);
 		if (!located) return ignore("event did not resolve to one managed agent");
-		const { owner, catalog, index, agent } = located;
+		const { owner, agent } = located;
 		if (agent.threadId !== parsed.data.threadId) return ignore("event names a different thread");
 
 		const fence = fenceOf(parsed.data);
@@ -78,7 +68,7 @@ export function createCodexReceiptApplier(deps: CodexReceiptApplierDeps): CodexR
 			return failed("event did not produce a valid record");
 		}
 		if (next === agent) return ignore("activity was already retained");
-		return applyCodexAgent(deps, owner, catalog, index, next);
+		return deps.catalog.apply(owner, next);
 	}
 
 	const refusals = new Map<string, string>();
@@ -90,7 +80,7 @@ export function createCodexReceiptApplier(deps: CodexReceiptApplierDeps): CodexR
 		}
 		const located = locate(receipt.ownerKey, receipt.agentId);
 		if (!located) return ignore("rejection did not resolve to one managed agent");
-		const { owner, catalog, index, agent } = located;
+		const { owner, agent } = located;
 		const operationIndex = agent.operations.findIndex((operation) => operation.operationId === receipt.operationId);
 		if (!receipt.operationId || operationIndex < 0) return ignore("rejection named no known operation");
 		const operation = agent.operations[operationIndex]!;
@@ -124,7 +114,7 @@ export function createCodexReceiptApplier(deps: CodexReceiptApplierDeps): CodexR
 				}),
 				updatedAt: at2,
 			});
-			return applyCodexAgent(deps, owner, catalog, index, next);
+			return deps.catalog.apply(owner, next);
 		} catch {
 			return failed("rejection did not produce a valid record");
 		}
@@ -136,7 +126,7 @@ export function createCodexReceiptApplier(deps: CodexReceiptApplierDeps): CodexR
 	): CodexApplication {
 		const located = locate(receipt.ownerKey, receipt.agentId);
 		if (!located) return ignore("interrupt result did not resolve to one managed agent");
-		const { owner, catalog, index, agent } = located;
+		const { owner, agent } = located;
 		if (agent.threadId !== receipt.threadId) return ignore("interrupt result names a different thread");
 		const pending = agent.pendingInterrupt;
 		if (!pending || pending.operationId !== receipt.operationId || pending.turnId !== receipt.turnId) {
@@ -165,7 +155,7 @@ export function createCodexReceiptApplier(deps: CodexReceiptApplierDeps): CodexR
 				fence,
 				updatedAt: at2,
 			});
-			return applyCodexAgent(deps, owner, catalog, index, next);
+			return deps.catalog.apply(owner, next);
 		} catch {
 			return failed("interrupt result did not produce a valid record");
 		}
@@ -177,9 +167,9 @@ export function createCodexReceiptApplier(deps: CodexReceiptApplierDeps): CodexR
 	): CodexApplication {
 		const located = locate(receipt.ownerKey, receipt.agentId);
 		if (!located) return ignore("reconciliation did not resolve to one managed agent");
-		const { owner, catalog, index, agent } = located;
+		const { owner, agent } = located;
 		if (agent.threadId !== receipt.threadId) return ignore("reconciliation names a different thread");
-		if (!sameTarget(agent.resolvedTarget, receipt.resolvedTarget)) {
+		if (!sameResolvedTarget(agent.resolvedTarget, receipt.resolvedTarget)) {
 			return ignore("reconciliation names a different execution target");
 		}
 		const fence = fenceOf(receipt);
@@ -200,7 +190,7 @@ export function createCodexReceiptApplier(deps: CodexReceiptApplierDeps): CodexR
 				fence,
 				updatedAt: at2,
 			});
-			return applyCodexAgent(deps, owner, catalog, index, next);
+			return deps.catalog.apply(owner, next);
 		} catch {
 			return failed("reconciliation did not produce a valid record");
 		}

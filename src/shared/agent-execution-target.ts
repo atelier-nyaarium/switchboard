@@ -72,5 +72,9 @@ export function parseAgentTargetId(
 	return isSlug(project) ? { kind: "devcontainer", project } : null;
 }
 
+export function sameResolvedTarget(left: AgentResolvedTarget | undefined, right: AgentResolvedTarget): boolean {
+	return left?.kind === right.kind && left.targetId === right.targetId && left.cwd === right.cwd;
+}
+
 export type AgentExecutionTarget = z.infer<typeof AgentExecutionTargetSchema>;
 export type AgentResolvedTarget = z.infer<typeof AgentResolvedTargetSchema>;

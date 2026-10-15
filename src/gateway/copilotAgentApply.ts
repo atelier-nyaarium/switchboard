@@ -1,4 +1,6 @@
+import { sameResolvedTarget } from "../shared/agent-execution-target.js";
 import { classifyAcceptanceFence, classifyReconciliationFence, fenceOf } from "../shared/agent-fence.js";
+import { replaceAt } from "../shared/agent-record.js";
 import {
 	type CopilotDaemonEvent,
 	type CopilotDaemonFailureCode,
@@ -8,16 +10,15 @@ import {
 	CopilotPersistedAgentSchema,
 	type CopilotStoredTurn,
 } from "../shared/copilot-agent.js";
-import type { SessionRecord } from "../shared/session-store.js";
-import { applyCopilotAgent, type CopilotCatalogDeps } from "./copilotAgentPersistence.js";
-import {
-	appendActivity,
-	followUpOnNewChild,
-	replaceAt,
-	resolvedTargetMatchesRequest,
-	sameResolvedTarget,
-} from "./copilotAgentReducers.js";
+import type { SessionRecord, SessionStore } from "../shared/session-store.js";
+import type { AgentCatalogPersistence } from "./agentCatalogPersistence.js";
+import { appendActivity, followUpOnNewChild, resolvedTargetMatchesRequest } from "./copilotAgentReducers.js";
 import type { CopilotApplication } from "./copilotAgentTypes.js";
+
+export interface CopilotReceiptApplierDeps {
+	sessionStore: SessionStore;
+	catalog: AgentCatalogPersistence<CopilotPersistedAgent>;
+}
 
 export interface CopilotReceiptApplier {
 	applyReceipt: (receipt: CopilotDaemonReceipt, at: number) => CopilotApplication;
@@ -25,7 +26,7 @@ export interface CopilotReceiptApplier {
 	takeRefusal: (operationId: string) => { code?: CopilotDaemonFailureCode; message: string } | undefined;
 }
 
-export function createCopilotReceiptApplier(deps: CopilotCatalogDeps): CopilotReceiptApplier {
+export function createCopilotReceiptApplier(deps: CopilotReceiptApplierDeps): CopilotReceiptApplier {
 	function applyAccepted(
 		owner: SessionRecord,
 		current: CopilotPersistedAgent,
@@ -82,7 +83,7 @@ export function createCopilotReceiptApplier(deps: CopilotCatalogDeps): CopilotRe
 			}),
 			updatedAt: timestamp,
 		});
-		return applyCopilotAgent(deps, owner, current, next);
+		return deps.catalog.apply(owner, next);
 	}
 
 	function applyInterrupt(
@@ -114,7 +115,7 @@ export function createCopilotReceiptApplier(deps: CopilotCatalogDeps): CopilotRe
 			}),
 			updatedAt: Math.max(at, current.updatedAt),
 		});
-		return applyCopilotAgent(deps, owner, current, next);
+		return deps.catalog.apply(owner, next);
 	}
 
 	function applyReconciled(
@@ -155,7 +156,7 @@ export function createCopilotReceiptApplier(deps: CopilotCatalogDeps): CopilotRe
 			fence,
 			updatedAt: timestamp,
 		});
-		return applyCopilotAgent(deps, owner, current, next);
+		return deps.catalog.apply(owner, next);
 	}
 
 	// Keep refusal diagnostics off persisted agent state.
@@ -188,7 +189,7 @@ export function createCopilotReceiptApplier(deps: CopilotCatalogDeps): CopilotRe
 			}),
 			updatedAt: timestamp,
 		});
-		return applyCopilotAgent(deps, owner, current, next);
+		return deps.catalog.apply(owner, next);
 	}
 
 	function applyReceipt(receipt: CopilotDaemonReceipt, at: number): CopilotApplication {
@@ -196,9 +197,7 @@ export function createCopilotReceiptApplier(deps: CopilotCatalogDeps): CopilotRe
 		if (!parsed.success) return { disposition: "failed", reason: "invalid Copilot receipt" };
 		const owner = deps.sessionStore.getByTeam(parsed.data.ownerKey);
 		if (!owner) return { disposition: "ignored", reason: "owner not found" };
-		const current = deps.sessionStore
-			.listCopilotAgents(owner)
-			.find((agent) => agent.agentId === parsed.data.agentId);
+		const current = deps.catalog.find(owner, parsed.data.agentId);
 		if (!current) return { disposition: "ignored", reason: "agent not found" };
 		if (parsed.data.kind === "rejected")
 			return applyRejected(
@@ -217,7 +216,7 @@ export function createCopilotReceiptApplier(deps: CopilotCatalogDeps): CopilotRe
 	function applyEvent(event: CopilotDaemonEvent, at: number): CopilotApplication {
 		const owner = deps.sessionStore.getByTeam(event.ownerKey);
 		if (!owner) return { disposition: "ignored", reason: "owner not found" };
-		const current = deps.sessionStore.listCopilotAgents(owner).find((agent) => agent.agentId === event.agentId);
+		const current = deps.catalog.find(owner, event.agentId);
 		if (!current) return { disposition: "ignored", reason: "agent not found" };
 		if (
 			!current.sessionId ||
@@ -247,7 +246,7 @@ export function createCopilotReceiptApplier(deps: CopilotCatalogDeps): CopilotRe
 				fence,
 				updatedAt: Math.max(at, current.updatedAt),
 			});
-			return applyCopilotAgent(deps, owner, current, next);
+			return deps.catalog.apply(owner, next);
 		}
 		if (turn.state !== "inProgress") return { disposition: "ignored", reason: "duplicate terminal" };
 		const timestamp = Math.max(at, current.updatedAt);
@@ -271,7 +270,7 @@ export function createCopilotReceiptApplier(deps: CopilotCatalogDeps): CopilotRe
 			fence,
 			updatedAt: timestamp,
 		});
-		return applyCopilotAgent(deps, owner, current, next);
+		return deps.catalog.apply(owner, next);
 	}
 
 	function takeRefusal(operationId: string): { code?: CopilotDaemonFailureCode; message: string } | undefined {

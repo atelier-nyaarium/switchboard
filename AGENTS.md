@@ -140,14 +140,14 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/codexAgentService.ts` / `codexRelay.ts` / `codexRoute.ts` - Codex catalog orchestration, relay folding, authenticated route
 - `src/gateway/codexAgentReducers.ts` - Codex pure decision functions: acceptance verdicts, activity and terminal folds
 - `src/gateway/codexAgentApply.ts` - Codex daemon event and receipt folding, with its fence checks
-- `src/gateway/codexAgentPersistence.ts` - Codex catalog reads, replay, and commits
 - `src/gateway/codexAgentTypes.ts` - Codex service deps, transition results, and the application union
 - `src/gateway/copilotAgentService.ts` / `copilotRelay.ts` / `copilotRoute.ts` - Copilot catalog orchestration, relay folding, authenticated route
 - `src/gateway/copilotAgentReducers.ts` - Copilot pure decision functions: target matching, activity append
 - `src/gateway/copilotAgentApply.ts` - Copilot daemon event and receipt folding, with its fence checks
-- `src/gateway/copilotAgentPersistence.ts` - Copilot catalog reads, replay, and commits
 - `src/gateway/copilotAgentTypes.ts` - Copilot service deps, transition results, and the application union
 - `src/gateway/agentRelayCore.ts` - the relay both families run: acknowledgement, held frames, the reconcile guard, per-agent serialization; `codexRelay.ts` and `copilotRelay.ts` are its adapters
+- `src/gateway/agentCatalogPersistence.ts` - one owner's agent catalog for both families: reads, the strict agent lookup, commits, daemon-change applies, durable checks, and replay; a write that does not land answers `persistence_failed` to a caller and `reconcile` to the relay
+- `src/gateway/agentExecutionTarget.ts` - where an owner's agent runs, for both families
 - `src/gateway/router/` - Router WS client; `pinnedSocket.ts` owns certificate pinning
 - `src/gateway/router/inboxDeliveryPump.ts` / `inboxClaims.ts` / `sessionRegistryReporter.ts` - inbox drain with durable claims, and session registry reporting that keeps a refused write pending and retries it
 - `src/gateway/router/presenceReporter.ts` / `presenceProtocol.ts` - presence pump and pure protocol; `applyAnswer` cannot reach the sender, so answers do not start frames

@@ -1,4 +1,4 @@
-import { type AgentOperationIdentity, agentOperationFingerprintOf } from "../shared/agent-record.js";
+import { type AgentOperationIdentity, agentOperationFingerprintOf, replaceAt } from "../shared/agent-record.js";
 import {
 	type CodexAgentCatalog,
 	CodexAgentIdSchema,
@@ -15,24 +15,11 @@ import {
 	CodexResolvedTargetSchema,
 	codexOperationIdentity,
 } from "../shared/codex-agent.js";
-import { isHostSpawn } from "../shared/host-spawn.js";
-import type { CodexCatalogWriter, SessionRecord, SessionStore } from "../shared/session-store.js";
+import type { SessionRecord, SessionStore } from "../shared/session-store.js";
+import { AgentCatalogPersistence } from "./agentCatalogPersistence.js";
+import { resolveAgentExecutionTarget } from "./agentExecutionTarget.js";
 import { type CodexReceiptApplier, createCodexReceiptApplier } from "./codexAgentApply.js";
-import {
-	type CodexCatalogDeps,
-	codexAgentIndex,
-	codexCatalogDurable,
-	commitCodexTransition,
-	readCodexCatalog,
-	replayCodexTransition,
-} from "./codexAgentPersistence.js";
-import {
-	decideAcceptance,
-	hasPendingPrompt,
-	indeterminate,
-	replaceAt,
-	validateTimestamp,
-} from "./codexAgentReducers.js";
+import { decideAcceptance, hasPendingPrompt, indeterminate, validateTimestamp } from "./codexAgentReducers.js";
 import {
 	type CodexAcceptanceResult,
 	type CodexAgentServiceDeps,
@@ -53,18 +40,21 @@ export class CodexAgentService {
 	private readonly auth: SessionAuthority;
 	private readonly sessionStore: SessionStore;
 	private readonly offlineCatalog: ReadonlyMap<string, string>;
-	private readonly catalogWriter: CodexCatalogWriter;
-	private readonly persistenceDeps: CodexCatalogDeps;
+	private readonly persistence: AgentCatalogPersistence<CodexPersistedAgent>;
 	private readonly receiptApplier: CodexReceiptApplier;
 
 	constructor(deps: CodexAgentServiceDeps) {
 		this.auth = deps.auth;
 		this.sessionStore = deps.sessionStore;
 		this.offlineCatalog = deps.offlineCatalog;
-		this.catalogWriter = deps.catalogWriter;
-		this.persistenceDeps = { sessionStore: deps.sessionStore, catalogWriter: deps.catalogWriter };
+		this.persistence = new AgentCatalogPersistence({
+			read: (owner) => deps.sessionStore.codexCatalog(owner),
+			writer: deps.catalogWriter,
+			refuse: (code, message, options) => new CodexTransitionError(code, message, options),
+		});
 		this.receiptApplier = createCodexReceiptApplier({
-			...this.persistenceDeps,
+			sessionStore: deps.sessionStore,
+			catalog: this.persistence,
 			acceptDeliveryFromDaemon: (input) => this.acceptDeliveryFromDaemon(input),
 		});
 	}
@@ -82,25 +72,15 @@ export class CodexAgentService {
 	}
 
 	resolveExecutionTarget(owner: SessionRecord, cwd?: string): CodexExecutionTarget | null {
-		// Host workdir uses the route-resolved cwd exactly once.
-		let target: CodexExecutionTarget;
-		if (isHostSpawn(owner.spawn)) {
-			target = { kind: "host", workdirHint: cwd ?? this.sessionStore.hostWorkdirHint(owner) };
-		} else {
-			const hostProjectPath = this.offlineCatalog.get(owner.spawn);
-			if (!hostProjectPath) return null;
-			target = { kind: "devcontainer", project: owner.spawn, hostProjectPath };
-		}
-		const validated = CodexExecutionTargetSchema.safeParse(target);
-		return validated.success ? validated.data : null;
+		return resolveAgentExecutionTarget(owner, cwd, this.sessionStore, this.offlineCatalog);
 	}
 
 	resolveOwnedAgent(req: Request, agentId: string): OwnedCodexAgent | null {
 		if (!CodexAgentIdSchema.safeParse(agentId).success) return null;
 		const owner = this.resolveOwner(req);
 		if (!owner) return null;
-		const matches = this.sessionStore.listCodexAgents(owner).filter((agent) => agent.agentId === agentId);
-		return matches.length === 1 ? { owner, agent: matches[0]! } : null;
+		const agent = this.persistence.find(owner, agentId);
+		return agent ? { owner, agent } : null;
 	}
 
 	resolveOwnedOperation(req: Request, agentId: string, operationId: string): OwnedCodexOperation | null {
@@ -463,11 +443,11 @@ export class CodexAgentService {
 	}
 
 	private catalog(owner: SessionRecord): CodexAgentCatalog {
-		return readCodexCatalog(this.persistenceDeps, owner);
+		return this.persistence.read(owner);
 	}
 
 	private agentIndex(catalog: CodexAgentCatalog, agentId: string): number {
-		return codexAgentIndex(catalog, agentId);
+		return this.persistence.indexOf(catalog, agentId);
 	}
 
 	private replay(
@@ -475,11 +455,11 @@ export class CodexAgentService {
 		operationId: string,
 		identity: AgentOperationIdentity,
 	): CodexTransitionResult | null {
-		return replayCodexTransition(this.persistenceDeps, owner, operationId, identity);
+		return this.persistence.replay(owner, operationId, identity);
 	}
 
 	private ensureCatalogDurable(owner: SessionRecord, revision: number): boolean {
-		return codexCatalogDurable(this.persistenceDeps, owner, revision);
+		return this.persistence.durable(owner, revision);
 	}
 
 	private commit(
@@ -489,6 +469,6 @@ export class CodexAgentService {
 		agent: CodexPersistedAgent,
 		operationId: string,
 	): CodexTransitionResult {
-		return commitCodexTransition(this.persistenceDeps, owner, catalog, agents, agent, operationId);
+		return this.persistence.commit(owner, catalog, agents, agent, operationId);
 	}
 }

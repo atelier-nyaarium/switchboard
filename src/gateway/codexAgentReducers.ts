@@ -1,5 +1,6 @@
+import { sameResolvedTarget } from "../shared/agent-execution-target.js";
 import { advancesFence, classifyAcceptanceFence, sameFence } from "../shared/agent-fence.js";
-import { appendAgentActivity } from "../shared/agent-record.js";
+import { appendAgentActivity, replaceAt } from "../shared/agent-record.js";
 import {
 	CODEX_ACTIVITY_MAX_ITEMS,
 	type CodexDaemonEvent,
@@ -29,14 +30,6 @@ export function validateTimestamp(at: number): number {
 		throw new CodexTransitionError("invalid_input", "transition timestamp must be a nonnegative integer");
 	}
 	return at;
-}
-
-export function replaceAt<T>(values: readonly T[], index: number, value: T): T[] {
-	return values.map((current, currentIndex) => (currentIndex === index ? value : current));
-}
-
-export function sameTarget(left: CodexResolvedTarget | undefined, right: CodexResolvedTarget): boolean {
-	return left?.kind === right.kind && left.targetId === right.targetId && left.cwd === right.cwd;
 }
 
 // Count only requested operations or one refusal wedges the agent.
@@ -105,7 +98,7 @@ export function decideAcceptance(args: {
 			operation.turnId !== input.turnId ||
 			exchange.delivery !== input.delivery ||
 			current.threadId !== input.threadId ||
-			!sameTarget(current.resolvedTarget, resolvedTarget) ||
+			!sameResolvedTarget(current.resolvedTarget, resolvedTarget) ||
 			!sameFence(operation.acceptanceFence, fence)
 		) {
 			return { kind: "conflict" };
@@ -137,7 +130,7 @@ export function decideAcceptance(args: {
 	if (current.requestedTarget.kind !== resolvedTarget.kind) return refuse;
 	if (
 		(current.threadId && current.threadId !== input.threadId) ||
-		(current.resolvedTarget && !sameTarget(current.resolvedTarget, resolvedTarget))
+		(current.resolvedTarget && !sameResolvedTarget(current.resolvedTarget, resolvedTarget))
 	) {
 		return refuse;
 	}

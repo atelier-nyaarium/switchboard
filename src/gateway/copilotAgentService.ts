@@ -1,10 +1,11 @@
-import { type AgentOperationIdentity, agentOperationFingerprintOf } from "../shared/agent-record.js";
+import { type AgentOperationIdentity, agentOperationFingerprintOf, replaceAt } from "../shared/agent-record.js";
 import {
 	type CopilotAgentCatalog,
 	CopilotAgentIdSchema,
 	type CopilotDaemonEvent,
 	type CopilotDaemonFailureCode,
 	type CopilotDaemonReceipt,
+	type CopilotExecutionTarget,
 	CopilotExecutionTargetSchema,
 	CopilotOperationIdSchema,
 	type CopilotPersistedAgent,
@@ -12,18 +13,11 @@ import {
 	CopilotPromptSchema,
 	copilotOperationIdentity,
 } from "../shared/copilot-agent.js";
-import { isHostSpawn } from "../shared/host-spawn.js";
 import type { SessionRecord } from "../shared/session-store.js";
+import { AgentCatalogPersistence } from "./agentCatalogPersistence.js";
+import { resolveAgentExecutionTarget } from "./agentExecutionTarget.js";
 import { type CopilotReceiptApplier, createCopilotReceiptApplier } from "./copilotAgentApply.js";
-import {
-	applyCopilotAgent,
-	type CopilotCatalogDeps,
-	commitCopilotTransition,
-	copilotAgentIndex,
-	readCopilotCatalog,
-	replayCopilotTransition,
-} from "./copilotAgentPersistence.js";
-import { replaceAt, validateTimestamp } from "./copilotAgentReducers.js";
+import { validateTimestamp } from "./copilotAgentReducers.js";
 import {
 	type CopilotAgentServiceDeps,
 	type CopilotApplication,
@@ -36,12 +30,19 @@ import {
 } from "./copilotAgentTypes.js";
 
 export class CopilotAgentService {
-	private readonly persistenceDeps: CopilotCatalogDeps;
+	private readonly persistence: AgentCatalogPersistence<CopilotPersistedAgent>;
 	private readonly receiptApplier: CopilotReceiptApplier;
 
 	constructor(private readonly deps: CopilotAgentServiceDeps) {
-		this.persistenceDeps = { sessionStore: deps.sessionStore, catalogWriter: deps.catalogWriter };
-		this.receiptApplier = createCopilotReceiptApplier(this.persistenceDeps);
+		this.persistence = new AgentCatalogPersistence({
+			read: (owner) => deps.sessionStore.copilotCatalog(owner),
+			writer: deps.catalogWriter,
+			refuse: (code, message, options) => new CopilotTransitionError(code, message, options),
+		});
+		this.receiptApplier = createCopilotReceiptApplier({
+			sessionStore: deps.sessionStore,
+			catalog: this.persistence,
+		});
 	}
 
 	resolveOwner(req: Request): SessionRecord | null {
@@ -56,25 +57,16 @@ export class CopilotAgentService {
 		return this.deps.sessionStore.listCopilotAgents(owner);
 	}
 
-	resolveExecutionTarget(owner: SessionRecord, cwd?: string) {
-		const target = isHostSpawn(owner.spawn)
-			? { kind: "host" as const, workdirHint: cwd ?? this.deps.sessionStore.hostWorkdirHint(owner) }
-			: (() => {
-					const hostProjectPath = this.deps.offlineCatalog.get(owner.spawn);
-					return hostProjectPath
-						? { kind: "devcontainer" as const, project: owner.spawn, hostProjectPath }
-						: null;
-				})();
-		const parsed = target ? CopilotExecutionTargetSchema.safeParse(target) : null;
-		return parsed?.success ? parsed.data : null;
+	resolveExecutionTarget(owner: SessionRecord, cwd?: string): CopilotExecutionTarget | null {
+		return resolveAgentExecutionTarget(owner, cwd, this.deps.sessionStore, this.deps.offlineCatalog);
 	}
 
 	resolveOwnedAgent(req: Request, agentId: string): OwnedCopilotAgent | null {
 		if (!CopilotAgentIdSchema.safeParse(agentId).success) return null;
 		const owner = this.resolveOwner(req);
 		if (!owner) return null;
-		const matches = this.listOwnedAgents(owner).filter((agent) => agent.agentId === agentId);
-		return matches.length === 1 ? { owner, agent: matches[0]! } : null;
+		const agent = this.persistence.find(owner, agentId);
+		return agent ? { owner, agent } : null;
 	}
 
 	beginStart(req: Request, input: CopilotIntentInput): CopilotTransitionResult {
@@ -223,7 +215,7 @@ export class CopilotAgentService {
 			operations: replaceAt(current.operations, operationIndex, operation),
 			updatedAt: Math.max(at, current.updatedAt),
 		});
-		applyCopilotAgent(this.persistenceDeps, owner, current, next);
+		this.persistence.apply(owner, next);
 		return next;
 	}
 
@@ -238,7 +230,7 @@ export class CopilotAgentService {
 		agent: CopilotPersistedAgent,
 		operationId: string,
 	): CopilotTransitionResult {
-		return commitCopilotTransition(this.persistenceDeps, owner, catalog, agents, agent, operationId);
+		return this.persistence.commit(owner, catalog, agents, agent, operationId);
 	}
 
 	private replay(
@@ -246,7 +238,7 @@ export class CopilotAgentService {
 		operationId: string,
 		identity: AgentOperationIdentity,
 	): CopilotTransitionResult | null {
-		return replayCopilotTransition(this.persistenceDeps, owner, operationId, identity);
+		return this.persistence.replay(owner, operationId, identity);
 	}
 
 	private requireOwner(req: Request): SessionRecord {
@@ -256,10 +248,10 @@ export class CopilotAgentService {
 	}
 
 	private catalog(owner: SessionRecord): CopilotAgentCatalog {
-		return readCopilotCatalog(this.persistenceDeps, owner);
+		return this.persistence.read(owner);
 	}
 
 	private indexOf(catalog: CopilotAgentCatalog, agentId: string): number {
-		return copilotAgentIndex(catalog, agentId);
+		return this.persistence.indexOf(catalog, agentId);
 	}
 }
