@@ -637,8 +637,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **Examples in, keys stored:** the phone sends typed examples and adopts the stored record.
     `canonicalPolicy` derives every key first, `policyRefusal` refuses anything that is not a key
     or is named twice, so no stored policy holds an example and the phone needs no twin of the rule.
-  - **Every mutation carries the base revision it read**, delete and enable included. A routine's
-    enable carries none, and a stale toggle wins there; a policy's does not.
+  - **Every mutation carries the base revision it read**, delete and enable included.
   - **A schedule is refused by asking the calculator:** whether a rule can ever come around is not
     something reading its fields answers, so `routineRefusal` calls `nextOccurrence` from the start
     date rather than judging the weekday set and interval by eye.

@@ -16,6 +16,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRunbookPutResult
 import com.atelier_nyaarium.switchboard.proto.PolicyBinding
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.RefFileMeta
 import com.atelier_nyaarium.switchboard.proto.RefKeyMeta
 import com.atelier_nyaarium.switchboard.proto.Routine
@@ -218,6 +219,7 @@ internal class SandboxRoutineGateway : RoutineGateway {
 		values = JsonObject(emptyMap()),
 		target = RoutineTarget(spawn = "host"),
 		linkedEntries = emptyList(),
+		forgetAfterDays = Protocol.Wire.ROUTINE_FORGET_DAYS_DEFAULT.toLong(),
 		enabled = enabled,
 		revision = 2L,
 		since = day(-30L * 86_400_000L),
@@ -360,6 +362,7 @@ internal class SandboxWorkspaceGateway(now: () -> Long) : WorkspaceGateway {
 		folders = listOf("src", "src/generated", "src/shared") + sandboxFolders(modules.keys),
 		files = listOf("AGENTS.md", READ_ONLY_FILE, UNHASHED_FILE, module, MANY_KINDS_FILE)
 			.associateWith { file.joinToString("\n") } + modules.mapValues { it.value.text },
+		root = SANDBOX_ROOT,
 	)
 
 	private suspend fun served(target: WorkspaceTarget): Boolean {
@@ -382,7 +385,6 @@ internal class SandboxWorkspaceGateway(now: () -> Long) : WorkspaceGateway {
 		val listing = table.tree(path) as? WorkspaceAnswer.Read ?: return table.tree(path)
 		return WorkspaceAnswer.Read(
 			listing.value.copy(
-				root = SANDBOX_ROOT,
 				entries = listing.value.entries.map {
 					val child = childPath(listing.value.path, it.name)
 					val bytes = shownBytes(child, it.bytes)

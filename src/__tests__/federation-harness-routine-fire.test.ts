@@ -36,6 +36,7 @@ describe("federation harness: a routine firing on its own", () => {
 		values: { branch: "main" },
 		target: { spawn: "host" },
 		linkedEntries: [],
+		forgetAfterDays: 7,
 		enabled: true,
 		revision: 1,
 		since: 0,

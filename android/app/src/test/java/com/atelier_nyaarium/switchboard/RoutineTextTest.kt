@@ -52,6 +52,7 @@ class RoutineTextTest {
 		values = JsonObject(emptyMap()),
 		target = RoutineTarget(spawn = "host"),
 		linkedEntries = emptyList(),
+		forgetAfterDays = 7L,
 		enabled = enabled,
 		revision = 1L,
 		since = 0L,

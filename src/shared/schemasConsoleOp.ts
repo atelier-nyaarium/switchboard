@@ -238,8 +238,7 @@ export const ConsoleOpSchema = z
 			kind: z.literal("routine_enable"),
 			routineId: z.string().min(1).max(64),
 			enabled: z.boolean(),
-			// Optional until 2026-09-24 for phones that toggle without it; then required.
-			baseRevision: z.number().int().positive().optional(),
+			baseRevision: z.number().int().positive(),
 		}),
 		// Run now and Dismiss answer an occurrence the owner is looking at, never the routine.
 		z.object({

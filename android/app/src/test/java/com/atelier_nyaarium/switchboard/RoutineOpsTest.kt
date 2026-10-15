@@ -29,6 +29,7 @@ private fun routine(id: String, name: String = id) = Routine(
 	values = kotlinx.serialization.json.JsonObject(emptyMap()),
 	target = RoutineTarget(spawn = "host"),
 	linkedEntries = emptyList(),
+	forgetAfterDays = 7L,
 	enabled = true,
 	revision = 1L,
 	since = 0L,

@@ -42,6 +42,7 @@ class WorkspaceFileTableVectorsTest {
 			val table = WorkspaceFileTable(
 				folders = vector["folders"]!!.jsonArray.map { it.jsonPrimitive.content },
 				files = vector["files"]!!.jsonObject.mapValues { it.value.jsonPrimitive.content },
+				root = "~/workspace",
 			)
 			val bound = mutableMapOf<String, Pair<String?, String?>>()
 

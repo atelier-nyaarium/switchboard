@@ -38,7 +38,7 @@ class SymbolViewsTest {
 		override suspend fun outline(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceOutlineAnswer> {
 			outlineReads++
 			outlineHolds.removeFirstOrNull()?.pass()
-			return WorkspaceAnswer.Read(WorkspaceOutlineAnswer(path = path, symbols = emptyList(), lines = outlineReads.toLong()))
+			return WorkspaceAnswer.Read(WorkspaceOutlineAnswer(path = path, symbols = emptyList(), lines = outlineReads.toLong(), root = "~"))
 		}
 
 		override suspend fun symbolSource(target: WorkspaceTarget, symbolId: String): WorkspaceAnswer<WorkspaceSymbolSourceAnswer> {

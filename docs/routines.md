@@ -54,7 +54,8 @@ Seven console operations, all owner-authenticated: `routine_list`, `routine_put`
 `routine_enable`, `routine_run_now`, `routine_run` and `routine_dismiss`.
 
 `routine_put` carries `baseRevision`, the revision the editor was opened at, and the gateway stores
-at its own successor. Run missed and Dismiss both name an occurrence rather than the routine, since
+at its own successor. `routine_enable` carries the revision the row was drawn at, so a stale toggle
+is refused like a stale put. Run missed and Dismiss both name an occurrence rather than the routine, since
 they answer something the owner is looking at.
 
 **`routine_run` is a different act from `routine_run_now`, which is why it is its own operation.**
@@ -232,7 +233,7 @@ chose to carry loses facts nobody can see went missing.
 
 ## When a finished routine's session goes
 
-`forgetAfterDays` on the record, a week unless the owner says otherwise, is how long a finished run's
+`forgetAfterDays` on the record, which the editor opens at a week, is how long a finished run's
 reserved session is kept. The tick drops it through the same two steps an owner's forget takes, named
 once in `composeRouterFrames` rather than copied, since the copy nobody taps is the one that drifts.
 It fires only when nothing in that session is still working and the newest run is older than the

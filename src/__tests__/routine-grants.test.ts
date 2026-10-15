@@ -26,6 +26,7 @@ const routine = (over: Partial<Routine> = {}): Routine => ({
 	values: {},
 	target: { spawn: "host" },
 	linkedEntries: ["deploy"],
+	forgetAfterDays: 7,
 	enabled: true,
 	revision: 1,
 	since: 0,
@@ -109,10 +110,10 @@ describe("what a routine is authorized to reach", () => {
 		const s = stage();
 		s.routines.console.put(routine());
 
-		s.routines.console.enable("triage", false);
+		s.routines.console.enable("triage", false, 1);
 		expect(s.latest()).toEqual([]);
 
-		s.routines.console.enable("triage", true);
+		s.routines.console.enable("triage", true, 2);
 		expect(s.latest()).toEqual(["deploy"]);
 	});
 

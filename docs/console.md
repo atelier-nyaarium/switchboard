@@ -621,10 +621,10 @@ no TTL.
 - **Drafts** (`WorkspaceDraftStore.kt`): one file per draft under `filesDir`, write-then-rename, keyed by
   a hash of session and `DraftKey` (a symbol id or a file path), holding the base hash the typing was done
   over. A reopen whose base is not the text's current hash comes back stale, carrying that base, so a save
-  of it is refused rather than landing old typing over what moved (`restored`, `restoredRaw`). A draft
-  written before bases were kept reads with `UNKNOWN_BASE`, which no hash equals. Not the runbook store,
-  which serialises a whole library into one preferences string on every commit. A failed rename leaves the
-  previous draft; deleting first to make room is the one order with a window holding neither copy.
+  of it is refused rather than landing old typing over what moved (`restored`, `restoredRaw`). Not the
+  runbook store, which serialises a whole library into one preferences string on every commit. A failed
+  rename leaves the previous draft; deleting first to make room is the one order with a window holding
+  neither copy.
 
   **A write that failed is drawn, not only logged.** `unsaved` names each draft whose newest write failed,
   and the next write of it that lands clears it. A window card draws NOT SAVED beside EDITED and the raw

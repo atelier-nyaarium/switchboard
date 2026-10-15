@@ -137,7 +137,7 @@ class WorkspaceNavTest {
 		)
 		assertEquals(crumbsOf("~/projects/switchboard", "src/gateway"), crumbsOf("~/projects/switchboard", "src//gateway/"))
 		assertEquals("~/projects/", rootPrefix("~/projects/switchboard"))
-		// An older plugin names no root.
+		// No listing yet.
 		assertEquals(listOf(Crumb("Files", "")), crumbsOf(null, ""))
 		assertEquals("", rootPrefix(null))
 		assertEquals("Files", projectName("/"))

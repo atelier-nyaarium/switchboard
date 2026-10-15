@@ -35,7 +35,11 @@ internal fun workspaceWithheldPath(path: String): Boolean {
 	return workspaceWithheldLeaf(segments.last().lowercase())
 }
 
-internal class WorkspaceFileTable(folders: Iterable<String> = emptyList(), files: Map<String, String> = emptyMap()) {
+internal class WorkspaceFileTable(
+	folders: Iterable<String> = emptyList(),
+	files: Map<String, String> = emptyMap(),
+	private val root: String,
+) {
 	internal data class Entry(val text: String, val identity: String)
 
 	private val folders = folders.toMutableSet()
@@ -128,6 +132,7 @@ internal class WorkspaceFileTable(folders: Iterable<String> = emptyList(), files
 		return WorkspaceAnswer.Read(
 			WorkspaceTreeAnswer(
 				path = relative,
+				root = root,
 				truncated = false,
 				entries = childFolders.map { folder ->
 					val children = folders.count { parentOf(it) == folder && listable(it) } +

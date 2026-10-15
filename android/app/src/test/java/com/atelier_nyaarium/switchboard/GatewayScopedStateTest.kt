@@ -30,6 +30,7 @@ class GatewayScopedStateTest {
 		values = kotlinx.serialization.json.JsonObject(emptyMap()),
 		target = RoutineTarget(spawn = "host"),
 		linkedEntries = emptyList(),
+		forgetAfterDays = 7L,
 		enabled = true,
 		revision = 1L,
 		since = 0L,

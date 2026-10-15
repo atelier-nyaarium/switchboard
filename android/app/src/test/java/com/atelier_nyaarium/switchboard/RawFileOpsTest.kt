@@ -13,7 +13,6 @@ import com.atelier_nyaarium.switchboard.proto.WorkspaceSymbolSourceAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceTreeAnswer
 import java.io.File
 import java.nio.file.Files
-import java.security.MessageDigest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -481,22 +480,6 @@ class RawFileOpsTest {
 		assertEquals(listOf("const x = 1;"), files.paints)
 		assertEquals("const x = 1;", ops.paintOf(one, PATH)?.text)
 	}
-
-	// Remove 2026-09-26, with `UNKNOWN_BASE`.
-	@Test
-	fun `typing from before bases were kept, reopened over a moved file, is stale and its save writes nothing`() =
-		runBlocking {
-			val name = separated(separated(one.key, "file"), PATH)
-			val legacy = MessageDigest.getInstance("SHA-256").digest(name.toByteArray()).joinToString("") { "%02x".format(it) }
-			File(dir, legacy).writeText("const x = 0; // old typing")
-			files.files[PATH] = "const x = 3;"
-
-			ops.open(one, PATH)
-
-			assertTrue(edit()!!.stale)
-			assertEquals(RawSave.Stale(gone = false), ops.save(one, PATH))
-			assertEquals("const x = 3;", files.files[PATH])
-		}
 
 	@Test
 	fun `a re-provision lets every file go, typing included`() = runBlocking {

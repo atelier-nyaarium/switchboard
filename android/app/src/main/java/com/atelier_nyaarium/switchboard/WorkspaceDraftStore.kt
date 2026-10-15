@@ -25,12 +25,6 @@ internal sealed interface DraftKey {
 internal data class HeldDraft(val base: String, val text: String)
 
 /**
- * Remove 2026-09-26. The base of a draft written before bases were kept: no hash equals it, so the typing
- * comes back stale and a save of it is refused rather than landing over whatever moved meanwhile.
- */
-internal const val UNKNOWN_BASE = "unknown-base"
-
-/**
  * Unsaved window and raw file text, on disk, so a restart costs the owner nothing.
  *
  * ONE FILE PER DRAFT: a combined file would rewrite every draft on every keystroke batch, which is
@@ -99,9 +93,6 @@ internal class WorkspaceDraftStore(private val dir: File, scope: CoroutineScope)
 		return File(dir, digest.joinToString("") { "%02x".format(it) } + ".draft")
 	}
 
-	// Remove 2026-09-26, with `UNKNOWN_BASE`: a draft from before bases were kept, named without the extension.
-	private fun legacyOf(file: File): File = File(file.parentFile, file.nameWithoutExtension)
-
 	/**
 	 * The fallback is for a throwing job alone, since `hand` leaves nothing unrun. Logged on the way
 	 * past, or an unreadable draft answers as no draft and the owner's typing goes without a word.
@@ -141,7 +132,6 @@ internal class WorkspaceDraftStore(private val dir: File, scope: CoroutineScope)
 	 * draft reads exactly like a saved one. The temp file is cleaned up either way, best effort.
 	 */
 	private fun perform(final: File, intent: Intent) {
-		val legacy = legacyOf(final)
 		when (intent) {
 			is Intent.Hold -> {
 				val base = intent.draft.base
@@ -154,12 +144,8 @@ internal class WorkspaceDraftStore(private val dir: File, scope: CoroutineScope)
 				} finally {
 					tmp.delete()
 				}
-				legacy.delete()
 			}
-			Intent.Drop -> {
-				check(final.delete() || !final.exists()) { "a draft would survive its window" }
-				check(legacy.delete() || !legacy.exists()) { "a draft would survive its window" }
-			}
+			Intent.Drop -> check(final.delete() || !final.exists()) { "a draft would survive its window" }
 		}
 	}
 
@@ -171,12 +157,7 @@ internal class WorkspaceDraftStore(private val dir: File, scope: CoroutineScope)
 	suspend fun load(target: WorkspaceTarget, key: DraftKey): HeldDraft? =
 		queued(null) {
 			val file = fileFor(target, key)
-			val legacy = legacyOf(file)
-			when {
-				file.isFile -> file.readText().let { HeldDraft(it.substringBefore('\n').ifEmpty { UNKNOWN_BASE }, it.substringAfter('\n')) }
-				legacy.isFile -> HeldDraft(base = UNKNOWN_BASE, text = legacy.readText())
-				else -> null
-			}
+			if (!file.isFile) null else file.readText().let { HeldDraft(it.substringBefore('\n'), it.substringAfter('\n')) }
 		}
 
 	/**

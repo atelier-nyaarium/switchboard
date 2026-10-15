@@ -155,12 +155,11 @@ export function createRoutineStore(deps: RoutineStoreDeps) {
 		return { stored: true, revision: routine.revision, routine };
 	};
 
-	/** Enabling is a whole-record write, so it moves the revision as any other edit does. */
 	/** A whole-record write at the revision the phone read, so a stale toggle is refused like a put. */
-	const setEnabled = (id: string, enabled: boolean, base?: number): RoutinePutResult => {
+	const setEnabled = (id: string, enabled: boolean, base: number): RoutinePutResult => {
 		const current = held(id);
 		if (!current) return { stored: false, revision: 0, reason: "no routine with that id is stored" };
-		if (base !== undefined && base !== current.revision) {
+		if (base !== current.revision) {
 			return {
 				stored: false,
 				revision: current.revision,

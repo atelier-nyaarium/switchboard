@@ -38,6 +38,7 @@ const routine = (id: string, over: Partial<Routine> = {}): Routine => ({
 	values: {},
 	target: { spawn: "host" },
 	linkedEntries: [],
+	forgetAfterDays: 7,
 	enabled: true,
 	revision: 1,
 	since: 0,
@@ -103,14 +104,14 @@ describe("routine store", () => {
 	it("moves the revision when enabling, and answers the held one when nothing changes", () => {
 		const store = open(fresh());
 		store.put(routine("morning"));
-		expect(store.setEnabled("morning", false)).toMatchObject({ stored: true, revision: 2 });
+		expect(store.setEnabled("morning", false, 1)).toMatchObject({ stored: true, revision: 2 });
 		expect(store.get("morning")?.enabled).toBe(false);
 		// Already off, so there is nothing to write and no revision to spend.
-		expect(store.setEnabled("morning", false)).toMatchObject({ stored: true, revision: 2 });
+		expect(store.setEnabled("morning", false, 2)).toMatchObject({ stored: true, revision: 2 });
 		// A toggle carries the revision the phone read, so a stale one is refused like a put.
 		expect(store.setEnabled("morning", true, 1)).toMatchObject({ stored: false, revision: 2 });
 		expect(store.setEnabled("morning", true, 2)).toMatchObject({ stored: true, revision: 3 });
-		expect(store.setEnabled("ghost", true).stored).toBe(false);
+		expect(store.setEnabled("ghost", true, 1).stored).toBe(false);
 	});
 
 	it("orders by name, then by id, and deletes once", () => {

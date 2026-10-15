@@ -54,7 +54,7 @@ class WindowOpsTest {
 
 		override suspend fun tree(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceTreeAnswer> {
 			asked += target
-			return WorkspaceAnswer.Read(WorkspaceTreeAnswer(path = path, entries = emptyList(), truncated = false))
+			return WorkspaceAnswer.Read(WorkspaceTreeAnswer(path = path, root = "~", entries = emptyList(), truncated = false))
 		}
 
 		var wholeFile = "whole file"
@@ -80,7 +80,7 @@ class WindowOpsTest {
 
 		override suspend fun outline(target: WorkspaceTarget, path: String): WorkspaceAnswer<WorkspaceOutlineAnswer> {
 			asked += target
-			return WorkspaceAnswer.Read(WorkspaceOutlineAnswer(path = path, symbols = emptyList()))
+			return WorkspaceAnswer.Read(WorkspaceOutlineAnswer(path = path, symbols = emptyList(), root = "~"))
 		}
 
 		override suspend fun symbolSource(

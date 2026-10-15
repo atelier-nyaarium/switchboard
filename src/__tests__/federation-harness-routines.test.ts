@@ -24,6 +24,7 @@ describe("federation harness: routine operations without a runner", () => {
 		values: {},
 		target: { spawn: "host" },
 		linkedEntries: [],
+		forgetAfterDays: 7,
 		enabled: true,
 		revision: 1,
 		// The gateway sets this itself; what a phone sends is ignored.
@@ -51,7 +52,7 @@ describe("federation harness: routine operations without a runner", () => {
 		const listed = await h.phone.value({ kind: "routine_list" });
 		expect(listed.result).toMatchObject({ routines: [{ routine: { id: "r1", name: "Morning triage" } }] });
 
-		const off = await h.phone.value({ kind: "routine_enable", routineId: "r1", enabled: false });
+		const off = await h.phone.value({ kind: "routine_enable", routineId: "r1", enabled: false, baseRevision: 1 });
 		expect(off.result).toMatchObject({ stored: true, revision: 2 });
 
 		const gone = await h.phone.value({ kind: "routine_delete", routineId: "r1" });

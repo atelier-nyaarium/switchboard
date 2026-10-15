@@ -2,7 +2,6 @@ package com.atelier_nyaarium.switchboard
 
 import java.io.File
 import java.nio.file.Files
-import java.security.MessageDigest
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -157,21 +156,6 @@ class WorkspaceDraftStoreTest {
 
 		assertEquals("held", textOf(awkward))
 		assertNotEquals(0, dir.listFiles()?.size)
-	}
-
-	// Remove 2026-09-26, with the legacy read.
-	@Test
-	fun `a draft written before bases were kept reads with a base no hash equals, and a clear takes it`() = runBlocking {
-		val name = separated(one.key, "lexicon typescript src/a.ts f().")
-		val legacy = MessageDigest.getInstance("SHA-256").digest(name.toByteArray()).joinToString("") { "%02x".format(it) }
-		File(dir, legacy).writeText("older typing")
-
-		assertEquals(HeldDraft(base = UNKNOWN_BASE, text = "older typing"), store.load(one, F_ID))
-
-		store.clear(one, F_ID)
-
-		assertNull(store.load(one, F_ID))
-		assertFalse(File(dir, legacy).exists())
 	}
 
 	@Test

@@ -14,6 +14,7 @@ const routine = (over: Partial<Routine> = {}): Routine => ({
 	values: { branch: "main" },
 	target: { spawn: "host" },
 	linkedEntries: [],
+	forgetAfterDays: 7,
 	enabled: true,
 	revision: 1,
 	since: 0,

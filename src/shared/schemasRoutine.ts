@@ -3,16 +3,15 @@
 import { z } from "zod";
 import { instantOf, type LocalDate, nextOccurrence, parseLocalDate, parseLocalTime } from "./routine-recurrence.js";
 import { MAX_SLUG_LEN, SLUG_RE } from "./session-id.js";
-import { ROUTINE_FORGET_DAYS_DEFAULT, ROUTINE_FORGET_DAYS_MAX, ROUTINE_FORGET_DAYS_MIN } from "./wire-vocabulary.js";
+import { ROUTINE_FORGET_DAYS_MAX, ROUTINE_FORGET_DAYS_MIN } from "./wire-vocabulary.js";
 
 /** Eight weeks is the longest interval the editor offers. */
 const MAX_WEEK_INTERVAL = 8;
 
 const ROUTINE_SESSION_PREFIX = "routine-";
 
-/** The owner's choice, or the default a console too old to carry one implies. */
-export function forgetAfterMs(routine: { forgetAfterDays?: number }): number {
-	return (routine.forgetAfterDays ?? ROUTINE_FORGET_DAYS_DEFAULT) * 24 * 60 * 60 * 1000;
+export function forgetAfterMs(routine: { forgetAfterDays: number }): number {
+	return routine.forgetAfterDays * 24 * 60 * 60 * 1000;
 }
 
 /** The id has to leave a valid session segment, since the reserved session is named from it. */
@@ -80,12 +79,8 @@ export const RoutineSchema = z
 		 * cannot reach past it, so a routine saved today is never handed a miss for last month.
 		 */
 		since: z.number().int().nonnegative(),
-		/**
-		 * Days a finished run's reserved session is kept before the gateway forgets it. Absent reads
-		 * as the default, which is what a console that has not shipped this field sends.
-		 */
-		// Required from 2026-09-25, by when every console has it.
-		forgetAfterDays: z.number().int().min(ROUTINE_FORGET_DAYS_MIN).max(ROUTINE_FORGET_DAYS_MAX).optional(),
+		/** Days a finished run's reserved session is kept before the gateway forgets it. */
+		forgetAfterDays: z.number().int().min(ROUTINE_FORGET_DAYS_MIN).max(ROUTINE_FORGET_DAYS_MAX),
 		/**
 		 * Minted by the gateway when it first stores this routine and carried across every edit, so
 		 * what the routine remembers survives a rename and dies with the routine. An id reused after

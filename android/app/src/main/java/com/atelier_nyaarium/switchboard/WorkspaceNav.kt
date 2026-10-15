@@ -116,7 +116,7 @@ internal fun childPath(parent: String, name: String): String = if (parent.isEmpt
 
 internal fun parentPath(path: String): String = path.substringBeforeLast('/', "")
 
-/** The root's last segment, or "Files" from a plugin that does not name it. */
+/** The root's last segment, or "Files" until a listing names it. */
 internal fun projectName(root: String?): String = root?.trimEnd('/')?.substringAfterLast('/')?.ifEmpty { null } ?: "Files"
 
 /** What the root crumb follows, drawn dim. */

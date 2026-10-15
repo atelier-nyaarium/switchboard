@@ -28,6 +28,7 @@ class ViewScopeTest {
 			values = kotlinx.serialization.json.JsonObject(emptyMap()),
 			target = RoutineTarget(spawn = spawn),
 			linkedEntries = emptyList(),
+			forgetAfterDays = 7L,
 			enabled = true,
 			revision = 1L,
 			since = 0L,

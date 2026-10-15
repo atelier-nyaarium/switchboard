@@ -581,7 +581,7 @@ sealed class ConsoleOp {
 	data class RoutineEnable(
 		val routineId: String,
 		val enabled: Boolean,
-		val baseRevision: Long? = null,
+		val baseRevision: Long,
 	) : ConsoleOp()
 
 	@Serializable
@@ -1917,7 +1917,7 @@ data class Routine(
 	val enabled: Boolean,
 	val revision: Long,
 	val since: Long,
-	val forgetAfterDays: Long? = null,
+	val forgetAfterDays: Long,
 	val incarnation: String? = null,
 )
 
@@ -2155,7 +2155,7 @@ data class WorkspaceTreeAnswer(
 	@EncodeDefault
 	val kind: String = "tree",
 	val path: String,
-	val root: String? = null,
+	val root: String,
 	val entries: List<WorkspaceTreeEntry>,
 	val truncated: Boolean,
 )
@@ -2188,7 +2188,7 @@ data class WorkspaceOutlineAnswer(
 	val path: String,
 	val symbols: List<WorkspaceOutlineSymbol>,
 	val lines: Long? = null,
-	val root: String? = null,
+	val root: String,
 )
 
 @Serializable

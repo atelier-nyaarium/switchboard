@@ -29,6 +29,7 @@ const routine: Routine = {
 	values: { branch: "main" },
 	target: { spawn: "host" },
 	linkedEntries: [],
+	forgetAfterDays: 7,
 	enabled: true,
 	revision: 1,
 	since: 0,
@@ -110,6 +111,18 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 	};
 	const shown = async (): Promise<RoutineState | undefined> =>
 		(await rows()).find((row) => row.routine.id === routine.id);
+
+	/** At the revision the phone would have drawn. */
+	const toggle = async (enabled: boolean) => {
+		const row = await shown();
+		if (!row) throw new Error("the routine is not listed");
+		return h.phone.value({
+			kind: "routine_enable",
+			routineId: routine.id,
+			enabled,
+			baseRevision: row.routine.revision,
+		});
+	};
 
 	const nudges = (scheduledAt: number): number =>
 		reserved?.inbound.filter((frame) => frame.body === nudgeFor(routine, occurrenceAt(scheduledAt))).length ?? 0;
@@ -204,14 +217,14 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 		const slot = FIRST + 4 * WEEK_MS;
 		h.host.reportWorking(TEAM, true);
 		await at(slot + 60_000);
-		const off = await h.phone.value({ kind: "routine_enable", routineId: routine.id, enabled: false });
+		const off = await toggle(false);
 		expect(off.result).toMatchObject({ stored: true });
 		await h.gateway.faults.sweepRoutines();
 
 		const missed = (await shown())?.missed;
 		expect(missed).toMatchObject({ scheduledAt: slot, reason: "disabled", runnable: true });
 
-		const on = await h.phone.value({ kind: "routine_enable", routineId: routine.id, enabled: true });
+		const on = await toggle(true);
 		expect(on.result).toMatchObject({ stored: true });
 		h.host.reportWorking(TEAM, false);
 		// Started together, since the point is that the owner's run and an automatic one cannot both
@@ -235,7 +248,7 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 
 	it("runs a disabled routine when the owner presses it, and leaves the schedule alone", async () => {
 		await at(FIRST + 4 * WEEK_MS + 2 * 60 * 60 * 1000);
-		const off = await h.phone.value({ kind: "routine_enable", routineId: routine.id, enabled: false });
+		const off = await toggle(false);
 		expect(off.result).toMatchObject({ stored: true });
 		const before = await shown();
 
@@ -250,7 +263,7 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 		// Disabled, so the rule still names nothing further, and the press did not change that.
 		expect((await shown())?.nextAt).toBe(before?.nextAt);
 
-		await h.phone.value({ kind: "routine_enable", routineId: routine.id, enabled: true });
+		await toggle(true);
 	});
 
 	it("stops while its runbook does not render, says why, and resumes once the runbook alone is fixed", async () => {

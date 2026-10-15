@@ -138,8 +138,7 @@ internal data class RoutineDraft(
 			workdir = routine.target.workdir.orEmpty(),
 			linkedEntries = routine.linkedEntries,
 			enabled = routine.enabled,
-			// A record from a gateway that predates the field reads as the default.
-			forgetAfterDays = routine.forgetAfterDays?.toInt() ?: Protocol.Wire.ROUTINE_FORGET_DAYS_DEFAULT,
+			forgetAfterDays = routine.forgetAfterDays.toInt(),
 			revision = routine.revision,
 		)
 	}

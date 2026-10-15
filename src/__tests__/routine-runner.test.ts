@@ -30,6 +30,7 @@ const routine = (over: Partial<Routine> = {}): Routine => ({
 	values: {},
 	target: { spawn: "host" },
 	linkedEntries: [],
+	forgetAfterDays: 7,
 	enabled: true,
 	revision: 1,
 	// Taken long enough ago that recovery may reconstruct across a downtime.
@@ -194,7 +195,7 @@ describe("the routine runner", () => {
 
 		const reconcile = w.runner.reconcile();
 		await preparationStarted;
-		w.routines.setEnabled("triage", false);
+		w.routines.setEnabled("triage", false, 1);
 		release();
 		await reconcile;
 
@@ -339,7 +340,7 @@ describe("the routine runner", () => {
 		w.routines.put(routine());
 		await w.runner.reconcile();
 
-		w.routines.setEnabled("triage", false);
+		w.routines.setEnabled("triage", false, 1);
 		await w.runner.reconcile();
 		expect(w.occurrences.at("triage", MONDAY_0900_LA)?.reason).toBe("disabled");
 	});

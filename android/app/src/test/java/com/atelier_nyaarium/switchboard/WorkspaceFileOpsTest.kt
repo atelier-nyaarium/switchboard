@@ -24,7 +24,7 @@ private const val APP = "src/app.ts"
 class WorkspaceFileOpsTest {
 	/** The plugin's rules through `WorkspaceFileTable`, with the losses a plane can suffer. */
 	private class FakeDisk : WorkspaceGateway by NotReached {
-		val table = WorkspaceFileTable(folders = listOf("src", "lib"), files = mapOf(APP to "const x = 1;"))
+		val table = WorkspaceFileTable(folders = listOf("src", "lib"), files = mapOf(APP to "const x = 1;"), root = "~/workspace")
 		val sent = mutableListOf<WorkspaceFileMutation>()
 		val tooLarge = mutableSetOf<String>()
 
