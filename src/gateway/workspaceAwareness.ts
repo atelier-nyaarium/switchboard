@@ -79,7 +79,7 @@ function render(_sessionKey: string, changes: readonly Change<WorkspaceChange>[]
 	const listed = lines.slice(0, MAX_NOTICE_LINES);
 	if (lines.length > MAX_NOTICE_LINES) listed.push(`- and ${lines.length - MAX_NOTICE_LINES} more`);
 	return `
-The owner changed files in this workspace from their phone. They will tell you if it needs your attention.
+The owner changed files in this workspace from their phone:
 ${listed.join("\n")}
 	`.trim();
 }

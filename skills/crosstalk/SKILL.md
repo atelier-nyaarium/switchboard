@@ -157,19 +157,13 @@ The full guidance comes from `switchboard_capabilities`, the same as refs above.
 
 ## Receiving a Request
 
-How you receive requests depends on which agent is running:
-
-### Claude (channel mode)
-
-Requests arrive as `<channel source="bridge">` tags in your session with attributes
-like `session_id` and `from`. Do the work, then reply with **`switchboard:channel_reply()`**
+Requests arrive as `<channel source="plugin:switchboard:switchboard">` tags in your session with
+attributes like `session_id` and `from`. Do the work, then reply with **`switchboard:channel_reply()`**
 (session_id + title + summary + full + fullSpoken, plus optional attachments) using that `session_id`. When
 the inbound tag also carries a `reply_schema` attribute (e.g. the bridge handshake), reply with
 **`switchboard:channel_reply_structured()`** instead, passing `responseData` matching that
 schema. A `disposition` attribute of `informing` or `closing` means the sender wants nothing back;
 the `instructions` attribute says so in words, and those words are what you follow.
 
-### CLI agents (cursor, copilot, codex)
-
-Requests are injected into your session as a prompt containing a `session_id` in the header.
-Do the work, then reply with the supported `channel_reply` tool using that `session_id`.
+A `<system-reminder>` block inside the tag is Switchboard's own awareness notice, not the sender's
+words. Follow its `act` line and never reply to it.

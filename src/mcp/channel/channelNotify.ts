@@ -1,5 +1,6 @@
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import type { ChannelFile, ChannelPushPayload, ResponsePushPayload } from "../../shared/types.js";
+import { composeModelMessage, type ReminderBlock, reminderBlock } from "../../shared/system-reminder.js";
+import type { ChannelFile, ChannelPushPayload, ResponsePushPayload, RidingAwareness } from "../../shared/types.js";
 import { dropReferenceArtifacts, materializeFiles, renderFilesBlock } from "./channelFiles.js";
 
 ////////////////////////////////
@@ -22,22 +23,22 @@ async function filesBlockFor(bucketKey: string | undefined, files: ChannelFile[]
 	}
 }
 
-/** Arrives as a `<channel source="bridge" ...>body</channel>` tag. */
+/** Meaning stated once, in the MCP instructions. */
+function awarenessReminder(awareness: RidingAwareness | undefined): ReminderBlock | "" {
+	if (!awareness?.body.trim()) return "";
+	return reminderBlock([`awareness: ${awareness.from}`, `act: ${awareness.act}`, awareness.body]);
+}
+
+/** Arrives as a `<channel ...>content</channel>` tag. */
 export async function emitChannelNotification(server: Server, payload: ChannelPushPayload): Promise<void> {
 	const filesBlock = await filesBlockFor(payload.message_id, payload.files);
-	// Notices that rode this message. Labeled with their source and closed with what to do about
-	// them, since the instructions line below belongs to the message itself.
-	const awarenessBlock = payload.awareness
-		? `[AWARENESS from ${payload.awareness.from}]\n${payload.awareness.body}\n${
-				payload.awareness.act === "act_now"
-					? "Act on this before continuing."
-					: "For awareness only. It needs no action and no reply."
-			}`
-		: "";
 
 	// Prose ONLY. Every structured field rides in `meta`, which the harness renders as attributes.
-	const blocks = [payload.body, filesBlock, awarenessBlock].filter(Boolean);
-	const content = blocks.join("\n\n");
+	const content = composeModelMessage({
+		files: filesBlock,
+		reminder: awarenessReminder(payload.awareness),
+		body: payload.body,
+	});
 
 	// Repeated per message: the MCP `instructions` sit at the top of the context and lose salience to
 	// fresher injections, which has produced real missed replies. Exactly true, not truthy: a stray
@@ -83,13 +84,12 @@ export async function emitChannelNotification(server: Server, payload: ChannelPu
 
 export async function emitResponseNotification(server: Server, payload: ResponsePushPayload): Promise<void> {
 	const filesBlock = await filesBlockFor(payload.message_id, payload.files);
-	const body = payload.response ?? "";
 
 	await server.notification({
 		method: "notifications/claude/channel",
 		params: {
 			// Prose only; status rides in meta, not as a label flattened into the body.
-			content: filesBlock ? `${body}\n\n${filesBlock}` : body,
+			content: composeModelMessage({ files: filesBlock, body: payload.response }),
 			meta: {
 				session_id: payload.session_id,
 				...(payload.status ? { status: payload.status } : {}),

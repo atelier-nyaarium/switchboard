@@ -487,6 +487,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../ConsoleTransportCoordinator.kt` / `ConsoleSocketDriver.kt` - one Router consumer across two transports, and generation-fenced frame routing
 - `android/.../Federation.kt` / `FederationManager.kt` / `CrossDomainLink.kt` / `ConsoleClientCrossDomain.kt` / `CrossDomainPresenceUi.kt` - cross-Gateway routing, identity, allowlist, sealing, replay, and presence
 - `src/mcp/` - Claude Code tools
+- `src/shared/system-reminder.ts` - sole builder of the reminder tag, `neutralizeMarkup` for model-bound text, and the files, reminder, body order; never for phone-bound text
+- `src/mcp/toolResultGuard.ts` - every tool result and thrown error neutralized, wrapped at registration
 - `src/mcp/bridge/` / `channel/` / `references/` / `board/` / `designer/` / `connector/` - bridge, channel, reference, board, designer, and connector tools
 - `src/mcp/vault/vaultTools.ts` / `vaultRun.ts` - vault tools over the gateway's loopback routes, and the child run that injects a value and scrubs it from the output
 - `src/mcp/routines/routineTools.ts` - `get_session_routine` and `report_session_routine`, registered for any token-bound session and behind no capability

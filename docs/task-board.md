@@ -57,6 +57,12 @@ set land in one journal line, and a write naming anything else is refused `attac
 
 - **Awareness rides the next message:** The send route leases each session's bank into
   `channel_push`. Standalone pushes are only the `act_now` fallback.
+- **The model reads it as a reminder block, never as the sender's words:** the plugin renders
+  `awareness` as data lines (its sources, its `act`, then the notice) between the files and the body,
+  through `shared/system-reminder.ts`. A standalone push carries it as `awareness` beside an empty body.
+  The MCP instructions state once what `act_now` and `no_act` ask for, so the block carries no
+  instruction. A standalone push's `instructions` attribute still repeats that no reply is wanted,
+  as every message's does.
 - **A lease settles by whether its carrier landed** (`AwarenessBank.prepareFor`): `commit` once the
   message is accepted removes exactly what it carried, and a change observed meanwhile keeps its delta
   from what was delivered; `release` on a refusal leaves everything banked. One carrier holds a bank at a

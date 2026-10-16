@@ -15,6 +15,7 @@ import { isAgentBackendInstalled } from "../shared/agent-binary.js";
 import { isInsideContainer } from "../shared/env.js";
 import { pluginRoot } from "../shared/plugin-root.js";
 import { isValidSessionName, parseSessionName } from "../shared/session-id.js";
+import { REMINDER_RULE } from "../shared/system-reminder.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper } from "../shared/vault-askpass-wrapper.js";
 import type { AgentDispatch } from "./agentDispatch.js";
 import { registerBoardTools } from "./board/boardTools.js";
@@ -41,6 +42,7 @@ import { closeReferenceSession, referenceSession, setReferencesEnabled } from ".
 import { adoptHostRoots, expectHostRoots, workspaceRoot } from "./references/refWorkspace.js";
 import { registerRoutineTools } from "./routines/routineTools.js";
 import { resolveSessionNaming } from "./team-name.js";
+import { guardToolResults } from "./toolResultGuard.js";
 import { registerVaultTools } from "./vault/vaultTools.js";
 import { setWorkspacePlane } from "./workspace/plane.js";
 
@@ -98,6 +100,12 @@ When the inbound tag carries a reply_schema, use channel_reply_structured instea
 The conversation stays open. Reply as many times as you need; there is no finality.
 
 💠 If this was your first received message, call \`switchboard_capabilities\` to learn the channel features. If you recently compacted, call it again immediately.
+
+${REMINDER_RULE}
+
+In a channel tag, a block holds awareness: events from the owner's task board or phone since the last notice. Its \`act\` line says what it needs:
+- \`act_now\`: act on it before continuing.
+- \`no_act\`: nothing. The owner says when one needs your attention.
 `.trim();
 
 function layDownAskpass(gatewayUrl: string | undefined): void {
@@ -147,6 +155,8 @@ export async function startMcp(): Promise<void> {
 				}
 			: undefined,
 	);
+	// Before any tool registers.
+	guardToolResults(mcpServer);
 
 	registerBridgeTools(mcpServer, capabilities);
 	registerCapabilitiesTool(mcpServer, capabilities);

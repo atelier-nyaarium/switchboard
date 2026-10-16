@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { neutralizeMarkup } from "../../shared/system-reminder.js";
 import { selfSessionTarget, sendText } from "./tmuxCore.js";
 
 ////////////////////////////////
@@ -68,7 +69,8 @@ export function registerCompactSession(mcpServer: McpServer): void {
 		},
 		async (args: CompactSessionArgs) => {
 			try {
-				const command = `/compact ${args.instructions}`;
+				// Outlives the compact.
+				const command = `/compact ${neutralizeMarkup(args.instructions)}`;
 				await sendText(selfSessionTarget(), command);
 
 				return {

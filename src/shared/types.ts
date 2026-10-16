@@ -31,7 +31,7 @@ export type ResponseStatus = z.infer<typeof ResponseStatusSchema>;
  * is worth interrupting for, and the gateway pushes it on its own if no message comes in time. */
 export type ActAxis = "no_act" | "act_now";
 
-/** Banked notices riding a message that was going to the session anyway. `from` names the source. */
+/** Banked notices, riding a message or pushed alone. `from` names the sources. */
 export interface RidingAwareness {
 	from: string;
 	body: string;
@@ -60,7 +60,7 @@ export interface ChannelPushPayload {
 	no_ack?: boolean;
 	// The act axis of a standalone awareness push. Only ever set beside no_ack.
 	act?: ActAxis;
-	// Notices for the recipient that hitched a ride on this message. Rendered under the body.
+	// Rendered as a reminder block. A standalone push carries it with an empty body.
 	awareness?: RidingAwareness;
 	disposition?: ReplyDisposition;
 }

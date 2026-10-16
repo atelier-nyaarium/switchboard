@@ -41,6 +41,30 @@ keeps it across reconnects.
 - `channel_reply` may be called any number of times on a session_id. There is no finality.
 - Replies push to the specific sender sub-session, so parallel windows do not cross streams.
 
+### What a session's model reads
+
+`shared/system-reminder.ts` is the one builder of the `system-reminder` tag and the one
+neutralizer for model-bound text.
+
+- **A message is files, reminder, then body:** `composeModelMessage` orders the parts so the
+  sender's words come last. Both channel notifications build through it.
+- **Foreign text is neutralized at one chokepoint per path:** `composeModelMessage` for a channel
+  body, a reply and a `[FILES]` block, `reminderBlock` for its own lines, `guardToolResults` for
+  every string in a tool result and every thrown tool error, since a result can echo another
+  session's text, and `compact_session` for the instructions that outlive a compact.
+  `neutralizeMarkup` rewrites the opener of a `system-reminder` or `channel` tag to `&lt;`. ASCII
+  spellings only.
+- **The guard is the only road to a tool:** it wraps `registerTool` and a later `update` callback,
+  and `tool()` refuses.
+- **A file's bytes are not neutralized:** an attachment is data, and the model reads it through
+  Claude Code's own Read, the same boundary as any file in the repo. Rewriting it would corrupt it.
+- **Connector tool schemas are not neutralized:** they come from code the plugin runs.
+- **The harness covers part of this itself:** Claude Code escapes every meta value as an attribute
+  and folds a `</channel` closer in the content, lookalikes included. It leaves a `<channel` opener
+  and every reminder tag as written, which is what the neutralizer exists for.
+- **Text bound for the phone is never escaped.** Mirrors, console rows and replies keep their bytes.
+- `system-reminder-residue.test.ts` refuses the tag spelled anywhere in `src/` but the builder's tests.
+
 ## Addressing
 
 **`shared/session-id.ts`** owns session/team key production, separators, slug validation, `Address`,

@@ -111,7 +111,7 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 		}
 		if (rendered.length === 0) return null;
 		return {
-			from: rendered.length === 1 ? rendered[0].from : "awareness",
+			from: rendered.map((item) => item.from).join(", "),
 			body: bounded(rendered.map((item) => item.body).join("\n\n")),
 			act: rendered.some((item) => item.act === "act_now") ? "act_now" : "no_act",
 		};
@@ -192,7 +192,9 @@ export function createAwarenessBank(deps: AwarenessBankDeps): AwarenessBank {
 		const sent = deps.deliver(sessionKey, {
 			type: "channel_push",
 			from: lease.awareness.from,
-			body: lease.awareness.body,
+			// Awareness, never a sender body.
+			body: "",
+			awareness: lease.awareness,
 			session_id: mintNoAckSessionId(deps.ambient),
 			no_ack: true,
 			act: lease.awareness.act,

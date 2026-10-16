@@ -129,6 +129,9 @@ describe("awareness bank", () => {
 		expect(sent[0].act).toBe("act_now");
 		expect(sent[0].from).toBe("fake");
 		expect(isNoAckSessionId(sent[0].session_id)).toBe(true);
+		// Awareness, never a sender body.
+		expect(sent[0].body).toBe("");
+		expect(sent[0].awareness).toEqual({ from: "fake", body: "body", act: "act_now" });
 	});
 
 	it("does not extend a later act_now observation", () => {
@@ -347,7 +350,7 @@ describe("awareness bank", () => {
 		first([{ sessionKey: "s", identity: "a", pre: "a", post: "b" }]);
 		second([{ sessionKey: "s", identity: "b", pre: "a", post: "b" }]);
 		empty([{ sessionKey: "s", identity: "c", pre: "a", post: "b" }]);
-		expect(take(bank, "s")).toEqual({ from: "awareness", body: "one\n\ntwo", act: "no_act" });
+		expect(take(bank, "s")).toEqual({ from: "one, two", body: "one\n\ntwo", act: "no_act" });
 		expect(take(bank, "s")).toBeNull();
 	});
 
