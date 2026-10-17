@@ -8,6 +8,7 @@ import { createHttpRouter } from "../httpRouter.js";
 import { unenrolledHealth } from "../routes/routesStatus.js";
 import type { AgentsStage } from "./composeAgents.js";
 import type { AwarenessStage } from "./composeAwareness.js";
+import type { BaselineStage } from "./composeBaseline.js";
 import type { EnrollmentStage } from "./composeEnrollment.js";
 import type { FederationStage } from "./composeFederation.js";
 import type { HostStage } from "./composeHost.js";
@@ -40,6 +41,7 @@ export interface ListenerStageDeps {
 	/** Required: an omitted stage leaves a routine's own session with no door, and typechecks. */
 	routines: Pick<RoutineStage, "stop" | "routes">;
 	vault: Pick<VaultStage, "routes">;
+	baseline: Pick<BaselineStage, "routes">;
 }
 
 export interface ListenerStage {
@@ -102,7 +104,12 @@ export function composeListener(deps: ListenerStageDeps): ListenerStage {
 		admitPayload: () => context.arming()?.admitPayload,
 		blobStore: stores.blobStore,
 		sessionAuthority: sessions.sessionAuthority,
-		loopbackRoutes: new Map([...deps.agents.agentRoutes, ...deps.vault.routes, ...(deps.routines?.routes ?? [])]),
+		loopbackRoutes: new Map([
+			...deps.agents.agentRoutes,
+			...deps.vault.routes,
+			...(deps.routines?.routes ?? []),
+			...deps.baseline.routes,
+		]),
 		routes: routes.current,
 		unenrolledHealth: () => unenrolledHealth(deps.localGatewayId),
 		hostWsToken: deps.hostWsToken,

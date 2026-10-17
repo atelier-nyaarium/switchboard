@@ -8,8 +8,8 @@
 // the committed version, which is why bumping and building are one command rather than two: a dist/
 // built at a version the manifests do not claim looks correct and is not.
 //
-// The MCP entrypoint and the askpass helper are bundled; the host daemon and the plugin point the
-// askpass wrapper at the helper in dist/. The gateway and the host daemon run under bun by
+// The MCP entrypoint, the askpass helper and the compact hook are bundled; the host daemon and the
+// plugin point the askpass wrapper at the helper in dist/, and hooks/hooks.json runs the hook. The gateway and the host daemon run under bun by
 // construction and need no bundle.
 //
 // package.json is the source of truth. It is the one file that gets BUMPED; every other target is
@@ -40,7 +40,11 @@ const VERSION_FIELD_RE = /"version"\s*:\s*"[^"]*"/g;
 /** The console's baked-in plugins, whose manifests ship inside the APK. */
 const PLUGIN_MANIFEST_DIR = path.join("android", "app", "src", "main", "assets", "plugins");
 
-const ENTRYPOINTS = [path.join("src", "main-mcp.ts"), path.join("src", "main-vault-askpass.ts")];
+export const ENTRYPOINTS = [
+	path.join("src", "main-mcp.ts"),
+	path.join("src", "main-vault-askpass.ts"),
+	path.join("src", "main-session-hook.ts"),
+];
 const DIST_DIR = "dist";
 
 export const MAX_PLUGIN_BUNDLE_BYTES = 1_500_000;

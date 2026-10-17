@@ -4,6 +4,7 @@ import { hostSpawnPoint } from "../shared/host-spawn.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
 import { composeAgents } from "./compose/composeAgents.js";
 import { composeAwareness } from "./compose/composeAwareness.js";
+import { composeBaseline } from "./compose/composeBaseline.js";
 import { composeBootstrap } from "./compose/composeBootstrap.js";
 import { composeEnrollment } from "./compose/composeEnrollment.js";
 import { composeFaults } from "./compose/composeFaults.js";
@@ -205,6 +206,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			return record ? sessions.sessionStore.teamOf(record) : null;
 		},
 	});
+	const baseline = composeBaseline({ context, stores, sessions, routines });
 	const policies = composePolicies({
 		dataDir: bootstrap.dataDir,
 		onPolicyMoved: (policyId) => vault?.policyMoved(policyId),
@@ -249,6 +251,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		websockets,
 		routes,
 		vault,
+		baseline,
 	});
 
 	return {

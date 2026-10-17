@@ -9,6 +9,7 @@ import {
 	routineRefusal,
 } from "../../shared/schemasRoutine.js";
 import type { Runbook } from "../../shared/schemasRunbook.js";
+import type { SessionBaseline } from "../../shared/session-baseline.js";
 import type { RoutineConsoleHandlers } from "../console/consoleTypes.js";
 import { fireAndForget } from "../fireAndForget.js";
 import { type Attention, createAttentionStore } from "../routines/attention.js";
@@ -54,6 +55,8 @@ export interface RoutineStage {
 	bindExecution: (attempt: RoutineAttempt) => void;
 	/** The routine whose work is open in that session, which is what a standing grant reads. */
 	workingRoutine: (sessionTarget: string) => string | null;
+	/** Every run open in that session. */
+	openRuns: (sessionTarget: string) => SessionBaseline["routines"];
 	/** Whether a stored routine reserves that session, which keeps it from being swept as idle. */
 	reserves: (sessionTarget: string) => boolean;
 	/** A runbook moved or went, so a routine it stopped may run again. */
@@ -365,6 +368,13 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 			if (!routine || !ownsIts(sessionTarget, routine)) return null;
 			return routine.id;
 		},
+		openRuns: (sessionTarget) =>
+			runner.workingOccurrences(sessionTarget).flatMap((held) => {
+				const routine = store.get(held.routineId);
+				// Same rule as workingRoutine.
+				if (!routine || !ownsIts(sessionTarget, routine)) return [];
+				return [{ occurrenceId: String(held.scheduledAt), routine: routine.name }];
+			}),
 		runbookMoved,
 		sessionEnded: (sessionTarget) => {
 			// Its session is gone, so its work is over. Every open window, not the first: one left

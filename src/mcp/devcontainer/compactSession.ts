@@ -4,6 +4,21 @@ import { neutralizeMarkup } from "../../shared/system-reminder.js";
 import { selfSessionTarget, sendText } from "./tmuxCore.js";
 
 ////////////////////////////////
+//  Constants
+
+/** One line: a newline would submit early. */
+const RECALL_FIRST = [
+	"Write the summary so this session can carry on from it alone.",
+	"Goal: what the owner wants, in their words.",
+	"Owner instructions: quote every rule and preference verbatim, including those carried in an earlier summary.",
+	"Keep exact: file paths, ids, commit hashes, commands, error messages, each channel session_id with who is on it, task board entry ids, agent ids, vault job ids, routine occurrence ids.",
+	"Current state: what is done and verified, and what is done but unverified.",
+	"Next steps, in order.",
+	"Drop what a re-read or re-run recovers, keeping its path or command.",
+	"If a team exists, keep its team_name, each teammate's name and agentType, its config and tasks paths, and in-flight task ids with owners.",
+].join(" ");
+
+////////////////////////////////
 //  Schemas
 
 const CompactSessionSchema = z
@@ -16,25 +31,12 @@ const CompactSessionSchema = z
 			.refine((v) => !/[\r\n]/.test(v) && !v.includes("\u0000"), {
 				message: `instructions must be a single line (no newlines or null bytes)`,
 			})
+			.optional()
 			.describe(
 				`
-Compaction instructions. One plain-text line with no newlines.
+Extra compaction instructions, sent after the fixed recall-first ones. One plain-text line with no newlines.
 
-## Preserve
-
-- Open threads, unresolved decisions, and tool-call sequences.
-- Exact error strings, commit hashes, and user-supplied text.
-- Exclude stale exploration and failed attempts.
-
-## Team state
-
-If a team exists via \`TeamCreate\`, preserve as verbatim as possible:
-
-- the current \`team_name\`
-- each teammate's messaging name, not UUID, with \`agentType\`
-- \`~/.claude/teams/{team_name}/config.json\`
-- \`~/.claude/tasks/{team_name}/\`
-- in-flight task IDs and owners
+Name what this session must not lose that the fixed ones would not catch.
 `.trim(),
 			),
 	})
@@ -50,7 +52,7 @@ const compactSchema: any = CompactSessionSchema;
 const description = `
 # Compact Session
 
-Send \`/compact <instructions>\` to local tmux pane \`0\`.
+Send \`/compact\` to local tmux pane \`0\`, with fixed recall-first instructions and any extra ones.
 
 ## Idle session
 
@@ -70,7 +72,8 @@ export function registerCompactSession(mcpServer: McpServer): void {
 		async (args: CompactSessionArgs) => {
 			try {
 				// Outlives the compact.
-				const command = `/compact ${neutralizeMarkup(args.instructions)}`;
+				const extra = args.instructions === undefined ? "" : ` ${neutralizeMarkup(args.instructions)}`;
+				const command = `/compact ${RECALL_FIRST}${extra}`;
 				await sendText(selfSessionTarget(), command);
 
 				return {

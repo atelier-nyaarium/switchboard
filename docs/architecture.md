@@ -65,6 +65,19 @@ neutralizer for model-bound text.
 - **Text bound for the phone is never escaped.** Mirrors, console rows and replies keep their bytes.
 - `system-reminder-residue.test.ts` refuses the tag spelled anywhere in `src/` but the builder's tests.
 
+### After a compaction
+
+- **The baseline comes back as hook context:** `hooks/hooks.json` runs `main-session-hook` on
+  SessionStart `compact`, after both auto and manual compaction. It posts the session token to
+  `/session/baseline` and prints one reminder block: conversations addressed to the session, newest
+  first, open routine runs, agents with a turn running, and its unfinished board entries. Board lines
+  go last and are cut first, measured after escaping, under Claude Code's 10,000-character hook cap.
+  Anything short of a valid answer prints nothing.
+- **The awareness bank is left alone:** a banked change still rides the next message, and reads
+  against the baseline's current state.
+- **`compact_session` always sends fixed recall-first instructions,** then the caller's own, if any.
+  Auto-compaction takes none: a PreCompact hook can only block.
+
 ## Addressing
 
 **`shared/session-id.ts`** owns session/team key production, separators, slug validation, `Address`,

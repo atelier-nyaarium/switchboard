@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
 	checkDerivedSites,
 	dirtyTrackedFiles,
+	ENTRYPOINTS,
 	MAX_PLUGIN_BUNDLE_BYTES,
 	nextVersion,
 	overBundleCeiling,
@@ -45,6 +46,17 @@ describe("the plugin bundle ceiling", () => {
 
 		expect(overBundleCeiling(plugin)).toBeNull();
 		expect(plugin).toBeLessThan(MAX_PLUGIN_BUNDLE_BYTES * 0.95);
+	});
+});
+
+describe("the plugin's hooks", () => {
+	it("run the compact hook from a bundle the release builds", () => {
+		const hooks = JSON.parse(fs.readFileSync(path.join(ROOT, "hooks", "hooks.json"), "utf8"));
+		const [compact] = hooks.hooks.SessionStart.filter((group: { matcher: string }) => group.matcher === "compact");
+		const args: string[] = compact.hooks[0].args;
+		const bundle = /\/dist\/([\w-]+)\.js$/.exec(args.at(-1) ?? "")?.[1];
+
+		expect(ENTRYPOINTS).toContain(path.join("src", `${bundle}.ts`));
 	});
 });
 

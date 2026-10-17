@@ -403,6 +403,15 @@ export class PendingJobStore<T> {
 		return ids;
 	}
 
+	/** Channel conversations addressed to the team, newest first. */
+	conversationsTo(team: string, limit: number): Array<{ id: string; from: string; contract: JobContract }> {
+		return [...this.entries.values()]
+			.filter((entry) => entry.persistent && entry.to === team)
+			.sort((a, b) => b.createdAt - a.createdAt)
+			.slice(0, limit)
+			.map(({ id, from, contract }) => ({ id, from, contract }));
+	}
+
 	crossDomainBinding(id: string): CrossDomainBinding | undefined {
 		const entry = this.entries.get(id);
 		if (!entry) return undefined;

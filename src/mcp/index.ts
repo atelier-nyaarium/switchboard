@@ -106,6 +106,8 @@ ${REMINDER_RULE}
 In a channel tag, a block holds awareness: events from the owner's task board or phone since the last notice. Its \`act\` line says what it needs:
 - \`act_now\`: act on it before continuing.
 - \`no_act\`: nothing. The owner says when one needs your attention.
+
+After a compaction, a \`baseline\` block lists what this session holds through Switchboard now: conversations addressed to it, open routine runs, agents with a turn running, and its unfinished board entries. It is current state, not new events.
 `.trim();
 
 function layDownAskpass(gatewayUrl: string | undefined): void {

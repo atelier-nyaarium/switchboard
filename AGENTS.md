@@ -4,7 +4,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 
 ## Layout
 
-- `src/main-mcp.ts` / `main-gateway.ts` / `main-host-daemon.ts` / `main-federation.ts` / `main-vault-askpass.ts` - five entry points
+- `src/main-mcp.ts` / `main-gateway.ts` / `main-host-daemon.ts` / `main-federation.ts` / `main-vault-askpass.ts` / `main-session-hook.ts` - six entry points
+- `hooks/hooks.json` / `src/mcp/baseline/baselineHook.ts` - the plugin's SessionStart `compact` hook and what it prints
+- `src/gateway/sessionBaseline.ts` / `compose/composeBaseline.ts` / `src/shared/session-baseline.ts` - the baseline a compacted session reads back, its loopback door, and its wire shape
 - `src/vault-askpass/askpass.ts` - the askpass helper's decision over gateway, tty, and clock ports; the tty race and the no-tty hold
 - `src/gateway/` - Docker-side HTTP and WS router
 - `src/gateway/composeGateway.ts` - the compose stages in order, fault port, and cycles; `index.ts` is the Bun adapter
@@ -773,6 +775,7 @@ registration and its client stops with the floor in the log.
 **`main-host-daemon.ts`** host `host` WS slot, devcontainer wake, session spawn, terminal view.
 **`main-federation.ts`** self-hosted federation relay.
 **`main-vault-askpass.ts`** askpass helper in a session, host or container; asks the phone through the gateway as that session, falls back to the tty.
+**`main-session-hook.ts`** compact hook; prints the session's baseline as hook context.
 
 | Port | Service |
 |---|---|

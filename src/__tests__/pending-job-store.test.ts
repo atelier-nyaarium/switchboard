@@ -298,3 +298,31 @@ describe("PendingJobStore.expireBySession", () => {
 		expect(store.expireBySession(sessionTarget("lib"), "dave")).toBe(0);
 	});
 });
+
+describe("PendingJobStore.conversationsTo", () => {
+	it("lists the team's channel conversations by latest message, newest first", () => {
+		let now = 1;
+		const store = new PendingJobStore<string>(600_000, { ...processAmbient(), now: () => now });
+		const send = (conv: string, opts: { persistent?: boolean; to?: string } = {}) =>
+			anchor(store, convKey(conv, "lib"), local(conv), {
+				persistent: true,
+				from: `peer.${conv}`,
+				to: "lib.dev",
+				...opts,
+			});
+		send("c2");
+		now = 2;
+		send("c1");
+		now = 3;
+		send("c3");
+		send("c4", { to: "docs.dev" });
+		send("c5", { persistent: false });
+		now = 4;
+		send("c2");
+
+		expect(store.conversationsTo("lib.dev", 8).map((row) => row.id)).toEqual(
+			["c2", "c3", "c1"].map((conv) => convKey(conv, "lib")),
+		);
+		expect(store.conversationsTo("lib.dev", 1).map((row) => row.from)).toEqual(["peer.c2"]);
+	});
+});

@@ -1,0 +1,23 @@
+{
+	"hooks": {
+		"SessionStart": [
+			{
+				"matcher": "compact",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun",
+						"args": [
+							"--config=${CLAUDE_PLUGIN_ROOT}/launch/bunfig.toml",
+							"--tsconfig-override=${CLAUDE_PLUGIN_ROOT}/launch/tsconfig.json",
+							"--no-env-file",
+							"--no-install",
+							"${CLAUDE_PLUGIN_ROOT}/dist/main-session-hook.js"
+						],
+						"timeout": 15
+					}
+				]
+			}
+		]
+	}
+}
