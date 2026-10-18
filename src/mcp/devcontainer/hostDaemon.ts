@@ -350,12 +350,20 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 			safeSend({ type: "wake_result", team: msg.team, success: false, error: resolved.error });
 			return;
 		}
-		const launch = buildLaunchCommand(target, {
-			resumeSessionId: msg.resumeSessionId,
-			workdir: resolved.workdir,
-			sessionToken: msg.sessionToken,
-			pathPrefix: LAUNCH_PATH_PREFIX,
-		});
+		let launch: string;
+		try {
+			launch = buildLaunchCommand(target, {
+				resumeSessionId: msg.resumeSessionId,
+				workdir: resolved.workdir,
+				sessionToken: msg.sessionToken,
+				pathPrefix: LAUNCH_PATH_PREFIX,
+			});
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			console.error(`[host-wake] refusing wake of "${msg.team}": ${message}`);
+			safeSend({ type: "wake_result", team: msg.team, success: false, error: message });
+			return;
+		}
 		console.error(`[host-wake] starting host session ${msg.team}`);
 		try {
 			const { created } = await ensureSession(target, launch);

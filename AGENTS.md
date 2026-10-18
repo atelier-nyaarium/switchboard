@@ -6,7 +6,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 
 - `src/main-mcp.ts` / `main-gateway.ts` / `main-host-daemon.ts` / `main-federation.ts` / `main-vault-askpass.ts` / `main-session-hook.ts` - six entry points
 - `hooks/hooks.json` / `src/mcp/baseline/baselineHook.ts` - the plugin's SessionStart `compact` hook and what it prints
-- `src/mcp/assistant/gate.ts` / `gateHook.ts` - the assistant's PreToolUse gate, `main-session-hook gate`: a closed allowlist by exact tool name; reads in notes or attachments, writes in notes, both through `confine`
+- `src/mcp/devcontainer/hostResolve.ts` `assistantPermissionArgs` - the assistant's launch: Claude Code's permission engine in `dontAsk` with a closed `--tools` list and inline settings, the boundary its hook layers over
+- `src/mcp/assistant/gate.ts` / `gateHook.ts` - the assistant's PreToolUse gate, `main-session-hook gate`: a deny-only second layer by exact tool name, and the only check on reply attachments and refs
+- `src/mcp/assistant/instructions.ts` - the assistant's standing rules in its MCP instructions, and `scopeTools`, which lists only its own Switchboard tools
 - `src/shared/assistant-session.ts` / `src/gateway/compose/composeAssistant.ts` - the assistant's one session: provisioned once from `ASSISTANT_WORKDIR`, owned by provenance, reserved from both sweeps, never forgotten. `docs/assistant.md` holds the design
 - `src/gateway/sessionBaseline.ts` / `compose/composeBaseline.ts` / `src/shared/session-baseline.ts` - the baseline a compacted session reads back, its loopback door, and its wire shape
 - `src/vault-askpass/askpass.ts` - the askpass helper's decision over gateway, tty, and clock ports; the tty race and the no-tty hold
@@ -1057,6 +1059,9 @@ A bare `claude --resume` loses the host identity and channel subscription. Use:
 PROJECT_NAME=host.<id> claude --resume <transcript-uuid> \
   --dangerously-skip-permissions --dangerously-load-development-channels plugin:switchboard@atelier-nyaarium
 ```
+
+Not for `host.assistant`: it launches with its own permission flags (`assistantPermissionArgs`), so
+wake it from the phone.
 
 The MCP and harness diagnostics are in
 `~/.cache/claude-cli-nodejs/<project-dir>/mcp-logs-plugin-switchboard-switchboard/`.

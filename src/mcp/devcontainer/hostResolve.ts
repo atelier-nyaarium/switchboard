@@ -2,9 +2,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { resolveWorkdir, type WorkdirContext, workdirOrFallback } from "../../shared/agent-workdir.js";
+import {
+	ASSISTANT_BUILTIN_TOOLS,
+	ASSISTANT_SWITCHBOARD_TOOLS,
+	ASSISTANT_TEAM,
+	SWITCHBOARD_TOOL_PREFIX,
+} from "../../shared/assistant-session.js";
 import { type HostListDirsResult, isReservedHostSession, isTmuxName, type TmuxTarget } from "../../shared/host-op.js";
 import { ASKPASS_EXPORTS, buildHostLaunch, isHostSpawn } from "../../shared/host-spawn.js";
 import { composeSessionName, parseSessionName } from "../../shared/session-id.js";
+import { CHANNEL_FILES_DIR } from "../channel/channelFiles.js";
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -130,8 +137,53 @@ export function listHostDirs(rawPath: string, home: string = HOME): HostListDirs
 ////////////////////////////////
 //  Launch command
 
-const CLAUDE_FLAGS =
-	"--dangerously-skip-permissions --dangerously-load-development-channels plugin:switchboard@atelier-nyaarium";
+const CHANNEL_FLAG = "--dangerously-load-development-channels plugin:switchboard@atelier-nyaarium";
+
+/** Files the assistant never edits, at any depth, and secrets it never reads. */
+const ASSISTANT_DENY = [
+	"Edit(AGENTS.md)",
+	"Edit(CLAUDE.md)",
+	"Edit(CLAUDE.local.md)",
+	"Edit(.claude/**)",
+	"Edit(.mcp.json)",
+	"Edit(.git/**)",
+	"Edit(package.json)",
+	"Read(.env)",
+	"Read(.env.*)",
+];
+
+/**
+ * The assistant runs on Claude Code's own permission engine: anything not allowed is denied
+ * without asking, and its check and open are one step. Every other session keeps the open profile.
+ */
+export function assistantPermissionArgs(workdir: string | undefined, home: string = HOME): string {
+	// Inside double quotes in a single-quoted `bash -c`: nothing here may expand or close a quote.
+	if (!workdir || !/^\/[A-Za-z0-9_./ -]+$/.test(workdir)) {
+		throw new Error("refusing to launch the assistant: its workdir is not a plain absolute path");
+	}
+	// An unresolved workdir falls back to home, which would grant edits across all of it.
+	const fromHome = path.relative(path.resolve(workdir), home);
+	if (fromHome === "" || !fromHome.startsWith("..")) {
+		throw new Error("refusing to launch the assistant: its workdir holds the home directory");
+	}
+	if (!fs.statSync(workdir, { throwIfNoEntry: false })?.isDirectory()) {
+		throw new Error(`refusing to launch the assistant: ${workdir} is not a directory`);
+	}
+	const settings = {
+		permissions: {
+			allow: [
+				`Edit(/${workdir}/**)`,
+				`Read(/${CHANNEL_FILES_DIR}/**)`,
+				...ASSISTANT_SWITCHBOARD_TOOLS.map((tool) => `${SWITCHBOARD_TOOL_PREFIX}${tool}`),
+			],
+			deny: [...ASSISTANT_DENY, `Edit(/${workdir}/watchers/**)`],
+			additionalDirectories: [CHANNEL_FILES_DIR],
+			disableBypassPermissionsMode: "disable",
+		},
+	};
+	const json = JSON.stringify(settings).replaceAll('"', '\\"');
+	return `--permission-mode dontAsk --tools ${ASSISTANT_BUILTIN_TOOLS.join(",")} --settings "${json}"`;
+}
 
 // One `bash -c`: the PROJECT_NAME override must run in the same shell as claude, after ~/.bashrc.
 // A host target dispatches on its spawn NAME through the registry, which is what lets a machine
@@ -155,7 +207,9 @@ export function buildLaunchCommand(
 	// Everything after argv[0]. The binary itself belongs to the spawn point: a Windows session runs
 	// `claude.exe`, since bare `claude` does not resolve from PowerShell. Quoted: the brackets would
 	// otherwise glob in the nested `bash -c`.
-	const claudeArgs = `--model "opus[1m]" --effort xhigh ${CLAUDE_FLAGS}${resume}`;
+	const permissions =
+		composite === ASSISTANT_TEAM ? assistantPermissionArgs(opts.workdir) : "--dangerously-skip-permissions";
+	const claudeArgs = `--model "opus[1m]" --effort xhigh ${permissions} ${CHANNEL_FLAG}${resume}`;
 	if (target.kind === "host") {
 		// Either quote would break out of the nesting, so a workdir bearing one is dropped.
 		const safeWorkdir = opts.workdir && !opts.workdir.includes("'") && !opts.workdir.includes('"');

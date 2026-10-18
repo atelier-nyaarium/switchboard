@@ -157,11 +157,52 @@ A: Up front, as a routine's secrets are picked in its editor. A small Assistant 
 
 > I would rather the grant vault item be selected up front while setting up assistant
 
+## Question 19 - Where does the assistant live on the phone?
+
+Q: A session in the Sessions list, or its own place?
+A: Its own Assistant tab, holding its conversation thread and its watchers. `host.assistant` leaves the Sessions list. This brings a first Assistant view into this slice.
+
+> ok I don't want assist session to be in sessions. let it be a new tab called Assistant.
+
+## Question 20 - Where do rules live, and what does the front page count?
+
+Q: Rules on the phone, kept by the Gateway like routines (A), or YAML files in notes (B)? And which counts show on the front page?
+A: A, recommended: rules edited on the phone in Assistant settings, written only by owner ops. The front page shows only each watcher's inbox count; woke and dropped counts sit on the watcher's own screen, with Replay beside dropped. "Held" is renamed "Inbox" throughout: a rule's action is Wake, Inbox or Drop, and the tool is `inbox`.
+
+> ok.
+>
+> Inbox is a better word too. relabel it.
+
+## Question 21 - Where are the assistant's settings?
+
+Q: How does the owner change the assistant's setup?
+A: A gear on the Assistant tab opens Assistant settings: watchers (status, Grant secrets, rules), check-ins (when it routinely wakes, as routines aimed at the assistant), and session options (compact when idle after N minutes, notes folder, restart). Check-ins and compaction timing land with the next slice and show disabled until then.
+
+> and on the Assistant tab, I want a settings button to change assistant settings (like addressing missing grants or choosing when it routinely wakes up or whatever)
+
+## Question 22 - Who chooses where the assistant lives?
+
+Q: A Gateway environment variable, or the phone?
+A: The phone. Assistant settings has a "Lives on" row: a Gateway and the notes folder on it. Choosing another creates the long-lived session there and forgets the old one, record and all. It replaces `ASSISTANT_WORKDIR`, so only one Gateway ever holds the assistant.
+
+> ohh yeah and we would have to select in assistant settings where we want the assistant to live. So I want Sakura. another use might choose like Ubuntu-Server or something. whatever the choice is, the long lived session will be created there and forgotten old location.
+
+The location and the folder are one choice, "Lives in": a folder on one Gateway, such as `sakura · ~/projects/notes` or `ubuntu-server · ~/.assistant/`. The folder need not be a notes repo; Switchboard seeds what it lacks (the assistant section of `AGENTS.md`, the `Assistant/` memory files) on first use.
+
+> ohh picking the location and the notes folder are one in the same. I would say that it lives in my notes folder. someone else would say "~/.assistant/". Notes is my idea of the location of the session
+
+## Question 23 - Where do the assistant's standing rules live?
+
+Q: A section seeded into the folder's `AGENTS.md`, or shipped with Switchboard?
+A: Shipped with Switchboard: the plugin's MCP instructions carry an assistant block shown only to `host.assistant`, so every release updates them. `AGENTS.md` in the folder is the owner's own custom instructions only. The `Assistant/` memory notes are files the assistant creates and keeps because those instructions say to; nothing is seeded. Watcher sorting rules are separate: owner data, edited on the phone.
+
+> wait. what rules file? we should have the rules baked into the Assistant API. Not in a file that goes stale across many users. Unless you just mean User's custom AGENT.
+
 # Plan
 
-The first slice proves the loop: a GitHub notification lands on the Gateway, a rule sorts it, and the assistant session either wakes or finds it held. Actions with cards and Undo, the phone's Assistant view, Gmail and phone events come after.
+The first slice proves the loop: a GitHub notification lands on the Gateway, a rule sorts it, and the assistant session either wakes or finds it in its inbox. Actions with cards and Undo, Gmail and phone events come after.
 
-The owner talks to the assistant through an ordinary conversation thread until the loop works.
+The owner talks to the assistant in its own Assistant tab: its conversation, an inbox strip with one chip per watcher, and a gear for Assistant settings. `host.assistant` leaves the Sessions list. Mockups: the `assistant-tab`, `assistant-settings` and `assistant-watcher-phone` design cards.
 
 
 **Verified live on 2026-10-17:** a conditional GET with `If-Modified-Since` answers 304 and leaves `x-ratelimit-remaining` unchanged. The first GET carries `last-modified` and `x-poll-interval: 60`. Still from the docs only: the rate-limit response, 403 or 429 with `x-ratelimit-reset` or `retry-after`.
@@ -195,12 +236,14 @@ Write `docs/assistant.md` from the questionaire: the session, notes, the gate, e
 - **Round 2 (red team):** `~/` expansion, brace alternatives in globs, a dangling link the write follows, a second hardlink, a symlinked root, a pathless search from an outside working directory. Each patched in `placeIn`, `patternEscapes` or `gateHookOutput`.
 - **Round 3 (second red team):** `channel_reply` uploaded attachments and snapshotted `ref://` targets from anywhere. Patched: attachments take the read rule, and a ref to `/`, `~` or `..` is refused. Left open: a Grep `glob` such as `**/[.]env` selects a file the read rule would refuse, since the hook never sees the matches; and a write's check is not bound to its open, so a link planted between them is followed.
 - **For architecture:** the durable fix is isolation that does not depend on re-deriving paths: the assistant's file tools mediated by the Gateway, or an OS boundary such as a separate user or a sandboxed mount.
+- **Resolution (architecture):** the boundary moved to Claude Code's permission engine, whose check and open are one step. `assistantPermissionArgs` launches `host.assistant` in `dontAsk` with `--tools Read,Edit,Write,Glob,Grep,ToolSearch` and inline settings (Edit allowed under the workdir, reads of the attachments directory, denies for instruction files, `package.json` and `.env`). Probed against the real binary: reads outside, writes outside, a write through a symlink, `AGENTS.md`, `.env`, the `[.]env` glob, `Bash`, `Agent` and `WebFetch` all refused; reads and edits in notes and reads of attachments allowed. `scopeTools` lists only the assistant's Switchboard tools. The hook stays as a deny-only layer and the only check on reply attachments and refs. Other options weighed: Claude Code's sandbox covers shell commands only; Switchboard-mediated file tools would need descriptor-relative opens; a bwrap wrapper or a separate Unix user remain the next step if an OS boundary is wanted.
 
 ### Accepted
 
 - **Provenance key:** `assistant:reserve` can be formed by a console `create_session` with conversation `assistant` and op `reserve`. Only the owner sends console ops, and a routine's key has the same shape.
 - **Running pane:** a pane already running keeps the hooks it loaded. After a plugin update, a gate change or an `ASSISTANT_WORKDIR` change, `reload_plugins` or restart the assistant.
 - **Version floor:** `onFailure: "block"` needs Claude Code 2.1.295 or later; Sakura runs 2.1.302. Nothing enforces the floor.
+- **Project settings:** `--setting-sources user` would keep a planted `.claude/settings.json` out, but it also drops the owner's `AGENTS.md` (probed). The session cannot write `.claude/`, so only the owner could plant one; a planted `Read(//etc/**)` allow did not open a read in the probe either.
   - **Closed allowlist:** exact names only. Reads (`Read`, `Glob`, `Grep`) inside notes or the channel attachments directory; `channel_reply`, `switchboard_capabilities`, `ToolSearch`. An unknown name, or a path tool's malformed input, denies.
   - **Writes:** `Write`, `Edit`, `MultiEdit` and `NotebookEdit` inside notes. `confine` gained a `Withhold` that runs on the spelled and the resolved segments, so a symlink cannot alias a protected file. Protected: `.git/`, any `.claude/`, any `AGENTS.md`, `CLAUDE.md` or `CLAUDE.local.md`, `watchers/`, `.mcp.json`. A pre-tool path decision, not race-proof isolation.
   - **Refused:** every other tool. That covers `Bash`, `vault_run` (it runs shell commands with no entry), `Agent`, `Workflow`, Codex and Copilot delegation (a child ignores this hook), web fetches, and other MCP servers' tools.
@@ -212,9 +255,9 @@ Write `docs/assistant.md` from the questionaire: the session, notes, the gate, e
 - **Stage:** an assistant compose stage beside routines. It restores its store before polling, starts on federation activation, and stops and awaits in-flight polls and deliveries before the shutdown flush, as `composeRoutines` does. It resolves the assistant through `SessionStore` and keeps no second session id.
 - **Store:** one inbox store, sole owner of events, source cursors, poll health, read positions, dispositions and dedupe state. One versioned snapshot through `openDurable`, changed by one checked commit, following `createOccurrenceStore`. A write that fails before install restores the previous memory state; `DurableStoreInstalledError` counts as landed. `PendingDeliveryStore` stays channel transport, never this inbox.
 - **Watcher type:** each validated watcher has a stable id. A poll answers events, backoff or stopped. Each watcher polls on its own interval, serialized per watcher.
-- **Durability:** a poll's events, its new cursor and its health land in one checked commit. A failed write keeps the old cursor. Events carry stable source ids, and dedupe identity outlives the event row by the retention window, so a late replay cannot resurrect it. Every held or wake-eligible event is delivered at least once.
-- **Dispositions:** `held`, `woken`, `ruleDropped` (re-sortable for 7 days) and `evicted` (final, by overflow). An event that becomes eligible again gets a fresh delivery sequence and keeps its source id, so an advanced read position cannot skip it.
-- **Limits:** an inbox cap and a retention window for held items. Overflow evicts the oldest held items, and the count rides in the reminder lines.
+- **Durability:** a poll's events, its new cursor and its health land in one checked commit. A failed write keeps the old cursor. Events carry stable source ids, and dedupe identity outlives the event row by the retention window, so a late replay cannot resurrect it. Every inbox or wake-eligible event is delivered at least once.
+- **Dispositions:** `inbox`, `woken`, `ruleDropped` (re-sortable for 7 days) and `evicted` (final, by overflow). An event that becomes eligible again gets a fresh delivery sequence and keeps its source id, so an advanced read position cannot skip it.
+- **Limits:** an inbox cap and a retention window for inbox items. Overflow evicts the oldest inbox items, and the count rides in the reminder lines.
 - **Health:** each watcher's last success, next poll, backoff and stopped state survive a restart and ride in the reminder lines.
 
 ## Phase 4 - GitHub notifications watcher
@@ -222,33 +265,38 @@ Write `docs/assistant.md` from the questionaire: the session, notes, the gate, e
 - Polls `/notifications` with `If-Modified-Since`, honors `X-Poll-Interval` with a 60-second fallback, and backs off on rate limits. Its cursor and events commit through the inbox store as one transaction.
 - Read-only: it never marks a thread read on GitHub. Marking read is an action, next slice. Tested against fake responses.
 - **Holder:** `watcher` joins `VaultHolderSchema` as the third kind, with a stable `watcherId`; the comment naming `remote` as the third kind is updated. The grant type encodes the valid pairs rather than leaving them to `holderFitsTier`: a session holds window or session grants, a routine or a watcher holds a standing one. `covers` matches a watcher by id; routine liveness stays tied to its session. Today a standing grant belongs only to a routine with an open occurrence.
-- **Owner's grant:** picked up front, as a routine's are. A console op sets a watcher's granted entries, the way a routine save reaches `setRoutineGrants`; a `setWatcherGrants` beside it is the one road. The phone gains a small Assistant setup screen listing the watchers the Gateway knows, each opening the routine's `GrantSecretsSheet`. A watcher with no grant answers stopped with "needs a secret". No request road for watchers.
+- **Owner's grant:** picked up front, as a routine's are. A console op sets a watcher's granted entries, the way a routine save reaches `setRoutineGrants`; a `setWatcherGrants` beside it is the one road. The phone's Assistant tab lists the watchers the Gateway knows, each opening the routine's `GrantSecretsSheet`. A watcher with no grant answers stopped with "needs a secret". No request road for watchers.
+- **Lives on:** Assistant settings picks the Gateway and the notes folder there, replacing `ASSISTANT_WORKDIR`. The chosen Gateway stores the placement through a console op and provisions the session; the previously chosen Gateway is told to release it and forgets the record. `composeAssistant` reads the stored placement rather than the environment.
+- **Assistant tab:** a root view beside Sessions, Runbooks and Routines, holding the assistant's conversation thread and its watchers. The Sessions list leaves out `host.assistant` because the Gateway marks it in presence, never because the phone matches a name.
 - **Gateway read:** the `/vault/use` flow (`ready`, `usable`, `decide`, `release`) moves into one `createVaultUse` service composed by `composeVault`. The route and a `readForWatcher` port both call it; `covers` stays the grant predicate, and the entry and the Gateway allowlist are resolved again before release. `openValue` stays decrypt-only. A refused or absent grant stops the watcher with that reason, and a 401 does too.
-- **Lifecycle:** an accepted rules reload that removes a watcher prunes its grants. A rejected reload keeps them.
+- **Lifecycle:** deleting a watcher prunes its grants, as deleting a routine does.
 
 ## Phase 5 - Rules
 
-- `watchers/*.yaml` in notes sort each event: wake, hold, drop. Each watcher declares its ping default; a rule can override it.
-- **Reaching the Gateway:** the Gateway container mounts only its log and data, so Compose adds a read-only mount of the notes `watchers` directory, configured per host.
-- **Parsing:** a schema validates each file. A reload is all-or-nothing: a bad file keeps the last valid set and puts the error in the reminder lines. The parser is Bun's built-in YAML behind an injected parse, so Vitest under Node can run it, or an exact-pinned `yaml` package.
-- **Drops stay undoable:** a rule-dropped event is kept for 7 days. Each accepted reload sorts the kept drops again through the inbox store, and one that now wakes or holds gets a fresh delivery sequence. An evicted event is never sorted again. That keeps rule edits undoable under Question 4.
-- **Owner-only:** Phase 2's path rule refuses assistant writes to `watchers/`, so injected event text cannot rewrite the rules that sort later events. Nothing here adds a second write check.
+- **Record:** each watcher's ordered rule list, first match wins, ending in a catch-all. A rule is one or more conditions joined by "and", each a field, a test and a value, and an action: `wake`, `inbox` or `drop`, with an optional ping override. Each watcher declares its fields (GitHub: reason, repository, type, title) and its ping default. The phone edits a rule in a sheet (the `assistant-rule-editor` card), never as JSON.
+- **Preview:** the editor shows how many of the watcher's last 50 events the rule would have matched, and saving replays kept drops it now catches.
+- **Store:** a Gateway-held store beside routines and policies, sole writer, revisioned, with `canonical` and `refusal` functions in a shared schema as `schemasRoutine` has. Console ops list, put (with the base revision) and delete; Kotlin types come from the codegen.
+- **Phone:** Assistant settings lists the watchers, and a watcher's screen edits its rules, as in the `assistant-watcher-phone` card. Decisions sit beside the ops class, never in a Composable.
+- **Drops stay undoable:** a rule-dropped event is kept for 7 days. Each rule edit sorts the kept drops again through the inbox store, and one that now wakes or goes to the inbox gets a fresh delivery sequence. An evicted event is never sorted again. That keeps rule edits undoable under Question 4.
+- **Owner-only:** only owner ops write rules, so injected event text cannot rewrite the rules that sort later events. The gate's `watchers/` protection then guards nothing and goes.
 
 ## Phase 6 - Wake and held delivery
 
-- **Wake:** a typed, senderless assistant-event input to the shared send path in `routesSend`, with no `from`, conversation id or return route. It shares target resolution, `tryWakeTeam` and `ChannelDeliveryCoordinator` with ordinary sends, under a delivery id derived from the event. A failed wake leaves the event held. Channel acknowledgment never moves an inbox read position.
+- **Wake:** a typed, senderless assistant-event input to the shared send path in `routesSend`, with no `from`, conversation id or return route. It shares target resolution, `tryWakeTeam` and `ChannelDeliveryCoordinator` with ordinary sends, under a delivery id derived from the event. A failed wake leaves the event in the inbox. Channel acknowledgment never moves an inbox read position.
 - **Data only:** an `event` variant on `ChannelPushPayload` and `PendingDelivery`, kept through the durable delivery row. `emitChannelNotification` omits `meta.instructions` and reply fields for it; `no_ack` still sets instructions, so it is not this. `CHANNEL_INSTRUCTIONS` names the marker once: data, no `channel_reply` owed. The body still goes through `composeModelMessage` and `neutralizeMarkup`.
 - **Ping:** in this slice the event carries the resolved ping as a data line, and `AGENTS.md` tells the assistant to notify the owner only when it says yes. The phone-side flag comes with the phone view.
-- **Held:** `flush(watchers)` answers a batch id with the per-watcher boundaries it read. A separate confirm advances only those boundaries in a checked inbox commit; an unconfirmed batch is answered again. Flushes are serialized per watcher. The `held` tool calls flush and confirms once its result is returned, registered only after the identity check.
+- **Inbox:** `flush(watchers)` answers a batch id with the per-watcher boundaries it read. A separate confirm advances only those boundaries in a checked inbox commit; an unconfirmed batch is answered again. Flushes are serialized per watcher. The `inbox` tool calls flush and confirms once its result is returned, registered only after the identity check.
+- **Phone:** the Assistant tab shows the conversation and the inbox strip, one chip per watcher with its inbox count, and a yellow chip for a watcher that needs a secret, opening settings.
 - **Baseline:** an assistant section in `SessionBaselineSchema`, served by `createBaselineRoutes` for the assistant session only and rendered by `linesOf` after agents and before the board. `renderBaseline` stays the sole owner of order and budget.
 
 ## Gates, every phase
 
-Tests per mechanism: timing on the injected ambient, restore after restart, fake GitHub responses, rule parsing, wake, baseline, and the gate's allow and deny table. Then `check:boot`, `kotlin-gate.sh` for any schema change (the vault holder change carries the Kotlin models, the Assistant setup screen and `GrantSecretsSheet`), the Gateway deployed first, and `docs/assistant.md`, `docs/vault.md`, `docs/environment.md` and the `AGENTS.md` map updated, `main-session-hook` as both the compact and the PreToolUse entry.
+Tests per mechanism: timing on the injected ambient, restore after restart, fake GitHub responses, rule parsing, wake, baseline, and the gate's allow and deny table. Then `check:boot`, `kotlin-gate.sh` for any schema change (the vault holder and rule changes carry the Kotlin models, the Assistant tab and settings, and `GrantSecretsSheet`), the Gateway deployed first, and `docs/assistant.md`, `docs/vault.md`, `docs/environment.md` and the `AGENTS.md` map updated, `main-session-hook` as both the compact and the PreToolUse entry.
 
 ## Next slice
 
-- **Routines:** `delivers: [...]` needs the schema field, `Protocol.kt` and the phone's routine editor, or the editor drops it on save. A routine also needs to nudge the assistant session rather than its own.
-- **Phone:** the Assistant root view, a per-row ping flag through the owner rows, and summoning it by holding power or from the lock screen.
-- **Actions:** cards, Undo, and marking GitHub threads read.- **Timed compaction:** fires at a due time only when the REPL is idle, and skips while a card is open.
+- **Check-ins:** routines aimed at the assistant, listed in Assistant settings. `delivers: [...]` needs the schema field, `Protocol.kt` and the phone's routine editor, or the editor drops it on save. A check-in nudges the assistant session rather than opening its own.
+- **Phone:** a per-row ping flag through the owner rows, and summoning the assistant by holding power or from the lock screen.
+- **Actions:** cards, Undo, and marking GitHub threads read.
+- **Timed compaction:** fires at a due time only when the REPL is idle, and skips while a card is open. Its interval is set in Assistant settings.
 - **Sources:** Gmail, then phone events.

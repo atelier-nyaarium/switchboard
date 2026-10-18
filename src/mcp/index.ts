@@ -12,12 +12,14 @@ import {
 	agentCapabilityId,
 } from "../shared/agent-backend.js";
 import { isAgentBackendInstalled } from "../shared/agent-binary.js";
+import { ASSISTANT_SWITCHBOARD_TOOLS, ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { isInsideContainer } from "../shared/env.js";
 import { pluginRoot } from "../shared/plugin-root.js";
 import { isValidSessionName, parseSessionName } from "../shared/session-id.js";
 import { REMINDER_RULE } from "../shared/system-reminder.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper } from "../shared/vault-askpass-wrapper.js";
 import type { AgentDispatch } from "./agentDispatch.js";
+import { ASSISTANT_INSTRUCTIONS, scopeTools } from "./assistant/instructions.js";
 import { registerBoardTools } from "./board/boardTools.js";
 import { closeRouter, connectToRouter } from "./bridge/helpers.js";
 import { detectAgentType, registerBridgeTools } from "./bridge/registerBridgeTools.js";
@@ -145,20 +147,25 @@ export async function startMcp(): Promise<void> {
 	const agentType = process.env.AGENT_TYPE || detectAgentType();
 	const isChannel = agentType === "claude";
 
-	// Before the server exists: it decides which tools register.
-	const capabilities = await fetchCapabilities(process.env.BRIDGE_ROUTER_URL);
+	// Before the server exists: it decides which tools register. The assistant takes none, so no
+	// guidance names a tool it lacks and no reply snapshots a ref.
+	const isAssistant = process.env.PROJECT_NAME === ASSISTANT_TEAM;
+	const capabilities: Capability[] = isAssistant ? [] : await fetchCapabilities(process.env.BRIDGE_ROUTER_URL);
 
 	const mcpServer = new McpServer(
 		{ name: "switchboard", version: packageJson.version },
 		isChannel
 			? {
 					capabilities: { experimental: { "claude/channel": {} } },
-					instructions: `${CHANNEL_INSTRUCTIONS}${capabilityInstructions(capabilities)}`,
+					instructions: isAssistant
+						? `${CHANNEL_INSTRUCTIONS}\n\n${ASSISTANT_INSTRUCTIONS}`
+						: `${CHANNEL_INSTRUCTIONS}${capabilityInstructions(capabilities)}`,
 				}
 			: undefined,
 	);
 	// Before any tool registers.
 	guardToolResults(mcpServer);
+	if (isAssistant) scopeTools(mcpServer, new Set(ASSISTANT_SWITCHBOARD_TOOLS));
 
 	registerBridgeTools(mcpServer, capabilities);
 	registerCapabilitiesTool(mcpServer, capabilities);
@@ -169,7 +176,7 @@ export async function startMcp(): Promise<void> {
 	// Adopted on the next start, matching the console's own restart-to-adopt.
 	if (hasCapability(capabilities, "designer")) registerDesignerTools(mcpServer);
 	// Reaches a child process, so the gate is whether one can be reached: a daemon, or the CLI here.
-	for (const backend of AGENT_BACKENDS) registerAgentBackend(mcpServer, backend, capabilities);
+	if (!isAssistant) for (const backend of AGENT_BACKENDS) registerAgentBackend(mcpServer, backend, capabilities);
 	// Without the board plugin the owner cannot see or answer anything a session writes.
 	if (hasCapability(capabilities, "taskboard")) registerBoardTools(mcpServer);
 	// The vault routes require the session's binding token.

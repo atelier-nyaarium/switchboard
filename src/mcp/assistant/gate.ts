@@ -3,15 +3,13 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { ASSISTANT_SWITCHBOARD_TOOLS, SWITCHBOARD_TOOL_PREFIX } from "../../shared/assistant-session.js";
 import { CHANNEL_FILES_DIR } from "../channel/channelFiles.js";
 import { confine, type Withhold } from "../workspace/confine.js";
 
 export type GateVerdict = { allow: true } | { allow: false; reason: string };
 
-const SWITCHBOARD_TOOL_PREFIX = "mcp__plugin_switchboard_switchboard__";
-
-/** Switchboard tools the assistant may call. */
-export const ASSISTANT_SWITCHBOARD_TOOLS: ReadonlySet<string> = new Set(["channel_reply", "switchboard_capabilities"]);
+const SWITCHBOARD_TOOLS: ReadonlySet<string> = new Set(ASSISTANT_SWITCHBOARD_TOOLS);
 
 /** Built-ins that take no path. `ToolSearch` loads a deferred tool's schema. */
 const FREE_TOOLS: ReadonlySet<string> = new Set(["ToolSearch"]);
@@ -154,7 +152,7 @@ export function gateVerdict(input: unknown, places: GatePlaces): GateVerdict {
 
 	if (tool.startsWith(SWITCHBOARD_TOOL_PREFIX)) {
 		const bare = tool.slice(SWITCHBOARD_TOOL_PREFIX.length);
-		if (!ASSISTANT_SWITCHBOARD_TOOLS.has(bare)) return refuse(`${tool} is not on the assistant's allowlist`);
+		if (!SWITCHBOARD_TOOLS.has(bare)) return refuse(`${tool} is not on the assistant's allowlist`);
 		// A reply uploads its attachments and snapshots its refs.
 		if (bare === "channel_reply") {
 			const files = params.attachments ?? [];

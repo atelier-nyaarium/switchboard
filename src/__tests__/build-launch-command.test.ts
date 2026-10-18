@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -22,6 +23,49 @@ describe("buildLaunchCommand", () => {
 		expect(cmd).not.toContain("--resume");
 		// The override runs after sourcing bashrc so it wins over the image ENV.
 		expect(cmd.indexOf("source ~/.bashrc")).toBeLessThan(cmd.indexOf("export PROJECT_NAME"));
+	});
+
+	describe("the assistant's launch", () => {
+		const assistant = { kind: "host" as const, name: "host", sessionName: "assistant" };
+
+		it("runs on the permission engine, and survives the shell with its settings intact", () => {
+			const base = fs.mkdtempSync(path.join(os.tmpdir(), "assistant-launch-"));
+			const notes = path.join(base, "my notes");
+			const bin = path.join(base, "bin");
+			const argv = path.join(base, "argv");
+			fs.mkdirSync(notes);
+			fs.mkdirSync(bin);
+			fs.writeFileSync(path.join(base, ".bashrc"), "");
+			fs.writeFileSync(path.join(bin, "claude"), `#!/bin/sh\nprintf '%s\\n' "$@" > "${argv}"\n`, { mode: 0o755 });
+			const cmd = buildLaunchCommand(assistant, { workdir: notes, pathPrefix: bin });
+
+			execFileSync("bash", ["-c", cmd], {
+				env: { HOME: base, PATH: process.env.PATH },
+				stdio: ["ignore", "ignore", "ignore"],
+				timeout: 10_000,
+			});
+			const args = fs.readFileSync(argv, "utf8").trim().split("\n");
+			const settings = JSON.parse(args[args.indexOf("--settings") + 1] as string);
+			fs.rmSync(base, { recursive: true, force: true });
+
+			expect(args).not.toContain("--dangerously-skip-permissions");
+			expect(args[args.indexOf("--permission-mode") + 1]).toBe("dontAsk");
+			expect(settings.permissions.allow).toContain(`Edit(/${notes}/**)`);
+			expect(settings.permissions.deny).toContain("Edit(AGENTS.md)");
+		});
+
+		it("keeps every other session on the open profile", () => {
+			expect(buildLaunchCommand({ kind: "host", name: "host", sessionName: "foo" })).toContain(
+				"--dangerously-skip-permissions",
+			);
+		});
+
+		it("refuses rather than launch the assistant in home, a missing folder, or one it cannot quote", () => {
+			expect(() => buildLaunchCommand(assistant, { workdir: os.homedir() })).toThrow();
+			expect(() => buildLaunchCommand(assistant, { workdir: path.join(os.tmpdir(), "no-such-notes") })).toThrow();
+			expect(() => buildLaunchCommand(assistant, { workdir: "/home/$USER/notes" })).toThrow();
+			expect(() => buildLaunchCommand(assistant)).toThrow();
+		});
 	});
 
 	it("appends --resume for a uuid-shaped session id", () => {

@@ -9,6 +9,18 @@ export const ASSISTANT_TEAM = composeSessionName(ASSISTANT_SPAWN, ASSISTANT_SESS
 /** `createSession` provenance shape: `${conversationId}:${opId}`. */
 export const ASSISTANT_RESERVE_KEY = "assistant:reserve";
 
+export const SWITCHBOARD_TOOL_PREFIX = "mcp__plugin_switchboard_switchboard__";
+
+/** Switchboard tools the assistant may call. */
+export const ASSISTANT_SWITCHBOARD_TOOLS: readonly string[] = [
+	"channel_reply",
+	"channel_reply_structured",
+	"switchboard_capabilities",
+];
+
+/** Every built-in the assistant's session has. `ToolSearch` loads a deferred tool's schema. */
+export const ASSISTANT_BUILTIN_TOOLS: readonly string[] = ["Read", "Edit", "Write", "Glob", "Grep", "ToolSearch"];
+
 /** Provisioned by the Gateway, not merely sharing the name. */
 export function isAssistantRecord(record: { spawn: string; id: string; mintedFrom?: string } | undefined): boolean {
 	return (
