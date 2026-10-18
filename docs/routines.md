@@ -145,7 +145,8 @@ as everything else, so it cannot race the timer or the tick.
 
 The stage is armed from the federation context's activation callback, so it cannot fire before the
 routes exist, and both the already-active boot and a later enrollment go through it. Shutdown stops
-admission and drains the attempt in flight before the listener's flush.
+admission and drains the attempt in flight before the listener's flush. Stop is final, so an
+activation that lands during shutdown starts nothing.
 
 The store publishes every write it takes through a required `onChanged`, and the stage sweeps on it.
 A runner that armed from the store and was not told the store moved would only ever fire on the tick,
