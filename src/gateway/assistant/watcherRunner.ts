@@ -24,6 +24,8 @@ export interface WatcherRunnerDeps {
 
 export interface WatcherRunner {
 	start(): void;
+	/** Polls that watcher now, or as soon as its poll in flight lands; a stopped one included. */
+	poke(watcherId: string): void;
 	/** Final: arms nothing more, writes nothing a poll answers afterwards, and a start does nothing. */
 	stop(): Promise<void>;
 }
@@ -64,6 +66,9 @@ export function createWatcherRunner(deps: WatcherRunnerDeps): WatcherRunner {
 	const timers = new Map<string, TimerHandle>();
 	const flights = new Set<Promise<void>>();
 	const aborts = new Set<AbortController>();
+	/** Watcher ids with a poll in flight, so a poke never starts a second. */
+	const polling = new Set<string>();
+	const poked = new Set<string>();
 	let phase: "idle" | "running" | "stopped" = "idle";
 
 	const arm = (watcher: Watcher, at: number): void => {
@@ -83,6 +88,7 @@ export function createWatcherRunner(deps: WatcherRunnerDeps): WatcherRunner {
 	const poll = (watcher: Watcher): void => {
 		const abort = new AbortController();
 		aborts.add(abort);
+		polling.add(watcher.id);
 		const work = async (): Promise<void> => {
 			const answer = await answerOf(watcher, inbox.stateOf(watcher.id)?.cursor ?? null, abort, deps);
 			aborts.delete(abort);
@@ -98,7 +104,11 @@ export function createWatcherRunner(deps: WatcherRunnerDeps): WatcherRunner {
 			const hook = Promise.resolve().then(() => onAccepted(watcher.id, landed.accepted));
 			fireAndForget(`assistant watcher ${watcher.id} hook`, hook);
 		};
-		const flight = work().finally(() => flights.delete(flight));
+		const flight = work().finally(() => {
+			flights.delete(flight);
+			polling.delete(watcher.id);
+			if (poked.delete(watcher.id)) arm(watcher, ambient.now());
+		});
 		flights.add(flight);
 		fireAndForget(`watcher ${watcher.id}`, flight);
 	};
@@ -109,6 +119,12 @@ export function createWatcherRunner(deps: WatcherRunnerDeps): WatcherRunner {
 			phase = "running";
 			// A stopped watcher gets one more try after a restart; its health says why it stopped.
 			for (const watcher of deps.watchers) arm(watcher, inbox.stateOf(watcher.id)?.nextPollAt ?? ambient.now());
+		},
+		poke(watcherId) {
+			const watcher = deps.watchers.find((candidate) => candidate.id === watcherId);
+			if (phase !== "running" || !watcher) return;
+			if (polling.has(watcherId)) poked.add(watcherId);
+			else arm(watcher, ambient.now());
 		},
 		async stop() {
 			phase = "stopped";

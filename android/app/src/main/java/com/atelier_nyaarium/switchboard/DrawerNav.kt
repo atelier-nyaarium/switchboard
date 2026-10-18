@@ -72,6 +72,7 @@ enum class ScopedView(val title: String) {
 
 enum class RootView(val title: String, val scoped: ScopedView?) {
 	SESSIONS("Sessions", null),
+	ASSISTANT("Assistant", null),
 	BACKLOG("Backlog", ScopedView.BACKLOG),
 	RUNBOOKS("Runbooks", ScopedView.RUNBOOKS),
 	ROUTINES("Routines", ScopedView.ROUTINES),

@@ -37,8 +37,20 @@ export interface GrantScope {
 	policy?: PolicyRef;
 }
 
+/** A watcher reads on the Gateway's own behalf, through its standing grant alone. */
+export interface WatcherScope {
+	entryId: string;
+	watcherId: string;
+}
+
 /** Current record, read late. */
 export type PolicyResolver = (policyId: string) => AuthorizationPolicy | null;
+
+type StandingHolder = Exclude<VaultHolder, { kind: "session" }>;
+
+const sameHolder = (a: VaultHolder, b: StandingHolder): boolean =>
+	(a.kind === "routine" && b.kind === "routine" && a.routineId === b.routineId) ||
+	(a.kind === "watcher" && b.kind === "watcher" && a.watcherId === b.watcherId);
 
 const GrantsSchema = z.array(VaultGrantSchema);
 
@@ -108,10 +120,15 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 
 	/**
 	 * Session and standing grants cover every shape; a window grant covers a request whose programs
-	 * it all named. A standing grant covers only while its routine is live in the asking session.
+	 * it all named. A routine's standing grant covers only while the routine is live in the asking
+	 * session, and a watcher's grant only that watcher's read.
 	 */
-	const covers = (scope: GrantScope, now: number): VaultGrant | undefined => {
+	const covers = (scope: GrantScope | WatcherScope, now: number): VaultGrant | undefined => {
 		sweep(now);
+		if ("watcherId" in scope) {
+			const watcher: StandingHolder = { kind: "watcher", watcherId: scope.watcherId };
+			return grants.find((grant) => grant.entryId === scope.entryId && sameHolder(grant.holder, watcher));
+		}
 		const live = deps.routineHolding?.(scope.sessionTarget) ?? null;
 		return grants.find((grant) => {
 			if (grant.entryId !== scope.entryId) return false;
@@ -163,25 +180,26 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 	};
 
 	/**
-	 * What a routine is authorized to reach, made to match its linked entries exactly. Only the owner
-	 * reaches this, through a routine save, so nothing inside a session can widen it.
+	 * What a routine or a watcher is authorized to reach, made to match the owner's picks exactly.
+	 * Only owner ops reach this, so nothing inside a session can widen it.
 	 */
-	const setRoutineGrants = (routineId: string, entryIds: string[]): VaultGrant[] => {
-		const mine = (grant: VaultGrant) => grant.holder.kind === "routine" && grant.holder.routineId === routineId;
+	const setStandingGrants = (holder: StandingHolder, entryIds: string[]): VaultGrant[] => {
+		const mine = (grant: VaultGrant) => sameHolder(grant.holder, holder);
 		const wanted = new Set(entryIds);
 		const kept = grants.filter((grant) => !mine(grant) || wanted.has(grant.entryId));
 		const held = new Set(kept.filter(mine).map((grant) => grant.entryId));
-		const added: VaultGrant[] = entryIds
+		const added: VaultGrant[] = [...wanted]
 			.filter((entryId) => !held.has(entryId))
-			.map((entryId) => ({
-				grantId: deps.ambient.newId(),
-				tier: "standing" as const,
-				entryId,
-				holder: { kind: "routine" as const, routineId },
-			}));
+			.map((entryId) => ({ grantId: deps.ambient.newId(), tier: "standing" as const, entryId, holder }));
 		if (kept.length !== grants.length || added.length > 0) commit([...kept, ...added], true);
 		return grants.filter(mine);
 	};
+
+	const setRoutineGrants = (routineId: string, entryIds: string[]): VaultGrant[] =>
+		setStandingGrants({ kind: "routine", routineId }, entryIds);
+
+	const setWatcherGrants = (watcherId: string, entryIds: string[]): VaultGrant[] =>
+		setStandingGrants({ kind: "watcher", watcherId }, entryIds);
 
 	/** Everything a routine held, when the routine itself goes. */
 	const routineEnded = (routineId: string): void => {
@@ -244,6 +262,7 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 		revoke,
 		sessionEnded,
 		setRoutineGrants,
+		setWatcherGrants,
 		routineEnded,
 		entryDeleted,
 		entriesListed,

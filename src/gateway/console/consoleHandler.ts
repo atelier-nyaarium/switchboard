@@ -58,6 +58,7 @@ export function createConsoleDispatcher({
 	workspaceChanged,
 	onSessionEnded,
 	forgetRefusal,
+	assistant,
 }: ConsoleHandlerDeps) {
 	const targets = createConsoleTargets({ localDomainId, localGatewayId, isTrustedCatalogProject });
 
@@ -416,6 +417,21 @@ export function createConsoleDispatcher({
 			case "policy_enable":
 				return requirePolicies().enable(op.policyId, op.enabled, op.baseRevision);
 
+			case "assistant_state":
+				return requireAssistant().state();
+
+			case "assistant_place":
+				return requireAssistant().place(op.workdir);
+
+			case "assistant_watcher_grants":
+				return requireAssistant().setWatcherGrants(op.watcherId, op.entryIds);
+
+			case "assistant_release":
+				return requireAssistant().release(async (team) => {
+					const target = `${localDomainId}.${localGatewayId}.${team}`;
+					await sessionLifecycle.forget({ kind: "forget", target }, conversationId, opId, { released: true });
+				});
+
 			default: {
 				// Exhaustive by type.
 				const unhandled: never = op;
@@ -432,6 +448,11 @@ export function createConsoleDispatcher({
 	function requirePolicies() {
 		if (!policies) throw new Error("policies are not available on this Gateway");
 		return policies;
+	}
+
+	function requireAssistant() {
+		if (!assistant) throw new Error("the assistant is not available on this Gateway");
+		return assistant;
 	}
 
 	function requireVault() {

@@ -17,8 +17,6 @@ export interface GatewayConfig {
 	enrollNonce?: string;
 	hostWsToken?: string;
 	routerBootstrapUrl: string | null;
-	/** Assistant workdir on the host. Unset, no assistant. */
-	assistantWorkdir?: string;
 }
 
 export interface EnrollTlsListener {
@@ -37,6 +35,8 @@ export interface GatewayDeps {
 	ambient: Ambient;
 	openEnrollTls?: OpenEnrollTls;
 	allowFixtureIdentity?: boolean;
+	/** The watchers' network door. */
+	fetch?: (url: string, init: RequestInit) => Promise<Response>;
 }
 
 export interface PeerAddress {

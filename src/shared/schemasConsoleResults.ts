@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DomainSnapshotSchema } from "./admission.js";
+import { ConsoleAssistantStateResultSchema } from "./schemasAssistant.js";
 import { BoardEntrySchema } from "./schemasBoard.js";
 import { CrossDomainShareTargetSchema, MailboxEntrySchema } from "./schemasConsoleOp.js";
 import { DomainStatusSchema } from "./schemasCore.js";
@@ -446,6 +447,7 @@ export const ConsoleOpResultSchema = z.union([
 	ConsolePolicyListResultSchema,
 	ConsolePolicyPutResultSchema,
 	ConsolePolicyDeleteResultSchema,
+	ConsoleAssistantStateResultSchema,
 ]);
 
 ////////////////////////////////

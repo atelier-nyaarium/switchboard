@@ -1,4 +1,5 @@
 import type { ServerWebSocket } from "bun";
+import { isAssistantRecord } from "../shared/assistant-session.js";
 import type { PlanePersistedState, PlaneRegistry } from "../shared/plane-registry.js";
 import type { PresenceRow } from "../shared/presence-identity.js";
 import { presenceIdentityOf } from "../shared/presence-identity.js";
@@ -238,6 +239,7 @@ export class PresenceFacade {
 				...(live ? { mode: live.data.mode, version: live.data.version } : { lastActive: record.lastSeen }),
 				kind: "loose",
 				sessionLabel: record.sessionLabel,
+				...(isAssistantRecord(record) ? { role: "assistant" as const } : {}),
 				...(w?.working !== undefined ? { working: w.working } : {}),
 				...(w?.needsLogin !== undefined ? { needsLogin: w.needsLogin } : {}),
 				...(w?.limitBlocked !== undefined ? { limitBlocked: w.limitBlocked } : {}),

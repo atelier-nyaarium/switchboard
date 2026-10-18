@@ -1,7 +1,10 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.crypto.sha256Hex
+import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
+import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.ConsolePolicyDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsolePolicyPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineDeleteResult
@@ -297,6 +300,60 @@ internal class SandboxRoutineGateway : RoutineGateway {
 
 	override suspend fun dismiss(gatewayId: String, routineId: String, occurrenceId: String) =
 		ConsoleRoutineOccurrenceResult(applied = true)
+}
+
+/** Lives on the first Gateway asked that is neither of the others; a move or a release sticks. */
+internal class SandboxAssistantGateway : AssistantGateway {
+	private var home: String? = null
+	private var claimed = false
+	private var workdir = "~/projects/notes"
+	private val grants = mutableMapOf<String, List<String>>()
+
+	/** Ungranted at first, so the needs-a-secret chip is reachable. */
+	private fun watchers() = listOf(
+		AssistantWatcher(
+			id = "github",
+			label = "GitHub notifications",
+			grants = grants["github"].orEmpty(),
+			unread = 3L,
+			evicted = 0L,
+			lastSuccessAt = day(-120_000L),
+			nextPollAt = day(60_000L),
+		),
+	)
+
+	private fun stateOf(gatewayId: String) = ConsoleAssistantStateResult(
+		workdir = workdir.takeIf { gatewayId == home },
+		team = "host.assistant".takeIf { gatewayId == home },
+		watchers = watchers(),
+	)
+
+	override suspend fun call(gatewayId: String, op: ConsoleOp): AssistantAnswer {
+		if (gatewayId == SANDBOX_NEVER_REGISTERED) return AssistantAnswer.Unreachable
+		if (!claimed && gatewayId != SECOND_GATEWAY && gatewayId != EMPTY_GATEWAY) {
+			home = gatewayId
+			claimed = true
+		}
+		return when (op) {
+			is ConsoleOp.AssistantPlace -> {
+				if (!op.workdir.startsWith("/") && !op.workdir.startsWith("~")) {
+					return AssistantAnswer.Refused("the folder must be an absolute or ~-rooted path")
+				}
+				home = gatewayId
+				workdir = op.workdir
+				AssistantAnswer.State(stateOf(gatewayId))
+			}
+			ConsoleOp.AssistantRelease -> {
+				if (home == gatewayId) home = null
+				AssistantAnswer.State(stateOf(gatewayId))
+			}
+			is ConsoleOp.AssistantWatcherGrants -> {
+				grants[op.watcherId] = op.entryIds
+				AssistantAnswer.State(stateOf(gatewayId))
+			}
+			else -> AssistantAnswer.State(stateOf(gatewayId))
+		}
+	}
 }
 
 private const val SANDBOX_MODULE = "src/shared/schemasRoutine.ts"

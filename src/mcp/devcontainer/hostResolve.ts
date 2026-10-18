@@ -169,6 +169,10 @@ export function assistantPermissionArgs(workdir: string | undefined, home: strin
 	if (!fs.statSync(workdir, { throwIfNoEntry: false })?.isDirectory()) {
 		throw new Error(`refusing to launch the assistant: ${workdir} is not a directory`);
 	}
+	// The settings name the spelled path; a link would grant the place it leads to.
+	if (fs.realpathSync(workdir) !== path.resolve(workdir)) {
+		throw new Error(`refusing to launch the assistant: ${workdir} is reached through a link`);
+	}
 	const settings = {
 		permissions: {
 			allow: [

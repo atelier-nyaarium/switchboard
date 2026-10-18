@@ -9,8 +9,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/devcontainer/hostResolve.ts` `assistantPermissionArgs` - the assistant's launch: Claude Code's permission engine in `dontAsk` with a closed `--tools` list and inline settings, the boundary its hook layers over
 - `src/mcp/assistant/gate.ts` / `gateHook.ts` - the assistant's PreToolUse gate, `main-session-hook gate`: a deny-only second layer by exact tool name, and the only check on reply attachments and refs
 - `src/mcp/assistant/instructions.ts` - the assistant's standing rules in its MCP instructions, and `scopeTools`, which lists only its own Switchboard tools
-- `src/shared/assistant-session.ts` / `src/gateway/compose/composeAssistant.ts` - the assistant's one session: provisioned once from `ASSISTANT_WORKDIR`, owned by provenance, reserved from both sweeps, never forgotten. `docs/assistant.md` holds the design
-- `src/gateway/assistant/watcher.ts` / `inboxStore.ts` / `watcherRunner.ts` - what a watcher polls and answers; the inbox, sole owner of events, cursors, health and read positions, written once per poll; the runner that polls each watcher on its own clock, never two at once
+- `src/shared/assistant-session.ts` / `src/gateway/compose/composeAssistant.ts` - the assistant's one session: placed and released by owner ops, its record being where it lives, owned by provenance, reserved from both sweeps, never plainly forgotten; the four `assistant_*` console handlers. `docs/assistant.md` holds the design
+- `src/gateway/assistant/watcher.ts` / `inboxStore.ts` / `watcherRunner.ts` / `githubWatcher.ts` - what a watcher polls and answers; the inbox, sole owner of events, cursors, health and read positions, written once per poll; the runner that polls each watcher on its own clock, never two at once, and polls one again when its grant changes; GitHub notifications, read-only
+- `src/gateway/vault/vaultUse.ts` - the one release a vault value leaves by: the routes' and a watcher's standing grant read
+- `src/shared/schemasAssistant.ts` - the assistant's console answer: where it lives on a Gateway and its watchers there
+- `android/.../AssistantOps.kt` / `ConsoleClientAssistant.kt` / `assistant/AssistantScreen.kt` - the gateway calls, the move that places before it releases, the strip and health lines, and the Assistant view with its settings sheet
 - `src/gateway/sessionBaseline.ts` / `compose/composeBaseline.ts` / `src/shared/session-baseline.ts` - the baseline a compacted session reads back, its loopback door, and its wire shape
 - `src/vault-askpass/askpass.ts` - the askpass helper's decision over gateway, tty, and clock ports; the tty race and the no-tty hold
 - `src/gateway/` - Docker-side HTTP and WS router

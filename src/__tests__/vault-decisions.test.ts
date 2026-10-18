@@ -312,6 +312,19 @@ describe("vault decisions", () => {
 		expect(open(dataDir).list(1_000)).toEqual([]);
 	});
 
+	it("a watcher holds only a standing grant", () => {
+		const dataDir = fresh();
+		const watcher = { kind: "watcher", watcherId: "github" };
+		recorded(dataDir, [{ grantId: "standing", tier: "standing", entryId: "deploy", holder: watcher }]);
+		const kept = open(dataDir).list(1_000);
+		recorded(dataDir, [
+			{ grantId: "session", tier: "session", entryId: "deploy", holder: watcher, expiresAt: 9_000 },
+		]);
+
+		expect(kept.map((grant) => grant.grantId)).toEqual(["standing"]);
+		expect(open(dataDir).list(1_000)).toEqual([]);
+	});
+
 	it("a poisoned file starts the store fresh, and the next grant heals it", () => {
 		const dataDir = fresh();
 		fs.writeFileSync(path.join(dataDir, "vault-decisions.json"), JSON.stringify({ nope: 1 }));

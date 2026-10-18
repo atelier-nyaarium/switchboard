@@ -609,6 +609,14 @@ fun App(
 						modifier = modifier,
 						onBoardSaved = { nav = nav.showRoot(RootView.SESSIONS) },
 					)
+				} else if (view == RootView.ASSISTANT) {
+					com.atelier_nyaarium.switchboard.assistant.AssistantScreen(
+						repo = repo,
+						state = state,
+						onOpen = { team -> repo.openThread(team)?.let { nav = nav.arrive(it, Arrival.OUTSIDE, factsFor(it)) } },
+						onListDirs = { path, hostTarget, spawn -> repo.sessions.listDirs(path, hostTarget, spawn) },
+						modifier = modifier,
+					)
 				} else {
 					SessionsScreen(
 						state = state,

@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
+import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.DiscoverCoverage
 import com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection
 import com.atelier_nyaarium.switchboard.proto.RoutineState
@@ -25,6 +26,7 @@ data class GatewayEntry(
 	val runbooks: List<Runbook>? = null,
 	val policies: List<AuthorizationPolicy>? = null,
 	val peers: List<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry>? = null,
+	val assistant: ConsoleAssistantStateResult? = null,
 ) {
 	val seen: Boolean get() = incarnation > 0
 }
@@ -90,6 +92,11 @@ data class GatewayRegistry(
 
 	fun hasPeer(gatewayId: String, domainId: String): Boolean = entry(gatewayId)?.peers?.any { it.domainId == domainId } == true
 
+	/** Gateways answering a folder for the assistant. More than one means a release did not land. */
+	fun assistantHomes(): List<String> = gateways.filter { it.assistant?.workdir != null }.map { it.id }
+
+	fun assistantOn(gatewayId: String): ConsoleAssistantStateResult? = entry(gatewayId)?.assistant
+
 	/** Wake at earliest routine. */
 	fun soonestRoutineAt(): Long? =
 		gateways.flatMap { entry -> entry.routines.orEmpty().mapNotNull { it.nextAt } }.minOrNull()
@@ -122,6 +129,7 @@ data class GatewayRegistry(
 						runbooks = prior?.runbooks ?: storedRunbooks(row.gatewayId),
 						policies = prior?.policies,
 						peers = prior?.peers,
+						assistant = prior?.assistant,
 					)
 				}
 				.sortedBy { it.id },

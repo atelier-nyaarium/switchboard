@@ -102,6 +102,7 @@ import {
 	RowOriginSchema,
 	TeamInfoSchema,
 } from "../src/shared/schemas.js";
+import { AssistantWatcherSchema, ConsoleAssistantStateResultSchema } from "../src/shared/schemasAssistant.js";
 import {
 	BoardActorSchema,
 	BoardObservationRowSchema,
@@ -317,6 +318,8 @@ const ROOTS: z.ZodType[] = [
 	ConsolePolicyListResultSchema,
 	ConsolePolicyPutResultSchema,
 	ConsolePolicyDeleteResultSchema,
+	AssistantWatcherSchema,
+	ConsoleAssistantStateResultSchema,
 	ProvisioningSchema,
 	SttsProvidersSchema,
 	AdmissionSchema,

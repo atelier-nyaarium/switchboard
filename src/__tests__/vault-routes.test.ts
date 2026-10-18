@@ -6,6 +6,7 @@ import type { VaultClient } from "../gateway/router/vaultClient.js";
 import { createVaultDecisions } from "../gateway/vault/decisions.js";
 import { createVaultRequests } from "../gateway/vault/requests.js";
 import { createVaultRoutes } from "../gateway/vault/vaultRoutes.js";
+import { createVaultUse } from "../gateway/vault/vaultUse.js";
 import { openDurable } from "../shared/durable-store.js";
 import type { VaultRequest } from "../shared/schemasVault.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
@@ -20,11 +21,15 @@ function bench() {
 	roots.push(root);
 	const ambient = fakeAmbient({ drive: "real", now: () => 1_000_000 });
 	const delivered: VaultRequest[] = [];
-	const vault = { refreshFailures: 0, allowed: true, opens: true };
+	const vault = { refreshFailures: 0, allowed: true, opens: true, duringRefresh: () => {} };
 	const stored = { clear: { id: "deploy" } };
 	const client = {
-		refresh: async () =>
-			vault.refreshFailures-- > 0 ? { kind: "error", error: "the Router cannot be reached" } : { kind: "ok" },
+		refresh: async () => {
+			vault.duringRefresh();
+			return vault.refreshFailures-- > 0
+				? { kind: "error", error: "the Router cannot be reached" }
+				: { kind: "ok" };
+		},
 		stored: (id: string) => (id === "deploy" ? stored : null),
 		view: () => ({ id: "deploy", hasValue: true, publicTitle: "Deploy", publicDescription: null }),
 		allowedHere: () => vault.allowed,
@@ -40,8 +45,9 @@ function bench() {
 		},
 		openTyped: () => null,
 	});
+	const use = createVaultUse({ client: () => client, decisions, ambient });
 	const routes = createVaultRoutes({
-		client: () => client,
+		use,
 		decisions,
 		requests,
 		policies: () => ({ byKey: () => null }),
@@ -61,10 +67,41 @@ function bench() {
 		if (!request) throw new Error("the request did not open");
 		return request;
 	};
-	return { vault, requests, call, opened, delivered };
+	return { vault, requests, call, opened, delivered, use, decisions };
 }
 
 describe("vault routes", () => {
+	it("serves a watcher only through its own standing grant, read again at release, and never asks", async () => {
+		const { vault, use, decisions, delivered } = bench();
+
+		const ungranted = await use.readForWatcher("github", "deploy");
+		decisions.setWatcherGrants("github", ["deploy"]);
+		const granted = await use.readForWatcher("github", "deploy");
+		const other = await use.readForWatcher("gmail", "deploy");
+		vault.duringRefresh = () => void decisions.setWatcherGrants("github", []);
+		const revokedMidway = await use.readForWatcher("github", "deploy");
+		vault.duringRefresh = () => {};
+		decisions.setWatcherGrants("github", ["deploy"]);
+		vault.allowed = false;
+		const disallowed = await use.readForWatcher("github", "deploy");
+
+		expect(ungranted.kind).toBe("unusable");
+		expect(granted).toEqual({ kind: "released", value: "hunter2" });
+		expect(other.kind).toBe("unusable");
+		expect(revokedMidway.kind).toBe("unusable");
+		expect(disallowed.kind).toBe("unusable");
+		expect(delivered).toEqual([]);
+	});
+
+	it("never lets a watcher's grant cover a session", async () => {
+		const { decisions, call } = bench();
+		decisions.setWatcherGrants("github", ["deploy"]);
+
+		const asked = call("/vault/use", { entryId: "deploy", operation: "ssh deploy@prod", waitMs: 50 });
+
+		expect((await asked).json.outcome).toBe("pending");
+	});
+
 	it("keeps an approval the vault could not serve, and hands it over once it can", async () => {
 		const { vault, requests, call, opened } = bench();
 		const use = call("/vault/use", { entryId: "deploy", operation: "ssh deploy@prod", waitMs: 10_000 });

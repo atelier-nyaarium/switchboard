@@ -161,6 +161,10 @@ object Protocol {
 			const val POLICY_PUT: String = "policy_put"
 			const val POLICY_DELETE: String = "policy_delete"
 			const val POLICY_ENABLE: String = "policy_enable"
+			const val ASSISTANT_STATE: String = "assistant_state"
+			const val ASSISTANT_PLACE: String = "assistant_place"
+			const val ASSISTANT_RELEASE: String = "assistant_release"
+			const val ASSISTANT_WATCHER_GRANTS: String = "assistant_watcher_grants"
 		}
 
 		object SocketFrame {
@@ -236,6 +240,7 @@ data class TeamInfo(
 	val mode: String? = null,
 	val kind: String,
 	val sessionLabel: String? = null,
+	val role: String? = null,
 	val description: String? = null,
 	val version: String? = null,
 	val lastActive: Long? = null,
@@ -629,6 +634,27 @@ sealed class ConsoleOp {
 		val enabled: Boolean,
 		val baseRevision: Long,
 	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("assistant_state")
+	data object AssistantState : ConsoleOp()
+
+	@Serializable
+	@SerialName("assistant_place")
+	data class AssistantPlace(
+		val workdir: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("assistant_release")
+	data object AssistantRelease : ConsoleOp()
+
+	@Serializable
+	@SerialName("assistant_watcher_grants")
+	data class AssistantWatcherGrants(
+		val watcherId: String,
+		val entryIds: List<String>,
+	) : ConsoleOp()
 }
 
 @Serializable
@@ -1001,6 +1027,26 @@ data class ConsolePolicyPutResult(
 data class ConsolePolicyDeleteResult(
 	val deleted: Boolean,
 	val reason: String? = null,
+)
+
+@Serializable
+data class AssistantWatcher(
+	val id: String,
+	val label: String,
+	val grants: List<String>,
+	val unread: Long,
+	val evicted: Long,
+	val lastSuccessAt: Long? = null,
+	val nextPollAt: Long? = null,
+	val backoff: AssistantWatcherBackoff? = null,
+	val stopped: String? = null,
+)
+
+@Serializable
+data class ConsoleAssistantStateResult(
+	val workdir: String? = null,
+	val team: String? = null,
+	val watchers: List<AssistantWatcher>,
 )
 
 @Serializable
@@ -2096,6 +2142,12 @@ sealed class VaultHolder {
 	data class Routine(
 		val routineId: String,
 	) : VaultHolder()
+
+	@Serializable
+	@SerialName("watcher")
+	data class Watcher(
+		val watcherId: String,
+	) : VaultHolder()
 }
 
 @Serializable
@@ -2702,6 +2754,12 @@ data class BlobRange(
 data class CrossDomainShareEntry(
 	val sessionTarget: String,
 	val target: CrossDomainShareTarget,
+)
+
+@Serializable
+data class AssistantWatcherBackoff(
+	val until: Long,
+	val reason: String,
 )
 
 @Serializable

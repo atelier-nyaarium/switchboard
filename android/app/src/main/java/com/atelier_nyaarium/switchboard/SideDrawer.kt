@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -250,7 +251,8 @@ internal fun DrawerDivider() {
 	HorizontalDivider(Modifier.padding(horizontal = 28.dp, vertical = 8.dp))
 }
 
-internal fun iconOf(view: RootView): ImageVector = view.scoped?.let(::iconOf) ?: Icons.Default.Forum
+internal fun iconOf(view: RootView): ImageVector =
+	view.scoped?.let(::iconOf) ?: if (view == RootView.ASSISTANT) Icons.Default.SmartToy else Icons.Default.Forum
 
 internal fun iconOf(view: ConversationView): ImageVector = view.scoped?.let(::iconOf) ?: when (view) {
 	ConversationView.TERMINAL -> Icons.Default.Terminal

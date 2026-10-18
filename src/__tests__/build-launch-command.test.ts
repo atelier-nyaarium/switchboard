@@ -60,11 +60,21 @@ describe("buildLaunchCommand", () => {
 			);
 		});
 
-		it("refuses rather than launch the assistant in home, a missing folder, or one it cannot quote", () => {
+		it("refuses rather than launch the assistant in home, a missing folder, a linked one, or one it cannot quote", () => {
+			const base = fs.mkdtempSync(path.join(os.tmpdir(), "assistant-link-"));
+			const keys = path.join(base, "keys");
+			const notes = path.join(base, "notes");
+			fs.mkdirSync(keys);
+			fs.symlinkSync(keys, notes);
+			const linked = () => buildLaunchCommand(assistant, { workdir: notes });
+
+			expect(linked).toThrow();
+			expect(() => buildLaunchCommand(assistant, { workdir: keys })).not.toThrow();
 			expect(() => buildLaunchCommand(assistant, { workdir: os.homedir() })).toThrow();
 			expect(() => buildLaunchCommand(assistant, { workdir: path.join(os.tmpdir(), "no-such-notes") })).toThrow();
 			expect(() => buildLaunchCommand(assistant, { workdir: "/home/$USER/notes" })).toThrow();
 			expect(() => buildLaunchCommand(assistant)).toThrow();
+			fs.rmSync(base, { recursive: true, force: true });
 		});
 	});
 

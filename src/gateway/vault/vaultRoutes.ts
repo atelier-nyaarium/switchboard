@@ -17,18 +17,19 @@ import {
 } from "../../shared/schemasVault.js";
 import { jsonResponse as json } from "../agentRouteEnvelope.js";
 import type { PolicyStore } from "../policies/store.js";
-import type { VaultClient, VaultEntryView } from "../router/vaultClient.js";
+import type { VaultEntryView } from "../router/vaultClient.js";
 import { presentedByRequest } from "../sessionAuthority.js";
 import { displayShape, type GrantScope, type VaultDecisions } from "./decisions.js";
 import { operationSet } from "./operationSet.js";
 import type { VaultRequestAnswer, VaultRequests } from "./requests.js";
+import type { VaultRelease, VaultUnready, VaultUnusable, VaultUse } from "./vaultUse.js";
 
 const DEFAULT_WAIT_MS = 25_000;
 const REFUSAL = "the owner did not authorize";
 
 export interface VaultRoutesDeps {
-	client: () => VaultClient | null;
-	decisions: VaultDecisions;
+	use: VaultUse;
+	decisions: Pick<VaultDecisions, "covers">;
 	requests: VaultRequests;
 	/** Read late. */
 	policies: () => Pick<PolicyStore, "byKey">;
@@ -56,6 +57,10 @@ const unopened = (reason: "migrating" | "unreachable" | "flooded"): Response => 
 	);
 };
 
+const unready = (answer: VaultUnready): Response => json({ error: `vault unavailable: ${answer.reason}` }, 503);
+
+const unusable = (answer: VaultUnusable): Response => refused(answer.reason, answer.status);
+
 const publicView = (entry: VaultEntryView): VaultPublicEntry => ({
 	id: entry.id,
 	publicTitle: entry.publicTitle ?? "",
@@ -73,26 +78,6 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		return presentedByRequest(req).token
 			? json({ error: "not found" }, 404)
 			: json({ error: "this session is not bound to the gateway" }, 401);
-	};
-
-	async function ready(): Promise<VaultClient | Response> {
-		const client = deps.client();
-		if (!client) return json({ error: "vault unavailable: this Gateway is not enrolled" }, 503);
-		const refreshed = await client.refresh();
-		if (refreshed.kind !== "ok") return json({ error: `vault unavailable: ${refreshed.error}` }, 503);
-		return client;
-	}
-
-	const usable = (
-		client: VaultClient,
-		entryId: string,
-	): { entry: VaultEntryView; value: () => string | null } | Response => {
-		const stored = client.stored(entryId);
-		if (!stored) return refused("no such entry", 404);
-		const entry = client.view(stored);
-		if (!entry.hasValue) return refused("the entry holds no value", 409);
-		if (!client.allowedHere(entry)) return refused("this Gateway may not use the entry");
-		return { entry, value: () => client.openValue(stored) };
 	};
 
 	/** The wait ends at the answer, the budget, or the caller leaving; a leaver takes no answer. */
@@ -138,24 +123,23 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		return settle(await waitAnswer(opened.answer, waitMs, req.signal), opened.request);
 	}
 
-	function approved(decision: VaultApprovedDecision, value: string | null): Response {
-		if (value === null) return json({ outcome: "refused", reason: "the value could not be opened" }, 503);
-		return json({ outcome: "approved", decision, value } satisfies VaultValueAnswer);
-	}
-
 	/** Unavailable keeps an approval for a retry; refused and released settle it. */
 	type Release = { kind: "released" | "refused" | "unavailable"; response: Response };
 
-	/** The entry is resolved again as the value leaves, never from a snapshot taken when it was asked for. */
 	async function release(decision: VaultApprovedDecision, entryId: string): Promise<Release> {
-		const client = await ready();
-		if (client instanceof Response) return { kind: "unavailable", response: client };
-		const found = usable(client, entryId);
-		if (found instanceof Response) return { kind: "refused", response: found };
-		const value = found.value();
-		// A key that has not arrived is as transient as a Router that has not.
-		if (value === null) return { kind: "unavailable", response: approved(decision, null) };
-		return { kind: "released", response: approved(decision, value) };
+		const answer: VaultRelease = await deps.use.release(entryId);
+		if (answer.kind === "unready") return { kind: "unavailable", response: unready(answer) };
+		if (answer.kind === "unusable") return { kind: "refused", response: unusable(answer) };
+		if (answer.kind === "unopened") {
+			return {
+				kind: "unavailable",
+				response: json({ outcome: "refused", reason: "the value could not be opened" }, 503),
+			};
+		}
+		return {
+			kind: "released",
+			response: json({ outcome: "approved", decision, value: answer.value } satisfies VaultValueAnswer),
+		};
 	}
 
 	/**
@@ -176,7 +160,11 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		if (request.kind === "typed") {
 			const taken = deps.requests.forget(request.requestId);
 			return taken && answer.typedValue !== undefined
-				? approved(answer.decision, answer.typedValue)
+				? json({
+						outcome: "approved",
+						decision: answer.decision,
+						value: answer.typedValue,
+					} satisfies VaultValueAnswer)
 				: refused(REFUSAL);
 		}
 		const released = await release(answer.decision, request.entryId);
@@ -189,8 +177,9 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		if (who instanceof Response) return who;
 		const parsed = VaultSearchRequestSchema.safeParse(body);
 		if (!parsed.success) return json({ error: "invalid vault search" }, 400);
-		const client = await ready();
-		if (client instanceof Response) return client;
+		const ready = await deps.use.ready();
+		if (ready.kind !== "ready") return unready(ready);
+		const { client } = ready;
 		const query = parsed.data.query?.trim().toLowerCase();
 		const entries = client
 			.live()
@@ -211,10 +200,10 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		if (who instanceof Response) return who;
 		const parsed = VaultUseRequestSchema.safeParse(body);
 		if (!parsed.success) return json({ error: "invalid vault use request" }, 400);
-		const client = await ready();
-		if (client instanceof Response) return client;
-		const found = usable(client, parsed.data.entryId);
-		if (found instanceof Response) return found;
+		const ready = await deps.use.ready();
+		if (ready.kind !== "ready") return unready(ready);
+		const found = deps.use.usable(ready.client, parsed.data.entryId);
+		if (found.kind !== "usable") return unusable(found);
 		const scope = {
 			entryId: parsed.data.entryId,
 			displayShape: displayShape(parsed.data.operation),
@@ -247,8 +236,9 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		if (who instanceof Response) return who;
 		const parsed = VaultCaptureRequestSchema.safeParse(body);
 		if (!parsed.success) return json({ error: "invalid vault capture" }, 400);
-		const client = await ready();
-		if (client instanceof Response) return client;
+		const ready = await deps.use.ready();
+		if (ready.kind !== "ready") return unready(ready);
+		const { client } = ready;
 		const id = deps.ambient.newId();
 		// Trim the shell's trailing newline.
 		const value = parsed.data.value.endsWith("\n") ? parsed.data.value.slice(0, -1) : parsed.data.value;
@@ -270,16 +260,16 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		if (who instanceof Response) return who;
 		const parsed = VaultAskpassRequestSchema.safeParse(body);
 		if (!parsed.success) return json({ error: "invalid askpass request" }, 400);
-		const client = await ready();
-		if (client instanceof Response) return client;
+		const ready = await deps.use.ready();
+		if (ready.kind !== "ready") return unready(ready);
 		const shape = displayShape(parsed.data.cmdline);
 		const sessionTarget = who.target;
 		const { asker } = parsed.data;
 		const waitMs = waitFor(parsed.data.waitMs);
 		// A binding this Gateway cannot use resolves nothing; a title never selects.
 		const policy = deps.policies().byKey(shape);
-		const bound = policy ? usable(client, policy.binding.entryId) : null;
-		if (policy && bound && !(bound instanceof Response)) {
+		const bound = policy ? deps.use.usable(ready.client, policy.binding.entryId) : null;
+		if (policy && bound?.kind === "usable") {
 			const scope: GrantScope = {
 				entryId: policy.binding.entryId,
 				displayShape: shape,

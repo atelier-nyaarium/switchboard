@@ -47,6 +47,7 @@ import com.atelier_nyaarium.switchboard.runbooks.settledPreview
 import com.atelier_nyaarium.switchboard.runbooks.spawnChoices
 import com.atelier_nyaarium.switchboard.runbooks.spawnMenu
 import com.atelier_nyaarium.switchboard.runbooks.stale
+import com.atelier_nyaarium.switchboard.vault.grantableOn
 import kotlinx.coroutines.launch
 
 private val WEEKDAY_LABELS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -75,7 +76,7 @@ fun RoutineEditor(
 	}
 	val vaultRevision by repo.vault.revision
 	val entries = remember(vaultRevision) { repo.vaultOps.views() }
-	val offered = remember(entries, gatewayId) { entries.filter { it.hasValue && it.allowedOn(gatewayId) } }
+	val offered = remember(entries, gatewayId) { entries.grantableOn(gatewayId) }
 	val scope = rememberCoroutineScope()
 	var saving by remember(routineId) { mutableStateOf(false) }
 	var refused by remember(routineId) { mutableStateOf<String?>(null) }

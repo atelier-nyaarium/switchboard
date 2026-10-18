@@ -1,7 +1,7 @@
-// The assistant's one session and its watchers' inbox: provisioned once, reserved from both
-// sweeps, never forgotten.
+// The assistant's one session and its watchers' inbox. Where it lives is its reserved session
+// record: placed by an owner op, kept from both sweeps, released only by an owner op.
 
-import type { Ambient } from "../../shared/ambient.js";
+import { type Ambient, withinMs } from "../../shared/ambient.js";
 import {
 	ASSISTANT_RESERVE_KEY,
 	ASSISTANT_SESSION_NAME,
@@ -11,17 +11,40 @@ import {
 } from "../../shared/assistant-session.js";
 import { openDurable } from "../../shared/durable-store.js";
 import { isSpawnWorkdirPath } from "../../shared/host-op.js";
+import type { AssistantWatcher, ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
+import {
+	createGithubWatcher,
+	GITHUB_WATCHER_ID,
+	type GithubWatcherDeps,
+	type TokenRead,
+} from "../assistant/githubWatcher.js";
 import { createInboxStore, type InboxStore } from "../assistant/inboxStore.js";
 import type { Watcher } from "../assistant/watcher.js";
-import { createWatcherRunner } from "../assistant/watcherRunner.js";
+import { createWatcherRunner, type WatcherRunner } from "../assistant/watcherRunner.js";
+import type { AssistantConsoleHandlers } from "../console/consoleTypes.js";
+import type { VaultRelease } from "../vault/vaultUse.js";
 import type { SessionsStage } from "./composeSessions.js";
 
+const NEEDS_SECRET = "needs a secret";
+/** Shutdown waits this long for an owner op already running. */
+const STOP_WAIT_MS = 5_000;
+
+const LABELS: Record<string, string> = { [GITHUB_WATCHER_ID]: "GitHub notifications" };
+
+/** What the assistant reaches in the vault, read late. */
+export interface AssistantVault {
+	watcherGrants: (watcherId: string) => string[];
+	setWatcherGrants: (watcherId: string, entryIds: string[]) => void;
+	readForWatcher: (watcherId: string, entryId: string) => Promise<VaultRelease>;
+}
+
 export interface AssistantStageDeps {
-	/** Unset means no assistant, and its record is an ordinary one. */
-	workdir: string | undefined;
 	dataDir: string;
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">;
 	sessions: Pick<SessionsStage, "sessionStore" | "presence">;
+	vault: AssistantVault;
+	fetch: GithubWatcherDeps["fetch"];
+	/** Replaces the built-in watchers. */
 	watchers?: readonly Watcher[];
 }
 
@@ -31,51 +54,167 @@ export interface AssistantStage {
 	/** The refusal reason, or null. */
 	forgetRefusal: (team: string) => string | null;
 	inbox: Pick<InboxStore, "stateOf" | "events" | "unread">;
+	console: AssistantConsoleHandlers;
 	/** Arms the watchers, once federation is active. */
 	start: () => void;
-	/** Before the shutdown flush, so it sees no poll halfway through its write. */
+	/** Final, and before the shutdown flush, so it sees no poll halfway through its write. */
 	stop: () => Promise<void>;
 }
 
+/** The vault's answer, as a watcher reads it: a missing grant stops it, a transient wait backs off. */
+function tokenOf(read: VaultRelease): TokenRead {
+	if (read.kind === "released") return { kind: "token", value: read.value };
+	if (read.kind === "unusable") return { kind: "stopped", reason: read.reason };
+	return {
+		kind: "backoff",
+		reason: read.kind === "unready" ? `vault unavailable: ${read.reason}` : "vault key not here yet",
+	};
+}
+
 export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
-	const { workdir, sessions } = deps;
-	const configured = workdir !== undefined && provision(workdir, sessions);
-	const isAssistant = (team: string) =>
-		configured && team === ASSISTANT_TEAM && isAssistantRecord(sessions.sessionStore.getByTeam(team));
+	const { sessions, ambient } = deps;
+	const held = () => {
+		const record = sessions.sessionStore.getByTeam(ASSISTANT_TEAM);
+		return isAssistantRecord(record) ? record : undefined;
+	};
+	const isAssistant = (team: string) => team === ASSISTANT_TEAM && held() !== undefined;
+
+	const tokenFor = (watcherId: string) => async (): Promise<TokenRead> => {
+		const entryId = deps.vault.watcherGrants(watcherId)[0];
+		if (entryId === undefined) return { kind: "stopped", reason: NEEDS_SECRET };
+		return tokenOf(await deps.vault.readForWatcher(watcherId, entryId));
+	};
+	const watchers = deps.watchers ?? [
+		createGithubWatcher({ fetch: deps.fetch, token: tokenFor(GITHUB_WATCHER_ID), now: () => ambient.now() }),
+	];
+
 	const inbox = openDurable(deps.dataDir, "assistant-inbox", (store) => createInboxStore(store));
-	const runner = createWatcherRunner({ ambient: deps.ambient, inbox, watchers: deps.watchers ?? [] });
+	let runner: WatcherRunner | null = null;
+	let active = false;
+	let closed = false;
+	const startRunner = () => {
+		if (!active || closed || runner || !held()) return;
+		runner = createWatcherRunner({ ambient, inbox, watchers });
+		runner.start();
+	};
+	const stopRunner = async () => {
+		const stopping = runner;
+		runner = null;
+		await stopping?.stop();
+	};
+	/** Owner ops one at a time, so a place never lands inside a release; none starts after shutdown. */
+	let tail: Promise<unknown> = Promise.resolve();
+	const serial = <T>(work: () => T | Promise<T>): Promise<T> => {
+		const next = tail.then(() => {
+			if (closed) throw new Error("the Gateway is shutting down");
+			return work();
+		});
+		tail = next.catch(() => undefined);
+		return next;
+	};
+	/** A write that did not land answers as a refusal, never as the state it meant. */
+	const grantsLanded = (watcherId: string, entryIds: readonly string[]) => {
+		const held = deps.vault.watcherGrants(watcherId);
+		return held.length === entryIds.length && entryIds.every((entryId) => held.includes(entryId));
+	};
+
+	const watcherOf = (watcher: Watcher): AssistantWatcher => {
+		const state = inbox.stateOf(watcher.id);
+		return {
+			id: watcher.id,
+			label: LABELS[watcher.id] ?? watcher.id,
+			grants: deps.vault.watcherGrants(watcher.id),
+			unread: inbox.unread(watcher.id),
+			evicted: state?.evicted ?? 0,
+			...(state?.lastSuccessAt !== undefined ? { lastSuccessAt: state.lastSuccessAt } : {}),
+			...(state?.nextPollAt !== undefined ? { nextPollAt: state.nextPollAt } : {}),
+			...(state?.backoff ? { backoff: state.backoff } : {}),
+			...(state?.stopped !== undefined ? { stopped: state.stopped } : {}),
+		};
+	};
+	const state = (): ConsoleAssistantStateResult => {
+		const record = held();
+		return {
+			workdir: record?.workdirPath ?? null,
+			team: record ? ASSISTANT_TEAM : null,
+			watchers: watchers.map(watcherOf),
+		};
+	};
+
 	return {
 		reserves: isAssistant,
-		forgetRefusal: (team) => (isAssistant(team) ? "the assistant's session is never forgotten" : null),
+		forgetRefusal: (team) => (isAssistant(team) ? "the assistant's session leaves only by a release" : null),
 		inbox,
-		start: () => {
-			if (configured) runner.start();
+		console: {
+			state,
+			place: (workdir) =>
+				serial(() => {
+					place(workdir, sessions);
+					startRunner();
+					return state();
+				}),
+			release: (forget) =>
+				serial(async () => {
+					const previous = watchers.map(
+						(watcher) => [watcher.id, deps.vault.watcherGrants(watcher.id)] as const,
+					);
+					// Grants are this Gateway's; a new home is granted afresh.
+					for (const watcher of watchers) deps.vault.setWatcherGrants(watcher.id, []);
+					if (!watchers.every((watcher) => grantsLanded(watcher.id, []))) {
+						throw new Error("the watchers' grants could not be dropped; nothing was released");
+					}
+					await stopRunner();
+					if (!held()) return state();
+					try {
+						await forget(ASSISTANT_TEAM);
+					} catch (error) {
+						// Still placed, so it keeps its grants and polls again.
+						for (const [watcherId, entryIds] of previous) deps.vault.setWatcherGrants(watcherId, entryIds);
+						startRunner();
+						throw error;
+					}
+					return state();
+				}),
+			/** Also the retry: the same set polls a stopped watcher again. */
+			setWatcherGrants: (watcherId, entryIds) =>
+				serial(() => {
+					if (!watchers.some((watcher) => watcher.id === watcherId))
+						throw new Error(`no watcher "${watcherId}"`);
+					if (entryIds.length > 1) throw new Error("a watcher takes one secret");
+					if (!held()) throw new Error("the assistant does not live on this Gateway");
+					deps.vault.setWatcherGrants(watcherId, entryIds);
+					if (!grantsLanded(watcherId, entryIds)) throw new Error("the grant could not be saved");
+					if (runner) runner.poke(watcherId);
+					else startRunner();
+					return state();
+				}),
 		},
-		stop: () => runner.stop(),
+		start: () => {
+			active = true;
+			startRunner();
+		},
+		stop: async () => {
+			closed = true;
+			await stopRunner();
+			// An op already running finishes before the flush, bounded as a poll's stop is.
+			await withinMs(ambient, tail, STOP_WAIT_MS);
+		},
 	};
 }
 
 /**
- * Mints the record only. The first wake launches it, so a Gateway booting before its host connects
- * still provisions.
+ * Mints the record, or moves a held one to this folder. The first wake launches it, and a moved
+ * session takes the folder at its next launch.
  */
-function provision(workdir: string, sessions: AssistantStageDeps["sessions"]): boolean {
-	if (!isSpawnWorkdirPath(ASSISTANT_SPAWN, workdir)) {
-		console.error(`[assistant] ASSISTANT_WORKDIR "${workdir}" is not an absolute or ~-rooted path`);
-		return false;
-	}
+function place(workdir: string, sessions: AssistantStageDeps["sessions"]): void {
+	if (!isSpawnWorkdirPath(ASSISTANT_SPAWN, workdir))
+		throw new Error("the folder must be an absolute or ~-rooted path");
 	const held = sessions.sessionStore.getByTeam(ASSISTANT_TEAM);
+	if (held && !isAssistantRecord(held))
+		throw new Error(`${ASSISTANT_TEAM} is held by a session the assistant did not make`);
 	if (held) {
-		if (!isAssistantRecord(held)) {
-			console.error(`[assistant] ${ASSISTANT_TEAM} is held by a session the assistant did not make`);
-			return false;
-		}
-		// The configured workdir governs, never a stored one.
-		if (held.workdirPath !== workdir) {
-			console.log(`[assistant] ${ASSISTANT_TEAM} workdir ${held.workdirPath ?? "unset"} -> ${workdir}`);
-			held.workdirPath = workdir;
-		}
-		return true;
+		held.workdirPath = workdir;
+		return;
 	}
 	const minted = sessions.presence.adoptById(ASSISTANT_SESSION_NAME, {
 		spawn: ASSISTANT_SPAWN,
@@ -84,10 +223,5 @@ function provision(workdir: string, sessions: AssistantStageDeps["sessions"]): b
 		workdirPath: workdir,
 		mintedFrom: ASSISTANT_RESERVE_KEY,
 	});
-	if (!minted) {
-		console.error(`[assistant] cannot claim ${ASSISTANT_TEAM}: the name is reserved or a project`);
-		return false;
-	}
-	console.log(`[assistant] provisioned ${ASSISTANT_TEAM} in ${workdir}`);
-	return true;
+	if (!minted) throw new Error(`cannot claim ${ASSISTANT_TEAM}: the name is reserved or a project`);
 }

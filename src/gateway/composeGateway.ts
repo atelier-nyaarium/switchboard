@@ -103,10 +103,22 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		context,
 	});
 	const assistant = composeAssistant({
-		workdir: config.assistantWorkdir,
 		dataDir: bootstrap.dataDir,
 		ambient: bootstrap.ambient,
 		sessions,
+		// Read late; composed below.
+		vault: {
+			watcherGrants: (watcherId) => vault?.watcherGrants(watcherId) ?? [],
+			setWatcherGrants: (watcherId, entryIds) => {
+				if (!vault) throw new Error("the vault is not composed yet");
+				vault.setWatcherGrants(watcherId, entryIds);
+			},
+			readForWatcher: async (watcherId, entryId) =>
+				vault
+					? vault.readForWatcher(watcherId, entryId)
+					: { kind: "unready", reason: "the vault is not composed yet" },
+		},
+		fetch: deps.fetch ?? ((url, init) => fetch(url, init)),
 	});
 	const persistence = composePersistence({
 		ambient: bootstrap.ambient,

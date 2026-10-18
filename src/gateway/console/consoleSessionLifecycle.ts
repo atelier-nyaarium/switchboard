@@ -238,10 +238,16 @@ export function createSessionLifecycleHandlers({
 		return { closed: true };
 	}
 
-	async function forget(op: Extract<ConsoleOp, { kind: "forget" }>, conversationId: string, opId: string) {
+	/** `released` is a release op already admitting the reserved session. */
+	async function forget(
+		op: Extract<ConsoleOp, { kind: "forget" }>,
+		conversationId: string,
+		opId: string,
+		{ released = false }: { released?: boolean } = {},
+	) {
 		if (!relayToHost) throw new Error("terminal view unavailable on this Gateway");
 		const { name } = targets.requireLocalComposite(op.target, "forget");
-		const refusal = forgetRefusal?.(name);
+		const refusal = released ? null : forgetRefusal?.(name);
 		if (refusal) throw new Error(`cannot forget "${name}": ${refusal}`);
 		if (isWakeInFlight?.(name)) throw new Error(`"${name}" is waking; wait for it to finish before forgetting`);
 		// Close refuses a terminal it did not launch; forget drops the record and leaves it running.

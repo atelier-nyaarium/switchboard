@@ -70,6 +70,10 @@ and the delta list are in `docs/federation.md` under Owner state.
   the selector, or at another revision. `policyMoved` prunes the grants that policy qualified, and
   `policiesListed` does the same at startup over the store's whole list. `vault_grants` shows what
   is stored, so a prune that failed to write is visible rather than hidden.
+- **A standing grant is entry-wide, and only a routine or an assistant watcher holds one:** the
+  owner picks the entries, and `setStandingGrants` makes the held set match them exactly. A
+  routine's grant covers only while its occurrence is live in the asking session. A watcher's grant
+  covers only that watcher's own read, never a session, and a watcher never opens a request.
 - The store opens through `openDurable`, so a poisoned file starts fresh. A revocation or a
   session-end drop is written with `saveChecked` and reported once the snapshot is installed.
   Grants and expiry sweeps are best effort.
@@ -99,8 +103,10 @@ and the delta list are in `docs/federation.md` under Owner state.
 - An approval on an entry request also records the grant, qualified as the request was. The answer
   waits for its collector until the deadline, and the first collector takes it.
 - **The value is read as it leaves, never from a snapshot taken when it was asked for:** `release`
-  runs `usable` again at settlement on every road, so an entry rotated, emptied, or closed to this
-  Gateway while the request waited answers with the current value or a refusal.
+  in `gateway/vault/vaultUse.ts` runs `usable` again at settlement on every road, so an entry
+  rotated, emptied, or closed to this Gateway while the request waited answers with the current
+  value or a refusal. `readForWatcher` checks the watcher's grant with `covers`, then takes the
+  same `release`.
 - A session's end refuses its open requests and drops its grants.
 - **Every settlement sends a `retract` row:** an answer, a denial, the deadline, a withdraw, or a
   session's end. The phone drops the request and its notification on it, so a second console never
@@ -272,6 +278,7 @@ session holds a binding token. `vaultRun.ts` is the child run.
 - `src/gateway/compose/composeVault.ts` - the stage: stores, request delivery, routes, console handlers.
 - `src/gateway/router/vaultClient.ts` - sealing, opening, the delta copy, the create.
 - `src/gateway/vault/decisions.ts`, `requests.ts`, `vaultRoutes.ts` - grants, requests, routes.
+- `src/gateway/vault/vaultUse.ts` - the one release a value leaves by, for the routes and a watcher.
 - `src/gateway/vault/operationSet.ts` - the shape rule, the wrapper table, and the set a window grant covers.
 - `src/mcp/vault/vaultTools.ts`, `vaultRun.ts` - the session's tools and the scrubbed child run.
 - `src/main-vault-askpass.ts`, `src/vault-askpass/askpass.ts` - the helper entry and its decision over ports.

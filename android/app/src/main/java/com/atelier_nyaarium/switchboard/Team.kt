@@ -25,6 +25,8 @@ data class Team(
 	val sessionLabel: String? = null,
 	// Null for local rows.
 	val presenceFresh: String? = null,
+	/** Gateway-stamped; "assistant" lives in its own tab. */
+	val role: String? = null,
 ) {
 	/** Short local field shown in the UI: `spawn` or `spawn.session` from the canonical address. */
 	val shortName: String get() = localFieldOf(name)
@@ -123,5 +125,6 @@ internal fun teamInfoToTeam(it: TeamInfo): Team {
 		kind = it.kind,
 		sessionLabel = it.sessionLabel,
 		presenceFresh = it.presenceFresh,
+		role = it.role,
 	)
 }

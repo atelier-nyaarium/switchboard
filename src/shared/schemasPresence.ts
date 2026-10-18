@@ -32,6 +32,8 @@ export const TeamInfoSchema = z
 		kind: TeamKindSchema,
 		// Board session label.
 		sessionLabel: z.string().optional(),
+		// Gateway-stamped. The assistant's session lives in its own tab, never the Sessions list.
+		role: z.enum(["assistant"]).optional(),
 		// Inbound compatibility field.
 		description: z.string().optional(),
 		// The plugin version the agent's MCP process reported at register. Absent for

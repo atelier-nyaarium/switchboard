@@ -5,16 +5,24 @@ it events. The session decides what to say and do.
 
 ## The session
 
-- **One session:** `host.assistant`, resumed and never recreated. `ASSISTANT_WORKDIR` names its
-  working directory, and the Gateway mints the record there once at boot; the first wake launches
-  it. A name is not a binding, so provenance decides, as for a routine: `isAssistantRecord` reads
-  the record's `mintedFrom`. The configured workdir governs, so a stored one is reset to it at
-  boot. The 30-day and capacity sweeps skip it, and a forget is refused.
+- **One session:** `host.assistant`, resumed while it lives on a Gateway. A name is not a binding,
+  so provenance decides, as for a routine: `isAssistantRecord` reads the record's `mintedFrom`. The
+  30-day and capacity sweeps skip it, and a plain forget is refused. A release ends it, and placing
+  it again starts a fresh conversation. Its notes folder keeps its files; a move does not copy them.
+- **Where it lives is its record:** the owner picks a Gateway and a folder on that Gateway's host in
+  Assistant settings. `assistant_place` mints the record there, or moves a held one's folder, which
+  a running session takes at its next launch; the first wake launches it. `assistant_release`
+  drops the watchers' grants there, stops the watchers, ends the pane and forgets the record. Grants
+  that cannot be dropped refuse the release. A refused forget restores the grants and the polling.
+  The stage runs these ops one at a time and starts none after shutdown. A move reads every Gateway, places, then releases
+  every other home (`AssistantOps.move`), so a refused place leaves the old home untouched. The
+  phone names any Gateway that did not release.
 - **Opus only:** no model levels.
-- **Its own tab:** the phone's Assistant tab holds its conversation, an inbox strip with one chip
-  per watcher, and a gear for Assistant settings: watchers with their grants and rules, check-ins,
-  and session options. `host.assistant` stays out of the Sessions list because the Gateway marks it
-  in presence.
+- **Its own tab:** the phone's Assistant view shows where it lives, an inbox strip with one chip per
+  watcher, the door to its conversation, and a gear for Assistant settings: where it lives, each
+  watcher's health and grants, and Release. The conversation opens in the usual thread screen.
+  `host.assistant` stays out of the Sessions list because the Gateway marks its presence row with
+  `role: "assistant"`, never because the phone matches a name.
 - **Its own tools:** the plugin registers them only in the assistant session. The Gateway serves
   their routes only to that session's token.
 - **Timed compaction:** runs at its due time only while the REPL is idle and no card is open.
@@ -48,9 +56,9 @@ Gated on reversibility.
   under the workdir, reads inside it and in the channel attachments directory. Edits to `AGENTS.md`,
   `CLAUDE.md`, `CLAUDE.local.md`, `.claude/`, `.mcp.json` and `package.json`, and reads of `.env`
   files, are denied; `.git` is a protected path. The engine checks a path and opens the file as one
-  step, judges links on both sides, and drops denied files from search results. A workdir that is
-  missing, holds home, or cannot be quoted refuses the launch, since the host would otherwise fall
-  back to home. Project settings in the workdir still load, since they carry the owner's `AGENTS.md`;
+  step, judges links on both sides, and drops denied files from search results. The launch refuses
+  a workdir that is missing, holds home, is reached through a link, or cannot be quoted. A missing
+  one makes the host fall back to home, and a link's spelling is not the place it leads. Project settings in the workdir still load, since they carry the owner's `AGENTS.md`;
   the session cannot write `.claude/`, so only the owner could add one.
 - **Its Switchboard server:** takes no capabilities and lists only `channel_reply`,
   `channel_reply_structured` and `switchboard_capabilities` (`scopeTools`), so no guidance names a
@@ -109,8 +117,8 @@ a plugin update. A hand resume must carry the assistant's flags too.
 ## Events
 
 One inbox on the Gateway receives watcher events, phone events, routines and webhooks. An assistant
-stage restores the inbox before the first poll, starts on federation activation, and drains before
-the shutdown flush.
+stage restores the inbox before the first poll, polls only while the assistant lives on this
+Gateway and federation is active, and drains before the shutdown flush.
 
 ### Watchers
 
@@ -121,19 +129,30 @@ A watcher is plain Gateway code, never a model.
 - **Events and cursor share one checked write:** a failed write keeps the old cursor. Stable event
   ids dedupe a replay after a crash. Every event the inbox keeps is delivered at least once.
 - **Health survives a restart:** last success, next poll, backoff and stopped state.
-- **Secrets come from the vault:** the owner picks a watcher's entries up front on the phone's
-  Assistant setup screen, through the Grant secrets sheet a routine uses. The grant covers the
-  entry, so a rotated key is a vault edit. A watcher without one stays stopped and says it needs a
-  secret. The Gateway reads the value through the same grant check a session's use passes. A Gmail
+- **Secrets come from the vault:** the owner picks a watcher's one entry in Assistant settings,
+  through the Grant secrets sheet a routine uses, and `assistant_watcher_grants` makes it the
+  watcher's standing grant. The grant covers the entry, so a rotated key is a vault edit. A watcher
+  without one stops and says it needs a secret. Setting the grant, or Retry, which sets the same
+  one again, polls it now, or once a poll in flight lands. The Gateway reads the value each poll through `readForWatcher`, which
+  checks the grant after the vault refresh and takes the same release a session's use does. A
+  missing or refused grant stops the watcher, and an unreachable vault backs it off. A Gmail
   watcher needs its own OAuth token in the vault, since a watcher cannot use Claude's connectors.
 
 ### GitHub notifications
 
-- Polls `/notifications` with `If-Modified-Since`. A 304 spends no rate limit.
-- Holds `X-Poll-Interval` as its floor, 60 seconds when absent, and backs off on a rate-limit answer.
+- Keeps `Last-Modified` as its cursor, and sends it as `If-Modified-Since` on the first page of the
+  next poll. A 304 spends no rate limit. The first poll takes the 500 most recent unread.
+- Follows `Link: rel="next"` up to 500 events, and only to `api.github.com`, so the token never
+  follows a link elsewhere.
+- Holds `X-Poll-Interval` as its floor, 60 seconds when absent. A rate limit, by `retry-after` or a
+  spent `x-ratelimit-remaining`, backs off until it resets. A secondary limit that names no wait
+  backs off five minutes.
+- **One event per thread update:** the source id is the thread id with its `updated_at`, so a thread
+  updated again comes back rather than reading as a replay.
 - Read-only. Marking a thread read is an action.
 - Reads a classic token from its granted vault entry. The notification endpoints take no
-  fine-grained token. Without a grant, or on a 401, the watcher stops with that reason.
+  fine-grained token. Without a grant, on a 401, on a 404 (GitHub hides what a token may not see),
+  or on a 403 that is not a rate limit, the watcher stops with that reason. `createGithubWatcher` in `src/gateway/assistant/githubWatcher.ts`.
 
 ### Rules
 

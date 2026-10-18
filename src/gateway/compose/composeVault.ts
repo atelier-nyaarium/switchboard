@@ -12,6 +12,7 @@ import { createAddressing } from "../routes/addressing.js";
 import { createVaultDecisions, qualificationRefusal } from "../vault/decisions.js";
 import { createVaultRequests } from "../vault/requests.js";
 import { createVaultRoutes } from "../vault/vaultRoutes.js";
+import { createVaultUse, type VaultRelease } from "../vault/vaultUse.js";
 import type { GatewayRoutes } from "./composeRoutes.js";
 import type { SessionsStage } from "./composeSessions.js";
 import type { FederationContext } from "./federationContext.js";
@@ -42,6 +43,11 @@ export interface VaultStage {
 	policiesListed: (policies: AuthorizationPolicy[]) => void;
 	/** The one road to a routine's grants, reached from a routine save and from nowhere else. */
 	setRoutineGrants: (routineId: string, entryIds: string[]) => void;
+	/** The one road to a watcher's grants, reached from an owner op and from nowhere else. */
+	setWatcherGrants: (watcherId: string, entryIds: string[]) => void;
+	/** The entries a watcher's standing grants name. */
+	watcherGrants: (watcherId: string) => string[];
+	readForWatcher: (watcherId: string, entryId: string) => Promise<VaultRelease>;
 }
 
 export function composeVault(deps: VaultStageDeps): VaultStage {
@@ -128,8 +134,10 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		},
 	});
 
+	const use = createVaultUse({ client: () => context.slice()?.vaultClient ?? null, decisions, ambient });
+
 	const routes = createVaultRoutes({
-		client: () => context.slice()?.vaultClient ?? null,
+		use,
 		decisions,
 		requests,
 		policies: deps.policies,
@@ -185,5 +193,14 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		setRoutineGrants: (routineId, entryIds) => {
 			decisions.setRoutineGrants(routineId, entryIds);
 		},
+		setWatcherGrants: (watcherId, entryIds) => {
+			decisions.setWatcherGrants(watcherId, entryIds);
+		},
+		watcherGrants: (watcherId) =>
+			decisions
+				.list(ambient.now())
+				.filter((grant) => grant.holder.kind === "watcher" && grant.holder.watcherId === watcherId)
+				.map((grant) => grant.entryId),
+		readForWatcher: (watcherId, entryId) => use.readForWatcher(watcherId, entryId),
 	};
 }

@@ -172,6 +172,10 @@ data class VaultEntryView(
 	fun allowedOn(gatewayId: String): Boolean = !gatewaysUnreadable && (gateways == null || gatewayId in gateways)
 }
 
+/** What a grant sheet offers for that Gateway: entries holding a value it may use. */
+internal fun List<VaultEntryView>.grantableOn(gatewayId: String): List<VaultEntryView> =
+	filter { it.hasValue && it.allowedOn(gatewayId) }
+
 const val VAULT_DECISION_ONCE = "once"
 const val VAULT_DECISION_WINDOW = "window"
 const val VAULT_DECISION_SESSION = "session"

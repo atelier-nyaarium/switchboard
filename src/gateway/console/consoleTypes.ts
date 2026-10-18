@@ -13,6 +13,7 @@ import type {
 import type { SignedXDomainLink } from "../../shared/federation-protocol.js";
 import type { HostOp, HostOpResult } from "../../shared/host-op.js";
 import { MAX_POLL_HOLD_MS } from "../../shared/schemas.js";
+import type { ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
 import type {
 	AuthorizationPolicy,
@@ -124,6 +125,16 @@ export interface ConsoleHandlerDeps {
 	onSessionEnded?: (team: string) => void;
 	/** The refusal reason, or null. */
 	forgetRefusal?: (team: string) => string | null;
+	assistant?: AssistantConsoleHandlers;
+}
+
+/** A refusal throws with its reason; everything else answers the state it left. One op at a time. */
+export interface AssistantConsoleHandlers {
+	state: () => ConsoleAssistantStateResult;
+	place: (workdir: string) => Promise<ConsoleAssistantStateResult>;
+	/** `forget` ends the session's pane and record; a refused one leaves the assistant as it was. */
+	release: (forget: (team: string) => Promise<void>) => Promise<ConsoleAssistantStateResult>;
+	setWatcherGrants: (watcherId: string, entryIds: string[]) => Promise<ConsoleAssistantStateResult>;
 }
 
 export interface PolicyConsoleHandlers {

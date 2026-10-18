@@ -33,8 +33,9 @@ internal fun sessionOrder(state: ChatState): Comparator<Team> =
 		.thenBy { state.label(it.name) }
 
 // Peer rows render in the linked-friends section.
+/** The assistant is listed in its own tab, by the Gateway's mark. */
 internal fun localSessions(sessions: List<Team>, adminDomainId: String): List<Team> =
-	sessions.filter { it.domainId == adminDomainId }
+	sessions.filter { it.domainId == adminDomainId && it.role != ASSISTANT_ROLE }
 
 // Peer presence is untrusted and may duplicate keys.
 internal fun dedupedFriendSessions(sessions: List<CrossDomainPresenceSession>): List<CrossDomainPresenceSession> =

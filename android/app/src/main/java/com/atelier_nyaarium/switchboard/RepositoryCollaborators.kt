@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import android.net.Uri
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
+import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.ConsolePeekResult
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.Runbook
@@ -191,6 +192,17 @@ internal class ChatRepositoryPolicyHost(private val repo: ChatRepository) : Poli
 
 	override val gateway: PolicyGateway? get() =
 		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsolePolicyGateway)
+}
+
+internal class ConsoleAssistantGateway(private val client: ConsoleClient) : AssistantGateway {
+	override suspend fun call(gatewayId: String, op: ConsoleOp) = client.assistantOp(gatewayId, op)
+}
+
+internal class ChatRepositoryAssistantHost(private val repo: ChatRepository) : AssistantHost {
+	private val sandbox by lazy { SandboxAssistantGateway() }
+
+	override val gateway: AssistantGateway? get() =
+		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsoleAssistantGateway)
 }
 
 /** The port over the console client's workspace reads. */

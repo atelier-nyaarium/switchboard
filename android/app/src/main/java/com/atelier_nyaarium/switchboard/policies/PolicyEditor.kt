@@ -41,6 +41,7 @@ import com.atelier_nyaarium.switchboard.PolicyDeleted
 import com.atelier_nyaarium.switchboard.PolicySaved
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
+import com.atelier_nyaarium.switchboard.vault.grantableOn
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -70,10 +71,7 @@ fun PolicyEditor(
 		onClose()
 	}
 	val vaultRevision by repo.vault.revision
-	// Only what this Gateway may use.
-	val entries = remember(vaultRevision, gatewayId) {
-		repo.vaultOps.views().filter { it.hasValue && it.allowedOn(gatewayId) }
-	}
+	val entries = remember(vaultRevision, gatewayId) { repo.vaultOps.views().grantableOn(gatewayId) }
 	val scope = rememberCoroutineScope()
 	var example by remember(gatewayId, policyId) { mutableStateOf("") }
 	var editing by remember(gatewayId, policyId) { mutableStateOf<String?>(null) }
