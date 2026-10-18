@@ -11,10 +11,13 @@ it events. The session decides what to say and do.
   it again starts a fresh conversation. Its notes folder keeps its files; a move does not copy them.
 - **Where it lives is its record:** the owner picks a Gateway and a folder on that Gateway's host in
   Assistant settings. `assistant_place` mints the record there, or moves a held one's folder, which
-  a running session takes at its next launch; the first wake launches it. `assistant_release`
-  drops the watchers' grants there, stops the watchers, ends the pane and forgets the record. Grants
-  that cannot be dropped refuse the release. A refused forget restores the grants and the polling.
-  The stage runs these ops one at a time and starts none after shutdown. A move reads every Gateway, places, then releases
+  a running session takes at its next launch; the first wake launches it. The record is the commit:
+  place saves it before answering, and takes its change back when the save fails. A new placement
+  starts with no watcher grants. `assistant_release` ends the pane and forgets the record first, so
+  a refused forget changes nothing. Past it, the release saves, stops the watchers and drops their
+  grants there whatever the save says; an unsaved release or a grant left behind is named in the
+  answer, and releasing again finishes it. The stage runs these ops one at a time and starts none
+  after shutdown. A move reads every Gateway, places, then releases
   every other home (`AssistantOps.move`), so a refused place leaves the old home untouched. The
   phone names any Gateway that did not release.
 - **Opus only:** no model levels.

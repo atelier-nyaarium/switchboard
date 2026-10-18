@@ -42,6 +42,8 @@ export interface AssistantStageDeps {
 	dataDir: string;
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">;
 	sessions: Pick<SessionsStage, "sessionStore" | "presence">;
+	/** A checked save of the session records, which hold where it lives; throws when it did not land. */
+	saveSessions: () => void;
 	vault: AssistantVault;
 	fetch: GithubWatcherDeps["fetch"];
 	/** Replaces the built-in watchers. */
@@ -147,31 +149,46 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		inbox,
 		console: {
 			state,
+			// The record is where it lives, so it is durable before the phone releases the old home.
 			place: (workdir) =>
 				serial(() => {
-					place(workdir, sessions);
+					// A new placement is granted afresh, whatever an interrupted release left.
+					if (!held()) {
+						for (const watcher of watchers) deps.vault.setWatcherGrants(watcher.id, []);
+						if (!watchers.every((watcher) => grantsLanded(watcher.id, []))) {
+							throw new Error("a grant left from an earlier placement could not be dropped");
+						}
+					}
+					const undo = place(workdir, sessions);
+					try {
+						deps.saveSessions();
+					} catch (error) {
+						// Refused, so the next persist tick must not save it either.
+						undo();
+						throw error;
+					}
 					startRunner();
 					return state();
 				}),
+			// The record is the commit: a refused forget changes nothing. Past it the pane is gone, so
+			// the rest runs whatever the save says, and a retry saves again.
 			release: (forget) =>
 				serial(async () => {
-					const previous = watchers.map(
-						(watcher) => [watcher.id, deps.vault.watcherGrants(watcher.id)] as const,
-					);
-					// Grants are this Gateway's; a new home is granted afresh.
-					for (const watcher of watchers) deps.vault.setWatcherGrants(watcher.id, []);
-					if (!watchers.every((watcher) => grantsLanded(watcher.id, []))) {
-						throw new Error("the watchers' grants could not be dropped; nothing was released");
+					if (held()) await forget(ASSISTANT_TEAM);
+					let unsaved: Error | null = null;
+					try {
+						deps.saveSessions();
+					} catch (error) {
+						unsaved = error as Error;
 					}
 					await stopRunner();
-					if (!held()) return state();
-					try {
-						await forget(ASSISTANT_TEAM);
-					} catch (error) {
-						// Still placed, so it keeps its grants and polls again.
-						for (const [watcherId, entryIds] of previous) deps.vault.setWatcherGrants(watcherId, entryIds);
-						startRunner();
-						throw error;
+					// Grants are this Gateway's; a leftover is inert unplaced, and a new placement drops it.
+					for (const watcher of watchers) deps.vault.setWatcherGrants(watcher.id, []);
+					const kept = watchers.filter((watcher) => !grantsLanded(watcher.id, []));
+					if (unsaved) throw new Error(`released, but not yet saved; release again: ${unsaved.message}`);
+					if (kept.length > 0) {
+						const ids = kept.map((watcher) => watcher.id).join(", ");
+						throw new Error(`released, but ${ids} kept a grant; release again to drop it`);
 					}
 					return state();
 				}),
@@ -203,18 +220,21 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 }
 
 /**
- * Mints the record, or moves a held one to this folder. The first wake launches it, and a moved
- * session takes the folder at its next launch.
+ * Mints the record, or moves a held one to this folder, and answers how to take that back. The first
+ * wake launches it, and a moved session takes the folder at its next launch.
  */
-function place(workdir: string, sessions: AssistantStageDeps["sessions"]): void {
+function place(workdir: string, sessions: AssistantStageDeps["sessions"]): () => void {
 	if (!isSpawnWorkdirPath(ASSISTANT_SPAWN, workdir))
 		throw new Error("the folder must be an absolute or ~-rooted path");
 	const held = sessions.sessionStore.getByTeam(ASSISTANT_TEAM);
 	if (held && !isAssistantRecord(held))
 		throw new Error(`${ASSISTANT_TEAM} is held by a session the assistant did not make`);
 	if (held) {
+		const previous = held.workdirPath;
 		held.workdirPath = workdir;
-		return;
+		return () => {
+			held.workdirPath = previous;
+		};
 	}
 	const minted = sessions.presence.adoptById(ASSISTANT_SESSION_NAME, {
 		spawn: ASSISTANT_SPAWN,
@@ -224,4 +244,5 @@ function place(workdir: string, sessions: AssistantStageDeps["sessions"]): void 
 		mintedFrom: ASSISTANT_RESERVE_KEY,
 	});
 	if (!minted) throw new Error(`cannot claim ${ASSISTANT_TEAM}: the name is reserved or a project`);
+	return () => void sessions.presence.forget(ASSISTANT_TEAM);
 }

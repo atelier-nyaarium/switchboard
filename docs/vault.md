@@ -105,8 +105,8 @@ and the delta list are in `docs/federation.md` under Owner state.
 - **The value is read as it leaves, never from a snapshot taken when it was asked for:** `release`
   in `gateway/vault/vaultUse.ts` runs `usable` again at settlement on every road, so an entry
   rotated, emptied, or closed to this Gateway while the request waited answers with the current
-  value or a refusal. `readForWatcher` checks the watcher's grant with `covers`, then takes the
-  same `release`.
+  value or a refusal. A covering grant is read again after the refresh, on the session road and in
+  `readForWatcher` alike, so a grant revoked during the wait releases nothing.
 - A session's end refuses its open requests and drops its grants.
 - **Every settlement sends a `retract` row:** an answer, a denial, the deadline, a withdraw, or a
   session's end. The phone drops the request and its notification on it, so a second console never

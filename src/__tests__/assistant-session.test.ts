@@ -53,6 +53,7 @@ function stage(
 		dataDir,
 		ambient: ambient ?? processAmbient(),
 		sessions: { sessionStore: store, presence: store } as never,
+		saveSessions: () => {},
 		vault: vault(),
 		fetch,
 		...(watchers ? { watchers } : {}),
@@ -125,7 +126,7 @@ describe("the assistant's session", () => {
 		await expect(regrant).rejects.toThrow();
 	});
 
-	it("keeps it placed, granted and polling when the forget is refused", async () => {
+	it("changes nothing when the forget is refused", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const watcher = counting();
 		const { assistant } = stage(undefined, [watcher], ambient);
@@ -138,13 +139,15 @@ describe("the assistant's session", () => {
 		const releasing = assistant.console.release(async () => {
 			throw new Error("it is waking");
 		});
-		await ambient.advance(5_000);
 		await expect(releasing).rejects.toThrow();
+		const after = assistant.console.state();
+		// Still running, so a retry polls it.
+		await assistant.console.setWatcherGrants("github", ["gh-token"]);
 		await ambient.advance(0);
 		await stopped(assistant, ambient);
 
-		expect(assistant.console.state()).toMatchObject({ workdir: NOTES, team: ASSISTANT_TEAM });
-		expect(assistant.console.state().watchers[0]?.grants).toEqual(["gh-token"]);
+		expect(after).toMatchObject({ workdir: NOTES, team: ASSISTANT_TEAM });
+		expect(after.watchers[0]?.grants).toEqual(["gh-token"]);
 		expect(watcher.polls).toBeGreaterThan(before);
 	});
 
@@ -166,25 +169,67 @@ describe("the assistant's session", () => {
 		await expect(assistant.console.setWatcherGrants("github", ["a", "b"])).rejects.toThrow();
 	});
 
-	it("refuses a grant whose write did not land, and every op after shutdown", async () => {
+	it("keeps nothing a failed save cannot keep: a place rolls back, a release finishes and says so", async () => {
 		const store = new SessionStore({ ambient: processAmbient() });
-		const deaf: AssistantVault = { ...vault(), setWatcherGrants: () => {} };
+		const held = vault();
+		let saves = false;
 		const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "assistant-session-"));
 		dirs.push(dataDir);
 		const assistant = composeAssistant({
 			dataDir,
 			ambient: processAmbient(),
 			sessions: { sessionStore: store, presence: store } as never,
-			vault: deaf,
+			saveSessions: () => {
+				if (!saves) throw new Error("disk full");
+			},
+			vault: held,
 			fetch: async () => new Response(null, { status: 304 }),
 			watchers: [counting()],
 		});
-		await assistant.console.place(NOTES);
+		const forget = async (team: string) => void store.forget(team);
 
-		await expect(assistant.console.setWatcherGrants("github", ["gh-token"])).rejects.toThrow();
+		await expect(assistant.console.place(NOTES)).rejects.toThrow();
+		const refusedPlace = store.list().length;
+		saves = true;
+		await assistant.console.place(NOTES);
+		await assistant.console.setWatcherGrants("github", ["gh-token"]);
+		saves = false;
+		await expect(assistant.console.release(forget)).rejects.toThrow();
+		const unsaved = assistant.console.state();
+		saves = true;
+		const retried = await assistant.console.release(forget);
 		await assistant.stop();
 		await expect(assistant.console.place("~/elsewhere")).rejects.toThrow();
-		expect(assistant.console.state().workdir).toBe(NOTES);
+
+		expect(refusedPlace).toBe(0);
+		expect(unsaved.workdir).toBeNull();
+		expect(held.watcherGrants("github")).toEqual([]);
+		expect(retried.workdir).toBeNull();
+	});
+
+	it("starts a new placement ungranted, and refuses a grant that did not land", async () => {
+		const store = new SessionStore({ ambient: processAmbient() });
+		const held = vault();
+		held.setWatcherGrants("github", ["left-behind"]);
+		const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "assistant-session-"));
+		dirs.push(dataDir);
+		const assistant = composeAssistant({
+			dataDir,
+			ambient: processAmbient(),
+			sessions: { sessionStore: store, presence: store } as never,
+			saveSessions: () => {},
+			vault: {
+				...held,
+				setWatcherGrants: (id, entryIds) => entryIds.length === 0 && held.setWatcherGrants(id, []),
+			},
+			fetch: async () => new Response(null, { status: 304 }),
+			watchers: [counting()],
+		});
+
+		const placed = await assistant.console.place(NOTES);
+
+		expect(placed.watchers[0]?.grants).toEqual([]);
+		await expect(assistant.console.setWatcherGrants("github", ["gh-token"])).rejects.toThrow();
 	});
 
 	it("asks GitHub nothing until a secret is granted, then asks with it", async () => {

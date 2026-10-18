@@ -108,7 +108,14 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 		asker?: string,
 	): Promise<Response> {
 		const covering = deps.decisions.covers(scope, deps.ambient.now());
-		if (covering) return (await release(covering.tier, scope.entryId)).response;
+		if (covering) {
+			// The grant is read again after the refresh, as a watcher's is.
+			const stillCovered = (): VaultUnusable | null =>
+				deps.decisions.covers(scope, deps.ambient.now())
+					? null
+					: { kind: "unusable", reason: REFUSAL, status: 403 };
+			return (await release(covering.tier, scope.entryId, stillCovered)).response;
+		}
 		const input = {
 			kind: "entry" as const,
 			entryId: scope.entryId,
@@ -126,8 +133,12 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 	/** Unavailable keeps an approval for a retry; refused and released settle it. */
 	type Release = { kind: "released" | "refused" | "unavailable"; response: Response };
 
-	async function release(decision: VaultApprovedDecision, entryId: string): Promise<Release> {
-		const answer: VaultRelease = await deps.use.release(entryId);
+	async function release(
+		decision: VaultApprovedDecision,
+		entryId: string,
+		granted?: () => VaultUnusable | null,
+	): Promise<Release> {
+		const answer: VaultRelease = await deps.use.release(entryId, granted);
 		if (answer.kind === "unready") return { kind: "unavailable", response: unready(answer) };
 		if (answer.kind === "unusable") return { kind: "refused", response: unusable(answer) };
 		if (answer.kind === "unopened") {

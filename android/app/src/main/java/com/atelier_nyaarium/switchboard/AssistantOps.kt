@@ -33,9 +33,6 @@ internal sealed interface AssistantMoved {
 	data class StillOn(val gatewayIds: List<String>) : AssistantMoved
 }
 
-/** Every home but the one a move lands on. */
-internal fun releasedBy(homes: List<String>, target: String): List<String> = homes.filter { it != target }
-
 /** The folder as the Gateway stores it: no trailing slash, the root kept. */
 internal fun folderOf(text: String): String = text.trim().trimEnd('/').ifEmpty { "/" }
 
@@ -94,34 +91,36 @@ internal class AssistantOps(
 ) {
 	private val reads = GatewayReadFence()
 
-	/** The Gateways that gave no answer. */
-	suspend fun refreshAll(): List<String> = coroutineScope {
-		state.value.gateways.ids().map { id -> async { id.takeUnless { refresh(id) } } }.awaitAll().filterNotNull()
+	suspend fun refreshAll() {
+		coroutineScope { state.value.gateways.ids().map { id -> async { refresh(id) } }.awaitAll() }
 	}
 
-	/** Whether the Gateway answered. */
-	suspend fun refresh(gatewayId: String): Boolean {
-		val client = host.gateway ?: return false
-		if (gatewayId.isBlank()) return false
+	suspend fun refresh(gatewayId: String) {
+		val client = host.gateway ?: return
+		if (gatewayId.isBlank()) return
 		val read = reads.read(gatewayId) { attempt { client.call(gatewayId, ConsoleOp.AssistantState) } }
-		return when (val answer = (read as? GatewayRead.Fresh)?.value) {
-			is AssistantAnswer.State -> true.also { show(gatewayId, answer.state) }
+		when (val answer = (read as? GatewayRead.Fresh)?.value) {
+			is AssistantAnswer.State -> show(gatewayId, answer.state)
 			// An older build refuses an op it does not know, and holds no assistant.
-			is AssistantAnswer.Refused -> true.also { show(gatewayId, null) }
-			// A read a newer one replaced is still an answer.
-			null -> read is GatewayRead.Stale
-			AssistantAnswer.Unreachable -> false
+			is AssistantAnswer.Refused -> show(gatewayId, null)
+			AssistantAnswer.Unreachable, null -> {}
 		}
 	}
 
 	/**
-	 * Reads every Gateway first, so a home not yet drawn is still released. Then places, then releases.
-	 * A Gateway that could not be read may still hold it, so it is named with the ones that did not let go.
+	 * Asks every Gateway itself, never the drawn copy, so a home not yet drawn is still released. Then
+	 * places, then releases. One that could not be asked may still hold it, so it is named with the
+	 * ones that did not let go.
 	 */
 	suspend fun move(target: String, workdir: String): AssistantMoved {
-		if (host.gateway == null) return AssistantMoved.Unreachable
-		val unread = refreshAll().filter { it != target }
-		val leaving = releasedBy(state.value.gateways.assistantHomes(), target)
+		val client = host.gateway ?: return AssistantMoved.Unreachable
+		val others = coroutineScope {
+			state.value.gateways.ids().filter { it != target }.map { id ->
+				async { id to (attempt { client.call(id, ConsoleOp.AssistantState) } ?: AssistantAnswer.Unreachable) }
+			}.awaitAll()
+		}
+		val leaving = others.filter { (_, answer) -> (answer as? AssistantAnswer.State)?.state?.workdir != null }.map { it.first }
+		val unread = others.filter { (_, answer) -> answer is AssistantAnswer.Unreachable }.map { it.first }
 		when (val placed = landed(target, ConsoleOp.AssistantPlace(workdir = workdir))) {
 			is AssistantAnswer.State -> {}
 			is AssistantAnswer.Refused -> return AssistantMoved.Refused(placed.reason)

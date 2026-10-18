@@ -303,6 +303,9 @@ Write `docs/assistant.md` from the questionaire: the session, notes, the gate, e
 - **Mechanism:** the assistant stage's owner ops (`place`, `release`, `setWatcherGrants`) over its runner and the session record.
 - **Defect class:** an op that awaits leaves the runner and record half changed for the next op to observe.
 - **Round 1 (red team):** serialized every op, and release now restores what it took when its forget is refused.
+- **Round 2 (re-check):** ops refuse after shutdown, stop waits for one running, and a grant write is read back.
+- **Design fix (architecture):** the session record is the one commit point. Release forgets first, whose refusal changes nothing, then saves the session records checked, then stops the watchers and drops their grants as cleanup; a grant left behind is inert once nothing is placed, and the release answers naming it. Place saves checked before it answers, so the phone never releases the old home for a placement a crash would lose. The compensation code is gone, and no state a read or a restart sees is half released. The shutdown drain beyond this is board item `bd_f506`.
+- **Round 3 (re-check of the design fix):** its failure paths. A place whose save fails now takes its record change back, so the persist tick cannot save a refused placement. A release past its forget finishes the teardown whatever the save says, answers that it is not yet saved, and a retry saves again. A new placement drops any grant an interrupted release left, so a leftover is never reused.
 
 ## Phase 5 - Rules
 
@@ -312,6 +315,7 @@ Write `docs/assistant.md` from the questionaire: the session, notes, the gate, e
 - **Phone:** Assistant settings lists the watchers, and a watcher's screen edits its rules, as in the `assistant-watcher-phone` card. Decisions sit beside the ops class, never in a Composable.
 - **Drops stay undoable:** a rule-dropped event is kept for 7 days. Each rule edit sorts the kept drops again through the inbox store, and one that now wakes or goes to the inbox gets a fresh delivery sequence. An evicted event is never sorted again. That keeps rule edits undoable under Question 4. Kept drops get a per-watcher count cap beside the 7 days, since a noisy feed drops more than it keeps.
 - **Replay survives a crash:** the inbox keeps the rules revision it last sorted under, advanced in the same checked commit as the re-sort. At start, an inbox behind the rules store replays again.
+- **The inbox file survives the change:** `SnapshotSchema` is strict at `v: 1`, so new fields land optional on v1 or behind a v2 migration; a refused snapshot starts fresh and re-takes up to 500 notifications. The row's rule decision (action, ping, rules revision) is recorded here, where sorting first happens, not in Phase 6.
 - **Owner-only:** only owner ops write rules, so injected event text cannot rewrite the rules that sort later events. The gate's `watchers/` protection then guards nothing and goes.
 
 ## Phase 6 - Wake and held delivery

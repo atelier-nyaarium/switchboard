@@ -93,6 +93,23 @@ describe("vault routes", () => {
 		expect(delivered).toEqual([]);
 	});
 
+	it("reads a session's covering grant again after the refresh, so a grant revoked meanwhile releases nothing", async () => {
+		const { vault, decisions, call } = bench();
+		const scope = { entryId: "deploy", displayShape: "ssh", coveredShapes: ["ssh"], sessionTarget: "host.alice" };
+		const granted = decisions.grant("session", scope, 1_000_000);
+		let refreshes = 0;
+		// The route refreshes once to look the entry up, and again as the value leaves.
+		vault.duringRefresh = () => {
+			refreshes += 1;
+			if (refreshes === 2) decisions.revoke(granted?.grantId ?? "");
+		};
+
+		const used = await call("/vault/use", { entryId: "deploy", operation: "ssh deploy@prod", waitMs: 50 });
+
+		expect(used.json.outcome).toBe("refused");
+		expect(used.json.value).toBeUndefined();
+	});
+
 	it("never lets a watcher's grant cover a session", async () => {
 		const { decisions, call } = bench();
 		decisions.setWatcherGrants("github", ["deploy"]);
