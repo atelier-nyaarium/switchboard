@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ChannelFilesSchema } from "./channel-file.js";
 import { SignedXDomainLinkSchema } from "./federation-protocol.js";
+import { AssistantRuleOtherwiseSchema, AssistantRuleSchema, MAX_RULES } from "./schemasAssistantRules.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
 import { AuthorizationPolicySchema } from "./schemasPolicy.js";
 import { RoutineSchema } from "./schemasRoutine.js";
@@ -287,6 +288,22 @@ export const ConsoleOpSchema = z
 			watcherId: z.string().min(1).max(64),
 			entryIds: z.array(z.string().min(1).max(128)).max(16),
 		}),
+		/** The whole list at the revision the editor read; 0 for a watcher never saved. */
+		z.object({
+			kind: z.literal("assistant_rules_put"),
+			watcherId: z.string().min(1).max(64),
+			rules: z.array(AssistantRuleSchema).max(MAX_RULES),
+			otherwise: AssistantRuleOtherwiseSchema,
+			baseRevision: z.number().int().nonnegative(),
+		}),
+		/** Recent events one rule matches. */
+		z.object({
+			kind: z.literal("assistant_rules_preview"),
+			watcherId: z.string().min(1).max(64),
+			rule: AssistantRuleSchema,
+			/** The rule's place; absent appends. */
+			at: z.number().int().nonnegative().optional(),
+		}),
 	])
 	.meta({ id: "ConsoleOp" });
 
@@ -350,6 +367,8 @@ export const VALUE_OP_KINDS = new Set([
 	"assistant_place",
 	"assistant_release",
 	"assistant_watcher_grants",
+	"assistant_rules_put",
+	"assistant_rules_preview",
 ]);
 
 export const MailboxEntrySchema = z

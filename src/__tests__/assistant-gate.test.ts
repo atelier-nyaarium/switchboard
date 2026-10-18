@@ -10,14 +10,13 @@ const notes = path.join(base, "notes");
 const attachments = path.join(base, "attachments");
 const outside = path.join(base, "outside");
 const home = path.join(base, "home");
-for (const dir of [".git", ".claude", "watchers", "Assistant", "sub"])
-	fs.mkdirSync(path.join(notes, dir), { recursive: true });
+for (const dir of [".git", ".claude", "Assistant", "sub"]) fs.mkdirSync(path.join(notes, dir), { recursive: true });
 for (const dir of [attachments, outside, home]) fs.mkdirSync(dir);
 fs.writeFileSync(path.join(notes, "AGENTS.md"), "rules");
 fs.writeFileSync(path.join(outside, "secret"), "x");
 fs.writeFileSync(path.join(attachments, "photo.png"), "x");
 fs.symlinkSync(outside, path.join(notes, "escape"));
-fs.symlinkSync(path.join(notes, "watchers"), path.join(notes, "rules"));
+fs.symlinkSync(path.join(notes, ".claude"), path.join(notes, "settings"));
 fs.symlinkSync(path.join(notes, "AGENTS.md"), path.join(notes, "alias.md"));
 fs.symlinkSync(path.join(outside, "new.md"), path.join(notes, "dangling.md"));
 fs.linkSync(path.join(outside, "secret"), path.join(notes, "twin"));
@@ -77,8 +76,7 @@ describe("the assistant gate", () => {
 		["Write", { file_path: path.join(notes, "alias.md") }],
 		["Write", { file_path: path.join(notes, "sub", "CLAUDE.md") }],
 		["Edit", { file_path: path.join(notes, ".claude", "settings.json") }],
-		["Write", { file_path: path.join(notes, "watchers", "github.yaml") }],
-		["Write", { file_path: path.join(notes, "rules", "github.yaml") }],
+		["Write", { file_path: path.join(notes, "settings", "settings.json") }],
 		["Write", { file_path: path.join(notes, ".mcp.json") }],
 		["Write", { file_path: path.join(notes, ".git", "hooks", "pre-commit") }],
 		["Write", { file_path: path.join(notes, "escape", "planted") }],

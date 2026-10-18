@@ -1,6 +1,7 @@
 // The assistant's console answers: where it lives on a Gateway, and its watchers there.
 
 import { z } from "zod";
+import { AssistantWatcherRulesSchema } from "./schemasAssistantRules.js";
 
 const AssistantWatcherBackoffSchema = z
 	.object({ until: z.number().int(), reason: z.string() })
@@ -18,6 +19,12 @@ export const AssistantWatcherSchema = z
 		nextPollAt: z.number().int().optional(),
 		backoff: AssistantWatcherBackoffSchema.optional(),
 		stopped: z.string().optional(),
+		/** What a rule may test. */
+		fields: z.array(z.string()).optional(),
+		pingDefault: z.boolean().optional(),
+		rules: AssistantWatcherRulesSchema.optional(),
+		/** Drops a rule edit replays. */
+		dropped: z.number().int().nonnegative().optional(),
 	})
 	.meta({ id: "AssistantWatcher" });
 

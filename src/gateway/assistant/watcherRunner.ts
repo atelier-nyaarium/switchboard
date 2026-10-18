@@ -2,7 +2,7 @@
 
 import { type Ambient, type TimerHandle, withinMs } from "../../shared/ambient.js";
 import { fireAndForget } from "../fireAndForget.js";
-import type { InboxEvent, InboxStore } from "./inboxStore.js";
+import type { InboxEvent, InboxStore, Sorter } from "./inboxStore.js";
 import { type PollAnswer, PollAnswerSchema, WATCHER_ID_RE, type Watcher } from "./watcher.js";
 
 /** A hung source must not hold its watcher forever. */
@@ -18,6 +18,8 @@ export interface WatcherRunnerDeps {
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">;
 	inbox: Pick<InboxStore, "commitPoll" | "stateOf">;
 	watchers: readonly Watcher[];
+	/** The watcher's rules, read as its poll lands. */
+	rules?: (watcherId: string) => Sorter;
 	/** Each accepted batch, once it is durable. */
 	onAccepted?: (watcherId: string, accepted: readonly InboxEvent[]) => void | Promise<void>;
 }
@@ -94,7 +96,7 @@ export function createWatcherRunner(deps: WatcherRunnerDeps): WatcherRunner {
 			aborts.delete(abort);
 			if (phase !== "running") return;
 			const now = ambient.now();
-			const landed = inbox.commitPoll(watcher.id, answer, now);
+			const landed = inbox.commitPoll(watcher.id, answer, now, deps.rules?.(watcher.id));
 			if (!landed) return arm(watcher, now + RETRY_MS);
 			const next = inbox.stateOf(watcher.id)?.nextPollAt;
 			if (next !== undefined) arm(watcher, next);

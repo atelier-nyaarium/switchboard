@@ -1,7 +1,10 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
+import com.atelier_nyaarium.switchboard.assistant.RulesPut
+import com.atelier_nyaarium.switchboard.proto.AssistantRule
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
+import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import kotlin.coroutines.cancellation.CancellationException
@@ -17,6 +20,9 @@ internal const val ASSISTANT_ROLE = "assistant"
 /** The gateway calls this class makes, so a test can answer them without a transport. */
 internal interface AssistantGateway {
 	suspend fun call(gatewayId: String, op: ConsoleOp): AssistantAnswer
+
+	/** Null if unanswered. */
+	suspend fun preview(gatewayId: String, op: ConsoleOp.AssistantRulesPreview): ConsoleAssistantPreviewResult?
 }
 
 internal interface AssistantHost {
@@ -139,11 +145,28 @@ internal class AssistantOps(
 	suspend fun retry(gatewayId: String, watcher: AssistantWatcher): AssistantAnswer =
 		setGrants(gatewayId, watcher.id, watcher.grants)
 
-	/** A change is drawn only by the fenced read after it, so no older answer lands over a newer one. */
+	/** As last drawn. */
+	fun watcher(gatewayId: String, watcherId: String): AssistantWatcher? =
+		state.value.gateways.assistantOn(gatewayId)?.watchers?.find { it.id == watcherId }
+
+	/** The whole list, at the revision it was read at; a stale one is refused. */
+	suspend fun putRules(gatewayId: String, watcherId: String, put: RulesPut): AssistantAnswer = landed(
+		gatewayId,
+		ConsoleOp.AssistantRulesPut(watcherId = watcherId, rules = put.rules, otherwise = put.otherwise, baseRevision = put.base),
+	)
+
+	/** Null appends. */
+	suspend fun preview(gatewayId: String, watcherId: String, rule: AssistantRule, at: Int?): ConsoleAssistantPreviewResult? {
+		val client = host.gateway ?: return null
+		val op = ConsoleOp.AssistantRulesPreview(watcherId = watcherId, rule = rule, at = at?.toLong())
+		return attempt { client.preview(gatewayId, op) }
+	}
+
+	/** Drawn only by the fenced read after it; a refusal reads too, since the drawn copy may be stale. */
 	private suspend fun landed(gatewayId: String, op: ConsoleOp): AssistantAnswer {
 		val client = host.gateway ?: return AssistantAnswer.Unreachable
 		val answer = attempt { client.call(gatewayId, op) } ?: AssistantAnswer.Unreachable
-		if (answer is AssistantAnswer.State) refresh(gatewayId)
+		if (answer !is AssistantAnswer.Unreachable) refresh(gatewayId)
 		return answer
 	}
 

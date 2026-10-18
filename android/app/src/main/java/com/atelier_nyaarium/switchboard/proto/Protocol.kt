@@ -165,6 +165,8 @@ object Protocol {
 			const val ASSISTANT_PLACE: String = "assistant_place"
 			const val ASSISTANT_RELEASE: String = "assistant_release"
 			const val ASSISTANT_WATCHER_GRANTS: String = "assistant_watcher_grants"
+			const val ASSISTANT_RULES_PUT: String = "assistant_rules_put"
+			const val ASSISTANT_RULES_PREVIEW: String = "assistant_rules_preview"
 		}
 
 		object SocketFrame {
@@ -655,6 +657,23 @@ sealed class ConsoleOp {
 		val watcherId: String,
 		val entryIds: List<String>,
 	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("assistant_rules_put")
+	data class AssistantRulesPut(
+		val watcherId: String,
+		val rules: List<AssistantRule>,
+		val otherwise: AssistantRuleOtherwise,
+		val baseRevision: Long,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("assistant_rules_preview")
+	data class AssistantRulesPreview(
+		val watcherId: String,
+		val rule: AssistantRule,
+		val at: Long? = null,
+	) : ConsoleOp()
 }
 
 @Serializable
@@ -1040,6 +1059,10 @@ data class AssistantWatcher(
 	val nextPollAt: Long? = null,
 	val backoff: AssistantWatcherBackoff? = null,
 	val stopped: String? = null,
+	val fields: List<String>? = null,
+	val pingDefault: Boolean? = null,
+	val rules: AssistantWatcherRules? = null,
+	val dropped: Long? = null,
 )
 
 @Serializable
@@ -1047,6 +1070,41 @@ data class ConsoleAssistantStateResult(
 	val workdir: String? = null,
 	val team: String? = null,
 	val watchers: List<AssistantWatcher>,
+)
+
+@Serializable
+data class AssistantRuleCondition(
+	val field: String,
+	val test: String,
+	val value: String,
+)
+
+@Serializable
+data class AssistantRule(
+	val conditions: List<AssistantRuleCondition>,
+	val action: String,
+	val ping: Boolean? = null,
+)
+
+@Serializable
+data class AssistantRuleOtherwise(
+	val action: String,
+	val ping: Boolean? = null,
+)
+
+@Serializable
+data class AssistantWatcherRules(
+	val rules: List<AssistantRule>,
+	val otherwise: AssistantRuleOtherwise,
+	val revision: Long,
+)
+
+@Serializable
+data class ConsoleAssistantPreviewResult(
+	val matched: Long,
+	val earlier: Long,
+	val of: Long,
+	val titles: List<String>,
 )
 
 @Serializable

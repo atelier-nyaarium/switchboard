@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -12,6 +13,14 @@ internal sealed interface AssistantAnswer {
 	data class Refused(val reason: String) : AssistantAnswer
 	data object Unreachable : AssistantAnswer
 }
+
+/** Null if unanswered. */
+internal suspend fun ConsoleClient.assistantPreview(gatewayId: String, op: ConsoleOp): ConsoleAssistantPreviewResult? =
+	when (val answer = sendValueAnswer(gatewayId, op)) {
+		is ConsoleClient.ValueAnswer.Answered ->
+			runIsolated { wireJson.decodeFromJsonElement<ConsoleAssistantPreviewResult>(answer.result) }.getOrNull()
+		else -> null
+	}
 
 internal suspend fun ConsoleClient.assistantOp(gatewayId: String, op: ConsoleOp): AssistantAnswer =
 	when (val answer = sendValueAnswer(gatewayId, op)) {

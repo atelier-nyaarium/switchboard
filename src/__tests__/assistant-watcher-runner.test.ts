@@ -76,7 +76,7 @@ describe("the watcher runner", () => {
 		expect(whileHung).toBe(1);
 		expect(beforeInterval).toBe(1);
 		expect(source.cursors).toEqual([null, "c1"]);
-		expect(inbox.unread("github")).toBe(1);
+		expect(inbox.unread("github", ambient.now())).toBe(1);
 	});
 
 	it("backs off after a throw or a hang, keeping the cursor", async () => {
@@ -170,7 +170,7 @@ describe("the watcher runner", () => {
 		source.answer(events("late"));
 		await ambient.advance(0);
 
-		expect(inbox.events("github")).toEqual([]);
+		expect(inbox.events("github", ambient.now())).toEqual([]);
 		expect(inbox.stateOf("github")).toBeUndefined();
 	});
 

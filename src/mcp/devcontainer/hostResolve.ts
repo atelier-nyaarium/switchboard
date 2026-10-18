@@ -180,7 +180,7 @@ export function assistantPermissionArgs(workdir: string | undefined, home: strin
 				`Read(/${CHANNEL_FILES_DIR}/**)`,
 				...ASSISTANT_SWITCHBOARD_TOOLS.map((tool) => `${SWITCHBOARD_TOOL_PREFIX}${tool}`),
 			],
-			deny: [...ASSISTANT_DENY, `Edit(/${workdir}/watchers/**)`],
+			deny: [...ASSISTANT_DENY],
 			additionalDirectories: [CHANNEL_FILES_DIR],
 			disableBypassPermissionsMode: "disable",
 		},

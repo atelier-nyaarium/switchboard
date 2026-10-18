@@ -150,8 +150,9 @@ private fun AssistantSettingsSheet(
 	var folder by remember(home) { mutableStateOf(TextFieldValue(folderText, TextRange(folderText.length))) }
 	var busy by remember { mutableStateOf(false) }
 	var said by remember { mutableStateOf<String?>(null) }
-	/** The Gateway and watcher a grant sheet opened for; a home that moves closes it. */
-	var granting by remember { mutableStateOf<Pair<String, String>?>(null) }
+	/** Sheet targets; a moved home closes them. */
+	var granting by remember(home) { mutableStateOf<Pair<String, String>?>(null) }
+	var ruling by remember(home) { mutableStateOf<Pair<String, String>?>(null) }
 	var releasing by remember { mutableStateOf(false) }
 	val vaultRevision by repo.vault.revision
 	val entries = remember(vaultRevision) { repo.vaultOps.views() }
@@ -221,6 +222,11 @@ private fun AssistantSettingsSheet(
 							OutlinedButton(onClick = hapticClick { granting = home to watcher.id }, enabled = !busy) {
 								Text("Grant a secret")
 							}
+							if (rulesOf(watcher) != null) {
+								OutlinedButton(onClick = hapticClick { ruling = home to watcher.id }, enabled = !busy) {
+									Text("Rules")
+								}
+							}
 							if (canRetry(watcher)) {
 								TextButton(
 									onClick = hapticClick { scope.launch { said = answerText(repo.assistantOps.retry(home, watcher)) } },
@@ -249,6 +255,12 @@ private fun AssistantSettingsSheet(
 			},
 			onDismiss = { granting = null },
 		)
+	}
+
+	val rulesOpen = ruling
+	val rulesFor = rulesOpen?.takeIf { it.first == home }?.let { (_, watcherId) -> placed?.watchers?.find { it.id == watcherId } }
+	if (rulesOpen != null && rulesFor != null) {
+		WatcherRulesSheet(repo.assistantOps, rulesOpen.first, rulesFor) { ruling = null }
 	}
 
 	if (releasing && home != null) {

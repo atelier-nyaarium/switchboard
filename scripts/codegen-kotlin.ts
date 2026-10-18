@@ -104,6 +104,13 @@ import {
 } from "../src/shared/schemas.js";
 import { AssistantWatcherSchema, ConsoleAssistantStateResultSchema } from "../src/shared/schemasAssistant.js";
 import {
+	AssistantRuleConditionSchema,
+	AssistantRuleOtherwiseSchema,
+	AssistantRuleSchema,
+	AssistantWatcherRulesSchema,
+	ConsoleAssistantPreviewResultSchema,
+} from "../src/shared/schemasAssistantRules.js";
+import {
 	BoardActorSchema,
 	BoardObservationRowSchema,
 	BoardOpSchema,
@@ -320,6 +327,11 @@ const ROOTS: z.ZodType[] = [
 	ConsolePolicyDeleteResultSchema,
 	AssistantWatcherSchema,
 	ConsoleAssistantStateResultSchema,
+	AssistantRuleConditionSchema,
+	AssistantRuleSchema,
+	AssistantRuleOtherwiseSchema,
+	AssistantWatcherRulesSchema,
+	ConsoleAssistantPreviewResultSchema,
 	ProvisioningSchema,
 	SttsProvidersSchema,
 	AdmissionSchema,

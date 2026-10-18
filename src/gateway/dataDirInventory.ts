@@ -17,6 +17,7 @@ export const DATA_DIR_ENTRIES: ReadonlySet<string> = new Set([
 	"schema-version",
 	"migration-epoch",
 	"assistant-inbox.json",
+	"assistant-rules.json",
 	"board-idempotency.json",
 	"console-capabilities.json",
 	"daemon-capabilities.json",

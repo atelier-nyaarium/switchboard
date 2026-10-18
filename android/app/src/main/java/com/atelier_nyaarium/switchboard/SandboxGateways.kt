@@ -1,7 +1,12 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.crypto.sha256Hex
+import com.atelier_nyaarium.switchboard.proto.AssistantRule
+import com.atelier_nyaarium.switchboard.proto.AssistantRuleCondition
+import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
+import com.atelier_nyaarium.switchboard.proto.AssistantWatcherRules
+import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantPreviewResult
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
@@ -308,6 +313,14 @@ internal class SandboxAssistantGateway : AssistantGateway {
 	private var claimed = false
 	private var workdir = "~/projects/notes"
 	private val grants = mutableMapOf<String, List<String>>()
+	private var rules = AssistantWatcherRules(
+		rules = listOf(
+			AssistantRule(listOf(AssistantRuleCondition("reason", "is", "review_requested")), action = "wake", ping = true),
+			AssistantRule(listOf(AssistantRuleCondition("reason", "is", "subscribed")), action = "drop"),
+		),
+		otherwise = AssistantRuleOtherwise(action = "inbox"),
+		revision = 2L,
+	)
 
 	/** Ungranted at first, so the needs-a-secret chip is reachable. */
 	private fun watchers() = listOf(
@@ -319,8 +332,23 @@ internal class SandboxAssistantGateway : AssistantGateway {
 			evicted = 0L,
 			lastSuccessAt = day(-120_000L),
 			nextPollAt = day(60_000L),
+			fields = listOf("reason", "repository", "type", "title"),
+			pingDefault = false,
+			rules = rules,
+			dropped = 4L,
 		),
 	)
+
+	/** Tests titles only. */
+	override suspend fun preview(gatewayId: String, op: ConsoleOp.AssistantRulesPreview): ConsoleAssistantPreviewResult? {
+		if (gatewayId == SANDBOX_NEVER_REGISTERED) return null
+		val wanted = op.rule.conditions.first().value
+		val titles = listOf("Review requested: #812 baseline hook", "CI failed on main", "Dependabot bumped vitest")
+		val matched = titles.filter { it.contains(wanted, ignoreCase = true) }
+		// Makes the earlier-rule line reachable.
+		val earlier = if (op.at == null && rules.rules.isNotEmpty()) 1L else 0L
+		return ConsoleAssistantPreviewResult(matched = matched.size.toLong(), earlier = earlier, of = 50L, titles = matched)
+	}
 
 	private fun stateOf(gatewayId: String) = ConsoleAssistantStateResult(
 		workdir = workdir.takeIf { gatewayId == home },
@@ -349,6 +377,13 @@ internal class SandboxAssistantGateway : AssistantGateway {
 			}
 			is ConsoleOp.AssistantWatcherGrants -> {
 				grants[op.watcherId] = op.entryIds
+				AssistantAnswer.State(stateOf(gatewayId))
+			}
+			is ConsoleOp.AssistantRulesPut -> {
+				if (op.baseRevision != rules.revision) {
+					return AssistantAnswer.Refused("revision ${rules.revision} is stored; this edits ${op.baseRevision}")
+				}
+				rules = AssistantWatcherRules(op.rules, op.otherwise, rules.revision + 1)
 				AssistantAnswer.State(stateOf(gatewayId))
 			}
 			else -> AssistantAnswer.State(stateOf(gatewayId))

@@ -311,14 +311,32 @@ Write `docs/assistant.md` from the questionaire: the session, notes, the gate, e
 
 ## Phase 5 - Rules
 
-- **Record:** each watcher's ordered rule list, first match wins, ending in a catch-all. A rule is one or more conditions joined by "and", each a field, a test and a value, and an action: `wake`, `inbox` or `drop`, with an optional ping override. Each watcher declares its fields (GitHub: reason, repository, type, title) and its ping default. The phone edits a rule in a sheet (the `assistant-rule-editor` card), never as JSON.
-- **Preview:** the editor shows how many of the watcher's last 50 events the rule would have matched, and saving replays kept drops it now catches.
-- **Store:** a Gateway-held store beside routines and policies, sole writer, revisioned, with `canonical` and `refusal` functions in a shared schema as `schemasRoutine` has. Console ops list, put (with the base revision) and delete; Kotlin types come from the codegen.
-- **Phone:** Assistant settings lists the watchers, and a watcher's screen edits its rules, as in the `assistant-watcher-phone` card. Decisions sit beside the ops class, never in a Composable.
-- **Drops stay undoable:** a rule-dropped event is kept for 7 days. Each rule edit sorts the kept drops again through the inbox store, and one that now wakes or goes to the inbox gets a fresh delivery sequence. An evicted event is never sorted again. That keeps rule edits undoable under Question 4. Kept drops get a per-watcher count cap beside the 7 days, since a noisy feed drops more than it keeps.
-- **Replay survives a crash:** the inbox keeps the rules revision it last sorted under, advanced in the same checked commit as the re-sort. At start, an inbox behind the rules store replays again.
-- **The inbox file survives the change:** `SnapshotSchema` is strict at `v: 1`, so new fields land optional on v1 or behind a v2 migration; a refused snapshot starts fresh and re-takes up to 500 notifications. The row's rule decision (action, ping, rules revision) is recorded here, where sorting first happens, not in Phase 6.
-- **Owner-only:** only owner ops write rules, so injected event text cannot rewrite the rules that sort later events. The gate's `watchers/` protection then guards nothing and goes.
+- ✅ **Record:** each watcher's ordered rule list, first match wins, ending in a catch-all. A rule is one or more conditions joined by "and", each a field, a test and a value, and an action: `wake`, `inbox` or `drop`, with an optional ping override. Each watcher declares its fields (GitHub: reason, repository, type, title) and its ping default. The phone edits a rule in a sheet (the `assistant-rule-editor` card), never as JSON.
+- ✅ **Preview:** the editor shows how many of the watcher's last 50 events the rule would have matched, and saving replays kept drops it now catches.
+- ✅ **Store:** `createRulesStore`, sole writer, revisioned, with `canonicalRule` and `rulesRefusal` in `schemasAssistantRules`. **Deviation:** one op, `assistant_rules_put`, carries the whole list at its base revision, so delete and reorder are puts; the list rides in `assistant_state` rather than a list op. `assistant_rules_preview` answers the preview.
+- ✅ **Phone:** Assistant settings lists the watchers, and a watcher's Rules button opens its list and editor. `RuleDraft.kt` holds the decisions and every list edit. **Deviation:** a sheet from settings rather than a watcher screen, and the dropped events show as a count with no Recent list.
+- ✅ **Drops stay undoable:** a rule-dropped event is kept for 7 days. Each rule edit sorts the kept drops again through the inbox store, and one that now wakes or goes to the inbox gets a fresh delivery sequence. An evicted event is never sorted again. That keeps rule edits undoable under Question 4. Kept drops are capped at 1,000 per watcher (`DROP_CAP`), and a drop past it is not counted as evicted.
+- ✅ **Replay survives a crash:** the inbox keeps the rules revision it last sorted under, advanced in the same checked commit as the re-sort. At start, an inbox behind the rules store replays again.
+- ✅ **The inbox file survives the change:** the decision and the revision land as optional fields on v1. The row's rule decision (action, ping, rules revision) is recorded where sorting first happens.
+- ✅ **Owner-only:** only owner ops write rules, so injected event text cannot rewrite the rules that sort later events. The gate's `watchers/` protection is gone.
+
+### Alignment
+
+- **Fixed:** a resort sorted drops past their 7 days, and the drop count, the preview and the unread count read rows a write would prune; reads now take the clock. A replay whose write failed waited for the next start; every poll's write now catches up an inbox behind the rules. Ping decisions sat in the Composable, and a drop's stored decision could ping; a drop never pings, and the Gateway stores it without an override. The docs promised a watcher screen with Replay.
+
+### Red team
+
+- **Fixed:** a rules file that started fresh (quarantined, deleted, or a later build tightening the schema) stranded kept drops until its revision passed the inbox's; the inbox now sorts again whenever its revision differs. The preview tested a rule alone, so a rule an earlier one shadows reported matches it would never decide; it now runs at its place in the list and counts what an earlier rule takes. A preview answered for an unknown watcher or an undeclared field; it now refuses what a put refuses. A refused delete showed the raw revision text, and the rule and grant sheets could reopen after the assistant moved away and back.
+- **Accepted:** restored rules pass the schema only, as runbooks and routines do; a watcher must not retire a field without migrating its rules, since `is_not` on a missing field matches everything. A failed catch-up on a stopped watcher waits for the next start, grant change or save. Case is ignored with `toLowerCase`, not full Unicode folding. Contradictory conditions are the owner's to see in the preview. A rescued drop can be one already handled at its source. Rules and the inbox stay with their Gateway across a move.
+
+### Bug Classes
+
+- **Mechanism:** the phone rule editor's save over the whole-list put (`afterRefusal`, `rulesStore.put`).
+- **Defect class:** a positional whole-list put leaves the phone guessing, after a refusal, which row the owner meant and whether their write already landed.
+- **Round 1 (alignment):** the editor kept its opened copy, so every retry after a stale refusal was refused again. Patched with a rebase while the edited row stands, and a lost-answer retry the store answers as stored.
+- **Round 2 (re-check):** the catch-all rebased unchecked, and a lost-answer New could append twice. Patched with `afterRefusal` reading Landed, Over or Stuck per slot.
+- **Round 3 (red team, accepted):** a concurrent refresh can win the read fence, so the editor decides from a copy older than the refusal and reads Stuck; the next tap recovers. This is also the second instance of the painpoint "A fenced read cannot inform a decision".
+- **For architecture:** rules carry no identity, so every edit is positional. A stable rule id, with single-rule ops the store merges, would let the Gateway decide rather than the phone guess.
 
 ## Phase 6 - Wake and held delivery
 

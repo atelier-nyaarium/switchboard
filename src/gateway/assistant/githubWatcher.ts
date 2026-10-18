@@ -115,6 +115,9 @@ async function refusalOf(response: Response, now: number): Promise<PollAnswer | 
 export function createGithubWatcher(deps: GithubWatcherDeps): Watcher {
 	return {
 		id: GITHUB_WATCHER_ID,
+		fields: ["reason", "repository", "type", "title"],
+		// Feeds default to quiet.
+		pingDefault: false,
 		async poll(cursor, signal) {
 			const token = await deps.token();
 			signal.throwIfAborted();

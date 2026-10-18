@@ -14,6 +14,11 @@ import type { SignedXDomainLink } from "../../shared/federation-protocol.js";
 import type { HostOp, HostOpResult } from "../../shared/host-op.js";
 import { MAX_POLL_HOLD_MS } from "../../shared/schemas.js";
 import type { ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
+import type {
+	AssistantRule,
+	AssistantRuleOtherwise,
+	ConsoleAssistantPreviewResult,
+} from "../../shared/schemasAssistantRules.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
 import type {
 	AuthorizationPolicy,
@@ -135,6 +140,14 @@ export interface AssistantConsoleHandlers {
 	/** `forget` ends the session's pane and record; a refused one leaves the assistant as it was. */
 	release: (forget: (team: string) => Promise<void>) => Promise<ConsoleAssistantStateResult>;
 	setWatcherGrants: (watcherId: string, entryIds: string[]) => Promise<ConsoleAssistantStateResult>;
+	/** `base` is the revision the editor read. */
+	putRules: (
+		watcherId: string,
+		rules: AssistantRule[],
+		otherwise: AssistantRuleOtherwise,
+		base: number,
+	) => Promise<ConsoleAssistantStateResult>;
+	previewRule: (watcherId: string, rule: AssistantRule, at?: number) => ConsoleAssistantPreviewResult;
 }
 
 export interface PolicyConsoleHandlers {

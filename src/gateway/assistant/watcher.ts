@@ -46,6 +46,10 @@ export type PollAnswer = z.infer<typeof PollAnswerSchema>;
 
 export interface Watcher {
 	readonly id: string;
+	/** What a rule may test. */
+	readonly fields?: readonly string[];
+	/** Ping when no rule says. */
+	readonly pingDefault?: boolean;
 	/** `signal` aborts when the runner gives up on this poll; the poll settles then. */
 	poll(cursor: string | null, signal: AbortSignal): Promise<PollAnswer>;
 }

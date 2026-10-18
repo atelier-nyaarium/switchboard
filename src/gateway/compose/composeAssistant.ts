@@ -12,13 +12,15 @@ import {
 import { openDurable } from "../../shared/durable-store.js";
 import { isSpawnWorkdirPath } from "../../shared/host-op.js";
 import type { AssistantWatcher, ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
+import { canonicalRule, decideEvent, ruleMatches, rulesRefusal } from "../../shared/schemasAssistantRules.js";
 import {
 	createGithubWatcher,
 	GITHUB_WATCHER_ID,
 	type GithubWatcherDeps,
 	type TokenRead,
 } from "../assistant/githubWatcher.js";
-import { createInboxStore, type InboxStore } from "../assistant/inboxStore.js";
+import { createInboxStore, type InboxStore, type Sorter } from "../assistant/inboxStore.js";
+import { createRulesStore } from "../assistant/rulesStore.js";
 import type { Watcher } from "../assistant/watcher.js";
 import { createWatcherRunner, type WatcherRunner } from "../assistant/watcherRunner.js";
 import type { AssistantConsoleHandlers } from "../console/consoleTypes.js";
@@ -28,6 +30,8 @@ import type { SessionsStage } from "./composeSessions.js";
 const NEEDS_SECRET = "needs a secret";
 /** Shutdown waits this long for an owner op already running. */
 const STOP_WAIT_MS = 5_000;
+/** Events a preview reads. */
+const PREVIEW_EVENTS = 50;
 
 const LABELS: Record<string, string> = { [GITHUB_WATCHER_ID]: "GitHub notifications" };
 
@@ -91,12 +95,39 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	];
 
 	const inbox = openDurable(deps.dataDir, "assistant-inbox", (store) => createInboxStore(store));
+	const watcherOfId = (watcherId: string) => watchers.find((watcher) => watcher.id === watcherId);
+	const sorterFor = (watcherId: string): Sorter => {
+		const current = rules.get(watcherId);
+		const pingDefault = watcherOfId(watcherId)?.pingDefault ?? false;
+		return { sort: (event) => decideEvent(current, event.fields, pingDefault), revision: current.revision };
+	};
+	/**
+	 * An inbox sorted under any other revision sorts its kept drops again, so a crash between the two
+	 * files catches up, and so does a rules file that started fresh.
+	 */
+	const catchUp = (watcherId: string) => {
+		const sorter = sorterFor(watcherId);
+		if ((inbox.stateOf(watcherId)?.rulesRevision ?? 0) === sorter.revision) return;
+		if (!inbox.resort(watcherId, sorter, ambient.now())) {
+			console.warn(`[assistant] ${watcherId} drops not sorted again; the next poll or start retries`);
+		}
+	};
+	const rules = openDurable(deps.dataDir, "assistant-rules", (store) =>
+		createRulesStore({ store, onChanged: catchUp }),
+	);
+	for (const watcher of watchers) catchUp(watcher.id);
+
 	let runner: WatcherRunner | null = null;
 	let active = false;
 	let closed = false;
 	const startRunner = () => {
 		if (!active || closed || runner || !held()) return;
-		runner = createWatcherRunner({ ambient, inbox, watchers });
+		runner = createWatcherRunner({
+			ambient,
+			inbox,
+			watchers,
+			rules: sorterFor,
+		});
 		runner.start();
 	};
 	const stopRunner = async () => {
@@ -122,16 +153,21 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 
 	const watcherOf = (watcher: Watcher): AssistantWatcher => {
 		const state = inbox.stateOf(watcher.id);
+		const now = ambient.now();
 		return {
 			id: watcher.id,
 			label: LABELS[watcher.id] ?? watcher.id,
 			grants: deps.vault.watcherGrants(watcher.id),
-			unread: inbox.unread(watcher.id),
+			unread: inbox.unread(watcher.id, now),
 			evicted: state?.evicted ?? 0,
 			...(state?.lastSuccessAt !== undefined ? { lastSuccessAt: state.lastSuccessAt } : {}),
 			...(state?.nextPollAt !== undefined ? { nextPollAt: state.nextPollAt } : {}),
 			...(state?.backoff ? { backoff: state.backoff } : {}),
 			...(state?.stopped !== undefined ? { stopped: state.stopped } : {}),
+			fields: [...(watcher.fields ?? [])],
+			pingDefault: watcher.pingDefault ?? false,
+			rules: rules.get(watcher.id),
+			dropped: inbox.events(watcher.id, now).filter((event) => event.disposition === "ruleDropped").length,
 		};
 	};
 	const state = (): ConsoleAssistantStateResult => {
@@ -205,6 +241,42 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					else startRunner();
 					return state();
 				}),
+			/** Only owner ops reach this, so no event text can rewrite what sorts later events. */
+			putRules: (watcherId, list, otherwise, base) =>
+				serial(() => {
+					const watcher = watcherOfId(watcherId);
+					if (!watcher) throw new Error(`no watcher "${watcherId}"`);
+					const refusal = rulesRefusal(list, watcher.fields ?? []);
+					if (refusal) throw new Error(refusal);
+					const put = rules.put(watcherId, list, otherwise, base);
+					if (!put.stored) throw new Error(put.reason);
+					return state();
+				}),
+			/** Refuses what a put refuses; counts only what this rule would decide from its place. */
+			previewRule: (watcherId, rule, at) => {
+				const watcher = watcherOfId(watcherId);
+				if (!watcher) throw new Error(`no watcher "${watcherId}"`);
+				const refusal = rulesRefusal([rule], watcher.fields ?? []);
+				if (refusal) throw new Error(refusal);
+				const held = rules.get(watcherId).rules;
+				const before = held.slice(0, at === undefined ? held.length : Math.min(at, held.length));
+				const recent = inbox
+					.events(watcherId, ambient.now())
+					.sort((a, b) => b.receivedAt - a.receivedAt || b.seq - a.seq)
+					.slice(0, PREVIEW_EVENTS);
+				// Read as a save would store it.
+				const asStored = canonicalRule(rule);
+				const matched = recent.filter((event) => ruleMatches(asStored, event.fields));
+				const decided = matched.filter(
+					(event) => !before.some((earlier) => ruleMatches(earlier, event.fields)),
+				);
+				return {
+					matched: decided.length,
+					earlier: matched.length - decided.length,
+					of: recent.length,
+					titles: decided.slice(0, 3).map((event) => event.title),
+				};
+			},
 		},
 		start: () => {
 			active = true;

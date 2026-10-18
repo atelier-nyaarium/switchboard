@@ -34,14 +34,14 @@ const WRITE_TOOLS: Readonly<Record<string, string>> = {
 /** Files Claude Code loads as instructions, at any depth. */
 const INSTRUCTION_FILES: ReadonlySet<string> = new Set(["agents.md", "claude.md", "claude.local.md"]);
 
-/** What the session cannot write: its own instructions and settings, and the rules that sort events. */
+/** What the session cannot write: its own instructions and settings. */
 const protectedWrite: Withhold = (segments) => {
 	const lower = segments.map((segment) => segment.toLowerCase());
 	const settings = lower.indexOf(".claude");
 	if (settings !== -1) return segments[settings] ?? null;
 	const leaf = lower.at(-1);
 	if (leaf !== undefined && INSTRUCTION_FILES.has(leaf)) return segments.at(-1) ?? null;
-	if (lower[0] === "watchers" || lower[0] === ".mcp.json") return segments[0] ?? null;
+	if (lower[0] === ".mcp.json") return segments[0] ?? null;
 	return null;
 };
 

@@ -426,6 +426,12 @@ export function createConsoleDispatcher({
 			case "assistant_watcher_grants":
 				return requireAssistant().setWatcherGrants(op.watcherId, op.entryIds);
 
+			case "assistant_rules_put":
+				return requireAssistant().putRules(op.watcherId, op.rules, op.otherwise, op.baseRevision);
+
+			case "assistant_rules_preview":
+				return requireAssistant().previewRule(op.watcherId, op.rule, op.at);
+
 			case "assistant_release":
 				return requireAssistant().release(async (team) => {
 					const target = `${localDomainId}.${localGatewayId}.${team}`;
