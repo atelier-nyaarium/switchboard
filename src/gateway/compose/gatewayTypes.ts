@@ -2,6 +2,7 @@ import type { Ambient } from "../../shared/ambient.js";
 import type { SealedEnvelope } from "../../shared/crypto.js";
 import type { RowEnvelope } from "../../shared/schemasInbox.js";
 import type { SessionRecord } from "../../shared/session-store.js";
+import type { Watcher } from "../assistant/watcher.js";
 import type { RouterToolCallResult } from "../router/routerClient.js";
 import type { createWebSocketHandlers } from "../websocket.js";
 
@@ -37,6 +38,8 @@ export interface GatewayDeps {
 	allowFixtureIdentity?: boolean;
 	/** The watchers' network door. */
 	fetch?: (url: string, init: RequestInit) => Promise<Response>;
+	/** Replaces the built-in watchers. */
+	assistantWatchers?: readonly Watcher[];
 }
 
 export interface PeerAddress {

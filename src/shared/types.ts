@@ -63,6 +63,8 @@ export interface ChannelPushPayload {
 	// Rendered as a reminder block. A standalone push carries it with an empty body.
 	awareness?: RidingAwareness;
 	disposition?: ReplyDisposition;
+	/** A watcher event: data only, with no sender, conversation or reply owed. */
+	event?: boolean;
 }
 
 // Extends the spoken-tier trio (notice.ts NoticeTierWire): title (notification-bar line +

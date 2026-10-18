@@ -100,6 +100,12 @@ function healthAfter(held: WatcherState, answer: PollAnswer, now: number): Watch
 	return { ...kept, stopped: answer.reason };
 }
 
+function appendTo(groups: Map<string, InboxEvent[]>, event: InboxEvent): void {
+	const rows = groups.get(event.watcherId);
+	if (rows) rows.push(event);
+	else groups.set(event.watcherId, [event]);
+}
+
 function kept(event: InboxEvent, now: number): boolean {
 	const window = event.disposition === "ruleDropped" ? DROP_RETENTION_MS : INBOX_RETENTION_MS;
 	return event.receivedAt >= now - window;
@@ -125,7 +131,7 @@ function trimmed(snapshot: Snapshot, now: number): Snapshot {
 	const unread = new Map<string, InboxEvent[]>();
 	for (const event of live) {
 		if (event.disposition !== "inbox" || event.seq <= readOf(event.watcherId)) continue;
-		unread.set(event.watcherId, [...(unread.get(event.watcherId) ?? []), event]);
+		appendTo(unread, event);
 	}
 	const over = new Set<InboxEvent>();
 	for (const rows of unread.values()) {
@@ -135,8 +141,7 @@ function trimmed(snapshot: Snapshot, now: number): Snapshot {
 	// Drops past the cap go uncounted.
 	const drops = new Map<string, InboxEvent[]>();
 	for (const event of live) {
-		if (event.disposition === "ruleDropped")
-			drops.set(event.watcherId, [...(drops.get(event.watcherId) ?? []), event]);
+		if (event.disposition === "ruleDropped") appendTo(drops, event);
 	}
 	for (const rows of drops.values()) {
 		for (const event of rows.slice(0, Math.max(0, rows.length - DROP_CAP))) over.add(event);
@@ -208,6 +213,20 @@ export interface InboxStore {
 	events(watcherId: string | undefined, now: number): InboxEvent[];
 	/** Inbox rows past the watcher's read position. */
 	unread(watcherId: string, now: number): number;
+	/** Unread rows a rule woke for that no wake has landed for yet, oldest first. */
+	pendingWakes(now: number): InboxEvent[];
+	/** Moves these rows from the inbox to woken, in one checked write. False when it did not land. */
+	markWoken(rows: readonly Pick<InboxEvent, "watcherId" | "sourceId">[], now: number): boolean;
+	/** Unread inbox rows, oldest first, with the highest seq read per watcher. Moves nothing. */
+	flush(
+		watcherIds: readonly string[] | undefined,
+		now: number,
+	): { events: InboxEvent[]; boundaries: Record<string, number> };
+	/**
+	 * Moves each named read position up to its boundary, never down and never past what is held, in
+	 * one checked write. False when it did not land.
+	 */
+	confirm(boundaries: Readonly<Record<string, number>>, now: number): boolean;
 }
 
 export function createInboxStore(store: DurableStore): InboxStore {
@@ -269,10 +288,64 @@ export function createInboxStore(store: DurableStore): InboxStore {
 			),
 		unread(watcherId, now) {
 			const view = asOf(now);
-			const read = own(view.watchers, watcherId)?.readSeq ?? 0;
-			return view.events.filter(
-				(event) => event.watcherId === watcherId && event.disposition === "inbox" && event.seq > read,
-			).length;
+			return unreadIn(view, watcherId).length;
+		},
+		pendingWakes(now) {
+			const view = asOf(now);
+			return structuredClone(
+				view.events.filter(
+					(event) =>
+						event.disposition === "inbox" &&
+						event.decision?.action === "wake" &&
+						event.seq > (own(view.watchers, event.watcherId)?.readSeq ?? 0),
+				),
+			);
+		},
+		markWoken(rows, now) {
+			const current = asOf(now);
+			const keys = new Set(rows.map(rowKey));
+			// A row read meanwhile stays read.
+			const events = current.events.map((event) =>
+				event.disposition === "inbox" &&
+				event.seq > (own(current.watchers, event.watcherId)?.readSeq ?? 0) &&
+				keys.has(rowKey(event))
+					? { ...event, disposition: "woken" as const }
+					: event,
+			);
+			return commit({ ...current, events });
+		},
+		flush(watcherIds, now) {
+			const view = asOf(now);
+			const named = new Set(watcherIds ?? Object.keys(view.watchers));
+			const events = [...named].flatMap((watcherId) => unreadIn(view, watcherId));
+			const boundaries: Record<string, number> = {};
+			for (const event of events)
+				put(boundaries, event.watcherId, Math.max(own(boundaries, event.watcherId) ?? 0, event.seq));
+			return { events: structuredClone(events.sort((a, b) => a.seq - b.seq)), boundaries };
+		},
+		confirm(boundaries, now) {
+			// From the trimmed inbox, so a row that expired is counted lost before the position passes it.
+			const current = asOf(now);
+			const ceiling = current.nextSeq - 1;
+			const watchers = { ...current.watchers };
+			for (const [watcherId, boundary] of Object.entries(boundaries)) {
+				const held = own(watchers, watcherId);
+				if (!held) continue;
+				put(watchers, watcherId, { ...held, readSeq: Math.max(held.readSeq, Math.min(boundary, ceiling)) });
+			}
+			return commit({ ...current, watchers });
 		},
 	};
+}
+
+function rowKey(row: Pick<InboxEvent, "watcherId" | "sourceId">): string {
+	return `${row.watcherId}\u0000${row.sourceId}`;
+}
+
+/** Inbox rows past the watcher's read position, in seq order. */
+function unreadIn(view: Snapshot, watcherId: string): InboxEvent[] {
+	const read = own(view.watchers, watcherId)?.readSeq ?? 0;
+	return view.events.filter(
+		(event) => event.watcherId === watcherId && event.disposition === "inbox" && event.seq > read,
+	);
 }

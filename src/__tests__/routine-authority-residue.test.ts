@@ -81,15 +81,11 @@ describe("what a session is told to call", () => {
 	it("is served by a gateway route and registered as a tool, for every entry", () => {
 		expect(declared.length).toBeGreaterThan(0);
 		for (const command of declared) {
-			const entry = `SESSION_COMMANDS.${command}`;
-			expect(
-				reads("gateway").some((file) => file.includes(entry)),
-				`${command}: no gateway side`,
-			).toBe(true);
-			expect(
-				reads("mcp").some((file) => file.includes(entry)),
-				`${command}: no tool side`,
-			).toBe(true);
+			// Either catalogue.
+			const names = (file: string) =>
+				file.includes(`SESSION_COMMANDS.${command}`) || file.includes(`ASSISTANT_COMMANDS.${command}`);
+			expect(reads("gateway").some(names), `${command}: no gateway side`).toBe(true);
+			expect(reads("mcp").some(names), `${command}: no tool side`).toBe(true);
 		}
 	});
 

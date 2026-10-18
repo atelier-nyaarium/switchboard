@@ -7,7 +7,7 @@ import {
 	type SessionBaseline,
 	SessionBaselineSchema,
 } from "../../shared/session-baseline.js";
-import { neutralizeMarkup, reminderBlock } from "../../shared/system-reminder.js";
+import { oneLine as flat, neutralizeMarkup, reminderBlock } from "../../shared/system-reminder.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -25,8 +25,6 @@ const WRAPPER_CHARS = reminderBlock(["-"]).length - 1;
 ////////////////////////////////
 //  Functions & Helpers
 
-const flat = (text: string): string => text.replace(/\s+/g, " ").trim();
-
 /** Board last: `taskBoardList` recovers what a cut drops. */
 function linesOf(baseline: SessionBaseline): string[] {
 	return [
@@ -37,6 +35,13 @@ function linesOf(baseline: SessionBaseline): string[] {
 		),
 		...baseline.routines.map(({ occurrenceId, routine }) => `routine: ${occurrenceId} ${flat(routine)}`),
 		...baseline.agents.map(({ family, agentId }) => `agent: ${family} ${agentId} turn running`),
+		...(baseline.assistant?.watchers ?? []).map(
+			({ label, unread, evicted, stopped, waiting }) =>
+				`watcher: ${flat(label)} ${unread} in inbox` +
+				(stopped === undefined ? "" : `, stopped: ${flat(stopped)}`) +
+				(waiting === undefined ? "" : `, waiting: ${flat(waiting)}`) +
+				(evicted > 0 ? `, ${evicted} lost unread` : ""),
+		),
 		...(baseline.board === null
 			? ["board: unavailable"]
 			: baseline.board.map(

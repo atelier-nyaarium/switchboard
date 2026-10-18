@@ -92,7 +92,9 @@ describe("ChannelDeliveryCoordinator", () => {
 		// Only acknowledgement retires a held delivery.
 		expect(store.listForTeam("proj.alpha")).toHaveLength(1);
 
-		expect(c.acknowledge("d1")).toBe(true);
+		expect(c.acknowledge("d1", "proj.other")).toBe(false);
+		expect(store.listForTeam("proj.alpha")).toHaveLength(1);
+		expect(c.acknowledge("d1", "proj.alpha")).toBe(true);
 		expect(store.listForTeam("proj.alpha")).toHaveLength(0);
 	});
 
@@ -116,6 +118,29 @@ describe("ChannelDeliveryCoordinator", () => {
 		registry.set("proj.alpha", new Map([["s0", s.ws]]));
 		expect(c.drain("proj.alpha")).toBe(2);
 		expect(s.sent.map((p) => JSON.parse(p).delivery_id)).toEqual(["d1", "d2"]);
+	});
+
+	it("keeps a held event an event across a restart, with no sender to reply to", () => {
+		let saved: unknown = null;
+		const sink = { load: () => saved, saveChecked: (state: unknown) => (saved = structuredClone(state)) };
+		const held = new PendingDeliveryStore(sink, processAmbient());
+		new ChannelDeliveryCoordinator({ store: held, registry: new Map() }).accept({
+			...delivery("e1"),
+			channelJobId: "",
+			from: "",
+			event: true,
+		});
+
+		const s = socket();
+		const reopened = new ChannelDeliveryCoordinator({
+			store: new PendingDeliveryStore(sink, processAmbient()),
+			registry: registryWith(s),
+		});
+		reopened.drain("proj.alpha");
+
+		expect(s.sent.map((p) => JSON.parse(p))).toEqual([
+			{ type: "channel_push", event: true, from: "", session_id: "", body: "hi", delivery_id: "e1" },
+		]);
 	});
 
 	it("re-offers an unacknowledged message on the next drain, so a lost notification is not a loss", () => {

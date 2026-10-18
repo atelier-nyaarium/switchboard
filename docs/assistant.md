@@ -64,8 +64,9 @@ Gated on reversibility.
   one makes the host fall back to home, and a link's spelling is not the place it leads. Project settings in the workdir still load, since they carry the owner's `AGENTS.md`;
   the session cannot write `.claude/`, so only the owner could add one.
 - **Its Switchboard server:** takes no capabilities and lists only `channel_reply`,
-  `channel_reply_structured` and `switchboard_capabilities` (`scopeTools`), so no guidance names a
-  tool it lacks and no reply snapshots a ref. Its instructions carry the assistant's standing rules
+  `channel_reply_structured`, `switchboard_capabilities`, `notify_human` and `inbox`
+  (`ASSISTANT_SWITCHBOARD_TOOLS`, through `scopeTools`), so no guidance names a tool it lacks and no
+  reply snapshots a ref. Its instructions carry the assistant's standing rules
   (`ASSISTANT_INSTRUCTIONS`), so a release updates them in every folder.
 - **The hook:** a deny-only second layer, and the only check on MCP arguments the engine does not
   see.
@@ -81,10 +82,10 @@ fails to run exits 2, which blocks the tool. `gateVerdict` is a closed allowlist
 - **Writes:** `Write`, `Edit`, `MultiEdit` and `NotebookEdit` inside notes, judged by the resolved
   path through `confine`. Never `.git/`, a `.claude/` folder, an `AGENTS.md`, `CLAUDE.md` or
   `CLAUDE.local.md` at any depth, or `.mcp.json`.
-- **Allowed:** `channel_reply`, `channel_reply_structured`, `switchboard_capabilities` and
-  `ToolSearch`. The reply route
-  already refuses a conversation not addressed to the caller. A reply's attachments take the read
-  rule, and a `ref://` to `/`, `~` or `..` is refused, since both are uploaded with the reply.
+- **Allowed:** `channel_reply`, `channel_reply_structured`, `switchboard_capabilities`,
+  `notify_human`, `inbox` and `ToolSearch`. The reply route already refuses a conversation not
+  addressed to the caller. The attachments of `channel_reply` and `notify_human` take the read rule,
+  and a `ref://` to `/`, `~` or `..` in either is refused, since both are uploaded with the message.
 - **Refused:** every other tool, including `Bash`, shell runs through `vault_run`, delegation to
   sub-agents, Codex or Copilot, web fetches, and other MCP servers' tools.
 
@@ -215,22 +216,39 @@ Stop is final. `src/gateway/assistant/` holds the watcher type (`Watcher`), the 
 
 ## Delivery
 
-- **Wake:** goes through the send route's wake path, so an offline session is woken. A failed wake
-  leaves the event in the inbox.
-- **Inbox:** one queue, drained through one door, `flush(watchers)`. It answers a batch and moves
-  the read position only once the caller confirms the batch arrived; an unconfirmed batch is
-  answered again. The `inbox` tool calls it when the owner asks, a check-in calls it with its
-  watchers, and a wake rule calls it too. Each watcher keeps one read position, so a 10am check-in
-  skips what a 9am ask already saw.
+- **Wake:** a wake-sorted event waits in the inbox as unread. The Gateway hands it to `deliverEvent`
+  in `routesSend.ts`, which shares `reach` (target resolution and `tryWakeTeam`) and the
+  `ChannelDeliveryCoordinator` with an ordinary send but names no sender. One push carries up to 20
+  waiting wake events, oldest first. `deliverEvent` composes the batch only once the session is
+  reached, just before the queue takes it, so a row the assistant read while the wake waited is not
+  sent, and `markWoken` leaves a row already read as read.
+  Its delivery id is derived from the rows it carries, so a retry of the same batch is the same
+  delivery. Once it is delivered or durably queued, one checked write moves those rows to `woken`. A
+  failed wake leaves them in the inbox and retries on its own backoff, 30 seconds doubling to 15
+  minutes, as well as on the next poll, rules change, placement or start. A channel acknowledgment
+  never moves a read position, and retires only a row held for the acknowledging session.
+  Delivery is at least once: a crash between the push and the `woken` write sends the batch again.
+- **Inbox:** `flush` answers the unread rows, oldest first, with the highest sequence read per
+  watcher, and moves nothing. `confirm` moves each read position up to its boundary in a checked
+  write, never down and never past a sequence not yet handed out. An unconfirmed batch is answered
+  again. Both read the inbox trimmed as of now, so a row that expired is counted lost before the
+  position passes it. Inbox calls run one at a time, and each watcher keeps one read position.
+- **Who reads it:** the `inbox` tool is registered only for `host.assistant`. It flushes, then
+  confirms once it holds the answer. The Gateway doors in `assistantRoutes.ts` answer only a token
+  bound to the assistant's own record, and answer `not_assistant` or `unauthenticated` otherwise.
 - **Counts:** the tab's strip shows each watcher's inbox count only. The dropped count sits on the
-  watcher's Rules sheet; a rule save replays drops. The woke count comes with the wake.
+  watcher's Rules sheet; a rule save replays drops. `assistant_state` carries the woken count.
 
 ## What the model reads
 
-- **Standing instructions appear once:** in the system prompt and `AGENTS.md`.
-- **Per-message state:** `system-reminder` data lines carry inbox counts and watcher health.
-- **An event is a message body** with no `meta.instructions`. Its ping is a data line, and `AGENTS.md`
-  says to notify the owner only when that line says yes.
-- **After a compaction:** the SessionStart `compact` hook re-sends inbox counts, watcher health, read
-  positions and open cards, beside the session's conversations, routine runs, agents and board
-  entries. The assistant's lines come before the board, the part a full baseline cuts.
+- **Standing instructions appear once:** in the plugin's MCP instructions for `host.assistant`
+  (`src/mcp/assistant/instructions.ts`). The folder's `AGENTS.md` holds the owner's own instructions.
+- **Events:** a channel message with `event="true"` and no sender, `session_id` or
+  `meta.instructions`. `CHANNEL_INSTRUCTIONS` says it is data and owes no `channel_reply`. Its body
+  is each event's data lines (`eventLines`), every value collapsed to one line by `oneLine` so a
+  title cannot forge a `ping:` or `watcher:` line, then neutralized like any message body. Its ping is a data
+  line, and the instructions say to tell the owner through `notify_human` only when it says yes.
+- **After a compaction:** the SessionStart `compact` hook adds one line per watcher, with its inbox
+  count, stopped or waiting reason, and unread lost, beside the session's conversations, routine
+  runs, agents and board entries. The watcher lines come before the board, the part a full baseline
+  cuts.

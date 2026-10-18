@@ -128,6 +128,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 					: { kind: "unready", reason: "the vault is not composed yet" },
 		},
 		fetch: deps.fetch ?? ((url, init) => fetch(url, init)),
+		...(deps.assistantWatchers ? { watchers: deps.assistantWatchers } : {}),
 	});
 	const persistence = composePersistence({
 		ambient: bootstrap.ambient,
@@ -235,7 +236,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			return record ? sessions.sessionStore.teamOf(record) : null;
 		},
 	});
-	const baseline = composeBaseline({ context, stores, sessions, routines });
+	const baseline = composeBaseline({ context, stores, sessions, routines, assistant });
 	const policies = composePolicies({
 		dataDir: bootstrap.dataDir,
 		onPolicyMoved: (policyId) => vault?.policyMoved(policyId),

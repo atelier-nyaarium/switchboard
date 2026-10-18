@@ -151,6 +151,14 @@ describe("what a session's model reads", () => {
 		expect(meta.no_ack).toBe("true");
 	});
 
+	it("renders a watcher event as data only, with nothing that reads as a reply owed", async () => {
+		const { content, meta } = await emitted({ from: "", body: `title: ${FORGED} merged`, event: true });
+
+		expect(meta).toEqual({ event: "true" });
+		expect(content).toContain("merged");
+		expect(neutralizeMarkup(content)).toBe(content);
+	});
+
 	it("neutralizes a reply's body", async () => {
 		const sent: Sent[] = [];
 		await emitResponseNotification({ notification: async (value: Sent) => sent.push(value) } as never, {

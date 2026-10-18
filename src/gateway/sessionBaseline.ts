@@ -17,6 +17,8 @@ export interface BaselineRoutesDeps {
 	board: () => Promise<readonly BoardEntry[] | null>;
 	openRuns: (team: string) => SessionBaseline["routines"];
 	runningAgents: (team: string) => SessionBaseline["agents"];
+	/** Undefined for any session but the assistant's. */
+	assistant: (team: string) => SessionBaseline["assistant"];
 }
 
 ////////////////////////////////
@@ -63,6 +65,8 @@ export function createBaselineRoutes(deps: BaselineRoutesDeps): Map<string, Hand
 			routines: deps.openRuns(team),
 			agents: deps.runningAgents(team),
 		};
+		const assistant = deps.assistant(team);
+		if (assistant) answer.assistant = assistant;
 		return json(answer, 200);
 	};
 

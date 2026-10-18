@@ -20,8 +20,8 @@ export interface WatcherRunnerDeps {
 	watchers: readonly Watcher[];
 	/** The watcher's rules, read as its poll lands. */
 	rules: (watcherId: string) => Sorter;
-	/** Each accepted batch, once it is durable. */
-	onAccepted?: (watcherId: string, accepted: readonly InboxEvent[]) => void | Promise<void>;
+	/** After every poll that lands, with what it accepted, once it is durable. A nudge only. */
+	onLanded?: (watcherId: string, accepted: readonly InboxEvent[]) => void | Promise<void>;
 }
 
 export interface WatcherRunner {
@@ -101,10 +101,10 @@ export function createWatcherRunner(deps: WatcherRunnerDeps): WatcherRunner {
 			if (!landed) return arm(watcher, now + RETRY_MS);
 			const next = inbox.stateOf(watcher.id, now)?.nextPollAt;
 			if (next !== undefined) arm(watcher, next);
-			const { onAccepted } = deps;
-			if (landed.accepted.length === 0 || !onAccepted) return;
+			const { onLanded } = deps;
+			if (!onLanded) return;
 			// A throw or a rejection is logged, never left to disarm.
-			const hook = Promise.resolve().then(() => onAccepted(watcher.id, landed.accepted));
+			const hook = Promise.resolve().then(() => onLanded(watcher.id, landed.accepted));
 			fireAndForget(`assistant watcher ${watcher.id} hook`, hook);
 		};
 		const flight = work().finally(() => {

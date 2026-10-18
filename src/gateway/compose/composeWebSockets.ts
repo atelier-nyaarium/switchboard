@@ -75,7 +75,7 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		},
 		onDeliveryAck: (team, deliveryId) => {
 			federation.channelDeliveryAck(team, deliveryId);
-			if (channelDeliveries.acknowledge(deliveryId) === true) {
+			if (channelDeliveries.acknowledge(deliveryId, team) === true) {
 				console.log(`[delivery] ${team} confirmed ${deliveryId.slice(0, 8)}`);
 			}
 		},

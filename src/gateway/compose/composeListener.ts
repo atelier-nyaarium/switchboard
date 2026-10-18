@@ -43,7 +43,7 @@ export interface ListenerStageDeps {
 	routines: Pick<RoutineStage, "stop" | "routes">;
 	vault: Pick<VaultStage, "routes">;
 	baseline: Pick<BaselineStage, "routes">;
-	assistant: Pick<AssistantStage, "stop">;
+	assistant: Pick<AssistantStage, "stop" | "routes">;
 }
 
 export interface ListenerStage {
@@ -111,6 +111,7 @@ export function composeListener(deps: ListenerStageDeps): ListenerStage {
 			...deps.vault.routes,
 			...(deps.routines?.routes ?? []),
 			...deps.baseline.routes,
+			...deps.assistant.routes,
 		]),
 		routes: routes.current,
 		unenrolledHealth: () => unenrolledHealth(deps.localGatewayId),

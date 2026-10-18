@@ -35,5 +35,19 @@ export const SessionBaselineSchema = z.object({
 	routines: z.array(z.object({ occurrenceId: z.string(), routine: z.string() })),
 	/** With a turn running. */
 	agents: z.array(z.object({ family: z.enum(["codex", "copilot"]), agentId: z.string() })),
+	/** The assistant's session alone. */
+	assistant: z
+		.object({
+			watchers: z.array(
+				z.object({
+					label: z.string(),
+					unread: z.number().int().nonnegative(),
+					evicted: z.number().int().nonnegative(),
+					stopped: z.string().optional(),
+					waiting: z.string().optional(),
+				}),
+			),
+		})
+		.optional(),
 });
 export type SessionBaseline = z.infer<typeof SessionBaselineSchema>;

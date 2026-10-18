@@ -40,6 +40,11 @@ export function neutralizeMarkup(text: string): string {
 	return text.replace(FORGED_TAG, "&lt;");
 }
 
+/** One line, so a value cannot forge another. Model-bound text only. */
+export function oneLine(text: string): string {
+	return text.replace(/\s+/g, " ").trim();
+}
+
 export function reminderBlock(lines: readonly string[]): ReminderBlock | "" {
 	const kept = lines.filter((line) => line.trim() !== "").map(neutralizeMarkup);
 	if (kept.length === 0) return "";

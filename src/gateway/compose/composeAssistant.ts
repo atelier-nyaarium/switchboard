@@ -1,7 +1,8 @@
 // The assistant's one session and its watchers' inbox. Where it lives is its reserved session
 // record: placed by an owner op, kept from both sweeps, released only by an owner op.
 
-import { type Ambient, withinMs } from "../../shared/ambient.js";
+import { createHash } from "node:crypto";
+import { type Ambient, type TimerHandle, withinMs } from "../../shared/ambient.js";
 import {
 	ASSISTANT_RESERVE_KEY,
 	ASSISTANT_SESSION_NAME,
@@ -12,18 +13,22 @@ import {
 import { openDurable } from "../../shared/durable-store.js";
 import { isSpawnWorkdirPath } from "../../shared/host-op.js";
 import type { AssistantWatcher, ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
+import { eventLines, type InboxEventWire } from "../../shared/schemasAssistantInbox.js";
 import { canonicalRule, decideEvent, firstMatch, ruleMatches } from "../../shared/schemasAssistantRules.js";
+import type { SessionBaseline } from "../../shared/session-baseline.js";
+import { createAssistantRoutes, type Handler } from "../assistant/assistantRoutes.js";
 import {
 	createGithubWatcher,
 	GITHUB_WATCHER_ID,
 	type GithubWatcherDeps,
 	type TokenRead,
 } from "../assistant/githubWatcher.js";
-import { createInboxStore, type InboxStore, type Sorter } from "../assistant/inboxStore.js";
+import { createInboxStore, type InboxEvent, type InboxStore, type Sorter } from "../assistant/inboxStore.js";
 import { createRulesStore } from "../assistant/rulesStore.js";
 import type { Watcher } from "../assistant/watcher.js";
 import { createWatcherRunner, type WatcherRunner } from "../assistant/watcherRunner.js";
 import type { AssistantConsoleHandlers } from "../console/consoleTypes.js";
+import { fireAndForget } from "../fireAndForget.js";
 import type { VaultRelease } from "../vault/vaultUse.js";
 import type { SessionsStage } from "./composeSessions.js";
 
@@ -32,6 +37,10 @@ const NEEDS_SECRET = "needs a secret";
 const STOP_WAIT_MS = 5_000;
 /** Events a preview reads. */
 const PREVIEW_EVENTS = 50;
+/** Events one wake carries. */
+const WAKE_BATCH = 20;
+const WAKE_RETRY_MS = 30_000;
+const WAKE_RETRY_MAX_MS = 15 * 60_000;
 
 const LABELS: Record<string, string> = { [GITHUB_WATCHER_ID]: "GitHub notifications" };
 
@@ -42,10 +51,20 @@ export interface AssistantVault {
 	readForWatcher: (watcherId: string, entryId: string) => Promise<VaultRelease>;
 }
 
+/**
+ * The send path's senderless event, bound once the routes exist. `compose` runs once the session is
+ * reached, just before the queue takes it; null means nothing is left to send. Null when it landed or
+ * there was nothing, else why not.
+ */
+export type AssistantWake = (event: {
+	to: string;
+	compose: () => { deliveryId: string; body: string } | null;
+}) => Promise<string | null>;
+
 export interface AssistantStageDeps {
 	dataDir: string;
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">;
-	sessions: Pick<SessionsStage, "sessionStore" | "presence">;
+	sessions: Pick<SessionsStage, "sessionStore" | "presence" | "sessionAuthority">;
 	/** A checked save of the session records, which hold where it lives; throws when it did not land. */
 	saveSessions: () => void;
 	vault: AssistantVault;
@@ -61,6 +80,12 @@ export interface AssistantStage {
 	forgetRefusal: (team: string) => string | null;
 	inbox: Pick<InboxStore, "stateOf" | "events" | "unread">;
 	console: AssistantConsoleHandlers;
+	/** Assistant-only loopback routes. */
+	routes: Map<string, Handler>;
+	/** Its watchers' lines after a compaction; undefined for any other session. */
+	baselineFor: (team: string) => SessionBaseline["assistant"];
+	/** The send path's event road, bound on each federation activation. */
+	bindWake: (wake: AssistantWake) => void;
 	/** Arms the watchers, once federation is active. */
 	start: () => void;
 	/** Final, and before the shutdown flush, so it sees no poll halfway through its write. */
@@ -101,6 +126,78 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		const pingDefault = watcherOfId(watcherId)?.pingDefault ?? false;
 		return { sort: (event) => decideEvent(current, event.fields, pingDefault), revision: current.revision };
 	};
+
+	let runner: WatcherRunner | null = null;
+	let active = false;
+	let closed = false;
+
+	/**
+	 * The inbox decides and the delivery queue applies: a wake row moves to woken only once the send
+	 * path has delivered or durably queued it. Run at start, after each poll and after a rules change,
+	 * so one that did not land is tried again. A row read through the inbox first needs no wake.
+	 */
+	let wake: AssistantWake | null = null;
+	let waking: Promise<void> | null = null;
+	let wakeAgain = false;
+	let retryTimer: TimerHandle | null = null;
+	let retryMs = WAKE_RETRY_MS;
+	const retryLater = (why: string) => {
+		console.warn(`[assistant] wake not delivered; retrying in ${retryMs / 1000}s: ${why}`);
+		if (retryTimer || closed) return;
+		retryTimer = ambient.setTimer(() => {
+			retryTimer = null;
+			nudgeWakes();
+		}, retryMs);
+		retryMs = Math.min(retryMs * 2, WAKE_RETRY_MAX_MS);
+	};
+	const settleRetry = () => {
+		if (retryTimer) ambient.clearTimer(retryTimer);
+		retryTimer = null;
+		retryMs = WAKE_RETRY_MS;
+	};
+	const wakeRound = async (): Promise<void> => {
+		do {
+			wakeAgain = false;
+			while (true) {
+				if (!wake || !active || closed || !held()) return;
+				if (inbox.pendingWakes(ambient.now()).length === 0) break;
+				let batch: InboxEvent[] = [];
+				let failed: string | null;
+				try {
+					failed = await wake({
+						to: ASSISTANT_TEAM,
+						// Read once reached, so a row read meanwhile is not pushed.
+						compose: () => {
+							batch = inbox.pendingWakes(ambient.now()).slice(0, WAKE_BATCH);
+							if (batch.length === 0) return null;
+							const body = batch.map((event) => eventLines(wireOf(event)).join("\n")).join("\n\n");
+							return { deliveryId: wakeDeliveryId(batch), body };
+						},
+					});
+				} catch (error) {
+					failed = (error as Error).message;
+				}
+				if (failed) return retryLater(failed);
+				// Final; next start re-offers.
+				if (closed) return;
+				if (batch.length > 0 && !inbox.markWoken(batch, ambient.now()))
+					return retryLater("the inbox write did not land");
+			}
+		} while (wakeAgain);
+		settleRetry();
+	};
+	const nudgeWakes = (): void => {
+		if (!active || closed) return;
+		if (waking) {
+			wakeAgain = true;
+			return;
+		}
+		waking = wakeRound().finally(() => {
+			waking = null;
+		});
+		fireAndForget("assistant wake", waking);
+	};
+
 	/**
 	 * An inbox sorted under any other revision sorts its kept drops again, so a crash between the two
 	 * files catches up, and so does a rules file that started fresh.
@@ -110,16 +207,16 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		if ((inbox.stateOf(watcherId, ambient.now())?.rulesRevision ?? 0) === sorter.revision) return;
 		if (!inbox.resort(watcherId, sorter, ambient.now())) {
 			console.warn(`[assistant] ${watcherId} drops not sorted again; the next poll or start retries`);
+			return;
 		}
+		// Re-sorted drops may wake.
+		nudgeWakes();
 	};
 	const rules = openDurable(deps.dataDir, "assistant-rules", (store) =>
 		createRulesStore({ store, fieldsOf: (watcherId) => watcherOfId(watcherId)?.fields, onChanged: catchUp }),
 	);
 	for (const watcher of watchers) catchUp(watcher.id);
 
-	let runner: WatcherRunner | null = null;
-	let active = false;
-	let closed = false;
 	const startRunner = () => {
 		if (!active || closed || runner || !held()) return;
 		runner = createWatcherRunner({
@@ -127,6 +224,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			inbox,
 			watchers,
 			rules: sorterFor,
+			onLanded: () => nudgeWakes(),
 		});
 		runner.start();
 	};
@@ -168,8 +266,36 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			pingDefault: watcher.pingDefault ?? false,
 			rules: rules.get(watcher.id),
 			dropped: inbox.events(watcher.id, now).filter((event) => event.disposition === "ruleDropped").length,
+			woken: inbox.events(watcher.id, now).filter((event) => event.disposition === "woken").length,
 		};
 	};
+
+	/** The session's inbox reads, one at a time. */
+	let inboxTail: Promise<unknown> = Promise.resolve();
+	const inboxSerial = <T>(work: () => T): Promise<T> => {
+		const next = inboxTail.then(work);
+		inboxTail = next.catch(() => undefined);
+		return next;
+	};
+	const routes = createAssistantRoutes({
+		caller: (req) => {
+			const record = sessions.sessionAuthority.resolveConfirmedManagedSession(req);
+			if (!record) return "unauthenticated";
+			return isAssistantRecord(record) ? "assistant" : "not_assistant";
+		},
+		flush: (watcherIds) =>
+			inboxSerial(() => {
+				const now = ambient.now();
+				const { events, boundaries } = inbox.flush(watcherIds, now);
+				const evicted: Record<string, number> = {};
+				for (const watcher of watchers) {
+					const lost = inbox.stateOf(watcher.id, now)?.evicted ?? 0;
+					if (lost > 0) evicted[watcher.id] = lost;
+				}
+				return { events: events.map(wireOf), boundaries, evicted };
+			}),
+		confirm: (boundaries) => inboxSerial(() => inbox.confirm(boundaries, ambient.now())),
+	});
 	const state = (): ConsoleAssistantStateResult => {
 		const record = held();
 		return {
@@ -183,6 +309,27 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		reserves: isAssistant,
 		forgetRefusal: (team) => (isAssistant(team) ? "the assistant's session leaves only by a release" : null),
 		inbox,
+		routes,
+		baselineFor: (team) => {
+			if (!isAssistant(team)) return undefined;
+			const now = ambient.now();
+			return {
+				watchers: watchers.map((watcher) => {
+					const health = inbox.stateOf(watcher.id, now);
+					return {
+						label: LABELS[watcher.id] ?? watcher.id,
+						unread: inbox.unread(watcher.id, now),
+						evicted: health?.evicted ?? 0,
+						...(health?.stopped !== undefined ? { stopped: health.stopped } : {}),
+						...(health?.backoff ? { waiting: health.backoff.reason } : {}),
+					};
+				}),
+			};
+		},
+		bindWake: (bound) => {
+			wake = bound;
+			nudgeWakes();
+		},
 		console: {
 			state,
 			// The record is where it lives, so it is durable before the phone releases the old home.
@@ -204,6 +351,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 						throw error;
 					}
 					startRunner();
+					nudgeWakes();
 					return state();
 				}),
 			// The record is the commit: a refused forget changes nothing. Past it the pane is gone, so
@@ -273,14 +421,38 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		},
 		start: () => {
 			active = true;
+			for (const watcher of watchers) catchUp(watcher.id);
 			startRunner();
+			nudgeWakes();
 		},
 		stop: async () => {
 			closed = true;
+			if (retryTimer) ambient.clearTimer(retryTimer);
+			retryTimer = null;
 			await stopRunner();
-			// An op already running finishes before the flush, bounded as a poll's stop is.
-			await withinMs(ambient, tail, STOP_WAIT_MS);
+			// An op or a wake already running finishes before the flush, bounded as a poll's stop is.
+			await withinMs(ambient, Promise.all([tail, waking, inboxTail]), STOP_WAIT_MS);
 		},
+	};
+}
+
+/** Derived from the batch, so a wake tried again is the same delivery. */
+function wakeDeliveryId(batch: readonly InboxEvent[]): string {
+	const hash = createHash("sha256");
+	for (const event of batch) hash.update(`${event.watcherId}\u0000${event.sourceId}\u0000`);
+	return `assistant-event:${hash.digest("hex").slice(0, 32)}`;
+}
+
+function wireOf(event: InboxEvent): InboxEventWire {
+	return {
+		watcherId: event.watcherId,
+		label: LABELS[event.watcherId] ?? event.watcherId,
+		title: event.title,
+		...(event.url === undefined ? {} : { url: event.url }),
+		fields: event.fields,
+		receivedAt: event.receivedAt,
+		action: event.decision?.action ?? "inbox",
+		ping: event.decision?.ping ?? false,
 	};
 }
 

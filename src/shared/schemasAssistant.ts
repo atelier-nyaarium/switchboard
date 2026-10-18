@@ -25,6 +25,8 @@ export const AssistantWatcherSchema = z
 		rules: AssistantWatcherRulesSchema.optional(),
 		/** Drops a rule edit replays. */
 		dropped: z.number().int().nonnegative().optional(),
+		/** Events that woke the assistant, kept 14 days. */
+		woken: z.number().int().nonnegative().optional(),
 	})
 	.meta({ id: "AssistantWatcher" });
 

@@ -17,6 +17,8 @@ export interface PendingDelivery {
 	awareness?: RidingAwareness;
 	/** Materialization bucket key. */
 	messageId?: string;
+	/** A watcher event; `from` and `channelJobId` are empty. */
+	event?: true;
 	enqueuedAt: number;
 }
 

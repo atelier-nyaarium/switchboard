@@ -42,7 +42,8 @@ and the sessions are fake sockets at the gateway's own WebSocket handlers (`fake
 `fakeSession.ts`); the phone is a TypeScript driver on `RouterServer.handle` (`phoneDriver.ts`)
 plus a console socket against the Router's TLS listener (`consoleSocket.ts`).
 `restartGateway` recomposes over the retained directories. `restartHost`
-reconnects the daemon, and with `newDaemon` as a fresh process.
+reconnects the daemon, and with `newDaemon` as a fresh process. The harness reaches no network:
+`assistantWatchers` replaces the built-in watchers with a scenario's own.
 
 ## The ambient
 

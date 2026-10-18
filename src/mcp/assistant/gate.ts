@@ -11,6 +11,9 @@ export type GateVerdict = { allow: true } | { allow: false; reason: string };
 
 const SWITCHBOARD_TOOLS: ReadonlySet<string> = new Set(ASSISTANT_SWITCHBOARD_TOOLS);
 
+/** Switchboard tools that upload attachments and snapshot refs. */
+const UPLOADING_TOOLS: ReadonlySet<string> = new Set(["channel_reply", "notify_human"]);
+
 /** Built-ins that take no path. `ToolSearch` loads a deferred tool's schema. */
 const FREE_TOOLS: ReadonlySet<string> = new Set(["ToolSearch"]);
 
@@ -153,15 +156,15 @@ export function gateVerdict(input: unknown, places: GatePlaces): GateVerdict {
 	if (tool.startsWith(SWITCHBOARD_TOOL_PREFIX)) {
 		const bare = tool.slice(SWITCHBOARD_TOOL_PREFIX.length);
 		if (!SWITCHBOARD_TOOLS.has(bare)) return refuse(`${tool} is not on the assistant's allowlist`);
-		// A reply uploads its attachments and snapshots its refs.
-		if (bare === "channel_reply") {
+		// A reply or a notice uploads its attachments and snapshots its refs.
+		if (UPLOADING_TOOLS.has(bare)) {
 			const files = params.attachments ?? [];
-			if (!Array.isArray(files)) return refuse("channel_reply attachments are not a list");
+			if (!Array.isArray(files)) return refuse(`${bare} attachments are not a list`);
 			for (const file of files) {
 				const outside = readable(file);
-				if (outside) return refuse(`channel_reply attachment ${String(file)}: ${outside}`);
+				if (outside) return refuse(`${bare} attachment ${String(file)}: ${outside}`);
 			}
-			if (refLeaves(params.full)) return refuse("channel_reply refs a file outside notes");
+			if (refLeaves(params.full)) return refuse(`${bare} refs a file outside notes`);
 		}
 		return { allow: true };
 	}

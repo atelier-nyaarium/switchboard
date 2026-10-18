@@ -6,6 +6,7 @@ import path from "node:path";
 import { FileSecretStore } from "../federation-server/fileSecretStore.js";
 import { RouterServer } from "../federation-server/routerServer.js";
 import { loadRouterTls } from "../federation-server/routerTls.js";
+import type { Watcher } from "../gateway/assistant/watcher.js";
 import { composeGateway, type GatewayGraph } from "../gateway/composeGateway.js";
 import type {
 	CrossDomainListenResult,
@@ -27,12 +28,14 @@ export interface FederationHarnessOptions {
 	wakeTimeoutMs?: number;
 	host?: Omit<FakeHostOptions, "token">;
 	seedContentKey?: boolean;
+	assistantWatchers?: readonly Watcher[];
 }
 
 export interface GatewayComposeOptions {
 	enrollNonce?: string;
 	seedContentKey?: boolean;
 	arming?: boolean;
+	assistantWatchers?: readonly Watcher[];
 }
 
 export interface RouterOnlyHarness {
@@ -121,6 +124,7 @@ export async function startFederationHarness(options: FederationHarnessOptions =
 		own = await attachDomain(base, base.set, path.join(base.root, "gateway"), {
 			host: options.host,
 			seedContentKey: options.seedContentKey,
+			assistantWatchers: options.assistantWatchers,
 		});
 	} catch (error) {
 		await base.close();
@@ -201,11 +205,19 @@ async function attachDomain(
 	base: RouterOnlyHarness,
 	set: IdentitySet,
 	gatewayDir: string,
-	options: { host?: Omit<FakeHostOptions, "token">; seedContentKey?: boolean },
+	options: {
+		host?: Omit<FakeHostOptions, "token">;
+		seedContentKey?: boolean;
+		assistantWatchers?: readonly Watcher[];
+	},
 ): Promise<DomainPeer> {
 	const world = FixtureWorld.from(set);
 	const federationDir = path.join(gatewayDir, "federation");
-	const compose = () => base.composeGatewayFor(set, gatewayDir, { seedContentKey: options.seedContentKey });
+	const compose = () =>
+		base.composeGatewayFor(set, gatewayDir, {
+			seedContentKey: options.seedContentKey,
+			assistantWatchers: options.assistantWatchers,
+		});
 	// The daemon survives gateway restarts.
 	let daemon = createFakeCodexDaemon();
 	const attachHost = (graph: GatewayGraph): FakeHost =>
@@ -390,6 +402,7 @@ export async function startRouterOnly(
 				fetch: async () => {
 					throw new Error("the harness reaches no network");
 				},
+				...(gatewayOptions.assistantWatchers ? { assistantWatchers: gatewayOptions.assistantWatchers } : {}),
 			});
 			let closing: Promise<void> | undefined;
 			const close = () => {

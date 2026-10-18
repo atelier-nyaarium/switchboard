@@ -183,16 +183,18 @@ describe("the watcher runner", () => {
 		expect(inbox.stateOf("github", ambient.now())).toBeUndefined();
 	});
 
-	it("keeps polling when the acceptance hook throws", async () => {
+	it("runs the landed hook after every landed poll, empty ones too, and keeps polling when it throws", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const inbox = inboxOnDisk();
 		const source = scripted();
+		let landed = 0;
 		const runner = createWatcherRunner({
 			ambient,
 			inbox,
 			watchers: [source.watcher],
 			rules: () => NO_RULES,
-			onAccepted: () => {
+			onLanded: () => {
+				landed += 1;
 				throw new Error("delivery failed");
 			},
 		});
@@ -202,9 +204,13 @@ describe("the watcher runner", () => {
 		source.answer(events("c1", 10_000));
 		await ambient.advance(0);
 		await ambient.advance(10_000);
+		source.answer({ kind: "events", events: [], cursor: "c2", nextPollMs: 10_000 });
+		await ambient.advance(0);
+		await ambient.advance(10_000);
 		await stopped(runner, ambient);
 
-		expect(source.cursors).toEqual([null, "c1"]);
+		expect(source.cursors).toEqual([null, "c1", "c2"]);
+		expect(landed).toBe(2);
 	});
 
 	it("stops for good, leaving no timer behind a poll that ignores its abort", async () => {

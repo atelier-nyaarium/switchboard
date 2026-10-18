@@ -1,6 +1,7 @@
 // The baseline a session's compact hook reads.
 
 import { createBaselineRoutes, type Handler } from "../sessionBaseline.js";
+import type { AssistantStage } from "./composeAssistant.js";
 import type { RoutineStage } from "./composeRoutines.js";
 import type { SessionsStage } from "./composeSessions.js";
 import type { StoresStage } from "./composeStores.js";
@@ -11,13 +12,14 @@ export interface BaselineStageDeps {
 	stores: Pick<StoresStage, "jobs">;
 	sessions: Pick<SessionsStage, "sessionAuthority" | "sessionStore">;
 	routines: Pick<RoutineStage, "openRuns">;
+	assistant: Pick<AssistantStage, "baselineFor">;
 }
 
 export interface BaselineStage {
 	routes: Map<string, Handler>;
 }
 
-export function composeBaseline({ context, stores, sessions, routines }: BaselineStageDeps): BaselineStage {
+export function composeBaseline({ context, stores, sessions, routines, assistant }: BaselineStageDeps): BaselineStage {
 	const { sessionAuthority, sessionStore } = sessions;
 	return {
 		routes: createBaselineRoutes({
@@ -33,6 +35,7 @@ export function composeBaseline({ context, stores, sessions, routines }: Baselin
 				return board.kind === "ok" ? board.entries : null;
 			},
 			openRuns: (team) => routines.openRuns(team),
+			assistant: (team) => assistant.baselineFor(team),
 			runningAgents: (team) => {
 				const record = sessionStore.getByTeam(team);
 				if (!record) return [];

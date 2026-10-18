@@ -62,8 +62,10 @@ export class ChannelDeliveryCoordinator {
 	}
 
 	/** The receiver confirmed it emitted this one. */
-	acknowledge(deliveryId: string): boolean | "migrating" {
+	/** With `team`, only that team's own row. */
+	acknowledge(deliveryId: string, team?: string): boolean | "migrating" {
 		const held = this.deps.store.snapshot().deliveries.find((delivery) => delivery.deliveryId === deliveryId);
+		if (team !== undefined && held?.team !== team) return false;
 		const retired = this.deps.store.acknowledge(deliveryId);
 		if (retired === true && held) this.deps.retireStaging?.(blobIdsOf([held]));
 		return retired;
@@ -112,6 +114,16 @@ export class ChannelDeliveryCoordinator {
 /** The wire shape, built from the stored row rather than from live state, so a message delivered
  * after a restart is byte-for-byte the one that was accepted. */
 export function channelPushPayload(delivery: PendingDelivery): Record<string, unknown> {
+	if (delivery.event) {
+		return {
+			type: "channel_push",
+			event: true,
+			from: "",
+			session_id: "",
+			body: delivery.body,
+			delivery_id: delivery.deliveryId,
+		};
+	}
 	const payload: Record<string, unknown> = {
 		type: "channel_push",
 		from: delivery.from,

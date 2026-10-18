@@ -31,6 +31,16 @@ function awarenessReminder(awareness: RidingAwareness | undefined): ReminderBloc
 
 /** Arrives as a `<channel ...>content</channel>` tag. */
 export async function emitChannelNotification(server: Server, payload: ChannelPushPayload): Promise<void> {
+	// Data only: no sender, no conversation, no instructions, so nothing reads as a reply owed.
+	if (payload.event === true) {
+		await server.notification({
+			method: "notifications/claude/channel",
+			params: { content: composeModelMessage({ body: payload.body }), meta: { event: "true" } },
+		});
+		console.error(`[channel] emitted an event`);
+		return;
+	}
+
 	const filesBlock = await filesBlockFor(payload.message_id, payload.files);
 
 	// Prose ONLY. Every structured field rides in `meta`, which the harness renders as attributes.

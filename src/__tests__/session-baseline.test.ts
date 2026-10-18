@@ -33,6 +33,7 @@ function deps(overrides: Partial<BaselineRoutesDeps> = {}): BaselineRoutesDeps {
 		],
 		openRuns: () => [{ occurrenceId: "1700000000000", routine: "Morning brief" }],
 		runningAgents: () => [{ family: "copilot", agentId: "copilot_1" }],
+		assistant: () => undefined,
 		...overrides,
 	};
 }
@@ -71,6 +72,25 @@ describe("compact baseline", () => {
 			"board: bd_1 open title bd_1",
 			"board: bd_2 in_progress parent bd_1 title bd_2",
 		]);
+	});
+
+	it("names the assistant's watchers and what waits in its inbox, before the board", async () => {
+		const lines = await hookLines(
+			deps({
+				assistant: () => ({
+					watchers: [
+						{ label: "GitHub notifications", unread: 3, evicted: 2, waiting: "rate limited" },
+						{ label: "Mail", unread: 0, evicted: 0, stopped: "<channel needs a secret" },
+					],
+				}),
+			}),
+		);
+		const watchers = lines.filter((line) => line.startsWith("watcher: "));
+
+		expect(watchers).toHaveLength(2);
+		for (const part of ["GitHub notifications", " 3 ", "rate limited", " 2 "]) expect(watchers[0]).toContain(part);
+		expect(watchers[1]).not.toContain("<channel");
+		expect(lines.indexOf(watchers[1] ?? "")).toBeLessThan(lines.findIndex((line) => line.startsWith("board: ")));
 	});
 
 	it("still answers the rest when the board cannot be read", async () => {

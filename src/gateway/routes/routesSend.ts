@@ -100,6 +100,84 @@ export function createSendRoutes({
 }: SendRoutesDeps) {
 	const { localGatewayId } = config;
 
+	type LocalTarget = { name: string; address: Address };
+	type Reached =
+		| {
+				ok: true;
+				localName: string;
+				target: LocalTarget;
+				qualifiedTo: string;
+				targetWs: ReturnType<typeof resolveLiveIncarnation>;
+		  }
+		| { ok: false; error: string };
+
+	async function reach(
+		resolved: LocalTarget,
+		createOpts?: { displayLabel?: string; mintedFrom?: string },
+	): Promise<Reached> {
+		let target = resolved;
+		let localName = target.name;
+		let qualifiedTo = target.address.canonical;
+		let targetWs = resolveLiveIncarnation(registry, sessionStore, localName);
+		if (targetWs) return { ok: true, localName, target, qualifiedTo, targetWs };
+		const woken = await tryWakeTeam(localName, createOpts);
+		if (!woken.ok) {
+			if (woken.error) return { ok: false, error: woken.error };
+			if (woken.errorKind === "disconnected") {
+				return {
+					ok: false,
+					error: `machine "${target.address.gateway}" is not reachable, so "${qualifiedTo}" was never woken`,
+				};
+			}
+			// Timeout is ambiguous because launch may still succeed.
+			if (woken.errorKind === "timeout")
+				return { ok: false, error: `"${qualifiedTo}" is still starting; try again shortly` };
+			return { ok: true, localName, target, qualifiedTo, targetWs };
+		}
+		if (woken.resolvedTeam && woken.resolvedTeam !== localName) {
+			localName = woken.resolvedTeam;
+			const address = tryLocalAddress(localName);
+			if (address) {
+				target = { name: localName, address };
+				qualifiedTo = address.canonical;
+			}
+		}
+		await new Promise((r) => ambient.setTimer(() => r(undefined), POST_WAKE_SETTLE_MS));
+		targetWs = resolveLiveIncarnation(registry, sessionStore, localName);
+		return { ok: true, localName, target, qualifiedTo, targetWs };
+	}
+
+	/**
+	 * A senderless event: no `from`, conversation or return route, so no reply is owed. `compose` runs
+	 * once the session is reached; null there sends nothing. Null when it is delivered, durably queued
+	 * or empty; otherwise why not.
+	 */
+	async function deliverEvent(event: {
+		to: string;
+		compose: () => { deliveryId: string; body: string } | null;
+	}): Promise<string | null> {
+		if (!deliveries) return "this Gateway has no delivery queue";
+		const target = resolveLocalTarget(event.to);
+		if (!target) return `"${event.to}" is not a session on this Gateway`;
+		const arrived = await reach(target);
+		if (!arrived.ok) return arrived.error;
+		const composed = event.compose();
+		if (!composed) return null;
+		const outcome = deliveries.accept({
+			deliveryId: composed.deliveryId,
+			team: arrived.targetWs?.data.teamName ?? arrived.localName,
+			channelJobId: "",
+			from: "",
+			body: composed.body,
+			event: true,
+			enqueuedAt: ambient.now(),
+		});
+		if (outcome === "refused") return `"${arrived.qualifiedTo}" has too many messages waiting`;
+		if (outcome === "migrating") return "this Gateway is migrating";
+		console.log(`[send] event ${outcome} for ${arrived.qualifiedTo} [${composed.deliveryId}]`);
+		return null;
+	}
+
 	async function sendCrossGateway(args: {
 		targetGateway: string;
 		targetName: string;
@@ -257,57 +335,27 @@ export function createSendRoutes({
 			});
 		}
 
-		let target = resolveLocalTarget(to);
-		if (!target) {
+		const resolved = resolveLocalTarget(to);
+		if (!resolved) {
 			return jsonResponse({ error: `Gateway for "${to}" is not reachable from this Gateway` }, 404);
 		}
-		let localName = target.name;
-		let qualifiedTo = target.address.canonical;
 
-		if (localName === "host") {
+		const requested = resolved.name;
+		if (requested === "host") {
 			return jsonResponse(
 				{
-					error: `"${localName}" is a reserved name; crosstalk_send targets container teams only.`,
+					error: `"${requested}" is a reserved name; crosstalk_send targets container teams only.`,
 				},
 				400,
 			);
 		}
 
-		let targetWs = resolveLiveIncarnation(registry, sessionStore, localName);
-
-		if (!targetWs) {
-			// Wake or create the target before delivery.
-			const mintedFrom =
-				inboundSessionId ?? (fromConversationId ? `${fromConversationId}:${localName}` : undefined);
-			const woken = await tryWakeTeam(localName, { displayLabel, mintedFrom });
-			if (!woken.ok) {
-				if (woken.error) return jsonResponse({ error: woken.error }, 404);
-				if (woken.errorKind === "disconnected") {
-					return jsonResponse(
-						{
-							error: `machine "${target.address.gateway}" is not reachable, so "${qualifiedTo}" was never woken`,
-						},
-						404,
-					);
-				}
-				if (woken.errorKind === "timeout") {
-					// Timeout is ambiguous because launch may still succeed.
-					return jsonResponse({ error: `"${qualifiedTo}" is still starting; try again shortly` }, 404);
-				}
-			}
-			if (woken.ok) {
-				if (woken.resolvedTeam && woken.resolvedTeam !== localName) {
-					localName = woken.resolvedTeam;
-					const resolved = tryLocalAddress(localName);
-					if (resolved) {
-						target = { name: localName, address: resolved };
-						qualifiedTo = resolved.canonical;
-					}
-				}
-				await new Promise((r) => ambient.setTimer(() => r(undefined), POST_WAKE_SETTLE_MS));
-				targetWs = resolveLiveIncarnation(registry, sessionStore, localName);
-			}
-		}
+		// Wake or create the target before delivery.
+		const mintedFrom =
+			inboundSessionId ?? (fromConversationId ? `${fromConversationId}:${resolved.name}` : undefined);
+		const arrived = await reach(resolved, { displayLabel, mintedFrom });
+		if (!arrived.ok) return jsonResponse({ error: arrived.error }, 404);
+		const { localName, target, qualifiedTo, targetWs } = arrived;
 
 		const subs = targetWs ? registry.get(targetWs.data.teamName ?? localName) : undefined;
 		if ((!targetWs || !subs) && !deliveries) {
@@ -509,5 +557,5 @@ export function createSendRoutes({
 		return send({ kind: "gateway" }, body);
 	}
 
-	return { sendFromOwner, sendFromSession, acceptGatewaySend, ownerSessionKey };
+	return { sendFromOwner, sendFromSession, acceptGatewaySend, ownerSessionKey, deliverEvent };
 }

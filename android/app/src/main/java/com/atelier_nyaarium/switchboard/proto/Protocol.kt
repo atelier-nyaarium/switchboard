@@ -1090,6 +1090,7 @@ data class AssistantWatcher(
 	val pingDefault: Boolean? = null,
 	val rules: AssistantWatcherRules? = null,
 	val dropped: Long? = null,
+	val woken: Long? = null,
 )
 
 @Serializable

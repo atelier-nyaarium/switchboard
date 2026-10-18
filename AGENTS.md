@@ -7,7 +7,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/main-mcp.ts` / `main-gateway.ts` / `main-host-daemon.ts` / `main-federation.ts` / `main-vault-askpass.ts` / `main-session-hook.ts` - six entry points
 - `hooks/hooks.json` / `src/mcp/baseline/baselineHook.ts` - the plugin's SessionStart `compact` hook and what it prints
 - `src/mcp/devcontainer/hostResolve.ts` `assistantPermissionArgs` - the assistant's launch: Claude Code's permission engine in `dontAsk` with a closed `--tools` list and inline settings, the boundary its hook layers over
-- `src/mcp/assistant/gate.ts` / `gateHook.ts` - the assistant's PreToolUse gate, `main-session-hook gate`: a deny-only second layer by exact tool name, and the only check on reply attachments and refs
+- `src/mcp/assistant/gate.ts` / `gateHook.ts` - the assistant's PreToolUse gate, `main-session-hook gate`: a deny-only second layer by exact tool name, and the only check on the attachments and refs of `channel_reply` and `notify_human`
 - `src/mcp/assistant/instructions.ts` - the assistant's standing rules in its MCP instructions, and `scopeTools`, which lists only its own Switchboard tools
 - `src/shared/assistant-session.ts` / `src/gateway/compose/composeAssistant.ts` - the assistant's one session: placed and released by owner ops, its record being where it lives, owned by provenance, reserved from both sweeps, never plainly forgotten; the `assistant_*` console handlers. `docs/assistant.md` holds the design
 - `src/gateway/assistant/watcher.ts` / `inboxStore.ts` / `watcherRunner.ts` / `githubWatcher.ts` - what a watcher polls and answers; the inbox, sole owner of events, cursors, health and read positions, written by each poll and each re-sort, and read only as of a clock through the trim a write applies; the runner that polls each watcher on its own clock, never two at once, and polls one again when its grant changes; GitHub notifications, read-only
@@ -16,6 +16,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/shared/schemasAssistantRules.ts` / `src/gateway/assistant/rulesStore.ts` - watcher rules: the record, `ruleRefusal`, `firstMatch`, `decideEvent`; the store, sole writer, one rule per op on the policy store's model
   - **A rule has an id, so no edit is positional:** a put or a delete names its rule and the revision it read, a move names its rule and the one it goes before, and every op answers with the held rules whether or not it stored, so the phone decides from that answer and never from a drawn copy a newer read can beat. A lost answer repeats as stored; a deleted id stays buried in memory, up to 256, so a retried create cannot bring it back.
   - **The inbox catches up, never the rules:** a save lands in the rules store first, then the inbox sorts its kept drops again under that revision in one checked write. A start or a poll whose inbox revision differs sorts again, so a crash between the two files, or a rules file that started fresh, loses nothing.
+- `src/shared/schemasAssistantInbox.ts` / `src/gateway/assistant/assistantRoutes.ts` / `src/mcp/assistant/inboxTool.ts` - the inbox's wire, `eventLines` the one rendering of an event; the Gateway doors, each answering only the assistant's own token; the `inbox` tool, registered for `host.assistant` alone
+  - **The inbox decides and the delivery queue applies:** a wake-sorted row stays unread in the inbox until `deliverEvent` delivers or durably queues it, up to 20 rows a push, then moves to `woken` in a checked write. A failed wake retries on its own backoff. Catch-up runs at start, after each landed poll, after a re-sort, on placement and when the wake is bound, so a wake that did not land is tried again under the same delivery id.
+  - **An event is data, end to end:** `ChannelPushPayload.event` and `PendingDelivery.event` carry it through the durable delivery row, and `emitChannelNotification` gives it no sender, `session_id` or `meta.instructions`.
+  - **A flush moves nothing; a confirm moves read positions:** only up to the boundaries the flush answered, never down and never past a sequence not yet handed out, so a session that lost the answer reads it again.
 - `android/.../AssistantOps.kt` / `ConsoleClientAssistant.kt` / `assistant/AssistantScreen.kt` - the gateway calls, the move that places before it releases, the strip and health lines, and the Assistant view with its settings sheet
 - `android/.../assistant/RuleDraft.kt` / `WatcherRulesSheet.kt` - the rule editor's model and `outcomeOf`, the one reading of a rule op's answer; the rules list and the editor sheet
 - `src/gateway/sessionBaseline.ts` / `compose/composeBaseline.ts` / `src/shared/session-baseline.ts` - the baseline a compacted session reads back, its loopback door, and its wire shape
@@ -43,7 +47,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/routes.ts` - `RoutesDeps`, `RoutesCarryOver`, and the composer that wires the route modules
 - `src/gateway/routes/addressing.ts` / `callerGuards.ts` / `relay.ts` - local address minting, the refusal gates, cross-Gateway relay
 - `src/gateway/routes/routesStatus.ts` / `routesCapabilities.ts` / `routesPresence.ts` - health, pending and teams; the capability fold; discovery
-- `src/gateway/routes/routesSend.ts` / `routesRespond.ts` / `routesBoard.ts` - the send, the reply and its poll, the task board
+- `src/gateway/routes/routesSend.ts` / `routesRespond.ts` / `routesBoard.ts` - the send and `deliverEvent`, the senderless watcher event, sharing `reach`; the reply and its poll; the task board
 - `src/gateway/routes/routesHumanNotify.ts` / `routesBlob.ts` - console push, and the local-then-Router blob read
 - `src/gateway/boot.ts` - `GatewayBootstrap.resolve`, the boot phase decision, the federation slice types, and `RouterHandlers` split into frames and presence
 - `src/gateway/router/registerAuth.ts` / `valueResult.ts` - the `gateway_register` frame and the `value_result` settlement, pure
@@ -501,7 +505,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../ConsoleTransportCoordinator.kt` / `ConsoleSocketDriver.kt` - one Router consumer across two transports, and generation-fenced frame routing
 - `android/.../Federation.kt` / `FederationManager.kt` / `CrossDomainLink.kt` / `ConsoleClientCrossDomain.kt` / `CrossDomainPresenceUi.kt` - cross-Gateway routing, identity, allowlist, sealing, replay, and presence
 - `src/mcp/` - Claude Code tools
-- `src/shared/system-reminder.ts` - sole builder of the reminder tag, `neutralizeMarkup` for model-bound text, and the files, reminder, body order; never for phone-bound text
+- `src/shared/system-reminder.ts` - sole builder of the reminder tag, `neutralizeMarkup` and `oneLine` for model-bound text, and the files, reminder, body order; never for phone-bound text
 - `src/mcp/toolResultGuard.ts` - every tool result and thrown error neutralized, wrapped at registration
 - `src/mcp/bridge/` / `channel/` / `references/` / `board/` / `designer/` / `connector/` - bridge, channel, reference, board, designer, and connector tools
 - `src/mcp/vault/vaultTools.ts` / `vaultRun.ts` - vault tools over the gateway's loopback routes, and the child run that injects a value and scrubs it from the output
@@ -729,10 +733,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     change to what the reader was shown. Same function as a window descriptor's hash, different span;
     the two are never compared to each other.
 - `src/shared/session-id.ts` - sole address grammar owner
-- `src/shared/session-commands.ts` - what a session can be told to call: one entry per command, holding the tool name, the gateway path and both schemas
+- `src/shared/session-commands.ts` - what a session can be told to call: one entry per command, holding the tool name, the gateway path and both schemas; `ASSISTANT_COMMANDS` holds the assistant's commands
   - **A nudge names a command, never a tool:** the prose renders the catalogue's name, the gateway
     serves its path and the MCP registers it, so words cannot ask for something nothing answers.
-    `check:boot` runs the real `main-mcp` and proves the tool is there.
+    `check:boot` runs the real `main-mcp` and proves the tool is there, and that `host.assistant`
+    lists every tool its scope names.
 - `src/shared/host-spawn.ts` - sole host-shell spawn-segment and command owner
 - `src/shared/crypto.ts` / `admission.ts` / `router-protocol.ts` / `federation-lifecycle.ts` - federation trust wire vocabulary
 - `src/shared/notice.ts` - shared notice tiers
