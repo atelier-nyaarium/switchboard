@@ -14,6 +14,7 @@ const RECALL_FIRST = [
 	"Keep exact: file paths, ids, commit hashes, commands, error messages, each channel session_id with who is on it, task board entry ids, agent ids, vault job ids, routine occurrence ids.",
 	"Current state: what is done and verified, and what is done but unverified.",
 	"Next steps, in order.",
+	"Deferred work: every task set aside for later, with when to act on it: a date and time, an event, or another task finishing. Turn each relative time into an absolute date.",
 	"Drop what a re-read or re-run recovers, keeping its path or command.",
 	"If a team exists, keep its team_name, each teammate's name and agentType, its config and tasks paths, and in-flight task ids with owners.",
 ].join(" ");
