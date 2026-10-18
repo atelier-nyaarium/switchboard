@@ -35,7 +35,8 @@ Gated on reversibility.
 
 **The hook:** host sessions launch with `--dangerously-skip-permissions`, so the boundary is a
 PreToolUse hook, not the prompt. It ships in the Switchboard plugin, outside the session's write
-access, and applies to the session its spawn marks as the assistant. It is a closed allowlist:
+access, and applies to the session its spawn marks as the assistant and to any session working
+inside notes. It is a closed allowlist:
 
 - **Allowed:** reads, replies on its own conversation, and the assistant's own tools.
 - **Writes:** `Write`, `Edit` and `NotebookEdit` inside notes, judged by the resolved path, never to
@@ -94,13 +95,13 @@ configured per host.
   and its error rides in the reminder lines.
 - **Ping:** each watcher and action declares a default, and a rule can override it. A feed defaults
   to no ping.
-- **A dropped event is kept 7 days.** Each reload sorts the kept drops again under the new set and
-  delivers any that now wake or hold.
+- **A rule-dropped event is kept 7 days.** Each reload sorts the kept drops again under the new set
+  and delivers any that now wake or hold.
 
 ### Limits
 
-An inbox cap and a retention window. Overflow drops the oldest held items, and the count rides in
-the reminder lines.
+An inbox cap and a retention window. Overflow evicts the oldest held items for good, and the count
+rides in the reminder lines.
 
 ## Delivery
 

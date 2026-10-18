@@ -155,53 +155,62 @@ The owner talks to the assistant through an ordinary conversation thread until t
 
 Write `docs/assistant.md` from the questionaire: the session, notes, the gate, effects, triggers, base types, digest, reminders.
 
+✅ Written, aligned, red-teamed and committed in `ec2d576a`. The red team and architecture audits reshaped Phases 2-6 below.
+
 ## Phase 2 - Notes workspace, session and interim gate
 
-- `~/projects/notes/` under git. `AGENTS.md` holds the standing rules and names the note files; the fixed sections (open threads, pending asks, decisions, commitments) live in their own writable files.
-- **Session:** the `host` spawn point with `~/projects/notes` as its working directory, created once as a stable named session and resumed, never recreated. A spawn point here is `host` or `windows`; notes is a working directory.
-- **Reservation:** both the 30-day session sweep and the capacity sweep skip the assistant session. Today `reservedByRoutine` guards only the capacity pass, and the TTL pass deletes by `lastSeen` first.
-- **Assistant identity:** the Gateway records which session is the assistant, and its spawn marks it. The plugin registers assistant tools only there, and assistant routes refuse any other token. The shared `/capabilities` list carries no session identity, so it cannot be the check.
-- **Gate hook:** host sessions launch with `--dangerously-skip-permissions`, so a PreToolUse hook is the boundary, not the prompt. It ships in the plugin's `hooks.json`, outside anything the session can write, and applies to the marked session. A notes `.claude/settings.json` would be writable or missing.
-  - **Closed allowlist:** reads, `channel_reply` on its own conversation, and the assistant's tools.
-  - **Writes:** `Write`, `Edit` and `NotebookEdit` inside notes, judged by the resolved path so a symlink cannot leave, never `AGENTS.md`, `.claude/`, `.git/` or `watchers/`.
+- **Notes:** `~/projects/notes/` under git. `AGENTS.md` holds the standing rules and names the note files; the fixed sections (open threads, pending asks, decisions, commitments) live in their own writable files.
+- **Identity:** `SessionRecord` carries a persisted assistant role, held by at most one record, checked on assign and on restore. An assistant provisioner on the Gateway sets the role, then launches once through the existing `createSession` road on the `host` spawn point with the notes working directory; reattach keeps the role. Generic forget refuses the assistant record. Identity is never inferred from spawn point, working directory, label or `mintedFrom`. `tryWakeTeam` resumes the session but never mints it.
+- **Reservation:** `reservedByRoutine` becomes one `sessionReserved(team)` decision: `routines.reserves(team)` or the assistant role. `SessionStore.sweep` consults it in both the TTL and the capacity pass; liveness stays a capacity-only check. Today the TTL pass deletes by `lastSeen` before any reservation is read.
+- **Authority:** `SessionAuthority` answers whether a token is the assistant's. `startMcp` registers assistant tools only on that answer, and every assistant route checks it per request. `/capabilities` stays machine-scoped, since it carries no session identity.
+- **Gate hook:** host sessions launch with `--dangerously-skip-permissions`, so a PreToolUse hook is the boundary, not the prompt.
+  - **Where:** a second mode of the `main-session-hook` bundle in the plugin's `hooks.json`, with a catch-all matcher and its own handler module, outside anything the session can write. A notes `.claude/settings.json` would be writable or missing.
+  - **Who:** the provisioner's launch exports an assistant marker, and the hook also gates any session whose working directory resolves inside notes. Either is enough, so an assistant resumed by hand without the marker is still gated. A shell pre-check exits at once for every other session, so ordinary sessions pay no `bun` start per tool call.
+  - **Closed allowlist:** exact names only: `Read`, `Glob`, `Grep`, `channel_reply`, and the assistant's tools from one registry shared with their registration, each declaring its gate class. An unknown name or malformed input denies.
+  - **Writes:** `Write`, `Edit` and `NotebookEdit` inside notes. The path rule extends `confine()` to take Claude's absolute and cwd-relative paths and judges the resolved target, never `AGENTS.md`, `.claude/`, `.git/` or `watchers/`. It is a pre-tool path decision, not race-proof isolation.
   - **Refused:** every other tool. That covers `Bash`, `vault_run` (it runs shell commands with no entry), `Agent`, `Workflow`, Codex and Copilot delegation (a child ignores this hook), and other MCP servers' tools.
+  - **Output:** a refusal prints `permissionDecision: "deny"` with its reason and exits 0. A processing error exits 2, which blocks.
+  - **Replies:** check that the reply route refuses a conversation not addressed to the caller, and bind it there if not.
   - Event text is untrusted data.
 
 ## Phase 3 - Event inbox, Watcher type and runner
 
-- **Stage:** an assistant compose stage beside routines. It restores its store before polling, starts on federation activation, and drains before the shutdown flush, as `composeRoutines` does.
-- **Watcher type:** a poll answers events, backoff or stopped. Each watcher polls on its own interval, serialized per watcher.
-- **Durability:** a poll commits its events and the new cursor in one checked snapshot. A failed write keeps the old cursor. Events carry stable ids, so a replay after a crash dedupes. Every event the inbox keeps is delivered at least once.
-- **Limits:** an inbox cap and retention window. Overflow drops the oldest held items, and the count rides in the reminder lines.
+- **Stage:** an assistant compose stage beside routines. It restores its store before polling, starts on federation activation, and stops and awaits in-flight polls and deliveries before the shutdown flush, as `composeRoutines` does. It resolves the assistant through `SessionStore` and keeps no second session id.
+- **Store:** one inbox store, sole owner of events, source cursors, poll health, read positions, dispositions and dedupe state. One versioned snapshot through `openDurable`, changed by one checked commit, following `createOccurrenceStore`. A write that fails before install restores the previous memory state; `DurableStoreInstalledError` counts as landed. `PendingDeliveryStore` stays channel transport, never this inbox.
+- **Watcher type:** each validated watcher has a stable id. A poll answers events, backoff or stopped. Each watcher polls on its own interval, serialized per watcher.
+- **Durability:** a poll's events, its new cursor and its health land in one checked commit. A failed write keeps the old cursor. Events carry stable source ids, and dedupe identity outlives the event row by the retention window, so a late replay cannot resurrect it. Every held or wake-eligible event is delivered at least once.
+- **Dispositions:** `held`, `woken`, `ruleDropped` (re-sortable for 7 days) and `evicted` (final, by overflow). An event that becomes eligible again gets a fresh delivery sequence and keeps its source id, so an advanced read position cannot skip it.
+- **Limits:** an inbox cap and a retention window for held items. Overflow evicts the oldest held items, and the count rides in the reminder lines.
 - **Health:** each watcher's last success, next poll, backoff and stopped state survive a restart and ride in the reminder lines.
 
 ## Phase 4 - GitHub notifications watcher
 
-- Polls `/notifications` with `If-Modified-Since`, honors `X-Poll-Interval` with a 60-second fallback, and backs off on rate limits.
-- Read-only: it never marks a thread read on GitHub. Marking read is an action, next slice.
-- Tested against fake responses.
-- **Grant:** a `watcher` kind on `VaultHolder`, standing and entry-wide; today a standing grant belongs only to a routine with an open occurrence. The watcher's rule file names its entry, and only the owner's grant opens it. The owner's road to that grant is open, below.
-- **Gateway read:** the session-bound `/vault/use` route cannot serve a watcher, and `openValue` checks no grant. An internal use refreshes the entry, runs the grant check and the Gateway allowlist, and fails closed.
+- Polls `/notifications` with `If-Modified-Since`, honors `X-Poll-Interval` with a 60-second fallback, and backs off on rate limits. Its cursor and events commit through the inbox store as one transaction.
+- Read-only: it never marks a thread read on GitHub. Marking read is an action, next slice. Tested against fake responses.
+- **Holder:** `watcher` joins `VaultHolderSchema` as the third kind, with a stable `watcherId`; the comment naming `remote` as the third kind is updated. The grant type encodes the valid pairs rather than leaving them to `holderFitsTier`: a session holds window or session grants, a routine or a watcher holds a standing one. `covers` matches a watcher by id; routine liveness stays tied to its session. Today a standing grant belongs only to a routine with an open occurrence.
+- **Owner's grant:** per the Open item. Under the recommended road, an entry request carries its holder apart from `sessionTarget`, which only routes the row to the assistant's thread, and requests match by holder. The sheet offers "Allow always" only for a watcher, mapped to a standing grant; window and session are refused for one. The grant commits before the request settles approved. The watcher's rule file names its entry; only the owner's tap grants it.
+- **Gateway read:** the `/vault/use` flow (`ready`, `usable`, `decide`, `release`) moves into one `createVaultUse` service composed by `composeVault`. The route and a `readForWatcher` port both call it; `covers` stays the grant predicate, and the entry and the Gateway allowlist are resolved again before release. `openValue` stays decrypt-only.
+- **Lifecycle:** an accepted rules reload that removes a watcher retracts its open requests and prunes its grants. A rejected reload keeps both.
 
 ## Phase 5 - Rules
 
-- `watchers/*.yaml` in notes sort each event: wake, hold, drop. Each watcher declares its ping default; a rule can override it.
+- `watchers/*.yaml` in notes sort each event: wake, hold, drop. Each watcher declares its ping default; a rule can override it. A watcher's file names its vault entry.
 - **Reaching the Gateway:** the Gateway container mounts only its log and data, so Compose adds a read-only mount of the notes `watchers` directory, configured per host.
 - **Parsing:** a schema validates each file. A reload is all-or-nothing: a bad file keeps the last valid set and puts the error in the reminder lines. The parser is Bun's built-in YAML behind an injected parse, so Vitest under Node can run it, or an exact-pinned `yaml` package.
-- **Drops stay undoable:** a dropped event is kept for 7 days. Each reload sorts the kept drops again under the new set, and one that now wakes or holds is delivered. That keeps rule edits undoable under Question 4.
-- **Owner-only:** the gate hook refuses assistant writes to `watchers/`, so injected event text cannot rewrite the rules that sort later events.
+- **Drops stay undoable:** a rule-dropped event is kept for 7 days. Each accepted reload sorts the kept drops again through the inbox store, and one that now wakes or holds gets a fresh delivery sequence. An evicted event is never sorted again. That keeps rule edits undoable under Question 4.
+- **Owner-only:** Phase 2's path rule refuses assistant writes to `watchers/`, so injected event text cannot rewrite the rules that sort later events. Nothing here adds a second write check.
 
 ## Phase 6 - Wake and held delivery
 
-- **Wake:** goes through the send route's wake path, so an offline session is woken. A failed wake leaves the event held.
-- **Data only:** an assistant event carries no `meta.instructions`, which the channel notification sets on every message today. `CHANNEL_INSTRUCTIONS` states once how to treat one.
-- **Ping:** in this slice the wake carries the resolved ping as a data line, and `AGENTS.md` tells the assistant to notify the owner only when it says yes. The phone-side flag comes with the phone view.
-- **Held:** `flush(watchers)` answers a batch, and the read position moves only when the caller confirms the batch arrived; an unconfirmed batch is answered again. A `held` MCP tool calls it, registered only in the assistant session.
-- **Baseline:** held counts and watcher health ride in the reminder block, and join the compaction baseline's schema, route and hook lines. They render before the board, which `renderBaseline` cuts when the budget runs out.
+- **Wake:** a typed, senderless assistant-event input to the shared send path in `routesSend`, with no `from`, conversation id or return route. It shares target resolution, `tryWakeTeam` and `ChannelDeliveryCoordinator` with ordinary sends, under a delivery id derived from the event. A failed wake leaves the event held. Channel acknowledgment never moves an inbox read position.
+- **Data only:** an `event` variant on `ChannelPushPayload` and `PendingDelivery`, kept through the durable delivery row. `emitChannelNotification` omits `meta.instructions` and reply fields for it; `no_ack` still sets instructions, so it is not this. `CHANNEL_INSTRUCTIONS` names the marker once: data, no `channel_reply` owed. The body still goes through `composeModelMessage` and `neutralizeMarkup`.
+- **Ping:** in this slice the event carries the resolved ping as a data line, and `AGENTS.md` tells the assistant to notify the owner only when it says yes. The phone-side flag comes with the phone view.
+- **Held:** `flush(watchers)` answers a batch id with the per-watcher boundaries it read. A separate confirm advances only those boundaries in a checked inbox commit; an unconfirmed batch is answered again. Flushes are serialized per watcher. The `held` tool calls flush and confirms once its result is returned, registered only after the identity check.
+- **Baseline:** an assistant section in `SessionBaselineSchema`, served by `createBaselineRoutes` for the assistant session only and rendered by `linesOf` after agents and before the board. `renderBaseline` stays the sole owner of order and budget.
 
 ## Gates, every phase
 
-Tests per mechanism: timing on the injected ambient, restore after restart, fake GitHub responses, rule parsing, wake, baseline. Then `check:boot`, `kotlin-gate.sh` for any schema change, the Gateway deployed first, and `docs/assistant.md` and the `AGENTS.md` map updated.
+Tests per mechanism: timing on the injected ambient, restore after restart, fake GitHub responses, rule parsing, wake, baseline, and the gate's allow and deny table. Then `check:boot`, `kotlin-gate.sh` for any schema change (the vault holder and request change carries the Kotlin models and `VaultRequestSheet`), the Gateway deployed first, and `docs/assistant.md`, `docs/vault.md` and the `AGENTS.md` map updated, `main-session-hook` as both the compact and the PreToolUse entry.
 
 ## Next slice
 
