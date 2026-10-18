@@ -27,7 +27,8 @@ const root = () => {
 const open = (
 	dir: string,
 	quota = new DomainQuota({ dir, limitBytes: 10_000_000, statfs: () => ({ available: 100_000_000 }) }),
-) => OwnerStateStore.open({ dataDir: dir, key, quota, ambient: processAmbient(), heartbeatMs: 10, staleMs: 100 });
+	staleMs = 100,
+) => OwnerStateStore.open({ dataDir: dir, key, quota, ambient: processAmbient(), heartbeatMs: 10, staleMs });
 const ownerDir = (dir: string) => path.join(dir, "owner", key.domainId, fingerprint(key.ownerSignPub));
 afterEach(() => {
 	vi.restoreAllMocks();
@@ -232,16 +233,18 @@ describe("OwnerStateStore", () => {
 
 	it("rejects a second live open and takes over stale ownership", () => {
 		const dir = root();
-		const first = open(dir);
-		expect(() => open(dir)).toThrow(OwnerLockHeld);
+		// Synchronous, so no heartbeat fires: the window must outlast a slow disk's open.
+		const staleMs = 60_000;
+		const first = open(dir, undefined, staleMs);
+		expect(() => open(dir, undefined, staleMs)).toThrow(OwnerLockHeld);
 		const lock = path.join(ownerDir(dir), "owner.lock");
 		const value = JSON.parse(fs.readFileSync(lock, "utf8")) as {
 			pid: number;
 			generation: number;
 			heartbeatAt: number;
 		};
-		fs.writeFileSync(lock, JSON.stringify({ ...value, heartbeatAt: Date.now() - 1000 }));
-		const second = open(dir);
+		fs.writeFileSync(lock, JSON.stringify({ ...value, heartbeatAt: Date.now() - staleMs - 1000 }));
+		const second = open(dir, undefined, staleMs);
 		expect(first.put("share", "old", null, { clear: {} })).toMatchObject({ kind: "durability_failure" });
 		second.close();
 		first.close();
