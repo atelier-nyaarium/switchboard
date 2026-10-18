@@ -215,7 +215,9 @@ Write `docs/assistant.md` from the questionaire: the session, notes, the gate, e
 
 ## Phase 2 - Notes workspace, session and interim gate
 
-- **Notes:** `~/projects/notes/` under git. `AGENTS.md` holds the standing rules and names the note files; the fixed sections (open threads, pending asks, decisions, commitments) live in their own writable files.
+✅ Committed in `8cb4fb8a` and `ed97f452`; notes repo `ce3f0e0`, `20d5674`, `ba3ad27`. "Lives in" from the phone replaces `ASSISTANT_WORKDIR` in Phase 4.
+
+- ✅ **Notes:** `~/projects/notes/` under git. `AGENTS.md` is the owner's own instructions; the assistant's standing rules ship in the plugin (`ASSISTANT_INSTRUCTIONS`). The `Assistant/` memory files are the assistant's own, created as it works.
 - ✅ **Identity:** `host.assistant`, owned by provenance as a routine's reserved session is: `isAssistantRecord` reads `mintedFrom` against `ASSISTANT_RESERVE_KEY`, so a session that merely shares the name is not the assistant. Chosen over a persisted role field because routines already settle "a name is not a binding" this way. `composeAssistant` mints the record once at boot from `ASSISTANT_WORKDIR`, with no launch, so a Gateway booting before its host connects still provisions; the first wake launches it. A record someone else made under the name is left alone and logged. Unset `ASSISTANT_WORKDIR` makes the record ordinary again.
 - ✅ **Reservation:** `reservedByRoutine` became `sessionReserved`: `routines.reserves(team)` or `assistant.reserves(team)`. `SessionStore.sweep` takes a `SweepPolicy` and skips a reserved record in both the TTL and the capacity pass; liveness stays capacity-only. The TTL pass used to delete a routine's reserved session too.
 - ✅ **Forget:** `forgetRefusal` reaches the console's forget through `createConsoleDispatcher`, which refuses before any kill.
@@ -300,3 +302,10 @@ Tests per mechanism: timing on the injected ambient, restore after restart, fake
 - **Actions:** cards, Undo, and marking GitHub threads read.
 - **Timed compaction:** fires at a due time only when the REPL is idle, and skips while a card is open. Its interval is set in Assistant settings.
 - **Sources:** Gmail, then phone events.
+
+## Painpoints
+
+- **Path rules re-derived per caller:** `src/mcp/workspace/confine.ts:confine` says it is not a security boundary, yet the assistant gate leaned on it as one, and three red-team rounds found spellings it and the tools read differently. Any new "only this folder" need should start from the tool's own enforcement, not another derivation.
+- **Provenance is a caller-formable string:** `mintedFrom` is `${conversationId}:${opId}`, and a console op picks both, so `routineOwns` and `isAssistantRecord` can be satisfied by an owner op that means something else. A field only the Gateway writes would make ownership unforgeable.
+- **No per-session tool scope in the MCP server:** registration is capability-gated machine-wide, so scoping one session meant wrapping `registerTool` (`src/mcp/assistant/instructions.ts:scopeTools`). A declared scope per registrar would replace the wrapper.
+- **The cycle's phase text is cached at start:** `cycleStartPlan` copies each phase's detail, so the step prompts kept showing the original Phase 2 after the plan was rewritten.
