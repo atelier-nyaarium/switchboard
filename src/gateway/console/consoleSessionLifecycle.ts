@@ -33,6 +33,7 @@ export interface SessionLifecycleDeps {
 	dropSessionResume?: (team: string, boardDisposition: BoardDisposition) => void;
 	/** Close and forget end session grants. */
 	onSessionEnded?: (team: string) => void;
+	forgetRefusal?: (team: string) => string | null;
 	sessionStore?: Pick<
 		SessionStore,
 		| "getByTeam"
@@ -58,6 +59,7 @@ export function createSessionLifecycleHandlers({
 	awaitRegister,
 	dropSessionResume,
 	onSessionEnded,
+	forgetRefusal,
 	sessionStore,
 }: SessionLifecycleDeps) {
 	async function createSession(
@@ -239,6 +241,8 @@ export function createSessionLifecycleHandlers({
 	async function forget(op: Extract<ConsoleOp, { kind: "forget" }>, conversationId: string, opId: string) {
 		if (!relayToHost) throw new Error("terminal view unavailable on this Gateway");
 		const { name } = targets.requireLocalComposite(op.target, "forget");
+		const refusal = forgetRefusal?.(name);
+		if (refusal) throw new Error(`cannot forget "${name}": ${refusal}`);
 		if (isWakeInFlight?.(name)) throw new Error(`"${name}" is waking; wait for it to finish before forgetting`);
 		// Close refuses a terminal it did not launch; forget drops the record and leaves it running.
 		const record = sessionStore?.getByTeam(name);

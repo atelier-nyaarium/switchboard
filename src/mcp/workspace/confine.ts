@@ -20,6 +20,9 @@ export type ConfineRefusal =
 /** POSIX-separated, matching a Lexicon module path. Empty is the root. */
 export type Confined = { ok: true; absolute: string; relative: string } | { ok: false; refusal: ConfineRefusal };
 
+/** A caller's extra rule, run where `withheld` runs. The segment it refuses, or null. */
+export type Withhold = (segments: readonly string[]) => string | null;
+
 /** The inode, not the name, so two names for one inode compare equal. A string, since an inode can pass 2^53. */
 export type FileIdentity = string;
 
@@ -136,7 +139,12 @@ function withheld(segments: string[], leafIsTarget: boolean): string | null {
  *
  * An empty path is the root, which a listing needs; a read of it fails as not-a-file at load.
  */
-export function confine(root: string, relativeWritten: string, platform: string = process.platform): Confined {
+export function confine(
+	root: string,
+	relativeWritten: string,
+	platform: string = process.platform,
+	withhold?: Withhold,
+): Confined {
 	if (path.isAbsolute(relativeWritten) || /^[A-Za-z]:/.test(relativeWritten)) {
 		return { ok: false, refusal: { kind: "outside", detail: `${relativeWritten} is not workspace-relative` } };
 	}
@@ -159,7 +167,7 @@ export function confine(root: string, relativeWritten: string, platform: string 
 	// A directory holds no bytes, so withholding its name would only block listing it.
 	const leafRule = !target.directory;
 
-	const spelled = withheld(segments, leafRule);
+	const spelled = withheld(segments, leafRule) ?? withhold?.(segments);
 	if (spelled) return { ok: false, refusal: { kind: "excluded", detail: `${spelled} is not served` } };
 
 	if (target.real !== realRoot && escapes(realRoot, target.real)) {
@@ -167,7 +175,8 @@ export function confine(root: string, relativeWritten: string, platform: string 
 	}
 
 	// Creation resolves to an ancestor, whose leaf is not this target's leaf.
-	const resolved = withheld(segmentsOf(realRoot, target.real), target.exists && leafRule);
+	const realSegments = segmentsOf(realRoot, target.real);
+	const resolved = withheld(realSegments, target.exists && leafRule) ?? withhold?.(realSegments);
 	if (resolved)
 		return { ok: false, refusal: { kind: "excluded", detail: `${relativeWritten} resolves to ${resolved}` } };
 

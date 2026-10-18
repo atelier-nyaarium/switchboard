@@ -29,6 +29,7 @@ function configFromEnv(): GatewayConfig {
 			process.env.FEDERATION_ROUTER_HOST,
 			process.env.FEDERATION_ROUTER_PORT,
 		),
+		assistantWorkdir: process.env.ASSISTANT_WORKDIR || undefined,
 	};
 }
 

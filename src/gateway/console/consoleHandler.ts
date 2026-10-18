@@ -57,6 +57,7 @@ export function createConsoleDispatcher({
 	workspaceAsk,
 	workspaceChanged,
 	onSessionEnded,
+	forgetRefusal,
 }: ConsoleHandlerDeps) {
 	const targets = createConsoleTargets({ localDomainId, localGatewayId, isTrustedCatalogProject });
 
@@ -81,6 +82,7 @@ export function createConsoleDispatcher({
 		awaitRegister,
 		dropSessionResume,
 		onSessionEnded,
+		forgetRefusal,
 		sessionStore,
 	});
 	const crossDomainOps = createCrossDomainHandlers({

@@ -19,6 +19,7 @@ hand-edited, so there is no `.env.example`. The compose files and the tuning ove
 | `ENROLL_LAN_HOST` | Host advertised on the enrollment payload's LAN leg, default `0.0.0.0` |
 | `MAX_BLOB_STORE_BYTES` | Blob sweep ceiling, default sixteen times the single-blob maximum. Tuning override |
 | `WAKE_TIMEOUT_MS` | How long a wake may take before it is given up on, default 600000. Tuning override |
+| `ASSISTANT_WORKDIR` | The assistant session's working directory on the host, absolute or `~`-rooted, such as `~/projects/notes`. Set it on one Gateway. Set, the Gateway provisions `host.assistant` there once, unless a session it did not make holds that name. Unset, there is no assistant and that record is ordinary. The Gateway cannot see the host's disk, so a path that does not exist launches in home, where the gate refuses every tool. See `docs/assistant.md` |
 | `ALLOW_FIXTURE_IDENTITY` | `1` lets the gateway start on the committed test identity (`src/shared/fixture-identity.ts`). Only `check:boot` sets it |
 
 ## Federation Router (Docker, its own compose project)

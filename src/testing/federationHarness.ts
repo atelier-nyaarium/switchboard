@@ -27,6 +27,7 @@ export interface FederationHarnessOptions {
 	wakeTimeoutMs?: number;
 	host?: Omit<FakeHostOptions, "token">;
 	seedContentKey?: boolean;
+	assistantWorkdir?: string;
 }
 
 export interface GatewayComposeOptions {
@@ -114,6 +115,7 @@ export async function startFederationHarness(options: FederationHarnessOptions =
 		now: options.now,
 		drive: options.drive,
 		wakeTimeoutMs: options.wakeTimeoutMs,
+		assistantWorkdir: options.assistantWorkdir,
 	});
 	const peers: DomainPeer[] = [];
 	let own: DomainPeer;
@@ -318,7 +320,7 @@ async function linkDomains(receiver: DomainPeer, requester: DomainPeer, now: () 
 }
 
 export async function startRouterOnly(
-	options: { now?: () => number; drive?: "real" | "manual"; wakeTimeoutMs?: number } = {},
+	options: { now?: () => number; drive?: "real" | "manual"; wakeTimeoutMs?: number; assistantWorkdir?: string } = {},
 ): Promise<RouterOnlyHarness> {
 	const set = loadIdentitySet();
 	const world = FixtureWorld.from(set);
@@ -382,6 +384,7 @@ export async function startRouterOnly(
 					hostWsToken: gatewaySet.tokens.host,
 					routerBootstrapUrl: null,
 					...(gatewayOptions.enrollNonce ? { enrollNonce: gatewayOptions.enrollNonce } : {}),
+					...(options.assistantWorkdir ? { assistantWorkdir: options.assistantWorkdir } : {}),
 				},
 				ambient: gatewayAmbient,
 				allowFixtureIdentity: true,

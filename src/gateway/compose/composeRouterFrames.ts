@@ -13,6 +13,7 @@ import { createGatewayRelayHandler, createGatewayRelayPump } from "../federation
 import { fireAndForget } from "../fireAndForget.js";
 import { composeValueResult } from "../router/valueResult.js";
 import { createRoutineExecution } from "../routines/execution.js";
+import type { AssistantStage } from "./composeAssistant.js";
 import type { AwarenessStage } from "./composeAwareness.js";
 import type { HostStage } from "./composeHost.js";
 import type { RouterPresenceBuild } from "./composeRouterPresence.js";
@@ -39,6 +40,7 @@ export interface RouterFramesStageDeps {
 	policies: Pick<import("./composePolicies.js").PolicyStage, "console">;
 	workspacePlane: Pick<import("../workspacePlane.js").WorkspacePlane, "ask">;
 	awareness: Pick<AwarenessStage, "awareness" | "workspaceObserve">;
+	assistant: Pick<AssistantStage, "forgetRefusal">;
 }
 
 export interface RouterFramesBuild extends RouterFrameHandlers {
@@ -117,6 +119,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 					{ sessionKey: team, identity: change.path, pre: undefined, post: change },
 				]),
 			onSessionEnded,
+			forgetRefusal: deps.assistant.forgetRefusal,
 		});
 
 		deps.routines.bindExecution(

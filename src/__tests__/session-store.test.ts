@@ -474,7 +474,7 @@ describe("SessionStore TTL", () => {
 		}
 		store.touchLive("host.livest");
 
-		const removed = store.sweep(1_000_000, { maxEntries: 2, isLive: (team) => team === "host.oldest" });
+		const removed = store.sweep(1_000_000, { cap: { maxEntries: 2, isLive: (team) => team === "host.oldest" } });
 
 		expect(removed).toEqual(["host.middle", "host.newest"]);
 		expect(store.getByTeam("host.oldest")).toBeDefined();
@@ -484,7 +484,7 @@ describe("SessionStore TTL", () => {
 	it("leaves the cap alone when the store is within it", () => {
 		const store = new SessionStore({ ambient: fakeAmbient({ now: () => 0 }), idGen: scriptedIds("only01") });
 		store.mint({ spawn: "host", sessionLabel: "only" });
-		expect(store.sweep(1_000, { maxEntries: 8, isLive: () => false })).toEqual([]);
+		expect(store.sweep(1_000, { cap: { maxEntries: 8, isLive: () => false } })).toEqual([]);
 		expect(store.getByTeam("host.only01")).toBeDefined();
 	});
 
@@ -495,8 +495,27 @@ describe("SessionStore TTL", () => {
 		});
 		store.mint({ spawn: "host", sessionLabel: "one" });
 		store.mint({ spawn: "host", sessionLabel: "two" });
-		expect(store.sweep(1_000, { maxEntries: 1, isLive: () => true })).toEqual([]);
+		expect(store.sweep(1_000, { cap: { maxEntries: 1, isLive: () => true } })).toEqual([]);
 		expect(store.list()).toHaveLength(2);
+	});
+
+	it("keeps a reserved record past both its age and the cap", () => {
+		let clock = 0;
+		const store = new SessionStore({
+			ambient: fakeAmbient({ now: () => clock }),
+			idGen: scriptedIds("kept01", "stale1", "other1"),
+		});
+		for (const label of ["kept", "stale", "other"]) store.mint({ spawn: "host", sessionLabel: label });
+		clock = 100;
+		store.touchLive("host.other1");
+
+		const removed = store.sweep(50, {
+			cap: { maxEntries: 0, isLive: () => false },
+			isReserved: (team) => team === "host.kept01",
+		});
+
+		expect(removed).toEqual(["host.stale1", "host.other1"]);
+		expect(store.list().map((record) => store.teamOf(record))).toEqual(["host.kept01"]);
 	});
 
 	it("forget removes the record and returns whether it existed", () => {

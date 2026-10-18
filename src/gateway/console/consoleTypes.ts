@@ -122,6 +122,8 @@ export interface ConsoleHandlerDeps {
 	/** A landed phone write, told to the session it changed. */
 	workspaceChanged?: (team: string, change: WorkspaceChange) => void;
 	onSessionEnded?: (team: string) => void;
+	/** The refusal reason, or null. */
+	forgetRefusal?: (team: string) => string | null;
 }
 
 export interface PolicyConsoleHandlers {

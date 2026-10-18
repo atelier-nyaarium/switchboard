@@ -30,11 +30,11 @@ export interface PersistenceStageDeps {
 	/** Swept sessions end like closed ones. */
 	sessionEnded?: (team: string) => void;
 	/**
-	 * Whether a routine reserves that session. Read late, since routines compose after this. A
-	 * reserved record is a reachability root: sweeping it leaves the routine unable to reach a
+	 * Whether a routine or the assistant reserves that session. Read late, since both compose after
+	 * this. A reserved record is a reachability root: sweeping it leaves its holder unable to reach a
 	 * session whose shell is still there, holding a token this gateway no longer knows.
 	 */
-	reservedByRoutine?: (team: string) => boolean;
+	sessionReserved?: (team: string) => boolean;
 	/** After sockets; reports expiries. */
 	sweepDeliveries?: () => number | undefined;
 	/** Queued data names bytes. */
@@ -48,6 +48,8 @@ export interface PersistenceStage {
 	/** Runs every writer's step in order. A clean shutdown writes checked snapshots. */
 	persistDelivery: (cleanShutdown: boolean) => void;
 	persistTimer: IntervalHandle;
+	/** The persist step's session sweep at any age. Answers the swept teams. */
+	sweepSessions: (ttlMs: number) => string[];
 }
 
 export function composePersistence({
@@ -56,11 +58,29 @@ export function composePersistence({
 	sessions,
 	context,
 	sessionEnded,
-	reservedByRoutine,
+	sessionReserved,
 	sweepDeliveries,
 	namesBlob,
 }: PersistenceStageDeps): PersistenceStage {
 	const runPersistSteps = createPersistRunner();
+	const sweepSessions = (ttlMs: number): string[] => {
+		const sweptTeams = sessions.sessionStore.sweep(ttlMs, {
+			cap: {
+				maxEntries: MAX_SESSION_RESUME_ENTRIES,
+				isLive: (team) => resolveLiveIncarnation(sessions.registry, sessions.sessionStore, team) !== undefined,
+			},
+			isReserved: (team) => sessionReserved?.(team) === true,
+		});
+		for (const team of sweptTeams) {
+			const released = context.slice()?.boardClient.sessionEnded(team, "release");
+			if (released) fireAndForget(`board release for ${team}`, released);
+			sessionEnded?.(team);
+			// The sweep took the record straight out of the store, so the facade is told what
+			// it would have known had the forget gone through it.
+			sessions.presence.forgotten(team);
+		}
+		return sweptTeams;
+	};
 	const persistDelivery = (cleanShutdown: boolean) =>
 		runPersistSteps([
 			{
@@ -70,26 +90,7 @@ export function composePersistence({
 						? stores.jobsDurable.saveChecked(stores.jobs.snapshot())
 						: stores.jobsDurable.save(stores.jobs.snapshot()),
 			},
-			{
-				name: "session-sweep",
-				run: () => {
-					const sweptTeams = sessions.sessionStore.sweep(SESSION_RESUME_TTL_MS, {
-						maxEntries: MAX_SESSION_RESUME_ENTRIES,
-						isLive: (team) =>
-							resolveLiveIncarnation(sessions.registry, sessions.sessionStore, team) !== undefined ||
-							reservedByRoutine?.(team) === true,
-					});
-					if (sweptTeams.length === 0) return;
-					for (const team of sweptTeams) {
-						const released = context.slice()?.boardClient.sessionEnded(team, "release");
-						if (released) fireAndForget(`board release for ${team}`, released);
-						sessionEnded?.(team);
-						// The sweep took the record straight out of the store, so the facade is told what
-						// it would have known had the forget gone through it.
-						sessions.presence.forgotten(team);
-					}
-				},
-			},
+			{ name: "session-sweep", run: () => void sweepSessions(SESSION_RESUME_TTL_MS) },
 			{ name: "op-idempotency-sweep", run: () => stores.durableOpStore.sweep() },
 			{ name: "board-idempotency-sweep", run: () => stores.boardReplays.sweep() },
 			{ name: "console-capabilities-sweep", run: () => stores.capabilityStore.sweep() },
@@ -138,5 +139,5 @@ export function composePersistence({
 		console.log(`[migration] settled: ${dropped} in-flight op(s) dropped for the client to re-run`);
 	}, 3_000);
 
-	return { persistDelivery, persistTimer };
+	return { persistDelivery, persistTimer, sweepSessions };
 }

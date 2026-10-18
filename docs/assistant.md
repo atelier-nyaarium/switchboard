@@ -5,8 +5,11 @@ it events. The session decides what to say and do.
 
 ## The session
 
-- **One session:** resumed at the `host` spawn point and never recreated. Its working directory is
-  `~/projects/notes`. The 30-day and capacity sweeps skip it.
+- **One session:** `host.assistant`, resumed and never recreated. `ASSISTANT_WORKDIR` names its
+  working directory, and the Gateway mints the record there once at boot; the first wake launches
+  it. A name is not a binding, so provenance decides, as for a routine: `isAssistantRecord` reads
+  the record's `mintedFrom`. The configured workdir governs, so a stored one is reset to it at
+  boot. The 30-day and capacity sweeps skip it, and a forget is refused.
 - **Opus only:** no model levels.
 - **One thread:** the owner talks to it through an ordinary conversation thread.
 - **Its own tools:** the plugin registers them only in the assistant session. The Gateway serves
@@ -18,7 +21,7 @@ it events. The session decides what to say and do.
 `~/projects/notes/` is durable memory under git and the session's working directory.
 
 - `AGENTS.md` holds the standing rules and names the note files.
-- The note files hold fixed sections for open threads, pending asks, decisions and commitments. The
+- `Assistant/` holds the note files: open threads, pending asks, decisions and commitments. The
   assistant updates them as it works, so their contents survive compaction.
 - `watchers/*.yaml` holds the rules that sort events. The owner edits them; the assistant cannot.
 
@@ -34,15 +37,38 @@ Gated on reversibility.
   notes.
 
 **The hook:** host sessions launch with `--dangerously-skip-permissions`, so the boundary is a
-PreToolUse hook, not the prompt. It ships in the Switchboard plugin, outside the session's write
-access, and applies to the session its spawn marks as the assistant and to any session working
-inside notes. It is a closed allowlist:
+PreToolUse hook, not the prompt. It ships in the Switchboard plugin's `hooks.json`, outside the
+session's write access, as the `gate` mode of the `main-session-hook` bundle. A shell pre-check
+passes every session whose `PROJECT_NAME` is not `host.assistant`, so no other session starts
+`bun` per tool call. A gate that fails to run exits 2, which blocks the tool. `gateVerdict` is a
+closed allowlist by exact tool name:
 
-- **Allowed:** reads, replies on its own conversation, and the assistant's own tools.
-- **Writes:** `Write`, `Edit` and `NotebookEdit` inside notes, judged by the resolved path, never to
-  `AGENTS.md`, `.claude/`, `.git/` or `watchers/`.
+- **Reads:** `Read`, `Glob` and `Grep` inside notes or the channel attachments directory, judged by
+  the resolved path, never `.git/` or a `.env` file. A pattern that is absolute or climbs with `..`
+  is refused.
+- **Writes:** `Write`, `Edit`, `MultiEdit` and `NotebookEdit` inside notes, judged by the resolved
+  path through `confine`. Never `.git/`, a `.claude/` folder, an `AGENTS.md`, `CLAUDE.md` or
+  `CLAUDE.local.md` at any depth, `watchers/` or `.mcp.json`.
+- **Allowed:** `channel_reply`, `switchboard_capabilities` and `ToolSearch`. The reply route
+  already refuses a conversation not addressed to the caller. A reply's attachments take the read
+  rule, and a `ref://` to `/`, `~` or `..` is refused, since both are uploaded with the reply.
 - **Refused:** every other tool, including `Bash`, shell runs through `vault_run`, delegation to
-  sub-agents, Codex or Copilot, and other MCP servers' tools.
+  sub-agents, Codex or Copilot, web fetches, and other MCP servers' tools.
+
+Every path is judged by what it resolves to. A leading `~/` is read as home, as the tools read it,
+and another user's `~` is refused. A dangling link and a file with a second hardlink are refused,
+since resolving the path cannot see where either leads. A glob is refused when any brace
+alternative starts at a root or climbs with `..`. A search with no path is judged by the working
+directory. If the notes root's real path contains home, every tool is denied, since the host
+launches in home when it cannot find the workdir.
+
+The hook sets `onFailure: "block"` (Claude Code 2.1.295 or later), so a timeout or a crash blocks
+the tool rather than letting it through. A refusal reason is capped at 400 characters, and the hook
+exits only once its answer is written.
+
+It remains a path decision made before the tool runs, not isolation: nothing binds the checked path
+to the write that follows, and a Grep `glob` can match a file the read rule would refuse. A running
+pane keeps the hooks it loaded, so restart or `reload_plugins` the assistant after a plugin update.
 
 **Event text is data:** notification titles and mail bodies are never instructions.
 
@@ -73,17 +99,19 @@ A watcher is plain Gateway code, never a model.
 - **Events and cursor share one checked write:** a failed write keeps the old cursor. Stable event
   ids dedupe a replay after a crash. Every event the inbox keeps is delivered at least once.
 - **Health survives a restart:** last success, next poll, backoff and stopped state.
-- **Secrets come from the vault:** a watcher's rule file names its entry, and only the owner's grant
-  opens it. The watcher is the grant holder, and the Gateway reads the value through the same grant
-  check a session's use passes. A Gmail watcher needs its own OAuth token in the vault, since a
-  watcher cannot use Claude's connectors.
+- **Secrets come from the vault:** the owner picks a watcher's entries up front on the phone's
+  Assistant setup screen, through the Grant secrets sheet a routine uses. The grant covers the
+  entry, so a rotated key is a vault edit. A watcher without one stays stopped and says it needs a
+  secret. The Gateway reads the value through the same grant check a session's use passes. A Gmail
+  watcher needs its own OAuth token in the vault, since a watcher cannot use Claude's connectors.
 
 ### GitHub notifications
 
 - Polls `/notifications` with `If-Modified-Since`. A 304 spends no rate limit.
 - Holds `X-Poll-Interval` as its floor, 60 seconds when absent, and backs off on a rate-limit answer.
 - Read-only. Marking a thread read is an action.
-- Reads a classic token from its vault entry. The notification endpoints take no fine-grained token.
+- Reads a classic token from its granted vault entry. The notification endpoints take no
+  fine-grained token. Without a grant, or on a 401, the watcher stops with that reason.
 
 ### Rules
 

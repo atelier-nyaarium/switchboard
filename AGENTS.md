@@ -6,6 +6,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 
 - `src/main-mcp.ts` / `main-gateway.ts` / `main-host-daemon.ts` / `main-federation.ts` / `main-vault-askpass.ts` / `main-session-hook.ts` - six entry points
 - `hooks/hooks.json` / `src/mcp/baseline/baselineHook.ts` - the plugin's SessionStart `compact` hook and what it prints
+- `src/mcp/assistant/gate.ts` / `gateHook.ts` - the assistant's PreToolUse gate, `main-session-hook gate`: a closed allowlist by exact tool name; reads in notes or attachments, writes in notes, both through `confine`
+- `src/shared/assistant-session.ts` / `src/gateway/compose/composeAssistant.ts` - the assistant's one session: provisioned once from `ASSISTANT_WORKDIR`, owned by provenance, reserved from both sweeps, never forgotten. `docs/assistant.md` holds the design
 - `src/gateway/sessionBaseline.ts` / `compose/composeBaseline.ts` / `src/shared/session-baseline.ts` - the baseline a compacted session reads back, its loopback door, and its wire shape
 - `src/vault-askpass/askpass.ts` - the askpass helper's decision over gateway, tty, and clock ports; the tty race and the no-tty hold
 - `src/gateway/` - Docker-side HTTP and WS router
@@ -573,7 +575,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     each read what is left as Lexicon's `gateWaitMs`, so a read held behind an index write past it
     never runs; a write keeps no bound.
 - `src/mcp/workspace/loadFile.ts` - the one reader of a workspace file: regular files only, sized before the read, text or nothing, with the hash of its bytes and whether it was transcoded. Shared by the refs snapshot road and the phone's file road; containment is the caller's.
-- `src/mcp/workspace/confine.ts` - which project files the phone's file road may reach, `fileIdentity` for a mutation that must bind a file rather than bytes, and `namesOneFile` for two names of one file
+- `src/mcp/workspace/confine.ts` - which project files the phone's file road may reach, `fileIdentity` for a mutation that must bind a file rather than bytes, and `namesOneFile` for two names of one file. A caller's `Withhold` runs where `withheld` runs, which is how the assistant gate refuses its own instruction files
   - **Every rule runs against what a path RESOLVES to, never its spelling:** a link defeated containment
     once and exclusion once, both by being checked as written. `withheld` is therefore ONE function run
     over the written segments and the resolved ones, so a rule added to it cannot reappear in only one
@@ -775,7 +777,7 @@ registration and its client stops with the floor in the log.
 **`main-host-daemon.ts`** host `host` WS slot, devcontainer wake, session spawn, terminal view.
 **`main-federation.ts`** self-hosted federation relay.
 **`main-vault-askpass.ts`** askpass helper in a session, host or container; asks the phone through the gateway as that session, falls back to the tty.
-**`main-session-hook.ts`** compact hook; prints the session's baseline as hook context.
+**`main-session-hook.ts`** compact hook, printing the session's baseline as hook context; with `gate`, the assistant's PreToolUse gate.
 
 | Port | Service |
 |---|---|

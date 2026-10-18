@@ -17,6 +17,8 @@ export interface GatewayConfig {
 	enrollNonce?: string;
 	hostWsToken?: string;
 	routerBootstrapUrl: string | null;
+	/** Assistant workdir on the host. Unset, no assistant. */
+	assistantWorkdir?: string;
 }
 
 export interface EnrollTlsListener {
@@ -49,6 +51,8 @@ export interface GatewayFaultPort {
 	routerIncarnation(): number | null;
 	heldEpochs(): number[];
 	sessionRecord(team: string): SessionRecord | undefined;
+	/** Runs the persist step's session sweep at this age. Answers the swept teams. */
+	sweepSessions(ttlMs: number): string[];
 	forgePeerRow(target: PeerAddress, address: string, envelope: RowEnvelope, op: unknown): Promise<unknown>;
 	sealForPeer(target: PeerAddress, op: unknown): SealedEnvelope;
 	routerCall(name: string, params: Record<string, unknown>): Promise<RouterToolCallResult>;

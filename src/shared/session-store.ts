@@ -69,6 +69,12 @@ export interface SweepCap {
 	isLive: (team: string) => boolean;
 }
 
+export interface SweepPolicy {
+	cap?: SweepCap;
+	/** Neither age nor capacity takes it. */
+	isReserved?: (team: string) => boolean;
+}
+
 export interface SessionStoreOptions {
 	clash?: ClashPredicate;
 	ambient: Clock;
@@ -408,19 +414,21 @@ export class SessionStore {
 	}
 
 	// Sweep before snapshot so expired records never persist.
-	sweep(ttlMs: number, cap?: SweepCap): string[] {
+	sweep(ttlMs: number, policy: SweepPolicy = {}): string[] {
 		const cutoff = this.now() - ttlMs;
+		const reserved = policy.isReserved ?? (() => false);
 		const removed: string[] = [];
 		for (const [team, record] of this.records) {
-			if (record.lastSeen < cutoff) {
+			if (record.lastSeen < cutoff && !reserved(team)) {
 				this.releaseLabel(record);
 				this.records.delete(team);
 				removed.push(team);
 			}
 		}
+		const { cap } = policy;
 		if (!cap || this.records.size <= cap.maxEntries) return removed;
 		const evictable = [...this.records]
-			.filter(([team]) => !cap.isLive(team))
+			.filter(([team]) => !cap.isLive(team) && !reserved(team))
 			.sort((left, right) => left[1].lastSeen - right[1].lastSeen);
 		for (const [team, record] of evictable) {
 			if (this.records.size <= cap.maxEntries) break;

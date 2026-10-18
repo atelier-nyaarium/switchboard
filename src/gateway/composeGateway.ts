@@ -3,6 +3,7 @@
 import { hostSpawnPoint } from "../shared/host-spawn.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
 import { composeAgents } from "./compose/composeAgents.js";
+import { composeAssistant } from "./compose/composeAssistant.js";
 import { composeAwareness } from "./compose/composeAwareness.js";
 import { composeBaseline } from "./compose/composeBaseline.js";
 import { composeBootstrap } from "./compose/composeBootstrap.js";
@@ -100,6 +101,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		stores,
 		context,
 	});
+	const assistant = composeAssistant({ workdir: config.assistantWorkdir, sessions });
 	const persistence = composePersistence({
 		ambient: bootstrap.ambient,
 		stores,
@@ -109,7 +111,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			vault?.sessionEnded(team);
 			routines.sessionEnded(team);
 		},
-		reservedByRoutine: (team) => routines.reserves(team),
+		sessionReserved: (team) => routines.reserves(team) || assistant.reserves(team),
 		sweepDeliveries: () => websockets?.channelDeliveries.sweep(),
 		namesBlob: (blobId) => routes?.current()?.namesBlob(blobId) ?? true,
 	});
@@ -227,6 +229,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		policies,
 		workspacePlane: websockets.workspacePlane,
 		awareness,
+		assistant,
 	});
 
 	if (bootstrap.gatewayBoot.kind === "arming") enrollment.enterArming(bootstrap.gatewayBoot.nonce);
@@ -258,6 +261,6 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		router: listener.router,
 		wsHandlers: websockets.wsHandlers,
 		close: listener.close,
-		faults: composeFaults({ context, sessions, routines }),
+		faults: composeFaults({ context, sessions, routines, persistence }),
 	};
 }

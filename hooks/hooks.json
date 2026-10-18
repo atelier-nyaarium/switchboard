@@ -18,6 +18,24 @@
 					}
 				]
 			}
+		],
+		"PreToolUse": [
+			{
+				"matcher": "*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "sh",
+						"args": [
+							"-c",
+							"[ \"$PROJECT_NAME\" = host.assistant ] || exit 0; bun --config=\"$0/launch/bunfig.toml\" --tsconfig-override=\"$0/launch/tsconfig.json\" --no-env-file --no-install \"$0/dist/main-session-hook.js\" gate || { echo 'assistant gate failed to run' >&2; exit 2; }",
+							"${CLAUDE_PLUGIN_ROOT}"
+						],
+						"timeout": 15,
+						"onFailure": "block"
+					}
+				]
+			}
 		]
 	}
 }

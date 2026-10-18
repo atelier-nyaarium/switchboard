@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,6 +14,7 @@ import {
 	setVersion,
 	versionTargets,
 } from "../../scripts/build.js";
+import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -57,6 +58,61 @@ describe("the plugin's hooks", () => {
 		const bundle = /\/dist\/([\w-]+)\.js$/.exec(args.at(-1) ?? "")?.[1];
 
 		expect(ENTRYPOINTS).toContain(path.join("src", `${bundle}.ts`));
+	});
+
+	describe("the assistant gate, run as hooks.json runs it", () => {
+		const hooks = JSON.parse(fs.readFileSync(path.join(ROOT, "hooks", "hooks.json"), "utf8"));
+		const [gate] = hooks.hooks.PreToolUse;
+		const { command, args } = gate.hooks[0] as { command: string; args: string[] };
+		const plugin = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-"));
+		const notes = fs.mkdtempSync(path.join(os.tmpdir(), "notes-"));
+		bundles.push(plugin, notes);
+		fs.cpSync(path.join(ROOT, "launch"), path.join(plugin, "launch"), { recursive: true });
+		execFileSync(
+			"bun",
+			[
+				"build",
+				"src/main-session-hook.ts",
+				"--outdir",
+				path.join(plugin, "dist"),
+				"--target",
+				"node",
+				"--format",
+				"esm",
+			],
+			{ cwd: ROOT, stdio: "ignore" },
+		);
+
+		const run = (projectName: string, tool: object, pluginRoot = plugin) =>
+			spawnSync(command, [...args.slice(0, -1), pluginRoot], {
+				env: { ...process.env, PROJECT_NAME: projectName, CLAUDE_PROJECT_DIR: notes },
+				input: JSON.stringify(tool),
+			});
+		const bash = { tool_name: "Bash", tool_input: { command: "ls" } };
+
+		it("denies the assistant's session, and passes every other untouched", () => {
+			const denied = run(ASSISTANT_TEAM, bash);
+			const read = run(ASSISTANT_TEAM, {
+				tool_name: "Read",
+				tool_input: { file_path: path.join(notes, "a.md") },
+			});
+			const other = run("host.other", bash);
+			const huge = run(ASSISTANT_TEAM, {
+				tool_name: "Read",
+				tool_input: { file_path: `/x/${"a".repeat(150_000)}` },
+			});
+
+			expect(gate.matcher).toBe("*");
+			expect(gate.hooks[0].onFailure).toBe("block");
+			expect(JSON.parse(denied.stdout.toString()).hookSpecificOutput.permissionDecision).toBe("deny");
+			expect(JSON.parse(huge.stdout.toString()).hookSpecificOutput.permissionDecision).toBe("deny");
+			expect([read.status, read.stdout.length]).toEqual([0, 0]);
+			expect([other.status, other.stdout.length]).toEqual([0, 0]);
+		});
+
+		it("blocks the tool when the gate cannot run", () => {
+			expect(run(ASSISTANT_TEAM, bash, path.join(os.tmpdir(), "no-plugin")).status).toBe(2);
+		});
 	});
 });
 

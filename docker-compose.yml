@@ -35,6 +35,8 @@ services:
       # Only the first door: the Router's advertised addresses lead the ring after the first register.
       - FEDERATION_ROUTER_HOST=${FEDERATION_ROUTER_HOST:-}
       - FEDERATION_ROUTER_PORT=${FEDERATION_ROUTER_PORT:-}
+      # Assistant workdir on the host, such as ~/projects/notes. Unset, no assistant.
+      - ASSISTANT_WORKDIR=${ASSISTANT_WORKDIR:-}
     networks:
       - switchboard-network
       - switchboard-federation

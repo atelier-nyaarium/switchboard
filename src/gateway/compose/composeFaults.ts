@@ -3,6 +3,7 @@
 import { canonicalJson, sha256Hex } from "../../shared/canonical-json.js";
 import { type RowEnvelope, signRowEnvelope } from "../../shared/schemasInbox.js";
 import type { FederationSlice } from "../boot.js";
+import type { PersistenceStage } from "./composePersistence.js";
 import type { RoutineStage } from "./composeRoutines.js";
 import type { SessionsStage } from "./composeSessions.js";
 import type { FederationContext } from "./federationContext.js";
@@ -12,9 +13,10 @@ export interface FaultsStageDeps {
 	context: FederationContext;
 	sessions: Pick<SessionsStage, "sessionStore">;
 	routines: Pick<RoutineStage, "reconcile">;
+	persistence: Pick<PersistenceStage, "sweepSessions">;
 }
 
-export function composeFaults({ context, sessions, routines }: FaultsStageDeps): GatewayFaultPort {
+export function composeFaults({ context, sessions, routines, persistence }: FaultsStageDeps): GatewayFaultPort {
 	function federated(): FederationSlice {
 		const slice = context.slice();
 		if (!slice) throw new Error("this Gateway is not federated");
@@ -27,6 +29,7 @@ export function composeFaults({ context, sessions, routines }: FaultsStageDeps):
 		routerIncarnation: () => context.slice()?.routerClient.incarnation() ?? null,
 		heldEpochs: () => context.contentKeys().epochs(),
 		sessionRecord: (team) => sessions.sessionStore.getByTeam(team),
+		sweepSessions: (ttlMs) => persistence.sweepSessions(ttlMs),
 		forgePeerRow: async (target: PeerAddress, address: string, envelope: RowEnvelope, op: unknown) => {
 			const slice = federated();
 			const identity = context.boot();
