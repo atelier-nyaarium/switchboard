@@ -166,8 +166,6 @@ export function createSendRoutes({
 		const outcome = deliveries.accept({
 			deliveryId: composed.deliveryId,
 			team: arrived.targetWs?.data.teamName ?? arrived.localName,
-			channelJobId: "",
-			from: "",
 			body: composed.body,
 			event: true,
 			enqueuedAt: ambient.now(),

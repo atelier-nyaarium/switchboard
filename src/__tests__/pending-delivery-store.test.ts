@@ -3,6 +3,7 @@ import { processAmbient } from "../shared/ambient.js";
 import {
 	type DeliverySnapshotSink,
 	MAX_PENDING_DELIVERIES_PER_TEAM,
+	type MessageDelivery,
 	type PendingDelivery,
 	PendingDeliveryStore,
 } from "../shared/pending-delivery-store.js";
@@ -20,7 +21,7 @@ function fakeDurable(seed?: unknown): { store: DeliverySnapshotSink; read: () =>
 	};
 }
 
-function delivery(id: string, team = "proj.alpha", at = 1_000): PendingDelivery {
+function delivery(id: string, team = "proj.alpha", at = 1_000): MessageDelivery {
 	return { deliveryId: id, team, channelJobId: `job-${team}`, from: "pixel", body: "hi", enqueuedAt: at };
 }
 
@@ -128,8 +129,6 @@ describe("PendingDeliveryStore", () => {
 		const riding = { from: "task-board", body: "an entry changed", act: "no_act" as const };
 		first.enqueue({ ...delivery("d1"), awareness: riding, messageId: "bucket-1" });
 		const restored = new PendingDeliveryStore(d.store, processAmbient()).listForTeam("proj.alpha")[0];
-		expect(restored.channelJobId).toBe("job-proj.alpha");
-		expect(restored.awareness).toEqual(riding);
-		expect(restored.messageId).toBe("bucket-1");
+		expect(restored).toMatchObject({ channelJobId: "job-proj.alpha", awareness: riding, messageId: "bucket-1" });
 	});
 });

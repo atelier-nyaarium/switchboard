@@ -228,6 +228,9 @@ Stop is final. `src/gateway/assistant/` holds the watcher type (`Watcher`), the 
   minutes, as well as on the next poll, rules change, placement or start. A channel acknowledgment
   never moves a read position, and retires only a row held for the acknowledging session.
   Delivery is at least once: a crash between the push and the `woken` write sends the batch again.
+  `createWakeRunner` (`src/gateway/assistant/wakeRunner.ts`) runs one round at a time, and a nudge
+  during a round runs another. The queued row is an `EventDelivery`, which holds no sender or reply
+  route; the queue refuses an id a message already holds.
 - **Inbox:** `flush` answers the unread rows, oldest first, with the highest sequence read per
   watcher, and moves nothing. `confirm` moves each read position up to its boundary in a checked
   write, never down and never past a sequence not yet handed out. An unconfirmed batch is answered

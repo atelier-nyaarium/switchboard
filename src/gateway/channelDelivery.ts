@@ -20,9 +20,11 @@ export interface ChannelDeliveryDeps {
 	retireStaging?: (blobIds: string[]) => void;
 }
 
+const filesOf = (delivery: PendingDelivery) => (delivery.event ? [] : (delivery.files ?? []));
+
 const blobIdsOf = (deliveries: readonly PendingDelivery[]): string[] => [
 	...new Set(
-		deliveries.flatMap((delivery) => (delivery.files ?? []).flatMap((file) => (file.blobId ? [file.blobId] : []))),
+		deliveries.flatMap((delivery) => filesOf(delivery).flatMap((file) => (file.blobId ? [file.blobId] : []))),
 	),
 ];
 
@@ -61,8 +63,7 @@ export class ChannelDeliveryCoordinator {
 		return offered;
 	}
 
-	/** The receiver confirmed it emitted this one. */
-	/** With `team`, only that team's own row. */
+	/** Named `team` retires only its row. */
 	acknowledge(deliveryId: string, team?: string): boolean | "migrating" {
 		const held = this.deps.store.snapshot().deliveries.find((delivery) => delivery.deliveryId === deliveryId);
 		if (team !== undefined && held?.team !== team) return false;
@@ -83,7 +84,7 @@ export class ChannelDeliveryCoordinator {
 	namesBlob(blobId: string): boolean {
 		return this.deps.store
 			.snapshot()
-			.deliveries.some((delivery) => delivery.files?.some((file) => file.blobId === blobId));
+			.deliveries.some((delivery) => filesOf(delivery).some((file) => file.blobId === blobId));
 	}
 
 	/**
@@ -114,6 +115,7 @@ export class ChannelDeliveryCoordinator {
 /** The wire shape, built from the stored row rather than from live state, so a message delivered
  * after a restart is byte-for-byte the one that was accepted. */
 export function channelPushPayload(delivery: PendingDelivery): Record<string, unknown> {
+	// Empty fields for older receivers.
 	if (delivery.event) {
 		return {
 			type: "channel_push",

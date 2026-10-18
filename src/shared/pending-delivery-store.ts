@@ -3,24 +3,32 @@ import { DurableOutbox } from "./durable-outbox.js";
 import { fenced, MIGRATING } from "./migration-fence.js";
 import type { ChannelFile, RidingAwareness } from "./types.js";
 
-/** Queued message with delivery state. */
-export interface PendingDelivery {
+interface HeldRow {
 	/** Stable retry identity. */
 	deliveryId: string;
 	team: string;
+	body: string;
+	enqueuedAt: number;
+}
+
+export interface MessageDelivery extends HeldRow {
+	event?: never;
 	channelJobId: string;
 	from: string;
-	body: string;
 	files?: ChannelFile[];
 	disposition?: string;
 	/** Reserved before delivery. */
 	awareness?: RidingAwareness;
 	/** Materialization bucket key. */
 	messageId?: string;
-	/** A watcher event; `from` and `channelJobId` are empty. */
-	event?: true;
-	enqueuedAt: number;
 }
+
+/** A watcher event. */
+export interface EventDelivery extends HeldRow {
+	event: true;
+}
+
+export type PendingDelivery = MessageDelivery | EventDelivery;
 
 export type EnqueueOutcome = "enqueued" | "duplicate" | "refused" | "migrating";
 
@@ -72,10 +80,13 @@ export class PendingDeliveryStore {
 		return this.outbox.size;
 	}
 
-	/** Refuses when full. */
+	/** Refuses when full, or when the id is held by the other arm. */
 	enqueue(delivery: PendingDelivery): EnqueueOutcome {
 		if (fenced()) return MIGRATING;
-		if (this.outbox.has(delivery.deliveryId)) return "duplicate";
+		if (this.outbox.has(delivery.deliveryId)) {
+			const held = this.outbox.values().find((row) => row.deliveryId === delivery.deliveryId);
+			return held?.event === delivery.event ? "duplicate" : "refused";
+		}
 		if (this.listForTeam(delivery.team).length >= this.maxPerTeam) return "refused";
 		const result = this.outbox.enqueue(delivery);
 		return result === "enqueued" ? result : result === MIGRATING ? MIGRATING : "refused";
@@ -118,14 +129,14 @@ export class PendingDeliveryStore {
 function isDelivery(row: unknown): row is PendingDelivery {
 	if (!row || typeof row !== "object") return false;
 	const d = row as Record<string, unknown>;
-	return (
+	const held =
 		typeof d.deliveryId === "string" &&
 		d.deliveryId.length > 0 &&
 		typeof d.team === "string" &&
 		d.team.length > 0 &&
-		typeof d.channelJobId === "string" &&
-		typeof d.from === "string" &&
 		typeof d.body === "string" &&
-		typeof d.enqueuedAt === "number"
-	);
+		typeof d.enqueuedAt === "number";
+	if (!held) return false;
+	if (d.event === true) return d.channelJobId === undefined && d.from === undefined;
+	return d.event === undefined && typeof d.channelJobId === "string" && typeof d.from === "string";
 }

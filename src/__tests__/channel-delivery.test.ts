@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ChannelDeliveryCoordinator } from "../gateway/channelDelivery.js";
 import type { TeamRegistry, WsData } from "../gateway/wsTypes.js";
 import { processAmbient } from "../shared/ambient.js";
-import { type PendingDelivery, PendingDeliveryStore } from "../shared/pending-delivery-store.js";
+import { type MessageDelivery, PendingDeliveryStore } from "../shared/pending-delivery-store.js";
 
 interface FakeSocket {
 	sent: string[];
@@ -34,7 +34,7 @@ function registryWith(...sockets: FakeSocket[]): TeamRegistry {
 	return new Map([["proj.alpha", subs]]);
 }
 
-function delivery(id: string): PendingDelivery {
+function delivery(id: string): MessageDelivery {
 	return {
 		deliveryId: id,
 		team: "proj.alpha",
@@ -56,7 +56,7 @@ describe("ChannelDeliveryCoordinator", () => {
 			registry: registryWith(s),
 			retireStaging: (blobIds) => retired.push(blobIds),
 		});
-		const named = (id: string, blobId: string): PendingDelivery => ({
+		const named = (id: string, blobId: string): MessageDelivery => ({
 			...delivery(id),
 			enqueuedAt: now,
 			files: [{ filename: "a.png", mime: "image/png", size: 1, descriptiveKey: "a", role: "attachment", blobId }],
@@ -120,16 +120,13 @@ describe("ChannelDeliveryCoordinator", () => {
 		expect(s.sent.map((p) => JSON.parse(p).delivery_id)).toEqual(["d1", "d2"]);
 	});
 
-	it("keeps a held event an event across a restart, with no sender to reply to", () => {
+	it("keeps a held event an event across a restart, and refuses a message reusing its id", () => {
 		let saved: unknown = null;
 		const sink = { load: () => saved, saveChecked: (state: unknown) => (saved = structuredClone(state)) };
 		const held = new PendingDeliveryStore(sink, processAmbient());
-		new ChannelDeliveryCoordinator({ store: held, registry: new Map() }).accept({
-			...delivery("e1"),
-			channelJobId: "",
-			from: "",
-			event: true,
-		});
+		const queued = new ChannelDeliveryCoordinator({ store: held, registry: new Map() });
+		queued.accept({ deliveryId: "e1", team: "proj.alpha", body: "hi", enqueuedAt: 1_000, event: true });
+		const shadow = queued.accept(delivery("e1"));
 
 		const s = socket();
 		const reopened = new ChannelDeliveryCoordinator({
@@ -138,6 +135,7 @@ describe("ChannelDeliveryCoordinator", () => {
 		});
 		reopened.drain("proj.alpha");
 
+		expect(shadow).toBe("refused");
 		expect(s.sent.map((p) => JSON.parse(p))).toEqual([
 			{ type: "channel_push", event: true, from: "", session_id: "", body: "hi", delivery_id: "e1" },
 		]);

@@ -1,8 +1,7 @@
 // The assistant's one session and its watchers' inbox. Where it lives is its reserved session
 // record: placed by an owner op, kept from both sweeps, released only by an owner op.
 
-import { createHash } from "node:crypto";
-import { type Ambient, type TimerHandle, withinMs } from "../../shared/ambient.js";
+import { type Ambient, withinMs } from "../../shared/ambient.js";
 import {
 	ASSISTANT_RESERVE_KEY,
 	ASSISTANT_SESSION_NAME,
@@ -25,10 +24,10 @@ import {
 } from "../assistant/githubWatcher.js";
 import { createInboxStore, type InboxEvent, type InboxStore, type Sorter } from "../assistant/inboxStore.js";
 import { createRulesStore } from "../assistant/rulesStore.js";
+import { type AssistantWake, createWakeRunner } from "../assistant/wakeRunner.js";
 import type { Watcher } from "../assistant/watcher.js";
 import { createWatcherRunner, type WatcherRunner } from "../assistant/watcherRunner.js";
 import type { AssistantConsoleHandlers } from "../console/consoleTypes.js";
-import { fireAndForget } from "../fireAndForget.js";
 import type { VaultRelease } from "../vault/vaultUse.js";
 import type { SessionsStage } from "./composeSessions.js";
 
@@ -37,10 +36,6 @@ const NEEDS_SECRET = "needs a secret";
 const STOP_WAIT_MS = 5_000;
 /** Events a preview reads. */
 const PREVIEW_EVENTS = 50;
-/** Events one wake carries. */
-const WAKE_BATCH = 20;
-const WAKE_RETRY_MS = 30_000;
-const WAKE_RETRY_MAX_MS = 15 * 60_000;
 
 const LABELS: Record<string, string> = { [GITHUB_WATCHER_ID]: "GitHub notifications" };
 
@@ -50,16 +45,6 @@ export interface AssistantVault {
 	setWatcherGrants: (watcherId: string, entryIds: string[]) => void;
 	readForWatcher: (watcherId: string, entryId: string) => Promise<VaultRelease>;
 }
-
-/**
- * The send path's senderless event, bound once the routes exist. `compose` runs once the session is
- * reached, just before the queue takes it; null means nothing is left to send. Null when it landed or
- * there was nothing, else why not.
- */
-export type AssistantWake = (event: {
-	to: string;
-	compose: () => { deliveryId: string; body: string } | null;
-}) => Promise<string | null>;
 
 export interface AssistantStageDeps {
 	dataDir: string;
@@ -131,72 +116,15 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	let active = false;
 	let closed = false;
 
-	/**
-	 * The inbox decides and the delivery queue applies: a wake row moves to woken only once the send
-	 * path has delivered or durably queued it. Run at start, after each poll and after a rules change,
-	 * so one that did not land is tried again. A row read through the inbox first needs no wake.
-	 */
-	let wake: AssistantWake | null = null;
-	let waking: Promise<void> | null = null;
-	let wakeAgain = false;
-	let retryTimer: TimerHandle | null = null;
-	let retryMs = WAKE_RETRY_MS;
-	const retryLater = (why: string) => {
-		console.warn(`[assistant] wake not delivered; retrying in ${retryMs / 1000}s: ${why}`);
-		if (retryTimer || closed) return;
-		retryTimer = ambient.setTimer(() => {
-			retryTimer = null;
-			nudgeWakes();
-		}, retryMs);
-		retryMs = Math.min(retryMs * 2, WAKE_RETRY_MAX_MS);
-	};
-	const settleRetry = () => {
-		if (retryTimer) ambient.clearTimer(retryTimer);
-		retryTimer = null;
-		retryMs = WAKE_RETRY_MS;
-	};
-	const wakeRound = async (): Promise<void> => {
-		do {
-			wakeAgain = false;
-			while (true) {
-				if (!wake || !active || closed || !held()) return;
-				if (inbox.pendingWakes(ambient.now()).length === 0) break;
-				let batch: InboxEvent[] = [];
-				let failed: string | null;
-				try {
-					failed = await wake({
-						to: ASSISTANT_TEAM,
-						// Read once reached, so a row read meanwhile is not pushed.
-						compose: () => {
-							batch = inbox.pendingWakes(ambient.now()).slice(0, WAKE_BATCH);
-							if (batch.length === 0) return null;
-							const body = batch.map((event) => eventLines(wireOf(event)).join("\n")).join("\n\n");
-							return { deliveryId: wakeDeliveryId(batch), body };
-						},
-					});
-				} catch (error) {
-					failed = (error as Error).message;
-				}
-				if (failed) return retryLater(failed);
-				// Final; next start re-offers.
-				if (closed) return;
-				if (batch.length > 0 && !inbox.markWoken(batch, ambient.now()))
-					return retryLater("the inbox write did not land");
-			}
-		} while (wakeAgain);
-		settleRetry();
-	};
-	const nudgeWakes = (): void => {
-		if (!active || closed) return;
-		if (waking) {
-			wakeAgain = true;
-			return;
-		}
-		waking = wakeRound().finally(() => {
-			waking = null;
-		});
-		fireAndForget("assistant wake", waking);
-	};
+	// Nudged at start, after each poll, a rules change, placement and bind.
+	const wakes = createWakeRunner({
+		ambient,
+		inbox,
+		to: ASSISTANT_TEAM,
+		ready: () => active && !closed && held() !== undefined,
+		render: (batch) => batch.map((event) => eventLines(wireOf(event)).join("\n")).join("\n\n"),
+	});
+	const nudgeWakes = () => wakes.nudge();
 
 	/**
 	 * An inbox sorted under any other revision sorts its kept drops again, so a crash between the two
@@ -326,10 +254,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				}),
 			};
 		},
-		bindWake: (bound) => {
-			wake = bound;
-			nudgeWakes();
-		},
+		bindWake: (bound) => wakes.bind(bound),
 		console: {
 			state,
 			// The record is where it lives, so it is durable before the phone releases the old home.
@@ -427,20 +352,12 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		},
 		stop: async () => {
 			closed = true;
-			if (retryTimer) ambient.clearTimer(retryTimer);
-			retryTimer = null;
+			const wakesStopped = wakes.stop();
 			await stopRunner();
 			// An op or a wake already running finishes before the flush, bounded as a poll's stop is.
-			await withinMs(ambient, Promise.all([tail, waking, inboxTail]), STOP_WAIT_MS);
+			await withinMs(ambient, Promise.all([tail, wakesStopped, inboxTail]), STOP_WAIT_MS);
 		},
 	};
-}
-
-/** Derived from the batch, so a wake tried again is the same delivery. */
-function wakeDeliveryId(batch: readonly InboxEvent[]): string {
-	const hash = createHash("sha256");
-	for (const event of batch) hash.update(`${event.watcherId}\u0000${event.sourceId}\u0000`);
-	return `assistant-event:${hash.digest("hex").slice(0, 32)}`;
 }
 
 function wireOf(event: InboxEvent): InboxEventWire {
