@@ -184,11 +184,17 @@ function provisionPluginSettings(projectPath: string): void {
 // The CLI's JSON answer is the last stdout line; earlier output is progress.
 const STDOUT_TAIL_CHARS = 65_536;
 
+/** Buildx bake refuses the CLI's out-of-context Dockerfile. */
+const DEVCONTAINER_ENV = { BUILDX_BAKE_ENTITLEMENTS_FS: "0" } as const;
+
 /** One CLI run, both streams into the project's transcript as they arrive. */
 function runDevcontainer(project: string, args: string[]): Promise<{ code: number | null; stdout: string }> {
 	appendBuildTranscript(project, `$ devcontainer ${args.join(" ")}\n`);
 	return new Promise((resolve) => {
-		const child = spawn(devcontainerBin(), args, { stdio: ["ignore", "pipe", "pipe"] });
+		const child = spawn(devcontainerBin(), args, {
+			stdio: ["ignore", "pipe", "pipe"],
+			env: { ...process.env, ...DEVCONTAINER_ENV },
+		});
 		let stdout = "";
 		child.stdout.on("data", (chunk: Buffer) => {
 			const text = chunk.toString("utf8");
