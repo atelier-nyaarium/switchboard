@@ -797,6 +797,7 @@ How each subsystem works lives in `docs/`:
 | `docs/policies.md` | The policy record, the selector key, the store's rules, the askpass resolver, what a qualified grant covers |
 | `docs/runbooks.md` | The `{{name}}` grammar, the gateway store, the fire, the view, the editor, a refused push |
 | `docs/routines.md` | The routine record, recurrence in a recorded zone, the console operations, what a session asks back, and the manual pass no gate here can reach |
+| `docs/assistant.md` | Assistant session, notes, gate, actions, watchers, rules and delivery |
 | `docs/references.md` | `ref://` grammar and matchers |
 | `docs/testing.md` | The federation harness, the minted wire fixtures, the identity set, the gates |
 | `docs/environment.md` | Every environment variable |
