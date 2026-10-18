@@ -288,9 +288,11 @@ no TTL.
   tmux-wrapped rows.
 - **Designer plugin** (`plugins/designer/`): owns design cards, live content-keyed rendering, and
   per-team `DesignStore`.
+- **The Assistant view** (`AssistantOps.kt`, `assistant/AssistantScreen.kt`): where the assistant
+  lives, its watchers' inbox strip, and its settings sheet. `docs/assistant.md` holds the design.
 - **The shell and its drawers** (`ShellNav.kt`, `DrawerNav.kt`, `ViewScope.kt`, `SideDrawer.kt`,
-  `ScopedViews.kt`): the root shows one global view (Sessions, Backlog, Runbooks, Routines, Policies,
-  Vault) and a conversation shows Chat, Terminal, Files or one of those views filtered to it, each
+  `ScopedViews.kt`): the root shows one global view (Sessions, Assistant, Backlog, Runbooks, Routines,
+  Policies, Vault) and a conversation shows Chat, Terminal, Files or one of those views filtered to it, each
   picked from a drawer. A swipe opens it from the edge the swipe moves away from, and the menu button
   sits on, and opens from, the side `DrawerSide` names, left unless right was stored. `SideDrawers` is
   one anchored state over both edges (`drawerAnchors`), since Material's drawer drags from one edge and
