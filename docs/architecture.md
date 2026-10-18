@@ -40,6 +40,10 @@ keeps it across reconnects.
 - Channel entries are `persistent: true` and never TTL-swept. Transient ones expire at 600s.
 - `channel_reply` may be called any number of times on a session_id. There is no finality.
 - Replies push to the specific sender sub-session, so parallel windows do not cross streams.
+- A held push (`ChannelDeliveryCoordinator`) is retired only by the receiving session's
+  `channel_delivery_ack`; a session's ack retires only a row held for its own team. A row is a
+  `MessageDelivery` or an `EventDelivery`, the second with no sender or reply route, and the queue
+  refuses an id the other kind holds.
 
 ### What a session's model reads
 
@@ -56,6 +60,10 @@ neutralizer for model-bound text.
   spellings only.
 - **The guard is the only road to a tool:** it wraps `registerTool` and a later `update` callback,
   and `tool()` refuses.
+- **A value that must stay one line is collapsed by `oneLine`:** a watcher event's values and the
+  baseline's lines, so a newline in foreign text cannot forge another data line.
+- **An event is data:** a push with `event="true"` carries no sender, `session_id` or
+  `meta.instructions`, and `CHANNEL_INSTRUCTIONS` says no `channel_reply` is owed.
 - **A file's bytes are not neutralized:** an attachment is data, and the model reads it through
   Claude Code's own Read, the same boundary as any file in the repo. Rewriting it would corrupt it.
 - **Connector tool schemas are not neutralized:** they come from code the plugin runs.
@@ -70,8 +78,8 @@ neutralizer for model-bound text.
 - **The baseline comes back as hook context:** `hooks/hooks.json` runs `main-session-hook` on
   SessionStart `compact`, after both auto and manual compaction. It posts the session token to
   `/session/baseline` and prints one reminder block: conversations addressed to the session, newest
-  first, open routine runs, agents with a turn running, and its unfinished board entries. Board lines
-  go last and are cut first, measured after escaping, under Claude Code's 10,000-character hook cap.
+  first, open routine runs, agents with a turn running, the assistant's watcher lines (for
+  `host.assistant` alone), and its unfinished board entries. Board lines go last and are cut first, measured after escaping, under Claude Code's 10,000-character hook cap.
   Anything short of a valid answer prints nothing.
 - **The awareness bank is left alone:** a banked change still rides the next message, and reads
   against the baseline's current state.
