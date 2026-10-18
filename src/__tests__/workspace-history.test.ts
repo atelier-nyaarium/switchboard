@@ -33,7 +33,18 @@ function directory(): string {
 function git(root: string, ...args: string[]): void {
 	execFileSync(
 		"git",
-		["-c", "user.name=Owner", "-c", "user.email=owner@example.com", "-c", "commit.gpgsign=false", ...args],
+		[
+			"-c",
+			"user.name=Owner",
+			"-c",
+			"user.email=owner@example.com",
+			"-c",
+			"commit.gpgsign=false",
+			// Detached maintenance writes into .git after commit returns, racing teardown.
+			"-c",
+			"maintenance.auto=false",
+			...args,
+		],
 		{ cwd: root, stdio: "ignore" },
 	);
 }
