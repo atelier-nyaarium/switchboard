@@ -1,13 +1,26 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
+import type { Watcher } from "../gateway/assistant/watcher.js";
 import { composeAssistant } from "../gateway/compose/composeAssistant.js";
 import { processAmbient } from "../shared/ambient.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { SessionStore } from "../shared/session-store.js";
+import { fakeAmbient } from "../testing/fakeAmbient.js";
 
 const NOTES = "~/projects/notes";
 
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "assistant-session-"));
+afterAll(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+
 function stage(workdir: string | undefined, store = new SessionStore({ ambient: processAmbient() })) {
-	const assistant = composeAssistant({ workdir, sessions: { sessionStore: store, presence: store } as never });
+	const assistant = composeAssistant({
+		workdir,
+		dataDir,
+		ambient: processAmbient(),
+		sessions: { sessionStore: store, presence: store } as never,
+	});
 	return { assistant, store };
 }
 
@@ -47,6 +60,35 @@ describe("the assistant's session", () => {
 
 		expect(assistant.reserves(ASSISTANT_TEAM)).toBe(false);
 		expect(assistant.forgetRefusal(ASSISTANT_TEAM)).toBeNull();
+	});
+
+	it("polls its watchers only when configured", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => 0 });
+		let polls = 0;
+		const watcher: Watcher = {
+			id: "github",
+			poll: async () => {
+				polls += 1;
+				return { kind: "stopped", reason: "test" };
+			},
+		};
+		for (const workdir of [undefined, NOTES]) {
+			const sessionStore = new SessionStore({ ambient: processAmbient() });
+			const assistant = composeAssistant({
+				workdir,
+				dataDir,
+				ambient,
+				sessions: { sessionStore, presence: sessionStore } as never,
+				watchers: [watcher],
+			});
+			assistant.start();
+			await ambient.advance(0);
+			const stopping = assistant.stop();
+			await ambient.advance(5_000);
+			await stopping;
+		}
+
+		expect(polls).toBe(1);
 	});
 
 	it("provisions nothing for a working directory the host cannot take", () => {

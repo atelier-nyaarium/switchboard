@@ -10,6 +10,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/assistant/gate.ts` / `gateHook.ts` - the assistant's PreToolUse gate, `main-session-hook gate`: a deny-only second layer by exact tool name, and the only check on reply attachments and refs
 - `src/mcp/assistant/instructions.ts` - the assistant's standing rules in its MCP instructions, and `scopeTools`, which lists only its own Switchboard tools
 - `src/shared/assistant-session.ts` / `src/gateway/compose/composeAssistant.ts` - the assistant's one session: provisioned once from `ASSISTANT_WORKDIR`, owned by provenance, reserved from both sweeps, never forgotten. `docs/assistant.md` holds the design
+- `src/gateway/assistant/watcher.ts` / `inboxStore.ts` / `watcherRunner.ts` - what a watcher polls and answers; the inbox, sole owner of events, cursors, health and read positions, written once per poll; the runner that polls each watcher on its own clock, never two at once
 - `src/gateway/sessionBaseline.ts` / `compose/composeBaseline.ts` / `src/shared/session-baseline.ts` - the baseline a compacted session reads back, its loopback door, and its wire shape
 - `src/vault-askpass/askpass.ts` - the askpass helper's decision over gateway, tty, and clock ports; the tty race and the no-tty hold
 - `src/gateway/` - Docker-side HTTP and WS router

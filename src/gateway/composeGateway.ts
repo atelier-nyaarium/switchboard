@@ -85,6 +85,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			slice.handlers = { frames };
 			// Here rather than beside the active boot, so enrolling into an arming one arms this too.
 			routines?.start();
+			assistant.start();
 		},
 		onDomainChanged: () => sessions.presence.markDirty(),
 	});
@@ -101,7 +102,12 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		stores,
 		context,
 	});
-	const assistant = composeAssistant({ workdir: config.assistantWorkdir, sessions });
+	const assistant = composeAssistant({
+		workdir: config.assistantWorkdir,
+		dataDir: bootstrap.dataDir,
+		ambient: bootstrap.ambient,
+		sessions,
+	});
 	const persistence = composePersistence({
 		ambient: bootstrap.ambient,
 		stores,
@@ -255,6 +261,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		routes,
 		vault,
 		baseline,
+		assistant,
 	});
 
 	return {

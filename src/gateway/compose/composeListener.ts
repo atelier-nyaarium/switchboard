@@ -7,6 +7,7 @@ import { reportUnrecognizedDataEntries } from "../dataDirInventory.js";
 import { createHttpRouter } from "../httpRouter.js";
 import { unenrolledHealth } from "../routes/routesStatus.js";
 import type { AgentsStage } from "./composeAgents.js";
+import type { AssistantStage } from "./composeAssistant.js";
 import type { AwarenessStage } from "./composeAwareness.js";
 import type { BaselineStage } from "./composeBaseline.js";
 import type { EnrollmentStage } from "./composeEnrollment.js";
@@ -42,6 +43,7 @@ export interface ListenerStageDeps {
 	routines: Pick<RoutineStage, "stop" | "routes">;
 	vault: Pick<VaultStage, "routes">;
 	baseline: Pick<BaselineStage, "routes">;
+	assistant: Pick<AssistantStage, "stop">;
 }
 
 export interface ListenerStage {
@@ -122,6 +124,7 @@ export function composeListener(deps: ListenerStageDeps): ListenerStage {
 		// Stop taking work and let the attempt in flight finish, so the flush below sees a settled
 		// occurrence rather than one halfway through its own writes.
 		await deps.routines?.stop();
+		await deps.assistant.stop();
 		// Flush while writers are live.
 		stores.jobsDurable.saveChecked(stores.jobs.snapshot());
 		stores.sessionResumeDurable.saveChecked(sessions.sessionResumeSnapshot(true));

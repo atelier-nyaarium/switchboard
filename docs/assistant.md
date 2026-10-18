@@ -150,8 +150,16 @@ assistant cannot rewrite what sorts its own events.
 
 ### Limits
 
-An inbox cap and a retention window. Overflow evicts the oldest inbox items for good, and the count
-rides in the reminder lines.
+Each watcher keeps at most 500 unread inbox items (`INBOX_CAP`); overflow evicts the oldest for good.
+Inbox and woken items are kept 14 days and rule drops 7 days. A source id is remembered 30 days,
+longer than any row, so a replay cannot bring one back. An unread item lost to the cap or to age is counted in the
+watcher's `evicted`, and the count rides in the reminder lines. Pruning runs as each poll lands.
+
+A poll answers at most 500 events of at most 32 fields. One that throws, hangs past 60 seconds or
+answers malformed data backs off for 60 seconds, and its abort signal fires. A watcher's poll must
+settle once its signal aborts. A hook failure after a poll lands never disarms the watcher. Shutdown waits up
+to 5 seconds, then aborts what is left and writes nothing those polls answer. Stop is final.
+`src/gateway/assistant/` holds the watcher type, the inbox store and the runner.
 
 ## Delivery
 

@@ -355,6 +355,8 @@ export async function startRouterOnly(
 		});
 		await server.start();
 		const router = { server, port, certFp: tls.certFp, store, dataDir: routerDir };
+		/** Every graph closes before the Router, once. */
+		const graphCloses: (() => Promise<void>)[] = [];
 		const composeGatewayFor = (
 			gatewaySet: IdentitySet,
 			dir: string,
@@ -371,7 +373,7 @@ export async function startRouterOnly(
 				);
 				if (gatewayOptions.seedContentKey === false) fs.rmSync(path.join(federationDir, "content-keys.json"));
 			}
-			return composeGateway({
+			const graph = composeGateway({
 				config: {
 					dataDir: dir,
 					federationDir,
@@ -389,6 +391,13 @@ export async function startRouterOnly(
 				ambient: gatewayAmbient,
 				allowFixtureIdentity: true,
 			});
+			let closing: Promise<void> | undefined;
+			const close = () => {
+				closing ??= graph.close();
+				return closing;
+			};
+			graphCloses.push(close);
+			return { ...graph, close };
 		};
 		const phoneFor = (phoneSet: IdentitySet): PhoneDriver =>
 			createPhoneDriver({
@@ -410,8 +419,11 @@ export async function startRouterOnly(
 			composeGatewayFor,
 			phoneFor,
 			close: async () => {
+				const failures: unknown[] = [];
+				for (const close of graphCloses.splice(0)) await close().catch((error) => failures.push(error));
 				await router.server.stop();
 				fs.rmSync(root, { recursive: true, force: true });
+				if (failures.length > 0) throw new AggregateError(failures, "gateway close failed");
 			},
 		};
 	} catch (error) {
