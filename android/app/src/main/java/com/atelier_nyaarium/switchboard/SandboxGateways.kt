@@ -315,12 +315,46 @@ internal class SandboxAssistantGateway : AssistantGateway {
 	private val grants = mutableMapOf<String, List<String>>()
 	private var rules = AssistantWatcherRules(
 		rules = listOf(
-			AssistantRule(listOf(AssistantRuleCondition("reason", "is", "review_requested")), action = "wake", ping = true),
-			AssistantRule(listOf(AssistantRuleCondition("reason", "is", "subscribed")), action = "drop"),
+			AssistantRule(
+				"reviews",
+				listOf(AssistantRuleCondition("reason", "is", "review_requested")),
+				action = "wake",
+				ping = true,
+				revision = 1L,
+			),
+			AssistantRule("subscribed", listOf(AssistantRuleCondition("reason", "is", "subscribed")), action = "drop", revision = 1L),
 		),
-		otherwise = AssistantRuleOtherwise(action = "inbox"),
+		otherwise = AssistantRuleOtherwise(action = "inbox", revision = 0L),
 		revision = 2L,
 	)
+
+	/** A stale revision refuses with what is held, as the Gateway does. */
+	override suspend fun rules(gatewayId: String, op: ConsoleOp): RuleSaved {
+		if (gatewayId == SANDBOX_NEVER_REGISTERED) return RuleSaved.Unreachable
+		val held = rules.rules
+		val next = when (op) {
+			is ConsoleOp.AssistantRulePut -> {
+				val current = held.find { it.id == op.rule.id }
+				if ((current?.revision ?: 0L) != op.rule.revision) return RuleSaved.Refused("revision ${current?.revision} is stored", rules)
+				val rule = op.rule.copy(revision = op.rule.revision + 1)
+				if (current == null) held + rule else held.map { if (it.id == rule.id) rule else it }
+			}
+			is ConsoleOp.AssistantRuleDelete -> held.filterNot { it.id == op.ruleId }
+			is ConsoleOp.AssistantRuleMove -> {
+				val moving = held.find { it.id == op.ruleId } ?: return RuleSaved.Refused("this rule was deleted", rules)
+				val rest = held - moving
+				val at = op.beforeId?.let { before -> rest.indexOfFirst { it.id == before } } ?: rest.size
+				rest.take(at) + moving + rest.drop(at)
+			}
+			is ConsoleOp.AssistantOtherwisePut -> {
+				rules = rules.copy(otherwise = op.otherwise.copy(revision = op.otherwise.revision + 1), revision = rules.revision + 1)
+				return RuleSaved.Stored(rules)
+			}
+			else -> return RuleSaved.Refused("not a rule op", rules)
+		}
+		rules = rules.copy(rules = next, revision = rules.revision + 1)
+		return RuleSaved.Stored(rules)
+	}
 
 	/** Ungranted at first, so the needs-a-secret chip is reachable. */
 	private fun watchers() = listOf(
@@ -345,9 +379,9 @@ internal class SandboxAssistantGateway : AssistantGateway {
 		val wanted = op.rule.conditions.first().value
 		val titles = listOf("Review requested: #812 baseline hook", "CI failed on main", "Dependabot bumped vitest")
 		val matched = titles.filter { it.contains(wanted, ignoreCase = true) }
-		// Makes the earlier-rule line reachable.
-		val earlier = if (op.at == null && rules.rules.isNotEmpty()) 1L else 0L
-		return ConsoleAssistantPreviewResult(matched = matched.size.toLong(), earlier = earlier, of = 50L, titles = matched)
+		// An added rule loses one to an earlier rule, so that line is reachable.
+		val shadowed = if (rules.rules.none { it.id == op.rule.id } && rules.rules.isNotEmpty()) 1L else 0L
+		return ConsoleAssistantPreviewResult(decided = matched.size.toLong(), shadowed = shadowed, of = 50L, titles = matched)
 	}
 
 	private fun stateOf(gatewayId: String) = ConsoleAssistantStateResult(
@@ -377,13 +411,6 @@ internal class SandboxAssistantGateway : AssistantGateway {
 			}
 			is ConsoleOp.AssistantWatcherGrants -> {
 				grants[op.watcherId] = op.entryIds
-				AssistantAnswer.State(stateOf(gatewayId))
-			}
-			is ConsoleOp.AssistantRulesPut -> {
-				if (op.baseRevision != rules.revision) {
-					return AssistantAnswer.Refused("revision ${rules.revision} is stored; this edits ${op.baseRevision}")
-				}
-				rules = AssistantWatcherRules(op.rules, op.otherwise, rules.revision + 1)
 				AssistantAnswer.State(stateOf(gatewayId))
 			}
 			else -> AssistantAnswer.State(stateOf(gatewayId))

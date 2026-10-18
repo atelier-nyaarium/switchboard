@@ -1,8 +1,8 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
-import com.atelier_nyaarium.switchboard.assistant.RulesPut
 import com.atelier_nyaarium.switchboard.proto.AssistantRule
+import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
@@ -20,6 +20,8 @@ internal const val ASSISTANT_ROLE = "assistant"
 /** The gateway calls this class makes, so a test can answer them without a transport. */
 internal interface AssistantGateway {
 	suspend fun call(gatewayId: String, op: ConsoleOp): AssistantAnswer
+
+	suspend fun rules(gatewayId: String, op: ConsoleOp): RuleSaved
 
 	/** Null if unanswered. */
 	suspend fun preview(gatewayId: String, op: ConsoleOp.AssistantRulesPreview): ConsoleAssistantPreviewResult?
@@ -145,21 +147,35 @@ internal class AssistantOps(
 	suspend fun retry(gatewayId: String, watcher: AssistantWatcher): AssistantAnswer =
 		setGrants(gatewayId, watcher.id, watcher.grants)
 
-	/** As last drawn. */
-	fun watcher(gatewayId: String, watcherId: String): AssistantWatcher? =
-		state.value.gateways.assistantOn(gatewayId)?.watchers?.find { it.id == watcherId }
+	/** 0 adds the rule. */
+	suspend fun saveRule(gatewayId: String, watcherId: String, rule: AssistantRule): RuleSaved =
+		ruleOp(gatewayId, ConsoleOp.AssistantRulePut(watcherId = watcherId, rule = rule))
 
-	/** The whole list, at the revision it was read at; a stale one is refused. */
-	suspend fun putRules(gatewayId: String, watcherId: String, put: RulesPut): AssistantAnswer = landed(
-		gatewayId,
-		ConsoleOp.AssistantRulesPut(watcherId = watcherId, rules = put.rules, otherwise = put.otherwise, baseRevision = put.base),
-	)
+	suspend fun deleteRule(gatewayId: String, watcherId: String, ruleId: String, base: Long): RuleSaved =
+		ruleOp(gatewayId, ConsoleOp.AssistantRuleDelete(watcherId = watcherId, ruleId = ruleId, baseRevision = base))
 
-	/** Null appends. */
-	suspend fun preview(gatewayId: String, watcherId: String, rule: AssistantRule, at: Int?): ConsoleAssistantPreviewResult? {
+	/** Over the list revision drawn; null moves it last. */
+	suspend fun moveRule(gatewayId: String, watcherId: String, ruleId: String, beforeId: String?, base: Long): RuleSaved =
+		ruleOp(
+			gatewayId,
+			ConsoleOp.AssistantRuleMove(watcherId = watcherId, ruleId = ruleId, beforeId = beforeId, baseRevision = base),
+		)
+
+	suspend fun saveOtherwise(gatewayId: String, watcherId: String, otherwise: AssistantRuleOtherwise): RuleSaved =
+		ruleOp(gatewayId, ConsoleOp.AssistantOtherwisePut(watcherId = watcherId, otherwise = otherwise))
+
+	/** At the held rule's place by id, else last. */
+	suspend fun preview(gatewayId: String, watcherId: String, rule: AssistantRule): ConsoleAssistantPreviewResult? {
 		val client = host.gateway ?: return null
-		val op = ConsoleOp.AssistantRulesPreview(watcherId = watcherId, rule = rule, at = at?.toLong())
-		return attempt { client.preview(gatewayId, op) }
+		return attempt { client.preview(gatewayId, ConsoleOp.AssistantRulesPreview(watcherId = watcherId, rule = rule)) }
+	}
+
+	/** A caller decides from the answer; the fenced read after it only draws. */
+	private suspend fun ruleOp(gatewayId: String, op: ConsoleOp): RuleSaved {
+		val client = host.gateway ?: return RuleSaved.Unreachable
+		val answer = attempt { client.rules(gatewayId, op) } ?: RuleSaved.Unreachable
+		if (answer !is RuleSaved.Unreachable) refresh(gatewayId)
+		return answer
 	}
 
 	/** Drawn only by the fenced read after it; a refusal reads too, since the drawn copy may be stale. */

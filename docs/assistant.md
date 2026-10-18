@@ -48,8 +48,8 @@ Gated on reversibility.
 - **One-way:** public, leaves Sakura, or costs money. Asks first, on a card rendered from the real
   params. A tap or a spoken "sure" approves only the card showing at that moment. One ask can cover a
   plan.
-- **Always gated:** writes to `AGENTS.md`, session settings or hooks, the rules, and paths outside
-  notes.
+- **Always gated:** writes to `AGENTS.md`, session settings or hooks, and paths outside notes. The
+  watcher rules have no path from the session at all.
 
 **The boundary** is Claude Code's own permission engine, with Switchboard's layers around it.
 
@@ -163,21 +163,28 @@ Each watcher carries an ordered rule list, first match wins, kept by the Gateway
 policies. The owner edits it on the phone in Assistant settings; only owner ops write it, so the
 assistant cannot rewrite what sorts its own events.
 
-- **A rule:** one to 8 conditions, all of which must hold, and an action: `wake`, `inbox` or
-  `drop`. A condition is a field the watcher declares, a test (`is`, `is_not`, `contains`, case
-  ignored) and a value. At most 50 rules; `otherwise` takes anything none matched.
-  `schemasAssistantRules.ts` holds the record, `rulesRefusal` and `decideEvent`.
+- **A rule:** a phone-minted id, one to 8 conditions, all of which must hold, and an action:
+  `wake`, `inbox` or `drop`. A condition is a field the watcher declares, a test (`is`, `is_not`,
+  `contains`, case ignored) and a value. At most 50 rules (`ASSISTANT_RULES_MAX` in
+  `wire-vocabulary.ts`); `otherwise` takes anything none matched. `schemasAssistantRules.ts` holds
+  the record, `ruleRefusal`, and `firstMatch`, the one reading of which rule decides an event,
+  which `decideEvent` and the preview both take.
 - **Ping:** each watcher declares a default (GitHub: off). A rule or `otherwise` may override it;
   one left at the default follows the default. A drop never pings.
-- **The store:** `createRulesStore`, sole writer of `assistant-rules.json`. A put carries the whole
-  list and the revision it was read at; the store writes the next revision, and a stale base is
-  refused with the held one. The stored list repeated at the revision before it answers as stored,
-  since its first answer was lost. Delete and reorder are puts. The phone's editor, refused, goes again over the
-  held list while the rule it edits still stands there.
-- **Ops:** `assistant_rules_put` and `assistant_rules_preview`. The rules, the fields and the drop
-  count ride in `assistant_state`. A preview tests a rule at its place in the list against the
+- **The store:** `createRulesStore`, sole writer of `assistant-rules.json`, on the policy store's
+  model. Each rule and `otherwise` carry their own revision, which the store names; the list's
+  revision moves with every write and is what a sort names. A put carries the revision it read, 0
+  for a new rule. A stale one is refused; the same content at the held revision or the one before it
+  answers as stored without a write, since its first answer was lost. A deleted id stays buried in
+  memory, up to 256, so a retried create cannot bring it back within one Gateway run; a delete of an id already gone answers done. A move places a
+  rule before another by id over the list revision drawn; a repeat finds it in place, and a stale
+  one is refused. A file naming one id twice starts fresh.
+- **Ops:** `assistant_rule_put`, `assistant_rule_delete`, `assistant_rule_move` and
+  `assistant_otherwise_put`, each answering `ConsoleAssistantRulesResult`: stored or not, with the
+  held rules either way, so the phone decides from the answer and the fenced read after it only
+  draws. `assistant_rules_preview` tests a rule at its place by id (else last) against the
   watcher's last 50 events, counting what it decides apart from what an earlier rule takes, and
-  refuses what a put refuses.
+  refuses what a put refuses. The rules, the fields and the drop count ride in `assistant_state`.
 - **Per Gateway:** rules and the inbox stay with the Gateway that holds them. A move starts the new
   home on its own rules, and moving back finds the old ones.
 - **Sorted as it lands:** a poll's events are sorted in the same checked write that keeps them. Each
@@ -196,7 +203,8 @@ Each watcher keeps at most 500 unread inbox items (`INBOX_CAP`); overflow evicts
 sequence, for good. Inbox and woken items are kept 14 days and rule drops 7 days. A source id is
 remembered 30 days, longer than any row, so a replay cannot bring one back. An unread item lost to
 the cap or to age is counted in the watcher's `evicted`, and the count rides in the reminder lines.
-Pruning runs as each poll or re-sort lands, and a read leaves out expired rows.
+Every read and every write starts from the inbox trimmed as of now, so a read never shows a row
+the next write would drop, and an unread row is counted in `evicted` the moment it leaves `unread`.
 
 A poll answers at most 500 events of at most 32 fields. One that throws, hangs past 60 seconds or
 answers malformed data backs off for 60 seconds, and its abort signal fires. A watcher's poll must

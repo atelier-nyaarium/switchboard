@@ -26,20 +26,26 @@ internal fun <T> PickMenu(
 	labelOf: (T) -> String,
 	onPick: (T) -> Unit,
 	trailingOf: (T) -> String? = { null },
+	enabled: Boolean = true,
 ) {
 	var open by remember { mutableStateOf(false) }
 
-	ExposedDropdownMenuBox(expanded = open, onExpandedChange = { open = it }, modifier = Modifier.fillMaxWidth()) {
+	ExposedDropdownMenuBox(
+		expanded = open && enabled,
+		onExpandedChange = { open = it && enabled },
+		modifier = Modifier.fillMaxWidth(),
+	) {
 		OutlinedTextField(
 			value = picked?.let(labelOf) ?: "",
 			onValueChange = {},
 			readOnly = true,
+			enabled = enabled,
 			label = { Text(label) },
 			placeholder = { Text(if (choices.isEmpty()) "Nothing to pick" else "Choose one") },
 			trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = open) },
 			modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
 		)
-		ExposedDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+		ExposedDropdownMenu(expanded = open && enabled, onDismissRequest = { open = false }) {
 			for (choice in choices) {
 				DropdownMenuItem(
 					text = { Text(labelOf(choice)) },

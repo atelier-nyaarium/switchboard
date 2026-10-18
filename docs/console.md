@@ -290,8 +290,9 @@ no TTL.
   per-team `DesignStore`.
 - **The Assistant view** (`AssistantOps.kt`, `assistant/AssistantScreen.kt`): where the assistant
   lives, its watchers' inbox strip, and its settings sheet. A watcher's Rules button opens its rule
-  list and editor (`assistant/WatcherRulesSheet.kt`); `RuleDraft.kt` turns every edit into a
-  whole-list put at the revision the sheet opened over. `docs/assistant.md` holds the design.
+  list and editor (`assistant/WatcherRulesSheet.kt`). Each edit is one rule op; `RuleDraft.kt`
+  holds the draft and `outcomeOf`, which reads the op's answer, never the drawn copy: done, an offer
+  to go over a newer revision on a second tap, or the reason. `docs/assistant.md` holds the design.
 - **The shell and its drawers** (`ShellNav.kt`, `DrawerNav.kt`, `ViewScope.kt`, `SideDrawer.kt`,
   `ScopedViews.kt`): the root shows one global view (Sessions, Assistant, Backlog, Runbooks, Routines,
   Policies, Vault) and a conversation shows Chat, Terminal, Files or one of those views filtered to it, each

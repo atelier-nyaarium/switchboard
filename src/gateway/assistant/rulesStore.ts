@@ -7,11 +7,14 @@ import {
 	type AssistantRuleOtherwise,
 	type AssistantWatcherRules,
 	AssistantWatcherRulesSchema,
+	type ConsoleAssistantRulesResult,
 	canonicalOtherwise,
 	canonicalRule,
 	DEFAULT_RULES,
-	sameRules,
+	ruleRefusal,
+	sameContent,
 } from "../../shared/schemasAssistantRules.js";
+import { ASSISTANT_RULES_MAX } from "../../shared/wire-vocabulary.js";
 
 const SnapshotSchema = z.strictObject({
 	v: z.literal(1),
@@ -20,19 +23,37 @@ const SnapshotSchema = z.strictObject({
 
 type Snapshot = z.infer<typeof SnapshotSchema>;
 
-export type RulesPut =
-	| { stored: true; rules: AssistantWatcherRules }
-	| { stored: false; reason: string; revision: number };
+const EMPTY: Snapshot = { v: 1, watchers: {} };
+
+/** Bounds the buried set. */
+const MAX_BURIED = 256;
 
 export interface RulesStoreDeps {
 	store: DurableStore;
+	/** A watcher's fields, or undefined when no watcher has that id. */
+	fieldsOf: (watcherId: string) => readonly string[] | undefined;
 	/** After the write is on disk, so a failed write sorts nothing again. */
 	onChanged: (watcherId: string) => void;
 }
 
+/** Two rules under one id start fresh. */
+function restored(snapshot: Snapshot): Snapshot {
+	for (const [watcherId, held] of Object.entries(snapshot.watchers)) {
+		const ids = held.rules.map((rule) => rule.id);
+		if (new Set(ids).size !== ids.length) {
+			console.warn(`[assistant] ${watcherId} rules name one id twice; starting fresh`);
+			return EMPTY;
+		}
+	}
+	return snapshot;
+}
+
 export function createRulesStore(deps: RulesStoreDeps) {
 	const loaded = deps.store.load();
-	let state: Snapshot = loaded === null ? { v: 1, watchers: {} } : SnapshotSchema.parse(loaded);
+	let state: Snapshot = loaded === null ? EMPTY : restored(SnapshotSchema.parse(loaded));
+	// Blocks a retried create of a deleted id.
+	const buried = new Map<string, number>();
+	const graveOf = (watcherId: string, ruleId: string) => `${watcherId}/${ruleId}`;
 
 	const get = (watcherId: string): AssistantWatcherRules =>
 		structuredClone(
@@ -53,39 +74,122 @@ export function createRulesStore(deps: RulesStoreDeps) {
 		}
 	};
 
+	const answer = (watcherId: string, stored: boolean, reason?: string): ConsoleAssistantRulesResult => ({
+		stored,
+		rules: get(watcherId),
+		...(reason === undefined ? {} : { reason }),
+	});
+
+	/** The list moves a revision with every write, which is what a sort names. */
+	const write = (watcherId: string, rules: AssistantRule[], otherwise: AssistantRuleOtherwise) => {
+		const next: AssistantWatcherRules = { rules, otherwise, revision: get(watcherId).revision + 1 };
+		const watchers = { ...state.watchers };
+		Object.defineProperty(watchers, watcherId, {
+			value: next,
+			enumerable: true,
+			writable: true,
+			configurable: true,
+		});
+		if (!commit({ v: 1, watchers })) return answer(watcherId, false, "the rules could not be saved");
+		try {
+			deps.onChanged(watcherId);
+		} catch (error) {
+			// Landed; the next start sorts again.
+			console.warn(`[assistant] rules hook failed: ${(error as Error).message}`);
+		}
+		return answer(watcherId, true);
+	};
+
+	const stale = (watcherId: string, held: number, base: number) =>
+		answer(watcherId, false, `revision ${held} is stored; this edits ${base}`);
+
+	/** A put's refusal before revisions; the preview's too. */
+	const refusalOf = (watcherId: string, rule: AssistantRule): string | null => {
+		const fields = deps.fieldsOf(watcherId);
+		if (!fields) return `no watcher "${watcherId}"`;
+		const refusal = ruleRefusal(canonicalRule(rule), fields);
+		if (refusal) return refusal;
+		const held = get(watcherId).rules.some((existing) => existing.id === rule.id);
+		if (!held && (rule.revision !== 0 || buried.has(graveOf(watcherId, rule.id)))) return "this rule was deleted";
+		return null;
+	};
+
 	return {
 		get,
-		/** The whole list at the revision the editor read; the store writes its successor. */
-		put(watcherId: string, rules: AssistantRule[], otherwise: AssistantRuleOtherwise, base: number): RulesPut {
+		refusalOf,
+		/** 0 adds; a repeat of what is held is a lost answer. */
+		putRule(watcherId: string, incoming: AssistantRule): ConsoleAssistantRulesResult {
+			const refusal = refusalOf(watcherId, incoming);
+			if (refusal) return answer(watcherId, false, refusal);
+			const candidate = canonicalRule(incoming);
 			const held = get(watcherId);
-			const asked = { rules: rules.map((rule) => canonicalRule(rule)), otherwise: canonicalOtherwise(otherwise) };
-			// Lost-answer retry.
-			if (base === held.revision - 1 && sameRules(asked, held)) return { stored: true, rules: held };
-			if (base !== held.revision) {
-				return {
-					stored: false,
-					reason: `revision ${held.revision} is stored; this edits ${base}`,
-					revision: held.revision,
-				};
+			const current = held.rules.find((rule) => rule.id === candidate.id);
+			const base = candidate.revision;
+			if (current) {
+				const echoes = base === current.revision || base === current.revision - 1;
+				if (echoes && sameContent(candidate, current)) return answer(watcherId, true);
+				if (base !== current.revision) return stale(watcherId, current.revision, base);
+			} else {
+				if (held.rules.length >= ASSISTANT_RULES_MAX) {
+					return answer(watcherId, false, `a watcher holds at most ${ASSISTANT_RULES_MAX} rules`);
+				}
 			}
-			const next: AssistantWatcherRules = { ...asked, revision: held.revision + 1 };
-			const watchers = { ...state.watchers };
-			Object.defineProperty(watchers, watcherId, {
-				value: next,
-				enumerable: true,
-				writable: true,
-				configurable: true,
-			});
-			if (!commit({ v: 1, watchers })) {
-				return { stored: false, reason: "the rules could not be saved", revision: held.revision };
-			}
-			try {
-				deps.onChanged(watcherId);
-			} catch (error) {
-				// Landed; the next start sorts again.
-				console.warn(`[assistant] rules hook failed: ${(error as Error).message}`);
-			}
-			return { stored: true, rules: structuredClone(next) };
+			const rule = { ...candidate, revision: (current?.revision ?? 0) + 1 };
+			const rules = current
+				? held.rules.map((existing) => (existing.id === rule.id ? rule : existing))
+				: [...held.rules, rule];
+			return write(watcherId, rules, held.otherwise);
+		},
+		/** One already gone answers deleted. */
+		deleteRule(watcherId: string, ruleId: string, base: number): ConsoleAssistantRulesResult {
+			if (!deps.fieldsOf(watcherId)) return answer(watcherId, false, `no watcher "${watcherId}"`);
+			const held = get(watcherId);
+			const current = held.rules.find((rule) => rule.id === ruleId);
+			if (!current) return answer(watcherId, true);
+			if (base !== current.revision) return stale(watcherId, current.revision, base);
+			const landed = write(
+				watcherId,
+				held.rules.filter((rule) => rule.id !== ruleId),
+				held.otherwise,
+			);
+			if (!landed.stored) return landed;
+			buried.set(graveOf(watcherId, ruleId), current.revision);
+			// Oldest out.
+			for (const old of [...buried.keys()].slice(0, Math.max(0, buried.size - MAX_BURIED))) buried.delete(old);
+			return landed;
+		},
+		/**
+		 * Directly before `beforeId`, or last without one, over the list revision the phone drew. One
+		 * already in place answers stored, which is also a lost answer's repeat.
+		 */
+		moveRule(
+			watcherId: string,
+			ruleId: string,
+			beforeId: string | undefined,
+			base: number,
+		): ConsoleAssistantRulesResult {
+			if (!deps.fieldsOf(watcherId)) return answer(watcherId, false, `no watcher "${watcherId}"`);
+			const held = get(watcherId);
+			const moving = held.rules.find((rule) => rule.id === ruleId);
+			if (!moving) return answer(watcherId, false, "this rule was deleted");
+			const rest = held.rules.filter((rule) => rule.id !== ruleId);
+			const at = beforeId === undefined ? rest.length : rest.findIndex((rule) => rule.id === beforeId);
+			if (at < 0) return answer(watcherId, false, "the rule it goes before was deleted");
+			const rules = [...rest.slice(0, at), moving, ...rest.slice(at)];
+			if (rules.every((rule, index) => rule.id === held.rules[index]?.id)) return answer(watcherId, true);
+			if (base !== held.revision) return stale(watcherId, held.revision, base);
+			return write(watcherId, rules, held.otherwise);
+		},
+		putOtherwise(watcherId: string, incoming: AssistantRuleOtherwise): ConsoleAssistantRulesResult {
+			if (!deps.fieldsOf(watcherId)) return answer(watcherId, false, `no watcher "${watcherId}"`);
+			const held = get(watcherId);
+			const candidate = canonicalOtherwise(incoming);
+			const current = held.otherwise;
+			const base = candidate.revision;
+			const echoes = base === current.revision || base === current.revision - 1;
+			if (echoes && sameContent(candidate, current)) return answer(watcherId, true);
+			if (base !== current.revision) return stale(watcherId, current.revision, base);
+			return write(watcherId, held.rules, { ...candidate, revision: current.revision + 1 });
 		},
 	};
 }

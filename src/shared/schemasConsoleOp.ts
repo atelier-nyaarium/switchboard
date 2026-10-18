@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ChannelFilesSchema } from "./channel-file.js";
 import { SignedXDomainLinkSchema } from "./federation-protocol.js";
-import { AssistantRuleOtherwiseSchema, AssistantRuleSchema, MAX_RULES } from "./schemasAssistantRules.js";
+import { AssistantRuleOtherwiseSchema, AssistantRuleSchema, RULE_ID_RE } from "./schemasAssistantRules.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
 import { AuthorizationPolicySchema } from "./schemasPolicy.js";
 import { RoutineSchema } from "./schemasRoutine.js";
@@ -288,21 +288,36 @@ export const ConsoleOpSchema = z
 			watcherId: z.string().min(1).max(64),
 			entryIds: z.array(z.string().min(1).max(128)).max(16),
 		}),
-		/** The whole list at the revision the editor read; 0 for a watcher never saved. */
+		/** One rule at the revision it carries; 0 adds it last. */
 		z.object({
-			kind: z.literal("assistant_rules_put"),
+			kind: z.literal("assistant_rule_put"),
 			watcherId: z.string().min(1).max(64),
-			rules: z.array(AssistantRuleSchema).max(MAX_RULES),
-			otherwise: AssistantRuleOtherwiseSchema,
+			rule: AssistantRuleSchema,
+		}),
+		z.object({
+			kind: z.literal("assistant_rule_delete"),
+			watcherId: z.string().min(1).max(64),
+			ruleId: z.string().regex(RULE_ID_RE),
 			baseRevision: z.number().int().nonnegative(),
 		}),
-		/** Recent events one rule matches. */
+		/** Before `beforeId`, else last, over the drawn list revision. */
+		z.object({
+			kind: z.literal("assistant_rule_move"),
+			watcherId: z.string().min(1).max(64),
+			ruleId: z.string().regex(RULE_ID_RE),
+			beforeId: z.string().regex(RULE_ID_RE).optional(),
+			baseRevision: z.number().int().nonnegative(),
+		}),
+		z.object({
+			kind: z.literal("assistant_otherwise_put"),
+			watcherId: z.string().min(1).max(64),
+			otherwise: AssistantRuleOtherwiseSchema,
+		}),
+		/** At the held rule's place by id, else last. */
 		z.object({
 			kind: z.literal("assistant_rules_preview"),
 			watcherId: z.string().min(1).max(64),
 			rule: AssistantRuleSchema,
-			/** The rule's place; absent appends. */
-			at: z.number().int().nonnegative().optional(),
 		}),
 	])
 	.meta({ id: "ConsoleOp" });
@@ -367,7 +382,10 @@ export const VALUE_OP_KINDS = new Set([
 	"assistant_place",
 	"assistant_release",
 	"assistant_watcher_grants",
-	"assistant_rules_put",
+	"assistant_rule_put",
+	"assistant_rule_delete",
+	"assistant_rule_move",
+	"assistant_otherwise_put",
 	"assistant_rules_preview",
 ]);
 

@@ -12,7 +12,7 @@ import {
 import { openDurable } from "../../shared/durable-store.js";
 import { isSpawnWorkdirPath } from "../../shared/host-op.js";
 import type { AssistantWatcher, ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
-import { canonicalRule, decideEvent, ruleMatches, rulesRefusal } from "../../shared/schemasAssistantRules.js";
+import { canonicalRule, decideEvent, firstMatch, ruleMatches } from "../../shared/schemasAssistantRules.js";
 import {
 	createGithubWatcher,
 	GITHUB_WATCHER_ID,
@@ -107,13 +107,13 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	 */
 	const catchUp = (watcherId: string) => {
 		const sorter = sorterFor(watcherId);
-		if ((inbox.stateOf(watcherId)?.rulesRevision ?? 0) === sorter.revision) return;
+		if ((inbox.stateOf(watcherId, ambient.now())?.rulesRevision ?? 0) === sorter.revision) return;
 		if (!inbox.resort(watcherId, sorter, ambient.now())) {
 			console.warn(`[assistant] ${watcherId} drops not sorted again; the next poll or start retries`);
 		}
 	};
 	const rules = openDurable(deps.dataDir, "assistant-rules", (store) =>
-		createRulesStore({ store, onChanged: catchUp }),
+		createRulesStore({ store, fieldsOf: (watcherId) => watcherOfId(watcherId)?.fields, onChanged: catchUp }),
 	);
 	for (const watcher of watchers) catchUp(watcher.id);
 
@@ -152,8 +152,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	};
 
 	const watcherOf = (watcher: Watcher): AssistantWatcher => {
-		const state = inbox.stateOf(watcher.id);
 		const now = ambient.now();
+		const state = inbox.stateOf(watcher.id, now);
 		return {
 			id: watcher.id,
 			label: LABELS[watcher.id] ?? watcher.id,
@@ -241,38 +241,31 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					else startRunner();
 					return state();
 				}),
-			/** Only owner ops reach this, so no event text can rewrite what sorts later events. */
-			putRules: (watcherId, list, otherwise, base) =>
-				serial(() => {
-					const watcher = watcherOfId(watcherId);
-					if (!watcher) throw new Error(`no watcher "${watcherId}"`);
-					const refusal = rulesRefusal(list, watcher.fields ?? []);
-					if (refusal) throw new Error(refusal);
-					const put = rules.put(watcherId, list, otherwise, base);
-					if (!put.stored) throw new Error(put.reason);
-					return state();
-				}),
-			/** Refuses what a put refuses; counts only what this rule would decide from its place. */
-			previewRule: (watcherId, rule, at) => {
-				const watcher = watcherOfId(watcherId);
-				if (!watcher) throw new Error(`no watcher "${watcherId}"`);
-				const refusal = rulesRefusal([rule], watcher.fields ?? []);
+			// Only owner ops reach these, so no event text can rewrite what sorts later events.
+			putRule: (watcherId, rule) => serial(() => rules.putRule(watcherId, rule)),
+			deleteRule: (watcherId, ruleId, base) => serial(() => rules.deleteRule(watcherId, ruleId, base)),
+			moveRule: (watcherId, ruleId, beforeId, base) =>
+				serial(() => rules.moveRule(watcherId, ruleId, beforeId, base)),
+			putOtherwise: (watcherId, otherwise) => serial(() => rules.putOtherwise(watcherId, otherwise)),
+			/** Refuses what a put refuses; counts what the rule decides from its place by id, else last. */
+			previewRule: (watcherId, rule) => {
+				const refusal = rules.refusalOf(watcherId, rule);
 				if (refusal) throw new Error(refusal);
+				// Read as a save would store it.
+				const asStored = canonicalRule(rule);
 				const held = rules.get(watcherId).rules;
-				const before = held.slice(0, at === undefined ? held.length : Math.min(at, held.length));
+				const placed = held.some((existing) => existing.id === asStored.id)
+					? held.map((existing) => (existing.id === asStored.id ? asStored : existing))
+					: [...held, asStored];
 				const recent = inbox
 					.events(watcherId, ambient.now())
 					.sort((a, b) => b.receivedAt - a.receivedAt || b.seq - a.seq)
 					.slice(0, PREVIEW_EVENTS);
-				// Read as a save would store it.
-				const asStored = canonicalRule(rule);
 				const matched = recent.filter((event) => ruleMatches(asStored, event.fields));
-				const decided = matched.filter(
-					(event) => !before.some((earlier) => ruleMatches(earlier, event.fields)),
-				);
+				const decided = matched.filter((event) => firstMatch(placed, event.fields)?.id === asStored.id);
 				return {
-					matched: decided.length,
-					earlier: matched.length - decided.length,
+					decided: decided.length,
+					shadowed: matched.length - decided.length,
 					of: recent.length,
 					titles: decided.slice(0, 3).map((event) => event.title),
 				};

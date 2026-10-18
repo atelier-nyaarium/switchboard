@@ -18,6 +18,7 @@ import type {
 	AssistantRule,
 	AssistantRuleOtherwise,
 	ConsoleAssistantPreviewResult,
+	ConsoleAssistantRulesResult,
 } from "../../shared/schemasAssistantRules.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
 import type {
@@ -133,21 +134,23 @@ export interface ConsoleHandlerDeps {
 	assistant?: AssistantConsoleHandlers;
 }
 
-/** A refusal throws with its reason; everything else answers the state it left. One op at a time. */
+/** A refusal throws with its reason, but a rule op answers its refusal with the held rules. One op at a time. */
 export interface AssistantConsoleHandlers {
 	state: () => ConsoleAssistantStateResult;
 	place: (workdir: string) => Promise<ConsoleAssistantStateResult>;
 	/** `forget` ends the session's pane and record; a refused one leaves the assistant as it was. */
 	release: (forget: (team: string) => Promise<void>) => Promise<ConsoleAssistantStateResult>;
 	setWatcherGrants: (watcherId: string, entryIds: string[]) => Promise<ConsoleAssistantStateResult>;
-	/** `base` is the revision the editor read. */
-	putRules: (
+	putRule: (watcherId: string, rule: AssistantRule) => Promise<ConsoleAssistantRulesResult>;
+	deleteRule: (watcherId: string, ruleId: string, base: number) => Promise<ConsoleAssistantRulesResult>;
+	moveRule: (
 		watcherId: string,
-		rules: AssistantRule[],
-		otherwise: AssistantRuleOtherwise,
+		ruleId: string,
+		beforeId: string | undefined,
 		base: number,
-	) => Promise<ConsoleAssistantStateResult>;
-	previewRule: (watcherId: string, rule: AssistantRule, at?: number) => ConsoleAssistantPreviewResult;
+	) => Promise<ConsoleAssistantRulesResult>;
+	putOtherwise: (watcherId: string, otherwise: AssistantRuleOtherwise) => Promise<ConsoleAssistantRulesResult>;
+	previewRule: (watcherId: string, rule: AssistantRule) => ConsoleAssistantPreviewResult;
 }
 
 export interface PolicyConsoleHandlers {

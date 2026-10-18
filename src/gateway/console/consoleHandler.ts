@@ -426,11 +426,20 @@ export function createConsoleDispatcher({
 			case "assistant_watcher_grants":
 				return requireAssistant().setWatcherGrants(op.watcherId, op.entryIds);
 
-			case "assistant_rules_put":
-				return requireAssistant().putRules(op.watcherId, op.rules, op.otherwise, op.baseRevision);
+			case "assistant_rule_put":
+				return requireAssistant().putRule(op.watcherId, op.rule);
+
+			case "assistant_rule_delete":
+				return requireAssistant().deleteRule(op.watcherId, op.ruleId, op.baseRevision);
+
+			case "assistant_rule_move":
+				return requireAssistant().moveRule(op.watcherId, op.ruleId, op.beforeId, op.baseRevision);
+
+			case "assistant_otherwise_put":
+				return requireAssistant().putOtherwise(op.watcherId, op.otherwise);
 
 			case "assistant_rules_preview":
-				return requireAssistant().previewRule(op.watcherId, op.rule, op.at);
+				return requireAssistant().previewRule(op.watcherId, op.rule);
 
 			case "assistant_release":
 				return requireAssistant().release(async (team) => {

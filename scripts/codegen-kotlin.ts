@@ -109,6 +109,7 @@ import {
 	AssistantRuleSchema,
 	AssistantWatcherRulesSchema,
 	ConsoleAssistantPreviewResultSchema,
+	ConsoleAssistantRulesResultSchema,
 } from "../src/shared/schemasAssistantRules.js";
 import {
 	BoardActorSchema,
@@ -247,6 +248,9 @@ import {
 } from "../src/shared/session-id.js";
 import { SttsProvidersSchema } from "../src/shared/stts-providers.js";
 import {
+	ASSISTANT_RULE_CONDITIONS_MAX,
+	ASSISTANT_RULE_VALUE_MAX,
+	ASSISTANT_RULES_MAX,
 	BEARER_PREFIX,
 	BOARD_OUTCOME_APPLIED,
 	CONSOLE_REASON_CURSOR_STALE,
@@ -331,6 +335,7 @@ const ROOTS: z.ZodType[] = [
 	AssistantRuleSchema,
 	AssistantRuleOtherwiseSchema,
 	AssistantWatcherRulesSchema,
+	ConsoleAssistantRulesResultSchema,
 	ConsoleAssistantPreviewResultSchema,
 	ProvisioningSchema,
 	SttsProvidersSchema,
@@ -726,6 +731,9 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["ROUTINE_FORGET_DAYS_DEFAULT", ROUTINE_FORGET_DAYS_DEFAULT],
 	["ROUTINE_FORGET_DAYS_MIN", ROUTINE_FORGET_DAYS_MIN],
 	["ROUTINE_FORGET_DAYS_MAX", ROUTINE_FORGET_DAYS_MAX],
+	["ASSISTANT_RULES_MAX", ASSISTANT_RULES_MAX],
+	["ASSISTANT_RULE_CONDITIONS_MAX", ASSISTANT_RULE_CONDITIONS_MAX],
+	["ASSISTANT_RULE_VALUE_MAX", ASSISTANT_RULE_VALUE_MAX],
 ];
 const wireConstantBlock = wireConstants
 	.map(

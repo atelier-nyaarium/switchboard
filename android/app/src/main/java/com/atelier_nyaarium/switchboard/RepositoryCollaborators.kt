@@ -197,6 +197,8 @@ internal class ChatRepositoryPolicyHost(private val repo: ChatRepository) : Poli
 internal class ConsoleAssistantGateway(private val client: ConsoleClient) : AssistantGateway {
 	override suspend fun call(gatewayId: String, op: ConsoleOp) = client.assistantOp(gatewayId, op)
 
+	override suspend fun rules(gatewayId: String, op: ConsoleOp) = client.assistantRules(gatewayId, op)
+
 	override suspend fun preview(gatewayId: String, op: ConsoleOp.AssistantRulesPreview) = client.assistantPreview(gatewayId, op)
 }
 

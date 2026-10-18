@@ -109,6 +109,9 @@ object Protocol {
 		const val ROUTINE_FORGET_DAYS_DEFAULT: Int = 7
 		const val ROUTINE_FORGET_DAYS_MIN: Int = 1
 		const val ROUTINE_FORGET_DAYS_MAX: Int = 365
+		const val ASSISTANT_RULES_MAX: Int = 50
+		const val ASSISTANT_RULE_CONDITIONS_MAX: Int = 8
+		const val ASSISTANT_RULE_VALUE_MAX: Int = 200
 
 		object ConsoleOpKind {
 			const val SEND: String = "send"
@@ -165,7 +168,10 @@ object Protocol {
 			const val ASSISTANT_PLACE: String = "assistant_place"
 			const val ASSISTANT_RELEASE: String = "assistant_release"
 			const val ASSISTANT_WATCHER_GRANTS: String = "assistant_watcher_grants"
-			const val ASSISTANT_RULES_PUT: String = "assistant_rules_put"
+			const val ASSISTANT_RULE_PUT: String = "assistant_rule_put"
+			const val ASSISTANT_RULE_DELETE: String = "assistant_rule_delete"
+			const val ASSISTANT_RULE_MOVE: String = "assistant_rule_move"
+			const val ASSISTANT_OTHERWISE_PUT: String = "assistant_otherwise_put"
 			const val ASSISTANT_RULES_PREVIEW: String = "assistant_rules_preview"
 		}
 
@@ -659,12 +665,34 @@ sealed class ConsoleOp {
 	) : ConsoleOp()
 
 	@Serializable
-	@SerialName("assistant_rules_put")
-	data class AssistantRulesPut(
+	@SerialName("assistant_rule_put")
+	data class AssistantRulePut(
 		val watcherId: String,
-		val rules: List<AssistantRule>,
-		val otherwise: AssistantRuleOtherwise,
+		val rule: AssistantRule,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("assistant_rule_delete")
+	data class AssistantRuleDelete(
+		val watcherId: String,
+		val ruleId: String,
 		val baseRevision: Long,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("assistant_rule_move")
+	data class AssistantRuleMove(
+		val watcherId: String,
+		val ruleId: String,
+		val beforeId: String? = null,
+		val baseRevision: Long,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("assistant_otherwise_put")
+	data class AssistantOtherwisePut(
+		val watcherId: String,
+		val otherwise: AssistantRuleOtherwise,
 	) : ConsoleOp()
 
 	@Serializable
@@ -672,7 +700,6 @@ sealed class ConsoleOp {
 	data class AssistantRulesPreview(
 		val watcherId: String,
 		val rule: AssistantRule,
-		val at: Long? = null,
 	) : ConsoleOp()
 }
 
@@ -1081,15 +1108,18 @@ data class AssistantRuleCondition(
 
 @Serializable
 data class AssistantRule(
+	val id: String,
 	val conditions: List<AssistantRuleCondition>,
 	val action: String,
 	val ping: Boolean? = null,
+	val revision: Long,
 )
 
 @Serializable
 data class AssistantRuleOtherwise(
 	val action: String,
 	val ping: Boolean? = null,
+	val revision: Long,
 )
 
 @Serializable
@@ -1100,9 +1130,16 @@ data class AssistantWatcherRules(
 )
 
 @Serializable
+data class ConsoleAssistantRulesResult(
+	val stored: Boolean,
+	val rules: AssistantWatcherRules,
+	val reason: String? = null,
+)
+
+@Serializable
 data class ConsoleAssistantPreviewResult(
-	val matched: Long,
-	val earlier: Long,
+	val decided: Long,
+	val shadowed: Long,
 	val of: Long,
 	val titles: List<String>,
 )

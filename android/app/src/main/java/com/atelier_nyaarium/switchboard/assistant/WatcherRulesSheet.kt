@@ -38,10 +38,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.atelier_nyaarium.switchboard.AssistantAnswer
 import com.atelier_nyaarium.switchboard.AssistantOps
 import com.atelier_nyaarium.switchboard.PickMenu
-import com.atelier_nyaarium.switchboard.answerText
+import com.atelier_nyaarium.switchboard.RuleSaved
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import kotlinx.coroutines.delay
@@ -71,18 +70,18 @@ internal fun WatcherRulesSheet(ops: AssistantOps, gatewayId: String, watcher: As
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 			rules.held.rules.forEachIndexed { index, rule ->
-				val raise = raised(rules.held, index)?.takeIf { !busy }
+				val before = raisedBefore(rules.held, rule.id)?.takeIf { !busy }
 				RuleRow(
 					number = "${index + 1}",
 					text = ruleSummary(rule),
 					action = rule.action,
 					pings = rowPings(rule.action, rule.ping, rules.pingDefault),
-					onOpen = { editing = RuleSlot.At(index) },
-					onRaise = raise?.let { put ->
+					onOpen = { editing = RuleSlot.Held(rule.id) },
+					onRaise = before?.let { anchor ->
 						{
 							busy = true
 							scope.launch {
-								said = answerText(ops.putRules(gatewayId, watcher.id, put))
+								said = listText(ops.moveRule(gatewayId, watcher.id, rule.id, anchor, rules.held.revision))
 								busy = false
 							}
 						}
@@ -175,46 +174,42 @@ private fun RuleEditorSheet(
 	onDismiss: () -> Unit,
 ) {
 	val scope = rememberCoroutineScope()
-	/** The base a save names. */
-	var opened by remember(slot) { mutableStateOf(rules) }
-	var draft by remember(slot) { mutableStateOf(RuleDraft.of(slot, rules)) }
+	val opened = remember(slot) { RuleDraft.of(slot, rules) }
+	if (opened == null) {
+		// Deleted elsewhere before it opened.
+		LaunchedEffect(slot) { onDismiss() }
+		return
+	}
+	var draft by remember(slot) { mutableStateOf(opened) }
 	var busy by remember { mutableStateOf(false) }
 	var said by remember { mutableStateOf<String?>(null) }
 	var preview by remember { mutableStateOf<String?>(null) }
 	val rule = draft.toRule()
+	val gone = goneFrom(rules, slot)
+	// Held still while a save is out.
+	val editable = !busy && !gone
 
-	if (slot != RuleSlot.Otherwise) {
-		LaunchedEffect(rule) {
+	if (slot != RuleSlot.Otherwise && !gone) {
+		LaunchedEffect(rule, rules.held.revision) {
 			preview = null
 			val asked = rule ?: return@LaunchedEffect
 			delay(PREVIEW_DEBOUNCE_MS)
-			val at = (slot as? RuleSlot.At)?.index
-			preview = ops.preview(gatewayId, watcher.id, asked, at)?.let(::previewText) ?: "Could not check recent events."
+			preview = ops.preview(gatewayId, watcher.id, asked)?.let(::previewText) ?: "Could not check recent events."
 		}
 	}
 
-	/** A delete is not the draft, so a refused one is never read against it. */
-	fun send(put: RulesPut?, deleting: Boolean = false) {
-		val sending = put ?: return
+	fun send(edit: RuleEdit, op: suspend () -> RuleSaved) {
 		busy = true
 		scope.launch {
-			val answer = ops.putRules(gatewayId, watcher.id, sending)
+			val outcome = outcomeOf(op(), draft, slot, edit)
 			busy = false
-			if (answer is AssistantAnswer.State) return@launch onDone()
-			val current = ops.watcher(gatewayId, watcher.id)?.let(::rulesOf)
-			val next = if (answer is AssistantAnswer.Refused && !deleting && current != null) {
-				afterRefusal(opened, current, slot, draft)
-			} else {
-				AfterRefusal.Stuck
-			}
-			when (next) {
-				AfterRefusal.Landed -> onDone()
-				is AfterRefusal.Over -> {
-					opened = next.rules
-					said = "The rules changed. Save again to apply over them."
+			when (outcome) {
+				SaveOutcome.Done -> onDone()
+				is SaveOutcome.Offer -> {
+					draft = outcome.draft
+					said = outcome.line
 				}
-				AfterRefusal.Stuck ->
-					said = if (deleting && answer is AssistantAnswer.Refused) "The rules changed. Reopen to delete." else answerText(answer)
+				is SaveOutcome.Said -> said = outcome.reason
 			}
 		}
 	}
@@ -225,10 +220,11 @@ private fun RuleEditorSheet(
 			verticalArrangement = Arrangement.spacedBy(8.dp),
 		) {
 			Text(
-				when (slot) {
-					is RuleSlot.At -> "Rule ${slot.index + 1}"
-					RuleSlot.New -> "New rule"
-					RuleSlot.Otherwise -> "Anything else"
+				when {
+					gone -> "Deleted elsewhere"
+					slot is RuleSlot.Held -> "Rule ${rules.held.rules.indexOfFirst { it.id == slot.id } + 1}"
+					slot == RuleSlot.New -> "New rule"
+					else -> "Anything else"
 				},
 				style = MaterialTheme.typography.titleLarge,
 			)
@@ -243,10 +239,11 @@ private fun RuleEditorSheet(
 						Box(Modifier.weight(1f)) {
 							PickMenu(
 								label = "Field",
-								choices = opened.fields,
+								choices = rules.fields,
 								picked = condition.field,
 								labelOf = ::fieldLabel,
 								onPick = { field -> draft = draft.changed(index) { it.copy(field = field) } },
+								enabled = editable,
 							)
 						}
 						Box(Modifier.weight(0.7f)) {
@@ -256,10 +253,11 @@ private fun RuleEditorSheet(
 								picked = condition.test,
 								labelOf = ::testLabel,
 								onPick = { test -> draft = draft.changed(index) { it.copy(test = test) } },
+								enabled = editable,
 							)
 						}
 						if (draft.conditions.size > 1) {
-							IconButton(onClick = hapticClick { draft = draft.withoutCondition(index) }) {
+							IconButton(onClick = hapticClick { draft = draft.withoutCondition(index) }, enabled = editable) {
 								Icon(Icons.Default.Close, contentDescription = "Remove condition")
 							}
 						}
@@ -269,11 +267,14 @@ private fun RuleEditorSheet(
 						onValueChange = { value -> draft = draft.changed(index) { it.copy(value = value) } },
 						label = { Text("Value") },
 						singleLine = true,
+						enabled = editable,
 						modifier = Modifier.fillMaxWidth(),
 					)
 				}
 				if (draft.conditions.size < MAX_CONDITIONS) {
-					TextButton(onClick = hapticClick { draft = draft.withCondition(opened.fields) }) { Text("+ Add condition") }
+					TextButton(onClick = hapticClick { draft = draft.withCondition(rules.fields) }, enabled = editable) {
+						Text("+ Add condition")
+					}
 				}
 			}
 
@@ -283,6 +284,7 @@ private fun RuleEditorSheet(
 					SegmentedButton(
 						selected = draft.action == action,
 						onClick = hapticClick { draft = draft.copy(action = action) },
+						enabled = editable,
 						shape = SegmentedButtonDefaults.itemShape(index = index, count = RULE_ACTIONS.size),
 					) { Text(actionLabel(action)) }
 				}
@@ -292,14 +294,15 @@ private fun RuleEditorSheet(
 					Column(Modifier.weight(1f)) {
 						Text("Ping my phone", style = MaterialTheme.typography.bodyLarge)
 						Text(
-							"Default: ${if (opened.pingDefault) "on" else "off"}",
+							"Default: ${if (rules.pingDefault) "on" else "off"}",
 							style = MaterialTheme.typography.bodySmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
 					}
 					Switch(
-						checked = draft.pings(opened.pingDefault),
-						onCheckedChange = { on -> draft = draft.copy(ping = pingAfter(on, opened.pingDefault)) },
+						checked = draft.pings(rules.pingDefault),
+						onCheckedChange = { on -> draft = draft.copy(ping = pingAfter(on, rules.pingDefault)) },
+						enabled = editable,
 					)
 				}
 			}
@@ -318,14 +321,23 @@ private fun RuleEditorSheet(
 
 			HorizontalDivider()
 			Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-				if (slot is RuleSlot.At) {
-					TextButton(onClick = hapticClick { send(deleted(opened.held, slot.index), deleting = true) }, enabled = !busy) {
-					Text("Delete")
-				}
+				if (slot is RuleSlot.Held) {
+					TextButton(
+						onClick = hapticClick {
+							send(RuleEdit.DELETE) { ops.deleteRule(gatewayId, watcher.id, draft.id, draft.revision) }
+						},
+						enabled = editable,
+					) { Text("Delete") }
 				}
 				TextButton(onClick = hapticClick(onDismiss)) { Text("Cancel") }
-				val put = saved(opened.held, slot, draft)
-				Button(onClick = hapticClick { send(put) }, enabled = !busy && put != null) { Text("Save") }
+				val save: (suspend () -> RuleSaved)? = if (slot == RuleSlot.Otherwise) {
+					{ ops.saveOtherwise(gatewayId, watcher.id, draft.toOtherwise()) }
+				} else {
+					rule?.let { valid -> { ops.saveRule(gatewayId, watcher.id, valid) } }
+				}
+				Button(onClick = hapticClick { save?.let { send(RuleEdit.SAVE, it) } }, enabled = editable && save != null) {
+					Text("Save")
+				}
 			}
 		}
 	}

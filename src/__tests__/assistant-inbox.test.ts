@@ -41,6 +41,7 @@ function sorter(sort: (row: WatcherEvent) => RuleDecision, revision = 1): Sorter
 	return { sort, revision };
 }
 
+const NO_RULES = sorter(() => decided("inbox", 0), 0);
 const T0 = 1_800_000_000_000;
 
 describe("the assistant inbox", () => {
@@ -48,23 +49,27 @@ describe("the assistant inbox", () => {
 		const store = disk();
 		const inbox = createInboxStore(store);
 
-		const landed = inbox.commitPoll("github", polled([event("a"), event("b")], "c1"), T0);
+		const landed = inbox.commitPoll("github", polled([event("a"), event("b")], "c1"), T0, NO_RULES);
 		const reopened = createInboxStore(store);
 
 		expect(landed?.accepted.map((row) => [row.sourceId, row.seq])).toEqual([
 			["a", 1],
 			["b", 2],
 		]);
-		expect(reopened.stateOf("github")).toMatchObject({ cursor: "c1", lastSuccessAt: T0, nextPollAt: T0 + 60_000 });
+		expect(reopened.stateOf("github", T0)).toMatchObject({
+			cursor: "c1",
+			lastSuccessAt: T0,
+			nextPollAt: T0 + 60_000,
+		});
 		expect(reopened.unread("github", T0)).toBe(2);
 	});
 
 	it("ignores a replayed source id, even after its row has expired", () => {
 		const inbox = createInboxStore(disk());
-		inbox.commitPoll("github", polled([event("a")]), T0);
+		inbox.commitPoll("github", polled([event("a")]), T0, NO_RULES);
 
-		const replay = inbox.commitPoll("github", polled([event("a"), event("b")]), T0 + 1);
-		const late = inbox.commitPoll("github", polled([event("a")]), T0 + INBOX_RETENTION_MS + 1);
+		const replay = inbox.commitPoll("github", polled([event("a"), event("b")]), T0 + 1, NO_RULES);
+		const late = inbox.commitPoll("github", polled([event("a")]), T0 + INBOX_RETENTION_MS + 1, NO_RULES);
 
 		expect(replay?.accepted.map((row) => row.sourceId)).toEqual(["b"]);
 		expect(late?.accepted).toEqual([]);
@@ -75,8 +80,8 @@ describe("the assistant inbox", () => {
 		const inbox = createInboxStore(disk());
 		const odd = [event("constructor"), event("__proto__"), event("toString")];
 
-		const first = inbox.commitPoll("github", polled(odd), T0);
-		const again = inbox.commitPoll("github", polled(odd), T0 + 1);
+		const first = inbox.commitPoll("github", polled(odd), T0, NO_RULES);
+		const again = inbox.commitPoll("github", polled(odd), T0 + 1, NO_RULES);
 
 		expect(first?.accepted).toHaveLength(3);
 		expect(again?.accepted).toEqual([]);
@@ -88,7 +93,7 @@ describe("the assistant inbox", () => {
 		fs.writeFileSync(path.join(dir, "assistant-inbox.json"), JSON.stringify({ v: 1, events: "not a list" }));
 		const inbox = openDurable(dir, "assistant-inbox", (store) => createInboxStore(store));
 
-		const landed = inbox.commitPoll("github", polled([event("a")]), T0);
+		const landed = inbox.commitPoll("github", polled([event("a")]), T0, NO_RULES);
 
 		expect(landed?.accepted).toHaveLength(1);
 		expect(inbox.events(undefined, T0)).toHaveLength(1);
@@ -104,29 +109,29 @@ describe("the assistant inbox", () => {
 			},
 		}) as DurableStore;
 		const inbox = createInboxStore(flaky);
-		inbox.commitPoll("github", polled([event("a")], "c1"), T0);
+		inbox.commitPoll("github", polled([event("a")], "c1"), T0, NO_RULES);
 
 		failure = new Error("disk full");
-		const refused = inbox.commitPoll("github", polled([event("b")], "c2"), T0 + 1);
+		const refused = inbox.commitPoll("github", polled([event("b")], "c2"), T0 + 1, NO_RULES);
 		failure = new DurableStoreInstalledError(new Error("dir sync"));
-		const installed = inbox.commitPoll("github", polled([event("c")], "c3"), T0 + 2);
+		const installed = inbox.commitPoll("github", polled([event("c")], "c3"), T0 + 2, NO_RULES);
 
 		expect(refused).toBeNull();
 		expect(installed?.accepted.map((row) => row.sourceId)).toEqual(["c"]);
 		expect(inbox.events("github", T0 + 2).map((row) => row.sourceId)).toEqual(["a", "c"]);
-		expect(inbox.stateOf("github")?.cursor).toBe("c3");
+		expect(inbox.stateOf("github", T0 + 2)?.cursor).toBe("c3");
 	});
 
 	it("evicts the oldest unread rows past the cap, counts them, and reports only what it kept", () => {
 		const inbox = createInboxStore(disk());
 		const many = Array.from({ length: INBOX_CAP + 3 }, (_, i) => event(`e${i}`));
 
-		const landed = inbox.commitPoll("github", polled(many), T0);
+		const landed = inbox.commitPoll("github", polled(many), T0, NO_RULES);
 
 		expect(landed?.accepted).toHaveLength(INBOX_CAP);
 		expect(landed?.accepted[0]?.sourceId).toBe("e3");
 		expect(inbox.unread("github", T0)).toBe(INBOX_CAP);
-		expect(inbox.stateOf("github")?.evicted).toBe(3);
+		expect(inbox.stateOf("github", T0)?.evicted).toBe(3);
 		expect(inbox.events("github", T0)[0]?.sourceId).toBe("e3");
 	});
 
@@ -148,7 +153,7 @@ describe("the assistant inbox", () => {
 		});
 		const inbox = createInboxStore(store);
 
-		const landed = inbox.commitPoll("github", polled([event("new")], "c2"), T0 + 1);
+		const landed = inbox.commitPoll("github", polled([event("new")], "c2"), T0 + 1, NO_RULES);
 
 		expect(landed?.accepted.map((accepted) => accepted.seq)).toEqual([6]);
 		expect(inbox.events("github", T0 + 1).map((held) => held.sourceId)).toEqual(["early", "late", "new"]);
@@ -164,10 +169,20 @@ describe("the assistant inbox", () => {
 			sorter((row) => decided(row.fields.reason === "subscribed" ? "drop" : "inbox")),
 		);
 
-		inbox.commitPoll("github", polled([]), T0 + DROP_RETENTION_MS + 1);
+		inbox.commitPoll("github", polled([]), T0 + DROP_RETENTION_MS + 1, NO_RULES);
+		const later = T0 + DROP_RETENTION_MS + 1;
 
-		expect(inbox.events("github", T0 + DROP_RETENTION_MS + 1).map((row) => row.sourceId)).toEqual(["kept"]);
-		expect(inbox.stateOf("github")?.evicted).toBe(0);
+		expect(inbox.events("github", later).map((row) => row.sourceId)).toEqual(["kept"]);
+		expect(inbox.stateOf("github", later)?.evicted).toBe(0);
+	});
+
+	it("counts an expired unread row as lost as soon as it leaves unread, with no write", () => {
+		const inbox = createInboxStore(disk());
+		inbox.commitPoll("github", polled([event("a")]), T0, NO_RULES);
+		const later = T0 + INBOX_RETENTION_MS + 1;
+
+		expect(inbox.unread("github", later)).toBe(0);
+		expect(inbox.stateOf("github", later)?.evicted).toBe(1);
 	});
 
 	it("sorts kept drops again under new rules, giving a caught one a fresh place in line", () => {
@@ -195,7 +210,7 @@ describe("the assistant inbox", () => {
 			["b", "inbox", "inbox"],
 			["a", "inbox", "wake"],
 		]);
-		expect(reopened.stateOf("github")?.rulesRevision).toBe(2);
+		expect(reopened.stateOf("github", T0 + 1)?.rulesRevision).toBe(2);
 		expect(reopened.unread("github", T0 + 1)).toBe(2);
 	});
 
@@ -217,7 +232,7 @@ describe("the assistant inbox", () => {
 
 		expect(inbox.events("github", later)).toEqual([]);
 		expect(inbox.unread("github", later)).toBe(0);
-		expect(inbox.stateOf("github")?.evicted).toBe(0);
+		expect(inbox.stateOf("github", later)?.evicted).toBe(0);
 	});
 
 	it("catches up an inbox behind the rules in the next poll's write", () => {
@@ -237,7 +252,7 @@ describe("the assistant inbox", () => {
 		);
 
 		expect(inbox.unread("github", T0 + 1)).toBe(1);
-		expect(inbox.stateOf("github")).toMatchObject({ cursor: "c2", rulesRevision: 2 });
+		expect(inbox.stateOf("github", T0 + 1)).toMatchObject({ cursor: "c2", rulesRevision: 2 });
 	});
 
 	it("caps kept drops per watcher without counting them as lost", () => {
@@ -253,24 +268,24 @@ describe("the assistant inbox", () => {
 
 		expect(inbox.events("github", T0)).toHaveLength(DROP_CAP);
 		expect(inbox.events("github", T0)[0]?.sourceId).toBe("d2");
-		expect(inbox.stateOf("github")?.evicted).toBe(0);
+		expect(inbox.stateOf("github", T0)?.evicted).toBe(0);
 	});
 
 	it("records backoff and stop without moving the cursor, and a good poll clears both", () => {
 		const inbox = createInboxStore(disk());
-		inbox.commitPoll("github", polled([], "c1"), T0);
+		inbox.commitPoll("github", polled([], "c1"), T0, NO_RULES);
 
-		inbox.commitPoll("github", { kind: "backoff", retryMs: 5_000, reason: "rate limited" }, T0 + 1);
-		const backedOff = inbox.stateOf("github");
-		inbox.commitPoll("github", { kind: "stopped", reason: "needs a secret" }, T0 + 2);
-		const stopped = inbox.stateOf("github");
-		inbox.commitPoll("github", polled([], "c2"), T0 + 3);
+		inbox.commitPoll("github", { kind: "backoff", retryMs: 5_000, reason: "rate limited" }, T0 + 1, NO_RULES);
+		const backedOff = inbox.stateOf("github", T0 + 1);
+		inbox.commitPoll("github", { kind: "stopped", reason: "needs a secret" }, T0 + 2, NO_RULES);
+		const stopped = inbox.stateOf("github", T0 + 2);
+		inbox.commitPoll("github", polled([], "c2"), T0 + 3, NO_RULES);
 
 		expect(backedOff).toMatchObject({ cursor: "c1", backoff: { reason: "rate limited" }, nextPollAt: T0 + 5_001 });
 		expect(stopped).toMatchObject({ cursor: "c1", stopped: "needs a secret" });
 		expect(stopped?.nextPollAt).toBeUndefined();
-		expect(inbox.stateOf("github")).toMatchObject({ cursor: "c2" });
-		expect(inbox.stateOf("github")?.stopped).toBeUndefined();
-		expect(inbox.stateOf("github")?.backoff).toBeUndefined();
+		expect(inbox.stateOf("github", T0 + 3)).toMatchObject({ cursor: "c2" });
+		expect(inbox.stateOf("github", T0 + 3)?.stopped).toBeUndefined();
+		expect(inbox.stateOf("github", T0 + 3)?.backoff).toBeUndefined();
 	});
 });

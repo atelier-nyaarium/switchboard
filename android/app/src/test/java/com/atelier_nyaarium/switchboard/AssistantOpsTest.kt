@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.assistant.RulesPut
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcherBackoff
@@ -40,7 +39,7 @@ class AssistantOpsTest {
 		val refusing = mutableSetOf<String>()
 		val deaf = mutableSetOf<String>()
 		val calls = mutableListOf<Pair<String, String>>()
-		var rules = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise(action = "inbox"), revision = 0L)
+		var rules = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise(action = "inbox", revision = 0L), revision = 0L)
 
 		private fun stateOf(gatewayId: String) = ConsoleAssistantStateResult(
 			workdir = "~/notes".takeIf { gatewayId == home },
@@ -48,15 +47,19 @@ class AssistantOpsTest {
 			watchers = listOf(watcher().copy(fields = listOf("reason"), pingDefault = false, rules = rules)),
 		)
 
+		/** Only the catch-all, which is all these tests save. */
+		override suspend fun rules(gatewayId: String, op: ConsoleOp): RuleSaved {
+			if (gatewayId in deaf) return RuleSaved.Unreachable
+			val put = op as ConsoleOp.AssistantOtherwisePut
+			if (put.otherwise.revision != rules.otherwise.revision) return RuleSaved.Refused("revision is stored", rules)
+			rules = rules.copy(otherwise = put.otherwise.copy(revision = put.otherwise.revision + 1), revision = rules.revision + 1)
+			return RuleSaved.Stored(rules)
+		}
+
 		override suspend fun call(gatewayId: String, op: ConsoleOp): AssistantAnswer {
 			calls += gatewayId to op::class.simpleName.orEmpty()
 			if (gatewayId in deaf) return AssistantAnswer.Unreachable
 			return when (op) {
-				is ConsoleOp.AssistantRulesPut -> {
-					if (op.baseRevision != rules.revision) return AssistantAnswer.Refused("revision ${rules.revision} is stored")
-					rules = AssistantWatcherRules(op.rules, op.otherwise, rules.revision + 1)
-					AssistantAnswer.State(stateOf(gatewayId))
-				}
 				is ConsoleOp.AssistantPlace -> {
 					if (gatewayId in refusing) return AssistantAnswer.Refused("held by another session")
 					home = gatewayId
@@ -131,18 +134,17 @@ class AssistantOpsTest {
 	}
 
 	@Test
-	fun aStaleRulesSaveIsRefusedAndRedrawsWhatTheGatewayHolds() = runBlocking {
+	fun aStaleSaveIsRefusedWithWhatIsHeldAndRedrawsIt() = runBlocking {
 		val fake = FakeGateway(home = "sakura")
 		val (ops, state) = ops(fake, "sakura")
 		ops.refreshAll()
-		val drawn = { state.value.gateways.assistantOn("sakura")!!.watchers.single().rules!!.revision }
-		val opened = drawn()
+		val drawn = { state.value.gateways.assistantOn("sakura")!!.watchers.single().rules!!.otherwise.revision }
 		// Another phone saves first.
-		fake.rules = fake.rules.copy(revision = 1L)
+		fake.rules = fake.rules.copy(otherwise = AssistantRuleOtherwise(action = "wake", revision = 1L))
 
-		val answer = ops.putRules("sakura", "github", RulesPut(emptyList(), AssistantRuleOtherwise(action = "drop"), opened))
+		val answer = ops.saveOtherwise("sakura", "github", AssistantRuleOtherwise(action = "drop", revision = 0L))
 
-		assertTrue(answer is AssistantAnswer.Refused)
+		assertEquals(1L, (answer as RuleSaved.Refused).held?.otherwise?.revision)
 		assertEquals(1L, drawn())
 	}
 

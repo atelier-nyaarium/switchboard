@@ -19,7 +19,7 @@ export interface WatcherRunnerDeps {
 	inbox: Pick<InboxStore, "commitPoll" | "stateOf">;
 	watchers: readonly Watcher[];
 	/** The watcher's rules, read as its poll lands. */
-	rules?: (watcherId: string) => Sorter;
+	rules: (watcherId: string) => Sorter;
 	/** Each accepted batch, once it is durable. */
 	onAccepted?: (watcherId: string, accepted: readonly InboxEvent[]) => void | Promise<void>;
 }
@@ -92,13 +92,14 @@ export function createWatcherRunner(deps: WatcherRunnerDeps): WatcherRunner {
 		aborts.add(abort);
 		polling.add(watcher.id);
 		const work = async (): Promise<void> => {
-			const answer = await answerOf(watcher, inbox.stateOf(watcher.id)?.cursor ?? null, abort, deps);
+			const cursor = inbox.stateOf(watcher.id, ambient.now())?.cursor ?? null;
+			const answer = await answerOf(watcher, cursor, abort, deps);
 			aborts.delete(abort);
 			if (phase !== "running") return;
 			const now = ambient.now();
-			const landed = inbox.commitPoll(watcher.id, answer, now, deps.rules?.(watcher.id));
+			const landed = inbox.commitPoll(watcher.id, answer, now, deps.rules(watcher.id));
 			if (!landed) return arm(watcher, now + RETRY_MS);
-			const next = inbox.stateOf(watcher.id)?.nextPollAt;
+			const next = inbox.stateOf(watcher.id, now)?.nextPollAt;
 			if (next !== undefined) arm(watcher, next);
 			const { onAccepted } = deps;
 			if (landed.accepted.length === 0 || !onAccepted) return;
@@ -120,7 +121,8 @@ export function createWatcherRunner(deps: WatcherRunnerDeps): WatcherRunner {
 			if (phase !== "idle") return;
 			phase = "running";
 			// A stopped watcher gets one more try after a restart; its health says why it stopped.
-			for (const watcher of deps.watchers) arm(watcher, inbox.stateOf(watcher.id)?.nextPollAt ?? ambient.now());
+			const now = ambient.now();
+			for (const watcher of deps.watchers) arm(watcher, inbox.stateOf(watcher.id, now)?.nextPollAt ?? now);
 		},
 		poke(watcherId) {
 			const watcher = deps.watchers.find((candidate) => candidate.id === watcherId);

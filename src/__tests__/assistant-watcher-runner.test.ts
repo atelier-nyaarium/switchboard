@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { createInboxStore, type InboxStore } from "../gateway/assistant/inboxStore.js";
+import { createInboxStore, type InboxStore, type Sorter } from "../gateway/assistant/inboxStore.js";
 import type { PollAnswer, Watcher } from "../gateway/assistant/watcher.js";
 import {
 	createWatcherRunner,
@@ -15,6 +15,10 @@ import { type FakeAmbient, fakeAmbient } from "../testing/fakeAmbient.js";
 
 /** A fixed base, so manual time moves only when a test advances it. */
 const T0 = 1_800_000_000_000;
+const NO_RULES: Sorter = {
+	sort: () => ({ action: "inbox", ping: false, rulesRevision: 0 }),
+	revision: 0,
+};
 
 const dirs: string[] = [];
 afterAll(() => {
@@ -61,7 +65,7 @@ describe("the watcher runner", () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const inbox = inboxOnDisk();
 		const source = scripted();
-		const runner = createWatcherRunner({ ambient, inbox, watchers: [source.watcher] });
+		const runner = createWatcherRunner({ ambient, inbox, watchers: [source.watcher], rules: () => NO_RULES });
 
 		runner.start();
 		await ambient.advance(30_000);
@@ -92,15 +96,15 @@ describe("the watcher runner", () => {
 				return new Promise(() => undefined);
 			},
 		};
-		const runner = createWatcherRunner({ ambient, inbox, watchers: [watcher] });
+		const runner = createWatcherRunner({ ambient, inbox, watchers: [watcher], rules: () => NO_RULES });
 
 		runner.start();
 		await ambient.advance(60_000);
-		const thrown = inbox.stateOf("github")?.backoff?.reason;
+		const thrown = inbox.stateOf("github", ambient.now())?.backoff?.reason;
 		await ambient.advance(RETRY_MS - 1);
 		const beforeRetry = cursors.length;
 		await ambient.advance(1 + POLL_TIMEOUT_MS);
-		const hung = inbox.stateOf("github")?.backoff;
+		const hung = inbox.stateOf("github", ambient.now())?.backoff;
 		await stopped(runner, ambient);
 
 		expect(thrown).toBe("socket hang up");
@@ -121,7 +125,12 @@ describe("the watcher runner", () => {
 				return new Promise(() => undefined);
 			},
 		};
-		const runner = createWatcherRunner({ ambient, inbox, watchers: [fast.watcher, hanging] });
+		const runner = createWatcherRunner({
+			ambient,
+			inbox,
+			watchers: [fast.watcher, hanging],
+			rules: () => NO_RULES,
+		});
 
 		runner.start();
 		await ambient.advance(0);
@@ -140,7 +149,7 @@ describe("the watcher runner", () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const inbox = inboxOnDisk();
 		const source = scripted();
-		const first = createWatcherRunner({ ambient, inbox, watchers: [source.watcher] });
+		const first = createWatcherRunner({ ambient, inbox, watchers: [source.watcher], rules: () => NO_RULES });
 
 		first.start();
 		await ambient.advance(0);
@@ -149,7 +158,7 @@ describe("the watcher runner", () => {
 		await ambient.advance(24 * 60 * 60 * 1000);
 		const whileStopped = source.cursors.length;
 		await stopped(first, ambient);
-		const second = createWatcherRunner({ ambient, inbox, watchers: [source.watcher] });
+		const second = createWatcherRunner({ ambient, inbox, watchers: [source.watcher], rules: () => NO_RULES });
 		second.start();
 		await ambient.advance(0);
 		await stopped(second, ambient);
@@ -162,7 +171,7 @@ describe("the watcher runner", () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const inbox = inboxOnDisk();
 		const source = scripted();
-		const runner = createWatcherRunner({ ambient, inbox, watchers: [source.watcher] });
+		const runner = createWatcherRunner({ ambient, inbox, watchers: [source.watcher], rules: () => NO_RULES });
 
 		runner.start();
 		await ambient.advance(0);
@@ -171,7 +180,7 @@ describe("the watcher runner", () => {
 		await ambient.advance(0);
 
 		expect(inbox.events("github", ambient.now())).toEqual([]);
-		expect(inbox.stateOf("github")).toBeUndefined();
+		expect(inbox.stateOf("github", ambient.now())).toBeUndefined();
 	});
 
 	it("keeps polling when the acceptance hook throws", async () => {
@@ -182,6 +191,7 @@ describe("the watcher runner", () => {
 			ambient,
 			inbox,
 			watchers: [source.watcher],
+			rules: () => NO_RULES,
 			onAccepted: () => {
 				throw new Error("delivery failed");
 			},
@@ -207,7 +217,7 @@ describe("the watcher runner", () => {
 				return new Promise(() => undefined);
 			},
 		};
-		const runner = createWatcherRunner({ ambient, inbox: inboxOnDisk(), watchers: [deaf] });
+		const runner = createWatcherRunner({ ambient, inbox: inboxOnDisk(), watchers: [deaf], rules: () => NO_RULES });
 
 		runner.start();
 		await ambient.advance(0);
@@ -226,15 +236,17 @@ describe("the watcher runner", () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const twice = [scripted().watcher, scripted().watcher];
 
-		expect(() => createWatcherRunner({ ambient, inbox: inboxOnDisk(), watchers: twice })).toThrow();
+		expect(() =>
+			createWatcherRunner({ ambient, inbox: inboxOnDisk(), watchers: twice, rules: () => NO_RULES }),
+		).toThrow();
 	});
 
 	it("resumes at the stored next poll after a restart, and arms nothing once stopped", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const inbox = inboxOnDisk();
-		inbox.commitPoll("github", events("c1", 600_000), ambient.now());
+		inbox.commitPoll("github", events("c1", 600_000), ambient.now(), NO_RULES);
 		const source = scripted();
-		const runner = createWatcherRunner({ ambient, inbox, watchers: [source.watcher] });
+		const runner = createWatcherRunner({ ambient, inbox, watchers: [source.watcher], rules: () => NO_RULES });
 
 		runner.start();
 		await ambient.advance(599_999);
@@ -258,10 +270,10 @@ describe("the watcher runner", () => {
 				refuse = false;
 				return null;
 			},
-			stateOf: (id) => real.stateOf(id),
+			stateOf: (id) => real.stateOf(id, ambient.now()),
 		};
 		const source = scripted();
-		const runner = createWatcherRunner({ ambient, inbox, watchers: [source.watcher] });
+		const runner = createWatcherRunner({ ambient, inbox, watchers: [source.watcher], rules: () => NO_RULES });
 
 		runner.start();
 		await ambient.advance(0);
@@ -273,6 +285,6 @@ describe("the watcher runner", () => {
 		await stopped(runner, ambient);
 
 		expect(source.cursors).toEqual([null, null]);
-		expect(real.stateOf("github")?.cursor).toBe("c1");
+		expect(real.stateOf("github", ambient.now())?.cursor).toBe("c1");
 	});
 });

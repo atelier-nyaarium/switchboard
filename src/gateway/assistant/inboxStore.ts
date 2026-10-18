@@ -81,9 +81,6 @@ export interface Sorter {
 	revision: number;
 }
 
-/** No rules yet: everything to the inbox, quietly. */
-const UNSORTED: Sorter = { sort: () => ({ action: "inbox", ping: false, rulesRevision: 0 }), revision: 0 };
-
 /** A wake waits in the inbox until it lands, so only a drop leaves it. */
 const placed = (decision: RuleDecision): Pick<InboxEvent, "disposition" | "decision"> => ({
 	disposition: decision.action === "drop" ? "ruleDropped" : "inbox",
@@ -200,15 +197,14 @@ export interface InboxStore {
 	 * and `accepted` holds only the rows kept. An inbox not at `sorter`'s revision sorts its kept drops again
 	 * in the same write, so a replay that did not land is retried by the next poll.
 	 */
-	commitPoll(watcherId: string, answer: PollAnswer, now: number, sorter?: Sorter): { accepted: InboxEvent[] } | null;
+	commitPoll(watcherId: string, answer: PollAnswer, now: number, sorter: Sorter): { accepted: InboxEvent[] } | null;
 	/**
 	 * Sorts the watcher's kept drops again under `sorter`, in one checked write with its revision. A
 	 * drop that now wakes or goes to the inbox takes a fresh seq; a row that left, or is past its 7
 	 * days, is never sorted again. False when the write did not land.
 	 */
 	resort(watcherId: string, sorter: Sorter, now: number): boolean;
-	stateOf(watcherId: string): WatcherState | undefined;
-	/** Rows inside retention. */
+	stateOf(watcherId: string, now: number): WatcherState | undefined;
 	events(watcherId: string | undefined, now: number): InboxEvent[];
 	/** Inbox rows past the watcher's read position. */
 	unread(watcherId: string, now: number): number;
@@ -232,9 +228,13 @@ export function createInboxStore(store: DurableStore): InboxStore {
 		}
 	};
 
+	/** Reads and writes share one trim. */
+	const asOf = (now: number): Snapshot => trimmed(state, now);
+
 	return {
-		commitPoll(watcherId, answer, now, sorter = UNSORTED) {
-			const base = behind(state, watcherId, sorter) ? resorted(state, watcherId, sorter, now) : state;
+		commitPoll(watcherId, answer, now, sorter) {
+			const current = asOf(now);
+			const base = behind(current, watcherId, sorter) ? resorted(current, watcherId, sorter, now) : current;
 			const held = own(base.watchers, watcherId) ?? freshWatcher();
 			const seenHere = { ...(own(base.seen, watcherId) ?? {}) };
 			let nextSeq = base.nextSeq;
@@ -260,23 +260,18 @@ export function createInboxStore(store: DurableStore): InboxStore {
 			const retained = new Set(next.events.map((event) => event.seq));
 			return { accepted: structuredClone(accepted.filter((event) => retained.has(event.seq))) };
 		},
-		resort: (watcherId, sorter, now) => commit(trimmed(resorted(state, watcherId, sorter, now), now)),
+		resort: (watcherId, sorter, now) => commit(trimmed(resorted(asOf(now), watcherId, sorter, now), now)),
 		// Copies; only writes change state.
-		stateOf: (watcherId) => structuredClone(own(state.watchers, watcherId)),
+		stateOf: (watcherId, now) => structuredClone(own(asOf(now).watchers, watcherId)),
 		events: (watcherId, now) =>
 			structuredClone(
-				state.events.filter(
-					(event) => (watcherId === undefined || event.watcherId === watcherId) && kept(event, now),
-				),
+				asOf(now).events.filter((event) => watcherId === undefined || event.watcherId === watcherId),
 			),
 		unread(watcherId, now) {
-			const read = own(state.watchers, watcherId)?.readSeq ?? 0;
-			return state.events.filter(
-				(event) =>
-					event.watcherId === watcherId &&
-					event.disposition === "inbox" &&
-					event.seq > read &&
-					kept(event, now),
+			const view = asOf(now);
+			const read = own(view.watchers, watcherId)?.readSeq ?? 0;
+			return view.events.filter(
+				(event) => event.watcherId === watcherId && event.disposition === "inbox" && event.seq > read,
 			).length;
 		},
 	};

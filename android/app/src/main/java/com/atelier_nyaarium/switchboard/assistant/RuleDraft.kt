@@ -1,18 +1,20 @@
 package com.atelier_nyaarium.switchboard.assistant
 
+import com.atelier_nyaarium.switchboard.RuleSaved
 import com.atelier_nyaarium.switchboard.proto.AssistantRule
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleCondition
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcherRules
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantPreviewResult
+import com.atelier_nyaarium.switchboard.proto.Protocol
 
 /** Mirrors `schemasAssistantRules`. */
 internal val RULE_TESTS = listOf("is", "is_not", "contains")
 internal val RULE_ACTIONS = listOf("wake", "inbox", "drop")
-internal const val MAX_RULES = 50
-internal const val MAX_CONDITIONS = 8
-private const val MAX_VALUE_LEN = 200
+internal val MAX_RULES = Protocol.Wire.ASSISTANT_RULES_MAX
+internal val MAX_CONDITIONS = Protocol.Wire.ASSISTANT_RULE_CONDITIONS_MAX
+private val MAX_VALUE_LEN = Protocol.Wire.ASSISTANT_RULE_VALUE_MAX
 
 internal fun testLabel(test: String): String = if (test == "is_not") "is not" else test
 
@@ -34,7 +36,7 @@ internal fun rulesOf(watcher: AssistantWatcher): WatcherRules? {
 
 /** Which row the editor opened. */
 internal sealed interface RuleSlot {
-	data class At(val index: Int) : RuleSlot
+	data class Held(val id: String) : RuleSlot
 	data object New : RuleSlot
 	data object Otherwise : RuleSlot
 }
@@ -48,38 +50,19 @@ internal fun showsPing(action: String): Boolean = action != "drop"
 internal fun rowPings(action: String, ping: Boolean?, pingDefault: Boolean): Boolean =
 	showsPing(action) && (ping ?: pingDefault)
 
-/** A refused save, read against the held rules. */
-internal sealed interface AfterRefusal {
-	/** The edit already stands, as after a lost answer. */
-	data object Landed : AfterRefusal
-
-	/** The edited row still stands; save again over this. */
-	data class Over(val rules: WatcherRules) : AfterRefusal
-
-	data object Stuck : AfterRefusal
-}
-
-internal fun afterRefusal(opened: WatcherRules, current: WatcherRules, slot: RuleSlot, draft: RuleDraft): AfterRefusal {
-	if (current.held.revision == opened.held.revision) return AfterRefusal.Stuck
-	val was = opened.held
-	val now = current.held
-	val (landed, stands) = when (slot) {
-		is RuleSlot.At -> (now.rules.getOrNull(slot.index) == draft.toRule()) to
-			(now.rules.getOrNull(slot.index) == was.rules.getOrNull(slot.index))
-		RuleSlot.Otherwise -> (now.otherwise == draft.toOtherwise()) to (now.otherwise == was.otherwise)
-		RuleSlot.New -> draft.toRule().let { rule -> now.rules.count { it == rule } > was.rules.count { it == rule } } to true
-	}
-	return when {
-		landed -> AfterRefusal.Landed
-		stands -> AfterRefusal.Over(current)
-		else -> AfterRefusal.Stuck
-	}
+/** The id above, or null. */
+internal fun raisedBefore(held: AssistantWatcherRules, ruleId: String): String? {
+	val at = held.rules.indexOfFirst { it.id == ruleId }
+	return if (at > 0) held.rules[at - 1].id else null
 }
 
 internal data class RuleDraft(
+	val id: String,
 	val conditions: List<AssistantRuleCondition>,
 	val action: String,
 	val ping: Boolean?,
+	/** 0 adds the rule. */
+	val revision: Long,
 ) {
 	fun pings(pingDefault: Boolean): Boolean = rowPings(action, ping, pingDefault)
 
@@ -98,50 +81,94 @@ internal data class RuleDraft(
 		val trimmed = conditions.map { it.copy(value = it.value.trim()) }
 		if (trimmed.isEmpty() || trimmed.size > MAX_CONDITIONS) return null
 		if (trimmed.any { it.value.isEmpty() || it.value.length > MAX_VALUE_LEN }) return null
-		return AssistantRule(conditions = trimmed, action = action, ping = ping.takeIf { showsPing(action) })
+		return AssistantRule(
+			id = id,
+			conditions = trimmed,
+			action = action,
+			ping = ping.takeIf { showsPing(action) },
+			revision = revision,
+		)
 	}
 
-	fun toOtherwise(): AssistantRuleOtherwise = AssistantRuleOtherwise(action = action, ping = ping.takeIf { showsPing(action) })
+	fun toOtherwise(): AssistantRuleOtherwise =
+		AssistantRuleOtherwise(action = action, ping = ping.takeIf { showsPing(action) }, revision = revision)
+
+	/** Rebased onto the held revision, so going over it is an owner tap. Null when there is nothing to go over. */
+	fun over(held: AssistantWatcherRules, slot: RuleSlot): RuleDraft? {
+		val now = if (slot == RuleSlot.Otherwise) held.otherwise.revision else held.rules.find { it.id == id }?.revision
+		return now?.takeIf { it != revision }?.let { copy(revision = it) }
+	}
 
 	companion object {
-		fun of(slot: RuleSlot, rules: WatcherRules): RuleDraft = when (slot) {
-			is RuleSlot.At -> rules.held.rules[slot.index].let { RuleDraft(it.conditions, it.action, it.ping) }
+		/** Null for a rule no longer held. */
+		fun of(slot: RuleSlot, rules: WatcherRules): RuleDraft? = when (slot) {
+			is RuleSlot.Held -> rules.held.rules.find { it.id == slot.id }?.let {
+				RuleDraft(it.id, it.conditions, it.action, it.ping, it.revision)
+			}
 			RuleSlot.New -> RuleDraft(
-				listOf(AssistantRuleCondition(field = rules.fields.first(), test = "is", value = "")),
+				id = "rule-${java.util.UUID.randomUUID()}",
+				conditions = listOf(AssistantRuleCondition(field = rules.fields.first(), test = "is", value = "")),
 				action = "inbox",
 				ping = null,
+				revision = 0L,
 			)
-			RuleSlot.Otherwise -> RuleDraft(emptyList(), rules.held.otherwise.action, rules.held.otherwise.ping)
+			RuleSlot.Otherwise -> rules.held.otherwise.let { RuleDraft("otherwise", emptyList(), it.action, it.ping, it.revision) }
 		}
 	}
 }
 
-/** One whole-list save. */
-internal data class RulesPut(val rules: List<AssistantRule>, val otherwise: AssistantRuleOtherwise, val base: Long)
+private const val UNREACHABLE = "That Gateway could not be reached"
 
-internal fun saved(held: AssistantWatcherRules, slot: RuleSlot, draft: RuleDraft): RulesPut? {
-	if (slot == RuleSlot.Otherwise) return RulesPut(held.rules, draft.toOtherwise(), held.revision)
-	val rule = draft.toRule() ?: return null
-	val rules = when (slot) {
-		is RuleSlot.At -> held.rules.mapIndexed { index, it -> if (index == slot.index) rule else it }
-		else -> if (held.rules.size >= MAX_RULES) return null else held.rules + rule
+/** A list op's line; null when it landed. */
+internal fun listText(saved: RuleSaved): String? = when (saved) {
+	is RuleSaved.Stored -> null
+	is RuleSaved.Refused -> saved.reason
+	RuleSaved.Unreachable -> UNREACHABLE
+}
+
+internal sealed interface SaveOutcome {
+	data object Done : SaveOutcome
+
+	/** Changed elsewhere; the editor takes `draft`, and a second tap goes over the held revision. */
+	data class Offer(val draft: RuleDraft, val line: String) : SaveOutcome
+
+	data class Said(val reason: String) : SaveOutcome
+}
+
+/** The draft, or a delete of its rule. */
+internal enum class RuleEdit { SAVE, DELETE }
+
+/**
+ * A refused save keeps the owner's draft over the held revision. A refused delete shows the held
+ * rule instead, so a second Delete deletes what is there and a Save cannot carry an old copy over it.
+ */
+internal fun outcomeOf(saved: RuleSaved, draft: RuleDraft, slot: RuleSlot, edit: RuleEdit = RuleEdit.SAVE): SaveOutcome =
+	when (saved) {
+		is RuleSaved.Stored -> SaveOutcome.Done
+		RuleSaved.Unreachable -> SaveOutcome.Said(UNREACHABLE)
+		is RuleSaved.Refused -> {
+			val held = saved.held
+			val offer = when {
+				held == null -> null
+				edit == RuleEdit.DELETE -> held.rules.find { it.id == draft.id }?.let {
+					SaveOutcome.Offer(RuleDraft(it.id, it.conditions, it.action, it.ping, it.revision), DELETE_OVER)
+				}
+				else -> draft.over(held, slot)?.let { SaveOutcome.Offer(it, SAVE_OVER) }
+			}
+			offer ?: SaveOutcome.Said(saved.reason)
+		}
 	}
-	return RulesPut(rules, held.otherwise, held.revision)
-}
 
-internal fun deleted(held: AssistantWatcherRules, index: Int): RulesPut =
-	RulesPut(held.rules.filterIndexed { at, _ -> at != index }, held.otherwise, held.revision)
+private const val SAVE_OVER = "It changed elsewhere. Save again to go over it."
+private const val DELETE_OVER = "It changed elsewhere; this is it now. Delete again to delete it."
 
-/** Checked one place sooner. */
-internal fun raised(held: AssistantWatcherRules, index: Int): RulesPut? {
-	if (index <= 0 || index >= held.rules.size) return null
-	val rules = held.rules.toMutableList().also { it.add(index - 1, it.removeAt(index)) }
-	return RulesPut(rules, held.otherwise, held.revision)
-}
+/** The editor's rule left the held list. */
+internal fun goneFrom(rules: WatcherRules, slot: RuleSlot): Boolean =
+	slot is RuleSlot.Held && rules.held.rules.none { it.id == slot.id }
 
 internal fun previewText(preview: ConsoleAssistantPreviewResult): String {
 	if (preview.of == 0L) return "No recent events."
-	val head = "Would have matched ${preview.matched} of the last ${preview.of}"
+	val head = "Would have matched ${preview.decided} of the last ${preview.of}"
 	val listed = if (preview.titles.isEmpty()) "$head." else "$head: ${preview.titles.joinToString("; ")}."
-	return if (preview.earlier > 0L) "$listed ${preview.earlier} more match an earlier rule first." else listed
+	return if (preview.shadowed > 0L) "$listed ${preview.shadowed} more match an earlier rule first." else listed
 }
