@@ -65,7 +65,7 @@ internal fun WatcherRulesSheet(ops: AssistantOps, gatewayId: String, watcher: As
 		) {
 			Text(watcher.label, style = MaterialTheme.typography.titleLarge)
 			Text(
-				"First match wins.",
+				"Stops on first match.",
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)

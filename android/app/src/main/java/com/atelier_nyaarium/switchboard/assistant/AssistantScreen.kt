@@ -80,19 +80,14 @@ internal fun AssistantScreen(
 
 	Column(modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
 		if (home == null || placed == null) {
-			Text("The assistant lives nowhere yet.", style = MaterialTheme.typography.bodyLarge)
-			Button(onClick = hapticClick { settingsOpen = true }) { Text("Choose where it lives") }
+			Text("Set a Gateway and directory where the assistant session lives.", style = MaterialTheme.typography.bodyLarge)
+			Button(onClick = hapticClick { settingsOpen = true }) { Text("Configure") }
 		} else {
 			Card(Modifier.fillMaxWidth()) {
 				Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 					Row(verticalAlignment = Alignment.CenterVertically) {
 						Column(Modifier.weight(1f)) {
-							Text("Assistant", style = MaterialTheme.typography.titleLarge)
-							Text(
-								"Lives on $home in ${placed.workdir}",
-								style = MaterialTheme.typography.bodySmall,
-								color = MaterialTheme.colorScheme.onSurfaceVariant,
-							)
+							Text("Assistant storage location", style = MaterialTheme.typography.titleLarge)
 						}
 						IconButton(onClick = hapticClick { settingsOpen = true }) {
 							Icon(Icons.Default.Settings, contentDescription = "Assistant settings")
@@ -220,7 +215,7 @@ private fun AssistantSettingsSheet(
 						Text(grantedLine(watcher.grants, entries), style = MaterialTheme.typography.bodyMedium)
 						Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 							OutlinedButton(onClick = hapticClick { granting = home to watcher.id }, enabled = !busy) {
-								Text("Grant a secret")
+								Text("Assign secret")
 							}
 							if (rulesOf(watcher) != null) {
 								OutlinedButton(onClick = hapticClick { ruling = home to watcher.id }, enabled = !busy) {
