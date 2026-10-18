@@ -271,6 +271,14 @@ Write `docs/assistant.md` from the questionaire: the session, notes, the gate, e
 - **Accepted:** a poll that ignores its abort can overlap the next one. `Watcher.poll` must settle on abort; Phase 4's `fetch` passes the signal.
 - **Accepted:** the 30-day seen map has no count cap. GitHub thread volume keeps it small; a high-volume source needs a per-watcher budget first.
 
+### Bug Classes
+
+- **Mechanism:** a stage's `start` reached from `onActivate`, and its `stop` from `composeListener.close`.
+- **Defect class:** `close` stops a stage, waits, and only later closes intake, so an activation landing in that wait starts the stage again after shutdown.
+- **Round 1 (red team):** the watcher runner. Patched with a final stop.
+- **Round 2 (architecture):** the routine runner had the same hole. Patched with a final stop and a start-after-stop test.
+- **Design fix (board):** a graph-level closing phase that `onActivate` and intake check first, then drain, flush and dispose.
+
 ## Phase 4 - GitHub notifications watcher
 
 - Polls `/notifications` with `If-Modified-Since`, honors `X-Poll-Interval` with a 60-second fallback, and backs off on rate limits. Its cursor and events commit through the inbox store as one transaction.
@@ -290,11 +298,12 @@ Write `docs/assistant.md` from the questionaire: the session, notes, the gate, e
 - **Store:** a Gateway-held store beside routines and policies, sole writer, revisioned, with `canonical` and `refusal` functions in a shared schema as `schemasRoutine` has. Console ops list, put (with the base revision) and delete; Kotlin types come from the codegen.
 - **Phone:** Assistant settings lists the watchers, and a watcher's screen edits its rules, as in the `assistant-watcher-phone` card. Decisions sit beside the ops class, never in a Composable.
 - **Drops stay undoable:** a rule-dropped event is kept for 7 days. Each rule edit sorts the kept drops again through the inbox store, and one that now wakes or goes to the inbox gets a fresh delivery sequence. An evicted event is never sorted again. That keeps rule edits undoable under Question 4. Kept drops get a per-watcher count cap beside the 7 days, since a noisy feed drops more than it keeps.
+- **Replay survives a crash:** the inbox keeps the rules revision it last sorted under, advanced in the same checked commit as the re-sort. At start, an inbox behind the rules store replays again.
 - **Owner-only:** only owner ops write rules, so injected event text cannot rewrite the rules that sort later events. The gate's `watchers/` protection then guards nothing and goes.
 
 ## Phase 6 - Wake and held delivery
 
-- **Wake:** a typed, senderless assistant-event input to the shared send path in `routesSend`, with no `from`, conversation id or return route. It shares target resolution, `tryWakeTeam` and `ChannelDeliveryCoordinator` with ordinary sends, under a delivery id derived from the event. A wake-sorted event lands as `inbox` and moves to `woken` in a checked commit once the wake lands, so a failed wake leaves it in the inbox. Channel acknowledgment never moves an inbox read position.
+- **Wake:** a typed, senderless assistant-event input to the shared send path in `routesSend`, with no `from`, conversation id or return route. It shares target resolution, `tryWakeTeam` and `ChannelDeliveryCoordinator` with ordinary sends, under a delivery id derived from the event. A wake-sorted event lands as `inbox` and moves to `woken` in a checked commit once the wake lands, so a failed wake leaves it in the inbox. The rule's decision (action, ping, rules revision) is stored on the row apart from its disposition, so wakes are driven from durable inbox state after a restart and never re-derived from the rules; `onAccepted` is at most a nudge. Channel acknowledgment never moves an inbox read position.
 - **Data only:** an `event` variant on `ChannelPushPayload` and `PendingDelivery`, kept through the durable delivery row. `emitChannelNotification` omits `meta.instructions` and reply fields for it; `no_ack` still sets instructions, so it is not this. `CHANNEL_INSTRUCTIONS` names the marker once: data, no `channel_reply` owed. The body still goes through `composeModelMessage` and `neutralizeMarkup`.
 - **Ping:** in this slice the event carries the resolved ping as a data line, and `AGENTS.md` tells the assistant to notify the owner only when it says yes. The phone-side flag comes with the phone view.
 - **Inbox:** `flush(watchers)` answers a batch id with the per-watcher boundaries it read. A separate confirm advances only those boundaries in a checked inbox commit; an unconfirmed batch is answered again. Flushes are serialized per watcher. The `inbox` tool calls flush and confirms once its result is returned, registered only after the identity check.

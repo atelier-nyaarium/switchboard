@@ -61,6 +61,8 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 	let timer: TimerHandle | null = null;
 	let tick: TimerHandle | null = null;
 	let admitting = false;
+	/** Final, so an activation during shutdown starts nothing. */
+	let stopped = false;
 	/** Fences a timer callback that was already queued when the runner stopped. */
 	let generation = 0;
 	let inFlight: Promise<void> = Promise.resolve();
@@ -331,7 +333,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 
 	return {
 		start(): void {
-			if (admitting) return;
+			if (admitting || stopped) return;
 			admitting = true;
 			const mine = ++generation;
 			tick = ambient.setTimer(function again() {
@@ -346,6 +348,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		/** Stops taking work, then waits for the attempt in flight. */
 		async stop(): Promise<void> {
 			admitting = false;
+			stopped = true;
 			generation += 1;
 			if (timer) ambient.clearTimer(timer);
 			if (tick) ambient.clearTimer(tick);
