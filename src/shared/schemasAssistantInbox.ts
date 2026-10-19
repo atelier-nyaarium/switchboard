@@ -12,12 +12,14 @@ export const InboxFlushRequestShape = {
 const InboxEventWireSchema = z.object({
 	watcherId: z.string(),
 	label: z.string(),
+	/** The source's id, as its actions take it. */
+	id: z.string(),
 	title: z.string(),
 	url: z.string().optional(),
 	fields: z.record(z.string(), z.string()),
-	receivedAt: z.number(),
+	/** Source update time. */
+	at: z.number(),
 	action: z.enum(RULE_ACTIONS),
-	ping: z.boolean(),
 });
 
 export type InboxEventWire = z.infer<typeof InboxEventWireSchema>;
@@ -54,10 +56,10 @@ export const InboxConfirmAnswerSchema = z.discriminatedUnion("kind", [
 export type InboxConfirmAnswer = z.infer<typeof InboxConfirmAnswerSchema>;
 
 /** One event as data lines, the same in a wake and in the inbox. */
-export function eventLines(event: Pick<InboxEventWire, "label" | "title" | "url" | "fields" | "ping">): string[] {
+export function eventLines(event: Pick<InboxEventWire, "label" | "id" | "title" | "url" | "fields">): string[] {
 	return [
 		`watcher: ${oneLine(event.label)}`,
-		`ping: ${event.ping ? "yes" : "no"}`,
+		`id: ${oneLine(event.id)}`,
 		`title: ${oneLine(event.title)}`,
 		...(event.url === undefined ? [] : [`url: ${oneLine(event.url)}`]),
 		...Object.entries(event.fields)

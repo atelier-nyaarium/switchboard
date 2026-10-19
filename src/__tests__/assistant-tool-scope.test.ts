@@ -60,11 +60,11 @@ describe("the assistant's inbox tool", () => {
 	const row: InboxEventWire = {
 		watcherId: "github",
 		label: "GitHub notifications",
+		id: "18",
 		title: "Review requested",
 		fields: { reason: "review_requested" },
-		receivedAt: 1,
+		at: 1,
 		action: "inbox",
-		ping: false,
 	};
 	const call = async () => {
 		const client = await connected(registerInboxTool);

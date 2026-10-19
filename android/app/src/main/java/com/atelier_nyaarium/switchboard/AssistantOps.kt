@@ -81,7 +81,8 @@ internal fun watcherHealth(watcher: AssistantWatcher, ago: (Long) -> String): St
 		watcher.lastSuccessAt != null -> "Checked ${ago(watcher.lastSuccessAt)}"
 		else -> "Not checked yet"
 	}
-	return if (watcher.evicted > 0) "$status · ${watcher.evicted} lost unread" else status
+	val lost = watcher.evicted ?: 0L
+	return if (lost > 0) "$status · $lost lost unread" else status
 }
 
 /** A stopped watcher that holds its secret can be asked again, as after a rotated key. */

@@ -13,20 +13,19 @@ export const AssistantWatcherSchema = z
 		label: z.string(),
 		/** Vault entries its standing grant names. */
 		grants: z.array(z.string()),
+		/** The source's unread count at the last poll that read it. */
 		unread: z.number().int().nonnegative(),
-		evicted: z.number().int().nonnegative(),
+		/** More unread than a poll reads. */
+		capped: z.boolean().optional(),
+		// Sent as 0 for older phones; remove 2026-11-02.
+		evicted: z.number().int().nonnegative().optional(),
 		lastSuccessAt: z.number().int().optional(),
 		nextPollAt: z.number().int().optional(),
 		backoff: AssistantWatcherBackoffSchema.optional(),
 		stopped: z.string().optional(),
 		/** What a rule may test. */
 		fields: z.array(z.string()).optional(),
-		pingDefault: z.boolean().optional(),
 		rules: AssistantWatcherRulesSchema.optional(),
-		/** Drops a rule edit replays. */
-		dropped: z.number().int().nonnegative().optional(),
-		/** Events that woke the assistant, kept 14 days. */
-		woken: z.number().int().nonnegative().optional(),
 		/** The secret it needs, as shown; absent when it needs none. */
 		secret: z.string().max(400).optional(),
 	})

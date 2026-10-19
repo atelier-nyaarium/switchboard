@@ -42,7 +42,10 @@ export const SessionBaselineSchema = z.object({
 				z.object({
 					label: z.string(),
 					unread: z.number().int().nonnegative(),
-					evicted: z.number().int().nonnegative(),
+					/** More unread than a poll reads. */
+					capped: z.boolean().optional(),
+					// Sent as 0 for older plugins; remove 2026-11-02.
+					evicted: z.number().int().nonnegative().optional(),
 					stopped: z.string().optional(),
 					waiting: z.string().optional(),
 				}),

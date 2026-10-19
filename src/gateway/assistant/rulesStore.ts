@@ -8,7 +8,6 @@ import {
 	type AssistantWatcherRules,
 	AssistantWatcherRulesSchema,
 	type ConsoleAssistantRulesResult,
-	canonicalOtherwise,
 	canonicalRule,
 	DEFAULT_RULES,
 	ruleRefusal,
@@ -32,8 +31,38 @@ export interface RulesStoreDeps {
 	store: DurableStore;
 	/** A watcher's fields, or undefined when no watcher has that id. */
 	fieldsOf: (watcherId: string) => readonly string[] | undefined;
-	/** After the write is on disk, so a failed write sorts nothing again. */
-	onChanged: (watcherId: string) => void;
+}
+
+type Loose = Record<string, unknown>;
+
+const isLoose = (value: unknown): value is Loose => typeof value === "object" && value !== null;
+
+function withoutPing(rule: Loose): Loose {
+	const { ping: _ping, ...kept } = rule;
+	return kept;
+}
+
+/** Older files, before the parse refuses them. A changed list moves its revision. */
+function decodedLegacy(raw: unknown): unknown {
+	if (!isLoose(raw) || !isLoose(raw.watchers)) return raw;
+	// Watcher ids stay plain keys.
+	const watchers: Loose = Object.create(null);
+	for (const [watcherId, held] of Object.entries(raw.watchers)) {
+		if (!isLoose(held) || !Array.isArray(held.rules) || !isLoose(held.otherwise)) {
+			watchers[watcherId] = held;
+			continue;
+		}
+		const rules = held.rules.filter((rule) => !isLoose(rule) || rule.action !== "drop");
+		const kept = rules.map((rule) => (isLoose(rule) ? withoutPing(rule) : rule));
+		const otherwise = withoutPing({
+			...held.otherwise,
+			...(held.otherwise.action === "drop" ? { action: "inbox" } : {}),
+		});
+		const changed = JSON.stringify([kept, otherwise]) !== JSON.stringify([held.rules, held.otherwise]);
+		const revision = typeof held.revision === "number" && changed ? held.revision + 1 : held.revision;
+		watchers[watcherId] = { ...held, rules: kept, otherwise, revision };
+	}
+	return { ...raw, watchers };
 }
 
 /** Two rules under one id start fresh. */
@@ -50,7 +79,7 @@ function restored(snapshot: Snapshot): Snapshot {
 
 export function createRulesStore(deps: RulesStoreDeps) {
 	const loaded = deps.store.load();
-	let state: Snapshot = loaded === null ? EMPTY : restored(SnapshotSchema.parse(loaded));
+	let state: Snapshot = loaded === null ? EMPTY : restored(SnapshotSchema.parse(decodedLegacy(loaded)));
 	// Blocks a retried create of a deleted id.
 	const buried = new Map<string, number>();
 	const graveOf = (watcherId: string, ruleId: string) => `${watcherId}/${ruleId}`;
@@ -91,12 +120,6 @@ export function createRulesStore(deps: RulesStoreDeps) {
 			configurable: true,
 		});
 		if (!commit({ v: 1, watchers })) return answer(watcherId, false, "the rules could not be saved");
-		try {
-			deps.onChanged(watcherId);
-		} catch (error) {
-			// Landed; the next start sorts again.
-			console.warn(`[assistant] rules hook failed: ${(error as Error).message}`);
-		}
 		return answer(watcherId, true);
 	};
 
@@ -183,13 +206,12 @@ export function createRulesStore(deps: RulesStoreDeps) {
 		putOtherwise(watcherId: string, incoming: AssistantRuleOtherwise): ConsoleAssistantRulesResult {
 			if (!deps.fieldsOf(watcherId)) return answer(watcherId, false, `no watcher "${watcherId}"`);
 			const held = get(watcherId);
-			const candidate = canonicalOtherwise(incoming);
 			const current = held.otherwise;
-			const base = candidate.revision;
+			const base = incoming.revision;
 			const echoes = base === current.revision || base === current.revision - 1;
-			if (echoes && sameContent(candidate, current)) return answer(watcherId, true);
+			if (echoes && sameContent(incoming, current)) return answer(watcherId, true);
 			if (base !== current.revision) return stale(watcherId, current.revision, base);
-			return write(watcherId, held.rules, { ...candidate, revision: current.revision + 1 });
+			return write(watcherId, held.rules, { ...incoming, revision: current.revision + 1 });
 		},
 	};
 }

@@ -92,22 +92,24 @@ describe("the assistant's session through the console", () => {
 describe("a watcher event reaching the assistant", () => {
 	let h: FederationHarness;
 	const attached = new Map<string, FakeSession>();
-	const event = (sourceId: string, kind: string): WatcherEvent => ({
-		sourceId,
-		at: 1,
-		title: `${kind} ${sourceId}`,
+	const event = (id: string, kind: string, at: number): WatcherEvent => ({
+		id,
+		at,
+		title: `${kind} ${id}`,
 		fields: { kind },
 	});
-	// Second poll replays e1.
-	const answers: WatcherEvent[][] = [
-		[event("e1", "mention"), event("e2", "review"), event("e3", "mention")],
-		[event("e1", "mention")],
-	];
+	// Backlog first, then two newer.
+	let polls = 0;
 	let wakesIgnored = 0;
 	const watcher: Watcher = {
 		id: "fake",
 		fields: ["kind"],
-		poll: async () => ({ kind: "events", events: answers.shift() ?? [], cursor: "c", nextPollMs: 60_000 }),
+		poll: async () => {
+			polls += 1;
+			const backlog = [event("e0", "mention", 1)];
+			const events = polls === 1 ? backlog : [event("e1", "mention", 3), event("e2", "review", 2), ...backlog];
+			return { kind: "events", events, cursor: `c${polls}`, capped: false, nextPollMs: 60_000 };
+		},
 	};
 	const read = async (session: FakeSession | undefined, path: string, body: Record<string, unknown>) =>
 		(await (session ?? attachedless(h)).post(path, body)).json() as Promise<Record<string, unknown>>;
@@ -135,7 +137,7 @@ describe("a watcher event reaching the assistant", () => {
 		if (h) await h.close();
 	});
 
-	it("retries a wake that did not land, wakes once with the event as data, and leaves the rest in its inbox", async () => {
+	it("wakes for no backlog, retries a wake that did not land, and wakes once with the new thread as data", async () => {
 		const poke = () => h.phone.value({ kind: "assistant_watcher_grants", watcherId: "fake", entryIds: [] });
 		await h.phone.value({
 			kind: "assistant_rule_put",
@@ -148,6 +150,8 @@ describe("a watcher event reaching the assistant", () => {
 			},
 		});
 		await h.phone.value({ kind: "assistant_place", workdir: "~/projects/notes" });
+		await h.waitFor(() => polls >= 1, "the backlog poll");
+		await poke();
 
 		await h.waitFor(() => wakesIgnored === 1, "the first wake");
 		const woken = await h.waitFor(async () => {
@@ -155,21 +159,17 @@ describe("a watcher event reaching the assistant", () => {
 			if (!frame) await poke();
 			return frame;
 		}, "the retried wake in the assistant's session");
+		const settled = polls;
 		await poke();
-		await h.waitFor(() => answers.length === 0, "the replayed poll");
-		const session = attached.get(ASSISTANT_TEAM);
-		const inbox = await read(session, ASSISTANT_COMMANDS.inbox.path, {});
-		const confirmed = await read(session, ASSISTANT_INBOX_CONFIRM_PATH, { boundaries: inbox.boundaries });
-		const after = await read(session, ASSISTANT_COMMANDS.inbox.path, {});
+		await h.waitFor(() => polls > settled, "a poll after the wake landed");
+		const state = (await h.phone.value({ kind: "assistant_state" })).result as ConsoleAssistantStateResult;
 
 		expect(woken).toMatchObject({ from: "", session_id: "" });
-		expect(woken.body).toContain("mention e1");
-		expect(woken.body).toContain("mention e3");
-		expect(woken.body).toContain("ping: no");
-		expect(session?.inbound.filter((frame) => frame.event === true)).toHaveLength(1);
-		expect((inbox.events as { title: string }[]).map((row) => row.title)).toEqual(["review e2"]);
-		expect(confirmed).toEqual({ kind: "confirmed" });
-		expect(after).toMatchObject({ kind: "events", events: [] });
+		expect(woken.body).toContain("id: e1");
+		expect(woken.body).not.toContain("e0");
+		expect(woken.body).not.toContain("review e2");
+		expect(attached.get(ASSISTANT_TEAM)?.inbound.filter((frame) => frame.event === true)).toHaveLength(1);
+		expect(state.watchers[0]).toMatchObject({ id: "fake", unread: 3 });
 	});
 
 	it("answers the inbox to the assistant's own token alone", async () => {

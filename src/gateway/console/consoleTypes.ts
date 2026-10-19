@@ -150,7 +150,7 @@ export interface AssistantConsoleHandlers {
 		base: number,
 	) => Promise<ConsoleAssistantRulesResult>;
 	putOtherwise: (watcherId: string, otherwise: AssistantRuleOtherwise) => Promise<ConsoleAssistantRulesResult>;
-	previewRule: (watcherId: string, rule: AssistantRule) => ConsoleAssistantPreviewResult;
+	previewRule: (watcherId: string, rule: AssistantRule) => Promise<ConsoleAssistantPreviewResult>;
 }
 
 export interface PolicyConsoleHandlers {

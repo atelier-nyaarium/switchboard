@@ -1081,16 +1081,14 @@ data class AssistantWatcher(
 	val label: String,
 	val grants: List<String>,
 	val unread: Long,
-	val evicted: Long,
+	val capped: Boolean? = null,
+	val evicted: Long? = null,
 	val lastSuccessAt: Long? = null,
 	val nextPollAt: Long? = null,
 	val backoff: AssistantWatcherBackoff? = null,
 	val stopped: String? = null,
 	val fields: List<String>? = null,
-	val pingDefault: Boolean? = null,
 	val rules: AssistantWatcherRules? = null,
-	val dropped: Long? = null,
-	val woken: Long? = null,
 	val secret: String? = null,
 )
 
@@ -1113,14 +1111,12 @@ data class AssistantRule(
 	val id: String,
 	val conditions: List<AssistantRuleCondition>,
 	val action: String,
-	val ping: Boolean? = null,
 	val revision: Long,
 )
 
 @Serializable
 data class AssistantRuleOtherwise(
 	val action: String,
-	val ping: Boolean? = null,
 	val revision: Long,
 )
 

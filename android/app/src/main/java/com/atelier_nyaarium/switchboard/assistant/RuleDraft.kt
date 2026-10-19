@@ -11,7 +11,7 @@ import com.atelier_nyaarium.switchboard.proto.Protocol
 
 /** Mirrors `schemasAssistantRules`. */
 internal val RULE_TESTS = listOf("is", "is_not", "contains")
-internal val RULE_ACTIONS = listOf("wake", "inbox", "drop")
+internal val RULE_ACTIONS = listOf("wake", "inbox")
 internal val MAX_RULES = Protocol.Wire.ASSISTANT_RULES_MAX
 internal val MAX_CONDITIONS = Protocol.Wire.ASSISTANT_RULE_CONDITIONS_MAX
 private val MAX_VALUE_LEN = Protocol.Wire.ASSISTANT_RULE_VALUE_MAX
@@ -25,13 +25,13 @@ internal fun fieldLabel(field: String): String = field.replaceFirstChar { it.upp
 internal fun ruleSummary(rule: AssistantRule): String =
 	rule.conditions.joinToString(" and ") { "${it.field} ${testLabel(it.test)} ${it.value}" }
 
-internal data class WatcherRules(val fields: List<String>, val pingDefault: Boolean, val held: AssistantWatcherRules)
+internal data class WatcherRules(val fields: List<String>, val held: AssistantWatcherRules)
 
 /** Null from an older Gateway. */
 internal fun rulesOf(watcher: AssistantWatcher): WatcherRules? {
 	val fields = watcher.fields?.takeIf { it.isNotEmpty() } ?: return null
 	val held = watcher.rules ?: return null
-	return WatcherRules(fields, watcher.pingDefault ?: false, held)
+	return WatcherRules(fields, held)
 }
 
 /** Which row the editor opened. */
@@ -40,15 +40,6 @@ internal sealed interface RuleSlot {
 	data object New : RuleSlot
 	data object Otherwise : RuleSlot
 }
-
-/** Null follows the default. */
-internal fun pingAfter(on: Boolean, pingDefault: Boolean): Boolean? = on.takeIf { it != pingDefault }
-
-/** A drop never pings. */
-internal fun showsPing(action: String): Boolean = action != "drop"
-
-internal fun rowPings(action: String, ping: Boolean?, pingDefault: Boolean): Boolean =
-	showsPing(action) && (ping ?: pingDefault)
 
 /** The id above, or null. */
 internal fun raisedBefore(held: AssistantWatcherRules, ruleId: String): String? {
@@ -60,12 +51,9 @@ internal data class RuleDraft(
 	val id: String,
 	val conditions: List<AssistantRuleCondition>,
 	val action: String,
-	val ping: Boolean?,
 	/** 0 adds the rule. */
 	val revision: Long,
 ) {
-	fun pings(pingDefault: Boolean): Boolean = rowPings(action, ping, pingDefault)
-
 	fun withCondition(fields: List<String>): RuleDraft =
 		if (conditions.size >= MAX_CONDITIONS) this
 		else copy(conditions = conditions + AssistantRuleCondition(field = fields.first(), test = "is", value = ""))
@@ -81,17 +69,10 @@ internal data class RuleDraft(
 		val trimmed = conditions.map { it.copy(value = it.value.trim()) }
 		if (trimmed.isEmpty() || trimmed.size > MAX_CONDITIONS) return null
 		if (trimmed.any { it.value.isEmpty() || it.value.length > MAX_VALUE_LEN }) return null
-		return AssistantRule(
-			id = id,
-			conditions = trimmed,
-			action = action,
-			ping = ping.takeIf { showsPing(action) },
-			revision = revision,
-		)
+		return AssistantRule(id = id, conditions = trimmed, action = action, revision = revision)
 	}
 
-	fun toOtherwise(): AssistantRuleOtherwise =
-		AssistantRuleOtherwise(action = action, ping = ping.takeIf { showsPing(action) }, revision = revision)
+	fun toOtherwise(): AssistantRuleOtherwise = AssistantRuleOtherwise(action = action, revision = revision)
 
 	/** Rebased onto the held revision, so going over it is an owner tap. Null when there is nothing to go over. */
 	fun over(held: AssistantWatcherRules, slot: RuleSlot): RuleDraft? {
@@ -102,18 +83,17 @@ internal data class RuleDraft(
 	companion object {
 		/** Null for a rule no longer held. */
 		fun of(slot: RuleSlot, rules: WatcherRules): RuleDraft? = when (slot) {
-			is RuleSlot.Held -> rules.held.rules.find { it.id == slot.id }?.let {
-				RuleDraft(it.id, it.conditions, it.action, it.ping, it.revision)
-			}
+			is RuleSlot.Held -> rules.held.rules.find { it.id == slot.id }?.let { draftOf(it) }
 			RuleSlot.New -> RuleDraft(
 				id = "rule-${java.util.UUID.randomUUID()}",
 				conditions = listOf(AssistantRuleCondition(field = rules.fields.first(), test = "is", value = "")),
 				action = "inbox",
-				ping = null,
 				revision = 0L,
 			)
-			RuleSlot.Otherwise -> rules.held.otherwise.let { RuleDraft("otherwise", emptyList(), it.action, it.ping, it.revision) }
+			RuleSlot.Otherwise -> rules.held.otherwise.let { RuleDraft("otherwise", emptyList(), it.action, it.revision) }
 		}
+
+		fun draftOf(rule: AssistantRule): RuleDraft = RuleDraft(rule.id, rule.conditions, rule.action, rule.revision)
 	}
 }
 
@@ -151,7 +131,7 @@ internal fun outcomeOf(saved: RuleSaved, draft: RuleDraft, slot: RuleSlot, edit:
 			val offer = when {
 				held == null -> null
 				edit == RuleEdit.DELETE -> held.rules.find { it.id == draft.id }?.let {
-					SaveOutcome.Offer(RuleDraft(it.id, it.conditions, it.action, it.ping, it.revision), DELETE_OVER)
+					SaveOutcome.Offer(RuleDraft.draftOf(it), DELETE_OVER)
 				}
 				else -> draft.over(held, slot)?.let { SaveOutcome.Offer(it, SAVE_OVER) }
 			}

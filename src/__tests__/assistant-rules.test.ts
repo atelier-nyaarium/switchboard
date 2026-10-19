@@ -3,11 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { createRulesStore } from "../gateway/assistant/rulesStore.js";
-import type { PollAnswer, Watcher, WatcherEvent } from "../gateway/assistant/watcher.js";
+import type { Watcher, WatcherEvent } from "../gateway/assistant/watcher.js";
 import { type AssistantVault, composeAssistant } from "../gateway/compose/composeAssistant.js";
 import { processAmbient } from "../shared/ambient.js";
 import { DurableStore } from "../shared/durable-store.js";
 import { type AssistantRule, type AssistantWatcherRules, decideEvent } from "../shared/schemasAssistantRules.js";
+import { ConsoleOpSchema } from "../shared/schemasConsoleOp.js";
 import { SessionStore } from "../shared/session-store.js";
 import { type FakeAmbient, fakeAmbient } from "../testing/fakeAmbient.js";
 
@@ -32,25 +33,20 @@ const rule = (
 	extra: Partial<AssistantRule> = {},
 ): AssistantRule => ({ id, conditions: [{ field: "reason", test: "is", value }], action, revision: 0, ...extra });
 
-const event = (sourceId: string, reason: string): WatcherEvent => ({
-	sourceId,
-	at: 1,
-	title: `${reason} ${sourceId}`,
+const event = (id: string, reason: string, at = 1): WatcherEvent => ({
+	id,
+	at,
+	title: `${reason} ${id}`,
 	fields: { reason, repository: "atelier/app" },
 });
 
-/** Next batch per poll. */
-function feed(batches: WatcherEvent[][]): Watcher {
+/** Lists `held`; polls nothing new. */
+function listing(held: WatcherEvent[]): Watcher {
 	return {
 		id: "github",
 		fields: FIELDS,
-		pingDefault: false,
-		poll: async (): Promise<PollAnswer> => ({
-			kind: "events",
-			events: batches.shift() ?? [],
-			cursor: "c",
-			nextPollMs: 60_000,
-		}),
+		poll: async () => ({ kind: "unchanged", nextPollMs: 60_000 }),
+		list: async () => held,
 	};
 }
 
@@ -74,38 +70,17 @@ function stage(dataDir: string, watcher: Watcher, ambient: FakeAmbient) {
 }
 
 function rulesStore(dir = freshDir(), store?: DurableStore) {
-	const changes: string[] = [];
-	const rules = createRulesStore({
+	return createRulesStore({
 		store: store ?? new DurableStore(dir, "assistant-rules"),
 		fieldsOf: (watcherId) => (watcherId === "github" ? FIELDS : undefined),
-		onChanged: (watcherId) => void changes.push(watcherId),
 	});
-	return { rules, changes };
-}
-
-/** Polls the feed once, then stops the stage. */
-async function polledOnce(dir: string, watcher: Watcher, ambient: FakeAmbient, setup: (a: Stage) => Promise<void>) {
-	const assistant = stage(dir, watcher, ambient);
-	await assistant.console.place("~/notes");
-	await setup(assistant);
-	assistant.start();
-	await ambient.advance(0);
-	return assistant;
-}
-
-type Stage = ReturnType<typeof stage>;
-
-async function stopped(assistant: Stage, ambient: FakeAmbient) {
-	const done = assistant.stop();
-	await ambient.advance(5_000);
-	await done;
 }
 
 describe("a watcher's rules", () => {
 	it("decide by the first rule whose every condition holds, case aside, and anything else takes the fallback", () => {
 		const rules: AssistantWatcherRules = {
 			rules: [
-				rule("a", "Review_Requested", "wake", { ping: true }),
+				rule("a", "Review_Requested", "wake"),
 				{
 					id: "b",
 					conditions: [
@@ -115,69 +90,56 @@ describe("a watcher's rules", () => {
 					action: "inbox",
 					revision: 1,
 				},
-				rule("c", "subscribed", "drop"),
 			],
-			otherwise: { action: "drop", revision: 1 },
+			otherwise: { action: "wake", revision: 1 },
 			revision: 4,
 		};
 
-		expect(decideEvent(rules, { reason: "review_requested", repository: "x/y" }, false)).toEqual({
-			action: "wake",
-			ping: true,
-			rulesRevision: 4,
-		});
-		expect(decideEvent(rules, { reason: "mention", repository: "atelier/app" }, false).action).toBe("inbox");
-		expect(decideEvent(rules, { reason: "subscribed", repository: "atelier/app" }, false).action).toBe("drop");
-		// A drop never pings, whatever the default.
-		expect(decideEvent(rules, { reason: "mention", repository: "x/y" }, true)).toMatchObject({
-			action: "drop",
-			ping: false,
-		});
+		expect(decideEvent(rules, { reason: "review_requested", repository: "x/y" })).toBe("wake");
+		expect(decideEvent(rules, { reason: "mention", repository: "atelier/app" })).toBe("inbox");
+		expect(decideEvent(rules, { reason: "subscribed", repository: "atelier/app" })).toBe("wake");
 	});
 
 	it("store one rule at a time, each at its own revision, and refuse a stale edit with the held rules", () => {
-		const { rules, changes } = rulesStore();
+		const rules = rulesStore();
 		rules.putRule("github", rule("a", "mention", "wake"));
-		rules.putRule("github", rule("b", "subscribed", "drop"));
+		rules.putRule("github", rule("b", "subscribed", "inbox"));
 
 		// Both opened at list revision 2; edits to two rules do not collide.
 		const editA = rules.putRule("github", rule("a", "mention", "inbox", { revision: 1 }));
-		const editB = rules.putRule("github", rule("b", "subscribed", "inbox", { revision: 1 }));
-		const staleA = rules.putRule("github", rule("a", "mention", "drop", { revision: 1 }));
+		const editB = rules.putRule("github", rule("b", "subscribed", "wake", { revision: 1 }));
+		const staleA = rules.putRule("github", rule("a", "mention", "wake", { revision: 1 }));
 
 		expect(editA.stored && editB.stored).toBe(true);
 		expect(staleA).toMatchObject({ stored: false, rules: { revision: 4 } });
 		expect(staleA.rules.rules.map((held) => [held.id, held.action, held.revision])).toEqual([
 			["a", "inbox", 2],
-			["b", "inbox", 2],
+			["b", "wake", 2],
 		]);
-		expect(changes).toHaveLength(4);
 	});
 
 	it("answer a retry whose first answer was lost as stored, without writing again", () => {
-		const { rules, changes } = rulesStore();
-		const added = rule("a", " subscribed ", "drop", { ping: true });
+		const rules = rulesStore();
+		const added = rule("a", " subscribed ", "inbox");
 
 		rules.putRule("github", added);
 		const retried = rules.putRule("github", added);
-		const other = rules.putRule("github", rule("a", "mention", "drop"));
+		const other = rules.putRule("github", rule("a", "mention", "inbox"));
 
 		expect(retried).toMatchObject({ stored: true, rules: { revision: 1 } });
 		expect(other.stored).toBe(false);
-		expect(changes).toHaveLength(1);
-		// Trimmed, and a drop keeps no ping.
 		expect(rules.get("github").rules).toEqual([
 			{
 				id: "a",
 				conditions: [{ field: "reason", test: "is", value: "subscribed" }],
-				action: "drop",
+				action: "inbox",
 				revision: 1,
 			},
 		]);
 	});
 
 	it("keep a deleted rule deleted, and answer a repeated delete as done", () => {
-		const { rules } = rulesStore();
+		const rules = rulesStore();
 		rules.putRule("github", rule("a", "mention", "wake"));
 
 		const deleted = rules.deleteRule("github", "a", 1);
@@ -191,7 +153,7 @@ describe("a watcher's rules", () => {
 	});
 
 	it("move a rule over the list it was drawn from, answer a repeat as done, and refuse a stale order", () => {
-		const { rules, changes } = rulesStore();
+		const rules = rulesStore();
 		for (const id of ["a", "b", "c"]) rules.putRule("github", rule(id, id, "inbox"));
 
 		rules.moveRule("github", "c", "a", 3);
@@ -200,11 +162,11 @@ describe("a watcher's rules", () => {
 		const stale = rules.moveRule("github", "b", "c", 3);
 		const gone = rules.moveRule("github", "b", "zzz", 4);
 
+		expect(rules.get("github")).toMatchObject({ revision: 4 });
 		expect(rules.get("github").rules.map((held) => held.id)).toEqual(["c", "a", "b"]);
 		expect(repeat.stored).toBe(true);
 		expect(stale).toMatchObject({ stored: false, rules: { revision: 4 } });
 		expect(gone.stored).toBe(false);
-		expect(changes).toHaveLength(4);
 	});
 
 	it("refuse a rule on a field the watcher lacks, an unknown watcher, and a write that fails", () => {
@@ -217,106 +179,101 @@ describe("a watcher's rules", () => {
 				disk.saveChecked(state);
 			},
 		}) as DurableStore;
-		const { rules, changes } = rulesStore(dir, flaky);
+		const rules = rulesStore(dir, flaky);
 		const label: AssistantRule = {
-			...rule("a", "x", "drop"),
+			...rule("a", "x", "inbox"),
 			conditions: [{ field: "label", test: "is", value: "x" }],
 		};
 
 		fail = true;
-		const failed = rules.putRule("github", rule("a", "x", "drop"));
+		const failed = rules.putRule("github", rule("a", "x", "inbox"));
 
 		expect(rules.putRule("github", label).stored).toBe(false);
-		expect(rules.putRule("gitlab", rule("a", "x", "drop")).stored).toBe(false);
+		expect(rules.putRule("gitlab", rule("a", "x", "inbox")).stored).toBe(false);
 		expect(failed).toMatchObject({ stored: false, rules: { revision: 0 } });
-		expect(changes).toEqual([]);
+		expect(rulesStore(dir).get("github")).toMatchObject({ rules: [], revision: 0 });
 	});
 
 	it("start fresh over a file that names one rule id twice", () => {
 		const dir = freshDir();
-		const twice = {
-			id: "a",
-			conditions: [{ field: "reason", test: "is", value: "x" }],
-			action: "drop",
-			revision: 1,
-		};
+		const twice = rule("a", "x", "inbox", { revision: 1 });
 		new DurableStore(dir, "assistant-rules").saveChecked({
 			v: 1,
 			watchers: { github: { rules: [twice, twice], otherwise: { action: "inbox", revision: 0 }, revision: 2 } },
 		});
 
-		expect(rulesStore(dir).rules.get("github").rules).toEqual([]);
+		expect(rulesStore(dir).get("github").rules).toEqual([]);
 	});
 
-	it("sort each event as it lands, and a save replays the kept drops it now catches", async () => {
-		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
-		const assistant = await polledOnce(
-			freshDir(),
-			feed([[event("1", "subscribed"), event("2", "mention")]]),
-			ambient,
-			async (a) => {
-				await a.console.putRule("github", rule("drops", "subscribed", "drop"));
+	it("read an older file without its drops and pings, keeping the rest in order at their revisions", () => {
+		const dir = freshDir();
+		new DurableStore(dir, "assistant-rules").saveChecked({
+			v: 1,
+			watchers: {
+				github: {
+					rules: [
+						{ ...rule("a", "mention", "wake", { revision: 3 }), ping: true },
+						rule("b", "subscribed", "drop" as never, { revision: 2 }),
+						rule("c", "review", "inbox", { revision: 1 }),
+					],
+					otherwise: { action: "drop", ping: false, revision: 4 },
+					revision: 9,
+				},
 			},
+		});
+
+		expect(rulesStore(dir).get("github")).toEqual({
+			rules: [rule("a", "mention", "wake", { revision: 3 }), rule("c", "review", "inbox", { revision: 1 })],
+			otherwise: { action: "inbox", revision: 4 },
+			revision: 10,
+		});
+	});
+
+	it("take an older phone's write with its ping stripped, and refuse its drop", () => {
+		const put = (action: string) =>
+			ConsoleOpSchema.safeParse({
+				kind: "assistant_rule_put",
+				watcherId: "github",
+				rule: { ...rule("a", "mention", "wake"), action, ping: true },
+			});
+
+		const pinged = put("wake");
+		const dropped = put("drop");
+
+		expect(pinged.success && pinged.data.kind === "assistant_rule_put" ? pinged.data.rule : null).toEqual(
+			rule("a", "mention", "wake"),
 		);
-		const sorted = assistant.console.state().watchers[0];
+		expect(dropped.success).toBe(false);
+		expect(dropped.error?.message).toContain("update the app");
+	});
+
+	it("preview over the live first page, from the rule's place, and refuse what a put refuses", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const assistant = stage(
+			freshDir(),
+			listing([event("1", "subscribed", 2), event("2", "mention", 3), event("3", "mention", 1)]),
+			ambient,
+		);
+		await assistant.console.place("~/notes");
+		assistant.start();
+		await assistant.console.putRule("github", rule("subs", "subscribed", "inbox"));
 		const atelier: AssistantRule = {
 			id: "atelier",
 			conditions: [{ field: "repository", test: "contains", value: "ATELIER" }],
 			action: "wake",
 			revision: 0,
 		};
-		const last = assistant.console.previewRule("github", atelier);
 
-		const freed = await assistant.console.deleteRule("github", "drops", 1);
-		await stopped(assistant, ambient);
-
-		expect(sorted).toMatchObject({ unread: 1, dropped: 1 });
-		// After the drop rule, it decides only what that rule leaves.
-		expect(last).toMatchObject({ decided: 1, shadowed: 1, of: 2, titles: ["mention 2"] });
-		expect(freed.stored).toBe(true);
-		expect(assistant.console.state().watchers[0]).toMatchObject({ unread: 2, dropped: 0, rules: { revision: 2 } });
-		expect(() =>
-			assistant.console.previewRule("github", {
-				...atelier,
-				conditions: [{ field: "label", test: "is", value: "x" }],
-			}),
-		).toThrow();
-		// The deleted rule refuses a preview as its put would.
-		expect(() =>
-			assistant.console.previewRule("github", rule("drops", "subscribed", "drop", { revision: 1 })),
-		).toThrow();
-	});
-
-	it("catch up at start when a crash left the inbox behind the rules", async () => {
-		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
-		const dir = freshDir();
-		const first = await polledOnce(dir, feed([[event("1", "subscribed")]]), ambient, async (a) => {
-			await a.console.putRule("github", rule("drops", "subscribed", "drop"));
+		const last = await assistant.console.previewRule("github", atelier);
+		const unknown = assistant.console.previewRule("github", {
+			...atelier,
+			conditions: [{ field: "label", test: "is", value: "x" }],
 		});
-		await stopped(first, ambient);
-		// Crash before the resort.
-		createRulesStore({
-			store: new DurableStore(dir, "assistant-rules"),
-			fieldsOf: () => FIELDS,
-			onChanged: () => {},
-		}).deleteRule("github", "drops", 1);
 
-		const second = stage(dir, feed([]), ambient);
-
-		expect(second.console.state().watchers[0]).toMatchObject({ unread: 1, dropped: 0 });
-	});
-
-	it("sort again under the defaults when the rules file starts fresh", async () => {
-		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
-		const dir = freshDir();
-		const first = await polledOnce(dir, feed([[event("1", "subscribed")]]), ambient, async (a) => {
-			await a.console.putRule("github", rule("drops", "subscribed", "drop"));
-		});
-		await stopped(first, ambient);
-		fs.rmSync(path.join(dir, "assistant-rules.json"));
-
-		const second = stage(dir, feed([]), ambient);
-
-		expect(second.console.state().watchers[0]).toMatchObject({ unread: 1, dropped: 0, rules: { revision: 0 } });
+		expect(last).toEqual({ decided: 2, shadowed: 1, of: 3, titles: ["mention 2", "mention 3"] });
+		await expect(unknown).rejects.toThrow();
+		const done = assistant.stop();
+		await ambient.advance(5_000);
+		await done;
 	});
 });

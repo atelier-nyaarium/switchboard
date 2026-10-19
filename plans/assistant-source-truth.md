@@ -151,6 +151,11 @@ GitHub is the only copy. Per watcher the Gateway keeps its poll validator (`Last
 - **Kept:** `X-Poll-Interval`, rate-limit handling and same-host paging from today's watcher.
 - **Rules** lose `drop` and `ping`: an action is `wake` or `inbox`. The rules preview runs over the live first page of `all`, since there are no stored events. The phone's rules model and sheet change in this phase too (`RuleDraft`, `WatcherRulesSheet`, the sandbox and fakes): no drop, no ping, no dropped count, so the regenerated `Protocol.kt` compiles and the Kotlin gate stays green.
 - **The inbox store** shrinks to the per-watcher state above.
+- **Accepted:** more than 500 new unread threads between committed polls, or a thread read while a poll pages, can move the newest time seen past a thread never read; it stays in `all` but never wakes. A restart during a multi-push retry can wake a thread twice. A grant moved to another GitHub account wakes that account's unread threads newer than the newest time seen.
+
+### Bug Classes
+
+- **Mechanism:** the lane's wake push through `deliverEvent`. **Class:** a delivery id is not an idempotency key end to end, because the queue offers a held id again and keeps no tombstone for a retired one, so the lane carries its own dedupe. **Align round:** a push past its deadline still composed when its launch finished, so `compose` now answers nothing once the lane gave up on it; batches landed before a later failure were resent, so landed keys are skipped until the commit. **Red-team round:** the landed keys grew across a long stretch of failures and are now pruned to each poll's candidates; they still live only in memory, so a restart mid-retry can wake a thread twice (accepted above).
 
 ## Phase 3 - Live listing
 

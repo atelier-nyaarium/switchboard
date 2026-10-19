@@ -1,0 +1,369 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
+import {
+	type AssistantWake,
+	createSourceLanes,
+	POLL_TIMEOUT_MS,
+	RETRY_MS,
+	type SourceLanes,
+	WAKE_DEADLINE_MS,
+	WAKE_RETRY_MS,
+} from "../gateway/assistant/sourceLane.js";
+import type { PollAnswer, Watcher, WatcherEvent } from "../gateway/assistant/watcher.js";
+import { createWatcherStateStore, type WatcherStateStore } from "../gateway/assistant/watcherState.js";
+import { DurableStore } from "../shared/durable-store.js";
+import type { RuleAction } from "../shared/schemasAssistantRules.js";
+import { type FakeAmbient, fakeAmbient } from "../testing/fakeAmbient.js";
+
+/** Fixed clock base. */
+const T0 = 1_800_000_000_000;
+
+const dirs: string[] = [];
+afterAll(() => {
+	for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+function stateDir(): string {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "assistant-lane-"));
+	dirs.push(dir);
+	return dir;
+}
+
+const stateIn = (dir: string): WatcherStateStore =>
+	createWatcherStateStore(new DurableStore(dir, "assistant-watchers"));
+
+const thread = (id: string, at: number, reason = "mention"): WatcherEvent => ({
+	id,
+	at,
+	title: `Thread ${id}`,
+	fields: { reason },
+});
+
+const unread = (cursor: string, events: WatcherEvent[], nextPollMs = 60_000): PollAnswer => ({
+	kind: "events",
+	events,
+	cursor,
+	capped: false,
+	nextPollMs,
+});
+
+/** Polls answered by hand; records the validator each sent. */
+function scripted(id = "github") {
+	const cursors: (string | null)[] = [];
+	const signals: AbortSignal[] = [];
+	const pending: ((answer: PollAnswer) => void)[] = [];
+	const watcher: Watcher = {
+		id,
+		poll: (cursor, signal) => {
+			cursors.push(cursor);
+			signals.push(signal);
+			return new Promise((resolve) => pending.push(resolve));
+		},
+		list: async () => [thread("listed", 1)],
+	};
+	const answer = (value: PollAnswer) => pending.shift()?.(value);
+	return { watcher, cursors, signals, answer, inFlight: () => pending.length };
+}
+
+/** Composes once reached, as `deliverEvent` does; `late` waits for `release`. */
+function wakes(answers: (string | null | "hang" | "late")[] = []) {
+	const pushed: { deliveryId: string; ids: string[] }[] = [];
+	const releases: (() => void)[] = [];
+	const lateComposed: unknown[] = [];
+	const record = (composed: { deliveryId: string; body: string } | null) => {
+		if (composed) {
+			pushed.push({
+				deliveryId: composed.deliveryId,
+				ids: [...composed.body.matchAll(/id=(\S+)/g)].map((m) => m[1] ?? ""),
+			});
+		}
+		return composed;
+	};
+	const wake: AssistantWake = async (event) => {
+		const next = answers.shift() ?? null;
+		if (next === "hang") return new Promise(() => undefined);
+		if (next === "late") {
+			return new Promise((resolve) => {
+				releases.push(() => {
+					lateComposed.push(record(event.compose()));
+					resolve(null);
+				});
+			});
+		}
+		record(event.compose());
+		return next;
+	};
+	const release = () => {
+		for (const late of releases.splice(0)) late();
+	};
+	return { wake, pushed, release, lateComposed };
+}
+
+function lanes(
+	ambient: FakeAmbient,
+	state: WatcherStateStore,
+	watcher: Watcher,
+	wake: AssistantWake,
+	sort: (event: WatcherEvent) => RuleAction = () => "wake",
+): SourceLanes {
+	return createSourceLanes({
+		ambient,
+		state,
+		watchers: [watcher],
+		sort: (_watcherId, event) => sort(event),
+		wake: () => wake,
+		to: "host.assistant",
+		render: (_watcherId, batch) => batch.map((event) => `id=${event.id}`).join("\n"),
+	});
+}
+
+/** Stop's wait needs manual time. */
+async function stopped(lane: SourceLanes, ambient: FakeAmbient): Promise<void> {
+	const done = lane.stop();
+	await ambient.advance(POLL_TIMEOUT_MS);
+	await done;
+}
+
+describe("a watcher's source lane", () => {
+	it("polls on the interval each answer names, sending the validator the last commit left, never two at once", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const source = scripted();
+		const lane = lanes(ambient, stateIn(stateDir()), source.watcher, wakes().wake);
+
+		lane.start();
+		await ambient.advance(30_000);
+		lane.poke("github");
+		lane.poke("github");
+		await ambient.advance(0);
+		const whileHung = source.inFlight();
+		source.answer(unread("c1", [], 30_000));
+		await ambient.advance(0);
+		const poked = source.cursors.length;
+		source.answer({ kind: "unchanged", nextPollMs: 30_000 });
+		await ambient.advance(0);
+		await ambient.advance(29_999);
+		const beforeInterval = source.cursors.length;
+		await ambient.advance(1);
+		await stopped(lane, ambient);
+
+		expect(whileHung).toBe(1);
+		expect(poked).toBe(2);
+		expect(beforeInterval).toBe(2);
+		expect(source.cursors).toEqual([null, "c1", "c1"]);
+	});
+
+	it("sees the backlog at the first poll without waking, then wakes only what is newer than the newest seen", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const source = scripted();
+		const state = stateIn(stateDir());
+		const pushes = wakes();
+		const lane = lanes(ambient, state, source.watcher, pushes.wake, (event) =>
+			event.fields.reason === "subscribed" ? "inbox" : "wake",
+		);
+
+		lane.start();
+		await ambient.advance(0);
+		source.answer(unread("c1", [thread("a", 200), thread("b", 100)]));
+		await ambient.advance(0);
+		await ambient.advance(60_000);
+		source.answer(
+			unread("c2", [thread("d", 400, "subscribed"), thread("e", 300), thread("tie", 200), thread("a", 200)]),
+		);
+		await ambient.advance(0);
+		await ambient.advance(60_000);
+		source.answer(unread("c3", [thread("d", 400, "subscribed"), thread("e", 300)]));
+		await ambient.advance(0);
+		await ambient.advance(60_000);
+		await stopped(lane, ambient);
+
+		expect(pushes.pushed.map((push) => push.ids)).toEqual([["e"]]);
+		expect(source.cursors).toEqual([null, "c1", "c2", "c3"]);
+		expect(state.get("github").unread).toBe(2);
+	});
+
+	it("commits only once every push is queued, polling a failed one again from the checkpoint with doubling backoff", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const source = scripted();
+		const state = stateIn(stateDir());
+		const pushes = wakes(["the session is not reachable", "the session is not reachable", null]);
+		const lane = lanes(ambient, state, source.watcher, pushes.wake);
+
+		lane.start();
+		await ambient.advance(0);
+		source.answer(unread("c1", [thread("a", 100)]));
+		await ambient.advance(0);
+		await ambient.advance(60_000);
+		source.answer(unread("c2", [thread("b", 200), thread("a", 100)]));
+		await ambient.advance(0);
+		const failed = state.get("github");
+		await ambient.advance(WAKE_RETRY_MS - 1);
+		const beforeRetry = source.cursors.length;
+		await ambient.advance(1);
+		source.answer(unread("c2", [thread("b", 200), thread("a", 100)]));
+		await ambient.advance(0);
+		await ambient.advance(2 * WAKE_RETRY_MS - 1);
+		const beforeDoubled = source.cursors.length;
+		await ambient.advance(1);
+		source.answer(unread("c3", [thread("b", 200), thread("a", 100)]));
+		await ambient.advance(0);
+		await ambient.advance(60_000);
+		source.answer(unread("c4", [thread("b", 200), thread("a", 100)]));
+		await ambient.advance(0);
+		await stopped(lane, ambient);
+
+		expect(failed.unread).toBe(2);
+		expect(failed.backoff).toBeDefined();
+		expect([beforeRetry, beforeDoubled]).toEqual([2, 3]);
+		expect(source.cursors).toEqual([null, "c1", "c1", "c1", "c3"]);
+		expect(new Set(pushes.pushed.map((push) => push.deliveryId)).size).toBe(1);
+		expect(pushes.pushed).toHaveLength(3);
+		expect(state.get("github").backoff).toBeUndefined();
+	});
+
+	it("gives a push its deadline, frees the lane for work queued behind, and lets a late landing send nothing", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const source = scripted();
+		const state = stateIn(stateDir());
+		const pushes = wakes(["late"]);
+		const lane = lanes(ambient, state, source.watcher, pushes.wake);
+
+		lane.start();
+		await ambient.advance(0);
+		source.answer(unread("c1", []));
+		await ambient.advance(0);
+		await ambient.advance(60_000);
+		source.answer(unread("c2", [thread("a", 100)]));
+		const listed = lane.run(
+			"github",
+			(watcher, signal) => watcher.list?.(signal) ?? Promise.resolve([]),
+			2 * WAKE_DEADLINE_MS,
+		);
+		await ambient.advance(0);
+		await ambient.advance(WAKE_DEADLINE_MS);
+		const ids = (await listed).map((event) => event.id);
+		pushes.release();
+		await ambient.advance(WAKE_RETRY_MS);
+		source.answer(unread("c2", [thread("a", 100)]));
+		await ambient.advance(0);
+		await stopped(lane, ambient);
+
+		expect(ids).toEqual(["listed"]);
+		expect(pushes.lateComposed).toEqual([null]);
+		expect(source.cursors).toEqual([null, "c1", "c1"]);
+		expect(pushes.pushed.map((push) => push.ids)).toEqual([["a"]]);
+	});
+
+	it("polls again from the committed checkpoint after a restart, keeping the backoff it had reached", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const dir = stateDir();
+		const first = scripted();
+		const failing = lanes(ambient, stateIn(dir), first.watcher, wakes(["the session is not reachable"]).wake);
+		failing.start();
+		await ambient.advance(0);
+		first.answer(unread("c1", []));
+		await ambient.advance(0);
+		await ambient.advance(60_000);
+		first.answer(unread("c2", [thread("a", 100)]));
+		await ambient.advance(0);
+		await stopped(failing, ambient);
+
+		const second = scripted();
+		const pushes = wakes(["the session is not reachable", null]);
+		const restarted = lanes(ambient, stateIn(dir), second.watcher, pushes.wake);
+		restarted.start();
+		await ambient.advance(0);
+		second.answer(unread("c2", [thread("a", 100)]));
+		await ambient.advance(0);
+		await ambient.advance(2 * WAKE_RETRY_MS - 1);
+		const beforeDoubled = second.cursors.length;
+		await ambient.advance(1);
+		second.answer(unread("c2", [thread("a", 100)]));
+		await ambient.advance(0);
+		await stopped(restarted, ambient);
+
+		expect(beforeDoubled).toBe(1);
+		expect(second.cursors).toEqual(["c1", "c1"]);
+		expect(pushes.pushed.map((push) => push.ids)).toEqual([["a"], ["a"]]);
+	});
+
+	it("pushes wake candidates oldest first, twenty at a time, and a retry sends only what did not land", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const source = scripted();
+		const pushes = wakes([null, "the session is not reachable"]);
+		const lane = lanes(ambient, stateIn(stateDir()), source.watcher, pushes.wake);
+		const backlog = Array.from({ length: 25 }, (_, i) => thread(`t${25 - i}`, 25 - i));
+		const ids = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => `t${from + i}`);
+
+		lane.start();
+		await ambient.advance(0);
+		source.answer(unread("c1", []));
+		await ambient.advance(0);
+		await ambient.advance(60_000);
+		source.answer(unread("c2", backlog));
+		await ambient.advance(0);
+		await ambient.advance(WAKE_RETRY_MS);
+		source.answer(unread("c2", backlog));
+		await ambient.advance(0);
+		await stopped(lane, ambient);
+
+		expect(pushes.pushed.map((push) => push.ids)).toEqual([ids(1, 20), ids(21, 25), ids(21, 25)]);
+	});
+
+	it("backs off after a throw, a hang or a malformed answer, and a stopped watcher waits for a poke", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const state = stateIn(stateDir());
+		const cursors: (string | null)[] = [];
+		const watcher: Watcher = {
+			id: "github",
+			poll: (cursor) => {
+				cursors.push(cursor);
+				if (cursors.length === 1) return Promise.reject(new Error("socket hang up"));
+				if (cursors.length === 2) return new Promise(() => undefined);
+				if (cursors.length === 3) return Promise.resolve({ kind: "events" } as unknown as PollAnswer);
+				return Promise.resolve({ kind: "stopped", reason: "needs a secret" });
+			},
+		};
+		const lane = lanes(ambient, state, watcher, wakes().wake);
+
+		lane.start();
+		await ambient.advance(0);
+		const thrown = state.get("github").backoff?.reason;
+		await ambient.advance(RETRY_MS + POLL_TIMEOUT_MS);
+		const hung = state.get("github").backoff;
+		await ambient.advance(RETRY_MS);
+		const malformed = state.get("github").backoff?.reason;
+		await ambient.advance(RETRY_MS);
+		const stoppedReason = state.get("github").stopped;
+		await ambient.advance(10 * RETRY_MS);
+		const whileStopped = cursors.length;
+		lane.poke("github");
+		await ambient.advance(0);
+		await stopped(lane, ambient);
+
+		expect(thrown).toBe("socket hang up");
+		expect(hung).toBeDefined();
+		expect(malformed).toBe("poll answered malformed data");
+		expect(stoppedReason).toBe("needs a secret");
+		expect(whileStopped).toBe(4);
+		expect(cursors).toHaveLength(5);
+	});
+
+	it("aborts a poll in flight on stop and lands nothing after it", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const source = scripted();
+		const state = stateIn(stateDir());
+		const lane = lanes(ambient, state, source.watcher, wakes().wake);
+
+		lane.start();
+		await ambient.advance(0);
+		await stopped(lane, ambient);
+		source.answer(unread("late", [thread("a", 100)]));
+		await ambient.advance(0);
+
+		expect(source.signals[0]?.aborted).toBe(true);
+		expect(state.get("github")).toMatchObject({ cursor: null, primed: false });
+		await expect(lane.run("github", async () => "late", 1_000)).rejects.toThrow();
+	});
+});

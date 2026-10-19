@@ -40,7 +40,7 @@ function linesOf(baseline: SessionBaseline): string[] {
 				`watcher: ${flat(label)} ${unread} in inbox` +
 				(stopped === undefined ? "" : `, stopped: ${flat(stopped)}`) +
 				(waiting === undefined ? "" : `, waiting: ${flat(waiting)}`) +
-				(evicted > 0 ? `, ${evicted} lost unread` : ""),
+				((evicted ?? 0) > 0 ? `, ${evicted} lost unread` : ""),
 		),
 		...(baseline.board === null
 			? ["board: unavailable"]

@@ -4,11 +4,14 @@ import { z } from "zod";
 import { ASSISTANT_RULE_CONDITIONS_MAX, ASSISTANT_RULE_VALUE_MAX, ASSISTANT_RULES_MAX } from "./wire-vocabulary.js";
 
 export const RULE_TESTS = ["is", "is_not", "contains"] as const;
-export const RULE_ACTIONS = ["wake", "inbox", "drop"] as const;
+export const RULE_ACTIONS = ["wake", "inbox"] as const;
 /** The phone mints it; the Gateway keeps it. */
 export const RULE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 export type RuleAction = (typeof RULE_ACTIONS)[number];
+
+/** Older phones offer `drop`. */
+const RuleActionSchema = z.enum(RULE_ACTIONS, { error: "unknown rule action; update the app" });
 
 export const AssistantRuleConditionSchema = z
 	.object({
@@ -23,9 +26,7 @@ export const AssistantRuleSchema = z
 	.object({
 		id: z.string().regex(RULE_ID_RE),
 		conditions: z.array(AssistantRuleConditionSchema).min(1).max(ASSISTANT_RULE_CONDITIONS_MAX),
-		action: z.enum(RULE_ACTIONS),
-		/** Absent uses the default. */
-		ping: z.boolean().optional(),
+		action: RuleActionSchema,
 		/** Gateway-named; a put carries the one it read, 0 adds. */
 		revision: z.number().int().nonnegative(),
 	})
@@ -33,8 +34,7 @@ export const AssistantRuleSchema = z
 
 export const AssistantRuleOtherwiseSchema = z
 	.object({
-		action: z.enum(RULE_ACTIONS),
-		ping: z.boolean().optional(),
+		action: RuleActionSchema,
 		revision: z.number().int().nonnegative(),
 	})
 	.meta({ id: "AssistantRuleOtherwise" });
@@ -58,15 +58,6 @@ export const DEFAULT_RULES: AssistantWatcherRules = {
 	otherwise: { action: "inbox", revision: 0 },
 	revision: 0,
 };
-
-/** One event's decision, kept on its row. */
-export const RuleDecisionSchema = z.strictObject({
-	action: z.enum(RULE_ACTIONS),
-	ping: z.boolean(),
-	rulesRevision: z.number().int().nonnegative(),
-});
-
-export type RuleDecision = z.infer<typeof RuleDecisionSchema>;
 
 /** Every rule op's answer: the held list, stored or not, so the phone decides from it. */
 export const ConsoleAssistantRulesResultSchema = z
@@ -93,33 +84,24 @@ export const ConsoleAssistantPreviewResultSchema = z
 
 export type ConsoleAssistantPreviewResult = z.infer<typeof ConsoleAssistantPreviewResultSchema>;
 
-/** A drop never pings, so it keeps no override. */
-export function canonicalOtherwise<T extends Pick<AssistantRuleOtherwise, "action" | "ping">>(rule: T): T {
-	if (rule.action !== "drop" || rule.ping === undefined) return rule;
-	const { ping: _ping, ...kept } = rule;
-	return kept as T;
-}
-
 /** Values trimmed; a rule is stored as it will be read. */
 export function canonicalRule<T extends AssistantRule>(rule: T): T {
-	return canonicalOtherwise({
+	return {
 		...rule,
 		conditions: rule.conditions.map((condition) => ({ ...condition, value: condition.value.trim() })),
-	});
+	};
 }
 
-const contentKey = (rule: Pick<AssistantRule, "action" | "ping"> & { conditions?: AssistantRule["conditions"] }) =>
+type RuleContent = Pick<AssistantRule, "action"> & { conditions?: AssistantRule["conditions"] };
+
+const contentKey = (rule: RuleContent) =>
 	JSON.stringify([
 		rule.action,
-		rule.ping ?? null,
 		(rule.conditions ?? []).map((condition) => [condition.field, condition.test, condition.value]),
 	]);
 
 /** What a rule says, apart from its id and revision. */
-export function sameContent(
-	a: Pick<AssistantRule, "action" | "ping"> & { conditions?: AssistantRule["conditions"] },
-	b: Pick<AssistantRule, "action" | "ping"> & { conditions?: AssistantRule["conditions"] },
-): boolean {
+export function sameContent(a: RuleContent, b: RuleContent): boolean {
 	return contentKey(a) === contentKey(b);
 }
 
@@ -145,7 +127,7 @@ export function ruleMatches(rule: AssistantRule, fields: Readonly<Record<string,
 	return rule.conditions.every((condition) => holds(condition, fields));
 }
 
-/** The one reading of which rule decides an event; the sort and the preview both take it. */
+/** The one reading of which rule decides an event; the sort, the listing and the preview take it. */
 export function firstMatch<T extends AssistantRule>(
 	rules: readonly T[],
 	fields: Readonly<Record<string, string>>,
@@ -154,13 +136,6 @@ export function firstMatch<T extends AssistantRule>(
 }
 
 /** Nothing matching takes `otherwise`. */
-export function decideEvent(
-	rules: AssistantWatcherRules,
-	fields: Readonly<Record<string, string>>,
-	pingDefault: boolean,
-): RuleDecision {
-	const hit = firstMatch(rules.rules, fields) ?? rules.otherwise;
-	// A drop never pings.
-	const ping = hit.action !== "drop" && (hit.ping ?? pingDefault);
-	return { action: hit.action, ping, rulesRevision: rules.revision };
+export function decideEvent(rules: AssistantWatcherRules, fields: Readonly<Record<string, string>>): RuleAction {
+	return (firstMatch(rules.rules, fields) ?? rules.otherwise).action;
 }

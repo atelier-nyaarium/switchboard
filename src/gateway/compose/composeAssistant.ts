@@ -1,5 +1,5 @@
-// The assistant's one session and its watchers' inbox. Where it lives is its reserved session
-// record: placed by an owner op, kept from both sweeps, released only by an owner op.
+// The assistant's one session and its watchers. Where it lives is its reserved session record:
+// placed by an owner op, kept from both sweeps, released only by an owner op.
 
 import { type Ambient, withinMs } from "../../shared/ambient.js";
 import {
@@ -12,7 +12,7 @@ import {
 import { openDurable } from "../../shared/durable-store.js";
 import { isSpawnWorkdirPath } from "../../shared/host-op.js";
 import type { AssistantWatcher, ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
-import { eventLines, type InboxEventWire } from "../../shared/schemasAssistantInbox.js";
+import { eventLines } from "../../shared/schemasAssistantInbox.js";
 import { canonicalRule, decideEvent, firstMatch, ruleMatches } from "../../shared/schemasAssistantRules.js";
 import type { SessionBaseline } from "../../shared/session-baseline.js";
 import { createAssistantRoutes, type Handler } from "../assistant/assistantRoutes.js";
@@ -22,11 +22,10 @@ import {
 	type GithubWatcherDeps,
 	type TokenRead,
 } from "../assistant/githubWatcher.js";
-import { createInboxStore, type InboxEvent, type InboxStore, type Sorter } from "../assistant/inboxStore.js";
 import { createRulesStore } from "../assistant/rulesStore.js";
-import { type AssistantWake, createWakeRunner } from "../assistant/wakeRunner.js";
-import type { Watcher } from "../assistant/watcher.js";
-import { createWatcherRunner, type WatcherRunner } from "../assistant/watcherRunner.js";
+import { type AssistantWake, createSourceLanes, type SourceLanes } from "../assistant/sourceLane.js";
+import type { Watcher, WatcherEvent } from "../assistant/watcher.js";
+import { createWatcherStateStore, FRESH_STATE } from "../assistant/watcherState.js";
 import type { AssistantConsoleHandlers } from "../console/consoleTypes.js";
 import type { VaultRelease } from "../vault/vaultUse.js";
 import type { SessionsStage } from "./composeSessions.js";
@@ -36,6 +35,8 @@ const NEEDS_SECRET = "needs a secret";
 const STOP_WAIT_MS = 5_000;
 /** Events a preview reads. */
 const PREVIEW_EVENTS = 50;
+/** Inside the phone's answer wait. */
+const PREVIEW_WAIT_MS = 25_000;
 
 const LABELS: Record<string, string> = { [GITHUB_WATCHER_ID]: "GitHub notifications" };
 
@@ -63,7 +64,6 @@ export interface AssistantStage {
 	reserves: (team: string) => boolean;
 	/** The refusal reason, or null. */
 	forgetRefusal: (team: string) => string | null;
-	inbox: Pick<InboxStore, "stateOf" | "events" | "unread">;
 	console: AssistantConsoleHandlers;
 	/** Assistant-only loopback routes. */
 	routes: Map<string, Handler>;
@@ -78,8 +78,8 @@ export interface AssistantStage {
 }
 
 /** The vault's answer, as a watcher reads it: a missing grant stops it, a transient wait backs off. */
-function tokenOf(read: VaultRelease): TokenRead {
-	if (read.kind === "released") return { kind: "token", value: read.value };
+function tokenOf(read: VaultRelease, entryId: string): TokenRead {
+	if (read.kind === "released") return { kind: "token", value: read.value, key: entryId };
 	if (read.kind === "unusable") return { kind: "stopped", reason: read.reason };
 	return {
 		kind: "backoff",
@@ -98,68 +98,50 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	const tokenFor = (watcherId: string) => async (): Promise<TokenRead> => {
 		const entryId = deps.vault.watcherGrants(watcherId)[0];
 		if (entryId === undefined) return { kind: "stopped", reason: NEEDS_SECRET };
-		return tokenOf(await deps.vault.readForWatcher(watcherId, entryId));
+		return tokenOf(await deps.vault.readForWatcher(watcherId, entryId), entryId);
 	};
 	const watchers = deps.watchers ?? [
 		createGithubWatcher({ fetch: deps.fetch, token: tokenFor(GITHUB_WATCHER_ID), now: () => ambient.now() }),
 	];
 
-	const inbox = openDurable(deps.dataDir, "assistant-inbox", (store) => createInboxStore(store));
-	const watcherOfId = (watcherId: string) => watchers.find((watcher) => watcher.id === watcherId);
-	const sorterFor = (watcherId: string): Sorter => {
-		const current = rules.get(watcherId);
-		const pingDefault = watcherOfId(watcherId)?.pingDefault ?? false;
-		return { sort: (event) => decideEvent(current, event.fields, pingDefault), revision: current.revision };
-	};
+	const watcherState = openDurable(deps.dataDir, "assistant-watchers", (store) => createWatcherStateStore(store));
+	const rules = openDurable(deps.dataDir, "assistant-rules", (store) =>
+		createRulesStore({
+			store,
+			fieldsOf: (watcherId) => watchers.find((watcher) => watcher.id === watcherId)?.fields,
+		}),
+	);
+	const labelOf = (watcherId: string) => LABELS[watcherId] ?? watcherId;
+	const render = (watcherId: string, batch: readonly WatcherEvent[]) =>
+		batch.map((event) => eventLines({ label: labelOf(watcherId), ...event }).join("\n")).join("\n\n");
 
-	let runner: WatcherRunner | null = null;
+	let lanes: SourceLanes | null = null;
+	let wake: AssistantWake | null = null;
 	let active = false;
 	let closed = false;
 
-	// Nudged at start, after each poll, a rules change, placement and bind.
-	const wakes = createWakeRunner({
-		ambient,
-		inbox,
-		to: ASSISTANT_TEAM,
-		ready: () => active && !closed && held() !== undefined,
-		render: (batch) => batch.map((event) => eventLines(wireOf(event)).join("\n")).join("\n\n"),
-	});
-	const nudgeWakes = () => wakes.nudge();
-
-	/**
-	 * An inbox sorted under any other revision sorts its kept drops again, so a crash between the two
-	 * files catches up, and so does a rules file that started fresh.
-	 */
-	const catchUp = (watcherId: string) => {
-		const sorter = sorterFor(watcherId);
-		if ((inbox.stateOf(watcherId, ambient.now())?.rulesRevision ?? 0) === sorter.revision) return;
-		if (!inbox.resort(watcherId, sorter, ambient.now())) {
-			console.warn(`[assistant] ${watcherId} drops not sorted again; the next poll or start retries`);
-			return;
-		}
-		// Re-sorted drops may wake.
-		nudgeWakes();
-	};
-	const rules = openDurable(deps.dataDir, "assistant-rules", (store) =>
-		createRulesStore({ store, fieldsOf: (watcherId) => watcherOfId(watcherId)?.fields, onChanged: catchUp }),
-	);
-	for (const watcher of watchers) catchUp(watcher.id);
-
-	const startRunner = () => {
-		if (!active || closed || runner || !held()) return;
-		runner = createWatcherRunner({
+	const startLanes = () => {
+		if (!active || closed || lanes || !held()) return;
+		lanes = createSourceLanes({
 			ambient,
-			inbox,
+			state: watcherState,
 			watchers,
-			rules: sorterFor,
-			onLanded: () => nudgeWakes(),
+			sort: (watcherId, event) => decideEvent(rules.get(watcherId), event.fields),
+			wake: () => wake,
+			to: ASSISTANT_TEAM,
+			render,
 		});
-		runner.start();
+		lanes.start();
 	};
-	const stopRunner = async () => {
-		const stopping = runner;
-		runner = null;
+	const stopLanes = async () => {
+		const stopping = lanes;
+		lanes = null;
 		await stopping?.stop();
+	};
+	/** Newest page not done, live. */
+	const liveList = async (watcherId: string, deadlineMs: number): Promise<WatcherEvent[]> => {
+		if (!lanes) throw new Error("the assistant does not live on this Gateway");
+		return lanes.run(watcherId, async (watcher, signal) => (watcher.list ? watcher.list(signal) : []), deadlineMs);
 	};
 	/** Owner ops one at a time, so a place never lands inside a release; none starts after shutdown. */
 	let tail: Promise<unknown> = Promise.resolve();
@@ -178,52 +160,34 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	};
 
 	const watcherOf = (watcher: Watcher): AssistantWatcher => {
-		const now = ambient.now();
-		const state = inbox.stateOf(watcher.id, now);
+		const state = watcherState.get(watcher.id);
 		return {
 			id: watcher.id,
-			label: LABELS[watcher.id] ?? watcher.id,
+			label: labelOf(watcher.id),
 			grants: deps.vault.watcherGrants(watcher.id),
-			unread: inbox.unread(watcher.id, now),
-			evicted: state?.evicted ?? 0,
-			...(state?.lastSuccessAt !== undefined ? { lastSuccessAt: state.lastSuccessAt } : {}),
-			...(state?.nextPollAt !== undefined ? { nextPollAt: state.nextPollAt } : {}),
-			...(state?.backoff ? { backoff: state.backoff } : {}),
-			...(state?.stopped !== undefined ? { stopped: state.stopped } : {}),
+			unread: state.unread,
+			capped: state.capped,
+			evicted: 0,
+			...(state.lastSuccessAt !== undefined ? { lastSuccessAt: state.lastSuccessAt } : {}),
+			...(state.nextPollAt !== undefined ? { nextPollAt: state.nextPollAt } : {}),
+			...(state.backoff ? { backoff: state.backoff } : {}),
+			...(state.stopped !== undefined ? { stopped: state.stopped } : {}),
 			fields: [...(watcher.fields ?? [])],
-			pingDefault: watcher.pingDefault ?? false,
 			rules: rules.get(watcher.id),
-			dropped: inbox.events(watcher.id, now).filter((event) => event.disposition === "ruleDropped").length,
-			woken: inbox.events(watcher.id, now).filter((event) => event.disposition === "woken").length,
 			...(watcher.secret === undefined ? {} : { secret: watcher.secret }),
 		};
 	};
 
-	/** The session's inbox reads, one at a time. */
-	let inboxTail: Promise<unknown> = Promise.resolve();
-	const inboxSerial = <T>(work: () => T): Promise<T> => {
-		const next = inboxTail.then(work);
-		inboxTail = next.catch(() => undefined);
-		return next;
-	};
 	const routes = createAssistantRoutes({
 		caller: (req) => {
 			const record = sessions.sessionAuthority.resolveConfirmedManagedSession(req);
 			if (!record) return "unauthenticated";
 			return isAssistantRecord(record) ? "assistant" : "not_assistant";
 		},
-		flush: (watcherIds) =>
-			inboxSerial(() => {
-				const now = ambient.now();
-				const { events, boundaries } = inbox.flush(watcherIds, now);
-				const evicted: Record<string, number> = {};
-				for (const watcher of watchers) {
-					const lost = inbox.stateOf(watcher.id, now)?.evicted ?? 0;
-					if (lost > 0) evicted[watcher.id] = lost;
-				}
-				return { events: events.map(wireOf), boundaries, evicted };
-			}),
-		confirm: (boundaries) => inboxSerial(() => inbox.confirm(boundaries, ambient.now())),
+		flush: async () => {
+			throw new Error("the inbox moved; update the plugin");
+		},
+		confirm: async () => true,
 	});
 	const state = (): ConsoleAssistantStateResult => {
 		const record = held();
@@ -237,35 +201,40 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	return {
 		reserves: isAssistant,
 		forgetRefusal: (team) => (isAssistant(team) ? "the assistant's session leaves only by a release" : null),
-		inbox,
 		routes,
 		baselineFor: (team) => {
 			if (!isAssistant(team)) return undefined;
-			const now = ambient.now();
 			return {
 				watchers: watchers.map((watcher) => {
-					const health = inbox.stateOf(watcher.id, now);
+					const health = watcherState.get(watcher.id);
 					return {
-						label: LABELS[watcher.id] ?? watcher.id,
-						unread: inbox.unread(watcher.id, now),
-						evicted: health?.evicted ?? 0,
-						...(health?.stopped !== undefined ? { stopped: health.stopped } : {}),
-						...(health?.backoff ? { waiting: health.backoff.reason } : {}),
+						label: labelOf(watcher.id),
+						unread: health.unread,
+						capped: health.capped,
+						evicted: 0,
+						...(health.stopped !== undefined ? { stopped: health.stopped } : {}),
+						...(health.backoff ? { waiting: health.backoff.reason } : {}),
 					};
 				}),
 			};
 		},
-		bindWake: (bound) => wakes.bind(bound),
+		bindWake: (bound) => {
+			wake = bound;
+		},
 		console: {
 			state,
 			// The record is where it lives, so it is durable before the phone releases the old home.
 			place: (workdir) =>
 				serial(() => {
-					// A new placement is granted afresh, whatever an interrupted release left.
+					// A new placement starts afresh, whatever an interrupted release left.
 					if (!held()) {
 						for (const watcher of watchers) deps.vault.setWatcherGrants(watcher.id, []);
 						if (!watchers.every((watcher) => grantsLanded(watcher.id, []))) {
 							throw new Error("a grant left from an earlier placement could not be dropped");
+						}
+						// First poll primes again.
+						if (!watchers.every((watcher) => watcherState.put(watcher.id, FRESH_STATE))) {
+							throw new Error("a watcher's earlier state could not be reset");
 						}
 					}
 					const undo = place(workdir, sessions);
@@ -276,8 +245,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 						undo();
 						throw error;
 					}
-					startRunner();
-					nudgeWakes();
+					startLanes();
 					return state();
 				}),
 			// The record is the commit: a refused forget changes nothing. Past it the pane is gone, so
@@ -291,7 +259,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					} catch (error) {
 						unsaved = error as Error;
 					}
-					await stopRunner();
+					await stopLanes();
 					// Grants are this Gateway's; a leftover is inert unplaced, and a new placement drops it.
 					for (const watcher of watchers) deps.vault.setWatcherGrants(watcher.id, []);
 					const kept = watchers.filter((watcher) => !grantsLanded(watcher.id, []));
@@ -311,8 +279,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					if (!held()) throw new Error("the assistant does not live on this Gateway");
 					deps.vault.setWatcherGrants(watcherId, entryIds);
 					if (!grantsLanded(watcherId, entryIds)) throw new Error("the grant could not be saved");
-					if (runner) runner.poke(watcherId);
-					else startRunner();
+					if (lanes) lanes.poke(watcherId);
+					else startLanes();
 					return state();
 				}),
 			// Only owner ops reach these, so no event text can rewrite what sorts later events.
@@ -321,8 +289,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			moveRule: (watcherId, ruleId, beforeId, base) =>
 				serial(() => rules.moveRule(watcherId, ruleId, beforeId, base)),
 			putOtherwise: (watcherId, otherwise) => serial(() => rules.putOtherwise(watcherId, otherwise)),
-			/** Refuses what a put refuses; counts what the rule decides from its place by id, else last. */
-			previewRule: (watcherId, rule) => {
+			/** Over the live first page, from the rule's place. */
+			previewRule: async (watcherId, rule) => {
 				const refusal = rules.refusalOf(watcherId, rule);
 				if (refusal) throw new Error(refusal);
 				// Read as a save would store it.
@@ -331,9 +299,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				const placed = held.some((existing) => existing.id === asStored.id)
 					? held.map((existing) => (existing.id === asStored.id ? asStored : existing))
 					: [...held, asStored];
-				const recent = inbox
-					.events(watcherId, ambient.now())
-					.sort((a, b) => b.receivedAt - a.receivedAt || b.seq - a.seq)
+				const recent = (await liveList(watcherId, PREVIEW_WAIT_MS))
+					.sort((a, b) => b.at - a.at)
 					.slice(0, PREVIEW_EVENTS);
 				const matched = recent.filter((event) => ruleMatches(asStored, event.fields));
 				const decided = matched.filter((event) => firstMatch(placed, event.fields)?.id === asStored.id);
@@ -347,30 +314,13 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		},
 		start: () => {
 			active = true;
-			for (const watcher of watchers) catchUp(watcher.id);
-			startRunner();
-			nudgeWakes();
+			startLanes();
 		},
 		stop: async () => {
 			closed = true;
-			const wakesStopped = wakes.stop();
-			await stopRunner();
-			// An op or a wake already running finishes before the flush, bounded as a poll's stop is.
-			await withinMs(ambient, Promise.all([tail, wakesStopped, inboxTail]), STOP_WAIT_MS);
+			// Running work finishes before the flush.
+			await withinMs(ambient, Promise.all([tail, stopLanes()]), STOP_WAIT_MS);
 		},
-	};
-}
-
-function wireOf(event: InboxEvent): InboxEventWire {
-	return {
-		watcherId: event.watcherId,
-		label: LABELS[event.watcherId] ?? event.watcherId,
-		title: event.title,
-		...(event.url === undefined ? {} : { url: event.url }),
-		fields: event.fields,
-		receivedAt: event.receivedAt,
-		action: event.decision?.action ?? "inbox",
-		ping: event.decision?.ping ?? false,
 	};
 }
 

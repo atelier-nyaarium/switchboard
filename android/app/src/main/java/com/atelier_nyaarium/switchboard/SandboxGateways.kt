@@ -315,14 +315,8 @@ internal class SandboxAssistantGateway : AssistantGateway {
 	private val grants = mutableMapOf<String, List<String>>()
 	private var rules = AssistantWatcherRules(
 		rules = listOf(
-			AssistantRule(
-				"reviews",
-				listOf(AssistantRuleCondition("reason", "is", "review_requested")),
-				action = "wake",
-				ping = true,
-				revision = 1L,
-			),
-			AssistantRule("subscribed", listOf(AssistantRuleCondition("reason", "is", "subscribed")), action = "drop", revision = 1L),
+			AssistantRule("reviews", listOf(AssistantRuleCondition("reason", "is", "review_requested")), action = "wake", revision = 1L),
+			AssistantRule("subscribed", listOf(AssistantRuleCondition("reason", "is", "subscribed")), action = "inbox", revision = 1L),
 		),
 		otherwise = AssistantRuleOtherwise(action = "inbox", revision = 0L),
 		revision = 2L,
@@ -363,13 +357,11 @@ internal class SandboxAssistantGateway : AssistantGateway {
 			label = "GitHub notifications",
 			grants = grants["github"].orEmpty(),
 			unread = 3L,
-			evicted = 0L,
+			capped = false,
 			lastSuccessAt = day(-120_000L),
 			nextPollAt = day(60_000L),
 			fields = listOf("reason", "repository", "type", "title"),
-			pingDefault = false,
 			rules = rules,
-			dropped = 4L,
 			secret = "GitHub PAT (Classic) with scope:\n- Notifications",
 		),
 	)

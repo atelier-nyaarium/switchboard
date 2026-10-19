@@ -7,7 +7,6 @@ import com.atelier_nyaarium.switchboard.assistant.goneFrom
 import com.atelier_nyaarium.switchboard.assistant.SaveOutcome
 import com.atelier_nyaarium.switchboard.assistant.WatcherRules
 import com.atelier_nyaarium.switchboard.assistant.outcomeOf
-import com.atelier_nyaarium.switchboard.assistant.pingAfter
 import com.atelier_nyaarium.switchboard.assistant.raisedBefore
 import com.atelier_nyaarium.switchboard.assistant.rulesOf
 import com.atelier_nyaarium.switchboard.proto.AssistantRule
@@ -24,12 +23,12 @@ private fun rule(id: String, value: String, action: String = "inbox", revision: 
 	AssistantRule(id, listOf(AssistantRuleCondition("reason", "is", value)), action = action, revision = revision)
 
 private val held = AssistantWatcherRules(
-	rules = listOf(rule("reviews", "review_requested", "wake"), rule("subscribed", "subscribed", "drop")),
+	rules = listOf(rule("reviews", "review_requested", "wake"), rule("subscribed", "subscribed", "inbox")),
 	otherwise = AssistantRuleOtherwise(action = "inbox", revision = 0L),
 	revision = 4L,
 )
 
-private val watcherRules = WatcherRules(fields = listOf("reason", "repository"), pingDefault = false, held = held)
+private val watcherRules = WatcherRules(fields = listOf("reason", "repository"), held = held)
 
 class RuleDraftTest {
 	@Test
@@ -47,7 +46,7 @@ class RuleDraftTest {
 
 	@Test
 	fun aStaleSaveOffersToGoOverWhatIsHeldOnlyWhileTheRuleStillStands() {
-		val edit = RuleDraft.of(RuleSlot.Held("reviews"), watcherRules)!!.copy(action = "drop")
+		val edit = RuleDraft.of(RuleSlot.Held("reviews"), watcherRules)!!.copy(action = "inbox")
 		val movedOn = held.copy(rules = listOf(rule("reviews", "review_requested", "wake", revision = 3L)), revision = 6L)
 		val deleted = held.copy(rules = emptyList(), revision = 6L)
 
@@ -82,29 +81,12 @@ class RuleDraftTest {
 
 	@Test
 	fun theCatchAllGoesOverOnlyItsOwnRevision() {
-		val draft = RuleDraft.of(RuleSlot.Otherwise, watcherRules)!!.copy(action = "drop")
-		val newer = held.copy(otherwise = AssistantRuleOtherwise(action = "wake", revision = 2L))
+		val draft = RuleDraft.of(RuleSlot.Otherwise, watcherRules)!!.copy(action = "wake")
+		val newer = held.copy(otherwise = AssistantRuleOtherwise(action = "inbox", revision = 2L))
 
 		val offer = outcomeOf(RuleSaved.Refused("stale", newer), draft, RuleSlot.Otherwise)
 
 		assertEquals(draft.copy(revision = 2L), (offer as SaveOutcome.Offer).draft)
-	}
-
-	@Test
-	fun aDropNeverPingsNorKeepsAnOverride() {
-		val draft = RuleDraft.of(RuleSlot.Held("reviews"), watcherRules)!!.copy(ping = true)
-
-		assertEquals(false, draft.copy(action = "drop").pings(pingDefault = true))
-		assertNull(draft.copy(action = "drop").toRule()!!.ping)
-		assertEquals(true, draft.toRule()!!.ping)
-	}
-
-	@Test
-	fun aPingAtTheDefaultFollowsTheDefault() {
-		assertNull(pingAfter(on = false, pingDefault = false))
-		assertEquals(true, pingAfter(on = true, pingDefault = false))
-		assertNull(pingAfter(on = true, pingDefault = true))
-		assertEquals(false, pingAfter(on = false, pingDefault = true))
 	}
 
 	@Test
@@ -122,7 +104,7 @@ class RuleDraftTest {
 
 	@Test
 	fun aGatewayOlderThanRulesOffersNone() {
-		val bare = AssistantWatcher(id = "github", label = "GitHub", grants = emptyList(), unread = 0L, evicted = 0L)
+		val bare = AssistantWatcher(id = "github", label = "GitHub", grants = emptyList(), unread = 0L)
 
 		assertNull(rulesOf(bare))
 	}

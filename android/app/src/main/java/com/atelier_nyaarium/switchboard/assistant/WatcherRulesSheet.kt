@@ -13,7 +13,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -25,7 +24,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -75,7 +73,6 @@ internal fun WatcherRulesSheet(ops: AssistantOps, gatewayId: String, watcher: As
 					number = "${index + 1}",
 					text = ruleSummary(rule),
 					action = rule.action,
-					pings = rowPings(rule.action, rule.ping, rules.pingDefault),
 					onOpen = { editing = RuleSlot.Held(rule.id) },
 					onRaise = before?.let { anchor ->
 						{
@@ -93,7 +90,6 @@ internal fun WatcherRulesSheet(ops: AssistantOps, gatewayId: String, watcher: As
 				number = "·",
 				text = "Anything else",
 				action = otherwise.action,
-				pings = rowPings(otherwise.action, otherwise.ping, rules.pingDefault),
 				onOpen = { editing = RuleSlot.Otherwise },
 				onRaise = null,
 			)
@@ -101,14 +97,6 @@ internal fun WatcherRulesSheet(ops: AssistantOps, gatewayId: String, watcher: As
 				onClick = hapticClick { editing = RuleSlot.New },
 				enabled = !busy && rules.held.rules.size < MAX_RULES,
 			) { Text("+ Add rule") }
-			val dropped = watcher.dropped ?: 0L
-			if (dropped > 0L) {
-				Text(
-					"$dropped dropped in the last 7 days",
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-			}
 			said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 		}
 	}
@@ -134,7 +122,6 @@ private fun RuleRow(
 	number: String,
 	text: String,
 	action: String,
-	pings: Boolean,
 	onOpen: () -> Unit,
 	onRaise: (() -> Unit)?,
 ) {
@@ -150,9 +137,6 @@ private fun RuleRow(
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 		Text(text, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-		if (pings) {
-			Icon(Icons.Default.NotificationsActive, contentDescription = "Pings", tint = MaterialTheme.colorScheme.tertiary)
-		}
 		Text(actionLabel(action), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
 		if (onRaise != null) {
 			IconButton(onClick = hapticClick(onRaise)) { Icon(Icons.Default.ArrowUpward, contentDescription = "Move up") }
@@ -289,33 +273,8 @@ private fun RuleEditorSheet(
 					) { Text(actionLabel(action)) }
 				}
 			}
-			if (showsPing(draft.action)) {
-				Row(verticalAlignment = Alignment.CenterVertically) {
-					Column(Modifier.weight(1f)) {
-						Text("Ping my phone", style = MaterialTheme.typography.bodyLarge)
-						Text(
-							"Default: ${if (rules.pingDefault) "on" else "off"}",
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-						)
-					}
-					Switch(
-						checked = draft.pings(rules.pingDefault),
-						onCheckedChange = { on -> draft = draft.copy(ping = pingAfter(on, rules.pingDefault)) },
-						enabled = editable,
-					)
-				}
-			}
-
 			preview?.let {
 				Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			}
-			if (slot != RuleSlot.Otherwise) {
-				Text(
-					"Saving rechecks dropped events.",
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
 			}
 			said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 

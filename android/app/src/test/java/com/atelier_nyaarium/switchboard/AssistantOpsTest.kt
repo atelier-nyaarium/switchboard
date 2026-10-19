@@ -18,7 +18,7 @@ import org.junit.Test
 private fun watcher(
 	grants: List<String> = listOf("gh-token"),
 	unread: Long = 2L,
-	evicted: Long = 0L,
+	evicted: Long? = null,
 	lastSuccessAt: Long? = null,
 	backoff: AssistantWatcherBackoff? = null,
 	stopped: String? = null,
@@ -44,7 +44,7 @@ class AssistantOpsTest {
 		private fun stateOf(gatewayId: String) = ConsoleAssistantStateResult(
 			workdir = "~/notes".takeIf { gatewayId == home },
 			team = "host.assistant".takeIf { gatewayId == home },
-			watchers = listOf(watcher().copy(fields = listOf("reason"), pingDefault = false, rules = rules)),
+			watchers = listOf(watcher().copy(fields = listOf("reason"), rules = rules)),
 		)
 
 		/** Only the catch-all, which is all these tests save. */
@@ -142,7 +142,7 @@ class AssistantOpsTest {
 		// Another phone saves first.
 		fake.rules = fake.rules.copy(otherwise = AssistantRuleOtherwise(action = "wake", revision = 1L))
 
-		val answer = ops.saveOtherwise("sakura", "github", AssistantRuleOtherwise(action = "drop", revision = 0L))
+		val answer = ops.saveOtherwise("sakura", "github", AssistantRuleOtherwise(action = "inbox", revision = 0L))
 
 		assertEquals(1L, (answer as RuleSaved.Refused).held?.otherwise?.revision)
 		assertEquals(1L, drawn())

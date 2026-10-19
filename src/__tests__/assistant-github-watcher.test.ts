@@ -18,11 +18,12 @@ function thread(id: string, updatedAt: string, subjectUrl: string | null = null)
 type Reply = { status: number; body?: unknown; headers?: Record<string, string> };
 
 /** Ordered fake responses. */
-function github(replies: Reply[], token: TokenRead = { kind: "token", value: "ghp_test" }) {
+function github(replies: Reply[], token: TokenRead = { kind: "token", value: "ghp_test", key: "entry-a" }) {
 	const asked: { url: string; headers: Record<string, string> }[] = [];
+	let current = token;
 	const watcher = createGithubWatcher({
 		now: () => NOW,
-		token: async () => token,
+		token: async () => current,
 		fetch: async (url, init) => {
 			asked.push({ url, headers: init.headers as Record<string, string> });
 			const reply = replies.shift();
@@ -33,11 +34,17 @@ function github(replies: Reply[], token: TokenRead = { kind: "token", value: "gh
 	});
 	const poll = async (cursor: string | null) =>
 		PollAnswerSchema.parse(await watcher.poll(cursor, new AbortController().signal));
-	return { poll, asked };
+	const list = () => watcher.list?.(new AbortController().signal);
+	const use = (next: TokenRead) => {
+		current = next;
+	};
+	return { poll, list, use, asked };
 }
 
+const NEWLINE = String.fromCharCode(10);
+
 describe("the GitHub notifications watcher", () => {
-	it("reads each thread update as its own event, with the page a person opens", async () => {
+	it("reads each unread thread by its id and update time, with the page a person opens", async () => {
 		const { poll, asked } = github([
 			{
 				status: 200,
@@ -52,32 +59,39 @@ describe("the GitHub notifications watcher", () => {
 
 		const answer = await poll(null);
 
-		expect(answer).toMatchObject({ kind: "events", cursor: "Sun, 18 Oct 2026 10:00:00 GMT", nextPollMs: 120_000 });
+		expect(answer).toMatchObject({ kind: "events", capped: false, nextPollMs: 120_000 });
 		if (answer.kind !== "events") throw new Error("expected events");
-		expect(answer.events.map((event) => [event.sourceId, event.url])).toEqual([
-			["1@2026-10-18T10:00:00Z", "https://github.com/atelier/app/pull/7"],
-			["2@2026-10-18T09:00:00Z", "https://github.com/atelier/app"],
+		expect(answer.events.map((event) => [event.id, event.at, event.url])).toEqual([
+			["1", Date.parse("2026-10-18T10:00:00Z"), "https://github.com/atelier/app/pull/7"],
+			["2", Date.parse("2026-10-18T09:00:00Z"), "https://github.com/atelier/app"],
 		]);
 		expect(answer.events[0]?.fields).toMatchObject({ reason: "review_requested", repository: "atelier/app" });
 		expect(asked[0]?.headers.Authorization).toBe("Bearer ghp_test");
 		expect(asked[0]?.headers["If-Modified-Since"]).toBeUndefined();
 	});
 
-	it("asks whether anything changed since the cursor, and a 304 keeps it", async () => {
-		const { poll, asked } = github([{ status: 304, headers: { "x-poll-interval": "30" } }]);
+	it("sends the validator back only under the grant that read it, and a 304 answers unchanged", async () => {
+		const { poll, use, asked } = github([
+			{ status: 200, body: [], headers: { "last-modified": "Sun, 18 Oct 2026 10:00:00 GMT" } },
+			{ status: 304, headers: { "x-poll-interval": "30" } },
+			{ status: 200, body: [] },
+		]);
 
-		const answer = await poll("Sun, 18 Oct 2026 10:00:00 GMT");
+		const first = await poll(null);
+		const cursor = first.kind === "events" ? first.cursor : null;
+		const quiet = await poll(cursor);
+		use({ kind: "token", value: "ghp_other", key: "entry-b" });
+		await poll(cursor);
 
-		expect(answer).toEqual({
-			kind: "events",
-			events: [],
-			cursor: "Sun, 18 Oct 2026 10:00:00 GMT",
-			nextPollMs: 60_000,
-		});
-		expect(asked[0]?.headers["If-Modified-Since"]).toBe("Sun, 18 Oct 2026 10:00:00 GMT");
+		expect(quiet).toEqual({ kind: "unchanged", nextPollMs: 60_000 });
+		expect(asked.map((request) => request.headers["If-Modified-Since"])).toEqual([
+			undefined,
+			"Sun, 18 Oct 2026 10:00:00 GMT",
+			undefined,
+		]);
 	});
 
-	it("follows the next page on GitHub's API only", async () => {
+	it("follows the next page on GitHub's API only, keeping one copy of a thread a shifted page repeats", async () => {
 		const { poll, asked } = github([
 			{
 				status: 200,
@@ -86,21 +100,22 @@ describe("the GitHub notifications watcher", () => {
 			},
 			{
 				status: 200,
-				body: [thread("2", "2026-10-18T09:00:00Z")],
+				body: [thread("1", "2026-10-18T10:00:00Z"), thread("2", "2026-10-18T09:00:00Z")],
 				headers: { link: '<https://evil.example/notifications?page=3>; rel="next"' },
 			},
 		]);
 
 		const answer = await poll(null);
 
-		expect(answer.kind === "events" ? answer.events.map((event) => event.sourceId) : []).toHaveLength(2);
+		expect(answer).toMatchObject({ kind: "events", capped: false });
+		expect(answer.kind === "events" ? answer.events.map((event) => event.id) : []).toEqual(["1", "2"]);
 		expect(asked.map((request) => request.url)).toEqual([
 			"https://api.github.com/notifications?per_page=50",
 			"https://api.github.com/notifications?page=2",
 		]);
 	});
 
-	it("stops paging at the poll's event cap", async () => {
+	it("stops paging at the poll's event cap and says more are unread", async () => {
 		const page = (n: number): Reply => ({
 			status: 200,
 			body: Array.from({ length: 50 }, (_, i) => thread(`${n}-${i}`, "2026-10-18T10:00:00Z")),
@@ -111,7 +126,22 @@ describe("the GitHub notifications watcher", () => {
 		const answer = await poll(null);
 
 		expect(answer.kind === "events" ? answer.events : []).toHaveLength(500);
+		expect(answer).toMatchObject({ capped: true });
 		expect(asked).toHaveLength(10);
+	});
+
+	it("lists the newest page of every thread not done, read or unread", async () => {
+		const read = { ...thread("8", "2026-10-18T09:00:00Z"), unread: false };
+		const { list, asked } = github([{ status: 200, body: [thread("9", "2026-10-18T10:00:00Z"), read] }]);
+
+		const listed = await list();
+
+		expect(listed?.map((event) => event.id)).toEqual(["9", "8"]);
+		expect(asked.map((request) => request.url)).toEqual([
+			"https://api.github.com/notifications?all=true&per_page=50",
+		]);
+		await expect(github([{ status: 401 }]).list()).rejects.toThrow();
+		await expect(github([], { kind: "stopped", reason: "needs a secret" }).list()).rejects.toThrow();
 	});
 
 	it("stops on a refused token, and waits out a rate limit", async () => {
@@ -123,7 +153,10 @@ describe("the GitHub notifications watcher", () => {
 				headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String((NOW + 15 * 60_000) / 1000) },
 			},
 		]).poll("c");
-		const retry = await github([{ status: 429, headers: { "retry-after": "90" } }]).poll("c");
+		const throttled = github([{ status: 429, headers: { "retry-after": "90" } }]);
+		const retry = await throttled.poll("c");
+		const again = await throttled.poll("c");
+		const listedWhileLimited = throttled.list();
 		const secondary = await github([
 			{ status: 403, body: { message: "You have exceeded a secondary rate limit." } },
 		]).poll("c");
@@ -133,16 +166,33 @@ describe("the GitHub notifications watcher", () => {
 		expect(scoped.kind).toBe("stopped");
 		expect(limited).toMatchObject({ kind: "backoff", retryMs: 15 * 60_000 });
 		expect(retry).toMatchObject({ kind: "backoff", retryMs: 90_000 });
+		// The limit holds for polls and listings alike.
+		expect(again.kind).toBe("backoff");
+		await expect(listedWhileLimited).rejects.toThrow();
+		expect(throttled.asked).toHaveLength(1);
 		expect(secondary.kind).toBe("backoff");
 		expect(hidden.kind).toBe("stopped");
 	});
 
-	it("asks GitHub nothing without a token it may read", async () => {
+	it("asks GitHub nothing without a token it may read, and never with one a header cannot carry", async () => {
 		const missing = github([], { kind: "stopped", reason: "needs a secret" });
 		const unreachable = github([], { kind: "backoff", reason: "vault unavailable" });
+		const value = `ghp_a${NEWLINE}zq9tail`;
+		const malformed = github([], { kind: "token", value, key: "entry-a" });
+		const pasted = github([{ status: 200, body: [] }], {
+			kind: "token",
+			value: `ghp_ok${NEWLINE}`,
+			key: "entry-a",
+		});
 
 		expect(await missing.poll(null)).toEqual({ kind: "stopped", reason: "needs a secret" });
 		expect((await unreachable.poll(null)).kind).toBe("backoff");
-		expect([...missing.asked, ...unreachable.asked]).toEqual([]);
+		const refused = await malformed.poll(null);
+		expect(refused.kind).toBe("stopped");
+		expect(JSON.stringify(refused)).not.toContain("zq9tail");
+		await expect(malformed.list()).rejects.toThrow();
+		expect([...missing.asked, ...unreachable.asked, ...malformed.asked]).toEqual([]);
+		await pasted.poll(null);
+		expect(pasted.asked[0]?.headers.Authorization).toBe("Bearer ghp_ok");
 	});
 });
