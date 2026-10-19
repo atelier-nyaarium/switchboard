@@ -63,7 +63,7 @@ function scripted(id = "github") {
 			signals.push(signal);
 			return new Promise((resolve) => pending.push(resolve));
 		},
-		list: async () => [thread("listed", 1)],
+		list: async () => ({ events: [thread("listed", 1)], here: "0" }),
 	};
 	const answer = (value: PollAnswer) => pending.shift()?.(value);
 	return { watcher, cursors, signals, answer, inFlight: () => pending.length };
@@ -262,7 +262,7 @@ describe("a watcher's source lane", () => {
 		source.answer(unread("c2", [thread("a", 100)]));
 		const listed = lane.run(
 			"github",
-			(watcher, signal) => watcher.list?.(signal) ?? Promise.resolve([]),
+			async (watcher, signal) => (await watcher.list?.({ scope: "all" }, signal))?.events ?? [],
 			2 * WAKE_DEADLINE_MS,
 		);
 		await ambient.advance(0);

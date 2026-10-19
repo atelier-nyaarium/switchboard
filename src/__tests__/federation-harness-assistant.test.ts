@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Watcher, WatcherEvent } from "../gateway/assistant/watcher.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import type { ConsoleAssistantStateResult } from "../shared/schemasAssistant.js";
-import { ASSISTANT_INBOX_CONFIRM_PATH } from "../shared/schemasAssistantInbox.js";
 import { ASSISTANT_COMMANDS } from "../shared/session-commands.js";
 import { composeSessionName } from "../shared/session-id.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
@@ -101,14 +100,27 @@ describe("a watcher event reaching the assistant", () => {
 	// Backlog first, then two newer.
 	let polls = 0;
 	let wakesIgnored = 0;
+	const source = [event("e1", "mention", 3), event("e2", "review", 2), event("e0", "mention", 1)];
 	const watcher: Watcher = {
 		id: "fake",
 		fields: ["kind"],
 		poll: async () => {
 			polls += 1;
-			const backlog = [event("e0", "mention", 1)];
-			const events = polls === 1 ? backlog : [event("e1", "mention", 3), event("e2", "review", 2), ...backlog];
+			const events = polls === 1 ? source.slice(-1) : source;
 			return { kind: "events", events, cursor: `c${polls}`, capped: false, nextPollMs: 60_000 };
+		},
+		// Two a page.
+		list: async (query) => {
+			const pool = source.filter((item) => query.since === undefined || item.at > query.since);
+			const start = query.page ? Number(query.page) : 0;
+			const more = start + 2 < pool.length;
+			const mark = pool.reduce((max, item) => Math.max(max, item.at), query.since ?? 0);
+			return {
+				events: pool.slice(start, start + 2),
+				here: String(start),
+				...(more ? { next: String(start + 2) } : {}),
+				...(query.scope === "new" && !more ? { mark } : {}),
+			};
 		},
 	};
 	const read = async (session: FakeSession | undefined, path: string, body: Record<string, unknown>) =>
@@ -172,6 +184,56 @@ describe("a watcher event reaching the assistant", () => {
 		expect(state.watchers[0]).toMatchObject({ id: "fake", unread: 3 });
 	});
 
+	it("lists live, sorted by the rules, and moves the new mark only once a read reaches its last page", async () => {
+		const session = attached.get(ASSISTANT_TEAM);
+		type Listed = { lists: { items: { id: string; decision: string }[]; next?: string }[] };
+		const list = async (body: Record<string, unknown>) =>
+			(await read(session, ASSISTANT_COMMANDS.inbox.path, body)) as unknown as Listed;
+		const ids = (answer: Listed) => answer.lists[0]?.items.map((item) => item.id);
+
+		const first = await list({ scope: "new" });
+		const again = await list({ scope: "new" });
+		const last = await list({ scope: "new", page: first.lists[0]?.next });
+		const caughtUp = await list({ scope: "new" });
+		source.unshift(event("e3", "review", 4));
+		const arrived = await list({ scope: "new" });
+		const all = await list({ scope: "all" });
+
+		expect([first, again, last, caughtUp, arrived].map(ids)).toEqual([
+			["e1", "e2"],
+			["e1", "e2"],
+			["e0"],
+			[],
+			["e3"],
+		]);
+		expect(first.lists[0]?.items.map((item) => item.decision)).toEqual(["wake", "inbox"]);
+		expect(all.lists[0]?.next).toBeDefined();
+	});
+
+	it("continues a page cut by the byte cap, moves the mark once it is shown whole, and refuses an edited token", async () => {
+		const session = attached.get(ASSISTANT_TEAM);
+		type Listed = { lists: { items: { id: string }[]; cut?: number; next?: string; error?: string }[] };
+		const list = async (page?: string) =>
+			(await read(session, ASSISTANT_COMMANDS.inbox.path, {
+				scope: "new",
+				...(page ? { page } : {}),
+			})) as unknown as Listed;
+		const big = (id: string, at: number) => ({ ...event(id, "review", at), fields: { kind: "x".repeat(40_000) } });
+		source.unshift(big("b2", 6), big("b1", 5));
+
+		const cut = await list();
+		const token = cut.lists[0]?.next ?? "";
+		const edited = await list(`${token.slice(0, -2)}AA`);
+		const rest = await list(token);
+		const after = await list();
+
+		expect(cut.lists[0]).toMatchObject({ items: [{ id: "b2" }], cut: 1 });
+		expect(edited.lists[0]?.error).toBeDefined();
+		expect(rest.lists[0]).toMatchObject({ items: [{ id: "b1" }] });
+		expect(rest.lists[0]?.cut).toBeUndefined();
+		expect(after.lists[0]?.items).toEqual([]);
+	});
+
 	it("answers the inbox to the assistant's own token alone", async () => {
 		const { result } = await h.phone.value({
 			kind: "create_session",
@@ -184,11 +246,8 @@ describe("a watcher event reaching the assistant", () => {
 		);
 		await other.ready();
 
-		expect(await read(other, ASSISTANT_COMMANDS.inbox.path, {})).toEqual({ kind: "not_assistant" });
-		expect(await read(other, ASSISTANT_INBOX_CONFIRM_PATH, { boundaries: { fake: 99 } })).toEqual({
-			kind: "not_assistant",
-		});
-		expect(await read(undefined, ASSISTANT_INBOX_CONFIRM_PATH, { boundaries: { fake: 99 } })).toEqual({
+		expect(await read(other, ASSISTANT_COMMANDS.inbox.path, { scope: "all" })).toEqual({ kind: "not_assistant" });
+		expect(await read(undefined, ASSISTANT_COMMANDS.inbox.path, { scope: "all" })).toEqual({
 			kind: "unauthenticated",
 		});
 	});

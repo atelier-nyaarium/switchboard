@@ -48,6 +48,24 @@ export const PollAnswerSchema = z.discriminatedUnion("kind", [
 
 export type PollAnswer = z.infer<typeof PollAnswerSchema>;
 
+export interface ListQuery {
+	scope: "new" | "all";
+	/** The agent's mark, for `new`. */
+	since?: number;
+	/** The previous page's `next`. */
+	page?: string;
+}
+
+export interface ListPage {
+	/** Newest first. */
+	events: WatcherEvent[];
+	/** This page again, with the read's state. */
+	here: string;
+	next?: string;
+	/** Set on the last page of a `new` read: the mark it reached. */
+	mark?: number;
+}
+
 export interface Watcher {
 	readonly id: string;
 	/** What a rule may test. */
@@ -56,6 +74,6 @@ export interface Watcher {
 	readonly secret?: string;
 	/** Settles once `signal` aborts. */
 	poll(cursor: string | null, signal: AbortSignal): Promise<PollAnswer>;
-	/** Newest page not done. */
-	list?(signal: AbortSignal): Promise<WatcherEvent[]>;
+	/** One page of what is not done. */
+	list?(query: ListQuery, signal: AbortSignal): Promise<ListPage>;
 }

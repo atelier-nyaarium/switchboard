@@ -243,11 +243,15 @@ before the shutdown flush. Stop is final. `src/gateway/assistant/` holds the wat
 - **Inbox:** `inbox({ scope: "new" | "all", page? })` reads GitHub live through the lane, with the
   token read on every call. `all` is every thread not done; `new` is threads updated since the
   agent's mark, which moves to the newest time returned only once a `new` read reaches its last
-  page. Newest first, 50 a page, the page token taken from GitHub's `Link` on the same host; a list
-  that changes between pages may repeat or skip. Each item carries its thread id, title, repository,
-  reason, type, a validated `https://github.com/` link and its rule decision. The response is parsed
-  strictly, every text value is one line and capped, the whole answer has a byte cap, and an invalid
-  link is omitted. It marks nothing.
+  page uncut. A `new` read keeps only threads strictly after the mark, whatever `since` returns.
+  Newest first, 50 a page. The Gateway signs each page token with a key it holds in memory, so the
+  agent can neither forge nor edit one, and a restart answers "stale page"; inside it, GitHub's
+  `Link` is bound to the grant, the scope and the read's `since` and mark. A list that changes
+  between pages may repeat or skip. Each item carries its thread id, title, repository, reason,
+  type, a link built from the validated repository and subject (omitted when the repository fails
+  validation), and its rule decision. A thread id
+  that is not digits is dropped, and every text value is one line and capped. Past 64 KB a page is
+  cut, and its next token continues from the first item not shown. It marks nothing.
 - **Who reads it:** the `inbox` tool and the action tools are registered only for `host.assistant`.
   The Gateway doors in `assistantRoutes.ts` answer only a token bound to the assistant's own record,
   and answer `not_assistant` or `unauthenticated` otherwise.

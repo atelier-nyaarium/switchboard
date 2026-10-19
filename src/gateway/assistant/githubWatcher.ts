@@ -1,11 +1,12 @@
 // GitHub notifications. The cursor is `Last-Modified`.
 
 import { z } from "zod";
-import { MAX_POLL_EVENTS, type PollAnswer, type Watcher, type WatcherEvent } from "./watcher.js";
+import { type ListQuery, MAX_POLL_EVENTS, type PollAnswer, type Watcher, type WatcherEvent } from "./watcher.js";
 
 export const GITHUB_WATCHER_ID = "github";
 
 const API = "https://api.github.com";
+const NOTIFICATIONS = `${API}/notifications?`;
 const PAGE_SIZE = 50;
 const MAX_PAGES = MAX_POLL_EVENTS / PAGE_SIZE;
 /** Also GitHub's default `X-Poll-Interval`. */
@@ -38,6 +39,34 @@ function validatorOf(cursor: string | null, key: string): string | null {
 
 const cursorOf = (key: string, since: string | null) => (since === null ? null : JSON.stringify([key, since]));
 
+const PageSchema = z.tuple([
+	z.string(),
+	z.enum(["new", "all"]),
+	z.string(),
+	z.number().nullable(),
+	z.number().nullable(),
+]);
+
+/** Bound to its grant, scope and GitHub's notification list. */
+const pageTokenOf = (key: string, scope: ListQuery["scope"], url: string, since: number | undefined, mark: number) =>
+	JSON.stringify([key, scope, url, since ?? null, mark]);
+
+function readPage(token: string, key: string, scope: ListQuery["scope"]) {
+	try {
+		const [held, heldScope, url, since, mark] = PageSchema.parse(JSON.parse(token));
+		if (held !== key || heldScope !== scope || !url.startsWith(NOTIFICATIONS)) return null;
+		return { url, since: since ?? undefined, mark: mark ?? 0 };
+	} catch {
+		return null;
+	}
+}
+
+/** Second resolution, as GitHub takes it. */
+const isoOf = (at: number) => new Date(at).toISOString().replace(/\.\d{3}Z$/, "Z");
+
+const firstPageOf = (since: number | undefined) =>
+	`${NOTIFICATIONS}all=true&per_page=${PAGE_SIZE}${since === undefined ? "" : `&since=${isoOf(since)}`}`;
+
 /** Newest copy of each thread. */
 function unique(events: WatcherEvent[]): WatcherEvent[] {
 	const seen = new Set<string>();
@@ -52,39 +81,45 @@ export interface GithubWatcherDeps {
 }
 
 const ThreadSchema = z.object({
-	id: z.string().min(1),
+	id: z.string().regex(/^\d{1,32}$/),
 	updated_at: z.string(),
 	reason: z.string(),
 	subject: z.object({ title: z.string(), type: z.string(), url: z.string().nullable() }),
-	repository: z.object({ full_name: z.string(), html_url: z.string() }),
+	repository: z.object({ full_name: z.string() }),
 });
 
 type Thread = z.infer<typeof ThreadSchema>;
 
 const cut = (text: string, max: number) => text.slice(0, max);
 
-/** Thread web URL. */
-function pageOf(thread: Thread): string {
-	const repo = thread.repository.html_url;
-	const path = thread.subject.url?.match(/\/repos\/[^/]+\/[^/]+\/(pulls|issues|commits)\/([^/?#]+)$/);
-	if (!path) return repo;
-	const kind = path[1] === "pulls" ? "pull" : path[1] === "commits" ? "commit" : "issues";
-	return `${repo}/${kind}/${path[2]}`;
+const REPO_RE = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
+const SUBJECT_RE = /^https:\/\/api\.github\.com\/repos\/([^/]+\/[^/]+)\/(pulls|issues|commits)\/([^/?#]+)$/;
+
+/** Built from validated parts, or none. */
+function linkOf(thread: Thread): string | undefined {
+	const repo = thread.repository.full_name;
+	if (!REPO_RE.test(repo)) return undefined;
+	const [, owner, kind, ref] = thread.subject.url?.match(SUBJECT_RE) ?? [];
+	const numbered = (kind === "pulls" || kind === "issues") && /^\d{1,12}$/.test(ref ?? "");
+	const commit = kind === "commits" && /^[0-9a-f]{7,40}$/.test(ref ?? "");
+	if (owner !== repo || !(numbered || commit)) return `https://github.com/${repo}`;
+	return `https://github.com/${repo}/${kind === "pulls" ? "pull" : kind === "commits" ? "commit" : "issues"}/${ref}`;
 }
 
 function eventOf(thread: Thread): WatcherEvent {
 	const at = Date.parse(thread.updated_at);
+	const url = linkOf(thread);
 	return {
-		id: cut(thread.id, 256),
+		id: thread.id,
 		at: Number.isFinite(at) && at > 0 ? at : 0,
-		title: cut(thread.subject.title, 1_000),
+		title: cut(thread.subject.title, 300),
 		fields: {
-			reason: cut(thread.reason, 1_000),
-			repository: cut(thread.repository.full_name, 1_000),
-			type: cut(thread.subject.type, 1_000),
-			title: cut(thread.subject.title, 1_000),
+			reason: cut(thread.reason, 64),
+			repository: cut(thread.repository.full_name, 201),
+			type: cut(thread.subject.type, 64),
+			title: cut(thread.subject.title, 300),
 		},
-		url: cut(pageOf(thread), 2_000),
+		...(url === undefined ? {} : { url }),
 	};
 }
 
@@ -211,15 +246,32 @@ export function createGithubWatcher(deps: GithubWatcherDeps): Watcher {
 				nextPollMs,
 			};
 		},
-		async list(signal) {
+		/** `new` holds its `since` and mark across pages; the mark lands with the last page. */
+		async list(query, signal) {
 			const token = await tokenOf(signal);
 			if ("kind" in token) throw new Error(token.reason);
-			const url = `${API}/notifications?all=true&per_page=${PAGE_SIZE}`;
+			const held = query.page === undefined ? null : readPage(query.page, token.key, query.scope);
+			if (query.page !== undefined && !held) throw new Error("stale page; list again");
+			const since = held ? held.since : query.scope === "new" ? query.since : undefined;
+			const url = held?.url ?? firstPageOf(since);
 			const response = await deps.fetch(url, { headers: headersOf(token.value, null), signal });
 			const refusal = await refusalOf(response, deps.now());
 			if (refusal) throw new Error(limited(refusal).reason);
 			if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
-			return unique(eventsOf(await response.json()));
+			// GitHub's `since` filters loosely, so the mark is applied here.
+			const read = unique(eventsOf(await response.json()));
+			const events = read.filter((event) => since === undefined || event.at > since);
+			const mark = held?.mark ?? events.reduce((max, event) => Math.max(max, event.at), since ?? 0);
+			// Newest first: past the mark, older pages hold nothing new.
+			const reachedMark = events.length < read.length;
+			const next = reachedMark ? null : nextPage(response.headers.get("link"));
+			const more = next?.startsWith(NOTIFICATIONS) ? next : null;
+			return {
+				events,
+				here: pageTokenOf(token.key, query.scope, url, since, mark),
+				...(more ? { next: pageTokenOf(token.key, query.scope, more, since, mark) } : {}),
+				...(query.scope === "new" && !more ? { mark } : {}),
+			};
 		},
 	};
 }

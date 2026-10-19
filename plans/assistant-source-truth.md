@@ -122,6 +122,12 @@ A: Evie style. The shared declaration holds data and schemas only, so the plugin
 - Not documented, verify live: whether `all=true` omits done threads, whether a done thread returns on new activity, how `since` treats an equal timestamp, `all=true` paging, the `DELETE` status on success and on repeat, and `GET /notifications/threads/{id}` for a done thread.
 - A 304 leaves `x-ratelimit-remaining` unchanged (verified 2026-10-17, `plans/assistant.md`).
 
+**Verified live, 2026-10-19 (two threads in the inbox):**
+- `all=true` lists read and unread threads, newest first by `updated_at`; ids are digit strings.
+- `since` keeps a thread updated at exactly that time, and also one a second earlier, so it does not filter as documented. The listing applies the mark itself and ends a `new` read at the first page that reaches it.
+- `GET /notifications/threads/{id}` answers 200 with the thread; an unknown id answers 404.
+- Not testable with two threads: paging past one page. Still open for Phase 5: whether `all=true` omits done threads, whether a done thread returns on new activity, and `DELETE`'s status on success and on repeat. The owner cleared thread `26357054027` (the evie-bot "Server Manager Agent" release) for that test.
+
 **Mockups:** the Designer cards `assistant-done-silent` (the chosen record, column B) and `assistant-watcher-actions` (settings listing the actions).
 
 # Plan
@@ -169,6 +175,11 @@ GitHub is the only copy. Per watcher the Gateway keeps its poll validator (`Last
 - **The tool's description and the assistant's instructions** change in this phase: `inbox` lists live and marks nothing.
 - **A page token is bound to the grant key** the validator already carries, so a grant change between pages refuses rather than reading another account. The rules preview reads the first `all` page through the same listing.
 - **The flush wire goes as one unit:** `eventLines` moves beside the wake render first, then the flush and confirm schemas, routes, stubs and `inboxTool` go together.
+- **Accepted:** the mark commits when a `new` read's last page is answered, before the answer reaches the agent, so a call lost on the way drops those threads from `new`; they stay in `all`.
+
+### Bug Classes
+
+- **Mechanism:** the listing's page token. **Class:** a token that does not fully name the page it continues, so a continuation reads different state than the page shown. **Align round:** a page cut by the byte cap had no road to its rest, and following `next` moved the mark past the cut items; a cut now continues the same page by a shown-item count, and every token is signed by the Gateway so the agent cannot edit the mark. **Red-team round:** a cut on a read's first page carried no GitHub token, so its continuation read a fresh first page with no grant, scope, `since` or mark held; the watcher now returns `here`, a token for the page just read, and a cut continues from it.
 
 ## Phase 4 - The record, end to end
 

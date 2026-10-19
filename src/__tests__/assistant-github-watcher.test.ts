@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createGithubWatcher, type TokenRead } from "../gateway/assistant/githubWatcher.js";
-import { PollAnswerSchema } from "../gateway/assistant/watcher.js";
+import { type ListQuery, PollAnswerSchema } from "../gateway/assistant/watcher.js";
 
 const NOW = 1_800_000_000_000;
 
@@ -34,7 +34,11 @@ function github(replies: Reply[], token: TokenRead = { kind: "token", value: "gh
 	});
 	const poll = async (cursor: string | null) =>
 		PollAnswerSchema.parse(await watcher.poll(cursor, new AbortController().signal));
-	const list = () => watcher.list?.(new AbortController().signal);
+	const list = async (query: ListQuery = { scope: "all" }) => {
+		const page = await watcher.list?.(query, new AbortController().signal);
+		if (!page) throw new Error("no listing");
+		return page;
+	};
 	const use = (next: TokenRead) => {
 		current = next;
 	};
@@ -118,7 +122,7 @@ describe("the GitHub notifications watcher", () => {
 	it("stops paging at the poll's event cap and says more are unread", async () => {
 		const page = (n: number): Reply => ({
 			status: 200,
-			body: Array.from({ length: 50 }, (_, i) => thread(`${n}-${i}`, "2026-10-18T10:00:00Z")),
+			body: Array.from({ length: 50 }, (_, i) => thread(`${n * 100 + i}`, "2026-10-18T10:00:00Z")),
 			headers: { link: `<https://api.github.com/notifications?page=${n + 1}>; rel="next"` },
 		});
 		const { poll, asked } = github(Array.from({ length: 11 }, (_, n) => page(n)));
@@ -130,18 +134,113 @@ describe("the GitHub notifications watcher", () => {
 		expect(asked).toHaveLength(10);
 	});
 
-	it("lists the newest page of every thread not done, read or unread", async () => {
+	it("lists every thread not done, read or unread, a page at a time", async () => {
 		const read = { ...thread("8", "2026-10-18T09:00:00Z"), unread: false };
-		const { list, asked } = github([{ status: 200, body: [thread("9", "2026-10-18T10:00:00Z"), read] }]);
+		const { list, asked } = github([
+			{
+				status: 200,
+				body: [thread("9", "2026-10-18T10:00:00Z"), read],
+				headers: { link: '<https://api.github.com/notifications?all=true&page=2>; rel="next"' },
+			},
+			{ status: 200, body: [thread("7", "2026-10-18T08:00:00Z")] },
+		]);
 
-		const listed = await list();
+		const first = await list();
+		const second = await list({ scope: "all", page: first.next });
 
-		expect(listed?.map((event) => event.id)).toEqual(["9", "8"]);
+		expect([first.events, second.events].map((events) => events.map((event) => event.id))).toEqual([
+			["9", "8"],
+			["7"],
+		]);
+		expect(second.next).toBeUndefined();
+		expect(first.mark ?? second.mark).toBeUndefined();
 		expect(asked.map((request) => request.url)).toEqual([
 			"https://api.github.com/notifications?all=true&per_page=50",
+			"https://api.github.com/notifications?all=true&page=2",
 		]);
 		await expect(github([{ status: 401 }]).list()).rejects.toThrow();
 		await expect(github([], { kind: "stopped", reason: "needs a secret" }).list()).rejects.toThrow();
+	});
+
+	it("reads new threads strictly after the mark, holds it across pages, and ends at the page that reaches it", async () => {
+		const mark = Date.parse("2026-10-18T09:00:00Z");
+		const { list, asked } = github([
+			{
+				status: 200,
+				body: [thread("3", "2026-10-18T11:00:00Z"), thread("2", "2026-10-18T10:00:00Z")],
+				headers: { link: '<https://api.github.com/notifications?all=true&since=x&page=2>; rel="next"' },
+			},
+			// GitHub keeps a thread at exactly the mark, and links on past it.
+			{
+				status: 200,
+				body: [thread("1", "2026-10-18T09:30:00Z"), thread("0", "2026-10-18T09:00:00Z")],
+				headers: { link: '<https://api.github.com/notifications?all=true&since=x&page=3>; rel="next"' },
+			},
+		]);
+
+		const first = await list({ scope: "new", since: mark });
+		const last = await list({ scope: "new", since: Date.parse("2026-10-18T10:30:00Z"), page: first.next });
+
+		expect(asked[0]?.url).toBe(
+			"https://api.github.com/notifications?all=true&per_page=50&since=2026-10-18T09:00:00Z",
+		);
+		expect(first.mark).toBeUndefined();
+		expect(last.events.map((event) => event.id)).toEqual(["1"]);
+		expect(last.next).toBeUndefined();
+		expect(last.mark).toBe(Date.parse("2026-10-18T11:00:00Z"));
+	});
+
+	it("reads the same page again from its own token, holding that read's since and mark", async () => {
+		const page = { status: 200, body: [thread("3", "2026-10-18T11:00:00Z"), thread("2", "2026-10-18T10:00:00Z")] };
+		const { list, asked } = github([page, page]);
+
+		const first = await list({ scope: "new", since: Date.parse("2026-10-18T09:00:00Z") });
+		const again = await list({ scope: "new", since: Date.parse("2026-10-18T10:30:00Z"), page: first.here });
+
+		expect(asked[1]?.url).toBe(asked[0]?.url);
+		expect(again.events.map((event) => event.id)).toEqual(["3", "2"]);
+		expect(again.mark).toBe(first.mark);
+	});
+
+	it("refuses a page from another grant, another scope, or anywhere but the notification list", async () => {
+		const linked = (url: string): Reply => ({ status: 200, body: [], headers: { link: `<${url}>; rel="next"` } });
+		const { list, use, asked } = github([linked("https://api.github.com/notifications?all=true&page=2")]);
+		const first = await list();
+		const forged = JSON.stringify(["entry-a", "all", "https://api.github.com/user/repos?page=2", null, 0]);
+
+		await expect(list({ scope: "new", page: first.next })).rejects.toThrow();
+		await expect(list({ scope: "all", page: forged })).rejects.toThrow();
+		use({ kind: "token", value: "ghp_other", key: "entry-b" });
+		await expect(list({ scope: "all", page: first.next })).rejects.toThrow();
+		expect(asked).toHaveLength(1);
+	});
+
+	it("links only from a validated repository and subject, and drops a thread with a malformed id", async () => {
+		const at = "2026-10-18T10:00:00Z";
+		const repo = (full_name: string) => ({ repository: { full_name } });
+		const { list } = github([
+			{
+				status: 200,
+				body: [
+					thread("1", at, "https://api.github.com/repos/atelier/app/issues/12"),
+					thread("2", at, "https://api.github.com/repos/atelier/app/commits/0123abc"),
+					thread("3", at, "https://api.github.com/repos/other/app/pulls/5"),
+					{ ...thread("4", at), ...repo("evil.example/../x") },
+					{ ...thread("5", at, "https://api.github.com/repos/atelier/app/pulls/5x") },
+					thread("6x", at),
+				],
+			},
+		]);
+
+		const links = (await list()).events.map((event) => [event.id, event.url]);
+
+		expect(links).toEqual([
+			["1", "https://github.com/atelier/app/issues/12"],
+			["2", "https://github.com/atelier/app/commit/0123abc"],
+			["3", "https://github.com/atelier/app"],
+			["4", undefined],
+			["5", "https://github.com/atelier/app"],
+		]);
 	});
 
 	it("stops on a refused token, and waits out a rate limit", async () => {

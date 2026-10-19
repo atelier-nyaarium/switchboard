@@ -46,7 +46,7 @@ function listing(held: WatcherEvent[]): Watcher {
 		id: "github",
 		fields: FIELDS,
 		poll: async () => ({ kind: "unchanged", nextPollMs: 60_000 }),
-		list: async () => held,
+		list: async () => ({ events: held, here: "0" }),
 	};
 }
 

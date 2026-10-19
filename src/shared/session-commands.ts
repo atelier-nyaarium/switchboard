@@ -2,7 +2,7 @@
 // spelling a tool name, so prose cannot ask for something that was never built.
 
 import type { z } from "zod";
-import { InboxFlushAnswerSchema, InboxFlushRequestShape } from "./schemasAssistantInbox.js";
+import { InboxListAnswerSchema, InboxListRequestShape } from "./schemasAssistantInbox.js";
 import {
 	SessionReportAnswerSchema,
 	SessionReportRequestShape,
@@ -46,8 +46,8 @@ export type SessionCommandId = keyof typeof SESSION_COMMANDS;
 export const ASSISTANT_COMMANDS = {
 	inbox: {
 		tool: "inbox",
-		path: "/assistant/inbox",
-		request: InboxFlushRequestShape,
-		answer: InboxFlushAnswerSchema,
+		path: "/assistant/list",
+		request: InboxListRequestShape,
+		answer: InboxListAnswerSchema,
 	},
 } as const satisfies Record<string, SessionCommand>;

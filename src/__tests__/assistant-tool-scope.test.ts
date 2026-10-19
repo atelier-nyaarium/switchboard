@@ -6,7 +6,8 @@ import { registerInboxTool } from "../mcp/assistant/inboxTool.js";
 import { scopeTools } from "../mcp/assistant/instructions.js";
 import { guardToolResults } from "../mcp/toolResultGuard.js";
 import { ASSISTANT_SWITCHBOARD_TOOLS } from "../shared/assistant-session.js";
-import { ASSISTANT_INBOX_CONFIRM_PATH, type InboxEventWire } from "../shared/schemasAssistantInbox.js";
+import type { InboxItem } from "../shared/schemasAssistantInbox.js";
+import { ASSISTANT_COMMANDS } from "../shared/session-commands.js";
 
 const posted: { path: string; body: unknown }[] = [];
 const answers = new Map<string, unknown>();
@@ -57,48 +58,50 @@ describe("the assistant's tool scope", () => {
 });
 
 describe("the assistant's inbox tool", () => {
-	const row: InboxEventWire = {
-		watcherId: "github",
-		label: "GitHub notifications",
+	const PATH = ASSISTANT_COMMANDS.inbox.path;
+	const item: InboxItem = {
 		id: "18",
 		title: "Review requested",
 		fields: { reason: "review_requested" },
-		at: 1,
-		action: "inbox",
+		at: Date.parse("2026-10-18T10:00:00Z"),
+		decision: "wake",
 	};
-	const call = async () => {
+	const call = async (args: Record<string, unknown>) => {
 		const client = await connected(registerInboxTool);
-		return (await client.callTool({ name: "inbox", arguments: {} })) as {
+		return (await client.callTool({ name: "inbox", arguments: args })) as {
 			isError?: boolean;
 			content: { text: string }[];
 		};
 	};
 
-	it("marks read only what it answered, and still answers the events when the mark did not land", async () => {
-		answers.set("/assistant/inbox", { kind: "events", events: [row], boundaries: { github: 4 }, evicted: {} });
-		answers.set(ASSISTANT_INBOX_CONFIRM_PATH, { kind: "confirmed" });
-		const marked = await call();
-		answers.set(ASSISTANT_INBOX_CONFIRM_PATH, { kind: "unsaved" });
-		const unmarked = await call();
-		answers.set(ASSISTANT_INBOX_CONFIRM_PATH, new Error("socket hang up"));
-		const lost = await call();
+	it("lists one call at a time, posting nothing else, and hands back the next page to ask for", async () => {
+		answers.set(PATH, { kind: "listed", lists: [{ label: "GitHub notifications", items: [item], next: "tok" }] });
 
-		expect(posted[1]).toEqual({ path: ASSISTANT_INBOX_CONFIRM_PATH, body: { boundaries: { github: 4 } } });
-		for (const result of [unmarked, lost]) {
-			expect(result.isError).toBeFalsy();
-			expect(result.content[0]?.text).toContain("Review requested");
-			expect(result.content[0]?.text).not.toBe(marked.content[0]?.text);
-		}
+		const listed = await call({ scope: "new" });
+		await call({ scope: "new", page: "tok" });
+
+		expect(posted).toEqual([
+			{ path: PATH, body: { scope: "new" } },
+			{ path: PATH, body: { scope: "new", page: "tok" } },
+		]);
+		expect(listed.isError).toBeFalsy();
+		expect(listed.content[0]?.text).toContain("id: 18");
+		expect(listed.content[0]?.text).toContain('page: "tok"');
 	});
 
-	it("confirms nothing when nothing waits, and refuses a session that is not the assistant", async () => {
-		answers.set("/assistant/inbox", { kind: "events", events: [], boundaries: {}, evicted: {} });
-		const empty = await call();
-		answers.set("/assistant/inbox", { kind: "not_assistant" });
-		const refused = await call();
+	it("is an error when a watcher could not list, the scope is missing, or the session is not the assistant", async () => {
+		answers.set(PATH, {
+			kind: "listed",
+			lists: [{ label: "GitHub notifications", items: [], error: "rate limit" }],
+		});
+		const failed = await call({ scope: "all" });
+		const unscoped = await call({});
+		answers.set(PATH, { kind: "not_assistant" });
+		const refused = await call({ scope: "all" });
+		answers.set(PATH, { kind: "unauthenticated" });
+		const unbound = await call({ scope: "all" });
 
-		expect(posted.map((post) => post.path)).toEqual(["/assistant/inbox", "/assistant/inbox"]);
-		expect(empty.isError).toBeFalsy();
-		expect(refused.isError).toBe(true);
+		expect([failed, unscoped, refused, unbound].map((result) => result.isError)).toEqual([true, true, true, true]);
+		expect(posted).toHaveLength(3);
 	});
 });

@@ -10,6 +10,8 @@ const WatcherStateSchema = z.strictObject({
 	newest: z.number().int().nonnegative(),
 	/** Set by the first poll. */
 	primed: z.boolean(),
+	/** Where the agent's `new` reads begin. */
+	mark: z.number().int().nonnegative().optional(),
 	/** At the last full read. */
 	unread: z.number().int().nonnegative(),
 	/** More unread than a poll reads. */
