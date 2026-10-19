@@ -112,8 +112,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		}),
 	);
 	const labelOf = (watcherId: string) => LABELS[watcherId] ?? watcherId;
-	const render = (watcherId: string, batch: readonly WatcherEvent[]) =>
-		batch.map((event) => eventLines({ label: labelOf(watcherId), ...event }).join("\n")).join("\n\n");
+	const render = (watcherId: string, event: WatcherEvent) =>
+		eventLines({ label: labelOf(watcherId), ...event }).join("\n");
 
 	let lanes: SourceLanes | null = null;
 	let wake: AssistantWake | null = null;

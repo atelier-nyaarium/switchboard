@@ -1,7 +1,7 @@
 // One lane per watcher, so a poll cannot wake what an action cleared.
 
-import { createHash } from "node:crypto";
 import { type Ambient, type TimerHandle, withinMs } from "../../shared/ambient.js";
+import type { EventMember } from "../../shared/pending-delivery-store.js";
 import type { RuleAction } from "../../shared/schemasAssistantRules.js";
 import { fireAndForget } from "../fireAndForget.js";
 import { type PollAnswer, PollAnswerSchema, WATCHER_ID_RE, type Watcher, type WatcherEvent } from "./watcher.js";
@@ -22,7 +22,7 @@ export const WAKE_RETRY_MAX_MS = 15 * 60_000;
 /** Senderless push. Null when it landed, else why not. */
 export type AssistantWake = (event: {
 	to: string;
-	compose: () => { deliveryId: string; body: string } | null;
+	compose: () => readonly EventMember[] | null;
 }) => Promise<string | null>;
 
 export interface SourceLanesDeps {
@@ -34,7 +34,7 @@ export interface SourceLanesDeps {
 	/** Null until the routes are bound. */
 	wake: () => AssistantWake | null;
 	to: string;
-	render: (watcherId: string, batch: readonly WatcherEvent[]) => string;
+	render: (watcherId: string, event: WatcherEvent) => string;
 }
 
 export interface SourceLanes {
@@ -84,7 +84,9 @@ async function answerOf(
 	}
 }
 
-const landedKey = (event: Pick<WatcherEvent, "id" | "at">) => JSON.stringify([event.id, event.at]);
+/** New activity is a new member. */
+const memberKey = (watcherId: string, event: Pick<WatcherEvent, "id" | "at">) =>
+	JSON.stringify([watcherId, event.id, event.at]);
 
 /** Stable, so a retry builds the same batches. */
 const oldestFirst = (a: WatcherEvent, b: WatcherEvent) => a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -107,9 +109,6 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 	const aborts = new Set<AbortController>();
 	/** One queued poll each. */
 	const queued = new Set<string>();
-	/** Landed since the last commit. */
-	const pushed = new Map<string, Set<string>>();
-	const pushedFor = (watcherId: string) => pushed.get(watcherId) ?? new Set<string>();
 
 	const enqueue = <T>(watcherId: string, work: (signal: AbortSignal) => Promise<T>): Promise<T> => {
 		const next = (tails.get(watcherId) ?? Promise.resolve()).then(async () => {
@@ -143,15 +142,14 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		timers.set(watcher.id, timer);
 	};
 
-	/** Fenced by stop. True once it landed. */
-	const settle = (watcher: Watcher, next: WatcherState, at: number | undefined): boolean => {
-		if (phase !== "running") return false;
+	/** Fenced by stop. */
+	const settle = (watcher: Watcher, next: WatcherState, at: number | undefined): void => {
+		if (phase !== "running") return;
 		if (state.put(watcher.id, next)) {
 			if (at !== undefined) arm(watcher, at);
-			return true;
+		} else {
+			arm(watcher, Math.max(at ?? 0, ambient.now() + RETRY_MS));
 		}
-		arm(watcher, Math.max(at ?? 0, ambient.now() + RETRY_MS));
-		return false;
 	};
 
 	/** First failure, or null. */
@@ -159,19 +157,15 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		const aborted = new Promise<{ failed: string }>((resolve) => {
 			signal.addEventListener("abort", () => resolve({ failed: "the assistant is stopping" }), { once: true });
 		});
-		const landed = pushedFor(watcherId);
-		pushed.set(watcherId, landed);
-		const current = new Set(wakes.map(landedKey));
-		for (const key of landed) if (!current.has(key)) landed.delete(key);
-		const pending = wakes.filter((event) => !landed.has(landedKey(event)));
-		for (let at = 0; at < pending.length; at += WAKE_BATCH) {
+		for (let at = 0; at < wakes.length; at += WAKE_BATCH) {
 			const wake = deps.wake();
 			if (!wake) return "the send path is not bound yet";
-			const batch = pending.slice(at, at + WAKE_BATCH);
-			const composed = { deliveryId: deliveryIdOf(watcherId, batch), body: deps.render(watcherId, batch) };
+			const members = wakes
+				.slice(at, at + WAKE_BATCH)
+				.map((event) => ({ key: memberKey(watcherId, event), text: deps.render(watcherId, event) }));
 			// A push given up on composes nothing when it lands late.
 			let live = true;
-			const compose = () => (live && phase === "running" ? composed : null);
+			const compose = () => (live && phase === "running" ? members : null);
 			const sent = wake({ to: deps.to, compose })
 				.then((failed) => ({ failed }))
 				.catch((error: Error) => ({ failed: error.message }));
@@ -180,7 +174,6 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 				live = false;
 				return answer?.failed ?? "the session did not take it in time";
 			}
-			for (const event of batch) landed.add(landedKey(event));
 		}
 		return null;
 	};
@@ -230,7 +223,7 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		const next = now + answer.nextPollMs;
 		const { wakeRetryMs: _retry, ...rest } = health;
 		const advanced = { ...rest, ...read, cursor: answer.cursor, newest, primed: true, nextPollAt: next };
-		if (settle(watcher, advanced, next)) pushed.delete(watcher.id);
+		settle(watcher, advanced, next);
 	};
 
 	const schedule = (watcher: Watcher): void => {
@@ -294,11 +287,4 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 			await Promise.allSettled([...tails.values()]);
 		},
 	};
-}
-
-/** Same batch, same delivery. */
-export function deliveryIdOf(watcherId: string, batch: readonly Pick<WatcherEvent, "id" | "at">[]): string {
-	const hash = createHash("sha256").update(`${watcherId}\u0000`);
-	for (const event of batch) hash.update(`${event.id}\u0000${event.at}\u0000`);
-	return `assistant-event:${hash.digest("hex").slice(0, 32)}`;
 }

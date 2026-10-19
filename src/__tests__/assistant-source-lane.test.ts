@@ -13,7 +13,9 @@ import {
 } from "../gateway/assistant/sourceLane.js";
 import type { PollAnswer, Watcher, WatcherEvent } from "../gateway/assistant/watcher.js";
 import { createWatcherStateStore, type WatcherStateStore } from "../gateway/assistant/watcherState.js";
+import { ChannelDeliveryCoordinator } from "../gateway/channelDelivery.js";
 import { DurableStore } from "../shared/durable-store.js";
+import { type EventMember, PendingDeliveryStore } from "../shared/pending-delivery-store.js";
 import type { RuleAction } from "../shared/schemasAssistantRules.js";
 import { type FakeAmbient, fakeAmbient } from "../testing/fakeAmbient.js";
 
@@ -69,17 +71,12 @@ function scripted(id = "github") {
 
 /** Composes once reached, as `deliverEvent` does; `late` waits for `release`. */
 function wakes(answers: (string | null | "hang" | "late")[] = []) {
-	const pushed: { deliveryId: string; ids: string[] }[] = [];
+	const pushed: { keys: string[]; ids: string[] }[] = [];
 	const releases: (() => void)[] = [];
 	const lateComposed: unknown[] = [];
-	const record = (composed: { deliveryId: string; body: string } | null) => {
-		if (composed) {
-			pushed.push({
-				deliveryId: composed.deliveryId,
-				ids: [...composed.body.matchAll(/id=(\S+)/g)].map((m) => m[1] ?? ""),
-			});
-		}
-		return composed;
+	const record = (members: readonly EventMember[] | null) => {
+		if (members) pushed.push({ keys: members.map((m) => m.key), ids: members.map((m) => m.text) });
+		return members;
 	};
 	const wake: AssistantWake = async (event) => {
 		const next = answers.shift() ?? null;
@@ -101,6 +98,34 @@ function wakes(answers: (string | null | "hang" | "late")[] = []) {
 	return { wake, pushed, release, lateComposed };
 }
 
+/** Real queue, session asleep; a string refuses. */
+function queued(dir: string, answers: (string | null)[] = []) {
+	const store = new PendingDeliveryStore(new DurableStore(dir, "pending-deliveries"), { now: () => T0 });
+	const coordinator = new ChannelDeliveryCoordinator({ store, registry: new Map() });
+	const wake: AssistantWake = async (event) => {
+		const refused = answers.shift() ?? null;
+		if (refused) return refused;
+		const members = event.compose();
+		if (!members) return null;
+		const outcome = coordinator.acceptEvent({ team: "host.assistant", members, enqueuedAt: T0 });
+		return outcome === "refused" || outcome === "migrating" ? outcome : null;
+	};
+	const rows = () => store.listForTeam("host.assistant").map((row) => row.body.split("\n\n"));
+	return { wake, coordinator, rows, held: () => store.listForTeam("host.assistant") };
+}
+
+/** The `put` numbered in `failing` does not land. */
+function flaky(inner: WatcherStateStore, failing: number[]): WatcherStateStore {
+	let puts = 0;
+	return {
+		get: (watcherId) => inner.get(watcherId),
+		put: (watcherId, next) => {
+			puts += 1;
+			return failing.includes(puts) ? false : inner.put(watcherId, next);
+		},
+	};
+}
+
 function lanes(
 	ambient: FakeAmbient,
 	state: WatcherStateStore,
@@ -115,7 +140,7 @@ function lanes(
 		sort: (_watcherId, event) => sort(event),
 		wake: () => wake,
 		to: "host.assistant",
-		render: (_watcherId, batch) => batch.map((event) => `id=${event.id}`).join("\n"),
+		render: (_watcherId, event) => event.id,
 	});
 }
 
@@ -217,7 +242,7 @@ describe("a watcher's source lane", () => {
 		expect(failed.backoff).toBeDefined();
 		expect([beforeRetry, beforeDoubled]).toEqual([2, 3]);
 		expect(source.cursors).toEqual([null, "c1", "c1", "c1", "c3"]);
-		expect(new Set(pushes.pushed.map((push) => push.deliveryId)).size).toBe(1);
+		expect(new Set(pushes.pushed.map((push) => JSON.stringify(push.keys))).size).toBe(1);
 		expect(pushes.pushed).toHaveLength(3);
 		expect(state.get("github").backoff).toBeUndefined();
 	});
@@ -288,11 +313,11 @@ describe("a watcher's source lane", () => {
 		expect(pushes.pushed.map((push) => push.ids)).toEqual([["a"], ["a"]]);
 	});
 
-	it("pushes wake candidates oldest first, twenty at a time, and a retry sends only what did not land", async () => {
+	it("pushes wake candidates oldest first, twenty at a time, and the queue takes a retried push once", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const source = scripted();
-		const pushes = wakes([null, "the session is not reachable"]);
-		const lane = lanes(ambient, stateIn(stateDir()), source.watcher, pushes.wake);
+		const queue = queued(stateDir(), [null, "the session is not reachable"]);
+		const lane = lanes(ambient, stateIn(stateDir()), source.watcher, queue.wake);
 		const backlog = Array.from({ length: 25 }, (_, i) => thread(`t${25 - i}`, 25 - i));
 		const ids = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => `t${from + i}`);
 
@@ -308,7 +333,42 @@ describe("a watcher's source lane", () => {
 		await ambient.advance(0);
 		await stopped(lane, ambient);
 
-		expect(pushes.pushed.map((push) => push.ids)).toEqual([ids(1, 20), ids(21, 25), ids(21, 25)]);
+		expect(queue.rows()).toEqual([ids(1, 20), ids(21, 25)]);
+		expect(source.cursors).toEqual([null, "c1", "c1"]);
+	});
+
+	it("delivers a landed push once when its commit did not land, even across a restart after the session read it", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const dir = stateDir();
+		const queueDir = stateDir();
+		const first = scripted();
+		const queue = queued(queueDir);
+		const state = stateIn(dir);
+		const failing = lanes(ambient, flaky(state, [2]), first.watcher, queue.wake);
+		failing.start();
+		await ambient.advance(0);
+		first.answer(unread("c1", []));
+		await ambient.advance(0);
+		await ambient.advance(60_000);
+		first.answer(unread("c2", [thread("a", 100)]));
+		await ambient.advance(0);
+		await stopped(failing, ambient);
+		const landed = queue.held().map((row) => row.deliveryId);
+		for (const deliveryId of landed) queue.coordinator.acknowledge(deliveryId);
+
+		const second = scripted();
+		const reopened = queued(queueDir);
+		const restarted = lanes(ambient, stateIn(dir), second.watcher, reopened.wake);
+		restarted.start();
+		await ambient.advance(0);
+		second.answer(unread("c2", [thread("a", 100)]));
+		await ambient.advance(0);
+		await stopped(restarted, ambient);
+
+		expect(landed).toHaveLength(1);
+		expect(second.cursors).toEqual(["c1"]);
+		expect(reopened.rows()).toEqual([]);
+		expect(stateIn(dir).get("github")).toMatchObject({ cursor: "c2", newest: 100 });
 	});
 
 	it("backs off after a throw, a hang or a malformed answer, and a stopped watcher waits for a poke", async () => {

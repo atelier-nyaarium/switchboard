@@ -141,7 +141,7 @@ GitHub is the only copy. Per watcher the Gateway keeps its poll validator (`Last
 
 - **One source lane per watcher** replaces the watcher runner and the wake runner. It runs the watcher's GitHub work one call at a time, and the live listing (Phase 3) and actions (Phase 5) run through it too, so a poll that read a thread cannot wake it after a `done` landed.
 - **A poll is a transaction the lane holds until it settles:** read GitHub's unread list with the stored validator as `If-Modified-Since` (a quiet minute is a free 304 that keeps the last counted unread total), sort the new threads, push the wake candidates, then commit.
-- **New** is a thread updated after the newest time seen. Rules sort it `wake` or `inbox`. Wake candidates go in pushes of up to 20, each item carrying its raw `threadId`, under a delivery id derived from each push's thread ids and update times.
+- **New** is a thread updated after the newest time seen. Rules sort it `wake` or `inbox`. Wake candidates go in pushes of up to 20, each item carrying its raw `threadId` and keyed by watcher, thread id and update time. The delivery queue drops a key held in a row or emitted within its 30-day TTL, and a push with nothing left answers as landed.
 - **The commit point:** the validator and the newest time seen advance together only once `deliverEvent` has answered queued or delivered for every push in the transaction, or the poll had no candidates. A failed push ends the transaction uncommitted, and the lane retries it with backoff (30 seconds doubling to 15 minutes) by polling again from the committed checkpoint, which sends the old validator and so cannot be answered 304. A restart does the same at start. A candidate read or done on GitHub before the retry is not woken, which is right.
 - **The lane never waits on a wake:** each push gets a deadline (90 seconds); past it the transaction ends uncommitted, as a failure does. The backoff wait releases the lane, and the retry queues behind any waiting listing or action. A later push joins the launch already in flight.
 - **Stop, on release and on shutdown:** cancels the retry timer, aborts in-flight GitHub requests, and fences commits, so nothing lands after stop. It settles within the 5 seconds the assistant stage has before the shutdown flush.
@@ -151,11 +151,11 @@ GitHub is the only copy. Per watcher the Gateway keeps its poll validator (`Last
 - **Kept:** `X-Poll-Interval`, rate-limit handling and same-host paging from today's watcher.
 - **Rules** lose `drop` and `ping`: an action is `wake` or `inbox`. The rules preview runs over the live first page of `all`, since there are no stored events. The phone's rules model and sheet change in this phase too (`RuleDraft`, `WatcherRulesSheet`, the sandbox and fakes): no drop, no ping, no dropped count, so the regenerated `Protocol.kt` compiles and the Kotlin gate stays green.
 - **The inbox store** shrinks to the per-watcher state above.
-- **Accepted:** more than 500 new unread threads between committed polls, or a thread read while a poll pages, can move the newest time seen past a thread never read; it stays in `all` but never wakes. A restart during a multi-push retry can wake a thread twice. A grant moved to another GitHub account wakes that account's unread threads newer than the newest time seen.
+- **Accepted:** more than 500 new unread threads between committed polls, or a thread read while a poll pages, can move the newest time seen past a thread never read; it stays in `all` but never wakes. A grant moved to another GitHub account wakes that account's unread threads newer than the newest time seen.
 
 ### Bug Classes
 
-- **Mechanism:** the lane's wake push through `deliverEvent`. **Class:** a delivery id is not an idempotency key end to end, because the queue offers a held id again and keeps no tombstone for a retired one, so the lane carries its own dedupe. **Align round:** a push past its deadline still composed when its launch finished, so `compose` now answers nothing once the lane gave up on it; batches landed before a later failure were resent, so landed keys are skipped until the commit. **Red-team round:** the landed keys grew across a long stretch of failures and are now pruned to each poll's candidates; they still live only in memory, so a restart mid-retry can wake a thread twice (accepted above).
+- **Mechanism:** the lane's wake push through `deliverEvent`. **Class:** a delivery id is not an idempotency key end to end, because the queue offers a held id again and keeps no tombstone for a retired one, so the lane carries its own dedupe. **Align round:** a push past its deadline still composed when its launch finished, so `compose` now answers nothing once the lane gave up on it; batches landed before a later failure were resent, so landed keys are skipped until the commit. **Red-team round:** the landed keys grew across a long stretch of failures and were pruned to each poll's candidates; they lived only in memory, so a restart mid-retry could wake a thread twice. **Architecture round:** the delivery queue owns event idempotency. An event row carries its member keys, an acknowledgement records them as emitted in the same write that retires the row, and `acceptEvent` keeps only unseen members, so the lane's own dedupe is gone. The late-compose fence stays in the lane.
 
 ## Phase 3 - Live listing
 
@@ -165,6 +165,8 @@ GitHub is the only copy. Per watcher the Gateway keeps its poll validator (`Last
 - **Links** are built from the validated repository and subject (`https://github.com/...`), or omitted.
 - **The agent's mark** is held fixed across the pages of one `new` read, and moves to the newest time returned only once the last page is read.
 - **The tool's description and the assistant's instructions** change in this phase: `inbox` lists live and marks nothing.
+- **A page token is bound to the grant key** the validator already carries, so a grant change between pages refuses rather than reading another account. The rules preview reads the first `all` page through the same listing.
+- **The flush wire goes as one unit:** `eventLines` moves beside the wake render first, then the flush and confirm schemas, routes, stubs and `inboxTool` go together.
 
 ## Phase 4 - The record, end to end
 
@@ -183,6 +185,9 @@ The phone learns the row before anything sends one: this phase ships the Router 
 - **One dispatcher route,** `/assistant/action`, takes `{ action, params }`, checks the assistant token, resolves the declared action, parses the params with its schema, runs it through the lane with the PAT from `readForWatcher`, and answers with its schema.
 - **The record:** the dispatcher posts an `assistant_record` through `deliverToOwner` into the assistant's own conversation (`ownerSessionKey("host.assistant")`), never through `channel_reply` or `notify_human`. With a summary it is a response with `notify` true; without, a quiet line with `notify` false.
 - **Three allow lists, one source:** `ASSISTANT_SWITCHBOARD_TOOLS` is derived from the registry's keys, so the MCP scope, the gate and `assistantPermissionArgs` (`hostResolve.ts`) all take them. The assistant-only registration imports the registry and registers one tool per action. `check:boot` asserts the tools are listed.
+- **An action holds the lane until its requests settle:** `run` releases the lane at its deadline, which is safe only for a read. An id not yet sent answers `not_attempted`, and one whose request passed its deadline answers `uncertain`, never retried blindly.
+- **One GitHub client** owns the token read, headers, refusals and the shared rate limit, so polls, listings and actions cannot disagree. The action's context hands it over.
+- **A call id** from the tool dedupes a retried call and keys the record row, so a retry neither repeats the `DELETE`s nor posts a second record.
 - **The assistant's instructions** add `done`: decide whether an event is worth bringing up; answer with `github_done` and a summary if so, else `github_done` quietly. Event text stays data.
 - **Accepted:** the model holds the granted PAT's authority over any notification it can reach (Q7). A crash between a confirmed `DELETE` and the record's enqueue loses that record; the thread is still done on GitHub.
 

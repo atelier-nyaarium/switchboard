@@ -1,5 +1,6 @@
 import type { Ambient } from "../../shared/ambient.js";
 import type { FederatedOp } from "../../shared/federation-protocol.js";
+import type { EventMember } from "../../shared/pending-delivery-store.js";
 import type { JobContract, LocalReply, PendingJobStore, Reservation } from "../../shared/pending-job-store.js";
 import { BLOB_HOLD_MAX_MS } from "../../shared/router-protocol.js";
 import {
@@ -154,25 +155,23 @@ export function createSendRoutes({
 	 */
 	async function deliverEvent(event: {
 		to: string;
-		compose: () => { deliveryId: string; body: string } | null;
+		compose: () => readonly EventMember[] | null;
 	}): Promise<string | null> {
 		if (!deliveries) return "this Gateway has no delivery queue";
 		const target = resolveLocalTarget(event.to);
 		if (!target) return `"${event.to}" is not a session on this Gateway`;
 		const arrived = await reach(target);
 		if (!arrived.ok) return arrived.error;
-		const composed = event.compose();
-		if (!composed) return null;
-		const outcome = deliveries.accept({
-			deliveryId: composed.deliveryId,
+		const members = event.compose();
+		if (!members || members.length === 0) return null;
+		const outcome = deliveries.acceptEvent({
 			team: arrived.targetWs?.data.teamName ?? arrived.localName,
-			body: composed.body,
-			event: true,
+			members,
 			enqueuedAt: ambient.now(),
 		});
 		if (outcome === "refused") return `"${arrived.qualifiedTo}" has too many messages waiting`;
 		if (outcome === "migrating") return "this Gateway is migrating";
-		console.log(`[send] event ${outcome} for ${arrived.qualifiedTo} [${composed.deliveryId}]`);
+		console.log(`[send] event ${outcome} for ${arrived.qualifiedTo} (${members.length})`);
 		return null;
 	}
 

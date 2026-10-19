@@ -1,5 +1,10 @@
 import { fenced, MIGRATING } from "../shared/migration-fence.js";
-import type { PendingDelivery, PendingDeliveryStore } from "../shared/pending-delivery-store.js";
+import {
+	type EventMember,
+	type PendingDelivery,
+	type PendingDeliveryStore,
+	SEEN,
+} from "../shared/pending-delivery-store.js";
 import { reached, sendOn } from "./wsSend.js";
 import { getAllActiveWs, type TeamRegistry } from "./wsTypes.js";
 
@@ -48,6 +53,20 @@ export class ChannelDeliveryCoordinator {
 		if (outcome === "refused") return "refused";
 		// A duplicate is already held; offering it again is what a retry of a lost reply wants.
 		const offered = this.offer(delivery);
+		return offered === MIGRATING ? MIGRATING : offered ? "delivered" : "queued";
+	}
+
+	/** Skips seen members. */
+	acceptEvent(input: {
+		team: string;
+		members: readonly EventMember[];
+		enqueuedAt: number;
+	}): AcceptOutcome | typeof SEEN {
+		const { outcome, row } = this.deps.store.enqueueEvent(input);
+		if (outcome === SEEN || outcome === "duplicate") return SEEN;
+		if (outcome === "migrating") return "migrating";
+		if (outcome === "refused" || !row) return "refused";
+		const offered = this.offer(row);
 		return offered === MIGRATING ? MIGRATING : offered ? "delivered" : "queued";
 	}
 

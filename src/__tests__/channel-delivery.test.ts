@@ -141,6 +141,43 @@ describe("ChannelDeliveryCoordinator", () => {
 		]);
 	});
 
+	it("offers each event member once, held or read, across a restart, until it ages out", () => {
+		let now = 10_000;
+		let saved: unknown = null;
+		const sink = { load: () => saved, saveChecked: (state: unknown) => (saved = structuredClone(state)) };
+		const member = (key: string) => ({ key, text: key });
+		const event = (c: ChannelDeliveryCoordinator, ...keys: string[]) =>
+			c.acceptEvent({ team: "proj.alpha", members: keys.map(member), enqueuedAt: now });
+		const s = socket();
+		const c = new ChannelDeliveryCoordinator({
+			store: new PendingDeliveryStore(sink, { now: () => now }, 5_000),
+			registry: registryWith(s),
+		});
+
+		const first = event(c, "a", "b");
+		const repeat = event(c, "a", "b");
+		const overlap = event(c, "b", "c");
+		const bodies = s.sent.map((p) => JSON.parse(p).body);
+		for (const id of s.sent.map((p) => JSON.parse(p).delivery_id)) c.acknowledge(id);
+		const reopened = new ChannelDeliveryCoordinator({
+			store: new PendingDeliveryStore(sink, { now: () => now }, 5_000),
+			registry: registryWith(s),
+		});
+		const afterRead = event(reopened, "a", "c");
+		now += 5_001;
+		reopened.sweep();
+		const aged = event(reopened, "a");
+
+		expect([first, repeat, overlap, afterRead, aged]).toEqual([
+			"delivered",
+			"seen",
+			"delivered",
+			"seen",
+			"delivered",
+		]);
+		expect(bodies).toEqual([`a${"\n\n"}b`, "c"]);
+	});
+
 	it("re-offers an unacknowledged message on the next drain, so a lost notification is not a loss", () => {
 		const store = new PendingDeliveryStore(undefined, processAmbient());
 		const s = socket();
