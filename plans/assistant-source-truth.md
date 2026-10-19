@@ -106,6 +106,13 @@ Recommended because the agent already judges what is worth bringing up, and a se
 
 > A.
 
+## Question 13 - How is an action's code shaped?
+
+Q: An executor map keyed by action, or an Evie-style class per action?
+A: Evie style. The shared declaration holds data and schemas only, so the plugin imports no Gateway code. On the Gateway, each action is a class over it: `abstract class WatcherAction<K>` with its `key`, a `declaration` getter, and `run(params: ParamsOf<K>, ctx: ActionContext): Promise<AnswerOf<K>>`. The instances sit in a map typed `{ [K in AssistantActionKey]: WatcherAction<K> }`, so a declared action with no class does not compile.
+
+> I want "reads better once there are many". so Evie style?
+
 # Research
 
 **GitHub notifications API (docs, 2026-10-18):**
@@ -167,7 +174,7 @@ The phone learns the row before anything sends one: this phase ships the Router 
 ## Phase 5 - Typed actions
 
 - **Declarations, as Evie's do,** in one shared registry: per watcher, per action, a key that is the exact MCP tool name (`github_done`), a label and description, a params schema, an answer schema, and a client-safe descriptor for `assistant_state`. The action binds its watcher, so a call names no `watcherId`.
-- **GitHub `github_done({ ids, summary? })`:** `ids` are unique digit strings, at most 50; `summary` at most 300 characters. The Gateway holds one executor per registry key, so a declared action with no executor does not compile, and the record row reuses the action's per-thread outcome schema. Per id the Gateway reads the thread (`GET /notifications/threads/{id}`) for its title and link, then `DELETE`s it, answering per id with the shared outcome. A rate limit stops the batch, honouring `Retry-After`, and the rest answer `not_attempted`.
+- **GitHub `github_done({ ids, summary? })`:** `ids` are unique digit strings, at most 50; `summary` at most 300 characters. On the Gateway each action is a `WatcherAction<K>` class over its declaration (Q13), held in a map typed by the registry's keys, so a declared action with no class does not compile. The record row reuses the action's per-thread outcome schema. Per id the Gateway reads the thread (`GET /notifications/threads/{id}`) for its title and link, then `DELETE`s it, answering per id with the shared outcome. A rate limit stops the batch, honouring `Retry-After`, and the rest answer `not_attempted`.
 - **One dispatcher route,** `/assistant/action`, takes `{ action, params }`, checks the assistant token, resolves the declared action, parses the params with its schema, runs it through the lane with the PAT from `readForWatcher`, and answers with its schema.
 - **The record:** the dispatcher posts an `assistant_record` through `deliverToOwner` into the assistant's own conversation (`ownerSessionKey("host.assistant")`), never through `channel_reply` or `notify_human`. With a summary it is a response with `notify` true; without, a quiet line with `notify` false.
 - **Three allow lists, one source:** `ASSISTANT_SWITCHBOARD_TOOLS` is derived from the registry's keys, so the MCP scope, the gate and `assistantPermissionArgs` (`hostResolve.ts`) all take them. The assistant-only registration imports the registry and registers one tool per action. `check:boot` asserts the tools are listed.
