@@ -195,6 +195,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			rules: rules.get(watcher.id),
 			dropped: inbox.events(watcher.id, now).filter((event) => event.disposition === "ruleDropped").length,
 			woken: inbox.events(watcher.id, now).filter((event) => event.disposition === "woken").length,
+			...(watcher.secret === undefined ? {} : { secret: watcher.secret }),
 		};
 	};
 

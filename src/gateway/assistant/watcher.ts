@@ -50,6 +50,8 @@ export interface Watcher {
 	readonly fields?: readonly string[];
 	/** Ping when no rule says. */
 	readonly pingDefault?: boolean;
+	/** The secret it needs, shown to the owner. */
+	readonly secret?: string;
 	/** `signal` aborts when the runner gives up on this poll; the poll settles then. */
 	poll(cursor: string | null, signal: AbortSignal): Promise<PollAnswer>;
 }

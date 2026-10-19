@@ -27,6 +27,8 @@ export const AssistantWatcherSchema = z
 		dropped: z.number().int().nonnegative().optional(),
 		/** Events that woke the assistant, kept 14 days. */
 		woken: z.number().int().nonnegative().optional(),
+		/** The secret it needs, as shown; absent when it needs none. */
+		secret: z.string().max(400).optional(),
 	})
 	.meta({ id: "AssistantWatcher" });
 

@@ -20,6 +20,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -42,6 +43,19 @@ internal fun grantedAfter(previous: List<String>, chosen: Set<String>, entries: 
 	return kept + added
 }
 
+/** The secret a holder needs, as it declared it. */
+@Composable
+internal fun SecretNeeded(text: String) {
+	Surface(
+		color = MaterialTheme.colorScheme.secondaryContainer,
+		contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+		shape = MaterialTheme.shapes.small,
+		modifier = Modifier.fillMaxWidth(),
+	) {
+		Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(12.dp))
+	}
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun GrantSecretsSheet(
@@ -49,6 +63,7 @@ internal fun GrantSecretsSheet(
 	granted: List<String>,
 	onDone: (List<String>) -> Unit,
 	onDismiss: () -> Unit,
+	needs: String? = null,
 ) {
 	var query by remember { mutableStateOf("") }
 	var chosen by remember { mutableStateOf(granted.toSet()) }
@@ -60,6 +75,7 @@ internal fun GrantSecretsSheet(
 			verticalArrangement = Arrangement.spacedBy(12.dp),
 		) {
 			Text("Grant secrets", style = MaterialTheme.typography.titleLarge)
+			needs?.let { SecretNeeded(it) }
 
 			OutlinedTextField(
 				value = query,

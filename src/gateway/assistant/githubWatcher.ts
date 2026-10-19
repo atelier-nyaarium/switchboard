@@ -112,12 +112,19 @@ async function refusalOf(response: Response, now: number): Promise<PollAnswer | 
 	return { kind: "stopped", reason: `GitHub refused access to notifications; ${SCOPE}` };
 }
 
+/** The notification endpoints take no fine-grained token. */
+const GITHUB_SECRET = `
+GitHub PAT (Classic) with scope:
+- Notifications
+`.trim();
+
 export function createGithubWatcher(deps: GithubWatcherDeps): Watcher {
 	return {
 		id: GITHUB_WATCHER_ID,
 		fields: ["reason", "repository", "type", "title"],
 		// Feeds default to quiet.
 		pingDefault: false,
+		secret: GITHUB_SECRET,
 		async poll(cursor, signal) {
 			const token = await deps.token();
 			signal.throwIfAborted();

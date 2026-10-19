@@ -135,7 +135,9 @@ A watcher is plain Gateway code, never a model.
 - **Health survives a restart:** last success, next poll, backoff and stopped state.
 - **Secrets come from the vault:** the owner picks a watcher's one entry in Assistant settings,
   through the Grant secrets sheet a routine uses, and `assistant_watcher_grants` makes it the
-  watcher's standing grant. The grant covers the entry, so a rotated key is a vault edit. A watcher
+  watcher's standing grant. Each watcher declares the secret it needs (`Watcher.secret`, GitHub's a
+  classic token with the notifications scope), shown on its row and in the picker. The grant covers
+  the entry, so a rotated key is a vault edit. A watcher
   without one stops and says it needs a secret. Setting the grant, or Retry, which sets the same
   one again, polls it now, or once a poll in flight lands. The Gateway reads the value each poll through `readForWatcher`, which
   checks the grant after the vault refresh and takes the same release a session's use does. A

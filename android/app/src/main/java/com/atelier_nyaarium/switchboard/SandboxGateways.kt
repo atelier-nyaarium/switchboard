@@ -370,6 +370,7 @@ internal class SandboxAssistantGateway : AssistantGateway {
 			pingDefault = false,
 			rules = rules,
 			dropped = 4L,
+			secret = "GitHub PAT (Classic) with scope:\n- Notifications",
 		),
 	)
 

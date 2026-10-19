@@ -1091,6 +1091,7 @@ data class AssistantWatcher(
 	val rules: AssistantWatcherRules? = null,
 	val dropped: Long? = null,
 	val woken: Long? = null,
+	val secret: String? = null,
 )
 
 @Serializable

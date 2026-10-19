@@ -52,6 +52,7 @@ import com.atelier_nyaarium.switchboard.placementMoves
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
 import com.atelier_nyaarium.switchboard.relativeTime
 import com.atelier_nyaarium.switchboard.routines.GrantSecretsSheet
+import com.atelier_nyaarium.switchboard.routines.SecretNeeded
 import com.atelier_nyaarium.switchboard.routines.grantedLine
 import com.atelier_nyaarium.switchboard.runIsolated
 import com.atelier_nyaarium.switchboard.vault.grantableOn
@@ -212,6 +213,7 @@ private fun AssistantSettingsSheet(
 							style = MaterialTheme.typography.bodySmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
+						watcher.secret?.let { SecretNeeded(it) }
 						Text(grantedLine(watcher.grants, entries), style = MaterialTheme.typography.bodyMedium)
 						Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 							OutlinedButton(onClick = hapticClick { granting = home to watcher.id }, enabled = !busy) {
@@ -249,6 +251,7 @@ private fun AssistantSettingsSheet(
 				scope.launch { said = answerText(repo.assistantOps.setGrants(opened.first, grantFor.id, picks)) }
 			},
 			onDismiss = { granting = null },
+			needs = grantFor.secret,
 		)
 	}
 

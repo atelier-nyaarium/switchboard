@@ -45,6 +45,7 @@ describe("the assistant's session through the console", () => {
 		expect(refused).toMatchObject({ workdir: null, team: null });
 		expect(placed).toMatchObject({ workdir: "~/projects/notes", team: ASSISTANT_TEAM });
 		expect(placed.watchers.map((watcher) => watcher.id)).toEqual(["github"]);
+		expect(placed.watchers[0]?.secret).toBeTruthy();
 		expect(forgot.ok, JSON.stringify(forgot)).toBe(false);
 		expect(h.host.ops.length).toBe(opsBefore);
 	});
