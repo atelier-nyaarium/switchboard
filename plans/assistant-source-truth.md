@@ -167,6 +167,8 @@ GitHub is the only copy. Per watcher the Gateway keeps its poll validator (`Last
 
 ## Phase 3 - Live listing
 
+✅ Shipped: the `inbox` listing on `/assistant/list`, GitHub's `list` with signed page tokens that continue a cut page, the agent's mark in watcher state, and the flush wire removed.
+
 - **Verify first, live with the PAT:** every open point in Research.
 - **`inbox({ scope: "new" | "all", page? })`** on a new command path, behind the assistant-token check, through the lane. It reads GitHub live with the PAT from `readForWatcher` on every call, never cached. `all` is every thread not done; `new` is threads updated since the agent's mark. Newest first, 50 a page. `page` is an opaque token from GitHub's `Link`, same-host only, and a list that changes between pages may repeat or skip; the agent is told so.
 - **Each item:** `threadId` (a string, as GitHub sends it), title, repository, reason, type, a validated link and the rule decision. Strict parsing, today's per-field cuts, a total-byte cap, and every text value through `oneLine`.
