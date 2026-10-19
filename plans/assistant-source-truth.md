@@ -135,7 +135,7 @@ GitHub is the only copy. Per watcher the Gateway keeps its poll validator (`Last
 
 ## Phase 1 - Design doc
 
-Rewrite the Events, Rules and Delivery sections of `docs/assistant.md` for the source-of-truth model, the actions and the record. Retire the "public asks first" effect class for watcher actions: setting up a watcher is the permission to use them.
+✅ Rewrite the Events, Rules and Delivery sections of `docs/assistant.md` for the source-of-truth model, the actions and the record. Retire the "public asks first" effect class for watcher actions: setting up a watcher is the permission to use them. The doc leads the code until Phase 6; `AGENTS.md` map lines change with each phase's code.
 
 ## Phase 2 - The source lane and waking by newest time seen
 
