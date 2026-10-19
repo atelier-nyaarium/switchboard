@@ -138,7 +138,8 @@ A watcher is plain Gateway code, never a model.
 
 - **One source lane per watcher:** it runs the watcher's source calls one at a time: polls, the live listing and
   actions. A poll that read a thread cannot wake it after a `done` landed.
-- **A poll answers one of three:** threads, backoff until a time, or stopped with a reason.
+- **A poll answers one of four:** the unread list with its next validator, unchanged, backoff until a
+  time, or stopped with a reason.
 - **Health survives a restart:** last success, next poll, backoff and stopped state.
 - **Secrets come from the vault:** the owner picks a watcher's one entry in Assistant settings,
   through the Grant secrets sheet a routine uses, and `assistant_watcher_grants` makes it the
@@ -164,6 +165,11 @@ A watcher is plain Gateway code, never a model.
 - Holds `X-Poll-Interval` as its floor, 60 seconds when absent. A rate limit, by `retry-after` or a
   spent `x-ratelimit-remaining`, backs off until it resets. A secondary limit that names no wait
   backs off five minutes.
+- **The validator belongs to its grant:** the cursor names the granted entry, so a new grant reads in
+  full rather than sending another account's `Last-Modified`. A thread a shifted page repeats is kept
+  once.
+- **No error carries the token:** a value that is not visible ASCII stops the watcher before any
+  request. A rate limit holds for polls and the rules preview alike.
 - Its one action is `github_done`.
 - Reads a classic token from its granted vault entry. The notification endpoints take no
   fine-grained token. Without a grant, on a 401, on a 404 (GitHub hides what a token may not see),
@@ -220,10 +226,14 @@ before the shutdown flush. Stop is final. `src/gateway/assistant/` holds the wat
 - **Wake:** a poll's new wake-sorted threads go to `host.assistant` through `deliverEvent` in
   `routesSend.ts`, which shares `reach` (target resolution and `tryWakeTeam`) and the
   `ChannelDeliveryCoordinator` with an ordinary send but names no sender. A push carries up to 20,
-  each with its thread id, composed once the session is reached. Its delivery id is derived from the
-  thread ids and update times it carries, so a retry is the same delivery. The queued row is an
-  `EventDelivery`, which holds no sender or reply route; the queue refuses an id a message already
-  holds, and an acknowledgment retires only a row held for the acknowledging session.
+  each with its thread id, composed once the session is reached. A push the lane gave up on
+  composes nothing if its launch finishes later. The queued row is an `EventDelivery`, which holds
+  no sender or reply route; the queue refuses an id a message already holds, and an acknowledgment
+  retires only a row held for the acknowledging session.
+- **Each thread wakes once per update:** a member is keyed by watcher, thread id and update time.
+  `acceptEvent` drops a member the queue holds or emitted within its 30-day TTL and answers `seen`
+  when none is left, so a retried or restarted push wakes nothing twice. An acknowledgment records
+  its row's members as emitted in the same write that retires the row (`PendingDeliveryStore`).
 - **The commit point:** the poll validator and the newest time seen advance together once every
   push of a poll is delivered or durably queued. A failed push leaves both where they were, and the
   lane polls again from that checkpoint with backoff, 30 seconds doubling to 15 minutes, as it does
