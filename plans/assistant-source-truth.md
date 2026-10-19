@@ -139,6 +139,8 @@ GitHub is the only copy. Per watcher the Gateway keeps its poll validator (`Last
 
 ## Phase 2 - The source lane and waking by newest time seen
 
+✅ Shipped: `sourceLane.ts`, `watcherState.ts`, the keyed GitHub validator, rules without drop and ping, and event members the delivery queue emits once.
+
 - **One source lane per watcher** replaces the watcher runner and the wake runner. It runs the watcher's GitHub work one call at a time, and the live listing (Phase 3) and actions (Phase 5) run through it too, so a poll that read a thread cannot wake it after a `done` landed.
 - **A poll is a transaction the lane holds until it settles:** read GitHub's unread list with the stored validator as `If-Modified-Since` (a quiet minute is a free 304 that keeps the last counted unread total), sort the new threads, push the wake candidates, then commit.
 - **New** is a thread updated after the newest time seen. Rules sort it `wake` or `inbox`. Wake candidates go in pushes of up to 20, each item carrying its raw `threadId` and keyed by watcher, thread id and update time. The delivery queue drops a key held in a row or emitted within its 30-day TTL, and a push with nothing left answers as landed.
@@ -146,7 +148,7 @@ GitHub is the only copy. Per watcher the Gateway keeps its poll validator (`Last
 - **The lane never waits on a wake:** each push gets a deadline (90 seconds); past it the transaction ends uncommitted, as a failure does. The backoff wait releases the lane, and the retry queues behind any waiting listing or action. A later push joins the launch already in flight.
 - **Stop, on release and on shutdown:** cancels the retry timer, aborts in-flight GitHub requests, and fences commits, so nothing lands after stop. It settles within the 5 seconds the assistant stage has before the shutdown flush.
 - **First poll after placement** sets the newest time seen to the newest thread without waking, so the backlog goes to `all`, not to a flood of wakes.
-- **Ties:** a thread arriving later at exactly the newest time seen does not wake (Q2). Verify how `since` treats equal timestamps.
+- **Ties:** a thread arriving later at exactly the newest time seen does not wake (Q2). The poll sends no `since`; the lane's own filter (`at > newest`) decides ties.
 - **The cap:** a poll reads at most 500 unread threads; past that the count shows "500+".
 - **Kept:** `X-Poll-Interval`, rate-limit handling and same-host paging from today's watcher.
 - **Rules** lose `drop` and `ping`: an action is `wake` or `inbox`. The rules preview runs over the live first page of `all`, since there are no stored events. The phone's rules model and sheet change in this phase too (`RuleDraft`, `WatcherRulesSheet`, the sandbox and fakes): no drop, no ping, no dropped count, so the regenerated `Protocol.kt` compiles and the Kotlin gate stays green.
