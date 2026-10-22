@@ -1,6 +1,6 @@
-// One lane per watcher, so a poll cannot wake what an action cleared.
+// One lane per watcher, so a poll cannot wake what an action cleared. The lane owns every deadline.
 
-import { type Ambient, type TimerHandle, withinMs } from "../../shared/ambient.js";
+import { type Ambient, type Linked, linkedSignal, type TimerHandle } from "../../shared/ambient.js";
 import type { EventMember } from "../../shared/pending-delivery-store.js";
 import type { RuleAction } from "../../shared/schemasAssistantRules.js";
 import { fireAndForget } from "../fireAndForget.js";
@@ -37,25 +37,47 @@ export interface SourceLanesDeps {
 	render: (watcherId: string, event: WatcherEvent) => string;
 }
 
+/** Why the lane ended a signal. */
+export type LaneEnd = "past_deadline" | "stopping";
+
+export type WriteAnswer<T> = { kind: "ran"; value: T } | { kind: "not_started"; end: LaneEnd };
+export type ReadAnswer<T> = WriteAnswer<T> | { kind: "gave_up"; end: LaneEnd };
+
 export interface SourceLanes {
 	start(): void;
 	/** Polls now, stopped or not. */
 	poke(watcherId: string): void;
-	/** Read deadline releases the lane. */
-	run<T>(
+	/** Released at the deadline; `settle` runs only while the read is live. */
+	read<L, T>(
 		watcherId: string,
-		work: (watcher: Watcher, signal: AbortSignal) => Promise<T>,
 		deadlineMs: number,
-	): Promise<T>;
-	/** Writes own deadlines; lane holds through settlement. */
-	act<T>(watcherId: string, work: (signal: AbortSignal) => Promise<T>): Promise<T>;
+		load: (watcher: Watcher, signal: AbortSignal) => Promise<L>,
+		settle: (loaded: L) => T,
+	): Promise<ReadAnswer<T>>;
+	/** Held until `work` settles; its signal ends at the deadline. */
+	write<T>(watcherId: string, deadlineMs: number, work: (signal: AbortSignal) => Promise<T>): Promise<WriteAnswer<T>>;
 	/** Final; fences commits. */
 	stop(): Promise<void>;
 }
 
+class LaneEndReason extends Error {
+	constructor(readonly end: LaneEnd) {
+		super(end === "stopping" ? "the assistant is stopping" : "past the deadline");
+	}
+}
+
+const PAST_DEADLINE = new LaneEndReason("past_deadline");
+const STOPPING = new LaneEndReason("stopping");
+
+/** Why the lane ended this signal, or one linked to it, or null. */
+export function laneEnd(signal: AbortSignal): LaneEnd | null {
+	return signal.aborted && signal.reason instanceof LaneEndReason ? signal.reason.end : null;
+}
+
 const backedOff = (reason: string): PollAnswer => ({ kind: "backoff", retryMs: RETRY_MS, reason });
 
-const GAVE_UP = Symbol("gave up");
+const CUT = Symbol("cut");
+const SETTLED = Symbol("settled");
 
 /** Any failure backs off. */
 async function answerOf(
@@ -64,25 +86,19 @@ async function answerOf(
 	signal: AbortSignal,
 	ambient: SourceLanesDeps["ambient"],
 ): Promise<PollAnswer> {
-	const own = new AbortController();
-	const forward = () => own.abort();
-	signal.addEventListener("abort", forward, { once: true });
-	const aborted = new Promise<PollAnswer>((resolve) => {
-		own.signal.addEventListener("abort", () => resolve(backedOff("poll aborted")), { once: true });
-	});
+	const bound = linkedSignal(ambient, { parent: signal, ms: POLL_TIMEOUT_MS, reason: CUT });
+	const cut = bound.ended.then((reason) => backedOff(reason === CUT ? "poll timed out" : "poll aborted"));
 	try {
-		const polled = Promise.race([watcher.poll(cursor, own.signal), aborted]);
-		const raw = await withinMs(ambient, polled, POLL_TIMEOUT_MS);
-		if (raw === null) return backedOff("poll timed out");
-		const answer = PollAnswerSchema.safeParse(raw);
+		const polled = await Promise.race([watcher.poll(cursor, bound.signal).then((raw) => ({ raw })), cut]);
+		if (!("raw" in polled)) return polled;
+		const answer = PollAnswerSchema.safeParse(polled.raw);
 		if (!answer.success) return backedOff("poll answered malformed data");
 		if (answer.data.kind !== "events" && answer.data.kind !== "unchanged") return answer.data;
 		return { ...answer.data, nextPollMs: Math.max(MIN_POLL_MS, answer.data.nextPollMs) };
 	} catch (error) {
 		return backedOff((error as Error).message.slice(0, 400));
 	} finally {
-		signal.removeEventListener("abort", forward);
-		own.abort();
+		bound.end(SETTLED);
 	}
 }
 
@@ -108,26 +124,54 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 	let phase: "idle" | "running" | "stopped" = "idle";
 	const timers = new Map<string, TimerHandle>();
 	const tails = new Map<string, Promise<unknown>>();
-	const aborts = new Set<AbortController>();
+	/** Every queued or running item, so stop ends each at once. */
+	const items = new Set<Linked>();
 	/** One queued poll each. */
-	const queued = new Set<string>();
+	const pollQueued = new Set<string>();
 
-	const enqueue = <T>(watcherId: string, work: (signal: AbortSignal) => Promise<T>): Promise<T> => {
-		const next = (tails.get(watcherId) ?? Promise.resolve()).then(async () => {
-			if (phase === "stopped") throw new Error("the assistant is stopping");
-			const abort = new AbortController();
-			aborts.add(abort);
-			try {
-				return await work(abort.signal);
-			} finally {
-				aborts.delete(abort);
-			}
-		});
+	/**
+	 * The one road into a lane. An item's deadline counts the queue: one not started by then answers
+	 * `not_started` and later runs nothing. A started `release` item frees the lane at the deadline; a
+	 * `hold` item keeps it until it settles, and its signal says the deadline passed.
+	 */
+	const queued = <T>(
+		watcherId: string,
+		bound: { ms: number; atDeadline: "release" | "hold" } | null,
+		work: (signal: AbortSignal) => Promise<T>,
+	): Promise<ReadAnswer<T>> => {
+		const item = linkedSignal(ambient, bound ? { ms: bound.ms, reason: PAST_DEADLINE } : {});
+		if (phase === "stopped") item.end(STOPPING);
+		items.add(item);
+		let started = false;
+		const turn = (tails.get(watcherId) ?? Promise.resolve())
+			.then(async (): Promise<ReadAnswer<T>> => {
+				const ended = laneEnd(item.signal);
+				if (ended) return { kind: "not_started", end: ended };
+				started = true;
+				const ran = work(item.signal).then((value): ReadAnswer<T> => ({ kind: "ran", value }));
+				if (bound?.atDeadline !== "release") return await ran;
+				// Released work answers no one.
+				ran.catch(() => undefined);
+				const released = item.ended.then(
+					(): ReadAnswer<T> => ({ kind: "gave_up", end: laneEnd(item.signal) ?? "past_deadline" }),
+				);
+				return await Promise.race([ran, released]);
+			})
+			.finally(() => {
+				items.delete(item);
+				item.dispose();
+			});
 		tails.set(
 			watcherId,
-			next.catch(() => undefined),
+			turn.catch(() => undefined),
 		);
-		return next;
+		const unstarted = item.ended.then(
+			(): Promise<ReadAnswer<T>> =>
+				started
+					? new Promise(() => {})
+					: Promise.resolve({ kind: "not_started", end: laneEnd(item.signal) ?? "stopping" }),
+		);
+		return Promise.race([turn, unstarted]);
 	};
 
 	const arm = (watcher: Watcher, at: number): void => {
@@ -156,26 +200,28 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 
 	/** First failure, or null. */
 	const pushAll = async (watcherId: string, wakes: readonly WatcherEvent[], signal: AbortSignal) => {
-		const aborted = new Promise<{ failed: string }>((resolve) => {
-			signal.addEventListener("abort", () => resolve({ failed: "the assistant is stopping" }), { once: true });
-		});
 		for (let at = 0; at < wakes.length; at += WAKE_BATCH) {
 			const wake = deps.wake();
 			if (!wake) return "the send path is not bound yet";
 			const members = wakes
 				.slice(at, at + WAKE_BATCH)
 				.map((event) => ({ key: memberKey(watcherId, event), text: deps.render(watcherId, event) }));
+			const batch = linkedSignal(ambient, { parent: signal, ms: WAKE_DEADLINE_MS, reason: CUT });
 			// A push given up on composes nothing when it lands late.
-			let live = true;
-			const compose = () => (live && phase === "running" ? members : null);
-			const sent = wake({ to: deps.to, compose })
-				.then((failed) => ({ failed }))
-				.catch((error: Error) => ({ failed: error.message }));
-			const answer = await Promise.race([withinMs(ambient, sent, WAKE_DEADLINE_MS), aborted]);
-			if (answer === null || answer.failed) {
-				live = false;
-				return answer?.failed ?? "the session did not take it in time";
+			const compose = () => (!batch.signal.aborted && phase === "running" ? members : null);
+			const sent = wake({ to: deps.to, compose }).then(
+				(failed) => ({ failed }),
+				(error: Error) => ({ failed: error.message }),
+			);
+			const cut = batch.ended.then((reason) => ({
+				failed: reason === CUT ? "the session did not take it in time" : "the assistant is stopping",
+			}));
+			const answer = await Promise.race([sent, cut]);
+			if (answer.failed) {
+				batch.end(SETTLED);
+				return answer.failed;
 			}
+			batch.dispose();
 		}
 		return null;
 	};
@@ -229,13 +275,19 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 	};
 
 	const schedule = (watcher: Watcher): void => {
-		if (phase !== "running" || queued.has(watcher.id)) return;
-		queued.add(watcher.id);
-		const flight = enqueue(watcher.id, (signal) => {
-			queued.delete(watcher.id);
+		if (phase !== "running" || pollQueued.has(watcher.id)) return;
+		pollQueued.add(watcher.id);
+		const flight = queued(watcher.id, null, (signal) => {
+			pollQueued.delete(watcher.id);
 			return pollOnce(watcher, signal);
 		});
 		fireAndForget(`assistant watcher ${watcher.id}`, flight);
+	};
+
+	const watcherOf = (watcherId: string): Watcher => {
+		const watcher = deps.watchers.find((candidate) => candidate.id === watcherId);
+		if (!watcher) throw new Error(`no watcher "${watcherId}"`);
+		return watcher;
 	};
 
 	return {
@@ -254,44 +306,27 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 			timers.delete(watcherId);
 			schedule(watcher);
 		},
-		async run(watcherId, work, deadlineMs) {
-			const watcher = deps.watchers.find((candidate) => candidate.id === watcherId);
-			if (!watcher) throw new Error(`no watcher "${watcherId}"`);
-			const own = new AbortController();
-			const timer = ambient.setTimer(() => own.abort(), deadlineMs);
-			const gaveUp = new Promise<typeof GAVE_UP>((resolve) => {
-				own.signal.addEventListener("abort", () => resolve(GAVE_UP), { once: true });
+		async read(watcherId, deadlineMs, load, settle) {
+			const watcher = watcherOf(watcherId);
+			return queued(watcherId, { ms: deadlineMs, atDeadline: "release" }, async (signal) => {
+				const loaded = await load(watcher, signal);
+				// Given up on, so it commits nothing.
+				if (signal.aborted) throw new Error("the read was given up");
+				return settle(loaded);
 			});
-			const flight = enqueue(watcherId, async (signal) => {
-				if (own.signal.aborted) return GAVE_UP;
-				const forward = () => own.abort();
-				signal.addEventListener("abort", forward, { once: true });
-				try {
-					return await Promise.race([work(watcher, own.signal), gaveUp]);
-				} finally {
-					signal.removeEventListener("abort", forward);
-				}
-			});
-			try {
-				const answer = await Promise.race([flight, gaveUp]);
-				if (answer === GAVE_UP) throw new Error(`${watcherId} did not answer in time`);
-				return answer;
-			} finally {
-				ambient.clearTimer(timer);
-				own.abort();
-			}
 		},
-		act(watcherId, work) {
-			if (!deps.watchers.some((watcher) => watcher.id === watcherId)) {
-				return Promise.reject(new Error(`no watcher "${watcherId}"`));
-			}
-			return enqueue(watcherId, work);
+		async write(watcherId, deadlineMs, work) {
+			watcherOf(watcherId);
+			// A held item never answers `gave_up`.
+			return queued(watcherId, { ms: deadlineMs, atDeadline: "hold" }, work) as Promise<
+				WriteAnswer<Awaited<ReturnType<typeof work>>>
+			>;
 		},
 		async stop() {
 			phase = "stopped";
 			for (const timer of timers.values()) ambient.clearTimer(timer);
 			timers.clear();
-			for (const abort of aborts) abort.abort();
+			for (const item of items) item.end(STOPPING);
 			await Promise.allSettled([...tails.values()]);
 		},
 	};

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createGithubClient, type TokenRead } from "../gateway/assistant/githubClient.js";
 import { GithubDone } from "../gateway/assistant/githubDone.js";
-import { PAST_DEADLINE } from "../gateway/assistant/watcherAction.js";
+import { createSourceLanes } from "../gateway/assistant/sourceLane.js";
+import { FRESH_STATE } from "../gateway/assistant/watcherState.js";
 import { type FakeAmbient, fakeAmbient } from "../testing/fakeAmbient.js";
 
 const T0 = 1_800_000_000_000;
@@ -42,11 +43,20 @@ function github(ambient: FakeAmbient, replies: Reply[], token: TokenRead = TOKEN
 		},
 	});
 	const done = new GithubDone(client);
-	/** Dispatch deadline timer. */
-	const run = (ids: string[], deadlineMs = 60_000) => {
-		const deadline = new AbortController();
-		ambient.setTimer(() => deadline.abort(PAST_DEADLINE), deadlineMs);
-		return done.run({ ids }, { signal: deadline.signal, ambient });
+	// Through a real lane, so the deadline is the one the Gateway runs.
+	const lane = createSourceLanes({
+		ambient,
+		state: { get: () => FRESH_STATE, put: () => true },
+		watchers: [{ id: "github", poll: async () => ({ kind: "unchanged", nextPollMs: 60_000 }) }],
+		sort: () => "wake",
+		wake: () => null,
+		to: "host.assistant",
+		render: () => "",
+	});
+	const run = async (ids: string[], deadlineMs = 60_000) => {
+		const answer = await lane.write("github", deadlineMs, (signal) => done.run({ ids }, { signal, ambient }));
+		if (answer.kind !== "ran") throw new Error(`not started: ${answer.end}`);
+		return answer.value;
 	};
 	return { run, asked };
 }

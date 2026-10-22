@@ -131,7 +131,7 @@ A: Evie style. The shared declaration holds data and schemas only, so the plugin
 **Verified live, 2026-10-21 (thread `26357054027`, already read):**
 - `DELETE /notifications/threads/{id}` answers 204, and 204 again on repeat.
 - `GET /notifications/threads/{id}` still answers 200 for a done thread.
-- `all=true` still lists a done thread minutes later; the API has no done filter (community discussion #152852). So `all=true` cannot mean "every thread not done".
+- `all=true` still lists a done thread minutes later, and unchanged hours later (rechecked 2026-10-22), so it is not caching; the API has no done filter (community discussion #152852). So `all=true` cannot mean "every thread not done".
 - Still open: whether `DELETE` marks an unread thread read, and whether a done thread returns on new activity.
 
 **Mockups:** the Designer cards `assistant-done-silent` (the chosen record, column B) and `assistant-watcher-actions` (settings listing the actions).
@@ -218,7 +218,7 @@ The phone learns the row before anything sends one: this phase ships the Router 
 
 ### Bug Classes
 
-- **Mechanism:** the action's deadline. **Class:** the deadline was not one fact, so the dispatcher, the lane and the action each read their own idea of it. **Align round:** the token read ignored stop and the deadline, and an action queued past the deadline answered late; the dispatcher now answers by a timer when the lane has not started the work, and the action checks the deadline before reading the token. **Red-team round:** the timer decided the refusal while the action compared the wall clock, so an early timer or a clock step let a refused action send its `DELETE`; the timer now aborts the action's signal with its reason, a start after it runs nothing, and the action reads only the signal. **Related:** Bun's default idle cut was a third clock under the route; `serveLimits.ts` sets it past the deadline.
+- **Mechanism:** the action's deadline. **Class:** the deadline was not one fact, so the dispatcher, the lane and the action each read their own idea of it. **Align round:** the token read ignored stop and the deadline, and an action queued past the deadline answered late; the dispatcher now answers by a timer when the lane has not started the work, and the action checks the deadline before reading the token. **Red-team round:** the timer decided the refusal while the action compared the wall clock, so an early timer or a clock step let a refused action send its `DELETE`; the timer now aborts the action's signal with its reason, a start after it runs nothing, and the action reads only the signal. **Related:** Bun's default idle cut was a third clock under the route; `serveLimits.ts` sets it past the deadline. **Architecture round:** the lane owns every deadline. One private `queued` road takes each item with a deadline that counts the queue; `read` releases the lane and settles nothing late, `write` holds it and ends its signal with a typed `LaneEnd`, and polls and wake pushes bound themselves with `linkedSignal`. The dispatcher's own timer, `run`, `act` and the action's reason strings are gone, and `ASSISTANT_WAITS` holds the caller-facing waits with a test pinning their order.
 
 ## Phase 6 - Phone
 

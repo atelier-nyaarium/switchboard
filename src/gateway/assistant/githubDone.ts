@@ -2,10 +2,8 @@ import type { ParamsOf } from "../../shared/schemasAssistantActions.js";
 import type { RecordThread } from "../../shared/schemasAssistantRecord.js";
 import { type GithubClient, type GithubRefusal, type GithubToken, isRefusal } from "./githubClient.js";
 import { linkOf, ThreadSchema } from "./githubWatcher.js";
+import { ASSISTANT_WAITS } from "./waits.js";
 import { type ActionContext, bounded, stoppedBy, WatcherAction } from "./watcherAction.js";
-
-/** GitHub request timeout. */
-export const GITHUB_REQUEST_MS = 15_000;
 
 interface Step {
 	thread: RecordThread;
@@ -56,7 +54,7 @@ export class GithubDone extends WatcherAction<"github_done"> {
 	private async one(token: GithubToken, threadId: string, ctx: ActionContext): Promise<Step> {
 		const path = `/notifications/threads/${threadId}`;
 		// GitHub supplies metadata.
-		const read = await bounded(ctx, GITHUB_REQUEST_MS, async (signal) => {
+		const read = await bounded(ctx, ASSISTANT_WAITS.request, async (signal) => {
 			const response = await this.client.request(token, path, {}, signal);
 			if (isRefusal(response)) return response;
 			return { status: response.status, body: response.ok ? await response.json() : null };
@@ -80,7 +78,7 @@ export class GithubDone extends WatcherAction<"github_done"> {
 
 		const late = stoppedBy(ctx);
 		if (late) return { thread: { ...known, outcome: "not_attempted" }, stop: late };
-		const cleared = await bounded(ctx, GITHUB_REQUEST_MS, (signal) =>
+		const cleared = await bounded(ctx, ASSISTANT_WAITS.request, (signal) =>
 			this.client.request(token, path, { method: "DELETE" }, signal),
 		).catch(() => null);
 		// Lost replies stay uncertain.

@@ -40,6 +40,48 @@ export async function withinMs<T>(
 	}
 }
 
+export interface Linked {
+	signal: AbortSignal;
+	/** Settles with the reason once `signal` ends. */
+	ended: Promise<unknown>;
+	end(reason: unknown): void;
+	/** Clears the timer and the parent link. */
+	dispose(): void;
+}
+
+/** A signal that ends with its parent, at `ms` with `reason`, or by `end`; first wins. */
+export function linkedSignal(
+	ambient: Pick<Ambient, "setTimer" | "clearTimer">,
+	link: { parent?: AbortSignal; ms?: number; reason?: unknown } = {},
+): Linked {
+	const controller = new AbortController();
+	let timer: TimerHandle | undefined;
+	let settle: (reason: unknown) => void = () => {};
+	const ended = new Promise<unknown>((resolve) => {
+		settle = resolve;
+	});
+	function dispose(): void {
+		if (timer !== undefined) ambient.clearTimer(timer);
+		timer = undefined;
+		link.parent?.removeEventListener("abort", fromParent);
+	}
+	function end(reason: unknown): void {
+		if (controller.signal.aborted) return;
+		dispose();
+		controller.abort(reason);
+		settle(reason);
+	}
+	function fromParent(): void {
+		end(link.parent?.reason);
+	}
+	if (link.parent?.aborted) end(link.parent.reason);
+	else {
+		link.parent?.addEventListener("abort", fromParent, { once: true });
+		if (link.ms !== undefined) timer = ambient.setTimer(() => end(link.reason), link.ms);
+	}
+	return { signal: controller.signal, ended, end, dispose };
+}
+
 // Globals enter through this reader. Timer handles are unref'd.
 export function processAmbient(): Ambient {
 	return {

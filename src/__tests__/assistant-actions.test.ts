@@ -2,9 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { ACTION_WAIT_MS, createActionDispatch } from "../gateway/assistant/actionDispatch.js";
+import { createActionDispatch } from "../gateway/assistant/actionDispatch.js";
 import { createGithubClient } from "../gateway/assistant/githubClient.js";
 import { GithubDone } from "../gateway/assistant/githubDone.js";
+import { createSourceLanes } from "../gateway/assistant/sourceLane.js";
+import { ASSISTANT_WAITS } from "../gateway/assistant/waits.js";
+import { FRESH_STATE } from "../gateway/assistant/watcherState.js";
 import { type AssistantVault, composeAssistant } from "../gateway/compose/composeAssistant.js";
 import type { DeliverToOwnerOptions } from "../gateway/consolePushOps.js";
 import { actionText } from "../mcp/assistant/actionTools.js";
@@ -160,24 +163,39 @@ describe("an assistant action", () => {
 			token: async () => ({ kind: "token", value: "ghp_test", key: "gh" }),
 			now: () => ambient.now(),
 		});
-		let free = () => {};
-		const busy = new Promise<void>((resolve) => {
-			free = resolve;
+		const lanes = createSourceLanes({
+			ambient,
+			state: { get: () => FRESH_STATE, put: () => true },
+			watchers: [{ id: "github", poll: async () => ({ kind: "unchanged", nextPollMs: 60_000 }) }],
+			sort: () => "wake",
+			wake: () => null,
+			to: "host.assistant",
+			render: () => "",
 		});
 		const dispatch = createActionDispatch({
 			actions: { github_done: new GithubDone(client) },
 			ambient,
-			act: async (_watcherId, work) => {
-				await busy;
-				return work(new AbortController().signal);
-			},
+			write: lanes.write,
 			record: () => true,
 		});
+		let free = () => {};
+		// An earlier write holds the lane until freed.
+		const blocker = lanes.write(
+			"github",
+			10 * ASSISTANT_WAITS.action,
+			() =>
+				new Promise<void>((resolve) => {
+					free = resolve;
+				}),
+		);
 
+		await ambient.advance(0);
 		const answered = dispatch({ action: "github_done", callId: "call-0007", params: { ids: ["1"] } });
-		await ambient.advance(ACTION_WAIT_MS);
+		await ambient.advance(0);
+		await ambient.advance(ASSISTANT_WAITS.action);
 		const result = await answered;
 		free();
+		await blocker;
 		await ambient.advance(0);
 
 		expect(result).toMatchObject({ kind: "refused", reason: expect.stringMatching(/nothing was sent/) });

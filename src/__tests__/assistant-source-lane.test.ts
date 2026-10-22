@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
 	type AssistantWake,
 	createSourceLanes,
+	laneEnd,
 	POLL_TIMEOUT_MS,
 	RETRY_MS,
 	type SourceLanes,
@@ -260,14 +261,16 @@ describe("a watcher's source lane", () => {
 		await ambient.advance(0);
 		await ambient.advance(60_000);
 		source.answer(unread("c2", [thread("a", 100)]));
-		const listed = lane.run(
+		const listed = lane.read(
 			"github",
-			async (watcher, signal) => (await watcher.list?.({ scope: "all" }, signal))?.events ?? [],
 			2 * WAKE_DEADLINE_MS,
+			async (watcher, signal) => (await watcher.list?.({ scope: "all" }, signal))?.events ?? [],
+			(events) => events.map((event) => event.id),
 		);
 		await ambient.advance(0);
 		await ambient.advance(WAKE_DEADLINE_MS);
-		const ids = (await listed).map((event) => event.id);
+		const listing = await listed;
+		const ids = listing.kind === "ran" ? listing.value : [];
 		pushes.release();
 		await ambient.advance(WAKE_RETRY_MS);
 		source.answer(unread("c2", [thread("a", 100)]));
@@ -280,7 +283,7 @@ describe("a watcher's source lane", () => {
 		expect(pushes.pushed.map((push) => push.ids)).toEqual([["a"]]);
 	});
 
-	it("holds the lane through a write until it settles, so work queued behind waits it out", async () => {
+	it("holds the lane through a write until it settles, its signal ending at the deadline, while work behind waits", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const source = scripted();
 		const lane = lanes(ambient, stateIn(stateDir()), source.watcher, wakes().wake);
@@ -290,22 +293,23 @@ describe("a watcher's source lane", () => {
 		source.answer(unread("c1", []));
 		await ambient.advance(0);
 		let release = () => {};
-		const wrote = lane.act(
+		let held: AbortSignal | undefined;
+		const wrote = lane.write("github", 2_000, (signal) => {
+			held = signal;
+			return new Promise<string>((resolve) => {
+				release = () => resolve("written");
+			});
+		});
+		const read = lane.read(
 			"github",
-			() =>
-				new Promise<string>((resolve) => {
-					release = () => resolve("written");
-				}),
+			1_000,
+			async () => "read",
+			(value) => value,
 		);
-		const read = lane
-			.run("github", async () => "read", 1_000)
-			.then(
-				() => "answered",
-				(error: Error) => error.message,
-			);
 		lane.poke("github");
-		await ambient.advance(1_000);
-		const readOutcome = await read;
+		await ambient.advance(2_000);
+		const readAnswer = await read;
+		const endWhileHeld = held && laneEnd(held);
 		const pollsWhileHeld = source.cursors.length;
 		release();
 		const written = await wrote;
@@ -313,10 +317,86 @@ describe("a watcher's source lane", () => {
 		const pollsAfter = source.cursors.length;
 		await stopped(lane, ambient);
 
-		expect(readOutcome).toMatch(/did not answer in time/);
+		expect(readAnswer).toEqual({ kind: "not_started", end: "past_deadline" });
+		expect(endWhileHeld).toBe("past_deadline");
 		expect(pollsWhileHeld).toBe(1);
-		expect(written).toBe("written");
+		expect(written).toEqual({ kind: "ran", value: "written" });
 		expect(pollsAfter).toBe(2);
+	});
+
+	it("answers a write it never started by its deadline, and runs nothing when the lane frees", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const source = scripted();
+		const lane = lanes(ambient, stateIn(stateDir()), source.watcher, wakes().wake);
+		let ran = false;
+
+		lane.start();
+		await ambient.advance(0);
+		const wrote = lane.write("github", 1_000, async () => {
+			ran = true;
+			return "sent";
+		});
+		await ambient.advance(1_000);
+		const answer = await wrote;
+		source.answer(unread("c1", []));
+		await ambient.advance(0);
+		await stopped(lane, ambient);
+
+		expect(answer).toEqual({ kind: "not_started", end: "past_deadline" });
+		expect(ran).toBe(false);
+	});
+
+	it("frees the lane from a read at its deadline, and a load landing after it settles nothing", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const source = scripted();
+		const lane = lanes(ambient, stateIn(stateDir()), source.watcher, wakes().wake);
+		let land = (_value: string) => {};
+		let settled = false;
+
+		const read = lane.read(
+			"github",
+			1_000,
+			() =>
+				new Promise<string>((resolve) => {
+					land = resolve;
+				}),
+			(value) => {
+				settled = true;
+				return value;
+			},
+		);
+		const behind = lane.write("github", 5_000, async () => "next");
+		await ambient.advance(0);
+		await ambient.advance(1_000);
+		const answer = await read;
+		const next = await behind;
+		land("late");
+		await ambient.advance(0);
+
+		expect(answer).toEqual({ kind: "gave_up", end: "past_deadline" });
+		expect(next).toEqual({ kind: "ran", value: "next" });
+		expect(settled).toBe(false);
+	});
+
+	it("ends running and queued work at once on stop, each signal saying why", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const source = scripted();
+		const lane = lanes(ambient, stateIn(stateDir()), source.watcher, wakes().wake);
+		let held: AbortSignal | undefined;
+
+		const running = lane.write("github", 60_000, (signal) => {
+			held = signal;
+			return new Promise<string>((resolve) => {
+				signal.addEventListener("abort", () => resolve("cut"), { once: true });
+			});
+		});
+		const behind = lane.write("github", 60_000, async () => "never");
+		await ambient.advance(0);
+		await lane.stop();
+
+		expect(held && laneEnd(held)).toBe("stopping");
+		expect(await running).toEqual({ kind: "ran", value: "cut" });
+		expect(await behind).toEqual({ kind: "not_started", end: "stopping" });
 	});
 
 	it("polls again from the committed checkpoint after a restart, keeping the backoff it had reached", async () => {
@@ -463,6 +543,13 @@ describe("a watcher's source lane", () => {
 
 		expect(source.signals[0]?.aborted).toBe(true);
 		expect(state.get("github")).toMatchObject({ cursor: null, primed: false });
-		await expect(lane.run("github", async () => "late", 1_000)).rejects.toThrow();
+		expect(
+			await lane.read(
+				"github",
+				1_000,
+				async () => "late",
+				(value) => value,
+			),
+		).toEqual({ kind: "not_started", end: "stopping" });
 	});
 });

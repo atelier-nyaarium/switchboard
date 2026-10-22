@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Ambient, TimerHandle } from "../../shared/ambient.js";
+import type { Ambient } from "../../shared/ambient.js";
 import { createOpDedupe } from "../../shared/op-dedupe.js";
 import type {
 	AssistantActionKey,
@@ -8,14 +8,12 @@ import type {
 	ParamsOf,
 } from "../../shared/schemasAssistantActions.js";
 import type { RecordThread } from "../../shared/schemasAssistantRecord.js";
-import { PAST_DEADLINE, STOPPING, type WatcherActions } from "./watcherAction.js";
+import type { SourceLanes } from "./sourceLane.js";
+import { ASSISTANT_WAITS } from "./waits.js";
+import type { WatcherActions } from "./watcherAction.js";
 
-/** Includes queue time. */
-export const ACTION_WAIT_MS = 60_000;
 /** Retry hold, milliseconds. */
 const CALL_HOLD_MS = 10 * 60_000;
-
-const LATE = Symbol("late");
 
 export interface ActionRecord {
 	notify: boolean;
@@ -26,8 +24,7 @@ export interface ActionRecord {
 export interface ActionDispatchDeps {
 	actions: WatcherActions;
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">;
-	/** Lane held through settlement. */
-	act: <T>(watcherId: string, work: (signal: AbortSignal) => Promise<T>) => Promise<T>;
+	write: SourceLanes["write"];
 	record: (callId: string, record: ActionRecord) => boolean;
 }
 
@@ -36,36 +33,6 @@ export function createActionDispatch(
 	deps: ActionDispatchDeps,
 ): (request: AssistantActionRequest) => Promise<AssistantActionResult> {
 	const calls = createOpDedupe<AssistantActionResult>({ now: () => deps.ambient.now(), holdMs: CALL_HOLD_MS });
-
-	/** Queue timeout aborts work; late starts do nothing. */
-	const inLane = <T>(watcherId: string, work: (signal: AbortSignal) => Promise<T>): Promise<T | typeof LATE> => {
-		const deadline = new AbortController();
-		let started = false;
-		let timer: TimerHandle | undefined;
-		const late = new Promise<typeof LATE>((resolve) => {
-			timer = deps.ambient.setTimer(() => {
-				deadline.abort(PAST_DEADLINE);
-				if (!started) resolve(LATE);
-			}, ACTION_WAIT_MS);
-		});
-		const flight = deps.act(watcherId, async (laneSignal): Promise<T | typeof LATE> => {
-			if (deadline.signal.aborted) return LATE;
-			started = true;
-			const stop = () => deadline.abort(STOPPING);
-			if (laneSignal.aborted) stop();
-			laneSignal.addEventListener("abort", stop, { once: true });
-			try {
-				return await work(deadline.signal);
-			} finally {
-				laneSignal.removeEventListener("abort", stop);
-			}
-		});
-		// Late starts do nothing.
-		flight.catch(() => undefined);
-		return Promise.race([flight, late]).finally(() => {
-			if (timer !== undefined) deps.ambient.clearTimer(timer);
-		});
-	};
 
 	const runOne = async <K extends AssistantActionKey>(
 		key: K,
@@ -82,11 +49,14 @@ export function createActionDispatch(
 		const params = parsed.data as ParamsOf<K>;
 		let answer: z.infer<typeof declaration.answer>;
 		try {
-			const ran = await inLane(declaration.watcherId, (signal) =>
+			const ran = await deps.write(declaration.watcherId, ASSISTANT_WAITS.action, (signal) =>
 				action.run(params, { signal, ambient: deps.ambient }),
 			);
-			if (ran === LATE) return { kind: "refused", reason: "the watcher stayed busy; nothing was sent" };
-			answer = declaration.answer.parse(ran);
+			if (ran.kind === "not_started") {
+				const why = ran.end === "stopping" ? "the assistant is stopping" : "the watcher stayed busy";
+				return { kind: "refused", reason: `${why}; nothing was sent` };
+			}
+			answer = declaration.answer.parse(ran.value);
 		} catch (error) {
 			return { kind: "refused", reason: (error as Error).message.slice(0, 400) };
 		}

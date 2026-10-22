@@ -1,19 +1,16 @@
 // Class required per action.
 
-import type { Ambient } from "../../shared/ambient.js";
+import { type Ambient, linkedSignal } from "../../shared/ambient.js";
 import {
 	type AnswerOf,
 	ASSISTANT_ACTIONS,
 	type AssistantActionKey,
 	type ParamsOf,
 } from "../../shared/schemasAssistantActions.js";
-
-/** Action stop reasons. */
-export const PAST_DEADLINE = "out of time; send the rest again";
-export const STOPPING = "the assistant is stopping";
+import { type LaneEnd, laneEnd } from "./sourceLane.js";
 
 export interface ActionContext {
-	/** Deadline or shutdown reason. */
+	/** The lane's; ends at the deadline or on stop. */
 	signal: AbortSignal;
 	ambient: Pick<Ambient, "setTimer" | "clearTimer">;
 }
@@ -31,26 +28,27 @@ export abstract class WatcherAction<K extends AssistantActionKey> {
 
 export type WatcherActions = { [K in AssistantActionKey]: WatcherAction<K> };
 
+const NOTES: Record<LaneEnd, string> = {
+	past_deadline: "out of time; send the rest again",
+	stopping: "the assistant is stopping",
+};
+
+/** Why nothing more may start, as a note. */
 export function stoppedBy(ctx: ActionContext): string | null {
 	if (!ctx.signal.aborted) return null;
-	return typeof ctx.signal.reason === "string" ? ctx.signal.reason : STOPPING;
+	return NOTES[laneEnd(ctx.signal) ?? "stopping"];
 }
 
-/** Timeout and action abort bound work. */
+/** One request, cut at `maxMs` or when the lane ends the action. */
 export async function bounded<T>(
 	ctx: ActionContext,
 	maxMs: number,
 	work: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
-	const own = new AbortController();
-	const forward = () => own.abort();
-	if (ctx.signal.aborted) own.abort();
-	ctx.signal.addEventListener("abort", forward, { once: true });
-	const timer = ctx.ambient.setTimer(() => own.abort(), maxMs);
+	const request = linkedSignal(ctx.ambient, { parent: ctx.signal, ms: maxMs });
 	try {
-		return await work(own.signal);
+		return await work(request.signal);
 	} finally {
-		ctx.ambient.clearTimer(timer);
-		ctx.signal.removeEventListener("abort", forward);
+		request.dispose();
 	}
 }

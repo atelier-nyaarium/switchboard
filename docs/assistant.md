@@ -117,14 +117,17 @@ permission, so an action runs at once.
   registry's keys, so a declared action with no class does not compile.
 - **One route:** `/assistant/action` takes `{ action, callId, params }`, answers only the assistant's
   own token, parses the params with that action's schema, and runs it (`actionDispatch.ts`).
-- **An action holds its watcher's lane until it settles:** `SourceLanes.act`, where a read's `run`
-  releases the lane at its deadline. The deadline is 60 seconds and counts the queue: an action its
-  lane has not started by then is refused with nothing sent, and starts as a no-op if it starts
-  later. No request starts past the deadline, and one in flight is cut there or at 15 seconds. An id
+- **The lane owns every deadline:** each item enters through one road with a deadline that counts
+  the queue. One not started by then answers `not_started` and later runs nothing. A `read` (a
+  listing, a preview) frees the lane at its deadline and commits nothing that lands after it; a
+  `write` (an action) holds the lane until it settles, and its signal ends at the deadline with a
+  typed reason (`laneEnd`) the action reads. Stop ends queued and running work at once.
+- **An action's deadline is 60 seconds:** one its lane has not started by then is refused with
+  nothing sent. No request starts past it, and one in flight is cut there or at 15 seconds. An id
   never sent answers `not_attempted`; a write cut before its answer answers `uncertain`. The
-  Gateway's Bun server holds a request up to 255 seconds (`serveLimits.ts`), past an action's, a
-  listing's and a vault approval's wait. The timer is the one clock: it aborts the action's signal
-  with its reason, which the action reads.
+  caller-facing waits live in one table (`ASSISTANT_WAITS`, `waits.ts`), and a test pins their
+  order: the request inside the action, the preview inside the phone's answer wait, and every route
+  inside the Gateway's Bun server, which holds a request up to 255 seconds (`serveLimits.ts`).
 - **`rate_limited` means GitHub answered with a rate limit:** an id the shared limit held back was not
   sent, so it answers `not_attempted`, and the note names the wait.
 - **A call id makes a retry safe:** the tool mints one per call and repeats it on a retried post. The

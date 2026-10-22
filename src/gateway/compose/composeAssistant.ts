@@ -25,6 +25,7 @@ import { GithubDone } from "../assistant/githubDone.js";
 import { createGithubWatcher } from "../assistant/githubWatcher.js";
 import { createRulesStore } from "../assistant/rulesStore.js";
 import { type AssistantWake, createSourceLanes, type SourceLanes } from "../assistant/sourceLane.js";
+import { ASSISTANT_WAITS } from "../assistant/waits.js";
 import type { ListPage, ListQuery, Watcher, WatcherEvent } from "../assistant/watcher.js";
 import type { WatcherActions } from "../assistant/watcherAction.js";
 import { createWatcherStateStore, FRESH_STATE } from "../assistant/watcherState.js";
@@ -39,9 +40,6 @@ const NOT_HERE = "the assistant does not live on this Gateway";
 const STOP_WAIT_MS = 5_000;
 /** Events a preview reads. */
 const PREVIEW_EVENTS = 50;
-/** Inside the phone's answer wait. */
-const PREVIEW_WAIT_MS = 25_000;
-export const LIST_WAIT_MS = 25_000;
 /** Past it, the rest of a page is cut. */
 const MAX_LIST_BYTES = 64_000;
 
@@ -156,14 +154,19 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		watcherId: string,
 		query: () => ListQuery,
 		deadlineMs: number,
-		then: (page: ListPage, signal: AbortSignal) => T,
+		settle: (page: ListPage) => T,
 	): Promise<T> => {
 		if (!lanes) throw new Error(NOT_HERE);
-		return lanes.run(
+		const answer = await lanes.read(
 			watcherId,
-			async (watcher, signal) =>
-				then(watcher.list ? await watcher.list(query(), signal) : { events: [], here: "" }, signal),
 			deadlineMs,
+			async (watcher, signal): Promise<ListPage> =>
+				watcher.list ? await watcher.list(query(), signal) : { events: [], here: "" },
+			settle,
+		);
+		if (answer.kind === "ran") return answer.value;
+		throw new Error(
+			answer.end === "stopping" ? "the assistant is stopping" : `${watcherId} did not answer in time`,
 		);
 	};
 	/** Signed, so the agent can neither forge nor edit one. */
@@ -197,7 +200,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			const since = scope === "new" ? watcherState.get(watcher.id).mark : undefined;
 			return { scope, ...(since === undefined ? {} : { since }), ...(at.inner ? { page: at.inner } : {}) };
 		};
-		return livePage(watcher.id, query, LIST_WAIT_MS, (read, signal) => {
+		return livePage(watcher.id, query, ASSISTANT_WAITS.list, (read) => {
 			const decided = rules.get(watcher.id);
 			const shown: InboxItem[] = read.events.slice(at.skip).map((event) => {
 				const { title: _title, ...fields } = event.fields;
@@ -213,7 +216,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			const items = withinBytes(shown, MAX_LIST_BYTES);
 			const whole = items.length === shown.length;
 			const held = watcherState.get(watcher.id);
-			const moves = read.mark !== undefined && whole && !signal.aborted && read.mark > (held.mark ?? -1);
+			const moves = read.mark !== undefined && whole && read.mark > (held.mark ?? -1);
 			const unsaved = moves && !watcherState.put(watcher.id, { ...held, mark: read.mark });
 			const next = whole
 				? read.next === undefined
@@ -247,7 +250,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	const dispatch = createActionDispatch({
 		actions,
 		ambient,
-		act: (watcherId, work) => (lanes ? lanes.act(watcherId, work) : Promise.reject(new Error(NOT_HERE))),
+		write: (watcherId, deadlineMs, work) =>
+			lanes ? lanes.write(watcherId, deadlineMs, work) : Promise.reject(new Error(NOT_HERE)),
 		record: postRecord,
 	});
 	/** Owner ops one at a time, so a place never lands inside a release; none starts after shutdown. */
@@ -416,7 +420,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					await livePage(
 						watcherId,
 						() => ({ scope: "all" }),
-						PREVIEW_WAIT_MS,
+						ASSISTANT_WAITS.preview,
 						(page) => page.events,
 					)
 				)
