@@ -432,3 +432,7 @@ From the Phase 2 architecture round. No board item.
 **Tests:** a failed revocation write is not live; a retried admit after a failed write lands; an unlink answer carries its outcome; a refused board intent is reported.
 
 **Risks:** Router changes deploy before the Gateway; the phone change ships with the next phone build.
+
+## Painpoints
+
+- **A test keeps a dead Kotlin constant alive:** nothing on the phone reports an unused `const val`, and a cross-runtime test that names one counts as a use. `ChatRepository.LONG_POLL_HOLD_MS`, its held-read siblings in `ConsoleHttp`, and `ConsoleClientTypes.kt:BOARD_REFUSED_PREFIX` each outlived their last reader, guarded by tests on both runtimes, and only an audit found them. A Kotlin unused-symbol check (Lexicon's reference counts, or detekt's `UnusedPrivateMember` widened to internal) would surface the next one.
