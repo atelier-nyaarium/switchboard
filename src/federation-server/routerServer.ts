@@ -7,6 +7,7 @@ import packageJson from "../../package.json";
 import { resolveAdmitted, resolveAdmittedConsole, SignedRevocationSchema } from "../shared/admission.js";
 import type { Ambient, IntervalHandle } from "../shared/ambient.js";
 import { fingerprint } from "../shared/crypto.js";
+import type { EnrollResult } from "../shared/federation-enroll-ops.js";
 import type { EnrollOp } from "../shared/federation-lifecycle.js";
 import {
 	ROSTER_MAX_SKEW_MS,
@@ -24,6 +25,7 @@ import {
 } from "../shared/federation-proofs.js";
 import { FEDERATION_PROTOCOL_VERSION } from "../shared/router-protocol.js";
 import { BEARER_PREFIX, ROUTER_PATHS } from "../shared/wire-vocabulary.js";
+import type { WriteOutcome } from "../shared/write-result.js";
 import { type ConsoleSockets, createConsoleSockets } from "./console/consoleSockets.js";
 import { APP_TOKEN_HEADER, ConsoleSurface, type RouterReachAnswer } from "./consoleSurface.js";
 import { DeviceApprovalCoordinator } from "./deviceApprovalCoordinator.js";
@@ -188,9 +190,8 @@ export class RouterServer {
 				this.coordinatorFor(srcDomainId)?.hasLinkEdge(srcDomainId, dstDomainId) ?? false,
 			linkEdgeId: (srcDomainId, dstDomainId) =>
 				this.coordinatorFor(srcDomainId)?.linkEdgeId(srcDomainId, dstDomainId) ?? null,
-			dropLinkEdge: (srcDomainId, dstDomainId) => {
-				this.coordinatorFor(srcDomainId)?.dropLinkEdge(dstDomainId);
-			},
+			dropLinkEdge: async (srcDomainId, dstDomainId) =>
+				(await this.coordinatorFor(srcDomainId)?.dropLinkEdge(dstDomainId)) ?? "accepted",
 			leases: this.domain.leases,
 		});
 		this.console = new ConsoleSurface({
@@ -464,7 +465,7 @@ export class RouterServer {
 		return coordinator;
 	}
 
-	private async handleEnrollOp(op: EnrollOp): Promise<{ ok: boolean; error?: string }> {
+	private async handleEnrollOp(op: EnrollOp): Promise<EnrollResult> {
 		const route = resolveEnrollRoute(op, {
 			adminDomainId: this.params.store.adminDomainId(),
 			rootedDomainFor: (ownerSignPub) =>
@@ -476,29 +477,43 @@ export class RouterServer {
 		if (!domainId) return { ok: false, error: "admin Domain not rooted" };
 		const coordinator = this.coordinatorFor(domainId);
 		if (!coordinator) return { ok: false, error: "admin Domain unavailable" };
-		// Read before the revocation removes it.
+		// Capture edge before revoke.
 		const revokedEdgeId =
 			op.kind === "revoke_xdomain_link"
 				? coordinator.linkEdgeId(op.revocation.revocation.srcDomainId, op.revocation.revocation.dstDomainId)
 				: null;
-		const result = await dispatchEnrollOp(coordinator, op, this.tenantAdmin);
-		if (!result.ok) return result;
-		if (op.kind === "submit_revocation") {
-			this.quiesceRevoked(domainId, op.revocation.revocation.signPub);
-			this.bridge.evictSigner(domainId, op.revocation.revocation.signPub, "revoked");
+		let result: Awaited<ReturnType<typeof dispatchEnrollOp>>;
+		try {
+			const beforeRevocationCommit =
+				op.kind === "submit_revocation"
+					? () => {
+							this.quiesceRevoked(domainId, op.revocation.revocation.signPub);
+							this.bridge.evictSigner(domainId, op.revocation.revocation.signPub, "revoked");
+						}
+					: undefined;
+			result = await dispatchEnrollOp(coordinator, op, this.tenantAdmin, beforeRevocationCommit);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			return { ok: false, error: `persist failed: ${message}` };
 		}
+		if (!result.ok) return result;
+		let unlinkOutcome: WriteOutcome | undefined;
 		if (op.kind === "submit_admission" || op.kind === "submit_revocation") {
 			const failed = await this.flushOrError(domainId);
 			if (failed) return failed;
 			this.announceDomain(domainId);
 		} else if (op.kind === "submit_xdomain_link" || op.kind === "revoke_xdomain_link") {
-			// Persist link changes before acknowledging.
+			// Persist before acknowledgement.
 			const failed = await this.flushOrError(domainId);
 			if (failed) return failed;
 			const edge = op.kind === "submit_xdomain_link" ? op.edge.edge : op.revocation.revocation;
-			// A revoked edge takes its shares, so a relink starts private.
-			if (op.kind === "revoke_xdomain_link")
-				this.ownerServices.share.unlink(edge.srcDomainId, edge.dstDomainId, { id: revokedEdgeId });
+			// Revoked edges clear shares.
+			if (op.kind === "revoke_xdomain_link") {
+				const unlinked = await this.ownerServices.share.unlink(edge.srcDomainId, edge.dstDomainId, {
+					id: revokedEdgeId,
+				});
+				unlinkOutcome = unlinked.outcome;
+			}
 			this.ownerServices.presence.refresh(edge.srcDomainId);
 			this.ownerServices.presence.refresh(edge.dstDomainId);
 		} else if (op.kind === "set_display_name") {
@@ -518,7 +533,10 @@ export class RouterServer {
 			this.domain.ownerRegistry.evict(removed);
 			for (const dependent of dependents) this.ownerServices.presence.refresh(dependent);
 		}
-		return result;
+		return {
+			...result,
+			...(unlinkOutcome && unlinkOutcome !== "accepted" ? { outcome: unlinkOutcome } : {}),
+		};
 	}
 
 	private async handleGatewayRetire(
@@ -529,10 +547,21 @@ export class RouterServer {
 		if (!parsed.success) return { ok: false, error: "invalid self revocation" };
 		const coordinator = this.coordinatorFor(registered.domainId);
 		if (!coordinator) return { ok: false, error: "Domain unavailable" };
-		const error = coordinator.retire(parsed.data, registered);
+		let error: string | null;
+		try {
+			error = await coordinator.retire(parsed.data, registered, () =>
+				this.quiesceRevoked(registered.domainId, registered.signPub),
+			);
+		} catch (failure) {
+			const message = failure instanceof Error ? failure.message : String(failure);
+			this.params.ambient.setTimer(
+				() => this.bridge.evictSigner(registered.domainId, registered.signPub, "retired"),
+				0,
+			);
+			return { ok: false, error: `persist failed: ${message}` };
+		}
 		if (error) return { ok: false, error };
 		const { domainId, signPub } = registered;
-		this.quiesceRevoked(domainId, signPub);
 		const failed = await this.flushOrError(domainId);
 		// The answer rides this connection, so it leaves after it.
 		this.params.ambient.setTimer(() => this.bridge.evictSigner(domainId, signPub, "retired"), 0);
@@ -541,7 +570,7 @@ export class RouterServer {
 		return { ok: true };
 	}
 
-	/** Before the flush, so nothing more reaches a revoked key while it lands. */
+	/** Quiesce before persistence. */
 	private quiesceRevoked(domainId: string, signPub: string): void {
 		this.domain.inbox.forgetConsumer(domainId, signPub);
 		this.consoleSockets.forget(domainId, signPub);
@@ -581,13 +610,16 @@ export class RouterServer {
 		}
 		if (this.rosterNonces.has(req.nonce)) return opaque;
 		this.rosterNonces.set(req.nonce, req.proofAt);
-		const domains: RosterDomain[] = this.params.store.listDomains().map(({ domainId, state }) => ({
-			domainId,
-			ownerSignPub: state.ownerSignPub,
-			displayName: state.displayName ?? null,
-			admissions: state.admissions,
-			revocations: state.revocations,
-		}));
+		const domains: RosterDomain[] = this.params.store.listDomains().map(({ domainId, state }) => {
+			const snapshot = this.coordinatorFor(domainId)?.getDomainSnapshot();
+			return {
+				domainId,
+				ownerSignPub: snapshot?.ownerSignPub ?? state.ownerSignPub,
+				displayName: snapshot?.displayName ?? state.displayName ?? null,
+				admissions: snapshot?.admissions ?? state.admissions,
+				revocations: snapshot?.revocations ?? state.revocations,
+			};
+		});
 		return buildRoster(req.signerSignPub, domains, this.bridge.onlineDomainIds());
 	}
 

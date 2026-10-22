@@ -44,7 +44,11 @@ export const EnrollOpSchema = z
 
 /** The Router's reply to an enroll op. */
 export const EnrollResultSchema = z
-	.object({ ok: z.boolean(), error: z.string().optional() })
+	.object({
+		ok: z.boolean(),
+		error: z.string().optional(),
+		outcome: z.enum(["conflict", "durability_failure", "durability_uncertain"]).optional(),
+	})
 	.meta({ id: "EnrollResult" });
 
 export type EnrollOp = z.infer<typeof EnrollOpSchema>;

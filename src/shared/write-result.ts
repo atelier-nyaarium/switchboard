@@ -7,6 +7,13 @@ export type WriteResultLike =
 
 export type WriteOutcome = "accepted" | "conflict" | "durability_failure" | "durability_uncertain";
 
+export class PostRenameSyncError extends Error {
+	public constructor(cause: unknown) {
+		super("directory sync failed after rename", { cause });
+		this.name = "PostRenameSyncError";
+	}
+}
+
 export interface FoldedWrite {
 	/** In memory; not proof the line landed. */
 	applied: boolean;

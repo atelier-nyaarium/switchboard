@@ -1264,6 +1264,7 @@ sealed class EnrollOp {
 data class EnrollResult(
 	val ok: Boolean,
 	val error: String? = null,
+	val outcome: String? = null,
 )
 
 @Serializable

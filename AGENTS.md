@@ -662,6 +662,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/federation-server/ownerOpRegistry.ts` - the owner-op catalog: kind, value schema, mutation class, answer schema; sole kind list for the codegen and the fences
 - `src/federation-server/routerDomainBootstrap.ts` - what the Router constructor builds, assembled once
 - `src/federation-server/fileSecretStore.ts` - durable federation state and bounded atomic CAS
+  - **A Domain change publishes once written; a revocation denies at once:** the enrollment coordinator
+    commits a clone through `mutateDomain`, and holds pending revocations and edge removals in a deny
+    overlay that authorization reads. A failed write keeps the denial in this process, and a retry
+    writes again because its duplicate check reads committed state only.
 - `src/federation-server/owner/` - per-owner state layer: fsync'd journal, CAS records, per-address rows, quarantine, lock, Domain quota
 - `src/federation-server/inbox/` - inbox service, op ledger, consumer and session registries, gateway incarnation, OwnerOp intake
 - `src/federation-server/inbox/inboxAppend.ts` / `inboxRetire.ts` / `inboxSweep.ts` / `inboxOpResult.ts` / `inboxCore.ts` - row append and admission, row retirement, the expiry sweep, router-authored result rows, and shared primitives (`recordId`, `guarded`, `ledgerTransaction`, `ownerAddress`, `floorOf`) behind `InboxService`

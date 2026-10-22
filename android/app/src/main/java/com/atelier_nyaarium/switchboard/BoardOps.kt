@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import android.net.Uri
+import com.atelier_nyaarium.switchboard.board.BoardEnqueueResult
 import com.atelier_nyaarium.switchboard.board.BoardLiveLine
 import com.atelier_nyaarium.switchboard.board.BoardManager
 import com.atelier_nyaarium.switchboard.board.BoardRouterWriter
@@ -109,8 +110,11 @@ internal class BoardOps(
 
 	/** Queues an intent. */
 	private fun intend(vararg intents: BoardIntent) {
-		collaborators.board.enqueueWrite(intents.toList())
-		repoScope.launch { readRouterBoard() }
+		when (val result = collaborators.board.enqueueWrite(intents.toList())) {
+			is BoardEnqueueResult.Queued -> repoScope.launch { readRouterBoard() }
+			is BoardEnqueueResult.Refused ->
+				collaborators.board.noticeRefusal(result.entryId, result.reason)
+		}
 	}
 
 	/** Captures a root thought. */

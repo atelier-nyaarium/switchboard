@@ -4,6 +4,7 @@ import path from "node:path";
 import { sweepAtomicTemps, writeFileAtomic } from "../shared/atomic-write.js";
 import { generateIdentity, type Identity } from "../shared/crypto.js";
 import { createFifo } from "../shared/keyed-fifo.js";
+import { PostRenameSyncError } from "../shared/write-result.js";
 import { type CasBase, type CasMutation, MAX_WRITE_RETRIES, type WriteOutcome } from "./casEngine.js";
 import { DELETE_SLICE, type DomainMutation, type SecretMutation } from "./casMutation.js";
 import {
@@ -24,7 +25,14 @@ function versionOf(value: string): string {
 }
 
 function writeAtomic(file: string, value: string): void {
-	writeFileAtomic(file, value, { mode: 0o600, fsyncFile: true, fsyncDirectory: true });
+	writeFileAtomic(file, value, {
+		mode: 0o600,
+		fsyncFile: true,
+		fsyncDirectory: true,
+		onDirectorySyncError: (error) => {
+			throw new PostRenameSyncError(error);
+		},
+	});
 }
 
 class FileSecretIO implements SecretIO {
@@ -61,6 +69,7 @@ export class FileSecretStore {
 	private resourceVersion: string | null = null;
 	private readonly writes = createFifo();
 	private pendingWrites = new Map<string, Promise<WriteOutcome>>();
+	private readonly rewriteDomains = new Set<string>();
 	private readonly io: SecretIO;
 
 	public constructor(dataDir: string, io?: SecretIO) {
@@ -93,15 +102,20 @@ export class FileSecretStore {
 	}
 
 	public domainStore(domainId: string): EnrollmentStore {
-		return { load: () => this.loadDomain(domainId), save: (state) => this.saveDomain(domainId, state) };
+		return {
+			load: () => this.loadDomain(domainId),
+			save: (state) => this.saveDomain(domainId, state),
+			mutateDomain: (mutator) => this.mutateDomain(domainId, mutator),
+		};
 	}
 
 	public loadDomain(domainId: string): EnrollmentState | null {
-		return this.domains[domainId] ?? null;
+		const state = this.domains[domainId];
+		return state ? structuredClone(state) : null;
 	}
 
 	public listDomains(): Array<{ domainId: string; state: EnrollmentState }> {
-		return Object.entries(this.domains).map(([domainId, state]) => ({ domainId, state }));
+		return Object.entries(this.domains).map(([domainId, state]) => ({ domainId, state: structuredClone(state) }));
 	}
 
 	public saveDomain(domainId: string, state: EnrollmentState): void {
@@ -149,7 +163,17 @@ export class FileSecretStore {
 		mutator: (current: EnrollmentState | null) => DomainMutation<T>,
 	): Promise<T> {
 		if (!this.identity) throw new Error("federation store not initialized");
-		return this.writes.run(() => this.runMutateDomain(domainId, mutator));
+		const mutation = this.writes.run(() => this.runMutateDomain(domainId, mutator));
+		const outcome = mutation
+			.then<WriteOutcome>(() => ({ ok: true }))
+			.catch(
+				(error): WriteOutcome => ({
+					ok: false,
+					error: error instanceof Error ? error : new Error(String(error)),
+				}),
+			);
+		this.pendingWrites.set(domainId, outcome);
+		return mutation;
 	}
 
 	public async mutateSecret<T>(
@@ -162,7 +186,11 @@ export class FileSecretStore {
 		return this.writes.run(() => this.runMutateSecret(mutator));
 	}
 
-	private async runCas<T>(mutator: (base: CasBase) => CasMutation<T>, label: string): Promise<T> {
+	private async runCas<T>(
+		mutator: (base: CasBase) => CasMutation<T>,
+		label: string,
+		rewriteDomainId?: string,
+	): Promise<T> {
 		if (!this.identity) throw new Error("federation store not initialized");
 		for (let attempt = 0; attempt < MAX_WRITE_RETRIES; attempt++) {
 			const fresh = await this.io.read();
@@ -194,42 +222,56 @@ export class FileSecretStore {
 				);
 			} catch (error) {
 				if (error instanceof ConflictError && attempt < MAX_WRITE_RETRIES - 1) continue;
+				if (rewriteDomainId && error instanceof PostRenameSyncError) this.rewriteDomains.add(rewriteDomainId);
 				throw error;
 			}
 			this.identity = base.identity ?? this.identity;
 			this.domains = enrollment;
 			this.seenAdminNonces = seenAdminNonces;
 			this.resourceVersion = null;
+			if (rewriteDomainId) this.rewriteDomains.delete(rewriteDomainId);
 			return decision.value;
 		}
 		throw new ConflictError(`exhausted write retries for ${label}`);
 	}
 
 	private persistDomain(domainId: string, state: EnrollmentState): Promise<void> {
-		return this.runCas((base) => {
-			const next = structuredClone(state);
-			if (base.enrollment[domainId]?.isAdminDomain && next.isAdminDomain === undefined) next.isAdminDomain = true;
-			return {
-				commit: true,
-				enrollment: { ...base.enrollment, [domainId]: next },
-				seenAdminNonces: base.seenAdminNonces,
-				value: undefined,
-			};
-		}, `domain "${domainId}"`);
+		return this.runCas(
+			(base) => {
+				const next = structuredClone(state);
+				if (base.enrollment[domainId]?.isAdminDomain && next.isAdminDomain === undefined)
+					next.isAdminDomain = true;
+				return {
+					commit: true,
+					enrollment: { ...base.enrollment, [domainId]: next },
+					seenAdminNonces: base.seenAdminNonces,
+					value: undefined,
+				};
+			},
+			`domain "${domainId}"`,
+			domainId,
+		);
 	}
 
 	private runMutateDomain<T>(
 		domainId: string,
 		mutator: (current: EnrollmentState | null) => DomainMutation<T>,
 	): Promise<T> {
-		return this.runCas((base) => {
-			const decision = mutator(base.enrollment[domainId] ?? null);
-			if (!decision.commit) return { commit: false, value: decision.value };
-			const enrollment = { ...base.enrollment };
-			if (decision.next === DELETE_SLICE) delete enrollment[domainId];
-			else enrollment[domainId] = structuredClone(decision.next);
-			return { commit: true, enrollment, seenAdminNonces: base.seenAdminNonces, value: decision.value };
-		}, `domain "${domainId}"`);
+		return this.runCas(
+			(base) => {
+				const decision = mutator(base.enrollment[domainId] ?? null);
+				if (!decision.commit && !this.rewriteDomains.has(domainId))
+					return { commit: false, value: decision.value };
+				const enrollment = { ...base.enrollment };
+				if (decision.commit) {
+					if (decision.next === DELETE_SLICE) delete enrollment[domainId];
+					else enrollment[domainId] = structuredClone(decision.next);
+				}
+				return { commit: true, enrollment, seenAdminNonces: base.seenAdminNonces, value: decision.value };
+			},
+			`domain "${domainId}"`,
+			domainId,
+		);
 	}
 
 	private runMutateSecret<T>(

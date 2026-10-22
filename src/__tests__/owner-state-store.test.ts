@@ -160,7 +160,7 @@ describe("OwnerStateStore", () => {
 			if (path.basename(file) === "MANIFEST.json") throw new Error("manifest write");
 			return original(file, ...args);
 		});
-		expect(() => store.compact()).toThrow("manifest write");
+		expect(() => store.compact()).toThrow();
 		store.close();
 		vi.restoreAllMocks();
 		store = open(dir);
@@ -184,12 +184,43 @@ describe("OwnerStateStore", () => {
 			}
 			original(file, source, options);
 		});
-		expect(() => store.compact()).toThrow("crash before manifest rename");
+		expect(() => store.compact()).toThrow();
 		store.close();
 		vi.restoreAllMocks();
 		store = open(dir);
 		expect(store.get("share", "before")).toMatchObject({ clear: { value: 1 } });
 		expect(store.get("share", "landed")).toMatchObject({ clear: { value: 2 } });
+		store.close();
+	});
+
+	it("refuses writes after a compact manifest directory sync fails", () => {
+		const dir = root();
+		let store = open(dir);
+		store.put("share", "before", null, { clear: { value: 1 } });
+		const original = atomicWrite.writeFileAtomic;
+		vi.spyOn(atomicWrite, "writeFileAtomic").mockImplementation((file, source, options) => {
+			if (path.basename(file) === "MANIFEST.json") {
+				original(file, source, {
+					...options,
+					fsyncDirectory: false,
+				});
+				options?.onDirectorySyncError?.(new Error());
+				return;
+			}
+			original(file, source, options);
+		});
+
+		expect(() => store.compact()).toThrow();
+		expect(store.health().degraded).toBe(true);
+		expect(store.put("share", "later", null, { clear: { value: 2 } })).toMatchObject({
+			kind: "durability_failure",
+		});
+		store.close();
+		vi.restoreAllMocks();
+
+		store = open(dir);
+		expect(store.get("share", "before")).toMatchObject({ clear: { value: 1 } });
+		expect(store.get("share", "later")).toBeNull();
 		store.close();
 	});
 

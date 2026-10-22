@@ -45,7 +45,10 @@ export interface ShareServiceDeps {
 	hasSession: (domainId: string, gatewayId: string, sessionId: string) => boolean;
 	isLinked: (domainId: string, friendDomainId: string) => boolean;
 	linkEdgeId?: (domainId: string, friendDomainId: string) => string | null;
-	dropLinkEdge: (domainId: string, friendDomainId: string) => void;
+	dropLinkEdge: (
+		domainId: string,
+		friendDomainId: string,
+	) => undefined | WriteOutcome | Promise<undefined | WriteOutcome>;
 	retireRevokedPeerRows: (domainId: string, sessionTarget: string, friendDomainId: string) => void;
 	retireRevokedPeerRowsInBatch?: (
 		store: OwnerStateStore,
@@ -82,7 +85,7 @@ export interface ShareService {
 		domainId: string,
 		friendDomainId: string,
 		edge?: { id: string | null },
-	): { peersRemoved: number; sharesDropped: number; jobsExpired: number; outcome?: WriteOutcome };
+	): Promise<{ peersRemoved: number; sharesDropped: number; jobsExpired: number; outcome?: WriteOutcome }>;
 	register(hooks: OwnerServiceHooks): void;
 }
 
@@ -93,6 +96,19 @@ function state(records: ShareRecord[], unlinkedDomains: UnlinkedDomainMark[] = [
 /** `ok` means landed; an uncertain write answers retryable. */
 function answerOf(written: ReturnType<typeof foldWriteResult>): { ok: boolean; outcome?: WriteOutcome } {
 	return written.outcome === "accepted" ? { ok: true } : { ok: false, outcome: written.outcome };
+}
+
+export function combinedOutcome(...values: Array<WriteOutcome | undefined>): WriteOutcome | undefined {
+	if (values.includes("durability_uncertain")) return "durability_uncertain";
+	const rank: Record<WriteOutcome, number> = {
+		accepted: 0,
+		durability_uncertain: 1,
+		durability_failure: 2,
+		conflict: 3,
+	};
+	return values
+		.filter((value): value is WriteOutcome => value !== undefined && value !== "accepted")
+		.sort((left, right) => rank[right] - rank[left])[0];
 }
 
 /** The owner's session, reported by its Gateway. */
@@ -361,7 +377,7 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 			return result.removed;
 		},
 		// Tear down linked friends; unlinked names only drop stale explicit shares.
-		unlink(domainId, friendDomainId, edge) {
+		async unlink(domainId, friendDomainId, edge) {
 			const before = records(domainId);
 			const isCurrentlyLinked = edge ? edge.id !== null : deps.isLinked(domainId, friendDomainId);
 			const edgeId = edge ? edge.id : deps.linkEdgeId?.(domainId, friendDomainId);
@@ -390,8 +406,21 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 			if (!deps.retireRevokedPeerRowsInBatch)
 				for (const sessionTarget of affected)
 					deps.retireRevokedPeerRows(domainId, sessionTarget, friendDomainId);
-			if (!isCurrentlyLinked) return { peersRemoved: 0, sharesDropped: dropped.removed, jobsExpired: 0 };
-			deps.dropLinkEdge(domainId, friendDomainId);
+			if (!isCurrentlyLinked) {
+				const outcome = combinedOutcome(written.outcome);
+				return {
+					peersRemoved: 0,
+					sharesDropped: dropped.removed,
+					jobsExpired: 0,
+					...(outcome ? { outcome } : {}),
+				};
+			}
+			let dropOutcome: undefined | WriteOutcome;
+			try {
+				dropOutcome = await deps.dropLinkEdge(domainId, friendDomainId);
+			} catch {
+				dropOutcome = "durability_failure";
+			}
 			deps.onChanged([domainId, friendDomainId]);
 			if (registeredHooks) {
 				const localFrame = { type: "unlink", domainId: friendDomainId };
@@ -401,10 +430,12 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 				for (const gatewayId of deps.connectedGateways(friendDomainId))
 					registeredHooks.pushFrameTo(friendDomainId, gatewayId, friendFrame);
 			}
+			const outcome = combinedOutcome(written.outcome, dropOutcome);
 			return {
 				peersRemoved: deps.connectedGateways(friendDomainId).length,
 				sharesDropped: dropped.removed,
 				jobsExpired: 0,
+				...(outcome ? { outcome } : {}),
 			};
 		},
 		register(hooks) {

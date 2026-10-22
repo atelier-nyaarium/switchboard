@@ -4,6 +4,8 @@ import android.net.Uri
 import com.atelier_nyaarium.switchboard.board.BoardManager
 import com.atelier_nyaarium.switchboard.board.BoardRouterWriter
 import com.atelier_nyaarium.switchboard.board.BoardSealing
+import com.atelier_nyaarium.switchboard.board.BoardStore
+import com.atelier_nyaarium.switchboard.board.PendingWrite
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,10 +15,17 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class BoardOpsTest {
-	private class FakeBoardStore : com.atelier_nyaarium.switchboard.board.BoardStore {
+	private class FakeBoardStore : BoardStore {
 		var board: String? = null
+		var failNextSave = false
 		override fun loadTaskBoard() = board
-		override fun saveTaskBoard(json: String) { board = json }
+		override fun saveTaskBoard(json: String) {
+			if (failNextSave) {
+				failNextSave = false
+				error("write failed")
+			}
+			board = json
+		}
 	}
 
 	private class FakeCollaborators(store: FakeBoardStore) : BoardOpsCollaborators {
@@ -42,5 +51,18 @@ class BoardOpsTest {
 		assertEquals(listOf("first", "second"), entries.map { it.title })
 		assertEquals(listOf(null, "why"), entries.map { it.body })
 		assertEquals(listOf("open", "open"), entries.map { it.state })
+	}
+
+	@Test
+	fun refusedIntentIsShownAndNotQueued() {
+		val store = FakeBoardStore().also { it.failNextSave = true }
+		val collaborators = FakeCollaborators(store)
+		val ops = BoardOps(MutableStateFlow(ChatState()), CoroutineScope(Dispatchers.Unconfined), File("/tmp/board-ops"), collaborators)
+
+		ops.boardCapture("refused", null)
+
+		assertEquals(emptyList<PendingWrite>(), collaborators.board.pendingWrites())
+		assertEquals(emptyList<String>(), ops.boardEntries().map { it.title })
+		assertEquals("durability_failure", ops.boardRefusals.single().reason)
 	}
 }

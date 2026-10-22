@@ -23,9 +23,16 @@ import org.junit.Test
 
 class BoardOptimisticTest {
 	private class FakeStore(private var blob: String? = null) : BoardStore {
+		var failNextSave = false
+		var failSaves = false
+
 		override fun loadTaskBoard(): String? = blob
 
 		override fun saveTaskBoard(json: String) {
+			if (failSaves || failNextSave) {
+				failNextSave = false
+				error("write failed")
+			}
 			blob = json
 		}
 
@@ -175,29 +182,75 @@ class BoardOptimisticTest {
 		val board = board()
 		val intents = listOf(BoardIntent.Create("id", "title", state = "open", rank = "m"))
 
-		assertEquals("op", board.enqueueWrite(intents, "op"))
+		assertEquals(BoardEnqueueResult.Queued("op"), board.enqueueWrite(intents, "op"))
 		assertEquals(listOf(PendingWrite("op", intents)), board.pendingWrites())
+	}
+
+	@Test
+	fun enqueueWithoutIntentsRefusesWithoutReturningAnOpId() {
+		val board = board()
+
+		assertEquals(BoardEnqueueResult.Refused(null, "no_write_queued"), board.enqueueWrite(emptyList(), "op"))
+		assertTrue(board.pendingWrites().isEmpty())
+	}
+
+	@Test
+	fun failedEnqueueAnswersRefusalWithoutQueueing() {
+		val store = FakeStore().also { it.failNextSave = true }
+		val board = BoardManager(store)
+		val intent = BoardIntent.Create("id", "title", state = "open", rank = "m")
+
+		assertEquals(BoardEnqueueResult.Refused("id", "durability_failure"), board.enqueueWrite(listOf(intent), "op"))
+		assertTrue(board.pendingWrites().isEmpty())
+		assertTrue(BoardManager(store).pendingWrites().isEmpty())
+	}
+
+	@Test
+	fun failedIntentRemainsVisibleWhileTheStoreKeepsFailing() {
+		val board = BoardManager(FakeStore().also { it.failSaves = true })
+		val intent = BoardIntent.Create("id", "title", state = "open", rank = "m")
+		val refused = board.enqueueWrite(listOf(intent), "op") as BoardEnqueueResult.Refused
+
+		board.noticeRefusal(refused.entryId, refused.reason)
+
+		assertEquals(1, board.refusals.size)
+		assertEquals("id", board.refusals.single().entryId)
+	}
+
+	@Test
+	fun failedSubtreeAssignmentRefusalNamesItsRoot() {
+		val board = BoardManager(FakeStore().also { it.failSaves = true })
+		val intents = listOf(
+			BoardIntent.SetSession("root", null),
+			BoardIntent.SetSession("child", null),
+		)
+
+		val refused = board.enqueueWrite(intents, "op") as BoardEnqueueResult.Refused
+
+		assertEquals("root", refused.entryId)
 	}
 
 	@Test
 	fun settleWriteLandsBoardAndRetiresOnlyItsWrite() {
 		val board = board()
-		board.enqueueWrite(emptyList(), "first")
-		board.enqueueWrite(emptyList(), "second")
+		val first = BoardIntent.Create("first", "first", state = "open", rank = "a")
+		val second = BoardIntent.Create("second", "second", state = "open", rank = "b")
+		enqueue(board, first, "first")
+		enqueue(board, second, "second")
 		val result = stored("id", title("id", "title"))
 
 		board.settleWrite("first", 8L, listOf(result))
 
 		assertEquals(8L, board.routerRevision)
 		assertEquals(result, board.storedById().getValue("id"))
-		assertEquals(listOf(PendingWrite("second", emptyList())), board.pendingWrites())
+		assertEquals(listOf(PendingWrite("second", listOf(second))), board.pendingWrites())
 	}
 
 	@Test
 	fun lowerSettlementRevisionDoesNotMoveBoardBackwards() {
 		val original = stored("id", title("id", "original"))
 		val board = board(original, 5L)
-		board.enqueueWrite(emptyList(), "op")
+		enqueue(board, BoardIntent.Create("new", "new", state = "open", rank = "z"), "op")
 		val older = stored("id", title("id", "older"))
 
 		board.settleWrite("op", 4L, listOf(older))
@@ -210,19 +263,20 @@ class BoardOptimisticTest {
 	@Test
 	fun failWriteIncrementsAttemptsWithoutDroppingWrite() {
 		val board = board()
-		board.enqueueWrite(emptyList(), "op")
+		val intent = BoardIntent.Create("new", "new", state = "open", rank = "z")
+		enqueue(board, intent, "op")
 
 		board.failWrite("op")
 
-		assertEquals(PendingWrite("op", emptyList(), 1), board.pendingWrites().single())
+		assertEquals(PendingWrite("op", listOf(intent), 1), board.pendingWrites().single())
 	}
 
 	@Test
 	fun drainSendsOldestFirstAndStopsAtUnreachableWrite() = runBlocking {
 		val board = board()
-		board.enqueueWrite(listOf(BoardIntent.Create("one", "one", state = "open", rank = "a")), "one")
-		board.enqueueWrite(listOf(BoardIntent.Create("two", "two", state = "open", rank = "b")), "two")
-		board.enqueueWrite(listOf(BoardIntent.Create("three", "three", state = "open", rank = "c")), "three")
+		enqueue(board, BoardIntent.Create("one", "one", state = "open", rank = "a"), "one")
+		enqueue(board, BoardIntent.Create("two", "two", state = "open", rank = "b"), "two")
+		enqueue(board, BoardIntent.Create("three", "three", state = "open", rank = "c"), "three")
 		val posts = mutableListOf<String>()
 		val writer = writer(board, ArrayDeque(listOf(BoardWriteResult("applied", 1L, emptyList()))), posts) { _, opId ->
 			posts += opId
@@ -239,7 +293,7 @@ class BoardOptimisticTest {
 	@Test
 	fun drainRetiresEmptyWriteWithoutPosting() = runBlocking {
 		val board = board()
-		board.enqueueWrite(listOf(BoardIntent.SetTitle("missing", "title")), "op")
+		enqueue(board, BoardIntent.SetTitle("missing", "title"), "op")
 		val posts = mutableListOf<String>()
 		val writer = writer(board, posts = posts) { _, _ -> error("must not post") }
 
@@ -266,4 +320,8 @@ class BoardOptimisticTest {
 	}
 
 	private fun pending(intent: BoardIntent) = listOf(PendingWrite("op", listOf(intent)))
+
+	private fun enqueue(board: BoardManager, intent: BoardIntent, opId: String) {
+		assertEquals(BoardEnqueueResult.Queued(opId), board.enqueueWrite(listOf(intent), opId))
+	}
 }

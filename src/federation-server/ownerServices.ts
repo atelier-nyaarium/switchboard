@@ -9,6 +9,7 @@ import {
 	type PlaneLineage,
 	signRowEnvelope,
 } from "../shared/schemasInbox.js";
+import type { WriteOutcome } from "../shared/write-result.js";
 import { createBlobService } from "./blobs/blobService.js";
 import type { ReferenceHeldStore } from "./blobs/referenceHeldStore.js";
 import { createBoardService } from "./board/boardService.js";
@@ -40,7 +41,10 @@ export interface OwnerServicesDeps {
 	adminDomainId: () => string | null;
 	hasLinkEdge: (srcDomainId: string, dstDomainId: string) => boolean;
 	linkEdgeId: (srcDomainId: string, dstDomainId: string) => string | null;
-	dropLinkEdge: (srcDomainId: string, dstDomainId: string) => void;
+	dropLinkEdge: (
+		srcDomainId: string,
+		dstDomainId: string,
+	) => undefined | WriteOutcome | Promise<undefined | WriteOutcome>;
 	/** Owner rows await reads. */
 	consoleSockets?: Pick<ConsoleSockets, "pushOwnerRow" | "pushPlane" | "forget" | "readPlanes">;
 	leases?: ReturnType<typeof createLeaseService>;

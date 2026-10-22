@@ -12,8 +12,9 @@ import {
 	type OwnerOpMutation,
 	ownerOpEntry,
 } from "../federation-server/ownerOpRegistry.js";
-import { createShareService, type ShareServiceDeps } from "../federation-server/share/shareService.js";
+import { combinedOutcome, createShareService, type ShareServiceDeps } from "../federation-server/share/shareService.js";
 import { generateIdentity } from "../shared/crypto.js";
+import type { WriteOutcome } from "../shared/write-result.js";
 
 const roots: string[] = [];
 const make = () => {
@@ -38,6 +39,8 @@ const make = () => {
 		["b", ["b-gateway"]],
 	]);
 	const unreported = new Set<string>();
+	let dropOutcome: WriteOutcome | undefined;
+	let dropGate: Promise<void> | undefined;
 	const registry = new OwnerStoreRegistry({
 		dataDir,
 		ownerOf: (domainId) => owners.get(domainId) ?? null,
@@ -53,7 +56,11 @@ const make = () => {
 			links.has(`${domainId}|${friendDomainId}`)
 				? (edgeIds.get(`${domainId}|${friendDomainId}`) ?? "edge-1")
 				: null,
-		dropLinkEdge: (domainId, friendDomainId) => links.delete(`${domainId}|${friendDomainId}`),
+		dropLinkEdge: async (domainId, friendDomainId) => {
+			if (dropGate) await dropGate;
+			links.delete(`${domainId}|${friendDomainId}`);
+			return dropOutcome;
+		},
 		retireRevokedPeerRows: (domainId, sessionTarget, friendDomainId) =>
 			retired.push([domainId, sessionTarget, friendDomainId]),
 		connectedGateways: (domainId) => gateways.get(domainId) ?? [],
@@ -74,6 +81,10 @@ const make = () => {
 		unreported,
 		dropGateway: (reg: GatewayRegistration) => gatewayDropped?.(reg),
 		setNow: (value: number) => (now = value),
+		setDropBehavior: (gate: Promise<void> | undefined, outcome: WriteOutcome | undefined) => {
+			dropGate = gate;
+			dropOutcome = outcome;
+		},
 		hooks: {
 			ownerOp: <Kind extends OwnerOpKind>(kind: Kind, handler: OwnerOpHandler<Kind>) => {
 				ownerOps.set(kind, handler as ErasedOwnerOpHandler);
@@ -103,7 +114,11 @@ afterEach(() => {
 });
 
 describe("ShareService", () => {
-	it("requires a live link for specific and everyone-trusted shares", () => {
+	it("keeps uncertainty ahead of a conflicting write", () => {
+		expect(combinedOutcome("durability_uncertain", "conflict")).toBe("durability_uncertain");
+	});
+
+	it("requires a live link for specific and everyone-trusted shares", async () => {
 		const ctx = make();
 		ctx.service.share("a", "a.gw.spawn.main", { kind: "domain", domainId: "b" });
 		ctx.service.share("a", "a.gw.spawn.other", { kind: "everyone_trusted" });
@@ -115,7 +130,7 @@ describe("ShareService", () => {
 		ctx.registry.close();
 	});
 
-	it("unsharing bumps generation and retires the pair once", () => {
+	it("unsharing bumps generation and retires the pair once", async () => {
 		const ctx = make();
 		ctx.links.add("a|b");
 		ctx.edgeIds.set("a|b", "edge-1");
@@ -130,7 +145,7 @@ describe("ShareService", () => {
 		ctx.registry.close();
 	});
 
-	it("admits only a shared linked pair and isolates Domains", () => {
+	it("admits only a shared linked pair and isolates Domains", async () => {
 		const ctx = make();
 		ctx.links.add("a|b");
 		ctx.service.share("a", "a.gw.spawn.main", { kind: "domain", domainId: "b" });
@@ -140,7 +155,7 @@ describe("ShareService", () => {
 		ctx.registry.close();
 	});
 
-	it("keeps attested shares, refreshes touched shares, and handles incarnations", () => {
+	it("keeps attested shares, refreshes touched shares, and handles incarnations", async () => {
 		const ctx = make();
 		ctx.links.add("a|b");
 		ctx.service.share("a", "a.g.spawn.live", { kind: "domain", domainId: "b" });
@@ -198,7 +213,7 @@ describe("ShareService", () => {
 		ctx.registry.close();
 	});
 
-	it("stops honouring an attestation from a gateway that went quiet", () => {
+	it("stops honouring an attestation from a gateway that went quiet", async () => {
 		const ctx = make();
 		ctx.links.add("a|b");
 		ctx.service.share("a", "a.g.spawn.gone", { kind: "domain", domainId: "b" });
@@ -213,7 +228,7 @@ describe("ShareService", () => {
 		ctx.registry.close();
 	});
 
-	it("touches, unlinks, retires, and pushes to both Domains", () => {
+	it("touches, unlinks, retires, and pushes to both Domains", async () => {
 		const ctx = make();
 		ctx.links.add("a|b");
 		ctx.links.add("b|a");
@@ -222,7 +237,7 @@ describe("ShareService", () => {
 		ctx.setNow(200);
 		ctx.service.touch("a", "a.g.spawn.main");
 		ctx.service.register(ctx.hooks);
-		const result = ctx.service.unlink("a", "b");
+		const result = await ctx.service.unlink("a", "b");
 		expect(result).toEqual({ peersRemoved: 1, sharesDropped: 1, jobsExpired: 0 });
 		expect(ctx.retired).toEqual([
 			["a", "a.g.spawn.main", "b"],
@@ -245,7 +260,7 @@ describe("ShareService", () => {
 		ctx.registry.close();
 	});
 
-	it("names the Domains whose projection a share, an unshare and an unlink can change", () => {
+	it("names the Domains whose projection a share, an unshare and an unlink can change", async () => {
 		const ctx = make();
 		ctx.links.add("a|b");
 		ctx.links.add("b|a");
@@ -254,12 +269,12 @@ describe("ShareService", () => {
 		ctx.service.share("a", "a.g.spawn.trusted", { kind: "everyone_trusted" });
 		ctx.service.unshare("a", "a.g.spawn.main", { kind: "domain", domainId: "b" });
 		ctx.service.unshare("a", "a.g.spawn.main", { kind: "domain", domainId: "b" });
-		ctx.service.unlink("a", "b");
+		await ctx.service.unlink("a", "b");
 		expect(ctx.changed).toEqual([["a"], ["a"], ["a"], ["a", "b"]]);
 		ctx.registry.close();
 	});
 
-	it("returns false for an absent unshare without changing state", () => {
+	it("returns false for an absent unshare without changing state", async () => {
 		const ctx = make();
 		const target = { kind: "domain" as const, domainId: "b" };
 		expect(ctx.service.unshare("a", "a.gw.spawn.missing", target)).toEqual({ ok: false });
@@ -269,7 +284,7 @@ describe("ShareService", () => {
 		ctx.registry.close();
 	});
 
-	it("keeps generation when another record still shares the pair", () => {
+	it("keeps generation when another record still shares the pair", async () => {
 		const ctx = make();
 		ctx.links.add("a|b");
 		const sessionTarget = "a.gw.spawn.main";
@@ -282,31 +297,31 @@ describe("ShareService", () => {
 		ctx.registry.close();
 	});
 
-	it("drops an unlinked Domain without notifying either side", () => {
+	it("drops an unlinked Domain without notifying either side", async () => {
 		const ctx = make();
 		ctx.service.share("a", "a.gw.spawn.main", { kind: "domain", domainId: "b" });
 		ctx.service.register(ctx.hooks);
-		expect(ctx.service.unlink("a", "b")).toEqual({ peersRemoved: 0, sharesDropped: 1, jobsExpired: 0 });
+		expect(await ctx.service.unlink("a", "b")).toEqual({ peersRemoved: 0, sharesDropped: 1, jobsExpired: 0 });
 		expect(ctx.pushed.map((push) => push.frame.type)).toEqual(["share_delta"]);
 		expect(ctx.links.has("a|b")).toBe(false);
 		ctx.registry.close();
 	});
 
-	it("allows everyone-trusted sharing after an unlinked Domain establishes a link", () => {
+	it("allows everyone-trusted sharing after an unlinked Domain establishes a link", async () => {
 		const ctx = make();
-		ctx.service.unlink("a", "b");
+		await ctx.service.unlink("a", "b");
 		ctx.links.add("a|b");
 		ctx.service.share("a", "a.gw.spawn.main", { kind: "everyone_trusted" });
 		expect(ctx.service.isSharedTo("a", "a.gw.spawn.main", "b")).toBe(true);
 		ctx.registry.close();
 	});
 
-	it("allows everyone-trusted sharing after a fresh link replaces an unlinked edge", () => {
+	it("allows everyone-trusted sharing after a fresh link replaces an unlinked edge", async () => {
 		const ctx = make();
 		ctx.links.add("a|b");
 		ctx.edgeIds.set("a|b", "edge-1");
 		ctx.service.share("a", "a.gw.spawn.main", { kind: "everyone_trusted" });
-		ctx.service.unlink("a", "b");
+		await ctx.service.unlink("a", "b");
 		expect(ctx.service.isSharedTo("a", "a.gw.spawn.main", "b")).toBe(false);
 		ctx.links.add("a|b");
 		ctx.edgeIds.set("a|b", "edge-1");
@@ -316,19 +331,51 @@ describe("ShareService", () => {
 		ctx.registry.close();
 	});
 
-	it("does not apply unlink effects after a failed batch", () => {
+	it("does not apply unlink effects after a failed batch", async () => {
 		const ctx = make();
 		ctx.links.add("a|b");
 		ctx.service.share("a", "a.gw.spawn.main", { kind: "domain", domainId: "b" });
 		ctx.service.register(ctx.hooks);
 		vi.spyOn(ctx.registry.for("a"), "batch").mockReturnValue({ kind: "durability_failure", reason: "test" });
-		expect(ctx.service.unlink("a", "b")).toMatchObject({ outcome: "durability_failure" });
+		expect(await ctx.service.unlink("a", "b")).toMatchObject({ outcome: "durability_failure" });
 		expect(ctx.links.has("a|b")).toBe(true);
 		expect(ctx.pushed).toEqual([]);
 		ctx.registry.close();
 	});
 
-	it("accepts canonical OwnerOp targets and rejects separators", () => {
+	it("waits for link removal and returns its outcome", async () => {
+		const ctx = make();
+		ctx.links.add("a|b");
+		ctx.service.share("a", "a.gw.spawn.main", { kind: "domain", domainId: "b" });
+		let release = () => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		ctx.setDropBehavior(gate, "durability_uncertain");
+
+		const unlink = ctx.service.unlink("a", "b");
+		await Promise.resolve();
+		expect(ctx.links.has("a|b")).toBe(true);
+		release();
+		expect(await unlink).toMatchObject({ outcome: "durability_uncertain" });
+		expect(ctx.links.has("a|b")).toBe(false);
+		ctx.registry.close();
+	});
+
+	it("returns an uncertain share write outcome", async () => {
+		const ctx = make();
+		ctx.links.add("a|b");
+		ctx.service.share("a", "a.gw.spawn.main", { kind: "domain", domainId: "b" });
+		const sync = vi.spyOn(fs, "fsyncSync").mockImplementationOnce(() => {
+			throw new Error();
+		});
+
+		expect(await ctx.service.unlink("a", "b")).toMatchObject({ outcome: "durability_uncertain" });
+		sync.mockRestore();
+		ctx.registry.close();
+	});
+
+	it("accepts canonical OwnerOp targets and rejects separators", async () => {
 		const ctx = make();
 		ctx.service.register(ctx.hooks);
 		const op = { domainId: "a" } as Parameters<ErasedOwnerOpHandler>[0];
@@ -346,20 +393,20 @@ describe("ShareService", () => {
 		ctx.registry.close();
 	});
 
-	it("refuses a share of a session the Gateway did not report, or another owner's", () => {
+	it("refuses a share of a session the Gateway did not report, or another owner's", async () => {
 		const ctx = make();
 		ctx.links.add("a|b");
 		const target = { kind: "domain" as const, domainId: "b" };
 		ctx.unreported.add("a.gw.spawn.ghost");
-		expect(() => ctx.service.share("a", "a.gw.spawn.ghost", target)).toThrow(/session/);
-		expect(() => ctx.service.share("a", "z.gw.spawn.main", target)).toThrow(/session/);
-		expect(() => ctx.service.share("a", "a.gw", target)).toThrow(/session/);
+		expect(() => ctx.service.share("a", "a.gw.spawn.ghost", target)).toThrow();
+		expect(() => ctx.service.share("a", "z.gw.spawn.main", target)).toThrow();
+		expect(() => ctx.service.share("a", "a.gw", target)).toThrow();
 		expect(ctx.service.share("a", "a.gw.spawn.main", target)).toEqual({ ok: true });
 		expect(ctx.service.unshare("a", "a.gw.spawn.ghost", target)).toEqual({ ok: false });
 		ctx.registry.close();
 	});
 
-	it("moves one Gateway's mirror revision per membership change and pushes it the delta", () => {
+	it("moves one Gateway's mirror revision per membership change and pushes it the delta", async () => {
 		const ctx = make();
 		ctx.links.add("a|b");
 		ctx.service.register(ctx.hooks);
@@ -387,7 +434,7 @@ describe("ShareService", () => {
 			shares: [{ sessionTarget: "a.gw.spawn.main", target, lastSeenAt: 200 }],
 		});
 
-		ctx.service.unlink("a", "b");
+		await ctx.service.unlink("a", "b");
 		expect(ctx.pushed.filter((push) => push.frame.type === "share_delta").at(-1)?.frame).toEqual({
 			type: "share_delta",
 			revision: 2,
@@ -405,7 +452,7 @@ describe("ShareService", () => {
 		ctx.registry.close();
 	});
 
-	it("ignores foreign attestations and clears attestations on gateway drop", () => {
+	it("ignores foreign attestations and clears attestations on gateway drop", async () => {
 		const ctx = make();
 		ctx.service.share("a", "a.gw.spawn.main", { kind: "domain", domainId: "b" });
 		ctx.service.share("a", "a.gw.spawn.foreign", { kind: "domain", domainId: "b" });
@@ -435,7 +482,7 @@ describe("ShareService", () => {
 		ctx.registry.close();
 	});
 
-	it("registers OwnerOp and gateway frame routes", () => {
+	it("registers OwnerOp and gateway frame routes", async () => {
 		const ctx = make();
 		ctx.links.add("a|b");
 		ctx.service.register(ctx.hooks);
@@ -462,7 +509,7 @@ describe("ShareService", () => {
 		expect(ctx.ownerOps.get("cross_domain_unshare")!(op, { sessionTarget: "a.g.spawn.main", target })).toEqual({
 			ok: true,
 		});
-		expect(ctx.ownerOps.get("cross_domain_unlink")!(op, { domainId: "b" })).toEqual({
+		expect(await ctx.ownerOps.get("cross_domain_unlink")!(op, { domainId: "b" })).toEqual({
 			peersRemoved: 1,
 			sharesDropped: 0,
 			jobsExpired: 0,

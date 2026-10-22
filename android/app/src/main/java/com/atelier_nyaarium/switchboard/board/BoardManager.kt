@@ -31,6 +31,12 @@ data class BoardLiveLine(
 	val currentId: String? = null,
 )
 
+sealed interface BoardEnqueueResult {
+	data class Queued(val opId: String) : BoardEnqueueResult
+
+	data class Refused(val entryId: String?, val reason: String) : BoardEnqueueResult
+}
+
 class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 	private val json = Json { ignoreUnknownKeys = true }
 	private data class RenderMemo(
@@ -46,9 +52,8 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 	// Guard every blob read-modify-write.
 	private val stateLock = Any()
 
-	private fun mutate(transform: (BoardBlob) -> BoardBlob) {
+	private fun mutate(transform: (BoardBlob) -> BoardBlob): Boolean =
 		synchronized(stateLock) { persist(transform(blob)) }
-	}
 
 	val revision = mutableLongStateOf(0L)
 
@@ -60,7 +65,8 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 
 	private fun notice(entry: BoardRefusal) {
 		synchronized(stateLock) {
-			if (persist(blob.copy(notices = blob.notices + entry))) refusals.add(entry)
+			persist(blob.copy(notices = blob.notices + entry))
+			refusals.add(entry)
 		}
 	}
 
@@ -169,9 +175,13 @@ class BoardManager(private val store: BoardStore) : ClearsOnReprovision {
 
 	fun pendingWrites(): List<PendingWrite> = blob.pending
 
-	fun enqueueWrite(intents: List<BoardIntent>, opId: String = java.util.UUID.randomUUID().toString()): String {
-		mutate { it.copy(pending = it.pending + PendingWrite(opId, intents)) }
-		return opId
+	fun enqueueWrite(intents: List<BoardIntent>, opId: String = java.util.UUID.randomUUID().toString()): BoardEnqueueResult {
+		if (intents.isEmpty()) return BoardEnqueueResult.Refused(null, "no_write_queued")
+		return if (mutate { it.copy(pending = it.pending + PendingWrite(opId, intents)) }) {
+			BoardEnqueueResult.Queued(opId)
+		} else {
+			BoardEnqueueResult.Refused(intents.firstOrNull()?.id, "durability_failure")
+		}
 	}
 
 	// The board is always a full list to the shared fold.

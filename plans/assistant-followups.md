@@ -434,7 +434,14 @@ From the Phase 2 architecture round. Same class as Phase 2: memory moves before 
 
 ## Phase 13 - Router enrollment writes and the phone's board intent
 
-From the Phase 2 architecture round. No board item.
+✅ Shipped; bd_7f4d6e2b. Beyond the plan:
+- Publishing only committed state would have left a revocation authorizing its signer while the write ran. The coordinator holds pending revocations and edge removals in a deny overlay, set before the write is awaited and kept after a failure; authorization reads committed plus pending, while a retry's duplicate check reads committed only, so the retry writes again.
+- A directory sync that fails after the rename marks the Domain for a rewrite, so a retry that reads as a duplicate writes and syncs before it answers success.
+- `unlink`'s outcome keeps `durability_uncertain` whenever any part is uncertain, and `revoke_xdomain_link` carries it as an optional `outcome` on `EnrollResult`, regenerated into `Protocol.kt`.
+- Compaction's fence clears only at restart, which reopens the manifest-named journal.
+- The phone shows a refusal even when saving the notice fails, and names the first intent's entry.
+
+From the Phase 2 architecture round.
 
 **Problem:**
 - `FileSecretStore.loadDomain` hands back its live object, and `EnrollmentCoordinator` changes it in place before queueing `save`. A revocation whose write failed is live in this process and gone after a restart. A retried `retire` or `admit` is a duplicate, skips the save, and `flushOrError` reads the old failed write, so the retry reports failure forever.

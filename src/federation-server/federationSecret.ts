@@ -1,6 +1,7 @@
 import type { SignedAdmission, SignedRevocation } from "../shared/admission.js";
 import type { Identity } from "../shared/crypto.js";
 import type { SignedXDomainLinkEdge, SignedXDomainLinkRevocation } from "../shared/federation-lifecycle.js";
+import type { DomainMutation } from "./casMutation.js";
 
 ////////////////////////////////
 //  Interfaces & Types
@@ -35,6 +36,7 @@ export interface PendingTenantRecord {
 export interface EnrollmentStore {
 	load(): EnrollmentState | null;
 	save(state: EnrollmentState): void;
+	mutateDomain<T>(mutator: (current: EnrollmentState | null) => DomainMutation<T>): Promise<T>;
 }
 
 export interface FederationSecret {

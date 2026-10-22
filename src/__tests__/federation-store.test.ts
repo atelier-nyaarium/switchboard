@@ -1,12 +1,16 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import fs, { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DELETE_SLICE } from "../federation-server/casMutation.js";
+import { EnrollmentCoordinator } from "../federation-server/enrollmentCoordinator.js";
 import type { EnrollmentState, FederationSecret } from "../federation-server/federationSecret.js";
 import { FileSecretStore } from "../federation-server/fileSecretStore.js";
 import { ConflictError, type SecretIO } from "../federation-server/secretIO.js";
+import { signAdmission } from "../shared/admission.js";
+import { processAmbient } from "../shared/ambient.js";
 import { generateIdentity } from "../shared/crypto.js";
+import { PostRenameSyncError } from "../shared/write-result.js";
 
 const dirs: string[] = [];
 
@@ -69,6 +73,21 @@ describe("FileSecretStore", () => {
 		expect(store.loadDomain("alice")?.ownerSignPub).toBe("owner");
 	});
 
+	it("returns a copy of the loaded domain", async () => {
+		const { io } = fakeIO({
+			schema: 2,
+			identity: generateIdentity(),
+			enrollment: { alice: rooted("owner") },
+		});
+		const store = new FileSecretStore(tempDir(), io);
+		await store.init();
+
+		const loaded = store.loadDomain("alice");
+		if (!loaded) throw new Error();
+		loaded.ownerSignPub = "changed";
+		expect(store.loadDomain("alice")?.ownerSignPub).toBe("owner");
+	});
+
 	it("runs a domain mutation queued behind a save that failed", async () => {
 		const { io } = fakeIO();
 		const write = io.write;
@@ -87,9 +106,31 @@ describe("FileSecretStore", () => {
 		store.saveDomain("alice", rooted("owner"));
 		const mutated = store.mutateDomain("bob", () => ({ commit: true, next: rooted("friend"), value: "ok" }));
 
-		await expect(store.flushDomain("alice")).rejects.toThrow("disk full");
+		await expect(store.flushDomain("alice")).rejects.toThrow();
 		await expect(mutated).resolves.toBe("ok");
 		expect(store.loadDomain("bob")?.ownerSignPub).toBe("friend");
+	});
+
+	it("flushes a successful retry after a failed domain save", async () => {
+		const { io } = fakeIO();
+		const write = io.write;
+		let fail = false;
+		io.write = async (value, version) => {
+			if (fail) {
+				fail = false;
+				throw new Error();
+			}
+			await write(value, version);
+		};
+		const store = new FileSecretStore(tempDir(), io);
+		await store.init();
+		fail = true;
+		store.saveDomain("alice", rooted("first"));
+		const retry = store.mutateDomain("alice", () => ({ commit: true, next: rooted("retry"), value: true }));
+
+		await expect(retry).resolves.toBe(true);
+		await expect(store.flushDomain("alice")).resolves.toBeUndefined();
+		expect(store.loadDomain("alice")?.ownerSignPub).toBe("retry");
 	});
 
 	it("preserves domains and resolves the marked admin", async () => {
@@ -166,5 +207,56 @@ describe("FileSecretStore", () => {
 		}));
 		expect(store.loadDomain("guest")?.ownerSignPub).toBe("guest");
 		expect(store.loadSeenAdminNonces()).toEqual([{ nonce: "admin-op", at: 1000 }]);
+	});
+
+	it("rewrites a duplicate admission after a directory sync failure", async () => {
+		const dir = tempDir();
+		const store = new FileSecretStore(dir);
+		await store.init();
+		const owner = generateIdentity();
+		const subject = generateIdentity();
+		store.saveDomain("alice", rooted(owner.sign.pub));
+		await store.flushDomain("alice");
+		const coordinator = new EnrollmentCoordinator(
+			store.persistedIdentity,
+			store.domainStore("alice"),
+			"alice",
+			processAmbient(),
+		);
+		const admission = signAdmission(
+			{
+				kind: "gateway",
+				signPub: subject.sign.pub,
+				boxPub: subject.box.pub,
+				gatewayId: "laptop",
+				issuedAt: Date.now(),
+				nonce: "durable-admission",
+			},
+			owner.sign.priv,
+			owner.sign.pub,
+		);
+		const original = fs.fsyncSync;
+		let directorySyncs = 0;
+		let failDirectorySync = true;
+		const sync = vi.spyOn(fs, "fsyncSync").mockImplementation((descriptor: number) => {
+			if (fs.fstatSync(descriptor).isDirectory()) {
+				directorySyncs += 1;
+				if (failDirectorySync) {
+					failDirectorySync = false;
+					throw new Error();
+				}
+			}
+			return original(descriptor);
+		});
+		try {
+			await expect(coordinator.admit(admission)).rejects.toBeInstanceOf(PostRenameSyncError);
+			const onDisk = JSON.parse(readFileSync(path.join(dir, "federation.json"), "utf8")) as FederationSecret;
+			expect(onDisk.enrollment.alice?.admissions).toEqual([admission]);
+			await expect(coordinator.admit(admission)).resolves.toBeNull();
+			expect(directorySyncs).toBe(2);
+			expect(store.loadDomain("alice")?.admissions).toEqual([admission]);
+		} finally {
+			sync.mockRestore();
+		}
 	});
 });

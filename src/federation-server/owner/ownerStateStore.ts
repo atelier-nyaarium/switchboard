@@ -101,6 +101,8 @@ export class OwnerStateStore {
 	private state: Snapshot;
 	private manifest: Manifest;
 	private quarantinedState: Missing | undefined;
+	// Restart reopens the manifest.
+	private compactionUncertainState: string | undefined;
 	private degradedState = false;
 	private closed = false;
 
@@ -362,7 +364,7 @@ export class OwnerStateStore {
 	}
 
 	compact(): void {
-		if (this.closed || this.quarantinedState) return;
+		if (this.closed || this.quarantinedState || this.compactionUncertainState) return;
 		if (!this.lock.stillOwned()) {
 			this.lock.stop();
 			return;
@@ -378,6 +380,11 @@ export class OwnerStateStore {
 		writeFileAtomic(path.join(this.dir, MANIFEST), JSON.stringify(next), {
 			fsyncFile: true,
 			fsyncDirectory: true,
+			onDirectorySyncError: (error) => {
+				this.compactionUncertainState = String(error);
+				this.degradedState = true;
+				throw error;
+			},
 		});
 		if (this.journalFd !== undefined) fs.closeSync(this.journalFd);
 		this.manifest = next;
@@ -391,7 +398,7 @@ export class OwnerStateStore {
 		return {
 			quarantined: !!this.quarantinedState,
 			missing: this.quarantinedState,
-			degraded: this.degradedState,
+			degraded: this.degradedState || this.compactionUncertainState !== undefined,
 			journalBytes: this.journalBytesState,
 		};
 	}
@@ -407,6 +414,7 @@ export class OwnerStateStore {
 	}
 	private commit(ops: JournalOp[], fallback: number): WriteResult {
 		if (this.quarantinedState) return { kind: "quarantined", missing: this.quarantinedState };
+		if (this.compactionUncertainState) return { kind: "durability_failure", reason: "compaction state uncertain" };
 		if (this.closed) return { kind: "durability_failure", reason: "closed" };
 		if (!this.lock.stillOwned()) {
 			this.lock.stop();
