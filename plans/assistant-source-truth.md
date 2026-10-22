@@ -185,6 +185,8 @@ GitHub is the only copy. Per watcher the Gateway keeps its poll validator (`Last
 
 ## Phase 4 - The record, end to end
 
+✅ Shipped: the `assistant_record` kind in the Gateway push entry, the Router row kinds and the phone mailbox, the shared outcome enum, and the phone's persisted record with its response and quiet renders. A quiet record offers no Copy.
+
 The phone learns the row before anything sends one: this phase ships the Router and the phone, and no Gateway path emits the row until Phase 5.
 
 - **One row kind,** `assistant_record`: an optional summary, a `notify` flag, and per thread `{ threadId, title, url, outcome }`. Added to the Gateway push entry, the Router row kinds and the phone mailbox schema, with `Protocol.kt` regenerated in the same commit.
