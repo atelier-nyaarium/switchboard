@@ -123,10 +123,10 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	let lanes: SourceLanes | null = null;
 	let wake: AssistantWake | null = null;
 	let active = false;
-	let closed = false;
+	let ownerOpsClosed = false;
 
 	const startLanes = () => {
-		if (!active || closed || lanes || !held()) return;
+		if (!active || lanes || !held()) return;
 		lanes = createSourceLanes({
 			ambient,
 			state: watcherState,
@@ -192,11 +192,11 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			lanes ? lanes.write(watcherId, deadlineMs, work) : Promise.reject(new Error(NOT_HERE)),
 		record: postRecord,
 	});
-	/** Owner ops one at a time, so a place never lands inside a release; none starts after shutdown. */
+	/** Serializes owner operations. */
 	const ownerOps = createFifo();
 	const serial = <T>(work: () => T | Promise<T>): Promise<T> =>
 		ownerOps.run(() => {
-			if (closed) throw new Error("the Gateway is shutting down");
+			if (ownerOpsClosed) throw new Error("the Gateway is shutting down");
 			return work();
 		});
 	/** A write that did not land answers as a refusal, never as the state it meant. */
@@ -370,8 +370,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			startLanes();
 		},
 		stop: async () => {
-			closed = true;
-			// Running work finishes before the flush.
+			ownerOpsClosed = true;
+			// Drain before flush.
 			await withinMs(ambient, Promise.all([ownerOps.drain(), stopLanes()]), STOP_WAIT_MS);
 		},
 	};

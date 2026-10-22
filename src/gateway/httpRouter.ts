@@ -42,6 +42,7 @@ export interface HttpRouterDeps {
 	unenrolledHealth: () => Response;
 	hostWsToken?: string;
 	retire?: () => Promise<{ outcome: string; error?: string }>;
+	isClosing?: () => boolean;
 }
 
 export const NOT_ENROLLED = "this Gateway is not enrolled in a Domain; run ./setup.sh";
@@ -57,7 +58,11 @@ export function createHttpRouter({
 	unenrolledHealth,
 	hostWsToken,
 	retire,
+	isClosing,
 }: HttpRouterDeps) {
+	const closingResponse = () => Response.json({ error: "Gateway is closing" }, { status: 503 });
+	const refusalWhileClosing = () => (isClosing?.() ? closingResponse() : null);
+
 	async function serveRetire(req: Request): Promise<Response> {
 		const presented = Buffer.from(req.headers.get("authorization") ?? "");
 		const expected = Buffer.from(hostWsToken ? `Bearer ${hostWsToken}` : "");
@@ -108,6 +113,9 @@ export function createHttpRouter({
 	}
 
 	return async function router(req: Request): Promise<Response> {
+		const closingAtEntry = refusalWhileClosing();
+		if (closingAtEntry) return closingAtEntry;
+
 		const url = new URL(req.url);
 		const method = req.method;
 
@@ -116,12 +124,16 @@ export function createHttpRouter({
 			try {
 				body = await req.json();
 			} catch {
+				const closing = refusalWhileClosing();
+				if (closing) return closing;
 				return new Response(JSON.stringify({ error: `Invalid JSON` }), {
 					status: 400,
 					headers: { "Content-Type": "application/json" },
 				});
 			}
 		}
+		const closingAfterBody = refusalWhileClosing();
+		if (closingAfterBody) return closingAfterBody;
 
 		if (method === "POST" && url.pathname === "/enroll") {
 			return handleEnrollPost(body);

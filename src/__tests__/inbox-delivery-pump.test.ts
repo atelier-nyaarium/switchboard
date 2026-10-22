@@ -81,6 +81,67 @@ describe("inbox delivery pump", () => {
 		expect(calls.at(-1)).toMatchObject({ action: "inbox_ack", params: { outcome: "delivered", seq: 1 } });
 	});
 
+	it("accepts acknowledgments after draining and refuses them after stop", async () => {
+		const drained = setup();
+		const drainedPump = drained.pump();
+		await drainedPump.onFrame({ address, rows: [row()], deliveryEpoch: 1 });
+		await drainedPump.drain();
+
+		await expect(drainedPump.onChannelDeliveryAck("session", `${address}:1:1`)).resolves.toBe(true);
+		expect(drained.calls).toHaveLength(1);
+		expect(drained.calls[0]).toMatchObject({ action: "inbox_ack", params: { outcome: "delivered" } });
+
+		const stopped = setup();
+		const stoppedPump = stopped.pump();
+		await stoppedPump.onFrame({ address, rows: [row()], deliveryEpoch: 1 });
+		await stoppedPump.stop();
+
+		await expect(stoppedPump.onChannelDeliveryAck("session", `${address}:1:1`)).resolves.toBe(false);
+		expect(stopped.calls).toHaveLength(0);
+	});
+
+	it("stops admitting frames and waits for an active delivery", async () => {
+		const setupResult = setup();
+		const accepted: PendingDelivery[] = [];
+		let releaseWake = () => {};
+		let markWakeStarted = () => {};
+		const wakeStarted = new Promise<void>((resolve) => {
+			markWakeStarted = resolve;
+		});
+		const heldWake = new Promise<void>((resolve) => {
+			releaseWake = resolve;
+		});
+		const pump = setupResult.pump({
+			coordinator: {
+				accept: (delivery: PendingDelivery) => {
+					accepted.push(delivery);
+					return "queued";
+				},
+				acknowledge: () => {},
+			},
+			isSessionLive: () => false,
+			tryWakeTeam: async () => {
+				markWakeStarted();
+				await heldWake;
+				return { ok: false, errorKind: "timeout" };
+			},
+		});
+		const delivery = pump.onFrame({ address, rows: [row()], deliveryEpoch: 1 });
+		await wakeStarted;
+		let stopped = false;
+		const stopping = pump.stop().then(() => {
+			stopped = true;
+		});
+		await pump.onFrame({ address, rows: [{ ...row(), seq: 2 }], deliveryEpoch: 1 });
+
+		expect(accepted).toHaveLength(1);
+		expect(stopped).toBe(false);
+		releaseWake();
+		await Promise.all([delivery, stopping]);
+		expect(accepted).toHaveLength(1);
+		expect(stopped).toBe(true);
+	});
+
 	it("passes a known reply disposition on, and drops one it does not know", async () => {
 		const opened = (disposition: string) => ({
 			open: () => ({

@@ -38,7 +38,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/sessionBaseline.ts` / `compose/composeBaseline.ts` / `src/shared/session-baseline.ts` - the baseline a compacted session reads back, its loopback door, and its wire shape
 - `src/vault-askpass/askpass.ts` - the askpass helper's decision over gateway, tty, and clock ports; the tty race and the no-tty hold
 - `src/gateway/` - Docker-side HTTP and WS router
-- `src/gateway/composeGateway.ts` - the compose stages in order, fault port, and cycles; `index.ts` is the Bun adapter
+- `src/gateway/composeGateway.ts` - the compose stages in order, fault port, cycles, and `close`; `index.ts` is the Bun adapter
+  - **Close is one fenced phase:** it refuses intake first (activation, HTTP with 503, new sockets, inbound
+    Router frames other than call replies, Router reconnects), drains the inbox pump and the stages while the
+    Router stays connected, flushes, then stops everything with the pump and the Router client last. Every
+    step runs even after one throws, and a second `close` joins the first.
 - `src/gateway/compose/gatewayTypes.ts` - `GatewayConfig`, `GatewayDeps`, `GatewayGraph`, and the `GatewayFaultPort` the harness drives
 - `src/gateway/compose/federationContext.ts` - the one federation reader; activation publishes boot, Domain id, and slice together
 - `src/gateway/compose/composeBootstrap.ts` - directories, identity, keyring, boot decision, schema wipe
@@ -54,7 +58,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/compose/composeRoutes.ts` - the route surface, built once a Domain is active and rebuilt when federation activates; null before, so no route mints an address
 - `src/gateway/compose/composeRouterFrames.ts` - Router frame dispatch and the console dispatcher
 - `src/gateway/compose/composeRouterPresence.ts` - the Router presence dirty hook, unlink and untrust teardown
-- `src/gateway/compose/composeListener.ts` - the HTTP entry point and the shutdown flush
+- `src/gateway/compose/composeListener.ts` - the HTTP entry point
 - `src/gateway/compose/composeFaults.ts` - the fault port's construction
 - `src/gateway/httpRouter.ts` - HTTP dispatch, the enrollment routes, and the blob routes; before a Domain it answers health and enrollment alone
 - `src/gateway/routes.ts` - `RoutesDeps`, `RoutesCarryOver`, and the composer that wires the route modules

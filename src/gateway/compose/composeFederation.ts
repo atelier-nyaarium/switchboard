@@ -76,6 +76,7 @@ export interface FederationStageDeps {
 	entryGone: (entryId: string) => void;
 	/** Every live vault entry, from a full read. */
 	entriesListed: (entryIds: string[]) => void;
+	isClosing: () => boolean;
 }
 
 export interface FederationStage {
@@ -84,6 +85,8 @@ export interface FederationStage {
 	attest: () => void;
 	markPresenceDirty: () => void;
 	channelDeliveryAck: (team: string, deliveryId: string) => void;
+	drainInboxPump: () => Promise<void>;
+	stopInboxPump: () => Promise<void>;
 	stop: () => void;
 }
 
@@ -233,16 +236,11 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 			gatewayId: localGatewayId,
 			domainId,
 			reach: gatewayBootstrap.reach,
+			isClosing: deps.isClosing,
 			onReach: (learned) => saveRouterReach(federationDir, learned),
-			onGatewayRelay: (frame) => {
-				slice.handlers?.frames.gatewayRelay(frame);
-			},
-			onValueOp: (frame) => {
-				slice.handlers?.frames.valueOp(frame);
-			},
-			onCrossDomainHandshake: (frame) => {
-				slice.handlers?.frames.crossDomainHandshake(frame);
-			},
+			onGatewayRelay: (frame) => slice.handlers?.frames.gatewayRelay(frame),
+			onValueOp: (frame) => slice.handlers?.frames.valueOp(frame),
+			onCrossDomainHandshake: (frame) => slice.handlers?.frames.crossDomainHandshake(frame),
 			onDomainSync: (domain) => {
 				const parsed = DomainSnapshotSchema.safeParse(domain);
 				if (!parsed.success) {
@@ -265,6 +263,7 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 				shareState.unready();
 			},
 			onRegistered: () => {
+				if (deps.isClosing()) return;
 				sessions.sessionReporter.reconcile();
 				presenceReporter?.baseline();
 				// The snapshot's landing attests; the copy answers nothing until then.
@@ -427,6 +426,12 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 		attest: () => shareAttestor?.attest(),
 		markPresenceDirty: () => presenceReporter?.markDirty(),
 		channelDeliveryAck: (team, deliveryId) => void inboxPump?.onChannelDeliveryAck(team, deliveryId),
+		drainInboxPump: async () => {
+			await inboxPump?.drain();
+		},
+		stopInboxPump: async () => {
+			await inboxPump?.stop();
+		},
 		stop: () => {
 			shareAttestor?.stop();
 			presenceReporter?.stop();

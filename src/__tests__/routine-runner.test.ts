@@ -460,15 +460,17 @@ describe("the routine runner", () => {
 		expect(w.delivered).toEqual([]);
 	});
 
-	it("admits nothing once stopped, even when an activation starts it again", async () => {
+	it("runs again after an explicit restart", async () => {
 		const w = world();
 		w.routines.put(routine({ enabled: false }));
 
 		await w.runner.stop();
 		w.runner.start();
+		const opened = await w.runner.runFresh("triage");
 
-		expect(await w.runner.runFresh("triage")).toBe(null);
-		expect(w.delivered).toEqual([]);
+		expect(opened).not.toBeNull();
+		expect(w.delivered).toHaveLength(1);
+		await w.runner.stop();
 	});
 
 	it("says a pressed run did not happen when its words could not render", async () => {

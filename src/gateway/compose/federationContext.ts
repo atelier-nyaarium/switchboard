@@ -14,6 +14,7 @@ export interface FederationContextDeps {
 	/** The Domain id on disk right now, read again after an install. */
 	domainIdOnDisk: () => string | null;
 	buildSlice: (boot: GatewayBootstrap) => FederationSlice;
+	isClosing?: () => boolean;
 	/** Runs once the slice is published, never before. */
 	onActivate: (slice: FederationSlice) => void;
 	/** Presence reads the Domain id, so a change announces itself. */
@@ -98,7 +99,7 @@ export class FederationContext {
 
 	/** Builds the slice first, so a failed build leaves the phase untouched. */
 	activate(boot: GatewayBootstrap): void {
-		if (this.state.phase === "federationActive") return;
+		if (this.deps.isClosing?.() || this.state.phase === "federationActive") return;
 		const slice = this.deps.buildSlice(boot);
 		this.activeBoot = boot;
 		this.setDomain(boot.domainId);

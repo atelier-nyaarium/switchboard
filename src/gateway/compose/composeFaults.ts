@@ -24,6 +24,13 @@ export function composeFaults({ context, sessions, routines, persistence }: Faul
 	}
 
 	return {
+		activateAgain: () => {
+			const boot = context.boot();
+			if (!boot) return;
+			context.slice()?.routerClient.stop();
+			context.standalone();
+			context.activate(boot);
+		},
 		dropRouterLink: () => context.slice()?.routerClient.stop(),
 		routerRegistered: () => context.slice()?.routerClient.isRegistered() ?? false,
 		routerIncarnation: () => context.slice()?.routerClient.incarnation() ?? null,

@@ -7,8 +7,7 @@ const SRC = path.join(import.meta.dirname, "..");
 /** Live-memory snapshot allowlist. */
 const SNAPSHOT_WRITERS = new Map([
 	["shared/durable-store.ts", "the owner: `commitChecked` itself"],
-	["gateway/composeGateway.ts", "the session snapshot after an assistant placement"],
-	["gateway/compose/composeListener.ts", "the shutdown flush"],
+	["gateway/composeGateway.ts", "the session snapshot after an assistant placement, and the shutdown flush"],
 	["gateway/compose/composePersistence.ts", "the persist tick"],
 	["gateway/compose/composeSessions.ts", "the session snapshot behind an agent catalog commit"],
 	["gateway/compose/composeStores.ts", "the quarantine copy of a refused restore"],

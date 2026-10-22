@@ -182,6 +182,7 @@ describe("federation harness: vault requests", () => {
 			sessionToken: alice.sessionToken,
 		});
 		sessions.push(reattached);
+		alice = reattached;
 		await reattached.ready();
 		const covered = await post(reattached, "/vault/use", { entryId, operation: "ssh deploy@prod df", waitMs: 200 });
 		expect(covered.json).toEqual({ outcome: "approved", decision: "window", value: "hunter2" });

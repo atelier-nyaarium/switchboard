@@ -24,6 +24,7 @@ export interface EnrollmentStageDeps {
 	contentKeyStore: ContentKeyStore;
 	resolveBoot: (enrollNonce: string | null) => GatewayBoot;
 	context: FederationContext;
+	isClosing: () => boolean;
 }
 
 export interface EnrollmentStage {
@@ -47,6 +48,7 @@ export function composeEnrollment(deps: EnrollmentStageDeps): EnrollmentStage {
 	}
 
 	function handleEnrollPost(body: Record<string, unknown>): Response {
+		if (deps.isClosing()) return refuse("Gateway is closing", 503);
 		const install = context.arming()?.install;
 		if (!install) return refuse("not in enrollment mode", 404);
 		try {
@@ -61,6 +63,7 @@ export function composeEnrollment(deps: EnrollmentStageDeps): EnrollmentStage {
 	}
 
 	async function enrollTlsFetch(req: Request): Promise<Response> {
+		if (deps.isClosing()) return refuse("Gateway is closing", 503);
 		const url = new URL(req.url);
 		if (req.method === "POST" && url.pathname === "/enroll") {
 			let body: Record<string, unknown> = {};
@@ -69,6 +72,7 @@ export function composeEnrollment(deps: EnrollmentStageDeps): EnrollmentStage {
 			} catch {
 				return refuse("Invalid JSON", 400);
 			}
+			if (deps.isClosing()) return refuse("Gateway is closing", 503);
 			return handleEnrollPost(body);
 		}
 		return refuse("not found", 404);

@@ -46,6 +46,8 @@ export interface RouterClientConfig {
 	onShareDelta?: (frame: unknown) => void;
 	onValueOp?: (frame: unknown) => void;
 	onDisconnect?: () => void;
+	isClosing?: () => boolean;
+	createSocket?: (url: string, options: WebSocket.ClientOptions) => WebSocket;
 	pendingReregisterDelayMs?: number;
 	reconnectInitialDelayMs?: number;
 }
@@ -104,7 +106,7 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 	const pendingCalls = new Map<string, { resolve: (result: RouterToolCallResult) => void; timer: TimerHandle }>();
 
 	function connect(): void {
-		if (stopped) return;
+		if (stopped || config.isClosing?.()) return;
 
 		const ring = candidatesNow();
 		const target = ring[candidateIndex % ring.length] ?? config.url;
@@ -114,7 +116,7 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 
 		// Pin TLS before sending bearer headers.
 		const dial = config.tls?.certFp ? pinnedDial(dialHost(target), dialPort(target), config.tls.certFp) : null;
-		ws = new RealWebSocket(wsUrl, {
+		ws = (config.createSocket ?? ((url, options) => new RealWebSocket(url, options)))(wsUrl, {
 			headers: config.headers,
 			maxPayload: ROUTER_WS_MAX_PAYLOAD_BYTES,
 			...(dial ? { createConnection: dial.createConnection as WebSocket.ClientOptions["createConnection"] } : {}),
@@ -128,6 +130,11 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 		}, budget);
 
 		ws.on("open", () => {
+			if (config.isClosing?.()) {
+				ambient.clearTimer(connectTimer);
+				ws?.close();
+				return;
+			}
 			if (dial && dial.verdict() !== "match") {
 				console.error(`[router-client] ${pinRefusal(dial.verdict())}; refusing the connection`);
 				ws?.terminate();
@@ -172,6 +179,7 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 				);
 				return;
 			}
+			if (config.isClosing?.() && frame.type !== "tool_result" && frame.type !== "tool_error") return;
 			if ((frame as { type?: string }).type === "value_op") {
 				config.onValueOp?.(frame);
 				return;
@@ -242,7 +250,7 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 			ambient.clearTimer(connectTimer);
 			if (!opened) candidateIndex = (candidateIndex + 1) % Math.max(1, ring.length);
 			dropConnection(`Disconnected from the federation Router`);
-			if (!stopped) {
+			if (!stopped && !config.isClosing?.()) {
 				console.error(`[router-client] disconnected, reconnecting with backoff...`);
 				reconnector.schedule();
 			}
@@ -257,9 +265,10 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 	}
 
 	function registerGateway(): void {
-		if (!ws || ws.readyState !== RealWebSocket.OPEN) return;
+		if (config.isClosing?.() || !ws || ws.readyState !== RealWebSocket.OPEN) return;
 		void callTool("gateway_register", registerFrame(config, config.buildRegisterAuth?.() ?? null))
 			.then((res) => {
+				if (config.isClosing?.()) return;
 				const r = res.result as
 					| {
 							ok?: boolean;
@@ -316,7 +325,7 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 	}
 
 	function schedulePendingRetry(reason?: string): void {
-		if (stopped) return;
+		if (stopped || config.isClosing?.()) return;
 		// Keep one retry timer in flight.
 		if (pendingRetryTimer) return;
 		if (pendingRetryAttempts >= PENDING_REREGISTER_MAX_ATTEMPTS) {
@@ -332,6 +341,7 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 		);
 		pendingRetryTimer = ambient.setTimer(() => {
 			pendingRetryTimer = null;
+			if (config.isClosing?.()) return;
 			registerGateway();
 		}, delayMs);
 	}

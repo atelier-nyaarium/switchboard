@@ -62,9 +62,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 	let timer: TimerHandle | null = null;
 	let tick: TimerHandle | null = null;
 	let admitting = false;
-	/** Final, so an activation during shutdown starts nothing. */
-	let stopped = false;
-	/** Fences a timer callback that was already queued when the runner stopped. */
+	/** Fences queued timer callbacks. */
 	let generation = 0;
 	/** Serializes occurrence walks. */
 	const walks = createFifo();
@@ -329,11 +327,11 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 
 	return {
 		start(): void {
-			if (admitting || stopped) return;
+			if (admitting) return;
 			admitting = true;
 			const mine = ++generation;
 			tick = ambient.setTimer(function again() {
-				// A callback already queued when stop ran would otherwise re-arm the tick it cleared.
+				// Ignore stale callbacks.
 				if (mine !== generation) return;
 				fireAndForget("routine sweep", walks.run(sweepDue));
 				tick = ambient.setTimer(again, RECONCILE_MS);
@@ -341,10 +339,9 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			fireAndForget("routine sweep", walks.run(sweepDue));
 		},
 
-		/** Stops taking work, then waits for the attempt in flight. */
+		/** Stops admission and drains. */
 		async stop(): Promise<void> {
 			admitting = false;
-			stopped = true;
 			generation += 1;
 			if (timer) ambient.clearTimer(timer);
 			if (tick) ambient.clearTimer(tick);

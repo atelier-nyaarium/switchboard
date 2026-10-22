@@ -46,6 +46,9 @@ export type {
 export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	const { config } = deps;
 	const bootstrap = composeBootstrap(deps);
+	let closing = false;
+	let closePromise: Promise<void> | null = null;
+	const isClosing = () => closing;
 
 	// Stages the earlier ones reach forward into. Every read is a call, never a captured value.
 	let federation: FederationStage | undefined;
@@ -72,11 +75,13 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		contentKeys: bootstrap.contentKeyStore,
 		initialDomainId: bootstrap.initialDomainId,
 		domainIdOnDisk: bootstrap.domainIdOnDisk,
+		isClosing,
 		buildSlice: (boot) => {
 			if (!federation) throw new Error("the federation stage is not composed yet");
 			return federation.buildSlice(boot);
 		},
 		onActivate: (slice) => {
+			if (isClosing()) return;
 			if (!routes || !routerPresence || !routerFrames || !federation) {
 				throw new Error("federation activated before the graph was composed");
 			}
@@ -166,6 +171,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		unlinkDomain: () => presenceHandlers?.unlinkDomain ?? null,
 		entryGone: (entryId) => vault?.entryDeleted(entryId),
 		entriesListed: (entryIds) => vault?.entriesListed(entryIds),
+		isClosing,
 	});
 
 	const enrollment = composeEnrollment({
@@ -179,6 +185,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		contentKeyStore: bootstrap.contentKeyStore,
 		resolveBoot: bootstrap.resolveBoot,
 		context,
+		isClosing,
 	});
 
 	websockets = composeWebSockets({
@@ -270,27 +277,75 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		enrollNonce: config.enrollNonce,
 		hostWsToken: config.hostWsToken,
 		ambient: bootstrap.ambient,
+		isClosing,
 		context,
 		stores,
 		sessions,
-		persistence,
-		routines,
-		host,
 		agents,
-		awareness,
-		federation,
 		enrollment,
-		websockets,
+		routines,
 		routes,
 		vault,
 		baseline,
 		assistant,
 	});
+	const close = (): Promise<void> => {
+		if (closePromise) return closePromise;
+		closing = true;
+		closePromise = Promise.resolve().then(async () => {
+			let failed = false;
+			let firstError: unknown;
+			const capture = async (run: () => unknown): Promise<void> => {
+				try {
+					await run();
+				} catch (error) {
+					if (failed) return;
+					failed = true;
+					firstError = error;
+				}
+			};
+			try {
+				await capture(() => enrollment.stop());
+				await capture(() => federation?.drainInboxPump());
+				await capture(() => routines.stop());
+				await capture(() => assistant.stop());
+				await capture(() => stores.jobsDurable.saveChecked(stores.jobs.snapshot()));
+				await capture(() => stores.sessionResumeDurable.saveChecked(sessions.sessionResumeSnapshot(true)));
+				await capture(() => persistence.persistDelivery(true));
+			} finally {
+				await capture(() => bootstrap.ambient.clearInterval(sessions.tripwireTimer));
+				await capture(() => bootstrap.ambient.clearInterval(persistence.persistTimer));
+				await capture(() => bootstrap.ambient.clearInterval(host.presenceWatchTimer));
+				await capture(() => bootstrap.ambient.clearInterval(awareness.awarenessTimer));
+				await capture(() => bootstrap.ambient.clearInterval(websockets.wsHandlers.heartbeatInterval));
+				await capture(() => routes?.stop());
+				await capture(() => stores.jobs.stopCleanup());
+				await capture(() => awareness.awareness.stop());
+				await capture(() => federation?.stop());
+				await capture(() => sessions.sessionReporter.detach());
+				await capture(() => federation?.stopInboxPump());
+				await capture(() => context.slice()?.routerClient.stop());
+			}
+			if (failed) throw firstError;
+		});
+		return closePromise;
+	};
+	const wsHandlers: GatewayGraph["wsHandlers"] = {
+		...websockets.wsHandlers,
+		open: (ws) => {
+			if (isClosing()) {
+				ws.data.isStale = true;
+				ws.close();
+				return;
+			}
+			websockets.wsHandlers.open(ws);
+		},
+	};
 
 	return {
 		router: listener.router,
-		wsHandlers: websockets.wsHandlers,
-		close: listener.close,
+		wsHandlers,
+		close,
 		faults: composeFaults({ context, sessions, routines, persistence }),
 	};
 }

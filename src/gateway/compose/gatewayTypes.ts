@@ -64,6 +64,7 @@ export interface GatewayFaultPort {
 	sweepRoutines(): Promise<void>;
 	/** Empty until a snapshot landed. */
 	sharesHeld(): { revision: number; ready: boolean; sessionTargets: string[] };
+	activateAgain(): void;
 }
 
 export interface GatewayGraph {

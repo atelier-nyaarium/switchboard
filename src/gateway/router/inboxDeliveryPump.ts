@@ -87,6 +87,18 @@ const deliveryIdOf = (address: string, seq: number, deliveryEpoch: number) => `$
 
 export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 	const waiting = new Map<string, { epoch: number; address: string; row: InboxRow; deliveryEpoch: number }>();
+	const inFlight = new Set<Promise<unknown>>();
+	let accepting = true;
+	const track = <T>(work: () => Promise<T>, declined: T): Promise<T> => {
+		if (!accepting) return Promise.resolve(declined);
+		const pending = work();
+		inFlight.add(pending);
+		void pending.then(
+			() => inFlight.delete(pending),
+			() => inFlight.delete(pending),
+		);
+		return pending;
+	};
 	/** Claims survive lost Router acknowledgements; non-custodial outcomes are retried. */
 	async function ack(
 		address: string,
@@ -385,7 +397,7 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 		return ack(address, row.seq, deliveryEpoch, "waking");
 	}
 
-	async function onFrame(frame: {
+	async function deliverFrame(frame: {
 		address: string;
 		rows: unknown;
 		incarnation?: number;
@@ -404,8 +416,17 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 		for (const row of rows) await deliver(frame.address, row, frame.deliveryEpoch);
 	}
 
+	function onFrame(frame: {
+		address: string;
+		rows: unknown;
+		incarnation?: number;
+		deliveryEpoch: number;
+	}): Promise<void> {
+		return track(() => deliverFrame(frame), undefined);
+	}
+
 	/** Acknowledges delivery to the addressed session. */
-	async function onChannelDeliveryAck(team: string, deliveryId: string): Promise<boolean> {
+	async function acknowledgeChannelDelivery(team: string, deliveryId: string): Promise<boolean> {
 		const match = /^(.+):(\d+):(\d+)$/.exec(deliveryId);
 		if (!match) return false;
 		const address = parseInboxAddress(match[1]);
@@ -418,9 +439,26 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 		return true;
 	}
 
-	async function resendReceipts(): Promise<void> {
+	function onChannelDeliveryAck(team: string, deliveryId: string): Promise<boolean> {
+		return track(() => acknowledgeChannelDelivery(team, deliveryId), false);
+	}
+
+	async function sendReceipts(): Promise<void> {
 		await deps.keyRequester?.resendReceipts(deps.contentKeyStore.epochs());
 	}
 
-	return { onFrame, onChannelDeliveryAck, resendReceipts };
+	function resendReceipts(): Promise<void> {
+		return track(sendReceipts, undefined);
+	}
+
+	async function drain(): Promise<void> {
+		await Promise.allSettled([...inFlight]);
+	}
+
+	async function stop(): Promise<void> {
+		accepting = false;
+		await drain();
+	}
+
+	return { onFrame, onChannelDeliveryAck, resendReceipts, drain, stop };
 }

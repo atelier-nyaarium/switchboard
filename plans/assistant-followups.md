@@ -353,7 +353,13 @@ export function isGatewayLongWaitRoute(method: string, pathname: string): boolea
 
 ## Phase 10 - Graph-level closing phase
 
-Closes bd_f506f915.
+✅ Shipped. Closes bd_f506f915. Beyond the plan:
+- The fence also covers `FederationContext.activate`, enrollment (503), the Router client's reconnects, registration retries and the side effects of a `gateway_register` result. The Router filter sits in `routerClient` and lets `tool_result` and `tool_error` through, so calls in flight settle.
+- The pump drains early and stops last: frames stop arriving at the fence, while a session's delivery ack during the stage drains still reaches the Router. The pump stops just before the Router client.
+- Every close step runs even after one throws; the first error is the result.
+- The routine runner's final latch is gone. The assistant keeps `ownerOpsClosed` for owner ops already dispatched when the fence rises.
+- The vault harness test posted through a session bound to the pre-restart graph; the fence's 503 exposed it.
+- Follow-ups on bd_f80fc673: messages on open sockets, admitted HTTP and Router work, the assistant's 5s stop cutoff, connector upgrades, stray retry timers.
 
 **Problem:** `composeListener.close` stops the routine and assistant stages, flushes, and only then stops enrollment and the federation client. An activation landing in that wait runs `onActivate`, which starts the stages again. The routine runner and the watcher runner each carry a final stop as a patch for this. HTTP intake, WS intake and Router frames keep arriving during the drain, and the inbox delivery pump has no stop or drain.
 
