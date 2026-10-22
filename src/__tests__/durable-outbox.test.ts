@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DurableOutbox } from "../shared/durable-outbox.js";
+import { DurableOutbox, type DurableOutboxStore } from "../shared/durable-outbox.js";
+import { DurableStoreInstalledError } from "../shared/durable-store.js";
 
 type Item = { key: string; n: number };
 
@@ -16,7 +17,7 @@ function fakeStore(initial: unknown = null) {
 	return { store, saved };
 }
 
-function open(store: ReturnType<typeof fakeStore>["store"], maxSize?: number) {
+function open(store: DurableOutboxStore, maxSize?: number) {
 	return new DurableOutbox<Item>({
 		durable: store,
 		restore: (raw) => (Array.isArray(raw) ? (raw as Item[]) : []),
@@ -68,6 +69,21 @@ describe("DurableOutbox", () => {
 		expect(() => box.retire("a")).toThrow("disk full");
 		expect(() => box.enqueue({ key: "b", n: 1 })).toThrow("disk full");
 		expect(box.values()).toEqual([{ key: "a", n: 1 }]);
+	});
+
+	it("follows a snapshot that reached its name though its directory sync failed", () => {
+		let disk: unknown = [{ key: "a", n: 1 }];
+		const installing = {
+			load: () => disk,
+			saveChecked: (state: unknown) => {
+				disk = state;
+				throw new DurableStoreInstalledError(new Error("fsync"));
+			},
+		};
+		const box = open(installing);
+		expect(box.retire("a")).toBe(true);
+		expect(box.values()).toEqual(open(installing).values());
+		expect(box.values()).toEqual([]);
 	});
 
 	it("drains heads in order and stops at a head the processor leaves in place", async () => {

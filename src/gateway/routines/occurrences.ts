@@ -1,7 +1,7 @@
 // One occurrence per routine and scheduled instant, and every move is a CAS from a named state.
 
 import { z } from "zod";
-import { type DurableStore, DurableStoreInstalledError } from "../../shared/durable-store.js";
+import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import {
 	canTransition,
 	MISS_REASONS,
@@ -92,19 +92,15 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 	const { store } = deps;
 	let rows: Occurrence[] = OccurrencesSchema.parse(store.load() ?? []);
 
-	const commit = (next: Occurrence[]): boolean => {
-		const previous = rows;
-		rows = next;
-		try {
-			store.saveChecked(rows);
-			return true;
-		} catch (error) {
-			if (error instanceof DurableStoreInstalledError) return true;
-			rows = previous;
-			console.warn(`[routine] occurrence write failed: ${(error as Error).message}`);
-			return false;
-		}
-	};
+	const commit = (next: Occurrence[]): boolean =>
+		commitChecked(
+			store,
+			next,
+			(landed) => {
+				rows = landed;
+			},
+			{ label: "routine occurrence" },
+		).landed;
 
 	const at = (routineId: string, scheduledAt: number): Occurrence | undefined =>
 		rows.find((row) => row.routineId === routineId && row.scheduledAt === scheduledAt);

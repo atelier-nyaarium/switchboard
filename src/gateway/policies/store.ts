@@ -2,7 +2,8 @@
 
 import { z } from "zod";
 import { canonicalJson } from "../../shared/canonical-json.js";
-import { type DurableStore, DurableStoreInstalledError } from "../../shared/durable-store.js";
+import { capFifo } from "../../shared/cap-fifo.js";
+import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import {
 	type AuthorizationPolicy,
 	AuthorizationPolicySchema,
@@ -96,23 +97,15 @@ export function createPolicyStore(deps: PolicyStoreDeps) {
 	const buried = new Map<string, number>();
 
 	/** On disk before reported. */
-	const commit = (next: AuthorizationPolicy[], policyId: string): boolean => {
-		const previous = policies;
-		policies = next;
-		try {
-			store.saveChecked(policies);
-			deps.onChanged(policyId);
-			return true;
-		} catch (error) {
-			if (error instanceof DurableStoreInstalledError) {
-				deps.onChanged(policyId);
-				return true;
-			}
-			policies = previous;
-			console.warn(`[policy] write failed: ${(error as Error).message}`);
-			return false;
-		}
-	};
+	const commit = (next: AuthorizationPolicy[], policyId: string): boolean =>
+		commitChecked(
+			store,
+			next,
+			(landed) => {
+				policies = landed;
+			},
+			{ label: "policy", onLanded: () => deps.onChanged(policyId) },
+		).landed;
 
 	const held = (id: string): AuthorizationPolicy | undefined => policies.find((policy) => policy.id === id);
 
@@ -192,10 +185,7 @@ export function createPolicyStore(deps: PolicyStoreDeps) {
 		);
 		if (!deleted) return { deleted: false, reason: "could not be written" };
 		buried.set(id, going.revision);
-		// Oldest out.
-		for (const stale of [...buried.keys()].slice(0, Math.max(0, buried.size - MAX_BURIED))) {
-			buried.delete(stale);
-		}
+		capFifo(buried, MAX_BURIED);
 		return { deleted: true };
 	};
 

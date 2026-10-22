@@ -1,7 +1,7 @@
 // What a watcher keeps between polls; no threads.
 
 import { z } from "zod";
-import { type DurableStore, DurableStoreInstalledError } from "../../shared/durable-store.js";
+import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 
 const WatcherStateSchema = z.strictObject({
 	/** Sent as `If-Modified-Since`. */
@@ -49,7 +49,6 @@ export function createWatcherStateStore(store: DurableStore): WatcherStateStore 
 	return {
 		get: (watcherId) => structuredClone(held(watcherId) ?? FRESH_STATE),
 		put(watcherId, next) {
-			const previous = state;
 			const watchers = { ...state.watchers };
 			// A watcher id stays a plain key.
 			Object.defineProperty(watchers, watcherId, {
@@ -58,16 +57,15 @@ export function createWatcherStateStore(store: DurableStore): WatcherStateStore 
 				writable: true,
 				configurable: true,
 			});
-			state = { v: 1, watchers };
-			try {
-				store.saveChecked(state);
-				return true;
-			} catch (error) {
-				if (error instanceof DurableStoreInstalledError) return true;
-				state = previous;
-				console.warn(`[assistant] watcher state write failed: ${(error as Error).message}`);
-				return false;
-			}
+			const written: Snapshot = { v: 1, watchers };
+			return commitChecked(
+				store,
+				written,
+				(landed) => {
+					state = landed;
+				},
+				{ label: "assistant watcher state" },
+			).landed;
 		},
 	};
 }

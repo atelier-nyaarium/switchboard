@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPolicyStore } from "../gateway/policies/store.js";
 import { type DurableStore, DurableStoreInstalledError, openDurable } from "../shared/durable-store.js";
 import type { AuthorizationPolicy } from "../shared/schemasPolicy.js";
@@ -147,5 +147,23 @@ describe("policy store", () => {
 		fail = new DurableStoreInstalledError("installed");
 		expect(store.put(policy("apt"))).toMatchObject({ stored: true, revision: 1 });
 		expect(moved).toEqual(["apt"]);
+	});
+
+	it("keeps a landed write, and buries a landed delete, when the vault hook throws", () => {
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		const dataDir = fresh();
+		const hook = vi.fn(() => {
+			throw new Error("vault gone");
+		});
+		const store = openDurable(dataDir, "policies", (durable) =>
+			createPolicyStore({ store: durable, onChanged: hook }),
+		);
+
+		expect(store.put(policy("apt"))).toMatchObject({ stored: true, revision: 1 });
+		expect(store.get("apt")).toMatchObject({ revision: 1 });
+		expect(store.remove("apt", 1)).toEqual({ deleted: true });
+		expect(store.put(policy("apt"))).toMatchObject({ stored: false });
+		expect(open(dataDir).list()).toEqual([]);
+		expect(hook).toHaveBeenCalledTimes(2);
 	});
 });

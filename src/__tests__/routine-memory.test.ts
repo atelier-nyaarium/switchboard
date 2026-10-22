@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRoutineMemoryStore } from "../gateway/routines/memory.js";
 import { DurableStore } from "../shared/durable-store.js";
 import { MAX_ROUTINE_MEMORY_BYTES } from "../shared/schemasRoutine.js";
@@ -94,5 +94,26 @@ describe("what a routine remembers between runs", () => {
 		const reopened = createRoutineMemoryStore({ store: new DurableStore(root, "routine-memory") });
 		expect(reopened.read("inc-1")).toEqual({ text: "", version: 0 });
 		expect(reopened.read("inc-2").text).toBe("fine");
+	});
+
+	it("advances no history a failed write did not land", () => {
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		let failing = false;
+		const disk = {
+			load: () => null,
+			saveChecked: () => {
+				if (failing) throw new Error("disk full");
+			},
+		} as unknown as DurableStore;
+		const memory = createRoutineMemoryStore({ store: disk });
+		memory.write("inc-1", "kept", 0, 100);
+
+		failing = true;
+		expect(memory.write("inc-1", "lost", 1, 200)).toMatchObject({ ok: false });
+		expect(memory.overwrite("inc-1", "lost", 300)).toBeNull();
+		expect(memory.read("inc-1")).toEqual({ text: "kept", version: 1 });
+
+		failing = false;
+		expect(memory.write("inc-1", "retried", 1, 400)).toMatchObject({ ok: true, row: { version: 2 } });
 	});
 });

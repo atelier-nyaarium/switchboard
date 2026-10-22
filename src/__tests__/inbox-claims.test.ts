@@ -33,6 +33,21 @@ describe("InboxClaims", () => {
 		expect(claims.claim(address, 4, 2)).toBeNull();
 	});
 
+	it("holds no claim a failed write did not land, so a retry claims again", () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "inbox-claims-"));
+		roots.push(root);
+		const claims = createInboxClaims(root, processAmbient());
+		expect(claims.claim(address, 3, 1)).toBeNull();
+		const blocked = path.join(root, "inbox-claims");
+		fs.rmSync(blocked, { recursive: true });
+		fs.writeFileSync(blocked, "not a directory");
+
+		expect(() => claims.claim(address, 4, 1)).toThrow();
+		fs.rmSync(blocked);
+		expect(claims.claim(address, 4, 1)).toBeNull();
+		expect(claims.get(address, 4, 1)).toMatchObject({ outcome: "waking" });
+	});
+
 	it("returns a claim only for its matching epoch", () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "inbox-claims-"));
 		roots.push(root);

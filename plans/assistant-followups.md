@@ -103,7 +103,7 @@ export function commitChecked<T>(
 - A residue test that allows `saveChecked(` only inside `commitChecked` and the named snapshot writers.
 
 **Risks:**
-- A failed hook is now only logged. A policy prune skipped this way leaves grants, but `covers` still refuses them.
+- A failed hook is now only logged. A policy prune skipped this way leaves grants. A fresh lookup refuses them, since `byKey` no longer answers the policy; a request already waiting re-checks the scope it captured and can still be covered, as it could before.
 - Installed means directory sync was not confirmed. It does not mean the write survives a crash.
 
 ## Phase 3 - Plugin re-emit dedupe

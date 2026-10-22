@@ -1,7 +1,8 @@
 // The gateway names every revision it stores, and takes a put only from the one it already held.
 
 import { z } from "zod";
-import { type DurableStore, DurableStoreInstalledError } from "../../shared/durable-store.js";
+import { capFifo } from "../../shared/cap-fifo.js";
+import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import { REVISION_CEILING, type Runbook, RunbookSchema, runbookRefusal } from "../../shared/schemasRunbook.js";
 
 export interface RunbookStoreDeps {
@@ -79,20 +80,15 @@ export function createRunbookStore(deps: RunbookStoreDeps) {
 	const buried = new Map<string, number>();
 
 	/** A write the phone is told landed is on disk first. */
-	const commit = (next: Runbook[]): boolean => {
-		const previous = runbooks;
-		runbooks = next;
-		try {
-			store.saveChecked(runbooks);
-			return true;
-		} catch (error) {
-			// An installed snapshot is what a reopen reads.
-			if (error instanceof DurableStoreInstalledError) return true;
-			runbooks = previous;
-			console.warn(`[runbook] write failed: ${(error as Error).message}`);
-			return false;
-		}
-	};
+	const commit = (next: Runbook[]): boolean =>
+		commitChecked(
+			store,
+			next,
+			(landed) => {
+				runbooks = landed;
+			},
+			{ label: "runbook" },
+		).landed;
 
 	const held = (id: string): Runbook | undefined => runbooks.find((runbook) => runbook.id === id);
 
@@ -152,10 +148,7 @@ export function createRunbookStore(deps: RunbookStoreDeps) {
 		const deleted = commit(kept);
 		if (deleted) {
 			buried.set(id, going.revision);
-			// Oldest out, so a long-lived gateway cannot grow this without end.
-			for (const stale of [...buried.keys()].slice(0, Math.max(0, buried.size - MAX_BURIED))) {
-				buried.delete(stale);
-			}
+			capFifo(buried, MAX_BURIED);
 		}
 		return { deleted };
 	};

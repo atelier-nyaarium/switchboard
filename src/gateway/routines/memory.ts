@@ -1,7 +1,7 @@
 // What a routine remembers between runs. Its own store, keyed by the routine's incarnation.
 
 import { z } from "zod";
-import { type DurableStore, DurableStoreInstalledError } from "../../shared/durable-store.js";
+import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import { MAX_ROUTINE_MEMORY_BYTES } from "../../shared/schemasRoutine.js";
 
 export const RoutineMemorySchema = z.object({
@@ -45,19 +45,15 @@ export function createRoutineMemoryStore(deps: RoutineMemoryStoreDeps) {
 	const { store } = deps;
 	let rows: RoutineMemory[] = deduped(MemoriesSchema.parse(store.load() ?? []).filter(usable));
 
-	const commit = (next: RoutineMemory[]): boolean => {
-		const previous = rows;
-		rows = next;
-		try {
-			store.saveChecked(rows);
-			return true;
-		} catch (error) {
-			if (error instanceof DurableStoreInstalledError) return true;
-			rows = previous;
-			console.warn(`[routine] memory write failed: ${(error as Error).message}`);
-			return false;
-		}
-	};
+	const commit = (next: RoutineMemory[]): boolean =>
+		commitChecked(
+			store,
+			next,
+			(landed) => {
+				rows = landed;
+			},
+			{ label: "routine memory" },
+		).landed;
 
 	/** Nothing remembered yet reads as empty at version zero, which no write can have produced. */
 	const read = (incarnation: string): { text: string; version: number } => {

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRoutineStore } from "../gateway/routines/store.js";
 import { openDurable } from "../shared/durable-store.js";
 import type { Routine } from "../shared/schemasRoutine.js";
@@ -136,6 +136,27 @@ describe("routine store", () => {
 		const refused = guarded.put(routine("morning"));
 		expect(refused.stored).toBe(false);
 		expect(refused.reason).toContain("host.routine-morning");
+	});
+
+	it("keeps a landed write when the runner hook throws", () => {
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		const dataDir = fresh();
+		const hook = vi.fn(() => {
+			throw new Error("runner gone");
+		});
+		const store = openDurable(dataDir, "routines", (durable) =>
+			createRoutineStore({
+				store: durable,
+				now: () => 1_700_000_000_000,
+				newIncarnation: () => "inc-1",
+				onChanged: hook,
+			}),
+		);
+
+		expect(store.put(routine("morning"))).toMatchObject({ stored: true, revision: 1 });
+		expect(store.get("morning")).toMatchObject({ revision: 1 });
+		expect(open(dataDir).get("morning")).toMatchObject({ revision: 1 });
+		expect(hook).toHaveBeenCalledOnce();
 	});
 
 	it("refuses to hand a caller the record it holds to edit", () => {

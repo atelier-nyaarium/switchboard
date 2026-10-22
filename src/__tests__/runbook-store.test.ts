@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRunbookStore } from "../gateway/runbooks/store.js";
-import { openDurable } from "../shared/durable-store.js";
+import { type DurableStore, openDurable } from "../shared/durable-store.js";
 import type { Runbook } from "../shared/schemasRunbook.js";
 
 const roots: string[] = [];
@@ -220,5 +220,22 @@ describe("runbook store", () => {
 				.list()
 				.map((r) => r.id),
 		).toEqual(["deploy"]);
+	});
+
+	it("answers a failed write as not stored, and a retry lands at the same revision", () => {
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		let failing = true;
+		const disk = {
+			load: () => null,
+			saveChecked: () => {
+				if (failing) throw new Error("disk full");
+			},
+		} as unknown as DurableStore;
+		const store = createRunbookStore({ store: disk });
+
+		expect(store.put(book("deploy"))).toMatchObject({ stored: false, revision: 0 });
+		expect(store.get("deploy")).toBeNull();
+		failing = false;
+		expect(store.put(book("deploy"))).toMatchObject({ stored: true, revision: 1 });
 	});
 });

@@ -2,7 +2,7 @@
 // gateway has learned that a request went unanswered, and nothing about whether the work went well.
 
 import { z } from "zod";
-import { type DurableStore, DurableStoreInstalledError } from "../../shared/durable-store.js";
+import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 
 export const AttentionSchema = z.object({
 	routineId: z.string().min(1),
@@ -24,19 +24,15 @@ export function createAttentionStore(deps: AttentionStoreDeps) {
 	const { store } = deps;
 	let rows: Attention[] = AttentionsSchema.parse(store.load() ?? []);
 
-	const commit = (next: Attention[]): boolean => {
-		const previous = rows;
-		rows = next;
-		try {
-			store.saveChecked(rows);
-			return true;
-		} catch (error) {
-			if (error instanceof DurableStoreInstalledError) return true;
-			rows = previous;
-			console.warn(`[routine] attention write failed: ${(error as Error).message}`);
-			return false;
-		}
-	};
+	const commit = (next: Attention[]): boolean =>
+		commitChecked(
+			store,
+			next,
+			(landed) => {
+				rows = landed;
+			},
+			{ label: "routine attention" },
+		).landed;
 
 	const forRoutine = (routineId: string): Attention[] => rows.filter((row) => row.routineId === routineId);
 

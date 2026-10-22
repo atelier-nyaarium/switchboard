@@ -96,6 +96,47 @@ export class DurableStore {
 ////////////////////////////////
 //  Functions & Helpers
 
+export type CheckedCommit = { landed: true } | { landed: false; error: Error };
+
+export interface CommitCheckedOptions {
+	/** Persisted snapshot override. */
+	snapshot?: unknown;
+	/** Failure log label. */
+	label?: string;
+	/** Hook errors preserve commits. */
+	onLanded?: () => void;
+}
+
+/**
+ * Writes before apply. Failures preserve memory. Installed snapshots count as landed.
+ */
+export function commitChecked<T>(
+	store: Pick<DurableStore, "saveChecked">,
+	next: T,
+	apply: (next: T) => void,
+	options: CommitCheckedOptions = {},
+): CheckedCommit {
+	try {
+		store.saveChecked("snapshot" in options ? options.snapshot : next);
+	} catch (error) {
+		if (!(error instanceof DurableStoreInstalledError)) {
+			const failed = error instanceof Error ? error : new Error(String(error));
+			if (options.label) console.warn(`[${options.label}] write failed: ${failed.message}`);
+			return { landed: false, error: failed };
+		}
+	}
+	apply(next);
+	try {
+		options.onLanded?.();
+	} catch (error) {
+		// The write landed; nothing may say otherwise.
+		try {
+			console.error(`[${options.label ?? "durable"}] hook after a landed write failed:`, error);
+		} catch {}
+	}
+	return { landed: true };
+}
+
 /**
  * Build a consumer over a durable file, containing a poisoned file to that file alone.
  *

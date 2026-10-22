@@ -1,3 +1,4 @@
+import { commitChecked } from "./durable-store.js";
 import { fenced, MIGRATING } from "./migration-fence.js";
 
 ////////////////////////////////
@@ -95,7 +96,13 @@ export class DurableOutbox<T> {
 
 	/** The file first: a queue that cannot save its next state keeps its current one, and the caller hears why. */
 	private commit(next: T[]): void {
-		this.options.durable?.saveChecked(this.options.serialize?.(next) ?? next);
-		this.items.splice(0, this.items.length, ...next);
+		const apply = (landed: T[]) => this.items.splice(0, this.items.length, ...landed);
+		const { durable, serialize } = this.options;
+		if (!durable) {
+			apply(next);
+			return;
+		}
+		const written = commitChecked(durable, next, apply, { snapshot: serialize?.(next) ?? next });
+		if (!written.landed) throw written.error;
 	}
 }

@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import type { Ambient } from "../../shared/ambient.js";
-import { type DurableStore, DurableStoreInstalledError } from "../../shared/durable-store.js";
+import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import type { AuthorizationPolicy } from "../../shared/schemasPolicy.js";
 import {
 	type PolicyRef,
@@ -96,22 +96,19 @@ export function createVaultDecisions(deps: VaultDecisionsDeps) {
 
 	/** A revocation lands on disk before it is reported; the rest is best effort. */
 	const commit = (next: VaultGrant[], checked: boolean): boolean => {
-		const previous = grants;
-		grants = next;
 		if (!checked) {
+			grants = next;
 			store.save(grants);
 			return true;
 		}
-		try {
-			store.saveChecked(grants);
-			return true;
-		} catch (error) {
-			// An installed snapshot is what a reopen reads.
-			if (error instanceof DurableStoreInstalledError) return true;
-			grants = previous;
-			console.warn(`[vault] grant write failed: ${(error as Error).message}`);
-			return false;
-		}
+		return commitChecked(
+			store,
+			next,
+			(landed) => {
+				grants = landed;
+			},
+			{ label: "vault grant" },
+		).landed;
 	};
 	const sweep = (now: number): void => {
 		const kept = grants.filter((grant) => grant.tier === "standing" || grant.expiresAt > now);

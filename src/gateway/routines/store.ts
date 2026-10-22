@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { canonicalJson } from "../../shared/canonical-json.js";
-import { type DurableStore, DurableStoreInstalledError } from "../../shared/durable-store.js";
+import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import { type Routine, RoutineSchema, routineRefusal } from "../../shared/schemasRoutine.js";
 import { REVISION_CEILING, type Runbook } from "../../shared/schemasRunbook.js";
 import { renderRoutine } from "./render.js";
@@ -88,23 +88,15 @@ export function createRoutineStore(deps: RoutineStoreDeps) {
 	let routines: Routine[] = RoutinesSchema.parse(store.load() ?? []).map(frozen);
 
 	/** A write the phone is told landed is on disk first. */
-	const commit = (next: Routine[]): boolean => {
-		const previous = routines;
-		routines = next;
-		try {
-			store.saveChecked(routines);
-			deps.onChanged();
-			return true;
-		} catch (error) {
-			if (error instanceof DurableStoreInstalledError) {
-				deps.onChanged();
-				return true;
-			}
-			routines = previous;
-			console.warn(`[routine] write failed: ${(error as Error).message}`);
-			return false;
-		}
-	};
+	const commit = (next: Routine[]): boolean =>
+		commitChecked(
+			store,
+			next,
+			(landed) => {
+				routines = landed;
+			},
+			{ label: "routine", onLanded: deps.onChanged },
+		).landed;
 
 	const held = (id: string): Routine | undefined => routines.find((routine) => routine.id === id);
 

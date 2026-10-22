@@ -1,7 +1,8 @@
 // Each watcher's rules, written only by owner ops. The store names every revision.
 
 import { z } from "zod";
-import { type DurableStore, DurableStoreInstalledError } from "../../shared/durable-store.js";
+import { capFifo } from "../../shared/cap-fifo.js";
+import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import {
 	type AssistantRule,
 	type AssistantRuleOtherwise,
@@ -89,19 +90,15 @@ export function createRulesStore(deps: RulesStoreDeps) {
 			Object.hasOwn(state.watchers, watcherId) ? (state.watchers[watcherId] ?? DEFAULT_RULES) : DEFAULT_RULES,
 		);
 
-	const commit = (next: Snapshot): boolean => {
-		const previous = state;
-		state = next;
-		try {
-			deps.store.saveChecked(state);
-			return true;
-		} catch (error) {
-			if (error instanceof DurableStoreInstalledError) return true;
-			state = previous;
-			console.warn(`[assistant] rules write failed: ${(error as Error).message}`);
-			return false;
-		}
-	};
+	const commit = (next: Snapshot): boolean =>
+		commitChecked(
+			deps.store,
+			next,
+			(landed) => {
+				state = landed;
+			},
+			{ label: "assistant rules" },
+		).landed;
 
 	const answer = (watcherId: string, stored: boolean, reason?: string): ConsoleAssistantRulesResult => ({
 		stored,
@@ -177,8 +174,7 @@ export function createRulesStore(deps: RulesStoreDeps) {
 			);
 			if (!landed.stored) return landed;
 			buried.set(graveOf(watcherId, ruleId), current.revision);
-			// Oldest out.
-			for (const old of [...buried.keys()].slice(0, Math.max(0, buried.size - MAX_BURIED))) buried.delete(old);
+			capFifo(buried, MAX_BURIED);
 			return landed;
 		},
 		/**

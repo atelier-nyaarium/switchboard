@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { Clock } from "../../shared/ambient.js";
-import { DurableStore } from "../../shared/durable-store.js";
+import { commitChecked, DurableStore } from "../../shared/durable-store.js";
 
 export interface InboxClaim {
 	deliveryId: string;
@@ -25,13 +25,9 @@ export class InboxClaims {
 	) {}
 
 	claim(address: string, seq: number, deliveryEpoch: number): InboxClaim | null {
-		const file = this.file(address);
-		const current = this.claims.get(address)!;
-		if (current.deliveryEpoch !== deliveryEpoch) {
-			current.deliveryEpoch = deliveryEpoch;
-			current.claims = {};
-			file.saveChecked(current);
-		}
+		this.file(address);
+		const held = this.claims.get(address)!;
+		const current = held.deliveryEpoch === deliveryEpoch ? held : { deliveryEpoch, claims: {} };
 		const deliveryId = `${address}:${seq}:${deliveryEpoch}`;
 		const existing = current.claims[deliveryId];
 		if (existing) return existing;
@@ -42,8 +38,7 @@ export class InboxClaims {
 			offeredAt: this.ambient.now(),
 			outcome: "waking" as const,
 		};
-		current.claims[deliveryId] = claim;
-		file.saveChecked(current);
+		this.commit(address, { deliveryEpoch, claims: { ...current.claims, [deliveryId]: claim } });
 		return null;
 	}
 
@@ -55,22 +50,27 @@ export class InboxClaims {
 	}
 
 	setOutcome(address: string, seq: number, deliveryEpoch: number, outcome: InboxClaim["outcome"]): void {
-		const file = this.file(address);
+		this.file(address);
 		const current = this.claims.get(address)!;
 		if (current.deliveryEpoch !== deliveryEpoch) return;
 		const deliveryId = `${address}:${seq}:${deliveryEpoch}`;
 		const claim = current.claims[deliveryId];
 		if (!claim) return;
-		claim.outcome = outcome;
-		file.saveChecked(current);
+		this.commit(address, { deliveryEpoch, claims: { ...current.claims, [deliveryId]: { ...claim, outcome } } });
 	}
 
 	ack(address: string, seq: number, deliveryEpoch: number): void {
-		const file = this.file(address);
+		this.file(address);
 		const current = this.claims.get(address)!;
 		if (current.deliveryEpoch !== deliveryEpoch) return;
-		delete current.claims[`${address}:${seq}:${deliveryEpoch}`];
-		file.saveChecked(current);
+		const { [`${address}:${seq}:${deliveryEpoch}`]: _acked, ...kept } = current.claims;
+		this.commit(address, { deliveryEpoch, claims: kept });
+	}
+
+	/** Throws unless landed. */
+	private commit(address: string, next: ClaimFile): void {
+		const written = commitChecked(this.file(address), next, (landed) => this.claims.set(address, landed));
+		if (!written.landed) throw written.error;
 	}
 
 	private file(address: string): DurableStore {
