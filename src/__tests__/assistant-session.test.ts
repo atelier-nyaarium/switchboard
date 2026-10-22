@@ -39,6 +39,10 @@ function counting(): Watcher & { polls: number } {
 	return watcher;
 }
 
+const noRoutes = () => {
+	throw new Error("no Domain");
+};
+
 function stage(
 	store = new SessionStore({ ambient: processAmbient() }),
 	watchers?: Watcher[],
@@ -55,6 +59,7 @@ function stage(
 		sessions: { sessionStore: store, presence: store } as never,
 		saveSessions: () => {},
 		vault: vault(),
+		routes: noRoutes,
 		fetch,
 		...(watchers ? { watchers } : {}),
 	});
@@ -183,6 +188,7 @@ describe("the assistant's session", () => {
 				if (!saves) throw new Error("disk full");
 			},
 			vault: held,
+			routes: noRoutes,
 			fetch: async () => new Response(null, { status: 304 }),
 			watchers: [counting()],
 		});
@@ -222,6 +228,7 @@ describe("the assistant's session", () => {
 				...held,
 				setWatcherGrants: (id, entryIds) => entryIds.length === 0 && held.setWatcherGrants(id, []),
 			},
+			routes: noRoutes,
 			fetch: async () => new Response(null, { status: 304 }),
 			watchers: [counting()],
 		});

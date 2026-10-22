@@ -1,16 +1,9 @@
-// At-most-once for the workspace plane, defined on the answering side.
-//
-// The plane is neither a transient value op nor the Router's delivery ledger, so nothing upstream
-// dedupes for it. A replayed key answers the FIRST result rather than running the op again.
-//
-// An op still in flight is joined rather than re-run, or a replay arriving before the first answer
-// would do the work twice and the dedupe would have bought nothing.
+// At-most-once by caller key.
+// In-flight replays join; settled replays reuse the answer.
 
-import type { WorkspaceOpResult } from "../../shared/workspace-op.js";
-
-interface Settled {
+interface Settled<T> {
 	at: number;
-	result: WorkspaceOpResult;
+	result: T;
 }
 
 export interface DedupeDeps {
@@ -19,9 +12,9 @@ export interface DedupeDeps {
 	holdMs: number;
 }
 
-export function createOpDedupe(deps: DedupeDeps) {
-	const settled = new Map<string, Settled>();
-	const inFlight = new Map<string, Promise<WorkspaceOpResult>>();
+export function createOpDedupe<T>(deps: DedupeDeps) {
+	const settled = new Map<string, Settled<T>>();
+	const inFlight = new Map<string, Promise<T>>();
 
 	const sweep = (): void => {
 		const cutoff = deps.now() - deps.holdMs;
@@ -31,7 +24,7 @@ export function createOpDedupe(deps: DedupeDeps) {
 	};
 
 	/** Runs `work` at most once per key, joining a flight already open and replaying a settled answer. */
-	const once = async (key: string, work: () => Promise<WorkspaceOpResult>): Promise<WorkspaceOpResult> => {
+	const once = async (key: string, work: () => Promise<T>): Promise<T> => {
 		sweep();
 		const already = settled.get(key);
 		if (already !== undefined) return already.result;
@@ -66,4 +59,4 @@ export function createOpDedupe(deps: DedupeDeps) {
 	};
 }
 
-export type OpDedupe = ReturnType<typeof createOpDedupe>;
+export type OpDedupe<T> = ReturnType<typeof createOpDedupe<T>>;

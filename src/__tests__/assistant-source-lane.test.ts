@@ -280,6 +280,45 @@ describe("a watcher's source lane", () => {
 		expect(pushes.pushed.map((push) => push.ids)).toEqual([["a"]]);
 	});
 
+	it("holds the lane through a write until it settles, so work queued behind waits it out", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const source = scripted();
+		const lane = lanes(ambient, stateIn(stateDir()), source.watcher, wakes().wake);
+
+		lane.start();
+		await ambient.advance(0);
+		source.answer(unread("c1", []));
+		await ambient.advance(0);
+		let release = () => {};
+		const wrote = lane.act(
+			"github",
+			() =>
+				new Promise<string>((resolve) => {
+					release = () => resolve("written");
+				}),
+		);
+		const read = lane
+			.run("github", async () => "read", 1_000)
+			.then(
+				() => "answered",
+				(error: Error) => error.message,
+			);
+		lane.poke("github");
+		await ambient.advance(1_000);
+		const readOutcome = await read;
+		const pollsWhileHeld = source.cursors.length;
+		release();
+		const written = await wrote;
+		await ambient.advance(0);
+		const pollsAfter = source.cursors.length;
+		await stopped(lane, ambient);
+
+		expect(readOutcome).toMatch(/did not answer in time/);
+		expect(pollsWhileHeld).toBe(1);
+		expect(written).toBe("written");
+		expect(pollsAfter).toBe(2);
+	});
+
 	it("polls again from the committed checkpoint after a restart, keeping the backoff it had reached", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const dir = stateDir();

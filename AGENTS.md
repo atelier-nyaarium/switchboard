@@ -10,8 +10,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/assistant/gate.ts` / `gateHook.ts` - the assistant's PreToolUse gate, `main-session-hook gate`: a deny-only second layer by exact tool name, and the only check on the attachments and refs of `channel_reply` and `notify_human`
 - `src/mcp/assistant/instructions.ts` - the assistant's standing rules in its MCP instructions, and `scopeTools`, which lists only its own Switchboard tools
 - `src/shared/assistant-session.ts` / `src/gateway/compose/composeAssistant.ts` - the assistant's one session: placed and released by owner ops, its record being where it lives, owned by provenance, reserved from both sweeps, never plainly forgotten; the `assistant_*` console handlers. `docs/assistant.md` holds the design
-- `src/gateway/assistant/watcher.ts` / `watcherState.ts` / `sourceLane.ts` / `githubWatcher.ts` - what a watcher polls and answers; what it keeps between polls, nothing about a thread; one lane per watcher, its polls, listing and actions one at a time; GitHub notifications
+- `src/gateway/assistant/watcher.ts` / `watcherState.ts` / `sourceLane.ts` / `githubClient.ts` / `githubWatcher.ts` - what a watcher polls and answers; what it keeps between polls, nothing about a thread; one lane per watcher, its polls, listing and actions one at a time; the one road to GitHub, its token read and shared rate limit; GitHub notifications
   - **A poll commits only once its wakes are queued:** the validator and the newest time seen advance together. A failed or late push leaves both, so the retry, or a restart, polls again from that checkpoint. The first poll after placement wakes nothing.
+  - **A read releases the lane at its deadline; a write holds it until it settles:** `run` is for reads, `act` for actions, which keep their own deadline so a request cut there answers `uncertain`.
+- `src/shared/schemasAssistantActions.ts` / `src/gateway/assistant/watcherAction.ts` / `actionDispatch.ts` / `githubDone.ts` / `src/mcp/assistant/actionTools.ts` - watcher actions: the shared registry and its wire; `WatcherAction<K>` and the map typed by the registry's keys; the one door that parses, runs in the lane, records and answers; `github_done`; one tool per key, registered for `host.assistant` alone
+  - **The registry is the one source of the tool names:** `ASSISTANT_SWITCHBOARD_TOOLS` spreads its keys, so the MCP scope, the gate and the launch permissions follow it, and `check:boot` proves each tool is listed for the assistant and nowhere else.
+  - **A call id joins a retry to the first call:** the tool mints one per call, the dispatcher holds its answer through `createOpDedupe`, and the record row is keyed by it, so a retried post repeats no request and no record.
+  - **An action answers by its deadline:** one its lane has not started is refused with nothing sent. The Gateway's Bun server holds a request past every route's wait (`src/gateway/serveLimits.ts`), since Bun's default cuts one at 10 seconds and no Node gate can see it.
 - `src/gateway/vault/vaultUse.ts` - the one release a vault value leaves by: the routes' and a watcher's standing grant read
 - `src/shared/schemasAssistant.ts` - the assistant's console answer: where it lives on a Gateway and its watchers there
 - `src/shared/schemasAssistantRules.ts` / `src/gateway/assistant/rulesStore.ts` - watcher rules: the record, `ruleRefusal`, `firstMatch`, `decideEvent`; the store, sole writer, one rule per op on the policy store's model
@@ -532,7 +537,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     the full timeout for an answer that can never come.
   - **One socket per session, chosen by `resolveLiveIncarnation`:** a session can hold several plugin
     sockets keyed team then `subId`. Nothing broadcasts, and no second selector exists.
-- `src/mcp/workspace/plane.ts` / `handlers.ts` / `handlerKit.ts` / `mutateFile.ts` / `opDedupe.ts` - the plugin's end: the frame it answers, the reads, the shared deadline, confinement and size rule, the span save, the file mutations, and at-most-once
+- `src/mcp/workspace/plane.ts` / `handlers.ts` / `handlerKit.ts` / `mutateFile.ts` - the plugin's end: the frame it answers, the reads, the shared deadline, confinement and size rule, the span save, and the file mutations; at-most-once through `src/shared/op-dedupe.ts`, which the assistant's action dispatcher takes too
   - **`withinCap` is the one size rule:** every answer is measured as serialised UTF-8 and refused whole
     with `rows` and `bytes`. `answerForConsole` types that refusal for the drill-ins alone, since an older
     phone decodes an older read as its own answer.

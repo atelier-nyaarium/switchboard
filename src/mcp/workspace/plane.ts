@@ -3,6 +3,7 @@
 // Wired at startup so the socket handler needs no knowledge of where the root or the Lexicon session
 // come from. Unwired, every op is refused rather than answered with a guess at the workspace.
 
+import { createOpDedupe, type OpDedupe } from "../../shared/op-dedupe.js";
 import { FileMutationSchema, SymbolFacetSchema } from "../../shared/schemasWorkspace.js";
 import {
 	WORKSPACE_OP_DEDUPE_MS,
@@ -12,18 +13,18 @@ import {
 	type WorkspaceOpResult,
 } from "../../shared/workspace-op.js";
 import { answerWorkspaceOp, type HandlerDeps } from "./handlers.js";
-import { createOpDedupe, type OpDedupe } from "./opDedupe.js";
 
 ////////////////////////////////
 //  Functions & Helpers
 
 let deps: HandlerDeps | null = null;
-let dedupe: OpDedupe | null = null;
+let dedupe: OpDedupe<WorkspaceOpResult> | null = null;
 
 /** Null disables the plane, which is how a session without the capability refuses every op. */
 export function setWorkspacePlane(wired: HandlerDeps | null): void {
 	deps = wired;
-	dedupe = wired === null ? null : createOpDedupe({ now: Date.now, holdMs: WORKSPACE_OP_DEDUPE_MS });
+	dedupe =
+		wired === null ? null : createOpDedupe<WorkspaceOpResult>({ now: Date.now, holdMs: WORKSPACE_OP_DEDUPE_MS });
 }
 
 export type ParsedWorkspaceOp =

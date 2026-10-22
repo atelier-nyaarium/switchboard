@@ -19,6 +19,7 @@ import { isValidSessionName, parseSessionName } from "../shared/session-id.js";
 import { REMINDER_RULE } from "../shared/system-reminder.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper } from "../shared/vault-askpass-wrapper.js";
 import type { AgentDispatch } from "./agentDispatch.js";
+import { registerActionTools } from "./assistant/actionTools.js";
 import { registerInboxTool } from "./assistant/inboxTool.js";
 import { ASSISTANT_INSTRUCTIONS, scopeTools } from "./assistant/instructions.js";
 import { registerBoardTools } from "./board/boardTools.js";
@@ -190,7 +191,10 @@ export async function startMcp(): Promise<void> {
 	// and the owner never opts that session into anything.
 	if (process.env.SWITCHBOARD_SESSION_TOKEN) registerRoutineTools(mcpServer);
 	// The Gateway checks the token is the assistant's too; this only keeps it off other sessions.
-	if (isAssistant) registerInboxTool(mcpServer);
+	if (isAssistant) {
+		registerInboxTool(mcpServer);
+		registerActionTools(mcpServer);
+	}
 	// Not a tool of its own: it rides the reply path, so it is switched on rather than registered.
 	setReferencesEnabled(hasCapability(capabilities, "references"));
 	// Answered off the agent's turn, so it is wired rather than registered. The root and the Lexicon

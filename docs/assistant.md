@@ -107,23 +107,40 @@ a plugin update. A hand resume must carry the assistant's flags too.
 A watcher declares what the assistant may do with its source. Setting the watcher up is the
 permission, so an action runs at once.
 
-- **One shared registry:** `ASSISTANT_ACTIONS` in `src/shared/assistantActions.ts` holds, per
-  action, a key that is its MCP tool name, the watcher it belongs to, a label and description, and
-  Zod schemas for its params and its answer. It holds data and schemas only, so the plugin imports no
-  Gateway code, and `assistant_state` carries a client-safe descriptor of each action.
-- **One class per action on the Gateway:** `WatcherAction<K>`, with its `key`, its `declaration`
-  and a typed `run(params, ctx)`. The instances sit in a map typed by the registry's keys, so a
-  declared action with no class does not compile.
-- **One route:** `/assistant/action` takes `{ action, params }`, answers only the assistant's own
-  token, parses the params with that action's schema, and runs it in the watcher's source lane with
-  the token read through `readForWatcher`.
+- **One shared registry:** `ASSISTANT_ACTIONS` in `src/shared/schemasAssistantActions.ts` holds, per
+  action, a key that is its MCP tool name, the watcher it belongs to, a label and a one-line
+  description for the owner, its usage text for the model, and Zod schemas for its params and its
+  answer. Every action takes an optional `summary`. It holds data and schemas only, so the plugin
+  imports no Gateway code, and `assistant_state` carries each watcher's descriptors (`actionsOf`).
+- **One class per action on the Gateway:** `WatcherAction<K>` (`watcherAction.ts`), with its `key`,
+  its `declaration` and a typed `run(params, ctx)`. The instances sit in a map typed by the
+  registry's keys, so a declared action with no class does not compile.
+- **One route:** `/assistant/action` takes `{ action, callId, params }`, answers only the assistant's
+  own token, parses the params with that action's schema, and runs it (`actionDispatch.ts`).
+- **An action holds its watcher's lane until it settles:** `SourceLanes.act`, where a read's `run`
+  releases the lane at its deadline. The deadline is 60 seconds and counts the queue: an action its
+  lane has not started by then is refused with nothing sent, and starts as a no-op if it starts
+  later. No request starts past the deadline, and one in flight is cut there or at 15 seconds. An id
+  never sent answers `not_attempted`; a write cut before its answer answers `uncertain`. The
+  Gateway's Bun server holds a request up to 255 seconds (`serveLimits.ts`), past an action's, a
+  listing's and a vault approval's wait. The timer is the one clock: it aborts the action's signal
+  with its reason, which the action reads.
+- **`rate_limited` means GitHub answered with a rate limit:** an id the shared limit held back was not
+  sent, so it answers `not_attempted`, and the note names the wait.
+- **A call id makes a retry safe:** the tool mints one per call and repeats it on a retried post. The
+  Gateway joins a repeated id to the first call's answer through `createOpDedupe`, holding a settled
+  answer ten minutes, so neither the requests nor the record repeat, and keys the record row by it.
+- **One GitHub client:** `githubClient.ts` owns the token read, the headers, the refusals and the
+  shared rate limit, so polls, listings and actions cannot disagree.
 - **The tools follow the registry:** `ASSISTANT_SWITCHBOARD_TOOLS` is derived from its keys, so the
   MCP scope, the gate and the launch permissions list the same tools.
 - **`github_done({ ids, summary? })`:** up to 50 unique digit-string thread ids, and an optional
   summary of up to 300 characters. Per id it reads the thread for its title and link, then marks it
   done. Each id answers one shared outcome: `done`, `not_found`, `rate_limited`, `uncertain` or
-  `not_attempted`. A rate limit stops the batch, and the ids after it answer `not_attempted`.
-- **The record:** every action is recorded in the assistant's conversation (Delivery).
+  `not_attempted`. A rate limit stops the batch, and the ids after it answer `not_attempted`; so does
+  a refused token. A repeated `DELETE` answers 204 again.
+- **The record:** an action that reached the source is recorded in the assistant's conversation
+  (Delivery). One where every id answered `not_attempted` posts nothing.
 
 ## Events
 
@@ -173,7 +190,8 @@ A watcher is plain Gateway code, never a model.
 - Its one action is `github_done`.
 - Reads a classic token from its granted vault entry. The notification endpoints take no
   fine-grained token. Without a grant, on a 401, on a 404 (GitHub hides what a token may not see),
-  or on a 403 that is not a rate limit, the watcher stops with that reason. `createGithubWatcher` in `src/gateway/assistant/githubWatcher.ts`.
+  or on a 403 that is not a rate limit, the watcher stops with that reason. `createGithubWatcher` in
+  `src/gateway/assistant/githubWatcher.ts`, over the shared client.
 
 ### Rules
 
@@ -255,8 +273,10 @@ before the shutdown flush. Stop is final. `src/gateway/assistant/` holds the wat
 - **Who reads it:** the `inbox` tool and the action tools are registered only for `host.assistant`.
   The Gateway doors in `assistantRoutes.ts` answer only a token bound to the assistant's own record,
   and answer `not_assistant` or `unauthenticated` otherwise.
-- **The record:** every action posts an `assistant_record` row through `deliverToOwner` into the
-  assistant's own conversation, never through `channel_reply` or `notify_human`. It carries a
+- **The record:** an action that reached GitHub for at least one id queues an `assistant_record` row
+  through `deliverToOwner` into the assistant's own conversation, never through `channel_reply` or
+  `notify_human`. A refused enqueue leaves no row; the tool says so, and the agent sends its summary
+  with `notify_human` instead. It carries a
   `notify` flag, the summary in `body` (at most 300 characters, present exactly when `notify` is
   true), and per thread its id, outcome and, when GitHub answered, title and link. With a summary it
   is the assistant's message with the threads folded under it, and it notifies. Without one it is a

@@ -14,32 +14,34 @@ import {
 import { openDurable } from "../../shared/durable-store.js";
 import { isSpawnWorkdirPath } from "../../shared/host-op.js";
 import type { AssistantWatcher, ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
+import { actionsOf, GITHUB_WATCHER_ID } from "../../shared/schemasAssistantActions.js";
 import { eventLines, type InboxItem, type InboxList, type InboxScope } from "../../shared/schemasAssistantInbox.js";
 import { canonicalRule, decideEvent, firstMatch, ruleMatches } from "../../shared/schemasAssistantRules.js";
 import type { SessionBaseline } from "../../shared/session-baseline.js";
+import { type ActionRecord, createActionDispatch } from "../assistant/actionDispatch.js";
 import { createAssistantRoutes, type Handler } from "../assistant/assistantRoutes.js";
-import {
-	createGithubWatcher,
-	GITHUB_WATCHER_ID,
-	type GithubWatcherDeps,
-	type TokenRead,
-} from "../assistant/githubWatcher.js";
+import { createGithubClient, type GithubClientDeps, type TokenRead } from "../assistant/githubClient.js";
+import { GithubDone } from "../assistant/githubDone.js";
+import { createGithubWatcher } from "../assistant/githubWatcher.js";
 import { createRulesStore } from "../assistant/rulesStore.js";
 import { type AssistantWake, createSourceLanes, type SourceLanes } from "../assistant/sourceLane.js";
 import type { ListPage, ListQuery, Watcher, WatcherEvent } from "../assistant/watcher.js";
+import type { WatcherActions } from "../assistant/watcherAction.js";
 import { createWatcherStateStore, FRESH_STATE } from "../assistant/watcherState.js";
 import type { AssistantConsoleHandlers } from "../console/consoleTypes.js";
 import type { VaultRelease } from "../vault/vaultUse.js";
+import type { GatewayRoutes } from "./composeRoutes.js";
 import type { SessionsStage } from "./composeSessions.js";
 
 const NEEDS_SECRET = "needs a secret";
+const NOT_HERE = "the assistant does not live on this Gateway";
 /** Shutdown waits this long for an owner op already running. */
 const STOP_WAIT_MS = 5_000;
 /** Events a preview reads. */
 const PREVIEW_EVENTS = 50;
 /** Inside the phone's answer wait. */
 const PREVIEW_WAIT_MS = 25_000;
-const LIST_WAIT_MS = 25_000;
+export const LIST_WAIT_MS = 25_000;
 /** Past it, the rest of a page is cut. */
 const MAX_LIST_BYTES = 64_000;
 
@@ -59,7 +61,9 @@ export interface AssistantStageDeps {
 	/** A checked save of the session records, which hold where it lives; throws when it did not land. */
 	saveSessions: () => void;
 	vault: AssistantVault;
-	fetch: GithubWatcherDeps["fetch"];
+	/** Resolve after Domain activation. */
+	routes: () => Pick<GatewayRoutes, "deliverToOwner" | "ownerSessionKey">;
+	fetch: GithubClientDeps["fetch"];
 	/** Replaces the built-in watchers. */
 	watchers?: readonly Watcher[];
 }
@@ -105,9 +109,13 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		if (entryId === undefined) return { kind: "stopped", reason: NEEDS_SECRET };
 		return tokenOf(await deps.vault.readForWatcher(watcherId, entryId), entryId);
 	};
-	const watchers = deps.watchers ?? [
-		createGithubWatcher({ fetch: deps.fetch, token: tokenFor(GITHUB_WATCHER_ID), now: () => ambient.now() }),
-	];
+	const github = createGithubClient({
+		fetch: deps.fetch,
+		token: tokenFor(GITHUB_WATCHER_ID),
+		now: () => ambient.now(),
+	});
+	const watchers = deps.watchers ?? [createGithubWatcher(github)];
+	const actions: WatcherActions = { github_done: new GithubDone(github) };
 
 	const watcherState = openDurable(deps.dataDir, "assistant-watchers", (store) => createWatcherStateStore(store));
 	const rules = openDurable(deps.dataDir, "assistant-rules", (store) =>
@@ -150,7 +158,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		deadlineMs: number,
 		then: (page: ListPage, signal: AbortSignal) => T,
 	): Promise<T> => {
-		if (!lanes) throw new Error("the assistant does not live on this Gateway");
+		if (!lanes) throw new Error(NOT_HERE);
 		return lanes.run(
 			watcherId,
 			async (watcher, signal) =>
@@ -221,6 +229,27 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			};
 		}).catch((error: Error) => ({ label, items: [], error: error.message.slice(0, 400) }));
 	};
+	/** Owner record keyed by call id. */
+	const postRecord = (callId: string, record: ActionRecord): boolean => {
+		try {
+			const routes = deps.routes();
+			const sessionId = routes.ownerSessionKey(ASSISTANT_TEAM);
+			if (!sessionId) return false;
+			const entry = { kind: "assistant_record" as const, session_id: sessionId, ...record };
+			return (
+				routes.deliverToOwner({ entry, dedupeKey: `assistant-action:${callId}`, label: "assistant" }) === true
+			);
+		} catch (error) {
+			console.warn(`[assistant] record not posted: ${(error as Error).message}`);
+			return false;
+		}
+	};
+	const dispatch = createActionDispatch({
+		actions,
+		ambient,
+		act: (watcherId, work) => (lanes ? lanes.act(watcherId, work) : Promise.reject(new Error(NOT_HERE))),
+		record: postRecord,
+	});
 	/** Owner ops one at a time, so a place never lands inside a release; none starts after shutdown. */
 	let tail: Promise<unknown> = Promise.resolve();
 	const serial = <T>(work: () => T | Promise<T>): Promise<T> => {
@@ -253,6 +282,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			fields: [...(watcher.fields ?? [])],
 			rules: rules.get(watcher.id),
 			...(watcher.secret === undefined ? {} : { secret: watcher.secret }),
+			actions: actionsOf(watcher.id),
 		};
 	};
 
@@ -270,6 +300,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			const listed = watchers.filter((watcher) => watcher.list && (!asked || asked.watcherId === watcher.id));
 			return Promise.all(listed.map((watcher) => listOne(watcher, scope, asked ?? { skip: 0 })));
 		},
+		dispatch,
 	});
 	const state = (): ConsoleAssistantStateResult => {
 		const record = held();
@@ -358,7 +389,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					if (!watchers.some((watcher) => watcher.id === watcherId))
 						throw new Error(`no watcher "${watcherId}"`);
 					if (entryIds.length > 1) throw new Error("a watcher takes one secret");
-					if (!held()) throw new Error("the assistant does not live on this Gateway");
+					if (!held()) throw new Error(NOT_HERE);
 					deps.vault.setWatcherGrants(watcherId, entryIds);
 					if (!grantsLanded(watcherId, entryIds)) throw new Error("the grant could not be saved");
 					if (lanes) lanes.poke(watcherId);

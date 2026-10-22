@@ -1,6 +1,7 @@
 // The assistant's console answers: where it lives on a Gateway, and its watchers there.
 
 import { z } from "zod";
+import { AssistantActionDescriptorSchema } from "./schemasAssistantActions.js";
 import { AssistantWatcherRulesSchema } from "./schemasAssistantRules.js";
 
 const AssistantWatcherBackoffSchema = z
@@ -28,6 +29,8 @@ export const AssistantWatcherSchema = z
 		rules: AssistantWatcherRulesSchema.optional(),
 		/** The secret it needs, as shown; absent when it needs none. */
 		secret: z.string().max(400).optional(),
+		// Required starting 2026-11-04.
+		actions: z.array(AssistantActionDescriptorSchema).optional(),
 	})
 	.meta({ id: "AssistantWatcher" });
 

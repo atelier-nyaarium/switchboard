@@ -1092,6 +1092,7 @@ data class AssistantWatcher(
 	val fields: List<String>? = null,
 	val rules: AssistantWatcherRules? = null,
 	val secret: String? = null,
+	val actions: List<AssistantActionDescriptor>? = null,
 )
 
 @Serializable
@@ -2863,6 +2864,13 @@ data class CrossDomainShareEntry(
 data class AssistantWatcherBackoff(
 	val until: Long,
 	val reason: String,
+)
+
+@Serializable
+data class AssistantActionDescriptor(
+	val key: String,
+	val label: String,
+	val description: String,
 )
 
 @Serializable

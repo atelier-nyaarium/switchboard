@@ -41,12 +41,14 @@ export interface SourceLanes {
 	start(): void;
 	/** Polls now, stopped or not. */
 	poke(watcherId: string): void;
-	/** Queued work; the deadline counts the queue. */
+	/** Read deadline releases the lane. */
 	run<T>(
 		watcherId: string,
 		work: (watcher: Watcher, signal: AbortSignal) => Promise<T>,
 		deadlineMs: number,
 	): Promise<T>;
+	/** Writes own deadlines; lane holds through settlement. */
+	act<T>(watcherId: string, work: (signal: AbortSignal) => Promise<T>): Promise<T>;
 	/** Final; fences commits. */
 	stop(): Promise<void>;
 }
@@ -278,6 +280,12 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 				ambient.clearTimer(timer);
 				own.abort();
 			}
+		},
+		act(watcherId, work) {
+			if (!deps.watchers.some((watcher) => watcher.id === watcherId)) {
+				return Promise.reject(new Error(`no watcher "${watcherId}"`));
+			}
+			return enqueue(watcherId, work);
 		},
 		async stop() {
 			phase = "stopped";

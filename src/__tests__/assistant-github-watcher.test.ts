@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createGithubWatcher, type TokenRead } from "../gateway/assistant/githubWatcher.js";
+import { createGithubClient, type TokenRead } from "../gateway/assistant/githubClient.js";
+import { createGithubWatcher } from "../gateway/assistant/githubWatcher.js";
 import { type ListQuery, PollAnswerSchema } from "../gateway/assistant/watcher.js";
 
 const NOW = 1_800_000_000_000;
@@ -21,17 +22,19 @@ type Reply = { status: number; body?: unknown; headers?: Record<string, string> 
 function github(replies: Reply[], token: TokenRead = { kind: "token", value: "ghp_test", key: "entry-a" }) {
 	const asked: { url: string; headers: Record<string, string> }[] = [];
 	let current = token;
-	const watcher = createGithubWatcher({
-		now: () => NOW,
-		token: async () => current,
-		fetch: async (url, init) => {
-			asked.push({ url, headers: init.headers as Record<string, string> });
-			const reply = replies.shift();
-			if (!reply) throw new Error("no reply scripted");
-			const body = reply.body === undefined ? null : JSON.stringify(reply.body);
-			return new Response(body, { status: reply.status, headers: reply.headers });
-		},
-	});
+	const watcher = createGithubWatcher(
+		createGithubClient({
+			now: () => NOW,
+			token: async () => current,
+			fetch: async (url, init) => {
+				asked.push({ url, headers: init.headers as Record<string, string> });
+				const reply = replies.shift();
+				if (!reply) throw new Error("no reply scripted");
+				const body = reply.body === undefined ? null : JSON.stringify(reply.body);
+				return new Response(body, { status: reply.status, headers: reply.headers });
+			},
+		}),
+	);
 	const poll = async (cursor: string | null) =>
 		PollAnswerSchema.parse(await watcher.poll(cursor, new AbortController().signal));
 	const list = async (query: ListQuery = { scope: "all" }) => {

@@ -1,5 +1,6 @@
 // The assistant's one session. A name is not a binding, so provenance decides, as for a routine.
 
+import { ASSISTANT_ACTION_KEYS } from "./schemasAssistantActions.js";
 import { ASSISTANT_COMMANDS } from "./session-commands.js";
 import { composeSessionName } from "./session-id.js";
 
@@ -19,6 +20,7 @@ export const ASSISTANT_SWITCHBOARD_TOOLS: readonly string[] = [
 	"switchboard_capabilities",
 	"notify_human",
 	ASSISTANT_COMMANDS.inbox.tool,
+	...ASSISTANT_ACTION_KEYS,
 ];
 
 /** Every built-in the assistant's session has. `ToolSearch` loads a deferred tool's schema. */

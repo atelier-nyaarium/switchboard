@@ -1,28 +1,20 @@
 // GitHub notifications. The cursor is `Last-Modified`.
 
 import { z } from "zod";
-import { type ListQuery, MAX_POLL_EVENTS, type PollAnswer, type Watcher, type WatcherEvent } from "./watcher.js";
+import { GITHUB_WATCHER_ID } from "../../shared/schemasAssistantActions.js";
+import {
+	GITHUB_API,
+	GITHUB_FLOOR_MS,
+	GITHUB_MAX_WAIT_MS,
+	type GithubClient,
+	HIDDEN,
+	isRefusal,
+} from "./githubClient.js";
+import { type ListQuery, MAX_POLL_EVENTS, type Watcher, type WatcherEvent } from "./watcher.js";
 
-export const GITHUB_WATCHER_ID = "github";
-
-const API = "https://api.github.com";
-const NOTIFICATIONS = `${API}/notifications?`;
+const NOTIFICATIONS = `${GITHUB_API}/notifications?`;
 const PAGE_SIZE = 50;
 const MAX_PAGES = MAX_POLL_EVENTS / PAGE_SIZE;
-/** Also GitHub's default `X-Poll-Interval`. */
-const FLOOR_MS = 60_000;
-const MAX_WAIT_MS = 7 * 24 * 60 * 60 * 1000;
-
-/** What the token read answered. */
-export type TokenRead =
-	/** `key` names the grant a validator belongs to. */
-	| { kind: "token"; value: string; key: string }
-	| { kind: "stopped"; reason: string }
-	| { kind: "backoff"; reason: string };
-
-/** Fetch echoes any other value in its error. */
-const TOKEN_RE = /^[!-~]+$/;
-const NOT_A_TOKEN = "the secret is not a GitHub token";
 
 const CursorSchema = z.tuple([z.string(), z.string()]);
 
@@ -73,14 +65,7 @@ function unique(events: WatcherEvent[]): WatcherEvent[] {
 	return events.filter((event) => !seen.has(event.id) && Boolean(seen.add(event.id)));
 }
 
-export interface GithubWatcherDeps {
-	fetch: (url: string, init: RequestInit) => Promise<Response>;
-	/** Through the watcher's own vault grant, each poll. */
-	token: () => Promise<TokenRead>;
-	now: () => number;
-}
-
-const ThreadSchema = z.object({
+export const ThreadSchema = z.object({
 	id: z.string().regex(/^\d{1,32}$/),
 	updated_at: z.string(),
 	reason: z.string(),
@@ -88,7 +73,7 @@ const ThreadSchema = z.object({
 	repository: z.object({ full_name: z.string() }),
 });
 
-type Thread = z.infer<typeof ThreadSchema>;
+export type Thread = z.infer<typeof ThreadSchema>;
 
 const cut = (text: string, max: number) => text.slice(0, max);
 
@@ -96,7 +81,7 @@ const REPO_RE = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
 const SUBJECT_RE = /^https:\/\/api\.github\.com\/repos\/([^/]+\/[^/]+)\/(pulls|issues|commits)\/([^/?#]+)$/;
 
 /** Built from validated parts, or none. */
-function linkOf(thread: Thread): string | undefined {
+export function linkOf(thread: Thread): string | undefined {
 	const repo = thread.repository.full_name;
 	if (!REPO_RE.test(repo)) return undefined;
 	const [, owner, kind, ref] = thread.subject.url?.match(SUBJECT_RE) ?? [];
@@ -135,44 +120,14 @@ function eventsOf(body: unknown): WatcherEvent[] {
 function nextPage(link: string | null): string | null {
 	const next = link?.split(",").find((part) => /;\s*rel="next"/.test(part));
 	const url = next?.match(/<([^>]+)>/)?.[1];
-	return url?.startsWith(`${API}/`) ? url : null;
+	return url?.startsWith(`${GITHUB_API}/`) ? url : null;
 }
 
 function intervalOf(response: Response): number {
 	const seconds = Number(response.headers.get("x-poll-interval"));
 	return Number.isFinite(seconds) && seconds > 0
-		? Math.min(MAX_WAIT_MS, Math.max(FLOOR_MS, seconds * 1000))
-		: FLOOR_MS;
-}
-
-/** A secondary limit with no wait named. */
-const SECONDARY_WAIT_MS = 5 * 60_000;
-const SCOPE = "the token needs the notifications scope";
-
-const wait = (ms: number) => Math.min(MAX_WAIT_MS, Math.max(FLOOR_MS, Math.ceil(ms)));
-
-/** A refusal GitHub explains: a bad token or scope stops, a rate limit waits it out. */
-async function refusalOf(
-	response: Response,
-	now: number,
-): Promise<Extract<PollAnswer, { kind: "stopped" | "backoff" }> | null> {
-	if (response.status === 401) return { kind: "stopped", reason: "GitHub refused the token" };
-	// GitHub hides what a token may not see.
-	if (response.status === 404) return { kind: "stopped", reason: `GitHub hid the notifications; ${SCOPE}` };
-	if (response.status !== 403 && response.status !== 429) return null;
-	const retryAfter = Number(response.headers.get("retry-after"));
-	if (Number.isFinite(retryAfter) && retryAfter > 0) {
-		return { kind: "backoff", retryMs: wait(retryAfter * 1000), reason: "GitHub rate limit" };
-	}
-	const reset = Number(response.headers.get("x-ratelimit-reset"));
-	if (response.headers.get("x-ratelimit-remaining") === "0" && Number.isFinite(reset)) {
-		return { kind: "backoff", retryMs: wait(reset * 1000 - now), reason: "GitHub rate limit" };
-	}
-	const body = response.status === 403 ? await response.text().catch(() => "") : "";
-	if (response.status === 429 || /rate limit/i.test(body)) {
-		return { kind: "backoff", retryMs: SECONDARY_WAIT_MS, reason: "GitHub secondary rate limit" };
-	}
-	return { kind: "stopped", reason: `GitHub refused access to notifications; ${SCOPE}` };
+		? Math.min(GITHUB_MAX_WAIT_MS, Math.max(GITHUB_FLOOR_MS, seconds * 1000))
+		: GITHUB_FLOOR_MS;
 }
 
 /** The notification endpoints take no fine-grained token. */
@@ -181,58 +136,29 @@ GitHub PAT (Classic) with scope:
 - Notifications
 `.trim();
 
-const headersOf = (token: string, since: string | null): Record<string, string> => ({
-	Accept: "application/vnd.github+json",
-	Authorization: `Bearer ${token}`,
-	"User-Agent": "switchboard-assistant",
-	"X-GitHub-Api-Version": "2022-11-28",
-	...(since ? { "If-Modified-Since": since } : {}),
-});
-
-export function createGithubWatcher(deps: GithubWatcherDeps): Watcher {
-	/** Shared by polls and listings. */
-	let limitedUntil = 0;
-	const limited = (refusal: Extract<PollAnswer, { kind: "stopped" | "backoff" }>) => {
-		if (refusal.kind === "backoff") limitedUntil = Math.max(limitedUntil, deps.now() + refusal.retryMs);
-		return refusal;
-	};
-	/** A usable token, or why not. */
-	const tokenOf = async (
-		signal: AbortSignal,
-	): Promise<{ value: string; key: string } | Extract<PollAnswer, { kind: "stopped" | "backoff" }>> => {
-		const token = await deps.token();
-		signal.throwIfAborted();
-		if (token.kind === "stopped") return { kind: "stopped", reason: token.reason };
-		if (token.kind === "backoff") return { kind: "backoff", retryMs: FLOOR_MS, reason: token.reason };
-		const value = token.value.trim();
-		if (!TOKEN_RE.test(value)) return { kind: "stopped", reason: NOT_A_TOKEN };
-		const left = limitedUntil - deps.now();
-		if (left > 0) return { kind: "backoff", retryMs: wait(left), reason: "GitHub rate limit" };
-		return { value, key: token.key };
-	};
-
+export function createGithubWatcher(client: GithubClient): Watcher {
 	return {
 		id: GITHUB_WATCHER_ID,
 		fields: ["reason", "repository", "type", "title"],
 		secret: GITHUB_SECRET,
 		async poll(cursor, signal) {
-			const token = await tokenOf(signal);
-			if ("kind" in token) return token;
+			const token = await client.token(signal);
+			if (isRefusal(token)) return token;
 			const events: WatcherEvent[] = [];
-			let url: string | null = `${API}/notifications?per_page=${PAGE_SIZE}`;
+			let url: string | null = `${GITHUB_API}/notifications?per_page=${PAGE_SIZE}`;
 			let validator = validatorOf(cursor, token.key);
-			let nextPollMs = FLOOR_MS;
+			let nextPollMs = GITHUB_FLOOR_MS;
 			for (let page = 0; url !== null && page < MAX_PAGES; page += 1) {
 				// Only the first page asks whether anything changed.
 				const since = page === 0 ? validator : null;
-				const response = await deps.fetch(url, { headers: headersOf(token.value, since), signal });
+				const response = await client.request(token, url, { since }, signal);
+				if (isRefusal(response)) return response;
 				if (page === 0) {
 					nextPollMs = intervalOf(response);
 					if (response.status === 304) return { kind: "unchanged", nextPollMs };
 					validator = response.headers.get("last-modified") ?? validator;
 				}
-				const refusal = await refusalOf(response, deps.now());
-				if (refusal) return limited(refusal);
+				if (response.status === 404) return HIDDEN;
 				if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
 				events.push(...eventsOf(await response.json()));
 				url = nextPage(response.headers.get("link"));
@@ -248,15 +174,15 @@ export function createGithubWatcher(deps: GithubWatcherDeps): Watcher {
 		},
 		/** `new` holds its `since` and mark across pages; the mark lands with the last page. */
 		async list(query, signal) {
-			const token = await tokenOf(signal);
-			if ("kind" in token) throw new Error(token.reason);
+			const token = await client.token(signal);
+			if (isRefusal(token)) throw new Error(token.reason);
 			const held = query.page === undefined ? null : readPage(query.page, token.key, query.scope);
 			if (query.page !== undefined && !held) throw new Error("stale page; list again");
 			const since = held ? held.since : query.scope === "new" ? query.since : undefined;
 			const url = held?.url ?? firstPageOf(since);
-			const response = await deps.fetch(url, { headers: headersOf(token.value, null), signal });
-			const refusal = await refusalOf(response, deps.now());
-			if (refusal) throw new Error(limited(refusal).reason);
+			const response = await client.request(token, url, {}, signal);
+			if (isRefusal(response)) throw new Error(response.reason);
+			if (response.status === 404) throw new Error(HIDDEN.reason);
 			if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
 			// GitHub's `since` filters loosely, so the mark is applied here.
 			const read = unique(eventsOf(await response.json()));

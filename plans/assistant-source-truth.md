@@ -128,6 +128,12 @@ A: Evie style. The shared declaration holds data and schemas only, so the plugin
 - `GET /notifications/threads/{id}` answers 200 with the thread; an unknown id answers 404.
 - Not testable with two threads: paging past one page. Still open for Phase 5: whether `all=true` omits done threads, whether a done thread returns on new activity, and `DELETE`'s status on success and on repeat. The owner cleared thread `26357054027` (the evie-bot "Server Manager Agent" release) for that test.
 
+**Verified live, 2026-10-21 (thread `26357054027`, already read):**
+- `DELETE /notifications/threads/{id}` answers 204, and 204 again on repeat.
+- `GET /notifications/threads/{id}` still answers 200 for a done thread.
+- `all=true` still lists a done thread minutes later; the API has no done filter (community discussion #152852). So `all=true` cannot mean "every thread not done".
+- Still open: whether `DELETE` marks an unread thread read, and whether a done thread returns on new activity.
+
 **Mockups:** the Designer cards `assistant-done-silent` (the chosen record, column B) and `assistant-watcher-actions` (settings listing the actions).
 
 # Plan
@@ -208,6 +214,11 @@ The phone learns the row before anything sends one: this phase ships the Router 
 - **A call id** from the tool dedupes a retried call and keys the record row, so a retry neither repeats the `DELETE`s nor posts a second record.
 - **The assistant's instructions** add `done`: decide whether an event is worth bringing up; answer with `github_done` and a summary if so, else `github_done` quietly. Event text stays data.
 - **Accepted:** the model holds the granted PAT's authority over any notification it can reach (Q7). A crash between a confirmed `DELETE` and the record's enqueue loses that record; the thread is still done on GitHub.
+- **Settled while building:** the GitHub client reaches `GithubDone` through its constructor, so the context carries only the stop signal, the deadline and the clock. A declaration has `description` (one line, for the owner) and `usage` (for the model). The deadline is 60 seconds and counts the queue; each request is cut at 15 seconds or the deadline. A failed thread read, or a refused token or scope, answers `not_attempted` with a note; a refused write stops the batch. A call where every id answered `not_attempted` posts no record. The tool reports an error unless every id is `done` or `not_found`. The state's `actions` field is optional until 2026-11-04.
+
+### Bug Classes
+
+- **Mechanism:** the action's deadline. **Class:** the deadline was not one fact, so the dispatcher, the lane and the action each read their own idea of it. **Align round:** the token read ignored stop and the deadline, and an action queued past the deadline answered late; the dispatcher now answers by a timer when the lane has not started the work, and the action checks the deadline before reading the token. **Red-team round:** the timer decided the refusal while the action compared the wall clock, so an early timer or a clock step let a refused action send its `DELETE`; the timer now aborts the action's signal with its reason, a start after it runs nothing, and the action reads only the signal. **Related:** Bun's default idle cut was a third clock under the route; `serveLimits.ts` sets it past the deadline.
 
 ## Phase 6 - Phone
 

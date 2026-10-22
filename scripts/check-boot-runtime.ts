@@ -6,6 +6,7 @@ import path from "node:path";
 import type WebSocket from "ws";
 import { pinnedDial, realWebSocket } from "../src/gateway/router/pinnedSocket.js";
 import { ASSISTANT_SWITCHBOARD_TOOLS, ASSISTANT_TEAM } from "../src/shared/assistant-session.js";
+import { ASSISTANT_ACTION_KEYS } from "../src/shared/schemasAssistantActions.js";
 import { ASSISTANT_COMMANDS, SESSION_COMMANDS } from "../src/shared/session-commands.js";
 import { loadIdentitySet, seedGateway, seedRouter } from "../src/testing/identitySet.js";
 import { createPhoneDriver } from "../src/testing/phoneDriver.js";
@@ -397,8 +398,9 @@ async function main(): Promise<void> {
 		for (const tool of SESSION_TOOLS) {
 			if (none.tools.includes(tool)) throw new Error(`${tool} registered for a session with no token`);
 		}
-		if (none.tools.includes(ASSISTANT_COMMANDS.inbox.tool))
-			throw new Error("inbox registered outside the assistant");
+		for (const tool of [ASSISTANT_COMMANDS.inbox.tool, ...ASSISTANT_ACTION_KEYS]) {
+			if (none.tools.includes(tool)) throw new Error(`${tool} registered outside the assistant`);
+		}
 
 		const assistant = await mcpSession(gatewayUrl, ASSISTANT_TEAM, undefined);
 		const missing = ASSISTANT_SWITCHBOARD_TOOLS.filter((tool) => !assistant.tools.includes(tool));

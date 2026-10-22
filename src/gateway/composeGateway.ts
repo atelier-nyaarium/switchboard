@@ -127,6 +127,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 					? vault.readForWatcher(watcherId, entryId)
 					: { kind: "unready", reason: "the vault is not composed yet" },
 		},
+		routes: requireRoutes,
 		fetch: deps.fetch ?? ((url, init) => fetch(url, init)),
 		...(deps.assistantWatchers ? { watchers: deps.assistantWatchers } : {}),
 	});

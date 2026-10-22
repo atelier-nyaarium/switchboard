@@ -1,6 +1,12 @@
 // The assistant session's own doors. Every one checks the caller's token resolves to its record.
 
 import { z } from "zod";
+import {
+	ASSISTANT_ACTION_PATH,
+	type AssistantActionRequest,
+	AssistantActionRequestSchema,
+	type AssistantActionResult,
+} from "../../shared/schemasAssistantActions.js";
 import type { InboxList, InboxListAnswer, InboxScope } from "../../shared/schemasAssistantInbox.js";
 import { ASSISTANT_COMMANDS } from "../../shared/session-commands.js";
 
@@ -11,6 +17,7 @@ export type Handler = (req: Request, body: unknown) => Promise<Response>;
 export interface AssistantRoutesDeps {
 	caller: (req: Request) => "assistant" | "not_assistant" | "unauthenticated";
 	list: (scope: InboxScope, page: string | undefined) => Promise<InboxList[]>;
+	dispatch: (request: AssistantActionRequest) => Promise<AssistantActionResult>;
 }
 
 const json = (body: unknown, status: number): Response =>
@@ -26,5 +33,16 @@ export function createAssistantRoutes(deps: AssistantRoutesDeps): Map<string, Ha
 		return json({ kind: "listed", lists } satisfies InboxListAnswer, 200);
 	};
 
-	return new Map<string, Handler>([[INBOX.path, list]]);
+	const action: Handler = async (req, body) => {
+		const parsed = AssistantActionRequestSchema.safeParse(body);
+		if (!parsed.success) return json({ error: "not an action request" }, 400);
+		const caller = deps.caller(req);
+		if (caller !== "assistant") return json({ kind: caller } satisfies AssistantActionResult, 200);
+		return json(await deps.dispatch(parsed.data), 200);
+	};
+
+	return new Map<string, Handler>([
+		[INBOX.path, list],
+		[ASSISTANT_ACTION_PATH, action],
+	]);
 }

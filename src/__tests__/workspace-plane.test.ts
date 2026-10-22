@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { WorkspaceOpCoordinator } from "../gateway/workspaceOpCoordinator.js";
-import { createOpDedupe } from "../mcp/workspace/opDedupe.js";
 import { parseWorkspaceOpRequest } from "../mcp/workspace/plane.js";
+import { createOpDedupe } from "../shared/op-dedupe.js";
 import type { WorkspaceOpResult } from "../shared/workspace-op.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 

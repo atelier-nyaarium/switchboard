@@ -64,6 +64,9 @@ function stage(dataDir: string, watcher: Watcher, ambient: FakeAmbient) {
 		sessions: { sessionStore: store, presence: store } as never,
 		saveSessions: () => {},
 		vault,
+		routes: () => {
+			throw new Error("no Domain");
+		},
 		fetch: async () => new Response(null, { status: 304 }),
 		watchers: [watcher],
 	});

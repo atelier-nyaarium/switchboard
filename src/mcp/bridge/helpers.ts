@@ -23,7 +23,7 @@ interface RouterPostOptions {
 
 const MAX_ROUTER_ERROR_BODY = 4096;
 
-class RouterHttpError extends Error {
+export class RouterHttpError extends Error {
 	constructor(
 		readonly status: number,
 		body: string,

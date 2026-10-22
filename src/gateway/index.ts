@@ -6,6 +6,7 @@ import { MAX_BLOB_BYTES } from "../shared/router-protocol.js";
 import { composeGateway, type GatewayConfig, type GatewayGraph } from "./composeGateway.js";
 import { handleProxyClose, handleProxyMessage, isProxyConnection, setupProxy } from "./connectorProxy.js";
 import { routerBootstrapOverride } from "./router/transport.js";
+import { GATEWAY_IDLE_TIMEOUT_S } from "./serveLimits.js";
 import type { WsData } from "./wsTypes.js";
 
 export { createProjectPredicates } from "./composeGateway.js";
@@ -101,6 +102,7 @@ export async function startGateway(): Promise<void> {
 	const server = Bun.serve<WsData>({
 		port,
 		maxRequestBodySize: 8_000_000,
+		idleTimeout: GATEWAY_IDLE_TIMEOUT_S,
 		fetch: (req, bunServer) => serve(req, bunServer, graph),
 		websocket: {
 			open(ws) {
