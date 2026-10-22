@@ -18,6 +18,9 @@ list carries `reviewReason` as it stands now. A save clears either cause. A runb
 renders clears a render stop, as does the stage starting, and a slot still inside its window then
 runs. `approvedRevision` is only what the editor last showed.
 
+Preparation renders before it reserves a session, and the run keeps that render. A runbook edit
+landing while the session is reserved reaches the next run, not this one.
+
 Every calendar field is read in the routine's own recorded zone. Without recording it the canonical
 zone would be a line in the Dockerfile, and editing that line would reinterpret every stored routine
 at once.
