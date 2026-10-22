@@ -2,6 +2,9 @@
 
 import { z } from "zod";
 import { RECORD_SUMMARY_MAX, RECORD_THREADS_MAX, RecordThreadSchema } from "./schemasAssistantRecord.js";
+import { ASSISTANT_COMMANDS } from "./session-commands.js";
+
+const INBOX = ASSISTANT_COMMANDS.inbox.tool;
 
 export const GITHUB_WATCHER_ID = "github";
 
@@ -43,7 +46,7 @@ export const ASSISTANT_ACTIONS = {
 		usage: `
 # GitHub Done
 
-Mark GitHub notification threads done, then read, as GitHub's own Done does, so they leave \`inbox\`. Each id is an event's \`id\`.
+Mark GitHub notification threads done, then read, as GitHub's own Done does, so they leave \`${INBOX}\`. Each id is an event's \`id\`.
 
 - With \`summary\`: the owner gets it as your message, with the threads listed under it.
 - Without: one quiet line, no notification.
@@ -60,7 +63,7 @@ Answers per id what GitHub confirmed, and whether your summary was recorded.
 				.min(1)
 				.max(RECORD_THREADS_MAX)
 				.refine((ids) => new Set(ids).size === ids.length, "each id once")
-				.describe("Thread ids, as events and `inbox` give them."),
+				.describe(`Thread ids, as events and \`${INBOX}\` give them.`),
 			summary: SummarySchema.optional(),
 		},
 		answer: ActionAnswerSchema,

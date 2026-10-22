@@ -35,7 +35,8 @@ export function inboxText(answer: InboxListAnswer, scope: InboxScope): string {
 			lines.push(...rest.map((line, index) => (index === 0 ? `- ${line}` : `  ${line}`)));
 		}
 		if (list.cut !== undefined) lines.push("", `${list.cut} more did not fit; the next page continues from them.`);
-		if (list.next !== undefined) lines.push("", `Next page: inbox({ scope: "${scope}", page: "${list.next}" })`);
+		if (list.next !== undefined)
+			lines.push("", `Next page: ${INBOX.tool}({ scope: "${scope}", page: "${list.next}" })`);
 		lines.push("");
 	}
 	if (answer.lists.length === 0) lines.push("No watcher lists anything.");

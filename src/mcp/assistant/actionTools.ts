@@ -10,6 +10,7 @@ import {
 	type AssistantActionResult,
 	AssistantActionResultSchema,
 } from "../../shared/schemasAssistantActions.js";
+import { ASSISTANT_COMMANDS } from "../../shared/session-commands.js";
 import { oneLine } from "../../shared/system-reminder.js";
 import { RouterHttpError, routerPost } from "../bridge/helpers.js";
 
@@ -54,7 +55,7 @@ export function registerActionTools(mcpServer: McpServer): void {
 					const status = error instanceof RouterHttpError ? error.status : null;
 					const why =
 						status === null || !refusedOutright(status)
-							? "Could not reach the Gateway; it may still have run, so read `inbox` before sending it again"
+							? `Could not reach the Gateway; it may still have run, so read \`${ASSISTANT_COMMANDS.inbox.tool}\` before sending it again`
 							: `The Gateway did not run it${status === 404 ? "; this Gateway predates the action" : ""}`;
 					return {
 						content: [{ type: "text" as const, text: `${why}: ${(error as Error).message}` }],

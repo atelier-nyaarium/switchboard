@@ -3,9 +3,10 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerInboxTool } from "../mcp/assistant/inboxTool.js";
-import { scopeTools } from "../mcp/assistant/instructions.js";
+import { ASSISTANT_INSTRUCTIONS, scopeTools } from "../mcp/assistant/instructions.js";
 import { guardToolResults } from "../mcp/toolResultGuard.js";
 import { ASSISTANT_SWITCHBOARD_TOOLS } from "../shared/assistant-session.js";
+import { ASSISTANT_ACTION_KEYS } from "../shared/schemasAssistantActions.js";
 import type { InboxItem } from "../shared/schemasAssistantInbox.js";
 import { ASSISTANT_COMMANDS } from "../shared/session-commands.js";
 
@@ -54,6 +55,13 @@ describe("the assistant's tool scope", () => {
 		const { tools } = await client.listTools();
 
 		expect(tools.map((tool) => tool.name).sort()).toEqual(["channel_reply", "inbox", "switchboard_capabilities"]);
+	});
+
+	it("teaches the assistant every command and action it is given", () => {
+		const taught = [...Object.values(ASSISTANT_COMMANDS).map(({ tool }) => tool), ...ASSISTANT_ACTION_KEYS];
+
+		for (const tool of taught) expect(ASSISTANT_INSTRUCTIONS).toContain(`\`${tool}\``);
+		for (const tool of taught) expect(ASSISTANT_SWITCHBOARD_TOOLS).toContain(tool);
 	});
 });
 

@@ -228,7 +228,7 @@ export const holdText = (ms: number) => `GitHub rate limit; wait ${Math.ceil(ms 
 
 ## Phase 7 - Assistant tool names from one table
 
-Closes the tool-name bullet of bd_500e13ed.
+✅ Shipped. Closes the tool-name bullet of bd_500e13ed. Beyond the plan: the `github_done` usage, its ids description, the inbox tool's next-page line and the action tools' unreachable message also name `inbox` through `ASSISTANT_COMMANDS`.
 
 **Problem:**
 - `ASSISTANT_SWITCHBOARD_TOOLS` adds `ASSISTANT_COMMANDS.inbox.tool` by hand, as a one-off entry.
