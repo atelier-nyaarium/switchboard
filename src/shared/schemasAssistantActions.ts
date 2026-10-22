@@ -39,11 +39,11 @@ export const ASSISTANT_ACTIONS = {
 	github_done: {
 		watcherId: GITHUB_WATCHER_ID,
 		label: "Done",
-		description: "Marks notification threads done on GitHub.",
+		description: "Marks notification threads done and read on GitHub.",
 		usage: `
 # GitHub Done
 
-Mark GitHub notification threads done, as GitHub's own Done does. Each id is an event's \`id\`.
+Mark GitHub notification threads done, then read, as GitHub's own Done does, so they leave \`inbox\`. Each id is an event's \`id\`.
 
 - With \`summary\`: the owner gets it as your message, with the threads listed under it.
 - Without: one quiet line, no notification.

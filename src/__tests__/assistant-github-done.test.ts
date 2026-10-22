@@ -62,27 +62,36 @@ function github(ambient: FakeAmbient, replies: Reply[], token: TokenRead = TOKEN
 }
 
 describe("github_done", () => {
-	it("reads each thread for GitHub's own title and link before marking it done, and deletes nothing it cannot read", async () => {
+	it("reads each thread for GitHub's own title and link, marks it done, then read, and says when it stays unread", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const { run, asked } = github(ambient, [
 			{ status: 200, body: thread("7") },
 			{ status: 204 },
+			{ status: 304 },
 			{ status: 404 },
+			{ status: 200, body: thread("6") },
+			{ status: 204 },
+			{ status: 500 },
 			{ status: 502 },
 		]);
 
-		const answer = await run(["7", "8", "9"]);
+		const answer = await run(["7", "8", "6", "9"]);
 
 		expect(answer.threads).toEqual([
 			{ threadId: "7", title: "Thread 7", url: "https://github.com/atelier/app/pull/7", outcome: "done" },
 			{ threadId: "8", outcome: "not_found" },
+			{ threadId: "6", title: "Thread 6", url: "https://github.com/atelier/app/pull/6", outcome: "done" },
 			{ threadId: "9", outcome: "not_attempted" },
 		]);
-		expect(answer.note).toMatch(/502/);
+		expect(answer.note).toMatch(/6 is done but still unread/);
 		expect(asked).toEqual([
 			"GET /notifications/threads/7",
 			"DELETE /notifications/threads/7",
+			"PATCH /notifications/threads/7",
 			"GET /notifications/threads/8",
+			"GET /notifications/threads/6",
+			"DELETE /notifications/threads/6",
+			"PATCH /notifications/threads/6",
 			"GET /notifications/threads/9",
 		]);
 	});
@@ -104,7 +113,7 @@ describe("github_done", () => {
 		expect(asked).toHaveLength(2);
 	});
 
-	it("answers a delete unanswered at the deadline as uncertain, and starts nothing after it", async () => {
+	it("answers a delete unanswered at the deadline as uncertain, marks nothing read, and starts nothing after it", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const { run, asked } = github(ambient, [{ status: 200, body: thread("1") }, "hang"]);
 
@@ -115,7 +124,7 @@ describe("github_done", () => {
 
 		expect(answer.threads.map((item) => item.outcome)).toEqual(["uncertain", "not_attempted"]);
 		expect(answer.note).toMatch(/out of time/);
-		expect(asked).toHaveLength(2);
+		expect(asked).toEqual(["GET /notifications/threads/1", "DELETE /notifications/threads/1"]);
 	});
 
 	it("attempts nothing without a usable token", async () => {

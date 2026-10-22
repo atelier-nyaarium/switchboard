@@ -57,7 +57,7 @@ function readPage(token: string, key: string, scope: ListQuery["scope"]) {
 const isoOf = (at: number) => new Date(at).toISOString().replace(/\.\d{3}Z$/, "Z");
 
 const firstPageOf = (since: number | undefined) =>
-	`${NOTIFICATIONS}all=true&per_page=${PAGE_SIZE}${since === undefined ? "" : `&since=${isoOf(since)}`}`;
+	`${NOTIFICATIONS}per_page=${PAGE_SIZE}${since === undefined ? "" : `&since=${isoOf(since)}`}`;
 
 /** Newest copy of each thread. */
 function unique(events: WatcherEvent[]): WatcherEvent[] {

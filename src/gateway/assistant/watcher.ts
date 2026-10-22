@@ -74,6 +74,6 @@ export interface Watcher {
 	readonly secret?: string;
 	/** Settles once `signal` aborts. */
 	poll(cursor: string | null, signal: AbortSignal): Promise<PollAnswer>;
-	/** One page of what is not done. */
+	/** One unread page. */
 	list?(query: ListQuery, signal: AbortSignal): Promise<ListPage>;
 }

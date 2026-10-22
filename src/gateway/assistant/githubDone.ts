@@ -85,6 +85,21 @@ export class GithubDone extends WatcherAction<"github_done"> {
 		if (cleared === null) return { thread: { ...known, outcome: "uncertain" } };
 		if (isRefusal(cleared)) return refused(known, cleared);
 		if (cleared.status === 404) return { thread: { ...known, outcome: "not_found" } };
-		return { thread: { ...known, outcome: cleared.ok ? "done" : "uncertain" } };
+		if (!cleared.ok) return { thread: { ...known, outcome: "uncertain" } };
+		// Mark done before read.
+		const marked = await bounded(ctx, ASSISTANT_WAITS.request, (signal) =>
+			this.client.request(token, path, { method: "PATCH" }, signal),
+		).catch((error: Error) => ({ failed: error.message }));
+		const done = { ...known, outcome: "done" as const };
+		// 304: already read.
+		const nowRead = !("failed" in marked) && !isRefusal(marked) && (marked.ok || marked.status === 304);
+		if (nowRead) return { thread: done };
+		const unread = `${threadId} is done but still unread, so it stays in inbox; send it again`;
+		if (isRefusal(marked)) {
+			const why = marked.kind === "backoff" ? waitText(marked.retryMs) : marked.reason;
+			return { thread: done, stop: `${unread}; ${why}` };
+		}
+		const why = "failed" in marked ? marked.failed : `GitHub answered ${marked.status}`;
+		return { thread: done, note: `${unread}: ${why}` };
 	}
 }

@@ -124,7 +124,7 @@ permission, so an action runs at once.
   typed reason (`laneEnd`) the action reads. Stop ends queued and running work at once.
 - **An action's deadline is 60 seconds:** one its lane has not started by then is refused with
   nothing sent. No request starts past it, and one in flight is cut there or at 15 seconds. An id
-  never sent answers `not_attempted`; a write cut before its answer answers `uncertain`. The
+  never sent answers `not_attempted`; a `DELETE` cut before its answer answers `uncertain`. The
   caller-facing waits live in one table (`ASSISTANT_WAITS`, `waits.ts`), and a test pins their
   order: the request inside the action, the preview inside the phone's answer wait, and every route
   inside the Gateway's Bun server, which holds a request up to 255 seconds (`serveLimits.ts`).
@@ -138,10 +138,14 @@ permission, so an action runs at once.
 - **The tools follow the registry:** `ASSISTANT_SWITCHBOARD_TOOLS` is derived from its keys, so the
   MCP scope, the gate and the launch permissions list the same tools.
 - **`github_done({ ids, summary? })`:** up to 50 unique digit-string thread ids, and an optional
-  summary of up to 300 characters. Per id it reads the thread for its title and link, then marks it
-  done. Each id answers one shared outcome: `done`, `not_found`, `rate_limited`, `uncertain` or
+  summary of up to 300 characters. Per id it reads the thread for its title and link, marks it done
+  (`DELETE`, 204), then read (`PATCH`, 205, which a done thread also takes). Unread is the inbox,
+  since GitHub keeps listing a done thread under `all=true`, and done comes first so a thread leaves
+  the inbox only once GitHub confirmed it done; `not_attempted` then always means nothing changed.
+  Each id answers one shared outcome: `done`, `not_found`, `rate_limited`, `uncertain` or
   `not_attempted`. A rate limit stops the batch, and the ids after it answer `not_attempted`; so does
-  a refused token. A repeated `DELETE` answers 204 again.
+  a refused token. A done thread whose mark-read failed answers `done` with a note that it stays in
+  `inbox` until sent again. A repeated `DELETE` answers 204 again.
 - **The record:** an action that reached the source is recorded in the assistant's conversation
   (Delivery). One where every id answered `not_attempted` posts nothing.
 
@@ -262,7 +266,8 @@ before the shutdown flush. Stop is final. `src/gateway/assistant/` holds the wat
   GitHub before the retry is not woken. Each push has a 90-second deadline, and the backoff wait
   frees the lane for a listing or an action. Delivery is at least once.
 - **Inbox:** `inbox({ scope: "new" | "all", page? })` reads GitHub live through the lane, with the
-  token read on every call. `all` is every thread not done; `new` is threads updated since the
+  token read on every call. Unread is the inbox, since GitHub lists a done thread under `all=true`:
+  `all` is every unread thread; `new` is unread threads updated since the
   agent's mark, which moves to the newest time returned only once a `new` read reaches its last
   page uncut. A `new` read keeps only threads strictly after the mark, whatever `since` returns.
   Newest first, 50 a page. The Gateway signs each page token with a key it holds in memory, so the

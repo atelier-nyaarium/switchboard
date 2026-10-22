@@ -48,6 +48,7 @@ function github() {
 		asked.push(`${method} ${at}`);
 		const id = at.match(/threads\/(\d+)$/)?.[1] ?? "";
 		if (id === "404") return new Response(null, { status: 404 });
+		if (method === "PATCH") return new Response(null, { status: 205 });
 		if (method === "DELETE") return new Response(null, { status: 204 });
 		return Response.json(thread(id));
 	};
@@ -125,6 +126,7 @@ describe("an assistant action", () => {
 		expect(asked).toEqual([
 			"GET /notifications/threads/7",
 			"DELETE /notifications/threads/7",
+			"PATCH /notifications/threads/7",
 			"GET /notifications/threads/404",
 		]);
 		expect(delivered).toHaveLength(1);

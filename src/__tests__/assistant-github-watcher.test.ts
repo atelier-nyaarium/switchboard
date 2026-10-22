@@ -137,13 +137,12 @@ describe("the GitHub notifications watcher", () => {
 		expect(asked).toHaveLength(10);
 	});
 
-	it("lists every thread not done, read or unread, a page at a time", async () => {
-		const read = { ...thread("8", "2026-10-18T09:00:00Z"), unread: false };
+	it("lists the unread threads a page at a time, since GitHub lists done ones under all=true", async () => {
 		const { list, asked } = github([
 			{
 				status: 200,
-				body: [thread("9", "2026-10-18T10:00:00Z"), read],
-				headers: { link: '<https://api.github.com/notifications?all=true&page=2>; rel="next"' },
+				body: [thread("9", "2026-10-18T10:00:00Z"), thread("8", "2026-10-18T09:00:00Z")],
+				headers: { link: '<https://api.github.com/notifications?page=2>; rel="next"' },
 			},
 			{ status: 200, body: [thread("7", "2026-10-18T08:00:00Z")] },
 		]);
@@ -158,8 +157,8 @@ describe("the GitHub notifications watcher", () => {
 		expect(second.next).toBeUndefined();
 		expect(first.mark ?? second.mark).toBeUndefined();
 		expect(asked.map((request) => request.url)).toEqual([
-			"https://api.github.com/notifications?all=true&per_page=50",
-			"https://api.github.com/notifications?all=true&page=2",
+			"https://api.github.com/notifications?per_page=50",
+			"https://api.github.com/notifications?page=2",
 		]);
 		await expect(github([{ status: 401 }]).list()).rejects.toThrow();
 		await expect(github([], { kind: "stopped", reason: "needs a secret" }).list()).rejects.toThrow();
@@ -171,22 +170,20 @@ describe("the GitHub notifications watcher", () => {
 			{
 				status: 200,
 				body: [thread("3", "2026-10-18T11:00:00Z"), thread("2", "2026-10-18T10:00:00Z")],
-				headers: { link: '<https://api.github.com/notifications?all=true&since=x&page=2>; rel="next"' },
+				headers: { link: '<https://api.github.com/notifications?since=x&page=2>; rel="next"' },
 			},
 			// GitHub keeps a thread at exactly the mark, and links on past it.
 			{
 				status: 200,
 				body: [thread("1", "2026-10-18T09:30:00Z"), thread("0", "2026-10-18T09:00:00Z")],
-				headers: { link: '<https://api.github.com/notifications?all=true&since=x&page=3>; rel="next"' },
+				headers: { link: '<https://api.github.com/notifications?since=x&page=3>; rel="next"' },
 			},
 		]);
 
 		const first = await list({ scope: "new", since: mark });
 		const last = await list({ scope: "new", since: Date.parse("2026-10-18T10:30:00Z"), page: first.next });
 
-		expect(asked[0]?.url).toBe(
-			"https://api.github.com/notifications?all=true&per_page=50&since=2026-10-18T09:00:00Z",
-		);
+		expect(asked[0]?.url).toBe("https://api.github.com/notifications?per_page=50&since=2026-10-18T09:00:00Z");
 		expect(first.mark).toBeUndefined();
 		expect(last.events.map((event) => event.id)).toEqual(["1"]);
 		expect(last.next).toBeUndefined();
@@ -207,7 +204,7 @@ describe("the GitHub notifications watcher", () => {
 
 	it("refuses a page from another grant, another scope, or anywhere but the notification list", async () => {
 		const linked = (url: string): Reply => ({ status: 200, body: [], headers: { link: `<${url}>; rel="next"` } });
-		const { list, use, asked } = github([linked("https://api.github.com/notifications?all=true&page=2")]);
+		const { list, use, asked } = github([linked("https://api.github.com/notifications?page=2")]);
 		const first = await list();
 		const forged = JSON.stringify(["entry-a", "all", "https://api.github.com/user/repos?page=2", null, 0]);
 

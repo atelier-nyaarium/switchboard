@@ -46,7 +46,7 @@ Recommended because the count comes with a read the poll already makes, where co
 ## Question 6 - How does the agent ask for new versus all?
 
 Q: One fetch with a choice, a `since` the agent passes, or two tools?
-A: One `inbox` tool with `scope: "new" | "all"`. `all` lists every thread not done. `new` lists threads updated since the agent's own last fetch, one time the Gateway keeps per watcher. A woken event carries its thread id, so the agent can mark it done without fetching.
+A: One `inbox` tool with `scope: "new" | "all"`. `all` lists every thread not done. `new` lists threads updated since the agent's own last fetch, one time the Gateway keeps per watcher. A woken event carries its thread id, so the agent can mark it done without fetching. (Question 14 makes both scopes unread only.)
 
 Recommended because the agent keeps no timestamp across turns and compactions, and one tool with a strict enum is one road.
 
@@ -113,6 +113,15 @@ A: Evie style. The shared declaration holds data and schemas only, so the plugin
 
 > I want "reads better once there are many". so Evie style?
 
+## Question 14 - What is the assistant's inbox, now that `all=true` lists done threads?
+
+Q: GitHub's API has no done filter, and `all=true` keeps listing a done thread. Unread as the inbox, keep `all=true`, or a Gateway list of done ids?
+A: Unread is the inbox. `github_done` marks each thread done, then read (`DELETE`, then `PATCH`), and `inbox` lists unread threads only, for both `new` and `all`. This supersedes Question 3's and Question 6's "every thread not done" for the listing. Done comes first (red team, 2026-10-22) so a thread leaves the inbox only once GitHub confirmed it done; a done thread takes `PATCH` (205, verified live).
+
+Recommended because it is the only choice that keeps GitHub the only copy and still lets a clear remove the thread from every view; the count already reads unread.
+
+> ok A. unread inbox is what it shall be.
+
 # Research
 
 **GitHub notifications API (docs, 2026-10-18):**
@@ -132,7 +141,7 @@ A: Evie style. The shared declaration holds data and schemas only, so the plugin
 - `DELETE /notifications/threads/{id}` answers 204, and 204 again on repeat.
 - `GET /notifications/threads/{id}` still answers 200 for a done thread.
 - `all=true` still lists a done thread minutes later, and unchanged hours later (rechecked 2026-10-22), so it is not caching; the API has no done filter (community discussion #152852). So `all=true` cannot mean "every thread not done".
-- Still open: whether `DELETE` marks an unread thread read, and whether a done thread returns on new activity.
+- `PATCH /notifications/threads/{id}` answers 205, also on a thread already done. Question 14 marks a thread read after `DELETE`, so whether `DELETE` alone marks it read no longer matters. Still open: whether a done thread returns on new activity.
 
 **Mockups:** the Designer cards `assistant-done-silent` (the chosen record, column B) and `assistant-watcher-actions` (settings listing the actions).
 
@@ -176,7 +185,7 @@ GitHub is the only copy. Per watcher the Gateway keeps its poll validator (`Last
 ✅ Shipped: the `inbox` listing on `/assistant/list`, GitHub's `list` with signed page tokens that continue a cut page, the agent's mark in watcher state, and the flush wire removed.
 
 - **Verify first, live with the PAT:** every open point in Research.
-- **`inbox({ scope: "new" | "all", page? })`** on a new command path, behind the assistant-token check, through the lane. It reads GitHub live with the PAT from `readForWatcher` on every call, never cached. `all` is every thread not done; `new` is threads updated since the agent's mark. Newest first, 50 a page. `page` is an opaque token from GitHub's `Link`, same-host only, and a list that changes between pages may repeat or skip; the agent is told so.
+- **`inbox({ scope: "new" | "all", page? })`** on a new command path, behind the assistant-token check, through the lane. It reads GitHub live with the PAT from `readForWatcher` on every call, never cached. `all` is every unread thread; `new` is unread threads updated since the agent's mark (Question 14, which replaced "every thread not done" once `all=true` was found to list done threads). Newest first, 50 a page. `page` is an opaque token from GitHub's `Link`, same-host only, and a list that changes between pages may repeat or skip; the agent is told so.
 - **Each item:** `threadId` (a string, as GitHub sends it), title, repository, reason, type, a validated link and the rule decision. Strict parsing, today's per-field cuts, a total-byte cap, and every text value through `oneLine`.
 - **Links** are built from the validated repository and subject (`https://github.com/...`), or omitted.
 - **The agent's mark** is held fixed across the pages of one `new` read, and moves to the newest time returned only once the last page is read.
@@ -205,11 +214,11 @@ The phone learns the row before anything sends one: this phase ships the Router 
 ## Phase 5 - Typed actions
 
 - **Declarations, as Evie's do,** in one shared registry: per watcher, per action, a key that is the exact MCP tool name (`github_done`), a label and description, a params schema, an answer schema, and a client-safe descriptor for `assistant_state`. The action binds its watcher, so a call names no `watcherId`.
-- **GitHub `github_done({ ids, summary? })`:** `ids` are unique digit strings, at most 50; `summary` at most 300 characters. On the Gateway each action is a `WatcherAction<K>` class over its declaration (Q13), held in a map typed by the registry's keys, so a declared action with no class does not compile. The record row reuses the action's per-thread outcome schema. Per id the Gateway reads the thread (`GET /notifications/threads/{id}`) for its title and link, then `DELETE`s it, answering per id with the shared outcome. A rate limit stops the batch, honouring `Retry-After`, and the rest answer `not_attempted`.
+- **GitHub `github_done({ ids, summary? })`:** `ids` are unique digit strings, at most 50; `summary` at most 300 characters. On the Gateway each action is a `WatcherAction<K>` class over its declaration (Q13), held in a map typed by the registry's keys, so a declared action with no class does not compile. The record row reuses the action's per-thread outcome schema. Per id the Gateway reads the thread (`GET /notifications/threads/{id}`) for its title and link, `DELETE`s it, then marks it read (`PATCH`, Question 14), answering per id with the shared outcome. A rate limit stops the batch, honouring `Retry-After`, and the rest answer `not_attempted`.
 - **One dispatcher route,** `/assistant/action`, takes `{ action, params }`, checks the assistant token, resolves the declared action, parses the params with its schema, runs it through the lane with the PAT from `readForWatcher`, and answers with its schema.
 - **The record:** the dispatcher posts an `assistant_record` through `deliverToOwner` into the assistant's own conversation (`ownerSessionKey("host.assistant")`), never through `channel_reply` or `notify_human`. With a summary it is a response with `notify` true; without, a quiet line with `notify` false.
 - **Three allow lists, one source:** `ASSISTANT_SWITCHBOARD_TOOLS` is derived from the registry's keys, so the MCP scope, the gate and `assistantPermissionArgs` (`hostResolve.ts`) all take them. The assistant-only registration imports the registry and registers one tool per action. `check:boot` asserts the tools are listed.
-- **An action holds the lane until its requests settle:** `run` releases the lane at its deadline, which is safe only for a read. An id not yet sent answers `not_attempted`, and one whose request passed its deadline answers `uncertain`, never retried blindly.
+- **An action holds the lane until its requests settle:** the lane's `write` holds it, where a `read` releases it at its deadline, which is safe only for a read. An id not yet sent answers `not_attempted`, and one whose `DELETE` passed its deadline answers `uncertain`, never retried blindly.
 - **One GitHub client** owns the token read, headers, refusals and the shared rate limit, so polls, listings and actions cannot disagree. The action's context hands it over.
 - **A call id** from the tool dedupes a retried call and keys the record row, so a retry neither repeats the `DELETE`s nor posts a second record.
 - **The assistant's instructions** add `done`: decide whether an event is worth bringing up; answer with `github_done` and a summary if so, else `github_done` quietly. Event text stays data.
