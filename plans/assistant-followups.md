@@ -108,7 +108,7 @@ export function commitChecked<T>(
 
 ## Phase 3 - Plugin re-emit dedupe
 
-Closes bd_64cdb09e.
+✅ Shipped. Closes bd_64cdb09e. Beyond the plan: `MAX_PENDING_DELIVERIES` lives in `types.ts`, so the plugin imports no Gateway store; a non-string `delivery_id` is treated as absent; the inbox pump forwards only a known reply disposition (`isReplyDisposition`).
 
 **Problem:** The plugin acks a `channel_push` only after `emitChannelNotification` resolves. If that ack is lost, `ChannelDeliveryCoordinator.drain` offers the row again on reconnect, and the plugin emits it into the session a second time. `ChannelPushPayload` has no `delivery_id`.
 

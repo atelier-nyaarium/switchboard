@@ -40,11 +40,18 @@ export interface RidingAwareness {
 
 // The sender states whether it expects an answer, needs only a signal, or has closed the thread.
 // It is optional so older senders and human console messages still ask by default.
-export type ReplyDisposition = "asking" | "informing" | "closing";
+export const REPLY_DISPOSITIONS = ["asking", "informing", "closing"] as const;
+export type ReplyDisposition = (typeof REPLY_DISPOSITIONS)[number];
+
+export function isReplyDisposition(value: unknown): value is ReplyDisposition {
+	return REPLY_DISPOSITIONS.some((known) => known === value);
+}
 
 ////////////////////////////////
 //  Reply payloads. Fields are optional because a channel reply (channel_reply) is a
 //  stream message that may carry only a partial update (status, a chunk, or the final).
+
+export const MAX_PENDING_DELIVERIES = 2_000;
 
 export interface ChannelPushPayload {
 	type: "channel_push";
@@ -65,6 +72,8 @@ export interface ChannelPushPayload {
 	disposition?: ReplyDisposition;
 	/** A watcher event: data only, with no sender, conversation or reply owed. */
 	event?: boolean;
+	/** Receiver acks stored id; untracked pushes omit it. */
+	delivery_id?: string;
 }
 
 // Extends the spoken-tier trio (notice.ts NoticeTierWire): title (notification-bar line +

@@ -18,6 +18,7 @@ import {
 	parseInboxAddress,
 	signRowEnvelope,
 } from "../../shared/schemasInbox.js";
+import { isReplyDisposition } from "../../shared/types.js";
 import { OP_OUTCOME_ACCEPTED } from "../../shared/wire-vocabulary.js";
 import type { ChannelDeliveryCoordinator } from "../channelDelivery.js";
 import type { ContentKeyStore } from "../federation/contentKeyStore.js";
@@ -368,7 +369,7 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 			from: payload.from,
 			body: payload.body ?? "",
 			...(payload.files ? { files: payload.files as never } : {}),
-			...(payload.disposition ? { disposition: payload.disposition } : {}),
+			...(isReplyDisposition(payload.disposition) ? { disposition: payload.disposition } : {}),
 			enqueuedAt: row.acceptedAt,
 		});
 		if (outcome === "refused") return ack(address, row.seq, deliveryEpoch, "failed", "delivery_refused");

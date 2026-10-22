@@ -5,10 +5,16 @@ import WebSocket from "ws";
 import packageJson from "../../../package.json";
 import { createReconnector } from "../../shared/reconnect.js";
 import { OP_LEDGER_PROTOCOL } from "../../shared/schemas.js";
-import type { ChannelPushPayload, ConnectionMode, ResponsePushPayload } from "../../shared/types.js";
+import {
+	type ChannelPushPayload,
+	type ConnectionMode,
+	MAX_PENDING_DELIVERIES,
+	type ResponsePushPayload,
+} from "../../shared/types.js";
 import { WORKSPACE_OP_FRAME } from "../../shared/workspace-op.js";
 import { emitChannelNotification, emitResponseNotification } from "../channel/channelNotify.js";
 import { answerOnPlane, parseWorkspaceOpRequest, refusedOnPlane } from "../workspace/plane.js";
+import { createChannelPushDelivery } from "./channelPushDelivery.js";
 
 export interface BridgeConfig {
 	routerUrl: string;
@@ -69,6 +75,14 @@ let suppressReconnect = false;
 const reconnector = createReconnector(() => connectToRouter());
 
 let channelServer: Server | null = null;
+
+/** Dedupe ids across reconnects. */
+const deliverChannelPush = createChannelPushDelivery({
+	emit: (push) =>
+		channelServer ? emitChannelNotification(channelServer, push) : Promise.reject(new Error("no channel server")),
+	ack: (deliveryId) => routerWs?.send(JSON.stringify({ type: "channel_delivery_ack", delivery_id: deliveryId })),
+	maxRemembered: MAX_PENDING_DELIVERIES,
+});
 
 /** Confirm only received ids. */
 function createHandshakeRoleCache() {
@@ -325,17 +339,10 @@ export function connectToRouter(): void {
 		}
 
 		if (msg.type === "channel_push" && isChannel && channelServer) {
-			const deliveryId = typeof msg.delivery_id === "string" ? msg.delivery_id : undefined;
-			emitChannelNotification(channelServer, msg as unknown as ChannelPushPayload)
-				.then(() => {
-					// Acknowledge after delivery.
-					if (deliveryId)
-						routerWs?.send(JSON.stringify({ type: "channel_delivery_ack", delivery_id: deliveryId }));
-				})
-				.catch((err: Error) => {
-					// Retain failed deliveries.
-					console.error(`[channel] notification error: ${err.message}`);
-				});
+			deliverChannelPush(msg as unknown as ChannelPushPayload).catch((err: Error) => {
+				// Retain failed deliveries.
+				console.error(`[channel] notification error: ${err.message}`);
+			});
 		}
 
 		if (msg.type === "response_push" && isChannel && channelServer) {

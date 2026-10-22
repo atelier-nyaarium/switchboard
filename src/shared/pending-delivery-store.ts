@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { Clock } from "./ambient.js";
 import { DurableOutbox } from "./durable-outbox.js";
 import { fenced, MIGRATING } from "./migration-fence.js";
-import type { ChannelFile, RidingAwareness } from "./types.js";
+import { type ChannelFile, MAX_PENDING_DELIVERIES, type ReplyDisposition, type RidingAwareness } from "./types.js";
 
 interface HeldRow {
 	/** Stable retry identity. */
@@ -17,7 +17,7 @@ export interface MessageDelivery extends HeldRow {
 	channelJobId: string;
 	from: string;
 	files?: ChannelFile[];
-	disposition?: string;
+	disposition?: ReplyDisposition;
 	/** Reserved before delivery. */
 	awareness?: RidingAwareness;
 	/** Materialization bucket key. */
@@ -63,7 +63,7 @@ export interface DeliverySnapshotSink {
 export const PENDING_DELIVERY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export const MAX_PENDING_DELIVERIES_PER_TEAM = 200;
-export const MAX_PENDING_DELIVERIES = 2_000;
+export { MAX_PENDING_DELIVERIES };
 /** A runaway bound; the TTL prunes first. */
 export const MAX_EMITTED_KEYS = 50_000;
 

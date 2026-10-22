@@ -517,6 +517,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/shared/system-reminder.ts` - sole builder of the reminder tag, `neutralizeMarkup` and `oneLine` for model-bound text, and the files, reminder, body order; never for phone-bound text
 - `src/mcp/toolResultGuard.ts` - every tool result and thrown error neutralized, wrapped at registration
 - `src/mcp/bridge/` / `channel/` / `references/` / `board/` / `designer/` / `connector/` - bridge, channel, reference, board, designer, and connector tools
+  - **A pushed row reaches the session once per delivery id:** `channelPushDelivery.ts` acks a repeat
+    it already emitted, across reconnects. A restart forgets, so delivery stays at least once.
 - `src/mcp/vault/vaultTools.ts` / `vaultRun.ts` - vault tools over the gateway's loopback routes, and the child run that injects a value and scrubs it from the output
 - `src/mcp/routines/routineTools.ts` - `get_session_routine` and `report_session_routine`, registered for any token-bound session and behind no capability
 - `src/shared/workspace-op.ts` - the workspace plane's wire vocabulary, beside `host-op.ts` and for the same reason: Gateway to an MCP-side process, never to Kotlin

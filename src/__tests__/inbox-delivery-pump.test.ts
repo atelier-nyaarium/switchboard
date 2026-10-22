@@ -81,6 +81,24 @@ describe("inbox delivery pump", () => {
 		expect(calls.at(-1)).toMatchObject({ action: "inbox_ack", params: { outcome: "delivered", seq: 1 } });
 	});
 
+	it("passes a known reply disposition on, and drops one it does not know", async () => {
+		const opened = (disposition: string) => ({
+			open: () => ({
+				kind: "ok",
+				plaintext: Buffer.from(JSON.stringify({ to: "session", from: "source", body: "hi", disposition })),
+			}),
+		});
+		const known = setup();
+		await known.pump({ contentKeyStore: opened("closing") }).onFrame({ address, rows: [row()], deliveryEpoch: 1 });
+		const unknown = setup();
+		await unknown
+			.pump({ contentKeyStore: opened("shouting") })
+			.onFrame({ address, rows: [row()], deliveryEpoch: 1 });
+
+		expect(known.coordinator.accepted[0]).toMatchObject({ disposition: "closing" });
+		expect(unknown.coordinator.accepted[0]).not.toHaveProperty("disposition");
+	});
+
 	it("wakes a sleeping session, keeps a missing epoch claim, and fails a bad tag", async () => {
 		const sleeping = setup();
 		const woken: string[] = [];

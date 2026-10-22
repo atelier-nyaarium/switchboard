@@ -5,6 +5,7 @@ import {
 	type PendingDeliveryStore,
 	SEEN,
 } from "../shared/pending-delivery-store.js";
+import type { ChannelPushPayload } from "../shared/types.js";
 import { reached, sendOn } from "./wsSend.js";
 import { getAllActiveWs, type TeamRegistry } from "./wsTypes.js";
 
@@ -133,7 +134,7 @@ export class ChannelDeliveryCoordinator {
 
 /** The wire shape, built from the stored row rather than from live state, so a message delivered
  * after a restart is byte-for-byte the one that was accepted. */
-export function channelPushPayload(delivery: PendingDelivery): Record<string, unknown> {
+export function channelPushPayload(delivery: PendingDelivery): ChannelPushPayload {
 	// Empty fields for older receivers.
 	if (delivery.event) {
 		return {
@@ -145,7 +146,7 @@ export function channelPushPayload(delivery: PendingDelivery): Record<string, un
 			delivery_id: delivery.deliveryId,
 		};
 	}
-	const payload: Record<string, unknown> = {
+	const payload: ChannelPushPayload = {
 		type: "channel_push",
 		from: delivery.from,
 		body: delivery.body,
