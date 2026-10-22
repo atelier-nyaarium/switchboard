@@ -219,6 +219,30 @@ html, body {
 	text-decoration: none;
 }
 
+.record {
+	margin-top: 6px;
+	font-size: 14px;
+}
+
+.record summary {
+	color: var(--muted);
+	cursor: pointer;
+}
+
+.record ul {
+	margin: 6px 0 0;
+	padding-left: 18px;
+}
+
+.record .outcome {
+	color: var(--muted);
+	margin-left: 8px;
+}
+
+.row.quiet-record {
+	opacity: 0.75;
+}
+
 /* A link whose protocol has no handler yet: rendered inert (no href, target in data-href) and
    red; tapping raises the link menu with Open greyed out and only Copy live. */
 .body a.link-unhandled {

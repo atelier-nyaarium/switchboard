@@ -79,7 +79,7 @@ export interface PhoneDriver {
 	entries(rows: InboxRow[]): MailboxEntry[];
 }
 
-const ENTRY_KINDS = new Set(["message", "reply", "notice", "sent", "peer", "plugin_action"]);
+const ENTRY_KINDS = new Set<string>(MailboxEntrySchema.shape.kind.options);
 
 export function createPhoneDriver(deps: PhoneDriverDeps): PhoneDriver {
 	const world = deps.world ?? FixtureWorld.from(deps.set as IdentitySet);

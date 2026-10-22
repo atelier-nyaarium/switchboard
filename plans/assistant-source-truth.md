@@ -192,6 +192,7 @@ The phone learns the row before anything sends one: this phase ships the Router 
 - **The phone persists it** as a `Message` with a record discriminator and its thread list, and renders a response (the summary as the assistant's message, threads folded under it) or a quiet line ("N cleared quietly", expanding to its threads).
 - **`notify: false`** keeps the row out of burst, alert and autoplay processing and out of `countsUnread`. A read receipt resolves to the nearest countable message. These rules sit in one rule file beside the ops class, with JVM tests.
 - **Proof stays apart from prose:** titles, links and outcomes render as the fixed list; only the summary is the model's.
+- **Settled while building:** the summary rides in `body`, so an older phone still shows a response and drops a quiet row (no body) unseen. `notify` is tied to the summary: true carries a non-empty `body` of at most 300 characters, false carries none. A thread's `title` and `url` are optional, since a `not_found` or `not_attempted` id has neither; `threadId` is a generic bounded string here, and the digit rule lives in `github_done`. "N cleared quietly" counts every thread. A quiet record never alerts, whatever its outcomes. The session card reads past quiet records. The kind is refused on a peer epoch. The Router deploys before any Gateway emits a record, or the owner outbox stalls behind it.
 
 ## Phase 5 - Typed actions
 

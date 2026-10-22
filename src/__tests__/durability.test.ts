@@ -162,7 +162,7 @@ describe("migration fence durability", () => {
 		).toBe("enqueued");
 		expect(ops.markInFlight("conversation", "live")).toEqual(expect.any(Number));
 		expect(anchors.report("owner", "team", { epoch: 1, seq: 1, at: 1 })).toBe(true);
-		expect(push.deliverToOwner({ entry: { kind: "notice" } as never, dedupeKey: "live" })).toBe(true);
+		expect(push.deliverToOwner({ entry: { kind: "notice", session_id: "owner" }, dedupeKey: "live" })).toBe(true);
 		expect(await relay.handleOp({ kind: "wake", team: "team" }, "peer", null)).toEqual({ ok: true });
 	});
 });

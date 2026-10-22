@@ -32,6 +32,20 @@ class ReadAnchorTest {
 	}
 
 	@Test
+	fun aQuietRecordNeverCountsAndAReceiptOnItLandsOnTheRowBefore() {
+		val quiet = { seq: Long ->
+			inbound(epoch = 1, seq = seq).copy(text = "", record = ActionRecord(false, listOf(RecordThread("t", null, null, "done"))))
+		}
+		val response = inbound(epoch = 1, seq = 3).copy(record = ActionRecord(true, listOf(RecordThread("t", null, null, "done"))))
+		val thread = listOf(inbound(epoch = 1, seq = 1, id = 0), quiet(2).copy(id = 1), response.copy(id = 2), quiet(4).copy(id = 3))
+
+		assertEquals(2, unreadCount(thread, null))
+		assertEquals(listOf(1L, 3L), unreadRows(thread, null).map { it.seq })
+		assertEquals(ReadAnchor(1, 1, 1), resolveReportedAnchor(thread, rowId = 1L, reportedAt = 2L))
+		assertEquals(ReadAnchor(1, 3, 3), lastInboundAnchor(thread))
+	}
+
+	@Test
 	fun sentEchoNeverCountsDespiteCarryingRealCoordinates() {
 		// A `sent` mirror (fromMe=true) also carries seq > 0 - it must never count as unread, even
 		// though the genuinely inbound row before it does.

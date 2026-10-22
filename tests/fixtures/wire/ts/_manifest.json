@@ -44,6 +44,12 @@
 			"peer": "phone"
 		},
 		{
+			"file": "gateway/consolePushOps/assistant_record.json",
+			"composer": "gateway/consolePushOps",
+			"case": "assistant_record",
+			"peer": "phone"
+		},
+		{
 			"file": "gateway/router/presenceReporter/baseline.json",
 			"composer": "gateway/router/presenceReporter",
 			"case": "baseline",

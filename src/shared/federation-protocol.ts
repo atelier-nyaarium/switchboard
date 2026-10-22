@@ -3,6 +3,7 @@ import { ChannelFilesSchema } from "./channel-file.js";
 import { SealedEnvelopeSchema, sign, verify } from "./crypto.js";
 import { CONVERSATION_ID_RE, MAX_CONVERSATION_ID_LEN } from "./host-op.js";
 import { NOTICE_TITLE_MAX, NoticeTierWireFields } from "./notice.js";
+import { RECORD_SUMMARY_MAX, RECORD_THREADS_MAX, RecordThreadSchema } from "./schemasAssistantRecord.js";
 import { isSlug } from "./session-id.js";
 import { SIGNING_TAGS } from "./wire-vocabulary.js";
 
@@ -36,31 +37,64 @@ export const ReturnRouteSchema = z.object({
 	srcSession: z.string().min(1).max(MAX_STORE_KEY_LEN),
 });
 
-export const ConsolePushEntrySchema = z.object({
-	kind: z.enum(["notice", "peer", "plugin_action", "message", "reply", "sent"]),
-	session_id: z.string().min(1).max(MAX_STORE_KEY_LEN),
-	from: z.string().min(1).max(MAX_ADDRESS_LEN).optional(),
-	to: z.string().min(1).max(MAX_ADDRESS_LEN).optional(),
-	...NoticeTierWireFields,
-	title: z
-		.string()
-		.min(1)
-		.transform((value) => value.slice(0, NOTICE_TITLE_MAX))
-		.optional(),
-	body: z.string().optional(),
-	status: z.string().optional(),
-	opId: z.string().min(1).max(MAX_STORE_KEY_LEN).optional(),
-	files: ChannelFilesSchema.optional(),
-	pluginId: z
-		.string()
-		.optional()
-		.refine((s) => !s || isSlug(s), "pluginId must be a slug"),
-	actionType: z
-		.string()
-		.optional()
-		.refine((s) => !s || isSlug(s), "actionType must be a slug"),
-	payload: z.record(z.string(), z.unknown()).optional(),
-});
+export const ConsolePushEntrySchema = z
+	.object({
+		kind: z.enum(["notice", "peer", "plugin_action", "message", "reply", "sent", "assistant_record"]),
+		session_id: z.string().min(1).max(MAX_STORE_KEY_LEN),
+		from: z.string().min(1).max(MAX_ADDRESS_LEN).optional(),
+		to: z.string().min(1).max(MAX_ADDRESS_LEN).optional(),
+		...NoticeTierWireFields,
+		title: z
+			.string()
+			.min(1)
+			.transform((value) => value.slice(0, NOTICE_TITLE_MAX))
+			.optional(),
+		body: z.string().optional(),
+		status: z.string().optional(),
+		opId: z.string().min(1).max(MAX_STORE_KEY_LEN).optional(),
+		files: ChannelFilesSchema.optional(),
+		pluginId: z
+			.string()
+			.optional()
+			.refine((s) => !s || isSlug(s), "pluginId must be a slug"),
+		actionType: z
+			.string()
+			.optional()
+			.refine((s) => !s || isSlug(s), "actionType must be a slug"),
+		payload: z.record(z.string(), z.unknown()).optional(),
+		/** For `assistant_record` only. */
+		notify: z.boolean().optional(),
+		threads: z.array(RecordThreadSchema).min(1).max(RECORD_THREADS_MAX).optional(),
+	})
+	.superRefine((entry, ctx) => {
+		const issue = recordIssue(entry);
+		if (issue) ctx.addIssue({ code: "custom", message: issue });
+	});
+
+/** A quiet record shows nothing to older phones. */
+function recordIssue(entry: {
+	kind: string;
+	notify?: boolean;
+	threads?: { threadId: string }[];
+	body?: string;
+	title?: string;
+	summary?: string;
+	fullSpoken?: string;
+	status?: string;
+	files?: unknown[];
+}): string | null {
+	const record = entry.kind === "assistant_record";
+	if (!record) return entry.notify !== undefined || entry.threads ? "only a record carries notify or threads" : null;
+	if (entry.notify === undefined || !entry.threads) return "a record carries notify and threads";
+	const ids = entry.threads.map((thread) => thread.threadId);
+	if (new Set(ids).size !== ids.length) return "a record names each thread once";
+	if (entry.title || entry.summary || entry.fullSpoken || entry.status || entry.files?.length) {
+		return "a record carries only its body";
+	}
+	if (!entry.notify) return entry.body !== undefined ? "a quiet record carries no body" : null;
+	const body = entry.body?.trim() ?? "";
+	return body && entry.body && entry.body.length <= RECORD_SUMMARY_MAX ? null : "a response carries its summary";
+}
 
 // Federated payloads remain sealed.
 export const FederatedOpSchema = z.discriminatedUnion("kind", [

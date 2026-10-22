@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
+import com.atelier_nyaarium.switchboard.proto.AssistantRecordThread
 import com.atelier_nyaarium.switchboard.proto.ChannelFile
 import com.atelier_nyaarium.switchboard.proto.InboxRow
 import com.atelier_nyaarium.switchboard.proto.MailboxEntry
@@ -52,7 +53,10 @@ class PollDrainTest {
 		}
 		override fun autoPlayTier(): SttsPlayer.Tier? = null
 		override fun isSttsReady() = false
-		override fun onInbound(team: String, messages: List<Message>) = Unit
+		val inbound = mutableListOf<Pair<String, List<Message>>>()
+		override fun onInbound(team: String, messages: List<Message>) {
+			inbound += team to messages
+		}
 		override fun preloadMessage(team: String, at: Long) = Unit
 		override suspend fun enqueueForPlay(team: String, at: Long, tier: SttsPlayer.Tier) = Unit
 		override fun commitMailbox(cursor: SyncCursor) = Unit
@@ -105,6 +109,32 @@ class PollDrainTest {
 		drain.processEntries(listOf(peer, notice), cursor = 2L, epoch = 1L, dropped = 0L)
 		assertEquals(listOf(session.canonical, "dom.gw.host.def"), host.appended.map { it.first })
 		assertEquals(true, host.appended.first().second.isPeer)
+	}
+
+	@Test
+	fun aQuietRecordLandsWithNoBodyAndAlertsNothing() = runBlocking {
+		val host = FakeHost(emptyMap())
+		val drain = PollDrain(host, IdlePresencePort)
+		val session = Address.of("dom", "gw", "host", "assistant")
+		val record = { seq: Long, notify: Boolean, body: String? ->
+			MailboxEntry(
+				seq = seq,
+				at = seq,
+				kind = ASSISTANT_RECORD_KIND,
+				session_id = storeKey(SessionKey.Conv("owner", session)),
+				body = body,
+				notify = notify,
+				threads = listOf(AssistantRecordThread(threadId = "$seq", outcome = "done")),
+			)
+		}
+
+		drain.processEntries(listOf(record(1L, false, null)), cursor = 1L, epoch = 1L, dropped = 0L)
+		val quietOnly = host.inbound.toList()
+		drain.processEntries(listOf(record(2L, true, "Worth a look."), record(3L, false, null)), cursor = 3L, epoch = 1L, dropped = 0L)
+
+		assertEquals(listOf(1L, 2L, 3L), host.appended.map { it.second.seq })
+		assertEquals(emptyList<Pair<String, List<Message>>>(), quietOnly)
+		assertEquals(listOf(listOf(2L)), host.inbound.map { (_, messages) -> messages.map { it.seq } })
 	}
 
 	@Test

@@ -240,22 +240,34 @@ const ownerEntries: ConsolePushEntry[] = [
 		body: "Wire reply",
 		files: [{ filename: "note.txt", mime: "text/plain", size: 4, descriptiveKey: "note", role: "attachment" }],
 	},
+	{
+		kind: "assistant_record",
+		session_id: "fixture-session",
+		body: "Wire record",
+		notify: true,
+		threads: [
+			{ threadId: "1", title: "Wire thread", url: "https://github.com/fixture/repo", outcome: "done" },
+			{ threadId: "2", outcome: "not_found" },
+		],
+	},
 ];
 for (const entry of ownerEntries) ownerPush.deliverToOwner({ entry, dedupeKey: `owner-${entry.kind}` });
-// Drains overlap; wait for both.
-for (let attempt = 0; ownerFrames.length < 2 && attempt < 20; attempt++) {
+for (let attempt = 0; ownerFrames.length < ownerEntries.length && attempt < 20; attempt++) {
 	await new Promise((resolve) => setImmediate(resolve));
 	await ownerPush.drainOutbox();
 }
-if (ownerFrames.length !== 2) throw new Error(`owner rows sent: ${ownerFrames.length}, expected 2`);
+if (ownerFrames.length !== ownerEntries.length) {
+	throw new Error(`owner rows sent: ${ownerFrames.length}, expected ${ownerEntries.length}`);
+}
 for (const [index, frame] of ownerFrames.entries()) {
 	const params = frame.params as { row: { envelope: { opKey: { opId: string; conversationId: string } } } };
+	const entry = ownerEntries[index];
 	write(
 		"gateway/consolePushOps",
-		index === 0 ? "message" : "reply",
+		entry?.kind ?? "entry",
 		{
 			...ownerContext.inputs,
-			entry: ownerEntries[index],
+			entry,
 			opId: params.row.envelope.opKey.opId,
 			conversationId: params.row.envelope.opKey.conversationId,
 		},
@@ -269,7 +281,11 @@ for (const [index, frame] of ownerFrames.entries()) {
 					path: "row.body",
 					aadKind: `inbox.body\n${params.row.envelope.opKey.conversationId}\n${params.row.envelope.opKey.opId}`,
 					decodeAs: "MailboxEntry",
-					expectJson: { kind: ownerEntries[index]?.kind, body: ownerEntries[index]?.body },
+					expectJson: {
+						kind: entry?.kind,
+						body: entry?.body,
+						...(entry?.threads ? { notify: entry.notify, threads: entry.threads } : {}),
+					},
 				},
 			],
 		},

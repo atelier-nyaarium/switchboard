@@ -279,6 +279,8 @@ data class MailboxEntry(
 	val pluginId: String? = null,
 	val actionType: String? = null,
 	val payload: JsonObject? = null,
+	val notify: Boolean? = null,
+	val threads: List<AssistantRecordThread>? = null,
 )
 
 @Serializable
@@ -2719,6 +2721,14 @@ data class RefSpanMeta(
 	val startColumn: Long,
 	val endLine: Long,
 	val endColumn: Long,
+)
+
+@Serializable
+data class AssistantRecordThread(
+	val threadId: String,
+	val title: String? = null,
+	val url: String? = null,
+	val outcome: String,
 )
 
 @Serializable

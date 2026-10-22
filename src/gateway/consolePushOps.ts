@@ -283,6 +283,14 @@ export function createConsolePushOps({
 			);
 			return false;
 		}
+		// Unrestorable rows invalidate the outbox.
+		const checked = ConsolePushEntrySchema.safeParse(entry);
+		if (!checked.success) {
+			console.warn(
+				`[${label}] dropped an entry the outbox could not restore: ${checked.error.issues[0]?.message}`,
+			);
+			return false;
+		}
 		return appendOwnerRow(entry, entry.opId ?? dedupeKey, label, volatile);
 	}
 

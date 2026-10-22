@@ -65,7 +65,8 @@ internal fun messagesToJson(
 			.put("from", displayFrom(m))
 			.put("at", m.at)
 			.put("body", m.text)
-		if (playEnabled && !m.fromMe) obj.put("canPlay", true)
+		if (playEnabled && !m.fromMe && !m.isQuietRecord()) obj.put("canPlay", true)
+		m.record?.let { obj.put("record", recordView(it)) }
 		// Read-tracking flags (thread.js's pointer/region + arrival-suppression logic): `counts` is
 		// pure row eligibility (inbound with real mailbox coordinates - never anchor-dependent, so
 		// the client can filter a full setMessages payload locally without a shipped region list);
@@ -74,7 +75,7 @@ internal fun messagesToJson(
 		// device is fromMe too, but already carries coordinates, so it never sets this); a row
 		// defaults `arrivedVisible` true (present only when explicitly false) since that is the
 		// common case and the only one thread.js's suppression rule checks for.
-		if (!m.fromMe && m.seq > 0L) obj.put("counts", true)
+		if (m.countsUnread()) obj.put("counts", true)
 		if (m.fromMe && m.seq == 0L) obj.put("ownSend", true)
 		if (!m.arrivedVisible) obj.put("arrivedVisible", false)
 		m.status?.let { obj.put("status", it) }
@@ -401,6 +402,7 @@ class ThreadRenderer(context: Context) {
 	private fun fingerprint(m: Message): Int {
 		var h = m.text.hashCode()
 		h = 31 * h + (m.status?.hashCode() ?: 0)
+		h = 31 * h + (m.record?.hashCode() ?: 0)
 		h = 31 * h + m.files.size
 		// The rendered sender is displayFrom(m), which changes on a rename (resolveFrom) or a
 		// counterparty relabel (isPeer); include it so a re-sync re-pushes already-rendered rows

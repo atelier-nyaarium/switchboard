@@ -24,6 +24,21 @@ class MessagesToJsonTest {
 	private fun filesOf(json: String): JSONArray = JSONArray(json).getJSONObject(0).getJSONArray("files")
 
 	@Test
+	fun aQuietRecordNeitherCountsNorPlaysAndCarriesItsDecidedView() {
+		val thread = RecordThread("1", "v2", "https://github.com/a/b", "done")
+		val quiet = Message(false, "", 1000L, id = 1, epoch = 1, seq = 4, record = ActionRecord(false, listOf(thread)))
+		val response = quiet.copy(id = 2, text = "Worth a look.", seq = 5, record = ActionRecord(true, listOf(thread)))
+
+		val rows = JSONArray(messagesToJson(listOf(quiet, response), displayFrom, playEnabled = true) { null })
+		val (q, r) = rows.getJSONObject(0) to rows.getJSONObject(1)
+
+		assertFalse(q.has("counts") || q.has("canPlay"))
+		assertTrue(r.getBoolean("counts") && r.getBoolean("canPlay"))
+		assertEquals("1 cleared quietly", q.getJSONObject("record").getString("line"))
+		assertEquals(false, r.getJSONObject("record").getBoolean("quiet"))
+	}
+
+	@Test
 	fun aVideoWithNoFramesStaysAFileRow() {
 		// The classifier answers for surfaces holding only the file, and an img tag cannot draw an
 		// mp4. Promoting it before frames exist is what would render an empty tile.

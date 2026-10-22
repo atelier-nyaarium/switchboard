@@ -195,10 +195,8 @@
 		if (m.id !== undefined && m.id !== null) row.dataset.id = String(m.id);
 		if (m.at !== undefined && m.at !== null) row.dataset.at = String(m.at);
 
-		// Top-right row actions: a flex group anchored to the row's right edge, so it grows LEFT as
-		// buttons are added rather than each button carrying its own hardcoded offset. DOM order is
-		// left-to-right visual order, so Play (conditional) comes before Copy (always present, so it
-		// stays the rightmost, wall-anchored button regardless of whether Play is shown).
+		// DOM controls visual order.
+		const quiet = Boolean(m.record && m.record.quiet);
 		const actions = document.createElement("div");
 		actions.className = "row-actions";
 
@@ -224,19 +222,19 @@
 			actions.appendChild(play);
 		}
 
-		// Copies the raw message source (markdown and mermaid fences as typed, not the rendered
-		// HTML/diagram) via the native bridge - WebView's own clipboard API needs an https-like
-		// secure context this file:// asset origin does not reliably get. Every row gets one.
-		const copy = document.createElement("button");
-		copy.className = "copy-btn";
-		copy.textContent = "\u{1F4CB}";
-		copy.setAttribute("aria-label", "Copy raw message");
-		copy.addEventListener("click", () => {
-			if (window.Android && typeof window.Android.copyToClipboard === "function") {
-				window.Android.copyToClipboard(m.body || "");
-			}
-		});
-		actions.appendChild(copy);
+		// Native bridge; file:// lacks the clipboard API.
+		if (!quiet) {
+			const copy = document.createElement("button");
+			copy.className = "copy-btn";
+			copy.textContent = "\u{1F4CB}";
+			copy.setAttribute("aria-label", "Copy raw message");
+			copy.addEventListener("click", () => {
+				if (window.Android && typeof window.Android.copyToClipboard === "function") {
+					window.Android.copyToClipboard(m.body || "");
+				}
+			});
+			actions.appendChild(copy);
+		}
 
 		row.appendChild(actions);
 
@@ -258,14 +256,18 @@
 		}
 		row.appendChild(meta);
 
-		const body = document.createElement("div");
-		body.className = "body";
-		// Break CommonMark's blockquote lazy-continuation (see markdown-lazy-blockquote.js's own
-		// header) before rendering, so a plain line right after a quoted line with no blank line
-		// between them starts its own block instead of being absorbed into the quote.
-		body.innerHTML = md.render(window.breakLazyBlockquoteContinuations(m.body || ""));
-		splitRefLabels(body);
-		row.appendChild(body);
+		if (quiet) row.classList.add("quiet-record");
+		if (!quiet) {
+			const body = document.createElement("div");
+			body.className = "body";
+			// Break CommonMark's blockquote lazy-continuation (see markdown-lazy-blockquote.js's own
+			// header) before rendering, so a plain line right after a quoted line with no blank line
+			// between them starts its own block instead of being absorbed into the quote.
+			body.innerHTML = md.render(window.breakLazyBlockquoteContinuations(m.body || ""));
+			splitRefLabels(body);
+			row.appendChild(body);
+		}
+		if (m.record) row.appendChild(buildRecord(m.record));
 
 		if (Array.isArray(m.files) && m.files.length > 0) {
 			row.appendChild(buildFiles(m.files));
@@ -274,6 +276,31 @@
 			row.appendChild(buildFailedActions(String(m.id)));
 		}
 		return row;
+	}
+
+	/** Record values stay text. */
+	function buildRecord(record) {
+		const details = document.createElement("details");
+		details.className = "record";
+		const summary = document.createElement("summary");
+		const items = Array.isArray(record.items) ? record.items : [];
+		summary.textContent = record.quiet ? record.line || "" : items.length === 1 ? "1 thread" : `${items.length} threads`;
+		details.appendChild(summary);
+		const list = document.createElement("ul");
+		for (const item of items) {
+			const li = document.createElement("li");
+			const label = document.createElement(item.href ? "a" : "span");
+			label.textContent = item.label || "";
+			if (item.href) label.setAttribute("href", item.href);
+			const outcome = document.createElement("span");
+			outcome.className = "outcome";
+			outcome.textContent = item.outcome || "";
+			li.appendChild(label);
+			li.appendChild(outcome);
+			list.appendChild(li);
+		}
+		details.appendChild(list);
+		return details;
 	}
 
 	/**

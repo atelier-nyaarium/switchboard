@@ -1,0 +1,97 @@
+{
+	"producer": "ts",
+	"composer": "gateway/consolePushOps",
+	"case": "assistant_record",
+	"clock": 1757000000000,
+	"inputs": {
+		"draws": {
+			"0": "tY6ObOTbCVRYL4u6",
+			"1": "xs9ehC3AjZCI1/Zf",
+			"2": "YZY39jZQHUYECqM4"
+		},
+		"entry": {
+			"kind": "assistant_record",
+			"session_id": "fixture-session",
+			"body": "Wire record",
+			"notify": true,
+			"threads": [
+				{
+					"threadId": "1",
+					"title": "Wire thread",
+					"url": "https://github.com/fixture/repo",
+					"outcome": "done"
+				},
+				{
+					"threadId": "2",
+					"outcome": "not_found"
+				}
+			]
+		},
+		"opId": "owner-assistant_record",
+		"conversationId": "d6440983c454c2e5999fdb66bbe9cf5f89a8f5847d6c9578ef14afd26eee122c"
+	},
+	"expect": {
+		"outcome": "accepted"
+	},
+	"frame": {
+		"name": "inbox_append",
+		"params": {
+			"address": "owner:fixture-domain/s1H7W7bG7tz0kA+qDERSO9pCIZ3USsFnGLpqFZ13m28=",
+			"row": {
+				"envelope": {
+					"origin": {
+						"kind": "gateway",
+						"domainId": "fixture-domain",
+						"gatewayId": "laptop"
+					},
+					"opKey": {
+						"conversationId": "d6440983c454c2e5999fdb66bbe9cf5f89a8f5847d6c9578ef14afd26eee122c",
+						"opId": "owner-assistant_record"
+					},
+					"epoch": 1,
+					"kind": "assistant_record",
+					"contentRefs": []
+				},
+				"producerSig": "BOQ+FIVIS3YMP6i0zJuZeAVV39mE/MhmdOUGBSOxxlb/7tLSXYmXAWX6k5bifBFO8QHlvP/VQEUwwcOjw3V8Cw==",
+				"body": {
+					"v": 1,
+					"epoch": 1,
+					"nonce": "YZY39jZQHUYECqM4",
+					"ciphertext": "s++F/U7XlRs9VclA/Paqs2J8uQm6nNU2aABxYthvA/PksrGsgGeKrY44lNMnXAzjTjoWK+lpHxwzEt3DayFctBkHGySYr1jUXQbP18PIeeUzcNr+En9YmxjbYVftpwvCmxufmSJ/fbsH1KvsU+ieE1pet6Zt+NNxNYUhapRLJs3Lg2ZI7QpRIpQ2MrE1TsAfiSLkFcq15l+K+UNiJ7zhn3i1GHtH5JbHN9a7WL/GlVX259quUzdT/ABcj9J02UVtXXMldhdyvxEWcu8kEjSWpH4fZwYEMiMfboJXyCoiAQHFWCmhkQLBPrJP51xlUrRE8TiCeG5fccYNHHl8qPSobqxVB2U3t6+WandvI7DTgLfzUxidkb5DAbbmKA=="
+				}
+			},
+			"opKey": {
+				"conversationId": "d6440983c454c2e5999fdb66bbe9cf5f89a8f5847d6c9578ef14afd26eee122c",
+				"opId": "owner-assistant_record",
+				"hash": "1b4567967f2f63d0551de25873654d43db29bb21c5e362a7e42b17cc5c5871cc"
+			}
+		}
+	},
+	"phone": {
+		"decodeAs": "RowEnvelope",
+		"sealed": [
+			{
+				"path": "row.body",
+				"aadKind": "inbox.body\nd6440983c454c2e5999fdb66bbe9cf5f89a8f5847d6c9578ef14afd26eee122c\nowner-assistant_record",
+				"decodeAs": "MailboxEntry",
+				"expectJson": {
+					"kind": "assistant_record",
+					"body": "Wire record",
+					"notify": true,
+					"threads": [
+						{
+							"threadId": "1",
+							"title": "Wire thread",
+							"url": "https://github.com/fixture/repo",
+							"outcome": "done"
+						},
+						{
+							"threadId": "2",
+							"outcome": "not_found"
+						}
+					]
+				}
+			}
+		]
+	}
+}

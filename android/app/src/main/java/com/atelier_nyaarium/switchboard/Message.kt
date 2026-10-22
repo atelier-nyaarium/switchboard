@@ -40,7 +40,14 @@ data class Message(
 	 * thread.js's arrival suppression: a batch containing an unread-eligible row that arrived while
 	 * hidden holds the reader's position instead of auto-following. */
 	val arrivedVisible: Boolean = true,
+	/** Presence identifies assistant records. */
+	val record: ActionRecord? = null,
 )
+
+/** Per-item outcomes; summary stays in Message.text. */
+data class ActionRecord(val notify: Boolean, val threads: List<RecordThread>)
+
+data class RecordThread(val threadId: String, val title: String?, val url: String?, val outcome: String)
 
 /** The rendered `from`/`to`/`isPeer` for a non-`"sent"` mailbox entry. */
 internal data class MessageAttribution(val from: String?, val to: String?, val isPeer: Boolean)

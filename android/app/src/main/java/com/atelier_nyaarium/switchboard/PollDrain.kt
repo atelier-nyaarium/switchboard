@@ -283,20 +283,23 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 				}
 				continue
 			}
-			if (body.isEmpty() && files.isEmpty() && entry.status == null) continue
+			val record = recordOf(entry)
+			if (body.isEmpty() && files.isEmpty() && entry.status == null && record == null) continue
 			val attribution = resolveMessageAttribution(entry.kind, entry.from, entry.to, team, host::fromCanonical)
 			val message = Message(
 				false, body, entry.at, files = files, status = entry.status,
 				title = entry.title.tierOrNull(), summary = entry.summary.tierOrNull(), fullSpoken = entry.fullSpoken.tierOrNull(),
 				epoch = epoch, seq = entry.seq, from = attribution.from, to = attribution.to, isPeer = attribution.isPeer,
-				arrivedVisible = host.isVisible && !resumeBacklogPending,
+				arrivedVisible = host.isVisible && !resumeBacklogPending, record = record,
 			)
-			if (host.appendInbound(team, message) {
+			val appended = host.appendInbound(team, message) {
 				inboundSubscribers.forEach { subscriber ->
 					runIsolated { subscriber.onMessage(team, message) }
 						.onFailure { DebugLog.log("Drain", "inbound subscriber failed seq=${entry.seq}") }
 				}
-			}) burst.getOrPut(team) { mutableListOf() }.add(message)
+			}
+			// Quiet records skip alerts and autoplay.
+			if (appended && !message.isQuietRecord()) burst.getOrPut(team) { mutableListOf() }.add(message)
 		}
 		val burstJobs = mutableListOf<Job>()
 		val autoPlayedPeerPairs = mutableSetOf<String>()

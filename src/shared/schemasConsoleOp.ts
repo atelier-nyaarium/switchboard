@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ChannelFilesSchema } from "./channel-file.js";
 import { SignedXDomainLinkSchema } from "./federation-protocol.js";
+import { RecordThreadSchema } from "./schemasAssistantRecord.js";
 import { AssistantRuleOtherwiseSchema, AssistantRuleSchema, RULE_ID_RE } from "./schemasAssistantRules.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
 import { AuthorizationPolicySchema } from "./schemasPolicy.js";
@@ -393,7 +394,7 @@ export const MailboxEntrySchema = z
 	.object({
 		seq: z.number().int().nonnegative(),
 		at: z.number().int().nonnegative(),
-		kind: z.enum(["message", "reply", "notice", "sent", "peer", "plugin_action"]),
+		kind: z.enum(["message", "reply", "notice", "sent", "peer", "plugin_action", "assistant_record"]),
 		session_id: z.string(),
 		from: z.string().optional(),
 		to: z.string().optional(),
@@ -408,5 +409,8 @@ export const MailboxEntrySchema = z
 		pluginId: z.string().optional(),
 		actionType: z.string().optional(),
 		payload: z.record(z.string(), z.unknown()).optional(),
+		/** For `assistant_record` only. */
+		notify: z.boolean().optional(),
+		threads: z.array(RecordThreadSchema).optional(),
 	})
 	.meta({ id: "MailboxEntry" });

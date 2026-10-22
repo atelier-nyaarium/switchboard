@@ -1,0 +1,8 @@
+{
+	"seq": 0,
+	"at": 1757000000000,
+	"kind": "assistant_record",
+	"session_id": "host.assistant",
+	"notify": false,
+	"threads": [{ "title": "scrcpy 5.0.1" }]
+}

@@ -96,7 +96,7 @@ data class ChatState(
 		teams.firstOrNull { it.name == team }?.presence?.working?.let { return it }
 		sessionWorking[team]?.let { return it }
 		if (awaitingWake(team)) return true
-		val last = threads[team]?.lastOrNull() ?: return false
+		val last = cardRows(team).lastOrNull() ?: return false
 		return (last.fromMe && (last.status == null || last.status == "pending")) || last.status == "running"
 	}
 
@@ -120,15 +120,18 @@ data class ChatState(
 	val noGatewayState: NoGatewayState
 		get() = FriendOnboarding.noGatewayState(needsGateway, firstRooted)
 
-	fun lastActivity(team: String): Long? = threads[team]?.maxByOrNull { it.at }?.at
+	/** Quiet records do not advance card reads. */
+	private fun cardRows(team: String): List<Message> = threads[team].orEmpty().filterNot { it.isQuietRecord() }
 
-	fun lastRow(team: String): Message? = threads[team]?.lastOrNull()
+	fun lastActivity(team: String): Long? = cardRows(team).maxByOrNull { it.at }?.at
+
+	fun lastRow(team: String): Message? = cardRows(team).lastOrNull()
 
 	/** Snippets use the latest row; replies use the latest owner-directed row. */
 	fun snippet(team: String): String? = lastRow(team)?.let { oneLine(it.title) ?: oneLine(it.text) }
 
 	/** A titleless latest reply yields to the thread snippet. */
-	fun lastReply(team: String): Message? = threads[team]?.lastOrNull { !it.fromMe && !it.isPeer }
+	fun lastReply(team: String): Message? = cardRows(team).lastOrNull { !it.fromMe && !it.isPeer }
 
 	fun labelOrNull(team: String): String? = labels[team] ?: teams.firstOrNull { it.name == team }?.sessionLabel
 

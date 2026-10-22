@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.board.BoardLiveLine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -34,6 +35,19 @@ class ChatStateCardPreviewTest {
 		val p = preview(inbound("older", title = "Older headline"), inbound("a structured answer, no title"))
 		assertNull(p.headline)
 		assertEquals("a structured answer, no title", p.snippet)
+	}
+
+	@Test
+	fun aQuietRecordMovesNothingTheCardShows() {
+		val quiet = inbound("", at = 9).copy(record = ActionRecord(false, listOf(RecordThread("1", "v2", null, "done"))))
+		val rows = listOf(inbound("the reply", title = "The headline", at = 5), quiet)
+		val state = ChatState(threads = mapOf(TEAM to rows))
+		val p = preview(*rows.toTypedArray())
+
+		assertEquals("The headline", p.headline)
+		assertEquals(5L, p.headlineAt)
+		assertEquals(5L, state.lastActivity(TEAM))
+		assertTrue(ChatState(threads = mapOf(TEAM to listOf(sent("go", at = 6), quiet))).working(TEAM))
 	}
 
 	@Test

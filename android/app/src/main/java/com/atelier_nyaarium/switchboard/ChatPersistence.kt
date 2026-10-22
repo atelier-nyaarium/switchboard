@@ -62,6 +62,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 				obj.putOpt("from", persistFrom)
 				obj.putOpt("to", persistTo)
 				if (m.isPeer) obj.put("isPeer", true)
+				m.record?.let { obj.put("record", recordJson(it)) }
 				// Local paths and blob references only. The files themselves live on disk, not in here.
 				if (m.files.isNotEmpty()) {
 					val files = JSONArray()
@@ -164,6 +165,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 						from = loadedFrom,
 						to = loadedTo,
 						isPeer = isPeer,
+						record = m.optJSONObject("record")?.let(::loadRecord),
 					)
 				}
 					// Stored threads can hold a "waking" row, from when the cold-wake wait was a transcript

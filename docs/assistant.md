@@ -256,13 +256,15 @@ before the shutdown flush. Stop is final. `src/gateway/assistant/` holds the wat
   The Gateway doors in `assistantRoutes.ts` answer only a token bound to the assistant's own record,
   and answer `not_assistant` or `unauthenticated` otherwise.
 - **The record:** every action posts an `assistant_record` row through `deliverToOwner` into the
-  assistant's own conversation, never through `channel_reply` or `notify_human`. It carries an
-  optional summary, a `notify` flag and, per thread, its id, title, link and outcome. With a summary
-  it is the assistant's message with the threads folded under it, and it notifies. Without one it is
-  a muted "N cleared quietly" line that expands to its threads, kept out of the phone's burst,
-  alert, autoplay and unread processing. Titles, links and outcomes come from GitHub and render as a
-  fixed list; only the summary is the model's. The conversation is the only action history. A crash
-  after GitHub confirms a clear but before its row is queued leaves that clear without a row.
+  assistant's own conversation, never through `channel_reply` or `notify_human`. It carries a
+  `notify` flag, the summary in `body` (at most 300 characters, present exactly when `notify` is
+  true), and per thread its id, outcome and, when GitHub answered, title and link. With a summary it
+  is the assistant's message with the threads folded under it, and it notifies. Without one it is a
+  muted "N cleared quietly" line that expands to its threads, kept out of the phone's burst, alert,
+  autoplay and unread processing and the session card. A quiet row carries no body, so an older
+  phone drops it unseen. Titles, links and outcomes come from GitHub and render as a fixed list of
+  text; only the summary is the model's. The conversation is the only action history. A crash after
+  GitHub confirms a clear but before its row is queued leaves that clear without a row.
 - **Counts:** the chip and the baseline show GitHub's unread count.
 
 ## What the model reads

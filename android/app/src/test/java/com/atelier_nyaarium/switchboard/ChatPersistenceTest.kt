@@ -133,6 +133,18 @@ class ChatPersistenceTest {
 	}
 
 	@Test
+	fun anAssistantRecordSurvivesARestartAndAQuietOneStaysQuiet() {
+		val threads = listOf(RecordThread("1", "v2", "https://github.com/a/b", "done"), RecordThread("2", null, null, "not_found"))
+		val loud = message(at = 1, text = "Worth a look.").copy(record = ActionRecord(true, threads))
+		val quiet = message(at = 2, text = "").copy(record = ActionRecord(false, threads.take(1)))
+		codec.persistThreads(mapOf(team to listOf(loud, quiet)))
+		val loaded = codec.loadPersistedThreads().getValue(team)
+
+		assertEquals(listOf(loud.record, quiet.record), loaded.map { it.record })
+		assertEquals(listOf(false, true), loaded.map { it.isQuietRecord() })
+	}
+
+	@Test
 	fun aTornThreadsSlotDegradesToEmptyRatherThanThrowing() {
 		store.slots["threads"] = "{ this is not json"
 		assertEquals(emptyMap<String, List<Message>>(), codec.loadPersistedThreads())

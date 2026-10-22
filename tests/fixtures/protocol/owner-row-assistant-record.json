@@ -1,0 +1,17 @@
+{
+	"seq": 0,
+	"at": 1757000000000,
+	"kind": "assistant_record",
+	"session_id": "host.assistant",
+	"body": "The scrcpy 5.0.1 release fixes the audio drop you hit last week.",
+	"notify": true,
+	"threads": [
+		{
+			"threadId": "26183513238",
+			"title": "scrcpy 5.0.1",
+			"url": "https://github.com/Genymobile/scrcpy",
+			"outcome": "done"
+		},
+		{ "threadId": "26357054027", "outcome": "not_found" }
+	]
+}

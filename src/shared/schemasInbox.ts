@@ -82,6 +82,7 @@ export const RowKindSchema = z.enum([
 	"sent",
 	"peer",
 	"plugin_action",
+	"assistant_record",
 	"awareness",
 	"key_request",
 	"key_grant",
@@ -130,6 +131,10 @@ function refineInboxRowInput(row: z.infer<z.ZodObject<typeof inboxRowInputShape>
 	}
 	if (row.envelope.epoch === "peer" && !SealedEnvelopeSchema.safeParse(row.body).success) {
 		ctx.addIssue({ code: "custom", path: ["body"] });
+	}
+	// Never from a friend's Gateway.
+	if (row.envelope.epoch === "peer" && row.envelope.kind === "assistant_record") {
+		ctx.addIssue({ code: "custom", path: ["envelope", "kind"] });
 	}
 	// Only the Router composes clear rows; a producer's clear body would land unopened.
 	if (

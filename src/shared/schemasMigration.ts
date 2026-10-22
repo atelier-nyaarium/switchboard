@@ -83,6 +83,7 @@ export const MigratedRowSchema = z
 			fullSpoken: true,
 			files: true,
 			payload: true,
+			threads: true,
 		}),
 		/** Text and filenames sealed. */
 		text: ContentEnvelopeSchema.optional(),
