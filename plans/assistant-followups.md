@@ -26,7 +26,7 @@ Each phase names the board item it closes. Phases 3, 5 and 6 build on Phases 1, 
 
 ## Phase 1 - Keyed FIFO
 
-Closes bd_76eab31a and the queue bullet of bd_500e13ed.
+✅ Shipped in 731b129f and 7f6b3c6a. Closes bd_76eab31a and the queue bullet of bd_500e13ed.
 
 **Problem:** Eight sites each hand-write their own promise-tail FIFO. Two of them are wrong. In `AgentDaemonCore.enqueue`, a throwing `reject` or `describe` rejects the stored tail, so the next command for the same key skips `dispatch`. In tmux, `killSession` deletes the `sendChains` key while sends are still pending, so a later send can overtake them.
 
