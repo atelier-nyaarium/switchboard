@@ -35,7 +35,7 @@ export interface SourceLanesDeps {
 	/** Null until the routes are bound. */
 	wake: () => AssistantWake | null;
 	to: string;
-	render: (watcherId: string, event: WatcherEvent) => string;
+	render: (watcher: Watcher, event: WatcherEvent) => string;
 }
 
 /** Why the lane ended a signal. */
@@ -121,6 +121,8 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 	const ids = deps.watchers.map((watcher) => watcher.id);
 	const bad = ids.find((id, index) => !WATCHER_ID_RE.test(id) || ids.indexOf(id) !== index);
 	if (bad !== undefined) throw new Error(`watcher id "${bad}" is malformed or taken twice`);
+	const unnamed = deps.watchers.find((watcher) => watcher.label.trim() === "");
+	if (unnamed) throw new Error(`watcher "${unnamed.id}" has no label`);
 
 	let phase: "idle" | "running" | "stopped" = "idle";
 	const timers = new Map<string, TimerHandle>();
@@ -196,13 +198,13 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 	};
 
 	/** First failure, or null. */
-	const pushAll = async (watcherId: string, wakes: readonly WatcherEvent[], signal: AbortSignal) => {
+	const pushAll = async (watcher: Watcher, wakes: readonly WatcherEvent[], signal: AbortSignal) => {
 		for (let at = 0; at < wakes.length; at += WAKE_BATCH) {
 			const wake = deps.wake();
 			if (!wake) return "the send path is not bound yet";
 			const members = wakes
 				.slice(at, at + WAKE_BATCH)
-				.map((event) => ({ key: memberKey(watcherId, event), text: deps.render(watcherId, event) }));
+				.map((event) => ({ key: memberKey(watcher.id, event), text: deps.render(watcher, event) }));
 			const batch = linkedSignal(ambient, { parent: signal, ms: WAKE_DEADLINE_MS, reason: CUT });
 			// A push given up on composes nothing when it lands late.
 			const compose = () => (!batch.signal.aborted && phase === "running" ? members : null);
@@ -249,7 +251,7 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		// First poll primes without waking.
 		const fresh = held.primed ? answer.events.filter((event) => event.at > held.newest) : [];
 		const wakes = fresh.filter((event) => deps.sort(watcher.id, event) === "wake").sort(oldestFirst);
-		const failed = await pushAll(watcher.id, wakes, signal);
+		const failed = await pushAll(watcher, wakes, signal);
 		if (phase !== "running") return;
 		if (failed) {
 			const retry = held.wakeRetryMs ?? WAKE_RETRY_MS;

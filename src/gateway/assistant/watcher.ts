@@ -68,6 +68,8 @@ export interface ListPage {
 
 export interface Watcher {
 	readonly id: string;
+	/** Display name; never blank. */
+	readonly label: string;
 	/** What a rule may test. */
 	readonly fields?: readonly string[];
 	/** The secret it needs, shown to the owner. */

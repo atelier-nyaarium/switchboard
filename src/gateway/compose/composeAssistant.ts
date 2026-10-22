@@ -44,8 +44,6 @@ const PREVIEW_EVENTS = 50;
 /** Past it, the rest of a page is cut. */
 const MAX_LIST_BYTES = 64_000;
 
-const LABELS: Record<string, string> = { [GITHUB_WATCHER_ID]: "GitHub notifications" };
-
 /** What the assistant reaches in the vault, read late. */
 export interface AssistantVault {
 	watcherGrants: (watcherId: string) => string[];
@@ -123,9 +121,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			fieldsOf: (watcherId) => watchers.find((watcher) => watcher.id === watcherId)?.fields,
 		}),
 	);
-	const labelOf = (watcherId: string) => LABELS[watcherId] ?? watcherId;
-	const render = (watcherId: string, event: WatcherEvent) =>
-		eventLines({ label: labelOf(watcherId), ...event }).join("\n");
+	const render = (watcher: Watcher, event: WatcherEvent) => eventLines({ label: watcher.label, ...event }).join("\n");
 
 	let lanes: SourceLanes | null = null;
 	let wake: AssistantWake | null = null;
@@ -196,7 +192,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	 * once it is shown whole.
 	 */
 	const listOne = (watcher: Watcher, scope: InboxScope, at: Omit<PageAt, "watcherId">): Promise<InboxList> => {
-		const label = labelOf(watcher.id);
+		const { label } = watcher;
 		const query = (): ListQuery => {
 			const since = scope === "new" ? watcherState.get(watcher.id).mark : undefined;
 			return { scope, ...(since === undefined ? {} : { since }), ...(at.inner ? { page: at.inner } : {}) };
@@ -272,7 +268,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		const state = watcherState.get(watcher.id);
 		return {
 			id: watcher.id,
-			label: labelOf(watcher.id),
+			label: watcher.label,
 			grants: deps.vault.watcherGrants(watcher.id),
 			unread: state.unread,
 			capped: state.capped,
@@ -323,7 +319,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				watchers: watchers.map((watcher) => {
 					const health = watcherState.get(watcher.id);
 					return {
-						label: labelOf(watcher.id),
+						label: watcher.label,
 						unread: health.unread,
 						capped: health.capped,
 						checked: health.lastSuccessAt !== undefined,

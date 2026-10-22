@@ -139,6 +139,7 @@ GitHub PAT (Classic) with scope:
 export function createGithubWatcher(client: GithubClient): Watcher {
 	return {
 		id: GITHUB_WATCHER_ID,
+		label: "GitHub notifications",
 		fields: ["reason", "repository", "type", "title"],
 		secret: GITHUB_SECRET,
 		async poll(cursor, signal) {

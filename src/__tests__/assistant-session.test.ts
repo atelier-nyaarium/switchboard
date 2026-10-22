@@ -30,6 +30,7 @@ function vault(): AssistantVault {
 function counting(): Watcher & { polls: number } {
 	const watcher = {
 		id: "github",
+		label: "GitHub",
 		polls: 0,
 		poll: async () => {
 			watcher.polls += 1;

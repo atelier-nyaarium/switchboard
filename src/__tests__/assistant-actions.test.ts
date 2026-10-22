@@ -172,7 +172,9 @@ describe("an assistant action", () => {
 		const lanes = createSourceLanes({
 			ambient,
 			state: { get: () => FRESH_STATE, put: () => true },
-			watchers: [{ id: "github", poll: async () => ({ kind: "unchanged", nextPollMs: 60_000 }) }],
+			watchers: [
+				{ id: "github", label: "GitHub", poll: async () => ({ kind: "unchanged", nextPollMs: 60_000 }) },
+			],
 			sort: () => "wake",
 			wake: () => null,
 			to: "host.assistant",

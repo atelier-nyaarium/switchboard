@@ -103,6 +103,7 @@ describe("a watcher event reaching the assistant", () => {
 	const source = [event("e1", "mention", 3), event("e2", "review", 2), event("e0", "mention", 1)];
 	const watcher: Watcher = {
 		id: "fake",
+		label: "Fake source",
 		fields: ["kind"],
 		poll: async () => {
 			polls += 1;
@@ -178,15 +179,16 @@ describe("a watcher event reaching the assistant", () => {
 
 		expect(woken).toMatchObject({ from: "", session_id: "" });
 		expect(woken.body).toContain("id: e1");
+		expect(woken.body).toContain("Fake source");
 		expect(woken.body).not.toContain("e0");
 		expect(woken.body).not.toContain("review e2");
 		expect(attached.get(ASSISTANT_TEAM)?.inbound.filter((frame) => frame.event === true)).toHaveLength(1);
-		expect(state.watchers[0]).toMatchObject({ id: "fake", unread: 3 });
+		expect(state.watchers[0]).toMatchObject({ id: "fake", label: "Fake source", unread: 3 });
 	});
 
 	it("lists live, sorted by the rules, and moves the new mark only once a read reaches its last page", async () => {
 		const session = attached.get(ASSISTANT_TEAM);
-		type Listed = { lists: { items: { id: string; decision: string }[]; next?: string }[] };
+		type Listed = { lists: { label: string; items: { id: string; decision: string }[]; next?: string }[] };
 		const list = async (body: Record<string, unknown>) =>
 			(await read(session, ASSISTANT_COMMANDS.inbox.path, body)) as unknown as Listed;
 		const ids = (answer: Listed) => answer.lists[0]?.items.map((item) => item.id);
@@ -207,6 +209,7 @@ describe("a watcher event reaching the assistant", () => {
 			["e3"],
 		]);
 		expect(first.lists[0]?.items.map((item) => item.decision)).toEqual(["wake", "inbox"]);
+		expect(first.lists[0]?.label).toBe("Fake source");
 		expect(all.lists[0]?.next).toBeDefined();
 	});
 

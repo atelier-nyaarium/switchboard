@@ -145,7 +145,7 @@ export function createChannelPushDelivery(deps: ChannelPushDeliveryDeps): (push:
 
 ## Phase 4 - Watcher labels
 
-Closes the label bullet of bd_500e13ed.
+✅ Shipped. Closes the label bullet of bd_500e13ed.
 
 **Problem:** `composeAssistant` keeps `LABELS` keyed by `GITHUB_WATCHER_ID`, and `labelOf` falls back to the raw id. A watcher added without editing that table shows its id in wakes, listings, the console and the baseline.
 

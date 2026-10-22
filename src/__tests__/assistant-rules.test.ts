@@ -44,6 +44,7 @@ const event = (id: string, reason: string, at = 1): WatcherEvent => ({
 function listing(held: WatcherEvent[]): Watcher {
 	return {
 		id: "github",
+		label: "GitHub",
 		fields: FIELDS,
 		poll: async () => ({ kind: "unchanged", nextPollMs: 60_000 }),
 		list: async () => ({ events: held, here: "0" }),

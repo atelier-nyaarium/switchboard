@@ -59,6 +59,7 @@ function scripted(id = "github") {
 	const pending: ((answer: PollAnswer) => void)[] = [];
 	const watcher: Watcher = {
 		id,
+		label: `${id} label`,
 		poll: (cursor, signal) => {
 			cursors.push(cursor);
 			signals.push(signal);
@@ -141,7 +142,7 @@ function lanes(
 		sort: (_watcherId, event) => sort(event),
 		wake: () => wake,
 		to: "host.assistant",
-		render: (_watcherId, event) => event.id,
+		render: (_watcher, event) => event.id,
 	});
 }
 
@@ -153,6 +154,13 @@ async function stopped(lane: SourceLanes, ambient: FakeAmbient): Promise<void> {
 }
 
 describe("a watcher's source lane", () => {
+	it("refuses a watcher with no label, so none shows by its id", () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const unnamed = { ...scripted().watcher, label: "  " };
+
+		expect(() => lanes(ambient, stateIn(stateDir()), unnamed, wakes().wake)).toThrow("no label");
+	});
+
 	it("polls on the interval each answer names, sending the validator the last commit left, never two at once", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const source = scripted();
@@ -496,6 +504,7 @@ describe("a watcher's source lane", () => {
 		const cursors: (string | null)[] = [];
 		const watcher: Watcher = {
 			id: "github",
+			label: "GitHub",
 			poll: (cursor) => {
 				cursors.push(cursor);
 				if (cursors.length === 1) return Promise.reject(new Error("socket hang up"));
