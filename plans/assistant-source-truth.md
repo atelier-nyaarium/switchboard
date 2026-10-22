@@ -213,6 +213,8 @@ The phone learns the row before anything sends one: this phase ships the Router 
 
 ## Phase 5 - Typed actions
 
+✅ Shipped: the shared action registry, `WatcherAction<K>` with `GithubDone`, one GitHub client, the `/assistant/action` dispatcher with call-id joins and the record, the lane owning every deadline, `ASSISTANT_WAITS`, Bun's idle timeout past every route's wait, the registry-derived tool lists, and unread as the inbox (Question 14).
+
 - **Declarations, as Evie's do,** in one shared registry: per watcher, per action, a key that is the exact MCP tool name (`github_done`), a label and description, a params schema, an answer schema, and a client-safe descriptor for `assistant_state`. The action binds its watcher, so a call names no `watcherId`.
 - **GitHub `github_done({ ids, summary? })`:** `ids` are unique digit strings, at most 50; `summary` at most 300 characters. On the Gateway each action is a `WatcherAction<K>` class over its declaration (Q13), held in a map typed by the registry's keys, so a declared action with no class does not compile. The record row reuses the action's per-thread outcome schema. Per id the Gateway reads the thread (`GET /notifications/threads/{id}`) for its title and link, `DELETE`s it, then marks it read (`PATCH`, Question 14), answering per id with the shared outcome. A rate limit stops the batch, honouring `Retry-After`, and the rest answer `not_attempted`.
 - **One dispatcher route,** `/assistant/action`, takes `{ action, params }`, checks the assistant token, resolves the declared action, parses the params with its schema, runs it through the lane with the PAT from `readForWatcher`, and answers with its schema.
