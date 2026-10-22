@@ -166,7 +166,7 @@ export function createChannelPushDelivery(deps: ChannelPushDeliveryDeps): (push:
 
 ## Phase 5 - Inbox listing extraction
 
-Closes the listing bullet of bd_500e13ed.
+✅ Shipped. Closes the listing bullet of bd_500e13ed.
 
 **Problem:** The page signing, the byte cut and the mark rule sit inside `composeAssistant` next to placement and owner ops. Only the harness reaches them.
 
