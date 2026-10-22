@@ -68,7 +68,7 @@ Targeted cases: tmux sends keep their order across a `killSession`; a throwing `
 
 ## Phase 2 - Checked commit
 
-Closes bd_4eb7b09c.
+✅ Shipped in cb86dc25. Closes bd_4eb7b09c. The hook's logger is guarded, so a landed write never throws.
 
 **Problem:** Nine stores repeat the same set-save-rollback block, and three get it wrong:
 - `createRoutineStore.commit` and `createPolicyStore.commit` call `onChanged` inside the save `try`. A throwing hook rolls memory back while the disk already holds the write.

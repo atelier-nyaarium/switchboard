@@ -75,7 +75,7 @@ and the delta list are in `docs/federation.md` under Owner state.
   routine's grant covers only while its occurrence is live in the asking session. A watcher's grant
   covers only that watcher's own read, never a session, and a watcher never opens a request.
 - The store opens through `openDurable`, so a poisoned file starts fresh. A revocation or a
-  session-end drop is written with `saveChecked` and reported once the snapshot is installed.
+  session-end drop is written through `commitChecked` and reported once the snapshot is installed.
   Grants and expiry sweeps are best effort.
 - `vault_grants` lists the live grants. `vault_revoke` drops a grant by id.
 

@@ -57,8 +57,9 @@ while revision 1 is held. A deleted id is buried for the process's life, so a de
 land it back; the fence is not durable, and the Router sends a value op once. `setEnabled` is a
 whole-record put at the base the phone read, so a stale toggle is refused like a stale put.
 
-**Commit.** On disk before reported: `saveChecked`, then `onChanged`. A `DurableStoreInstalledError`
-is success. A failed write rolls the memory back and answers "could not be written". Restore
+**Commit.** On disk before reported, through `commitChecked`: the file, then memory, then
+`onChanged`. A `DurableStoreInstalledError` is success. A failed write leaves memory as it was and
+answers "could not be written". A throwing `onChanged` is logged; the write stands. Restore
 refuses anything a put could not have written, and a file that fails it starts the store fresh, as
 an unparseable one does, since fewer policies is the safe direction.
 
@@ -99,9 +100,10 @@ memory, so half a qualification cannot exist.
 
 The store commits the new revision to disk, then `onChanged` reaches `onPolicyMoved`, and the
 vault retracts the policy's pending requests and prunes its grants. The vault is told only after
-the write is on disk, so a failed write prunes nothing. A crash between the two leaves grants at
-the old revision, which no scope the moved policy resolves will match in `covers`, and
-`policiesListed` prunes them at the next start.
+the write is on disk, so a failed write prunes nothing. A crash between the two, or a prune that
+throws, leaves grants at the old revision. No fresh lookup resolves the moved policy to them, and
+`policiesListed` prunes them at the next start. A request already waiting re-checks the scope it
+captured, so it can still be covered until then.
 
 Every landed write moves the revision, a rename included, and ends the approvals that named the
 one before it. One counter, the one the base rule already needs, and no second semantic revision
