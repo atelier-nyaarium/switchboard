@@ -368,3 +368,50 @@ From the Phase 1 architecture round. No board item.
 **Tests:** a presence case where a cached and a joined result each count once; `single-flight.test.ts` for join, failure not held, and key release. Existing dedupe tests stay as the pin.
 
 **Risks:** `withPeekSlot` can briefly run seven captures when a queued microtask takes a freed slot; fix with a permit handoff only if this phase touches it anyway.
+
+## Phase 12 - Gateway trust files and the op store
+
+From the Phase 2 architecture round. No board item. Same class as Phase 2: memory moves before the write, or a write is not atomic, so a failure leaves the two disagreeing.
+
+**Problem:**
+- `CrossDomainPeers` mutates memory, then writes with plain `fs.writeFileSync`, not atomic. A failed `add` leaves a peer trusted in memory while `confirm` reports failure. A torn file parses as no peers, so every link is forgotten silently.
+- `CrossDomainShareState.land` writes before memory, but plain and unguarded: a failed write in `onShareDelta` throws out of the socket listener instead of going unready.
+- `ContentKeyStore.commit` fills memory before the write. A failed write then answers a redelivered grant `already_present`, and the key is gone after a restart.
+- `Allowlist` adds admissions and the owner root in memory before the write.
+- `DurableStoreInstalledError` is read by hand in `composeGateway` `saveSessions` and twice in `AgentCatalogStore`; `saveSessions` and `persistAgentCatalogChecked` are two copies of one write.
+- `DurableOpStore.markComplete` saves best effort, yet `docs/runbooks.md` and AGENTS.md say a fire's key is released only once its completion is durable. A failed write and a restart fire the runbook again.
+- `checked-commit-residue.test.ts` sees only `.saveChecked(`, so none of the above shows.
+
+**Rule:** trust is granted only once written; trust is withdrawn at once. Additions and replacements go file first through `commitChecked`. Removals and revocations stay memory first, then write, so a failed write never leaves a revoked peer live in this process.
+
+**Target:**
+- `DurableStore` takes an optional `mode`, so the trust files can use it at 0600 and get atomic, fsynced writes with the installed reading.
+- `CrossDomainPeers` and `CrossDomainShareState` move onto `DurableStore`. `add` goes through `commitChecked`; removals keep memory first. `CrossDomainShareState.apply` answers `"unwritten"` on a failed write, and `onShareDelta` goes unready and re-reads, as on a gap.
+- `ContentKeyStore.commit` and `Allowlist` additions go file first; the static `writeFile`s map a directory sync failure to `DurableStoreInstalledError`.
+- One `saveSessionsChecked` in `composeSessions`, used by the assistant placement and the agent catalog; `composeGateway` leaves the residue allowlist.
+- `DurableOpStore.markComplete` answers whether the completion landed; `runbook_fire` keeps its key held when it did not.
+- The residue test also refuses `writeFileSync(` and `writeFileAtomic(` under `src/gateway`, with a reason per exception (`identity.ts` exclusive create, `transport.ts` reach cache, `composeBootstrap.ts` sentinel, `bootstrapInstall.ts` staging, `enrollTls.ts`), and `instanceof DurableStoreInstalledError` outside `durable-store.ts`.
+
+**Tests:** a failed peer add leaves no trust; a failed removal still revokes in memory; a failed share delta goes unready; a failed key commit holds no key; a failed op completion keeps the fire key held.
+
+**Risks:** `CrossDomainPeers` and `CrossDomainShareState` keep their file names, so existing files load unchanged.
+
+## Phase 13 - Router enrollment writes and the phone's board intent
+
+From the Phase 2 architecture round. No board item.
+
+**Problem:**
+- `FileSecretStore.loadDomain` hands back its live object, and `EnrollmentCoordinator` changes it in place before queueing `save`. A revocation whose write failed is live in this process and gone after a restart. A retried `retire` or `admit` is a duplicate, skips the save, and `flushOrError` reads the old failed write, so the retry reports failure forever.
+- `shareService.unlink` calls `dropLinkEdge` without awaiting it, and its success answer drops `durability_uncertain`.
+- `OwnerStateStore.compact` installs the new manifest before it switches the journal; a directory sync failure there leaves later commits appended to the old journal, lost on restart.
+- `BoardManager.mutate` drops `persist`'s answer, and `enqueueWrite` returns an op id even when nothing was queued, so `BoardOps.intend` reads on as if it were.
+
+**Target:**
+- Coordinator transitions go through `mutateDomain` on cloned state and publish only what was committed; `loadDomain` answers a copy.
+- `unlink` awaits `dropLinkEdge` and passes its outcome on.
+- `compact` enters an uncertain state that refuses writes until the manifest and journal agree, or is shown not worth it with evidence.
+- `enqueueWrite` answers a refusal; `intend` surfaces it through the refusal list.
+
+**Tests:** a failed revocation write is not live; a retried admit after a failed write lands; an unlink answer carries its outcome; a refused board intent is reported.
+
+**Risks:** Router changes deploy before the Gateway; the phone change ships with the next phone build.
