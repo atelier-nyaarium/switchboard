@@ -233,6 +233,8 @@ The phone learns the row before anything sends one: this phase ships the Router 
 
 ## Phase 6 - Phone
 
+✅ Shipped: GitHub's unread count on the chip, the settings health line and the baseline ("not checked yet" before a poll lands, "+" when capped), each watcher's actions in settings as in the mockup, record links in the theme's colour, and record rows seeded in the emulator sandbox.
+
 - **Chip and baseline:** GitHub's unread count ("4 unread", "500+"), with the "in inbox" and lost-unread wording gone.
 - **Settings:** each watcher's action descriptors under its secret, as in the mockup, from the existing state call. Decisions stay in `AssistantOps`.
 - **Sandbox and fakes** answer the new state and record.
@@ -246,3 +248,11 @@ Inbox store rows, read positions, drop store and replay, woken and evicted count
 ## Gates, every phase
 
 Each phase ships green on its own: `bun run lint`, the full `bun run test`, `check:boot`, and the Kotlin gate for any schema change. Tests per mechanism against fake GitHub responses: the commit point across a failed push and a restart, a paged `new` read, the rules decoder, the deploy-gap readers, the record's quiet rules. Deploy order: Router, then the phone, then the Gateway, then the plugin. `docs/assistant.md` and the `AGENTS.md` map follow each phase.
+
+## Painpoints
+
+- **The fake clock fires a timer before pending microtasks run:** `fakeAmbient`'s `advance` in `src/testing/fakeAmbient.ts` runs a due timer in the same turn, where a real timer is a macrotask. Lane tests needed an extra `advance(0)` before each deadline, and one dispatcher test passed for the wrong reason because a poll's timeout and the action's deadline fell on the same tick.
+- **Bun behaviour no Node gate can see:** Bun's default idle cut (about 12 seconds on a coarse tick) and `Bun.file().exists()` answering false inside an unreadable folder were each found only by a probe. `check:boot` runs the real Gateway under Bun but holds no request open long enough to meet the idle cut.
+- **GitHub's notification API needed live probes for its contract:** `since` filters loosely, `all=true` keeps done threads with no done filter, and `DELETE` and `PATCH` answer the same on repeat. The docs say none of it, so Question 14 came late.
+- **Comment cleanup can cut a rule:** a Luna pass shortened the idle-timeout comment to a bare name and dropped why it exists. Each cleanup pass needs a read-back.
+- **`composeAssistant.ts` carries too many concerns:** placement, watcher state, rules, the live listing with page signing, the dispatcher and record posting, and the console handlers. The listing extraction is on the board.
