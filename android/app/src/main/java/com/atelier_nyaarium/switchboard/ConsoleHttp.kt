@@ -26,16 +26,11 @@ internal object ConsoleHttp {
 	internal val JSON = "application/json".toMediaType()
 
 	internal const val PINNED_CONNECT_TIMEOUT_MS = 15_000L
-	internal const val PINNED_READ_TIMEOUT_MS = 35_000L
+	internal const val PINNED_READ_TIMEOUT_MS = Protocol.CONSOLE_ANSWER_WAIT_MS
 	private const val PINNED_WRITE_TIMEOUT_MS = 600_000L
 
 	// Includes connection and read overhead.
 	internal const val CALL_TIMEOUT_MARGIN_MS = 10_000L
-
-	internal const val HELD_READ_MARGIN_MS = 18_000L
-
-	// Exceeds the Router hold window.
-	internal const val ROUTER_HOLD_MS = 55_000L
 
 	internal const val DEFAULT_OWNER_OP_TIMEOUT_MS =
 		PINNED_CONNECT_TIMEOUT_MS + PINNED_READ_TIMEOUT_MS + CALL_TIMEOUT_MARGIN_MS

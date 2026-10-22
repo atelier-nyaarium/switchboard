@@ -523,8 +523,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/routines/routineTools.ts` - `get_session_routine` and `report_session_routine`, registered for any token-bound session and behind no capability
 - `src/shared/workspace-op.ts` - the workspace plane's wire vocabulary, beside `host-op.ts` and for the same reason: Gateway to an MCP-side process, never to Kotlin
   - **`WORKSPACE_BOUNDS` owns every wait on one op:** each class's plane wait and handler budget sit
-    inside the phone's read timeout, `CONSOLE_ANSWER_WAIT_MS`, and `workspace-bounds.test.ts` pins the
-    Kotlin constant and the order. A save gets the room a read does not.
+    inside the phone's read timeout, `CONSOLE_ANSWER_WAIT_MS` in `console-protocol.ts`, generated into
+    `Protocol.kt` and diffed by the Kotlin gate. `workspace-bounds.test.ts` pins the order. A save's
+    bounds exceed a read's.
   - **Only a refusal is known to have written nothing:** `answerForConsole` answers any other failure of a
     write, a span save or a file mutation, as `unknown`, and the phone reads back. A retried write is safe,
     since the hash refuses the second one and a read-back of the owner's own text is adopted.
@@ -844,6 +845,8 @@ How each subsystem works lives in `docs/`:
 - `bun scripts/codegen-kotlin.ts` - regenerate Kotlin protocol types. A `src/shared/schemas*.ts`
   change must carry the regenerated `Protocol.kt` in the SAME commit. `lint` and `test` both pass
   with it stale, so run `./scripts/kotlin-gate.sh`, which diffs it. CI is the only other check.
+  Kotlin constants matching `src/shared` exports read `Protocol` or have a named exemption.
+  `cross-runtime-twin-residue.test.ts` checks both conditions.
 - `bun scripts/check-module-residue.ts` - verify `node_modules` against `bun.lock`.
 - `bun scripts/import-stts-voices.ts` - regenerate the committed TTS catalog.
 - `bun scripts/sync-leaf.ts <path>` or `--all` - synchronize a leaf.

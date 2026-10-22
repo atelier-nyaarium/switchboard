@@ -1,37 +1,16 @@
-import fs from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { GATEWAY_RELAY_TIMEOUT_MS } from "../federation-server/relayTimeouts.js";
-import {
-	answerForConsole,
-	boundsOf,
-	CONSOLE_ANSWER_WAIT_MS,
-	WORKSPACE_BOUNDS,
-	WORKSPACE_HOP_MARGIN_MS,
-	type WorkspaceOp,
-} from "../shared/workspace-op.js";
-
-const CONSOLE_HTTP = path.join(
-	__dirname,
-	"../../android/app/src/main/java/com/atelier_nyaarium/switchboard/ConsoleHttp.kt",
-);
+import { CONSOLE_ANSWER_WAIT_MS, CONSOLE_HOP_MARGIN_MS } from "../shared/console-protocol.js";
+import { answerForConsole, boundsOf, WORKSPACE_BOUNDS, type WorkspaceOp } from "../shared/workspace-op.js";
 
 // Each side giving up before the one inside it answers is a blind timeout: the owner is told nothing
 // happened while the work lands.
 describe("the bounds on one workspace op, outermost first", () => {
-	it("starts from the phone's own read timeout, which no gate here runs", () => {
-		const kotlin = fs.readFileSync(CONSOLE_HTTP, "utf8");
-		const declared = kotlin.match(/PINNED_READ_TIMEOUT_MS\s*=\s*([\d_]+)L/);
-
-		expect(declared, "ConsoleHttp.PINNED_READ_TIMEOUT_MS is no longer declared as a literal").not.toBeNull();
-		expect(Number((declared?.[1] ?? "").replaceAll("_", ""))).toBe(CONSOLE_ANSWER_WAIT_MS);
-	});
-
 	it.each(Object.entries(WORKSPACE_BOUNDS))(
 		"nests the %s bounds inside the phone and the Router",
 		(_name, bounds) => {
 			expect(bounds.handlerBudgetMs).toBeLessThan(bounds.planeWaitMs);
-			expect(bounds.planeWaitMs + WORKSPACE_HOP_MARGIN_MS).toBeLessThanOrEqual(CONSOLE_ANSWER_WAIT_MS);
+			expect(bounds.planeWaitMs + CONSOLE_HOP_MARGIN_MS).toBeLessThanOrEqual(CONSOLE_ANSWER_WAIT_MS);
 			expect(GATEWAY_RELAY_TIMEOUT_MS).toBeGreaterThanOrEqual(CONSOLE_ANSWER_WAIT_MS);
 		},
 	);

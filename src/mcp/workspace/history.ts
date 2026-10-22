@@ -5,6 +5,7 @@
 // answers `notRepository`, before any history is read.
 
 import { type ChildProcess, spawn } from "node:child_process";
+import { MAX_HISTORY_COMMITS } from "../../shared/schemasWorkspace.js";
 import type { HistoryCommit, WorkspaceOpResult } from "../../shared/workspace-op.js";
 import { confine } from "./confine.js";
 import { byDeadline, type OpContext, refused } from "./handlerKit.js";
@@ -22,8 +23,6 @@ type Tracking = "tracked" | "untracked" | "notRepository";
 
 ////////////////////////////////
 //  Constants
-
-export const MAX_HISTORY_COMMITS = 200;
 
 /** Killed past this. */
 const MAX_GIT_OUTPUT_BYTES = 32_000_000;

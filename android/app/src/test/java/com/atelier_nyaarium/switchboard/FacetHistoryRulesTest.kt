@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileHistoryAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceHistoryCommit
 import org.junit.Assert.assertEquals
@@ -40,7 +41,7 @@ class FacetHistoryRulesTest {
 		assertEquals(listOf("12 days ago", "4 weeks ago"), body.items.map { it.age })
 		// The plugin's cap, never the rows this answer happened to carry.
 		assertEquals(2, body.items.size)
-		assertEquals(HISTORY_COMMIT_CAP, body.stoppedAt)
+		assertEquals(Protocol.MAX_HISTORY_COMMITS, body.stoppedAt)
 
 		val whole = historyBody("commits", listOf(commit("4b54a28cafe", NOW)), truncated = false, now = NOW)
 		assertNull((whole as HistoryBody.Commits).stoppedAt)

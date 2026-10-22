@@ -538,7 +538,6 @@ class ChatRepository(
 		const val CHIME_SILENT = "silent"
 
 		const val POLL_INTERVAL_MS = 5_000L
-		const val LONG_POLL_HOLD_MS = 40_000L
 		const val PARK_SLACK_MS = 5_000L
 		const val BACKGROUND_TICK_MS = 30_000L
 		const val FORGET_TOMBSTONE_MS = ConsoleHttp.DEFAULT_OWNER_OP_TIMEOUT_MS + 5_000L
@@ -555,13 +554,5 @@ class ChatRepository(
 		internal const val SCHEDULED_SEND_MAX_HORIZON_MS = 30L * 24 * 60 * 60_000L
 
 		internal const val SPAWN_RETRY_WINDOW_MS = 40_000L
-
-		const val INSTANT_EMPTY_THRESHOLD_MS = 3_000L
-
-		init {
-			require(INSTANT_EMPTY_THRESHOLD_MS < LONG_POLL_HOLD_MS / 4) {
-				"INSTANT_EMPTY_THRESHOLD_MS must stay well below LONG_POLL_HOLD_MS"
-			}
-		}
 	}
 }

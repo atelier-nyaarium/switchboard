@@ -12,7 +12,6 @@ import type {
 } from "../../shared/console-protocol.js";
 import type { SignedXDomainLink } from "../../shared/federation-protocol.js";
 import type { HostOp, HostOpResult } from "../../shared/host-op.js";
-import { MAX_POLL_HOLD_MS } from "../../shared/schemas.js";
 import type { ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
 import type {
 	AssistantRule,
@@ -223,11 +222,3 @@ export function friendlyPeekError(error?: string, kind?: HostOpResult["errorKind
 export class CreateSessionAmbiguousError extends Error {}
 
 export const FAKE_REQ = new Request("http://gateway/console");
-
-// The Android read timeout must exceed this bound.
-export const SEND_BOUND_MS = 25_000;
-
-// The Android retry window must exceed this bound.
-export const CREATE_SESSION_BOUND_MS = 25_000;
-
-export const HOLD_CAP_MS = MAX_POLL_HOLD_MS;

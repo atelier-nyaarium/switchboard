@@ -541,8 +541,8 @@ no TTL.
   - **Last changed also draws the file's own history under the commits**, which is the outline's strip
     read again for the symbol's module (`stripModule`): a symbol's lines and its file are different
     questions, and the strip only appears once that read lands. A cut list of commits names
-    `HISTORY_COMMIT_CAP`, the plugin's own bound, rather than the rows it was sent, since the wire carries
-    no total; `workspace-history.test.ts` pins the two.
+    `MAX_HISTORY_COMMITS`, the plugin's own bound generated into `Protocol`, rather than the rows it was
+    sent, since the wire carries no total.
   - **A facet's showing lives while its place is on the Files stack** (`WorkspaceScreen`), kept for each
     distinct `Facet` place rather than by the screen, so Back returns to drawn rows. The screen state
     beside it, the grouping, the chosen chip and the scroll, is held by a `SaveableStateHolder` keyed by

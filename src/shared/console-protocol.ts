@@ -29,6 +29,14 @@ import type {
 } from "./schemas.js";
 // Documented floor, not negotiated.
 export const CONSOLE_PROTOCOL_VERSION = 3;
+/** Phone read timeout, generated into Kotlin. Unheld console waits sit inside it. */
+export const CONSOLE_ANSWER_WAIT_MS = 35_000;
+/** Room for network hops. */
+export const CONSOLE_HOP_MARGIN_MS = 5_000;
+/** Generated into Kotlin. */
+export const CREATE_SESSION_BOUND_MS = 25_000;
+/** Inside the delivery wait. */
+export const SEND_BOUND_MS = 25_000;
 export const MAX_OPS_PER_CONVERSATION = 256;
 
 export type ConsoleOp = z.infer<typeof ConsoleOpSchema>;

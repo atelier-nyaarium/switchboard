@@ -260,7 +260,13 @@ export const ASSISTANT_BUILTIN_TOOLS = ["Read", "Edit", "Write", "Glob", "Grep",
 
 ## Phase 8 - One console answer wait for both runtimes
 
-Closes the console-wait bullet of bd_500e13ed.
+✅ Shipped. Closes the console-wait bullet of bd_500e13ed. Beyond the plan:
+- `console-protocol.ts` also holds `CREATE_SESSION_BOUND_MS` and `SEND_BOUND_MS`, moved from `consoleTypes.ts`. `codegen-kotlin.ts` emits `CREATE_SESSION_BOUND_MS` and `MAX_HISTORY_COMMITS`, now exported from `schemasWorkspace.ts`, beside `CONSOLE_ANSWER_WAIT_MS`. `FacetHistoryRules` reads `Protocol.MAX_HISTORY_COMMITS`.
+- `gateway-serve-limits.test.ts` checks the preview, send and create-session bounds against the answer wait. Send is a delivery op whose phone wait is built on the answer wait, so that check is the stricter one.
+- `ChatRepositoryConstantsTest` asserts `PINNED_READ_TIMEOUT_MS` reads `Protocol.CONSOLE_ANSWER_WAIT_MS` and the spawn retry window clears `Protocol.CREATE_SESSION_BOUND_MS`. `pinnedReadTimeoutOutlastsGatewaysSendBound` is deleted, since it compared against a copied 25,000.
+- Deleted: `consoleHandler.test.ts` (a stale copy of the retry window), the regex in `workspace-history.test.ts`, the dead held-poll constants and their tests, the gateway's unused `HOLD_CAP_MS`, and the dead Kotlin `BOARD_REFUSED_PREFIX` with the test scraping it.
+- Added `cross-runtime-twin-residue.test.ts`. The board AAD vector tests in both runtimes build from the kind constants.
+- The `waits.ts` header names `gateway-serve-limits.test.ts`, the fix Phase 9 listed.
 
 **Problem:** `CONSOLE_ANSWER_WAIT_MS` and `WORKSPACE_HOP_MARGIN_MS` live in `workspace-op.ts`, but the assistant preview reads both. The phone's `ConsoleHttp.PINNED_READ_TIMEOUT_MS` is a second literal, kept equal only by a regex in `workspace-bounds.test.ts`.
 
@@ -284,6 +290,17 @@ Closes the console-wait bullet of bd_500e13ed.
 - `ChatRepositoryConstantsTest.pinnedReadTimeoutOutlastsGatewaysSendBound` keeps its ordering check.
 
 **Risks:** The value stays 35,000. `lint` and `test` both pass with a stale `Protocol.kt`, so the Kotlin gate runs before the push.
+
+### Bug Classes
+
+**Mechanism:** cross-runtime ordering tests, `ChatRepositoryConstantsTest` and `src/__tests__`, each restating the other runtime's value as a literal or a regex read.
+**Class:** a TS value kept equal to a Kotlin value by hand.
+- Round 1: the console answer wait, the history cap, and the send-bound Kotlin test.
+- Round 2: the create-session bound, copied in both runtimes; the TS copy (30,000) no longer matched the phone (40,000). The hold-cap test guarded dead phone constants.
+
+- Architecture: the dead `BOARD_REFUSED_PREFIX` Kotlin twin and the TS test scraping it.
+
+The fix lands in one place: `codegen-kotlin.ts` emits the value into `Protocol`. `cross-runtime-twin-residue.test.ts` refuses a same-name Kotlin twin of a `src/shared` export, a Kotlin comment quoting a TS declaration, and a TS test capturing a Kotlin initializer. Its exemptions and bd_f68b03e2 hold the remaining instances.
 
 ## Phase 9 - Long waits past Bun's idle cut
 

@@ -1,5 +1,10 @@
 import { withinMs } from "../../shared/ambient.js";
-import type { ConsoleOp, ConsoleOpResult } from "../../shared/console-protocol.js";
+import {
+	type ConsoleOp,
+	type ConsoleOpResult,
+	CREATE_SESSION_BOUND_MS,
+	SEND_BOUND_MS,
+} from "../../shared/console-protocol.js";
 import { fenced, MIGRATING } from "../../shared/migration-fence.js";
 import { ownerKeyId } from "../../shared/owner-id.js";
 import { DELIVERY_OP_KINDS, TOLERATED_DELIVERY_OP_KINDS, VALUE_OP_KINDS } from "../../shared/schemasConsoleOp.js";
@@ -19,16 +24,9 @@ import { createRunbookFireHandler } from "./consoleRunbookFire.js";
 import { createSessionLifecycleHandlers } from "./consoleSessionLifecycle.js";
 import { createConsoleTargets } from "./consoleTargets.js";
 import { createTerminalHandlers } from "./consoleTerminal.js";
-import {
-	type ConsoleHandlerDeps,
-	CREATE_SESSION_BOUND_MS,
-	FAKE_REQ,
-	SEND_BOUND_MS,
-	type SendRouteJson,
-} from "./consoleTypes.js";
+import { type ConsoleHandlerDeps, FAKE_REQ, type SendRouteJson } from "./consoleTypes.js";
 
 export type { ConsoleHandlerDeps, ConsoleRoutes } from "./consoleTypes.js";
-export { CREATE_SESSION_BOUND_MS } from "./consoleTypes.js";
 
 export function createConsoleDispatcher({
 	routes,

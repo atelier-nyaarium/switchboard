@@ -117,10 +117,10 @@ describe("content envelope", () => {
 	});
 	it("pins every named AAD kind vector", () => {
 		const actual = {
-			boardTitleAad: boardTextAadKind(fixture.boardTitleAad.kind, fixture.boardTitleAad.entryId),
-			boardBodyAad: boardTextAadKind(fixture.boardBodyAad.kind, fixture.boardBodyAad.entryId),
+			boardTitleAad: boardTextAadKind(BOARD_TITLE_KIND, fixture.boardTitleAad.entryId),
+			boardBodyAad: boardTextAadKind(BOARD_BODY_KIND, fixture.boardBodyAad.entryId),
 			boardNameAad: boardTextAadKind(
-				fixture.boardNameAad.kind,
+				BOARD_NAME_KIND,
 				fixture.boardNameAad.entryId,
 				fixture.boardNameAad.attachmentId,
 			),

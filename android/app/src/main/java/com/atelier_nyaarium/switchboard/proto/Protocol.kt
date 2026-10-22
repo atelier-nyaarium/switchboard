@@ -21,8 +21,11 @@ import kotlinx.serialization.json.JsonObject
 
 object Protocol {
 	const val CONSOLE_PROTOCOL_VERSION: Int = 3
+	const val CONSOLE_ANSWER_WAIT_MS: Long = 35000L
+	const val CREATE_SESSION_BOUND_MS: Long = 25000L
 	const val FEDERATION_PROTOCOL_FLOOR: Int = 3
 	const val FEDERATION_PROTOCOL_VERSION: Int = 3
+	const val MAX_HISTORY_COMMITS: Int = 200
 
 	object Wire {
 		const val ROUTER_PATH_CONSOLE: String = "/console"

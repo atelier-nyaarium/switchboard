@@ -8,7 +8,11 @@ import {
 	SignedAdmissionSchema,
 	SignedRevocationSchema,
 } from "../src/shared/admission.js";
-import { CONSOLE_PROTOCOL_VERSION } from "../src/shared/console-protocol.js";
+import {
+	CONSOLE_ANSWER_WAIT_MS,
+	CONSOLE_PROTOCOL_VERSION,
+	CREATE_SESSION_BOUND_MS,
+} from "../src/shared/console-protocol.js";
 import {
 	ConsoleApprovalOpSchema,
 	ConsoleApprovalResultSchema,
@@ -224,6 +228,7 @@ import {
 	HistoryCommitSchema,
 	KnowledgeAnswerSchema,
 	KnowledgeCountsSchema,
+	MAX_HISTORY_COMMITS,
 	OutlineAnswerSchema,
 	OutlineSymbolSchema,
 	PaintTextAnswerSchema,
@@ -803,8 +808,11 @@ import kotlinx.serialization.json.JsonObject
 
 object Protocol {
 ${INDENT}const val CONSOLE_PROTOCOL_VERSION: Int = ${CONSOLE_PROTOCOL_VERSION}
+${INDENT}const val CONSOLE_ANSWER_WAIT_MS: Long = ${CONSOLE_ANSWER_WAIT_MS}L
+${INDENT}const val CREATE_SESSION_BOUND_MS: Long = ${CREATE_SESSION_BOUND_MS}L
 ${INDENT}const val FEDERATION_PROTOCOL_FLOOR: Int = ${FEDERATION_PROTOCOL_FLOOR}
 ${INDENT}const val FEDERATION_PROTOCOL_VERSION: Int = ${FEDERATION_PROTOCOL_VERSION}
+${INDENT}const val MAX_HISTORY_COMMITS: Int = ${MAX_HISTORY_COMMITS}
 
 ${INDENT}object Wire {
 ${wireConstantBlock}

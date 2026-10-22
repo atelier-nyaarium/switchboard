@@ -35,9 +35,9 @@ class ContentEnvelopeVectorsTest {
 	fun allNamedAadKindVectorsMatch() {
 		val root = vectors()
 		val actual = mapOf(
-			"boardTitleAad" to boardTextAadKind(root["boardTitleAad"]!!.jsonObject["kind"]!!.jsonPrimitive.content, root["boardTitleAad"]!!.jsonObject["entryId"]!!.jsonPrimitive.content),
-			"boardBodyAad" to boardTextAadKind(root["boardBodyAad"]!!.jsonObject["kind"]!!.jsonPrimitive.content, root["boardBodyAad"]!!.jsonObject["entryId"]!!.jsonPrimitive.content),
-			"boardNameAad" to boardTextAadKind(root["boardNameAad"]!!.jsonObject["kind"]!!.jsonPrimitive.content, root["boardNameAad"]!!.jsonObject["entryId"]!!.jsonPrimitive.content, root["boardNameAad"]!!.jsonObject["attachmentId"]!!.jsonPrimitive.content),
+			"boardTitleAad" to boardTextAadKind(BOARD_TITLE_KIND, root["boardTitleAad"]!!.jsonObject["entryId"]!!.jsonPrimitive.content),
+			"boardBodyAad" to boardTextAadKind(BOARD_BODY_KIND, root["boardBodyAad"]!!.jsonObject["entryId"]!!.jsonPrimitive.content),
+			"boardNameAad" to boardTextAadKind(BOARD_NAME_KIND, root["boardNameAad"]!!.jsonObject["entryId"]!!.jsonPrimitive.content, root["boardNameAad"]!!.jsonObject["attachmentId"]!!.jsonPrimitive.content),
 			"ownerRowAad" to inboxBodyAadKind(root["ownerRowAad"]!!.jsonObject["conversationId"]!!.jsonPrimitive.content, root["ownerRowAad"]!!.jsonObject["opId"]!!.jsonPrimitive.content),
 			"scheduledBodyAad" to scheduledBodyAadKind(root["scheduledBodyAad"]!!.jsonObject["conversationId"]!!.jsonPrimitive.content, root["scheduledBodyAad"]!!.jsonObject["opId"]!!.jsonPrimitive.content),
 			"opPayloadAad" to opPayloadAadKind(),

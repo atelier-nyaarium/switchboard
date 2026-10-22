@@ -102,8 +102,6 @@ data class ProvisionTenantResult(val ok: Boolean, val error: String? = null, val
 // Unknown fields are tolerated for additive protocol changes.
 internal val wireJson = Json { ignoreUnknownKeys = true }
 
-const val BOARD_REFUSED_PREFIX = "refused:"
-
 /** A refusal retires the queued action; other failures retry. */
 class BoardRefused(val reason: String) : Exception(reason)
 

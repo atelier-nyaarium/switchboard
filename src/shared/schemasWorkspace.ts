@@ -407,6 +407,9 @@ export const FacetCommentSchema = z
 	})
 	.meta({ id: "WorkspaceFacetComment" });
 
+/** Generated into Kotlin. */
+export const MAX_HISTORY_COMMITS = 200;
+
 export const HistoryCommitSchema = z
 	.object({
 		hash: z.string().min(1).max(64),

@@ -224,3 +224,8 @@ come from `src/federation-server/ownerOpRegistry.ts`, the catalog every kind reg
 `scripts/codegen-kotlin.ts` emits both as `Protocol.Wire`, with the console op kinds, socket
 frame types, and key op kinds from the Zod literals. `wire-vocabulary-residue.test.ts` rejects
 the literals anywhere else on either runtime.
+
+`object Protocol` also carries the shared values the phone reads, such as `CONSOLE_ANSWER_WAIT_MS`.
+`cross-runtime-twin-residue.test.ts` refuses a Kotlin constant named like a `src/shared` export that
+neither reads `Protocol` nor holds a named exemption. It also refuses a Kotlin comment quoting a TS
+declaration and a TS test capturing a Kotlin initializer. A copy under another name is not visible to it.

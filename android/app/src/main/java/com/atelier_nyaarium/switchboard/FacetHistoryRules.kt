@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.WorkspaceFileHistoryAnswer
 import com.atelier_nyaarium.switchboard.proto.WorkspaceHistoryCommit
 
@@ -17,9 +18,6 @@ internal const val HISTORY_NOT_REPOSITORY = "notRepository"
 
 internal data class CommitItem(val key: String, val shortHash: String, val subject: String, val age: String)
 
-/** Where the plugin stops a symbol's history. Pinned to its own bound by a residue test. */
-internal const val HISTORY_COMMIT_CAP = 200
-
 internal sealed interface HistoryBody {
 	/** `stoppedAt` is the cap the plugin cut at, never the rows it happened to answer with. */
 	data class Commits(val items: List<CommitItem>, val stoppedAt: Int?) : HistoryBody
@@ -36,7 +34,7 @@ internal fun historyBody(
 	if (outcome != HISTORY_COMMITS || commits.isEmpty()) return HistoryBody.Empty(historyWords(outcome))
 	return HistoryBody.Commits(
 		commits.map { CommitItem(it.hash, it.hash.take(7), it.subject, agoText(it.at * 1_000, now)) },
-		HISTORY_COMMIT_CAP.takeIf { truncated },
+		Protocol.MAX_HISTORY_COMMITS.takeIf { truncated },
 	)
 }
 

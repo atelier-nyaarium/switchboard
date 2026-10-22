@@ -2,8 +2,13 @@ import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ASSISTANT_WAITS } from "../gateway/assistant/waits.js";
 import { GATEWAY_IDLE_TIMEOUT_S } from "../gateway/serveLimits.js";
+import {
+	CONSOLE_ANSWER_WAIT_MS,
+	CONSOLE_HOP_MARGIN_MS,
+	CREATE_SESSION_BOUND_MS,
+	SEND_BOUND_MS,
+} from "../shared/console-protocol.js";
 import { VAULT_ROUTE_WAIT_CAP_MS } from "../shared/schemasVault.js";
-import { CONSOLE_ANSWER_WAIT_MS, WORKSPACE_HOP_MARGIN_MS } from "../shared/workspace-op.js";
 
 // Vitest runs under Node, so no request here meets Bun's idle cut; this pins the order instead.
 describe("the waits a caller is promised", () => {
@@ -13,7 +18,10 @@ describe("the waits a caller is promised", () => {
 
 		expect(GATEWAY_IDLE_TIMEOUT_S * 1000).toBeGreaterThan(longestRoute);
 		expect(adapter).toMatch(/idleTimeout: GATEWAY_IDLE_TIMEOUT_S/);
-		expect(ASSISTANT_WAITS.preview + WORKSPACE_HOP_MARGIN_MS).toBeLessThanOrEqual(CONSOLE_ANSWER_WAIT_MS);
+		// Delivery waits outlast it.
+		for (const consoleWait of [ASSISTANT_WAITS.preview, SEND_BOUND_MS, CREATE_SESSION_BOUND_MS]) {
+			expect(consoleWait + CONSOLE_HOP_MARGIN_MS).toBeLessThanOrEqual(CONSOLE_ANSWER_WAIT_MS);
+		}
 		expect(ASSISTANT_WAITS.request).toBeLessThan(ASSISTANT_WAITS.action);
 	});
 });

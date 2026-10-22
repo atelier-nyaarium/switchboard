@@ -6,18 +6,6 @@ import { BOARD_REFUSED_PREFIX, refusalError } from "../shared/board-authority.js
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-const ANDROID_SRC = path.join(
-	REPO_ROOT,
-	"android",
-	"app",
-	"src",
-	"main",
-	"java",
-	"com",
-	"atelier_nyaarium",
-	"switchboard",
-);
-
 /** Sanctioned marker location. */
 const OWNER = path.join(REPO_ROOT, "src", "shared", "board-authority.ts");
 
@@ -50,7 +38,6 @@ function sweptSources(): string[] {
 }
 
 describe("the refusal marker has exactly one producer", () => {
-	// Only the refusal marker retires a queued console action.
 	it("no module under src/ writes a refusal marker of its own", () => {
 		const offenders = sweptSources().filter((file) => MARKER.test(code(file)));
 		expect(offenders.map((file) => path.relative(REPO_ROOT, file))).toEqual([]);
@@ -60,16 +47,7 @@ describe("the refusal marker has exactly one producer", () => {
 		expect(MARKER.test(code(OWNER))).toBe(true);
 	});
 
-	it("the console reads the same marker the gateway writes", () => {
-		// Keep the marker in sync with the console's refusal classifier.
-		const kotlin = read(path.join(ANDROID_SRC, "ConsoleClientTypes.kt"));
-		const declared = /BOARD_REFUSED_PREFIX\s*=\s*"([^"]+)"/.exec(kotlin);
-
-		expect(declared).not.toBeNull();
-		expect(BOARD_REFUSED_PREFIX.trim()).toBe(declared?.[1].trim());
-	});
-
-	it("refusalError produces exactly what the console strips", () => {
+	it("refusalError prefixes the marker to the reason", () => {
 		const err = refusalError("session_missing");
 
 		expect(err.message.startsWith(BOARD_REFUSED_PREFIX)).toBe(true);

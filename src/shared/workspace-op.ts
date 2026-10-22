@@ -7,6 +7,7 @@
 // Two writes: a span save, checked by Lexicon under its writer gate, and a file mutation, which is plain
 // file work checked in the plugin.
 
+import { CONSOLE_ANSWER_WAIT_MS, CONSOLE_HOP_MARGIN_MS } from "./console-protocol.js";
 import type { FileMutation, SymbolFacet, WorkspaceOpAnswer } from "./schemasWorkspace.js";
 
 ////////////////////////////////
@@ -14,15 +15,6 @@ import type { FileMutation, SymbolFacet, WorkspaceOpAnswer } from "./schemasWork
 
 export const WORKSPACE_OP_FRAME = "workspace_op";
 export const WORKSPACE_OP_REPLY_FRAME = "workspace_op_reply";
-
-/**
- * The phone's `ConsoleHttp.PINNED_READ_TIMEOUT_MS`. Every bound below sits inside it, or the phone gives
- * up while the work lands; `workspace-bounds.test.ts` pins both.
- */
-export const CONSOLE_ANSWER_WAIT_MS = 35_000;
-
-/** The phone to Router to Gateway hops a plane wait must leave room for. */
-export const WORKSPACE_HOP_MARGIN_MS = 5_000;
 
 /** A read is cheap; a save parses a candidate and reindexes, so it takes all the room there is. */
 export type WorkspaceOpClass = "read" | "save";
@@ -40,7 +32,7 @@ function boundsWithin(planeWaitMs: number): WorkspaceBounds {
 
 export const WORKSPACE_BOUNDS: Record<WorkspaceOpClass, WorkspaceBounds> = {
 	read: boundsWithin(20_000),
-	save: boundsWithin(CONSOLE_ANSWER_WAIT_MS - WORKSPACE_HOP_MARGIN_MS),
+	save: boundsWithin(CONSOLE_ANSWER_WAIT_MS - CONSOLE_HOP_MARGIN_MS),
 };
 
 /** Holds past any sane retry. */
