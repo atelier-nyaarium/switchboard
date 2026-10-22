@@ -3,6 +3,7 @@ import { type HostOpResult, isReservedHostSession } from "../shared/host-op.js";
 import { isHostSpawn } from "../shared/host-spawn.js";
 import { isComposite, parseSessionName } from "../shared/session-id.js";
 import type { SessionStore } from "../shared/session-store.js";
+import { createSingleFlight } from "../shared/single-flight.js";
 import type { PresenceFacade } from "./presence.js";
 import { decideWakeCreate, type WakeCoordinator, type WakeResult } from "./wake.js";
 import { reached, sendOn } from "./wsSend.js";
@@ -21,8 +22,8 @@ export interface WakeServiceDeps {
 }
 
 export class WakeService {
-	// One launch per team, whichever door.
-	private inflightWakes = new Map<string, Promise<WakeResult>>();
+	// One launch per team.
+	private inflightWakes = createSingleFlight<string, WakeResult>();
 	private inflightCreates = new Map<string, Promise<HostOpResult>>();
 
 	constructor(private deps: WakeServiceDeps) {}
@@ -53,22 +54,15 @@ export class WakeService {
 	}
 
 	tryWakeTeam(team: string, createOpts?: { displayLabel?: string; mintedFrom?: string }): Promise<WakeResult> {
-		const existing = this.inflightWakes.get(team);
-		if (existing) {
-			console.log(`[wake] ${team} wake already in flight; joining it`);
-			return existing;
-		}
-		this.deps.presence.wakeStart(team);
-		// Presence lifecycle is separate from promise deduplication.
-		const wake = this.doWakeTeam(team, createOpts);
-		this.inflightWakes.set(team, wake);
-		void wake
-			.catch(() => {})
-			.finally(() => {
-				this.inflightWakes.delete(team);
+		if (this.inflightWakes.has(team)) console.log(`[wake] ${team} wake already in flight; joining it`);
+		return this.inflightWakes.run(team, async () => {
+			this.deps.presence.wakeStart(team);
+			try {
+				return await this.doWakeTeam(team, createOpts);
+			} finally {
 				this.deps.presence.wakeEnd(team);
-			});
-		return wake;
+			}
+		});
 	}
 
 	private async doWakeTeam(

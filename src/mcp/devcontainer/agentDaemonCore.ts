@@ -1,6 +1,7 @@
 import { type AgentBackendId, agentFrameType } from "../../shared/agent-backend.js";
 import type { AgentResolvedTarget } from "../../shared/agent-execution-target.js";
 import { createKeyedFifo } from "../../shared/keyed-fifo.js";
+import { createSingleFlight } from "../../shared/single-flight.js";
 import type { TargetLease, TargetSupervisor } from "./codexTargets.js";
 
 ////////////////////////////////
@@ -60,7 +61,7 @@ const OUTBOX_MAX_ENTRIES = 1_000;
  */
 export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 	private readonly sessions = new Map<string, TSession>();
-	private readonly opening = new Map<string, Promise<TSession | null>>();
+	private readonly opening = createSingleFlight<string, TSession | null>();
 	private readonly outbox: Array<{ targetId: string; generation: number; eventId: number; message: object }> = [];
 	private readonly commands = createKeyedFifo<string>();
 	private rejections = 0;
@@ -130,13 +131,7 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 		if (existing && existing.generation === generation) return existing;
 
 		const key = `${target.targetId} ${generation}`;
-		const inflight = this.opening.get(key);
-		if (inflight) return inflight;
-		const opening = this.open(target, availability.lease, buildSession).finally(() => {
-			if (this.opening.get(key) === opening) this.opening.delete(key);
-		});
-		this.opening.set(key, opening);
-		return opening;
+		return this.opening.run(key, () => this.open(target, availability.lease, buildSession));
 	}
 
 	getSession(targetId: string): TSession | undefined {

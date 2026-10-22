@@ -1,4 +1,6 @@
 import type { HostListDirsResult, HostOp, HostPeekResult, TmuxTarget } from "../../shared/host-op.js";
+import { createOpDedupe } from "../../shared/op-dedupe.js";
+import { createSingleFlight } from "../../shared/single-flight.js";
 
 export interface TmuxOps {
 	peekPane: (target: TmuxTarget, resize?: boolean) => Promise<HostPeekResult>;
@@ -26,10 +28,9 @@ const targetKey = (t: TmuxTarget): string => `${t.kind}:${t.name}:${t.sessionNam
 export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: number; now?: () => number } = {}) {
 	const minPeekIntervalMs = opts.minPeekIntervalMs ?? MIN_PEEK_INTERVAL_MS;
 	const now = opts.now ?? (() => Date.now());
-	const inflightPeeks = new Map<string, Promise<HostPeekResult>>();
+	const inflightPeeks = createSingleFlight<string, HostPeekResult>();
 	const lastCapture = new Map<string, { at: number; result: HostPeekResult }>();
-	const inflightSends = new Map<string, Promise<unknown>>();
-	const sentCache = new Map<string, { at: number; result: unknown }>();
+	const sendDedupe = createOpDedupe<unknown>({ now, holdMs: SEND_DEDUP_TTL_MS });
 
 	let activePeeks = 0;
 	const interactiveWaiters: Array<() => void> = [];
@@ -57,18 +58,14 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 		const key = targetKey(target);
 		const cached = lastCapture.get(key);
 		if (cached && now() - cached.at < minPeekIntervalMs) return cached.result;
-		let capture = inflightPeeks.get(key);
-		if (!capture) {
-			// Joiners use the initiator's resize choice.
-			capture = withPeekSlot(priority, () => ops.peekPane(target, resize));
-			inflightPeeks.set(key, capture);
-			// Attach catch before finally so rejection is observed.
-			void capture.catch(() => {}).finally(() => inflightPeeks.delete(key));
-		}
-		const result = await capture;
-		lastCapture.set(key, { at: now(), result });
-		for (const [k, v] of lastCapture) if (now() - v.at >= minPeekIntervalMs) lastCapture.delete(k);
-		return result;
+		return inflightPeeks.run(key, async () => {
+			// Joiners inherit initiator resize.
+			const result = await withPeekSlot(priority, () => ops.peekPane(target, resize));
+			const completedAt = now();
+			lastCapture.set(key, { at: completedAt, result });
+			for (const [k, v] of lastCapture) if (completedAt - v.at >= minPeekIntervalMs) lastCapture.delete(k);
+			return result;
+		});
 	}
 
 	async function runDeduped(
@@ -80,21 +77,7 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 		if (!dedupKey) {
 			return (await exec()) ?? result;
 		}
-		const at = now();
-		const prior = sentCache.get(dedupKey);
-		if (prior && at - prior.at < SEND_DEDUP_TTL_MS) return prior.result;
-		let inflight = inflightSends.get(dedupKey);
-		if (!inflight) {
-			inflight = exec().then((value) => {
-				const settled = value ?? result;
-				sentCache.set(dedupKey, { at: now(), result: settled });
-				for (const [k, v] of sentCache) if (now() - v.at >= SEND_DEDUP_TTL_MS) sentCache.delete(k);
-				return settled;
-			});
-			inflightSends.set(dedupKey, inflight);
-			void inflight.catch(() => {}).finally(() => inflightSends.delete(dedupKey));
-		}
-		return inflight;
+		return sendDedupe.once(dedupKey, async () => (await exec()) ?? result);
 	}
 
 	function runSend(op: Extract<HostOp, { kind: "sendText" | "sendKey" }>): Promise<unknown> {

@@ -87,9 +87,12 @@ export class PresenceScheduler {
 	private readonly report: (team: string, value: DerivedState | undefined) => void;
 	private readonly now: () => number;
 	private readonly watches = new Map<string, WatchEntry>();
+	private readonly watchTokens = new Map<string, symbol>();
 	private readonly trackers = new Map<string, HysteresisTracker>();
 	private readonly timers = new Map<string, ReturnType<typeof setInterval>>();
 	private readonly consecutiveFailures = new Map<string, number>();
+	private readonly observedFrames = new Map<string, HostPeekResult>();
+	private readonly ticking = new Set<symbol>();
 
 	constructor(opts: {
 		peek: NoResizePeek;
@@ -112,6 +115,10 @@ export class PresenceScheduler {
 		const initialTicks: Promise<void>[] = [];
 		for (const entry of entries) {
 			const existing = this.watches.get(entry.team);
+			if (!existing || !sameTarget(existing.target, entry.target) || existing.cadenceMs !== entry.cadenceMs) {
+				this.watchTokens.set(entry.team, Symbol());
+				this.observedFrames.delete(entry.team);
+			}
 			if (existing && existing.cadenceMs === entry.cadenceMs) {
 				this.watches.set(entry.team, entry); // target may have changed even if cadence didn't
 				continue;
@@ -128,6 +135,8 @@ export class PresenceScheduler {
 		if (timer) clearInterval(timer);
 		this.timers.delete(team);
 		this.watches.delete(team);
+		this.watchTokens.delete(team);
+		this.observedFrames.delete(team);
 		this.consecutiveFailures.delete(team);
 		const tracker = this.trackers.get(team);
 		if (tracker) {
@@ -160,24 +169,39 @@ export class PresenceScheduler {
 	async tick(team: string): Promise<void> {
 		const entry = this.watches.get(team);
 		const tracker = this.trackers.get(team);
-		if (!entry || !tracker) return; // dropped between scheduling and firing
-		let peek: HostPeekResult;
+		const token = this.watchTokens.get(team);
+		if (!entry || !tracker || !token) return;
+		if (this.ticking.has(token)) return;
+		this.ticking.add(token);
 		try {
-			peek = await this.peek(entry.target);
+			const peek = await this.peek(entry.target);
+			if (!this.isCurrentWatch(team, token)) return;
+			this.consecutiveFailures.set(team, 0);
+			if (this.observedFrames.get(team) === peek) return;
+			this.observedFrames.set(team, peek);
+			const derived = deriveFromPeek(peek);
+			if (!derived) return; // Logs derive no state.
+			const confirmed = tracker.observe(derived);
+			if (confirmed) this.report(team, confirmed);
 		} catch {
-			// One blip keeps the last frame.
+			if (!this.isCurrentWatch(team, token)) return;
+			// One blip retains frame.
 			const failures = (this.consecutiveFailures.get(team) ?? 0) + 1;
 			this.consecutiveFailures.set(team, failures);
 			if (failures >= 3) {
 				tracker.clear();
 				this.report(team, undefined);
 			}
-			return;
+		} finally {
+			this.ticking.delete(token);
 		}
-		this.consecutiveFailures.set(team, 0);
-		const derived = deriveFromPeek(peek);
-		if (!derived) return; // container-logs frame: nothing to derive yet
-		const confirmed = tracker.observe(derived);
-		if (confirmed) this.report(team, confirmed);
 	}
+
+	private isCurrentWatch(team: string, token: symbol): boolean {
+		return this.watches.has(team) && this.watchTokens.get(team) === token;
+	}
+}
+
+function sameTarget(a: TmuxTarget, b: TmuxTarget): boolean {
+	return a.kind === b.kind && a.name === b.name && a.sessionName === b.sessionName;
 }

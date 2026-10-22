@@ -381,7 +381,9 @@ export function isGatewayLongWaitRoute(method: string, pathname: string): boolea
 
 ## Phase 11 - Single flight and presence peeks
 
-From the Phase 1 architecture round. No board item.
+✅ Shipped. From the Phase 1 architecture round; bd_4d5b9b08. Beyond the plan:
+- A presence watch's token renews only when its target or cadence changes, since the host daemon sends fresh entries on every update. The in-flight guard is keyed by that token, so a team stopped and re-added mid-peek ticks at once.
+- `withPeekSlot` is unchanged, so its brief seventh capture stands.
 
 **Problem:**
 - `PresenceScheduler.tick` can observe one capture twice. `runPeek` hands a joiner and any caller within 300ms of the last capture the same result object, and stamps `lastCapture.at` when a capture completes. At the 500ms cadence a peek slower than about 200ms serves its frame to the next tick, and overlapping ticks join one capture. Either way one flicker confirms a flip.

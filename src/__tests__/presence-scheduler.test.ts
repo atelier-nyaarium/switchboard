@@ -18,6 +18,14 @@ function logsFrame(hash: string): HostPeekResult {
 	return { kind: "container-logs", text: "esc: booting... Not logged in yet", hash };
 }
 
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((done) => {
+		resolve = done;
+	});
+	return { promise, resolve };
+}
+
 describe("deriveFromPeek", () => {
 	it("derives working/needsLogin from a tmux frame", () => {
 		expect(deriveFromPeek(tmuxFrame(WORKING, "h1"))).toEqual({
@@ -110,6 +118,83 @@ describe("PresenceScheduler hysteresis", () => {
 		]);
 	});
 
+	it("counts a cached frame once toward a flip", async () => {
+		const working = tmuxFrame(WORKING, "h3");
+		const { scheduler, reports } = makeScheduler([
+			tmuxFrame(IDLE, "h1"),
+			tmuxFrame(IDLE, "h2"),
+			working,
+			working,
+			tmuxFrame(WORKING, "h4"),
+		]);
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.tick("proj.main");
+		reports.length = 0;
+		await scheduler.tick("proj.main");
+		await scheduler.tick("proj.main");
+
+		expect(reports).toEqual([]);
+		await scheduler.tick("proj.main");
+		expect(reports).toEqual([
+			{ team: "proj.main", value: { working: true, needsLogin: false, limitBlocked: false } },
+		]);
+	});
+
+	it("skips an overlapping tick while its capture is in flight", async () => {
+		const nextCapture = deferred<HostPeekResult>();
+		const frames = [tmuxFrame(IDLE, "h1"), tmuxFrame(IDLE, "h2")];
+		const working = tmuxFrame(WORKING, "h4");
+		let calls = 0;
+		const peek = async (): Promise<HostPeekResult> => {
+			calls += 1;
+			if (calls <= frames.length) return frames[calls - 1]!;
+			if (calls === 3) return nextCapture.promise;
+			return working;
+		};
+		const reports: Array<{ team: string; value: unknown }> = [];
+		const scheduler = new PresenceScheduler({ peek, report: (team, value) => reports.push({ team, value }) });
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.tick("proj.main");
+		reports.length = 0;
+
+		const active = scheduler.tick("proj.main");
+		await scheduler.tick("proj.main");
+		expect(calls).toBe(3);
+		nextCapture.resolve(tmuxFrame(WORKING, "h3"));
+		await active;
+		expect(reports).toEqual([]);
+
+		await scheduler.tick("proj.main");
+		expect(reports).toEqual([
+			{ team: "proj.main", value: { working: true, needsLogin: false, limitBlocked: false } },
+		]);
+	});
+
+	it("keeps an in-flight peek when the equal watch entry is refreshed", async () => {
+		const nextCapture = deferred<HostPeekResult>();
+		let calls = 0;
+		const peek = async (): Promise<HostPeekResult> => {
+			calls += 1;
+			if (calls === 1) return tmuxFrame(IDLE, "h1");
+			if (calls === 2) return nextCapture.promise;
+			return tmuxFrame(WORKING, "h3");
+		};
+		const reports: Array<{ team: string; value: unknown }> = [];
+		const scheduler = new PresenceScheduler({ peek, report: (team, value) => reports.push({ team, value }) });
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+
+		const active = scheduler.tick("proj.main");
+		await scheduler.setWatches([{ team: "proj.main", target: { ...T }, cadenceMs: 60_000 }]);
+		nextCapture.resolve(tmuxFrame(WORKING, "h2"));
+		await active;
+		await scheduler.tick("proj.main");
+
+		expect(calls).toBe(3);
+		expect(reports).toEqual([
+			{ team: "proj.main", value: { working: true, needsLogin: false, limitBlocked: false } },
+		]);
+	});
+
 	it("confirms the flip back to idle off an unchanged pane, which is what an idle pane looks like", async () => {
 		// Measured on a live session: eight consecutive idle captures hashed IDENTICALLY, while every
 		// working capture differed. Confirming on two distinct FRAMES therefore made this flip
@@ -164,6 +249,92 @@ describe("PresenceScheduler watch lifecycle", () => {
 
 		await scheduler.tick("proj.main"); // no-op: not watched anymore
 		expect(peek).not.toHaveBeenCalled();
+	});
+
+	it("ignores a peek that completes after stopping the watch", async () => {
+		const late = deferred<HostPeekResult>();
+		const lateFrame = tmuxFrame(WORKING, "h2");
+		let calls = 0;
+		const peek = async (): Promise<HostPeekResult> => {
+			calls += 1;
+			if (calls === 1) return tmuxFrame(IDLE, "h1");
+			if (calls === 2) return late.promise;
+			if (calls === 3) return lateFrame;
+			return tmuxFrame(WORKING, "h3");
+		};
+		const reports: Array<{ team: string; value: unknown }> = [];
+		const scheduler = new PresenceScheduler({ peek, report: (team, value) => reports.push({ team, value }) });
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		const active = scheduler.tick("proj.main");
+		scheduler.stopWatching("proj.main");
+		reports.length = 0;
+
+		late.resolve(lateFrame);
+		await active;
+		expect(reports).toEqual([]);
+
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		await scheduler.tick("proj.main");
+		expect(reports).toEqual([
+			{ team: "proj.main", value: { working: true, needsLogin: false, limitBlocked: false } },
+		]);
+	});
+
+	it("ignores a peek that completes for a replaced target", async () => {
+		const late = deferred<HostPeekResult>();
+		let calls = 0;
+		const peek = async (): Promise<HostPeekResult> => {
+			calls += 1;
+			if (calls === 1) return tmuxFrame(IDLE, "h1");
+			if (calls === 2) return late.promise;
+			return tmuxFrame(WORKING, `h${calls}`);
+		};
+		const reports: Array<{ team: string; value: unknown }> = [];
+		const scheduler = new PresenceScheduler({ peek, report: (team, value) => reports.push({ team, value }) });
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		const active = scheduler.tick("proj.main");
+		await scheduler.setWatches([{ team: "proj.main", target: { ...T, sessionName: "other" }, cadenceMs: 60_000 }]);
+
+		late.resolve(tmuxFrame(WORKING, "h2"));
+		await active;
+		expect(reports).toEqual([]);
+
+		await scheduler.tick("proj.main");
+		expect(reports).toEqual([]);
+		await scheduler.tick("proj.main");
+		expect(reports).toEqual([
+			{ team: "proj.main", value: { working: true, needsLogin: false, limitBlocked: false } },
+		]);
+	});
+
+	it("starts the re-added watch while the stopped watch still has a pending peek", async () => {
+		const late = deferred<HostPeekResult>();
+		const lateFrame = tmuxFrame(WORKING, "h4");
+		let calls = 0;
+		const peek = async (): Promise<HostPeekResult> => {
+			calls += 1;
+			if (calls === 1) return tmuxFrame(IDLE, "h1");
+			if (calls === 2) return late.promise;
+			if (calls === 3) return tmuxFrame(WORKING, "h3");
+			return lateFrame;
+		};
+		const reports: Array<{ team: string; value: unknown }> = [];
+		const scheduler = new PresenceScheduler({ peek, report: (team, value) => reports.push({ team, value }) });
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		const active = scheduler.tick("proj.main");
+
+		scheduler.stopWatching("proj.main");
+		reports.length = 0;
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		expect(calls).toBe(3);
+		expect(reports).toEqual([]);
+
+		late.resolve(lateFrame);
+		await active;
+		await scheduler.tick("proj.main");
+		expect(reports).toEqual([
+			{ team: "proj.main", value: { working: true, needsLogin: false, limitBlocked: false } },
+		]);
 	});
 
 	it("a peek-failure streak (3 consecutive) clears to unknown; a single transient failure does not", async () => {

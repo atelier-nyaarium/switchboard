@@ -7,6 +7,7 @@ import {
 	VAULT_ROUTE_WAIT_CAP_MS,
 	VaultValueAnswerSchema,
 } from "../../shared/schemasVault.js";
+import { createSingleFlight } from "../../shared/single-flight.js";
 import { routerPost } from "../bridge/helpers.js";
 import {
 	DEFAULT_ENV_NAME,
@@ -204,7 +205,7 @@ async function finish(spec: RunSpec, result: VaultRunResult, deps: VaultToolDeps
 
 export function createVaultTools(deps: VaultToolDeps) {
 	const jobs = new Map<string, Job>();
-	const collecting = new Map<string, Promise<VaultToolAnswer>>();
+	const collecting = createSingleFlight<string, VaultToolAnswer>();
 
 	/** Waits for the child until the deadline; a longer run stays collectable. */
 	async function settle(
@@ -300,15 +301,13 @@ export function createVaultTools(deps: VaultToolDeps) {
 			return proceed("", spec, answer, deadlineAt);
 		},
 
-		/** One collect per job; a second caller shares the answer. */
-		async collect(args: { jobId: string; waitMs?: number }): Promise<VaultToolAnswer> {
-			const shared = collecting.get(args.jobId);
-			if (shared) return shared;
-			const job = jobs.get(args.jobId);
-			if (!job) return { outcome: "refused", reason: "no such job" };
-			const waitMs = budget(args.waitMs);
-			const deadlineAt = deps.now() + waitMs;
-			const work = (async () => {
+		/** Same-job calls share answers. */
+		collect(args: { jobId: string; waitMs?: number }): Promise<VaultToolAnswer> {
+			return collecting.run(args.jobId, async () => {
+				const job = jobs.get(args.jobId);
+				if (!job) return { outcome: "refused", reason: "no such job" };
+				const waitMs = budget(args.waitMs);
+				const deadlineAt = deps.now() + waitMs;
 				if (job.kind === "running") return settle(args.jobId, job.spec, job.handle, deadlineAt);
 				let answer: unknown;
 				try {
@@ -318,13 +317,7 @@ export function createVaultTools(deps: VaultToolDeps) {
 					return refusalOf(error, "collect");
 				}
 				return proceed(args.jobId, job.spec, answer, deadlineAt);
-			})();
-			collecting.set(args.jobId, work);
-			try {
-				return await work;
-			} finally {
-				collecting.delete(args.jobId);
-			}
+			});
 		},
 
 		async withdraw(args: { jobId: string }): Promise<VaultToolAnswer> {

@@ -766,6 +766,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/shared/ambient.ts` - the clock, entropy, ids, and timers as one injected record; `processAmbient` is the sole reader of the globals and unrefs every timer it hands back. `composeGateway` and `RouterServerParams` take one and thread it everywhere; `ambient-residue.test.ts` fences the three directories and names the reason for each allowed file. Vocabulary shared with the phone's `PhoneAmbient`, not a type
 - `src/shared/atomic-write.ts` - sole write-then-rename and temp-suffix owner, and the exclusive create and inode-keeping move beside it; residue-tested
 - `src/shared/keyed-fifo.ts` - every per-key promise chain; `drain` waits only for what was queued when asked, so a caller fences admission first
+- `src/shared/single-flight.ts` - every "join the call in flight for this key"; a settled or failed flight releases its key, and `createOpDedupe` adds the settled-answer cache on top
 - `src/shared/durable-store.ts` - atomic snapshots, per-file quarantine boundaries, and `commitChecked`, every store's checked write: the file first, memory only once it landed, a hook after; `checked-commit-residue.test.ts` names the snapshot writers allowed to call `saveChecked` directly
 - `src/shared/write-result.ts` - the two readings of an owner-store write: `landed` before anything irreversible, `appliedOrUncertain` before anything a caller retries; no site spells the pair
   - **An uncertain write is not a landed one:** a `durability_uncertain` line may or may not be on
