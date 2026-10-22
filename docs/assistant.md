@@ -160,6 +160,8 @@ active, and stops before the shutdown flush.
 
 A watcher is plain Gateway code, never a model.
 
+- **A watcher names itself:** `Watcher.label` is what a wake, a listing, the phone and the
+  baseline show, and the source lanes refuse a blank one, so no watcher appears by its id.
 - **One source lane per watcher:** it runs the watcher's source calls one at a time: polls, the live listing and
   actions. A poll that read a thread cannot wake it after a `done` landed.
 - **A poll answers one of four:** the unread list with its next validator, unchanged, backoff until a
