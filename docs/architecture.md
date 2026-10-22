@@ -44,6 +44,9 @@ keeps it across reconnects.
   `channel_delivery_ack`; a session's ack retires only a row held for its own team. A row is a
   `MessageDelivery` or an `EventDelivery`, the second with no sender or reply route, and the queue
   refuses an id the other kind holds.
+- The plugin shows a held push once per delivery id for its process's life
+  (`mcp/bridge/channelPushDelivery.ts`), so a row re-offered after a lost ack is acked again without
+  reaching the session twice. A restart forgets, so delivery stays at least once.
 
 ### What a session's model reads
 
