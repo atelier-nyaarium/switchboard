@@ -4,6 +4,7 @@
 import { randomBytes } from "node:crypto";
 import os from "node:os";
 import { $ } from "bun";
+import { routerTransportOf } from "../src/gateway/router/transport.js";
 import { fingerprint } from "../src/shared/crypto.js";
 import { GATEWAY_NETWORK } from "../src/shared/gateway-network.js";
 import { requireDocker } from "./lib/docker-probe.js";
@@ -200,29 +201,19 @@ async function postPastedBundle(bundle: string): Promise<boolean> {
 	}
 }
 
-/** True once transport.json holds what the gateway itself accepts. Existence alone is not the
- * signal: a truncated file, or one in a retired shape, would read as a successful enrollment here
- * while `loadRouterTransport` reads it as null and arms for enrollment. Same rule as that loader, or
- * the two answer opposite things about one file. */
+/** True once transport.json holds what the gateway itself accepts, by the loader's own reading. */
 export async function transportInstalled(): Promise<boolean> {
 	const text = await readTransportText();
-	if (!text) return false;
-	try {
-		const raw = JSON.parse(text) as Record<string, unknown>;
-		return raw.transport === "direct" && !!raw.routerUrl && !!raw.routerCertFp && !!raw.bearer;
-	} catch {
-		return false;
-	}
+	return text !== null && routerTransportOf(text) !== null;
 }
 
-/** transport.json's text, or null when absent. The gateway writes it as root at 0600, so the host
- * cannot open it directly once the container has; read through a container then, the way the Router
- * state is read. A direct read that fails for any other reason is a real absence. */
+/** transport.json's text, or null when absent. The gateway writes it and its folder as root, so the
+ * host cannot open it directly once the container has; read through a container then, the way the
+ * Router state is read. A direct read that fails for any other reason is a real absence. */
 async function readTransportText(): Promise<string | null> {
-	const file = Bun.file(TRANSPORT_FILE_HOST);
-	if (!(await file.exists())) return null;
+	// Not `exists()`: it answers false for a file inside an unreadable folder.
 	try {
-		return await file.text();
+		return await Bun.file(TRANSPORT_FILE_HOST).text();
 	} catch (e) {
 		if ((e as NodeJS.ErrnoException).code !== "EACCES") return null;
 	}

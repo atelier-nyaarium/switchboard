@@ -5,9 +5,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	loadRouterReach,
 	loadRouterTransport,
+	routerTransportOf,
 	routerWsConnection,
 	saveRouterReach,
 } from "../gateway/router/transport.js";
+import { GatewayTransportSchema } from "../shared/schemasGatewayTransport.js";
 
 ////////////////////////////////
 //  Constants
@@ -63,6 +65,13 @@ describe("loadRouterTransport", () => {
 	it("resolves nothing from a malformed file", () => {
 		writeFileSync(path.join(dir, "transport.json"), "{not json");
 		expect(loadRouterTransport(dir)).toBeNull();
+	});
+
+	// Setup's wait reads with this too, so an installed bundle ends it.
+	it("reads what an enrollment bundle installs, which carries no transport tag", () => {
+		const installed = JSON.stringify(GatewayTransportSchema.parse({ transport: "direct", ...DIRECT }));
+		expect(routerTransportOf(installed)?.bearer).toBe(DIRECT.bearer);
+		expect(routerTransportOf("null")).toBeNull();
 	});
 });
 

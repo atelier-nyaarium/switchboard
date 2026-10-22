@@ -21,11 +21,20 @@ function normalize(raw: RawTransport): RouterTransport | null {
 	};
 }
 
+/** The one reading of `transport.json`; setup's wait takes it too. */
+export function routerTransportOf(text: string): RouterTransport | null {
+	try {
+		return normalize(JSON.parse(text) as RawTransport);
+	} catch {
+		return null;
+	}
+}
+
 export function loadRouterTransport(federationDir: string): RouterTransport | null {
 	const file = path.join(federationDir, "transport.json");
 	if (!fs.existsSync(file)) return null;
 	try {
-		return normalize(JSON.parse(fs.readFileSync(file, "utf8")) as RawTransport);
+		return routerTransportOf(fs.readFileSync(file, "utf8"));
 	} catch {
 		return null;
 	}
