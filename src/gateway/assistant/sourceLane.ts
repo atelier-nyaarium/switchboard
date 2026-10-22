@@ -1,6 +1,7 @@
 // One lane per watcher, so a poll cannot wake what an action cleared. The lane owns every deadline.
 
 import { type Ambient, type Linked, linkedSignal, type TimerHandle } from "../../shared/ambient.js";
+import { createKeyedFifo } from "../../shared/keyed-fifo.js";
 import type { EventMember } from "../../shared/pending-delivery-store.js";
 import type { RuleAction } from "../../shared/schemasAssistantRules.js";
 import { fireAndForget } from "../fireAndForget.js";
@@ -123,7 +124,7 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 
 	let phase: "idle" | "running" | "stopped" = "idle";
 	const timers = new Map<string, TimerHandle>();
-	const tails = new Map<string, Promise<unknown>>();
+	const lanes = createKeyedFifo<string>();
 	/** Every queued or running item, so stop ends each at once. */
 	const items = new Set<Linked>();
 	/** One queued poll each. */
@@ -143,8 +144,8 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		if (phase === "stopped") item.end(STOPPING);
 		items.add(item);
 		let started = false;
-		const turn = (tails.get(watcherId) ?? Promise.resolve())
-			.then(async (): Promise<ReadAnswer<T>> => {
+		const turn = lanes.run(watcherId, async (): Promise<ReadAnswer<T>> => {
+			try {
 				const ended = laneEnd(item.signal);
 				if (ended) return { kind: "not_started", end: ended };
 				started = true;
@@ -156,15 +157,11 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 					(): ReadAnswer<T> => ({ kind: "gave_up", end: laneEnd(item.signal) ?? "past_deadline" }),
 				);
 				return await Promise.race([ran, released]);
-			})
-			.finally(() => {
+			} finally {
 				items.delete(item);
 				item.dispose();
-			});
-		tails.set(
-			watcherId,
-			turn.catch(() => undefined),
-		);
+			}
+		});
 		const unstarted = item.ended.then(
 			(): Promise<ReadAnswer<T>> =>
 				started
@@ -327,7 +324,7 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 			for (const timer of timers.values()) ambient.clearTimer(timer);
 			timers.clear();
 			for (const item of items) item.end(STOPPING);
-			await Promise.allSettled([...tails.values()]);
+			await lanes.drain();
 		},
 	};
 }

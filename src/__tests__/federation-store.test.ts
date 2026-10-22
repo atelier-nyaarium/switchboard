@@ -69,6 +69,29 @@ describe("FileSecretStore", () => {
 		expect(store.loadDomain("alice")?.ownerSignPub).toBe("owner");
 	});
 
+	it("runs a domain mutation queued behind a save that failed", async () => {
+		const { io } = fakeIO();
+		const write = io.write;
+		let failNext = false;
+		io.write = async (value, version) => {
+			if (failNext) {
+				failNext = false;
+				throw new Error("disk full");
+			}
+			await write(value, version);
+		};
+		const store = new FileSecretStore(tempDir(), io);
+		await store.init();
+
+		failNext = true;
+		store.saveDomain("alice", rooted("owner"));
+		const mutated = store.mutateDomain("bob", () => ({ commit: true, next: rooted("friend"), value: "ok" }));
+
+		await expect(store.flushDomain("alice")).rejects.toThrow("disk full");
+		await expect(mutated).resolves.toBe("ok");
+		expect(store.loadDomain("bob")?.ownerSignPub).toBe("friend");
+	});
+
 	it("preserves domains and resolves the marked admin", async () => {
 		const { io } = fakeIO({
 			schema: 2,

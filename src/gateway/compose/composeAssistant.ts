@@ -13,6 +13,7 @@ import {
 } from "../../shared/assistant-session.js";
 import { openDurable } from "../../shared/durable-store.js";
 import { isSpawnWorkdirPath } from "../../shared/host-op.js";
+import { createFifo } from "../../shared/keyed-fifo.js";
 import type { AssistantWatcher, ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
 import { actionsOf, GITHUB_WATCHER_ID } from "../../shared/schemasAssistantActions.js";
 import { eventLines, type InboxItem, type InboxList, type InboxScope } from "../../shared/schemasAssistantInbox.js";
@@ -255,15 +256,12 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		record: postRecord,
 	});
 	/** Owner ops one at a time, so a place never lands inside a release; none starts after shutdown. */
-	let tail: Promise<unknown> = Promise.resolve();
-	const serial = <T>(work: () => T | Promise<T>): Promise<T> => {
-		const next = tail.then(() => {
+	const ownerOps = createFifo();
+	const serial = <T>(work: () => T | Promise<T>): Promise<T> =>
+		ownerOps.run(() => {
 			if (closed) throw new Error("the Gateway is shutting down");
 			return work();
 		});
-		tail = next.catch(() => undefined);
-		return next;
-	};
 	/** A write that did not land answers as a refusal, never as the state it meant. */
 	const grantsLanded = (watcherId: string, entryIds: readonly string[]) => {
 		const held = deps.vault.watcherGrants(watcherId);
@@ -444,7 +442,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		stop: async () => {
 			closed = true;
 			// Running work finishes before the flush.
-			await withinMs(ambient, Promise.all([tail, stopLanes()]), STOP_WAIT_MS);
+			await withinMs(ambient, Promise.all([ownerOps.drain(), stopLanes()]), STOP_WAIT_MS);
 		},
 	};
 }

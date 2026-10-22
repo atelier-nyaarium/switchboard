@@ -15,6 +15,8 @@ let stderrData = "";
 // Scripted stderr for a `docker logs` spawn, emitted regardless of exit code (docker sends a
 // container's stderr there on a clean run). Lets a test drive the mergeStderr fold.
 let logsStderr = "";
+// Delays Enter exits.
+let holdEnter: Promise<void> | null = null;
 
 vi.mock("node:child_process", () => ({
 	spawn: (cmd: string, args: string[]) => {
@@ -32,12 +34,14 @@ vi.mock("node:child_process", () => ({
 		// scripted screen is not consumed by the "1" keypresses awaitReady interleaves with its peeks.
 		const reads = ["capture-pane", "logs", "display-message", "ps"];
 		const out = args.some((a) => reads.includes(a)) ? stdoutData : "";
-		queueMicrotask(() => {
+		const exit = () => {
 			if (out) child.stdout.emit("data", Buffer.from(out));
 			if (args.includes("logs") && logsStderr) child.stderr.emit("data", Buffer.from(logsStderr));
 			if (code !== 0 && stderrData) child.stderr.emit("data", Buffer.from(stderrData));
 			child.emit("close", code);
-		});
+		};
+		if (holdEnter && args.includes("Enter")) void holdEnter.then(exit);
+		else queueMicrotask(exit);
 		return child;
 	},
 }));
@@ -69,6 +73,7 @@ afterEach(() => {
 	stdoutData = "";
 	stderrData = "";
 	logsStderr = "";
+	holdEnter = null;
 });
 
 describe("tmuxCore sendText", () => {
@@ -123,6 +128,24 @@ describe("tmuxCore sendText", () => {
 	it("refuses to inject text into a reserved host session without spawning anything", async () => {
 		await expect(sendText({ kind: "host", name: "host", sessionName: "host-daemon" }, "hi")).rejects.toThrow();
 		expect(calls).toHaveLength(0);
+	});
+
+	it("keeps a later send behind an earlier one across a kill", async () => {
+		const target: TmuxTarget = { kind: "host", name: "host", sessionName: "claude" };
+		let release = () => {};
+		holdEnter = new Promise((resolve) => {
+			release = resolve;
+		});
+		const first = sendText(target, "one");
+		await killSession(target);
+		const second = sendText(target, "two");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(calls.some((call) => call.includes("two"))).toBe(false);
+
+		release();
+		await Promise.all([first, second]);
+		const sent = calls.filter((call) => call.includes("send-keys")).map((call) => call.at(-1));
+		expect(sent).toEqual(["one", "Enter", "two", "Enter"]);
 	});
 });
 

@@ -1,5 +1,6 @@
 import { type AgentBackendId, agentFrameType } from "../../shared/agent-backend.js";
 import type { AgentResolvedTarget } from "../../shared/agent-execution-target.js";
+import { createKeyedFifo } from "../../shared/keyed-fifo.js";
 import type { TargetLease, TargetSupervisor } from "./codexTargets.js";
 
 ////////////////////////////////
@@ -61,7 +62,7 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 	private readonly sessions = new Map<string, TSession>();
 	private readonly opening = new Map<string, Promise<TSession | null>>();
 	private readonly outbox: Array<{ targetId: string; generation: number; eventId: number; message: object }> = [];
-	private readonly inflight = new Map<string, Promise<void>>();
+	private readonly commands = createKeyedFifo<string>();
 	private rejections = 0;
 
 	constructor(private readonly options: AgentDaemonCoreOptions) {}
@@ -104,15 +105,18 @@ export class AgentDaemonCore<TSession extends AgentDaemonSession> {
 		reject: (command: TCommand, error: string) => void,
 		describe: (error: unknown) => string,
 	): void {
-		const key = `${command.ownerKey} ${command.agentId}`;
-		const previous = this.inflight.get(key) ?? Promise.resolve();
-		const next = previous
-			.then(() => dispatch(command))
-			.catch((error) => reject(command, describe(error)))
-			.finally(() => {
-				if (this.inflight.get(key) === next) this.inflight.delete(key);
-			});
-		this.inflight.set(key, next);
+		// Answer rejection before successors.
+		void this.commands.run(`${command.ownerKey} ${command.agentId}`, async () => {
+			try {
+				await dispatch(command);
+			} catch (error) {
+				try {
+					reject(command, describe(error));
+				} catch (failed) {
+					console.error(`[${this.options.backendId}-daemon] rejecting a command failed:`, failed);
+				}
+			}
+		});
 	}
 
 	async acquireSession(

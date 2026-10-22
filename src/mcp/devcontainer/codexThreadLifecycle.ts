@@ -2,6 +2,7 @@
 // during `turn/start` is buffered until its turn id is known, and a settled turn parks the thread.
 
 import { CodexAppServerThreadReadResultSchema, CodexAppServerTurnStartResultSchema } from "../../shared/codex-agent.js";
+import { createKeyedFifo } from "../../shared/keyed-fifo.js";
 import type { AppServerFailure } from "./codexAppServer.js";
 import type { TerminalOutcome } from "./codexTurnOutcome.js";
 import { outcomeFromRead } from "./codexTurnOutcome.js";
@@ -42,7 +43,6 @@ export type ThreadInspection =
 
 interface ThreadRecord {
 	state: ThreadPhase;
-	queue: Promise<unknown>;
 	/** Advanced by every activation, so a retry scheduled for an earlier life of the thread drops itself. */
 	epoch: number;
 	/** A `turn/start` whose id is not known yet, and the terminals that beat its response. */
@@ -81,6 +81,8 @@ export class ThreadLifecycle {
 	private readonly retired = new Map<string, ThreadRecord>();
 	/** Each quiet-interval timer with the continuation it holds, released on close rather than left hanging. */
 	private readonly pauses = new Map<ReturnType<typeof setTimeout>, () => void>();
+	/** Replacements get fresh queues. */
+	private readonly queues = createKeyedFifo<ThreadRecord>();
 	private closed = false;
 
 	constructor(private readonly deps: LifecycleDeps) {}
@@ -251,7 +253,6 @@ export class ThreadLifecycle {
 	private fresh(): ThreadRecord {
 		return {
 			state: { phase: "unloaded" },
-			queue: Promise.resolve(),
 			epoch: 0,
 			pendingStart: false,
 			buffered: new Map(),
@@ -261,7 +262,7 @@ export class ThreadLifecycle {
 		};
 	}
 
-	/** One operation at a time per thread, whatever the caller. */
+	/** Serializes each thread record. */
 	private run<T>(threadId: string, operation: (record: ThreadRecord) => Promise<T>): Promise<T> {
 		const record = this.threads.get(threadId) ?? this.fresh();
 		this.threads.set(threadId, record);
@@ -269,8 +270,8 @@ export class ThreadLifecycle {
 		const settle = () => {
 			record.pending -= 1;
 		};
-		const next = record.queue.then(() => operation(record));
-		record.queue = next.then(settle, settle);
+		const next = this.queues.run(record, () => operation(record));
+		next.then(settle, settle);
 		return next;
 	}
 

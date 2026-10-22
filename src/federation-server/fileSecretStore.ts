@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { sweepAtomicTemps, writeFileAtomic } from "../shared/atomic-write.js";
 import { generateIdentity, type Identity } from "../shared/crypto.js";
+import { createFifo } from "../shared/keyed-fifo.js";
 import { type CasBase, type CasMutation, MAX_WRITE_RETRIES, type WriteOutcome } from "./casEngine.js";
 import { DELETE_SLICE, type DomainMutation, type SecretMutation } from "./casMutation.js";
 import {
@@ -58,7 +59,7 @@ export class FileSecretStore {
 	private seenAdminNonces: SeenAdminNonce[] = [];
 	private identity: Identity | null = null;
 	private resourceVersion: string | null = null;
-	private writeChain: Promise<void> = Promise.resolve();
+	private readonly writes = createFifo();
 	private pendingWrites = new Map<string, Promise<WriteOutcome>>();
 	private readonly io: SecretIO;
 
@@ -109,8 +110,8 @@ export class FileSecretStore {
 			return;
 		}
 		const next = structuredClone(state);
-		const outcome = this.writeChain
-			.then(() => this.persistDomain(domainId, next))
+		const outcome = this.writes
+			.run(() => this.persistDomain(domainId, next))
 			.then<WriteOutcome>(() => ({ ok: true }))
 			.catch(
 				(error): WriteOutcome => ({
@@ -118,7 +119,6 @@ export class FileSecretStore {
 					error: error instanceof Error ? error : new Error(String(error)),
 				}),
 			);
-		this.writeChain = outcome.then(() => undefined);
 		this.pendingWrites.set(domainId, outcome);
 	}
 
@@ -149,12 +149,7 @@ export class FileSecretStore {
 		mutator: (current: EnrollmentState | null) => DomainMutation<T>,
 	): Promise<T> {
 		if (!this.identity) throw new Error("federation store not initialized");
-		const run = this.writeChain.then(() => this.runMutateDomain(domainId, mutator));
-		this.writeChain = run.then(
-			() => undefined,
-			() => undefined,
-		);
-		return run;
+		return this.writes.run(() => this.runMutateDomain(domainId, mutator));
 	}
 
 	public async mutateSecret<T>(
@@ -164,12 +159,7 @@ export class FileSecretStore {
 		}) => SecretMutation<T>,
 	): Promise<T> {
 		if (!this.identity) throw new Error("federation store not initialized");
-		const run = this.writeChain.then(() => this.runMutateSecret(mutator));
-		this.writeChain = run.then(
-			() => undefined,
-			() => undefined,
-		);
-		return run;
+		return this.writes.run(() => this.runMutateSecret(mutator));
 	}
 
 	private async runCas<T>(mutator: (base: CasBase) => CasMutation<T>, label: string): Promise<T> {

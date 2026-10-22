@@ -10,6 +10,7 @@ import {
 	type TmuxPeek,
 	type TmuxTarget,
 } from "../../shared/host-op.js";
+import { createKeyedFifo } from "../../shared/keyed-fifo.js";
 import { trimPaneRowPadding } from "../../shared/pane-trim.js";
 import { parseSessionName } from "../../shared/session-id.js";
 import { buildTranscript } from "./buildTranscript.js";
@@ -143,19 +144,8 @@ function run(argv: string[], timeoutMs = EXEC_TIMEOUT_MS, opts: { mergeStderr?: 
 }
 
 // Keeps text and Enter atomic.
-const sendChains = new Map<string, Promise<unknown>>();
+const sends = createKeyedFifo<string>();
 const targetKey = (t: TmuxTarget): string => `${t.kind}:${t.name}:${t.sessionName}`;
-
-function serialized<T>(key: string, fn: () => Promise<T>): Promise<T> {
-	const prev = sendChains.get(key) ?? Promise.resolve();
-	const next = prev.then(fn, fn);
-	// One rejection must not poison the chain.
-	sendChains.set(
-		key,
-		next.catch(() => {}),
-	);
-	return next;
-}
 
 /** Capture the visible pane with ANSI colors. Derive-only callers pass `resize: false` so they do
  * not fight the terminal view's geometry. */
@@ -231,7 +221,7 @@ function sendKeyRaw(target: TmuxTarget, key: string): Promise<string> {
 /** Type a literal line into the pane. With `submit`, Enter follows as its OWN send-keys call: paste
  * detection reads an embedded CR as text, not as a submit. `--` keeps a leading dash literal. */
 export function sendText(target: TmuxTarget, text: string, submit = true): Promise<void> {
-	return serialized(targetKey(target), async () => {
+	return sends.run(targetKey(target), async () => {
 		assertNotReservedHostSink(target);
 		await run(tmuxArgv(target, ["send-keys", "-t", paneTarget(target), "-l", "--", text]));
 		if (submit) await sendKeyRaw(target, "Enter");
@@ -240,7 +230,7 @@ export function sendText(target: TmuxTarget, text: string, submit = true): Promi
 
 /** Send a whitelisted control key. */
 export function sendKey(target: TmuxTarget, key: string): Promise<void> {
-	return serialized(targetKey(target), async () => {
+	return sends.run(targetKey(target), async () => {
 		assertNotReservedHostSink(target);
 		if (!ALLOWED_KEYS.has(key)) throw new Error(`disallowed key "${key}"`);
 		await sendKeyRaw(target, key);
@@ -271,7 +261,6 @@ export async function killSession(target: TmuxTarget): Promise<void> {
 		// Already gone is success. An unconfirmed kill is not, so it rethrows.
 		if (classifyPeekError(err instanceof Error ? err.message : String(err)) !== "absent") throw err;
 	}
-	sendChains.delete(targetKey(target));
 }
 
 /**
@@ -329,14 +318,14 @@ export async function hasSession(target: TmuxTarget): Promise<boolean> {
 
 /** A digit selects and confirms, with no Enter. Daemon-pressed, so it skips the key whitelist. */
 function pressDigit(target: TmuxTarget, digit: string): Promise<void> {
-	return serialized(targetKey(target), async () => {
+	return sends.run(targetKey(target), async () => {
 		await run(tmuxArgv(target, ["send-keys", "-t", paneTarget(target), "-l", "--", digit]));
 	});
 }
 
 /** A named key, for the menus a digit no longer answers. Daemon-pressed, so it skips the whitelist. */
 function pressKey(target: TmuxTarget, key: "Up" | "Down" | "Enter"): Promise<void> {
-	return serialized(targetKey(target), async () => {
+	return sends.run(targetKey(target), async () => {
 		await run(tmuxArgv(target, ["send-keys", "-t", paneTarget(target), key]));
 	});
 }

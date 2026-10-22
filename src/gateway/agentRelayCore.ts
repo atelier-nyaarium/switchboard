@@ -1,6 +1,7 @@
 import { type AgentBackendId, type AgentFrameKind, agentFrameType } from "../shared/agent-backend.js";
 import { fromReplacedDaemon } from "../shared/agent-fence.js";
 import type { Ambient } from "../shared/ambient.js";
+import { createKeyedFifo } from "../shared/keyed-fifo.js";
 import type { SessionRecord, SessionStore } from "../shared/session-store.js";
 
 ////////////////////////////////
@@ -109,7 +110,7 @@ export class AgentRelayCore<
 	TRequest extends Record<string, unknown>,
 	TAgent extends AgentRelayAgent,
 > {
-	private readonly sections = new Map<string, Promise<unknown>>();
+	private readonly reducers = createKeyedFifo<string>();
 	private readonly streams = new Map<string, StreamProgress>();
 	private readonly listeners = new Map<string, Set<() => void>>();
 	// Match request IDs before clearing.
@@ -343,16 +344,9 @@ export class AgentRelayCore<
 
 	/** Serialize reducers per agent. */
 	private serialize(ownerKey: string, agentId: string, step: () => void): Promise<void> {
-		const key = agentKey(ownerKey, agentId);
-		const previous = this.sections.get(key) ?? Promise.resolve();
-		const next = previous
-			.then(step)
-			.catch((error) => console.error(`[${this.family.backendId}-relay] reducer step failed:`, error))
-			.finally(() => {
-				if (this.sections.get(key) === next) this.sections.delete(key);
-			});
-		this.sections.set(key, next);
-		return next;
+		return this.reducers
+			.run(agentKey(ownerKey, agentId), step)
+			.catch((error) => console.error(`[${this.family.backendId}-relay] reducer step failed:`, error));
 	}
 
 	private frameType(kind: AgentFrameKind): string {

@@ -754,6 +754,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/shared/fixture-identity.ts` - the committed test signing keys; shipping entry points refuse them without `ALLOW_FIXTURE_IDENTITY=1`
 - `src/shared/ambient.ts` - the clock, entropy, ids, and timers as one injected record; `processAmbient` is the sole reader of the globals and unrefs every timer it hands back. `composeGateway` and `RouterServerParams` take one and thread it everywhere; `ambient-residue.test.ts` fences the three directories and names the reason for each allowed file. Vocabulary shared with the phone's `PhoneAmbient`, not a type
 - `src/shared/atomic-write.ts` - sole write-then-rename and temp-suffix owner, and the exclusive create and inode-keeping move beside it; residue-tested
+- `src/shared/keyed-fifo.ts` - every per-key promise chain; `drain` waits only for what was queued when asked, so a caller fences admission first
 - `src/shared/durable-store.ts` - atomic snapshots and per-file quarantine boundaries
 - `src/shared/write-result.ts` - the two readings of an owner-store write: `landed` before anything irreversible, `appliedOrUncertain` before anything a caller retries; no site spells the pair
   - **An uncertain write is not a landed one:** a `durability_uncertain` line may or may not be on

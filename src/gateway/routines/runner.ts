@@ -2,6 +2,7 @@
 
 import type { Ambient, TimerHandle } from "../../shared/ambient.js";
 import { chainedTimer } from "../../shared/chained-timer.js";
+import { createFifo } from "../../shared/keyed-fifo.js";
 import type { MissReason } from "../../shared/routine-occurrence.js";
 import { nextOccurrence } from "../../shared/routine-recurrence.js";
 import { forgetAfterMs, type Routine } from "../../shared/schemasRoutine.js";
@@ -65,7 +66,8 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 	let stopped = false;
 	/** Fences a timer callback that was already queued when the runner stopped. */
 	let generation = 0;
-	let inFlight: Promise<void> = Promise.resolve();
+	/** Serializes occurrence walks. */
+	const walks = createFifo();
 
 	const ruleOf = (routine: Routine) => ({
 		weekdays: routine.weekdays,
@@ -234,12 +236,6 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		return workingOccurrences(sessionTarget)[0] ?? null;
 	}
 
-	/** Serialized, so two wakeups cannot walk the same occurrence at once. */
-	function queue(work: () => Promise<void>): Promise<void> {
-		inFlight = inFlight.then(work, work);
-		return inFlight;
-	}
-
 	/**
 	 * A week away is one panel. Everything the rule named past its window collapses into the latest
 	 * of them, so the owner is told the routine did not run without being told once per occurrence.
@@ -328,7 +324,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		const at = earliest(from);
 		if (at === null) return;
 		const delay = Math.max(0, at - ambient.now());
-		timer = chainedTimer(ambient, delay, () => fireAndForget("routine sweep", queue(sweepDue))).handle();
+		timer = chainedTimer(ambient, delay, () => fireAndForget("routine sweep", walks.run(sweepDue))).handle();
 	}
 
 	return {
@@ -339,10 +335,10 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			tick = ambient.setTimer(function again() {
 				// A callback already queued when stop ran would otherwise re-arm the tick it cleared.
 				if (mine !== generation) return;
-				fireAndForget("routine sweep", queue(sweepDue));
+				fireAndForget("routine sweep", walks.run(sweepDue));
 				tick = ambient.setTimer(again, RECONCILE_MS);
 			}, RECONCILE_MS);
-			fireAndForget("routine sweep", queue(sweepDue));
+			fireAndForget("routine sweep", walks.run(sweepDue));
 		},
 
 		/** Stops taking work, then waits for the attempt in flight. */
@@ -354,12 +350,12 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 			if (tick) ambient.clearTimer(tick);
 			timer = null;
 			tick = null;
-			await inFlight.catch(() => undefined);
+			await walks.drain();
 		},
 
 		/** What the console's Run now and the tests reach. */
 		reconcile(): Promise<void> {
-			return queue(sweepDue);
+			return walks.run(sweepDue);
 		},
 
 		/**
@@ -367,9 +363,9 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		 * re-entry of one the rule named, which at-most-once forbids. Answers the instant it opened,
 		 * since the gateway chose it.
 		 */
-		runFresh(routineId: string): Promise<number | null> {
+		async runFresh(routineId: string): Promise<number | null> {
 			let opened: number | null = null;
-			return queue(async () => {
+			await walks.run(async () => {
 				// A shutdown has closed admission, and this would write after the flush.
 				if (!admitting) return;
 				if (!routines.get(routineId)) return;
@@ -386,13 +382,14 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 				// or a moved revision can settle it first.
 				const settled = occurrences.at(routineId, at)?.state;
 				if (settled !== "missed" && settled !== "needs_review") opened = at;
-			}).then(() => opened);
+			});
+			return opened;
 		},
 
 		/** A missed occurrence the owner asked for again, carrying a fresh authorization. */
-		runNow(routineId: string, scheduledAt: number): Promise<boolean> {
+		async runNow(routineId: string, scheduledAt: number): Promise<boolean> {
 			let ran = false;
-			return queue(async () => {
+			await walks.run(async () => {
 				// A shutdown has closed admission, and this would write after the flush.
 				if (!admitting) return;
 				const routine = routines.get(routineId);
@@ -420,7 +417,8 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 				if (!dispatched) return;
 				await attempt().deliver(routine, dispatched);
 				ran = true;
-			}).then(() => ran);
+			});
+			return ran;
 		},
 
 		dismiss(routineId: string, scheduledAt: number): boolean {
