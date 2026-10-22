@@ -1,6 +1,13 @@
 import type { ParamsOf } from "../../shared/schemasAssistantActions.js";
 import type { RecordThread } from "../../shared/schemasAssistantRecord.js";
-import { type GithubClient, type GithubRefusal, type GithubToken, isRefusal } from "./githubClient.js";
+import {
+	type GithubClient,
+	type GithubHold,
+	type GithubRefusal,
+	type GithubToken,
+	holdText,
+	isRefusal,
+} from "./githubClient.js";
 import { linkOf, ThreadSchema } from "./githubWatcher.js";
 import { ASSISTANT_WAITS } from "./waits.js";
 import { type ActionContext, bounded, stoppedBy, WatcherAction } from "./watcherAction.js";
@@ -13,12 +20,10 @@ interface Step {
 
 const TITLE_MAX = 300;
 
-const waitText = (ms: number) => `GitHub rate limit; wait ${Math.ceil(ms / 1000)}s`;
-
-/** Only rate limits yield `rate_limited`. */
-const refused = (thread: Omit<RecordThread, "outcome">, refusal: GithubRefusal): Step =>
+/** Only GitHub's limit is `rate_limited`. */
+const refused = (thread: Omit<RecordThread, "outcome">, refusal: GithubRefusal | GithubHold): Step =>
 	refusal.kind === "backoff"
-		? { thread: { ...thread, outcome: "rate_limited" }, stop: waitText(refusal.retryMs) }
+		? { thread: { ...thread, outcome: "rate_limited" }, stop: holdText(refusal.retryMs) }
 		: { thread: { ...thread, outcome: "not_attempted" }, stop: refusal.reason };
 
 export class GithubDone extends WatcherAction<"github_done"> {
@@ -41,7 +46,7 @@ export class GithubDone extends WatcherAction<"github_done"> {
 		let note: string | undefined;
 		for (const [index, threadId] of params.ids.entries()) {
 			const wait = this.client.waitLeft();
-			const halt = stoppedBy(ctx) ?? (wait > 0 ? waitText(wait) : null);
+			const halt = stoppedBy(ctx) ?? (wait > 0 ? holdText(wait) : null);
 			if (halt) return { threads: [...threads, ...unsent(index)], note: halt };
 			const step = await this.one(token, threadId, ctx);
 			threads.push(step.thread);
@@ -96,7 +101,7 @@ export class GithubDone extends WatcherAction<"github_done"> {
 		if (nowRead) return { thread: done };
 		const unread = `${threadId} is done but still unread, so it stays in inbox; send it again`;
 		if (isRefusal(marked)) {
-			const why = marked.kind === "backoff" ? waitText(marked.retryMs) : marked.reason;
+			const why = marked.kind === "backoff" ? holdText(marked.retryMs) : marked.reason;
 			return { thread: done, stop: `${unread}; ${why}` };
 		}
 		const why = "failed" in marked ? marked.failed : `GitHub answered ${marked.status}`;

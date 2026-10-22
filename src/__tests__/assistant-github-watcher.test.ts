@@ -22,9 +22,10 @@ type Reply = { status: number; body?: unknown; headers?: Record<string, string> 
 function github(replies: Reply[], token: TokenRead = { kind: "token", value: "ghp_test", key: "entry-a" }) {
 	const asked: { url: string; headers: Record<string, string> }[] = [];
 	let current = token;
+	let now = NOW;
 	const watcher = createGithubWatcher(
 		createGithubClient({
-			now: () => NOW,
+			now: () => now,
 			token: async () => current,
 			fetch: async (url, init) => {
 				asked.push({ url, headers: init.headers as Record<string, string> });
@@ -45,7 +46,10 @@ function github(replies: Reply[], token: TokenRead = { kind: "token", value: "gh
 	const use = (next: TokenRead) => {
 		current = next;
 	};
-	return { poll, list, use, asked };
+	const advance = (ms: number) => {
+		now += ms;
+	};
+	return { poll, list, use, advance, asked };
 }
 
 const NEWLINE = String.fromCharCode(10);
@@ -271,6 +275,19 @@ describe("the GitHub notifications watcher", () => {
 		expect(throttled.asked).toHaveLength(1);
 		expect(secondary.kind).toBe("backoff");
 		expect(hidden.kind).toBe("stopped");
+	});
+
+	it("holds later requests for only what is left of GitHub's limit, asking it nothing meanwhile", async () => {
+		const throttled = github([{ status: 429, headers: { "retry-after": "90" } }]);
+		await throttled.poll("c");
+		throttled.advance(80_000);
+
+		const held = await throttled.poll("c");
+		const listed = throttled.list();
+
+		expect(held).toMatchObject({ kind: "backoff", retryMs: 10_000 });
+		await expect(listed).rejects.toThrow("wait 10s");
+		expect(throttled.asked).toHaveLength(1);
 	});
 
 	it("asks GitHub nothing without a token it may read, and never with one a header cannot carry", async () => {

@@ -153,7 +153,11 @@ export function createGithubWatcher(client: GithubClient): Watcher {
 				// Only the first page asks whether anything changed.
 				const since = page === 0 ? validator : null;
 				const response = await client.request(token, url, { since }, signal);
-				if (isRefusal(response)) return response;
+				if (isRefusal(response)) {
+					return response.kind === "held"
+						? { kind: "backoff", retryMs: response.retryMs, reason: response.reason }
+						: response;
+				}
 				if (page === 0) {
 					nextPollMs = intervalOf(response);
 					if (response.status === 304) return { kind: "unchanged", nextPollMs };

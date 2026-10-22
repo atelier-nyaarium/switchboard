@@ -21,7 +21,7 @@ const thread = (id: string) => ({
 	repository: { full_name: "atelier/app" },
 });
 
-type Reply = { status: number; body?: unknown; headers?: Record<string, string> } | "hang";
+type Reply = { status: number; body?: unknown; headers?: Record<string, string>; after?: Promise<void> } | "hang";
 
 /** Ordered replies; hangs abort. */
 function github(ambient: FakeAmbient, replies: Reply[], token: TokenRead = TOKEN) {
@@ -38,11 +38,18 @@ function github(ambient: FakeAmbient, replies: Reply[], token: TokenRead = TOKEN
 					init.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }),
 				);
 			}
+			await reply.after;
 			const body = reply.body === undefined ? null : JSON.stringify(reply.body);
 			return new Response(body, { status: reply.status, headers: reply.headers });
 		},
 	});
 	const done = new GithubDone(client);
+	/** Another caller of the shared client meets GitHub's limit. */
+	const limitElsewhere = async () => {
+		const token = await client.token(new AbortController().signal);
+		if ("kind" in token) throw new Error(token.reason);
+		await client.request(token, "/notifications", {}, new AbortController().signal);
+	};
 	// Through a real lane, so the deadline is the one the Gateway runs.
 	const lane = createSourceLanes({
 		ambient,
@@ -58,7 +65,15 @@ function github(ambient: FakeAmbient, replies: Reply[], token: TokenRead = TOKEN
 		if (answer.kind !== "ran") throw new Error(`not started: ${answer.end}`);
 		return answer.value;
 	};
-	return { run, asked };
+	return { run, asked, limitElsewhere };
+}
+
+function gate() {
+	let open = () => {};
+	const opened = new Promise<void>((resolve) => {
+		open = resolve;
+	});
+	return { opened, open };
 }
 
 describe("github_done", () => {
@@ -111,6 +126,45 @@ describe("github_done", () => {
 		expect(again.threads.map((item) => item.outcome)).toEqual(["not_attempted"]);
 		expect(again.note).toMatch(/wait 120s/);
 		expect(asked).toHaveLength(2);
+	});
+
+	it("records a thread held back by a limit met elsewhere as not attempted, since nothing was sent", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const read = gate();
+		const { run, asked, limitElsewhere } = github(ambient, [
+			{ status: 200, body: thread("1"), after: read.opened },
+			{ status: 429, headers: { "retry-after": "60" } },
+		]);
+
+		const ran = run(["1", "2"]);
+		await ambient.advance(0);
+		await limitElsewhere();
+		read.open();
+		const answer = await ran;
+
+		expect(answer.threads.map((item) => item.outcome)).toEqual(["not_attempted", "not_attempted"]);
+		expect(answer.note).toMatch(/wait 60s/);
+		expect(asked).toEqual(["GET /notifications/threads/1", "GET /notifications"]);
+	});
+
+	it("keeps a thread done when the limit holds back marking it read, and says it stays unread", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const cleared = gate();
+		const { run, asked, limitElsewhere } = github(ambient, [
+			{ status: 200, body: thread("1") },
+			{ status: 204, after: cleared.opened },
+			{ status: 429, headers: { "retry-after": "60" } },
+		]);
+
+		const ran = run(["1", "2"]);
+		await ambient.advance(0);
+		await limitElsewhere();
+		cleared.open();
+		const answer = await ran;
+
+		expect(answer.threads.map((item) => item.outcome)).toEqual(["done", "not_attempted"]);
+		expect(answer.note).toMatch(/1 is done but still unread.*wait 60s/);
+		expect(asked).not.toContain("PATCH /notifications/threads/1");
 	});
 
 	it("answers a delete unanswered at the deadline as uncertain, marks nothing read, and starts nothing after it", async () => {

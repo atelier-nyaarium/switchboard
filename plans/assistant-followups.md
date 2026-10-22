@@ -197,7 +197,7 @@ export function createInboxListing(deps: InboxListingDeps):
 
 ## Phase 6 - Local rate-limit hold
 
-Closes the hold bullet of bd_500e13ed.
+✅ Shipped. Closes the hold bullet of bd_500e13ed.
 
 **Problem:** When `createGithubClient.request` holds a request itself before any fetch, it answers with the same `backoff` shape as GitHub's own 403/429. Three things go wrong:
 - `GithubDone` records a thread it never sent as `rate_limited`.

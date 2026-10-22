@@ -16,6 +16,11 @@ export type TokenRead =
 
 export type GithubRefusal = Extract<PollAnswer, { kind: "stopped" | "backoff" }>;
 
+/** Local hold; nothing sent. */
+export type GithubHold = { kind: "held"; retryMs: number; reason: string };
+
+export const holdText = (ms: number) => `GitHub rate limit; wait ${Math.ceil(ms / 1000)}s`;
+
 export interface GithubToken {
 	value: string;
 	key: string;
@@ -39,10 +44,10 @@ export interface GithubClient {
 		path: string,
 		init: { method?: "GET" | "PATCH" | "DELETE"; since?: string | null },
 		signal: AbortSignal,
-	): Promise<Response | GithubRefusal>;
+	): Promise<Response | GithubRefusal | GithubHold>;
 }
 
-export const isRefusal = (answer: object): answer is GithubRefusal => "kind" in answer;
+export const isRefusal = (answer: object): answer is GithubRefusal | GithubHold => "kind" in answer;
 
 /** Fetch errors can echo tokens. */
 const TOKEN_RE = /^[!-~]+$/;
@@ -97,7 +102,7 @@ export function createGithubClient(deps: GithubClientDeps): GithubClient {
 		waitLeft: () => Math.max(0, limitedUntil - deps.now()),
 		async request(token, path, init, signal) {
 			const left = limitedUntil - deps.now();
-			if (left > 0) return { kind: "backoff", retryMs: githubWait(left), reason: "GitHub rate limit" };
+			if (left > 0) return { kind: "held", retryMs: Math.ceil(left), reason: holdText(left) };
 			// GitHub-only requests.
 			const url = path.startsWith("/") ? `${GITHUB_API}${path}` : path;
 			if (!url.startsWith(`${GITHUB_API}/`)) throw new Error("not a GitHub API URL");
