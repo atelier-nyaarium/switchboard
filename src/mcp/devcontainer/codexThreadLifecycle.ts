@@ -52,8 +52,6 @@ interface ThreadRecord {
 	published: Set<string>;
 	/** Archive refusals since the last activation; exhausted, the generation is poisoned. */
 	parkAttempts: number;
-	/** Operations queued or running. */
-	pending: number;
 	retry?: ReturnType<typeof setTimeout>;
 }
 
@@ -258,7 +256,6 @@ export class ThreadLifecycle {
 			buffered: new Map(),
 			published: new Set(),
 			parkAttempts: 0,
-			pending: 0,
 		};
 	}
 
@@ -266,13 +263,7 @@ export class ThreadLifecycle {
 	private run<T>(threadId: string, operation: (record: ThreadRecord) => Promise<T>): Promise<T> {
 		const record = this.threads.get(threadId) ?? this.fresh();
 		this.threads.set(threadId, record);
-		record.pending += 1;
-		const settle = () => {
-			record.pending -= 1;
-		};
-		const next = this.queues.run(record, () => operation(record));
-		next.then(settle, settle);
-		return next;
+		return this.queues.run(record, () => operation(record));
 	}
 
 	/** Read after a request that may have moved the state, past the narrowing the compiler keeps across it. */
@@ -476,7 +467,7 @@ export class ThreadLifecycle {
 		for (const [oldest, held] of [...this.retired]) {
 			if (this.retired.size <= RETIRED_MEMORY) return;
 			// Passed over, never consumed.
-			if (held.pending > 0) continue;
+			if (this.queues.has(held)) continue;
 			const phase = held.state.phase;
 			if (phase !== "parked" && phase !== "disposed") continue;
 			this.retired.delete(oldest);

@@ -33,27 +33,28 @@ Closes bd_76eab31a and the queue bullet of bd_500e13ed.
 **Target:** new file `src/shared/keyed-fifo.ts`.
 ```ts
 export interface KeyedFifo<K> {
-  run<T>(key: K, work: () => T | PromiseLike<T>): Promise<Awaited<T>>;
+  run<T>(key: K, work: () => T | PromiseLike<T>): Promise<T>;
+  has(key: K): boolean;
   drain(): Promise<void>;
 }
 export function createKeyedFifo<K>(): KeyedFifo<K>;
 export function createFifo(): Fifo; // one fixed key
 ```
-- `run` returns the work's own value or error. Only the stored tail is recovered.
-- A key is dropped once its tail is still the current one.
+- `run` returns the work's own value or error. Only the stored tail is recovered. Typed `Promise<T>`, so no call site casts.
+- A key is dropped once its tail is still the current one. `has` reads that.
 - `drain` settles the tails held at the moment it is called.
 
 **Sites:**
 - `createSourceLanes.queued`: the `items.delete`/`dispose` cleanup moves inside the work, and `stop` awaits `drain()`.
 - `composeAssistant` `serial`: `stop` awaits `drain()` inside `withinMs`.
 - `AgentRelayCore.serialize`: `run(...).catch(log)`.
-- `tmuxCore.ts` `serialized`.
-- `AgentDaemonCore.enqueue`: `run(...).catch(reject)`, with any adapter throw logged.
-- `ThreadLifecycle.run`: keyed by the `ThreadRecord` object, so a replacement record gets a new lane. `pending` stays.
-- `createRoutineRunner.queue`.
+- `tmuxCore.ts`: `serialized` is deleted; each send calls `sends.run`.
+- `AgentDaemonCore.enqueue`: the rejection runs inside the queued work, so it lands before the agent's next command; a throwing adapter is logged.
+- `ThreadLifecycle.run`: keyed by the `ThreadRecord` object, so a replacement record gets a new lane. `retire` reads `queues.has(record)`, and `pending` is deleted.
+- `createRoutineRunner`: one `walks` FIFO; `runFresh` and `runNow` await it.
 - `FileSecretStore` `saveDomain`, `mutateDomain`, `mutateSecret`. `pendingWrites` stays.
 
-**Deleted:** `tails`, `tail`, `sections`, `sendChains`, `AgentDaemonCore.inflight`, `ThreadRecord.queue`, routine `inFlight`, `writeChain`, every recovery chain and identity-checked delete, and `killSession`'s key delete.
+**Deleted:** `tails`, `tail`, `sections`, `sendChains`, `serialized`, `AgentDaemonCore.inflight`, `ThreadRecord.queue`, `ThreadRecord.pending`, routine `inFlight` and `queue`, `writeChain`, every recovery chain and identity-checked delete, and `killSession`'s key delete.
 
 **Tests:** new `keyed-fifo.test.ts` covering:
 - same-key order;
@@ -348,3 +349,22 @@ Closes bd_f506f915.
 - The pump stops and drains.
 
 **Risks:** The flush must still see live writers, so the fence refuses new work without stopping the writers it flushes. Research the Router client's reconnect and the pump before cutting the order.
+
+## Phase 11 - Single flight and presence peeks
+
+From the Phase 1 architecture round. No board item.
+
+**Problem:**
+- `PresenceScheduler.tick` can observe one capture twice. `runPeek` hands a joiner and any caller within 300ms of the last capture the same result object, and stamps `lastCapture.at` when a capture completes. At the 500ms cadence a peek slower than about 200ms serves its frame to the next tick, and overlapping ticks join one capture. Either way one flicker confirms a flip.
+- Six sites hand-write "join the call already in flight for this key": `createOpDedupe`'s flight half, `WakeService.tryWakeTeam`, `runPeek`, `runDeduped`, `AgentDaemonCore.acquireSession`, and the vault tools' `collect`. `runDeduped` is `createOpDedupe` with a 60s hold.
+
+**Target:**
+- Presence: a tick skips a result it already observed for that team (identity), skips while its own peek is in flight, and a completion after `stopWatching` or a replaced watch lands nothing.
+- New `src/shared/single-flight.ts`: `createSingleFlight<K, T>().run(key, work)`, the in-flight half of `createOpDedupe`, which `createOpDedupe` then uses.
+- `runDeduped` becomes `createOpDedupe` with a 60s hold.
+
+**Sites:** `presenceScheduler.ts`, `hostOpRunner.ts`, `op-dedupe.ts`, `wakeService.ts` (`tryWakeTeam`; presence start and end move inside the work), `agentDaemonCore.ts` (`acquireSession`), the vault tools' `collect`. `joinCreate` stays: its release outlives the launch. `hostDaemon.inflightWakes` stays: it suppresses, not joins.
+
+**Tests:** a presence case where a cached and a joined result each count once; `single-flight.test.ts` for join, failure not held, and key release. Existing dedupe tests stay as the pin.
+
+**Risks:** `withPeekSlot` can briefly run seven captures when a queued microtask takes a freed slot; fix with a permit handoff only if this phase touches it anyway.

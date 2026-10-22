@@ -624,7 +624,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/mcp/devcontainer/buildTranscript.ts` - latest `devcontainer up` transcript and pane-less terminal fallback
 - `src/mcp/devcontainer/codexTargets.ts` - one supervised Codex App Server per execution target
 - `src/mcp/devcontainer/codexAppServer.ts` - JSONL transport and fail-closed App Server client
-- `src/mcp/devcontainer/codexThreadLifecycle.ts` - per-thread queues, settled-turn archival, bounded retirement
+- `src/mcp/devcontainer/codexThreadLifecycle.ts` - one queue per thread record, so a record `started()` replaces gets a fresh one; settled-turn archival; bounded retirement
 - `src/mcp/devcontainer/codexTurnTracker.ts` - turn output; sole `answerOf` reader
 - `src/mcp/devcontainer/codexLiveTurns.ts` - live-turn bindings, clocks, and warnings
 - `src/mcp/devcontainer/agentDaemonCore.ts` - shared daemon registry, generation fence, serialization, numbering, and outbox

@@ -3,6 +3,8 @@
 export interface KeyedFifo<K> {
 	/** Returns this work's outcome. */
 	run<T>(key: K, work: () => T | PromiseLike<T>): Promise<T>;
+	/** Whether `key` has queued or running work. */
+	has(key: K): boolean;
 	/** Awaits the queued snapshot. */
 	drain(): Promise<void>;
 }
@@ -25,6 +27,7 @@ export function createKeyedFifo<K>(): KeyedFifo<K> {
 			tails.set(key, tail);
 			return ran;
 		},
+		has: (key) => tails.has(key),
 		async drain(): Promise<void> {
 			await Promise.all([...tails.values()]);
 		},

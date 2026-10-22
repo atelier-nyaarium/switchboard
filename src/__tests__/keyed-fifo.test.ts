@@ -58,8 +58,10 @@ describe("keyed FIFO", () => {
 		await drained;
 
 		expect(done).toEqual(["early"]);
+		expect(fifo.has("a")).toBe(true);
 		late.open();
 		await fifo.drain();
 		expect(done).toEqual(["early", "late"]);
+		expect(fifo.has("a")).toBe(false);
 	});
 });
