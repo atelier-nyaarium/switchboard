@@ -36,11 +36,10 @@ function linesOf(baseline: SessionBaseline): string[] {
 		...baseline.routines.map(({ occurrenceId, routine }) => `routine: ${occurrenceId} ${flat(routine)}`),
 		...baseline.agents.map(({ family, agentId }) => `agent: ${family} ${agentId} turn running`),
 		...(baseline.assistant?.watchers ?? []).map(
-			({ label, unread, evicted, stopped, waiting }) =>
-				`watcher: ${flat(label)} ${unread} in inbox` +
+			({ label, unread, capped, checked, stopped, waiting }) =>
+				`watcher: ${flat(label)} ${checked === false ? "not checked yet" : `${unread}${capped ? "+" : ""} unread`}` +
 				(stopped === undefined ? "" : `, stopped: ${flat(stopped)}`) +
-				(waiting === undefined ? "" : `, waiting: ${flat(waiting)}`) +
-				((evicted ?? 0) > 0 ? `, ${evicted} lost unread` : ""),
+				(waiting === undefined ? "" : `, waiting: ${flat(waiting)}`),
 		),
 		...(baseline.board === null
 			? ["board: unavailable"]

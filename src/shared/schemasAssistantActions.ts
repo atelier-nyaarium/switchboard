@@ -38,8 +38,8 @@ export interface AssistantActionDeclaration {
 export const ASSISTANT_ACTIONS = {
 	github_done: {
 		watcherId: GITHUB_WATCHER_ID,
-		label: "Done",
-		description: "Marks notification threads done and read on GitHub.",
+		label: "Mark done",
+		description: "Clears threads from your GitHub inbox.",
 		usage: `
 # GitHub Done
 

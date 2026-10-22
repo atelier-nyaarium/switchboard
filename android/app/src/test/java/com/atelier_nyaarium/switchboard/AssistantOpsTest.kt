@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcherBackoff
@@ -18,6 +19,7 @@ import org.junit.Test
 private fun watcher(
 	grants: List<String> = listOf("gh-token"),
 	unread: Long = 2L,
+	capped: Boolean? = null,
 	evicted: Long? = null,
 	lastSuccessAt: Long? = null,
 	backoff: AssistantWatcherBackoff? = null,
@@ -27,6 +29,7 @@ private fun watcher(
 	label = "GitHub notifications",
 	grants = grants,
 	unread = unread,
+	capped = capped,
 	evicted = evicted,
 	lastSuccessAt = lastSuccessAt,
 	backoff = backoff,
@@ -162,20 +165,36 @@ class AssistantOpsTest {
 	}
 
 	@Test
-	fun theStripAsksForASecretBeforeItCountsAnything() {
+	fun theStripAsksForASecretBeforeItCountsGithubsUnread() {
 		assertEquals(WatcherChip("GitHub notifications needs a secret", needsSecret = true), watcherChip(watcher(grants = emptyList())))
 		assertEquals("GitHub notifications stopped", watcherChip(watcher(stopped = "GitHub refused the token")).text)
-		assertEquals("GitHub notifications · 2 in inbox", watcherChip(watcher()).text)
+		assertEquals("GitHub notifications not checked yet", watcherChip(watcher(unread = 0L)).text)
+		assertEquals("GitHub notifications · 2 unread", watcherChip(watcher(lastSuccessAt = 1L)).text)
+		assertEquals(
+			"GitHub notifications · 500+ unread",
+			watcherChip(watcher(unread = 500L, capped = true, lastSuccessAt = 1L)).text,
+		)
 	}
 
 	@Test
-	fun theHealthLineSaysWhyItIsNotPolling() {
+	fun theHealthLineSaysWhyItIsNotPollingAndCountsOnceAPollLanded() {
 		val ago = { _: Long -> "5m ago" }
 
-		assertEquals("Stopped: needs a secret", watcherHealth(watcher(stopped = "needs a secret"), ago))
-		assertEquals("Waiting: GitHub rate limit", watcherHealth(watcher(backoff = AssistantWatcherBackoff(1L, "GitHub rate limit")), ago))
-		assertEquals("Checked 5m ago · 3 lost unread", watcherHealth(watcher(lastSuccessAt = 1L, evicted = 3L), ago))
+		assertEquals("Stopped: needs a secret", watcherHealth(watcher(stopped = "needs a secret", lastSuccessAt = 1L), ago))
+		assertEquals(
+			"Waiting: GitHub rate limit · 2 unread",
+			watcherHealth(watcher(lastSuccessAt = 1L, backoff = AssistantWatcherBackoff(1L, "GitHub rate limit")), ago),
+		)
+		assertEquals("Checked 5m ago · 2 unread", watcherHealth(watcher(lastSuccessAt = 1L, evicted = 3L), ago))
 		assertEquals("Not checked yet", watcherHealth(watcher(), ago))
+	}
+
+	@Test
+	fun settingsListWhatTheAssistantMayDoAndNothingFromAnOlderGateway() {
+		val done = AssistantActionDescriptor("github_done", "Mark done", "Clears threads from your GitHub inbox.")
+
+		assertEquals(listOf(done), watcherActions(watcher().copy(actions = listOf(done))))
+		assertEquals(emptyList<AssistantActionDescriptor>(), watcherActions(watcher()))
 	}
 
 	@Test

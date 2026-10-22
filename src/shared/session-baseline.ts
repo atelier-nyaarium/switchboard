@@ -44,6 +44,8 @@ export const SessionBaselineSchema = z.object({
 					unread: z.number().int().nonnegative(),
 					/** More unread than a poll reads. */
 					capped: z.boolean().optional(),
+					/** False until a poll has read the count; absent from an older Gateway. */
+					checked: z.boolean().optional(),
 					// Sent as 0 for older plugins; remove 2026-11-02.
 					evicted: z.number().int().nonnegative().optional(),
 					stopped: z.string().optional(),

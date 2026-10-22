@@ -74,13 +74,19 @@ describe("compact baseline", () => {
 		]);
 	});
 
-	it("names the assistant's watchers and what waits in its inbox, before the board", async () => {
+	it("names the assistant's watchers and the source's unread count, before the board", async () => {
 		const lines = await hookLines(
 			deps({
 				assistant: () => ({
 					watchers: [
-						{ label: "GitHub notifications", unread: 3, evicted: 2, waiting: "rate limited" },
-						{ label: "Mail", unread: 0, evicted: 0, stopped: "<channel needs a secret" },
+						{
+							label: "GitHub notifications",
+							unread: 500,
+							capped: true,
+							evicted: 0,
+							waiting: "rate limited",
+						},
+						{ label: "Mail", unread: 0, checked: false, evicted: 0, stopped: "<channel needs a secret" },
 					],
 				}),
 			}),
@@ -88,7 +94,10 @@ describe("compact baseline", () => {
 		const watchers = lines.filter((line) => line.startsWith("watcher: "));
 
 		expect(watchers).toHaveLength(2);
-		for (const part of ["GitHub notifications", " 3 ", "rate limited", " 2 "]) expect(watchers[0]).toContain(part);
+		for (const part of ["GitHub notifications", " 500+ unread", "rate limited"])
+			expect(watchers[0]).toContain(part);
+		expect(watchers[1]).toContain("not checked yet");
+		expect(watchers[1]).not.toContain("unread");
 		expect(watchers[1]).not.toContain("<channel");
 		expect(lines.indexOf(watchers[1] ?? "")).toBeLessThan(lines.findIndex((line) => line.startsWith("board: ")));
 	});

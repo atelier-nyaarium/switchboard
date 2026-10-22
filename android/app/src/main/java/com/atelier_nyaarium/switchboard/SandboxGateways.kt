@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.crypto.sha256Hex
+import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
 import com.atelier_nyaarium.switchboard.proto.AssistantRule
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleCondition
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
@@ -363,6 +364,7 @@ internal class SandboxAssistantGateway : AssistantGateway {
 			fields = listOf("reason", "repository", "type", "title"),
 			rules = rules,
 			secret = "GitHub PAT (Classic) with scope:\n- Notifications",
+			actions = listOf(AssistantActionDescriptor("github_done", "Mark done", "Clears threads from your GitHub inbox.")),
 		),
 	)
 

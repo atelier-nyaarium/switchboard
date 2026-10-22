@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Address
+import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
 import com.atelier_nyaarium.switchboard.proto.AssistantRule
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
@@ -67,13 +68,19 @@ internal fun movedText(moved: AssistantMoved): String? = when (moved) {
 /** One chip in the inbox strip. */
 internal data class WatcherChip(val text: String, val needsSecret: Boolean)
 
+/** "+" when capped. */
+internal fun unreadText(watcher: AssistantWatcher): String =
+	"${watcher.unread}${if (watcher.capped == true) "+" else ""} unread"
+
+/** No count before a poll has read one. */
 internal fun watcherChip(watcher: AssistantWatcher): WatcherChip = when {
 	watcher.grants.isEmpty() -> WatcherChip("${watcher.label} needs a secret", needsSecret = true)
 	watcher.stopped != null -> WatcherChip("${watcher.label} stopped", needsSecret = false)
-	else -> WatcherChip("${watcher.label} · ${watcher.unread} in inbox", needsSecret = false)
+	watcher.lastSuccessAt == null -> WatcherChip("${watcher.label} not checked yet", needsSecret = false)
+	else -> WatcherChip("${watcher.label} · ${unreadText(watcher)}", needsSecret = false)
 }
 
-/** A watcher's settings row, under its name. */
+/** A watcher's settings row. */
 internal fun watcherHealth(watcher: AssistantWatcher, ago: (Long) -> String): String {
 	val status = when {
 		watcher.stopped != null -> "Stopped: ${watcher.stopped}"
@@ -81,9 +88,11 @@ internal fun watcherHealth(watcher: AssistantWatcher, ago: (Long) -> String): St
 		watcher.lastSuccessAt != null -> "Checked ${ago(watcher.lastSuccessAt)}"
 		else -> "Not checked yet"
 	}
-	val lost = watcher.evicted ?: 0L
-	return if (lost > 0) "$status · $lost lost unread" else status
+	return if (watcher.lastSuccessAt != null && watcher.stopped == null) "$status · ${unreadText(watcher)}" else status
 }
+
+/** Older Gateways name none. */
+internal fun watcherActions(watcher: AssistantWatcher): List<AssistantActionDescriptor> = watcher.actions.orEmpty()
 
 /** A stopped watcher that holds its secret can be asked again, as after a rotated key. */
 internal fun canRetry(watcher: AssistantWatcher): Boolean = watcher.stopped != null && watcher.grants.isNotEmpty()

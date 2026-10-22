@@ -139,7 +139,11 @@ describe("an assistant action", () => {
 		});
 		expect(ConsolePushEntrySchema.safeParse(record?.entry).success).toBe(true);
 		expect(assistant.console.state().watchers[0]?.actions).toEqual([
-			{ key: "github_done", label: "Done", description: ASSISTANT_ACTIONS.github_done.description },
+			{
+				key: "github_done",
+				label: ASSISTANT_ACTIONS.github_done.label,
+				description: ASSISTANT_ACTIONS.github_done.description,
+			},
 		]);
 	});
 

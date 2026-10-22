@@ -293,7 +293,11 @@ before the shutdown flush. Stop is final. `src/gateway/assistant/` holds the wat
   phone drops it unseen. Titles, links and outcomes come from GitHub and render as a fixed list of
   text; only the summary is the model's. The conversation is the only action history. A crash after
   GitHub confirms a clear but before its row is queued leaves that clear without a row.
-- **Counts:** the chip and the baseline show GitHub's unread count.
+- **Counts:** the chip, the settings health line and the baseline show GitHub's unread count from the
+  last poll that read it ("4 unread"), "not checked yet" before one has, and "+" past the 500 a poll
+  reads (`unreadText` in
+  `AssistantOps.kt`, `renderBaseline`). Settings list each watcher's actions under its secret, from
+  `assistant_state` (`watcherActions`); an older Gateway names none.
 
 ## What the model reads
 

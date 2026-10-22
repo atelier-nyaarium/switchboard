@@ -56,6 +56,7 @@ import com.atelier_nyaarium.switchboard.routines.SecretNeeded
 import com.atelier_nyaarium.switchboard.routines.grantedLine
 import com.atelier_nyaarium.switchboard.runIsolated
 import com.atelier_nyaarium.switchboard.vault.grantableOn
+import com.atelier_nyaarium.switchboard.watcherActions
 import com.atelier_nyaarium.switchboard.watcherChip
 import com.atelier_nyaarium.switchboard.watcherHealth
 import kotlinx.coroutines.launch
@@ -214,6 +215,20 @@ private fun AssistantSettingsSheet(
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
 						watcher.secret?.let { SecretNeeded(it) }
+						val may = watcherActions(watcher)
+						if (may.isNotEmpty()) {
+							Text("The assistant may", style = MaterialTheme.typography.labelMedium)
+							for (action in may) {
+								Column {
+									Text(action.label, style = MaterialTheme.typography.bodyMedium)
+									Text(
+										action.description,
+										style = MaterialTheme.typography.bodySmall,
+										color = MaterialTheme.colorScheme.onSurfaceVariant,
+									)
+								}
+							}
+						}
 						Text(grantedLine(watcher.grants, entries), style = MaterialTheme.typography.bodyMedium)
 						Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 							OutlinedButton(onClick = hapticClick { granting = home to watcher.id }, enabled = !busy) {

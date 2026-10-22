@@ -9,6 +9,7 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo.CodecCapabilities
 import android.media.MediaFormat
 import android.media.MediaMuxer
+import com.atelier_nyaarium.switchboard.ActionRecord
 import com.atelier_nyaarium.switchboard.AppStateStore
 import com.atelier_nyaarium.switchboard.Attachments
 import com.atelier_nyaarium.switchboard.Draft
@@ -16,6 +17,7 @@ import com.atelier_nyaarium.switchboard.Message
 import com.atelier_nyaarium.switchboard.MessageFile
 import com.atelier_nyaarium.switchboard.OutgoingFile
 import com.atelier_nyaarium.switchboard.PendingGoal
+import com.atelier_nyaarium.switchboard.RecordThread
 import com.atelier_nyaarium.switchboard.Authority
 import com.atelier_nyaarium.switchboard.Presence
 import com.atelier_nyaarium.switchboard.Team
@@ -167,6 +169,41 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 			from = SESSION,
 			epoch = SANDBOX_EPOCH,
 			seq = 21,
+		)
+
+		// Response and quiet records.
+		rows += Message(
+			fromMe = false,
+			text = "The v2 release is out; nothing in it touches your code.",
+			at = now - 45_000,
+			id = id++,
+			from = SESSION,
+			epoch = SANDBOX_EPOCH,
+			seq = 24,
+			record = ActionRecord(
+				notify = true,
+				threads = listOf(
+					RecordThread("26357054027", "Release v2.0.0", "https://github.com/atelier/app", "done"),
+					RecordThread("26183513238", null, null, "not_found"),
+				),
+			),
+		)
+		rows += Message(
+			fromMe = false,
+			text = "",
+			at = now - 40_000,
+			id = id++,
+			from = SESSION,
+			epoch = SANDBOX_EPOCH,
+			seq = 25,
+			record = ActionRecord(
+				notify = false,
+				threads = listOf(
+					RecordThread("1001", "Dependabot bumped vitest", "https://github.com/atelier/app/pull/41", "done"),
+					RecordThread("1002", "CI passed on main", "https://github.com/atelier/app", "done"),
+					RecordThread("1003", "Weekly digest", null, "uncertain"),
+				),
+			),
 		)
 
 		// A card the console never opened to classify: declared, docked, and rendered from its own

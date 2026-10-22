@@ -236,6 +236,8 @@ The phone learns the row before anything sends one: this phase ships the Router 
 - **Chip and baseline:** GitHub's unread count ("4 unread", "500+"), with the "in inbox" and lost-unread wording gone.
 - **Settings:** each watcher's action descriptors under its secret, as in the mockup, from the existing state call. Decisions stay in `AssistantOps`.
 - **Sandbox and fakes** answer the new state and record.
+- **Settled while building:** one count text, `unreadText`, serves the chip and the health line ("3 unread", "500+ unread" when capped); the health line counts once a poll has landed and not while stopped. The action's label and description follow the mockup ("Mark done", "Clears threads from your GitHub inbox."), and `watcherActions` answers none for an older Gateway. The baseline reads "N unread". Record links take the theme's link colour; a plain link already reaches the app's link handler, so the thread page never navigates. The emulator sandbox seeds a response record and a quiet one. A watcher no poll has read yet says "not checked yet" on the chip and in the baseline (`checked: false`), never "0 unread".
+- **Accepted:** between the phone update and the Gateway restart, an older Gateway's local inbox count reads as "N unread" with no "+" and no lost-unread line. The release restarts the Gateway right after the phone.
 
 ## Clean-break checklist
 

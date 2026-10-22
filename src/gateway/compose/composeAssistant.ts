@@ -328,6 +328,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 						label: labelOf(watcher.id),
 						unread: health.unread,
 						capped: health.capped,
+						checked: health.lastSuccessAt !== undefined,
 						evicted: 0,
 						...(health.stopped !== undefined ? { stopped: health.stopped } : {}),
 						...(health.backoff ? { waiting: health.backoff.reason } : {}),
