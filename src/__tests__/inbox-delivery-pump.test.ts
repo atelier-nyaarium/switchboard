@@ -499,6 +499,61 @@ describe("inbox delivery pump", () => {
 		);
 	});
 
+	it("releases a key grant whose write failed, so the redelivery installs it", async () => {
+		const setupResult = setup();
+		let attempts = 0;
+		const delivery = setupResult.pump({
+			gatewayId: "gateway",
+			gatewaySignPub: "Z2F0ZXdheS1zaWdu",
+			keyRequester: {
+				request: () => {},
+				installed: () => {},
+				sendReceipt: async () => {},
+				resendReceipts: async () => {},
+			},
+			allowlistSnapshot: () => ({ ownerSignPub: "owner", admissions: [], revocations: [] }),
+			contentKeyStore: {
+				install: () => {
+					attempts++;
+					if (attempts === 1) throw new Error("disk full");
+					return "installed";
+				},
+			} as never,
+		});
+		const grant = {
+			address: "gateway:domain/gateway",
+			rows: [
+				{
+					...row(1),
+					seq: 2,
+					envelope: {
+						...envelope("clear"),
+						kind: "key_grant",
+						origin: { kind: "router", domainId: "domain" },
+					},
+					body: {
+						v: 1,
+						recipientSignPub: "Z2F0ZXdheS1zaWdu",
+						envelope: {
+							epoch: 2,
+							signerSignPub: "signer",
+							sealed: { ephemeralPub: "YQ==", nonce: "Yg==", ciphertext: "Yw==", signature: "ZA==" },
+						},
+						at: 10,
+					},
+				},
+			],
+			deliveryEpoch: 1,
+		};
+		await delivery.onFrame(grant);
+		await delivery.onFrame(grant);
+		const outcomes = setupResult.calls
+			.filter((call) => call.action === "inbox_ack")
+			.map((call) => call.params.outcome);
+		expect(attempts).toBe(2);
+		expect(outcomes).toEqual(["waking", "delivered"]);
+	});
+
 	it("fails a bad-tag console op without waiting", async () => {
 		const setupResult = setup();
 		const identity = generateIdentity();

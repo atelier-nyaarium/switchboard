@@ -334,7 +334,13 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 				const snapshot = deps.allowlistSnapshot?.();
 				if (!snapshot || !deps.keyRequester)
 					return ack(address, row.seq, deliveryEpoch, "failed", "key_refused");
-				const result = deps.contentKeyStore.install(grant.data.envelope, snapshot);
+				let result: ReturnType<typeof deps.contentKeyStore.install>;
+				try {
+					result = deps.contentKeyStore.install(grant.data.envelope, snapshot);
+				} catch {
+					// Failed write: redeliver.
+					return ack(address, row.seq, deliveryEpoch, "waking", "key_write_failed", false);
+				}
 				console.log(`[inbox] key grant epoch ${grant.data.envelope.epoch}: ${result}`);
 				if (result === "refused") return ack(address, row.seq, deliveryEpoch, "failed", "key_refused");
 				try {

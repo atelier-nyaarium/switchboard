@@ -74,7 +74,8 @@ function writers(): Array<{ file: string; symbol: string }> {
 
 const roots: string[] = [];
 
-const fakeDurable = (): DurableStore => ({ load: () => null, save: () => {} }) as unknown as DurableStore;
+const fakeDurable = (): DurableStore =>
+	({ load: () => null, save: () => {}, saveChecked: () => {} }) as unknown as DurableStore;
 
 const tempDir = () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "migration-fence-"));

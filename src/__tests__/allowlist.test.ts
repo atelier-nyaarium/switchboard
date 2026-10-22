@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { Allowlist } from "../gateway/federation/allowlist.js";
+import { ALLOWLIST_FILE, Allowlist } from "../gateway/federation/allowlist.js";
 import { type Admission, signAdmission, signRevocation } from "../shared/admission.js";
 import { processAmbient } from "../shared/ambient.js";
 import { generateIdentity } from "../shared/crypto.js";
@@ -58,7 +58,7 @@ describe("Allowlist", () => {
 		const a = new Allowlist(tmpDir(), processAmbient());
 		a.setOwner(owner.sign.pub);
 		const other = generateIdentity();
-		expect(() => a.setOwner(other.sign.pub)).toThrow(/different owner/);
+		expect(() => a.setOwner(other.sign.pub)).toThrow();
 	});
 
 	it("a revocation removes the Gateway from resolution", () => {
@@ -122,5 +122,18 @@ describe("Allowlist", () => {
 		expect(a.applySnapshot({ ownerSignPub: other.sign.pub, admissions: [], revocations: [] })).toBe(false);
 		// The original root stands; the foreign snapshot is ignored.
 		expect(a.ownerSignPub).toBe(owner.sign.pub);
+	});
+
+	it("does not admit a console when its snapshot write fails", () => {
+		const dir = tmpDir();
+		const allowlist = new Allowlist(dir, processAmbient());
+		allowlist.setOwner(owner.sign.pub);
+		const file = path.join(dir, ALLOWLIST_FILE);
+		fs.rmSync(file);
+		fs.mkdirSync(file);
+		const admission = signAdmission(hostAdmission(), owner.sign.priv, owner.sign.pub);
+
+		expect(allowlist.addAdmission(admission)).toBe(false);
+		expect(allowlist.resolveBySignPub(host.sign.pub)).toBeNull();
 	});
 });

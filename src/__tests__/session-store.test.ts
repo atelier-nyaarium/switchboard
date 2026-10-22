@@ -577,6 +577,25 @@ describe("SessionStore Copilot catalogs", () => {
 		expect(restored.listCopilotAgents(restoredOwner!)).toEqual([agent]);
 	});
 
+	it("keeps a catalog unconfirmed when its snapshot landed without directory confirmation", () => {
+		let writer!: CopilotCatalogWriter;
+		const store = new SessionStore({
+			ambient: processAmbient(),
+			copilotCatalogPersistence: {
+				persistChecked: () => false,
+				receiveWriter: (received) => {
+					writer = received;
+				},
+			},
+		});
+		const owner = store.mint({ spawn: "host", sessionLabel: "Work" });
+		const agent = requestedCopilotAgent();
+
+		expect(writer.commit(owner, 0, [agent])).toEqual({ committed: false, reason: "unconfirmed" });
+		expect(writer.isDurable(owner, 1)).toBe(false);
+		expect(writer.checkpoint(owner, 1)).toEqual({ confirmed: false, reason: "unconfirmed" });
+	});
+
 	it("restores healthy Copilot agents while dropping a damaged sibling", () => {
 		const healthy = requestedCopilotAgent();
 		const store = new SessionStore({ ambient: processAmbient() });

@@ -3,9 +3,10 @@ import path from "node:path";
 import { z } from "zod";
 import { resolveAdmittedConsole, type SignedAdmission, type SignedRevocation } from "../../shared/admission.js";
 import type { Ambient } from "../../shared/ambient.js";
-import { renameFileSync, writeFileAtomic } from "../../shared/atomic-write.js";
+import { renameFileSync } from "../../shared/atomic-write.js";
 import { type ContentAad, openContent, sealContentWithNonce, unwrapContentKey } from "../../shared/content-envelope.js";
 import { b64Field } from "../../shared/crypto.js";
+import { commitChecked, writeFileAtomicChecked } from "../../shared/durable-store.js";
 import {
 	type ContentEnvelope,
 	ContentEnvelopeSchema,
@@ -58,11 +59,7 @@ export class ContentKeyStore {
 		const encoded: Record<string, string> = {};
 		for (const epoch of [...keys.keys()].sort((a, b) => a - b))
 			encoded[String(epoch)] = keys.get(epoch)!.toString("base64");
-		writeFileAtomic(file, JSON.stringify({ v: 1, keys: encoded }), {
-			mode: 0o600,
-			fsyncFile: true,
-			fsyncDirectory: true,
-		});
+		writeFileAtomicChecked(file, JSON.stringify({ v: 1, keys: encoded }), 0o600);
 	}
 
 	private read(): Map<number, Buffer> {
@@ -100,13 +97,18 @@ export class ContentKeyStore {
 		for (const epoch of this.keys.keys()) {
 			if (!map.has(epoch)) throw new Error("content key commit would drop a held epoch");
 		}
-		this.keys.clear();
-		for (const [epoch, key] of map) this.keys.set(epoch, Buffer.from(key));
-		this.persist();
-	}
-
-	private persist(): void {
-		ContentKeyStore.writeFile(this.file, this.keys);
+		const result = commitChecked(
+			{
+				saveChecked: (snapshot) => ContentKeyStore.writeFile(this.file, snapshot as Map<number, Buffer>),
+			},
+			map,
+			(landed) => {
+				this.keys.clear();
+				for (const [epoch, key] of landed) this.keys.set(epoch, Buffer.from(key));
+			},
+			{ label: "content-key-store" },
+		);
+		if (!result.landed) throw result.error;
 	}
 
 	reload(): void {

@@ -1,6 +1,5 @@
 // The whole gateway graph, one stage at a time.
 
-import { DurableStoreInstalledError } from "../shared/durable-store.js";
 import { hostSpawnPoint } from "../shared/host-spawn.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
 import { composeAgents } from "./compose/composeAgents.js";
@@ -112,14 +111,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		dataDir: bootstrap.dataDir,
 		ambient: bootstrap.ambient,
 		sessions,
-		saveSessions: () => {
-			try {
-				stores.sessionResumeDurable.saveChecked(sessions.sessionResumeSnapshot(false));
-			} catch (error) {
-				// An installed snapshot is what a reopen reads.
-				if (!(error instanceof DurableStoreInstalledError)) throw error;
-			}
-		},
+		saveSessions: () => sessions.saveSessionsChecked(),
 		// Read late; composed below.
 		vault: {
 			watcherGrants: (watcherId) => vault?.watcherGrants(watcherId) ?? [],

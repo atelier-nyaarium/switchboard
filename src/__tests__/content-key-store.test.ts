@@ -117,6 +117,28 @@ describe("ContentKeyStore", () => {
 		expect(store.epochs()).toEqual([1]);
 	});
 
+	it("does not hold a key after a failed write and accepts its redelivery", () => {
+		const dir = tempDir();
+		const owner = generateIdentity();
+		const signer = generateIdentity();
+		const gateway = generateIdentity();
+		const admission = signAdmission(
+			{ kind: "console", signPub: signer.sign.pub, boxPub: signer.box.pub, issuedAt: 1, nonce: "a" },
+			owner.sign.priv,
+			owner.sign.pub,
+		);
+		const trust = { ownerSignPub: owner.sign.pub, admissions: [admission], revocations: [] };
+		const envelope = wrapContentKey(Buffer.alloc(32, 4), 1, gateway.box.pub, signer.sign.pub, signer.sign.priv);
+		const store = new ContentKeyStore(dir, gateway.box.priv, processAmbient());
+		const file = path.join(dir, "content-keys.json");
+		fs.mkdirSync(file);
+
+		expect(() => store.install(envelope, trust)).toThrow();
+		expect(store.epochs()).toEqual([]);
+		fs.rmSync(file, { recursive: true });
+		expect(store.install(envelope, trust)).toBe("installed");
+	});
+
 	it("refuses different bytes for a held epoch without changing the keyring", () => {
 		const dir = tempDir();
 		const owner = generateIdentity();

@@ -1,6 +1,5 @@
-import fs from "node:fs";
-import path from "node:path";
 import { z } from "zod";
+import { commitChecked, DurableStore, writeChecked } from "../../shared/durable-store.js";
 import { SignedXDomainLinkSchema } from "../../shared/federation-protocol.js";
 
 ////////////////////////////////
@@ -43,22 +42,20 @@ export const XDOMAIN_PEERS_FILE = "cross-domain-peers.json";
  * contaminate intra-Domain resolution. The sealer resolves local peers first, then falls
  * back here, so a local peer's seal path is unchanged. */
 export class CrossDomainPeers {
-	private file: string;
+	private readonly durable: DurableStore;
 	private state: CrossDomainPeersFile;
 	private readonly onChange?: () => void;
 
-	/** `onChange` fires once per genuine mutation (persist() is the one place every mutator below
-	 * funnels through) - the single-writer hook the linked-peers plane's markDirty rides, so a
-	 * link/unlink/untrust can never forget to announce itself the way a scattered callsite could. */
-	constructor(dataDir: string, onChange?: () => void) {
-		this.file = path.join(dataDir, XDOMAIN_PEERS_FILE);
+	/** Notify on peer changes. */
+	constructor(federationDir: string, onChange?: () => void) {
+		this.durable = new DurableStore(federationDir, "cross-domain-peers", { mode: 0o600 });
 		this.state = this.read();
 		this.onChange = onChange;
 	}
 
 	private read(): CrossDomainPeersFile {
 		try {
-			const parsed = CrossDomainPeersFileSchema.safeParse(JSON.parse(fs.readFileSync(this.file, "utf8")));
+			const parsed = CrossDomainPeersFileSchema.safeParse(this.durable.load());
 			if (parsed.success) return parsed.data;
 		} catch {
 			// Absent / unreadable: start empty.
@@ -66,10 +63,13 @@ export class CrossDomainPeers {
 		return { peers: [] };
 	}
 
-	private persist(): void {
-		fs.mkdirSync(path.dirname(this.file), { recursive: true });
-		fs.writeFileSync(this.file, JSON.stringify(this.state), { mode: 0o600 });
-		this.onChange?.();
+	private persistRemoval(): void {
+		const written = writeChecked(this.durable, this.state, "cross-domain-peers");
+		try {
+			if (!written.landed) throw written.error;
+		} finally {
+			this.onChange?.();
+		}
 	}
 
 	/** Add or replace a cross-Domain peer. Idempotent on `(friendDomainId,
@@ -83,9 +83,16 @@ export class CrossDomainPeers {
 			(e) => !(e.friendDomainId === p.friendDomainId && e.friendGatewayId === p.friendGatewayId),
 		);
 		next.push(p);
-		this.state.peers = next;
-		this.persist();
-		return true;
+		const nextState = { peers: next };
+		return commitChecked(
+			this.durable,
+			nextState,
+			(landed) => {
+				this.state = landed;
+				this.onChange?.();
+			},
+			{ label: "cross-domain-peers" },
+		).landed;
 	}
 
 	/** The peer for a `(friendDomainId, friendGatewayId)` pair, or null. */
@@ -111,7 +118,7 @@ export class CrossDomainPeers {
 		const before = this.state.peers.length;
 		this.state.peers = this.state.peers.filter((e) => e.friendGatewayId !== friendGatewayId);
 		const removed = before - this.state.peers.length;
-		if (removed > 0) this.persist();
+		if (removed > 0) this.persistRemoval();
 		return removed;
 	}
 
@@ -122,7 +129,7 @@ export class CrossDomainPeers {
 		const before = this.state.peers.length;
 		this.state.peers = this.state.peers.filter((e) => e.friendDomainId !== friendDomainId);
 		const removed = before - this.state.peers.length;
-		if (removed > 0) this.persist();
+		if (removed > 0) this.persistRemoval();
 		return removed;
 	}
 
@@ -136,7 +143,7 @@ export class CrossDomainPeers {
 		const domains = [...new Set(owned.map((e) => e.friendDomainId))];
 		if (owned.length > 0) {
 			this.state.peers = this.state.peers.filter((e) => e.friendOwnerSignPub !== friendOwnerSignPub);
-			this.persist();
+			this.persistRemoval();
 		}
 		return { removed: owned.length, domains };
 	}

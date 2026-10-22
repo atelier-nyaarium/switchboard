@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SHARE_TTL_MS, share, sharesFor, sweep } from "../shared/share-rules.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
@@ -125,6 +127,41 @@ describe("cross-Domain gateway admission and relay", () => {
 		await h.waitFor(
 			async () => ((await sendFrom(h, remote(bob, mirrored.team), "bob", "after restart")).ok ? true : undefined),
 			"the restarted Gateway's copy of the share",
+			20_000,
+		);
+	});
+
+	it("goes unready and rereads after a share delta cannot be written", async () => {
+		const first = session(bob, "fixture-app.write-failure-first");
+		await first.ready();
+		await share(bob, first.team, h.set.domain.id);
+		const next = session(bob, "fixture-app.write-failure-next");
+		await next.ready();
+		const sessionTarget = bob.target(next.team);
+		const file = path.join(bob.federationDir, "cross-domain-share-state.json");
+		fs.rmSync(file);
+		fs.mkdirSync(file);
+
+		const target = { kind: "domain" as const, domainId: h.set.domain.id };
+		const recorded = await h.waitFor(async () => {
+			const answer = (await bob.phone.send({ kind: "cross_domain_share", sessionTarget, target })) as {
+				reason?: string;
+			};
+			return answer.reason === "session" ? undefined : answer;
+		}, "the share being recorded");
+		expect(recorded).toMatchObject({ ok: true });
+		await h.waitFor(
+			() => (bob.gateway.faults.sharesHeld().ready ? undefined : true),
+			"the Gateway closing its unconfirmed mirror",
+		);
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		fs.rmSync(file, { recursive: true, force: true });
+		await h.waitFor(
+			() => {
+				const held = bob.gateway.faults.sharesHeld();
+				return held.ready && held.sessionTargets.includes(sessionTarget) ? held : undefined;
+			},
+			"the Gateway rereading the share mirror",
 			20_000,
 		);
 	});

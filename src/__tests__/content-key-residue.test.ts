@@ -35,8 +35,8 @@ describe("content key boundaries", () => {
 			"gateway/federation/contentKeyStore.ts",
 		]);
 		const store = fs.readFileSync(path.join(sourceRoot, "gateway/federation/contentKeyStore.ts"), "utf8");
-		expect(store.match(/writeFileAtomic\([^)]*content-keys\.json/g) ?? []).toHaveLength(0);
-		expect((store.match(/writeFileAtomic\(/g) ?? []).length).toBe(1);
+		expect((store.match(/writeFileAtomicChecked\(/g) ?? []).length).toBe(1);
+		expect(store).not.toContain("writeFileAtomic(");
 		for (const [file, text] of contents) {
 			if (file.includes("gateway/") || file.includes("federation-server/"))
 				expect(text, path.relative(sourceRoot, file)).not.toContain("deriveContentKey");

@@ -72,10 +72,10 @@ id and values to text, so a preview cannot answer something a fire would not sen
 - An existing session target delivers straight away, through the same route a typed message takes.
   A session between sockets has the message queued, exactly as a typed one would be.
 - A fire happens once per operation, guarded by the gateway's `op-idempotency` store. Value ops are
-  not deduplicated upstream, so a gateway without that store refuses to fire at all rather than
-  quietly dropping the guarantee. A completion on disk replays; a fire this process started is held
-  in memory and refuses a second attempt; anything else runs, so a gateway that died mid-fire can be
-  retried rather than wedged. The memory is released only once the completion is durable.
+  not deduplicated upstream, so a gateway without that store refuses to fire at all. A completion on
+  disk replays. A fire this process started holds its key in memory and refuses a second attempt until
+  its completion is durable, so a completion that fails to write keeps the key held. A fire that died
+  with the process can run again after a restart.
 - A fire may name the revision it previewed. One that has moved on is refused rather than sending
   words the owner never read.
 

@@ -171,6 +171,10 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     answers nothing shared until `replace` runs, and `unready` on a disconnect or a gap closes them
     again. No sweep, no touch, no drop lives here.
 - `src/gateway/federation/contentKeyStore.ts` - gateway keyring, sole rule owner, sole writer of `content-keys.json`
+  - **Trust lands on disk before it is held; a revocation is held before it lands:** the keyring, the
+    allowlist, `crossDomainPeers.ts` and `crossDomainShareState.ts` add through `commitChecked`, so a
+    failed write grants nothing, and remove in memory first, so a failed write never leaves a revoked
+    peer live. A key grant whose write failed is released for redelivery.
 - `src/gateway/federation/bootstrapInstall.ts` - staged bootstrap install and re-enrollment merge
 - `src/gateway/codexAgentService.ts` / `codexRelay.ts` / `codexRoute.ts` - Codex catalog orchestration, relay folding, authenticated route
 - `src/gateway/codexAgentReducers.ts` - Codex pure decision functions: acceptance verdicts, activity and terminal folds
@@ -767,7 +771,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/shared/atomic-write.ts` - sole write-then-rename and temp-suffix owner, and the exclusive create and inode-keeping move beside it; residue-tested
 - `src/shared/keyed-fifo.ts` - every per-key promise chain; `drain` waits only for what was queued when asked, so a caller fences admission first
 - `src/shared/single-flight.ts` - every "join the call in flight for this key"; a settled or failed flight releases its key, and `createOpDedupe` adds the settled-answer cache on top
-- `src/shared/durable-store.ts` - atomic snapshots, per-file quarantine boundaries, and `commitChecked`, every store's checked write: the file first, memory only once it landed, a hook after; `checked-commit-residue.test.ts` names the snapshot writers allowed to call `saveChecked` directly
+- `src/shared/durable-store.ts` - atomic snapshots, per-file quarantine boundaries, and `commitChecked`, every store's checked write: the file first, memory only once it landed, a hook after; `checked-commit-residue.test.ts` names the snapshot writers allowed to call `saveChecked` directly, counts the raw file writes allowed under `src/gateway`, and keeps `DurableStoreInstalledError` read only here
 - `src/shared/write-result.ts` - the two readings of an owner-store write: `landed` before anything irreversible, `appliedOrUncertain` before anything a caller retries; no site spells the pair
   - **An uncertain write is not a landed one:** a `durability_uncertain` line may or may not be on
     disk. Bytes and holds wait for `landed`; a record write a caller can

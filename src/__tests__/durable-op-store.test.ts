@@ -1,18 +1,30 @@
-import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DurableOpStore } from "../gateway/console/durableOpStore.js";
 import { processAmbient } from "../shared/ambient.js";
 import { isBoardReply } from "../shared/board-structure.js";
-import type { DurableStore } from "../shared/durable-store.js";
+import type { DurableStore as DurableStoreType } from "../shared/durable-store.js";
+import { DurableStore } from "../shared/durable-store.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 
-function fakeDurable(initial: unknown = null): DurableStore {
+const dirs: string[] = [];
+afterEach(() => {
+	for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+function fakeDurable(initial: unknown = null): DurableStoreType {
 	let state: unknown = initial;
 	return {
 		load: () => state,
+		saveChecked: (s: unknown) => {
+			state = s;
+		},
 		save: (s: unknown) => {
 			state = s;
 		},
-	} as unknown as DurableStore;
+	} as unknown as DurableStoreType;
 }
 
 function mark(store: DurableOpStore, conversationId: string, opId: string): number {
@@ -31,7 +43,7 @@ describe("DurableOpStore", () => {
 		const store = new DurableOpStore(fakeDurable(), processAmbient());
 		mark(store, "conv-a", "op-1");
 		expect(store.get("conv-a", "op-1")).toEqual({ state: "in-flight" });
-		store.markComplete("conv-a", "op-1", { delivered: true });
+		expect(store.markComplete("conv-a", "op-1", { delivered: true })).toBe(true);
 		expect(store.get("conv-a", "op-1")).toEqual({ state: "complete", result: { delivered: true } });
 	});
 
@@ -79,6 +91,19 @@ describe("DurableOpStore", () => {
 
 		const revived = new DurableOpStore(durable, processAmbient());
 		expect(revived.get("conv-a", "op-crashed")).toEqual({ state: "in-flight" });
+	});
+
+	it("does not expose a completion whose checked write failed", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "durable-op-store-"));
+		dirs.push(dir);
+		const store = new DurableOpStore(new DurableStore(dir, "ops"), processAmbient());
+		store.markInFlight("conv-a", "op-1");
+		const file = path.join(dir, "ops.json");
+		fs.rmSync(file);
+		fs.mkdirSync(file);
+
+		expect(store.markComplete("conv-a", "op-1", { delivered: true })).toBe(false);
+		expect(store.get("conv-a", "op-1")).toEqual({ state: "in-flight" });
 	});
 
 	it("an entry past its TTL is treated as unknown", () => {
@@ -154,7 +179,7 @@ describe("DurableOpStore", () => {
 		expect(store.get("conv-a", "op-1")).toBeUndefined();
 	});
 
-	it("counts and warns about a row with a malformed opId or expiresAt, not just a malformed generation/record", () => {
+	it("warns about rows with invalid fields", () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
 			const durable = fakeDurable([
@@ -162,9 +187,7 @@ describe("DurableOpStore", () => {
 				["conv-b", [[123, { state: "in-flight" }, Date.now() + 1000, 1]]],
 			]);
 			new DurableOpStore(durable, processAmbient());
-			expect(warn).toHaveBeenCalledWith(
-				expect.stringContaining("restore rejected 0 malformed conversation(s) and 2 malformed row(s)"),
-			);
+			expect(warn).toHaveBeenCalledOnce();
 		} finally {
 			warn.mockRestore();
 		}

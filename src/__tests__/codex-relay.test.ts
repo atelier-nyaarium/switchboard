@@ -43,8 +43,10 @@ function setup(options: { attached?: boolean; project?: string; waitBudgetMs?: n
 	store = new SessionStore({
 		ambient: processAmbient(),
 		codexCatalogPersistence: {
-			persistChecked: () =>
-				fs.writeFileSync(path.join(dir, "session-resume.json"), JSON.stringify(store.snapshot())),
+			persistChecked: () => {
+				fs.writeFileSync(path.join(dir, "session-resume.json"), JSON.stringify(store.snapshot()));
+				return true;
+			},
 			receiveWriter: (writer) => {
 				catalogWriter = writer;
 			},

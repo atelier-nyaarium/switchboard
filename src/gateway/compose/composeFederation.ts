@@ -4,7 +4,7 @@ import { DomainSnapshotSchema } from "../../shared/admission.js";
 import type { Ambient, TimerHandle } from "../../shared/ambient.js";
 import { DurableStore, restoreDurable } from "../../shared/durable-store.js";
 import { stableHash } from "../../shared/plane-registry.js";
-import { ShareMirrorDeltaSchema, ShareMirrorSnapshotSchema } from "../../shared/schemasShare.js";
+import { ShareMirrorSnapshotSchema } from "../../shared/schemasShare.js";
 import { WIRE_NONCE_BYTES } from "../../shared/wire-vocabulary.js";
 import type { FederationSlice, GatewayBootstrap } from "../boot.js";
 import type { ChannelDeliveryCoordinator } from "../channelDelivery.js";
@@ -14,7 +14,7 @@ import {
 	parseRevealReply,
 } from "../federation/crossDomainHandshake.js";
 import { CrossDomainPeers } from "../federation/crossDomainPeers.js";
-import { CrossDomainShareState } from "../federation/crossDomainShareState.js";
+import { CrossDomainShareState, handleShareDelta } from "../federation/crossDomainShareState.js";
 import { logAdmitGatewayQr } from "../federation/enrollQr.js";
 import type { createGatewayRelayHandler } from "../federation/gatewayRelay.js";
 import { ReplayGuard } from "../federation/replayGuard.js";
@@ -150,6 +150,7 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 					try {
 						shareState.replace(parsed.data);
 					} catch (error) {
+						shareState.unready();
 						failure = `could not be written: ${(error as Error).message}`;
 					}
 				}
@@ -283,11 +284,7 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 				if (typeof unlinked === "string") deps.unlinkDomain()?.(unlinked);
 			},
 			onShareDelta: (frame) => {
-				const parsed = ShareMirrorDeltaSchema.safeParse(frame);
-				if (parsed.success && shareState.apply(parsed.data) === "applied") return;
-				// Gaps require a snapshot.
-				shareState.unready();
-				fireAndForget("share mirror read", readShareMirror());
+				handleShareDelta(shareState, frame, () => fireAndForget("share mirror read", readShareMirror()));
 			},
 			onInboxDeliver: (frame) => {
 				const pumped = inboxPump?.onFrame(

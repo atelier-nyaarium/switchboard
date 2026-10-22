@@ -16,7 +16,8 @@ import {
 	verifyRevocation,
 } from "../../shared/admission.js";
 import type { Clock } from "../../shared/ambient.js";
-import { renameFileSync, writeFileAtomic } from "../../shared/atomic-write.js";
+import { renameFileSync } from "../../shared/atomic-write.js";
+import { type CheckedCommit, commitChecked, writeFileAtomicChecked } from "../../shared/durable-store.js";
 
 const AllowlistFileSchema = z.object({
 	// The owner root remains required to verify local revocations offline.
@@ -81,12 +82,23 @@ export class Allowlist {
 	}
 
 	static writeFile(file: string, state: AllowlistFile): void {
-		writeFileAtomic(file, JSON.stringify(state), { mode: 0o600, fsyncFile: true, fsyncDirectory: true });
+		writeFileAtomicChecked(file, JSON.stringify(state), 0o600);
 	}
 
-	private persist(): void {
-		fs.mkdirSync(path.dirname(this.file), { recursive: true });
-		Allowlist.writeFile(this.file, this.state);
+	private commit(next: AllowlistFile): CheckedCommit {
+		return commitChecked(
+			{ saveChecked: (snapshot) => Allowlist.writeFile(this.file, snapshot as AllowlistFile) },
+			next,
+			(landed) => {
+				this.state = landed;
+			},
+			{ label: "allowlist" },
+		);
+	}
+
+	private commitOrThrow(next: AllowlistFile): void {
+		const result = this.commit(next);
+		if (!result.landed) throw result.error;
 	}
 
 	get ownerSignPub(): string | null {
@@ -116,13 +128,11 @@ export class Allowlist {
 		if (this.state.ownerSignPub && this.state.ownerSignPub !== ownerSignPubB64) {
 			throw new Error("allowlist already rooted at a different owner key");
 		}
-		this.state.ownerSignPub = ownerSignPubB64;
-		this.persist();
+		this.commitOrThrow({ ...this.state, ownerSignPub: ownerSignPubB64 });
 	}
 
 	setDomainId(domainId: string): void {
-		this.state.domainId = domainId;
-		this.persist();
+		this.commitOrThrow({ ...this.state, domainId });
 	}
 
 	applySnapshot(snapshot: DomainSnapshot): boolean {
@@ -131,21 +141,31 @@ export class Allowlist {
 			console.warn(`[allowlist] ignoring domain sync rooted at a different owner key`);
 			return false;
 		}
-		this.state.ownerSignPub = snapshot.ownerSignPub;
-		this.state.admissions = snapshot.admissions.filter((s) => verifyAdmission(s, snapshot.ownerSignPub));
-		this.state.revocations = snapshot.revocations.filter(
-			(s) => verifyRevocation(s, snapshot.ownerSignPub) || selfRevocationVerifiesAny(s, this.state.admissions),
+		const admissions = snapshot.admissions.filter((s) => verifyAdmission(s, snapshot.ownerSignPub));
+		const revocations = snapshot.revocations.filter(
+			(s) => verifyRevocation(s, snapshot.ownerSignPub) || selfRevocationVerifiesAny(s, admissions),
 		);
-		this.persist();
-		return true;
+		const next: AllowlistFile = {
+			...this.state,
+			ownerSignPub: snapshot.ownerSignPub,
+			admissions,
+			revocations,
+		};
+		const incoming = new Set(admissions.map((entry) => JSON.stringify(entry)));
+		const heldRevocations = new Map(this.state.revocations.map((entry) => [JSON.stringify(entry), entry]));
+		for (const entry of revocations) heldRevocations.set(JSON.stringify(entry), entry);
+		this.state = {
+			...this.state,
+			admissions: this.state.admissions.filter((entry) => incoming.has(JSON.stringify(entry))),
+			revocations: [...heldRevocations.values()],
+		};
+		return this.commit(next).landed;
 	}
 
 	addAdmission(s: SignedAdmission): boolean {
 		// Store admissions only after owner verification.
 		if (!this.state.ownerSignPub || !verifyAdmission(s, this.state.ownerSignPub)) return false;
-		this.state.admissions.push(s);
-		this.persist();
-		return true;
+		return this.commit({ ...this.state, admissions: [...this.state.admissions, s] }).landed;
 	}
 
 	addRevocation(s: SignedRevocation): boolean {
@@ -154,8 +174,8 @@ export class Allowlist {
 			(!verifyRevocation(s, this.state.ownerSignPub) && !selfRevocationVerifiesAny(s, this.state.admissions))
 		)
 			return false;
-		this.state.revocations.push(s);
-		this.persist();
+		this.state = { ...this.state, revocations: [...this.state.revocations, s] };
+		Allowlist.writeFile(this.file, this.state);
 		return true;
 	}
 

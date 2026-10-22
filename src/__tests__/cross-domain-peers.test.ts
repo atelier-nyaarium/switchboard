@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { CrossDomainPeers } from "../gateway/federation/crossDomainPeers.js";
+import { CrossDomainPeers, XDOMAIN_PEERS_FILE } from "../gateway/federation/crossDomainPeers.js";
 import { linkedPeer } from "./helpers/cross-domain-link.js";
 
 const dirs: string[] = [];
@@ -19,6 +19,7 @@ describe("CrossDomainPeers", () => {
 		store.add(linkedPeer("carol", "laptop"));
 		store.add(linkedPeer("dave", "laptop"));
 		store.add(replacement);
+		expect(fs.statSync(path.join(dir, XDOMAIN_PEERS_FILE)).mode & 0o777).toBe(0o600);
 		expect(new CrossDomainPeers(dir).all()).toEqual([linkedPeer("dave", "laptop"), replacement]);
 		expect(store.resolveByGateway("carol", "laptop")).toEqual(replacement);
 		expect(store.resolveBySignPub("new-sign")).toEqual(replacement);
@@ -43,5 +44,38 @@ describe("CrossDomainPeers", () => {
 			domains: ["erin-home", "erin-work"],
 		});
 		expect(new CrossDomainPeers(dir).all().map((peer) => peer.friendDomainId)).toEqual(["frank"]);
+	});
+
+	it("loads the existing peer file format", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "peers-"));
+		dirs.push(dir);
+		const peer = linkedPeer("legacy", "laptop");
+		fs.writeFileSync(path.join(dir, XDOMAIN_PEERS_FILE), JSON.stringify({ peers: [peer] }));
+
+		expect(new CrossDomainPeers(dir).all()).toEqual([peer]);
+	});
+
+	it("does not trust a peer whose write failed", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "peers-"));
+		dirs.push(dir);
+		const store = new CrossDomainPeers(dir);
+		fs.mkdirSync(path.join(dir, XDOMAIN_PEERS_FILE));
+		const peer = linkedPeer("blocked", "laptop");
+
+		expect(store.add(peer)).toBe(false);
+		expect(store.resolveByGateway(peer.friendDomainId, peer.friendGatewayId)).toBeNull();
+	});
+
+	it("revokes a peer in memory when its write fails", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "peers-"));
+		dirs.push(dir);
+		const store = new CrossDomainPeers(dir);
+		const peer = linkedPeer("revoked", "laptop");
+		store.add(peer);
+		fs.rmSync(path.join(dir, XDOMAIN_PEERS_FILE));
+		fs.mkdirSync(path.join(dir, XDOMAIN_PEERS_FILE));
+
+		expect(() => store.remove("laptop")).toThrow();
+		expect(store.resolveByGateway(peer.friendDomainId, peer.friendGatewayId)).toBeNull();
 	});
 });

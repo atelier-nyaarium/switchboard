@@ -25,11 +25,13 @@ export class DurableStoreInstalledError extends Error {
  */
 export class DurableStore {
 	private readonly file: string;
+	private readonly mode: number | undefined;
 	private lastError: string | null = null;
 	private quarantined = false;
 
-	constructor(dir: string, name: string) {
+	constructor(dir: string, name: string, options: { mode?: number } = {}) {
 		this.file = path.join(dir, `${name}.json`);
+		this.mode = options.mode;
 	}
 
 	/** The persisted snapshot, or null if absent/unreadable (first boot, corrupt file). */
@@ -81,6 +83,7 @@ export class DurableStore {
 		const serialized = JSON.stringify(state);
 		if (serialized === undefined) throw new TypeError("durable state must be JSON serializable");
 		writeFileAtomic(this.file, serialized, {
+			mode: this.mode,
 			fsyncFile: durable,
 			fsyncDirectory: durable,
 			// The snapshot is already at its final name by then, which the caller treats differently
@@ -97,6 +100,33 @@ export class DurableStore {
 //  Functions & Helpers
 
 export type CheckedCommit = { landed: true } | { landed: false; error: Error };
+
+export type CheckedWrite = { landed: true; confirmed: boolean } | { landed: false; error: Error };
+
+/** Atomic, fsynced snapshot write. */
+export function writeFileAtomicChecked(file: string, source: string, mode: number): void {
+	writeFileAtomic(file, source, {
+		mode,
+		fsyncFile: true,
+		fsyncDirectory: true,
+		onDirectorySyncError: (error) => {
+			throw new DurableStoreInstalledError(error);
+		},
+	});
+}
+
+/** Persist before applying memory. */
+export function writeChecked(store: Pick<DurableStore, "saveChecked">, state: unknown, label?: string): CheckedWrite {
+	try {
+		store.saveChecked(state);
+		return { landed: true, confirmed: true };
+	} catch (error) {
+		if (error instanceof DurableStoreInstalledError) return { landed: true, confirmed: false };
+		const failed = error instanceof Error ? error : new Error(String(error));
+		if (label) console.warn(`[${label}] write failed: ${failed.message}`);
+		return { landed: false, error: failed };
+	}
+}
 
 export interface CommitCheckedOptions {
 	/** Persisted snapshot override. */
@@ -116,15 +146,8 @@ export function commitChecked<T>(
 	apply: (next: T) => void,
 	options: CommitCheckedOptions = {},
 ): CheckedCommit {
-	try {
-		store.saveChecked("snapshot" in options ? options.snapshot : next);
-	} catch (error) {
-		if (!(error instanceof DurableStoreInstalledError)) {
-			const failed = error instanceof Error ? error : new Error(String(error));
-			if (options.label) console.warn(`[${options.label}] write failed: ${failed.message}`);
-			return { landed: false, error: failed };
-		}
-	}
+	const written = writeChecked(store, "snapshot" in options ? options.snapshot : next, options.label);
+	if (!written.landed) return { landed: false, error: written.error };
 	apply(next);
 	try {
 		options.onLanded?.();

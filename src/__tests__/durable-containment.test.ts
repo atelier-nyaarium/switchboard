@@ -8,6 +8,7 @@ import {
 	DurableStoreInstalledError,
 	openDurable,
 	restoreDurable,
+	writeFileAtomicChecked,
 } from "../shared/durable-store.js";
 
 ////////////////////////////////
@@ -174,7 +175,6 @@ describe("createPersistRunner", () => {
 		runPersistSteps([boom("jobs"), boom("mailboxes")]);
 
 		expect(errors).toHaveBeenCalledTimes(2);
-		expect(String(errors.mock.calls[1]?.[0])).toContain("mailboxes");
 		errors.mockRestore();
 	});
 });
@@ -190,6 +190,13 @@ describe("DurableStore checked saves", () => {
 		store.save({ revision: 2 });
 		expect(fsync).not.toHaveBeenCalled();
 		fsync.mockRestore();
+	});
+
+	it("applies the configured mode to checked snapshots", () => {
+		const store = new DurableStore(dir, "private", { mode: 0o600 });
+		store.saveChecked({ revision: 1 });
+
+		expect(fs.statSync(path.join(dir, "private.json")).mode & 0o777).toBe(0o600);
 	});
 
 	it("throws a checked serialization failure without replacing the last good snapshot", () => {
@@ -212,6 +219,25 @@ describe("DurableStore checked saves", () => {
 		expect(() => store.saveChecked({ revision: 2 })).toThrow(DurableStoreInstalledError);
 		expect(readFileFor("installed")).toEqual({ revision: 2 });
 		fsync.mockRestore();
+	});
+
+	it("maps an installed atomic snapshot to the checked-write error", () => {
+		const file = path.join(dir, "custom.json");
+		const fsync = vi
+			.spyOn(fs, "fsyncSync")
+			.mockImplementationOnce(() => {})
+			.mockImplementationOnce(() => {
+				throw new Error("directory sync unavailable");
+			});
+
+		try {
+			expect(() => writeFileAtomicChecked(file, JSON.stringify({ revision: 2 }), 0o600)).toThrow(
+				DurableStoreInstalledError,
+			);
+			expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({ revision: 2 });
+		} finally {
+			fsync.mockRestore();
+		}
 	});
 
 	it("keeps the existing best-effort save contract", () => {

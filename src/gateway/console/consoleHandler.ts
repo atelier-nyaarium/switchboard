@@ -370,8 +370,7 @@ export function createConsoleDispatcher({
 						release();
 						return result;
 					}
-					durableOpStore.markComplete(conversationId, key, result);
-					if (durableOpStore.get(conversationId, key)?.state === "complete") firingNow.delete(key);
+					if (durableOpStore.markComplete(conversationId, key, result)) firingNow.delete(key);
 					return result;
 				} catch (error) {
 					release();

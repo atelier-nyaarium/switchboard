@@ -402,7 +402,12 @@ export function isGatewayLongWaitRoute(method: string, pathname: string): boolea
 
 ## Phase 12 - Gateway trust files and the op store
 
-From the Phase 2 architecture round. No board item. Same class as Phase 2: memory moves before the write, or a write is not atomic, so a failure leaves the two disagreeing.
+✅ Shipped; bd_5e43c2eb. Beyond the plan:
+- A key grant whose write failed acks `waking` without custody, so the Router redelivers and the next attempt installs. Before, the claim stayed and a redelivery skipped the install.
+- The residue test counts the raw writes allowed per exempt file, not just the file.
+- The agent catalog answers an installed but unconfirmed write as `unconfirmed`; its callers map it as they mapped the thrown error.
+
+From the Phase 2 architecture round. Same class as Phase 2: memory moves before the write, or a write is not atomic, so a failure leaves the two disagreeing.
 
 **Problem:**
 - `CrossDomainPeers` mutates memory, then writes with plain `fs.writeFileSync`, not atomic. A failed `add` leaves a peer trusted in memory while `confirm` reports failure. A torn file parses as no peers, so every link is forgotten silently.

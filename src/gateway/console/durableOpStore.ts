@@ -1,7 +1,7 @@
 import type { Clock } from "../../shared/ambient.js";
 import { capFifo } from "../../shared/cap-fifo.js";
 import { type ConsoleOpResult, MAX_OPS_PER_CONVERSATION } from "../../shared/console-protocol.js";
-import type { DurableStore } from "../../shared/durable-store.js";
+import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import { fenced } from "../../shared/migration-fence.js";
 import { ConsoleOpResultSchema } from "../../shared/schemas.js";
 
@@ -22,7 +22,7 @@ const DEFAULT_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
 /** Durable idempotency records. Only markers persist, never requests. */
 export class DurableOpStore<Result = ConsoleOpResult> {
-	private readonly byConversation = new Map<string, Map<string, Entry<Result>>>();
+	private byConversation = new Map<string, Map<string, Entry<Result>>>();
 	private nextGeneration = 1;
 
 	public constructor(
@@ -75,17 +75,39 @@ export class DurableOpStore<Result = ConsoleOpResult> {
 	}
 
 	/** First successful result wins. */
-	public markComplete(conversationId: string, opId: string, result: Result): void {
-		if (fenced()) return;
+	public markComplete(conversationId: string, opId: string, result: Result): boolean {
+		if (fenced()) return false;
 		const existing = this.byConversation.get(conversationId)?.get(opId);
 		if (existing?.record.state === "complete") {
 			// Duplicate success is observable.
 			console.warn(
 				`[durableOpStore] ${conversationId.slice(0, 12)}/${opId} discarding a second genuine completion - two concurrent attempts both succeeded; the first result wins`,
 			);
-			return;
+			return true;
 		}
-		this.write(conversationId, opId, { state: "complete", result }, existing?.generation ?? this.nextGeneration++);
+		const next = new Map([...this.byConversation].map(([conv, entries]) => [conv, new Map(entries)]));
+		const perConv = next.get(conversationId) ?? new Map<string, Entry<Result>>();
+		const generation = existing?.generation ?? this.nextGeneration++;
+		this.touchCapped(next, conversationId, perConv, this.maxConversations, "conversation");
+		this.touchCapped(
+			perConv,
+			opId,
+			{ record: { state: "complete", result }, expiresAt: this.now() + this.ttlMs, generation },
+			this.maxOpsPerConversation,
+			`${conversationId.slice(0, 12)} op`,
+		);
+		const committed = commitChecked(
+			this.durable,
+			next,
+			(landed) => {
+				this.byConversation = landed;
+			},
+			{
+				snapshot: this.snapshot(next),
+				label: "durable-op-store",
+			},
+		);
+		return committed.landed;
 	}
 
 	/** Clears only the matching generation. */
@@ -168,13 +190,19 @@ export class DurableOpStore<Result = ConsoleOpResult> {
 	}
 
 	private persist(): void {
+		this.durable.save(this.snapshot(this.byConversation));
+	}
+
+	private snapshot(
+		source: Map<string, Map<string, Entry<Result>>>,
+	): Array<[string, Array<[string, OpRecord<Result>, number, number]>]> {
 		const snapshot: Array<[string, Array<[string, OpRecord<Result>, number, number]>]> = [];
-		for (const [conv, perConv] of this.byConversation) {
+		for (const [conv, perConv] of source) {
 			const rows: Array<[string, OpRecord<Result>, number, number]> = [];
 			for (const [opId, entry] of perConv) rows.push([opId, entry.record, entry.expiresAt, entry.generation]);
 			snapshot.push([conv, rows]);
 		}
-		this.durable.save(snapshot);
+		return snapshot;
 	}
 
 	private restore(): void {

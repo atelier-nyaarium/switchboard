@@ -11,7 +11,6 @@ import {
 	type CopilotPersistedAgent,
 	restoreCopilotAgentCatalog,
 } from "./copilot-agent.js";
-import { DurableStoreInstalledError } from "./durable-store.js";
 import { composeSessionName, isComposite, isSlug, parseSessionName } from "./session-id.js";
 import { LABEL_MAX, sanitizeLabel, sanitizeWorkdirPath } from "./session-sanitize.js";
 import { bindingTokensEqual, randomBindToken, randomId } from "./session-tokens.js";
@@ -43,11 +42,11 @@ export type PersistedSessionRecord = Omit<SessionRecord, "liveTeam"> & {
 
 export type AgentCatalogCommitResult<Catalog> =
 	| { committed: true; catalog: Catalog }
-	| { committed: false; reason: "owner_missing" | "revision_conflict" };
+	| { committed: false; reason: "owner_missing" | "revision_conflict" | "unconfirmed" };
 
 export type AgentCatalogCheckpointResult<Catalog> =
 	| { confirmed: true; catalog: Catalog }
-	| { confirmed: false; reason: "owner_missing" | "revision_conflict" };
+	| { confirmed: false; reason: "owner_missing" | "revision_conflict" | "unconfirmed" };
 
 export interface AgentCatalogWriter<Catalog, Agent> {
 	commit(owner: SessionRecord, expectedRevision: number, agents: readonly Agent[]): AgentCatalogCommitResult<Catalog>;
@@ -81,11 +80,11 @@ export interface SessionStoreOptions {
 	idGen?: () => string;
 	tokenGen?: () => string;
 	codexCatalogPersistence?: {
-		persistChecked: () => void;
+		persistChecked: () => boolean | undefined;
 		receiveWriter: (writer: CodexCatalogWriter) => void;
 	};
 	copilotCatalogPersistence?: {
-		persistChecked: () => void;
+		persistChecked: () => boolean | undefined;
 		receiveWriter: (writer: CopilotCatalogWriter) => void;
 	};
 }
@@ -118,7 +117,7 @@ class AgentCatalogStore<Catalog extends { revision: number }, Agent> {
 		owner: SessionRecord,
 		expectedRevision: number,
 		agents: readonly Agent[],
-		persistChecked: () => void,
+		persistChecked: () => boolean | undefined,
 	): AgentCatalogCommitResult<Catalog> {
 		if (!this.ownerAlive(owner)) return { committed: false, reason: "owner_missing" };
 		const previous = this.catalogs.get(owner);
@@ -127,18 +126,19 @@ class AgentCatalogStore<Catalog extends { revision: number }, Agent> {
 		const previousUnconfirmedRevision = this.unconfirmed.get(owner);
 		const next = this.parseCatalog({ version: 1, revision: expectedRevision + 1, agents });
 		this.catalogs.set(owner, next);
+		let confirmed: boolean | undefined;
 		try {
-			persistChecked();
+			confirmed = persistChecked();
 		} catch (error) {
-			if (error instanceof DurableStoreInstalledError) {
-				this.unconfirmed.set(owner, next.revision);
-			} else {
-				if (previous) this.catalogs.set(owner, previous);
-				else this.catalogs.delete(owner);
-				if (previousUnconfirmedRevision === undefined) this.unconfirmed.delete(owner);
-				else this.unconfirmed.set(owner, previousUnconfirmedRevision);
-			}
+			if (previous) this.catalogs.set(owner, previous);
+			else this.catalogs.delete(owner);
+			if (previousUnconfirmedRevision === undefined) this.unconfirmed.delete(owner);
+			else this.unconfirmed.set(owner, previousUnconfirmedRevision);
 			throw error;
+		}
+		if (confirmed === false) {
+			this.unconfirmed.set(owner, next.revision);
+			return { committed: false, reason: "unconfirmed" };
 		}
 		this.unconfirmed.delete(owner);
 		return { committed: true, catalog: this.parseCatalog(next) };
@@ -152,20 +152,17 @@ class AgentCatalogStore<Catalog extends { revision: number }, Agent> {
 	checkpoint(
 		owner: SessionRecord,
 		expectedRevision: number,
-		persistChecked: () => void,
+		persistChecked: () => boolean | undefined,
 	): AgentCatalogCheckpointResult<Catalog> {
 		if (!this.ownerAlive(owner)) return { confirmed: false, reason: "owner_missing" };
 		const catalog = this.catalogs.get(owner);
 		if (!catalog || catalog.revision !== expectedRevision) {
 			return { confirmed: false, reason: "revision_conflict" };
 		}
-		try {
-			persistChecked();
-		} catch (error) {
-			if (error instanceof DurableStoreInstalledError) {
-				this.unconfirmed.set(owner, catalog.revision);
-			}
-			throw error;
+		const confirmed = persistChecked();
+		if (confirmed === false) {
+			this.unconfirmed.set(owner, catalog.revision);
+			return { confirmed: false, reason: "unconfirmed" };
 		}
 		this.unconfirmed.delete(owner);
 		return { confirmed: true, catalog: this.parseCatalog(catalog) };

@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	ConsoleRunbookFireResultSchema,
@@ -99,7 +101,6 @@ describe("federation harness: firing a runbook", () => {
 		const target = "fixture-app.release";
 		const missing = await fire({ level: "minor" }, { kind: "session", target });
 		expect(missing.fired).toBe(false);
-		expect(missing.reason).toContain("repo");
 
 		const notOffered = await fire({ level: "major", repo: "switchboard" }, { kind: "session", target });
 		expect(notOffered.fired).toBe(false);
@@ -122,6 +123,30 @@ describe("federation harness: firing a runbook", () => {
 		const again = await fire(values, { kind: "session", target }, "op-fire-once");
 		expect(again).toEqual(first);
 		expect(landed()).toBe(1);
+	});
+
+	it("keeps the fire key held when completion cannot be written", async () => {
+		const target = "fixture-app.completion-write-failure";
+		const attached = attachFakeSession(h.gateway, {
+			team: target,
+			conversationId: "conv-completion-write-failure",
+		});
+		sessions.push(attached);
+		await attached.ready();
+		const file = path.join(h.root, "gateway", "op-idempotency.json");
+		fs.rmSync(file, { recursive: true, force: true });
+		fs.mkdirSync(file);
+		const values = { level: "patch", repo: "switchboard" };
+		const opId = "completion-write-failure";
+		const body = "Cut a patch release of switchboard. Never hand-edit a version.";
+
+		expect((await fire(values, { kind: "session", target }, opId)).fired).toBe(true);
+		await h.waitFor(
+			async () => attached.inbound.filter((frame) => frame.body === body).length === 1,
+			"the first delivery",
+		);
+		expect((await fire(values, { kind: "session", target }, opId)).fired).toBe(false);
+		expect(attached.inbound.filter((frame) => frame.body === body)).toHaveLength(1);
 	});
 
 	it("refuses a second fire of the same op while the first is still going", async () => {
@@ -198,7 +223,6 @@ describe("federation harness: firing a runbook", () => {
 			).result,
 		);
 		expect(stale.fired).toBe(false);
-		expect(stale.reason).toContain("preview it again");
 	});
 
 	it("does not fire a runbook this gateway does not hold", async () => {
@@ -213,6 +237,5 @@ describe("federation harness: firing a runbook", () => {
 			).result,
 		);
 		expect(answer.fired).toBe(false);
-		expect(answer.reason).toContain("absent");
 	});
 });

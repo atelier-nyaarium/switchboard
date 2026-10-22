@@ -1,8 +1,7 @@
-import fs from "node:fs";
-import path from "node:path";
 import { z } from "zod";
+import { type CheckedCommit, commitChecked, DurableStore } from "../../shared/durable-store.js";
 import { CrossDomainShareTargetSchema } from "../../shared/schemas.js";
-import type { ShareMirrorDelta, ShareMirrorSnapshot } from "../../shared/schemasShare.js";
+import { type ShareMirrorDelta, ShareMirrorDeltaSchema, type ShareMirrorSnapshot } from "../../shared/schemasShare.js";
 import {
 	all as allShares,
 	isSharedTo as isShareSharedTo,
@@ -34,14 +33,14 @@ const recordKey = (record: { sessionTarget: string; target: ShareRecord["target"
 
 /** The Router writes; this reads, and reads nothing until a snapshot of this registration lands. */
 export class CrossDomainShareState {
-	private file: string;
+	private readonly durable: DurableStore;
 	private state: ShareState;
 	private held: number;
 	private ready = false;
 	private readonly onChange?: (change: ShareMirrorChange) => void;
 
-	constructor(dataDir: string, onChange?: (change: ShareMirrorChange) => void) {
-		this.file = path.join(dataDir, XDOMAIN_SHARE_FILE);
+	constructor(federationDir: string, onChange?: (change: ShareMirrorChange) => void) {
+		this.durable = new DurableStore(federationDir, "cross-domain-share-state", { mode: 0o600 });
 		const read = this.read();
 		this.state = { shares: read.shares };
 		this.held = read.revision;
@@ -50,7 +49,7 @@ export class CrossDomainShareState {
 
 	private read(): { revision: number; shares: ShareRecord[] } {
 		try {
-			const parsed = CrossDomainShareFileSchema.safeParse(JSON.parse(fs.readFileSync(this.file, "utf8")));
+			const parsed = CrossDomainShareFileSchema.safeParse(this.durable.load());
 			if (parsed.success) return parsed.data;
 		} catch {
 			// Unreadable state starts empty.
@@ -58,12 +57,18 @@ export class CrossDomainShareState {
 		return { revision: 0, shares: [] };
 	}
 
-	/** On disk before memory, so a failed write changes nothing. */
-	private land(revision: number, shares: ShareRecord[]): void {
-		fs.mkdirSync(path.dirname(this.file), { recursive: true });
-		fs.writeFileSync(this.file, JSON.stringify({ revision, shares }), { mode: 0o600 });
-		this.state = { shares };
-		this.held = revision;
+	private land(revision: number, shares: ShareRecord[], ready?: boolean, onLanded?: () => void): CheckedCommit {
+		const next = { revision, shares };
+		return commitChecked(
+			this.durable,
+			next,
+			(landed) => {
+				this.state = { shares: landed.shares };
+				this.held = landed.revision;
+				if (ready !== undefined) this.ready = ready;
+			},
+			{ label: "cross-domain-share-state", onLanded },
+		);
 	}
 
 	revision(): number {
@@ -86,15 +91,16 @@ export class CrossDomainShareState {
 		const next = new Set(snapshot.shares.map(recordKey));
 		const removed = before.filter((record) => !next.has(recordKey(record)));
 		const added = snapshot.shares.filter((record) => !before.some((held) => recordKey(held) === recordKey(record)));
-		this.land(snapshot.revision, [...snapshot.shares]);
 		const wasReady = this.ready;
-		this.ready = true;
-		if (removed.length || added.length || !wasReady)
-			this.onChange?.({ reason: reasonOf([...removed, ...added]), removed });
+		const result = this.land(snapshot.revision, [...snapshot.shares], true, () => {
+			if (removed.length || added.length || !wasReady)
+				this.onChange?.({ reason: reasonOf([...removed, ...added]), removed });
+		});
+		if (!result.landed) throw result.error;
 	}
 
 	/** Only the next revision applies; anything else is a gap. */
-	apply(delta: ShareMirrorDelta): "applied" | "gap" {
+	apply(delta: ShareMirrorDelta): "applied" | "gap" | "unwritten" {
 		if (delta.revision !== this.held + 1) return "gap";
 		const dropped = new Set(delta.del.map(recordKey));
 		const put = new Map(delta.put.map((record) => [recordKey(record), record]));
@@ -102,10 +108,11 @@ export class CrossDomainShareState {
 		const kept = this.state.shares.filter(
 			(record) => !dropped.has(recordKey(record)) && !put.has(recordKey(record)),
 		);
-		this.land(delta.revision, [...kept, ...delta.put]);
-		if (removed.length || delta.put.length)
-			this.onChange?.({ reason: reasonOf([...removed, ...delta.put]), removed });
-		return "applied";
+		const result = this.land(delta.revision, [...kept, ...delta.put], undefined, () => {
+			if (removed.length || delta.put.length)
+				this.onChange?.({ reason: reasonOf([...removed, ...delta.put]), removed });
+		});
+		return result.landed ? "applied" : "unwritten";
 	}
 
 	/** An unlinked Domain is shared nothing, whatever the Router holds. */
@@ -125,4 +132,11 @@ function reasonOf(records: ShareRecord[]): ShareChangeReason {
 	return domains.size === 1 && only !== "*" && only !== undefined
 		? { kind: "domain", domainId: only }
 		: { kind: "sweep" };
+}
+
+export function handleShareDelta(state: CrossDomainShareState, frame: unknown, reread: () => void): void {
+	const parsed = ShareMirrorDeltaSchema.safeParse(frame);
+	if (parsed.success && state.apply(parsed.data) === "applied") return;
+	state.unready();
+	reread();
 }

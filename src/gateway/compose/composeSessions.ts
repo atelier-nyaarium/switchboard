@@ -2,7 +2,7 @@
 
 import type { ServerWebSocket } from "bun";
 import type { Ambient, IntervalHandle } from "../../shared/ambient.js";
-import { restoreDurable } from "../../shared/durable-store.js";
+import { restoreDurable, writeChecked } from "../../shared/durable-store.js";
 import { isReservedHostSession } from "../../shared/host-op.js";
 import type { HostSpawnState } from "../../shared/host-spawn.js";
 import { PlaneRegistry } from "../../shared/plane-registry.js";
@@ -43,6 +43,7 @@ export interface SessionsStage {
 	readAnchors: ReadAnchors;
 	tripwireTimer: IntervalHandle;
 	sessionResumeSnapshot: (cleanShutdown: boolean) => Record<string, unknown>;
+	saveSessionsChecked: () => boolean;
 }
 
 export function createProjectPredicates(
@@ -64,12 +65,12 @@ export function composeSessions({ localGatewayId, ambient, stores, context }: Se
 	const hostSpawnPoints: HostSpawnState = { known: false, ids: [] };
 	const { isTrustedCatalogProject, isAvailableProject } = createProjectPredicates(offlineCatalog, knownTeamPaths);
 
-	let persistAgentCatalogChecked: (() => void) | undefined;
+	let persistAgentCatalogChecked: (() => boolean | undefined) | undefined;
 	let codexCatalogWriter: CodexCatalogWriter | undefined;
 	let copilotCatalogWriter: CopilotCatalogWriter | undefined;
 	const persistChecked = () => {
 		if (!persistAgentCatalogChecked) throw new Error("Agent persistence is not initialized");
-		persistAgentCatalogChecked();
+		return persistAgentCatalogChecked();
 	};
 	const sessionStore = new SessionStore({
 		ambient,
@@ -131,7 +132,12 @@ export function composeSessions({ localGatewayId, ambient, stores, context }: Se
 		planes: planeRegistry.persistedState(cleanShutdown),
 		readAnchors: readAnchors.snapshot(),
 	});
-	persistAgentCatalogChecked = () => stores.sessionResumeDurable.saveChecked(sessionResumeSnapshot(false));
+	const saveSessionsChecked = () => {
+		const result = writeChecked(stores.sessionResumeDurable, sessionResumeSnapshot(false), "session-resume");
+		if (!result.landed) throw result.error;
+		return result.confirmed;
+	};
+	persistAgentCatalogChecked = saveSessionsChecked;
 	if (!codexCatalogWriter || !copilotCatalogWriter) throw new Error("Agent catalog writers were not initialized");
 
 	return {
@@ -153,5 +159,6 @@ export function composeSessions({ localGatewayId, ambient, stores, context }: Se
 		readAnchors,
 		tripwireTimer,
 		sessionResumeSnapshot,
+		saveSessionsChecked,
 	};
 }
