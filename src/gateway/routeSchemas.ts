@@ -62,8 +62,6 @@ export const RespondBodySchema = z.object({
 
 export const MAX_RESPONSE_FILE_BYTES = MAX_BLOB_BYTES;
 
-export const POST_WAKE_SETTLE_MS = 3_000;
-
 export const MAX_PLUGIN_ACTION_PAYLOAD_BYTES = 32_768;
 
 export const MAX_BOARD_REPLIES = 512;

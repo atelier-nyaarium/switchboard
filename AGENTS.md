@@ -16,7 +16,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/shared/schemasAssistantActions.ts` / `src/gateway/assistant/watcherAction.ts` / `actionDispatch.ts` / `githubDone.ts` / `src/mcp/assistant/actionTools.ts` - watcher actions: the shared registry and its wire; `WatcherAction<K>` and the map typed by the registry's keys; the one door that parses, runs in the lane, records and answers; `github_done`; one tool per key, registered for `host.assistant` alone
   - **The registry is the one source of the tool names:** `ASSISTANT_SWITCHBOARD_TOOLS` spreads its keys, so the MCP scope, the gate and the launch permissions follow it, and `check:boot` proves each tool is listed for the assistant and nowhere else.
   - **A call id joins a retry to the first call:** the tool mints one per call, the dispatcher holds its answer through `createOpDedupe`, and the record row is keyed by it, so a retried post repeats no request and no record.
-  - **An action answers by its deadline:** one its lane has not started is refused with nothing sent. The Gateway's Bun server holds a request past every route's wait (`src/gateway/serveLimits.ts`), since Bun's default cuts one at 10 seconds and no Node gate can see it.
+  - **An action answers by its deadline:** one its lane has not started is refused with nothing sent. The Gateway sets Bun's `idleTimeout` to its 255-second cap and lifts it per request for routes in `src/shared/gateway-long-waits.ts`. The plugin's `routerRequest` disables its fetch timeout for long routes.
+- `src/shared/gateway-long-waits.ts` - the POST routes whose default wait passes Bun's 255s idle cut, and which of them replay a repeat; read by `src/gateway/index.ts` and the plugin's `routerRequest`
+  - **The plugin's fetch lift holds the long routes:** Bun 1.4.0 does not cut a POST after its body is
+    read, and its fetch abandons an idle request at 300s. No gate here runs either Bun behavior;
+    `gateway-serve-limits.test.ts` derives the set from each route's wait.
 - `src/gateway/vault/vaultUse.ts` - the one release a vault value leaves by: the routes' and a watcher's standing grant read
 - `src/shared/schemasAssistant.ts` - the assistant's console answer: where it lives on a Gateway and its watchers there
 - `src/shared/schemasAssistantRules.ts` / `src/gateway/assistant/rulesStore.ts` - watcher rules: the record, `ruleRefusal`, `firstMatch`, `decideEvent`; the store, sole writer, one rule per op on the policy store's model

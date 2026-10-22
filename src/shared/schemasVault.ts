@@ -215,7 +215,7 @@ export const VAULT_WINDOW_MS = 30 * 60 * 1000;
 // Whole-session grants cap at eight hours.
 export const VAULT_SESSION_GRANT_CAP_MS = 8 * 60 * 60 * 1000;
 export const MAX_VAULT_CAPTURE_CHARS = 8_192;
-// Under fetch's five-minute silence limit; longer holds re-collect.
+// One wait; collect again.
 export const VAULT_ROUTE_WAIT_CAP_MS = 230_000;
 
 const waitMs = z.number().int().nonnegative().optional();

@@ -17,7 +17,8 @@ and the delta list are in `docs/federation.md` under Owner state.
   entry.
 - `refresh()` reads `vault_read` after the held revision and merges the delta through the shared
   `foldVersionedList`: a full list replaces the held copy, an older full list is a late answer and
-  is ignored, and a delta that rests on another revision restarts from zero. A
+  is ignored, and a delta that rests on another revision restarts from zero. A refresh makes at
+  most `VAULT_REFRESH_MAX_CALLS` Router calls; a second restart answers unavailable. A
   `durability_uncertain` answer reads as unavailable.
 - `view` opens every field but the value. `openValue` opens the value. `openTyped` opens a value the
   owner typed for one request, under that request's id.

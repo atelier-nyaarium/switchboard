@@ -1,6 +1,9 @@
 import type { Ambient, TimerHandle } from "../shared/ambient.js";
 import { sanitizeLabel } from "../shared/session-sanitize.js";
 
+export const DEFAULT_WAKE_TIMEOUT_MS = 600_000;
+export const POST_WAKE_SETTLE_MS = 3_000;
+
 // Timeout and disconnect are ambiguous host outcomes.
 export interface WakeResult {
 	ok: boolean;

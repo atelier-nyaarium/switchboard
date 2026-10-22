@@ -304,7 +304,13 @@ The fix lands in one place: `codegen-kotlin.ts` emits the value into `Protocol`.
 
 ## Phase 9 - Long waits past Bun's idle cut
 
-Closes bd_19648cd9.
+✅ Shipped. Closes bd_19648cd9. Beyond the plan:
+- Probes on Bun 1.4.0, the Gateway's version: the server's `idleTimeout` cuts a GET or a bodiless POST, not a POST whose body was read, and `server.timeout(req, 0)` does not carry to the next request on the socket. Bun's client fetch abandons an idle request at 300s. `node:http`, the askpass transport, has no client idle timeout.
+- The table lives in `src/shared/gateway-long-waits.ts`, so the plugin reads it too. `/vault/capture` is long: a refresh plus a create.
+- The plugin's `routerRequest` lifts Bun's fetch timeout for long routes, which is the half that holds today. It resends a long route after a failure only when the route replays by id (`/task-board`) or the connection was refused (`ConnectionRefused` in Bun, `ECONNREFUSED` in Node).
+- `vaultClient.refresh` makes at most `VAULT_REFRESH_MAX_CALLS` Router calls; a second restart answers unavailable.
+- `DEFAULT_WAKE_TIMEOUT_MS` and `POST_WAKE_SETTLE_MS` live in `wake.ts`. The test's wait table also pins the short routes with a Router-bound wait (assistant, agents, blob read, vault search) under the cut.
+- Follow-ups on bd_dd8127ef: resend opt-in per route (`/respond` and `/poll` resend today), one route contract, a Bun-runtime gate, and pinning the image.
 
 **Problem:** The Gateway serves with `idleTimeout: GATEWAY_IDLE_TIMEOUT_S` (255s), but five routes can hold a request longer. When Bun cuts the socket, the caller sees a dead connection.
 

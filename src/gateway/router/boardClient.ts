@@ -77,12 +77,14 @@ const UNOPENED = "[unavailable]";
 
 const REFUSALS = new Set<string>(BOARD_REFUSALS);
 
+export const DEFAULT_BOARD_ATTEMPTS = 4;
+
 /** An unknown refusal is a version skew, not a missing entry, and must not read as one. */
 const asRefusal = (value: unknown): BoardRefusal =>
 	typeof value === "string" && REFUSALS.has(value) ? (value as BoardRefusal) : "durability_failure";
 
 export function createBoardClient(deps: BoardClientDeps) {
-	const attempts = deps.attempts ?? 4;
+	const attempts = deps.attempts ?? DEFAULT_BOARD_ATTEMPTS;
 
 	const sealText = (
 		text: string,

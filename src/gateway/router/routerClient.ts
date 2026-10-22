@@ -60,7 +60,7 @@ export interface RouterClient {
 	stop: () => void;
 }
 
-const TOOL_CALL_TIMEOUT_MS = 120_000;
+export const TOOL_CALL_TIMEOUT_MS = 120_000;
 const PENDING_REREGISTER_DELAY_MS = 15_000;
 const PENDING_REREGISTER_MAX_ATTEMPTS = 40;
 const HEARTBEAT_INTERVAL_MS = 20_000;

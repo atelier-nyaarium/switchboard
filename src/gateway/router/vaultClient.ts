@@ -57,6 +57,8 @@ export type VaultCreateAnswer =
 	| { kind: "refused"; refusal: string }
 	| { kind: "unavailable"; error: string };
 
+export const VAULT_REFRESH_MAX_CALLS = 2;
+
 const FIELD_KINDS: Record<Exclude<VaultFieldName, "value">, VaultFieldKind> = {
 	publicTitle: VAULT_PUBLIC_TITLE_KIND,
 	publicDescription: VAULT_PUBLIC_DESCRIPTION_KIND,
@@ -93,34 +95,36 @@ export function createVaultClient(deps: VaultClientDeps) {
 
 	/** The shared fold decides; a restart lists from zero. */
 	async function refresh(): Promise<VaultRefresh> {
-		const answer = await deps.call("vault_read", held ? { sinceRevision: held.revision } : {});
-		if (answer.error) return { kind: "unavailable", error: answer.error };
-		if ((answer.result as { outcome?: unknown } | undefined)?.outcome === "durability_uncertain")
-			return { kind: "unavailable", error: "vault durability is uncertain" };
-		const parsed = VaultListResultSchema.safeParse(answer.result);
-		if (!parsed.success) return { kind: "unavailable", error: "malformed vault_read answer" };
-		const fold = foldVersionedList(
-			{ revision: held?.revision ?? 0, entries: [...(held?.entries.values() ?? [])] },
-			parsed.data,
-			{ id: (entry) => entry.clear.id, revision: (entry) => entry.clear.revision },
-		);
-		if (fold.kind === "restart") {
-			held = null;
-			return refresh();
+		for (let call = 0; call < VAULT_REFRESH_MAX_CALLS; call++) {
+			const answer = await deps.call("vault_read", held ? { sinceRevision: held.revision } : {});
+			if (answer.error) return { kind: "unavailable", error: answer.error };
+			if ((answer.result as { outcome?: unknown } | undefined)?.outcome === "durability_uncertain")
+				return { kind: "unavailable", error: "vault durability is uncertain" };
+			const parsed = VaultListResultSchema.safeParse(answer.result);
+			if (!parsed.success) return { kind: "unavailable", error: "malformed vault_read answer" };
+			const fold = foldVersionedList(
+				{ revision: held?.revision ?? 0, entries: [...(held?.entries.values() ?? [])] },
+				parsed.data,
+				{ id: (entry) => entry.clear.id, revision: (entry) => entry.clear.revision },
+			);
+			if (fold.kind === "restart") {
+				held = null;
+				continue;
+			}
+			if (fold.kind === "ignore") return { kind: "ok", revision: held?.revision ?? 0 };
+			const before = held;
+			held = { revision: fold.revision, entries: new Map(fold.entries.map((entry) => [entry.clear.id, entry])) };
+			// Gone entries lose authority.
+			for (const [id, entry] of before?.entries ?? []) {
+				if (entry.clear.tombstone) continue;
+				const now = held.entries.get(id);
+				if (!now || now.clear.tombstone) deps.onEntryGone?.(id);
+			}
+			// Full lists reconcile removals.
+			if (parsed.data.since === 0) deps.onEntriesListed?.(live().map((entry) => entry.clear.id));
+			return { kind: "ok", revision: fold.revision };
 		}
-		if (fold.kind === "ignore") return { kind: "ok", revision: held?.revision ?? 0 };
-		const before = held;
-		held = { revision: fold.revision, entries: new Map(fold.entries.map((entry) => [entry.clear.id, entry])) };
-		// Buried or gone, either way nothing may still hold authority over it.
-		for (const [id, entry] of before?.entries ?? []) {
-			if (entry.clear.tombstone) continue;
-			const now = held.entries.get(id);
-			if (!now || now.clear.tombstone) deps.onEntryGone?.(id);
-		}
-		// A full list is the whole truth, and the only thing that catches what went while nobody was
-		// holding a snapshot to compare against.
-		if (parsed.data.since === 0) deps.onEntriesListed?.(live().map((entry) => entry.clear.id));
-		return { kind: "ok", revision: fold.revision };
+		return { kind: "unavailable", error: "vault list changed during refresh" };
 	}
 
 	const live = (): VaultStoredEntry[] =>

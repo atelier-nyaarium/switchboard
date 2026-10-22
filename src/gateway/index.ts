@@ -2,11 +2,13 @@ import path from "node:path";
 import type { Server } from "bun";
 import { processAmbient } from "../shared/ambient.js";
 import { resolveLocalGatewayId } from "../shared/gateway-id.js";
+import { isGatewayLongWaitRoute } from "../shared/gateway-long-waits.js";
 import { MAX_BLOB_BYTES } from "../shared/router-protocol.js";
 import { composeGateway, type GatewayConfig, type GatewayGraph } from "./composeGateway.js";
 import { handleProxyClose, handleProxyMessage, isProxyConnection, setupProxy } from "./connectorProxy.js";
 import { routerBootstrapOverride } from "./router/transport.js";
 import { GATEWAY_IDLE_TIMEOUT_S } from "./serveLimits.js";
+import { DEFAULT_WAKE_TIMEOUT_MS } from "./wake.js";
 import type { WsData } from "./wsTypes.js";
 
 export { createProjectPredicates } from "./composeGateway.js";
@@ -21,7 +23,7 @@ function configFromEnv(): GatewayConfig {
 		logDir: path.join("/app", "log"),
 		gatewayId: resolveLocalGatewayId(),
 		maxBlobStoreBytes: parseInt(process.env.MAX_BLOB_STORE_BYTES || String(MAX_BLOB_BYTES * 16), 10),
-		wakeTimeoutMs: parseInt(process.env.WAKE_TIMEOUT_MS || "600000", 10),
+		wakeTimeoutMs: parseInt(process.env.WAKE_TIMEOUT_MS || String(DEFAULT_WAKE_TIMEOUT_MS), 10),
 		enrollTlsPort: parseInt(process.env.ENROLL_TLS_PORT || "20003", 10),
 		enrollLanHost: process.env.ENROLL_LAN_HOST || "0.0.0.0",
 		enrollNonce: process.env.ENROLL_NONCE,
@@ -64,6 +66,7 @@ function serve(req: Request, server: Server<WsData>, graph: GatewayGraph): Respo
 			? undefined
 			: new Response("WebSocket upgrade failed", { status: 400 });
 	}
+	if (isGatewayLongWaitRoute(req.method, url.pathname)) server.timeout(req, 0);
 	return graph.router(req);
 }
 

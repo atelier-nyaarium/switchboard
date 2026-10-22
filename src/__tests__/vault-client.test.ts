@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createVaultClient } from "../gateway/router/vaultClient.js";
+import { createVaultClient, VAULT_REFRESH_MAX_CALLS } from "../gateway/router/vaultClient.js";
 import type { VaultStoredEntry } from "../shared/schemasVault.js";
 
 const entry = (id: string, changedAt: number, tombstone = false): VaultStoredEntry => ({
@@ -51,6 +51,22 @@ describe("vault client", () => {
 		expect(await client.refresh()).toEqual({ kind: "ok", revision: 2 });
 		expect(reads.slice(-2)).toEqual([6, 0]);
 		expect(client.live().map((e) => e.clear.id)).toEqual(["c"]);
+	});
+
+	it("answers unavailable when the list keeps restarting", async () => {
+		let calls = 0;
+		const client = createVaultClient({
+			domainId: "domain",
+			gatewayId: "gateway",
+			ownerSignPub: () => "owner",
+			keys: { seal: () => ({ kind: "no_key" }), open: () => ({ kind: "bad_tag" }) },
+			call: async () => {
+				calls++;
+				return { result: { revision: 9, since: 5, entries: [] } };
+			},
+		});
+		expect((await client.refresh()).kind).toBe("unavailable");
+		expect(calls).toBe(VAULT_REFRESH_MAX_CALLS);
 	});
 
 	it("names durability uncertainty and malformed answers apart", async () => {

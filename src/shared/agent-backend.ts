@@ -16,9 +16,7 @@ export interface AgentBackendDescriptor {
 	 * the daemon's declaration and the plugin's tool gate probe for it, so installing the CLI is the
 	 * whole opt-in. */
 	readonly binaryName: string;
-	/** How long a waiting gateway call may block. Bounded by the CLIENT: node's fetch abandons a
-	 * silent connection at 300s, and a replayed operation is never re-dispatched, so a longer hold
-	 * could never deliver its answer. */
+	/** Inside the Gateway's 255s idle cut. */
 	readonly waitBudgetMs: number;
 }
 

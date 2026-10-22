@@ -126,8 +126,8 @@ permission, so an action runs at once.
   nothing sent. No request starts past it, and one in flight is cut there or at 15 seconds. An id
   never sent answers `not_attempted`; a `DELETE` cut before its answer answers `uncertain`. The
   caller-facing waits live in one table (`ASSISTANT_WAITS`, `waits.ts`), and a test pins their
-  order: the request inside the action, the preview inside the phone's answer wait, and every route
-  inside the Gateway's Bun server, which holds a request up to 255 seconds (`serveLimits.ts`).
+  order: the request inside the action and the preview inside the phone's answer wait. The assistant
+  routes sit inside the Gateway's 255-second idle timeout, pinned by `gateway-serve-limits.test.ts`.
 - **`rate_limited` means GitHub answered with a rate limit:** an id the shared limit held back was not
   sent, so it answers `not_attempted`, and the note names the wait.
 - **A call id makes a retry safe:** the tool mints one per call and repeats it on a retried post. The

@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import WebSocket from "ws";
 import packageJson from "../../../package.json";
+import { isGatewayLongWaitRoute, resendsAfterFailure } from "../../shared/gateway-long-waits.js";
 import { createReconnector } from "../../shared/reconnect.js";
 import { OP_LEDGER_PROTOCOL } from "../../shared/schemas.js";
 import {
@@ -181,9 +182,14 @@ async function routerRequest(
 	label: string,
 ): Promise<unknown> {
 	let lastErr: Error | undefined;
+	const method = init.method ?? "GET";
+	const { pathname } = new URL(url);
+	const longWait = isGatewayLongWaitRoute(method, pathname);
+	const resends = resendsAfterFailure(method, pathname);
+	const requestInit = longWait ? { ...init, timeout: false } : init;
 	for (let attempt = 0; attempt <= retries; attempt++) {
 		try {
-			const res = await fetch(url, init);
+			const res = await fetch(url, requestInit);
 			const body = res.ok ? await res.text() : await readResponseBody(res, MAX_ROUTER_ERROR_BODY);
 			let json: unknown;
 			try {
@@ -196,16 +202,28 @@ async function routerRequest(
 		} catch (err) {
 			lastErr = err instanceof Error ? err : new Error(String(err));
 			if (err instanceof RouterHttpError) throw err;
-			if (attempt < retries) {
-				const delay = retryDelayMs * 2 ** attempt;
-				console.error(
-					`[bridge] ${label} ${url} failed (attempt ${attempt + 1}/${retries + 1}), retrying in ${delay}ms: ${lastErr.message}`,
-				);
-				await new Promise((r) => setTimeout(r, delay));
-			}
+			if (attempt >= retries || (!resends && !isConnectionRefused(err))) break;
+			const delay = retryDelayMs * 2 ** attempt;
+			console.error(
+				`[bridge] ${label} ${url} failed (attempt ${attempt + 1}/${retries + 1}), retrying in ${delay}ms: ${lastErr.message}`,
+			);
+			await new Promise((r) => setTimeout(r, delay));
 		}
 	}
 	throw lastErr!;
+}
+
+function isConnectionRefused(error: unknown): boolean {
+	const seen = new Set<object>();
+	let current: unknown = error;
+	while (current !== null && typeof current === "object" && !seen.has(current)) {
+		seen.add(current);
+		const failure = current as { cause?: unknown; code?: unknown };
+		// Bun, then Node.
+		if (failure.code === "ConnectionRefused" || failure.code === "ECONNREFUSED") return true;
+		current = failure.cause;
+	}
+	return false;
 }
 
 /** Post a self-scoped action. */
