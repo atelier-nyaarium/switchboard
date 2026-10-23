@@ -14,7 +14,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -85,20 +84,17 @@ internal fun AssistantScreen(
 			Text("Set a Gateway and directory where the assistant session lives.", style = MaterialTheme.typography.bodyLarge)
 			Button(onClick = hapticClick { settingsOpen = true }) { Text("Configure") }
 		} else {
-			Card(Modifier.fillMaxWidth()) {
-				Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-					Row(verticalAlignment = Alignment.CenterVertically) {
-						Column(Modifier.weight(1f)) {
-							Text("Assistant storage location", style = MaterialTheme.typography.titleLarge)
-						}
-						IconButton(onClick = hapticClick { settingsOpen = true }) {
-							Icon(Icons.Default.Settings, contentDescription = "Assistant settings")
-						}
-					}
-					val address = assistantAddress(state.teams, state.domainId, home)
-					Button(onClick = hapticClick { address?.let(onOpen) }, enabled = address != null) {
-						Text("Open conversation")
-					}
+			Row(
+				Modifier.fillMaxWidth(),
+				horizontalArrangement = Arrangement.SpaceBetween,
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				val address = assistantAddress(state.teams, state.domainId, home)
+				Button(onClick = hapticClick { address?.let(onOpen) }, enabled = address != null) {
+					Text("Open conversation")
+				}
+				IconButton(onClick = hapticClick { settingsOpen = true }) {
+					Icon(Icons.Default.Settings, contentDescription = "Assistant settings")
 				}
 			}
 			if (homes.size > 1) {
