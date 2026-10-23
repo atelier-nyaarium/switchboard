@@ -19,6 +19,7 @@ temp/
 debug*.log
 kubeconfig*
 .host-daemon.pid
+cve/
 
 #### OS
 Thumbs.db
