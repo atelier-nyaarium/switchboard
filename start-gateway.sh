@@ -3,6 +3,15 @@
 set -uo pipefail
 cd "$(dirname "$0")" || exit 1
 
+. scripts/resolve-bun.sh
+if ! BUN="$(resolve_bun)"; then
+	echo "bun not found. Searched: $BUN_SEARCHED." >&2
+	echo "Install bun (https://bun.sh) or export BUN_INSTALL, then: ./start-gateway.sh" >&2
+	exit 1
+fi
+# Lifecycle scripts call bare bun.
+export PATH="$(dirname "$BUN"):$PATH"
+
 if ! git fetch --prune; then
 	echo "ERROR: git fetch failed; gateway startup aborted" >&2
 	exit 1
@@ -17,7 +26,10 @@ if ! git submodule update --init --recursive; then
 fi
 echo "Deploying commit $(git rev-parse HEAD)"
 
-bun ci
+if ! "$BUN" ci; then
+	echo "ERROR: bun ci failed; gateway startup aborted" >&2
+	exit 1
+fi
 
 grep -qE '^GATEWAY_ID=' .env 2>/dev/null || export GATEWAY_ID="$(hostname)"
 EFF_ID="$(sed -n 's/^GATEWAY_ID=//p' .env 2>/dev/null | head -1)"; EFF_ID="${EFF_ID:-${GATEWAY_ID:-$(hostname)}}"
