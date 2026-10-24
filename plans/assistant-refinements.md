@@ -357,8 +357,9 @@ Lands with Phase 2. `GrantSecretsSheet` stays a sheet, one over a page.
 
 ## Phase 4 - Watcher field declarations
 
-- **Declarations:** a strict `fieldSpecs` union beside the rule schemas: `enumeration` (field, label, value and label pairs) and `text` (field, label, a value of at most `ASSISTANT_RULE_VALUE_MAX`). `Watcher` declares the specs only; the wire `fields` and `fieldsOf` derive from them. `createGithubWatcher` holds GitHub's 16 reasons and the observed subject types. The union goes in codegen `ROOTS` and `SEALED_ROOTS`.
+- **Declarations:** a strict `fieldSpecs` union beside the rule schemas: `enumeration` (field, label, value and label pairs) and `text` (field, label, a value of at most `ASSISTANT_RULE_VALUE_MAX`). `Watcher` declares the specs only, and must declare them; a watcher with no conditions passes `[]`. The wire `fields` and `fieldsOf` derive from them. `createGithubWatcher` holds GitHub's 16 reasons and the observed subject types. The union goes in codegen `ROOTS` and `SEALED_ROOTS`.
 - **One parse:** `parseRuleForFields` refuses an undeclared field, a value outside the set, a test the kind does not take, and a blank value. An enumeration takes `is` and `is_not`; text takes all three. It answers a result, never throws.
+- **One trim, pinned on both runtimes:** `trimRuleValue` takes ASCII whitespace off a value's edges and nothing else, in `schemasAssistantRules` and in `RuleDraft`, and every blank check on a rule value reads it. An option value with edge whitespace is refused, since it could never be picked. `tests/fixtures/assistant-rules/vectors.json` pins the phone's Save gate, `fittingRule`, to what the Gateway accepts of the value the phone sends, and asserts a blocked Save says why unless the value is blank. The sandbox's put answers through `fittingRule`, and the Save closure sends the rule `fittingRule` answers, so the gate and the send read one rule.
 - **Put and preview:** the console input stays tolerant of unknown keys, so an older phone's write with `ping` still lands (`assistant-rules.test.ts` keeps that case). The field parse refuses what does not fit.
 - **Restore:** after `decodedLegacy`, the snapshot parses strictly for structure, through strict on-disk copies of the rule shapes (`StoredRulesSchema`), so an undeclared key quarantines the file; only structural corruption quarantines. Validity is derived per rule against the current specs on every read and never stored, so a spec change moves no revision or position. A put repairs an invalid rule in place; delete and move work by id.
 - **One match path:** a field-aware match takes the specs and skips invalid rules. Sort, the inbox listing and preview (including its `firstMatch`) all use it. The full held list stays the read for display and owner ops.
@@ -379,6 +380,7 @@ Lands with Phase 2. `GrantSecretsSheet` stays a sheet, one over a page.
   - `assistant-rules.test.ts`: restore with a stale rule, preview with an invalid earlier rule, the match rules above, and the older phone's `ping` write.
   - Watcher state and GitHub watcher tests: unexpected values, priming poll included, pruning and the cap.
   - `RuleDraftTest`: per-kind menus and tests, a kind change, invalid rows, labels.
+  - `assistant-rule-vectors.test.ts` and `AssistantRuleVectorsTest`: the shared fit corpus, registered in the vectors manifest.
   - `kotlin-gate.sh` for the codegen.
 - **Emulator and cards:** `SandboxAssistantGateway` declares `fieldSpecs`, one invalid rule and one unexpected value. The rules and settings cards show both.
 

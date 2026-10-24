@@ -54,7 +54,14 @@ function github(ambient: FakeAmbient, replies: Reply[], token: TokenRead = TOKEN
 	const lane = createSourceLanes({
 		ambient,
 		state: { get: () => FRESH_STATE, put: () => true },
-		watchers: [{ id: "github", label: "GitHub", poll: async () => ({ kind: "unchanged", nextPollMs: 60_000 }) }],
+		watchers: [
+			{
+				id: "github",
+				label: "GitHub",
+				fieldSpecs: [],
+				poll: async () => ({ kind: "unchanged", nextPollMs: 60_000 }),
+			},
+		],
 		sort: () => "wake",
 		wake: () => null,
 		to: "host.assistant",

@@ -2,7 +2,11 @@
 
 import { z } from "zod";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
-import type { AssistantFieldSpec, AssistantFieldValue } from "../../shared/schemasAssistantRules.js";
+import {
+	type AssistantFieldSpec,
+	type AssistantFieldValue,
+	trimRuleValue,
+} from "../../shared/schemasAssistantRules.js";
 import type { WatcherEvent } from "./watcher.js";
 
 const WatcherStateSchema = z.strictObject({
@@ -73,7 +77,7 @@ export function unexpectedAfter(
 			if (spec.kind !== "enumeration" || !Object.hasOwn(event.fields, spec.field)) continue;
 			const entry = { field: spec.field, value: event.fields[spec.field] ?? "" };
 			// No list can name a blank, so it is never reported.
-			if (entry.value.trim() === "") continue;
+			if (trimRuleValue(entry.value) === "") continue;
 			if (!stillUnexpected(specs, entry) || seen.has(keyOf(entry))) continue;
 			if (values.length >= MAX_UNEXPECTED) {
 				capped = true;

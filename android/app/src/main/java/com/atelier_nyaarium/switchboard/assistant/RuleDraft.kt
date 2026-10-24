@@ -18,6 +18,12 @@ internal val MAX_RULES = Protocol.Wire.ASSISTANT_RULES_MAX
 internal val MAX_CONDITIONS = Protocol.Wire.ASSISTANT_RULE_CONDITIONS_MAX
 private val MAX_VALUE_LEN = Protocol.Wire.ASSISTANT_RULE_VALUE_MAX
 
+/** ASCII whitespace code points. */
+private val ASCII_EDGES = setOf(0x20, 0x09, 0x0A, 0x0B, 0x0C, 0x0D)
+
+/** ASCII whitespace edges only. */
+internal fun trimRuleValue(value: String): String = value.trim { it.code in ASCII_EDGES }
+
 internal fun testLabel(test: String): String = if (test == "is_not") "is not" else test
 
 internal fun actionLabel(action: String): String = action.replaceFirstChar { it.uppercase() }
@@ -59,7 +65,7 @@ internal data class WatcherRules(
 	/** Stale held choice first; text has no menu. */
 	fun choicesFor(field: String, held: String): List<String>? {
 		val offered = (specOf(field) as? AssistantFieldSpec.Enumeration)?.options?.map { it.value } ?: return null
-		return if (held.isBlank() || held in offered) offered else listOf(held) + offered
+		return if (trimRuleValue(held).isEmpty() || held in offered) offered else listOf(held) + offered
 	}
 
 	/** Text takes any value. */
@@ -75,7 +81,7 @@ internal data class WatcherRules(
 	/** Mirrors rule validation; blank drafts defer. */
 	fun issueOf(condition: AssistantRuleCondition): String? {
 		val spec = specOf(condition.field) ?: return "${fieldLabel(condition.field)} is not a field here"
-		val value = condition.value.trim()
+		val value = trimRuleValue(condition.value)
 		if (value.isEmpty()) return null
 		if (value.length > MAX_VALUE_LEN) return "At most $MAX_VALUE_LEN characters"
 		if (condition.test !in testsOf(spec)) return "${spec.label} takes no \"${testLabel(condition.test)}\""
@@ -136,7 +142,7 @@ internal data class RuleDraft(
 
 	/** Null until valid. */
 	fun toRule(): AssistantRule? {
-		val trimmed = conditions.map { it.copy(value = it.value.trim()) }
+		val trimmed = conditions.map { it.copy(value = trimRuleValue(it.value)) }
 		if (trimmed.isEmpty() || trimmed.size > MAX_CONDITIONS) return null
 		if (trimmed.any { it.value.isEmpty() || it.value.length > MAX_VALUE_LEN }) return null
 		return AssistantRule(id = id, conditions = trimmed, action = action, revision = revision)

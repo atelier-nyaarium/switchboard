@@ -13,11 +13,22 @@ export const RULE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 export type RuleAction = (typeof RULE_ACTIONS)[number];
 export type RuleTest = (typeof RULE_TESTS)[number];
 
+/** ASCII whitespace edges only. */
+export const trimRuleValue = (value: string): string => value.replace(/^[ \t\n\v\f\r]+|[ \t\n\v\f\r]+$/g, "");
+
 const fieldName = z.string().min(1).max(64);
 const fieldLabel = z.string().min(1).max(80);
 
 export const AssistantFieldOptionSchema = z
-	.strictObject({ value: z.string().min(1).max(ASSISTANT_RULE_VALUE_MAX), label: fieldLabel })
+	.strictObject({
+		// A padded option could never be picked.
+		value: z
+			.string()
+			.min(1)
+			.max(ASSISTANT_RULE_VALUE_MAX)
+			.refine((value) => value === trimRuleValue(value), "an option has no edge whitespace"),
+		label: fieldLabel,
+	})
 	.meta({ id: "AssistantFieldOption" });
 
 /** Watcher-declared testable fields. */
@@ -145,7 +156,7 @@ export type ConsoleAssistantPreviewResult = z.infer<typeof ConsoleAssistantPrevi
 export function canonicalRule<T extends AssistantRule>(rule: T): T {
 	return {
 		...rule,
-		conditions: rule.conditions.map((condition) => ({ ...condition, value: condition.value.trim() })),
+		conditions: rule.conditions.map((condition) => ({ ...condition, value: trimRuleValue(condition.value) })),
 	};
 }
 
@@ -167,7 +178,7 @@ const specOf = (specs: readonly AssistantFieldSpec[], field: string) => specs.fi
 function conditionIssue(condition: AssistantRuleCondition, specs: readonly AssistantFieldSpec[]): string | null {
 	const spec = specOf(specs, condition.field);
 	if (!spec) return `the rule uses unknown field "${condition.field}"`;
-	if (condition.value.trim() === "") return `the rule has no value for ${spec.label}`;
+	if (trimRuleValue(condition.value) === "") return `the rule has no value for ${spec.label}`;
 	if (!testsOf(spec).includes(condition.test)) return `${spec.label} takes no "${condition.test}" test`;
 	if (spec.kind === "enumeration" && !spec.options.some((option) => option.value === condition.value)) {
 		return `"${condition.value}" is not a ${spec.label} choice`;

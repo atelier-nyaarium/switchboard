@@ -72,7 +72,7 @@ export interface Watcher {
 	/** Display name; never blank. */
 	readonly label: string;
 	/** Specs define testable fields; wire fields derive from them. */
-	readonly fieldSpecs?: readonly AssistantFieldSpec[];
+	readonly fieldSpecs: readonly AssistantFieldSpec[];
 	/** The secret it needs, shown to the owner. */
 	readonly secret?: string;
 	/** Settles once `signal` aborts. */

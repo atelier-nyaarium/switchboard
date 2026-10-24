@@ -31,6 +31,7 @@ function counting(): Watcher & { polls: number } {
 	const watcher = {
 		id: "github",
 		label: "GitHub",
+		fieldSpecs: [],
 		polls: 0,
 		poll: async () => {
 			watcher.polls += 1;

@@ -1,0 +1,123 @@
+{
+	"_comment": "Shared validation vectors for TypeScript and Kotlin. `codes`, `times` and `around` construct the typed value; `canonical` gives the stored value. Trimming removes ASCII whitespace at edges, before the length counts.",
+	"specs": [
+		{
+			"kind": "enumeration",
+			"field": "reason",
+			"label": "Reason",
+			"options": [
+				{ "value": "review_requested", "label": "Review requested" },
+				{ "value": "mention", "label": "Mention" }
+			]
+		},
+		{ "kind": "text", "field": "repository", "label": "Repository" }
+	],
+	"cases": [
+		{
+			"name": "a listed choice fits",
+			"field": "reason",
+			"test": "is",
+			"value": "mention",
+			"fits": true,
+			"canonical": "mention"
+		},
+		{
+			"name": "a choice takes is not",
+			"field": "reason",
+			"test": "is_not",
+			"value": "mention",
+			"fits": true,
+			"canonical": "mention"
+		},
+		{
+			"name": "a choice takes no contains",
+			"field": "reason",
+			"test": "contains",
+			"value": "mention",
+			"fits": false
+		},
+		{
+			"name": "a choice no longer offered does not fit",
+			"field": "reason",
+			"test": "is",
+			"value": "retired",
+			"fits": false
+		},
+		{
+			"name": "a choice is its value, never its label",
+			"field": "reason",
+			"test": "is",
+			"value": "Mention",
+			"fits": false
+		},
+		{
+			"name": "a padded choice is trimmed to the listed value",
+			"field": "reason",
+			"test": "is",
+			"value": "  mention  ",
+			"fits": true,
+			"canonical": "mention"
+		},
+		{
+			"name": "text takes contains and keeps its case",
+			"field": "repository",
+			"test": "contains",
+			"value": "Atelier",
+			"fits": true,
+			"canonical": "Atelier"
+		},
+		{
+			"name": "tab, newline and return edges are trimmed",
+			"field": "repository",
+			"test": "is",
+			"codes": [9, 97, 10, 13],
+			"fits": true,
+			"canonical": "a"
+		},
+		{
+			"name": "vertical tab and form feed edges are trimmed",
+			"field": "repository",
+			"test": "is",
+			"codes": [11, 97, 12],
+			"fits": true,
+			"canonical": "a"
+		},
+		{ "name": "an empty value does not fit", "field": "repository", "test": "is", "value": "", "fits": false },
+		{ "name": "spaces alone do not fit", "field": "repository", "test": "is", "value": "   ", "fits": false },
+		{ "name": "a byte order mark is a value", "field": "repository", "test": "is", "codes": [65279], "fits": true },
+		{
+			"name": "an information separator is a value",
+			"field": "repository",
+			"test": "is",
+			"codes": [28],
+			"fits": true
+		},
+		{ "name": "a no-break space is a value", "field": "repository", "test": "is", "codes": [160], "fits": true },
+		{
+			"name": "two hundred characters fit",
+			"field": "repository",
+			"test": "contains",
+			"value": "x",
+			"times": 200,
+			"fits": true
+		},
+		{
+			"name": "edge padding does not count toward the limit",
+			"field": "repository",
+			"test": "contains",
+			"value": "x",
+			"times": 200,
+			"around": "  ",
+			"fits": true
+		},
+		{
+			"name": "two hundred and one do not",
+			"field": "repository",
+			"test": "contains",
+			"value": "x",
+			"times": 201,
+			"fits": false
+		},
+		{ "name": "an undeclared field does not fit", "field": "kind", "test": "is", "value": "issue", "fits": false }
+	]
+}

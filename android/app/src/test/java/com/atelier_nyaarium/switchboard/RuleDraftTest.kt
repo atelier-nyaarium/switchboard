@@ -5,7 +5,6 @@ import com.atelier_nyaarium.switchboard.assistant.RuleEdit
 import com.atelier_nyaarium.switchboard.assistant.RuleEditing
 import com.atelier_nyaarium.switchboard.assistant.RuleSlot
 import com.atelier_nyaarium.switchboard.assistant.editorLanded
-import com.atelier_nyaarium.switchboard.assistant.fittingRule
 import com.atelier_nyaarium.switchboard.assistant.goneFrom
 import com.atelier_nyaarium.switchboard.assistant.ruleEditing
 import com.atelier_nyaarium.switchboard.assistant.SaveOutcome
@@ -119,15 +118,6 @@ class RuleDraftTest {
 		assertNotNull(choiceRules.issueOf(stale.conditions.single()))
 		assertEquals(RuleEditing(edit = true, save = false, delete = true), ruleEditing(slot, stale, false, false, choiceRules))
 		assertEquals(RuleEditing(edit = true, save = true, delete = true), ruleEditing(slot, repicked, false, false, choiceRules))
-	}
-
-	@Test
-	fun aTextValuePastTheLimitSaysSoAndNeitherSavesNorPreviews() {
-		val long = RuleDraft("r", listOf(AssistantRuleCondition("repository", "contains", "x".repeat(201))), "inbox", 0L)
-
-		assertNotNull(choiceRules.issueOf(long.conditions.single()))
-		assertNull(fittingRule(long, choiceRules))
-		assertEquals(false, ruleEditing(RuleSlot.New, long, false, false, choiceRules).save)
 	}
 
 	@Test

@@ -232,7 +232,7 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		if (phase !== "running") return;
 		const now = ambient.now();
 		// Every settle writes the set pruned against the current specs.
-		const health = { ...cleared(held), unexpected: unexpectedNow(held, watcher.fieldSpecs ?? []) };
+		const health = { ...cleared(held), unexpected: unexpectedNow(held, watcher.fieldSpecs) };
 		if (answer.kind === "backoff") {
 			const until = now + answer.retryMs;
 			settle(watcher, { ...health, backoff: { until, reason: answer.reason }, nextPollAt: until }, until);
@@ -248,7 +248,7 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 			return;
 		}
 		// Record all event values before freshness filtering.
-		const unexpected = unexpectedAfter(held.unexpected, answer.events, watcher.fieldSpecs ?? []);
+		const unexpected = unexpectedAfter(held.unexpected, answer.events, watcher.fieldSpecs);
 		const read = { unread: answer.events.length, capped: answer.capped, lastSuccessAt: now, unexpected };
 		const newest = answer.events.reduce((max, event) => Math.max(max, event.at), held.newest);
 		// First poll primes without waking.

@@ -78,6 +78,7 @@ function scripted(id = "github") {
 	const watcher: Watcher = {
 		id,
 		label: `${id} label`,
+		fieldSpecs: [],
 		poll: (cursor, signal) => {
 			cursors.push(cursor);
 			signals.push(signal);
@@ -576,6 +577,7 @@ describe("a watcher's source lane", () => {
 		const watcher: Watcher = {
 			id: "github",
 			label: "GitHub",
+			fieldSpecs: [],
 			poll: (cursor) => {
 				cursors.push(cursor);
 				if (cursors.length === 1) return Promise.reject(new Error("socket hang up"));

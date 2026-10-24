@@ -173,7 +173,12 @@ describe("an assistant action", () => {
 			ambient,
 			state: { get: () => FRESH_STATE, put: () => true },
 			watchers: [
-				{ id: "github", label: "GitHub", poll: async () => ({ kind: "unchanged", nextPollMs: 60_000 }) },
+				{
+					id: "github",
+					label: "GitHub",
+					fieldSpecs: [],
+					poll: async () => ({ kind: "unchanged", nextPollMs: 60_000 }),
+				},
 			],
 			sort: () => "wake",
 			wake: () => null,

@@ -1,8 +1,10 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.crypto.sha256Hex
+import com.atelier_nyaarium.switchboard.assistant.RuleDraft
 import com.atelier_nyaarium.switchboard.assistant.WatcherRules
 import com.atelier_nyaarium.switchboard.assistant.field
+import com.atelier_nyaarium.switchboard.assistant.fittingRule
 import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
@@ -361,7 +363,9 @@ internal class SandboxAssistantGateway : AssistantGateway {
 			is ConsoleOp.AssistantRulePut -> {
 				val current = held.find { it.id == op.rule.id }
 				if ((current?.revision ?: 0L) != op.rule.revision) return RuleSaved.Refused("revision ${current?.revision} is stored", rules)
-				val rule = op.rule.copy(revision = op.rule.revision + 1)
+				val fitted = fittingRule(RuleDraft.draftOf(op.rule), WatcherRules(SANDBOX_FIELD_SPECS, rules))
+					?: return RuleSaved.Refused("the rule does not fit its fields", rules)
+				val rule = fitted.copy(revision = op.rule.revision + 1)
 				if (current == null) held + rule else held.map { if (it.id == rule.id) rule else it }
 			}
 			is ConsoleOp.AssistantRuleDelete -> held.filterNot { it.id == op.ruleId }

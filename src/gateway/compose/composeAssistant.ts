@@ -120,10 +120,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 
 	const watcherState = openDurable(deps.dataDir, "assistant-watchers", (store) => createWatcherStateStore(store));
 	// Unknown watcher returns undefined.
-	const specsOf = (watcherId: string) => {
-		const watcher = watchers.find((candidate) => candidate.id === watcherId);
-		return watcher ? (watcher.fieldSpecs ?? []) : undefined;
-	};
+	const specsOf = (watcherId: string) => watchers.find((candidate) => candidate.id === watcherId)?.fieldSpecs;
 	const rules = openDurable(deps.dataDir, "assistant-rules", (store) => createRulesStore({ store, specsOf }));
 	const render = (watcher: Watcher, event: WatcherEvent) => eventLines({ label: watcher.label, ...event }).join("\n");
 
@@ -214,7 +211,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 
 	const watcherOf = (watcher: Watcher): AssistantWatcher => {
 		const state = watcherState.get(watcher.id);
-		const specs = watcher.fieldSpecs ?? [];
+		const specs = watcher.fieldSpecs;
 		const held = rules.get(watcher.id);
 		return {
 			id: watcher.id,

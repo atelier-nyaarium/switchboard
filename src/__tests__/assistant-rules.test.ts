@@ -408,6 +408,8 @@ describe("a watcher's rules", () => {
 		expect(
 			AssistantFieldSpecSchema.safeParse({ kind: "enumeration", field: "n", label: "N", options: [] }).success,
 		).toBe(false);
+		const padded = { kind: "enumeration", field: "n", label: "N", options: [{ value: " a ", label: "A" }] };
+		expect(AssistantFieldSpecSchema.safeParse(padded).success).toBe(false);
 	});
 
 	it("preview past an invalid earlier rule, which neither decides nor shadows", async () => {

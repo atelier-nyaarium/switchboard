@@ -192,7 +192,7 @@ internal fun RuleEditorPage(
 		{ sent -> ops.saveOtherwise(gatewayId, watcher.id, sent.toOtherwise()) }
 	} else {
 		rule?.let {
-			{ sent -> sent.toRule()?.let { ops.saveRule(gatewayId, watcher.id, it) } ?: RuleSaved.Refused("Not a complete rule", null) }
+			{ sent -> fittingRule(sent, rules)?.let { ops.saveRule(gatewayId, watcher.id, it) } ?: RuleSaved.Refused("Not a complete rule", null) }
 		}
 	}
 
@@ -249,7 +249,7 @@ internal fun RuleEditorPage(
 					PickMenu(
 						label = "Value",
 						choices = choices,
-						picked = condition.value.takeIf { it.isNotBlank() },
+						picked = condition.value.takeIf { trimRuleValue(it).isNotEmpty() },
 						labelOf = { value -> rules.valueLabelOf(condition.field, value) },
 						onPick = { value -> ops.editRule(key, draft.changed(index) { it.copy(value = value) }) },
 						trailingOf = { value -> "not offered".takeUnless { rules.offers(condition.field, value) } },
