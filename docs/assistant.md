@@ -52,7 +52,6 @@ it events. The session decides what to say and do.
   - A session the assistant wrote to still answers through `/respond`.
 - **Its own tools:** the plugin registers them only in the assistant session. The Gateway serves
   their routes only to that session's token.
-- **Timed compaction:** runs at its due time only while the REPL is idle.
 
 ## Notes
 
@@ -476,6 +475,10 @@ than reserving one. `docs/routines.md` holds the routine side; this is the assis
 
 - **Standing instructions appear once:** in the plugin's MCP instructions for `host.assistant`
   (`src/mcp/assistant/instructions.ts`). The folder's `AGENTS.md` holds the owner's own instructions.
+- **Its capabilities are its own:** `switchboard_capabilities` serves both kinds of session. The
+  assistant's answer lists `ASSISTANT_CAPABILITIES`, built from the tools its scope allows, then the
+  standing rules again for after a compaction. What the Gateway enables is named as other sessions',
+  never as something a restart would add.
 - **Events:** a channel message with `event="true"` and no sender, `session_id` or
   `meta.instructions`. `CHANNEL_INSTRUCTIONS` says it is data and owes no `channel_reply`. Its body
   is each event's data lines (`eventLines`), thread id included, every value collapsed to one line

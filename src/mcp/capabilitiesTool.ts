@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { type Capability, unionCapabilities, VAULT_INSTRUCTIONS } from "../shared/capabilities.js";
+import { ASSISTANT_CAPABILITIES, ASSISTANT_INSTRUCTIONS } from "./assistant/instructions.js";
 import { readCapabilities } from "./capabilities.js";
 
 /** Tool guidance, appended after the capability's own text. */
@@ -19,6 +20,14 @@ const description = `
 # Switchboard Capabilities
 
 List capabilities enabled when this session started.
+
+Call after receiving a channel message or compacting the session.
+`.trim();
+
+const assistantDescription = `
+# Switchboard Capabilities
+
+List the assistant's capabilities and its standing rules.
 
 Call after receiving a channel message or compacting the session.
 `.trim();
@@ -66,18 +75,48 @@ export function renderCapabilities(startup: Capability[], current: Capability[] 
 	return lines.join("\n").trimEnd();
 }
 
+/**
+ * The assistant's answer: its own set, which its role fixes rather than its start. What the Gateway
+ * enables is named as other sessions', so a list that grew since launch never reads as a restart away.
+ */
+export function renderAssistantCapabilities(gateway: Capability[] | null): string {
+	const lines = [
+		`Assistant capabilities: ${ASSISTANT_CAPABILITIES.map((c) => c.id).join(", ")}. This session's role fixes them, so a restart changes nothing.`,
+	];
+	if (gateway && gateway.length > 0) {
+		const ids = gateway.map((c) => c.id).sort();
+		lines.push("", `Enabled on this Gateway for other sessions, never this one: ${ids.join(", ")}.`);
+	}
+	for (const capability of ASSISTANT_CAPABILITIES) {
+		lines.push("", `## ${capability.id}`, "", capability.tools.map((tool) => `\`${tool}\``).join(", "));
+	}
+	lines.push("", ASSISTANT_INSTRUCTIONS);
+	return lines.join("\n");
+}
+
 // The startup snapshot answers, since it is what the tool set was gated on.
-export function registerCapabilitiesTool(mcpServer: McpServer, capabilities: Capability[]): void {
+export function registerCapabilitiesTool(
+	mcpServer: McpServer,
+	capabilities: Capability[],
+	options: { assistant?: boolean } = {},
+): void {
 	mcpServer.registerTool(
 		"switchboard_capabilities",
-		{ title: `Switchboard Capabilities`, description, inputSchema: capabilitiesSchema },
+		{
+			title: `Switchboard Capabilities`,
+			description: options.assistant ? assistantDescription : description,
+			inputSchema: capabilitiesSchema,
+		},
 		async () => {
 			const routerUrl = process.env.BRIDGE_ROUTER_URL;
 			const bundle = routerUrl ? await readCapabilities(routerUrl) : null;
 			// Incomplete is unverifiable, not a change: a silent source owns ids it did not report.
 			const fresh = bundle && unionCapabilities(bundle);
 			const current = fresh?.known ? fresh.capabilities : null;
-			return { content: [{ type: "text" as const, text: renderCapabilities(capabilities, current) }] };
+			const text = options.assistant
+				? renderAssistantCapabilities(current)
+				: renderCapabilities(capabilities, current);
+			return { content: [{ type: "text" as const, text }] };
 		},
 	);
 }

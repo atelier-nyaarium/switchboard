@@ -3,15 +3,18 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerInboxTool } from "../mcp/assistant/inboxTool.js";
-import { ASSISTANT_INSTRUCTIONS, scopeTools } from "../mcp/assistant/instructions.js";
+import { ASSISTANT_CAPABILITIES, ASSISTANT_INSTRUCTIONS, scopeTools } from "../mcp/assistant/instructions.js";
 import { sendGuarded } from "../mcp/assistant/sendTools.js";
 import { RouterHttpError } from "../mcp/bridge/helpers.js";
+import { renderAssistantCapabilities } from "../mcp/capabilitiesTool.js";
 import { guardToolResults } from "../mcp/toolResultGuard.js";
 import {
+	ASSISTANT_BUILTIN_TOOLS,
 	ASSISTANT_CROSSTALK_TOOLS,
 	ASSISTANT_ROUTINE_TOOLS,
 	ASSISTANT_SWITCHBOARD_TOOLS,
 } from "../shared/assistant-session.js";
+import type { Capability } from "../shared/capabilities.js";
 import { ASSISTANT_ACTION_KEYS } from "../shared/schemasAssistantActions.js";
 import type { InboxItem } from "../shared/schemasAssistantInbox.js";
 import { ASSISTANT_SEND_ROUTES, SEND_ROUTE_WAIT_CAP_MS } from "../shared/schemasAssistantSend.js";
@@ -85,6 +88,18 @@ describe("the assistant's tool scope", () => {
 		for (const tool of taught) expect(ASSISTANT_SWITCHBOARD_TOOLS).toContain(tool);
 		// Titles reach locked phones.
 		expect(ASSISTANT_INSTRUCTIONS).toMatch(/title.*locked phone/);
+	});
+
+	it("answers its capabilities with exactly the tools it has, and the Gateway's as other sessions'", () => {
+		const gateway = [{ id: "vault" }, { id: "codex-agent" }] as Capability[];
+		const listed = ASSISTANT_CAPABILITIES.flatMap(({ tools }) => tools);
+		const answer = renderAssistantCapabilities(gateway);
+
+		expect([...listed].sort()).toEqual([...ASSISTANT_SWITCHBOARD_TOOLS, ...ASSISTANT_BUILTIN_TOOLS].sort());
+		for (const tool of listed) expect(answer).toContain(`\`${tool}\``);
+		expect(answer).toContain("other sessions, never this one: codex-agent, vault");
+		expect(answer).not.toMatch(/restart this session/);
+		expect(answer).toContain(ASSISTANT_INSTRUCTIONS);
 	});
 });
 

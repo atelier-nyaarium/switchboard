@@ -2,12 +2,13 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
+	ASSISTANT_BUILTIN_TOOLS,
 	ASSISTANT_CROSSTALK_TOOLS,
 	ASSISTANT_REPLY_TOOLS,
 	ASSISTANT_ROUTINE_TOOLS,
 	type AssistantBuiltinTool,
 } from "../../shared/assistant-session.js";
-import type { AssistantActionKey } from "../../shared/schemasAssistantActions.js";
+import { ASSISTANT_ACTION_KEYS, type AssistantActionKey } from "../../shared/schemasAssistantActions.js";
 import { ASSISTANT_COMMANDS } from "../../shared/session-commands.js";
 
 // A rename fails to compile.
@@ -41,6 +42,19 @@ You are the owner's assistant: one long-running session, living in this folder.
 - **Sending:** the owner may approve each \`${SEND}\`, seeing its exact text and target. A \`pending\` answer continues with \`${COLLECT}\`; \`${WITHDRAW}\` gives it up. A denial's note is the owner steering you; never send the denied text again.
 - **Check-ins:** a check-in is the owner's message naming an \`occurrenceId\`. Read its instructions with \`${CHECK_IN}\`, do them alongside whatever you were doing, then file what you did with \`${CHECK_IN_REPORT}\`. Its history is what earlier check-ins of that routine carried forward.
 `.trim();
+
+/**
+ * What the assistant's `switchboard_capabilities` lists: its own set, fixed by its role. Built from
+ * the constants that scope its tools, so the list cannot name one it lacks.
+ */
+export const ASSISTANT_CAPABILITIES: ReadonlyArray<{ id: string; tools: readonly string[] }> = [
+	{ id: "notes", tools: ASSISTANT_BUILTIN_TOOLS },
+	{ id: "replies", tools: Object.values(ASSISTANT_REPLY_TOOLS) },
+	{ id: "inbox", tools: Object.values(ASSISTANT_COMMANDS).map(({ tool }) => tool) },
+	{ id: "watcher-actions", tools: ASSISTANT_ACTION_KEYS },
+	{ id: "guarded-sends", tools: Object.values(ASSISTANT_CROSSTALK_TOOLS) },
+	{ id: "check-ins", tools: Object.values(ASSISTANT_ROUTINE_TOOLS) },
+];
 
 type Register = (name: string, config: unknown, callback: unknown) => { remove: () => void };
 

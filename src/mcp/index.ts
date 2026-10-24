@@ -173,7 +173,7 @@ export async function startMcp(): Promise<void> {
 	if (isAssistant) scopeTools(mcpServer, new Set(ASSISTANT_SWITCHBOARD_TOOLS));
 
 	registerBridgeTools(mcpServer, capabilities);
-	registerCapabilitiesTool(mcpServer, capabilities);
+	registerCapabilitiesTool(mcpServer, capabilities, { assistant: isAssistant });
 	registerReloadPlugins(mcpServer);
 	registerSetEffortLevel(mcpServer);
 	registerCompactSession(mcpServer);
