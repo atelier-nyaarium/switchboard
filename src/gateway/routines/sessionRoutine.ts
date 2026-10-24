@@ -13,8 +13,8 @@ export interface SessionRoutineDeps {
 	callerTeam: () => string | null;
 	occurrences: () => Occurrence[];
 	routineName: (routineId: string) => string | null;
-	/** What this routine remembers from earlier runs, empty at version zero on its first. */
-	memory: (routineId: string) => { text: string; version: number };
+	/** What this run's routine remembers from earlier runs, empty at version zero on its first. */
+	memory: (row: Occurrence) => { text: string; version: number };
 }
 
 type Found =
@@ -32,6 +32,7 @@ function findOccurrence(rows: Occurrence[], team: string, occurrenceId: string):
 	if (mine.length === 0) return { kind: "no_routine" };
 
 	const named = parseOccurrenceId(String(occurrenceId));
+	// A bare instant is a nudge queued before ids named the routine; remove 2026-11-24.
 	const names = (row: Occurrence) =>
 		String(row.scheduledAt) === named.scheduledAt &&
 		(named.routineId === undefined || row.routineId === named.routineId);
@@ -58,7 +59,7 @@ export function answerSessionRoutine(deps: SessionRoutineDeps, occurrenceId: str
 	if (found.kind !== "held") return found;
 	const held = found.row;
 
-	const remembered = deps.memory(held.routineId);
+	const remembered = deps.memory(held);
 	return {
 		kind: "instructions",
 		routineId: held.routineId,

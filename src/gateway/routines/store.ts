@@ -78,6 +78,21 @@ function contextRefusal(routine: Routine, deps: RoutineStoreDeps): string | null
 export function createRoutineStore(deps: RoutineStoreDeps) {
 	const { store } = deps;
 	let routines: Routine[] = RoutinesSchema.parse(store.load() ?? []).map(frozen);
+	// A run binds to the incarnation it was prepared under, so a routine stored before incarnations
+	// gets one before anything runs. Nothing is armed yet, so nothing is told.
+	if (routines.some((routine) => routine.incarnation === undefined)) {
+		const minted = routines.map((routine) =>
+			routine.incarnation === undefined ? frozen({ ...routine, incarnation: deps.newIncarnation() }) : routine,
+		);
+		commitChecked(
+			store,
+			minted,
+			(landed) => {
+				routines = landed;
+			},
+			{ label: "routine" },
+		);
+	}
 
 	/** A write the phone is told landed is on disk first. */
 	const commit = (next: Routine[]): boolean =>

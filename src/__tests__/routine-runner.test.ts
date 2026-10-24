@@ -10,6 +10,7 @@ import type { Ambient } from "../shared/ambient.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { openDurable } from "../shared/durable-store.js";
 import { occurrenceIdOf, ROUTINE_REPORT_GRACE_MS, type Routine } from "../shared/schemasRoutine.js";
+import { SESSION_COMMANDS } from "../shared/session-commands.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -436,20 +437,18 @@ describe("the routine runner", () => {
 		await stage.stop();
 	});
 
-	it("ends a routine's open runs when it changes target kind, so none files into the new memory", async () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "routine-stage-"));
-		roots.push(root);
-		let now = MONDAY_0900_LA - 60_000;
+	/** A stage whose session routes answer the triage routine's own session. */
+	const sessionStage = (root: string, clock: { now: number }) => {
 		let minted = 0;
 		const stage = composeRoutines({
 			dataDir: root,
 			ambient: {
-				now: () => now,
+				now: () => clock.now,
 				setTimer: () => ({}) as ReturnType<Ambient["setTimer"]>,
 				clearTimer: () => undefined,
 				newId: () => `inc-${++minted}`,
 			},
-			resolveCaller: () => null,
+			resolveCaller: () => "host.routine-triage",
 			assistantPlaced: () => true,
 			sessionOwned: () => true,
 			attempt: () => ({
@@ -460,17 +459,64 @@ describe("the routine runner", () => {
 				deliver: async () => undefined,
 			}),
 		});
+		const ask = async (route: string, body: object) =>
+			(await stage.routes.get(route)?.(new Request("http://gateway"), body))?.json();
+		const id = occurrenceIdOf("triage", MONDAY_0900_LA);
+		return {
+			stage,
+			instructions: () => ask(SESSION_COMMANDS.sessionRoutine.path, { occurrenceId: id }),
+			report: (history: string, historyVersion: number) =>
+				ask(SESSION_COMMANDS.sessionReport.path, { occurrenceId: id, report: "done", history, historyVersion }),
+		};
+	};
+
+	it("fences a run off from its routine once the routine changes target kind, so it files into no later memory", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "routine-stage-"));
+		roots.push(root);
+		const clock = { now: MONDAY_0900_LA - 60_000 };
+		const { stage, instructions, report } = sessionStage(root, clock);
+
 		stage.console.put(routine());
-		now = MONDAY_0900_LA;
+		clock.now = MONDAY_0900_LA;
 		stage.start();
 		await stage.reconcile();
-		expect(stage.openRuns("host.routine-triage")).toHaveLength(1);
+		expect(await report("spawn notes", 0)).toMatchObject({ kind: "filed" });
 
+		// A rename keeps the run and its memory.
 		stage.console.put(routine({ name: "Renamed" }), 1);
 		expect(stage.openRuns("host.routine-triage")).toHaveLength(1);
+		expect(await instructions()).toMatchObject({ history: "spawn notes" });
+
 		stage.console.put(routine({ target: { kind: "assistant", spawn: "host" } }), 2);
 		expect(stage.openRuns("host.routine-triage")).toEqual([]);
+		expect(await instructions()).toMatchObject({ kind: "no_routine" });
+		expect(await report("spawn notes, again", 1)).toMatchObject({ kind: "no_routine" });
 		await stage.stop();
+	});
+
+	it("binds no run written before incarnations to whatever its routine holds now", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "routine-stage-"));
+		roots.push(root);
+		const clock = { now: MONDAY_0900_LA + 60_000 };
+		fs.writeFileSync(path.join(root, "routines.json"), JSON.stringify([{ ...routine(), incarnation: "inc-old" }]));
+		const legacy = {
+			routineId: "triage",
+			scheduledAt: MONDAY_0900_LA,
+			deadlineAt: MONDAY_0900_LA + GRACE_MS,
+			state: "dispatched",
+			version: 3,
+			snapshot: "do the thing",
+			team: "host.routine-triage",
+			work: "open",
+			workUntil: MONDAY_0900_LA + GRACE_MS,
+		};
+		fs.writeFileSync(path.join(root, "routine-occurrences.json"), JSON.stringify([legacy]));
+		const { stage, instructions, report } = sessionStage(root, clock);
+
+		expect(stage.openRuns("host.routine-triage")).toEqual([]);
+		expect(stage.workingRoutine("host.routine-triage")).toBeNull();
+		expect(await instructions()).toMatchObject({ kind: "no_routine" });
+		expect(await report("old notes", 0)).toMatchObject({ kind: "no_routine" });
 	});
 
 	it("misses a disabled routine's open occurrence rather than running it", async () => {

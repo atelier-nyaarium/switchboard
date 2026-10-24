@@ -7,7 +7,7 @@ import type { MissReason } from "../../shared/routine-occurrence.js";
 import { nextOccurrence } from "../../shared/routine-recurrence.js";
 import { forgetAfterMs, type Routine } from "../../shared/schemasRoutine.js";
 import { fireAndForget } from "../fireAndForget.js";
-import { type Occurrence, type OccurrenceStore, workEnded } from "./occurrences.js";
+import { type Occurrence, type OccurrenceStore, pastLife, workEnded } from "./occurrences.js";
 import { routineTeam, targetRules } from "./reservation.js";
 import type { RoutineStore } from "./store.js";
 
@@ -159,7 +159,12 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 				held.scheduledAt,
 				{ state: held.state, version: held.version },
 				"prepared",
-				{ preparedRevision: prepared.revision, snapshot: prepared.snapshot, team: prepared.team },
+				{
+					preparedRevision: prepared.revision,
+					snapshot: prepared.snapshot,
+					team: prepared.team,
+					incarnation: routine.incarnation,
+				},
 			);
 			if (!moved) return;
 			held = moved;
@@ -209,7 +214,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 	 */
 	function forgetFinishedSessions(now: number): void {
 		for (const routine of routines.list()) {
-			if (!targetRules(routine).forgetsSession) continue;
+			if (!targetRules(routine).ownsSession) continue;
 			const team = routineTeam(routine);
 			if (!attempt().hasSession(team)) continue;
 			if (workingOccurrences(team).length > 0) continue;
@@ -226,6 +231,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 		const now = ambient.now();
 		return occurrences.all().filter((occurrence) => {
 			if (occurrence.team !== sessionTarget || workEnded(occurrence)) return false;
+			if (pastLife(occurrence, routines.get(occurrence.routineId)?.incarnation)) return false;
 			return now <= (occurrence.workUntil ?? occurrence.deadlineAt);
 		});
 	}
@@ -408,6 +414,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 						preparedRevision: prepared.revision,
 						snapshot: prepared.snapshot,
 						team: prepared.team,
+						incarnation: routine.incarnation,
 						work: "open",
 						workUntil: ambient.now() + GRACE_MS,
 					},

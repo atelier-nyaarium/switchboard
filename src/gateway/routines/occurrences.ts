@@ -32,6 +32,8 @@ export const OccurrenceSchema = z.object({
 	snapshot: z.string().optional(),
 	/** The session it was bound to, resolved from the target policy at preparation. */
 	team: z.string().optional(),
+	/** The routine's incarnation it was prepared under. Absent until prepared. */
+	incarnation: z.string().optional(),
 	/** Standing grants read this. Idle closes nothing; only `workUntil` or session end. */
 	work: z.enum(["open", "started", "done"]).optional(),
 	/**
@@ -76,6 +78,16 @@ export type Occurrence = z.infer<typeof OccurrenceSchema>;
 /** Never dispatched, or its work closed. */
 export function workEnded(row: Occurrence): boolean {
 	return row.state !== "dispatched" || row.work === undefined || row.work === "done";
+}
+
+/**
+ * Prepared under an incarnation the routine no longer has: deleted, or moved to another target
+ * kind. Such a run reaches neither the routine's authority nor its memory, however its row reads.
+ * An untagged row is one too: binding it to whatever the routine holds now is the crossing this
+ * fence exists to stop.
+ */
+export function pastLife(row: Occurrence, current: string | undefined): boolean {
+	return row.incarnation === undefined || row.incarnation !== current;
 }
 
 const OccurrencesSchema = z.array(OccurrenceSchema);
@@ -133,7 +145,17 @@ export function createOccurrenceStore(deps: OccurrenceStoreDeps) {
 		from: { state: OccurrenceState; version: number },
 		to: OccurrenceState,
 		patch: Partial<
-			Pick<Occurrence, "reason" | "reviewCause" | "preparedRevision" | "snapshot" | "team" | "work" | "workUntil">
+			Pick<
+				Occurrence,
+				| "reason"
+				| "reviewCause"
+				| "preparedRevision"
+				| "snapshot"
+				| "team"
+				| "incarnation"
+				| "work"
+				| "workUntil"
+			>
 		> = {},
 	): Occurrence | null => {
 		const held = at(routineId, scheduledAt);

@@ -43,8 +43,13 @@ export interface TargetRules {
 	team: (routine: Routine) => string;
 	/** A busy session holds the run. The assistant is mid-task by nature, so a check-in does not wait. */
 	waitsForIdle: boolean;
-	/** A finished run's session is forgotten after its keep period; never the assistant's. */
-	forgetsSession: boolean;
+	/**
+	 * The routine owns its session: reserves it from the sweeps, and forgets it after the keep
+	 * period. The assistant's session is the assistant's.
+	 */
+	ownsSession: boolean;
+	/** Its linked entries become a working run's grants. A check-in shares a session, so none. */
+	holdsSecrets: boolean;
 	/** Ownership follows session provenance. */
 	owns: (held: SessionRecord | undefined, routine: Routine) => boolean;
 	refusal: (routine: Routine, facts: TargetFacts) => string | null;
@@ -55,7 +60,8 @@ const SPAWN_RULES: TargetRules = {
 	kind: "spawn",
 	team: (routine) => `${routine.target.spawn}.${routineSessionName(routine.id)}`,
 	waitsForIdle: true,
-	forgetsSession: true,
+	ownsSession: true,
+	holdsSecrets: true,
 	owns: (held, routine) => held === undefined || held.mintedFrom === reserveKey(routine),
 	refusal: (routine, facts) => {
 		if (facts.knowsSpawn && !facts.knowsSpawn(routine.target.spawn)) {
@@ -70,7 +76,8 @@ const ASSISTANT_RULES: TargetRules = {
 	kind: "assistant",
 	team: () => ASSISTANT_TEAM,
 	waitsForIdle: false,
-	forgetsSession: false,
+	ownsSession: false,
+	holdsSecrets: false,
 	owns: (held) => isAssistantRecord(held),
 	refusal: (routine, facts) => {
 		if (routine.target.spawn !== ASSISTANT_SPAWN) return "a check-in runs where the assistant lives";

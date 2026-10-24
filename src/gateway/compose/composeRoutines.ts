@@ -1,7 +1,6 @@
 import type { Ambient } from "../../shared/ambient.js";
 import { openDurable } from "../../shared/durable-store.js";
 import {
-	isCheckIn,
 	occurrenceIdOf,
 	ROUTINE_REPORT_GRACE_MS,
 	type Routine,
@@ -9,7 +8,6 @@ import {
 	type RoutineMiss,
 	type RoutineState,
 	routineRefusal,
-	targetKind,
 } from "../../shared/schemasRoutine.js";
 import type { Runbook } from "../../shared/schemasRunbook.js";
 import type { SessionBaseline } from "../../shared/session-baseline.js";
@@ -17,9 +15,9 @@ import type { RoutineConsoleHandlers } from "../console/consoleTypes.js";
 import { fireAndForget } from "../fireAndForget.js";
 import { type Attention, createAttentionStore } from "../routines/attention.js";
 import { createRoutineMemoryStore } from "../routines/memory.js";
-import { createOccurrenceStore, type Occurrence, workEnded } from "../routines/occurrences.js";
+import { createOccurrenceStore, type Occurrence, pastLife } from "../routines/occurrences.js";
 import { renderRoutine } from "../routines/render.js";
-import { routineTeam, takenReason, UNPLACED_REASON } from "../routines/reservation.js";
+import { routineTeam, takenReason, targetRules, UNPLACED_REASON } from "../routines/reservation.js";
 import { createRoutineRoutes, type Handler as RoutineRouteHandler } from "../routines/routineRoutes.js";
 import { createRoutineRunner, type RoutineAttempt } from "../routines/runner.js";
 import type { FileOutcome } from "../routines/sessionRoutine.js";
@@ -225,15 +223,13 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		storeMoved();
 	};
 
-	const endRuns = (routineId: string): void => {
-		for (const row of occurrences.forRoutine(routineId)) {
-			if (!workEnded(row)) occurrences.noteWork(row.routineId, row.scheduledAt, "done");
-		}
-	};
+	const pastLifeOf = (row: Occurrence): boolean => pastLife(row, store.get(row.routineId)?.incarnation);
 
-	/** Empty for a routine the store no longer holds, and for one stored before incarnations. */
-	const remembered = (routineId: string): { text: string; version: number } => {
-		const incarnation = store.get(routineId)?.incarnation;
+	/** The memory a run reads and files into: the incarnation it was prepared under, never a later one. */
+	const memoryKey = (row: Occurrence): string | null => (pastLifeOf(row) ? null : (row.incarnation ?? null));
+
+	const remembered = (row: Occurrence): { text: string; version: number } => {
+		const incarnation = memoryKey(row);
 		return incarnation ? memory.read(incarnation) : { text: "", version: 0 };
 	};
 
@@ -249,7 +245,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 	const recoverProposals = (): void => {
 		for (const row of occurrences.all()) {
 			if (row.memoryProposed === undefined || row.memoryApplied === true) continue;
-			const incarnation = store.get(row.routineId)?.incarnation;
+			const incarnation = memoryKey(row);
 			if (!incarnation) continue;
 			const base = row.memoryVersion ?? 0;
 			const current = memory.read(incarnation);
@@ -277,7 +273,8 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		report: string,
 		proposal: { text: string; base: number; force: boolean },
 	): FileOutcome => {
-		const incarnation = store.get(routineId)?.incarnation;
+		const row = occurrences.at(routineId, scheduledAt);
+		const incarnation = row ? memoryKey(row) : null;
 		if (!incarnation) return { kind: "refused" };
 		// Asked before anything is written, so a conflict costs no report and no narrowing.
 		if (!proposal.force) {
@@ -306,21 +303,19 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 	return {
 		routes: createRoutineRoutes({
 			resolveCaller: deps.resolveCaller,
-			occurrences: () => occurrences.all(),
+			// A past life's run is no longer the routine's to answer for.
+			occurrences: () => occurrences.all().filter((row) => !pastLifeOf(row)),
 			routineName: (routineId) => store.get(routineId)?.name ?? null,
 			noteRead: (routineId, scheduledAt) => occurrences.noteRead(routineId, scheduledAt, deps.ambient.now()),
-			memory: (routineId) => remembered(routineId),
+			memory: (row) => remembered(row),
 			fileReport: (routineId, scheduledAt, report, proposal) =>
 				fileReport(routineId, scheduledAt, report, proposal),
 		}),
 		console: {
 			list: () => ({ routines: state(), zone: gatewayZone() }),
 			put: (routine, base) => {
-				const before = store.get(routine.id);
 				const result = store.put(routine, { base });
 				if (result.stored) {
-					// Another kind's runs would file into the fresh memory the store just minted.
-					if (before && targetKind(before.target) !== targetKind(routine.target)) endRuns(routine.id);
 					occurrences.clearReview(routine.id);
 					// The owner has just said what this routine may reach, so what it wanted is answered.
 					attention.clear(routine.id);
@@ -376,15 +371,14 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		bindExecution: (attempt) => {
 			bound = attempt;
 		},
-		// A check-in reserves nothing; the assistant keeps its own session.
 		reserves: (sessionTarget) =>
-			store.list().some((routine) => !isCheckIn(routine) && routineTeam(routine) === sessionTarget),
+			store.list().some((routine) => targetRules(routine).ownsSession && routineTeam(routine) === sessionTarget),
 		workingRoutine: (sessionTarget) => {
 			const held = runner.firstWorkingOccurrence(sessionTarget);
 			const routine = held && store.get(held.routineId);
 			// A session that merely took the name is not the routine's, so its authority does not
-			// follow the name into it. Check-ins hold no secrets.
-			if (!routine || isCheckIn(routine) || !ownsIts(sessionTarget, routine)) return null;
+			// follow the name into it.
+			if (!routine || !targetRules(routine).holdsSecrets || !ownsIts(sessionTarget, routine)) return null;
 			return routine.id;
 		},
 		openRuns: (sessionTarget) =>
@@ -402,10 +396,9 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 			}
 		},
 		secretUnanswered: (sessionTarget, entryId) => {
-			// A check-in shares the assistant's session, so no ask there is its own.
 			const held = runner.workingOccurrences(sessionTarget).find((row) => {
 				const routine = store.get(row.routineId);
-				return routine !== null && !isCheckIn(routine);
+				return routine !== null && targetRules(routine).holdsSecrets;
 			});
 			if (!held) return;
 			attention.note({

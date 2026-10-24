@@ -17,8 +17,8 @@ export interface RoutineRoutesDeps {
 	routineName: (routineId: string) => string | null;
 	/** Records that the session read its instructions, which is the other half of liveness. */
 	noteRead: (routineId: string, scheduledAt: number) => void;
-	/** What this routine remembers from earlier runs. */
-	memory: (routineId: string) => { text: string; version: number };
+	/** What this run's routine remembers from earlier runs. */
+	memory: (row: Occurrence) => { text: string; version: number };
 	/** The occurrence write and the memory write, in that order. */
 	fileReport: (
 		routineId: string,

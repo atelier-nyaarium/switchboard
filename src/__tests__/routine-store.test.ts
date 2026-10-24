@@ -138,6 +138,25 @@ describe("routine store", () => {
 		expect(refused.reason).toContain("host.routine-morning");
 	});
 
+	it("gives a routine stored before incarnations one at restore, and keeps it", () => {
+		const dataDir = fresh();
+		const { incarnation: _incarnation, ...legacy } = routine("legacy");
+		fs.writeFileSync(path.join(dataDir, "routines.json"), JSON.stringify([legacy]));
+		let minted = 0;
+		const reopen = () =>
+			openDurable(dataDir, "routines", (store) =>
+				createRoutineStore({
+					store,
+					now: () => 1_700_000_000_000,
+					newIncarnation: () => `inc-${++minted}`,
+					onChanged: () => undefined,
+				}),
+			);
+
+		expect(reopen().get("legacy")?.incarnation).toBe("inc-1");
+		expect(reopen().get("legacy")?.incarnation).toBe("inc-1");
+	});
+
 	it("restores rows written before a target had a kind, and reads them as spawn routines", () => {
 		const dataDir = fresh();
 		open(dataDir).put(routine("legacy", { target: { spawn: "host", workdir: "/tmp" } }));
