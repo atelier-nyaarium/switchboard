@@ -1,6 +1,9 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
+import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
+import com.atelier_nyaarium.switchboard.proto.AssistantFieldValue
+import com.atelier_nyaarium.switchboard.proto.AssistantUnexpectedValues
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcherBackoff
@@ -233,6 +236,16 @@ class AssistantOpsTest {
 		)
 		assertEquals("Checked 5m ago · 2 unread", watcherHealth(watcher(lastSuccessAt = 1L, evicted = 3L), ago))
 		assertEquals("Not checked yet", watcherHealth(watcher(), ago))
+	}
+
+	@Test
+	fun settingsNameValuesOutsideTheListsByLabelAndCountInvalidRules() {
+		val specs = listOf(AssistantFieldSpec.Text("type", "Type"))
+		val seen = AssistantUnexpectedValues(listOf(AssistantFieldValue("type", "WorkflowRun"), AssistantFieldValue("odd", "x")), capped = true)
+
+		assertEquals(listOf("Type: WorkflowRun", "Odd: x", "and more"), unexpectedLines(watcher().copy(fieldSpecs = specs, unexpected = seen)))
+		assertEquals(emptyList<String>(), unexpectedLines(watcher()))
+		assertEquals(listOf("4 rules · 1 invalid", "1 rule"), listOf(rulesCountText(4, 1), rulesCountText(1, 0)))
 	}
 
 	@Test

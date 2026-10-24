@@ -2,6 +2,8 @@
 
 import { z } from "zod";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
+import type { AssistantFieldSpec, AssistantFieldValue } from "../../shared/schemasAssistantRules.js";
+import type { WatcherEvent } from "./watcher.js";
 
 const WatcherStateSchema = z.strictObject({
 	/** Sent as `If-Modified-Since`. */
@@ -22,6 +24,13 @@ const WatcherStateSchema = z.strictObject({
 	stopped: z.string().optional(),
 	/** Next wake retry wait. */
 	wakeRetryMs: z.number().int().positive().optional(),
+	/** Undeclared enumeration values. */
+	unexpected: z
+		.strictObject({
+			values: z.array(z.strictObject({ field: z.string(), value: z.string() })),
+			capped: z.boolean(),
+		})
+		.optional(),
 });
 
 export type WatcherState = z.infer<typeof WatcherStateSchema>;
@@ -34,6 +43,52 @@ const SnapshotSchema = z.strictObject({
 type Snapshot = z.infer<typeof SnapshotSchema>;
 
 export const FRESH_STATE: WatcherState = { cursor: null, newest: 0, primed: false, unread: 0, capped: false };
+
+export const MAX_UNEXPECTED = 32;
+
+type Unexpected = NonNullable<WatcherState["unexpected"]>;
+
+const keyOf = (entry: AssistantFieldValue) => JSON.stringify([entry.field, entry.value]);
+
+/** Undeclared enum values. */
+const stillUnexpected = (specs: readonly AssistantFieldSpec[], entry: AssistantFieldValue) =>
+	specs.some(
+		(spec) =>
+			spec.kind === "enumeration" &&
+			spec.field === entry.field &&
+			!spec.options.some((option) => option.value === entry.value),
+	);
+
+/** Prune listed values, add observed values; ignore missing fields. */
+export function unexpectedAfter(
+	held: Unexpected | undefined,
+	events: readonly WatcherEvent[],
+	specs: readonly AssistantFieldSpec[],
+): Unexpected | undefined {
+	const values = (held?.values ?? []).filter((entry) => stillUnexpected(specs, entry));
+	const seen = new Set(values.map(keyOf));
+	let capped = held?.capped ?? false;
+	for (const event of events) {
+		for (const spec of specs) {
+			if (spec.kind !== "enumeration" || !Object.hasOwn(event.fields, spec.field)) continue;
+			const entry = { field: spec.field, value: event.fields[spec.field] ?? "" };
+			// No list can name a blank, so it is never reported.
+			if (entry.value.trim() === "") continue;
+			if (!stillUnexpected(specs, entry) || seen.has(keyOf(entry))) continue;
+			if (values.length >= MAX_UNEXPECTED) {
+				capped = true;
+				continue;
+			}
+			seen.add(keyOf(entry));
+			values.push(entry);
+		}
+	}
+	return values.length === 0 && !capped ? undefined : { values, capped };
+}
+
+/** Pruned against active specs. */
+export const unexpectedNow = (state: WatcherState, specs: readonly AssistantFieldSpec[]) =>
+	unexpectedAfter(state.unexpected, [], specs);
 
 export interface WatcherStateStore {
 	get(watcherId: string): WatcherState;

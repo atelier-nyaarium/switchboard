@@ -1094,7 +1094,10 @@ data class AssistantWatcher(
 	val backoff: AssistantWatcherBackoff? = null,
 	val stopped: String? = null,
 	val fields: List<String>? = null,
+	val fieldSpecs: List<AssistantFieldSpec>? = null,
 	val rules: AssistantWatcherRules? = null,
+	val invalid: List<AssistantRuleInvalid>? = null,
+	val unexpected: AssistantUnexpectedValues? = null,
 	val secret: String? = null,
 	val actions: List<AssistantActionDescriptor>? = null,
 )
@@ -1139,6 +1142,7 @@ data class ConsoleAssistantRulesResult(
 	val stored: Boolean,
 	val rules: AssistantWatcherRules,
 	val reason: String? = null,
+	val invalid: List<AssistantRuleInvalid>? = null,
 )
 
 @Serializable
@@ -1147,6 +1151,50 @@ data class ConsoleAssistantPreviewResult(
 	val shadowed: Long,
 	val of: Long,
 	val titles: List<String>,
+)
+
+@Serializable
+data class AssistantFieldOption(
+	val value: String,
+	val label: String,
+)
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class AssistantFieldSpec {
+	@Serializable
+	@SerialName("enumeration")
+	data class Enumeration(
+		val field: String,
+		val label: String,
+		val options: List<AssistantFieldOption>,
+	) : AssistantFieldSpec()
+
+	@Serializable
+	@SerialName("text")
+	data class Text(
+		val field: String,
+		val label: String,
+	) : AssistantFieldSpec()
+}
+
+@Serializable
+data class AssistantRuleInvalid(
+	val id: String,
+	val reason: String,
+)
+
+@Serializable
+data class AssistantFieldValue(
+	val field: String,
+	val value: String,
+)
+
+@Serializable
+data class AssistantUnexpectedValues(
+	val values: List<AssistantFieldValue>,
+	val capped: Boolean,
 )
 
 @Serializable

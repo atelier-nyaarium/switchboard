@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createGithubClient, type TokenRead } from "../gateway/assistant/githubClient.js";
-import { createGithubWatcher } from "../gateway/assistant/githubWatcher.js";
+import { createGithubWatcher, GITHUB_FIELD_SPECS } from "../gateway/assistant/githubWatcher.js";
 import { type ListQuery, PollAnswerSchema } from "../gateway/assistant/watcher.js";
+import { AssistantFieldSpecSchema } from "../shared/schemasAssistantRules.js";
 
 const NOW = 1_800_000_000_000;
 
@@ -55,6 +56,55 @@ function github(replies: Reply[], token: TokenRead = { kind: "token", value: "gh
 const NEWLINE = String.fromCharCode(10);
 
 describe("the GitHub notifications watcher", () => {
+	it("declares GitHub's documented reasons and the observed subject types as menus, and the rest as text", () => {
+		const specs = GITHUB_FIELD_SPECS.map((spec) => [
+			spec.field,
+			spec.kind,
+			spec.kind === "enumeration" ? spec.options.map((option) => option.value) : null,
+		]);
+
+		expect(specs).toEqual([
+			[
+				"reason",
+				"enumeration",
+				[
+					"agent_session_finished",
+					"approval_requested",
+					"assign",
+					"author",
+					"ci_activity",
+					"comment",
+					"invitation",
+					"manual",
+					"member_feature_requested",
+					"mention",
+					"review_requested",
+					"security_advisory_credit",
+					"security_alert",
+					"state_change",
+					"subscribed",
+					"team_mention",
+				],
+			],
+			["repository", "text", null],
+			[
+				"type",
+				"enumeration",
+				[
+					"Issue",
+					"PullRequest",
+					"Commit",
+					"Release",
+					"Discussion",
+					"CheckSuite",
+					"RepositoryVulnerabilityAlert",
+				],
+			],
+			["title", "text", null],
+		]);
+		expect(GITHUB_FIELD_SPECS.every((spec) => AssistantFieldSpecSchema.safeParse(spec).success)).toBe(true);
+	});
+
 	it("reads each unread thread by its id and update time, with the page a person opens", async () => {
 		const { poll, asked } = github([
 			{

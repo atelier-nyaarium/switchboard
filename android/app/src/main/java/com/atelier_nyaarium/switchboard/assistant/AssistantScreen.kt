@@ -65,6 +65,8 @@ import com.atelier_nyaarium.switchboard.routines.GrantSecretsSheet
 import com.atelier_nyaarium.switchboard.routines.SecretNeeded
 import com.atelier_nyaarium.switchboard.routines.grantedLine
 import com.atelier_nyaarium.switchboard.runIsolated
+import com.atelier_nyaarium.switchboard.rulesCountText
+import com.atelier_nyaarium.switchboard.unexpectedLines
 import com.atelier_nyaarium.switchboard.vault.grantableOn
 import com.atelier_nyaarium.switchboard.watcherActions
 import com.atelier_nyaarium.switchboard.watcherHealth
@@ -339,11 +341,18 @@ private fun WatcherBlock(
 			) {
 				Text("Rules", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
 				Text(
-					"${rules.held.rules.size}",
+					rulesCountText(rules.held.rules.size, rules.invalid.size),
 					style = MaterialTheme.typography.bodyMedium,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 				Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+			}
+		}
+		val unexpected = unexpectedLines(watcher)
+		if (unexpected.isNotEmpty()) {
+			Text("Seen outside its lists", style = MaterialTheme.typography.labelMedium)
+			for (line in unexpected) {
+				Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			}
 		}
 		if (canRetry(watcher)) {

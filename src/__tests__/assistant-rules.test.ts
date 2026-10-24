@@ -7,13 +7,35 @@ import type { Watcher, WatcherEvent } from "../gateway/assistant/watcher.js";
 import { type AssistantVault, composeAssistant } from "../gateway/compose/composeAssistant.js";
 import { processAmbient } from "../shared/ambient.js";
 import { DurableStore } from "../shared/durable-store.js";
-import { type AssistantRule, type AssistantWatcherRules, decideEvent } from "../shared/schemasAssistantRules.js";
+import { AssistantWatcherSchema } from "../shared/schemasAssistant.js";
+import {
+	type AssistantFieldSpec,
+	AssistantFieldSpecSchema,
+	type AssistantRule,
+	type AssistantWatcherRules,
+	decideEvent,
+} from "../shared/schemasAssistantRules.js";
 import { ConsoleOpSchema } from "../shared/schemasConsoleOp.js";
 import { SessionStore } from "../shared/session-store.js";
 import { type FakeAmbient, fakeAmbient } from "../testing/fakeAmbient.js";
 
 const T0 = 1_800_000_000_000;
-const FIELDS = ["reason", "repository"];
+const SPECS: AssistantFieldSpec[] = [
+	{ kind: "text", field: "reason", label: "Reason" },
+	{ kind: "text", field: "repository", label: "Repository" },
+];
+const CHOICES: AssistantFieldSpec[] = [
+	{
+		kind: "enumeration",
+		field: "reason",
+		label: "Reason",
+		options: [
+			{ value: "review_requested", label: "Review requested" },
+			{ value: "mention", label: "Mention" },
+		],
+	},
+	{ kind: "text", field: "repository", label: "Repository" },
+];
 
 const dirs: string[] = [];
 afterAll(() => {
@@ -41,11 +63,11 @@ const event = (id: string, reason: string, at = 1): WatcherEvent => ({
 });
 
 /** Lists `held`; polls nothing new. */
-function listing(held: WatcherEvent[]): Watcher {
+function listing(held: WatcherEvent[], fieldSpecs = SPECS): Watcher {
 	return {
 		id: "github",
 		label: "GitHub",
-		fields: FIELDS,
+		fieldSpecs,
 		poll: async () => ({ kind: "unchanged", nextPollMs: 60_000 }),
 		list: async () => ({ events: held, here: "0" }),
 	};
@@ -73,10 +95,26 @@ function stage(dataDir: string, watcher: Watcher, ambient: FakeAmbient) {
 	});
 }
 
-function rulesStore(dir = freshDir(), store?: DurableStore) {
+function rulesStore(dir = freshDir(), store?: DurableStore, specs = SPECS) {
 	return createRulesStore({
 		store: store ?? new DurableStore(dir, "assistant-rules"),
-		fieldsOf: (watcherId) => (watcherId === "github" ? FIELDS : undefined),
+		specsOf: (watcherId) => (watcherId === "github" ? specs : undefined),
+	});
+}
+
+const choiceStore = (dir = freshDir()) => rulesStore(dir, undefined, CHOICES);
+
+/** Invalid rule precedes valid rule. */
+function seedStale(dir: string, stale: AssistantRule) {
+	new DurableStore(dir, "assistant-rules").saveChecked({
+		v: 1,
+		watchers: {
+			github: {
+				rules: [stale, rule("tail", "mention", "inbox", { revision: 1 })],
+				otherwise: { action: "wake", revision: 0 },
+				revision: 4,
+			},
+		},
 	});
 }
 
@@ -99,9 +137,69 @@ describe("a watcher's rules", () => {
 			revision: 4,
 		};
 
-		expect(decideEvent(rules, { reason: "review_requested", repository: "x/y" })).toBe("wake");
-		expect(decideEvent(rules, { reason: "mention", repository: "atelier/app" })).toBe("inbox");
-		expect(decideEvent(rules, { reason: "subscribed", repository: "atelier/app" })).toBe("wake");
+		expect(decideEvent(rules, SPECS, { reason: "review_requested", repository: "x/y" })).toBe("wake");
+		expect(decideEvent(rules, SPECS, { reason: "mention", repository: "atelier/app" })).toBe("inbox");
+		expect(decideEvent(rules, SPECS, { reason: "subscribed", repository: "atelier/app" })).toBe("wake");
+	});
+
+	it("match a choice by its exact value, a value outside the set by what it is, and fail every test on a missing field", () => {
+		const rules: AssistantWatcherRules = {
+			rules: [
+				rule("review", "review_requested", "wake"),
+				{
+					id: "other",
+					conditions: [{ field: "reason", test: "is_not", value: "mention" }],
+					action: "inbox",
+					revision: 1,
+				},
+			],
+			otherwise: { action: "wake", revision: 1 },
+			revision: 2,
+		};
+
+		expect(decideEvent(rules, CHOICES, { reason: "review_requested" })).toBe("wake");
+		expect(decideEvent(rules, CHOICES, { reason: "Review_Requested" })).toBe("inbox");
+		expect(decideEvent(rules, CHOICES, { reason: "ci_new" })).toBe("inbox");
+		expect(decideEvent(rules, CHOICES, { repository: "atelier/app" })).toBe("wake");
+		const padded = { ...rules, rules: [rule("pad", " mention ", "inbox")] };
+		expect(decideEvent(padded, CHOICES, { reason: "mention" })).toBe("inbox");
+	});
+
+	it("refuse a choice outside the set, a test its kind does not take, and a blank value", () => {
+		const rules = choiceStore();
+		const contains: AssistantRule = {
+			...rule("a", "mention", "inbox"),
+			conditions: [{ field: "reason", test: "contains", value: "ment" }],
+		};
+		const blank: AssistantRule = {
+			...rule("a", "mention", "inbox"),
+			conditions: [{ field: "repository", test: "is", value: "   " }],
+		};
+
+		expect(rules.putRule("github", rule("a", "nope", "inbox")).stored).toBe(false);
+		expect(rules.putRule("github", contains).stored).toBe(false);
+		expect(rules.putRule("github", blank).stored).toBe(false);
+		expect(rules.putRule("github", rule("a", "mention", "inbox")).stored).toBe(true);
+	});
+
+	it("keep a stored rule the fields no longer take, marked invalid and skipped, until a put repairs it in place", () => {
+		const dir = freshDir();
+		seedStale(dir, rule("stale", "retired_reason", "inbox", { revision: 3 }));
+		const rules = choiceStore(dir);
+		const held = rules.get("github");
+
+		const refused = rules.putRule("github", rule("stale", "still_retired", "inbox", { revision: 3 }));
+		const repaired = rules.putRule("github", rule("stale", "review_requested", "inbox", { revision: 3 }));
+
+		expect(held.rules.map((kept) => kept.id)).toEqual(["stale", "tail"]);
+		expect(decideEvent(held, CHOICES, { reason: "retired_reason" })).toBe("wake");
+		expect(refused.stored).toBe(false);
+		expect(refused.invalid).toEqual([{ id: "stale", reason: expect.stringContaining("retired_reason") }]);
+		expect(repaired).toMatchObject({ stored: true, invalid: [] });
+		expect(repaired.rules.rules.map((kept) => [kept.id, kept.revision])).toEqual([
+			["stale", 4],
+			["tail", 1],
+		]);
 	});
 
 	it("store one rule at a time, each at its own revision, and refuse a stale edit with the held rules", () => {
@@ -198,6 +296,20 @@ describe("a watcher's rules", () => {
 		expect(rulesStore(dir).get("github")).toMatchObject({ rules: [], revision: 0 });
 	});
 
+	it("refuse a stored file with a key its rules do not declare", () => {
+		const dir = freshDir();
+		const odd = {
+			...rule("a", "x", "inbox", { revision: 1 }),
+			conditions: [{ field: "reason", test: "is", value: "x", extra: 1 }],
+		};
+		new DurableStore(dir, "assistant-rules").saveChecked({
+			v: 1,
+			watchers: { github: { rules: [odd], otherwise: { action: "inbox", revision: 0 }, revision: 1 } },
+		});
+
+		expect(() => rulesStore(dir)).toThrow();
+	});
+
 	it("start fresh over a file that names one rule id twice", () => {
 		const dir = freshDir();
 		const twice = rule("a", "x", "inbox", { revision: 1 });
@@ -276,6 +388,45 @@ describe("a watcher's rules", () => {
 
 		expect(last).toEqual({ decided: 2, shadowed: 1, of: 3, titles: ["mention 2", "mention 3"] });
 		await expect(unknown).rejects.toThrow();
+		const done = assistant.stop();
+		await ambient.advance(5_000);
+		await done;
+	});
+
+	it("answer the phone with each spec kind, the derived fields and the invalid rule, and refuse a spec of no kind", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const dir = freshDir();
+		seedStale(dir, rule("stale", "retired_reason", "inbox", { revision: 3 }));
+		const assistant = stage(dir, listing([], CHOICES), ambient);
+
+		const answered = AssistantWatcherSchema.parse(assistant.console.state().watchers[0]);
+
+		expect(answered.fieldSpecs?.map((spec) => spec.kind)).toEqual(["enumeration", "text"]);
+		expect(answered.fields).toEqual(["reason", "repository"]);
+		expect(answered.invalid).toEqual([{ id: "stale", reason: expect.stringContaining("retired_reason") }]);
+		expect(AssistantFieldSpecSchema.safeParse({ kind: "number", field: "n", label: "N" }).success).toBe(false);
+		expect(
+			AssistantFieldSpecSchema.safeParse({ kind: "enumeration", field: "n", label: "N", options: [] }).success,
+		).toBe(false);
+	});
+
+	it("preview past an invalid earlier rule, which neither decides nor shadows", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const dir = freshDir();
+		seedStale(dir, {
+			id: "stale",
+			conditions: [{ field: "reason", test: "is_not", value: "retired_reason" }],
+			action: "inbox",
+			revision: 3,
+		});
+		const watcher = listing([event("1", "mention", 2), event("2", "review_requested", 3)], CHOICES);
+		const assistant = stage(dir, watcher, ambient);
+		await assistant.console.place("~/notes");
+		assistant.start();
+
+		const preview = await assistant.console.previewRule("github", rule("reviews", "review_requested", "wake"));
+
+		expect(preview).toMatchObject({ decided: 1, shadowed: 0, of: 2 });
 		const done = assistant.stop();
 		await ambient.advance(5_000);
 		await done;

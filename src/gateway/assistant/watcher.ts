@@ -1,6 +1,7 @@
 // A watcher is plain code. Its source holds the only copy.
 
 import { z } from "zod";
+import type { AssistantFieldSpec } from "../../shared/schemasAssistantRules.js";
 
 export const WATCHER_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -70,8 +71,8 @@ export interface Watcher {
 	readonly id: string;
 	/** Display name; never blank. */
 	readonly label: string;
-	/** What a rule may test. */
-	readonly fields?: readonly string[];
+	/** Specs define testable fields; wire fields derive from them. */
+	readonly fieldSpecs?: readonly AssistantFieldSpec[];
 	/** The secret it needs, shown to the owner. */
 	readonly secret?: string;
 	/** Settles once `signal` aborts. */

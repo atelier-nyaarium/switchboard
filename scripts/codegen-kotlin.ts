@@ -108,9 +108,14 @@ import {
 } from "../src/shared/schemas.js";
 import { AssistantWatcherSchema, ConsoleAssistantStateResultSchema } from "../src/shared/schemasAssistant.js";
 import {
+	AssistantFieldOptionSchema,
+	AssistantFieldSpecSchema,
+	AssistantFieldValueSchema,
 	AssistantRuleConditionSchema,
+	AssistantRuleInvalidSchema,
 	AssistantRuleOtherwiseSchema,
 	AssistantRuleSchema,
+	AssistantUnexpectedValuesSchema,
 	AssistantWatcherRulesSchema,
 	ConsoleAssistantPreviewResultSchema,
 	ConsoleAssistantRulesResultSchema,
@@ -343,6 +348,11 @@ const ROOTS: z.ZodType[] = [
 	AssistantWatcherRulesSchema,
 	ConsoleAssistantRulesResultSchema,
 	ConsoleAssistantPreviewResultSchema,
+	AssistantFieldOptionSchema,
+	AssistantFieldSpecSchema,
+	AssistantRuleInvalidSchema,
+	AssistantFieldValueSchema,
+	AssistantUnexpectedValuesSchema,
 	ProvisioningSchema,
 	SttsProvidersSchema,
 	AdmissionSchema,
@@ -497,6 +507,7 @@ const SEALED_ROOTS = new Set([
 	"WorkspaceFileDestination",
 	"WorkspaceFacet",
 	"WorkspaceFacetAnswer",
+	"AssistantFieldSpec",
 ]);
 
 type Json = Record<string, unknown>;

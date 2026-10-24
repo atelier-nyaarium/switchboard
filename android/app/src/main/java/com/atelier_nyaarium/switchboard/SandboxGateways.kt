@@ -1,7 +1,14 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.crypto.sha256Hex
+import com.atelier_nyaarium.switchboard.assistant.WatcherRules
+import com.atelier_nyaarium.switchboard.assistant.field
 import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
+import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
+import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
+import com.atelier_nyaarium.switchboard.proto.AssistantFieldValue
+import com.atelier_nyaarium.switchboard.proto.AssistantRuleInvalid
+import com.atelier_nyaarium.switchboard.proto.AssistantUnexpectedValues
 import com.atelier_nyaarium.switchboard.proto.AssistantRule
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleCondition
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
@@ -308,20 +315,43 @@ internal class SandboxRoutineGateway : RoutineGateway {
 		ConsoleRoutineOccurrenceResult(applied = true)
 }
 
+private fun choices(vararg pairs: Pair<String, String>) = pairs.map { (value, label) -> AssistantFieldOption(value, label) }
+
+/** GitHub field subset. */
+private val SANDBOX_FIELD_SPECS = listOf(
+	AssistantFieldSpec.Enumeration(
+		"reason",
+		"Reason",
+		choices("review_requested" to "Review requested", "mention" to "Mention", "subscribed" to "Subscribed", "ci_activity" to "CI activity"),
+	),
+	AssistantFieldSpec.Text("repository", "Repository"),
+	AssistantFieldSpec.Enumeration("type", "Type", choices("Issue" to "Issue", "PullRequest" to "Pull request", "Release" to "Release")),
+	AssistantFieldSpec.Text("title", "Title"),
+)
+
 /** Lives on the first Gateway asked that is neither of the others; a move or a release sticks. */
 internal class SandboxAssistantGateway : AssistantGateway {
 	private var home: String? = null
 	private var claimed = false
 	private var workdir = "~/projects/notes"
 	private val grants = mutableMapOf<String, List<String>>()
+	/** Exercises unlisted choices. */
 	private var rules = AssistantWatcherRules(
 		rules = listOf(
 			AssistantRule("reviews", listOf(AssistantRuleCondition("reason", "is", "review_requested")), action = "wake", revision = 1L),
 			AssistantRule("subscribed", listOf(AssistantRuleCondition("reason", "is", "subscribed")), action = "inbox", revision = 1L),
+			AssistantRule("retired", listOf(AssistantRuleCondition("reason", "is", "retired_reason")), action = "inbox", revision = 1L),
 		),
 		otherwise = AssistantRuleOtherwise(action = "inbox", revision = 0L),
-		revision = 2L,
+		revision = 3L,
 	)
+
+	/** Mirrors Gateway's read validation. */
+	private fun invalidOf(held: AssistantWatcherRules) = WatcherRules(SANDBOX_FIELD_SPECS, held).let { declared ->
+		held.rules.mapNotNull { rule ->
+			rule.conditions.firstNotNullOfOrNull(declared::issueOf)?.let { AssistantRuleInvalid(rule.id, it) }
+		}
+	}
 
 	/** A stale revision refuses with what is held, as the Gateway does. */
 	override suspend fun rules(gatewayId: String, op: ConsoleOp): RuleSaved {
@@ -361,8 +391,11 @@ internal class SandboxAssistantGateway : AssistantGateway {
 			capped = false,
 			lastSuccessAt = day(-120_000L),
 			nextPollAt = day(60_000L),
-			fields = listOf("reason", "repository", "type", "title"),
+			fields = SANDBOX_FIELD_SPECS.map { it.field },
+			fieldSpecs = SANDBOX_FIELD_SPECS,
 			rules = rules,
+			invalid = invalidOf(rules),
+			unexpected = AssistantUnexpectedValues(listOf(AssistantFieldValue("type", "WorkflowRun")), capped = false),
 			secret = "GitHub PAT (Classic) with scope:\n- Notifications",
 			actions = listOf(AssistantActionDescriptor("github_done", "Mark done", "Clears threads from your GitHub inbox.")),
 		),

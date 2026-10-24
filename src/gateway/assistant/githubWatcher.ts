@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { GITHUB_WATCHER_ID } from "../../shared/schemasAssistantActions.js";
+import type { AssistantFieldSpec } from "../../shared/schemasAssistantRules.js";
 import {
 	GITHUB_API,
 	GITHUB_FLOOR_MS,
@@ -130,6 +131,46 @@ function intervalOf(response: Response): number {
 		: GITHUB_FLOOR_MS;
 }
 
+/** GitHub's documented reasons. */
+const REASONS = [
+	["agent_session_finished", "Agent session finished"],
+	["approval_requested", "Approval requested"],
+	["assign", "Assigned"],
+	["author", "Author"],
+	["ci_activity", "CI activity"],
+	["comment", "Comment"],
+	["invitation", "Invitation"],
+	["manual", "Manual"],
+	["member_feature_requested", "Feature requested"],
+	["mention", "Mention"],
+	["review_requested", "Review requested"],
+	["security_advisory_credit", "Advisory credit"],
+	["security_alert", "Security alert"],
+	["state_change", "State change"],
+	["subscribed", "Subscribed"],
+	["team_mention", "Team mention"],
+] as const;
+
+/** Observed, undocumented; unknowns reported. */
+const SUBJECT_TYPES = [
+	["Issue", "Issue"],
+	["PullRequest", "Pull request"],
+	["Commit", "Commit"],
+	["Release", "Release"],
+	["Discussion", "Discussion"],
+	["CheckSuite", "Check suite"],
+	["RepositoryVulnerabilityAlert", "Vulnerability alert"],
+] as const;
+
+const optionsOf = (pairs: readonly (readonly [string, string])[]) => pairs.map(([value, label]) => ({ value, label }));
+
+export const GITHUB_FIELD_SPECS: readonly AssistantFieldSpec[] = [
+	{ kind: "enumeration", field: "reason", label: "Reason", options: optionsOf(REASONS) },
+	{ kind: "text", field: "repository", label: "Repository" },
+	{ kind: "enumeration", field: "type", label: "Type", options: optionsOf(SUBJECT_TYPES) },
+	{ kind: "text", field: "title", label: "Title" },
+];
+
 /** The notification endpoints take no fine-grained token. */
 const GITHUB_SECRET = `
 GitHub PAT (Classic) with scope:
@@ -140,7 +181,7 @@ export function createGithubWatcher(client: GithubClient): Watcher {
 	return {
 		id: GITHUB_WATCHER_ID,
 		label: "GitHub notifications",
-		fields: ["reason", "repository", "type", "title"],
+		fieldSpecs: GITHUB_FIELD_SPECS,
 		secret: GITHUB_SECRET,
 		async poll(cursor, signal) {
 			const token = await client.token(signal);

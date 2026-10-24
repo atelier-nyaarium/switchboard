@@ -4,21 +4,38 @@ import { z } from "zod";
 import { capFifo } from "../../shared/cap-fifo.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import {
+	type AssistantFieldSpec,
 	type AssistantRule,
+	AssistantRuleConditionSchema,
 	type AssistantRuleOtherwise,
+	AssistantRuleOtherwiseSchema,
+	AssistantRuleSchema,
 	type AssistantWatcherRules,
 	AssistantWatcherRulesSchema,
 	type ConsoleAssistantRulesResult,
 	canonicalRule,
 	DEFAULT_RULES,
-	ruleRefusal,
+	invalidRules,
+	parseRuleForFields,
 	sameContent,
 } from "../../shared/schemasAssistantRules.js";
-import { ASSISTANT_RULES_MAX } from "../../shared/wire-vocabulary.js";
+import { ASSISTANT_RULE_CONDITIONS_MAX, ASSISTANT_RULES_MAX } from "../../shared/wire-vocabulary.js";
+
+// Strict on disk only; the console input stays tolerant.
+const StoredRuleSchema = z.strictObject({
+	...AssistantRuleSchema.shape,
+	conditions: z.array(z.strictObject(AssistantRuleConditionSchema.shape)).min(1).max(ASSISTANT_RULE_CONDITIONS_MAX),
+});
+
+const StoredRulesSchema = z.strictObject({
+	...AssistantWatcherRulesSchema.shape,
+	rules: z.array(StoredRuleSchema).max(ASSISTANT_RULES_MAX),
+	otherwise: z.strictObject(AssistantRuleOtherwiseSchema.shape),
+});
 
 const SnapshotSchema = z.strictObject({
 	v: z.literal(1),
-	watchers: z.record(z.string(), AssistantWatcherRulesSchema),
+	watchers: z.record(z.string(), StoredRulesSchema),
 });
 
 type Snapshot = z.infer<typeof SnapshotSchema>;
@@ -30,8 +47,8 @@ const MAX_BURIED = 256;
 
 export interface RulesStoreDeps {
 	store: DurableStore;
-	/** A watcher's fields, or undefined when no watcher has that id. */
-	fieldsOf: (watcherId: string) => readonly string[] | undefined;
+	/** Undefined when watcher absent. */
+	specsOf: (watcherId: string) => readonly AssistantFieldSpec[] | undefined;
 }
 
 type Loose = Record<string, unknown>;
@@ -66,7 +83,7 @@ function decodedLegacy(raw: unknown): unknown {
 	return { ...raw, watchers };
 }
 
-/** Two rules under one id start fresh. */
+/** Duplicate IDs start fresh; spec-invalid rules remain held. */
 function restored(snapshot: Snapshot): Snapshot {
 	for (const [watcherId, held] of Object.entries(snapshot.watchers)) {
 		const ids = held.rules.map((rule) => rule.id);
@@ -100,11 +117,15 @@ export function createRulesStore(deps: RulesStoreDeps) {
 			{ label: "assistant rules" },
 		).landed;
 
-	const answer = (watcherId: string, stored: boolean, reason?: string): ConsoleAssistantRulesResult => ({
-		stored,
-		rules: get(watcherId),
-		...(reason === undefined ? {} : { reason }),
-	});
+	const answer = (watcherId: string, stored: boolean, reason?: string): ConsoleAssistantRulesResult => {
+		const rules = get(watcherId);
+		return {
+			stored,
+			rules,
+			...(reason === undefined ? {} : { reason }),
+			invalid: invalidRules(rules.rules, deps.specsOf(watcherId) ?? []),
+		};
+	};
 
 	/** The list moves a revision with every write, which is what a sort names. */
 	const write = (watcherId: string, rules: AssistantRule[], otherwise: AssistantRuleOtherwise) => {
@@ -125,10 +146,10 @@ export function createRulesStore(deps: RulesStoreDeps) {
 
 	/** A put's refusal before revisions; the preview's too. */
 	const refusalOf = (watcherId: string, rule: AssistantRule): string | null => {
-		const fields = deps.fieldsOf(watcherId);
-		if (!fields) return `no watcher "${watcherId}"`;
-		const refusal = ruleRefusal(canonicalRule(rule), fields);
-		if (refusal) return refusal;
+		const specs = deps.specsOf(watcherId);
+		if (!specs) return `no watcher "${watcherId}"`;
+		const parsed = parseRuleForFields(rule, specs);
+		if (!parsed.ok) return parsed.reason;
 		const held = get(watcherId).rules.some((existing) => existing.id === rule.id);
 		if (!held && (rule.revision !== 0 || buried.has(graveOf(watcherId, rule.id)))) return "this rule was deleted";
 		return null;
@@ -162,7 +183,7 @@ export function createRulesStore(deps: RulesStoreDeps) {
 		},
 		/** One already gone answers deleted. */
 		deleteRule(watcherId: string, ruleId: string, base: number): ConsoleAssistantRulesResult {
-			if (!deps.fieldsOf(watcherId)) return answer(watcherId, false, `no watcher "${watcherId}"`);
+			if (!deps.specsOf(watcherId)) return answer(watcherId, false, `no watcher "${watcherId}"`);
 			const held = get(watcherId);
 			const current = held.rules.find((rule) => rule.id === ruleId);
 			if (!current) return answer(watcherId, true);
@@ -187,7 +208,7 @@ export function createRulesStore(deps: RulesStoreDeps) {
 			beforeId: string | undefined,
 			base: number,
 		): ConsoleAssistantRulesResult {
-			if (!deps.fieldsOf(watcherId)) return answer(watcherId, false, `no watcher "${watcherId}"`);
+			if (!deps.specsOf(watcherId)) return answer(watcherId, false, `no watcher "${watcherId}"`);
 			const held = get(watcherId);
 			const moving = held.rules.find((rule) => rule.id === ruleId);
 			if (!moving) return answer(watcherId, false, "this rule was deleted");
@@ -200,7 +221,7 @@ export function createRulesStore(deps: RulesStoreDeps) {
 			return write(watcherId, rules, held.otherwise);
 		},
 		putOtherwise(watcherId: string, incoming: AssistantRuleOtherwise): ConsoleAssistantRulesResult {
-			if (!deps.fieldsOf(watcherId)) return answer(watcherId, false, `no watcher "${watcherId}"`);
+			if (!deps.specsOf(watcherId)) return answer(watcherId, false, `no watcher "${watcherId}"`);
 			const held = get(watcherId);
 			const current = held.otherwise;
 			const base = incoming.revision;

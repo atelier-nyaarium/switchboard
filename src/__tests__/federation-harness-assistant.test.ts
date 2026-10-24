@@ -105,7 +105,7 @@ describe("a watcher event reaching the assistant", () => {
 	const watcher: Watcher = {
 		id: "fake",
 		label: "Fake source",
-		fields: ["kind"],
+		fieldSpecs: [{ kind: "text", field: "kind", label: "Kind" }],
 		poll: async () => {
 			polls += 1;
 			const events = polls === 1 ? source.slice(-1) : source;

@@ -2,7 +2,12 @@
 
 import { z } from "zod";
 import { AssistantActionDescriptorSchema } from "./schemasAssistantActions.js";
-import { AssistantWatcherRulesSchema } from "./schemasAssistantRules.js";
+import {
+	AssistantFieldSpecSchema,
+	AssistantRuleInvalidSchema,
+	AssistantUnexpectedValuesSchema,
+	AssistantWatcherRulesSchema,
+} from "./schemasAssistantRules.js";
 
 const AssistantWatcherBackoffSchema = z
 	.object({ until: z.number().int(), reason: z.string() })
@@ -24,9 +29,15 @@ export const AssistantWatcherSchema = z
 		nextPollAt: z.number().int().optional(),
 		backoff: AssistantWatcherBackoffSchema.optional(),
 		stopped: z.string().optional(),
-		/** What a rule may test. */
+		/** Testable fields from specs. */
 		fields: z.array(z.string()).optional(),
+		// Required starting 2026-11-07.
+		fieldSpecs: z.array(AssistantFieldSpecSchema).optional(),
 		rules: AssistantWatcherRulesSchema.optional(),
+		/** Spec-invalid held rules. */
+		invalid: z.array(AssistantRuleInvalidSchema).optional(),
+		/** Out-of-set event values. */
+		unexpected: AssistantUnexpectedValuesSchema.optional(),
 		/** The secret it needs, as shown; absent when it needs none. */
 		secret: z.string().max(400).optional(),
 		// Required starting 2026-11-04.

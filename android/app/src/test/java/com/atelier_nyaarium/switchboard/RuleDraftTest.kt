@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.assistant.RuleEdit
 import com.atelier_nyaarium.switchboard.assistant.RuleEditing
 import com.atelier_nyaarium.switchboard.assistant.RuleSlot
 import com.atelier_nyaarium.switchboard.assistant.editorLanded
+import com.atelier_nyaarium.switchboard.assistant.fittingRule
 import com.atelier_nyaarium.switchboard.assistant.goneFrom
 import com.atelier_nyaarium.switchboard.assistant.ruleEditing
 import com.atelier_nyaarium.switchboard.assistant.SaveOutcome
@@ -17,8 +18,13 @@ import com.atelier_nyaarium.switchboard.proto.AssistantRuleCondition
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcherRules
+import com.atelier_nyaarium.switchboard.assistant.testsOf
+import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
+import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
+import com.atelier_nyaarium.switchboard.proto.AssistantRuleInvalid
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -31,7 +37,22 @@ private val held = AssistantWatcherRules(
 	revision = 4L,
 )
 
-private val watcherRules = WatcherRules(fields = listOf("reason", "repository"), held = held)
+private val watcherRules = WatcherRules(
+	specs = listOf(AssistantFieldSpec.Text("reason", "Reason"), AssistantFieldSpec.Text("repository", "Repository")),
+	held = held,
+)
+
+private val choiceRules = WatcherRules(
+	specs = listOf(
+		AssistantFieldSpec.Enumeration(
+			"reason",
+			"Reason",
+			listOf(AssistantFieldOption("review_requested", "Review requested"), AssistantFieldOption("mention", "Mention")),
+		),
+		AssistantFieldSpec.Text("repository", "Repository"),
+	),
+	held = held,
+)
 
 class RuleDraftTest {
 	@Test
@@ -49,12 +70,73 @@ class RuleDraftTest {
 		val held = RuleSlot.Held("reviews")
 		val otherwise = RuleDraft.of(RuleSlot.Otherwise, watcherRules)!!
 
-		assertEquals(RuleEditing(edit = true, save = true, delete = true), ruleEditing(held, valid, busy = false, gone = false))
-		assertEquals(RuleEditing(edit = true, save = false, delete = true), ruleEditing(held, invalid, busy = false, gone = false))
-		assertEquals(RuleEditing(edit = false, save = false, delete = false), ruleEditing(held, valid, busy = true, gone = false))
-		assertEquals(RuleEditing(edit = false, save = false, delete = false), ruleEditing(held, valid, busy = false, gone = true))
-		assertEquals(RuleEditing(edit = true, save = true, delete = false), ruleEditing(RuleSlot.New, valid, busy = false, gone = false))
-		assertEquals(RuleEditing(edit = true, save = true, delete = false), ruleEditing(RuleSlot.Otherwise, otherwise, busy = false, gone = false))
+		val can = { slot: RuleSlot, draft: RuleDraft, busy: Boolean, gone: Boolean -> ruleEditing(slot, draft, busy, gone, watcherRules) }
+
+		assertEquals(RuleEditing(edit = true, save = true, delete = true), can(held, valid, false, false))
+		assertEquals(RuleEditing(edit = true, save = false, delete = true), can(held, invalid, false, false))
+		assertEquals(RuleEditing(edit = false, save = false, delete = false), can(held, valid, true, false))
+		assertEquals(RuleEditing(edit = false, save = false, delete = false), can(held, valid, false, true))
+		assertEquals(RuleEditing(edit = true, save = true, delete = false), can(RuleSlot.New, valid, false, false))
+		assertEquals(RuleEditing(edit = true, save = true, delete = false), can(RuleSlot.Otherwise, otherwise, false, false))
+	}
+
+	@Test
+	fun rowsReadInLabelsAndEachKindOffersItsOwnTestsAndMenu() {
+		assertEquals("Reason is Review requested", choiceRules.summary(rule("reviews", "review_requested")))
+		assertEquals("Reason is not someone_else", choiceRules.summary(rule("x", "someone_else").let { r ->
+			r.copy(conditions = r.conditions.map { it.copy(test = "is_not") })
+		}))
+		assertEquals(listOf("is", "is_not"), testsOf(choiceRules.specOf("reason")))
+		assertEquals(listOf("is", "is_not", "contains"), testsOf(choiceRules.specOf("repository")))
+		assertEquals(listOf("review_requested", "mention"), choiceRules.choicesFor("reason", ""))
+		assertNull(choiceRules.choicesFor("repository", "atelier"))
+	}
+
+	@Test
+	fun aKindChangeClearsTheValueAndKeepsOnlyATestTheNewKindTakes() {
+		val onText = RuleDraft("r", listOf(AssistantRuleCondition("repository", "contains", "atelier")), "inbox", 0L)
+		val onChoice = RuleDraft("r", listOf(AssistantRuleCondition("reason", "is_not", "mention")), "inbox", 0L)
+
+		assertEquals(AssistantRuleCondition("reason", "is", ""), onText.withField(0, "reason", choiceRules).conditions.single())
+		assertEquals(AssistantRuleCondition("repository", "is_not", ""), onChoice.withField(0, "repository", choiceRules).conditions.single())
+		assertEquals(AssistantRuleCondition("reason", "is", ""), RuleDraft.of(RuleSlot.New, choiceRules)!!.conditions.single())
+		assertEquals(
+			AssistantRuleCondition("reason", "contains", "atelier"),
+			onText.withField(0, "reason", watcherRules).conditions.single(),
+		)
+		val stale = RuleDraft("r", listOf(AssistantRuleCondition("reason", "is", "retired")), "inbox", 0L)
+		assertEquals(stale, stale.withField(0, "reason", choiceRules))
+	}
+
+	@Test
+	fun aValueTheMenuNoLongerListsShowsInvalidAndBlocksSaveUntilRepicked() {
+		val stale = RuleDraft.draftOf(rule("subscribed", "subscribed"))
+		val repicked = stale.changed(0) { it.copy(value = "mention") }
+		val slot = RuleSlot.Held("subscribed")
+
+		assertEquals(listOf("subscribed", "review_requested", "mention"), choiceRules.choicesFor("reason", "subscribed"))
+		assertEquals(false, choiceRules.offers("reason", "subscribed"))
+		assertNotNull(choiceRules.issueOf(stale.conditions.single()))
+		assertEquals(RuleEditing(edit = true, save = false, delete = true), ruleEditing(slot, stale, false, false, choiceRules))
+		assertEquals(RuleEditing(edit = true, save = true, delete = true), ruleEditing(slot, repicked, false, false, choiceRules))
+	}
+
+	@Test
+	fun aTextValuePastTheLimitSaysSoAndNeitherSavesNorPreviews() {
+		val long = RuleDraft("r", listOf(AssistantRuleCondition("repository", "contains", "x".repeat(201))), "inbox", 0L)
+
+		assertNotNull(choiceRules.issueOf(long.conditions.single()))
+		assertNull(fittingRule(long, choiceRules))
+		assertEquals(false, ruleEditing(RuleSlot.New, long, false, false, choiceRules).save)
+	}
+
+	@Test
+	fun anOlderGatewayIsTypedFromItsFieldsAndAnInvalidRowCarriesTheGatewaysReason() {
+		val older = AssistantWatcher(id = "github", label = "GitHub", grants = emptyList(), unread = 0L, fields = listOf("reason"), rules = held)
+		val newer = older.copy(fieldSpecs = choiceRules.specs, invalid = listOf(AssistantRuleInvalid("subscribed", "no longer a choice")))
+
+		assertEquals(listOf<AssistantFieldSpec>(AssistantFieldSpec.Text("reason", "Reason")), rulesOf(older)!!.specs)
+		assertEquals(mapOf("subscribed" to "no longer a choice"), rulesOf(newer)!!.invalid)
 	}
 
 	@Test

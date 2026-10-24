@@ -13,7 +13,13 @@ import {
 	WAKE_RETRY_MS,
 } from "../gateway/assistant/sourceLane.js";
 import type { PollAnswer, Watcher, WatcherEvent } from "../gateway/assistant/watcher.js";
-import { createWatcherStateStore, type WatcherStateStore } from "../gateway/assistant/watcherState.js";
+import {
+	createWatcherStateStore,
+	FRESH_STATE,
+	MAX_UNEXPECTED,
+	unexpectedAfter,
+	type WatcherStateStore,
+} from "../gateway/assistant/watcherState.js";
 import { ChannelDeliveryCoordinator } from "../gateway/channelDelivery.js";
 import { DurableStore } from "../shared/durable-store.js";
 import { type EventMember, PendingDeliveryStore } from "../shared/pending-delivery-store.js";
@@ -22,6 +28,18 @@ import { type FakeAmbient, fakeAmbient } from "../testing/fakeAmbient.js";
 
 /** Fixed clock base. */
 const T0 = 1_800_000_000_000;
+
+const REASON_SPECS = [
+	{
+		kind: "enumeration" as const,
+		field: "reason",
+		label: "Reason",
+		options: [
+			{ value: "mention", label: "Mention" },
+			{ value: "subscribed", label: "Subscribed" },
+		],
+	},
+];
 
 const dirs: string[] = [];
 afterAll(() => {
@@ -215,6 +233,59 @@ describe("a watcher's source lane", () => {
 		expect(pushes.pushed.map((push) => push.ids)).toEqual([["e"]]);
 		expect(source.cursors).toEqual([null, "c1", "c2", "c3"]);
 		expect(state.get("github").unread).toBe(2);
+	});
+
+	it("reports a value outside its declared set from the priming poll on, once each, and never a missing or blank one", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const source = scripted();
+		const dir = stateDir();
+		const state = stateIn(dir);
+		const watcher: Watcher = { ...source.watcher, fieldSpecs: REASON_SPECS };
+		const lane = lanes(ambient, state, watcher, wakes().wake);
+		const bare: WatcherEvent = { id: "bare", at: 50, title: "bare", fields: {} };
+
+		lane.start();
+		await ambient.advance(0);
+		source.answer(
+			unread("c1", [thread("a", 100, "ci_new"), thread("b", 90, "mention"), thread("e", 80, ""), bare]),
+		);
+		await ambient.advance(0);
+		const primed = state.get("github").unexpected;
+		await ambient.advance(60_000);
+		source.answer(unread("c2", [thread("c", 200, "ci_new"), thread("d", 300, "brand_new")]));
+		await ambient.advance(0);
+		await stopped(lane, ambient);
+
+		expect(primed).toEqual({ values: [{ field: "reason", value: "ci_new" }], capped: false });
+		expect(
+			stateIn(dir)
+				.get("github")
+				.unexpected?.values.map((entry) => entry.value),
+		).toEqual(["ci_new", "brand_new"]);
+	});
+
+	it("drops a reported value from state at the next poll once the declaration lists it, and caps the set with a flag", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const source = scripted();
+		const state = stateIn(stateDir());
+		const held = { values: [{ field: "reason", value: "ci_new" }], capped: false };
+		state.put("github", { ...FRESH_STATE, primed: true, unexpected: held });
+		const listed = [
+			{ ...REASON_SPECS[0], options: [...REASON_SPECS[0].options, { value: "ci_new", label: "CI" }] },
+		];
+		const lane = lanes(ambient, state, { ...source.watcher, fieldSpecs: listed }, wakes().wake);
+		const many = Array.from({ length: MAX_UNEXPECTED + 3 }, (_, at) => thread(`t${at}`, at, `odd_${at}`));
+
+		lane.start();
+		await ambient.advance(0);
+		source.answer({ kind: "unchanged", nextPollMs: 60_000 });
+		await ambient.advance(0);
+		await stopped(lane, ambient);
+		const capped = unexpectedAfter(undefined, many, REASON_SPECS);
+
+		expect(state.get("github").unexpected).toBeUndefined();
+		expect(capped?.values).toHaveLength(MAX_UNEXPECTED);
+		expect(capped?.capped).toBe(true);
 	});
 
 	it("commits only once every push is queued, polling a failed one again from the checkpoint with doubling backoff", async () => {

@@ -6,7 +6,7 @@ import type { EventMember } from "../../shared/pending-delivery-store.js";
 import type { RuleAction } from "../../shared/schemasAssistantRules.js";
 import { fireAndForget } from "../fireAndForget.js";
 import { type PollAnswer, PollAnswerSchema, WATCHER_ID_RE, type Watcher, type WatcherEvent } from "./watcher.js";
-import type { WatcherState, WatcherStateStore } from "./watcherState.js";
+import { unexpectedAfter, unexpectedNow, type WatcherState, type WatcherStateStore } from "./watcherState.js";
 
 /** Bounds a hung source. */
 export const POLL_TIMEOUT_MS = 60_000;
@@ -231,7 +231,8 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		const answer = await answerOf(watcher, held.cursor, signal, ambient);
 		if (phase !== "running") return;
 		const now = ambient.now();
-		const health = cleared(held);
+		// Every settle writes the set pruned against the current specs.
+		const health = { ...cleared(held), unexpected: unexpectedNow(held, watcher.fieldSpecs ?? []) };
 		if (answer.kind === "backoff") {
 			const until = now + answer.retryMs;
 			settle(watcher, { ...health, backoff: { until, reason: answer.reason }, nextPollAt: until }, until);
@@ -246,7 +247,9 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 			settle(watcher, { ...health, lastSuccessAt: now, nextPollAt: next }, next);
 			return;
 		}
-		const read = { unread: answer.events.length, capped: answer.capped, lastSuccessAt: now };
+		// Record all event values before freshness filtering.
+		const unexpected = unexpectedAfter(held.unexpected, answer.events, watcher.fieldSpecs ?? []);
+		const read = { unread: answer.events.length, capped: answer.capped, lastSuccessAt: now, unexpected };
 		const newest = answer.events.reduce((max, event) => Math.max(max, event.at), held.newest);
 		// First poll primes without waking.
 		const fresh = held.primed ? answer.events.filter((event) => event.at > held.newest) : [];

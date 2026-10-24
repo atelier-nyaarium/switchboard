@@ -4,6 +4,9 @@ import com.atelier_nyaarium.switchboard.assistant.RuleDraft
 import com.atelier_nyaarium.switchboard.assistant.RuleEdit
 import com.atelier_nyaarium.switchboard.assistant.RuleSlot
 import com.atelier_nyaarium.switchboard.assistant.SaveOutcome
+import com.atelier_nyaarium.switchboard.assistant.field
+import com.atelier_nyaarium.switchboard.assistant.fieldLabel
+import com.atelier_nyaarium.switchboard.assistant.label
 import com.atelier_nyaarium.switchboard.assistant.outcomeOf
 import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
 import com.atelier_nyaarium.switchboard.proto.AssistantRule
@@ -122,6 +125,23 @@ internal fun watcherHealth(watcher: AssistantWatcher, ago: (Long) -> String): St
 		"Waiting: ${status.reason}" + if (status.checkedAt != null) " · ${unreadText(watcher)}" else ""
 	WatcherStatus.NotChecked -> "Not checked yet"
 	is WatcherStatus.Checked -> "Checked ${ago(status.at)} · ${unreadText(watcher)}"
+}
+
+/** Show unlisted event values individually as specs grow. */
+internal fun unexpectedLines(watcher: AssistantWatcher): List<String> {
+	val seen = watcher.unexpected ?: return emptyList()
+	val specs = watcher.fieldSpecs.orEmpty()
+	val named = seen.values.map { entry ->
+		val field = specs.find { it.field == entry.field }?.label ?: fieldLabel(entry.field)
+		"$field: ${entry.value}"
+	}
+	return if (seen.capped) named + "and more" else named
+}
+
+/** "4 rules · 1 invalid". */
+internal fun rulesCountText(rules: Int, invalid: Int): String {
+	val count = if (rules == 1) "1 rule" else "$rules rules"
+	return if (invalid == 0) count else "$count · $invalid invalid"
 }
 
 /** Lives on comes first. */

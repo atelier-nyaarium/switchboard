@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard.assistant
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -30,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.EditorScaffold
@@ -68,7 +70,8 @@ internal fun WatcherRulesPage(
 			val before = raisedBefore(rules.held, rule.id)?.takeIf { !busy }
 			RuleRow(
 				number = "${index + 1}",
-				text = ruleSummary(rule),
+				text = rules.summary(rule),
+				invalid = rules.invalid[rule.id],
 				action = rule.action,
 				onOpen = { onEdit(RuleSlot.Held(rule.id)) },
 				onRaise = before?.let { anchor ->
@@ -83,6 +86,7 @@ internal fun WatcherRulesPage(
 		RuleRow(
 			number = "·",
 			text = "Anything else",
+			invalid = null,
 			action = rules.held.otherwise.action,
 			onOpen = { onEdit(RuleSlot.Otherwise) },
 			onRaise = null,
@@ -99,6 +103,7 @@ internal fun WatcherRulesPage(
 private fun RuleRow(
 	number: String,
 	text: String,
+	invalid: String?,
 	action: String,
 	onOpen: () -> Unit,
 	onRaise: (() -> Unit)?,
@@ -114,8 +119,20 @@ private fun RuleRow(
 			style = MaterialTheme.typography.labelSmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
-		Text(text, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-		Text(actionLabel(action), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+		val dim = MaterialTheme.colorScheme.onSurfaceVariant
+		Column(Modifier.weight(1f)) {
+			if (invalid == null) {
+				Text(text, style = MaterialTheme.typography.bodyMedium)
+			} else {
+				Text(text, style = MaterialTheme.typography.bodyMedium, color = dim, textDecoration = TextDecoration.LineThrough)
+				Text(invalid, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+			}
+		}
+		Text(
+			actionLabel(action),
+			style = MaterialTheme.typography.labelLarge,
+			color = if (invalid == null) MaterialTheme.colorScheme.primary else dim,
+		)
 		if (onRaise != null) {
 			IconButton(onClick = hapticClick(onRaise)) { Icon(Icons.Default.ArrowUpward, contentDescription = "Move up") }
 		} else {
@@ -152,8 +169,8 @@ internal fun RuleEditorPage(
 	}
 	val gone = goneFrom(rules, slot)
 	val busy = held?.busy == true
-	val can = ruleEditing(slot, draft, busy, gone)
-	val rule = draft.toRule()
+	val can = ruleEditing(slot, draft, busy, gone, rules)
+	val rule = fittingRule(draft, rules)
 	var preview by remember(key) { mutableStateOf<String?>(null) }
 
 	if (slot != RuleSlot.Otherwise && !gone) {
@@ -206,15 +223,15 @@ internal fun RuleEditorPage(
 							label = "Field",
 							choices = rules.fields,
 							picked = condition.field,
-							labelOf = ::fieldLabel,
-							onPick = { field -> ops.editRule(key, draft.changed(index) { it.copy(field = field) }) },
+							labelOf = rules::fieldLabelOf,
+							onPick = { field -> ops.editRule(key, draft.withField(index, field, rules)) },
 							enabled = can.edit,
 						)
 					}
 					Box(Modifier.weight(0.7f)) {
 						PickMenu(
 							label = "Test",
-							choices = RULE_TESTS,
+							choices = testsOf(rules.specOf(condition.field)),
 							picked = condition.test,
 							labelOf = ::testLabel,
 							onPick = { test -> ops.editRule(key, draft.changed(index) { it.copy(test = test) }) },
@@ -227,17 +244,33 @@ internal fun RuleEditorPage(
 						}
 					}
 				}
-				OutlinedTextField(
-					value = condition.value,
-					onValueChange = { value -> ops.editRule(key, draft.changed(index) { it.copy(value = value) }) },
-					label = { Text("Value") },
-					singleLine = true,
-					enabled = can.edit,
-					modifier = Modifier.fillMaxWidth(),
-				)
+				val choices = rules.choicesFor(condition.field, condition.value)
+				if (choices != null) {
+					PickMenu(
+						label = "Value",
+						choices = choices,
+						picked = condition.value.takeIf { it.isNotBlank() },
+						labelOf = { value -> rules.valueLabelOf(condition.field, value) },
+						onPick = { value -> ops.editRule(key, draft.changed(index) { it.copy(value = value) }) },
+						trailingOf = { value -> "not offered".takeUnless { rules.offers(condition.field, value) } },
+						enabled = can.edit,
+					)
+				} else {
+					OutlinedTextField(
+						value = condition.value,
+						onValueChange = { value -> ops.editRule(key, draft.changed(index) { it.copy(value = value) }) },
+						label = { Text("Value") },
+						singleLine = true,
+						enabled = can.edit,
+						modifier = Modifier.fillMaxWidth(),
+					)
+				}
+				rules.issueOf(condition)?.let {
+					Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+				}
 			}
 			if (draft.conditions.size < MAX_CONDITIONS) {
-				TextButton(onClick = hapticClick { ops.editRule(key, draft.withCondition(rules.fields)) }, enabled = can.edit) {
+				TextButton(onClick = hapticClick { ops.editRule(key, draft.withCondition(rules)) }, enabled = can.edit) {
 					Text("+ Add condition")
 				}
 			}

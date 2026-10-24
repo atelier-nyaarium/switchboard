@@ -15,7 +15,14 @@ import { createFifo } from "../../shared/keyed-fifo.js";
 import type { AssistantWatcher, ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
 import { actionsOf, GITHUB_WATCHER_ID } from "../../shared/schemasAssistantActions.js";
 import { eventLines } from "../../shared/schemasAssistantInbox.js";
-import { canonicalRule, decideEvent, firstMatch, ruleMatches } from "../../shared/schemasAssistantRules.js";
+import {
+	canonicalRule,
+	decideEvent,
+	fieldsOf,
+	firstMatch,
+	invalidRules,
+	ruleMatches,
+} from "../../shared/schemasAssistantRules.js";
 import type { SessionBaseline } from "../../shared/session-baseline.js";
 import { type ActionRecord, createActionDispatch } from "../assistant/actionDispatch.js";
 import { createAssistantRoutes, type Handler } from "../assistant/assistantRoutes.js";
@@ -28,7 +35,7 @@ import { type AssistantWake, createSourceLanes, type SourceLanes } from "../assi
 import { ASSISTANT_WAITS } from "../assistant/waits.js";
 import type { ListPage, ListQuery, Watcher, WatcherEvent } from "../assistant/watcher.js";
 import type { WatcherActions } from "../assistant/watcherAction.js";
-import { createWatcherStateStore, FRESH_STATE } from "../assistant/watcherState.js";
+import { createWatcherStateStore, FRESH_STATE, unexpectedNow } from "../assistant/watcherState.js";
 import type { AssistantConsoleHandlers } from "../console/consoleTypes.js";
 import type { VaultRelease } from "../vault/vaultUse.js";
 import type { GatewayRoutes } from "./composeRoutes.js";
@@ -112,12 +119,12 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	const actions: WatcherActions = { github_done: new GithubDone(github) };
 
 	const watcherState = openDurable(deps.dataDir, "assistant-watchers", (store) => createWatcherStateStore(store));
-	const rules = openDurable(deps.dataDir, "assistant-rules", (store) =>
-		createRulesStore({
-			store,
-			fieldsOf: (watcherId) => watchers.find((watcher) => watcher.id === watcherId)?.fields,
-		}),
-	);
+	// Unknown watcher returns undefined.
+	const specsOf = (watcherId: string) => {
+		const watcher = watchers.find((candidate) => candidate.id === watcherId);
+		return watcher ? (watcher.fieldSpecs ?? []) : undefined;
+	};
+	const rules = openDurable(deps.dataDir, "assistant-rules", (store) => createRulesStore({ store, specsOf }));
 	const render = (watcher: Watcher, event: WatcherEvent) => eventLines({ label: watcher.label, ...event }).join("\n");
 
 	let lanes: SourceLanes | null = null;
@@ -131,7 +138,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			ambient,
 			state: watcherState,
 			watchers,
-			sort: (watcherId, event) => decideEvent(rules.get(watcherId), event.fields),
+			sort: (watcherId, event) => decideEvent(rules.get(watcherId), specsOf(watcherId) ?? [], event.fields),
 			wake: () => wake,
 			to: ASSISTANT_TEAM,
 			render,
@@ -207,6 +214,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 
 	const watcherOf = (watcher: Watcher): AssistantWatcher => {
 		const state = watcherState.get(watcher.id);
+		const specs = watcher.fieldSpecs ?? [];
+		const held = rules.get(watcher.id);
 		return {
 			id: watcher.id,
 			label: watcher.label,
@@ -218,8 +227,11 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			...(state.nextPollAt !== undefined ? { nextPollAt: state.nextPollAt } : {}),
 			...(state.backoff ? { backoff: state.backoff } : {}),
 			...(state.stopped !== undefined ? { stopped: state.stopped } : {}),
-			fields: [...(watcher.fields ?? [])],
-			rules: rules.get(watcher.id),
+			fields: fieldsOf(specs),
+			fieldSpecs: [...specs],
+			rules: held,
+			invalid: invalidRules(held.rules, specs),
+			unexpected: unexpectedNow(state, specs),
 			...(watcher.secret === undefined ? {} : { secret: watcher.secret }),
 			actions: actionsOf(watcher.id),
 		};
@@ -355,8 +367,9 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				)
 					.sort((a, b) => b.at - a.at)
 					.slice(0, PREVIEW_EVENTS);
-				const matched = recent.filter((event) => ruleMatches(asStored, event.fields));
-				const decided = matched.filter((event) => firstMatch(placed, event.fields)?.id === asStored.id);
+				const specs = specsOf(watcherId) ?? [];
+				const matched = recent.filter((event) => ruleMatches(asStored, specs, event.fields));
+				const decided = matched.filter((event) => firstMatch(placed, specs, event.fields)?.id === asStored.id);
 				return {
 					decided: decided.length,
 					shadowed: matched.length - decided.length,
