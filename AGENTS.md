@@ -23,6 +23,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/ownerRequests.ts` - the owner-request lifecycle the vault and the send guard share: ids, deadline, per-target cap, joins, settlement, collection, withdrawal and the restart ledger
   - **`step` is the only mutator and `retire` the only delete:** each entry holds one phase (waiting, claimed, settled) and one timer, which re-arms when it fires early. Retention is the adapter's `collectUntil`, read once at settlement, so no adapter is a special case. `owner-requests.test.ts` drives it with a timer that fires before its instant.
 - `android/.../assistant/AssistantSendOps.kt` / `AssistantSendSheet.kt` / `AssistantSendText.kt` / `plugins/assistant/AssistantPlugin.kt` - the phone's held send cards per Gateway and their answer, the card, its pure text, and the core handlers that claim the rows
+- `android/.../AssistantLockedForm.kt` / `DeviceLockWatch.kt` - what a locked phone or a watch may show and speak of an assistant row (`lockedLine`, `spokenTier`), and the screen-off watch that tells playback the phone locked. `docs/assistant.md` holds the rules
+  - **No surface ever holds the assistant's body while locked:** its notifications carry only `lockedLine`, unlocked too, since a watch bridges what the phone shows and ignores a public version.
 - `src/shared/gateway-long-waits.ts` - the POST routes whose default wait passes Bun's 255s idle cut, and which of them replay a repeat; read by `src/gateway/index.ts` and the plugin's `routerRequest`
   - **The plugin's fetch lift holds the long routes:** Bun 1.4.0 does not cut a POST after its body is
     read, and its fetch abandons an idle request at 300s. No gate here runs either Bun behavior;

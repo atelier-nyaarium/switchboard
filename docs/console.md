@@ -672,17 +672,22 @@ no TTL.
   each event under the same lock as its transition. `PlaybackResidueTest` owns the single-mint
   boundary. Warm-up holds no claim and purge reaches it through the epoch.
 - **Playback queue** (`PlaybackQueue.kt`, `PlaybackOps.kt`): yielding requests stand down when sound
-  is taken. `advance` installs the next head before returning it; declining that handoff strands the
-  entry.
-- **Spoken markers** (`ChatRepository`): chime, sentinel, and body remain separate requests. Match
-  terminals by returned request identity, not by current queue entry. Cache by spoken words, not
-  entry alone. Resume does not re-announce parked markers.
+  is taken. **A head speaks only under its ticket:** `setHead`, the one head writer, ends the held
+  claim and mints a fresh `HeadTicket` on every assignment; `PlaybackOps.startHead` claims a body
+  through `admit` with that ticket under `advanceMutex`, and a terminal moves the queue only through
+  `ended` with the claimed generation. A stale post, gap callback or terminal therefore cannot start,
+  advance or stop the head that replaced it, even for an equal `QueueEntry`. `startHead` re-decides
+  the head's tier (the assistant's `LOCKED` form, `docs/assistant.md`) and its quietness as it starts.
+- **Spoken markers** (`PlaybackOps`): chime, sentinel, and body remain separate requests. Match
+  terminals by returned request identity, not by current queue entry; the gap callback holds its
+  head ticket. Cache by spoken words, not entry alone. Resume does not re-announce parked markers.
 - **Playback surfaces** (`SttsTransport.kt`, `QueueBubble.kt`, `QueueSheet.kt`): read repository
   state after queue settlement, not raw playback events. The bubble stays on Views because a Service
   lacks Compose's ViewTree owners. The board header is the third access path when notification and
   transport permissions are denied.
-- **Abandon semantics** (`SttsPlayer.abandon`): callers declare whether position survives; there is
-  no default. Markers and settings samples are never resumable.
+- **End semantics** (`SttsPlayer.end`): callers declare whether position survives; there is no
+  default. Only a pause (`PlaybackQueue.park`) keeps it. Markers and settings samples are never
+  resumable.
 - **Audio focus** (`SpeechFocus.kt`): a focus-induced pause retains the request and duckable loss
   keeps speaking. A refused focus request registers no listener. Becoming noisy is a route change,
   not focus loss.

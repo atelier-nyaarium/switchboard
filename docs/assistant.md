@@ -389,6 +389,33 @@ before the shutdown flush. Stop is final. `src/gateway/assistant/` holds the wat
   `AssistantOps.kt`, `renderBaseline`). Settings list each watcher's actions under its secret, from
   `assistant_state` (`watcherActions`); an older Gateway names none.
 
+## The locked phone
+
+A locked phone or a paired watch gets only an assistant row's locked form. Code enforces where the
+title is used, never what it says; `ASSISTANT_INSTRUCTIONS` tells the assistant its titles are public.
+
+- **The locked form** (`AssistantLockedForm.kt`): `lockedLine` gives a reply or notice its title on
+  one line, a notifying record "Assistant finished N items", and anything else "Assistant update".
+  It never falls back to the summary or the body. `spokenTier` answers `Tier.LOCKED` for an
+  assistant row on a locked phone.
+- **Locked means `isDeviceLocked`**, so a Smart Lock reads as unlocked. The service reads it into
+  `ChatRepository.deviceLocked`; no public lock listener exists, so `DeviceLockWatch` starts at
+  screen off and checks once a second only while a lock would change what is said.
+- **Notifications carry only the locked form, unlocked too** (`assistantNotificationBuilder`): a watch
+  bridges what the phone shows and ignores a public version, so no surface ever holds the body. The
+  notification is private with a public version, and its Play actions require an unlock. Any thread
+  holding a record takes this builder, since only the assistant writes records.
+- **Speech:** the queue decides each head's tier as it starts, and `relock` swaps a head being
+  spoken at another tier for its locked form when the phone locks. A locked line is never
+  attributed with session labels. After unlock nothing replays; a row heard only as its locked line
+  stays unread with Play.
+- **Quiet peer rows:** the assistant's send records and the replies to them are stamped `quiet` at
+  drain and re-stamped when a thread comes to read as the assistant (`withAssistantPeersQuiet`):
+  shown, never alerted, spoken or counted unread. The drain applies the presence plane before a
+  tick's rows. A row alerted before the phone knew its team is the assistant cannot be retracted.
+- **A move seeds the role:** `AssistantOps.move` records the destination's address as the assistant
+  once the place lands, and past addresses keep theirs.
+
 ## What the model reads
 
 - **Standing instructions appear once:** in the plugin's MCP instructions for `host.assistant`
