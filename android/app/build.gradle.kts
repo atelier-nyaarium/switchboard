@@ -122,6 +122,11 @@ android {
 
 val generatingWireFixtures = gradle.startParameter.taskNames.any { it.endsWith("generateWireFixtures") }
 tasks.withType<Test>().configureEach {
+	// CI keeps no report, so a failure's message must reach the log.
+	testLogging {
+		events("failed")
+		exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+	}
 	systemProperty("wireFixturesDir", rootProject.projectDir.resolve("../tests/fixtures/wire/kotlin").absolutePath)
 	if (generatingWireFixtures) {
 		systemProperty(
