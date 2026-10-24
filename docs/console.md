@@ -288,13 +288,21 @@ no TTL.
   tmux-wrapped rows.
 - **Designer plugin** (`plugins/designer/`): owns design cards, live content-keyed rendering, and
   per-team `DesignStore`.
-- **The Assistant view** (`AssistantOps.kt`, `AssistantRoot.kt`, `assistant/AssistantScreen.kt`):
-  the root's resolver and the rules that enter, follow and leave the assistant's conversation, the
-  root with no conversation (`AssistantRootScreen`), and the settings sheet. The conversation is the
-  usual thread screen, drawn from `ThreadChrome`. A watcher's Rules button opens its rule
-  list and editor (`assistant/WatcherRulesSheet.kt`). Each edit is one rule op; `RuleDraft.kt`
-  holds the draft and `outcomeOf`, which reads the op's answer, never the drawn copy: done, an offer
-  to go over a newer revision on a second tap, or the reason. `docs/assistant.md` holds the design.
+- **The Assistant view** (`AssistantOps.kt`, `AssistantRoot.kt`, `assistant/AssistantScreen.kt`,
+  `assistant/WatcherRulesPage.kt`): the root's resolver and the rules that enter, follow and leave
+  the assistant's conversation, and the root with no conversation (`AssistantRootScreen`). The
+  conversation is the usual thread screen, drawn from `ThreadChrome`.
+  - **Its pages are one route on `ShellNav`:** `assistantPage` holds Settings, a watcher's Rules,
+    or the rule Editor, drawn in their own `ShellScreen` slot above the conversation, with their own
+    `BackLayer`. Back walks Editor, Rules, Settings, then what lies beneath; `arrive` clears them,
+    and `AssistantPage.resolved` unwinds a watcher page to Settings only on an answer.
+  - **A page reads its op's result from `AssistantOps`, never from its own coroutine:** `runWork`
+    holds each page's busy flag and line under a `WorkKey`, and a rule save lands in
+    `ruleDrafts` and `ruleLanded`, so Back never loses a result. The editor holds its draft's
+    opening before it sends (`holdRule`) and closes when that opening lands (`editorLanded`).
+  - **Each edit is one rule op:** `RuleDraft.kt` holds the draft, `ruleEditing`, and `outcomeOf`,
+    which reads the op's answer, never the drawn copy: done, an offer to go over a newer revision on
+    a second tap, or the reason. `docs/assistant.md` holds the design.
 - **The shell and its drawers** (`ShellNav.kt`, `DrawerNav.kt`, `ViewScope.kt`, `SideDrawer.kt`,
   `ScopedViews.kt`): the root shows one global view (Sessions, Assistant, Backlog, Runbooks, Routines,
   Policies, Vault) and a conversation shows Chat, Terminal, Files or one of those views filtered to it, each

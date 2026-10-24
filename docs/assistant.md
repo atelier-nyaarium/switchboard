@@ -24,8 +24,10 @@ it events. The session decides what to say and do.
 - **Its own root:** the drawer's Assistant entry resolves where it lives (`assistantRoot`).
   - Placed enters its conversation in the usual thread screen, titled "Assistant", with one chip per
     watcher under the title, a gear for Assistant settings in place of the session menu, and no tab
-    row (`threadChrome`). Settings hold where it lives, each watcher's health, grants and actions,
-    and Release. Back goes Terminal, Chat, Sessions.
+    row (`threadChrome`). Back goes Terminal, Chat, Sessions.
+  - The gear opens the Settings page: where it lives, then each watcher's health
+    (`WatcherStatus`), secret, grants, actions, a Rules page with its count, and Retry when stopped,
+    then Release. Rules opens a rule's Editor page. `docs/console.md` holds how the pages route.
   - Confirmed unplaced offers Configure. Not yet read waits. A Gateway that may hold it and could
     not be read offers Retry, plus Configure when only refusals are unread, since an older build
     refuses the op.
