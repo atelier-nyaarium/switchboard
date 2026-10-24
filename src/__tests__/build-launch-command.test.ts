@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	buildLaunchCommand,
+	ensureAssistantWorkdir,
 	listHostDirs,
 	resolveHostWorkdir,
 	resolveWatchTarget,
@@ -75,6 +76,24 @@ describe("buildLaunchCommand", () => {
 			expect(() => buildLaunchCommand(assistant, { workdir: "/home/$USER/notes" })).toThrow();
 			expect(() => buildLaunchCommand(assistant)).toThrow();
 			fs.rmSync(base, { recursive: true, force: true });
+		});
+
+		it("creates a missing folder with its parents, and never home, above it, or a label", () => {
+			const home = fs.mkdtempSync(path.join(os.tmpdir(), "assistant-home-"));
+			const outside = fs.mkdtempSync(path.join(os.tmpdir(), "assistant-outside-"));
+
+			ensureAssistantWorkdir("~/notes/assistant", home);
+			ensureAssistantWorkdir(path.join(outside, "a", "b"), home);
+			ensureAssistantWorkdir("~", home);
+			ensureAssistantWorkdir("notes-label", home);
+			const made = path.join(home, "notes", "assistant");
+
+			expect(fs.statSync(made).isDirectory()).toBe(true);
+			expect(fs.statSync(path.join(outside, "a", "b")).isDirectory()).toBe(true);
+			expect(fs.readdirSync(home)).toEqual(["notes"]);
+			expect(() => buildLaunchCommand(assistant, { workdir: made })).not.toThrow();
+			fs.rmSync(home, { recursive: true, force: true });
+			fs.rmSync(outside, { recursive: true, force: true });
 		});
 	});
 

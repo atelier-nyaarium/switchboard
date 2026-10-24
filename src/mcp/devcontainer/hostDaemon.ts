@@ -5,6 +5,7 @@ import path from "node:path";
 import WebSocket from "ws";
 import { agentEnvPrefix, agentFrameType, CODEX_BACKEND, COPILOT_BACKEND } from "../../shared/agent-backend.js";
 import type { LimitNotice } from "../../shared/agent-screen.js";
+import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import { daemonCapabilityDeclaration } from "../../shared/capabilities.js";
 import { CodexEventAckSchema } from "../../shared/codex-agent.js";
 import { CopilotEventAckSchema } from "../../shared/copilot-agent.js";
@@ -28,6 +29,7 @@ import { ensureContainerUpAsync, resolveProject } from "./helpers.js";
 import { createHostOpRunner } from "./hostOpRunner.js";
 import {
 	buildLaunchCommand,
+	ensureAssistantWorkdir,
 	FIRST_LAUNCH_GREETING,
 	findProjectPath,
 	listHostDirs,
@@ -341,6 +343,16 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 			return;
 		}
 		const target: TmuxTarget = { kind: "host", name: project, sessionName: session };
+		if (msg.team === ASSISTANT_TEAM) {
+			try {
+				ensureAssistantWorkdir(msg.workdirHint);
+			} catch (err) {
+				const message = `could not create the assistant's folder: ${err instanceof Error ? err.message : String(err)}`;
+				console.error(`[host-wake] refusing wake of "${msg.team}": ${message}`);
+				safeSend({ type: "wake_result", team: msg.team, success: false, error: message });
+				return;
+			}
+		}
 		// A spawn point whose shell does not share this filesystem needs its own resolution, and one
 		// that REFUSES rather than falling back: a Windows session handed a Linux path lands on a UNC
 		// cwd, which works well enough to look fine and then strands every subprocess it starts.

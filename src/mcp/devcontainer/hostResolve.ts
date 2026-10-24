@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { resolveWorkdir, type WorkdirContext, workdirOrFallback } from "../../shared/agent-workdir.js";
+import { classifyWorkdir, resolveWorkdir, type WorkdirContext, workdirOrFallback } from "../../shared/agent-workdir.js";
 import {
 	ASSISTANT_BUILTIN_TOOLS,
 	ASSISTANT_SWITCHBOARD_TOOLS,
@@ -152,18 +152,36 @@ const ASSISTANT_DENY = [
 	"Read(.env.*)",
 ];
 
+/** Inside double quotes in a single-quoted `bash -c`: nothing here may expand or close a quote. */
+const PLAIN_ABSOLUTE = /^\/[A-Za-z0-9_./ -]+$/;
+
+/** Home itself, or a folder above it, would grant the assistant edits across all of home. */
+function holdsHome(dir: string, home: string): boolean {
+	const fromHome = path.relative(path.resolve(dir), home);
+	return fromHome === "" || !fromHome.startsWith("..");
+}
+
+/**
+ * Creates the assistant's folder, parents included, when it is missing. Placing names a folder on
+ * a disk the Gateway cannot see, so the launch is where it comes into being. Only a plain path
+ * that leaves home out is made; anything else is left to the ordinary resolution and its refusals.
+ */
+export function ensureAssistantWorkdir(hint: string | undefined, home: string = HOME): void {
+	const shape = classifyWorkdir(hint, "sessionWorkdirHint", home);
+	if (shape.kind !== "path" || !PLAIN_ABSOLUTE.test(shape.value) || holdsHome(shape.value, home)) return;
+	fs.mkdirSync(shape.value, { recursive: true });
+}
+
 /**
  * The assistant runs on Claude Code's own permission engine: anything not allowed is denied
  * without asking, and its check and open are one step. Every other session keeps the open profile.
  */
 export function assistantPermissionArgs(workdir: string | undefined, home: string = HOME): string {
-	// Inside double quotes in a single-quoted `bash -c`: nothing here may expand or close a quote.
-	if (!workdir || !/^\/[A-Za-z0-9_./ -]+$/.test(workdir)) {
+	if (!workdir || !PLAIN_ABSOLUTE.test(workdir)) {
 		throw new Error("refusing to launch the assistant: its workdir is not a plain absolute path");
 	}
 	// An unresolved workdir falls back to home, which would grant edits across all of it.
-	const fromHome = path.relative(path.resolve(workdir), home);
-	if (fromHome === "" || !fromHome.startsWith("..")) {
+	if (holdsHome(workdir, home)) {
 		throw new Error("refusing to launch the assistant: its workdir holds the home directory");
 	}
 	if (!fs.statSync(workdir, { throwIfNoEntry: false })?.isDirectory()) {

@@ -11,7 +11,9 @@ it events. The session decides what to say and do.
   it again starts a fresh conversation. Its notes folder keeps its files; a move does not copy them.
 - **Where it lives is its record:** the owner picks a Gateway and a folder on that Gateway's host in
   Assistant settings. `assistant_place` mints the record there, or moves a held one's folder, which
-  a running session takes at its next launch; the first wake launches it. The record is the commit:
+  a running session takes at its next launch; the first wake launches it, and the host daemon
+  creates the folder with its parents when it is missing (`ensureAssistantWorkdir`), never home or a
+  folder above it, since the Gateway that placed it cannot see that disk. The record is the commit:
   place saves it before answering, and takes its change back when the save fails. A new placement
   starts with no watcher grants. `assistant_release` ends the pane and forgets the record first, so
   a refused forget changes nothing. Past it, the release saves, stops the watchers and drops their
