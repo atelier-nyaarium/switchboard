@@ -9,7 +9,6 @@ import { RouterHttpError } from "../mcp/bridge/helpers.js";
 import { renderAssistantCapabilities } from "../mcp/capabilitiesTool.js";
 import { guardToolResults } from "../mcp/toolResultGuard.js";
 import {
-	ASSISTANT_BUILTIN_TOOLS,
 	ASSISTANT_CROSSTALK_TOOLS,
 	ASSISTANT_ROUTINE_TOOLS,
 	ASSISTANT_SWITCHBOARD_TOOLS,
@@ -95,7 +94,7 @@ describe("the assistant's tool scope", () => {
 		const listed = ASSISTANT_CAPABILITIES.flatMap(({ tools }) => tools);
 		const answer = renderAssistantCapabilities(gateway);
 
-		expect([...listed].sort()).toEqual([...ASSISTANT_SWITCHBOARD_TOOLS, ...ASSISTANT_BUILTIN_TOOLS].sort());
+		expect([...listed].sort()).toEqual([...ASSISTANT_SWITCHBOARD_TOOLS].sort());
 		for (const tool of listed) expect(answer).toContain(`\`${tool}\``);
 		expect(answer).toContain("other sessions, never this one: codex-agent, vault");
 		expect(answer).not.toMatch(/restart this session/);

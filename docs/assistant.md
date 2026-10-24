@@ -476,7 +476,8 @@ than reserving one. `docs/routines.md` holds the routine side; this is the assis
 - **Standing instructions appear once:** in the plugin's MCP instructions for `host.assistant`
   (`src/mcp/assistant/instructions.ts`). The folder's `AGENTS.md` holds the owner's own instructions.
 - **Its capabilities are its own:** `switchboard_capabilities` serves both kinds of session. The
-  assistant's answer lists `ASSISTANT_CAPABILITIES`, built from the tools its scope allows, then the
+  assistant's answer lists `ASSISTANT_CAPABILITIES`, built from the Switchboard tools its scope
+  allows (Claude Code's own file tools are not Switchboard's and are left out), then the
   standing rules again for after a compaction. What the Gateway enables is named as other sessions',
   never as something a restart would add.
 - **Events:** a channel message with `event="true"` and no sender, `session_id` or

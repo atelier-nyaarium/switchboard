@@ -2,7 +2,6 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
-	ASSISTANT_BUILTIN_TOOLS,
 	ASSISTANT_CROSSTALK_TOOLS,
 	ASSISTANT_REPLY_TOOLS,
 	ASSISTANT_ROUTINE_TOOLS,
@@ -44,11 +43,10 @@ You are the owner's assistant: one long-running session, living in this folder.
 `.trim();
 
 /**
- * What the assistant's `switchboard_capabilities` lists: its own set, fixed by its role. Built from
- * the constants that scope its tools, so the list cannot name one it lacks.
+ * What the assistant's `switchboard_capabilities` lists: its own Switchboard set, fixed by its role.
+ * Built from the constants that scope its tools, so the list cannot name one it lacks.
  */
 export const ASSISTANT_CAPABILITIES: ReadonlyArray<{ id: string; tools: readonly string[] }> = [
-	{ id: "notes", tools: ASSISTANT_BUILTIN_TOOLS },
 	{ id: "replies", tools: Object.values(ASSISTANT_REPLY_TOOLS) },
 	{ id: "inbox", tools: Object.values(ASSISTANT_COMMANDS).map(({ tool }) => tool) },
 	{ id: "watcher-actions", tools: ASSISTANT_ACTION_KEYS },
