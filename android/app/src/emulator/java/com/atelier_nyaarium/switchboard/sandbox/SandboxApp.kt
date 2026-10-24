@@ -64,6 +64,34 @@ class SandboxApp : Application() {
 				com.atelier_nyaarium.switchboard.vault.VaultDraft(id = "a-note", publicTitle = "A note, no value"),
 			),
 		)
+		// Notification send card.
+		val domain = fixtures.teams().firstOrNull()?.domainId ?: "home"
+		gateways.firstOrNull()?.let { gatewayId ->
+			repo.assistantSendOps.onRequest(
+				gatewayId,
+				"host.assistant",
+				com.atelier_nyaarium.switchboard.proto.AssistantSendRequest(
+					v = 1L,
+					requestId = "sandbox-send",
+					sessionTarget = "host.assistant",
+					deadlineAt = System.currentTimeMillis() + 20 * 3_600_000L,
+					intent = com.atelier_nyaarium.switchboard.proto.AssistantSendIntent(
+						target = "$domain.$gatewayId.host.worker",
+						body = "Could you check whether the release notes mention the schema change?\n\nThe owner asked this morning.",
+						disposition = "asking",
+						createsSession = false,
+						files = listOf(
+							com.atelier_nyaarium.switchboard.proto.AssistantSendFile(
+								digest = "sha256-${"0".repeat(64)}",
+								filename = "notes.md",
+								mime = "text/markdown",
+								size = 2_048L,
+							),
+						),
+					),
+				),
+			)
+		}
 		// Seeding writes rows straight into state, bypassing the mailbox drain where the inbound
 		// handlers run, so the dock would stay empty however correct the ingest is. Run the same
 		// wire-declared conversion the handler runs, so the gallery is inspectable here.

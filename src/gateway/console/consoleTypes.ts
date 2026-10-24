@@ -19,6 +19,7 @@ import type {
 	ConsoleAssistantPreviewResult,
 	ConsoleAssistantRulesResult,
 } from "../../shared/schemasAssistantRules.js";
+import type { ConsoleAssistantSendAnswerResult } from "../../shared/schemasAssistantSend.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
 import type {
 	AuthorizationPolicy,
@@ -150,6 +151,9 @@ export interface AssistantConsoleHandlers {
 	) => Promise<ConsoleAssistantRulesResult>;
 	putOtherwise: (watcherId: string, otherwise: AssistantRuleOtherwise) => Promise<ConsoleAssistantRulesResult>;
 	previewRule: (watcherId: string, rule: AssistantRule) => Promise<ConsoleAssistantPreviewResult>;
+	setSafety: (approveEverySend: boolean) => Promise<ConsoleAssistantStateResult>;
+	/** One delivery; collect outcome. */
+	answerSend: (requestId: string, decision: "approve" | "deny", note?: string) => ConsoleAssistantSendAnswerResult;
 }
 
 export interface PolicyConsoleHandlers {

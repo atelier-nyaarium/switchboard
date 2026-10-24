@@ -91,6 +91,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			// Here rather than beside the active boot, so enrolling into an arming one arms this too.
 			routines?.start();
 			assistant.start();
+			vault?.retractStale();
 		},
 		onDomainChanged: () => sessions.presence.markDirty(),
 	});
@@ -125,6 +126,15 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 					: { kind: "unready", reason: "the vault is not composed yet" },
 		},
 		routes: requireRoutes,
+		blobSize: (blobId) => {
+			try {
+				const stat = stores.blobStore.stat(blobId);
+				return stat.complete ? (stat.size ?? null) : null;
+			} catch {
+				return null;
+			}
+		},
+		lastDeliverySeq: () => stores.pendingDeliveries.lastSeq(),
 		fetch: deps.fetch ?? ((url, init) => fetch(url, init)),
 		...(deps.assistantWatchers ? { watchers: deps.assistantWatchers } : {}),
 	});
@@ -136,10 +146,11 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		sessionEnded: (team) => {
 			vault?.sessionEnded(team);
 			routines.sessionEnded(team);
+			assistant.sessionEnded(team);
 		},
 		sessionReserved: (team) => routines.reserves(team) || assistant.reserves(team),
 		sweepDeliveries: () => websockets?.channelDeliveries.sweep(),
-		namesBlob: (blobId) => routes?.current()?.namesBlob(blobId) ?? true,
+		namesBlob: (blobId) => assistant.namesBlob(blobId) || (routes?.current()?.namesBlob(blobId) ?? true),
 	});
 	const host = composeHost({ sessions, wakeTimeoutMs: config.wakeTimeoutMs, ambient: bootstrap.ambient });
 	const agents = composeAgents({ sessions, host, ambient: bootstrap.ambient });
@@ -189,6 +200,8 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		agents,
 		federation,
 		retireStaging: (blobIds) => routes?.current()?.retireStaging(blobIds),
+		onAcknowledged: (row) => assistant.delivered(row),
+		onOffered: (row) => assistant.offered(row),
 	});
 	routes = composeRoutes({
 		dataDir: bootstrap.dataDir,
@@ -201,6 +214,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		host,
 		awareness,
 		websockets,
+		onReplyPushed: (team) => assistant.replyPushed(team),
 	});
 	vault = composeVault({
 		dataDir: bootstrap.dataDir,

@@ -50,6 +50,8 @@ export interface RespondRoutesDeps {
 	refuseForeignReply: (req: Request, target: string) => Response | null;
 	refuseForeignPoll: (req: Request, sessionId: string) => Response | null;
 	provedLocalSession: (req: Request) => boolean;
+	/** Local reply push. */
+	onReplyPushed?: (team: string) => void;
 }
 
 export function createRespondRoutes({
@@ -70,6 +72,7 @@ export function createRespondRoutes({
 	refuseForeignPoll,
 	provedLocalSession,
 	ambient,
+	onReplyPushed,
 }: RespondRoutesDeps) {
 	const { localGatewayId } = config;
 
@@ -260,6 +263,8 @@ export function createRespondRoutes({
 		} else {
 			const senderWs = conversationRegistry.get(reply.conversationId);
 			if (senderWs && senderWs.readyState === 1) {
+				// Mark before push.
+				if (senderWs.data.teamName) onReplyPushed?.(senderWs.data.teamName);
 				const outcome = sendOn(senderWs, pushMsg, `reply to ${deliverResult.from}`);
 				notified = reached(outcome);
 				console.log(

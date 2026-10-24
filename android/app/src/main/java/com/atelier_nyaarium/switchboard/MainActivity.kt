@@ -64,6 +64,8 @@ class MainActivity : FragmentActivity() {
 
 	private val vaultRequestRequest = mutableStateOf<String?>(null)
 
+	private val assistantSendRequestRequest = mutableStateOf<Pair<String, String>?>(null)
+
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
 		DebugLog.init(this)
@@ -73,7 +75,9 @@ class MainActivity : FragmentActivity() {
 		consume(intent)
 		setContent {
 			val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
-			MaterialTheme(colorScheme = colors) { App(repo, injected, openTeamRequest, openQueueRequest, vaultRequestRequest) }
+			MaterialTheme(colorScheme = colors) {
+				App(repo, injected, openTeamRequest, openQueueRequest, vaultRequestRequest, assistantSendRequestRequest)
+			}
 		}
 	}
 
@@ -97,6 +101,11 @@ class MainActivity : FragmentActivity() {
 			vaultRequestRequest.value = it
 			intent.removeExtra(SwitchboardService.EXTRA_VAULT_REQUEST)
 		}
+		val requestId = intent.getStringExtra(SwitchboardService.EXTRA_ASSISTANT_SEND_REQUEST)
+		val gatewayId = intent.getStringExtra(SwitchboardService.EXTRA_ASSISTANT_SEND_GATEWAY)
+		if (requestId != null && gatewayId != null) assistantSendRequestRequest.value = gatewayId to requestId
+		intent.removeExtra(SwitchboardService.EXTRA_ASSISTANT_SEND_REQUEST)
+		intent.removeExtra(SwitchboardService.EXTRA_ASSISTANT_SEND_GATEWAY)
 	}
 }
 
@@ -118,6 +127,7 @@ fun App(
 	openTeamRequest: MutableState<String?>,
 	openQueueRequest: MutableState<Boolean>,
 	vaultRequestRequest: MutableState<String?> = remember { mutableStateOf(null) },
+	assistantSendRequestRequest: MutableState<Pair<String, String>?> = remember { mutableStateOf(null) },
 ) {
 	val state by repo.state.collectAsState()
 	val bootState by repo.bootState.collectAsState()
@@ -130,6 +140,7 @@ fun App(
 	var boardStripHeight by remember { mutableStateOf(repo.store.boardStripHeight) }
 	var boardModal by remember { mutableStateOf<String?>(null) }
 	var vaultModal by remember { mutableStateOf<VaultModal?>(null) }
+	var assistantSendModal by remember { mutableStateOf<Pair<String, String>?>(null) }
 	var fireRunbook by remember { mutableStateOf<RunbookFire?>(null) }
 	// Gateway and id. Null is closed, a blank id is a new one.
 	var editRunbook by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
@@ -302,6 +313,23 @@ fun App(
 			overlays = emptyList()
 			vaultModal = VaultModal.Request(requestId)
 			vaultRequestRequest.value = null
+		}
+	}
+
+	LaunchedEffect(assistantSendRequestRequest.value) {
+		assistantSendRequestRequest.value?.let { request ->
+			nav = nav.closeSettings()
+			overlays = emptyList()
+			vaultModal = null
+			boardModal = null
+			fireRunbook = null
+			editRunbook = null
+			editRoutine = null
+			editPolicy = null
+			viewer = null
+			openQueueRequest.value = false
+			assistantSendModal = request
+			assistantSendRequestRequest.value = null
 		}
 	}
 
@@ -725,6 +753,9 @@ fun App(
 		is VaultModal.Request ->
 			com.atelier_nyaarium.switchboard.vault.VaultRequestSheet(repo, state, modal.id) { vaultModal = null }
 		null -> {}
+	}
+	assistantSendModal?.let { (gatewayId, requestId) ->
+		com.atelier_nyaarium.switchboard.assistant.AssistantSendSheet(repo, gatewayId, requestId) { assistantSendModal = null }
 	}
 	fireRunbook?.let { fire ->
 		com.atelier_nyaarium.switchboard.runbooks.RunbookFireSheet(repo, state, fire.gatewayId, fire.id, fire.into) { fireRunbook = null }

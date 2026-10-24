@@ -62,6 +62,8 @@ function stage(
 		saveSessions: () => {},
 		vault: vault(),
 		routes: noRoutes,
+		blobSize: () => null,
+		lastDeliverySeq: () => 0,
 		fetch,
 		...(watchers ? { watchers } : {}),
 	});
@@ -191,6 +193,8 @@ describe("the assistant's session", () => {
 			},
 			vault: held,
 			routes: noRoutes,
+			blobSize: () => null,
+			lastDeliverySeq: () => 0,
 			fetch: async () => new Response(null, { status: 304 }),
 			watchers: [counting()],
 		});
@@ -231,6 +235,8 @@ describe("the assistant's session", () => {
 				setWatcherGrants: (id, entryIds) => entryIds.length === 0 && held.setWatcherGrants(id, []),
 			},
 			routes: noRoutes,
+			blobSize: () => null,
+			lastDeliverySeq: () => 0,
 			fetch: async () => new Response(null, { status: 304 }),
 			watchers: [counting()],
 		});

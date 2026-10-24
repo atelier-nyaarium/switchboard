@@ -14,6 +14,10 @@ import com.atelier_nyaarium.switchboard.SwitchboardService.Companion.CHANNEL_STA
 import com.atelier_nyaarium.switchboard.SwitchboardService.Companion.EXTRA_MESSAGE_AT
 import com.atelier_nyaarium.switchboard.SwitchboardService.Companion.EXTRA_OPEN_TEAM
 import com.atelier_nyaarium.switchboard.SwitchboardService.Companion.EXTRA_VAULT_REQUEST
+import com.atelier_nyaarium.switchboard.SwitchboardService.Companion.EXTRA_ASSISTANT_SEND_REQUEST
+import com.atelier_nyaarium.switchboard.SwitchboardService.Companion.EXTRA_ASSISTANT_SEND_GATEWAY
+import com.atelier_nyaarium.switchboard.assistant.PendingAssistantSend
+import com.atelier_nyaarium.switchboard.assistant.assistantSendPublicNotificationText
 import com.atelier_nyaarium.switchboard.vault.OverlayPermission
 import com.atelier_nyaarium.switchboard.vault.VaultPendingRequest
 import com.atelier_nyaarium.switchboard.vault.requestTitle
@@ -64,6 +68,12 @@ internal class ServiceNotifications(private val context: Context) {
 			NotificationChannel(CHANNEL_VAULT, "Vault requests", NotificationManager.IMPORTANCE_HIGH).apply {
 				description = "A session asks to use a secret"
 				enableVibration(true)
+			},
+		)
+		nm.createNotificationChannel(
+			NotificationChannel(CHANNEL_ASSISTANT, "Assistant", NotificationManager.IMPORTANCE_HIGH).apply {
+				description = "A send needs approval"
+				lockscreenVisibility = Notification.VISIBILITY_PRIVATE
 			},
 		)
 		nm.createNotificationChannel(
@@ -337,6 +347,45 @@ internal class ServiceNotifications(private val context: Context) {
 		NotificationManagerCompat.from(context).cancel(vaultNotificationId(requestId))
 	}
 
+	internal fun reconcileAssistantSendRequests(requests: List<PendingAssistantSend>) {
+		val manager = context.getSystemService(NotificationManager::class.java) ?: return
+		val nmc = NotificationManagerCompat.from(context)
+		val expected = requests.mapTo(HashSet()) { assistantSendNotificationId(it.gatewayId, it.request.requestId) }
+		for (shown in manager.activeNotifications) {
+			if (shown.id in ASSISTANT_SEND_ID_RANGE_START until ASSISTANT_SEND_ID_RANGE_START + ASSISTANT_SEND_ID_RANGE_SIZE && shown.id !in expected) {
+				nmc.cancel(shown.id)
+			}
+		}
+		if (!canNotify()) return
+		requests.forEach { request ->
+			val id = assistantSendNotificationId(request.gatewayId, request.request.requestId)
+			val intent = Intent(context, MainActivity::class.java)
+				.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+				.putExtra(EXTRA_ASSISTANT_SEND_REQUEST, request.request.requestId)
+				.putExtra(EXTRA_ASSISTANT_SEND_GATEWAY, request.gatewayId)
+			val content = PendingIntent.getActivity(
+				context,
+				"${request.gatewayId}/${request.request.requestId}".hashCode(),
+				intent,
+				PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+			)
+			val publicVersion = NotificationCompat.Builder(context, CHANNEL_ASSISTANT)
+				.setSmallIcon(android.R.drawable.stat_notify_chat)
+				.setContentTitle(assistantSendPublicNotificationText())
+				.build()
+			val notification = NotificationCompat.Builder(context, CHANNEL_ASSISTANT)
+				.setSmallIcon(android.R.drawable.stat_notify_chat)
+				.setContentTitle(assistantSendPublicNotificationText())
+				.setContentText(request.request.intent.target)
+				.setOngoing(true)
+				.setOnlyAlertOnce(true)
+				.setPublicVersion(publicVersion)
+				.setContentIntent(content)
+				.build()
+			nmc.notify(id, notification)
+		}
+	}
+
 	internal fun canNotify(): Boolean =
 		context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
@@ -344,6 +393,7 @@ internal class ServiceNotifications(private val context: Context) {
 		const val CHANNEL_MESSAGES = "messages_v2"
 		const val CHANNEL_SCHEDULED_SEND_FAILED = "scheduled_send_failed"
 		const val CHANNEL_VAULT = "vault_requests"
+		const val CHANNEL_ASSISTANT = "assistant"
 		const val CHANNEL_ROUTINE = "routine_missed"
 
 		private const val TEAM_ID_RANGE_START = 1000
@@ -373,6 +423,12 @@ internal class ServiceNotifications(private val context: Context) {
 		internal fun vaultNotificationId(requestId: String): Int =
 			VAULT_ID_RANGE_START + (requestId.hashCode() and 0x7FFFFFFF) % VAULT_ID_RANGE_SIZE
 
+		internal const val ASSISTANT_SEND_ID_RANGE_START = 5_000_000
+		internal const val ASSISTANT_SEND_ID_RANGE_SIZE = 1_000_000
+
+		internal fun assistantSendNotificationId(gatewayId: String, requestId: String): Int =
+			ASSISTANT_SEND_ID_RANGE_START + ("$gatewayId/$requestId".hashCode() and 0x7FFFFFFF) % ASSISTANT_SEND_ID_RANGE_SIZE
+
 		// Own id range, like the others.
 		internal const val ROUTINE_ID_RANGE_START = 4_000_000
 		internal const val ROUTINE_ID_RANGE_SIZE = 1_000_000
@@ -382,6 +438,9 @@ internal class ServiceNotifications(private val context: Context) {
 			ROUTINE_ID_RANGE_START + ("$gatewayId/$routineId".hashCode() and 0x7FFFFFFF) % ROUTINE_ID_RANGE_SIZE
 
 		init {
+			require(ASSISTANT_SEND_ID_RANGE_START >= ROUTINE_ID_RANGE_START + ROUTINE_ID_RANGE_SIZE) {
+				"ASSISTANT_SEND_ID_RANGE must fall outside the routine id range"
+			}
 			require(ROUTINE_ID_RANGE_START >= VAULT_ID_RANGE_START + VAULT_ID_RANGE_SIZE) {
 				"ROUTINE_ID_RANGE must fall entirely outside the vault id range"
 			}
@@ -430,7 +489,8 @@ internal class ServiceNotifications(private val context: Context) {
 				val failed = id >= SCHEDULED_SEND_FAILED_ID_RANGE_START &&
 					id < SCHEDULED_SEND_FAILED_ID_RANGE_START + SCHEDULED_SEND_FAILED_ID_RANGE_SIZE
 				val vault = id >= VAULT_ID_RANGE_START && id < VAULT_ID_RANGE_START + VAULT_ID_RANGE_SIZE
-				if (message || failed || vault) nmc.cancel(id)
+				val assistant = id >= ASSISTANT_SEND_ID_RANGE_START && id < ASSISTANT_SEND_ID_RANGE_START + ASSISTANT_SEND_ID_RANGE_SIZE
+				if (message || failed || vault || assistant) nmc.cancel(id)
 			}
 		}
 	}

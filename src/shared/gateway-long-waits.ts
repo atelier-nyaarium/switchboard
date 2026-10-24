@@ -5,6 +5,7 @@ const LONG_WAITS = [
 	"POST /vault/collect",
 	"POST /vault/capture",
 	"POST /vault/askpass",
+	"POST /assistant/send",
 ] as const;
 
 export type GatewayLongWaitRoute = (typeof LONG_WAITS)[number];

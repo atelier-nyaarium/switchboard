@@ -3,6 +3,7 @@ import { ChannelFilesSchema } from "./channel-file.js";
 import { SignedXDomainLinkSchema } from "./federation-protocol.js";
 import { RecordThreadSchema } from "./schemasAssistantRecord.js";
 import { AssistantRuleOtherwiseSchema, AssistantRuleSchema, RULE_ID_RE } from "./schemasAssistantRules.js";
+import { SEND_DECISIONS, SEND_GUARDS, SEND_NOTE_MAX } from "./schemasAssistantSend.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
 import { AuthorizationPolicySchema } from "./schemasPolicy.js";
 import { RoutineSchema } from "./schemasRoutine.js";
@@ -320,6 +321,15 @@ export const ConsoleOpSchema = z
 			watcherId: z.string().min(1).max(64),
 			rule: AssistantRuleSchema,
 		}),
+		/** Gateway-local; survives release. */
+		z.object({ kind: z.literal("assistant_safety"), approveEverySend: z.boolean() }),
+		/** Delivers the bound send once. */
+		z.object({
+			kind: z.literal("assistant_send_answer"),
+			requestId: z.string().min(1).max(128),
+			decision: z.enum(SEND_DECISIONS),
+			note: z.string().max(SEND_NOTE_MAX).optional(),
+		}),
 	])
 	.meta({ id: "ConsoleOp" });
 
@@ -388,6 +398,8 @@ export const VALUE_OP_KINDS = new Set([
 	"assistant_rule_move",
 	"assistant_otherwise_put",
 	"assistant_rules_preview",
+	"assistant_safety",
+	"assistant_send_answer",
 ]);
 
 export const MailboxEntrySchema = z
@@ -412,5 +424,7 @@ export const MailboxEntrySchema = z
 		/** For `assistant_record` only. */
 		notify: z.boolean().optional(),
 		threads: z.array(RecordThreadSchema).optional(),
+		/** Peer send guard. */
+		guard: z.enum(SEND_GUARDS).optional(),
 	})
 	.meta({ id: "MailboxEntry" });

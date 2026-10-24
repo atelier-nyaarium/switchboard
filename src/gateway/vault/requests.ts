@@ -1,7 +1,8 @@
-// Requests settle once and expire at their deadline.
+// Vault request adapter.
 
-import type { Ambient, TimerHandle } from "../../shared/ambient.js";
-import { MIGRATING } from "../../shared/migration-fence.js";
+import type { Ambient } from "../../shared/ambient.js";
+import type { DurableStore } from "../../shared/durable-store.js";
+import type { MIGRATING } from "../../shared/migration-fence.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
 import {
 	type PolicyRef,
@@ -10,6 +11,7 @@ import {
 	type VaultDecision,
 	type VaultRequest,
 } from "../../shared/schemasVault.js";
+import { createOwnerRequests, type Held, type OpenStub, type OwnerRequestOpened } from "../ownerRequests.js";
 import { displayShape } from "./decisions.js";
 import { operationSet } from "./operationSet.js";
 
@@ -21,9 +23,7 @@ export type VaultRequestAnswer =
 	| { kind: "approved"; decision: VaultApprovedDecision; typedValue?: string }
 	| { kind: "refused"; note?: string };
 
-export type VaultRequestOpened =
-	| { kind: "opened"; request: VaultRequest; answer: Promise<VaultRequestAnswer> }
-	| { kind: "undeliverable"; reason: "migrating" | "unreachable" | "flooded" };
+export type VaultRequestOpened = OwnerRequestOpened<VaultRequest, VaultRequestAnswer>;
 
 /** One caller's share of the owner's attention; a loop cannot bury the phone. */
 export const MAX_OPEN_PER_TARGET = 8;
@@ -37,117 +37,70 @@ export interface VaultRequestsDeps {
 	/** Runs before `onApproved`; a refusal settles the request refused and mints no grant. */
 	validate?: (request: VaultRequest) => string | null;
 	onApproved?: (request: VaultRequest, decision: VaultDecision) => void;
-	/** Once per request, however it settled. */
-	onSettled?: (request: VaultRequest) => void;
+	/** Once per request; false keeps its stub to retract later. */
+	onSettled?: (request: VaultRequest) => boolean;
 	/** The deadline passed with nobody having decided, which a deny is not. */
 	onUnanswered?: (request: VaultRequest) => void;
 	deadlineMs?: number;
+	/** Restart retraction ledger. */
+	ledger?: Pick<DurableStore, "load" | "save">;
 }
 
-interface Pending {
-	request: VaultRequest;
-	timer: TimerHandle;
-	answer: Promise<VaultRequestAnswer>;
-	settle: (answer: VaultRequestAnswer) => void;
-	settled: boolean;
-}
+const REFUSED: VaultRequestAnswer = { kind: "refused" };
 
 export function createVaultRequests(deps: VaultRequestsDeps) {
-	const deadlineMs = deps.deadlineMs ?? VAULT_REQUEST_DEADLINE_MS;
-	const pending = new Map<string, Pending>();
-
-	/** Only one collector removes a request. */
-	const forget = (requestId: string): boolean => {
-		const entry = pending.get(requestId);
-		if (!entry) return false;
-		deps.ambient.clearTimer(entry.timer);
-		pending.delete(requestId);
-		return true;
-	};
-
-	const openFor = (sessionTarget: string): number => {
-		let count = 0;
-		for (const entry of pending.values())
-			if (!entry.settled && entry.request.sessionTarget === sessionTarget) count += 1;
-		return count;
-	};
+	const core = createOwnerRequests<VaultRequest, VaultRequestAnswer>({
+		ambient: deps.ambient,
+		deadlineMs: deps.deadlineMs ?? VAULT_REQUEST_DEADLINE_MS,
+		maxOpenPerTarget: MAX_OPEN_PER_TARGET,
+		deliver: deps.deliver,
+		lapsed: () => REFUSED,
+		onSettled: deps.onSettled,
+		onUnanswered: deps.onUnanswered,
+		ledger: deps.ledger,
+	});
 
 	const open = (input: VaultRequestInput): VaultRequestOpened => {
-		const requestId = deps.ambient.newId();
 		const shape = displayShape(input.operation);
 		if (!shape) return { kind: "undeliverable", reason: "unreachable" };
-		if (openFor(input.sessionTarget) >= MAX_OPEN_PER_TARGET) return { kind: "undeliverable", reason: "flooded" };
-		const common = {
-			v: 1 as const,
-			requestId,
-			operation: input.operation,
-			displayShape: shape,
-			coveredShapes: operationSet(input.operation),
+		return core.open({
 			sessionTarget: input.sessionTarget,
-			deadlineAt: deps.ambient.now() + deadlineMs,
-			...(input.asker === undefined ? {} : { asker: input.asker }),
-		};
-		const request: VaultRequest =
-			input.kind === "entry"
-				? {
-						kind: "entry",
-						entryId: input.entryId,
-						...common,
-						...(input.policy ? { policy: input.policy } : {}),
-					}
-				: { kind: "typed", ...common };
-		const delivered = deps.deliver(request);
-		if (delivered !== true)
-			return { kind: "undeliverable", reason: delivered === MIGRATING ? "migrating" : "unreachable" };
-		let settle: (answer: VaultRequestAnswer) => void = () => undefined;
-		const answer = new Promise<VaultRequestAnswer>((resolve) => {
-			settle = resolve;
-		});
-		const entry: Pending = {
-			request,
-			answer,
-			settle: (result) => {
-				if (entry.settled) return;
-				entry.settled = true;
-				settle(result);
-				// A listener's failure never leaves a settled entry behind.
-				try {
-					deps.onSettled?.(request);
-				} catch {}
+			build: (requestId, deadlineAt) => {
+				const common = {
+					v: 1 as const,
+					requestId,
+					operation: input.operation,
+					displayShape: shape,
+					coveredShapes: operationSet(input.operation),
+					sessionTarget: input.sessionTarget,
+					deadlineAt,
+					...(input.asker === undefined ? {} : { asker: input.asker }),
+				};
+				return input.kind === "entry"
+					? {
+							kind: "entry",
+							entryId: input.entryId,
+							...common,
+							...(input.policy ? { policy: input.policy } : {}),
+						}
+					: { kind: "typed", ...common };
 			},
-			settled: false,
-			// The deadline ends an uncollected answer too. Unanswered is not the same as denied, so
-			// only this road says so; a deny is the owner having decided.
-			timer: deps.ambient.setTimer(() => {
-				entry.settle({ kind: "refused" });
-				pending.delete(requestId);
-				try {
-					deps.onUnanswered?.(request);
-				} catch {}
-			}, deadlineMs),
-		};
-		pending.set(requestId, entry);
-		return { kind: "opened", request, answer };
+		});
 	};
 
 	/** A retry joins the open request. */
-	const find = (input: VaultRequestInput): Pick<Pending, "request" | "answer"> | undefined => {
-		for (const entry of pending.values()) {
-			const { request } = entry;
-			if (entry.settled || request.kind !== input.kind || request.sessionTarget !== input.sessionTarget) continue;
-			if (request.operation !== input.operation) continue;
-			if (input.kind === "entry") {
-				if (request.kind !== "entry" || request.entryId !== input.entryId) continue;
-				if (
-					request.policy?.policyId !== input.policy?.policyId ||
-					request.policy?.policyRevision !== input.policy?.policyRevision
-				)
-					continue;
-			}
-			return entry;
-		}
-		return undefined;
-	};
+	const find = (input: VaultRequestInput): Held<VaultRequest, VaultRequestAnswer> | undefined =>
+		core.find((request) => {
+			if (request.kind !== input.kind || request.sessionTarget !== input.sessionTarget) return false;
+			if (request.operation !== input.operation) return false;
+			if (input.kind !== "entry") return true;
+			return (
+				request.kind === "entry" &&
+				request.entryId === input.entryId &&
+				request.policy?.policyId === input.policy?.policyId &&
+				request.policy?.policyRevision === input.policy?.policyRevision
+			);
+		});
 
 	/** Answers are single-use. A deny's note steers the asker. */
 	const answer = (
@@ -156,74 +109,47 @@ export function createVaultRequests(deps: VaultRequestsDeps) {
 		value?: ContentEnvelope,
 		note?: string,
 	): { ok: true } | { ok: false; reason: string } => {
-		const entry = pending.get(requestId);
-		if (!entry || entry.settled) return { ok: false, reason: "request expired" };
-		if (deps.ambient.now() >= entry.request.deadlineAt) {
-			entry.settle({ kind: "refused" });
-			forget(requestId);
-			return { ok: false, reason: "request expired" };
-		}
+		const request = core.live(requestId);
+		if (!request) return { ok: false, reason: "request expired" };
 		if (decision === "deny") {
-			entry.settle(note ? { kind: "refused", note } : { kind: "refused" });
+			core.settle(requestId, note ? { kind: "refused", note } : REFUSED);
 			return { ok: true };
 		}
-		if (entry.request.kind === "typed") {
+		if (request.kind === "typed") {
 			const typedValue = value ? deps.openTyped(value, requestId) : null;
 			if (typedValue === null) return { ok: false, reason: "typed value unreadable" };
 			// A typed value is handed over once; no grant outlives it.
-			entry.settle({ kind: "approved", decision: "once", typedValue });
+			core.settle(requestId, { kind: "approved", decision: "once", typedValue });
 			return { ok: true };
 		}
-		const refusal = deps.validate?.(entry.request) ?? null;
+		const refusal = deps.validate?.(request) ?? null;
 		if (refusal !== null) {
-			entry.settle({ kind: "refused", note: refusal });
+			core.settle(requestId, { kind: "refused", note: refusal });
 			return { ok: false, reason: refusal };
 		}
-		deps.onApproved?.(entry.request, decision);
-		entry.settle({ kind: "approved", decision });
+		deps.onApproved?.(request, decision);
+		core.settle(requestId, { kind: "approved", decision });
 		return { ok: true };
 	};
 
-	/** Collect only by session before deadline. */
-	const collect = (requestId: string, sessionTarget: string): Pending | undefined => {
-		const entry = pending.get(requestId);
-		if (!entry || entry.request.sessionTarget !== sessionTarget) return undefined;
-		if (deps.ambient.now() >= entry.request.deadlineAt) {
-			entry.settle({ kind: "refused" });
-			forget(requestId);
-			return undefined;
-		}
-		return entry;
-	};
-
-	/** The opener withdraws a pending request; a later answer reads as expired. */
-	const withdraw = (requestId: string, sessionTarget: string): boolean => {
-		const entry = pending.get(requestId);
-		if (!entry || entry.settled || entry.request.sessionTarget !== sessionTarget) return false;
-		entry.settle({ kind: "refused" });
-		return forget(requestId);
-	};
-
-	/** Session end refuses open requests. */
-	const sessionEnded = (sessionTarget: string): void => {
-		for (const [requestId, entry] of [...pending]) {
-			if (entry.request.sessionTarget !== sessionTarget) continue;
-			entry.settle({ kind: "refused" });
-			forget(requestId);
-		}
-	};
-
 	/** Refuses what the policy resolved. */
-	const policyMoved = (policyId: string): void => {
-		for (const [requestId, entry] of [...pending]) {
-			if (entry.settled || entry.request.kind !== "entry" || entry.request.policy?.policyId !== policyId)
-				continue;
-			entry.settle({ kind: "refused", note: "the policy changed; ask again" });
-			forget(requestId);
-		}
-	};
+	const policyMoved = (policyId: string): void =>
+		core.closeWhere((request) => request.kind === "entry" && request.policy?.policyId === policyId, {
+			kind: "refused",
+			note: "the policy changed; ask again",
+		});
 
-	return { open, find, answer, collect, forget, withdraw, sessionEnded, policyMoved };
+	return {
+		open,
+		find,
+		answer,
+		collect: core.collect,
+		forget: core.forget,
+		withdraw: core.withdraw,
+		sessionEnded: core.sessionEnded,
+		policyMoved,
+		retractStale: (retract: (stub: OpenStub) => boolean) => core.retractStale(retract),
+	};
 }
 
 export type VaultRequests = ReturnType<typeof createVaultRequests>;

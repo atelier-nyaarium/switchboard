@@ -15,6 +15,7 @@ import {
 	SEND_BOUND_MS,
 } from "../shared/console-protocol.js";
 import { GATEWAY_LONG_WAIT_ROUTES, isGatewayLongWaitRoute } from "../shared/gateway-long-waits.js";
+import { SEND_ROUTE_WAIT_CAP_MS } from "../shared/schemasAssistantSend.js";
 import { VAULT_ROUTE_WAIT_CAP_MS } from "../shared/schemasVault.js";
 
 const VAULT_REFRESH_BOUND_MS = VAULT_REFRESH_MAX_CALLS * TOOL_CALL_TIMEOUT_MS;
@@ -35,6 +36,9 @@ const ROUTE_WAIT_MS = new Map<string, number>([
 	["/vault/askpass", VAULT_HOLD_FLOOR_MS],
 	["/assistant/action", ASSISTANT_WAITS.action],
 	["/assistant/list", ASSISTANT_WAITS.list],
+	// Unasked sends wake targets.
+	["/assistant/send", Math.max(SEND_ROUTE_WAIT_CAP_MS, DEFAULT_WAKE_TIMEOUT_MS + POST_WAKE_SETTLE_MS)],
+	["/assistant/send/collect", SEND_ROUTE_WAIT_CAP_MS],
 	...AGENT_BACKENDS.map(({ id, waitBudgetMs }) => [agentHttpPath(id), waitBudgetMs] as const),
 ]);
 
@@ -48,6 +52,7 @@ const SHORT_POST_PATHS = [
 	"/blob/stat",
 	"/blob/put",
 	"/vault/withdraw",
+	"/assistant/send/withdraw",
 	"/routine/session",
 	"/routine/report",
 	"/session/baseline",
@@ -99,6 +104,7 @@ describe("gateway long waits", () => {
 		const routineRoutes = fs.readFileSync("src/gateway/routines/routineRoutes.ts", "utf8");
 		const baselineRoutes = fs.readFileSync("src/gateway/sessionBaseline.ts", "utf8");
 		const assistantPaths = fs.readFileSync("src/shared/schemasAssistantActions.ts", "utf8");
+		const sendPaths = fs.readFileSync("src/shared/schemasAssistantSend.ts", "utf8");
 		const commandPaths = fs.readFileSync("src/shared/session-commands.ts", "utf8");
 		const baselinePaths = fs.readFileSync("src/shared/session-baseline.ts", "utf8");
 
@@ -110,13 +116,20 @@ describe("gateway long waits", () => {
 			'"/vault/capture"',
 			'"/vault/askpass"',
 		]);
-		expect(mapKeys(assistantRoutes)).toEqual(["INBOX.path", "ASSISTANT_ACTION_PATH"]);
+		expect(mapKeys(assistantRoutes)).toEqual([
+			"INBOX.path",
+			"ASSISTANT_ACTION_PATH",
+			"ASSISTANT_SEND_ROUTES.send",
+			"ASSISTANT_SEND_ROUTES.collect",
+			"ASSISTANT_SEND_ROUTES.withdraw",
+		]);
 		expect(mapKeys(routineRoutes)).toEqual(["COMMAND.path", "REPORT.path"]);
 		expect(mapKeys(baselineRoutes)).toEqual(["SESSION_BASELINE_PATH"]);
 
 		const loopbackPaths = [
 			...quotedPaths(vaultRoutes),
 			...quotedPaths(assistantPaths),
+			...quotedPaths(sendPaths),
 			...quotedPaths(commandPaths),
 			...quotedPaths(baselinePaths),
 			...AGENT_BACKENDS.map(({ id }) => agentHttpPath(id)),

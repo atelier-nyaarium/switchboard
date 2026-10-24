@@ -54,6 +54,8 @@ class ChatRepository(
 
 	val vault = com.atelier_nyaarium.switchboard.vault.VaultManager(store)
 
+	internal val assistantSends = com.atelier_nyaarium.switchboard.assistant.AssistantSendManager(store)
+
 	val runbooks = com.atelier_nyaarium.switchboard.runbooks.RunbookManager(store)
 
 	internal val approvalGate = com.atelier_nyaarium.switchboard.vault.ApprovalGate(
@@ -271,7 +273,7 @@ class ChatRepository(
 
 	internal val clearedOnReprovision: List<ClearsOnReprovision>
 		get() = listOf(
-			this, board, vault, runbooks, presence, trust, drain, playback, workspaceHost, composedRequests, windowOps,
+			this, board, vault, assistantSends, runbooks, presence, trust, drain, playback, workspaceHost, composedRequests, windowOps,
 			symbolViews, windowRequests, rawFileOps, fileOps,
 		)
 
@@ -371,6 +373,7 @@ class ChatRepository(
 	internal val routineOps = RoutineOps(state = _state, host = ChatRepositoryRoutineHost(this))
 	internal val policyOps = PolicyOps(state = _state, host = ChatRepositoryPolicyHost(this))
 	internal val assistantOps = AssistantOps(state = _state, host = ChatRepositoryAssistantHost(this))
+	internal val assistantSendOps = com.atelier_nyaarium.switchboard.assistant.AssistantSendOps(_state, assistantSends, ::clientOrNull)
 	/** One shared draft writer. */
 	// Keep this directory name, since another name would orphan every held draft.
 	private val workspaceDrafts = WorkspaceDraftStore(File(filesDir, "window-drafts"), repoScope)

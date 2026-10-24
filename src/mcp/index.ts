@@ -22,6 +22,7 @@ import type { AgentDispatch } from "./agentDispatch.js";
 import { registerActionTools } from "./assistant/actionTools.js";
 import { registerInboxTool } from "./assistant/inboxTool.js";
 import { ASSISTANT_INSTRUCTIONS, scopeTools } from "./assistant/instructions.js";
+import { registerAssistantSendTools } from "./assistant/sendTools.js";
 import { registerBoardTools } from "./board/boardTools.js";
 import { closeRouter, connectToRouter } from "./bridge/helpers.js";
 import { detectAgentType, registerBridgeTools } from "./bridge/registerBridgeTools.js";
@@ -194,6 +195,7 @@ export async function startMcp(): Promise<void> {
 	if (isAssistant) {
 		registerInboxTool(mcpServer);
 		registerActionTools(mcpServer);
+		registerAssistantSendTools(mcpServer);
 	}
 	// Not a tool of its own: it rides the reply path, so it is switched on rather than registered.
 	setReferencesEnabled(hasCapability(capabilities, "references"));

@@ -27,6 +27,8 @@ export interface RoutesStageDeps {
 	host: Pick<HostStage, "wakeService">;
 	awareness: Pick<AwarenessStage, "awareness">;
 	websockets: WebSocketsStage;
+	/** Local reply push. */
+	onReplyPushed?: (team: string) => void;
 }
 
 export interface RoutesStage {
@@ -82,6 +84,7 @@ export function composeRoutes(deps: RoutesStageDeps): RoutesStage {
 			boardReplays: stores.boardReplays,
 			awareness: deps.awareness.awareness,
 			ambient: deps.ambient,
+			onReplyPushed: deps.onReplyPushed,
 		});
 	}
 

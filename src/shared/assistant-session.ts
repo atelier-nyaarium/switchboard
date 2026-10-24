@@ -22,11 +22,21 @@ export const ASSISTANT_REPLY_TOOLS = {
 	notify: "notify_human",
 } as const;
 
+/** Its crosstalk; collect and withdraw are its alone. */
+export const ASSISTANT_CROSSTALK_TOOLS = {
+	discover: "crosstalk_discover",
+	send: "crosstalk_send",
+	wait: "crosstalk_wait",
+	collect: "crosstalk_collect",
+	withdraw: "crosstalk_withdraw",
+} as const;
+
 /** Switchboard tools the assistant may call. */
 export const ASSISTANT_SWITCHBOARD_TOOLS: readonly string[] = [
 	...Object.values(ASSISTANT_REPLY_TOOLS),
 	...Object.values(ASSISTANT_COMMANDS).map(({ tool }) => tool),
 	...ASSISTANT_ACTION_KEYS,
+	...Object.values(ASSISTANT_CROSSTALK_TOOLS),
 ];
 
 /** Every built-in the assistant's session has. `ToolSearch` loads a deferred tool's schema. */

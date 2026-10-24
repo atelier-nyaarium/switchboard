@@ -22,6 +22,8 @@ object Plugins {
 		// Core extension-point registries are created here (before boot) and exposed to plugins
 		// through PluginHost; the first ones arrive with the Designer plugin.
 		val host = PluginHost(runtime, app)
+		// Core claims; always on.
+		com.atelier_nyaarium.switchboard.plugins.assistant.AssistantPlugin().register(host)
 		val store = AppStateStore(app)
 		val manager = PluginManager(
 			runtime = runtime,

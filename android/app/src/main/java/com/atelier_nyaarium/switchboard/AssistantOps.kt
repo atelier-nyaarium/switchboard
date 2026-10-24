@@ -145,10 +145,18 @@ internal fun rulesCountText(rules: Int, invalid: Int): String {
 }
 
 /** Lives on comes first. */
-internal enum class AssistantSection { LIVES_ON, WATCHERS }
+internal enum class AssistantSection { LIVES_ON, SAFETY, WATCHERS }
 
-internal fun assistantSections(home: String?, placed: ConsoleAssistantStateResult?): List<AssistantSection> =
-	listOfNotNull(AssistantSection.LIVES_ON, AssistantSection.WATCHERS.takeIf { home != null && placed != null })
+internal fun assistantSections(
+	home: String?,
+	placed: ConsoleAssistantStateResult?,
+	chosen: ConsoleAssistantStateResult? = placed,
+): List<AssistantSection> =
+	listOfNotNull(
+		AssistantSection.LIVES_ON,
+		AssistantSection.SAFETY.takeIf { chosen?.approveEverySend != null },
+		AssistantSection.WATCHERS.takeIf { home != null && placed != null },
+	)
 
 /** Page operation and result. */
 internal data class PageWork(val busy: Boolean = false, val said: String? = null)
@@ -290,6 +298,9 @@ internal class AssistantOps(
 	}
 
 	suspend fun release(gatewayId: String): AssistantAnswer = landed(gatewayId, ConsoleOp.AssistantRelease)
+
+	suspend fun setSafety(gatewayId: String, approveEverySend: Boolean): AssistantAnswer =
+		landed(gatewayId, ConsoleOp.AssistantSafety(approveEverySend))
 
 	suspend fun setGrants(gatewayId: String, watcherId: String, entryIds: List<String>): AssistantAnswer =
 		landed(gatewayId, ConsoleOp.AssistantWatcherGrants(watcherId = watcherId, entryIds = entryIds))

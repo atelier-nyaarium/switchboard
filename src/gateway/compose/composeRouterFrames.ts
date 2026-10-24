@@ -40,7 +40,7 @@ export interface RouterFramesStageDeps {
 	policies: Pick<import("./composePolicies.js").PolicyStage, "console">;
 	workspacePlane: Pick<import("../workspacePlane.js").WorkspacePlane, "ask">;
 	awareness: Pick<AwarenessStage, "awareness" | "workspaceObserve">;
-	assistant: Pick<AssistantStage, "forgetRefusal" | "console" | "bindWake">;
+	assistant: Pick<AssistantStage, "forgetRefusal" | "console" | "bindWake" | "sessionEnded">;
 }
 
 export interface RouterFramesBuild extends RouterFrameHandlers {
@@ -71,6 +71,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 		const onSessionEnded = (team: string): void => {
 			deps.vault.sessionEnded(team);
 			deps.routines.sessionEnded(team);
+			deps.assistant.sessionEnded(team);
 		};
 
 		const consoleHandler = createConsoleDispatcher({

@@ -12,6 +12,7 @@ import {
 import { openDurable } from "../../shared/durable-store.js";
 import { isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { createFifo } from "../../shared/keyed-fifo.js";
+import type { PendingDelivery } from "../../shared/pending-delivery-store.js";
 import type { AssistantWatcher, ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
 import { actionsOf, GITHUB_WATCHER_ID } from "../../shared/schemasAssistantActions.js";
 import { eventLines } from "../../shared/schemasAssistantInbox.js";
@@ -23,6 +24,7 @@ import {
 	invalidRules,
 	ruleMatches,
 } from "../../shared/schemasAssistantRules.js";
+import type { AssistantSendRequest } from "../../shared/schemasAssistantSend.js";
 import type { SessionBaseline } from "../../shared/session-baseline.js";
 import { type ActionRecord, createActionDispatch } from "../assistant/actionDispatch.js";
 import { createAssistantRoutes, type Handler } from "../assistant/assistantRoutes.js";
@@ -31,12 +33,14 @@ import { GithubDone } from "../assistant/githubDone.js";
 import { createGithubWatcher } from "../assistant/githubWatcher.js";
 import { createInboxListing } from "../assistant/inboxListing.js";
 import { createRulesStore } from "../assistant/rulesStore.js";
+import { createOriginMarker, createSafetyStore, createSendGuard } from "../assistant/sendGuard.js";
 import { type AssistantWake, createSourceLanes, type SourceLanes } from "../assistant/sourceLane.js";
 import { ASSISTANT_WAITS } from "../assistant/waits.js";
 import type { ListPage, ListQuery, Watcher, WatcherEvent } from "../assistant/watcher.js";
 import type { WatcherActions } from "../assistant/watcherAction.js";
 import { createWatcherStateStore, FRESH_STATE, unexpectedNow } from "../assistant/watcherState.js";
 import type { AssistantConsoleHandlers } from "../console/consoleTypes.js";
+import { presentedByRequest } from "../sessionAuthority.js";
 import type { VaultRelease } from "../vault/vaultUse.js";
 import type { GatewayRoutes } from "./composeRoutes.js";
 import type { SessionsStage } from "./composeSessions.js";
@@ -57,13 +61,17 @@ export interface AssistantVault {
 
 export interface AssistantStageDeps {
 	dataDir: string;
-	ambient: Pick<Ambient, "now" | "randomBytes" | "setTimer" | "clearTimer">;
-	sessions: Pick<SessionsStage, "sessionStore" | "presence" | "sessionAuthority">;
+	ambient: Pick<Ambient, "now" | "newId" | "randomBytes" | "setTimer" | "clearTimer">;
+	sessions: Pick<SessionsStage, "sessionStore" | "presence" | "sessionAuthority" | "conversationRegistry">;
 	/** A checked save of the session records, which hold where it lives; throws when it did not land. */
 	saveSessions: () => void;
 	vault: AssistantVault;
 	/** Resolve after Domain activation. */
-	routes: () => Pick<GatewayRoutes, "deliverToOwner" | "ownerSessionKey">;
+	routes: () => Pick<GatewayRoutes, "deliverToOwner" | "ownerSessionKey" | "bindTarget" | "sendFromAssistant">;
+	/** Null unless fully staged. */
+	blobSize: (blobId: string) => number | null;
+	/** The newest delivery acceptance. */
+	lastDeliverySeq: () => number;
 	fetch: GithubClientDeps["fetch"];
 	/** Replaces the built-in watchers. */
 	watchers?: readonly Watcher[];
@@ -85,6 +93,15 @@ export interface AssistantStage {
 	start: () => void;
 	/** Final, and before the shutdown flush, so it sees no poll halfway through its write. */
 	stop: () => Promise<void>;
+	/** Plugin-confirmed delivery. */
+	delivered: (row: PendingDelivery) => void;
+	/** Pre-delivery session offer. */
+	offered: (row: PendingDelivery) => void;
+	/** Reply pushed to team. */
+	replyPushed: (team: string) => void;
+	/** Held send blob reference. */
+	namesBlob: (blobId: string) => boolean;
+	sessionEnded: (team: string) => void;
 }
 
 /** The vault's answer, as a watcher reads it: a missing grant stops it, a transient wait backs off. */
@@ -234,14 +251,78 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		};
 	};
 
+	const safety = openDurable(deps.dataDir, "assistant-safety", (store) => createSafetyStore(store));
+	// Preboot rows cannot establish owner activity.
+	const marker = createOriginMarker(deps.lastDeliverySeq() + 1);
+	/** Owner-thread send card. */
+	const card = (actionType: "send-request" | "send-retract", payload: Record<string, unknown>) => {
+		const routes = deps.routes();
+		const sessionId = routes.ownerSessionKey(ASSISTANT_TEAM);
+		if (!sessionId) return null;
+		return {
+			routes,
+			entry: {
+				kind: "plugin_action" as const,
+				session_id: sessionId,
+				pluginId: "assistant",
+				actionType,
+				payload,
+			},
+		};
+	};
+	const guard = openDurable(deps.dataDir, "assistant-open-sends", (ledger) =>
+		createSendGuard({
+			ambient,
+			approveEverySend: () => safety.approveEverySend(),
+			readsOwner: () => marker.readsOwner(),
+			routes: () => deps.routes(),
+			blobSize: deps.blobSize,
+			ledger,
+			// Answers are process-local.
+			deliverCard: (request: AssistantSendRequest) => {
+				try {
+					const built = card("send-request", request);
+					if (!built) return false;
+					return built.routes.deliverToOwner({
+						entry: built.entry,
+						dedupeKey: `assistant-send:${request.requestId}`,
+						label: "assistant",
+						volatile: true,
+					});
+				} catch {
+					return false;
+				}
+			},
+			retractCard: (stub) => {
+				try {
+					const built = card("send-retract", { requestId: stub.requestId });
+					if (!built) return false;
+					const dedupeKey = `assistant-send-retract:${stub.requestId}`;
+					return built.routes.deliverToOwner({ entry: built.entry, dedupeKey, label: "assistant" }) === true;
+				} catch {
+					return false;
+				}
+			},
+		}),
+	);
+
 	const routes = createAssistantRoutes({
 		caller: (req) => {
 			const record = sessions.sessionAuthority.resolveConfirmedManagedSession(req);
 			if (!record) return "unauthenticated";
 			return isAssistantRecord(record) ? "assistant" : "not_assistant";
 		},
+		sender: (req, conversationId) => {
+			const auth = sessions.sessionAuthority;
+			if (!isAssistantRecord(auth.resolveConfirmedManagedSession(req) ?? undefined)) return null;
+			// Replies require caller ownership.
+			const holder = sessions.conversationRegistry.get(conversationId);
+			if (!auth.satisfies(auth.toAnswerFor(holder), presentedByRequest(req))) return null;
+			return { team: ASSISTANT_TEAM, conversationId };
+		},
 		list: (scope, page) => inbox.list(scope, page),
 		dispatch,
+		guard,
 	});
 	const state = (): ConsoleAssistantStateResult => {
 		const record = held();
@@ -249,6 +330,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			workdir: record?.workdirPath ?? null,
 			team: record ? ASSISTANT_TEAM : null,
 			watchers: watchers.map(watcherOf),
+			approveEverySend: safety.approveEverySend(),
 		};
 	};
 
@@ -283,6 +365,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				serial(() => {
 					// A new placement starts afresh, whatever an interrupted release left.
 					if (!held()) {
+						marker.ended();
 						for (const watcher of watchers) deps.vault.setWatcherGrants(watcher.id, []);
 						if (!watchers.every((watcher) => grantsLanded(watcher.id, []))) {
 							throw new Error("a grant left from an earlier placement could not be dropped");
@@ -344,6 +427,13 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			moveRule: (watcherId, ruleId, beforeId, base) =>
 				serial(() => rules.moveRule(watcherId, ruleId, beforeId, base)),
 			putOtherwise: (watcherId, otherwise) => serial(() => rules.putOtherwise(watcherId, otherwise)),
+			// Gateway-local; survives release.
+			setSafety: (approveEverySend) =>
+				serial(() => {
+					if (!safety.set(approveEverySend)) throw new Error("the setting could not be saved");
+					return state();
+				}),
+			answerSend: (requestId, decision, note) => guard.answer(requestId, decision, note),
 			/** Over the live first page, from the rule's place. */
 			previewRule: async (watcherId, rule) => {
 				const refusal = rules.refusalOf(watcherId, rule);
@@ -378,11 +468,22 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		start: () => {
 			active = true;
 			startLanes();
+			guard.retractStale();
 		},
 		stop: async () => {
 			ownerOpsClosed = true;
 			// Drain before flush.
 			await withinMs(ambient, Promise.all([ownerOps.drain(), stopLanes()]), STOP_WAIT_MS);
+		},
+		delivered: (row) => marker.delivered(row),
+		offered: (row) => marker.offered(row),
+		replyPushed: (team) => {
+			if (team === ASSISTANT_TEAM) marker.replyPushed(deps.lastDeliverySeq());
+		},
+		namesBlob: (blobId) => guard.namesBlob(blobId),
+		sessionEnded: (team) => {
+			guard.sessionEnded(team);
+			if (team === ASSISTANT_TEAM) marker.ended();
 		},
 	};
 }

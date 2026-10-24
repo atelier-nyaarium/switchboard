@@ -177,6 +177,8 @@ object Protocol {
 			const val ASSISTANT_RULE_MOVE: String = "assistant_rule_move"
 			const val ASSISTANT_OTHERWISE_PUT: String = "assistant_otherwise_put"
 			const val ASSISTANT_RULES_PREVIEW: String = "assistant_rules_preview"
+			const val ASSISTANT_SAFETY: String = "assistant_safety"
+			const val ASSISTANT_SEND_ANSWER: String = "assistant_send_answer"
 		}
 
 		object SocketFrame {
@@ -285,6 +287,7 @@ data class MailboxEntry(
 	val payload: JsonObject? = null,
 	val notify: Boolean? = null,
 	val threads: List<AssistantRecordThread>? = null,
+	val guard: String? = null,
 )
 
 @Serializable
@@ -707,6 +710,20 @@ sealed class ConsoleOp {
 		val watcherId: String,
 		val rule: AssistantRule,
 	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("assistant_safety")
+	data class AssistantSafety(
+		val approveEverySend: Boolean,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("assistant_send_answer")
+	data class AssistantSendAnswer(
+		val requestId: String,
+		val decision: String,
+		val note: String? = null,
+	) : ConsoleOp()
 }
 
 @Serializable
@@ -1107,6 +1124,7 @@ data class ConsoleAssistantStateResult(
 	val workdir: String? = null,
 	val team: String? = null,
 	val watchers: List<AssistantWatcher>,
+	val approveEverySend: Boolean? = null,
 )
 
 @Serializable
@@ -1195,6 +1213,45 @@ data class AssistantFieldValue(
 data class AssistantUnexpectedValues(
 	val values: List<AssistantFieldValue>,
 	val capped: Boolean,
+)
+
+@Serializable
+data class AssistantSendFile(
+	val digest: String,
+	val filename: String,
+	val mime: String,
+	val size: Long,
+)
+
+@Serializable
+data class AssistantSendIntent(
+	val target: String,
+	val friendDomain: String? = null,
+	val body: String,
+	val disposition: String? = null,
+	val displayLabel: String? = null,
+	val createsSession: Boolean,
+	val files: List<AssistantSendFile>,
+)
+
+@Serializable
+data class AssistantSendRequest(
+	val v: Long,
+	val requestId: String,
+	val sessionTarget: String,
+	val deadlineAt: Long,
+	val intent: AssistantSendIntent,
+)
+
+@Serializable
+data class AssistantSendRetract(
+	val requestId: String,
+)
+
+@Serializable
+data class ConsoleAssistantSendAnswerResult(
+	val ok: Boolean,
+	val reason: String? = null,
 )
 
 @Serializable

@@ -1,6 +1,7 @@
 // The session sockets and the held-delivery handover that rides them.
 
 import type { Ambient } from "../../shared/ambient.js";
+import type { PendingDelivery } from "../../shared/pending-delivery-store.js";
 import { ChannelDeliveryCoordinator } from "../channelDelivery.js";
 import { createWebSocketHandlers } from "../websocket.js";
 import { createWorkspacePlane, type WorkspacePlane } from "../workspacePlane.js";
@@ -33,6 +34,8 @@ export interface WebSocketsStageDeps {
 	federation: Pick<FederationStage, "channelDeliveryAck">;
 	/** Composes after routes. */
 	retireStaging?: (blobIds: string[]) => void;
+	onAcknowledged?: (delivery: PendingDelivery) => void;
+	onOffered?: (delivery: PendingDelivery) => void;
 }
 
 export interface WebSocketsStage {
@@ -54,6 +57,8 @@ export function composeWebSockets(deps: WebSocketsStageDeps): WebSocketsStage {
 		registry: sessions.registry,
 		repushHandshake: (team, subId) => wsHandlers.repushHandshake(team, subId),
 		retireStaging: deps.retireStaging,
+		onAcknowledged: deps.onAcknowledged,
+		onOffered: deps.onOffered,
 	});
 
 	const wsHandlers = createWebSocketHandlers({

@@ -1,9 +1,11 @@
 import type { Ambient } from "../../shared/ambient.js";
-import { isAssistantRecord } from "../../shared/assistant-session.js";
+import { ASSISTANT_TEAM, isAssistantRecord } from "../../shared/assistant-session.js";
 import type { FederatedOp } from "../../shared/federation-protocol.js";
-import type { EventMember } from "../../shared/pending-delivery-store.js";
+import { HOST_SPAWN } from "../../shared/host-spawn.js";
+import type { DeliveryOrigin, EventMember } from "../../shared/pending-delivery-store.js";
 import type { JobContract, LocalReply, PendingJobStore, Reservation } from "../../shared/pending-job-store.js";
 import { BLOB_HOLD_MAX_MS } from "../../shared/router-protocol.js";
+import type { AssistantSendIntent, SendGuard } from "../../shared/schemasAssistantSend.js";
 import {
 	Address,
 	composeSessionName,
@@ -32,7 +34,22 @@ import type { CallerScope } from "./callerGuards.js";
 
 type ConsolePushOps = ReturnType<typeof import("../consolePushOps.js").createConsolePushOps>;
 
-type Ingress = { kind: "owner"; ownerId: string } | { kind: "session"; req: Request } | { kind: "gateway" };
+/** Send clearance record. */
+export interface SendRecord {
+	key: string;
+	guard: SendGuard;
+}
+
+/** Guard-only assistant ingress. */
+type Ingress =
+	| { kind: "owner"; ownerId: string }
+	| { kind: "session"; req: Request }
+	| { kind: "gateway" }
+	| { kind: "assistant"; conversationId: string; record: SendRecord };
+
+export type BoundTarget =
+	| { ok: true; target: string; friendDomain?: string; exists: boolean | null }
+	| { ok: false; error: string; status: number };
 
 export interface SendRoutesDeps {
 	config: GatewayConfig;
@@ -182,6 +199,7 @@ export function createSendRoutes({
 		displayLabel?: string;
 		disposition?: "asking" | "informing" | "closing";
 		opId?: string;
+		record?: SendRecord;
 	}): Promise<Response> {
 		const {
 			targetGateway,
@@ -196,6 +214,7 @@ export function createSendRoutes({
 			displayLabel,
 			disposition,
 			opId,
+			record,
 		} = args;
 		if (!routerClient?.isConnected()) {
 			return jsonResponse({ error: `Router unavailable; cannot reach Gateway "${targetGateway}"` }, 503);
@@ -243,11 +262,13 @@ export function createSendRoutes({
 		}
 		store.commit(reserved.reservation);
 		if (senderAddr) {
-			mirrorPeer(senderAddr, senderCanonical, targetAddr.canonical, { body, files });
+			const guarded = record ? { guard: record.guard } : {};
+			mirrorPeer(senderAddr, senderCanonical, targetAddr.canonical, { body, files, ...guarded }, record?.key);
 		}
 		return jsonResponse({
 			session_id: srcSession,
 			status: "running",
+			target: qualifiedTo,
 			message: `Message routed to ${qualifiedTo} via the Router. Responses will be pushed back automatically.`,
 		});
 	}
@@ -268,17 +289,32 @@ export function createSendRoutes({
 			disposition,
 			opId: producerOpId,
 		} = parsed.data;
-		const fromConversationId = ingress.kind === "owner" ? ingress.ownerId : parsed.data.fromConversationId;
+		const fromConversationId =
+			ingress.kind === "owner"
+				? ingress.ownerId
+				: ingress.kind === "assistant"
+					? ingress.conversationId
+					: parsed.data.fromConversationId;
 		if (ingress.kind === "session") {
+			// Its token, whatever `from` says.
+			if (auth?.presentsOwnLaunchToken(ASSISTANT_TEAM, presentedByRequest(ingress.req))) {
+				return jsonResponse({ error: "the assistant sends through its own road" }, 403);
+			}
 			// Session callers prove identity.
 			const refused = refuseImpersonation(ingress.req, from, "session");
 			if (refused) return refused;
+			// Check includes unconfirmed sessions.
+			if (isAssistantRecord(sessionStore?.getByTeam(from))) {
+				return jsonResponse({ error: "the assistant sends through its own road" }, 403);
+			}
 			const holder = fromConversationId ? conversationRegistry.get(fromConversationId) : undefined;
 			if (auth && !auth.satisfies(auth.toAnswerFor(holder), presentedByRequest(ingress.req))) {
 				console.warn(`[auth] refused a send claiming another session's conversation`);
 				return jsonResponse({ error: "conversation is not this caller's" }, 403);
 			}
 		}
+		const record = ingress.kind === "assistant" ? ingress.record : undefined;
+		const origin: DeliveryOrigin = ingress.kind === "assistant" ? "session" : ingress.kind;
 		const trustedInbound = ingress.kind === "gateway";
 		// Federated fields are accepted only from the trusted relay.
 		const inboundSessionId = trustedInbound ? parsed.data.sessionId : undefined;
@@ -323,6 +359,7 @@ export function createSendRoutes({
 				displayLabel,
 				disposition,
 				opId: producerOpId,
+				record,
 			});
 		}
 
@@ -422,6 +459,7 @@ export function createSendRoutes({
 						...(riding ? { awareness: riding } : {}),
 						...(disposition ? { disposition } : {}),
 						enqueuedAt: ambient.now(),
+						origin,
 					});
 					if (outcome === "refused") {
 						store.abort(anchor);
@@ -483,7 +521,13 @@ export function createSendRoutes({
 					);
 				}
 
-				if (targetWs && !targetWs.data.virtual) {
+				if (record) {
+					// Per-clearance record.
+					const fromAddr = localAddress(ASSISTANT_TEAM);
+					const sent = { body: msgBody, files, guard: record.guard };
+					mirrorPeer(fromAddr, fromAddr.canonical, target.address.canonical, sent, record.key);
+					mirrorPeer(target.address, fromAddr.canonical, target.address.canonical, sent, `${record.key}:to`);
+				} else if (targetWs && !targetWs.data.virtual) {
 					const toAddr = target.address;
 					if (inboundSessionId) {
 						mirrorPeer(toAddr, from, toAddr.canonical, { body: msgBody, files });
@@ -500,6 +544,7 @@ export function createSendRoutes({
 				return jsonResponse({
 					session_id: channelJobId,
 					status: "running",
+					target: qualifiedTo,
 					message: `Message pushed to ${localName} via channel. Responses will be pushed back automatically.`,
 				});
 			} catch (err) {
@@ -552,5 +597,70 @@ export function createSendRoutes({
 		return send({ kind: "gateway" }, body);
 	}
 
-	return { sendFromOwner, sendFromSession, acceptGatewaySend, ownerSessionKey, deliverEvent };
+	/** Resolve target before delivery. */
+	function bindTarget(to: string): BoundTarget {
+		let parsed: Address | SpawnPoint;
+		try {
+			parsed = parseTarget(to, localDomain, localGatewayId);
+		} catch {
+			return { ok: false, error: `"${to}" is not an address`, status: 400 };
+		}
+		if (parsed instanceof SpawnPoint) {
+			return {
+				ok: false,
+				error: `"${to}" is a spawn-point, not a session; address a session as spawn.session`,
+				status: 400,
+			};
+		}
+		if (parsed.domain !== localDomain || parsed.gateway !== localGatewayId) {
+			const named = parsed.domain !== localDomain ? parsed.domain : undefined;
+			const friend = targetDomainId(parsed.gateway, named);
+			if (named && friend !== named) {
+				return { ok: false, error: `Gateway "${parsed.gateway}" is not linked from this Domain`, status: 404 };
+			}
+			const domain = friend ?? localDomain;
+			const address = Address.of(domain, parsed.gateway, parsed.spawn, parsed.session);
+			return { ok: true, target: address.canonical, ...(friend ? { friendDomain: friend } : {}), exists: null };
+		}
+		const local = resolveLocalTarget(to);
+		if (!local) return { ok: false, error: `Gateway for "${to}" is not reachable from this Gateway`, status: 404 };
+		const held = sessionStore?.getByTeam(local.name);
+		if (local.name === HOST_SPAWN || isAssistantRecord(held)) {
+			return { ok: false, error: `no session named "${to}"`, status: 404 };
+		}
+		return { ok: true, target: local.address.canonical, exists: held !== undefined };
+	}
+
+	/** Deliver approved binding unchanged. */
+	async function sendFromAssistant(args: {
+		intent: AssistantSendIntent;
+		files: ChannelFile[];
+		conversationId: string;
+		record: SendRecord;
+	}): Promise<Response> {
+		const { intent } = args;
+		return send(
+			{ kind: "assistant", conversationId: args.conversationId, record: args.record },
+			{
+				opId: args.record.key,
+				from: ASSISTANT_TEAM,
+				to: intent.target,
+				body: intent.body,
+				// Creation flag gates session creation.
+				...(intent.displayLabel && intent.createsSession ? { displayLabel: intent.displayLabel } : {}),
+				...(intent.disposition ? { disposition: intent.disposition } : {}),
+				...(args.files.length > 0 ? { files: args.files } : {}),
+			},
+		);
+	}
+
+	return {
+		sendFromOwner,
+		sendFromSession,
+		acceptGatewaySend,
+		ownerSessionKey,
+		deliverEvent,
+		bindTarget,
+		sendFromAssistant,
+	};
 }

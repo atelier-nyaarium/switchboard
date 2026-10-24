@@ -389,14 +389,14 @@ Lands with Phase 2. `GrantSecretsSheet` stays a sheet, one over a page.
 The guard covers `crosstalk_send` alone. Replies and notifications to the owner never ask.
 
 - **Tools:**
-  - `ASSISTANT_SWITCHBOARD_TOOLS` gains `crosstalk_discover`, `crosstalk_send` and `crosstalk_wait` as their own constant, plus the assistant-only collect and withdraw tools. `crosstalk_send` joins the gate's `UPLOADING_TOOLS`.
+  - `ASSISTANT_SWITCHBOARD_TOOLS` gains `ASSISTANT_CROSSTALK_TOOLS`: `crosstalk_discover`, `crosstalk_send` and `crosstalk_wait`, plus the assistant-only `crosstalk_collect` and `crosstalk_withdraw`. `crosstalk_send` joins the gate's `UPLOADING_TOOLS`. The assistant's `crosstalk_send` is the same tool registered `guarded`, posting through `sendGuarded`.
   - `ASSISTANT_INSTRUCTIONS` teaches them, and the teaching test walks the new constant. `assistant-tool-scope.test.ts` stops using `crosstalk_send` as its refused example. `check:boot` proves the scope.
 - **Only a guarding Gateway sends:**
-  - The assistant's `crosstalk_send` posts to a route only a guarding Gateway serves. An older Gateway answers 404, which the tool reports as a refusal.
-  - A guarding Gateway's `/send` refuses a session-ingress send whose caller is the assistant.
+  - The assistant's `crosstalk_send` posts to `/assistant/send`, which only a guarding Gateway serves. An older Gateway answers a plain-text 404, which the tool reports as a refusal; the guard's own refusals are JSON.
+  - A guarding Gateway's `/send` refuses a session-ingress send that presents the assistant's token, whatever `from` names, and one whose `from` is the assistant. The guard delivers through an `assistant` ingress only it builds (`sendFromAssistant`).
   - The phone shows Safety only when the Gateway's state answer carries the setting.
 - **The decision runs first:** for an assistant caller it runs before any branch on the target, so local, cross-Gateway and cross-Domain sends all pass through it.
-- **Safety:** joins Assistant settings between Lives on and Watchers, holding "Approve every send", on by default.
+- **Safety:** joins Assistant settings between Lives on and Watchers, holding "Approve every send", on by default. It shows the Gateway the Lives on picker names, whether or not the assistant lives there.
 - **Setting:** a durable Gateway-local store owned by `composeAssistant`. An absent value means on.
   - Read at every send decision; a failed read asks.
   - It survives release and placement. A move lands on the destination Gateway's own value, so a move fails toward asking.
@@ -405,28 +405,40 @@ The guard covers `crosstalk_send` alone. Replies and notifications to the owner 
   - the canonical target, resolved before binding, naming a friend Domain when the target is in one
   - the exact body and the disposition
   - the `displayLabel`, and whether the send creates a session
-  - each file's digest, name, type and size; a changed file breaks the binding
+  - each file's digest, name, type and size; a changed file breaks the binding. Binding refuses a file with no digest or whose staged blob is not that size, and the tap checks again before delivery.
+  - `bindTarget` in the send road resolves the target; the guard (`createSendGuard`) binds it and joins by the intent's key.
+  - Binding refuses a label or file name that spans lines, files to a friend Domain, and a card past the plugin action payload cap.
+  - The tap binds the target again, and fails a send whose target moved, or is gone when the card did not say it creates one. A relay that lost its answer fails as possibly delivered.
 - **Held send (on, or off and asking):**
-  - `crosstalk_send` waits up to 230 seconds, then answers `pending` with a request id. Collect and withdraw continue it; their long-poll routes join `GATEWAY_LONG_WAIT_ROUTES` and `gateway-serve-limits.test.ts`.
-  - A repeat of the same bound intent joins the open request.
+  - `crosstalk_send` waits up to 230 seconds, then answers `pending` with a request id. Collect and withdraw continue it. `/assistant/send` joins `GATEWAY_LONG_WAIT_ROUTES`, since an unasked send waits on a wake; collect waits at most 230 seconds, under the 255-second cut, so `gateway-serve-limits.test.ts` classifies it short.
+  - A repeat of the same bound intent joins the open request, before the off-mode decision, and its reply goes to the repeat's conversation.
+  - A second tap answers "already answered", apart from an expired request.
   - The Gateway delivers once, at the owner's tap, and holds the settled outcome for later collects: sent with its `session_id`, denied with a note, expired, or failed. A withdraw before the tap cancels.
   - The deadline is the vault's.
-- **Shared request lifecycle:** ids, deadline, the per-caller cap, join, settle, collect and retract are one core the vault and the send road both use. Shell shapes, grants and policies stay in the vault's adapter. The send's answer goes through the signed owner op, never through `VaultDecisions` or a value release.
-- **Restart:** a held send fails closed. Open request ids are persisted and retracted at boot, so no card outlives its Gateway's memory. This lands in the shared lifecycle, so vault cards gain it too.
-- **Card:** a send-approval request kind with its own phone card: approve or deny, deny with the vault's optional note. Approve takes `ApprovalGate`, the same unlock a secret takes. The card shows the full text, scrolling, and every bound field. Its text is a pure Kotlin helper. Its notification posts on the assistant's own channel, created here with lock-screen visibility private and joined by its replies in Phase 6, with a public version that says only that the assistant asks to send. No notification action approves.
+- **Shared request lifecycle:** ids, deadline, the per-caller cap, join, settle, collect and retract are one core, `createOwnerRequests`, the vault and the send road both use. Shell shapes, grants and policies stay in the vault's adapter. The send's answer goes through the signed owner op `assistant_send_answer`, never through `VaultDecisions` or a value release. An answer that takes time `claim`s its request, which no deadline, withdraw or session end closes, and its settled outcome stays collectable for a grace past the deadline.
+- **Restart:** a held send fails closed. Open request ids are written to a ledger (`vault-open-requests`, `assistant-open-sends`) before a card goes, and retracted on federation activation; a stub stays until its retraction is queued. This lands in the shared lifecycle, so vault cards gain it too.
+- **Card:** a `plugin_action` row, `assistant` `send-request`, retracted by `send-retract`. Its own phone card: approve or deny, deny with the vault's optional note. Approve takes `ApprovalGate`, the same unlock a secret takes. The card shows the full text, scrolling, every bound field, each file's full digest and the countdown. Safety lists the Gateway's waiting cards, each opening its card in the app. Its text is a pure Kotlin helper, `assistantSendCardText`. The phone holds pending cards per Gateway (`AssistantSendManager`), claimed by core handlers (`AssistantPlugin`) that no toggle turns off. Its notification posts on the assistant's own channel, created here with lock-screen visibility private and joined by its replies in Phase 6, with a public version that says only that the assistant asks to send. No notification action approves.
 - **Off:** a per-assistant marker holds the origin of the newest input the plugin acknowledged emitting.
   - Each assistant delivery is stamped with its origin where it is accepted. Owner ingress covers chat, runbook fires, routine delivery and check-ins. The other origins are session or Gateway ingress, watcher events, and session replies (`response_push`).
+  - The delivery store stamps each row's acceptance order (`seq`), and the marker moves only forward in it, so an older owner row acked after a newer event does not win. A reply moves the marker as it is pushed, ahead of every row accepted so far.
+  - A row that is not the owner's moves the marker when it is offered, so a lost acknowledgement still asks. An owner row accepted before this process booted never reads owner.
+  - A session's end settles its open sends and keeps their answers collectable through the hold. A session's end and a fresh placement clear the marker.
   - Only channel deliveries move the marker; tool results such as an `inbox` read do not.
   - A send goes without asking only while the marker reads owner. A missing marker asks, which covers a restart and rows from before the field.
   - `docs/assistant.md` records the accepted risk: an earlier event, or data read through a tool after the owner's message, stays in context.
 - **Record:** every send is recorded where it is accepted, on every road (live, queued and relayed), through the existing `peer` mirror, keyed by the request id. A field marks whether it was approved or went without asking. A denied, expired or failed send comes back through the tool and is not recorded.
 - **Tests:**
-  - Pure: the off-mode decision, the binding, the record projection.
-  - Harness, on: approve, deny with a note, expiry, withdraw, restart with the card retracted, a cross-Gateway target, a queued target recorded once, a changed attachment refused, an older Gateway refused.
-  - Harness, off: sends after an owner message or a check-in; asks after a watcher event, a session reply or a missing marker; sends after an event followed by an owner message.
+  - Pure (`assistant-send-guard.test.ts`): the marker's order, the off-mode decision, expiry under manual time, a claimed answer outliving a session's end, the ledger across a restart.
+  - Harness (`federation-harness-assistant-send.test.ts`), on: approve once with its records, a joined repeat, withdraw, deny with a note, a changed attachment refused, a friend Domain's target (the harness has no second Gateway in one Domain), a queued target recorded once, restart with the card retracted.
+  - Harness, off: sends after an owner message; asks after a watcher event, a session reply or a missing marker; sends after an event followed by an owner message. A check-in waits for Phase 8.
+  - The older Gateway's 404 is pinned in `assistant-tool-scope.test.ts`, beside the tool's other answers.
   - `assistant-gate.test.ts`: `crosstalk_send` attachment paths.
   - Kotlin: the card text, the section function with an unsupported Gateway, the public notification.
   - `check:boot`: the scope.
+
+### Bug Classes
+
+- **Mechanism:** `createOwnerRequests`' retention of a settled answer (`keepUntil`, `lapsedAt` and the deadline timer). **Class:** a request is forgotten before its answer's collect window ends, or kept past it. **Rounds:** the core refactor left an answered vault request collectable forever, patched with `keepUntil` armed at settle. The align pass found an expired send dropped at its deadline, so a late collect read 404, patched with `holdSettledMs`. The red team found the read path (`live`, `collect`) still settled an overdue request and forgot it at once, skipping the hold. Its re-audit found `sessionEnded` forgot a held answer at once too, and the read path skipped `onUnanswered`. **Ended by:** one reading: `expire` is the one lapse for the timer and a read, and only a read, a timer or a session end past `keepUntil` forgets; an adapter without `holdSettledMs` (the vault) still drops a session's requests at its end. `live` answers from the entry's settled state after that reading, never from the forget. `isOpen` is the one reading of an open request for joins and the cap.
 
 ## Phase 6 - Lock-screen title tier
 

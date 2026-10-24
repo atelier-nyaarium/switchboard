@@ -1,6 +1,7 @@
 // The assistant session's own doors. Every one checks the caller's token resolves to its record.
 
 import { z } from "zod";
+import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import {
 	ASSISTANT_ACTION_PATH,
 	type AssistantActionRequest,
@@ -8,7 +9,14 @@ import {
 	type AssistantActionResult,
 } from "../../shared/schemasAssistantActions.js";
 import type { InboxList, InboxListAnswer, InboxScope } from "../../shared/schemasAssistantInbox.js";
+import {
+	ASSISTANT_SEND_ROUTES,
+	AssistantSendBodySchema,
+	AssistantSendCollectSchema,
+	AssistantSendWithdrawSchema,
+} from "../../shared/schemasAssistantSend.js";
 import { ASSISTANT_COMMANDS } from "../../shared/session-commands.js";
+import type { GuardReply, SendCaller, SendGuard } from "./sendGuard.js";
 
 const INBOX = ASSISTANT_COMMANDS.inbox;
 
@@ -18,6 +26,9 @@ export interface AssistantRoutesDeps {
 	caller: (req: Request) => "assistant" | "not_assistant" | "unauthenticated";
 	list: (scope: InboxScope, page: string | undefined) => Promise<InboxList[]>;
 	dispatch: (request: AssistantActionRequest) => Promise<AssistantActionResult>;
+	/** The assistant holding that conversation. */
+	sender: (req: Request, conversationId: string) => SendCaller | null;
+	guard: Pick<SendGuard, "send" | "collect" | "withdraw">;
 }
 
 const json = (body: unknown, status: number): Response =>
@@ -41,8 +52,37 @@ export function createAssistantRoutes(deps: AssistantRoutesDeps): Map<string, Ha
 		return json(await deps.dispatch(parsed.data), 200);
 	};
 
+	const replied = (reply: GuardReply): Response => json(reply.body, reply.status);
+	const notAssistant = (): Response => json({ error: "only the assistant sends here" }, 403);
+
+	const send: Handler = async (req, body) => {
+		const parsed = AssistantSendBodySchema.safeParse(body);
+		if (!parsed.success) return json({ error: `invalid send: ${parsed.error.message}` }, 400);
+		const sender = deps.sender(req, parsed.data.fromConversationId);
+		if (!sender) return notAssistant();
+		return replied(await deps.guard.send(sender, parsed.data, req.signal));
+	};
+
+	const collect: Handler = async (req, body) => {
+		const parsed = AssistantSendCollectSchema.safeParse(body);
+		if (!parsed.success) return json({ error: "invalid collect" }, 400);
+		const caller = deps.caller(req);
+		if (caller !== "assistant") return notAssistant();
+		return replied(await deps.guard.collect(ASSISTANT_TEAM, parsed.data.requestId, parsed.data.waitMs, req.signal));
+	};
+
+	const withdraw: Handler = async (req, body) => {
+		const parsed = AssistantSendWithdrawSchema.safeParse(body);
+		if (!parsed.success) return json({ error: "invalid withdraw" }, 400);
+		if (deps.caller(req) !== "assistant") return notAssistant();
+		return replied(deps.guard.withdraw(ASSISTANT_TEAM, parsed.data.requestId));
+	};
+
 	return new Map<string, Handler>([
 		[INBOX.path, list],
 		[ASSISTANT_ACTION_PATH, action],
+		[ASSISTANT_SEND_ROUTES.send, send],
+		[ASSISTANT_SEND_ROUTES.collect, collect],
+		[ASSISTANT_SEND_ROUTES.withdraw, withdraw],
 	]);
 }

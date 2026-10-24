@@ -12,7 +12,7 @@ export type GateVerdict = { allow: true } | { allow: false; reason: string };
 const SWITCHBOARD_TOOLS: ReadonlySet<string> = new Set(ASSISTANT_SWITCHBOARD_TOOLS);
 
 /** Switchboard tools that upload attachments and snapshot refs. */
-const UPLOADING_TOOLS: ReadonlySet<string> = new Set(["channel_reply", "notify_human"]);
+const UPLOADING_TOOLS: ReadonlySet<string> = new Set(["channel_reply", "notify_human", "crosstalk_send"]);
 
 /** Built-ins that take no path. `ToolSearch` loads a deferred tool's schema. */
 const FREE_TOOLS: ReadonlySet<string> = new Set(["ToolSearch"]);

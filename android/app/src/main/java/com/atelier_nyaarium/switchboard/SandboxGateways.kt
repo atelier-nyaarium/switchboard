@@ -336,6 +336,7 @@ internal class SandboxAssistantGateway : AssistantGateway {
 	private var home: String? = null
 	private var claimed = false
 	private var workdir = "~/projects/notes"
+	private var approveEverySend = true
 	private val grants = mutableMapOf<String, List<String>>()
 	/** Exercises unlisted choices. */
 	private var rules = AssistantWatcherRules(
@@ -420,6 +421,7 @@ internal class SandboxAssistantGateway : AssistantGateway {
 		workdir = workdir.takeIf { gatewayId == home },
 		team = "host.assistant".takeIf { gatewayId == home },
 		watchers = watchers(),
+		approveEverySend = approveEverySend,
 	)
 
 	override suspend fun call(gatewayId: String, op: ConsoleOp): AssistantAnswer {
@@ -443,6 +445,10 @@ internal class SandboxAssistantGateway : AssistantGateway {
 			}
 			is ConsoleOp.AssistantWatcherGrants -> {
 				grants[op.watcherId] = op.entryIds
+				AssistantAnswer.State(stateOf(gatewayId))
+			}
+			is ConsoleOp.AssistantSafety -> {
+				approveEverySend = op.approveEverySend
 				AssistantAnswer.State(stateOf(gatewayId))
 			}
 			else -> AssistantAnswer.State(stateOf(gatewayId))

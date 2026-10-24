@@ -41,6 +41,7 @@ class ClearsOnReprovisionTest {
 			setOf(
 				"board",
 				"vault",
+				"assistantSends",
 				"runbooks",
 				"presence",
 				"trust",

@@ -389,6 +389,9 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 			...(payload.files ? { files: payload.files as never } : {}),
 			...(isReplyDisposition(payload.disposition) ? { disposition: payload.disposition } : {}),
 			enqueuedAt: row.acceptedAt,
+			// A scheduled send is the owner's.
+			origin:
+				row.envelope.origin.kind === "router" || row.envelope.origin.kind === "console" ? "owner" : "gateway",
 		});
 		if (outcome === "refused") return ack(address, row.seq, deliveryEpoch, "failed", "delivery_refused");
 		// The receiver's channel_delivery_ack retires socket deliveries.

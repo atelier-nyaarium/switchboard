@@ -48,6 +48,8 @@ export interface VaultStage {
 	/** The entries a watcher's standing grants name. */
 	watcherGrants: (watcherId: string) => string[];
 	readForWatcher: (watcherId: string, entryId: string) => Promise<VaultRelease>;
+	/** Retracts stale cards when routable. */
+	retractStale: () => void;
 }
 
 export function composeVault(deps: VaultStageDeps): VaultStage {
@@ -65,7 +67,7 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		storeKey({ kind: "conv", conversationId: ownerKeyId(owner), address: localAddress(sessionTarget) });
 
 	const action = (
-		request: VaultRequest,
+		request: Pick<VaultRequest, "sessionTarget">,
 		actionType: "request" | "retract",
 		payload: VaultRequest | VaultRetract,
 	): ConsolePushEntry | null => {
@@ -87,52 +89,58 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 	const deliver = (request: VaultRequest): boolean | typeof MIGRATING => {
 		const entry = action(request, "request", request);
 		if (!entry) return false;
-		// The answer lives in this process, so a row a restart never delivered would only mislead.
+		// Answer state is process-local.
 		return deps
 			.routes()
 			.deliverToOwner({ entry, dedupeKey: `vault:${request.requestId}`, label: "vault", volatile: true });
 	};
 
-	/** Every console drops the row, whichever road settled it. */
-	const retract = (request: VaultRequest): void => {
+	/** Queued for every console. */
+	const retract = (request: Pick<VaultRequest, "requestId" | "sessionTarget">): boolean => {
 		const entry = action(request, "retract", { requestId: request.requestId });
-		if (entry)
-			deps.routes().deliverToOwner({ entry, dedupeKey: `vault-retract:${request.requestId}`, label: "vault" });
+		if (!entry) return false;
+		return (
+			deps.routes().deliverToOwner({ entry, dedupeKey: `vault-retract:${request.requestId}`, label: "vault" }) ===
+			true
+		);
 	};
 
-	const requests = createVaultRequests({
-		ambient,
-		deliver,
-		onSettled: retract,
-		onUnanswered: (request) => {
-			if (request.kind !== "entry") return;
-			deps.secretUnanswered(request.sessionTarget, request.entryId);
-		},
-		openTyped: (envelope, requestId) => context.slice()?.vaultClient.openTyped(envelope, requestId) ?? null,
-		// The policy is read again at the tap, not trusted from when the request opened.
-		validate: (request) => {
-			if (request.kind !== "entry" || request.policy === undefined) return null;
-			return qualificationRefusal(deps.policies().get(request.policy.policyId), {
-				entryId: request.entryId,
-				policyRevision: request.policy.policyRevision,
-				displayShape: request.displayShape,
-			});
-		},
-		onApproved: (request, decision) => {
-			if (request.kind !== "entry") return;
-			decisions.grant(
-				decision,
-				{
+	const requests = openDurable(deps.dataDir, "vault-open-requests", (ledger) =>
+		createVaultRequests({
+			ambient,
+			deliver,
+			ledger,
+			onSettled: (request) => retract(request),
+			onUnanswered: (request) => {
+				if (request.kind !== "entry") return;
+				deps.secretUnanswered(request.sessionTarget, request.entryId);
+			},
+			openTyped: (envelope, requestId) => context.slice()?.vaultClient.openTyped(envelope, requestId) ?? null,
+			// Recheck policy on answer.
+			validate: (request) => {
+				if (request.kind !== "entry" || request.policy === undefined) return null;
+				return qualificationRefusal(deps.policies().get(request.policy.policyId), {
 					entryId: request.entryId,
+					policyRevision: request.policy.policyRevision,
 					displayShape: request.displayShape,
-					coveredShapes: request.coveredShapes,
-					sessionTarget: request.sessionTarget,
-					...(request.policy ? { policy: request.policy } : {}),
-				},
-				ambient.now(),
-			);
-		},
-	});
+				});
+			},
+			onApproved: (request, decision) => {
+				if (request.kind !== "entry") return;
+				decisions.grant(
+					decision,
+					{
+						entryId: request.entryId,
+						displayShape: request.displayShape,
+						coveredShapes: request.coveredShapes,
+						sessionTarget: request.sessionTarget,
+						...(request.policy ? { policy: request.policy } : {}),
+					},
+					ambient.now(),
+				);
+			},
+		}),
+	);
 
 	const use = createVaultUse({ client: () => context.slice()?.vaultClient ?? null, decisions, ambient });
 
@@ -202,5 +210,6 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 				.filter((grant) => grant.holder.kind === "watcher" && grant.holder.watcherId === watcherId)
 				.map((grant) => grant.entryId),
 		readForWatcher: (watcherId, entryId) => use.readForWatcher(watcherId, entryId),
+		retractStale: () => requests.retractStale(retract),
 	};
 }

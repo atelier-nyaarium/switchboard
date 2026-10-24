@@ -18,11 +18,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import com.atelier_nyaarium.switchboard.vault.VaultPendingRequest
 import com.atelier_nyaarium.switchboard.vault.VaultPrompt
 import com.atelier_nyaarium.switchboard.vault.requestTitle
 import com.atelier_nyaarium.switchboard.vault.requester
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -284,6 +286,18 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 				showVaultPrompt(repo, pending.firstOrNull { it.requestId in ids })
 			}
 		}
+		scope.launch {
+			repo.assistantSendOps.pending.collect { requests ->
+				notifications.reconcileAssistantSendRequests(requests)
+			}
+		}
+		scope.launch {
+			repo.assistantSendOps.pending.collectLatest { requests ->
+				val deadlineAt = requests.minOfOrNull { it.request.deadlineAt } ?: return@collectLatest
+				delay((deadlineAt - System.currentTimeMillis()).coerceAtLeast(0L))
+				repo.assistantSendOps.sweepRequests()
+			}
+		}
 	}
 
 	override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -500,6 +514,8 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 		const val EXTRA_MESSAGE_AT = "message_at"
 		const val EXTRA_OPEN_QUEUE = "open_queue"
 		const val EXTRA_VAULT_REQUEST = "vault_request"
+		const val EXTRA_ASSISTANT_SEND_REQUEST = "assistant_send_request"
+		const val EXTRA_ASSISTANT_SEND_GATEWAY = "assistant_send_gateway"
 		const val ACTION_VAULT_REOPEN = "com.atelier_nyaarium.switchboard.VAULT_REOPEN"
 
 		/** Its own request code, so the queue's PendingIntent cannot collapse into a team's. */

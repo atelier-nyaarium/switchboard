@@ -24,6 +24,10 @@ export interface ChannelDeliveryDeps {
 	repushHandshake?: (team: string, subId: string) => unknown;
 	/** Retired delivery bytes. */
 	retireStaging?: (blobIds: string[]) => void;
+	/** Session-confirmed delivery. */
+	onAcknowledged?: (delivery: PendingDelivery) => void;
+	/** Pre-write delivery with stamps. */
+	onOffered?: (delivery: PendingDelivery) => void;
 }
 
 const filesOf = (delivery: PendingDelivery) => (delivery.event ? [] : (delivery.files ?? []));
@@ -85,10 +89,17 @@ export class ChannelDeliveryCoordinator {
 
 	/** Named `team` retires only its row. */
 	acknowledge(deliveryId: string, team?: string): boolean | "migrating" {
-		const held = this.deps.store.snapshot().deliveries.find((delivery) => delivery.deliveryId === deliveryId);
+		const held = this.deps.store.held(deliveryId);
 		if (team !== undefined && held?.team !== team) return false;
 		const retired = this.deps.store.acknowledge(deliveryId);
-		if (retired === true && held) this.deps.retireStaging?.(blobIdsOf([held]));
+		if (retired === true && held) {
+			this.deps.retireStaging?.(blobIdsOf([held]));
+			try {
+				this.deps.onAcknowledged?.(held);
+			} catch (error) {
+				console.error(`[delivery] acknowledgement listener failed:`, error);
+			}
+		}
 		return retired;
 	}
 
@@ -116,6 +127,12 @@ export class ChannelDeliveryCoordinator {
 		const subs = this.deps.registry.get(delivery.team);
 		const sockets = subs ? getAllActiveWs(subs) : [];
 		if (sockets.length === 0) return false;
+		// Mark origin before sending.
+		try {
+			this.deps.onOffered?.(this.deps.store.held(delivery.deliveryId) ?? delivery);
+		} catch (error) {
+			console.error(`[delivery] offer listener failed:`, error);
+		}
 
 		const payload = JSON.stringify(channelPushPayload(delivery));
 		let took = false;

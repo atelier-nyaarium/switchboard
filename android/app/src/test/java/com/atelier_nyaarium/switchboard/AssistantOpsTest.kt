@@ -56,12 +56,14 @@ class AssistantOpsTest {
 		val refusingState = mutableSetOf<String>()
 		val deaf = mutableSetOf<String>()
 		val calls = mutableListOf<Pair<String, String>>()
+		var approveEverySend: Boolean? = null
 		var rules = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise(action = "inbox", revision = 0L), revision = 0L)
 
 		private fun stateOf(gatewayId: String) = ConsoleAssistantStateResult(
 			workdir = "~/notes".takeIf { gatewayId == home },
 			team = "host.assistant".takeIf { gatewayId == home },
 			watchers = listOf(watcher().copy(fields = listOf("reason"), rules = rules)),
+			approveEverySend = approveEverySend,
 		)
 
 		/** Only the catch-all, which is all these tests save. */
@@ -80,6 +82,10 @@ class AssistantOpsTest {
 				is ConsoleOp.AssistantPlace -> {
 					if (gatewayId in refusing) return AssistantAnswer.Refused("held by another session")
 					home = gatewayId
+					AssistantAnswer.State(stateOf(gatewayId))
+				}
+				is ConsoleOp.AssistantSafety -> {
+					approveEverySend = op.approveEverySend
 					AssistantAnswer.State(stateOf(gatewayId))
 				}
 				ConsoleOp.AssistantRelease -> {
@@ -254,6 +260,26 @@ class AssistantOpsTest {
 
 		assertEquals(listOf(AssistantSection.LIVES_ON), assistantSections(home = null, placed = null))
 		assertEquals(listOf(AssistantSection.LIVES_ON, AssistantSection.WATCHERS), assistantSections("sakura", placed))
+		assertEquals(
+			listOf(AssistantSection.LIVES_ON, AssistantSection.SAFETY, AssistantSection.WATCHERS),
+			assistantSections("sakura", placed, placed.copy(approveEverySend = true)),
+		)
+		assertEquals(
+			listOf(AssistantSection.LIVES_ON, AssistantSection.WATCHERS),
+			assistantSections("sakura", placed, placed.copy(approveEverySend = null)),
+		)
+	}
+
+	@Test
+	fun settingSafetyLandsTheChosenGatewayAnswer() = runBlocking {
+		val fake = FakeGateway(home = "sakura").apply { approveEverySend = true }
+		val (ops, state) = ops(fake, "sakura")
+		ops.refresh("sakura")
+
+		val answer = ops.setSafety("sakura", false)
+
+		assertFalse((answer as AssistantAnswer.State).state.approveEverySend!!)
+		assertFalse(state.value.gateways.assistantOn("sakura")!!.approveEverySend!!)
 	}
 
 	@Test

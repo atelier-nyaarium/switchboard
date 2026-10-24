@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import type { Capability } from "../capabilities.js";
 import { registerChannelReply, registerChannelReplyStructured } from "../channel/channelReply.js";
 import { registerBridgeDiscover } from "./bridgeDiscover.js";
@@ -79,7 +80,7 @@ export function registerBridgeTools(mcpServer: McpServer, capabilities: Capabili
 
 	// Shared outgoing tools (all agents)
 	registerBridgeDiscover(mcpServer);
-	registerBridgeSend(mcpServer);
+	registerBridgeSend(mcpServer, { guarded: projectName === ASSISTANT_TEAM });
 	registerBridgeWait(mcpServer);
 
 	registerChannelReply(mcpServer, capabilities);

@@ -4,12 +4,20 @@ import { DurableOutbox } from "./durable-outbox.js";
 import { fenced, MIGRATING } from "./migration-fence.js";
 import { type ChannelFile, MAX_PENDING_DELIVERIES, type ReplyDisposition, type RidingAwareness } from "./types.js";
 
+/** Delivery acceptance source. */
+export const DELIVERY_ORIGINS = ["owner", "session", "gateway", "event"] as const;
+export type DeliveryOrigin = (typeof DELIVERY_ORIGINS)[number];
+
 interface HeldRow {
 	/** Stable retry identity. */
 	deliveryId: string;
 	team: string;
 	body: string;
 	enqueuedAt: number;
+	/** Acceptance order; legacy rows omit it. */
+	seq?: number;
+	/** Absent on older rows. */
+	origin?: DeliveryOrigin;
 }
 
 export interface MessageDelivery extends HeldRow {
@@ -72,6 +80,7 @@ export class PendingDeliveryStore {
 	private readonly outbox: DurableOutbox<PendingDelivery>;
 	/** Saved with the rows, so a row and its retirement land together. */
 	private emitted: Emitted[] = [];
+	private nextSeq = 1;
 
 	constructor(
 		durable: DeliverySnapshotSink | undefined,
@@ -88,11 +97,13 @@ export class PendingDeliveryStore {
 				const rows = (raw as Snapshot).deliveries;
 				if (!Array.isArray(rows)) return [];
 				const ids = new Set<string>();
-				return rows.filter((row): row is PendingDelivery => {
+				const kept = rows.filter((row): row is PendingDelivery => {
 					if (!isDelivery(row) || ids.has(row.deliveryId)) return false;
 					ids.add(row.deliveryId);
 					return true;
 				});
+				this.nextSeq = Math.max(0, ...kept.map((row) => row.seq ?? 0)) + 1;
+				return kept;
 			},
 			serialize: (items) => ({ deliveries: [...this.groupByTeam(items)], emitted: this.emitted }),
 			keyOf: (item) => item.deliveryId,
@@ -112,8 +123,20 @@ export class PendingDeliveryStore {
 			return held?.event === delivery.event ? "duplicate" : "refused";
 		}
 		if (this.listForTeam(delivery.team).length >= this.maxPerTeam) return "refused";
-		const result = this.outbox.enqueue(delivery);
+		const seq = this.nextSeq;
+		const result = this.outbox.enqueue({ ...delivery, seq });
+		if (result === "enqueued") this.nextSeq = seq + 1;
 		return result === "enqueued" ? result : result === MIGRATING ? MIGRATING : "refused";
+	}
+
+	/** The newest acceptance so far. */
+	lastSeq(): number {
+		return this.nextSeq - 1;
+	}
+
+	/** Stamped held row. */
+	held(deliveryId: string): PendingDelivery | undefined {
+		return this.outbox.values().find((row) => row.deliveryId === deliveryId);
 	}
 
 	/** Unseen members, as one row. */
@@ -136,8 +159,11 @@ export class PendingDeliveryStore {
 			event: true,
 			keys,
 			enqueuedAt: input.enqueuedAt,
+			origin: "event",
 		};
-		return { outcome: this.enqueue(row), row };
+		const outcome = this.enqueue(row);
+		const held = this.held(row.deliveryId);
+		return { outcome, row: held?.event ? held : row };
 	}
 
 	listForTeam(team: string): readonly PendingDelivery[] {
@@ -209,7 +235,9 @@ function isDelivery(row: unknown): row is PendingDelivery {
 		typeof d.team === "string" &&
 		d.team.length > 0 &&
 		typeof d.body === "string" &&
-		typeof d.enqueuedAt === "number";
+		typeof d.enqueuedAt === "number" &&
+		(d.seq === undefined || typeof d.seq === "number") &&
+		(d.origin === undefined || DELIVERY_ORIGINS.includes(d.origin as DeliveryOrigin));
 	if (!held) return false;
 	if (d.event === true) {
 		const keyed = d.keys === undefined || (Array.isArray(d.keys) && d.keys.every((key) => typeof key === "string"));

@@ -22,6 +22,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -184,13 +185,16 @@ private fun AssistantSettingsPage(
 	val gateways = state.gateways.ids()
 	val placed = home?.let { state.gateways.assistantOn(it) }
 	var target by rememberSaveable(home) { mutableStateOf(home ?: gateways.firstOrNull()) }
+	val chosen = target?.let { state.gateways.assistantOn(it) }
 	val folderText = placed?.workdir ?: DEFAULT_FOLDER
 	var folder by rememberSaveable(home, stateSaver = TextFieldValue.Saver) {
 		mutableStateOf(TextFieldValue(folderText, TextRange(folderText.length)))
 	}
-	// Unsaved; leaving closes both.
+	// Leaving closes both dialogs.
 	var granting by remember(home) { mutableStateOf<String?>(null) }
 	var releasing by remember { mutableStateOf(false) }
+	var opening by remember { mutableStateOf<Pair<String, String>?>(null) }
+	val waitingSends by repo.assistantSendOps.pending.collectAsState()
 	val vaultRevision by repo.vault.revision
 	val entries = remember(vaultRevision) { repo.vaultOps.views() }
 	val offered = remember(entries, home) { home?.let(entries::grantableOn).orEmpty() }
@@ -200,7 +204,7 @@ private fun AssistantSettingsPage(
 
 	AssistantPageScaffold("Assistant settings", onBack) {
 		work.said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-		for (section in assistantSections(home, placed)) {
+		for (section in assistantSections(home, placed, chosen)) {
 			when (section) {
 				AssistantSection.LIVES_ON -> {
 					Text("Lives on", style = MaterialTheme.typography.labelLarge)
@@ -248,6 +252,25 @@ private fun AssistantSettingsPage(
 						enabled = !busy && placementMoves(home, picked, folder.text, placed?.workdir),
 					) { Text(if (home == null) "Place here" else "Move here") }
 				}
+				AssistantSection.SAFETY -> {
+					val gatewayId = target ?: continue
+					val approveEverySend = chosen?.approveEverySend ?: continue
+					HorizontalDivider()
+					Text("Safety", style = MaterialTheme.typography.labelLarge)
+					Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+						Text("Approve every send", modifier = Modifier.weight(1f))
+						Switch(
+							checked = approveEverySend,
+							onCheckedChange = { enabled -> settings { answerText(setSafety(gatewayId, enabled)) } },
+							enabled = !busy,
+						)
+					}
+					for (send in sendsWaitingOn(waitingSends, gatewayId)) {
+						TextButton(onClick = hapticClick { opening = gatewayId to send.request.requestId }) {
+							Text(assistantSendRowText(send.request))
+						}
+					}
+				}
 				AssistantSection.WATCHERS -> {
 					val at = home ?: continue
 					val holding = placed ?: continue
@@ -283,6 +306,8 @@ private fun AssistantSettingsPage(
 			needs = grantFor.secret,
 		)
 	}
+
+	opening?.let { (gatewayId, requestId) -> AssistantSendSheet(repo, gatewayId, requestId) { opening = null } }
 
 	if (releasing && home != null) {
 		ConfirmDialog(

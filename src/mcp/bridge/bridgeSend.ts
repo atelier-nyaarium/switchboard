@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { REAL_NEWLINES_GUIDANCE } from "../../shared/schemas.js";
 import type { ChannelFile, ResponsePayload } from "../../shared/types.js";
+import { sendGuarded } from "../assistant/sendTools.js";
 import { dropReferenceArtifacts } from "../channel/channelFiles.js";
 import { bridgeConversationId, bridgeProjectName, opLedgerRefusal, routerPost } from "./helpers.js";
 import { literalEscapeHazard, literalEscapeReject, readReplyAttachments, toolError } from "./replyTool.js";
@@ -148,7 +149,8 @@ async function formatResult(
 	return { content: [{ type: "text" as const, text: parts.join("\n") }] };
 }
 
-export function registerBridgeSend(mcpServer: McpServer): void {
+/** Guard assistant sends. */
+export function registerBridgeSend(mcpServer: McpServer, { guarded = false }: { guarded?: boolean } = {}): void {
 	mcpServer.registerTool(
 		"crosstalk_send",
 		{
@@ -194,6 +196,8 @@ export function registerBridgeSend(mcpServer: McpServer): void {
 
 				const refusal = opLedgerRefusal();
 				if (refusal) return toolError(`Cannot send: ${refusal}`);
+
+				if (guarded) return await sendGuarded({ to, body, displayLabel, disposition, files });
 
 				// Minted here rather than inside routerPost, so its retries share one id.
 				const result = (await routerPost("/send", {

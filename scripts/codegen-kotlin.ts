@@ -121,6 +121,13 @@ import {
 	ConsoleAssistantRulesResultSchema,
 } from "../src/shared/schemasAssistantRules.js";
 import {
+	AssistantSendFileSchema,
+	AssistantSendIntentSchema,
+	AssistantSendRequestSchema,
+	AssistantSendRetractSchema,
+	ConsoleAssistantSendAnswerResultSchema,
+} from "../src/shared/schemasAssistantSend.js";
+import {
 	BoardActorSchema,
 	BoardObservationRowSchema,
 	BoardOpSchema,
@@ -353,6 +360,11 @@ const ROOTS: z.ZodType[] = [
 	AssistantRuleInvalidSchema,
 	AssistantFieldValueSchema,
 	AssistantUnexpectedValuesSchema,
+	AssistantSendFileSchema,
+	AssistantSendIntentSchema,
+	AssistantSendRequestSchema,
+	AssistantSendRetractSchema,
+	ConsoleAssistantSendAnswerResultSchema,
 	ProvisioningSchema,
 	SttsProvidersSchema,
 	AdmissionSchema,

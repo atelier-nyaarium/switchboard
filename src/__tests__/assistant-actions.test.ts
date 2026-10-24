@@ -87,7 +87,11 @@ async function placed() {
 				return true;
 			},
 			ownerSessionKey: (to) => `owner:${to}`,
+			bindTarget: () => ({ ok: false, error: "no sends here", status: 404 }),
+			sendFromAssistant: async () => new Response(null, { status: 500 }),
 		}),
+		blobSize: () => null,
+		lastDeliverySeq: () => 0,
 		fetch: source.fetch,
 	});
 	assistant.start();

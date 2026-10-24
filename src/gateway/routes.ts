@@ -54,6 +54,8 @@ export interface RoutesDeps {
 	resolvesLocalGateway?: ((gatewayId: string) => boolean) | null;
 	// Whether a local session is still shared to a friend Domain.
 	isSharedToForReply?: ((sessionTarget: string, domainId: string) => boolean) | null;
+	/** Local reply push. */
+	onReplyPushed?: (team: string) => void;
 	resolveHandshake?: (
 		sessionId: string,
 		replyAsJson?: Record<string, unknown>,
@@ -160,7 +162,15 @@ export function createRoutes(deps: RoutesDeps) {
 		routerClient: deps.routerClient,
 		teams,
 	});
-	const { sendFromOwner, sendFromSession, acceptGatewaySend, ownerSessionKey, deliverEvent } = createSendRoutes({
+	const {
+		sendFromOwner,
+		sendFromSession,
+		acceptGatewaySend,
+		ownerSessionKey,
+		deliverEvent,
+		bindTarget,
+		sendFromAssistant,
+	} = createSendRoutes({
 		ownerId: deps.ownerId,
 		config,
 		localDomain,
@@ -204,6 +214,7 @@ export function createRoutes(deps: RoutesDeps) {
 		refuseForeignReply,
 		refuseForeignPoll,
 		provedLocalSession,
+		onReplyPushed: deps.onReplyPushed,
 	});
 	const { taskBoard } = createBoardRoutes({
 		auth,
@@ -224,6 +235,8 @@ export function createRoutes(deps: RoutesDeps) {
 		acceptGatewaySend,
 		ownerSessionKey,
 		deliverEvent,
+		bindTarget,
+		sendFromAssistant,
 		respond,
 		poll,
 		readBlob,

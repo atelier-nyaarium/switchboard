@@ -21,7 +21,7 @@ function bench(options: { deliverable?: boolean; validate?: (request: VaultReque
 		openTyped: (value, requestId) => (value.ciphertext === `typed:${requestId}` ? "hunter2" : null),
 		validate: options.validate,
 		onApproved: (request, decision) => approved.push({ requestId: request.requestId, decision }),
-		onSettled: (request) => settled.push(request.requestId),
+		onSettled: (request) => Boolean(settled.push(request.requestId)),
 	});
 	return { ambient, requests, delivered, approved, settled };
 }

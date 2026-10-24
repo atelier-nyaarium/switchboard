@@ -347,12 +347,37 @@ describe("the assistant hidden from every session", () => {
 			"the owner's message",
 		);
 
-		const asked = await assistant.post("/send", {
+		// Assistant sends require guard.
+		const plain = await assistant.post("/send", {
 			from: ASSISTANT_TEAM,
 			fromConversationId: assistant.conversationId,
 			to: worker.team,
 			body: "what changed?",
 		});
+		expect(plain.status).toBe(403);
+		const held = (await (
+			await assistant.post("/assistant/send", {
+				to: worker.team,
+				body: "what changed?",
+				fromConversationId: assistant.conversationId,
+				waitMs: 0,
+			})
+		).json()) as { outcome: string; requestId: string };
+		expect(held.outcome).toBe("pending");
+		await h.waitFor(
+			async () =>
+				h.phone
+					.entries(await h.phone.inboxRead())
+					.find((entry) => entry.pluginId === "assistant" && entry.payload?.requestId === held.requestId),
+			"the send card",
+		);
+		const approved = await h.phone.value({
+			kind: "assistant_send_answer",
+			requestId: held.requestId,
+			decision: "approve",
+		});
+		expect(approved.result).toEqual({ ok: true });
+		const asked = await assistant.post("/assistant/send/collect", { requestId: held.requestId, waitMs: 10_000 });
 		const push = await h.waitFor(
 			() => worker.inbound.find((frame) => frame.body === "what changed?"),
 			"the question",
@@ -362,7 +387,7 @@ describe("the assistant hidden from every session", () => {
 		const bystanderJobs = await pending(bystander);
 		const replied = await worker.reply(String(push.session_id), "the schema");
 
-		expect(asked.status).toBe(200);
+		expect(await asked.json()).toMatchObject({ outcome: "sent", guard: "approved" });
 		expect(workerJobs).toContain(worker.team);
 		expect(askerJobs).toContain(worker.team);
 		expect(bystanderJobs).not.toContain(worker.team);

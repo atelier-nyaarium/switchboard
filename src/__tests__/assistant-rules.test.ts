@@ -90,6 +90,8 @@ function stage(dataDir: string, watcher: Watcher, ambient: FakeAmbient) {
 		routes: () => {
 			throw new Error("no Domain");
 		},
+		blobSize: () => null,
+		lastDeliverySeq: () => 0,
 		fetch: async () => new Response(null, { status: 304 }),
 		watchers: [watcher],
 	});

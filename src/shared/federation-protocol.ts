@@ -4,6 +4,7 @@ import { SealedEnvelopeSchema, sign, verify } from "./crypto.js";
 import { CONVERSATION_ID_RE, MAX_CONVERSATION_ID_LEN } from "./host-op.js";
 import { NOTICE_TITLE_MAX, NoticeTierWireFields } from "./notice.js";
 import { RECORD_SUMMARY_MAX, RECORD_THREADS_MAX, RecordThreadSchema } from "./schemasAssistantRecord.js";
+import { SEND_GUARDS } from "./schemasAssistantSend.js";
 import { isSlug } from "./session-id.js";
 import { SIGNING_TAGS } from "./wire-vocabulary.js";
 
@@ -65,10 +66,14 @@ export const ConsolePushEntrySchema = z
 		/** For `assistant_record` only. */
 		notify: z.boolean().optional(),
 		threads: z.array(RecordThreadSchema).min(1).max(RECORD_THREADS_MAX).optional(),
+		/** Peer send guard. */
+		guard: z.enum(SEND_GUARDS).optional(),
 	})
 	.superRefine((entry, ctx) => {
 		const issue = recordIssue(entry);
 		if (issue) ctx.addIssue({ code: "custom", message: issue });
+		if (entry.guard !== undefined && entry.kind !== "peer")
+			ctx.addIssue({ code: "custom", message: "only a peer row carries a guard" });
 	});
 
 /** A quiet record shows nothing to older phones. */
