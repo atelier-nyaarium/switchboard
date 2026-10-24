@@ -219,6 +219,8 @@ A watcher is plain Gateway code, never a model.
 - **No error carries the token:** a value that is not visible ASCII stops the watcher before any
   request. A rate limit holds for polls and the rules preview alike.
 - Its one action is `github_done`.
+- **Its fields:** `reason`, a list of GitHub's 16 reasons; `type`, a list of the subject types seen;
+  `repository` and `title`, text. `GITHUB_FIELD_SPECS` holds them.
 - Reads a classic token from its granted vault entry. The notification endpoints take no
   fine-grained token. Without a grant, on a 401, on a 404 (GitHub hides what a token may not see),
   or on a 403 that is not a rate limit, the watcher stops with that reason. `createGithubWatcher` in
@@ -231,18 +233,36 @@ policies. The owner edits it on the phone in Assistant settings; only owner ops 
 assistant cannot rewrite what sorts its own events.
 
 - **A rule:** a phone-minted id, one to 8 conditions, all of which must hold, and an action: `wake`
-  or `inbox`. A condition is a field the watcher declares, a test (`is`, `is_not`, `contains`, case
-  ignored) and a value. At most 50 rules (`ASSISTANT_RULES_MAX` in `wire-vocabulary.ts`);
-  `otherwise` takes anything none matched. `schemasAssistantRules.ts` holds the record,
-  `ruleRefusal`, and `firstMatch`, the one reading of which rule decides a thread, which
-  `decideEvent`, the listing and the preview all take.
+  or `inbox`. A condition is a field the watcher declares, a test and a value. At most 50 rules
+  (`ASSISTANT_RULES_MAX` in `wire-vocabulary.ts`); `otherwise` takes anything none matched.
+- **A field is a choice list or text:** each watcher declares its fields (`Watcher.fieldSpecs`). A
+  choice list (`enumeration`) carries value and label pairs, takes `is` and `is_not`, and compares
+  the exact value; labels are display only. Text takes `is`, `is_not` and `contains`, case
+  ignored. A missing field fails every test on it, `is_not` included. A value is stored trimmed of
+  ASCII whitespace at its edges, `trimRuleValue`, and nothing else.
+- **One parse, one match:** `parseRuleForFields` in `schemasAssistantRules.ts` refuses an undeclared
+  field, a value off its list, a test its kind does not take and a blank value. `firstMatch`, the
+  one reading of which rule decides a thread, skips a rule that does not parse; `decideEvent`, the
+  listing and the preview all take it.
+- **A rule that no longer fits is kept:** validity is read against the current declarations on
+  every read and never stored, so a declaration change moves no revision. An unfit rule matches
+  nothing and rides in `invalid` with its reason; the phone strikes it through and blocks Save
+  until it fits, and a put repairs it in place.
+- **The phone's Save gate is the Gateway's parse:** `fittingRule` in `RuleDraft.kt` decides Save and
+  the preview, and the Save sends what it answers. `tests/fixtures/assistant-rules/vectors.json`
+  pins it to `parseRuleForFields` on both runtimes.
+- **Values off the list are reported:** every poll checks its events against the declarations,
+  the priming poll included, and keeps each value outside its field's list once, up to 32, with an
+  overflow flag. An entry leaves once the declaration lists it. The phone shows them under the
+  watcher's Rules row, so a new GitHub value is seen before a rule needs it.
 - **No drop, no ping:** GitHub threads are cleared at GitHub through `github_done`, and the agent
   alone decides what is worth telling the owner. The rules file is read through a decoder that
   runs before the schema parse: it removes `drop` rules, maps an `otherwise` of `drop` to `inbox`
   and strips `ping`, keeping the rest's order and revisions.
 - **The store:** `createRulesStore`, sole writer of `assistant-rules.json`, on the policy store's
-  model. Each rule and `otherwise` carry their own revision, which the store names; the list's
-  revision moves with every write and is what a sort names. A put carries the revision it read, 0
+  model. The file parses strictly, so an unknown key quarantines it. Each rule and `otherwise`
+  carry their own revision, which the store names; the list's revision moves with every write and
+  is what a sort names. A put carries the revision it read, 0
   for a new rule. A stale one is refused; the same content at the held revision or the one before it
   answers as stored without a write, since its first answer was lost. A deleted id stays buried in
   memory, up to 256, so a retried create cannot bring it back within one Gateway run; a delete of an id already gone answers done. A move places a
@@ -253,7 +273,8 @@ assistant cannot rewrite what sorts its own events.
   held rules either way, so the phone decides from the answer and the fenced read after it only
   draws. `assistant_rules_preview` tests a rule at its place by id (else last) against the live
   first page of the watcher's `all` listing, counting what it decides apart from what an earlier
-  rule takes, and refuses what a put refuses. The rules and the fields ride in `assistant_state`.
+  rule takes, and refuses what a put refuses. The rules, the declarations, the unfit rules and the
+  values off the list ride in `assistant_state`.
 - **Per Gateway:** rules stay with the Gateway that holds them. A move starts the new home on its
   own rules, and moving back finds the old ones.
 - **Applied as read:** a poll sorts its new threads as they arrive, and the listing applies the
