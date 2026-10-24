@@ -69,6 +69,17 @@ class ChatStateSessionsTest {
 		assertTrue(sessions[0].presence.hasEnded)
 	}
 
+	@Test
+	fun aRoleOutlivesItsPresenceRowUntilAReportClearsIt() {
+		val assistant = "local.sakura.host.assistant"
+		val marked = Team(assistant, Presence.ended(), role = ASSISTANT_ROLE)
+		val seen = stateWith(emptyList(), mapOf(assistant to listOf(makeMsg()))).withFreshTeams(listOf(marked))
+		val gone = seen.withFreshTeams(emptyList())
+		assertEquals(emptyList<String>(), localSessions(gone.sessions(), "local").map { it.name })
+		val reported = gone.withFreshTeams(listOf(Team(assistant, Presence.ended())))
+		assertEquals(listOf(assistant), localSessions(reported.sessions(), "local").map { it.name })
+	}
+
 	// -- The join backbone: a gateway-minted conv session_id parses straight to the team's canonical --
 
 	@Test

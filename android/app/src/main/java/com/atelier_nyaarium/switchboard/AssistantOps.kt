@@ -8,6 +8,7 @@ import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -16,7 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
 /** The Gateway's mark on the assistant's presence row. */
-internal const val ASSISTANT_ROLE = "assistant"
+internal const val ASSISTANT_ROLE = Protocol.Wire.ASSISTANT_ROLE
 
 /** The gateway calls this class makes, so a test can answer them without a transport. */
 internal interface AssistantGateway {

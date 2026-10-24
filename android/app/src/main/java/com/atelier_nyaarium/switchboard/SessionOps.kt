@@ -337,5 +337,8 @@ internal class SessionOps(
 	}
 }
 
+/** Drops the assistant's row. */
+internal fun ordinarySessions(candidates: List<Team>): List<Team> = candidates.filter { it.role != ASSISTANT_ROLE }
+
 internal fun wakeTargetOf(team: String): String? =
 	(runIsolated { parseQualifiedTarget(team) }.getOrNull() as? Address)?.canonical

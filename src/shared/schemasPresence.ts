@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CrossDomainPresenceSessionSchema } from "./federation-protocol.js";
 import { ConnectionModeSchema, TeamKindSchema } from "./schemasCore.js";
+import { ASSISTANT_ROLE } from "./wire-vocabulary.js";
 
 ////////////////////////////////
 //  Team Info Schema
@@ -33,7 +34,7 @@ export const TeamInfoSchema = z
 		// Board session label.
 		sessionLabel: z.string().optional(),
 		// Gateway-stamped. The assistant's session lives in its own tab, never the Sessions list.
-		role: z.enum(["assistant"]).optional(),
+		role: z.enum([ASSISTANT_ROLE]).optional(),
 		// Inbound compatibility field.
 		description: z.string().optional(),
 		// The plugin version the agent's MCP process reported at register. Absent for

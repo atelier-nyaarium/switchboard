@@ -92,6 +92,7 @@ class ChatRepository(
 			deviceName = currentDeviceName(),
 			labels = persistence.loadPersistedLabels(),
 			teamAbsenceStreaks = persistence.loadPersistedAbsenceStreaks(),
+			roles = persistence.loadPersistedRoles(),
 			firstRooted = store.firstRooted,
 			lastProjectByGateway = store.lastProjectByGateway,
 			scheduledSends = persistence.loadPersistedScheduledSends(),

@@ -31,6 +31,8 @@ data class ChatState(
 	val labels: Map<String, String> = emptyMap(),
 	/** Pruning requires consecutive absence observations. */
 	val teamAbsenceStreaks: Map<String, Int> = emptyMap(),
+	/** Stamped roles outlive their presence rows. */
+	val roles: Map<String, String> = emptyMap(),
 	val connected: Boolean = false,
 	/** Mirrors repository visibility for Compose observation. */
 	val foreground: Boolean = false,
@@ -66,7 +68,7 @@ data class ChatState(
 
 	fun sessions(): List<Team> {
 		val known = teams.mapTo(HashSet()) { it.name }
-		return teams + threads.keys.filter { it !in known }.map { Team(it, Presence.ended()) }
+		return teams + threads.keys.filter { it !in known }.map { Team(it, Presence.ended(), role = roles[it]) }
 	}
 
 	/** Server labels clear local overrides; absence requires a streak. */
@@ -88,7 +90,12 @@ data class ChatState(
 				}
 			}
 		}
-		return copy(teams = freshTeams, labels = nextLabels, teamAbsenceStreaks = nextStreak)
+		return copy(
+			teams = freshTeams,
+			labels = nextLabels,
+			teamAbsenceStreaks = nextStreak,
+			roles = rolesAfter(roles, freshTeams),
+		)
 	}
 
 	/** Presence outranks peek, then wake state, then message status. */
@@ -146,6 +153,12 @@ data class ChatState(
 private const val ABSENCE_PRUNE_STREAK = 2
 
 private const val WAKE_NOTICE_TTL_MS = 10 * 60_000L
+
+/** A reported row speaks for its role, stamped or cleared; an unreported one keeps what was held. */
+internal fun rolesAfter(held: Map<String, String>, fresh: List<Team>): Map<String, String> {
+	val reported = fresh.mapTo(HashSet()) { it.name }
+	return held.filterKeys { it !in reported } + fresh.mapNotNull { t -> t.role?.let { t.name to it } }
+}
 
 internal fun ChatState.recomputeUnread(team: String, thread: List<Message>): ChatState =
 	copy(unread = unread + (team to unreadCount(thread, readAnchors[team])))

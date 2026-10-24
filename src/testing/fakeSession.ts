@@ -31,6 +31,7 @@ export interface FakeSession {
 	/** Posts a reply to a channel push, as the plugin's channel_reply does. */
 	reply(sessionId: string, response: string, extra?: Record<string, unknown>): Promise<Response>;
 	post(path: string, body: Record<string, unknown>): Promise<Response>;
+	get(path: string): Promise<Response>;
 	close(): void;
 }
 
@@ -45,17 +46,17 @@ export function attachFakeSession(graph: GatewayGraph, options: FakeSessionOptio
 	const registerAnswer = new Promise<Frame>((resolve) => {
 		answerRegister = resolve;
 	});
+	const token: Record<string, string> = options.sessionToken ? { "x-session-token": options.sessionToken } : {};
 	const post = (path: string, body: Record<string, unknown>): Promise<Response> =>
 		graph.router(
 			new Request(`http://gateway.test${path}`, {
 				method: "POST",
-				headers: {
-					"content-type": "application/json",
-					...(options.sessionToken ? { "x-session-token": options.sessionToken } : {}),
-				},
+				headers: { "content-type": "application/json", ...token },
 				body: JSON.stringify(body),
 			}),
 		);
+	const get = (path: string): Promise<Response> =>
+		graph.router(new Request(`http://gateway.test${path}`, { headers: token }));
 	socket.onFrame((frame) => {
 		if (frame.type === "register_ok" || frame.type === "register_reject") answerRegister(frame);
 		if (frame.type !== "channel_push") return;
@@ -100,6 +101,7 @@ export function attachFakeSession(graph: GatewayGraph, options: FakeSessionOptio
 		reply: (sessionId, response, extra = {}) =>
 			post("/respond", { session_id: sessionId, response, conversationId: options.conversationId, ...extra }),
 		post,
+		get,
 		close: () => {
 			socket.ws.close();
 			graph.wsHandlers.close(socket.ws);

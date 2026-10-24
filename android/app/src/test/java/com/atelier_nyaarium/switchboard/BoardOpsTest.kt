@@ -54,6 +54,16 @@ class BoardOpsTest {
 	}
 
 	@Test
+	fun theAssistantIsNeverOfferedAsAnAssignee() {
+		val assistant = Team("dom.gw.host.assistant", Presence.ended(), role = ASSISTANT_ROLE)
+		val worker = Team("dom.gw.app.dev", Presence.ended())
+		val state = MutableStateFlow(ChatState(teams = listOf(assistant, worker), gateways = testRegistry("gw")))
+		val ops = BoardOps(state, CoroutineScope(Dispatchers.Unconfined), File("/tmp/board-ops"), FakeCollaborators(FakeBoardStore()))
+
+		assertEquals(listOf(worker.name), ops.boardAssignTargets().map { it.name })
+	}
+
+	@Test
 	fun refusedIntentIsShownAndNotQueued() {
 		val store = FakeBoardStore().also { it.failNextSave = true }
 		val collaborators = FakeCollaborators(store)

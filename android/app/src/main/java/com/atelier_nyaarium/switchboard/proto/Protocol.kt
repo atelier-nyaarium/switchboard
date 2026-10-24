@@ -115,6 +115,7 @@ object Protocol {
 		const val ASSISTANT_RULES_MAX: Int = 50
 		const val ASSISTANT_RULE_CONDITIONS_MAX: Int = 8
 		const val ASSISTANT_RULE_VALUE_MAX: Int = 200
+		const val ASSISTANT_ROLE: String = "assistant"
 
 		object ConsoleOpKind {
 			const val SEND: String = "send"

@@ -158,6 +158,7 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 			val next = host.state.updateAndGet { it.withFreshTeams(visible) }
 			host.persistLabels(next.labels)
 			host.persistAbsenceStreaks(next.teamAbsenceStreaks)
+			host.persistRoles(next.roles)
 		}
 	}
 }

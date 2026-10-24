@@ -4,8 +4,9 @@ import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import type { ConsoleAssistantStateResult } from "../shared/schemasAssistant.js";
 import { ASSISTANT_COMMANDS } from "../shared/session-commands.js";
 import { composeSessionName } from "../shared/session-id.js";
+import type { TeamInfo } from "../shared/types.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
-import { type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
+import { type DomainPeer, type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
 
 describe("the assistant's session through the console", () => {
 	let h: FederationHarness;
@@ -253,6 +254,128 @@ describe("a watcher event reaching the assistant", () => {
 		expect(await read(undefined, ASSISTANT_COMMANDS.inbox.path, { scope: "all" })).toEqual({
 			kind: "unauthenticated",
 		});
+	});
+});
+
+describe("the assistant hidden from every session", () => {
+	let h: FederationHarness;
+	const attached = new Map<string, FakeSession>();
+	const created = async (displayLabel: string) => {
+		const { result } = await h.phone.value({ kind: "create_session", target: h.target("host"), displayLabel });
+		const session = await h.waitFor(() => attached.get(`host.${(result as { id: string }).id}`), displayLabel);
+		await session.ready();
+		return session;
+	};
+	const rows = async (session: FakeSession, path: string) =>
+		((await (await session.get(path)).json()) as TeamInfo[]).map((row) => row.team);
+	const pending = async (session: FakeSession) =>
+		((await (await session.get("/pending")).json()) as { from: string; to: string }[]).map((row) => row.to);
+
+	beforeAll(async () => {
+		h = await startFederationHarness();
+		const attach = (team: string, sessionToken: string | undefined) => {
+			if (attached.has(team)) return;
+			const conversationId = `conv-${team.replaceAll(".", "-")}`;
+			attached.set(team, attachFakeSession(h.gateway, { team, conversationId, sessionToken }));
+		};
+		h.host.handlers.onCreateSession = (op) =>
+			attach(composeSessionName(op.target.name, op.target.sessionName), op.sessionToken);
+		h.host.handlers.onWake = (frame) => attach(String(frame.team), frame.sessionToken as string | undefined);
+		await h.phone.value({ kind: "assistant_place", workdir: "~/projects/notes" });
+		bob = await h.addDomain({ domainId: "bob", gatewayId: "desk" });
+		await h.link(h, bob);
+	}, 60_000);
+	afterAll(async () => {
+		for (const session of attached.values()) session.close();
+		if (h) await h.close();
+	});
+	let bob: DomainPeer;
+
+	it("refuses a friend's relayed send to it without waking it, and refuses sharing it", async () => {
+		const friend = attachFakeSession(bob.gateway, { team: "fixture-app.friend", conversationId: "conv-friend" });
+		await friend.ready();
+		const wakes = h.host.wakes.length;
+
+		const relayed = await friend.post("/send", {
+			from: friend.team,
+			fromConversationId: friend.conversationId,
+			to: h.target(ASSISTANT_TEAM),
+			targetDomainId: h.set.domain.id,
+			body: "let me in",
+		});
+		await h.waitFor(async () => {
+			const { planes } = await h.phone.planesRead();
+			const payload = planes.find((plane) => plane.name === "presence")?.payload as { rows?: TeamInfo[] };
+			return payload?.rows?.some((held) => held.team === ASSISTANT_TEAM && held.role === "assistant");
+		}, "the assistant's row reaching the Router");
+		const share = await h.phone.send({
+			kind: "cross_domain_share",
+			sessionTarget: h.target(ASSISTANT_TEAM),
+			target: { kind: "domain", domainId: "bob" },
+		});
+		friend.close();
+
+		expect(relayed.status).not.toBe(200);
+		expect(share).toMatchObject({ outcome: "refused", reason: "assistant" });
+		expect(h.host.wakes.length).toBe(wakes);
+		expect(attached.has(ASSISTANT_TEAM)).toBe(false);
+	});
+
+	it("lists the assistant to no session, and answers a session's send to it as absent without waking it", async () => {
+		const worker = await created("Worker");
+		const wakes = h.host.wakes.length;
+
+		const teams = await rows(worker, "/teams");
+		const discovered = await rows(worker, "/discover");
+		const sent = await worker.post("/send", { from: worker.team, to: ASSISTANT_TEAM, body: "let me in" });
+
+		expect(teams).toContain(worker.team);
+		expect(teams).not.toContain(ASSISTANT_TEAM);
+		expect(discovered).not.toContain(ASSISTANT_TEAM);
+		expect(sent.status).toBe(404);
+		expect(h.host.wakes.length).toBe(wakes);
+		expect(attached.has(ASSISTANT_TEAM)).toBe(false);
+	});
+
+	it("takes the owner's send, and the session it writes to answers it, each caller seeing only its own jobs", async () => {
+		const worker = await created("Answerer");
+		const bystander = await created("Bystander");
+		await h.phone.deliver(ASSISTANT_TEAM, { kind: "send", to: ASSISTANT_TEAM, body: "from the owner" });
+		const assistant = await h.waitFor(() => attached.get(ASSISTANT_TEAM), "the assistant woken by the owner");
+		await h.waitFor(
+			() => assistant.inbound.find((frame) => frame.body === "from the owner"),
+			"the owner's message",
+		);
+
+		const asked = await assistant.post("/send", {
+			from: ASSISTANT_TEAM,
+			fromConversationId: assistant.conversationId,
+			to: worker.team,
+			body: "what changed?",
+		});
+		const push = await h.waitFor(
+			() => worker.inbound.find((frame) => frame.body === "what changed?"),
+			"the question",
+		);
+		const workerJobs = await pending(worker);
+		const askerJobs = await pending(assistant);
+		const bystanderJobs = await pending(bystander);
+		const replied = await worker.reply(String(push.session_id), "the schema");
+
+		expect(asked.status).toBe(200);
+		expect(workerJobs).toContain(worker.team);
+		expect(askerJobs).toContain(worker.team);
+		expect(bystanderJobs).not.toContain(worker.team);
+		expect(replied.status).toBe(200);
+		await h.waitFor(
+			() => assistant.frames.find((frame) => JSON.stringify(frame).includes("the schema")),
+			"the answer reaching the assistant",
+		);
+
+		await h.phone.value({ kind: "assistant_release" });
+		assistant.close();
+		attached.delete(ASSISTANT_TEAM);
+		expect(await pending(bystander)).not.toContain(worker.team);
 	});
 });
 

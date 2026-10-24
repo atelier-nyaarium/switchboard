@@ -16,6 +16,7 @@ import {
 } from "../../shared/schemasRouterPresence.js";
 import { type Address, isValidSessionName, parseTarget } from "../../shared/session-id.js";
 import type { TeamInfo } from "../../shared/types.js";
+import { ASSISTANT_ROLE } from "../../shared/wire-vocabulary.js";
 import { type FoldedWrite, foldWriteResult } from "../../shared/write-result.js";
 import type { GatewayRegistration } from "../gatewayBridge.js";
 import type { OwnerStoreRegistry } from "../inbox/ownerStoreRegistry.js";
@@ -49,6 +50,8 @@ export function createPresenceService(deps: {
 	friend?: FriendDeps;
 	/** Keep live shares alive. */
 	touch?: (domainId: string, sessionTarget: string) => void;
+	/** A row stamped as the assistant. */
+	assistantSeen?: (domainId: string, sessionTarget: string) => void;
 	/** Push changed projections. */
 	pokeOwner?: (domainId: string, lineage: PlaneLineage, projection: unknown) => void;
 }) {
@@ -82,6 +85,10 @@ export function createPresenceService(deps: {
 		}
 		return sortedRows(rows);
 	};
+
+	/** Its Gateway stamped this session's row as the assistant. */
+	const isAssistant = (domainId: string, gatewayId: string, team: string): boolean =>
+		deps.registry.for(domainId).get("presence.row", rowId(gatewayId, team))?.clear.role === ASSISTANT_ROLE;
 
 	const gatewayRecords = (domainId: string, admitted: string[]) => {
 		const live = new Set(admitted.map(gatewayRecordId));
@@ -140,10 +147,17 @@ export function createPresenceService(deps: {
 		for (const row of rows) {
 			const result = write(reg.domainId, rowId(reg.gatewayId, row.team), ownedRow(reg, row));
 			if (!result.applied) return result;
-			if (LIVE_STATUSES.has(row.status))
+			if (LIVE_STATUSES.has(row.status) && row.role !== ASSISTANT_ROLE)
 				deps.touch?.(reg.domainId, `${reg.domainId}.${reg.gatewayId}.${row.team}`);
 		}
 		return undefined;
+	};
+
+	/** After the rows land, so a withdrawal's refresh reads them whole. */
+	const withdrawAssistants = (reg: GatewayRegistration, rows: TeamInfo[]) => {
+		for (const row of rows)
+			if (row.role === ASSISTANT_ROLE)
+				deps.assistantSeen?.(reg.domainId, `${reg.domainId}.${reg.gatewayId}.${row.team}`);
 	};
 
 	const applyBaseline = (reg: GatewayRegistration, params: Baseline) => {
@@ -168,6 +182,7 @@ export function createPresenceService(deps: {
 			spawnPoints: { ...parsed.spawnPoints, gatewayId: reg.gatewayId, domainId: reg.domainId },
 			lastRegisteredAt: now(),
 		});
+		withdrawAssistants(reg, parsed.rows);
 		// The gateway's presence protocol reads `ok`; an answer without it is retried as a baseline forever.
 		return { ok: gatewayResult.applied, outcome: gatewayResult.outcome };
 	};
@@ -194,6 +209,7 @@ export function createPresenceService(deps: {
 		const rowsResult = upsertRows(reg, parsed.upserts);
 		if (rowsResult) return { ok: false, outcome: rowsResult.outcome };
 		const gatewayResult = write(reg.domainId, gatewayRecordId(reg.gatewayId), { ...record.clear, seq: parsed.seq });
+		withdrawAssistants(reg, parsed.upserts);
 		return { ok: gatewayResult.applied, outcome: gatewayResult.outcome };
 	};
 
@@ -248,6 +264,7 @@ export function createPresenceService(deps: {
 		for (const row of rowsFor(domainId, friendDeps.admittedGateways(domainId))) {
 			// A friend cannot reach it either, and the wire carries no freshness to say so.
 			if (row.presenceFresh === "unreachable") continue;
+			if (row.role === ASSISTANT_ROLE) continue;
 			const sessionTarget = `${domainId}.${row.gatewayId}.${row.team}`;
 			if (!friendDeps.isShared(domainId, sessionTarget, toDomainId)) continue;
 			const session = toCrossDomainPresenceSession(row, (name) => {
@@ -408,6 +425,7 @@ export function createPresenceService(deps: {
 		roster,
 		ownerProjection,
 		friendProjection,
+		isAssistant,
 		register,
 	};
 }

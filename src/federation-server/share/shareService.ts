@@ -43,6 +43,8 @@ export interface ShareServiceDeps {
 	registry: OwnerStoreRegistry;
 	/** Whether the Gateway reported this `spawn.session`. */
 	hasSession: (domainId: string, gatewayId: string, sessionId: string) => boolean;
+	/** No friend reaches the assistant. */
+	isAssistant: (domainId: string, gatewayId: string, sessionId: string) => boolean;
 	isLinked: (domainId: string, friendDomainId: string) => boolean;
 	linkEdgeId?: (domainId: string, friendDomainId: string) => string | null;
 	dropLinkEdge: (
@@ -70,6 +72,8 @@ export interface ShareService {
 	/** Reject unreported sessions. */
 	share(domainId: string, sessionTarget: string, target: CrossDomainShareTarget): { ok: boolean };
 	unshare(domainId: string, sessionTarget: string, target: CrossDomainShareTarget): { ok: boolean };
+	/** Unshares a session from everyone. */
+	withdraw(domainId: string, sessionTarget: string): void;
 	listShares(domainId: string): { shares: Array<{ sessionTarget: string; target: CrossDomainShareTarget }> };
 	/** Shares at the revision the last membership change wrote. */
 	mirror(domainId: string, gatewayId: string): ShareMirrorSnapshot;
@@ -121,6 +125,11 @@ function reportedSession(deps: Pick<ShareServiceDeps, "hasSession">, domainId: s
 		!deps.hasSession(domainId, gatewayId, rest.join("."))
 	)
 		throw new OwnerOpRefused("session");
+}
+
+function isAssistantTarget(deps: Pick<ShareServiceDeps, "isAssistant">, domainId: string, sessionTarget: string) {
+	const [, gatewayId, ...rest] = sessionTarget.split(".");
+	return !!gatewayId && rest.length > 0 && deps.isAssistant(domainId, gatewayId, rest.join("."));
 }
 
 export function createShareService(deps: ShareServiceDeps): ShareService {
@@ -230,6 +239,7 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 	return {
 		share(domainId, sessionTarget, target) {
 			reportedSession(deps, domainId, sessionTarget);
+			if (isAssistantTarget(deps, domainId, sessionTarget)) throw new OwnerOpRefused("assistant");
 			const before = records(domainId);
 			const written = putState(
 				domainId,
@@ -264,6 +274,10 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 			if (written.applied) deps.onChanged([domainId]);
 			return answerOf(written);
 		},
+		withdraw(domainId, sessionTarget) {
+			for (const record of records(domainId).filter((held) => held.sessionTarget === sessionTarget))
+				this.unshare(domainId, sessionTarget, record.target);
+		},
 		listShares(domainId) {
 			return {
 				shares: all(state(records(domainId))).map(({ sessionTarget, target }) => ({ sessionTarget, target })),
@@ -278,6 +292,7 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 		isSharedTo(domainId, sessionTarget, toDomainId) {
 			return (
 				deps.isLinked(domainId, toDomainId) &&
+				!isAssistantTarget(deps, domainId, sessionTarget) &&
 				ruleIsSharedTo(
 					state(records(domainId), unlinked(domainId)),
 					sessionTarget,

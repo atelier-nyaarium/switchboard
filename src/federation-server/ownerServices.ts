@@ -118,6 +118,7 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 	const share = createShareService({
 		registry,
 		hasSession: (domainId, gatewayId, sessionId) => inbox.hasSession(domainId, gatewayId, sessionId),
+		isAssistant: (domainId, gatewayId, sessionId) => presence.isAssistant(domainId, gatewayId, sessionId),
 		isLinked: (domainId, friendDomainId) => deps.hasLinkEdge(domainId, friendDomainId),
 		linkEdgeId: (domainId, friendDomainId) => deps.linkEdgeId(domainId, friendDomainId),
 		dropLinkEdge: (domainId, friendDomainId) => deps.dropLinkEdge(domainId, friendDomainId),
@@ -162,6 +163,7 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		projection: projectionDeps,
 		friend: { isShared, admittedGateways },
 		touch: (domainId, sessionTarget) => share.touch(domainId, sessionTarget),
+		assistantSeen: (domainId, sessionTarget) => share.withdraw(domainId, sessionTarget),
 		pokeOwner: (domainId, lineage, projection) =>
 			deps.consoleSockets?.pushPlane(domainId, "presence", lineage, projection),
 	});

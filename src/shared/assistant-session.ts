@@ -3,6 +3,7 @@
 import { ASSISTANT_ACTION_KEYS } from "./schemasAssistantActions.js";
 import { ASSISTANT_COMMANDS } from "./session-commands.js";
 import { composeSessionName } from "./session-id.js";
+import { ASSISTANT_ROLE } from "./wire-vocabulary.js";
 
 export const ASSISTANT_SPAWN = "host";
 export const ASSISTANT_SESSION_NAME = "assistant";
@@ -41,4 +42,9 @@ export function isAssistantRecord(record: { spawn: string; id: string; mintedFro
 		record.id === ASSISTANT_SESSION_NAME &&
 		record.mintedFrom === ASSISTANT_RESERVE_KEY
 	);
+}
+
+/** Rows a session may see: the assistant's stamped row is the owner's alone. */
+export function ordinaryRows<T extends { role?: string }>(rows: readonly T[]): T[] {
+	return rows.filter((row) => row.role !== ASSISTANT_ROLE);
 }

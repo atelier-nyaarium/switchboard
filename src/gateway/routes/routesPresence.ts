@@ -1,3 +1,4 @@
+import { ordinaryRows } from "../../shared/assistant-session.js";
 import type { DiscoverCoverage } from "../../shared/console-protocol.js";
 import type { HostSpawnState } from "../../shared/host-spawn.js";
 import { OwnerPresenceProjectionSchema } from "../../shared/schemasRouterPresence.js";
@@ -52,7 +53,7 @@ export function createPresenceRoutes({
 			})),
 		);
 		// Keep local sessions authoritative after a lost presence write.
-		const remoteRows = parsed.data.rows.filter((row) => row.gatewayId !== localGatewayId);
+		const remoteRows = ordinaryRows(parsed.data.rows).filter((row) => row.gatewayId !== localGatewayId);
 		const remoteSpawns = parsed.data.spawnPoints.filter((point) => point.gatewayId !== localGatewayId);
 		return {
 			teams: [...local, ...remoteRows, ...linkedTeams],

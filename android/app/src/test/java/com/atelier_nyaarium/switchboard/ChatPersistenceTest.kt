@@ -59,6 +59,12 @@ class ChatPersistenceTest {
 		}
 
 		override fun loadGoals(): String? = slots["goals"]
+
+		override fun saveRoles(json: String) {
+			slots["roles"] = json
+		}
+
+		override fun loadRoles(): String? = slots["roles"]
 	}
 
 	private val store = FakeStore()
@@ -218,6 +224,18 @@ class ChatPersistenceTest {
 	fun absenceStreaksRoundTripAndDropNonAddressKeys() {
 		codec.persistAbsenceStreaks(mapOf(team to 4, "Pixel 10 Pro XL" to 9))
 		assertEquals(mapOf(team to 4), codec.loadPersistedAbsenceStreaks())
+	}
+
+	@Test
+	fun anAssistantThreadReloadedWithoutPresenceStaysOutOfThePickers() {
+		val assistant = "home.gw.host.assistant"
+		codec.persistRoles(mapOf(assistant to ASSISTANT_ROLE, "not-an-address" to ASSISTANT_ROLE))
+		val reloaded = ChatState(
+			domainId = "home",
+			threads = mapOf(assistant to listOf(message(1L)), team to listOf(message(2L))),
+			roles = codec.loadPersistedRoles(),
+		)
+		assertEquals(listOf(team), localSessions(reloaded.sessions(), "home").map { it.name })
 	}
 
 	////////////////////////////////

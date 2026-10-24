@@ -5,6 +5,7 @@ import type { PresenceRow } from "../shared/presence-identity.js";
 import { presenceIdentityOf } from "../shared/presence-identity.js";
 import { isComposite, isSlug, parseSessionName } from "../shared/session-id.js";
 import type { SessionRecord, SessionStore } from "../shared/session-store.js";
+import { ASSISTANT_ROLE } from "../shared/wire-vocabulary.js";
 import { resolveLiveIncarnation, type TeamRegistry, type WsData } from "./wsTypes.js";
 
 export interface WorkingState {
@@ -239,7 +240,7 @@ export class PresenceFacade {
 				...(live ? { mode: live.data.mode, version: live.data.version } : { lastActive: record.lastSeen }),
 				kind: "loose",
 				sessionLabel: record.sessionLabel,
-				...(isAssistantRecord(record) ? { role: "assistant" as const } : {}),
+				...(isAssistantRecord(record) ? { role: ASSISTANT_ROLE } : {}),
 				...(w?.working !== undefined ? { working: w.working } : {}),
 				...(w?.needsLogin !== undefined ? { needsLogin: w.needsLogin } : {}),
 				...(w?.limitBlocked !== undefined ? { limitBlocked: w.limitBlocked } : {}),

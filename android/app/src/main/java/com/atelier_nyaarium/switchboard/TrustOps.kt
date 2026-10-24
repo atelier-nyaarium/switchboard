@@ -92,7 +92,7 @@ internal class TrustOps(
 	fun shareableSessions(): List<Team> {
 		val adminDomain = identity.readyOrNull()?.domainId ?: return emptyList()
 		val s = state.value
-		return s.teams
+		return ordinarySessions(s.teams)
 			.filter { it.domainId == adminDomain && s.gateways.has(it.gatewayId) }
 			.filter { it.kind == "devcontainer" || it.kind == "loose" }
 			.sortedBy { s.label(it.name) }

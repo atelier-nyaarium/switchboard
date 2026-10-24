@@ -94,10 +94,11 @@ export function createRoutes(deps: RoutesDeps) {
 	const { localDomain, localAddress, consoleSelfAddress, tryLocalAddress, resolveLocalTarget } = createAddressing({
 		config,
 	});
-	const { provedLocalSession, refuseImpersonation, refuseForeignReply, refuseForeignPoll } = createCallerGuards({
-		auth,
-		store,
-	});
+	const { provedLocalSession, actsFor, refuseImpersonation, refuseForeignReply, refuseForeignPoll } =
+		createCallerGuards({
+			auth,
+			store,
+		});
 	const { targetDomainId, relayToGateway, relayWithRetry } = createRelay({
 		config,
 		localDomain,
@@ -144,6 +145,7 @@ export function createRoutes(deps: RoutesDeps) {
 		sessionStore: deps.sessionStore,
 		tryLocalAddress,
 		provedLocalSession,
+		actsFor,
 	});
 	const { capabilities } = createCapabilityRoutes({
 		capabilityStore: deps.capabilityStore,

@@ -58,7 +58,7 @@ internal class BoardOps(
 	/** Assignable sessions on member Gateways; an assignment is intent the Router holds. */
 	fun boardAssignTargets(): List<Team> {
 		val members = state.value.gateways.ids().toSet()
-		return state.value.teams.filter {
+		return ordinarySessions(state.value.teams).filter {
 			it.kind != "console" && it.kind != "devcontainer" && it.gatewayId in members
 		}
 	}

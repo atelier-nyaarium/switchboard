@@ -76,6 +76,7 @@ describe("Router owner state residue", () => {
 		const share = createShareService({
 			registry,
 			hasSession: () => true,
+			isAssistant: () => false,
 			isLinked: () => true,
 			dropLinkEdge: () => undefined,
 			retireRevokedPeerRows: (d, t, f) => inbox.retireRevokedPeerRows(d, t, f),

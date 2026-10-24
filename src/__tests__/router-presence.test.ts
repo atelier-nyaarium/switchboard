@@ -516,6 +516,44 @@ describe("router presence slice", () => {
 		registry.close();
 	});
 
+	it("never projects the assistant to a friend, even when shared, and reports it once its rows land", () => {
+		const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "router-presence-"));
+		roots.push(dataDir);
+		const registry = new OwnerStoreRegistry({
+			dataDir,
+			ownerOf: () => "owner",
+			quotaFor: () =>
+				new DomainQuota({
+					dir: dataDir,
+					limitBytes: 10_000_000,
+					reserveBytes: 0,
+					statfs: () => ({ available: 10_000_000 }),
+				}),
+			ambient: { now: () => 100 },
+		});
+		const seen: string[][] = [];
+		const service = createPresenceService({
+			registry,
+			assistantSeen: (domainId, sessionTarget) =>
+				seen.push([sessionTarget, String(service.isAssistant(domainId, "gw", "host.assistant"))]),
+		});
+		const assistant = TeamInfoSchema.parse({ ...row("host.assistant"), kind: "loose", role: "assistant" });
+		service.applyBaseline(reg, {
+			incarnation: 1,
+			seq: 0,
+			rows: [assistant, row("proj.main")],
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
+		});
+		const projection = service.friendProjection("domain", "friend", {
+			isShared: () => true,
+			admittedGateways: () => ["gw"],
+		});
+		expect(projection.sessions.map((s) => s.team)).toEqual(["proj.main"]);
+		expect(seen).toEqual([["domain.gw.host.assistant", "true"]]);
+		expect(service.isAssistant("domain", "gw", "proj.main")).toBe(false);
+		registry.close();
+	});
+
 	// Push from writes.
 	it("pushes to the owner when a gateway frame changes presence", () => {
 		const pokes: number[] = [];

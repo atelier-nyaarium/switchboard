@@ -36,6 +36,8 @@ internal interface ChatPersistenceStore {
 	fun loadAbsenceStreaks(): String?
 	fun saveDrafts(json: String)
 	fun loadDrafts(): String?
+	fun saveRoles(json: String)
+	fun loadRoles(): String?
 }
 
 ////////////////////////////////
@@ -321,6 +323,27 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 				for (rawKey in root.keys()) {
 					if (!isAddressKey(rawKey)) continue
 					put(rawKey, root.optInt(rawKey, 0))
+				}
+			}
+		}.getOrDefault(emptyMap())
+	}
+
+	internal fun persistRoles(roles: Map<String, String>) {
+		runIsolated {
+			val root = JSONObject()
+			for ((team, role) in roles) root.put(team, role)
+			store.saveRoles(root.toString())
+		}
+	}
+
+	internal fun loadPersistedRoles(): Map<String, String> {
+		val json = store.loadRoles() ?: return emptyMap()
+		return runIsolated {
+			val root = JSONObject(json)
+			buildMap {
+				for (rawKey in root.keys()) {
+					if (!isAddressKey(rawKey)) continue
+					root.optString(rawKey).takeIf { it.isNotEmpty() }?.let { put(rawKey, it) }
 				}
 			}
 		}.getOrDefault(emptyMap())

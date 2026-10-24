@@ -1,4 +1,5 @@
 import packageJson from "../../../package.json";
+import { ordinaryRows } from "../../shared/assistant-session.js";
 import type { PendingJobStore } from "../../shared/pending-job-store.js";
 import { FEDERATION_PROTOCOL_VERSION } from "../../shared/router-protocol.js";
 import type { Address } from "../../shared/session-id.js";
@@ -19,6 +20,7 @@ export interface StatusRoutesDeps {
 	sessionStore?: Pick<import("../../shared/session-store.js").SessionStore, "touchLive">;
 	tryLocalAddress: (name: string) => Address | null;
 	provedLocalSession: (req: Request) => boolean;
+	actsFor: (req: Request, name: string) => boolean;
 }
 
 export function createStatusRoutes({
@@ -31,6 +33,7 @@ export function createStatusRoutes({
 	sessionStore,
 	tryLocalAddress,
 	provedLocalSession,
+	actsFor,
 }: StatusRoutesDeps) {
 	const { localGatewayId } = config;
 
@@ -39,12 +42,10 @@ export function createStatusRoutes({
 		if (!provedLocalSession(req)) {
 			return jsonResponse({ error: "the job list is not open to this caller" }, 403);
 		}
-		const list = store.listAll().map((e) => ({
-			session_id: e.id,
-			from: e.from,
-			to: e.to,
-			state: e.state,
-		}));
+		const list = store
+			.listAll()
+			.filter((e) => actsFor(req, e.from) || actsFor(req, e.to))
+			.map((e) => ({ session_id: e.id, from: e.from, to: e.to, state: e.state }));
 		return jsonResponse(list);
 	}
 
@@ -54,7 +55,7 @@ export function createStatusRoutes({
 			if (row.status !== "online" && row.status !== "verifying") continue;
 			sessionStore?.touchLive(row.team);
 		}
-		return jsonResponse(rows);
+		return jsonResponse(ordinaryRows(rows));
 	}
 
 	function health(): Response {

@@ -274,7 +274,7 @@ Wire changes follow the repo's rule: new fields optional at the Gateway, tolerat
 
 ## Phase 1 - Assistant visibility
 
-Hides the assistant from every session and friend. Gives the assistant no new tool: crosstalk lands with its guard in Phase 5.
+Hides the assistant from every session and friend. Gives the assistant no new tool: crosstalk lands with its guard in Phase 5. Deploys the Router before the Gateway: an older Router keeps projecting an existing share of the assistant to a friend.
 
 - **One role value:** a role constant exported from TypeScript is used by `TeamInfoSchema` and the stamp in `presence.ts`, and is generated into `Protocol`. `AssistantOps`'s `ASSISTANT_ROLE` reads it from there.
 - **Phone pickers:** `ordinarySessions` is a role predicate beside `SessionOps`. It applies over each picker's own candidates: `localSessions`, `TrustOps.shareableSessions` and `BoardOps.boardAssignTargets`. Counts, vault, notifications, unread totals, the queue and scheduled sends stay inclusive.

@@ -62,3 +62,5 @@ export const ROUTINE_FORGET_DAYS_MAX = 365;
 export const ASSISTANT_RULES_MAX = 50;
 export const ASSISTANT_RULE_CONDITIONS_MAX = 8;
 export const ASSISTANT_RULE_VALUE_MAX = 200;
+
+export const ASSISTANT_ROLE = "assistant";

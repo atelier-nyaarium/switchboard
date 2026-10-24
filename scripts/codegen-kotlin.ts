@@ -253,6 +253,7 @@ import {
 } from "../src/shared/session-id.js";
 import { SttsProvidersSchema } from "../src/shared/stts-providers.js";
 import {
+	ASSISTANT_ROLE,
 	ASSISTANT_RULE_CONDITIONS_MAX,
 	ASSISTANT_RULE_VALUE_MAX,
 	ASSISTANT_RULES_MAX,
@@ -739,6 +740,7 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["ASSISTANT_RULES_MAX", ASSISTANT_RULES_MAX],
 	["ASSISTANT_RULE_CONDITIONS_MAX", ASSISTANT_RULE_CONDITIONS_MAX],
 	["ASSISTANT_RULE_VALUE_MAX", ASSISTANT_RULE_VALUE_MAX],
+	["ASSISTANT_ROLE", ASSISTANT_ROLE],
 ];
 const wireConstantBlock = wireConstants
 	.map(

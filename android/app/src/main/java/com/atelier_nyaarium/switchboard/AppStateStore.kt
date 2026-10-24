@@ -270,6 +270,10 @@ class AppStateStore internal constructor(
 
 	override fun loadDrafts(): String? = prefs.getString(KEY_DRAFTS, null)
 
+	override fun saveRoles(json: String) = prefs.edit().putString(KEY_ROLES, json).apply()
+
+	override fun loadRoles(): String? = prefs.getString(KEY_ROLES, null)
+
 	/** Pending scheduled sends. */
 	override fun saveScheduledSends(json: String) = prefs.edit().putString(KEY_SCHEDULED_SENDS, json).apply()
 
@@ -469,6 +473,7 @@ class AppStateStore internal constructor(
 		const val KEY_READ_ANCHORS = "read_anchors"
 		const val KEY_LABELS = "labels"
 		const val KEY_ABSENCE_STREAKS = "team_absence_streak"
+		const val KEY_ROLES = "team_roles"
 		const val KEY_DRAFTS = "drafts"
 		const val KEY_SCHEDULED_SENDS = "scheduled_sends"
 		const val KEY_GOALS = "goals"
@@ -528,7 +533,7 @@ class AppStateStore internal constructor(
 		/** Keep every grammar key here. */
 		val SCHEMA_WIPE_KEYS = listOf(
 			KEY_THREADS, KEY_READ_ANCHORS, KEY_LABELS, KEY_DRAFTS, KEY_SCHEDULED_SENDS, KEY_GOALS, KEY_ABSENCE_STREAKS,
-			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_TASK_BOARD, KEY_VAULT, KEY_RUNBOOKS,
+			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_TASK_BOARD, KEY_VAULT, KEY_RUNBOOKS, KEY_ROLES,
 		)
 
 		/** Keep every provisioning key here. */
@@ -542,7 +547,7 @@ class AppStateStore internal constructor(
 			KEY_THREADS, KEY_READ_ANCHORS, KEY_LABELS, KEY_DRAFTS, KEY_SCHEDULED_SENDS, KEY_GOALS,
 			KEY_CONVERSATION_ID,
 			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_ABSENCE_STREAKS, KEY_TASK_BOARD, KEY_VAULT,
-			KEY_RUNBOOKS, KEY_LAST_PROJECT,
+			KEY_RUNBOOKS, KEY_LAST_PROJECT, KEY_ROLES,
 		)
 	}
 }

@@ -39,6 +39,7 @@ const make = () => {
 		["b", ["b-gateway"]],
 	]);
 	const unreported = new Set<string>();
+	const assistants = new Set<string>();
 	let dropOutcome: WriteOutcome | undefined;
 	let dropGate: Promise<void> | undefined;
 	const registry = new OwnerStoreRegistry({
@@ -51,6 +52,7 @@ const make = () => {
 	const deps: ShareServiceDeps = {
 		registry,
 		hasSession: (domainId, gatewayId, sessionId) => !unreported.has(`${domainId}.${gatewayId}.${sessionId}`),
+		isAssistant: (domainId, gatewayId, sessionId) => assistants.has(`${domainId}.${gatewayId}.${sessionId}`),
 		isLinked: (domainId, friendDomainId) => links.has(`${domainId}|${friendDomainId}`),
 		linkEdgeId: (domainId, friendDomainId) =>
 			links.has(`${domainId}|${friendDomainId}`)
@@ -79,6 +81,7 @@ const make = () => {
 		changed,
 		pushed,
 		unreported,
+		assistants,
 		dropGateway: (reg: GatewayRegistration) => gatewayDropped?.(reg),
 		setNow: (value: number) => (now = value),
 		setDropBehavior: (gate: Promise<void> | undefined, outcome: WriteOutcome | undefined) => {
@@ -142,6 +145,23 @@ describe("ShareService", () => {
 		ctx.service.share("a", "a.gw.spawn.main", { kind: "domain", domainId: "b" });
 		expect(ctx.service.admitPeerRow("a", "a.gw.spawn.main", "b")).toBeGreaterThan(before);
 		expect(ctx.service.generation("a", "a.gw.spawn.main", "b")).toBe(before + 1);
+		ctx.registry.close();
+	});
+
+	it("refuses to share the assistant and withdraws an old share of it for good", () => {
+		const ctx = make();
+		ctx.links.add("a|b");
+		ctx.service.share("a", "a.gw.host.assistant", { kind: "domain", domainId: "b" });
+		ctx.service.share("a", "a.gw.app.dev", { kind: "domain", domainId: "b" });
+		ctx.assistants.add("a.gw.host.assistant");
+
+		expect(() => ctx.service.share("a", "a.gw.host.assistant", { kind: "everyone_trusted" })).toThrow("assistant");
+		ctx.service.withdraw("a", "a.gw.host.assistant");
+		ctx.assistants.clear();
+
+		expect(ctx.service.listShares("a").shares.map((held) => held.sessionTarget)).toEqual(["a.gw.app.dev"]);
+		expect(ctx.service.isSharedTo("a", "a.gw.host.assistant", "b")).toBe(false);
+		expect(ctx.retired).toEqual([["a", "a.gw.host.assistant", "b"]]);
 		ctx.registry.close();
 	});
 

@@ -68,6 +68,17 @@ class TrustOpsTest {
 	private fun peer(domainId: String, owner: String) = CrossDomainPeerEntry(domainId = domainId, gatewayId = "$domainId-gw", ownerSignPub = owner)
 
 	@Test
+	fun theAssistantIsNeverOfferedForSharing() {
+		val assistant = Team("${world.domainId}.gw.host.assistant", Presence.ended(), role = ASSISTANT_ROLE)
+		val worker = Team("${world.domainId}.gw.app.dev", Presence.ended())
+		val state = MutableStateFlow(ChatState(teams = listOf(assistant, worker), gateways = testRegistry("gw")))
+
+		val offered = ops("share-picker", state, Fake()) { null }.shareableSessions()
+
+		assertEquals(listOf(worker.name), offered.map { it.name })
+	}
+
+	@Test
 	fun receiverConfirmsWithThePolledPinUntilTrustStateClears() = runBlocking {
 		val answers = ArrayDeque(
 			listOf(

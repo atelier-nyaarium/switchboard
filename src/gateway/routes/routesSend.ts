@@ -1,4 +1,5 @@
 import type { Ambient } from "../../shared/ambient.js";
+import { isAssistantRecord } from "../../shared/assistant-session.js";
 import type { FederatedOp } from "../../shared/federation-protocol.js";
 import type { EventMember } from "../../shared/pending-delivery-store.js";
 import type { JobContract, LocalReply, PendingJobStore, Reservation } from "../../shared/pending-job-store.js";
@@ -338,6 +339,10 @@ export function createSendRoutes({
 				},
 				400,
 			);
+		}
+		// Only the owner opens a conversation with the assistant, and it reads as absent.
+		if (ingress.kind !== "owner" && isAssistantRecord(sessionStore?.getByTeam(requested))) {
+			return jsonResponse({ error: `no session named "${to}"` }, 404);
 		}
 
 		// Wake or create the target before delivery.

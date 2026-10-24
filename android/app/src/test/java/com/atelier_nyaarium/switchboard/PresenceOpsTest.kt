@@ -42,6 +42,7 @@ class PresenceOpsTest {
 		}
 		override fun persistLabels(labels: Map<String, String>) { savedLabels = labels }
 		override fun persistAbsenceStreaks(streaks: Map<String, Int>) { savedAbsence = streaks }
+		override fun persistRoles(roles: Map<String, String>) = Unit
 		override fun persistReadAnchors(anchors: Map<String, ReadAnchor>) = Unit
 		override fun receiptFor(team: String, now: Long): ActionReceipt? = null
 		override fun clearReceipt(team: String) = Unit

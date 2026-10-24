@@ -18,6 +18,15 @@ export function createCallerGuards({ auth, store }: CallerGuardsDeps) {
 		return !auth || auth.mayUseLocalPlane(presentedByRequest(req));
 	}
 
+	/** The caller presents this local name's binding; an unbound name is nobody's. */
+	function actsFor(req: Request, name: string): boolean {
+		if (!auth) return true;
+		const key = auth.localTeamKey(name);
+		if (key === null) return false;
+		const need = auth.toActFor(key);
+		return need.token !== null && auth.satisfies(need, presentedByRequest(req));
+	}
+
 	function refuseImpersonation(req: Request, claimed: string, scope: CallerScope): Response | null {
 		// Refuse unresolved names; the recipient sees `from` verbatim.
 		if (!auth) return null;
@@ -64,5 +73,5 @@ export function createCallerGuards({ auth, store }: CallerGuardsDeps) {
 		return jsonResponse({ error: `No pending job for session_id "${sessionId}"` }, 404);
 	}
 
-	return { provedLocalSession, refuseImpersonation, refuseForeignReply, refuseForeignPoll };
+	return { provedLocalSession, actsFor, refuseImpersonation, refuseForeignReply, refuseForeignPoll };
 }
