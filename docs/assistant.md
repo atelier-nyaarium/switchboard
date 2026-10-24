@@ -25,7 +25,17 @@ it events. The session decides what to say and do.
   showing GitHub's unread count, the door to its conversation, and a gear for Assistant settings:
   where it lives, each watcher's health, grants and actions, and Release. The conversation opens in the usual thread screen.
   `host.assistant` stays out of the Sessions list because the Gateway marks its presence row with
-  `role: "assistant"`, never because the phone matches a name.
+  `role: "assistant"` (`ASSISTANT_ROLE`), never because the phone matches a name.
+- **Hidden from every session and friend:** only the owner sees it or opens a conversation with it.
+  - The Gateway: `ordinaryRows` takes it out of `GET /teams` and `/discover`, so `crosstalk_discover`
+    and the cross-Domain gate never offer it. `/pending` answers a session only its own jobs
+    (`actsForBoundSession`). A session's or another Gateway's `send` to it answers as an absent
+    session before anything wakes it; the owner's sends pass.
+  - The Router: `friendProjection` drops its row, `ShareService.share` refuses it, and a share made
+    earlier is withdrawn when its stamped row lands (`assistantSeen`).
+  - The phone: `ordinarySessions` keeps it out of every session picker. The role is persisted with
+    the threads, so a cached thread with no presence row stays out too.
+  - A session the assistant wrote to still answers through `/respond`.
 - **Its own tools:** the plugin registers them only in the assistant session. The Gateway serves
   their routes only to that session's token.
 - **Timed compaction:** runs at its due time only while the REPL is idle.

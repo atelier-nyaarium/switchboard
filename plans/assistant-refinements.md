@@ -272,7 +272,7 @@ Implementation steps: implementation-phase, align-fan-out, align-fix, red-team-f
 
 Wire changes follow the repo's rule: new fields optional at the Gateway, tolerated by older peers, with a dated comment where a field becomes required.
 
-## Phase 1 - Assistant visibility
+## Phase 1 - Assistant visibility ✅
 
 Hides the assistant from every session and friend. Gives the assistant no new tool: crosstalk lands with its guard in Phase 5. Deploys the Router before the Gateway: an older Router keeps projecting an existing share of the assistant to a friend.
 
@@ -491,3 +491,8 @@ A check-in arrives as owner ingress through `sendFromOwner`, so Phase 5's marker
   - Harness: delivery to the assistant, `openRuns` in its baseline, Phase 5 off-mode after a check-in, a Phase 6 locked title.
   - `RoutineOpsTest` and `RoutineTextTest`, `kotlin-gate.sh`, `check:boot`.
 - **Size:** about 20 to 25 files.
+
+## Painpoints
+
+- **No same-Domain second Gateway in the harness:** `startFederationHarness` builds one Gateway per Domain, so a send relayed between two of the owner's Gateways, and `/discover`'s remote rows, cannot be driven end to end. Phase 1 covered the remote rows with a unit test of `createPresenceRoutes` and the relay through a friend Domain instead.
+- **Lexicon's rename keeps an object-literal key:** renaming `actsFor` produced `actsFor: actsForBoundSession` in the guards' return value, so every destructuring caller needed a hand edit.
