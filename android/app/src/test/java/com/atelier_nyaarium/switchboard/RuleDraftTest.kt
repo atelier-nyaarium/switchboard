@@ -2,8 +2,11 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.RuleDraft
 import com.atelier_nyaarium.switchboard.assistant.RuleEdit
+import com.atelier_nyaarium.switchboard.assistant.RuleEditing
 import com.atelier_nyaarium.switchboard.assistant.RuleSlot
+import com.atelier_nyaarium.switchboard.assistant.editorLanded
 import com.atelier_nyaarium.switchboard.assistant.goneFrom
+import com.atelier_nyaarium.switchboard.assistant.ruleEditing
 import com.atelier_nyaarium.switchboard.assistant.SaveOutcome
 import com.atelier_nyaarium.switchboard.assistant.WatcherRules
 import com.atelier_nyaarium.switchboard.assistant.outcomeOf
@@ -31,6 +34,29 @@ private val held = AssistantWatcherRules(
 private val watcherRules = WatcherRules(fields = listOf("reason", "repository"), held = held)
 
 class RuleDraftTest {
+	@Test
+	fun anEditorClosesOnlyWhenTheOpeningItShowedLanded() {
+		assertEquals(false, editorLanded(shown = null, landed = 3L))
+		assertEquals(false, editorLanded(shown = 4L, landed = 3L))
+		assertEquals(false, editorLanded(shown = 4L, landed = null))
+		assertEquals(true, editorLanded(shown = 3L, landed = 3L))
+	}
+
+	@Test
+	fun theEditorAllowsEditingSavingAndDeletingOnlyWhenItCan() {
+		val valid = RuleDraft.draftOf(rule("reviews", "review_requested"))
+		val invalid = valid.changed(0) { it.copy(value = " ") }
+		val held = RuleSlot.Held("reviews")
+		val otherwise = RuleDraft.of(RuleSlot.Otherwise, watcherRules)!!
+
+		assertEquals(RuleEditing(edit = true, save = true, delete = true), ruleEditing(held, valid, busy = false, gone = false))
+		assertEquals(RuleEditing(edit = true, save = false, delete = true), ruleEditing(held, invalid, busy = false, gone = false))
+		assertEquals(RuleEditing(edit = false, save = false, delete = false), ruleEditing(held, valid, busy = true, gone = false))
+		assertEquals(RuleEditing(edit = false, save = false, delete = false), ruleEditing(held, valid, busy = false, gone = true))
+		assertEquals(RuleEditing(edit = true, save = true, delete = false), ruleEditing(RuleSlot.New, valid, busy = false, gone = false))
+		assertEquals(RuleEditing(edit = true, save = true, delete = false), ruleEditing(RuleSlot.Otherwise, otherwise, busy = false, gone = false))
+	}
+
 	@Test
 	fun aNewRuleIsSavedUnderItsOwnIdAtRevisionZero() {
 		val first = RuleDraft.of(RuleSlot.New, watcherRules)!!.changed(0) { it.copy(value = "  mention ") }

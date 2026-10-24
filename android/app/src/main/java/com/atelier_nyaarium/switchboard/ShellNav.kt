@@ -15,6 +15,7 @@ internal data class ShellNav(
 	val root: RootView = RootView.SESSIONS,
 	val conversation: ConversationNav? = null,
 	val settings: SettingsRoute? = null,
+	val assistantPage: AssistantPage? = null,
 	/** Bumped on a genuine open to re-snap the thread to its first unread. */
 	val generation: Int = 0,
 )
@@ -45,6 +46,7 @@ internal fun ShellNav.arrive(
 	return copy(
 		conversation = ConversationNav(team, view, files),
 		settings = null,
+		assistantPage = null,
 		generation = if (reopens) generation + 1 else generation,
 	)
 }
@@ -93,6 +95,8 @@ internal fun ShellNav.openSettings(route: SettingsRoute = SettingsRoute.HUB): Sh
 
 internal fun ShellNav.closeSettings(): ShellNav = copy(settings = null)
 
+internal fun ShellNav.openAssistantPage(page: AssistantPage): ShellNav = copy(assistantPage = page)
+
 /** Routes allowed before provisioning. */
 private val PRE_PROVISION_ROUTES = setOf(SettingsRoute.HUB, SettingsRoute.SYSTEM, SettingsRoute.PLUGINS, SettingsRoute.FEDERATION)
 
@@ -114,6 +118,7 @@ internal enum class ShellScreen {
 	OVERLAY,
 	SETTINGS,
 	BOOT,
+	ASSISTANT_PAGE,
 	CONVERSATION,
 	ROOT,
 }
@@ -123,6 +128,7 @@ internal fun shellScreen(nav: ShellNav, locked: Boolean, overlayOpen: Boolean, b
 	overlayOpen -> ShellScreen.OVERLAY
 	nav.settings != null -> ShellScreen.SETTINGS
 	!booted -> ShellScreen.BOOT
+	nav.assistantPage != null -> ShellScreen.ASSISTANT_PAGE
 	nav.conversation != null -> ShellScreen.CONVERSATION
 	else -> ShellScreen.ROOT
 }
@@ -132,6 +138,7 @@ internal enum class BackLayer {
 	EDITOR,
 	OVERLAY,
 	SETTINGS,
+	ASSISTANT_PAGE,
 	DRAWER,
 	FILES,
 	VIEW,
@@ -159,6 +166,7 @@ internal fun backLayer(nav: ShellNav, facts: BackFacts): BackLayer? {
 		ShellScreen.LOCK, ShellScreen.BOOT -> null
 		ShellScreen.OVERLAY -> BackLayer.OVERLAY
 		ShellScreen.SETTINGS -> BackLayer.SETTINGS
+		ShellScreen.ASSISTANT_PAGE -> BackLayer.ASSISTANT_PAGE
 		ShellScreen.CONVERSATION, ShellScreen.ROOT -> when {
 			facts.drawerOpen -> BackLayer.DRAWER
 			open == null -> BackLayer.ROOT_VIEW.takeIf { backFrom(facts.offeredRoot, shownView(facts.offeredRoot, nav.root)) != null }
@@ -172,6 +180,7 @@ internal fun backLayer(nav: ShellNav, facts: BackFacts): BackLayer? {
 /** Navigation handles state; owners close editors, overlays, and drawers. */
 internal fun ShellNav.back(layer: BackLayer, facts: BackFacts, provisioned: Boolean): ShellNav = when (layer) {
 	BackLayer.SETTINGS -> copy(settings = settings?.let { settingsBack(it, provisioned) })
+	BackLayer.ASSISTANT_PAGE -> copy(assistantPage = assistantPage?.let(::assistantPageBack))
 	BackLayer.FILES -> popFiles()
 	BackLayer.VIEW -> showView(facts.offeredConversation.first())
 	BackLayer.CONVERSATION -> if (facts.assistantOpen) copy(conversation = null, root = RootView.SESSIONS) else leave()
@@ -188,13 +197,14 @@ internal fun ShellNav.up(facts: BackFacts): ShellNav {
 	return back(layer, facts, provisioned = true)
 }
 
-/** Only root and settings survive recreation. */
+/** Root, settings, pages persist. */
 internal val ShellNavSaver: Saver<ShellNav, Any> = listSaver(
-	save = { listOf(it.root.name, it.settings?.name.orEmpty()) },
+	save = { listOf(it.root.name, it.settings?.name.orEmpty()) + it.assistantPage?.let(::pageWords).orEmpty() },
 	restore = { saved ->
 		ShellNav(
 			root = RootView.entries.firstOrNull { it.name == saved.getOrNull(0) } ?: RootView.SESSIONS,
 			settings = SettingsRoute.entries.firstOrNull { it.name == saved.getOrNull(1) },
+			assistantPage = pageOf(saved.drop(2).map { it.toString() }),
 		)
 	},
 )

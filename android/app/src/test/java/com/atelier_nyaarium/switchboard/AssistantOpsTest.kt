@@ -8,10 +8,19 @@ import com.atelier_nyaarium.switchboard.proto.AssistantWatcherRules
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.assistant.RuleDraft
+import com.atelier_nyaarium.switchboard.assistant.RuleEdit
+import com.atelier_nyaarium.switchboard.assistant.RuleSlot
+import com.atelier_nyaarium.switchboard.assistant.SaveOutcome
+import com.atelier_nyaarium.switchboard.assistant.editorLanded
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -23,6 +32,7 @@ private fun watcher(
 	lastSuccessAt: Long? = null,
 	backoff: AssistantWatcherBackoff? = null,
 	stopped: String? = null,
+	secret: String? = null,
 ) = AssistantWatcher(
 	id = "github",
 	label = "GitHub notifications",
@@ -33,6 +43,7 @@ private fun watcher(
 	lastSuccessAt = lastSuccessAt,
 	backoff = backoff,
 	stopped = stopped,
+	secret = secret,
 )
 
 class AssistantOpsTest {
@@ -195,7 +206,9 @@ class AssistantOpsTest {
 
 	@Test
 	fun theStripAsksForASecretBeforeItCountsGithubsUnread() {
-		assertEquals(WatcherChip("GitHub notifications needs a secret", needsSecret = true), watcherChip(watcher(grants = emptyList())))
+		val unset = watcher(grants = emptyList(), secret = "A GitHub token", lastSuccessAt = 1L)
+		assertEquals(WatcherChip("GitHub notifications needs a secret", needsSecret = true), watcherChip(unset))
+		assertEquals("GitHub notifications not checked yet", watcherChip(watcher(grants = emptyList())).text)
 		assertEquals("GitHub notifications stopped", watcherChip(watcher(stopped = "GitHub refused the token")).text)
 		assertEquals("GitHub notifications not checked yet", watcherChip(watcher(unread = 0L)).text)
 		assertEquals("GitHub notifications · 2 unread", watcherChip(watcher(lastSuccessAt = 1L)).text)
@@ -209,6 +222,10 @@ class AssistantOpsTest {
 	fun theHealthLineSaysWhyItIsNotPollingAndCountsOnceAPollLanded() {
 		val ago = { _: Long -> "5m ago" }
 
+		assertEquals(
+			"Needs a secret",
+			watcherHealth(watcher(grants = emptyList(), secret = "A GitHub token", lastSuccessAt = 1L, stopped = "no token"), ago),
+		)
 		assertEquals("Stopped: needs a secret", watcherHealth(watcher(stopped = "needs a secret", lastSuccessAt = 1L), ago))
 		assertEquals(
 			"Waiting: GitHub rate limit · 2 unread",
@@ -216,6 +233,86 @@ class AssistantOpsTest {
 		)
 		assertEquals("Checked 5m ago · 2 unread", watcherHealth(watcher(lastSuccessAt = 1L, evicted = 3L), ago))
 		assertEquals("Not checked yet", watcherHealth(watcher(), ago))
+	}
+
+	@Test
+	fun settingsShowWatchersOnlyWhereItLives() {
+		val placed = ConsoleAssistantStateResult(workdir = "~/notes", watchers = emptyList())
+
+		assertEquals(listOf(AssistantSection.LIVES_ON), assistantSections(home = null, placed = null))
+		assertEquals(listOf(AssistantSection.LIVES_ON, AssistantSection.WATCHERS), assistantSections("sakura", placed))
+	}
+
+	@Test
+	fun aRuleDraftStaysUntilItLandsOrIsCancelled() = runBlocking {
+		val fake = FakeGateway(home = "sakura")
+		val (ops, _) = ops(fake, "sakura")
+		val key = RuleDraftKey("sakura", "github", RuleSlot.Otherwise)
+		val stale = RuleDraft("otherwise", emptyList(), "wake", 5L)
+		val save: suspend (RuleDraft) -> RuleSaved = { ops.saveOtherwise("sakura", "github", it.toOtherwise()) }
+		ops.editRule(key, stale)
+
+		assertTrue(ops.sendRule(key, stale, RuleEdit.SAVE, save) is SaveOutcome.Offer)
+		val offered = ops.ruleDrafts.value[key]!!
+		assertEquals(Pair(0L, "wake"), offered.draft.revision to offered.draft.action)
+		assertEquals(SaveOutcome.Done, ops.sendRule(key, offered.draft, RuleEdit.SAVE, save))
+		assertNull(ops.ruleDrafts.value[key])
+		assertTrue(editorLanded(offered.opening, ops.ruleLanded.value[key]))
+
+		ops.editRule(key, stale)
+		ops.cancelRule(key)
+		assertNull(ops.ruleDrafts.value[key])
+
+		val answer = CompletableDeferred<RuleSaved>()
+		val pending = async { ops.sendRule(key, stale, RuleEdit.SAVE) { answer.await() } }
+		yield()
+		ops.cancelRule(key)
+		answer.complete(RuleSaved.Unreachable)
+		pending.await()
+		assertNull(ops.ruleDrafts.value[key])
+
+		val late = CompletableDeferred<RuleSaved>()
+		val first = async { ops.sendRule(key, stale, RuleEdit.SAVE) { late.await() } }
+		yield()
+		ops.cancelRule(key)
+		val reopened = stale.copy(action = "inbox")
+		ops.editRule(key, reopened)
+		late.complete(RuleSaved.Stored(fake.rules))
+		first.await()
+		val kept = ops.ruleDrafts.value[key]!!
+		assertEquals(HeldRuleDraft(reopened, kept.opening), kept)
+		assertFalse(editorLanded(kept.opening, ops.ruleLanded.value[key]))
+	}
+
+	@Test
+	fun anUneditedSaveLandsTheOpeningItsEditorHeld() = runBlocking {
+		val (ops, _) = ops(FakeGateway(home = "sakura"), "sakura")
+		val key = RuleDraftKey("sakura", "github", RuleSlot.Otherwise)
+		val untouched = RuleDraft("otherwise", emptyList(), "inbox", 0L)
+
+		val shown = ops.holdRule(key, untouched)
+		ops.sendRule(key, untouched, RuleEdit.SAVE) { ops.saveOtherwise("sakura", "github", it.toOtherwise()) }
+
+		assertTrue(editorLanded(shown, ops.ruleLanded.value[key]))
+	}
+
+	@Test
+	fun aPagesResultStaysUnderItsKeyAndASecondOpWhileBusyIsDropped() = runBlocking {
+		val (ops, _) = ops(FakeGateway(home = "sakura"), "sakura")
+		val list = WorkKey.RuleList("sakura", "github")
+		val gate = CompletableDeferred<String?>()
+		var second = false
+
+		val first = async { ops.runWork(list) { gate.await() } }
+		yield()
+		ops.runWork(list) { second = true; null }
+		ops.runWork(WorkKey.Settings) { "moved" }
+		gate.complete("revision is stored")
+		first.await()
+
+		assertFalse(second)
+		assertEquals(PageWork(said = "revision is stored"), ops.work.value[list])
+		assertEquals(PageWork(said = "moved"), ops.work.value[WorkKey.Settings])
 	}
 
 	@Test

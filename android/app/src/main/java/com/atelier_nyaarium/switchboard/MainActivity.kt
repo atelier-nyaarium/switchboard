@@ -227,7 +227,7 @@ fun App(
 	val assistantOpen = openTeam?.let { isAssistant(state, it) } == true
 	val preferredHome by repo.assistantOps.preferredHome.collectAsState()
 	val assistantRoot = assistantRoot(state, preferredHome)
-	var assistantSettingsOpen by remember { mutableStateOf(false) }
+	val assistantPages = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
 	val factsFor = { team: String ->
 		ArrivalFacts(
 			offered = offeredFor(team),
@@ -250,7 +250,6 @@ fun App(
 			openQueueRequest.value = false
 			linkMenuState.value = null
 			linkMenuNoteState.value = null
-			assistantSettingsOpen = false
 			nav = nav.arriveAt(key, assistant, arrival, factsFor(key), place)
 		}
 		key
@@ -262,8 +261,8 @@ fun App(
 	LaunchedEffect(assistantRoot, nav.root, nav.conversation == null, nav.settings) {
 		nav = nav.enterAssistant(assistantRoot, factsFor)
 	}
-	LaunchedEffect(assistantRoot, openTeam, nav.root, state.gateways) {
-		nav = nav.followAssistant(assistantRoot, state)
+	LaunchedEffect(assistantRoot, openTeam, nav.root, nav.assistantPage, state.gateways) {
+		nav = nav.followAssistant(assistantRoot, state).resolvePage(state)
 	}
 	// A ref's exit opens Files. Clearing first prevents duplicate routing.
 	val workspaceRequest by com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus.pending.collectAsState()
@@ -388,6 +387,19 @@ fun App(
 				)
 			else -> DomainConnectingScreen(onSettings = { nav = nav.openSettings() })
 		}
+		ShellScreen.ASSISTANT_PAGE -> nav.assistantPage?.let { page ->
+			assistantPages.SaveableStateProvider(pageKey(page)) {
+				com.atelier_nyaarium.switchboard.assistant.AssistantPageHost(
+					repo = repo,
+					state = state,
+					page = page,
+					home = assistantHome(state, preferredHome),
+					onListDirs = { path, hostTarget, spawn -> repo.sessions.listDirs(path, hostTarget, spawn) },
+					onPage = { nav = nav.openAssistantPage(it) },
+					onBack = { nav = nav.back(BackLayer.ASSISTANT_PAGE, backFacts, state.provisioned) },
+				)
+			}
+		}
 		ShellScreen.CONVERSATION -> {
 			// Devcontainer names are fixed.
 			val session = state.sessions().firstOrNull { it.name == openTeam }
@@ -495,7 +507,7 @@ fun App(
 					repo.closeTab(t)
 				},
 				onSessions = { nav = nav.up(backFacts) },
-				onSettings = { assistantSettingsOpen = true },
+				onSettings = { nav = nav.openAssistantPage(AssistantPage.Settings) },
 				composer = ComposerState(
 					draft = state.drafts[openTeam!!] ?: Draft(),
 					sendAwaitingWake = state.awaitingWake(openTeam!!),
@@ -662,7 +674,7 @@ fun App(
 				} else if (view == RootView.ASSISTANT) {
 					com.atelier_nyaarium.switchboard.assistant.AssistantRootScreen(
 						root = assistantRoot,
-						onConfigure = { assistantSettingsOpen = true },
+						onConfigure = { nav = nav.openAssistantPage(AssistantPage.Settings) },
 						onRetry = { shellScope.launch { repo.assistantOps.refreshAll() } },
 						modifier = modifier,
 					)
@@ -701,14 +713,6 @@ fun App(
 	}
 
 	QueueOverlay(repo, openQueueRequest, locked, revealAtState, openTeamRequest)
-	if (assistantSettingsOpen && !locked) {
-		com.atelier_nyaarium.switchboard.assistant.AssistantSettingsSheet(
-			repo = repo,
-			state = state,
-			home = assistantHome(state, preferredHome),
-			onListDirs = { path, hostTarget, spawn -> repo.sessions.listDirs(path, hostTarget, spawn) },
-		) { assistantSettingsOpen = false }
-	}
 	AttachmentViewerOverlay(viewerState, rendererPool)
 	LinkMenuDialog(linkMenuState, linkMenuNoteState)
 	// Board dialog replaces current screen.

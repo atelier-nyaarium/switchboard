@@ -142,9 +142,21 @@ internal fun outcomeOf(saved: RuleSaved, draft: RuleDraft, slot: RuleSlot, edit:
 private const val SAVE_OVER = "It changed elsewhere. Save again to go over it."
 private const val DELETE_OVER = "It changed elsewhere; this is it now. Delete again to delete it."
 
+/** Shown opening has landed. */
+internal fun editorLanded(shown: Long?, landed: Long?): Boolean = shown != null && shown == landed
+
 /** The editor's rule left the held list. */
 internal fun goneFrom(rules: WatcherRules, slot: RuleSlot): Boolean =
 	slot is RuleSlot.Held && rules.held.rules.none { it.id == slot.id }
+
+internal data class RuleEditing(val edit: Boolean, val save: Boolean, val delete: Boolean)
+
+/** Disable edits during operations. */
+internal fun ruleEditing(slot: RuleSlot, draft: RuleDraft, busy: Boolean, gone: Boolean): RuleEditing {
+	val edit = !busy && !gone
+	val valid = slot == RuleSlot.Otherwise || draft.toRule() != null
+	return RuleEditing(edit = edit, save = edit && valid, delete = edit && slot is RuleSlot.Held)
+}
 
 internal fun previewText(preview: ConsoleAssistantPreviewResult): String {
 	if (preview.of == 0L) return "No recent events."

@@ -1,5 +1,9 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.assistant.RuleSlot
+import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
+import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
+import com.atelier_nyaarium.switchboard.proto.AssistantWatcherRules
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -28,6 +32,15 @@ class AssistantRootTest {
 		assistantOpen = nav.conversation?.team == assistant,
 	)
 
+	private val github = AssistantWatcher(
+		id = "github",
+		label = "GitHub",
+		grants = emptyList(),
+		unread = 0L,
+		fields = listOf("reason"),
+		rules = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise(action = "inbox", revision = 0L), revision = 0L),
+	)
+
 	private fun placedOn(gatewayId: String, vararg others: String) = ChatState(
 		domainId = "dom",
 		gateways = testRegistry(gatewayId, *others).let { registry ->
@@ -38,7 +51,7 @@ class AssistantRootTest {
 							ConsoleAssistantStateResult(
 								workdir = "~/notes".takeIf { _ -> it.id == gatewayId },
 								team = "host.assistant".takeIf { _ -> it.id == gatewayId },
-								watchers = emptyList(),
+								watchers = if (it.id == gatewayId) listOf(github) else emptyList(),
 							),
 						),
 					)
@@ -183,6 +196,68 @@ class AssistantRootTest {
 		}
 
 		assertEquals(AssistantRoot.Placed("dom.zulu.host.assistant"), assistantRoot(both, null))
+	}
+
+	@Test
+	fun settingsStayOverAMoveAndBackLandsOnTheRetargetedConversation() {
+		val rules = ShellNav().arriveAt(assistant, true, Arrival.OUTSIDE, facts(assistant))
+			.openAssistantPage(AssistantPage.Rules("sakura", "github"))
+		val moved = placedOn("mikan", "sakura").withWord("sakura", holdsNone)
+		val mikan = "dom.mikan.host.assistant"
+
+		val after = rules.followAssistant(assistantRoot(moved, "mikan"), moved).resolvePage(moved)
+
+		assertEquals(AssistantPage.Settings, after.assistantPage)
+		assertEquals(mikan, after.conversation?.team)
+		val back = after.back(BackLayer.ASSISTANT_PAGE, backFacts(after), provisioned = true)
+		assertNull(back.assistantPage)
+		assertEquals(mikan, back.conversation?.team)
+	}
+
+	@Test
+	fun settingsStayOverAReleaseAndBackLandsOnTheRoot() {
+		val editor = ShellNav().arriveAt(assistant, true, Arrival.OUTSIDE, facts(assistant))
+			.openAssistantPage(AssistantPage.Editor("sakura", "github", RuleSlot.New))
+		val released = placedOn("sakura").withWord("sakura", holdsNone)
+
+		val after = editor.followAssistant(assistantRoot(released, null), released).resolvePage(released)
+		val back = after.back(BackLayer.ASSISTANT_PAGE, backFacts(after), provisioned = true)
+
+		assertEquals(AssistantPage.Settings, after.assistantPage)
+		assertEquals(ShellScreen.ROOT, shellScreen(back, locked = false, overlayOpen = false, booted = true))
+		assertEquals(RootView.ASSISTANT, back.root)
+	}
+
+	@Test
+	fun aWatcherPageStaysWhileItsGatewayIsUnansweredAndUnwindsWhenTheWatcherIsGone() {
+		val rules = AssistantPage.Rules("sakura", "github")
+		val placed = placedOn("sakura")
+		val noWatcher = placed.withWord(
+			"sakura",
+			AssistantWord.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = emptyList())),
+		)
+
+		assertEquals(rules, rules.resolved(placed))
+		assertEquals(rules, rules.resolved(placed.withWord("sakura", null)))
+		assertEquals(rules, rules.resolved(placed.withWord("sakura", AssistantWord.Refused)))
+		assertEquals(AssistantPage.Settings, rules.resolved(noWatcher))
+
+		val editor = AssistantPage.Editor("sakura", "github", RuleSlot.New)
+		for (older in listOf(github.copy(fields = null), github.copy(rules = null))) {
+			val answer = ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = listOf(older))
+			val olderGateway = placed.withWord("sakura", AssistantWord.Answered(answer))
+			assertEquals(listOf(AssistantPage.Settings, AssistantPage.Settings), listOf(rules, editor).map { it.resolved(olderGateway) })
+		}
+	}
+
+	@Test
+	fun placingFromConfigureEntersBeneathTheSettingsPage() {
+		val configuring = ShellNav(root = RootView.ASSISTANT).openAssistantPage(AssistantPage.Settings)
+
+		val entered = configuring.enterAssistant(AssistantRoot.Placed(assistant), facts)
+
+		assertEquals(assistant, entered.conversation?.team)
+		assertEquals(AssistantPage.Settings, entered.assistantPage)
 	}
 
 	@Test

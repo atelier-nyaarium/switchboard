@@ -1,10 +1,16 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.assistant.RuleDraft
+import com.atelier_nyaarium.switchboard.assistant.RuleEdit
+import com.atelier_nyaarium.switchboard.assistant.RuleSlot
+import com.atelier_nyaarium.switchboard.assistant.SaveOutcome
+import com.atelier_nyaarium.switchboard.assistant.outcomeOf
 import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
 import com.atelier_nyaarium.switchboard.proto.AssistantRule
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantPreviewResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlin.coroutines.cancellation.CancellationException
@@ -12,7 +18,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 
 /** The Gateway's mark on the assistant's presence row. */
 internal const val ASSISTANT_ROLE = Protocol.Wire.ASSISTANT_ROLE
@@ -71,24 +79,71 @@ internal data class WatcherChip(val text: String, val needsSecret: Boolean)
 internal fun unreadText(watcher: AssistantWatcher): String =
 	"${watcher.unread}${if (watcher.capped == true) "+" else ""} unread"
 
+/** Chip and health agree. */
+internal sealed interface WatcherStatus {
+	/** Hides time and unread. */
+	data object NeedsSecret : WatcherStatus
+
+	data class Stopped(val reason: String) : WatcherStatus
+
+	data class Waiting(val reason: String, val checkedAt: Long?) : WatcherStatus
+
+	data object NotChecked : WatcherStatus
+
+	data class Checked(val at: Long) : WatcherStatus
+}
+
+internal fun watcherStatus(watcher: AssistantWatcher): WatcherStatus = when {
+	watcher.secret != null && watcher.grants.isEmpty() -> WatcherStatus.NeedsSecret
+	watcher.stopped != null -> WatcherStatus.Stopped(watcher.stopped)
+	watcher.backoff != null -> WatcherStatus.Waiting(watcher.backoff.reason, watcher.lastSuccessAt)
+	watcher.lastSuccessAt == null -> WatcherStatus.NotChecked
+	else -> WatcherStatus.Checked(watcher.lastSuccessAt)
+}
+
 /** No count before a poll has read one. */
-internal fun watcherChip(watcher: AssistantWatcher): WatcherChip = when {
-	watcher.grants.isEmpty() -> WatcherChip("${watcher.label} needs a secret", needsSecret = true)
-	watcher.stopped != null -> WatcherChip("${watcher.label} stopped", needsSecret = false)
-	watcher.lastSuccessAt == null -> WatcherChip("${watcher.label} not checked yet", needsSecret = false)
-	else -> WatcherChip("${watcher.label} · ${unreadText(watcher)}", needsSecret = false)
+internal fun watcherChip(watcher: AssistantWatcher): WatcherChip {
+	val label = watcher.label
+	val counted = "$label · ${unreadText(watcher)}"
+	return when (val status = watcherStatus(watcher)) {
+		WatcherStatus.NeedsSecret -> WatcherChip("$label needs a secret", needsSecret = true)
+		is WatcherStatus.Stopped -> WatcherChip("$label stopped", needsSecret = false)
+		is WatcherStatus.Waiting -> WatcherChip(if (status.checkedAt == null) "$label not checked yet" else counted, needsSecret = false)
+		WatcherStatus.NotChecked -> WatcherChip("$label not checked yet", needsSecret = false)
+		is WatcherStatus.Checked -> WatcherChip(counted, needsSecret = false)
+	}
 }
 
 /** A watcher's settings row. */
-internal fun watcherHealth(watcher: AssistantWatcher, ago: (Long) -> String): String {
-	val status = when {
-		watcher.stopped != null -> "Stopped: ${watcher.stopped}"
-		watcher.backoff != null -> "Waiting: ${watcher.backoff.reason}"
-		watcher.lastSuccessAt != null -> "Checked ${ago(watcher.lastSuccessAt)}"
-		else -> "Not checked yet"
-	}
-	return if (watcher.lastSuccessAt != null && watcher.stopped == null) "$status · ${unreadText(watcher)}" else status
+internal fun watcherHealth(watcher: AssistantWatcher, ago: (Long) -> String): String = when (val status = watcherStatus(watcher)) {
+	WatcherStatus.NeedsSecret -> "Needs a secret"
+	is WatcherStatus.Stopped -> "Stopped: ${status.reason}"
+	is WatcherStatus.Waiting ->
+		"Waiting: ${status.reason}" + if (status.checkedAt != null) " · ${unreadText(watcher)}" else ""
+	WatcherStatus.NotChecked -> "Not checked yet"
+	is WatcherStatus.Checked -> "Checked ${ago(status.at)} · ${unreadText(watcher)}"
 }
+
+/** Lives on comes first. */
+internal enum class AssistantSection { LIVES_ON, WATCHERS }
+
+internal fun assistantSections(home: String?, placed: ConsoleAssistantStateResult?): List<AssistantSection> =
+	listOfNotNull(AssistantSection.LIVES_ON, AssistantSection.WATCHERS.takeIf { home != null && placed != null })
+
+/** Page operation and result. */
+internal data class PageWork(val busy: Boolean = false, val said: String? = null)
+
+/** Whose op it is. */
+internal sealed interface WorkKey {
+	data object Settings : WorkKey
+
+	data class RuleList(val gatewayId: String, val watcherId: String) : WorkKey
+}
+
+internal data class RuleDraftKey(val gatewayId: String, val watcherId: String, val slot: RuleSlot)
+
+/** Opening fences draft settlement. */
+internal data class HeldRuleDraft(val draft: RuleDraft, val opening: Long, val said: String? = null, val busy: Boolean = false)
 
 /** Older Gateways name none. */
 internal fun watcherActions(watcher: AssistantWatcher): List<AssistantActionDescriptor> = watcher.actions.orEmpty()
@@ -105,6 +160,79 @@ internal class AssistantOps(
 
 	/** The last move's target. */
 	val preferredHome = MutableStateFlow<String?>(null)
+
+	/** Page results survive Back. */
+	val work = MutableStateFlow<Map<WorkKey, PageWork>>(emptyMap())
+
+	/** Success or Cancel clears. */
+	val ruleDrafts = MutableStateFlow<Map<RuleDraftKey, HeldRuleDraft>>(emptyMap())
+
+	/** Landed opening per key. */
+	val ruleLanded = MutableStateFlow<Map<RuleDraftKey, Long>>(emptyMap())
+
+	/** Per-key busy calls drop. */
+	suspend fun runWork(key: WorkKey, op: suspend AssistantOps.() -> String?) {
+		val held = work.getAndUpdate { if (it[key]?.busy == true) it else it + (key to PageWork(busy = true)) }
+		if (held[key]?.busy == true) return
+		var said: String? = null
+		try {
+			said = op()
+		} finally {
+			work.update { it + (key to PageWork(said = said)) }
+		}
+	}
+
+	private val openings = java.util.concurrent.atomic.AtomicLong()
+
+	/** No edits while its op is out. */
+	fun editRule(key: RuleDraftKey, draft: RuleDraft) {
+		ruleDrafts.update { held ->
+			val now = held[key]
+			if (now?.busy == true) held else held + (key to (now?.copy(draft = draft) ?: HeldRuleDraft(draft, openings.incrementAndGet())))
+		}
+	}
+
+	/** The opening a send will settle. */
+	fun holdRule(key: RuleDraftKey, draft: RuleDraft): Long {
+		val minted = openings.incrementAndGet()
+		return ruleDrafts.updateAndGet { held -> if (key in held) held else held + (key to HeldRuleDraft(draft, minted)) }
+			.getValue(key).opening
+	}
+
+	fun cancelRule(key: RuleDraftKey) {
+		ruleDrafts.update { it - key }
+	}
+
+	/** Busy returns null; sends held or `opened`; `opening` fences settlement. */
+	suspend fun sendRule(key: RuleDraftKey, opened: RuleDraft, edit: RuleEdit, op: suspend (RuleDraft) -> RuleSaved): SaveOutcome? {
+		val minted = openings.incrementAndGet()
+		val before = ruleDrafts.getAndUpdate { held ->
+			val now = held[key]
+			if (now?.busy == true) held
+			else held + (key to HeldRuleDraft(now?.draft ?: opened, now?.opening ?: minted, now?.said, busy = true))
+		}
+		if (before[key]?.busy == true) return null
+		val opening = before[key]?.opening ?: minted
+		val draft = before[key]?.draft ?: opened
+		var outcome: SaveOutcome? = null
+		try {
+			outcome = outcomeOf(op(draft), draft, key.slot, edit)
+		} finally {
+			var settled = false
+			ruleDrafts.update { held ->
+				settled = held[key]?.opening == opening
+				if (!settled) return@update held
+				when (val landed = outcome) {
+					SaveOutcome.Done -> held - key
+					is SaveOutcome.Offer -> held + (key to HeldRuleDraft(landed.draft, opening, landed.line))
+					is SaveOutcome.Said -> held + (key to HeldRuleDraft(draft, opening, landed.reason))
+					null -> held + (key to HeldRuleDraft(draft, opening))
+				}
+			}
+			if (settled && outcome == SaveOutcome.Done) ruleLanded.update { it + (key to opening) }
+		}
+		return outcome
+	}
 
 	suspend fun refreshAll() {
 		coroutineScope { state.value.gateways.ids().map { id -> async { refresh(id) } }.awaitAll() }
