@@ -1,0 +1,93 @@
+<!-- @dsCard group="Assistant" width="430" height="932" -->
+<meta charset="utf-8">
+<title>Assistant settings</title>
+<meta name="viewport" content="width=430, initial-scale=1">
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; width: 430px; height: 932px; position: relative; overflow: hidden;
+		background: #141218; color: #E6E0E9;
+		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
+		-webkit-font-smoothing: antialiased;
+	}
+	.status { height: 28px; padding: 6px 18px; font-size: 12px; color: #CAC4D0; display: flex; }
+	.status span:last-child { margin-left: auto; }
+	.bar { height: 64px; display: flex; align-items: center; padding: 0 6px; gap: 6px; }
+	.ib { width: 44px; height: 44px; display: grid; place-items: center; color: #CAC4D0; font-size: 20px; }
+	.title { font-size: 20px; }
+	.page { padding: 0 16px; }
+	.sec { font-size: 13px; font-weight: 600; color: #D0BCFF; padding: 18px 0 10px; }
+	.field { position: relative; height: 56px; border: 1px solid #938F99; border-radius: 4px; display: flex; align-items: center; padding: 0 14px; margin-bottom: 12px; font-size: 15px; }
+	.field .lbl { position: absolute; top: -8px; left: 10px; padding: 0 4px; background: #141218; font-size: 11.5px; color: #CAC4D0; }
+	.field .trail { margin-left: auto; color: #948F9A; font-size: 12.5px; }
+	.field .caret { margin-left: 10px; color: #CAC4D0; }
+	.mono { font-family: ui-monospace, monospace; }
+	.btn { display: inline-flex; align-items: center; height: 40px; padding: 0 22px; border-radius: 20px; font-size: 14px; font-weight: 500; }
+	.btn.fill { background: #D0BCFF; color: #381E72; }
+	.btn.dim { background: rgba(230,224,233,.12); color: rgba(230,224,233,.38); }
+	.btn.out { border: 1px solid #938F99; color: #D0BCFF; height: 36px; padding: 0 16px; }
+	.btn.text { color: #D0BCFF; padding: 0 12px; }
+	.btn.err { color: #F2B8B5; padding: 0 12px; }
+	.sep { height: 1px; background: #49454F; margin: 18px 0 0; }
+	.row { display: flex; align-items: center; gap: 12px; }
+	.row .n { flex: 1; }
+	.row .t { font-size: 15px; }
+	.row .s { font-size: 12.5px; color: #948F9A; margin-top: 2px; }
+	.sw { width: 52px; height: 32px; border-radius: 16px; background: #D0BCFF; position: relative; }
+	.sw::after { content: ""; position: absolute; right: 4px; top: 4px; width: 24px; height: 24px; border-radius: 12px; background: #381E72; }
+	.wname { font-size: 15px; font-weight: 500; }
+	.health { font-size: 12.5px; color: #948F9A; margin: 2px 0 10px; }
+	.grant { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+	.grant .n { flex: 1; font-size: 14px; }
+	.may { font-size: 12px; font-weight: 600; color: #CAC4D0; margin-bottom: 4px; }
+	.act { font-size: 14px; }
+	.desc { font-size: 12.5px; color: #948F9A; margin-bottom: 10px; }
+	.link { height: 52px; display: flex; align-items: center; gap: 12px; border-top: 1px solid #2B2930; font-size: 15px; }
+	.link .n { flex: 1; }
+	.link .c { color: #948F9A; font-size: 13px; }
+
+	.note { position: absolute; right: 12px; width: 160px; bottom: 24px; background: #2B2930; border: 1px dashed #605B68; border-radius: 12px; padding: 10px 11px; color: #CAC4D0; font-size: 12px; line-height: 1.45; }
+</style>
+
+<div class="status"><span>9:41</span><span>5G &#9646;&#9646;&#9646;</span></div>
+<div class="bar">
+	<div class="ib">&#8592;</div>
+	<div class="title">Assistant settings</div>
+</div>
+
+<div class="page">
+	<div class="sec">Lives on</div>
+	<div class="field"><span class="lbl">Gateway</span>sakura<span class="trail">now</span><span class="caret">&#9662;</span></div>
+	<div class="field"><span class="lbl">Folder</span><span class="mono">~/assistant</span></div>
+	<div class="btn dim">Move here</div>
+
+	<div class="sep"></div>
+	<div class="sec">Safety</div>
+	<div class="row">
+		<div class="n">
+			<div class="t">Approve every send</div>
+			<div class="s">Messages to other sessions wait for you.</div>
+		</div>
+		<div class="sw"></div>
+	</div>
+
+	<div class="sep"></div>
+	<div class="sec">Watchers</div>
+	<div class="wname">GitHub notifications</div>
+	<div class="health">Checked 2m ago &#183; 3 unread</div>
+	<div class="grant">
+		<div class="n">Granted: GitHub token</div>
+		<div class="btn out">Assign secret</div>
+	</div>
+	<div class="may">The assistant may</div>
+	<div class="act">Mark done</div>
+	<div class="desc">Clears threads from your GitHub inbox.</div>
+	<div class="link"><span class="n">Rules</span><span class="c">4 rules &#183; 1 invalid</span><span>&#8250;</span></div>
+	<div class="may" style="margin-top: 12px">Seen outside its lists</div>
+	<div class="desc">Type: CheckRun</div>
+
+	<div class="sep"></div>
+	<div style="padding-top: 10px"><span class="btn err">Release from sakura</span></div>
+</div>
+
+<div class="note">A page with Back, not a sheet. The grant line and Assign secret sit together, above the actions. Rules opens its own page. A stopped watcher adds Retry under Rules.</div>

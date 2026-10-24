@@ -1,0 +1,80 @@
+<!-- @dsCard group="Assistant" width="430" height="932" -->
+<meta charset="utf-8">
+<title>Watcher rules</title>
+<meta name="viewport" content="width=430, initial-scale=1">
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; width: 430px; height: 932px; position: relative; overflow: hidden;
+		background: #141218; color: #E6E0E9;
+		font-family: system-ui, Roboto, sans-serif; font-size: 14px;
+		-webkit-font-smoothing: antialiased;
+	}
+	.status { height: 28px; padding: 6px 18px; font-size: 12px; color: #CAC4D0; display: flex; }
+	.status span:last-child { margin-left: auto; }
+	.bar { height: 64px; display: flex; align-items: center; padding: 0 6px; gap: 6px; }
+	.ib { width: 44px; height: 44px; display: grid; place-items: center; color: #CAC4D0; font-size: 20px; }
+	.title { font-size: 20px; }
+	.sub { font-size: 12.5px; color: #948F9A; margin-top: 2px; }
+	.page { padding: 4px 16px; }
+	.rule { display: flex; align-items: center; gap: 8px; padding: 12px 0; border-bottom: 1px solid #2B2930; }
+	.num { width: 20px; font-size: 11.5px; color: #948F9A; }
+	.text { flex: 1; font-size: 14px; line-height: 1.45; }
+	.text .and { color: #948F9A; font-size: 12.5px; }
+	.act { font-size: 14px; font-weight: 500; color: #D0BCFF; }
+	.up { width: 40px; height: 40px; display: grid; place-items: center; color: #CAC4D0; font-size: 16px; }
+	.gap { width: 40px; }
+	.else { color: #CAC4D0; }
+	.stale { color: #948F9A; text-decoration: line-through; }
+	.why { color: #F2B8B5; font-size: 12.5px; }
+	.act.dim { color: #948F9A; }
+	.fab { position: absolute; right: 16px; bottom: 24px; height: 56px; padding: 0 20px; border-radius: 16px; background: #4F378B; color: #EADDFF; display: flex; align-items: center; gap: 10px; font-size: 14.5px; font-weight: 500; }
+
+	.note { position: absolute; left: 16px; width: 200px; bottom: 24px; background: #2B2930; border: 1px dashed #605B68; border-radius: 12px; padding: 10px 11px; color: #CAC4D0; font-size: 12px; line-height: 1.45; }
+</style>
+
+<div class="status"><span>9:41</span><span>5G &#9646;&#9646;&#9646;</span></div>
+<div class="bar">
+	<div class="ib">&#8592;</div>
+	<div>
+		<div class="title">Rules</div>
+		<div class="sub">GitHub notifications</div>
+	</div>
+</div>
+
+<div class="page">
+	<div class="rule">
+		<span class="num">1</span>
+		<span class="text">Reason is Review requested</span>
+		<span class="act">Wake</span>
+		<span class="gap"></span>
+	</div>
+	<div class="rule">
+		<span class="num">2</span>
+		<span class="text">Repository is nyaarium/switchboard<br><span class="and">and</span> Type is Pull request</span>
+		<span class="act">Wake</span>
+		<span class="up">&#8593;</span>
+	</div>
+	<div class="rule">
+		<span class="num">3</span>
+		<span class="text">Title contains dependabot</span>
+		<span class="act">Inbox</span>
+		<span class="up">&#8593;</span>
+	</div>
+	<div class="rule">
+		<span class="num">4</span>
+		<span class="text"><span class="stale">Type is Gist</span><br><span class="why">Gist is no longer in Type's list. Tap to fix.</span></span>
+		<span class="act dim">Wake</span>
+		<span class="up">&#8593;</span>
+	</div>
+	<div class="rule">
+		<span class="num"></span>
+		<span class="text else">Anything else</span>
+		<span class="act">Inbox</span>
+		<span class="gap"></span>
+	</div>
+</div>
+
+<div class="fab">&#65291; New rule</div>
+
+<div class="note">A page, not a sheet. Rows read in the watcher's labels, never its raw values. A rule that no longer fits stays, never matches, and says why.</div>

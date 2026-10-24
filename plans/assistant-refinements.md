@@ -1,0 +1,493 @@
+# Questionaire
+
+## Question 1 - What goes in this round?
+
+Q: Walk fixes, next-slice features, or both?
+A: Both: the walk fixes, then one next-slice feature.
+
+> Both
+
+## Question 2 - Is the Assistant tab the conversation?
+
+Q: Embed the assistant's conversation in the Assistant view, open it without session tabs, or leave it?
+A: Embed it. The drawer's Assistant shows the transcript and composer, titled "Assistant", with the watcher chips and gear on top. Chat only; Back goes to Sessions; notifications and queue jumps for the assistant land there.
+
+Recommended because it matches the first plan's Assistant tab, saves a tap, and gives a later power-button or lock-screen summon one place to land.
+
+> A. yes.
+
+## Question 3 - Who can reach the assistant over crosstalk?
+
+Q: Today any session can discover, message and wake the assistant. Close it, or keep it?
+A: Keep sessions able to talk to it, asymmetrically. The assistant can see and message every session. No session can see the assistant unless the assistant messaged it first.
+
+> And interesting point that any session can message assistant. that's pretty cool idea for me to say, relay to X this task. So don't kill it. Make assistant be able to see all of them. but none of them can see assistant unless assistant messaged first.
+
+A session the assistant wrote to replies in that conversation through `channel_reply`; a fresh `crosstalk_send` to the assistant stays refused. Friend Domains never see it; it sees only friend sessions already shared.
+
+## Question 4 - How are the assistant's sends guarded?
+
+Q: Approve each send on the phone, free when the owner's message woke it, a target list, or no gate?
+A: A Safety section in Assistant settings with an "Approve every send" option, on by default. On: every send waits on a phone card showing the target and exact text. Ticked off: a send goes without asking when the newest input delivered to the assistant is the owner's own message, and asks otherwise. Every send is recorded in the assistant's conversation either way.
+
+Approval per send was recommended as the only guard that checks the text before it lands.
+
+> Opus and Claude harness pretty strong combo. I trust B, but get A.
+>
+> make a settings section called Safety and have it as an option you can tick off
+
+> or Security. whatever is the better word
+
+Named Safety: it guards against a mistaken send as much as an injected one, and Security reads as locks and credentials, which the app's vault unlock already means.
+
+## Question 5 - Which new feature joins this round?
+
+Q: Summon, check-ins, timed compaction, or Gmail?
+A: Summon and check-ins. Summon: the power button or lock screen lands on the Assistant view. Check-ins: routines aimed at the assistant, like a morning briefing over chosen watchers.
+
+Summon was recommended because replacing Gemini on the phone is the assistant's point.
+
+> A & B
+
+## Question 6 - Where does a check-in live?
+
+Q: A routine aimed at the assistant, or its own list in Assistant settings?
+A: A routine aimed at the assistant. The Routines view offers "Assistant" as a target beside spawn points, keeping the schedule, runbook text, misses, Run and history. For that target: no session reserved or cleaned up, no routine secrets granted, an optional pick of watchers. It lands in the assistant's conversation at its time, even mid-task; the routine runner's `waiting_idle` hold does not apply to it.
+
+> just directly onto the Assistant. even if it was in the middle of something. it's good at multitasking and noticing that
+
+> A
+
+A was recommended because a separate check-in list would be a second scheduler with its own fence and miss handling.
+
+## Question 7 - Summon while locked? [Superseded]
+
+Q: Unlock first, or a limited screen over the lock screen?
+
+Answered "make it an option" (a toggle, off by default), then superseded by Question 8: with replies held until unlock, the lock-screen screen shows nothing private, so it needs no opt-in.
+
+> but back to last question "option", that feels superceded by this A2.
+
+## Question 8 - What can the lock-screen screen do?
+
+Q: Talk while locked, read only, or draft until unlock? Under talk: replies shown locked, or held until unlock?
+A: No typing while locked. The assistant's `channel_reply` and `notify_human` title is its non-sensitive tier, a rule in its instructions. While the phone is locked, an assistant notification shows only its title, and read-aloud speaks only the title, until unlock. This covers everything the assistant sends, check-ins included; other sessions are unchanged.
+
+> A2.
+
+> new direction: we could solve it by instructinf it to use channel reply title tier as the non sensitive notification. and while locked, user only sees that until they unlock. Cannot type until unlocked.
+
+Superseded talk-while-locked (A2, replies held until unlock). No typing removes the active threat, anyone holding the phone asking the assistant something; a title on the lock screen is passive exposure, the same as any notification. Talk while locked was technically sound: `AppStateStore`'s master key has no unlock requirement, the foreground service holds the Router link while the screen is off, and a keyboard shows over a `showWhenLocked` activity.
+
+Found while settling it: the app sets no lock-screen visibility on any notification, so with Android's sensitive content setting on, a reply shows in full on the lock screen, and autoplay reads it aloud.
+
+## Question 9 - Summon while locked?
+
+Q: Unlock first, or the assistant's recent titles over the keyguard?
+A: Unlock first. Long-press power while locked brings up the unlock prompt, then the Assistant view. Nothing from the app draws over the keyguard; no `showWhenLocked` anywhere.
+
+> A
+
+Recommended because the titles already sit on the lock screen as notifications, so a screen over the keyguard would show them twice and need its own guarding.
+
+## Question 10 - What happens when summon lands?
+
+Q: Keyboard up, start listening, or just land?
+A: Keyboard up. Summon focuses the Assistant view's composer with the keyboard open; Gboard's mic key dictates. No speech-to-text and no `RECORD_AUDIO` in the app.
+
+> A
+
+Recommended because Gboard's mic is one tap away, and listening at once would add the app's first microphone permission to save that tap.
+
+## Question 11 - Assistant settings: page or sheet?
+
+Q: A full page, or keep the sheets at full height?
+A: Full page. The gear opens Assistant settings as a page with Back: Lives on, Safety, Watchers. A watcher's Rules opens its own page; the rule editor opens full height. No sheet on a sheet.
+
+> A
+
+Recommended because the view is becoming the conversation, so settings get their own place rather than a sheet over the chat.
+
+## Question 12 - Does a check-in count as the owner's message?
+
+Q: With "Approve every send" off, does a check-in's crosstalk send go straight through?
+A: Yes. A check-in counts as the owner's message for the send guard. With "Approve every send" on, which stays the default, every crosstalk send waits for approval either way. The guard covers `crosstalk_send` alone; the assistant's replies and notifications to the owner never ask.
+
+> check-in counts as my message. but if the cross talk gate is on, it will wait for approval either way.
+
+## Question 13 - Rule values: pick or type?
+
+Q: Choices declared by the watcher, or readable words with free text?
+A: Choices from the watcher. A watcher declares a label per field and, where the source's set is closed, its values with labels; GitHub's `reason` and `type` pick from a menu, `repository` and `title` stay typed. Rows read in labels ("Reason is Review requested"). The Gateway owns the lists; the phone holds no GitHub knowledge.
+
+> A
+
+Recommended because a mistyped value is a rule that silently never matches.
+
+> follow NyaaDot shema strictness when modeling watcher dynamically.
+
+Modeled on NyaaDot's `FrameworkSchema`: a watcher declares each field as a strict schema (a closed set as an enumeration with labels, open text with bounds), the editor builds one widget per field kind from that declaration, and a rule is parsed strictly against it at put and at load, so an unknown field, a value outside the set or a test the kind does not take is refused.
+
+## Question 14 - What stays reachable besides the chat?
+
+Q: Terminal and Notes on the settings page, Terminal only, or chat only?
+A: Reuse the real session conversation screen, so the Terminal view stays. The Assistant opens it in the shell's conversation slot, marked as the assistant: titled "Assistant", no tab row, the watcher chips under the title, the gear in place of the overflow menu (no Rename, Close tab or Forget). The drawer offers Chat and Terminal. Back goes Terminal, Chat, Sessions. Replies autoplay as if its tab were open, and notifications, queue jumps and summon land through one assistant-aware arrival. No Notes entry; the assistant keeps its notes on its own for now. This replaces Question 2's embed.
+
+> 14. what if you make it reuse the session conversation component so we don't lose terminal view? and hold off on notes. let it write on it's own for now
+
+> I meant for you to bring the actual session conversation along. so reuse what we have, don't made a dumb text message app.
+
+> in that case, if it was just mock oversimplification, then sure. go for what we discussed so far
+
+## Question 15 - Type: closed menu or open?
+
+Q: GitHub documents no list for `subject.type`. Menu with Other, typed text, or a strict menu?
+A: Strict menu, like Reason. A watcher reports any event value outside a declared set: the field and value show under that watcher in Assistant settings, so the Gateway's list can be extended. Such an event still flows through the rules by its real value; it matches no `is` choice.
+
+> Strict list. I'll add more if the module reports an unexpected value
+
+## Question 16 - A stored rule that no longer fits its watcher?
+
+Q: Keep it marked invalid, refuse the whole file, or drop it at load?
+A: Keep it, marked invalid. The rules file loads and every other rule works. The stale rule stays stored, never matches, and shows on the Rules page with why, to fix or delete.
+
+> A
+
+Recommended because it matches NyaaDot, where a strict schema refuses to load a record but leaves it on disk; refusing the file loses every rule for one, and dropping it loses the owner's rule silently.
+
+## Question 17 - Files for the assistant?
+
+Q: Files over its own folder, read-only repos the owner picks, or neither?
+A: Neither, for now. Chat and Terminal stay its only views. Read-only repos, so it can talk code, goes to the next slice.
+
+> ohh maybe we should give assistant the file view. so we can have it talk code too when needed
+
+> ohh nvm. that would require touching Lexicon right? I take it back for now.
+
+Files alone shows only its notes: the gate confines its reads to its folder and the files the owner sends, and refuses a ref outside it. Talking code needs read access to chosen repos, a multi-root Files view, and a bound index per repo for the drill-ins.
+
+## Question 18 - What counts as locked?
+
+Q: Smart Lock counts as unlocked (`isDeviceLocked`), or any lock screen on a secure phone (`isKeyguardLocked`)?
+A: Smart Lock counts as unlocked. A phone kept open by a trusted device, such as the car's Bluetooth, reads the assistant's replies in full.
+
+> A
+
+Recommended because Smart Lock lets anyone swipe the phone open, so hiding speech then protects nothing, and driving is when read-aloud matters most.
+
+## Question 19 - What does a paired watch get from the assistant?
+
+Q: Leave it, bridge a title-only form, or keep assistant notifications on the phone?
+A: Bridge a title-only form. A paired watch shows the assistant's locked form, never its summary or body; the full text stays on the phone. No watch is in use today.
+
+> I don't, but do add that in. sounds fun
+
+> yeah hold on rich watch. just get basic.
+
+## Question 20 - Build a check-in's watcher pick now?
+
+Q: Defer the pick until a second watcher exists, or build it now?
+A: Defer it. GitHub is the only watcher, so the runbook text says what to read. This narrows Question 6's optional pick of watchers.
+
+> sure
+
+Recommended because a pick from one watcher picks nothing, and deferring drops an inbox filter, an editor picker and their tests.
+
+# Walk
+
+Emulator walk of the Assistant view, 2026-10-22, after the storage location heading came off (`a45a364e`, not pushed).
+
+- **Assistant in session tabs:** `SessionsScreen` filters `ASSISTANT_ROLE` out of the Sessions list, but a thread's tab row does not. The assistant's conversation shows a `Sandbox | assistant` tab row, and every other session on that host spawn shows an `assistant` tab. The filter lives in one screen, so other session pickers likely leak it too.
+- **Empty view:** the tab is a button, a gear and a chip over a blank screen. Question 19 of the first plan had the tab hold the conversation itself; today it opens an ordinary thread with a back arrow and a lowercase `assistant` title.
+- **Raw GitHub values in rules:** rows read `reason is review_requested`; the Value field is free text with no list of GitHub's reasons.
+- **Settings order:** "None granted." and Assign secret sit below the actions list, away from the secret box they answer.
+- **Stacked sheets:** settings, rules and a rule editor open as three sheets on top of each other. The editor opens half height with Save under the gesture bar until dragged up.
+- **Chip against health:** the chip says "needs a secret" while settings says "Checked 2m ago · 3 unread". A grant removed after a poll gives both.
+
+# Research
+
+**Leak survey (Luna, 2026-10-22):** only `SessionsScreen`'s `localSessions` filters `ASSISTANT_ROLE`.
+- **Tab row:** `openThread` adds the assistant to `openTabs`, and `ThreadScreen` draws those keys wholesale.
+- **Cached thread fallback:** `ChatState.sessions` synthesizes a role-less `Team` from a cached thread while presence is missing, and persistence keeps no role, so that row passes the filter.
+- **Share picker:** `TrustOps` and `Sharing` offer every loose session, the assistant included. A shared assistant reaches a friend's phone with its role dropped by `toCrossDomainPresenceSession`.
+- **Board assignment picker:** `BoardOps` offers it as an assignee; it has no board tools.
+- **Crosstalk:** `/discover` returns the assistant's row, `crosstalk_discover` hides only the literal `host`, and the send route refuses only `host`, so any session can discover, message and wake the assistant.
+- **Rightly inclusive:** vault requests and grants, notifications, unread totals, the queue, scheduled sends, the Gateway session count.
+- **Proposed home:** one `ordinarySessions` read beside `SessionOps`, with the role carried on cached rows.
+
+**Tab as the conversation (Luna):** keep `RootView.ASSISTANT` on the root screen and embed thread content extracted from `ThreadScreen`, rather than reusing the whole conversation screen. Chat only; Back goes to Sessions through `BackLayer.ROOT_VIEW`; the drawer keeps Assistant selected. Notifications, queue jumps and workspace requests resolve the assistant to the Assistant view, never `nav.arrive`. Side effects of leaving `openTabs`: `RendererPoolBindings` pruning, `PollDrain` autoplay follow, `PlaybackOps.enqueueForPlay`. About 7 to 10 files and 150 to 250 lines, plus about 200 lines moved out of `ThreadScreen`.
+
+**One-way crosstalk (Luna):** add `crosstalk_discover`, `crosstalk_send` and `crosstalk_wait` to `ASSISTANT_SWITCHBOARD_TOOLS` as their own constant; `crosstalk_send` joins the gate's `UPLOADING_TOOLS`, since it reads attachment paths itself. Hide the assistant by the Gateway-stamped role (set only through `isAssistantRecord`) in `/discover`, the unauthenticated `GET /teams`, and `crosstalk_discover`; drop it in the Router's `friendProjection` before `toCrossDomainPresenceSession` strips the role. The send route refuses a target that is the assistant, on the receiving Gateway too, since a relayed send carries no role. A session the assistant wrote to already replies through `channel_reply` and `/respond` without seeing it, so a fresh `crosstalk_send` to the assistant can stay refused; `PendingJobStore` rows lack the provenance a fresh-send grant would need. Only `localSessions` is pinned today, by `AssistantOpsTest`. About 8 to 10 files, 100 to 180 lines.
+
+**Send guard (Luna):** only a per-send approval checks the text before it reaches a session. "Newest input was the owner" is unsound: an ack means the plugin emitted a notification, not that the model read it, and an earlier event stays in context after an owner message. A target allowlist bounds destinations, not content. A record after the send is audit only. Approval reuses the vault request pattern (a Gateway-held request, a phone card, a signed answer, 230-second waits with a collect), but as a one-shot decision bound to the canonical target and exact text, never a window. Vault requests live in memory, so a restart must fail the held send closed and retract its card.
+
+**Conversation component for the assistant (Luna, 2026-10-23):**
+- **Shape:** an assistant kind on `ShellNav`'s conversation slot. `RootView.ASSISTANT` transitions into it and `root` stays `ASSISTANT` while it is open, so `shellScreen` draws the conversation. A root-rendered `ThreadScreen` would need view state and Back rules outside the conversation slot and nest two scaffolds.
+- **Views and Back:** a pure `assistantConversationViews` in `DrawerNav` offers Chat and Terminal. `ThreadScreen` takes assistant presentation: "Assistant", no tab row, a header slot for chips, the gear, no Close tab or Forget. `backLayer` already sends Terminal to Chat; Back from Chat clears the conversation to Sessions, and the top-bar arrow takes the same transition. Settings pages and `assistantPageBack` live in `ShellNav`, drawn by `shellScreen` above the conversation.
+- **State:** never `openThread`, which adds to `openTabs`. `RendererPoolBindings` retains the assistant beside `openTabs`; `PollDrain`'s followed check and `PlaybackOps.enqueueForPlay`'s `requireFollowed` need the assistant counted, or its replies never autoplay. Read anchors, unread counts and drafts are keyed by team and keep working.
+- **Arrivals:** notifications, queue jumps (with `revealAt`) and an assist intent go through one assistant-aware transition instead of `openTeamRequest`'s `openThread`.
+- **Size:** 12 to 16 files, 250 to 400 lines including the settings pages, against the embed plan's 7 to 10 files plus about 200 lines moved out of `ThreadScreen`.
+- **Bug classes:** a generic `arrive` dropping the assistant marker, the assistant reaching `openTabs`, Close or Forget left reachable.
+
+**Watcher field declarations (Luna, 2026-10-23):**
+- **Wire:** keep `fields` and add an optional `fieldSpecs` on the console answer in `schemasAssistant`: a discriminated union, defined beside the rule schemas, of `enumeration` (field, label, value and label pairs) and `text` (field, label, max length capped by `ASSISTANT_RULE_VALUE_MAX`), every object strict. Declared on `Watcher`; GitHub's lists live in `createGithubWatcher`. Enumeration takes `is` and `is_not`; text takes all three tests. The rule and condition objects go strict too.
+- **Parse:** one `parseRuleForFields` refuses an undeclared field, a value outside the set, a test the kind does not take, a blank value, and text past its bound. It runs at put and preview, after `decodedLegacy` at restore, and in front of `decideEvent`, where an invalid rule never matches.
+- **Restore:** refusing the snapshot on one bad rule makes `openDurable` quarantine it and start empty, losing every rule when a declaration drops a value. Settled by Question 16: the rule is kept and marked invalid.
+- **GitHub sets (verified, GitHub REST docs, 2026-10-23):** reasons are a documented closed table of 16: `agent_session_finished`, `approval_requested`, `assign`, `author`, `ci_activity`, `comment`, `invitation`, `manual`, `member_feature_requested`, `mention`, `review_requested`, `security_advisory_credit`, `security_alert`, `state_change`, `subscribed`, `team_mention`. `subject.type` is a plain string with no documented values; `Issue`, `PullRequest`, `Commit`, `Release`, `Discussion`, `CheckSuite` and `RepositoryVulnerabilityAlert` are observed, not promised, so `type` is an open set.
+- **Phone:** labels, field-kind tests and draft checks as pure helpers beside `RuleDraft`; `WatcherRulesSheet` renders them. The codegen needs the union in `ROOTS` and `SEALED_ROOTS`. An older phone ignores `fieldSpecs` and keeps typing; a new phone falls back to text against an older Gateway.
+- **Size:** 12 to 14 files, 250 to 400 lines plus 40 to 60 generated. Re-estimated at 16 to 19 files after the Phase 4 audit, with the restore contract, persisted unexpected values and the older-phone path.
+
+**Summon, codebase (Luna, 2026-10-23):**
+- **Entry:** `MainActivity` is `singleTop` with only a launcher filter. `consume()` runs from `onCreate` and `onNewIntent` and reads team, queue and vault extras, never `intent.action`. An assist request belongs there, held like `WorkspaceOpenBus` until boot is Ready, then landed by clearing any open conversation and settings and showing `RootView.ASSISTANT`; `showRoot` alone loses to an open conversation in `shellScreen`.
+- **Notifications and queue jumps:** `openTeamRequest` goes through `openThread` and `nav.arrive` today. The assistant's must land on the Assistant view and carry the queue's `revealAt` into the embedded transcript.
+- **Lock:** no `showWhenLocked`, `turnScreenOn` or `requestDismissKeyguard` anywhere. The app's own biometric lock draws `LockScreen` from `shellScreen`; `ApprovalGate` guards vault actions only. Over the keyguard, the full shell would reach Sessions, Vault and Settings through the drawer.
+- **Voice:** no speech-to-text and no `RECORD_AUDIO`; `Stts` is text-to-speech. Dictation on summon would need a recognizer, the permission, and a one-shot start request into the embedded composer.
+- **Gates:** `back-handler-residue` allows a `BackHandler` only in `MainActivity`, `AttachmentViewer` and `Onboarding`. Nothing fences a new intent filter or component. The sandbox build inherits the manifest, so `am start -a android.intent.action.ASSIST -n <sandbox>/...MainActivity` tests it.
+- **Size:** routing and landing 4 to 6 files, 70 to 130 lines. A `VoiceInteractionService` 2 to 3 files, 80 to 140. Unlock-first 2 to 3 files, 30 to 70; a locked-mode surface 3 to 5 files, 80 to 160. Dictation 4 to 6 files, 90 to 160.
+
+**Summon, platform (Opus web research, framework source to `android17-release`):**
+- **Qualifying:** an exported activity handling `android.intent.action.ASSIST` with `category.DEFAULT` is enough for the Digital assistant picker. A `VoiceInteractionService` is optional. The role is not requestable; open Settings (`ManageAssistActivity`, falling back to default apps), or `adb shell cmd role add-role-holder` for development.
+- **Pixel:** long-press power and the corner swipe both reach SystemUI's `startAssist`, which starts the `ACTION_ASSIST` activity as a new task when no voice service is set. Home Assistant shipped this way for two years; ChatGPT on a Pixel 9 opens from power. Press and hold power must be set to Digital assistant.
+- **Trap:** a voice service without `recognitionService` empties the assistant setting on every update (claude-code issue 41696 on a Pixel 10 Pro Fold). If one is ever added, declare a stub recognizer.
+- **Lock screen:** nothing is special to the assistant. Without `showWhenLocked` the activity starts behind the keyguard and no unlock prompt appears unless the app calls `requestDismissKeyguard`. With it, the activity draws over the keyguard at once and is usable locked. `showWhenLocked` never goes on `MainActivity`, or a conversation open at lock time stays visible over the keyguard. Gemini's July 2026 lock-screen bypass is the risk case.
+- **Recommended:** no voice service. Either the assist filter routes into the shell with unlock-first, or a dedicated assist activity carries `showWhenLocked` and gates everything sensitive.
+
+**Check-ins, codebase (Luna):**
+- **Routines today:** a routine targets a spawn point; `routineTeam` derives one session per routine, which `reserveRoutineSession` reuses or recreates. The runner snapshots the rendered runbook, writes `dispatched` before delivery (at most once), and nudges the session to call `get_session_routine` then `report_session_routine`. History lives per incarnation; filing narrows the vault window.
+- **What refuses the assistant:** no target kind names it; `routineOwns` expects `routine:<id>:reserve` provenance and the assistant carries `assistant:reserve`; routine idle cleanup would try to forget it; `workingRoutine` and routine vault grants assume one routine per session. The two routine tools are registered for the assistant's process but absent from `ASSISTANT_SWITCHBOARD_TOOLS`, so scope, launch allowlist and gate all drop them.
+- **Watchers:** the `inbox` tool lists every enabled watcher, with no filter and no watcher id in its headings. A pick of watchers needs a filter on the listing request. A `new` read advances that watcher's mark.
+- **Voice:** a routine nudge goes through `sendFromOwner`, trusted owner ingress with the routine's name as the visible `from`. A send guard keyed on owner ingress would read a check-in as the owner's message. The senderless `deliverEvent` road exists for watcher events.
+- **Designs:** (a) an assistant target kind on routines reuses `advance`, the occurrence fence, deadlines, misses, snapshots and history; it must skip reservation and cleanup, check the assistant's provenance and placement, and grant no routine secrets. (b) a separate check-in record under Assistant settings needs its own durable fence and miss handling, since `advance` is coupled to `Routine`. Luna recommends (a), edited from the Assistant view, with picked watcher ids and a filtered live `inbox` read. About 15 to 20 files, 650 to 1,000 lines.
+
+# Mockups
+
+Design cards in `plans/assistant-refinements/`, sent to the dock 2026-10-23: drawer, settings page, rules page, rule editor with the reason menu. The chat card was removed: the Assistant draws the real conversation screen, not a new chat.
+
+# Next slice
+
+From the deleted first plan, on the board as bd_0d2b09c4: check-ins, summon from the power button or lock screen, a ping flag per row, the winning rule on a wake, approval cards with Undo, timed compaction, Gmail, phone events. From Question 17: read-only repos for the assistant, with Files, so it can talk code. From Question 20: a check-in's watcher pick, once a second watcher exists.
+# Plan
+
+Implementation steps: implementation-phase, align-fan-out, align-fix, red-team-fan-out, red-team-fix, implementation-commit, architecture-fan-out, architecture-fix, architecture-commit, documentation, crust-collection, plan-completeness. The compliance steps are skipped.
+
+Wire changes follow the repo's rule: new fields optional at the Gateway, tolerated by older peers, with a dated comment where a field becomes required.
+
+## Phase 1 - Assistant visibility
+
+Hides the assistant from every session and friend. Gives the assistant no new tool: crosstalk lands with its guard in Phase 5.
+
+- **One role value:** a role constant exported from TypeScript is used by `TeamInfoSchema` and the stamp in `presence.ts`, and is generated into `Protocol`. `AssistantOps`'s `ASSISTANT_ROLE` reads it from there.
+- **Phone pickers:** `ordinarySessions` is a role predicate beside `SessionOps`. It applies over each picker's own candidates: `localSessions`, `TrustOps.shareableSessions` and `BoardOps.boardAssignTargets`. Counts, vault, notifications, unread totals, the queue and scheduled sends stay inclusive.
+- **Cached role:** the stamped role is persisted beside the threads, keyed by canonical address. It is applied to `ChatState.sessions`'s fallback rows synchronously at load, so an assistant thread with no presence row stays out of the pickers.
+- **Gateway listings:** one role-filtered read serves `GET /teams` and the local half of `/discover`, and `/discover` filters the remote rows it merges. `crosstalk_discover` reads `/discover`. The cross-Domain gate reads the filtered list through `localKind`, so it refuses the assistant. The owner projection keeps the assistant for the phone.
+- **`/pending`:** answers a caller only the rows it sent or receives. No plugin tool reads it.
+- **Router:** `friendProjection` drops a row marked assistant before `toCrossDomainPresenceSession`. `ShareService.share` refuses a session reported as the assistant, and an existing share of it is withdrawn.
+- **Sends:** `send` refuses a target that is the assistant for `session` and `gateway` ingress, beside the `host` check and before `reach`, so nothing wakes it. Owner ingress (chat, runbook fires, routine delivery) and `deliverEvent` pass. A session the assistant wrote to replies through `channel_reply` and `/respond`. Jobs already waiting on the assistant are left to settle.
+- **Tests:**
+  - A harness test covers `/teams`, `/discover` with local and remote rows, `/pending`, and a local and a relayed send refused before wake. It also checks that an owner send and a `channel_reply` pass.
+  - `router-presence.test.ts`: a marked assistant is dropped from a friend's projection even when shared, and a share of it is refused.
+  - Kotlin: `ordinarySessions` over the three pickers, and an assistant thread reloaded with no presence staying out.
+
+## Phase 2 - The assistant's conversation
+
+Reuses the session conversation screen for the assistant. Lands in one commit with Phase 3, since the gear opens Phase 3's pages.
+
+- **Identity:** one predicate beside `AssistantOps` says a team is the assistant, from Phase 1's role (presence or the persisted cache), never the name. `ShellNav` stores no kind: the open conversation is the assistant's when the predicate says so, and `BackFacts` carries it.
+- **Arrival:** one arrival operation reads the predicate before anything opens.
+  - The assistant's road sets `root` to `ASSISTANT` and never calls `openThread`.
+  - The ordinary road keeps `openThread`, and sets `root` to `SESSIONS` when it replaces the assistant's conversation.
+  - Notifications, queue jumps with `revealAt`, `WorkspaceOpenBus` requests and summon all take it. `openThread` refuses the assistant.
+  - Every arrival closes what draws above the shell: editors, sheets and dialogs. `RoutineEditor`'s draft moves beside `RoutineOps` first, as `RunbookOps` and `PolicyOps` hold theirs, so nothing typed is lost.
+- **Assistant root:** a resolver, replacing `AssistantScreen`'s button view.
+  - Placed: enter the conversation.
+  - Confirmed unplaced: Configure. Placing enters the conversation.
+  - Not yet read: a loading state.
+  - Its Gateway unreachable: unavailable, with Retry.
+- **Refresh:** the shell refreshes assistant state, keyed on Gateway incarnations, while the Assistant root or its conversation shows. `AssistantScreen` was its only caller.
+- **Presentation:** one pure value beside `ThreadScreenState`. The status chip and every other Chat surface stay.
+  - "Assistant" in the top bar, the empty state and the conversation drawer header.
+  - No tab row, whatever `openTabs` holds.
+  - The watcher chips (`watcherChip`) under the title.
+  - The gear in place of the overflow menu, so Rename, Close tab and Forget go.
+  - Offered views from `assistantConversationViews`: Chat, plus Terminal when `terminalEligible`. Both `MainActivity` sites read it.
+- **Back:** Terminal, Chat, Sessions. Leaving the assistant's Chat clears the conversation and sets `root` to `SESSIONS`. The top-bar arrow takes the same step.
+- **Followed:** one followed-teams read beside `ThreadOps`: the open tabs plus the assistant, whether or not it shows. `PollDrain`, `PlaybackOps.enqueueForPlay`, `RendererPoolBindings`' retain and its `queueRevision` repaint take it.
+- **Refs:** a ref in the assistant's reply opens its snapshot without the Open File and Open Window exits. The assistant never reaches Files.
+- **Move and release:** the open conversation follows the assistant's current home.
+  - A completed move retargets it.
+  - `StillOn` prefers the target just placed.
+  - A release returns to the Assistant root.
+  - The old Gateway's transcript stays under its old address, unreachable.
+- **Tests:**
+  - JVM cases: the root on assistant arrival and exit, Terminal to Chat to Sessions with the arrow, the offered views, `openThread` refusing the assistant, the followed read, the presentation value, and retargeting on a move.
+  - `SandboxFixtures` seeds a role-marked `host.assistant` with a transcript, kept out of `openTabs`, asserted in `SandboxSeederTest`.
+
+## Phase 3 - Assistant settings pages
+
+Lands with Phase 2. `GrantSecretsSheet` stays a sheet, one over a page.
+
+- **Route:** one Assistant page field on `ShellNav`, apart from `SettingsRoute`: `Settings`, `Rules(gatewayId, watcherId)` and `Editor(gatewayId, watcherId, RuleSlot)`. `shellScreen` draws it in its own slot below BOOT and above CONVERSATION and ROOT, with its own `BackLayer`. `ShellNavSaver` carries it.
+- **Back:** `assistantPageBack` serves system Back and the top-bar arrow: Editor, Rules, Settings, then what lies beneath.
+- **Transitions:**
+  - `arrive` clears the pages.
+  - A completed move keeps Settings and closes the old Gateway's Rules and Editor.
+  - A release keeps Settings, and the conversation beneath clears to the Assistant root, so Back lands there.
+  - A route whose Gateway or watcher no longer resolves unwinds to Settings.
+- **State:** each page's screen state sits in a `SaveableStateHolder` keyed by its route. The rule draft and its conflict offer live beside `AssistantOps`, keyed by Gateway, watcher and slot, as `RunbookOps` holds a runbook draft. Only a landed Save or Delete, or Cancel, clears it. `move` and `release` run through `repo.command`, and their result lands in state the page reads, so Back cannot cut a move in half.
+- **Editor:** a page on `EditorScaffold`, Save in the top bar. Edit, save and delete availability is one pure function in `RuleDraft`. It does not use the EDITOR layer.
+- **Sections:** Lives on and Watchers, in that order. Safety joins between them with Phase 5. One pure function beside `AssistantOps` says which sections show.
+- **Watcher block:** health, the secret box, the grant line with Assign secret, the actions, a Rules link row with its count, then Retry when `canRetry`.
+- **Status:** one pure `WatcherStatus` beside `AssistantOps` feeds the chip and the health line. "Needs a secret" (`secret` set, no grants) comes first and hides check time and unread. Then stopped, backoff, not checked yet, checked with unread. Phone only: `watcherOf` already sends grants, secret and health.
+- **Tests:**
+  - `ShellNavTest`: open each page, Back through the chain, an arrival clearing the pages, settings then move then Back to the retargeted conversation, and settings then release then Back to the root.
+  - `AssistantOpsTest`: `WatcherStatus` with no grant, a prior success and unread, and the section function.
+  - `RuleDraftTest`: availability while busy, deleted, valid and invalid.
+  - The emulator walks the pages on `SandboxAssistantGateway`, which already answers the rule calls.
+
+## Phase 4 - Watcher field declarations
+
+- **Declarations:** a strict `fieldSpecs` union beside the rule schemas: `enumeration` (field, label, value and label pairs) and `text` (field, label, a value of at most `ASSISTANT_RULE_VALUE_MAX`). `Watcher` declares the specs only; the wire `fields` and `fieldsOf` derive from them. `createGithubWatcher` holds GitHub's 16 reasons and the observed subject types. The union goes in codegen `ROOTS` and `SEALED_ROOTS`.
+- **One parse:** `parseRuleForFields` refuses an undeclared field, a value outside the set, a test the kind does not take, and a blank value. An enumeration takes `is` and `is_not`; text takes all three. It answers a result, never throws.
+- **Put and preview:** the console input stays tolerant of unknown keys, so an older phone's write with `ping` still lands (`assistant-rules.test.ts` keeps that case). The field parse refuses what does not fit.
+- **Restore:** after `decodedLegacy`, the snapshot parses strictly for structure; only structural corruption quarantines. Validity is derived per rule against the current specs on every read and never stored, so a spec change moves no revision or position. A put repairs an invalid rule in place; delete and move work by id.
+- **One match path:** a field-aware match takes the specs and skips invalid rules. Sort, the inbox listing and preview (including its `firstMatch`) all use it. The full held list stays the read for display and owner ops.
+- **Matching:**
+  - An enumeration compares the exact raw value; labels are display only. Text keeps case-insensitive `is` and `contains`.
+  - A value outside the set flows by its real value: it matches no `is`, and matches `is_not` when it differs.
+  - A missing field fails every condition on it, `is_not` included.
+- **Invalid status on the wire:** an optional derived list of rule id and reason, beside `rules` on `AssistantWatcher` and `ConsoleAssistantRulesResult`, apart from the stored rule shape. Phase 3's availability function takes it: an invalid row can be edited and deleted, and its stale condition blocks Save until repicked.
+- **Unexpected values:** `pollOnce` checks every event in the answer against the specs before the freshness filter, so the priming poll counts. A deduped set keyed by exact field and value, capped with an overflow flag, is kept in watcher state and committed with `settle`. An entry is pruned once the declaration lists it, and placement resets it with `FRESH_STATE`. An optional field on `AssistantWatcher` carries it; the watcher block shows it. A missing field is never reported. A Gateway rolled back to before this field quarantines watcher state, which re-primes the watcher.
+- **Phone, on Phase 3's Rules and Editor pages:** pure helpers beside `RuleDraft`.
+  - Labels for a field and a value; rows read in labels.
+  - The menu for an enumeration, and the tests each kind takes.
+  - A kind change clears the value, and keeps the test only if the new kind takes it.
+  - A value the menu no longer lists shows invalid until repicked.
+  - An invalid row with its reason.
+  - Typed text from `fields` when the Gateway sends no `fieldSpecs`. An older phone ignores `fieldSpecs` and keeps typing.
+- **Tests:**
+  - `assistant-rules.test.ts`: restore with a stale rule, preview with an invalid earlier rule, the match rules above, and the older phone's `ping` write.
+  - Watcher state and GitHub watcher tests: unexpected values, priming poll included, pruning and the cap.
+  - `RuleDraftTest`: per-kind menus and tests, a kind change, invalid rows, labels.
+  - `kotlin-gate.sh` for the codegen.
+- **Emulator and cards:** `SandboxAssistantGateway` declares `fieldSpecs`, one invalid rule and one unexpected value. The rules and settings cards show both.
+
+## Phase 5 - Send guard
+
+The guard covers `crosstalk_send` alone. Replies and notifications to the owner never ask.
+
+- **Tools:**
+  - `ASSISTANT_SWITCHBOARD_TOOLS` gains `crosstalk_discover`, `crosstalk_send` and `crosstalk_wait` as their own constant, plus the assistant-only collect and withdraw tools. `crosstalk_send` joins the gate's `UPLOADING_TOOLS`.
+  - `ASSISTANT_INSTRUCTIONS` teaches them, and the teaching test walks the new constant. `assistant-tool-scope.test.ts` stops using `crosstalk_send` as its refused example. `check:boot` proves the scope.
+- **Only a guarding Gateway sends:**
+  - The assistant's `crosstalk_send` posts to a route only a guarding Gateway serves. An older Gateway answers 404, which the tool reports as a refusal.
+  - A guarding Gateway's `/send` refuses a session-ingress send whose caller is the assistant.
+  - The phone shows Safety only when the Gateway's state answer carries the setting.
+- **The decision runs first:** for an assistant caller it runs before any branch on the target, so local, cross-Gateway and cross-Domain sends all pass through it.
+- **Safety:** joins Assistant settings between Lives on and Watchers, holding "Approve every send", on by default.
+- **Setting:** a durable Gateway-local store owned by `composeAssistant`. An absent value means on.
+  - Read at every send decision; a failed read asks.
+  - It survives release and placement. A move lands on the destination Gateway's own value, so a move fails toward asking.
+  - An optional field on the state answer, and an owner-only ConsoleOp setter that answers the held value, wired through `AssistantOps`. Never in the assistant's tools.
+- **Binding:** one immutable intent, delivered exactly as bound:
+  - the canonical target, resolved before binding, naming a friend Domain when the target is in one
+  - the exact body and the disposition
+  - the `displayLabel`, and whether the send creates a session
+  - each file's digest, name, type and size; a changed file breaks the binding
+- **Held send (on, or off and asking):**
+  - `crosstalk_send` waits up to 230 seconds, then answers `pending` with a request id. Collect and withdraw continue it; their long-poll routes join `GATEWAY_LONG_WAIT_ROUTES` and `gateway-serve-limits.test.ts`.
+  - A repeat of the same bound intent joins the open request.
+  - The Gateway delivers once, at the owner's tap, and holds the settled outcome for later collects: sent with its `session_id`, denied with a note, expired, or failed. A withdraw before the tap cancels.
+  - The deadline is the vault's.
+- **Shared request lifecycle:** ids, deadline, the per-caller cap, join, settle, collect and retract are one core the vault and the send road both use. Shell shapes, grants and policies stay in the vault's adapter. The send's answer goes through the signed owner op, never through `VaultDecisions` or a value release.
+- **Restart:** a held send fails closed. Open request ids are persisted and retracted at boot, so no card outlives its Gateway's memory. This lands in the shared lifecycle, so vault cards gain it too.
+- **Card:** a send-approval request kind with its own phone card: approve or deny, deny with the vault's optional note. Approve takes `ApprovalGate`, the same unlock a secret takes. The card shows the full text, scrolling, and every bound field. Its text is a pure Kotlin helper. Its notification posts on the assistant's own channel, created here with lock-screen visibility private and joined by its replies in Phase 6, with a public version that says only that the assistant asks to send. No notification action approves.
+- **Off:** a per-assistant marker holds the origin of the newest input the plugin acknowledged emitting.
+  - Each assistant delivery is stamped with its origin where it is accepted. Owner ingress covers chat, runbook fires, routine delivery and check-ins. The other origins are session or Gateway ingress, watcher events, and session replies (`response_push`).
+  - Only channel deliveries move the marker; tool results such as an `inbox` read do not.
+  - A send goes without asking only while the marker reads owner. A missing marker asks, which covers a restart and rows from before the field.
+  - `docs/assistant.md` records the accepted risk: an earlier event, or data read through a tool after the owner's message, stays in context.
+- **Record:** every send is recorded where it is accepted, on every road (live, queued and relayed), through the existing `peer` mirror, keyed by the request id. A field marks whether it was approved or went without asking. A denied, expired or failed send comes back through the tool and is not recorded.
+- **Tests:**
+  - Pure: the off-mode decision, the binding, the record projection.
+  - Harness, on: approve, deny with a note, expiry, withdraw, restart with the card retracted, a cross-Gateway target, a queued target recorded once, a changed attachment refused, an older Gateway refused.
+  - Harness, off: sends after an owner message or a check-in; asks after a watcher event, a session reply or a missing marker; sends after an event followed by an owner message.
+  - `assistant-gate.test.ts`: `crosstalk_send` attachment paths.
+  - Kotlin: the card text, the section function with an unsupported Gateway, the public notification.
+  - `check:boot`: the scope.
+
+## Phase 6 - Lock-screen title tier
+
+Other sessions are unchanged. Code enforces where the title is used, never what it says.
+
+- **Instructions:** `ASSISTANT_INSTRUCTIONS` says the title of `channel_reply` and `notify_human` is shown and spoken while the phone is locked, and to use a generic title such as "Assistant update" when nothing safe can be said. The teaching test checks the rule is present.
+- **The locked form:** one pure decision beside `AssistantOps` takes the role, the row, the lock state and the requested tier, and answers what to show and speak. It never falls back to the summary or the body.
+  - An assistant reply or notice: its title.
+  - A notifying record: a fixed line such as "Assistant finished N items", with no thread titles, since those are GitHub's.
+  - Any other row: a fixed generic line.
+- **Locked means:** `isDeviceLocked` (Question 18). A phone Smart Lock keeps open reads in full; notifications follow Android's own redaction.
+- **Notifications:** assistant rows post on their own channel, created with lock-screen visibility private, since a channel's settings are fixed at creation and `messages_v2` stays as it is. Each notification is `VISIBILITY_PRIVATE` with a public version holding the locked form and no actions. Phase 5's approval card posts on the same channel. If a device shows the private version anyway, the reconcile road redraws on lock and unlock.
+- **Read-aloud:**
+  - The decision runs at the queue head under `advanceMutex`, rewriting the head entry, and on lock transitions through `addKeyguardLockedStateListener` (minSdk 33).
+  - The locked form is its own tier value, never `TITLE`, so the queue key, cache and positions stay consistent.
+  - Speech in progress at lock stops, and its locked form is spoken.
+  - The assistant's notification Play actions take `setAuthenticationRequired(true)`.
+  - After unlock nothing replays; rows heard only as a title stay unread with Play.
+- **Watch (Question 19):** a paired watch gets the locked form only. A public version does not reach a bridged notification, so the mechanism needs research: a phone-local full notification with a bridged title-only twin, or `WearableExtender` pages. Verified on a Wear OS emulator paired to the phone emulator.
+- **Peer rows in its conversation:** its send records and replies from sessions it asked are quiet: shown in the conversation, no alert, no read-aloud. The assistant reports replies in its own words.
+- **Role for a new address:** the phone seeds the role for a move's destination when the move completes and keeps it for past assistant addresses. A role change redraws the notifications.
+- **Tests:**
+  - The decision, in its own JVM test.
+  - `PlaybackOpsTest`: autoplay, direct Play, the Play Full action, and the queue advancing after a rewrite.
+  - The Phase 2 sandbox fixture gets title and body markers and a control session.
+  - On a device, with a PIN and sensitive content shown: a notification posted before locking and one posted while locked, the lock-screen actions, and speech across a lock.
+
+## Phase 7 - Summon
+
+No `showWhenLocked` or `turnScreenOn` anywhere. No voice service, no speech-to-text, no `RECORD_AUDIO`.
+
+- **Filter:** `MainActivity` handles `android.intent.action.ASSIST` with the default category.
+- **One summon ops class beside `AssistantOps`** holds the pure decisions: offer, hold through boot, the fresh-launch check, whether to request dismissal, and the focus token.
+- **Read once:** `consume()` ignores the assist action when `savedInstanceState` is set or `FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY` is set, and clears it once read. The pending summon sits in a process-lifetime `StateFlow` holder, as `WorkspaceOpenBus` does, so a rotation before routing keeps it and process death drops it.
+- **Unlock prompt:** when the keyguard shows (`isKeyguardLocked`, not Phase 6's `isDeviceLocked`), `consume()` calls `requestDismissKeyguard` at once, before boot is Ready. An `onDismissError` while still locked retries once on the next resume. Smart Lock dismisses with no prompt.
+- **Landing:** once boot is Ready, summon takes Phase 2's assistant arrival and the resolver decides. It lands at once, behind the keyguard; nothing private shows before unlock.
+  - Before any Gateway answers placement, it lands on the last assistant conversation from Phase 1's persisted role; the answer then retargets it or returns it to the root under Phase 2's rules.
+  - Unplaced: Configure, and the focus token drops.
+- **Keyboard:** a summon focus token, decided beside `ThreadScreenState`, apart from `openNonce`. It fires once, when the assistant's Chat is drawn, the app lock is clear and the window has focus. A locked summon arms it on `onDismissSucceeded`; an unlocked one at once. `ThreadScreen` consumes it in an effect keyed on the token: request focus, show the IME. Nothing waits on `onDismissCancelled`, so a cancel lands the Assistant without the keyboard.
+- **App lock:** a summon whose keyguard actually challenged (`isDeviceLocked` true at the request) also satisfies the app's biometric lock. A Smart Lock dismissal does not, so the app prompt still runs. The app-lock prompt waits for window focus, not first composition.
+- **Setup:** Assistant settings shows a "Digital assistant" row while `RoleManager.isRoleHeld(ROLE_ASSISTANT)` is false. It opens the system's assistant picker, falls back to default apps, and names the Press and hold power setting. The role cannot be requested by the app.
+- **Tests:**
+  - JVM: held while boot is Missing, then routed; no replay on a restored or from-history launch; the resolver's outcomes; one focus per summon; dismissal requested only while the keyguard shows.
+  - Residue: `ACTION_ASSIST` with `DEFAULT` pinned to `.MainActivity`; `showWhenLocked`, `setShowWhenLocked`, `turnScreenOn` and `RECORD_AUDIO` refused.
+- **Device checks:**
+  1. Filter smoke: `am start -a android.intent.action.ASSIST -c android.intent.category.DEFAULT -p com.atelier_nyaarium.switchboard.sandbox`.
+  2. Real path on the emulator, PIN set: `cmd role add-role-holder --user 0 android.app.role.ASSISTANT <pkg>`, `settings put global power_button_long_press 5`, lock, `input keyevent --duration 1000 KEYCODE_POWER`. Expect the system prompt, then the Assistant with the keyboard up. Repeat with Back on the prompt, warm and cold, with the app lock on, across a rotation, with the screen off, and with an attachment picker open.
+  3. Acceptance: the same steps on the owner's Pixel.
+
+## Phase 8 - Check-ins
+
+A check-in arrives as owner ingress through `sendFromOwner`, so Phase 5's marker reads it as the owner's message.
+
+- **Target shape:** `RoutineTargetSchema` gains an optional `kind`, absent meaning spawn. An assistant target keeps `spawn` filled with the assistant's spawn, so an older phone still decodes the list.
+  - The new phone always sends `kind`. The Gateway refuses a put without `kind` over a stored assistant routine, so an older phone cannot turn a check-in back into a spawn routine.
+  - A dated comment marks when `kind` becomes required. A restore fixture with legacy rows proves the store still loads. `kotlin-gate.sh` regenerates `Protocol.kt`, and `docs/routines.md` loses its spawn-only wording.
+- **One target resolver per kind:** team, the session-busy check, preparation (reserve, or the assistant's provenance and placement), cleanup and ownership. Every site that reads `routineTeam` or `target.spawn` takes it: `advance`, `forgetFinishedSessions`, `deliver`, `sessionTaken`, `reserves`, the console reserve, `contextRefusal`, and `sessionOwned` for `workingRoutine` and `openRuns`. The placement check sits in `prepare`, so scheduled runs, Run and Run missed all pass it.
+- **Mid-task:** an assistant check-in skips the session-busy check. `waiting_idle` still holds for an unreachable host.
+- **Occurrence id:** the routine id travels with the instant through the nudge, both session tools, the route lookups and the baseline's `openRuns`, so two check-ins at one instant never share a snapshot, report or memory. The 64-character bound is raised to fit. A bare instant is accepted only when it matches exactly one of the caller's rows, so nudges in flight keep working.
+- **Placement:** a check-in stays on its own Gateway.
+  - A save is refused while the assistant is not placed there, as `knowsSpawn` refuses an unknown spawn.
+  - At fire, an unplaced assistant stops the occurrence for review with a new cause, `assistant_unplaced`, beside `session_taken`, with phone text for it.
+- **No secrets:** `routineRefusal` refuses `linkedEntries` on an assistant target, so `settleGrants` clears them on a retarget. `workingRoutine` answers null for one. The draft drops the entries when the target becomes Assistant.
+- **Tools:** the routine tools get their own constant in `ASSISTANT_SWITCHBOARD_TOOLS`. `ASSISTANT_INSTRUCTIONS` teaches them, and the teaching test walks the constant. `check:boot` checks the token-bound tools on a token-bound assistant probe.
+- **Watcher pick:** deferred to the next slice (Question 20). The runbook text says what to read, `new` or `all`, and a check-in's `new` read moves the assistant's one mark per watcher.
+- **Phone:** target-aware rules in `RoutineDraft` as pure functions.
+  - "Assistant" beside spawn points in `RoutineEditor`, offered only on Gateways where the assistant is placed.
+  - For it, the editor hides "Forget session after", the spawn point and "Grant secrets".
+  - The row names "Assistant". `ViewScope.routinesOf` leaves check-ins out of session-scoped views.
+- **Accepted risk:** Phase 5's line in `docs/assistant.md` widens to data read through tools after an owner input, which covers check-ins and owner chat alike.
+- **Tests:**
+  - `routine-store.test.ts`: legacy restore, the refused kindless put, the `linkedEntries` refusal.
+  - `routine-runner.test.ts`: the busy bypass, `runFresh` and `runNow` through `prepare`, no cleanup of the assistant, `assistant_unplaced`.
+  - `routine-session-tool.test.ts`: two check-ins at one instant, the bare-instant fallback.
+  - Harness: delivery to the assistant, `openRuns` in its baseline, Phase 5 off-mode after a check-in, a Phase 6 locked title.
+  - `RoutineOpsTest` and `RoutineTextTest`, `kotlin-gate.sh`, `check:boot`.
+- **Size:** about 20 to 25 files.
