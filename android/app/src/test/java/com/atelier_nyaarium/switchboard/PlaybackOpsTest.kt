@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.SttsProvider
 import java.io.File
+import java.util.concurrent.CountDownLatch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,19 +26,23 @@ class PlaybackOpsTest {
 	fun pauseKeepsEveryMessageThatWasQueued() = runBlocking {
 		val team = "local.gw.host.session"
 		val state = MutableStateFlow(ChatState(openTabs = listOf(team), threads = mapOf(team to listOf(Message(false, "one", 1L), Message(false, "two", 2L)))))
-		val ops = PlaybackOps(state, CoroutineScope(Dispatchers.Unconfined), FakePlayback(), object : PlaybackOpsCollaborators {
+		val playback = FakePlayback()
+		val ops = PlaybackOps(state, CoroutineScope(Dispatchers.Unconfined), playback, object : PlaybackOpsCollaborators {
 			override fun openThread(team: String) = team
 		})
+		// The player has no client, so unheld it fails the whole run before the pause.
+		val held = CountDownLatch(1)
+		playback.stts.post { held.await() }
 
 		ops.enqueueForPlay(team, 1L, SttsPlayer.Tier.FULL, announceRun = false, requireFollowed = true)
 		ops.enqueueForPlay(team, 2L, SttsPlayer.Tier.FULL, announceRun = false, requireFollowed = true)
 		ops.pausePlayback()
+		val queued = ops.queueRows().map { it.entry.at }
+		val paused = ops.transportState().second
+		held.countDown()
 
-		// Order is not the promise. This player has no client, so the head takes a synth error, and
-		// one retry legitimately puts it behind the rest or leaves it remembered as failed.
-		val held = (ops.queueRows() + ops.failedRows()).map { it.entry.at }.toSet()
-		assertEquals(setOf(1L, 2L), held)
-		assertEquals(true, ops.transportState().second)
+		assertEquals(listOf(1L, 2L), queued)
+		assertEquals(true, paused)
 	}
 
 	@Test
