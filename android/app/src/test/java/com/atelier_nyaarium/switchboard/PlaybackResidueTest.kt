@@ -2,13 +2,10 @@ package com.atelier_nyaarium.switchboard
 
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * The three rules that keep the playback lifecycle's bug classes unexpressible rather than merely
- * fixed. Each is a claim about the SOURCE, because a behaviour test cannot see a new call site that
- * reintroduces the hazard.
- */
+/** Source checks catch unsafe new call sites. */
 class PlaybackResidueTest {
 	private val mainSrc = File("src/main/java/com/atelier_nyaarium/switchboard")
 
@@ -29,6 +26,23 @@ class PlaybackResidueTest {
 	}
 
 	@Test
+	fun headTicketsAreMintedOnlyByTheQueue() {
+		val offenders = sourcesOutsideRegistry()
+			.filter { Regex("""\bHeadTicket\(""").containsMatchIn(it.readText()) }
+			.map { it.name }
+		assertEquals("HeadTicket may only be minted by PlaybackQueue", listOf("PlaybackQueue.kt"), offenders)
+	}
+
+	@Test
+	fun queueHeadIsWrittenOnlyBySetHead() {
+		val source = File(mainSrc, "PlaybackQueue.kt").readText()
+		val writes = Regex("""(?m)^\s*current\s*=""").findAll(source).toList()
+		val writer = source.indexOf("private fun setHead(")
+		assertEquals(1, writes.size)
+		assertTrue(writer >= 0 && writes.single().range.first > writer)
+	}
+
+	@Test
 	fun playbackEventsAreConstructedOnlyByTheRegistry() {
 		// Delivery order is the registry's transition order because minting happens inside the same
 		// critical section as the state change. An event built anywhere else was not minted under that
@@ -41,7 +55,7 @@ class PlaybackResidueTest {
 	}
 
 	@Test
-	fun abandonHasNoDefaultForWhetherThePositionSurvives() {
+	fun endHasNoDefaultForWhetherThePositionSurvives() {
 		// A pause, a skip, a trash and a genuine displacement all end as PREEMPTED but disagree on
 		// whether the position survives: two keep it, two destroy it, so the outcome alone cannot decide
 		// it.
@@ -52,9 +66,9 @@ class PlaybackResidueTest {
 		// "the pattern matched nothing" - the same vacuity a compile-time check closes.
 		val signature = File(mainSrc, "SttsPlayer.kt").readText()
 			.lines()
-			.first { it.contains("fun abandon(") }
+			.first { it.contains("fun end(") }
 		assertEquals(
-			"abandon must not default `remember`; the compiler is what makes every caller declare it",
+			"end must not default `remember`; the compiler is what makes every caller declare it",
 			true,
 			signature.contains("remember: Boolean)") && !signature.contains("remember: Boolean ="),
 		)

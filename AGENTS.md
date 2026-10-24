@@ -244,6 +244,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../DrainGate.kt` / `DrainHost.kt` / `SessionHost.kt` / `PresenceHost.kt` - the re-entrant drain gate and one host interface per ops class, each with its repository adapter beside it
 - `android/.../ReportReadCompose.kt` / `CapabilitiesCompose.kt` - pure phone composers
 - `android/.../PlaybackOps.kt` / `PlaybackReadModels.kt` - playback serialization and lock-free read models
+  - **A head speaks only under its ticket:** `PlaybackQueue.setHead`, the one head writer, ends the held claim and mints a fresh `HeadTicket` on every assignment. A body claims through `admit` with its ticket, and a terminal moves the queue only when it carries the claimed generation, so a stale post, gap callback or terminal cannot touch the head that replaced it.
 - `android/.../BoardOps.kt` - repository board operations
   - **The board is one Router-held board, so no read and no write names a Gateway:** entries, the
     read time and every intent are owner-scoped. An attachment's bytes are the Router's, uploaded

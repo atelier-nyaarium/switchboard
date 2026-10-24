@@ -3,212 +3,188 @@ package com.atelier_nyaarium.switchboard
 /** One thing to speak, in the tier chosen when it was enqueued. */
 data class QueueEntry(val team: String, val at: Long, val tier: SttsPlayer.Tier?)
 
-/**
- * What an outcome did to the queue.
- *
- * [standDown] is the difference between "nothing to play" and "do not play". It is set when the head
- * gave up the sound to something outside the queue, and the caller must not fill the silence: an empty
- * head reads identical to an idle queue, so without this flag a caller that restarts whenever the
- * queue looks idle speaks straight over whatever displaced it.
- */
-data class QueueStep(val next: QueueEntry?, val failed: QueueEntry? = null, val standDown: Boolean = false)
+/** Fresh per head assignment; a stale holder cannot claim. */
+data class HeadTicket(val entry: QueueEntry, val serial: Long)
+
+/** Body admission result. */
+sealed interface HeadAdmission {
+	data class Admitted(val id: PlaybackId) : HeadAdmission
+	data object Stale : HeadAdmission
+	data object Busy : HeadAdmission
+}
 
 /**
- * The autoplay queue with no player in it: enqueue, one head at a time, advance on an outcome.
- *
- * Advancing is ONE operation. A player completion and a user swipe can arrive together, and an advance
- * that read the head and then mutated across two calls would let both act on the same head - one entry
- * played twice, or skipped without ever being spoken.
+ * [standDown] tells callers not to restart over displaced audio or act on stale outcomes.
  */
-class PlaybackQueue {
+data class QueueStep(val next: HeadTicket?, val failed: QueueEntry? = null, val standDown: Boolean = false)
+
+/**
+ * The autoplay queue with no player in it. Transitions are synchronized because completions and
+ * user actions can race on one head, so the same head cannot advance twice. [setHead] is the only writer.
+ * It ends the held claim through [end] before minting a replacement ticket, so no claim outlives the
+ * head it was admitted for.
+ */
+class PlaybackQueue(private val end: (PlaybackId, Boolean) -> Unit) {
 	private val pending = ArrayDeque<QueueEntry>()
-	private var head: QueueEntry? = null
+	private var current: HeadTicket? = null
+	private var claim: PlaybackId? = null
+	private var serial = 0L
 
-	// Entries that failed once and were sent to the tail. A second failure drops them, so a message
-	// whose audio will never decode cannot hold the queue in a retry loop.
+	// One retry prevents loops.
 	private val retried = mutableSetOf<QueueEntry>()
 
-	// Dropped after their retry, each against WHY. Kept so the UI can show an alert and offer a jump to
-	// the session, which is why a team's teardown has to take these too - otherwise they point at a
-	// removed thread.
-	//
-	// A map, so one message cannot appear twice (the sheet keys its list by entry and Compose rejects a
-	// duplicate outright), and BOUNDED, because every realistic cause of failure - no key, no network,
-	// a provider outage - fails every message in the burst rather than one. Insertion-ordered, so the
-	// cap drops the oldest rather than an arbitrary one.
+	// One alert per entry; teardown clears failures with their team.
+	// Bounded oldest-first; outages fail whole bursts.
 	private val failures = LinkedHashMap<QueueEntry, String?>()
 
 	@Synchronized
-	fun queued(): List<QueueEntry> = listOfNotNull(head) + pending
+	fun queued(): List<QueueEntry> = listOfNotNull(current?.entry) + pending
 
 	@Synchronized
-	fun playing(): QueueEntry? = head
+	fun playing(): QueueEntry? = current?.entry
 
-	/** Nothing playing and nothing waiting. Asked BEFORE an autoplay enqueue, this is what makes the
-	 * chime sound once for a run rather than once per message: mid-run the queue is never idle, and it
-	 * becomes idle again only after the last entry has been spoken. */
 	@Synchronized
-	fun isIdle(): Boolean = head == null && pending.isEmpty()
+	fun ticket(): HeadTicket? = current
+
+	/** Chime once per run. */
+	@Synchronized
+	fun isIdle(): Boolean = current == null && pending.isEmpty()
 
 	@Synchronized
 	fun remembered(): List<QueueEntry> = failures.keys.toList()
 
-	/** Why a remembered entry gave up. The engine already carries a reason on every terminal; dropping
-	 * it made a missing API key, a dead network and an undecodable file all read identically. */
+	/** Failure reasons distinguish alerts. */
 	@Synchronized
 	fun reasonFor(entry: QueueEntry): String? = failures[entry]
 
-	/** Append unless this entry is already queued or playing. Returns whether it was taken, so a caller
-	 * can tell "queued" from "already had it" without asking a second question. */
 	@Synchronized
 	fun enqueue(entry: QueueEntry): Boolean {
-		if (head == entry || pending.contains(entry)) return false
+		if (current?.entry == entry || pending.contains(entry)) return false
 		pending.addLast(entry)
 		return true
 	}
 
-	/** Take the next entry when nothing is playing. Null when the queue is empty or already has a head,
-	 * so a caller cannot start a second playback by asking twice. */
 	@Synchronized
-	fun startNext(): QueueEntry? {
-		if (head != null) return null
-		head = pending.removeFirstOrNull()
-		return head
+	fun startNext(): HeadTicket? {
+		if (current != null) return null
+		return setHead(pending.removeFirstOrNull(), remember = false)
 	}
 
-	/**
-	 * Retire the head according to `outcome` and hand back what to play next, as one operation.
-	 *
-	 * `id` names the entry the outcome belongs to. An outcome for anything other than the current head
-	 * is ignored: a terminal can arrive from a request that was already replaced, and acting on it
-	 * would advance past an entry nobody has heard.
-	 */
 	@Synchronized
-	fun advance(entry: QueueEntry, outcome: SttsPlayer.Outcome, reason: String? = null): QueueStep {
-		if (head != entry) return QueueStep(null)
-		return when (outcome) {
-			// The user stopped THIS message, which is not the same as stopping the run. It is retired
-			// and the queue carries on; a real pause needs a control that says so, and there is none.
-			SttsPlayer.Outcome.COMPLETED, SttsPlayer.Outcome.STOPPED -> {
-				retired(entry)
-				// Only a COMPLETED settles the matter. A message that has now been heard has no business
-				// sitting in the alert as one that never was - but a STOPPED is a skip or a trash, which
-				// is the opposite, and clearing on it told the user they had heard what they gave up on.
-				if (outcome == SttsPlayer.Outcome.COMPLETED) failures.remove(entry)
-				QueueStep(takeNext())
-			}
-
-			// Something outside the queue took the sound. Stand down and start nothing: speaking now
-			// would talk over whatever the user just asked for.
-			//
-			// Put BACK at the front rather than dropped. Yielding is a decision about WHEN to speak,
-			// not about whether to: retiring it outright meant a settings voice sample, or a row's own
-			// Play button, silently consumed the message the run had reached, with no alert and no
-			// count to notice it by. The queue picks up here when the interloper reports its terminal,
-			// and the paused-position machinery already lets it resume where it left off.
-			SttsPlayer.Outcome.PREEMPTED -> {
-				requeueFrontLocked(entry)
-				retired(entry)
-				QueueStep(null, standDown = true)
-			}
-
-			SttsPlayer.Outcome.PLAYBACK_ERROR, SttsPlayer.Outcome.SYNTH_ERROR -> {
-				retired(entry)
-				if (retried.add(entry)) {
-					pending.addLast(entry)
-					QueueStep(takeNext())
-				} else {
-					retried.remove(entry)
-					failures[entry] = reason
-					while (failures.size > MAX_REMEMBERED_FAILURES) {
-						failures.remove(failures.keys.first())
-					}
-					QueueStep(takeNext(), failed = entry)
-				}
-			}
-		}
+	fun admit(ticket: HeadTicket, claim: () -> PlaybackId?): HeadAdmission {
+		if (current != ticket || this.claim != null) return HeadAdmission.Stale
+		val id = claim() ?: return HeadAdmission.Busy
+		this.claim = id
+		return HeadAdmission.Admitted(id)
 	}
 
-	/**
-	 * Forget everything belonging to one team: queued, playing, and remembered.
-	 *
-	 * Returns the entry it took the sound from, or null. NAMING it lets the caller stop that request by
-	 * identity instead of stopping whatever happens to be audible, which may belong to another team.
-	 * Dropping before stopping is what keeps a stop's own terminal from advancing into an entry whose
-	 * audio the same call is deleting.
-	 */
+	@Synchronized
+	fun advance(ticket: HeadTicket, outcome: SttsPlayer.Outcome, reason: String? = null): QueueStep {
+		// Stale outcomes cannot advance a replacement head.
+		if (current != ticket) return QueueStep(null, standDown = true)
+		return advanceCurrent(ticket, outcome, reason)
+	}
+
+	@Synchronized
+	fun ended(gen: Long, outcome: SttsPlayer.Outcome, reason: String? = null): QueueStep {
+		// Reject terminals from replaced claims.
+		if (claim?.gen != gen) return QueueStep(null, standDown = true)
+		val ticket = current ?: return QueueStep(null, standDown = true)
+		claim = null
+		return advanceCurrent(ticket, outcome, reason)
+	}
+
+	@Synchronized
+	fun rewriteHead(ticket: HeadTicket, to: QueueEntry): HeadTicket? {
+		if (current != ticket) return null
+		if (ticket.entry == to) return ticket
+		if (retried.remove(ticket.entry)) retried.add(to)
+		return setHead(to, remember = false)
+	}
+
+	/** Requeue first; ending retires the head but preserves its position. */
+	@Synchronized
+	fun park(ticket: HeadTicket): Boolean {
+		if (current != ticket) return false
+		if (!pending.contains(ticket.entry)) pending.addFirst(ticket.entry)
+		setHead(null, remember = true)
+		return true
+	}
+
 	@Synchronized
 	fun dropTeam(team: String): QueueEntry? {
 		pending.removeAll { it.team == team }
 		retried.removeAll { it.team == team }
 		failures.keys.removeAll { it.team == team }
-		val dropped = head?.takeIf { it.team == team }
-		if (dropped != null) head = null
+		val dropped = current?.entry?.takeIf { it.team == team }
+		if (dropped != null) setHead(null, remember = false)
 		return dropped
 	}
 
-	/** Replace the matching head; report success. */
-	@Synchronized
-	fun rewriteHead(from: QueueEntry, to: QueueEntry): Boolean {
-		if (head != from) return false
-		head = to
-		if (retried.remove(from)) retried.add(to)
-		return true
-	}
-
-	/** Put an entry back at the FRONT, ahead of everything waiting. A pause stops the audio by ending
-	 * the request, which retires it - so without this, resuming would skip the very message that was
-	 * paused. There is no seek yet, so it resumes from the start. */
-	@Synchronized
-	fun requeueFront(entry: QueueEntry) = requeueFrontLocked(entry)
-
-	// Deliberately allowed while it is still the head: a pause requeues BEFORE the stop retires it,
-	// which is the only moment the caller still knows what was playing. Guarded on `pending` alone, so
-	// requeueing something already waiting cannot make it speak twice. Called from advance() too, which
-	// already holds this object's monitor - @Synchronized is reentrant, but a private unsynchronized
-	// body says plainly that the lock is the caller's to hold.
-	private fun requeueFrontLocked(entry: QueueEntry) {
-		if (pending.contains(entry)) return
-		pending.addFirst(entry)
-	}
-
-	/**
-	 * Take one WAITING entry out. Returns whether it was there to take.
-	 *
-	 * Refuses the head on purpose. The head is installed in the engine, so removing it here would leave
-	 * a playback whose terminal has no entry to retire and the run would stop on it; giving up on the
-	 * head is a skip, which retires it and starts the next.
-	 */
+	/** Waiting entries only; giving up the head is a skip. */
 	@Synchronized
 	fun drop(entry: QueueEntry): Boolean {
-		if (head == entry) return false
+		if (current?.entry == entry) return false
+		// Dropping resets its retry count.
 		retried.remove(entry)
 		return pending.remove(entry)
 	}
 
 	@Synchronized
-	fun forgetFailure(entry: QueueEntry): Boolean = failures.remove(entry) != null || false
+	fun forgetFailure(entry: QueueEntry): Boolean = failures.remove(entry) != null
 
 	@Synchronized
 	fun clear() {
 		pending.clear()
 		retried.clear()
 		failures.clear()
-		head = null
+		setHead(null, remember = false)
 	}
 
-	private fun retired(entry: QueueEntry) {
-		if (head == entry) head = null
+	private fun advanceCurrent(ticket: HeadTicket, outcome: SttsPlayer.Outcome, reason: String?): QueueStep {
+		val entry = ticket.entry
+		return when (outcome) {
+			SttsPlayer.Outcome.COMPLETED, SttsPlayer.Outcome.STOPPED -> {
+				// Stop skips; pause parks; only completion marks heard.
+				if (outcome == SttsPlayer.Outcome.COMPLETED) failures.remove(entry)
+				QueueStep(setHead(pending.removeFirstOrNull(), remember = false))
+			}
+
+			// Keep yielded work; do not restart over its replacement.
+			SttsPlayer.Outcome.PREEMPTED -> {
+				if (!pending.contains(entry)) pending.addFirst(entry)
+				setHead(null, remember = false)
+				QueueStep(null, standDown = true)
+			}
+
+			SttsPlayer.Outcome.PLAYBACK_ERROR, SttsPlayer.Outcome.SYNTH_ERROR -> {
+				if (retried.add(entry)) {
+					pending.addLast(entry)
+					QueueStep(setHead(pending.removeFirstOrNull(), remember = false))
+				} else {
+					retried.remove(entry)
+					failures[entry] = reason
+					while (failures.size > MAX_REMEMBERED_FAILURES) {
+						failures.remove(failures.keys.first())
+					}
+					QueueStep(setHead(pending.removeFirstOrNull(), remember = false), failed = entry)
+				}
+			}
+		}
 	}
 
-	private fun takeNext(): QueueEntry? {
-		head = pending.removeFirstOrNull()
-		return head
+	private fun setHead(next: QueueEntry?, remember: Boolean): HeadTicket? {
+		claim?.let {
+			claim = null
+			// Prevent old claims reaching replacement tickets.
+			end(it, remember)
+		}
+		val ticket = next?.let { HeadTicket(it, serial++) }
+		current = ticket
+		return ticket
 	}
 
 	private companion object {
-		// Enough to describe an outage without becoming a list nobody can face. Every realistic cause
-		// fails a whole burst at once, so this is a bound on grief rather than on information.
 		const val MAX_REMEMBERED_FAILURES = 50
 	}
 }

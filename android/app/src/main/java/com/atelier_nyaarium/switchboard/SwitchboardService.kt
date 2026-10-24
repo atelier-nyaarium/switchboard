@@ -373,7 +373,7 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 			FocusHold.KEEP -> Unit
 			FocusHold.RELEASE -> focus.release()
 		}
-		transport?.publish(active, paused, null)
+		transport?.publish(active, paused)
 		val manager = getSystemService(NotificationManager::class.java)
 		val counts = repo.playback.queueCounts()
 		// Three states, not two. A run gets the media notification; a finished run that dropped
@@ -383,7 +383,7 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 		// cancelling on "run over" left anyone without the overlay grant no way to see what was lost.
 		transport?.let {
 			when {
-				active -> manager.notify(TRANSPORT_NOTIFICATION_ID, it.notification(paused, null, openQueuePending()))
+				active -> manager.notify(TRANSPORT_NOTIFICATION_ID, it.notification(paused, openQueuePending()))
 				counts.third > 0 ->
 					manager.notify(TRANSPORT_NOTIFICATION_ID, it.alert(counts.third, CHANNEL_SPEECH_FAILED, openQueuePending()))
 				else -> manager.cancel(TRANSPORT_NOTIFICATION_ID)

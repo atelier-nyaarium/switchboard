@@ -92,6 +92,9 @@ class SttsPlayer(private val root: File) {
 	/** Whether anything at all is audible right now, whoever owns it. */
 	fun isSounding(): Boolean = requests.isSounding()
 
+	/** Claimed: sounding or still synthesizing. */
+	fun isClaimed(team: String, at: Long, tier: Tier?): Boolean = requests.isLive(team, at, tier)
+
 	/**
 	 * Where the audible playback is, how long it is, and WHICH request it belongs to. Null when
 	 * nothing is playing.
@@ -133,37 +136,32 @@ class SttsPlayer(private val root: File) {
 		controlExec.execute(action)
 	}
 
-	/** Play (or toggle-stop) one message tier. Synthesizes through `client` on a
-	 * cache miss, then plays the cached file. Safe to call from any thread.
-	 * `volumePct` is 0-200 (100 = unchanged); see [applyVolume]. */
-	fun play(
+	fun claim(team: String, at: Long, tier: Tier?): PlaybackId? = requests.claim(team, at, tier)
+
+	fun playClaimed(
+		id: PlaybackId,
 		client: SttsClient,
 		provider: SttsProvider,
 		voice: String?,
-		team: String,
-		at: Long,
-		tier: Tier,
 		text: String,
-		volumePct: Int = 100,
-		/** Stand down rather than interrupt, if something else has taken the sound by the time this is
-		 * ready. Autoplay sets it; a request the user made never does. */
-		yielding: Boolean = false,
-		rowKey: String = at.toString(),
-	): Boolean {
-		// Toggle on what the user can see. A tap while this is still synthesizing is NOT a cancel: the
-		// row shows nothing yet, so cancelling would read as a dead button, and single-flight already
-		// refuses the duplicate claim below.
-		// True here too: the toggle already REPORTED this entry's outcome, so a caller waiting on one
-		// has had it. Returning false would have it invent a second terminal for the same request.
-		if (stopSounding(team, at, tier)) return true
-		if (text.isBlank()) return false
-		// Whether this entry's outcome will be reported. A caller driving a queue has to know the
-		// difference from "declined, silently", which is a terminal that never arrives.
-		val audio = cache.cacheFile(team, at, tier, provider, voice, text, rowKey)
-		return null != synthesizeAndPlay(team, at, tier, audio, volumePct, yielding) { dest ->
+		volumePct: Int,
+		rowKey: String,
+	) {
+		val tier = id.tier
+		if (tier == null || text.isBlank()) {
+			val reason = if (tier == null) "no tier to speak" else "nothing to read aloud"
+			apply(requests.finishRequest(id, Outcome.SYNTH_ERROR, reason))
+			return
+		}
+		val audio = cache.cacheFile(id.team, id.at, tier, provider, voice, text, rowKey)
+		startClaimed(id, audio, volumePct, yielding = true) { dest ->
 			client.stream(provider, text, voice, dest)
 		}
 	}
+
+	/** End only this claim; late synthesis cannot play. */
+	fun end(id: PlaybackId, remember: Boolean) =
+		apply(requests.finishRequest(id, Outcome.PREEMPTED), remember)
 
 	/** Voice preview for the settings screen: synthesizes through the cheaper
 	 * sample endpoint (stream for providers without one) and plays. Cached per
@@ -239,11 +237,23 @@ class SttsPlayer(private val root: File) {
 		fetch: (File) -> Unit,
 	): Long? {
 		val id = requests.claim(team, at, tier) ?: return null
+		startClaimed(id, dest, volumePct, yielding, fetch)
+		return id.gen
+	}
+
+	private fun startClaimed(
+		id: PlaybackId,
+		dest: File,
+		volumePct: Int,
+		yielding: Boolean,
+		fetch: (File) -> Unit,
+	) {
+		if (!requests.isLive(id)) return
 		// A cache hit goes straight to the play lane. Left inside the synth lane it queued behind a
 		// stalled fetch, which is the one thing the lane split exists to prevent.
 		if (dest.isFile && dest.length() > 0L) {
 			playExec.execute { playGuarded(id, dest, volumePct, yielding) }
-			return id.gen
+			return
 		}
 		synthExec.execute {
 			try {
@@ -272,7 +282,6 @@ class SttsPlayer(private val root: File) {
 				requests.finish(id, Outcome.SYNTH_ERROR, e.message ?: "synthesis failed")
 			}
 		}
-		return id.gen
 	}
 
 
@@ -308,13 +317,6 @@ class SttsPlayer(private val root: File) {
 		apply(drop)
 		return drop.events.isNotEmpty()
 	}
-
-	/** Give up on one queue entry's audio: stop it if sounding, drop its claim so a synthesis still
-	 * running cannot go on to play it, and report PREEMPTED now rather than when the uncancellable
-	 * fetch finally returns. Tier-scoped, so abandoning one entry never preempts a sibling tier of
-	 * the same message. */
-	fun abandon(team: String, at: Long, tier: Tier?, remember: Boolean) =
-		apply(requests.finishEntry(team, at, tier, Outcome.PREEMPTED), remember)
 
 	@Synchronized
 	private fun teardownPlayer() {

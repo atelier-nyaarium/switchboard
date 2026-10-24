@@ -48,7 +48,7 @@ class SttsTransport(
 	 * controls off the lockscreen - leaving a session active with nothing to play puts a dead
 	 * transport in front of the user on every unlock.
 	 */
-	fun publish(active: Boolean, paused: Boolean, speaking: String?) {
+	fun publish(active: Boolean, paused: Boolean) {
 		session.isActive = active
 		if (!active) return
 		session.setPlaybackState(
@@ -70,7 +70,7 @@ class SttsTransport(
 		)
 		session.setMetadata(
 			android.media.MediaMetadata.Builder()
-				.putString(android.media.MediaMetadata.METADATA_KEY_TITLE, speaking ?: "Switchboard")
+				.putString(android.media.MediaMetadata.METADATA_KEY_TITLE, "Switchboard")
 				.putString(android.media.MediaMetadata.METADATA_KEY_ARTIST, "Agent messages")
 				.build(),
 		)
@@ -83,10 +83,10 @@ class SttsTransport(
 	 * user may never grant, and without a tap target here the queue list would be unreachable for them
 	 * while the notification sat on screen advertising a run they could not inspect.
 	 */
-	fun notification(paused: Boolean, speaking: String?, openQueue: PendingIntent? = null): Notification =
+	fun notification(paused: Boolean, openQueue: PendingIntent? = null): Notification =
 		Notification.Builder(context, channelId)
 			.setSmallIcon(android.R.drawable.ic_lock_silent_mode_off)
-			.setContentTitle(speaking ?: "Speaking")
+			.setContentTitle("Speaking")
 			.setContentText("Agent messages")
 			.apply { openQueue?.let { setContentIntent(it) } }
 			// Ongoing even while paused. A paused run is not a finished one, and making the notification
