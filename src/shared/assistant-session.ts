@@ -1,7 +1,7 @@
 // The assistant's one session. A name is not a binding, so provenance decides, as for a routine.
 
 import { ASSISTANT_ACTION_KEYS } from "./schemasAssistantActions.js";
-import { ASSISTANT_COMMANDS } from "./session-commands.js";
+import { ASSISTANT_COMMANDS, SESSION_COMMANDS } from "./session-commands.js";
 import { composeSessionName } from "./session-id.js";
 import { ASSISTANT_ROLE } from "./wire-vocabulary.js";
 
@@ -31,12 +31,19 @@ export const ASSISTANT_CROSSTALK_TOOLS = {
 	withdraw: "crosstalk_withdraw",
 } as const;
 
+/** A check-in's instructions and report. */
+export const ASSISTANT_ROUTINE_TOOLS = {
+	instructions: SESSION_COMMANDS.sessionRoutine.tool,
+	report: SESSION_COMMANDS.sessionReport.tool,
+} as const;
+
 /** Switchboard tools the assistant may call. */
 export const ASSISTANT_SWITCHBOARD_TOOLS: readonly string[] = [
 	...Object.values(ASSISTANT_REPLY_TOOLS),
 	...Object.values(ASSISTANT_COMMANDS).map(({ tool }) => tool),
 	...ASSISTANT_ACTION_KEYS,
 	...Object.values(ASSISTANT_CROSSTALK_TOOLS),
+	...Object.values(ASSISTANT_ROUTINE_TOOLS),
 ];
 
 /** Assistant-only tools. */

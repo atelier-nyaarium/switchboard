@@ -331,6 +331,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			team: record ? ASSISTANT_TEAM : null,
 			watchers: watchers.map(watcherOf),
 			approveEverySend: safety.approveEverySend(),
+			checkIns: true,
 		};
 	};
 

@@ -1,6 +1,7 @@
 // The Router frames this Gateway answers, and the console dispatcher behind the value op.
 
 import type { Ambient } from "../../shared/ambient.js";
+import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import type { BoardDisposition } from "../../shared/board-authority.js";
 import { opPayloadAadKind } from "../../shared/content-envelope.js";
 import { ValueOpFrameSchema } from "../../shared/router-protocol.js";
@@ -40,7 +41,7 @@ export interface RouterFramesStageDeps {
 	policies: Pick<import("./composePolicies.js").PolicyStage, "console">;
 	workspacePlane: Pick<import("../workspacePlane.js").WorkspacePlane, "ask">;
 	awareness: Pick<AwarenessStage, "awareness" | "workspaceObserve">;
-	assistant: Pick<AssistantStage, "forgetRefusal" | "console" | "bindWake" | "sessionEnded">;
+	assistant: Pick<AssistantStage, "forgetRefusal" | "console" | "bindWake" | "sessionEnded" | "reserves">;
 }
 
 export interface RouterFramesBuild extends RouterFrameHandlers {
@@ -131,6 +132,12 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 				getRunbook: (runbookId) => deps.runbooks.console.get(runbookId),
 				workingOf: (team) => sessions.presence.workingOf(team),
 				reserveSession: (routine) => consoleHandler.reserveRoutineSession(routine),
+				reserveAssistant: async () => {
+					if (!deps.assistant.reserves(ASSISTANT_TEAM)) return { kind: "unplaced" };
+					// Wake before dispatch; failure keeps the occurrence pending.
+					const woken = await host.wakeService.tryWakeTeam(ASSISTANT_TEAM);
+					return woken.ok ? { kind: "ok", team: ASSISTANT_TEAM } : { kind: "pending" };
+				},
 				hasSession: (team) => sessions.presence.getByTeam(team) !== undefined,
 				forgetSession: (team) => {
 					dropSessionResume(team, "release");

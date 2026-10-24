@@ -32,15 +32,46 @@ export function routineSessionName(routineId: string): string {
  * Where the reserved session is made. A policy rather than a session id, because the id would bake
  * in a session that can be closed, and the occurrence resolves this immediately before firing.
  */
+export const ROUTINE_TARGET_KINDS = ["spawn", "assistant"] as const;
+
+export type RoutineTargetKind = (typeof ROUTINE_TARGET_KINDS)[number];
+
 export const RoutineTargetSchema = z
 	.object({
-		/** A spawn point on this gateway. */
+		/** A check-in runs in the assistant's session. Absent means spawn. Required from 2026-11-07. */
+		kind: z.enum(ROUTINE_TARGET_KINDS).meta({ id: "RoutineTargetKind" }).optional(),
+		/** A spawn point here. A check-in keeps the assistant's, so an older phone decodes it. */
 		spawn: z.string().min(1).max(128),
 		workdir: z.string().min(1).optional(),
 	})
 	.meta({ id: "RoutineTarget" });
 
 export type RoutineTarget = z.infer<typeof RoutineTargetSchema>;
+
+export function targetKind(target: RoutineTarget): RoutineTargetKind {
+	return target.kind ?? "spawn";
+}
+
+export function isCheckIn(routine: Pick<Routine, "target">): boolean {
+	return targetKind(routine.target) === "assistant";
+}
+
+/** Routine ids distinguish same-time runs. */
+export function occurrenceIdOf(routineId: string, scheduledAt: number): string {
+	return `${routineId}${OCCURRENCE_ID_SEPARATOR}${scheduledAt}`;
+}
+
+const OCCURRENCE_ID_SEPARATOR = "@";
+
+/** Fits routine id, separator, instant. */
+export const MAX_OCCURRENCE_ID_LEN = 128;
+
+/** A bare instant names no routine. */
+export function parseOccurrenceId(id: string): { routineId?: string; scheduledAt: string } {
+	const at = id.lastIndexOf(OCCURRENCE_ID_SEPARATOR);
+	if (at < 0) return { scheduledAt: id };
+	return { routineId: id.slice(0, at), scheduledAt: id.slice(at + 1) };
+}
 
 export const RoutineSchema = z
 	.object({
@@ -197,7 +228,7 @@ export const ConsoleRoutineRunResultSchema = z
  */
 /** The shape, so the tool's input and the route's parse are the same declaration. */
 export const SessionRoutineRequestShape = {
-	occurrenceId: z.string().min(1).max(64).describe(`Occurrence id from the nudge.`),
+	occurrenceId: z.string().min(1).max(MAX_OCCURRENCE_ID_LEN).describe(`Occurrence id from the nudge.`),
 };
 
 export const SessionRoutineRequestSchema = z.object(SessionRoutineRequestShape);
@@ -241,7 +272,7 @@ export const MAX_ROUTINE_REPORT_CHARS = 16_384;
 export const MAX_ROUTINE_MEMORY_BYTES = 32_768;
 
 export const SessionReportRequestShape = {
-	occurrenceId: z.string().min(1).max(64).describe(`Occurrence id from the nudge.`),
+	occurrenceId: z.string().min(1).max(MAX_OCCURRENCE_ID_LEN).describe(`Occurrence id from the nudge.`),
 	report: z
 		.string()
 		.min(1)
@@ -311,6 +342,7 @@ export function routineRefusal(routine: Routine): string | null {
 	if (routine.weekdays.length === 0) return "a routine with no weekday would never fire";
 	if (new Set(routine.weekdays).size !== routine.weekdays.length) return "a weekday is named twice";
 	if (new Set(routine.linkedEntries).size !== routine.linkedEntries.length) return "a secret is linked twice";
+	if (isCheckIn(routine) && routine.linkedEntries.length > 0) return "a check-in reaches no secrets";
 	if (!parseLocalDate(routine.startDate)) return `${routine.startDate} is not a date`;
 	if (!parseLocalTime(routine.time)) return `${routine.time} is not a time`;
 	if (!knownZone(routine.zone)) return `${routine.zone} is not a zone this gateway knows`;

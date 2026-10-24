@@ -1,5 +1,6 @@
 // The whole gateway graph, one stage at a time.
 
+import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { hostSpawnPoint } from "../shared/host-spawn.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
 import { composeAgents } from "./compose/composeAgents.js";
@@ -245,6 +246,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			if (!sessions.hostSpawnPoints.known) return true;
 			return sessions.hostSpawnPoints.ids.includes(spawn) || sessions.offlineCatalog.has(spawn);
 		},
+		assistantPlaced: () => assistant.reserves(ASSISTANT_TEAM),
 		sessionOwned: (team, routine) => routineOwns(sessions.sessionStore.getByTeam(team), routine),
 		setRoutineGrants: (routineId, entryIds) => vault?.setRoutineGrants(routineId, entryIds),
 		resolveCaller: (req) => {

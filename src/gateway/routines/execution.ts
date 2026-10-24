@@ -1,18 +1,17 @@
 // What a routine does when its moment comes. The runner owns when; none of that is decided here.
 
-import { type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
+import { occurrenceIdOf, type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
 import type { Runbook } from "../../shared/schemasRunbook.js";
 import { SESSION_COMMANDS } from "../../shared/session-commands.js";
 import { deliveryKey, type Occurrence } from "./occurrences.js";
 import { renderRoutine } from "./render.js";
-import { type ReserveResult, routineTeam } from "./reservation.js";
+import { type ReserveResult, routineTeam, type TargetReserve, targetRules } from "./reservation.js";
 import type { PrepareResult, RoutineAttempt } from "./runner.js";
 
-export interface RoutineExecutionDeps {
+export interface RoutineExecutionDeps extends TargetReserve {
 	getRunbook: (runbookId: string) => Runbook | null;
 	/** True while the session is working, false while it is not, undefined when nobody knows. */
 	workingOf: (team: string) => boolean | undefined;
-	reserveSession: (routine: Routine) => Promise<ReserveResult>;
 	/** Whether a record still stands for that session, so an already-forgotten one is left alone. */
 	hasSession: (team: string) => boolean;
 	/** The same teardown an owner's forget takes, so the automatic one cannot do less. */
@@ -29,7 +28,7 @@ export function nudgeFor(routine: Routine, occurrence: Occurrence): string {
 	return [
 		`Owner issued a routine: ${routine.name}.`,
 		// Named from the catalog, so the words cannot ask for a tool nothing registers.
-		`Call ${SESSION_COMMANDS.sessionRoutine.tool} with occurrenceId "${occurrence.scheduledAt}" for the instructions.`,
+		`Call ${SESSION_COMMANDS.sessionRoutine.tool} with occurrenceId "${occurrenceIdOf(occurrence.routineId, occurrence.scheduledAt)}" for the instructions.`,
 		// Said here because nothing else would: a run that never files holds its authority for hours.
 		`When the work is done, call ${SESSION_COMMANDS.sessionReport.tool} with the same occurrenceId.`,
 		"If any blocker occurs, channel_reply.",
@@ -53,8 +52,11 @@ export function createRoutineExecution(deps: RoutineExecutionDeps): RoutineAttem
 			if (!rendered.ok) return { ok: false, reason: "unrenderable" };
 
 			// One routine's dead machine must not end the sweep.
-			const reserved = await deps.reserveSession(routine).catch((): ReserveResult => ({ kind: "pending" }));
+			const reserved = await targetRules(routine)
+				.reserve(routine, deps)
+				.catch((): ReserveResult => ({ kind: "pending" }));
 			if (reserved.kind === "taken") return { ok: false, reason: "session_taken" };
+			if (reserved.kind === "unplaced") return { ok: false, reason: "assistant_unplaced" };
 			if (reserved.kind === "pending") return { ok: false, reason: "unreachable" };
 			return { ok: true, revision: rendered.revision, snapshot: rendered.text, team: reserved.team };
 		},

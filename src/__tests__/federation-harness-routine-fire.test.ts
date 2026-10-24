@@ -43,8 +43,8 @@ describe("federation harness: a routine firing on its own", () => {
 	};
 
 	/** Only what `nudgeFor` reads. */
-	const occurrenceAt = (scheduledAt: number): Occurrence => ({
-		routineId: "triage",
+	const occurrenceAt = (scheduledAt: number, routineId = "triage"): Occurrence => ({
+		routineId,
 		scheduledAt,
 		deadlineAt: scheduledAt,
 		state: "dispatched",
@@ -145,7 +145,7 @@ describe("federation harness: a routine firing on its own", () => {
 		clock = slot + 60_000;
 		await h.gateway.faults.sweepRoutines();
 
-		const nudge = nudgeFor(drifts, occurrenceAt(slot));
+		const nudge = nudgeFor(drifts, occurrenceAt(slot, drifts.id));
 		await h.waitFor(
 			async () => reserved?.inbound.find((frame) => frame.body === nudge),
 			"the edited routine's nudge",

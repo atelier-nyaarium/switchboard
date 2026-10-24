@@ -45,7 +45,6 @@ import com.atelier_nyaarium.switchboard.runbooks.PreviewPane
 import com.atelier_nyaarium.switchboard.runbooks.PreviewState
 import com.atelier_nyaarium.switchboard.runbooks.settledPreview
 import com.atelier_nyaarium.switchboard.runbooks.spawnChoices
-import com.atelier_nyaarium.switchboard.runbooks.spawnMenu
 import com.atelier_nyaarium.switchboard.runbooks.stale
 import com.atelier_nyaarium.switchboard.vault.grantableOn
 import kotlinx.coroutines.launch
@@ -100,7 +99,13 @@ fun RoutineEditor(
 	val books = remember(library, draft.runbookId, draft.approvedRevision) {
 		runbookMenu(library, draft.runbookId, draft.approvedRevision)
 	}
-	val spawns = remember(state, gatewayId, draft.spawn) { spawnMenu(spawnChoices(state, gatewayId), draft.spawn) }
+	// Placement is read only while an assistant view shows, so ask here too.
+	LaunchedEffect(gatewayId) { repo.assistantOps.refresh(gatewayId) }
+	val assistantSpawn = remember(state.gateways, gatewayId) { assistantSpawnOn(state, gatewayId) }
+	val targets = remember(state, gatewayId, draft.targetKind, draft.spawn, assistantSpawn) {
+		routineTargetMenu(spawnChoices(state, gatewayId), draft.targetKind, draft.spawn, assistantSpawn)
+	}
+	val assistantTarget = draft.targetKind == ROUTINE_TARGET_ASSISTANT
 
 	var preview by remember(routineId) { mutableStateOf<PreviewState>(PreviewState.Pending) }
 	var attempt by remember(routineId) { mutableStateOf(0) }
@@ -181,12 +186,14 @@ fun RoutineEditor(
 					modifier = Modifier.weight(1f),
 				)
 			}
-			OutlinedTextField(
-				value = draft.forgetAfterDays.toString(),
-				onValueChange = { text -> text.toIntOrNull()?.let { draft = draft.copy(forgetAfterDays = it) } },
-				label = { Text("Forget session after (days)") },
-				modifier = Modifier.fillMaxWidth(),
-			)
+			if (!assistantTarget) {
+				OutlinedTextField(
+					value = draft.forgetAfterDays.toString(),
+					onValueChange = { text -> text.toIntOrNull()?.let { draft = draft.copy(forgetAfterDays = it) } },
+					label = { Text("Forget session after (days)") },
+					modifier = Modifier.fillMaxWidth(),
+				)
+			}
 			// No zone picker: the gateway's zone is canonical, so the owner reads their own and the
 			// save converts. Saying so beats a field that looks like a choice and is not one.
 			if (zone.id != gatewayZone) {
@@ -198,17 +205,27 @@ fun RoutineEditor(
 			}
 
 			PickMenu(
-				label = "Spawn point",
-				choices = spawns,
-				picked = spawns.find { it.spawn == draft.spawn },
+				label = "Target",
+				choices = targets,
+				picked = targets.find {
+					it.kind == draft.targetKind && (it.kind == ROUTINE_TARGET_ASSISTANT || it.spawn == draft.spawn)
+				},
 				labelOf = { it.label },
-				onPick = { draft = draft.copy(spawn = it.spawn) },
+				onPick = {
+					draft = if (it.kind == ROUTINE_TARGET_ASSISTANT) {
+						draft.selectAssistant(it.spawn)
+					} else {
+						draft.selectSpawn(it.spawn)
+					}
+				},
 				trailingOf = { if (it.offered) null else "not offered now" },
 			)
 
-			Text("Granted secrets", style = MaterialTheme.typography.labelLarge)
-			Text(grantedLine(draft.linkedEntries, entries), style = MaterialTheme.typography.bodyMedium)
-			OutlinedButton(onClick = hapticClick { granting = true }) { Text("Grant secrets") }
+			if (!assistantTarget) {
+				Text("Granted secrets", style = MaterialTheme.typography.labelLarge)
+				Text(grantedLine(draft.linkedEntries, entries), style = MaterialTheme.typography.bodyMedium)
+				OutlinedButton(onClick = hapticClick { granting = true }) { Text("Grant secrets") }
+			}
 
 			PickMenu(
 				label = "Runbook",
@@ -287,7 +304,7 @@ fun RoutineEditor(
 		}
 	}
 
-	if (granting) {
+	if (granting && !assistantTarget) {
 		GrantSecretsSheet(
 			entries = offered,
 			granted = draft.linkedEntries,

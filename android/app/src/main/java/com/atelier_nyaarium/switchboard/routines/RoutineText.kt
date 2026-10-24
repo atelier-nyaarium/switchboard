@@ -10,6 +10,9 @@ import com.atelier_nyaarium.switchboard.vault.VaultEntryView
 
 private val WEEKDAYS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
+internal fun routineTargetLine(routine: Routine): String? =
+	if (routine.target.kind == ROUTINE_TARGET_ASSISTANT) "Assistant" else null
+
 /**
  * The rule as the gateway holds it, in the zone it holds it in. Nothing here converts: the phone
  * would otherwise show a schedule that reads differently in every airport, for a rule that did not

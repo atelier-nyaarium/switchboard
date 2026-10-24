@@ -7,8 +7,9 @@ import { createOccurrenceStore } from "../gateway/routines/occurrences.js";
 import { createRoutineRunner, GRACE_MS, type RoutineAttempt } from "../gateway/routines/runner.js";
 import { createRoutineStore } from "../gateway/routines/store.js";
 import type { Ambient } from "../shared/ambient.js";
+import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { openDurable } from "../shared/durable-store.js";
-import { ROUTINE_REPORT_GRACE_MS, type Routine } from "../shared/schemasRoutine.js";
+import { occurrenceIdOf, ROUTINE_REPORT_GRACE_MS, type Routine } from "../shared/schemasRoutine.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -134,6 +135,64 @@ describe("the routine runner", () => {
 		expect(held?.state).toBe("missed");
 		expect(held?.reason).toBe("session_busy");
 		expect(w.delivered).toEqual([]);
+	});
+
+	it("runs a check-in while the assistant is mid-task, and still waits on its unreachable host", async () => {
+		const checkIn = routine({ target: { kind: "assistant", spawn: "host" } });
+		const busy = world({ sessionIdle: () => false, prepare: async () => ({ ...ready, team: ASSISTANT_TEAM }) });
+		busy.routines.put(checkIn);
+		await busy.runner.reconcile();
+		expect(busy.occurrences.at("triage", MONDAY_0900_LA)?.state).toBe("dispatched");
+
+		const unreachable = world({ prepare: async () => ({ ok: false, reason: "unreachable" }) });
+		unreachable.routines.put(checkIn);
+		await unreachable.runner.reconcile();
+		expect(unreachable.occurrences.at("triage", MONDAY_0900_LA)).toMatchObject({
+			state: "waiting_idle",
+			reason: "host_unreachable",
+		});
+	});
+
+	it("stops a check-in for review when the assistant is gone, on every road that runs one", async () => {
+		const unplaced = { ok: false, reason: "assistant_unplaced" } as const;
+		const checkIn = routine({ target: { kind: "assistant", spawn: "host" } });
+		const scheduled = world({ prepare: async () => unplaced });
+		scheduled.routines.put(checkIn);
+		await scheduled.runner.reconcile();
+		expect(scheduled.occurrences.at("triage", MONDAY_0900_LA)).toMatchObject({
+			state: "needs_review",
+			reviewCause: "assistant_unplaced",
+		});
+
+		const pressed = world({ prepare: async () => unplaced });
+		pressed.routines.put({ ...checkIn, weekdays: [3] });
+		expect(await pressed.runner.runFresh("triage")).toBeNull();
+		expect(pressed.delivered).toEqual([]);
+
+		let placed = false;
+		const missed = world({ sessionIdle: () => false, prepare: async () => (placed ? ready : unplaced) });
+		missed.routines.put(routine());
+		await missed.runner.reconcile();
+		missed.at(MONDAY_0900_LA + GRACE_MS + 1);
+		await missed.runner.reconcile();
+		missed.routines.put(checkIn, { base: 1 });
+		expect(await missed.runner.runNow("triage", MONDAY_0900_LA)).toBe(false);
+		placed = true;
+		expect(await missed.runner.runNow("triage", MONDAY_0900_LA)).toBe(true);
+	});
+
+	it("never forgets the assistant's session when a check-in's keep period passes", async () => {
+		const forgotten: string[] = [];
+		const w = world({
+			hasSession: () => true,
+			forgetSession: (team) => forgotten.push(team),
+			prepare: async () => ({ ...ready, team: ASSISTANT_TEAM }),
+		});
+		w.routines.put(routine({ target: { kind: "assistant", spawn: "host" } }));
+		await w.runner.reconcile();
+		w.at(MONDAY_0900_LA + 30 * 24 * 60 * 60 * 1000);
+		await w.runner.reconcile();
+		expect(forgotten).toEqual([]);
 	});
 
 	it("waits on an unreachable host, and says that rather than blaming a busy session", async () => {
@@ -333,6 +392,85 @@ describe("the routine runner", () => {
 		await stage.reconcile();
 
 		expect(delivered).toEqual([String(MONDAY_0900_LA)]);
+	});
+
+	it("names a working check-in to the assistant but gives it no grant authority, and tells the owner when the assistant is gone", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "routine-stage-"));
+		roots.push(root);
+		let now = MONDAY_0900_LA - 60_000;
+		let placed = true;
+		const stage = composeRoutines({
+			dataDir: root,
+			ambient: {
+				now: () => now,
+				setTimer: () => ({}) as ReturnType<Ambient["setTimer"]>,
+				clearTimer: () => undefined,
+				newId: () => "inc-1",
+			},
+			resolveCaller: () => null,
+			assistantPlaced: () => placed,
+			sessionOwned: () => true,
+			attempt: () => ({
+				sessionIdle: () => false,
+				hasSession: () => true,
+				forgetSession: () => {},
+				prepare: async () =>
+					placed ? { ...ready, team: ASSISTANT_TEAM } : { ok: false, reason: "assistant_unplaced" },
+				deliver: async () => undefined,
+			}),
+		});
+		stage.console.put(routine({ target: { kind: "assistant", spawn: "host" } }));
+		now = MONDAY_0900_LA;
+		stage.start();
+		await stage.reconcile();
+
+		expect(stage.openRuns(ASSISTANT_TEAM)).toEqual([
+			{ occurrenceId: occurrenceIdOf("triage", MONDAY_0900_LA), routine: "Morning triage" },
+		]);
+		expect(stage.workingRoutine(ASSISTANT_TEAM)).toBeNull();
+
+		placed = false;
+		now = MONDAY_0900_LA + 60_000;
+		await stage.console.run("triage");
+		expect(stage.console.list().routines[0]?.reviewReason).toBe("the assistant is not placed on this Gateway");
+		await stage.stop();
+	});
+
+	it("ends a routine's open runs when it changes target kind, so none files into the new memory", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "routine-stage-"));
+		roots.push(root);
+		let now = MONDAY_0900_LA - 60_000;
+		let minted = 0;
+		const stage = composeRoutines({
+			dataDir: root,
+			ambient: {
+				now: () => now,
+				setTimer: () => ({}) as ReturnType<Ambient["setTimer"]>,
+				clearTimer: () => undefined,
+				newId: () => `inc-${++minted}`,
+			},
+			resolveCaller: () => null,
+			assistantPlaced: () => true,
+			sessionOwned: () => true,
+			attempt: () => ({
+				sessionIdle: () => true,
+				hasSession: () => true,
+				forgetSession: () => {},
+				prepare: async () => ready,
+				deliver: async () => undefined,
+			}),
+		});
+		stage.console.put(routine());
+		now = MONDAY_0900_LA;
+		stage.start();
+		await stage.reconcile();
+		expect(stage.openRuns("host.routine-triage")).toHaveLength(1);
+
+		stage.console.put(routine({ name: "Renamed" }), 1);
+		expect(stage.openRuns("host.routine-triage")).toHaveLength(1);
+		stage.console.put(routine({ target: { kind: "assistant", spawn: "host" } }), 2);
+		expect(stage.openRuns("host.routine-triage")).toEqual([]);
+		await stage.stop();
 	});
 
 	it("misses a disabled routine's open occurrence rather than running it", async () => {

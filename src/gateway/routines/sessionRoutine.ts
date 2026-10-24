@@ -2,10 +2,11 @@
 
 import {
 	MAX_ROUTINE_MEMORY_BYTES,
+	parseOccurrenceId,
 	type SessionReportAnswer,
 	type SessionRoutineAnswer,
 } from "../../shared/schemasRoutine.js";
-import type { Occurrence } from "./occurrences.js";
+import { type Occurrence, workEnded } from "./occurrences.js";
 
 export interface SessionRoutineDeps {
 	/** The team the caller's token resolves to, or null when it resolves to nothing. */
@@ -14,6 +15,34 @@ export interface SessionRoutineDeps {
 	routineName: (routineId: string) => string | null;
 	/** What this routine remembers from earlier runs, empty at version zero on its first. */
 	memory: (routineId: string) => { text: string; version: number };
+}
+
+type Found =
+	| { kind: "held"; row: Occurrence }
+	| { kind: "no_routine" }
+	| { kind: "wrong_session" }
+	| { kind: "unknown_occurrence" };
+
+/**
+ * The caller's run an id names. Both questions resolve here, so a session cannot read one run and
+ * report another. A bare instant, from a nudge in flight, counts only when it names one run.
+ */
+function findOccurrence(rows: Occurrence[], team: string, occurrenceId: string): Found {
+	const mine = rows.filter((row) => row.team === team && row.snapshot !== undefined);
+	if (mine.length === 0) return { kind: "no_routine" };
+
+	const named = parseOccurrenceId(String(occurrenceId));
+	const names = (row: Occurrence) =>
+		String(row.scheduledAt) === named.scheduledAt &&
+		(named.routineId === undefined || row.routineId === named.routineId);
+	const held = mine.filter(names);
+	if (held.length === 1) return { kind: "held", row: held[0] as Occurrence };
+	if (held.length > 1) return { kind: "unknown_occurrence" };
+	// Separating these does say that some instant is spoken for, which a session could probe
+	// for. It is kept because a session told "unknown" about its own run, after a session was
+	// replaced underneath it, would report a routine broken that is merely somewhere else.
+	const elsewhere = rows.some((row) => names(row) && row.team !== team);
+	return elsewhere ? { kind: "wrong_session" } : { kind: "unknown_occurrence" };
 }
 
 /**
@@ -25,19 +54,9 @@ export function answerSessionRoutine(deps: SessionRoutineDeps, occurrenceId: str
 	const team = deps.callerTeam();
 	if (!team) return { kind: "unauthenticated" };
 
-	const rows = deps.occurrences();
-	const mine = rows.filter((row) => row.team === team && row.snapshot !== undefined);
-	if (mine.length === 0) return { kind: "no_routine" };
-
-	const wanted = String(occurrenceId);
-	const held = mine.find((row) => String(row.scheduledAt) === wanted);
-	if (!held) {
-		// Separating these does say that some instant is spoken for, which a session could probe
-		// for. It is kept because a session told "unknown" about its own run, after a session was
-		// replaced underneath it, would report a routine broken that is merely somewhere else.
-		const elsewhere = rows.some((row) => String(row.scheduledAt) === wanted && row.team !== team);
-		return elsewhere ? { kind: "wrong_session" } : { kind: "unknown_occurrence" };
-	}
+	const found = findOccurrence(deps.occurrences(), team, occurrenceId);
+	if (found.kind !== "held") return found;
+	const held = found.row;
 
 	const remembered = deps.memory(held.routineId);
 	return {
@@ -88,20 +107,11 @@ export function answerSessionReport(
 	const team = deps.callerTeam();
 	if (!team) return { kind: "unauthenticated" };
 
-	const rows = deps.occurrences();
-	const mine = rows.filter((row) => row.team === team && row.snapshot !== undefined);
-	if (mine.length === 0) return { kind: "no_routine" };
+	const found = findOccurrence(deps.occurrences(), team, occurrenceId);
+	if (found.kind !== "held") return found;
+	const held = found.row;
 
-	const wanted = String(occurrenceId);
-	const held = mine.find((row) => String(row.scheduledAt) === wanted);
-	if (!held) {
-		const elsewhere = rows.some((row) => String(row.scheduledAt) === wanted && row.team !== team);
-		return elsewhere ? { kind: "wrong_session" } : { kind: "unknown_occurrence" };
-	}
-
-	if (held.state !== "dispatched" || held.work === undefined || held.work === "done") {
-		return { kind: "not_working" };
-	}
+	if (workEnded(held)) return { kind: "not_working" };
 
 	if (Buffer.byteLength(history, "utf8") > MAX_ROUTINE_MEMORY_BYTES) {
 		return { kind: "history_too_large", maxBytes: MAX_ROUTINE_MEMORY_BYTES };

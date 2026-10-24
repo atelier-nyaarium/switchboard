@@ -1,9 +1,13 @@
 package com.atelier_nyaarium.switchboard.routines
 
+import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineTarget
 import com.atelier_nyaarium.switchboard.proto.Runbook
+import com.atelier_nyaarium.switchboard.proto.parseSessionName
+import com.atelier_nyaarium.switchboard.runbooks.SpawnChoice
+import com.atelier_nyaarium.switchboard.runbooks.spawnMenu
 import com.atelier_nyaarium.switchboard.runIsolated
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -19,6 +23,8 @@ private const val MAX_WEEK_INTERVAL = 8
 private const val MAX_LINKED = 16
 private val FORGET_MIN = Protocol.Wire.ROUTINE_FORGET_DAYS_MIN
 private val FORGET_MAX = Protocol.Wire.ROUTINE_FORGET_DAYS_MAX
+internal const val ROUTINE_TARGET_SPAWN = "spawn"
+internal const val ROUTINE_TARGET_ASSISTANT = "assistant"
 
 /**
  * What the editor holds. The gateway owns the revision and when it took the routine, so neither is
@@ -35,6 +41,7 @@ internal data class RoutineDraft(
 	val runbookId: String = "",
 	val approvedRevision: Long = 0L,
 	val values: Map<String, String> = emptyMap(),
+	val targetKind: String = ROUTINE_TARGET_SPAWN,
 	val spawn: String = "host",
 	val workdir: String = "",
 	val linkedEntries: List<String> = emptyList(),
@@ -55,17 +62,19 @@ internal data class RoutineDraft(
 		weekInterval !in 1..MAX_WEEK_INTERVAL -> "Every N weeks reads 1 to $MAX_WEEK_INTERVAL"
 		!TIME_RE.matches(time) -> "The time reads as HH:MM"
 		!DATE_RE.matches(startDate) -> "The start date reads as YYYY-MM-DD"
-		spawn.isBlank() -> "Name a spawn point"
-		linkedEntries.size > MAX_LINKED -> "At most $MAX_LINKED secrets"
-		linkedEntries.size != linkedEntries.toSet().size -> "A secret is linked twice"
+		!isAssistantTarget && spawn.isBlank() -> "Name a spawn point"
+		!isAssistantTarget && linkedEntries.size > MAX_LINKED -> "At most $MAX_LINKED secrets"
+		!isAssistantTarget && linkedEntries.size != linkedEntries.toSet().size -> "A secret is linked twice"
 		runbookId.isBlank() -> "Pick a runbook"
 		approvedRevision <= 0L -> "Pick a runbook"
-		forgetAfterDays !in FORGET_MIN..FORGET_MAX -> "Keep the session $FORGET_MIN to $FORGET_MAX days"
+		!isAssistantTarget && forgetAfterDays !in FORGET_MIN..FORGET_MAX ->
+			"Keep the session $FORGET_MIN to $FORGET_MAX days"
 		else -> null
 	}
 
 	fun toRoutine(): Routine? {
 		if (refusal() != null) return null
+		val assistant = isAssistantTarget
 		return Routine(
 			id = id,
 			name = name.trim(),
@@ -77,15 +86,37 @@ internal data class RoutineDraft(
 			runbookId = runbookId,
 			approvedRevision = approvedRevision,
 			values = JsonObject(values.mapValues { (_, value) -> JsonPrimitive(value) }),
-			target = RoutineTarget(spawn = spawn, workdir = workdir.ifBlank { null }),
-			linkedEntries = linkedEntries,
+			target = RoutineTarget(
+				kind = if (assistant) ROUTINE_TARGET_ASSISTANT else ROUTINE_TARGET_SPAWN,
+				spawn = spawn,
+				workdir = workdir.takeUnless { assistant }?.ifBlank { null },
+			),
+			linkedEntries = if (assistant) emptyList() else linkedEntries,
 			enabled = enabled,
 			// Named by the gateway, whatever is sent.
 			revision = revision.coerceAtLeast(1L),
 			since = 0L,
-			forgetAfterDays = forgetAfterDays.toLong(),
+			forgetAfterDays = if (assistant) {
+				Protocol.Wire.ROUTINE_FORGET_DAYS_DEFAULT.toLong()
+			} else {
+				forgetAfterDays.toLong()
+			},
 		)
 	}
+
+	private val isAssistantTarget: Boolean get() = targetKind == ROUTINE_TARGET_ASSISTANT
+
+	fun selectAssistant(assistantSpawn: String): RoutineDraft = copy(
+		targetKind = ROUTINE_TARGET_ASSISTANT,
+		spawn = assistantSpawn,
+		workdir = "",
+		linkedEntries = emptyList(),
+	)
+
+	fun selectSpawn(spawn: String): RoutineDraft = copy(
+		targetKind = ROUTINE_TARGET_SPAWN,
+		spawn = spawn,
+	)
 
 	/** The same rule read in another zone, for showing the owner their own time. */
 	fun shown(inZoneId: String, on: java.time.LocalDate = today()): RoutineDraft = read(inZoneId, on)
@@ -134,6 +165,11 @@ internal data class RoutineDraft(
 			approvedRevision = routine.approvedRevision,
 			// Decoded rather than printed: `toString` would keep the quotes and the escapes.
 			values = routine.values.mapValues { (_, value) -> (value as? JsonPrimitive)?.content.orEmpty() },
+			targetKind = if (routine.target.kind == ROUTINE_TARGET_ASSISTANT) {
+				ROUTINE_TARGET_ASSISTANT
+			} else {
+				ROUTINE_TARGET_SPAWN
+			},
 			spawn = routine.target.spawn,
 			workdir = routine.target.workdir.orEmpty(),
 			linkedEntries = routine.linkedEntries,
@@ -141,6 +177,43 @@ internal data class RoutineDraft(
 			forgetAfterDays = routine.forgetAfterDays.toInt(),
 			revision = routine.revision,
 		)
+	}
+}
+
+/** Kind distinguishes same-name targets. */
+internal data class RoutineTargetChoice(
+	val kind: String,
+	val spawn: String,
+	val label: String,
+	val offered: Boolean = true,
+)
+
+/**
+ * The assistant's spawn on a Gateway where it is placed and a routine can target it, else null. An
+ * older Gateway drops the target's kind and stores a spawn routine.
+ */
+internal fun assistantSpawnOn(state: ChatState, gatewayId: String): String? {
+	val assistant = state.gateways.assistantOn(gatewayId) ?: return null
+	if (assistant.workdir == null || assistant.checkIns != true) return null
+	val team = assistant.team ?: return null
+	return runIsolated { parseSessionName(team).project }.getOrNull()
+}
+
+internal fun routineTargetMenu(
+	spawns: List<SpawnChoice>,
+	heldKind: String,
+	heldSpawn: String,
+	assistantSpawn: String?,
+): List<RoutineTargetChoice> {
+	val assistant = when {
+		assistantSpawn != null -> RoutineTargetChoice(ROUTINE_TARGET_ASSISTANT, assistantSpawn, "Assistant")
+		heldKind == ROUTINE_TARGET_ASSISTANT ->
+			RoutineTargetChoice(ROUTINE_TARGET_ASSISTANT, heldSpawn, "Assistant", offered = false)
+		else -> null
+	}
+	// A held check-in keeps its spawn pickable, so an unplaced one can still move.
+	return listOfNotNull(assistant) + spawnMenu(spawns, heldSpawn).map {
+		RoutineTargetChoice(ROUTINE_TARGET_SPAWN, it.spawn, it.label, it.offered)
 	}
 }
 

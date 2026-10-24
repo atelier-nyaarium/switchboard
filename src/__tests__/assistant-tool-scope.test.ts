@@ -7,7 +7,11 @@ import { ASSISTANT_INSTRUCTIONS, scopeTools } from "../mcp/assistant/instruction
 import { sendGuarded } from "../mcp/assistant/sendTools.js";
 import { RouterHttpError } from "../mcp/bridge/helpers.js";
 import { guardToolResults } from "../mcp/toolResultGuard.js";
-import { ASSISTANT_CROSSTALK_TOOLS, ASSISTANT_SWITCHBOARD_TOOLS } from "../shared/assistant-session.js";
+import {
+	ASSISTANT_CROSSTALK_TOOLS,
+	ASSISTANT_ROUTINE_TOOLS,
+	ASSISTANT_SWITCHBOARD_TOOLS,
+} from "../shared/assistant-session.js";
 import { ASSISTANT_ACTION_KEYS } from "../shared/schemasAssistantActions.js";
 import type { InboxItem } from "../shared/schemasAssistantInbox.js";
 import { ASSISTANT_SEND_ROUTES, SEND_ROUTE_WAIT_CAP_MS } from "../shared/schemasAssistantSend.js";
@@ -74,6 +78,7 @@ describe("the assistant's tool scope", () => {
 			...Object.values(ASSISTANT_COMMANDS).map(({ tool }) => tool),
 			...ASSISTANT_ACTION_KEYS,
 			...Object.values(ASSISTANT_CROSSTALK_TOOLS),
+			...Object.values(ASSISTANT_ROUTINE_TOOLS),
 		];
 
 		for (const tool of taught) expect(ASSISTANT_INSTRUCTIONS).toContain(`\`${tool}\``);

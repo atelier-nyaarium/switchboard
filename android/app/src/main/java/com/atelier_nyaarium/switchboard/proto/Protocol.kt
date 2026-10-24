@@ -1125,6 +1125,7 @@ data class ConsoleAssistantStateResult(
 	val team: String? = null,
 	val watchers: List<AssistantWatcher>,
 	val approveEverySend: Boolean? = null,
+	val checkIns: Boolean? = null,
 )
 
 @Serializable
@@ -2148,6 +2149,7 @@ data class ConsoleRunbookFireResult(
 
 @Serializable
 data class RoutineTarget(
+	val kind: String? = null,
 	val spawn: String,
 	val workdir: String? = null,
 )

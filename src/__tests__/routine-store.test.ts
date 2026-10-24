@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRoutineStore } from "../gateway/routines/store.js";
 import { openDurable } from "../shared/durable-store.js";
-import type { Routine } from "../shared/schemasRoutine.js";
+import { type Routine, targetKind } from "../shared/schemasRoutine.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -136,6 +136,72 @@ describe("routine store", () => {
 		const refused = guarded.put(routine("morning"));
 		expect(refused.stored).toBe(false);
 		expect(refused.reason).toContain("host.routine-morning");
+	});
+
+	it("restores rows written before a target had a kind, and reads them as spawn routines", () => {
+		const dataDir = fresh();
+		open(dataDir).put(routine("legacy", { target: { spawn: "host", workdir: "/tmp" } }));
+		const reopened = open(dataDir).get("legacy");
+		expect(reopened?.target).toEqual({ spawn: "host", workdir: "/tmp" });
+		expect(reopened && targetKind(reopened.target)).toBe("spawn");
+	});
+
+	it("takes a check-in only where the assistant lives, with no secrets, and never back from a phone that predates it", () => {
+		let placed = false;
+		const store = openDurable(fresh(), "routines", (durable) =>
+			createRoutineStore({
+				store: durable,
+				now: () => 1_700_000_000_000,
+				newIncarnation: () => "inc-1",
+				assistantPlaced: () => placed,
+				onChanged: () => undefined,
+			}),
+		);
+		const checkIn = routine("standup", { target: { kind: "assistant", spawn: "host" } });
+
+		expect(store.put(checkIn)).toMatchObject({
+			stored: false,
+			reason: "the assistant is not placed on this Gateway",
+		});
+		placed = true;
+		expect(store.put({ ...checkIn, linkedEntries: ["deploy"] })).toMatchObject({ stored: false });
+		expect(store.put({ ...checkIn, target: { kind: "assistant", spawn: "box" } })).toMatchObject({ stored: false });
+		expect(store.put(checkIn)).toMatchObject({ stored: true, revision: 1 });
+
+		const olderPhone = store.put(routine("standup", { name: "Renamed" }), { base: 1 });
+		expect(olderPhone.stored).toBe(false);
+		expect(store.get("standup")?.target.kind).toBe("assistant");
+		expect(store.put({ ...checkIn, name: "Renamed" }, { base: 1 })).toMatchObject({ stored: true, revision: 2 });
+
+		// Released: it can be turned off but not edited.
+		placed = false;
+		expect(store.put({ ...checkIn, name: "Again" }, { base: 2 }).stored).toBe(false);
+		expect(store.setEnabled("standup", false, 2)).toMatchObject({ stored: true, revision: 3 });
+		expect(store.setEnabled("standup", true, 3).stored).toBe(false);
+	});
+
+	it("starts memory afresh when a routine changes target kind, and keeps it across any other edit", () => {
+		let minted = 0;
+		const store = openDurable(fresh(), "routines", (durable) =>
+			createRoutineStore({
+				store: durable,
+				now: () => 1_700_000_000_000,
+				newIncarnation: () => `inc-${++minted}`,
+				assistantPlaced: () => true,
+				onChanged: () => undefined,
+			}),
+		);
+		store.put(routine("triage"));
+		// A kindless row is a spawn routine, so naming the kind keeps its memory.
+		store.put(routine("triage", { name: "Renamed", target: { kind: "spawn", spawn: "host", workdir: "/tmp" } }), {
+			base: 1,
+		});
+		expect(store.get("triage")?.incarnation).toBe("inc-1");
+
+		store.put(routine("triage", { target: { kind: "assistant", spawn: "host" } }), { base: 2 });
+		expect(store.get("triage")?.incarnation).toBe("inc-2");
+		store.put(routine("triage", { target: { kind: "spawn", spawn: "host" } }), { base: 3 });
+		expect(store.get("triage")?.incarnation).toBe("inc-3");
 	});
 
 	it("keeps a landed write when the runner hook throws", () => {

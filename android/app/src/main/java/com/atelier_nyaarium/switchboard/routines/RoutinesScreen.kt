@@ -153,6 +153,7 @@ private fun RoutineRow(
 						maxLines = 1,
 						overflow = TextOverflow.Ellipsis,
 					)
+					routineTargetLine(row.routine)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 				}
 				// Enabled while disabled: the switch stops the schedule, not the routine.
 				TextButton(onClick = hapticClick(onRun)) { Text("Run") }

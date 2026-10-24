@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createRoutineExecution, nudgeFor } from "../gateway/routines/execution.js";
 import type { Occurrence } from "../gateway/routines/occurrences.js";
 import { routineTeam } from "../gateway/routines/reservation.js";
+import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import type { Routine } from "../shared/schemasRoutine.js";
 import type { Runbook } from "../shared/schemasRunbook.js";
 
@@ -50,6 +51,7 @@ function seam(over: Partial<Parameters<typeof createRoutineExecution>[0]> = {}) 
 		hasSession: () => false,
 		forgetSession: () => {},
 		reserveSession: async (r) => ({ kind: "ok", team: routineTeam(r) }),
+		reserveAssistant: async () => ({ kind: "ok", team: ASSISTANT_TEAM }),
 		deliver: async (nudge) => {
 			delivered.push(nudge);
 			return null;
@@ -100,6 +102,31 @@ describe("what a routine does when its moment comes", () => {
 		for (const { execution } of [throwing, launching]) {
 			expect(await execution.prepare(routine(), occurrence)).toEqual({ ok: false, reason: "unreachable" });
 		}
+	});
+
+	it("runs a check-in in the assistant's session, never reserving one, and stops it when the assistant is gone", async () => {
+		const checkIn = routine({ target: { kind: "assistant", spawn: "host" } });
+		const reserved: string[] = [];
+		const { execution } = seam({
+			reserveSession: async (r) => {
+				reserved.push(r.id);
+				return { kind: "ok", team: routineTeam(r) };
+			},
+		});
+
+		expect(await execution.prepare(checkIn, occurrence)).toMatchObject({ ok: true, team: ASSISTANT_TEAM });
+		expect(reserved).toEqual([]);
+		const unplaced = seam({ reserveAssistant: async () => ({ kind: "unplaced" }) });
+		expect(await unplaced.execution.prepare(checkIn, occurrence)).toEqual({
+			ok: false,
+			reason: "assistant_unplaced",
+		});
+		const unreachable = seam({ reserveAssistant: async () => ({ kind: "pending" }) });
+		expect(await unreachable.execution.prepare(checkIn, occurrence)).toEqual({ ok: false, reason: "unreachable" });
+	});
+
+	it("names the routine with the instant in its nudge", () => {
+		expect(nudgeFor(routine(), occurrence)).toContain(`"triage@${occurrence.scheduledAt}"`);
 	});
 
 	it("refuses for review when something else holds the session it reserves", async () => {

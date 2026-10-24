@@ -14,7 +14,7 @@ import org.junit.Test
 class ViewScopeTest {
 	private val here = ViewScope.Session("home.sakura.host.aaa")
 
-	private fun routine(id: String, spawn: String) = RoutineState(
+	private fun routine(id: String, spawn: String, kind: String? = null) = RoutineState(
 		Routine(
 			id = id,
 			name = id,
@@ -26,7 +26,7 @@ class ViewScopeTest {
 			runbookId = "book",
 			approvedRevision = 1L,
 			values = kotlinx.serialization.json.JsonObject(emptyMap()),
-			target = RoutineTarget(spawn = spawn),
+			target = RoutineTarget(kind = kind, spawn = spawn),
 			linkedEntries = emptyList(),
 			forgetAfterDays = 7L,
 			enabled = true,
@@ -64,7 +64,12 @@ class ViewScopeTest {
 
 	@Test
 	fun `a session's routines are those that start on its spawn point`() {
-		val rows = listOf(routine("nightly", "host"), routine("backup", "nas"), routine("routine-sweep", "host"))
+		val rows = listOf(
+			routine("nightly", "host"),
+			routine("backup", "nas"),
+			routine("routine-sweep", "host"),
+			routine("check-in", "host", kind = "assistant"),
+		)
 
 		assertEquals(listOf("nightly", "routine-sweep"), here.routinesOf(rows).map { it.routine.id })
 		assertEquals(rows, ViewScope.Everything.routinesOf(rows))

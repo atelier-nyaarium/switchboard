@@ -56,6 +56,8 @@ export const ConsoleAssistantStateResultSchema = z
 		watchers: z.array(AssistantWatcherSchema),
 		/** Omitted without send guard. */
 		approveEverySend: z.boolean().optional(),
+		/** Omitted by a Gateway that cannot hold a check-in. */
+		checkIns: z.boolean().optional(),
 	})
 	.meta({ id: "ConsoleAssistantStateResult" });
 

@@ -58,12 +58,15 @@ describe("what holds a routine's authority", () => {
 	});
 
 	// Every panel's occurrence id is read back with `Number`, so a composite one silently becomes
-	// NaN and the owner's tap does nothing. The miss panel and the attention panel must agree.
-	it("names an occurrence on the wire by its instant alone", () => {
+	// NaN disables taps. Phone panels use instants; session ids identify same-time check-ins.
+	it("names an occurrence to the phone by its instant alone, and to a session with its routine", () => {
 		const stage = read(path.join(GATEWAY, "compose", "composeRoutines.ts"));
-		const minted = [...stage.matchAll(/occurrenceId:\s*([^,\n]+)/g)].map((match) => match[1]?.trim());
-		expect(minted.length).toBeGreaterThan(1);
-		for (const value of minted) expect(value, "how a panel names its occurrence").toMatch(/^String\(/);
+		const minted = [...stage.matchAll(/occurrenceId:\s*([^,\n]+)/g)].map((match) => match[1]?.trim() ?? "");
+		const toSession = minted.filter((value) => value.startsWith("occurrenceIdOf("));
+		const toPhone = minted.filter((value) => !value.startsWith("occurrenceIdOf("));
+		expect(toSession).toHaveLength(1);
+		expect(toPhone.length).toBeGreaterThan(1);
+		for (const value of toPhone) expect(value, "how a panel names its occurrence").toMatch(/^String\(/);
 	});
 });
 

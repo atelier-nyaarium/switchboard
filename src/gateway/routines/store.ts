@@ -3,20 +3,16 @@
 import { z } from "zod";
 import { canonicalJson } from "../../shared/canonical-json.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
-import { type Routine, RoutineSchema, routineRefusal } from "../../shared/schemasRoutine.js";
+import { isCheckIn, type Routine, RoutineSchema, routineRefusal, targetKind } from "../../shared/schemasRoutine.js";
 import { REVISION_CEILING, type Runbook } from "../../shared/schemasRunbook.js";
 import { renderRoutine } from "./render.js";
-import { takenReason } from "./reservation.js";
+import { type TargetFacts, targetRules } from "./reservation.js";
 
-export interface RoutineStoreDeps {
+export interface RoutineStoreDeps extends TargetFacts {
 	/** Opened through `openDurable`, so a poisoned file starts this store fresh. */
 	store: DurableStore;
 	/** The record cannot check itself against a runbook it cannot see. */
 	getRunbook?: (runbookId: string) => Runbook | null;
-	/** Whether this gateway has that spawn point. */
-	knowsSpawn?: (spawn: string) => boolean;
-	/** Whether something this routine did not make already holds its reserved session's name. */
-	sessionTaken?: (routine: Routine) => boolean;
 	now: () => number;
 	/** Mints a routine's incarnation. Opaque, so nothing reads it as a time or an order. */
 	newIncarnation: () => string;
@@ -69,15 +65,11 @@ function sameContent(a: Routine, b: Routine): boolean {
 
 /**
  * What the record cannot refuse for itself, because both need what only the gateway holds. Values
- * are complete at save so nothing is asked at fire time, and a target names a spawn that exists.
+ * are complete at save so nothing is asked at fire time, and a target is one this Gateway can run.
  */
 function contextRefusal(routine: Routine, deps: RoutineStoreDeps): string | null {
-	if (deps.knowsSpawn && !deps.knowsSpawn(routine.target.spawn)) {
-		return `this Gateway has no spawn point called ${routine.target.spawn}`;
-	}
-	if (deps.sessionTaken?.(routine)) {
-		return takenReason(routine);
-	}
+	const target = targetRules(routine).refusal(routine, deps);
+	if (target) return target;
 	if (!deps.getRunbook) return null;
 	const rendered = renderRoutine(deps.getRunbook(routine.runbookId), routine);
 	return rendered.ok ? null : rendered.reason;
@@ -108,9 +100,16 @@ export function createRoutineStore(deps: RoutineStoreDeps) {
 	const put = (incoming: Routine, options: RoutinePutOptions = {}): RoutinePutResult => {
 		const current = held(incoming.id);
 		const held0 = current?.revision ?? 0;
-		const refusal = routineRefusal(incoming) ?? contextRefusal(incoming, deps);
-		if (refusal) return { stored: false, revision: held0, reason: refusal };
+		// An older phone sends no kind, which would downgrade a check-in.
+		if (current && isCheckIn(current) && incoming.target.kind === undefined) {
+			return { stored: false, revision: held0, reason: "this routine is a check-in; update the app to edit it" };
+		}
 		const candidate = frozen(incoming);
+		// Turning one off needs nothing it would run with.
+		const disablesOnly =
+			current !== undefined && !candidate.enabled && sameContent(candidate, { ...current, enabled: false });
+		const refusal = routineRefusal(incoming) ?? (disablesOnly ? null : contextRefusal(incoming, deps));
+		if (refusal) return { stored: false, revision: held0, reason: refusal };
 		if (current) {
 			// A repeat of what is stored is a lost answer, whichever stage it was lost at.
 			const echoesFirst = options.base === undefined && current.revision === 1;
@@ -134,11 +133,13 @@ export function createRoutineStore(deps: RoutineStoreDeps) {
 		}
 		// The gateway owns all three, so an editor cannot move any by sending one. The incarnation is
 		// minted once and carried, which is what lets memory survive an edit and die with the routine.
+		// Another target kind starts fresh: spawn history may hold what a check-in must not see.
+		const sameKind = current !== undefined && targetKind(current.target) === targetKind(candidate.target);
 		const routine = frozen({
 			...candidate,
 			revision: held0 + 1,
 			since: current?.since ?? deps.now(),
-			incarnation: current?.incarnation ?? deps.newIncarnation(),
+			incarnation: (sameKind ? current?.incarnation : undefined) ?? deps.newIncarnation(),
 		});
 		const next = current
 			? routines.map((existing) => (existing.id === routine.id ? routine : existing))

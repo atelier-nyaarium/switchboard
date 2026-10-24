@@ -422,6 +422,7 @@ internal class SandboxAssistantGateway : AssistantGateway {
 		team = "host.assistant".takeIf { gatewayId == home },
 		watchers = watchers(),
 		approveEverySend = approveEverySend,
+		checkIns = true,
 	)
 
 	override suspend fun call(gatewayId: String, op: ConsoleOp): AssistantAnswer {

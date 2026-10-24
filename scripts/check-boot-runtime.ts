@@ -403,7 +403,8 @@ async function main(): Promise<void> {
 			}
 		}
 
-		const assistant = await mcpSession(gatewayUrl, ASSISTANT_TEAM, undefined);
+		// Registration only: routine tools need a token. The harness proves the assistant's own binding.
+		const assistant = await mcpSession(gatewayUrl, ASSISTANT_TEAM, sessionToken);
 		const missing = ASSISTANT_SWITCHBOARD_TOOLS.filter((tool) => !assistant.tools.includes(tool));
 		if (missing.length > 0) throw new Error(`the assistant was not given ${missing.join(", ")}`);
 	});

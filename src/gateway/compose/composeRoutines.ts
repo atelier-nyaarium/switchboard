@@ -1,12 +1,15 @@
 import type { Ambient } from "../../shared/ambient.js";
 import { openDurable } from "../../shared/durable-store.js";
 import {
+	isCheckIn,
+	occurrenceIdOf,
 	ROUTINE_REPORT_GRACE_MS,
 	type Routine,
 	type RoutineAttention,
 	type RoutineMiss,
 	type RoutineState,
 	routineRefusal,
+	targetKind,
 } from "../../shared/schemasRoutine.js";
 import type { Runbook } from "../../shared/schemasRunbook.js";
 import type { SessionBaseline } from "../../shared/session-baseline.js";
@@ -14,9 +17,9 @@ import type { RoutineConsoleHandlers } from "../console/consoleTypes.js";
 import { fireAndForget } from "../fireAndForget.js";
 import { type Attention, createAttentionStore } from "../routines/attention.js";
 import { createRoutineMemoryStore } from "../routines/memory.js";
-import { createOccurrenceStore, type Occurrence } from "../routines/occurrences.js";
+import { createOccurrenceStore, type Occurrence, workEnded } from "../routines/occurrences.js";
 import { renderRoutine } from "../routines/render.js";
-import { routineTeam, takenReason } from "../routines/reservation.js";
+import { routineTeam, takenReason, UNPLACED_REASON } from "../routines/reservation.js";
 import { createRoutineRoutes, type Handler as RoutineRouteHandler } from "../routines/routineRoutes.js";
 import { createRoutineRunner, type RoutineAttempt } from "../routines/runner.js";
 import type { FileOutcome } from "../routines/sessionRoutine.js";
@@ -29,6 +32,7 @@ export interface RoutineStageDeps {
 	attempt?: () => RoutineAttempt | null;
 	getRunbook?: (runbookId: string) => Runbook | null;
 	knowsSpawn?: (spawn: string) => boolean;
+	assistantPlaced?: () => boolean;
 	/**
 	 * Whether that session is this routine's own, asked by provenance rather than by its name. The
 	 * one provenance question, asked when a routine is saved, when it reserves, and when its
@@ -119,6 +123,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 			store: durable,
 			getRunbook: deps.getRunbook,
 			knowsSpawn: deps.knowsSpawn,
+			assistantPlaced: deps.assistantPlaced,
 			sessionTaken: (routine) => ownsIts(routineTeam(routine), routine) === false,
 			now: () => deps.ambient.now(),
 			newIncarnation: () => deps.ambient.newId(),
@@ -179,8 +184,11 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 	};
 
 	/** A render stop reads the runbook as it is now. */
-	const reviewText = (routine: Routine, row: Occurrence): string | null =>
-		row.reviewCause === "session_taken" ? takenReason(routine) : blockedBy(routine);
+	const reviewText = (routine: Routine, row: Occurrence): string | null => {
+		if (row.reviewCause === "session_taken") return takenReason(routine);
+		if (row.reviewCause === "assistant_unplaced") return UNPLACED_REASON;
+		return blockedBy(routine);
+	};
 
 	/**
 	 * A routine's authority is exactly what its stored record links, so a save, an enable, a disable
@@ -215,6 +223,12 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		settleRenderReviews(using);
 		// A stopped slot still in its window runs now.
 		storeMoved();
+	};
+
+	const endRuns = (routineId: string): void => {
+		for (const row of occurrences.forRoutine(routineId)) {
+			if (!workEnded(row)) occurrences.noteWork(row.routineId, row.scheduledAt, "done");
+		}
 	};
 
 	/** Empty for a routine the store no longer holds, and for one stored before incarnations. */
@@ -302,8 +316,11 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		console: {
 			list: () => ({ routines: state(), zone: gatewayZone() }),
 			put: (routine, base) => {
+				const before = store.get(routine.id);
 				const result = store.put(routine, { base });
 				if (result.stored) {
+					// Another kind's runs would file into the fresh memory the store just minted.
+					if (before && targetKind(before.target) !== targetKind(routine.target)) endRuns(routine.id);
 					occurrences.clearReview(routine.id);
 					// The owner has just said what this routine may reach, so what it wanted is answered.
 					attention.clear(routine.id);
@@ -359,21 +376,22 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 		bindExecution: (attempt) => {
 			bound = attempt;
 		},
-		reserves: (sessionTarget) => store.list().some((routine) => routineTeam(routine) === sessionTarget),
+		// A check-in reserves nothing; the assistant keeps its own session.
+		reserves: (sessionTarget) =>
+			store.list().some((routine) => !isCheckIn(routine) && routineTeam(routine) === sessionTarget),
 		workingRoutine: (sessionTarget) => {
 			const held = runner.firstWorkingOccurrence(sessionTarget);
 			const routine = held && store.get(held.routineId);
 			// A session that merely took the name is not the routine's, so its authority does not
-			// follow the name into it.
-			if (!routine || !ownsIts(sessionTarget, routine)) return null;
+			// follow the name into it. Check-ins hold no secrets.
+			if (!routine || isCheckIn(routine) || !ownsIts(sessionTarget, routine)) return null;
 			return routine.id;
 		},
 		openRuns: (sessionTarget) =>
 			runner.workingOccurrences(sessionTarget).flatMap((held) => {
 				const routine = store.get(held.routineId);
-				// Same rule as workingRoutine.
 				if (!routine || !ownsIts(sessionTarget, routine)) return [];
-				return [{ occurrenceId: String(held.scheduledAt), routine: routine.name }];
+				return [{ occurrenceId: occurrenceIdOf(held.routineId, held.scheduledAt), routine: routine.name }];
 			}),
 		runbookMoved,
 		sessionEnded: (sessionTarget) => {
@@ -384,7 +402,11 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 			}
 		},
 		secretUnanswered: (sessionTarget, entryId) => {
-			const held = runner.firstWorkingOccurrence(sessionTarget);
+			// A check-in shares the assistant's session, so no ask there is its own.
+			const held = runner.workingOccurrences(sessionTarget).find((row) => {
+				const routine = store.get(row.routineId);
+				return routine !== null && !isCheckIn(routine);
+			});
 			if (!held) return;
 			attention.note({
 				routineId: held.routineId,

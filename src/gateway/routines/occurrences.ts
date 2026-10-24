@@ -73,12 +73,17 @@ export const OccurrenceSchema = z.object({
 
 export type Occurrence = z.infer<typeof OccurrenceSchema>;
 
+/** Never dispatched, or its work closed. */
+export function workEnded(row: Occurrence): boolean {
+	return row.state !== "dispatched" || row.work === undefined || row.work === "done";
+}
+
 const OccurrencesSchema = z.array(OccurrenceSchema);
 
 /**
- * Names a delivery row, which spans every routine, so it carries the routine too. What the wire
- * calls an occurrence id is the scheduled instant alone, and the two are not interchangeable: every
- * consumer of the wire form reads it as a number.
+ * Names a delivery row, which spans every routine, so it carries the routine too. The phone's
+ * occurrence id is the scheduled instant alone, and the two are not interchangeable: the phone reads
+ * it as a number.
  */
 export function deliveryKey(routineId: string, scheduledAt: number): string {
 	return `${routineId}:${scheduledAt}`;

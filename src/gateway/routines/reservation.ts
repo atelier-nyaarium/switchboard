@@ -1,6 +1,7 @@
-// Who a routine's reserved session belongs to. A name is not a binding, so provenance decides.
+// Kind varies; session ownership follows provenance, not names.
 
-import { type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
+import { ASSISTANT_SPAWN, ASSISTANT_TEAM, isAssistantRecord } from "../../shared/assistant-session.js";
+import { type Routine, type RoutineTargetKind, routineSessionName, targetKind } from "../../shared/schemasRoutine.js";
 import type { SessionRecord } from "../../shared/session-store.js";
 
 const RESERVE_OP = "reserve";
@@ -17,23 +18,82 @@ export function reserveKey(routine: Routine): string {
 
 export { RESERVE_OP };
 
+export type ReserveResult =
+	| { kind: "ok"; team: string }
+	/** Launching holds the occurrence until next tick. */
+	| { kind: "pending" }
+	| { kind: "taken" }
+	| { kind: "unplaced" };
+
+/** Gateway-owned facts validate routine targets. */
+export interface TargetFacts {
+	knowsSpawn?: (spawn: string) => boolean;
+	sessionTaken?: (routine: Routine) => boolean;
+	assistantPlaced?: () => boolean;
+}
+
+export interface TargetReserve {
+	reserveSession: (routine: Routine) => Promise<ReserveResult>;
+	reserveAssistant: () => Promise<ReserveResult>;
+}
+
+/** All target-specific behavior routes through these rules. */
+export interface TargetRules {
+	kind: RoutineTargetKind;
+	team: (routine: Routine) => string;
+	/** A busy session holds the run. The assistant is mid-task by nature, so a check-in does not wait. */
+	waitsForIdle: boolean;
+	/** A finished run's session is forgotten after its keep period; never the assistant's. */
+	forgetsSession: boolean;
+	/** Ownership follows session provenance. */
+	owns: (held: SessionRecord | undefined, routine: Routine) => boolean;
+	refusal: (routine: Routine, facts: TargetFacts) => string | null;
+	reserve: (routine: Routine, roads: TargetReserve) => Promise<ReserveResult>;
+}
+
+const SPAWN_RULES: TargetRules = {
+	kind: "spawn",
+	team: (routine) => `${routine.target.spawn}.${routineSessionName(routine.id)}`,
+	waitsForIdle: true,
+	forgetsSession: true,
+	owns: (held, routine) => held === undefined || held.mintedFrom === reserveKey(routine),
+	refusal: (routine, facts) => {
+		if (facts.knowsSpawn && !facts.knowsSpawn(routine.target.spawn)) {
+			return `this Gateway has no spawn point called ${routine.target.spawn}`;
+		}
+		return facts.sessionTaken?.(routine) ? takenReason(routine) : null;
+	},
+	reserve: (routine, roads) => roads.reserveSession(routine),
+};
+
+const ASSISTANT_RULES: TargetRules = {
+	kind: "assistant",
+	team: () => ASSISTANT_TEAM,
+	waitsForIdle: false,
+	forgetsSession: false,
+	owns: (held) => isAssistantRecord(held),
+	refusal: (routine, facts) => {
+		if (routine.target.spawn !== ASSISTANT_SPAWN) return "a check-in runs where the assistant lives";
+		if (routine.target.workdir !== undefined) return "a check-in runs in the assistant's own folder";
+		return facts.assistantPlaced && !facts.assistantPlaced() ? UNPLACED_REASON : null;
+	},
+	reserve: (_routine, roads) => roads.reserveAssistant(),
+};
+
+export const UNPLACED_REASON = "the assistant is not placed on this Gateway";
+
+export function targetRules(routine: Routine): TargetRules {
+	return targetKind(routine.target) === "assistant" ? ASSISTANT_RULES : SPAWN_RULES;
+}
+
 export function routineTeam(routine: Routine): string {
-	return `${routine.target.spawn}.${routineSessionName(routine.id)}`;
+	return targetRules(routine).team(routine);
 }
 
 export function takenReason(routine: Routine): string {
 	return `a session called ${routineTeam(routine)} is already open and is not this routine's`;
 }
 
-/** Nothing holds the name, or what holds it is this routine's own. */
 export function routineOwns(held: SessionRecord | undefined, routine: Routine): boolean {
-	return held === undefined || held.mintedFrom === reserveKey(routine);
+	return targetRules(routine).owns(held, routine);
 }
-
-export type ReserveResult =
-	/** Where the reserved session lives. */
-	| { kind: "ok"; team: string }
-	/** Still launching, so the window holds the occurrence for the next tick. */
-	| { kind: "pending" }
-	/** Something this routine did not make holds the name. */
-	| { kind: "taken" };

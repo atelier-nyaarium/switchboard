@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Occurrence } from "../gateway/routines/occurrences.js";
 import { answerSessionReport, answerSessionRoutine } from "../gateway/routines/sessionRoutine.js";
 import { reportTextOf, textOf } from "../mcp/routines/routineTools.js";
-import { MAX_ROUTINE_MEMORY_BYTES } from "../shared/schemasRoutine.js";
+import { MAX_ROUTINE_MEMORY_BYTES, occurrenceIdOf } from "../shared/schemasRoutine.js";
 
 const row = (over: Partial<Occurrence> = {}): Occurrence => ({
 	routineId: "triage",
@@ -81,6 +81,18 @@ describe("what a routine's session may ask back", () => {
 	it("does not answer an occurrence that was never prepared", () => {
 		const bare = row({ snapshot: undefined, state: "due" });
 		expect(ask({ rows: [bare] }).kind).toBe("no_routine");
+	});
+
+	it("keeps two check-ins at one instant apart by their routine, and takes a bare instant only when it is unique", () => {
+		const standup = row({ routineId: "standup", team: "host.assistant", snapshot: "ask about standup" });
+		const inbox = row({ routineId: "inbox", team: "host.assistant", snapshot: "read the inbox" });
+		const assistant = (id: string) => ask({ team: "host.assistant", rows: [standup, inbox], id });
+
+		expect(assistant(occurrenceIdOf("standup", standup.scheduledAt))).toMatchObject({ text: "ask about standup" });
+		expect(assistant(occurrenceIdOf("inbox", inbox.scheduledAt))).toMatchObject({ text: "read the inbox" });
+		expect(assistant(String(standup.scheduledAt)).kind).toBe("unknown_occurrence");
+		expect(ask({ id: "1700000000000" })).toMatchObject({ kind: "instructions", routineId: "triage" });
+		expect(ask({ id: occurrenceIdOf("other", 1_700_000_000_000) }).kind).toBe("unknown_occurrence");
 	});
 });
 

@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.proto.RoutineState
 import com.atelier_nyaarium.switchboard.proto.VaultGrant
 import com.atelier_nyaarium.switchboard.proto.VaultHolder
 import com.atelier_nyaarium.switchboard.proto.composeSessionName
+import com.atelier_nyaarium.switchboard.routines.ROUTINE_TARGET_ASSISTANT
 import com.atelier_nyaarium.switchboard.vault.VaultPendingRequest
 import com.atelier_nyaarium.switchboard.vault.holder
 
@@ -26,7 +27,11 @@ internal fun ViewScope.newOn(registry: GatewayRegistry): List<String> = when (th
 
 internal fun ViewScope.routinesOf(rows: List<RoutineState>): List<RoutineState> = when (this) {
 	ViewScope.Everything -> rows
-	is ViewScope.Session -> addressOf(team)?.let { address -> rows.filter { it.routine.target.spawn == address.spawn } }.orEmpty()
+	is ViewScope.Session -> addressOf(team)?.let { address ->
+		rows.filter {
+			it.routine.target.kind != ROUTINE_TARGET_ASSISTANT && it.routine.target.spawn == address.spawn
+		}
+	}.orEmpty()
 }
 
 internal fun ViewScope.requestsOf(pending: List<VaultPendingRequest>): List<VaultPendingRequest> = when (this) {

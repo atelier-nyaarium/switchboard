@@ -7,8 +7,8 @@ import type { MissReason } from "../../shared/routine-occurrence.js";
 import { nextOccurrence } from "../../shared/routine-recurrence.js";
 import { forgetAfterMs, type Routine } from "../../shared/schemasRoutine.js";
 import { fireAndForget } from "../fireAndForget.js";
-import type { Occurrence, OccurrenceStore } from "./occurrences.js";
-import { routineTeam } from "./reservation.js";
+import { type Occurrence, type OccurrenceStore, workEnded } from "./occurrences.js";
+import { routineTeam, targetRules } from "./reservation.js";
 import type { RoutineStore } from "./store.js";
 
 /** The authorization window. Half a day, and never extended by anything. */
@@ -27,6 +27,7 @@ export type PrepareResult =
 	| { ok: false; reason: "unrenderable" }
 	/** Something else holds the session this routine reserves, so only the owner can settle it. */
 	| { ok: false; reason: "session_taken" }
+	| { ok: false; reason: "assistant_unplaced" }
 	/** Nothing is wrong with the routine; the session could not be reached. */
 	| { ok: false; reason: "unreachable" };
 
@@ -125,7 +126,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 
 		let held = occurrence;
 		if (held.state === "due" || held.state === "waiting_idle") {
-			if (!attempt().sessionIdle(routineTeam(routine))) {
+			if (targetRules(routine).waitsForIdle && !attempt().sessionIdle(routineTeam(routine))) {
 				wait(held, "session_busy");
 				return;
 			}
@@ -208,6 +209,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 	 */
 	function forgetFinishedSessions(now: number): void {
 		for (const routine of routines.list()) {
+			if (!targetRules(routine).forgetsSession) continue;
 			const team = routineTeam(routine);
 			if (!attempt().hasSession(team)) continue;
 			if (workingOccurrences(team).length > 0) continue;
@@ -223,8 +225,7 @@ export function createRoutineRunner(deps: RoutineRunnerDeps) {
 	function workingOccurrences(sessionTarget: string): Occurrence[] {
 		const now = ambient.now();
 		return occurrences.all().filter((occurrence) => {
-			if (occurrence.team !== sessionTarget || occurrence.state !== "dispatched") return false;
-			if (occurrence.work === undefined || occurrence.work === "done") return false;
+			if (occurrence.team !== sessionTarget || workEnded(occurrence)) return false;
 			return now <= (occurrence.workUntil ?? occurrence.deadlineAt);
 		});
 	}
