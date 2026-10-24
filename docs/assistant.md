@@ -158,7 +158,9 @@ guard; `docs/vault.md` holds the request lifecycle it shares with the vault.
   road skips the marker. A restart, a session's end and a fresh placement clear it, and an owner row
   accepted before boot never reads owner.
 - **Accepted risk:** the marker sees only channel rows. An earlier event still in context, or data
-  the assistant read through a tool after the owner's message, does not make it ask.
+  the assistant read through a tool after an owner input, does not make it ask. A check-in is an
+  owner input (see Check-ins), so a runbook that has the assistant read its inbox and then send
+  carries the same risk as asking it to in chat.
 - **Recorded where accepted:** a sent message lands in the owner's view of both conversations
   through the `peer` mirror, keyed by the request id, with a `guard` word saying whether it was
   approved or went unasked. A denied, expired or failed send is not recorded.
@@ -445,6 +447,28 @@ microphone; Gboard's mic key dictates. `summon-residue.test.ts` refuses `showWhe
 - **Setup:** the role cannot be requested by an app. Assistant settings shows a Digital assistant row
   while the role is not held, opening the system's picker and naming the Press and hold power
   setting.
+
+## Check-ins
+
+A routine whose target kind is `assistant` is a check-in: it runs in the assistant's session rather
+than reserving one. `docs/routines.md` holds the routine side; this is the assistant's.
+
+- **An owner input:** the nudge arrives through `sendFromOwner`, so the origin marker reads it as the
+  owner's message. With Approve every send off, the check-in's work may send unasked.
+- **Its tools:** `get_session_routine` and `report_session_routine` are `ASSISTANT_ROUTINE_TOOLS`,
+  part of `ASSISTANT_SWITCHBOARD_TOOLS`, so the scope, the gate and the launch list them, and the
+  instructions teach them. The nudge names the run as `routineId@instant`.
+- **Mid-task by nature:** a check-in never waits for the assistant to go idle; its nudge lands beside
+  whatever the assistant is doing.
+- **No secrets:** a check-in links no vault entries, and a run of one holds no routine grant.
+- **Where it lives:** saved only on a Gateway where the assistant is placed. One that fires while the
+  assistant is not placed stops for review with `assistant_unplaced`. No routine reserves or forgets
+  the assistant's session.
+- **What to read:** the runbook says `new` or `all`. A `new` read moves the assistant's one mark per
+  watcher, as any read does.
+- **The phone:** the routine editor offers Assistant beside the spawn points only where that
+  Gateway's assistant answer is placed and carries `checkIns`; an older Gateway would drop the kind
+  and store a spawn routine.
 
 ## What the model reads
 

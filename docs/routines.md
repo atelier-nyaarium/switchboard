@@ -3,8 +3,9 @@
 A routine is a schedule the gateway runs, bound to a stored runbook. The phone configures one and
 watches it. It never decides that a routine should run.
 
-The gateway holds the runbook, the reserved session, the idleness fact, the clock and the dispatch,
-so a routine is one gateway-local aggregate rather than a record reaching across a service boundary.
+The gateway holds the runbook, the session a run lands in, the idleness fact, the clock and the
+dispatch, so a routine is one gateway-local aggregate rather than a record reaching across a service
+boundary.
 
 ## The record
 
@@ -13,12 +14,12 @@ the time, the zone, the bound values, the runbook id, the target, and the enable
 
 **A run takes the runbook as stored now.** `renderRoutine` is the one reading, shared by the store's
 save check, preparation and the list. Values for undeclared parameters are dropped. A run that does
-not render, or whose session something else holds, settles `needs_review` with that cause, and the
-list carries `reviewReason` as it stands now. A save clears either cause. A runbook edit that
-renders clears a render stop, as does the stage starting, and a slot still inside its window then
-runs. `approvedRevision` is only what the editor last showed.
+not render, whose session something else holds, or whose assistant is not placed, settles
+`needs_review` with that cause, and the list carries `reviewReason` as it stands now. A save clears
+any cause. A runbook edit that renders clears a render stop, as does the stage starting, and a slot
+still inside its window then runs. `approvedRevision` is only what the editor last showed.
 
-Preparation renders before it reserves a session, and the run keeps that render. A runbook edit
+Preparation renders before it reaches a session, and the run keeps that render. A runbook edit
 landing while the session is reserved reaches the next run, not this one.
 
 Every calendar field is read in the routine's own recorded zone. Without recording it the canonical
@@ -31,6 +32,28 @@ asking the calculator rather than by inspecting the fields.
 
 `RoutineTarget` is a policy, never a session id. An id would bake in a session that can be closed,
 and the occurrence resolves the policy immediately before firing.
+
+## Targets
+
+A target has a `kind`, absent meaning `spawn`. `targetRules` in
+`src/gateway/routines/reservation.ts` holds everything that differs by kind, so no site branches on
+it alone: the team, whether a busy session holds the run, ownership by provenance, whether the
+routine owns its session, whether it holds secrets, its save refusal and how it reserves.
+
+- **`spawn`:** a session of its own, `<spawn>.routine-<id>`, reserved through the console's create
+  and owned by provenance. It waits for the session to go idle, holds the routine's linked entries
+  while it works, is reserved from the sweeps and forgotten after `forgetAfterDays`.
+- **`assistant`, a check-in:** the assistant's one session (`docs/assistant.md`, Check-ins). It never
+  waits for idle, links no entries, and neither reserves nor forgets the session. `spawn` keeps the
+  assistant's spawn so an older phone still decodes the list, and `forgetAfterDays` is stored but
+  read by nothing.
+- **An older phone cannot turn a check-in back:** it sends no `kind`, and a put without one over a
+  stored check-in is refused. The new phone always sends it.
+- **Placement is the check-in's context check:** a save is refused while the assistant is not placed
+  on that Gateway, and `prepare` asks again, so a scheduled run, Run and Run missed all stop for
+  review with `assistant_unplaced` instead of firing into nothing.
+- **Turning one off asks nothing about its context:** a put whose only change is disabling skips the
+  target and render checks, so a check-in stranded by a release can still be switched off.
 
 ## Recurrence
 
@@ -75,7 +98,7 @@ A routine belongs to the Gateway that runs it. The Routines view asks every admi
 concurrently, and groups the answers by Gateway; one that cannot be read leaves the rest drawn. The
 heading appears only when there is more than one, and groups sort by Gateway id. Inside a
 conversation it draws the routines on that session's spawn point, since a routine targets a spawn
-point rather than a session.
+point rather than a session, and leaves check-ins out. A check-in's row names "Assistant".
 
 Each group carries the zone its Gateway keeps schedules in, which is what the editor converts a typed
 wall-clock time into on save. The rows do not use it: a next run, a last run and a miss are all
@@ -86,10 +109,13 @@ the same routine id and neither may cancel or overwrite the other.
 An empty view distinguishes the two things it can mean: no Gateway answered at all, or the Gateways
 that answered hold nothing.
 
-The editor picks rather than types. The spawn point and the runbook are menus over what that Gateway
-offers, built by the same functions the New session dialog and the fire sheet use. A held value the
-Gateway no longer offers stays in the menu, first and marked, because a registry answering nothing is
-not the owner asking to retarget. Picking a runbook retires the previous one's answers and seeds the
+The editor picks rather than types. The target and the runbook are menus over what that Gateway
+offers, built by the same functions the New session dialog and the fire sheet use. The target menu
+(`routineTargetMenu`) puts Assistant first where `assistantSpawnOn` finds it placed and the Gateway's
+answer carries `checkIns`; picking it hides the keep period and the secrets, and drops any linked
+entries. A held value the Gateway no longer offers stays in the menu, first and marked, because a
+registry answering nothing is not the owner asking to retarget; a held check-in keeps its spawn
+pickable too, so an unplaced one can still move. Picking a runbook retires the previous one's answers and seeds the
 new one's defaults. A preview rendered by the Gateway sits under the parameters, the same fold the
 fire sheet reads. Secrets are granted through a sheet with a filter over title and description; Done
 returns exactly the checked tiles, so an id the vault no longer holds drops there, and the line above
@@ -128,7 +154,8 @@ as everything else, so it cannot race the timer or the tick.
 
 - **It bypasses enablement and nothing else.** Disable stops the schedule, not the routine, and
   pressing a button is not the schedule firing. Idleness, preparation and the deadline all still
-  apply, so a pressed run on a busy session waits exactly as a scheduled one does.
+  apply, so a pressed run on a busy session waits exactly as a scheduled one does, and a check-in
+  waits for neither.
 - **It walks only a row it opened itself.** Occurrences are keyed by routine and instant, and `open`
   answers whatever is already there. A press landing on a millisecond the rule already named would
   otherwise run the rule's own row down a road that skips the gates a scheduled run keeps, so a row
@@ -140,9 +167,10 @@ as everything else, so it cannot race the timer or the tick.
 - **Several windows can be open in one session, so everything that closes them closes them all.**
   `workingOccurrences` answers every one, and a session ending marks each `done`. Closing only the
   first would leave the routine's authority alive in a session that is gone, for up to twelve hours.
-  `firstWorkingOccurrence` beside it answers one representative. That is right for readers about the
-  routine rather than the run, since `routineTeam` derives the session target from the routine id and
-  one session therefore belongs to exactly one routine.
+  `firstWorkingOccurrence` beside it answers one representative. That is right only for readers of a
+  routine that holds secrets: a spawn session belongs to exactly one routine, since `routineTeam`
+  derives it from the routine id. The assistant's session can hold runs of several check-ins, and
+  none of them holds secrets.
 - **The answer says what became of the run, not that a row was opened.** Preparation is awaited, so
   the deadline or a render failure can settle the occurrence before the operation answers.
 
@@ -171,9 +199,15 @@ unrecognized token. Separating the middle two does tell a caller that some insta
 is kept because a session told "unknown" about its own run, after its session was replaced underneath
 it, would report a routine broken that is merely somewhere else.
 
-An occurrence is named on the wire by its scheduled instant alone. `deliveryKey` is the composite
-that names a delivery row, and the two are not interchangeable: every consumer of the wire form reads
-it with `Number`.
+A session names its run as `routineId@instant` (`occurrenceIdOf`), so two check-ins at one instant
+in the assistant's session never share a snapshot, a report or a memory. A bare instant, from a nudge
+queued before the routine id joined, counts only when it names exactly one of the caller's runs; that
+fallback is dated for removal. The phone names an occurrence by its instant alone, since it always
+says the routine beside it and reads the id with `Number`. `deliveryKey` names a delivery row, and
+none of the three is interchangeable with another.
+
+The routes answer only a run of the routine's current incarnation (see What a routine remembers), so
+a run left over from before a retarget or a delete is told no routine runs here.
 
 Answering records `readAt` on the occurrence, and the list carries it as `lastReadAt`. That is the
 other half of liveness: a session that woke and did something else is not one that picked the routine
@@ -211,10 +245,18 @@ running account the session consolidates, not a log it appends to.
 **Keyed by the routine's incarnation, never its id.** The gateway mints an incarnation when it first
 stores a routine and carries it across every edit, so a rename or a reschedule keeps the memory and a
 delete ends it. An id reused after a delete gets a new incarnation, which is what stops a fresh
-routine inheriting a dead one's history. Not `since`: two routines stored in one millisecond would
-share that, and a number shaped like a time invites being read as one. `sameContent` excludes it
-alongside the revision and `since`, or a save would look like an edit because the gateway owns a
-field.
+routine inheriting a dead one's history. A change of target kind mints one too, since a spawn run's
+history can hold what a check-in must not see. A routine stored before incarnations gets one at
+restore. Not `since`: two routines stored in one millisecond would share that, and a number shaped
+like a time invites being read as one. `sameContent` excludes it alongside the revision and `since`,
+or a save would look like an edit because the gateway owns a field.
+
+**A run belongs to the incarnation it was prepared under.** The occurrence records it, and `pastLife`
+makes a run of any other one, or one with none, count as over: out of `workingOccurrences`, so it
+holds no grant, and given no memory to read, file or recover into (`memoryKey`). The fence needs
+nothing to run after the routine write, so no crash between two writes can cross it. A run in flight
+across the upgrade that introduced the field is fenced the same way and loses its grants and its
+filing.
 
 **Its own file.** A poisoned memory starts memory fresh rather than taking the routine store with
 it, and `usable` refuses an oversized row at restore exactly as a write refuses one.
@@ -238,7 +280,8 @@ chose to carry loses facts nobody can see went missing.
 ## When a finished routine's session goes
 
 `forgetAfterDays` on the record, which the editor opens at a week, is how long a finished run's
-reserved session is kept. The tick drops it through the same two steps an owner's forget takes, named
+reserved session is kept. Only a routine that owns its session has one to forget; a check-in never
+touches the assistant's. The tick drops it through the same two steps an owner's forget takes, named
 once in `composeRouterFrames` rather than copied, since the copy nobody taps is the one that drifts.
 It fires only when nothing in that session is still working and the newest run is older than the
 setting. Measured from the run rather than from the report, or a run that never filed would keep its
@@ -251,7 +294,8 @@ client does, and checks the tool registers for a bound session, answers its own 
 token the gateway does not know, and is absent without a binding. A residue test cannot see a tool
 that is never registered. It walks every entry in the catalogue for the registration checks, so a
 command added there is proven without editing the gate; the behavioural probe is `get_session_routine`
-alone.
+alone. The assistant's probe carries a token too, which proves the routine tools register for it;
+the federation harness proves a check-in's own binding end to end.
 
 The emulator covers Compose, the clock-change receiver and the zone conversion. Drive it with `adb`
 as `AGENTS.md` describes. It cannot represent the following, which is a manual pass on a real phone

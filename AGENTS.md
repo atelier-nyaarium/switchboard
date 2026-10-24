@@ -117,8 +117,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/routines/memory.ts` - what a routine remembers between runs, keyed by its incarnation
   - **The incarnation, not the id:** minted once and carried across edits, so memory survives a
     rename and dies with the routine. An id reused after a delete gets a new one, which is what stops
-    a fresh routine inheriting a dead one's history. `sameContent` excludes it, or a save would read
+    a fresh routine inheriting a dead one's history; so does a change of target kind, since spawn
+    history can hold what a check-in must not see. `sameContent` excludes it, or a save would read
     as an edit because the gateway owns a field.
+  - **A run belongs to the incarnation it was prepared under:** the occurrence records it, and
+    `pastLife` makes a run of any other, or of none, count as over, with no grant and no memory to
+    read, file or recover into (`memoryKey`). The fence needs no write after the routine's, so no
+    crash can cross it, and the store mints an incarnation at restore for a routine stored without.
   - **The occurrence is written before the memory store, always:** a crash between them leaves a
     proposal to retry and has already closed the run's authority. The reverse advances history while
     losing the report and leaving the vault window wide.
@@ -167,7 +172,12 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **Several work windows can be open in one session, and the two readers say which they mean:**
     `workingOccurrences` is what anything ending a session takes, or the routine keeps reaching its
     secrets through a window nothing closed. `firstWorkingOccurrence` answers one representative,
-    which is right only because `routineTeam` gives one session to exactly one routine.
+    which is right only for a routine that holds secrets: a spawn session belongs to exactly one
+    routine, and the assistant's session holds check-ins, which hold none.
+  - **A target's kind decides through `targetRules` in `reservation.ts`, nowhere else:** the team,
+    the idle wait, ownership by provenance, owning the session, holding secrets, the save refusal
+    and the reserve. A check-in (kind `assistant`) runs in the assistant's session; a put without a
+    kind over one is refused, so an older phone cannot turn it back. `docs/routines.md` holds both.
 - `src/gateway/console/consoleRunbookFire.ts` - renders a stored runbook and lands it in a session, creating one first
   - **A preview and a fire reach the same words:** `textOf` is the one road from an id and values to
     text, so `runbook_preview` cannot answer something a `runbook_fire` would not send. A fire may
@@ -859,8 +869,8 @@ How each subsystem works lives in `docs/`:
 | `docs/vault.md` | Vault client, grants, request road, loopback routes |
 | `docs/policies.md` | The policy record, the selector key, the store's rules, the askpass resolver, what a qualified grant covers |
 | `docs/runbooks.md` | The `{{name}}` grammar, the gateway store, the fire, the view, the editor, a refused push |
-| `docs/routines.md` | The routine record, recurrence in a recorded zone, the console operations, what a session asks back, and the manual pass no gate here can reach |
-| `docs/assistant.md` | Assistant session, notes, gate, actions, watchers, rules and delivery |
+| `docs/routines.md` | The routine record, its targets, recurrence in a recorded zone, the console operations, what a session asks back, and the manual pass no gate here can reach |
+| `docs/assistant.md` | Assistant session, notes, gate, actions, watchers, rules, delivery and check-ins |
 | `docs/references.md` | `ref://` grammar and matchers |
 | `docs/testing.md` | The federation harness, the minted wire fixtures, the identity set, the gates |
 | `docs/environment.md` | Every environment variable |
