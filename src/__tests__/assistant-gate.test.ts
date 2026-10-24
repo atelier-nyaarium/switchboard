@@ -53,6 +53,7 @@ describe("the assistant gate", () => {
 		[`${SB}notify_human`, { full: "See [decisions](ref://Assistant/Decisions.md#Today)." }],
 		[`${SB}inbox`, {}],
 		[`${SB}crosstalk_send`, { to: "a.b.c.d", body: "x", attachments: [path.join(attachments, "photo.png")] }],
+		[`${SB}crosstalk_send`, { to: "a.b.c.d", body: "See [notes](ref://Assistant/Decisions.md)." }],
 		[`${SB}crosstalk_collect`, { request_id: "r1" }],
 		["ToolSearch", { query: "channel_reply" }],
 	] as const)("allows %s %j", (tool, input, cwd?: string) => {
@@ -98,6 +99,8 @@ describe("the assistant gate", () => {
 		[`${SB}notify_human`, { attachments: [path.join(outside, "secret")] }],
 		[`${SB}notify_human`, { full: "[k](ref:///etc/hosts)" }],
 		[`${SB}crosstalk_send`, { to: "a.b.c.d", body: "x", attachments: [path.join(outside, "secret")] }],
+		[`${SB}crosstalk_send`, { to: "a.b.c.d", body: "[k](ref:///etc/x)" }],
+		[`${SB}channel_reply`, { full: 7 }],
 		[`${SB}vault_run`, { command: "ls" }],
 		[`${SB}codexStartAgent`, { prompt: "go" }],
 		["mcp__plugin_lexicon_lexicon__refactor_replace", {}],

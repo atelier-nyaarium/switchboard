@@ -55,7 +55,7 @@ export interface RoutesDeps {
 	// Whether a local session is still shared to a friend Domain.
 	isSharedToForReply?: ((sessionTarget: string, domainId: string) => boolean) | null;
 	/** Local reply push. */
-	onReplyPushed?: (team: string) => void;
+	onReplyPushed: (team: string) => void;
 	resolveHandshake?: (
 		sessionId: string,
 		replyAsJson?: Record<string, unknown>,
@@ -77,7 +77,7 @@ export interface RoutesDeps {
 	carryOver?: RoutesCarryOver;
 	awareness?: Pick<AwarenessBank, "prepareFor">;
 	// Holds a channel message a session could not take.
-	deliveries?: ChannelDeliveryCoordinator;
+	deliveries: ChannelDeliveryCoordinator;
 }
 
 /** The state a rebuild must not restart from empty. Only entries whose loss changes behaviour. */
@@ -181,7 +181,6 @@ export function createRoutes(deps: RoutesDeps) {
 		tryWakeTeam: deps.tryWakeTeam,
 		sessionStore: deps.sessionStore,
 		routerClient: deps.routerClient,
-		repushHandshake: deps.repushHandshake,
 		auth,
 		awareness: deps.awareness,
 		deliveries: deps.deliveries,

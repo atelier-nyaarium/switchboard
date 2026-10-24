@@ -3,7 +3,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ASSISTANT_SWITCHBOARD_TOOLS, SWITCHBOARD_TOOL_PREFIX } from "../../shared/assistant-session.js";
+import {
+	ASSISTANT_CROSSTALK_TOOLS,
+	ASSISTANT_REPLY_TOOLS,
+	ASSISTANT_SWITCHBOARD_TOOLS,
+	SWITCHBOARD_TOOL_PREFIX,
+} from "../../shared/assistant-session.js";
 import { CHANNEL_FILES_DIR } from "../channel/channelFiles.js";
 import { confine, type Withhold } from "../workspace/confine.js";
 
@@ -11,8 +16,12 @@ export type GateVerdict = { allow: true } | { allow: false; reason: string };
 
 const SWITCHBOARD_TOOLS: ReadonlySet<string> = new Set(ASSISTANT_SWITCHBOARD_TOOLS);
 
-/** Switchboard tools that upload attachments and snapshot refs. */
-const UPLOADING_TOOLS: ReadonlySet<string> = new Set(["channel_reply", "notify_human", "crosstalk_send"]);
+/** Uploading tools, by ref field. */
+const UPLOADING_TOOLS: Readonly<Record<string, string>> = {
+	[ASSISTANT_REPLY_TOOLS.reply]: "full",
+	[ASSISTANT_REPLY_TOOLS.notify]: "full",
+	[ASSISTANT_CROSSTALK_TOOLS.send]: "body",
+};
 
 /** Built-ins that take no path. `ToolSearch` loads a deferred tool's schema. */
 const FREE_TOOLS: ReadonlySet<string> = new Set(["ToolSearch"]);
@@ -115,9 +124,10 @@ function patternEscapes(pattern: unknown): boolean {
 }
 
 /** A `ref://` resolves bare paths against notes, but `/` and `~` reach anywhere. */
-function refLeaves(full: unknown): boolean {
-	if (typeof full !== "string") return false;
-	for (const match of full.matchAll(/ref:\/\/([^\s)>]*)/g)) {
+function refLeaves(text: unknown): boolean {
+	if (text === undefined) return false;
+	if (typeof text !== "string") return true;
+	for (const match of text.matchAll(/ref:\/\/([^\s)>]*)/g)) {
 		let destination = match[1] ?? "";
 		try {
 			destination = decodeURIComponent(destination);
@@ -156,15 +166,15 @@ export function gateVerdict(input: unknown, places: GatePlaces): GateVerdict {
 	if (tool.startsWith(SWITCHBOARD_TOOL_PREFIX)) {
 		const bare = tool.slice(SWITCHBOARD_TOOL_PREFIX.length);
 		if (!SWITCHBOARD_TOOLS.has(bare)) return refuse(`${tool} is not on the assistant's allowlist`);
-		// A reply or a notice uploads its attachments and snapshots its refs.
-		if (UPLOADING_TOOLS.has(bare)) {
+		const textField = Object.hasOwn(UPLOADING_TOOLS, bare) ? UPLOADING_TOOLS[bare] : undefined;
+		if (textField) {
 			const files = params.attachments ?? [];
 			if (!Array.isArray(files)) return refuse(`${bare} attachments are not a list`);
 			for (const file of files) {
 				const outside = readable(file);
 				if (outside) return refuse(`${bare} attachment ${String(file)}: ${outside}`);
 			}
-			if (refLeaves(params.full)) return refuse(`${bare} refs a file outside notes`);
+			if (refLeaves(params[textField])) return refuse(`${bare} refs a file outside notes`);
 		}
 		return { allow: true };
 	}

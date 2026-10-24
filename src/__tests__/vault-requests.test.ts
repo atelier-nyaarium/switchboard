@@ -139,8 +139,8 @@ describe("vault requests", () => {
 		await expect(typed.answer).resolves.toEqual({ kind: "approved", decision: "once", typedValue: "hunter2" });
 		// Typed values never grant.
 		expect(approved).toEqual([]);
-		expect(requests.forget(requestId)).toBe(true);
-		expect(requests.forget(requestId)).toBe(false);
+		expect(requests.take(requestId)).toBe(true);
+		expect(requests.take(requestId)).toBe(false);
 		expect(requests.collect(requestId, "host.carol")).toBeUndefined();
 	});
 

@@ -39,6 +39,14 @@ export const ASSISTANT_SWITCHBOARD_TOOLS: readonly string[] = [
 	...Object.values(ASSISTANT_CROSSTALK_TOOLS),
 ];
 
+/** Assistant-only tools. */
+export const ASSISTANT_ONLY_TOOLS: readonly string[] = [
+	ASSISTANT_COMMANDS.inbox.tool,
+	...ASSISTANT_ACTION_KEYS,
+	ASSISTANT_CROSSTALK_TOOLS.collect,
+	ASSISTANT_CROSSTALK_TOOLS.withdraw,
+];
+
 /** Every built-in the assistant's session has. `ToolSearch` loads a deferred tool's schema. */
 export const ASSISTANT_BUILTIN_TOOLS = ["Read", "Edit", "Write", "Glob", "Grep", "ToolSearch"] as const;
 

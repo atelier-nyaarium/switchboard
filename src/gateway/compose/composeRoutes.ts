@@ -28,7 +28,7 @@ export interface RoutesStageDeps {
 	awareness: Pick<AwarenessStage, "awareness">;
 	websockets: WebSocketsStage;
 	/** Local reply push. */
-	onReplyPushed?: (team: string) => void;
+	onReplyPushed: (team: string) => void;
 }
 
 export interface RoutesStage {

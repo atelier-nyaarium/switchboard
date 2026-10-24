@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ChannelDeliveryCoordinator } from "../gateway/channelDelivery.js";
 import type { TeamRegistry, WsData } from "../gateway/wsTypes.js";
 import { processAmbient } from "../shared/ambient.js";
-import { type MessageDelivery, PendingDeliveryStore } from "../shared/pending-delivery-store.js";
+import { type MessageDelivery, type PendingDelivery, PendingDeliveryStore } from "../shared/pending-delivery-store.js";
 
 interface FakeSocket {
 	sent: string[];
@@ -45,6 +45,8 @@ function delivery(id: string): MessageDelivery {
 	};
 }
 
+const NOOP_OBSERVER = { offered: () => undefined, acknowledged: () => undefined };
+
 describe("ChannelDeliveryCoordinator", () => {
 	it("lets go of the bytes a message named once it is acknowledged, or once it expires unread", () => {
 		let now = 10_000;
@@ -55,6 +57,7 @@ describe("ChannelDeliveryCoordinator", () => {
 			store,
 			registry: registryWith(s),
 			retireStaging: (blobIds) => retired.push(blobIds),
+			observer: NOOP_OBSERVER,
 		});
 		const named = (id: string, blobId: string): MessageDelivery => ({
 			...delivery(id),
@@ -77,15 +80,36 @@ describe("ChannelDeliveryCoordinator", () => {
 
 	it("holds a message when nothing is listening, instead of losing it", () => {
 		const store = new PendingDeliveryStore(undefined, processAmbient());
-		const c = new ChannelDeliveryCoordinator({ store, registry: new Map() });
+		const c = new ChannelDeliveryCoordinator({ store, registry: new Map(), observer: NOOP_OBSERVER });
 		expect(c.accept(delivery("d1"))).toBe("queued");
 		expect(store.listForTeam("proj.alpha")).toHaveLength(1);
+	});
+
+	it("offers the held row when a duplicate is accepted", () => {
+		const store = new PendingDeliveryStore(undefined, processAmbient());
+		const registry: TeamRegistry = new Map();
+		const s = socket();
+		const offered: PendingDelivery[] = [];
+		const c = new ChannelDeliveryCoordinator({
+			store,
+			registry,
+			observer: { offered: (row) => offered.push(row), acknowledged: () => undefined },
+		});
+		const original: MessageDelivery = { ...delivery("d1"), body: "accepted", origin: "owner" };
+
+		expect(c.accept(original)).toBe("queued");
+		registry.set("proj.alpha", new Map([["s1", s.ws]]));
+		expect(c.accept({ ...original, body: "retry", origin: "event", seq: 99 })).toBe("delivered");
+
+		expect(offered).toHaveLength(1);
+		expect(offered[0]).toMatchObject({ body: "accepted", seq: 1, origin: "owner" });
+		expect(JSON.parse(s.sent[0])).toMatchObject({ body: "accepted", delivery_id: "d1" });
 	});
 
 	it("delivers to a live session and keeps the row until that session says it landed", () => {
 		const store = new PendingDeliveryStore(undefined, processAmbient());
 		const s = socket();
-		const c = new ChannelDeliveryCoordinator({ store, registry: registryWith(s) });
+		const c = new ChannelDeliveryCoordinator({ store, registry: registryWith(s), observer: NOOP_OBSERVER });
 
 		expect(c.accept(delivery("d1"))).toBe("delivered");
 		expect(s.sent).toHaveLength(1);
@@ -101,14 +125,16 @@ describe("ChannelDeliveryCoordinator", () => {
 	it("carries the delivery id on the wire, since that is what the receiver acknowledges", () => {
 		const store = new PendingDeliveryStore(undefined, processAmbient());
 		const s = socket();
-		new ChannelDeliveryCoordinator({ store, registry: registryWith(s) }).accept(delivery("d1"));
+		new ChannelDeliveryCoordinator({ store, registry: registryWith(s), observer: NOOP_OBSERVER }).accept(
+			delivery("d1"),
+		);
 		expect(JSON.parse(s.sent[0])).toMatchObject({ type: "channel_push", delivery_id: "d1", session_id: "job-1" });
 	});
 
 	it("hands a session everything it missed when it finally arrives, oldest first", () => {
 		const store = new PendingDeliveryStore(undefined, processAmbient());
 		const registry: TeamRegistry = new Map();
-		const c = new ChannelDeliveryCoordinator({ store, registry });
+		const c = new ChannelDeliveryCoordinator({ store, registry, observer: NOOP_OBSERVER });
 
 		c.accept(delivery("d1"));
 		c.accept(delivery("d2"));
@@ -124,7 +150,7 @@ describe("ChannelDeliveryCoordinator", () => {
 		let saved: unknown = null;
 		const sink = { load: () => saved, saveChecked: (state: unknown) => (saved = structuredClone(state)) };
 		const held = new PendingDeliveryStore(sink, processAmbient());
-		const queued = new ChannelDeliveryCoordinator({ store: held, registry: new Map() });
+		const queued = new ChannelDeliveryCoordinator({ store: held, registry: new Map(), observer: NOOP_OBSERVER });
 		queued.accept({ deliveryId: "e1", team: "proj.alpha", body: "hi", enqueuedAt: 1_000, event: true });
 		const shadow = queued.accept(delivery("e1"));
 
@@ -132,6 +158,7 @@ describe("ChannelDeliveryCoordinator", () => {
 		const reopened = new ChannelDeliveryCoordinator({
 			store: new PendingDeliveryStore(sink, processAmbient()),
 			registry: registryWith(s),
+			observer: NOOP_OBSERVER,
 		});
 		reopened.drain("proj.alpha");
 
@@ -152,6 +179,7 @@ describe("ChannelDeliveryCoordinator", () => {
 		const c = new ChannelDeliveryCoordinator({
 			store: new PendingDeliveryStore(sink, { now: () => now }, 5_000),
 			registry: registryWith(s),
+			observer: NOOP_OBSERVER,
 		});
 
 		const first = event(c, "a", "b");
@@ -162,6 +190,7 @@ describe("ChannelDeliveryCoordinator", () => {
 		const reopened = new ChannelDeliveryCoordinator({
 			store: new PendingDeliveryStore(sink, { now: () => now }, 5_000),
 			registry: registryWith(s),
+			observer: NOOP_OBSERVER,
 		});
 		const afterRead = event(reopened, "a", "c");
 		now += 5_001;
@@ -181,7 +210,7 @@ describe("ChannelDeliveryCoordinator", () => {
 	it("re-offers an unacknowledged message on the next drain, so a lost notification is not a loss", () => {
 		const store = new PendingDeliveryStore(undefined, processAmbient());
 		const s = socket();
-		const c = new ChannelDeliveryCoordinator({ store, registry: registryWith(s) });
+		const c = new ChannelDeliveryCoordinator({ store, registry: registryWith(s), observer: NOOP_OBSERVER });
 
 		c.accept(delivery("d1"));
 		expect(c.drain("proj.alpha")).toBe(1);
@@ -190,7 +219,7 @@ describe("ChannelDeliveryCoordinator", () => {
 
 	it("refuses rather than accepting a message it cannot hold", () => {
 		const store = new PendingDeliveryStore(undefined, processAmbient(), undefined, 1);
-		const c = new ChannelDeliveryCoordinator({ store, registry: new Map() });
+		const c = new ChannelDeliveryCoordinator({ store, registry: new Map(), observer: NOOP_OBSERVER });
 		expect(c.accept(delivery("d1"))).toBe("queued");
 		expect(c.accept(delivery("d2"))).toBe("refused");
 	});
@@ -203,6 +232,7 @@ describe("ChannelDeliveryCoordinator", () => {
 		const c = new ChannelDeliveryCoordinator({
 			store,
 			registry: registryWith(s),
+			observer: NOOP_OBSERVER,
 			repushHandshake: (team) => nudged.push(team),
 		});
 		c.accept(delivery("d1"));

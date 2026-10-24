@@ -200,8 +200,10 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		agents,
 		federation,
 		retireStaging: (blobIds) => routes?.current()?.retireStaging(blobIds),
-		onAcknowledged: (row) => assistant.delivered(row),
-		onOffered: (row) => assistant.offered(row),
+		observer: {
+			offered: (row) => assistant.offered(row),
+			acknowledged: (row) => assistant.delivered(row),
+		},
 	});
 	routes = composeRoutes({
 		dataDir: bootstrap.dataDir,

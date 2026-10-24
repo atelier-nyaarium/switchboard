@@ -22,14 +22,7 @@ import { holdIdFor } from "../router/blobUploader.js";
 import { fileBytes, getTeamMode, jsonResponse, MAX_RESPONSE_FILE_BYTES, SendRequestSchema } from "../routeSchemas.js";
 import { presentedByRequest, type SessionAuthority } from "../sessionAuthority.js";
 import { POST_WAKE_SETTLE_MS, type WakeResult } from "../wake.js";
-import { reached, sendOn } from "../wsSend.js";
-import {
-	type ConversationRegistry,
-	getAllActiveWs,
-	type HandshakeRepushOutcome,
-	resolveLiveIncarnation,
-	type TeamRegistry,
-} from "../wsTypes.js";
+import { type ConversationRegistry, resolveLiveIncarnation, type TeamRegistry } from "../wsTypes.js";
 import type { CallerScope } from "./callerGuards.js";
 
 type ConsolePushOps = ReturnType<typeof import("../consolePushOps.js").createConsolePushOps>;
@@ -61,10 +54,9 @@ export interface SendRoutesDeps {
 	tryWakeTeam: (team: string, createOpts?: { displayLabel?: string; mintedFrom?: string }) => Promise<WakeResult>;
 	sessionStore?: import("../../shared/session-store.js").SessionStore;
 	routerClient?: Pick<import("../router/routerClient.js").RouterClient, "isConnected"> | null;
-	repushHandshake?: (team: string, subId: string) => HandshakeRepushOutcome;
 	auth?: SessionAuthority;
 	awareness?: Pick<AwarenessBank, "prepareFor">;
-	deliveries?: ChannelDeliveryCoordinator;
+	deliveries: ChannelDeliveryCoordinator;
 	/** Renews relay blob hold. */
 	blobUploader?: Pick<ReturnType<typeof import("../router/blobUploader.js").createBlobUploader>, "hold"> | null;
 	localAddress: (name: string) => Address;
@@ -94,7 +86,6 @@ export function createSendRoutes({
 	tryWakeTeam,
 	sessionStore,
 	routerClient,
-	repushHandshake,
 	auth,
 	awareness,
 	deliveries,
@@ -168,7 +159,6 @@ export function createSendRoutes({
 		to: string;
 		compose: () => readonly EventMember[] | null;
 	}): Promise<string | null> {
-		if (!deliveries) return "this Gateway has no delivery queue";
 		const target = resolveLocalTarget(event.to);
 		if (!target) return `"${event.to}" is not a session on this Gateway`;
 		const arrived = await reach(target);
@@ -390,18 +380,6 @@ export function createSendRoutes({
 		const { localName, target, qualifiedTo, targetWs } = arrived;
 
 		const subs = targetWs ? registry.get(targetWs.data.teamName ?? localName) : undefined;
-		if ((!targetWs || !subs) && !deliveries) {
-			return jsonResponse(
-				{
-					error: `Team "${qualifiedTo}" is not connected`,
-					available: [...registry.keys()]
-						.filter((k) => k !== "host" && !isAssistantRecord(sessionStore?.getByTeam(k)))
-						.map((k) => tryLocalAddress(k)?.canonical)
-						.filter((c): c is string => c != null),
-				},
-				404,
-			);
-		}
 
 		const targetMode = subs ? getTeamMode(subs) : "channel";
 
@@ -445,80 +423,44 @@ export function createSendRoutes({
 				lease = awareness?.prepareFor(localName) ?? null;
 				const riding = lease?.awareness;
 
-				if (deliveries) {
-					// Owners name delivery rows.
-					const deliveryId =
-						(ingress.kind === "owner" ? parsed.data.deliveryId : undefined) ?? ambient.newId();
-					const outcome = deliveries.accept({
-						deliveryId,
-						team: targetWs?.data.teamName ?? localName,
-						channelJobId,
-						from,
-						body: msgBody || "",
-						...(hasFiles ? { files, messageId } : {}),
-						...(riding ? { awareness: riding } : {}),
-						...(disposition ? { disposition } : {}),
-						enqueuedAt: ambient.now(),
-						origin,
-					});
-					if (outcome === "refused") {
-						store.abort(anchor);
-						lease?.release();
-						return jsonResponse(
-							{ error: `"${qualifiedTo}" has too many messages waiting; nothing was accepted` },
-							503,
+				// Owners name delivery rows.
+				const deliveryId = (ingress.kind === "owner" ? parsed.data.deliveryId : undefined) ?? ambient.newId();
+				const outcome = deliveries.accept({
+					deliveryId,
+					team: targetWs?.data.teamName ?? localName,
+					channelJobId,
+					from,
+					body: msgBody || "",
+					...(hasFiles ? { files, messageId } : {}),
+					...(riding ? { awareness: riding } : {}),
+					...(disposition ? { disposition } : {}),
+					enqueuedAt: ambient.now(),
+					origin,
+				});
+				if (outcome === "refused") {
+					store.abort(anchor);
+					lease?.release();
+					return jsonResponse(
+						{ error: `"${qualifiedTo}" has too many messages waiting; nothing was accepted` },
+						503,
+					);
+				}
+				// Migration is a refusal.
+				if (outcome === "migrating") {
+					store.abort(anchor);
+					lease?.release();
+					return jsonResponse({ error: `this Gateway is migrating; nothing was accepted` }, 503);
+				}
+				lease?.commit();
+				console.log(`[send] channel_push ${outcome} for ${qualifiedTo} [${channelJobId}] from ${from}`);
+				// Renews the delivery hold.
+				if (ingress.kind === "gateway" && hasFiles && blobUploader) {
+					for (const blobId of new Set(files.flatMap((file) => (file.blobId ? [file.blobId] : [])))) {
+						fireAndForget(
+							"relay hold",
+							blobUploader.hold(blobId, holdIdFor(deliveryId, blobId), BLOB_HOLD_MAX_MS),
 						);
 					}
-					// Migration is a refusal.
-					if (outcome === "migrating") {
-						store.abort(anchor);
-						lease?.release();
-						return jsonResponse({ error: `this Gateway is migrating; nothing was accepted` }, 503);
-					}
-					lease?.commit();
-					console.log(`[send] channel_push ${outcome} for ${qualifiedTo} [${channelJobId}] from ${from}`);
-					// Renews the delivery hold.
-					if (ingress.kind === "gateway" && hasFiles && blobUploader) {
-						for (const blobId of new Set(files.flatMap((file) => (file.blobId ? [file.blobId] : [])))) {
-							fireAndForget(
-								"relay hold",
-								blobUploader.hold(blobId, holdIdFor(deliveryId, blobId), BLOB_HOLD_MAX_MS),
-							);
-						}
-					}
-				} else {
-					const channelPayload: Record<string, unknown> = {
-						type: "channel_push",
-						from,
-						body: msgBody || "",
-						session_id: channelJobId,
-					};
-					if (hasFiles) {
-						channelPayload.message_id = messageId;
-						channelPayload.files = files;
-					}
-					const activeWs = subs ? getAllActiveWs(subs) : [];
-					if (activeWs.length === 0) {
-						throw new Error(`Team "${qualifiedTo}" has no active connections`);
-					}
-					if (riding) channelPayload.awareness = riding;
-					if (disposition) channelPayload.disposition = disposition;
-					const payload = JSON.stringify(channelPayload);
-
-					let took = false;
-					for (const ws of activeWs) {
-						if (!ws.data.handshakeConfirmed && ws.data.teamName) {
-							repushHandshake?.(ws.data.teamName, ws.data.subId);
-						}
-						if (reached(sendOn(ws, payload, `channel_push to ${qualifiedTo}`))) took = true;
-					}
-					// Without the durable queue behind it, a message nobody took is simply lost.
-					if (!took) throw new Error(`Team "${qualifiedTo}" took none of the message`);
-					lease?.commit();
-
-					console.log(
-						`[send] channel_push to ${qualifiedTo} [${channelJobId}]${messageId ? ` msg=${messageId.slice(0, 8)}` : ""} from ${from} (${activeWs.length} sub-session${activeWs.length > 1 ? "s" : ""})`,
-					);
 				}
 
 				if (record) {

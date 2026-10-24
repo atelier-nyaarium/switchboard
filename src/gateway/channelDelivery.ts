@@ -16,6 +16,11 @@ import { getAllActiveWs, type TeamRegistry } from "./wsTypes.js";
  * sender can act on; none of them loses the message silently. */
 export type AcceptOutcome = "delivered" | "queued" | "refused" | "migrating";
 
+export interface ChannelDeliveryObserver {
+	offered(row: PendingDelivery): void;
+	acknowledged(row: PendingDelivery): void;
+}
+
 export interface ChannelDeliveryDeps {
 	store: PendingDeliveryStore;
 	registry: TeamRegistry;
@@ -24,10 +29,7 @@ export interface ChannelDeliveryDeps {
 	repushHandshake?: (team: string, subId: string) => unknown;
 	/** Retired delivery bytes. */
 	retireStaging?: (blobIds: string[]) => void;
-	/** Session-confirmed delivery. */
-	onAcknowledged?: (delivery: PendingDelivery) => void;
-	/** Pre-write delivery with stamps. */
-	onOffered?: (delivery: PendingDelivery) => void;
+	observer: ChannelDeliveryObserver;
 }
 
 const filesOf = (delivery: PendingDelivery) => (delivery.event ? [] : (delivery.files ?? []));
@@ -57,7 +59,9 @@ export class ChannelDeliveryCoordinator {
 		if (outcome === "migrating") return "migrating";
 		if (outcome === "refused") return "refused";
 		// A duplicate is already held; offering it again is what a retry of a lost reply wants.
-		const offered = this.offer(delivery);
+		const held = this.deps.store.held(delivery.deliveryId);
+		if (!held) return "refused";
+		const offered = this.offer(held);
 		return offered === MIGRATING ? MIGRATING : offered ? "delivered" : "queued";
 	}
 
@@ -71,7 +75,9 @@ export class ChannelDeliveryCoordinator {
 		if (outcome === SEEN || outcome === "duplicate") return SEEN;
 		if (outcome === "migrating") return "migrating";
 		if (outcome === "refused" || !row) return "refused";
-		const offered = this.offer(row);
+		const held = this.deps.store.held(row.deliveryId);
+		if (!held) return "refused";
+		const offered = this.offer(held);
 		return offered === MIGRATING ? MIGRATING : offered ? "delivered" : "queued";
 	}
 
@@ -95,7 +101,7 @@ export class ChannelDeliveryCoordinator {
 		if (retired === true && held) {
 			this.deps.retireStaging?.(blobIdsOf([held]));
 			try {
-				this.deps.onAcknowledged?.(held);
+				this.deps.observer.acknowledged(held);
 			} catch (error) {
 				console.error(`[delivery] acknowledgement listener failed:`, error);
 			}
@@ -129,7 +135,7 @@ export class ChannelDeliveryCoordinator {
 		if (sockets.length === 0) return false;
 		// Mark origin before sending.
 		try {
-			this.deps.onOffered?.(this.deps.store.held(delivery.deliveryId) ?? delivery);
+			this.deps.observer.offered(delivery);
 		} catch (error) {
 			console.error(`[delivery] offer listener failed:`, error);
 		}

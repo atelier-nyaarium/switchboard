@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { createOriginMarker, createSendGuard } from "../gateway/assistant/sendGuard.js";
-import { createOwnerRequests } from "../gateway/ownerRequests.js";
 import type { BoundTarget, SendRecord } from "../gateway/routes/routesSend.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import type { PendingDelivery } from "../shared/pending-delivery-store.js";
@@ -78,6 +77,7 @@ describe("the send guard", () => {
 		const cards: AssistantSendRequest[] = [];
 		const retracts: string[] = [];
 		const sent: SendRecord[] = [];
+		const sentConversations: string[] = [];
 		const staged = new Map<string, number>();
 		const guard = createSendGuard({
 			ambient,
@@ -85,8 +85,9 @@ describe("the send guard", () => {
 			readsOwner: () => options.readsOwner ?? false,
 			routes: () => ({
 				bindTarget: (to): BoundTarget => options.bindTarget?.(to) ?? { ok: true, target, exists: true },
-				sendFromAssistant: async ({ record }) => {
+				sendFromAssistant: async ({ record, conversationId }) => {
 					sent.push(record);
+					sentConversations.push(conversationId);
 					return new Response(JSON.stringify({ session_id: "s1" }), { status: 200 });
 				},
 			}),
@@ -101,7 +102,7 @@ describe("the send guard", () => {
 			await ambient.advance(0);
 			return work;
 		};
-		return { ambient, guard, cards, retracts, sent, staged, caller, signal, stepped };
+		return { ambient, guard, cards, retracts, sent, sentConversations, staged, caller, signal, stepped };
 	}
 
 	it("lapses an unanswered send at its deadline, retracting the card and still answering a late collect", async () => {
@@ -113,9 +114,19 @@ describe("the send guard", () => {
 
 		expect(pending.body).toMatchObject({ outcome: "pending", requestId });
 		expect(late.body).toEqual({ outcome: "expired" });
-		expect(guard.answer(requestId, "approve")).toMatchObject({ ok: false });
+		expect(guard.answer(requestId, "approve")).toEqual({ ok: false, reason: "request expired" });
 		expect(retracts).toEqual([requestId]);
 		expect(sent).toEqual([]);
+	});
+
+	it("withdraws a send immediately and rejects a later tap as expired", async () => {
+		const { guard, cards, caller, signal, stepped } = bench();
+		await stepped(guard.send(caller, { to: target, body: "withdrawn", waitMs: 0 }, signal));
+		const requestId = cards[0]?.requestId ?? "";
+
+		expect(guard.withdraw(ASSISTANT_TEAM, requestId).body).toEqual({ withdrawn: true });
+		expect(guard.answer(requestId, "approve")).toEqual({ ok: false, reason: "request expired" });
+		expect((await guard.collect(ASSISTANT_TEAM, requestId, 0, signal)).status).toBe(404);
 	});
 
 	it("sends nothing when a bound attachment changed before the tap", async () => {
@@ -132,6 +143,7 @@ describe("the send guard", () => {
 		};
 		await stepped(guard.send(caller, { to: target, body: "a", files: [file], waitMs: 0 }, signal));
 		const requestId = cards[0]?.requestId ?? "";
+		expect(guard.namesBlob(blobId)).toBe(true);
 		staged.set(blobId, 6);
 
 		guard.answer(requestId, "approve");
@@ -139,6 +151,7 @@ describe("the send guard", () => {
 
 		expect(outcome.body).toMatchObject({ outcome: "failed" });
 		expect(sent).toEqual([]);
+		expect(guard.namesBlob(blobId)).toBe(false);
 	});
 
 	it("goes unasked only with approval off and the owner last, and asks when the setting cannot be read", async () => {
@@ -245,82 +258,19 @@ describe("the send guard", () => {
 		expect(outcome.body).toMatchObject({ outcome: "failed" });
 		expect(sent).toEqual([]);
 	});
-});
 
-describe("owner requests read past their deadline", () => {
-	it("settles on the read and keeps the lapse for a collect until its hold ends", async () => {
-		let clock = 1_000;
-		const ambient = fakeAmbient({ drive: "manual", now: () => clock });
-		const core = createOwnerRequests<{ requestId: string; sessionTarget: string; deadlineAt: number }, string>({
-			ambient,
-			deadlineMs: 60_000,
-			maxOpenPerTarget: 8,
-			deliver: () => true,
-			lapsed: (why) => why,
-			holdSettledMs: 600_000,
-		});
-		const opened = core.open({
-			sessionTarget: "host.a",
-			build: (requestId, deadlineAt) => ({ requestId, sessionTarget: "host.a", deadlineAt }),
-		});
-		if (opened.kind !== "opened") throw new Error("not opened");
-		const { requestId } = opened.request;
-		clock += 61_000;
+	it("delivers a joined send to the latest conversation", async () => {
+		const { guard, cards, caller, signal, stepped, sentConversations } = bench();
+		await stepped(guard.send(caller, { to: target, body: "a", waitMs: 0 }, signal));
+		await stepped(
+			guard.send({ ...caller, conversationId: "conv-b" }, { to: target, body: "a", waitMs: 0 }, signal),
+		);
+		const requestId = cards[0]?.requestId ?? "";
 
-		const live = core.live(requestId);
-		const collected = await core.collect(requestId, "host.a")?.answer;
-		const answered = core.answered(requestId);
-		clock += 600_000;
-		const afterHold = core.collect(requestId, "host.a");
+		guard.answer(requestId, "approve");
+		const outcome = await guard.collect(ASSISTANT_TEAM, requestId, 1_000, signal);
 
-		expect([live, collected, answered, afterHold]).toEqual([null, "expired", false, undefined]);
-	});
-});
-
-describe("owner requests across a restart", () => {
-	it("retracts what an earlier process left open, keeping a stub whose retraction did not queue", () => {
-		const ambient = fakeAmbient({ drive: "manual", now: () => 1_000 });
-		let saved: unknown = null;
-		const ledger = {
-			load: () => saved,
-			save: (state: unknown) => {
-				saved = state;
-			},
-		};
-		let queues = true;
-		const build = () =>
-			createOwnerRequests<{ requestId: string; sessionTarget: string; deadlineAt: number }, string>({
-				ambient,
-				deadlineMs: 60_000,
-				maxOpenPerTarget: 8,
-				deliver: () => true,
-				lapsed: (why) => why,
-				onSettled: () => queues,
-				ledger,
-			});
-		const before = build();
-		const open = (target: string) =>
-			before.open({
-				sessionTarget: target,
-				build: (requestId, deadlineAt) => ({ requestId, sessionTarget: target, deadlineAt }),
-			});
-		const kept = open("host.a");
-		const answered = open("host.b");
-		const unretracted = open("host.c");
-		if (kept.kind !== "opened" || answered.kind !== "opened" || unretracted.kind !== "opened") {
-			throw new Error("not opened");
-		}
-		before.settle(answered.request.requestId, "done");
-		queues = false;
-		before.settle(unretracted.request.requestId, "done");
-
-		const after = build();
-		const tried: string[] = [];
-		after.retractStale((stub) => Boolean(tried.push(stub.requestId)) && false);
-		after.retractStale((stub) => Boolean(tried.push(stub.requestId)));
-		after.retractStale((stub) => Boolean(tried.push(stub.requestId)));
-
-		const twice = [kept.request.requestId, unretracted.request.requestId];
-		expect(tried.sort()).toEqual([...twice, ...twice].sort());
+		expect(outcome.body).toMatchObject({ outcome: "sent" });
+		expect(sentConversations).toEqual(["conv-b"]);
 	});
 });

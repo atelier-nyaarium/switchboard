@@ -42,6 +42,7 @@ const REASON_SPECS = [
 ];
 
 const dirs: string[] = [];
+const NOOP_OBSERVER = { offered: () => undefined, acknowledged: () => undefined };
 afterAll(() => {
 	for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -122,7 +123,7 @@ function wakes(answers: (string | null | "hang" | "late")[] = []) {
 /** Real queue, session asleep; a string refuses. */
 function queued(dir: string, answers: (string | null)[] = []) {
 	const store = new PendingDeliveryStore(new DurableStore(dir, "pending-deliveries"), { now: () => T0 });
-	const coordinator = new ChannelDeliveryCoordinator({ store, registry: new Map() });
+	const coordinator = new ChannelDeliveryCoordinator({ store, registry: new Map(), observer: NOOP_OBSERVER });
 	const wake: AssistantWake = async (event) => {
 		const refused = answers.shift() ?? null;
 		if (refused) return refused;

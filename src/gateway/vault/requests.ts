@@ -58,6 +58,7 @@ export function createVaultRequests(deps: VaultRequestsDeps) {
 		onSettled: deps.onSettled,
 		onUnanswered: deps.onUnanswered,
 		ledger: deps.ledger,
+		collectUntil: ({ cause, at, deadlineAt }) => (cause === "answered" ? deadlineAt : at),
 	});
 
 	const open = (input: VaultRequestInput): VaultRequestOpened => {
@@ -65,6 +66,7 @@ export function createVaultRequests(deps: VaultRequestsDeps) {
 		if (!shape) return { kind: "undeliverable", reason: "unreachable" };
 		return core.open({
 			sessionTarget: input.sessionTarget,
+			payload: undefined,
 			build: (requestId, deadlineAt) => {
 				const common = {
 					v: 1 as const,
@@ -110,17 +112,19 @@ export function createVaultRequests(deps: VaultRequestsDeps) {
 		note?: string,
 	): { ok: true } | { ok: false; reason: string } => {
 		const request = core.live(requestId);
-		if (!request) return { ok: false, reason: "request expired" };
+		if (!request) return { ok: false, reason: core.answered(requestId) ? "already answered" : "request expired" };
 		if (decision === "deny") {
-			core.settle(requestId, note ? { kind: "refused", note } : REFUSED);
-			return { ok: true };
+			return core.settle(requestId, note ? { kind: "refused", note } : REFUSED)
+				? { ok: true }
+				: { ok: false, reason: core.answered(requestId) ? "already answered" : "request expired" };
 		}
 		if (request.kind === "typed") {
 			const typedValue = value ? deps.openTyped(value, requestId) : null;
 			if (typedValue === null) return { ok: false, reason: "typed value unreadable" };
 			// A typed value is handed over once; no grant outlives it.
-			core.settle(requestId, { kind: "approved", decision: "once", typedValue });
-			return { ok: true };
+			return core.settle(requestId, { kind: "approved", decision: "once", typedValue })
+				? { ok: true }
+				: { ok: false, reason: core.answered(requestId) ? "already answered" : "request expired" };
 		}
 		const refusal = deps.validate?.(request) ?? null;
 		if (refusal !== null) {
@@ -128,8 +132,9 @@ export function createVaultRequests(deps: VaultRequestsDeps) {
 			return { ok: false, reason: refusal };
 		}
 		deps.onApproved?.(request, decision);
-		core.settle(requestId, { kind: "approved", decision });
-		return { ok: true };
+		return core.settle(requestId, { kind: "approved", decision })
+			? { ok: true }
+			: { ok: false, reason: core.answered(requestId) ? "already answered" : "request expired" };
 	};
 
 	/** Refuses what the policy resolved. */
@@ -144,7 +149,7 @@ export function createVaultRequests(deps: VaultRequestsDeps) {
 		find,
 		answer,
 		collect: core.collect,
-		forget: core.forget,
+		take: core.take,
 		withdraw: core.withdraw,
 		sessionEnded: core.sessionEnded,
 		policyMoved,

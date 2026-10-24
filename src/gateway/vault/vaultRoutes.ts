@@ -165,11 +165,11 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 				deadlineAt: request.deadlineAt,
 			} satisfies VaultValueAnswer);
 		if (answer.kind === "refused") {
-			deps.requests.forget(request.requestId);
+			deps.requests.take(request.requestId);
 			return refused(REFUSAL, 403, answer.note);
 		}
 		if (request.kind === "typed") {
-			const taken = deps.requests.forget(request.requestId);
+			const taken = deps.requests.take(request.requestId);
 			return taken && answer.typedValue !== undefined
 				? json({
 						outcome: "approved",
@@ -179,7 +179,7 @@ export function createVaultRoutes(deps: VaultRoutesDeps): Map<string, Handler> {
 				: refused(REFUSAL);
 		}
 		const released = await release(answer.decision, request.entryId);
-		if (released.kind !== "unavailable") deps.requests.forget(request.requestId);
+		if (released.kind !== "unavailable") deps.requests.take(request.requestId);
 		return released.response;
 	}
 

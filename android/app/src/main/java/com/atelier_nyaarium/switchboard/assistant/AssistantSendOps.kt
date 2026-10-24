@@ -106,7 +106,15 @@ internal class AssistantSendManager(private val store: AssistantSendStore) : Cle
 		synchronized(lock) { persist(emptyList()) }
 	}
 
-	override suspend fun clearInMemory() = clearRequests()
+	/** Clears even if the save fails. */
+	override suspend fun clearInMemory() {
+		synchronized(lock) {
+			blob = AssistantSendBlob()
+			_pending.value = emptyList()
+			runIsolated { store.saveAssistantSends(json.encodeToString(AssistantSendBlob.serializer(), blob)) }
+				.onFailure { DebugLog.log("AssistantSend", "stored requests could not be cleared") }
+		}
+	}
 }
 
 /** Answers at source Gateway. */

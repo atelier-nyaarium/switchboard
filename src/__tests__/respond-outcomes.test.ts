@@ -40,6 +40,7 @@ function respondWith(options: {
 		refuseForeignReply: () => null,
 		refuseForeignPoll: () => null,
 		provedLocalSession: () => false,
+		onReplyPushed: () => undefined,
 	});
 }
 

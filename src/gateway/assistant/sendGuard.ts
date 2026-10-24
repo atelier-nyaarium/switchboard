@@ -157,10 +157,12 @@ const failed = (reason: string): AssistantSendAnswer => ({ outcome: "failed", re
 
 export function createSendGuard(deps: SendGuardDeps) {
 	const { ambient } = deps;
-	/** Delivery-only held data. */
-	const held = new Map<string, { files: ChannelFile[]; conversationId: string }>();
 
-	const core = createOwnerRequests<AssistantSendRequest, AssistantSendAnswer>({
+	const core = createOwnerRequests<
+		AssistantSendRequest,
+		AssistantSendAnswer,
+		{ files: ChannelFile[]; conversationId: string }
+	>({
 		ambient,
 		deadlineMs: deps.deadlineMs ?? VAULT_REQUEST_DEADLINE_MS,
 		maxOpenPerTarget: MAX_OPEN_SENDS,
@@ -171,13 +173,10 @@ export function createSendGuard(deps: SendGuardDeps) {
 				: why === "withdrawn"
 					? { outcome: "withdrawn" }
 					: { outcome: "expired" },
-		onSettled: (request) => {
-			held.delete(request.requestId);
-			return deps.retractCard(request);
-		},
+		onSettled: deps.retractCard,
 		ledger: deps.ledger,
-		// Settled answers remain collectible.
-		holdSettledMs: CLAIMED_ANSWER_GRACE_MS,
+		collectUntil: ({ cause, at, deadlineAt }) =>
+			cause === "withdrawn" ? at : Math.max(deadlineAt, at + CLAIMED_ANSWER_GRACE_MS),
 	});
 
 	const stagedAsBound = (files: readonly { digest: string; size: number }[]): boolean =>
@@ -326,9 +325,8 @@ export function createSendGuard(deps: SendGuardDeps) {
 			(request) => request.sessionTarget === caller.team && intentKey(request.intent) === key,
 		);
 		if (joined) {
-			const extra = held.get(joined.request.requestId);
 			// Joined replies use the latest caller.
-			if (extra) extra.conversationId = caller.conversationId;
+			joined.payload.conversationId = caller.conversationId;
 			return replyOf(await waitAnswer(joined.answer, waitFor(input.waitMs), signal), joined.request);
 		}
 		if (!asks()) {
@@ -341,21 +339,17 @@ export function createSendGuard(deps: SendGuardDeps) {
 		if (cardBytes > MAX_CARD_BYTES) {
 			return { status: 413, body: { error: "too long for an approval card; send it shorter or in parts" } };
 		}
-		let minted = null as string | null;
-		let opened: OwnerRequestOpened<AssistantSendRequest, AssistantSendAnswer>;
-		try {
-			opened = core.open({
+		const opened = core.open({
+			sessionTarget: caller.team,
+			payload: { files: bound.files, conversationId: caller.conversationId },
+			build: (requestId, deadlineAt) => ({
+				v: 1,
+				requestId,
 				sessionTarget: caller.team,
-				build: (requestId, deadlineAt) => {
-					minted = requestId;
-					held.set(requestId, { files: bound.files, conversationId: caller.conversationId });
-					return { v: 1, requestId, sessionTarget: caller.team, deadlineAt, intent: bound.intent };
-				},
-			});
-		} finally {
-			// Failed opens release held data.
-			if (minted !== null && !core.find((request) => request.requestId === minted)) held.delete(minted);
-		}
+				deadlineAt,
+				intent: bound.intent,
+			}),
+		});
 		if (opened.kind !== "opened") return unopened(opened);
 		return replyOf(await waitAnswer(opened.answer, waitFor(input.waitMs), signal), opened.request);
 	};
@@ -391,14 +385,10 @@ export function createSendGuard(deps: SendGuardDeps) {
 			core.settle(requestId, note ? { outcome: "denied", note } : { outcome: "denied" });
 			return { ok: true };
 		}
-		const request = core.claim(requestId);
-		const extra = held.get(requestId);
-		if (!request) return gone();
-		if (!extra) {
-			core.settle(requestId, failed("the send's held state is gone"));
-			return { ok: false, reason: "the send's held state is gone" };
-		}
-		void deliver(request.intent, extra.files, extra.conversationId, { key: requestId, guard: "approved" }).then(
+		const claimed = core.claim(requestId);
+		if (!claimed) return gone();
+		const { request, payload } = claimed;
+		void deliver(request.intent, payload.files, payload.conversationId, { key: requestId, guard: "approved" }).then(
 			(outcome) => core.settle(requestId, outcome),
 			(error) => core.settle(requestId, failed(String(error))),
 		);
@@ -412,9 +402,8 @@ export function createSendGuard(deps: SendGuardDeps) {
 		answer,
 		sessionEnded: (team: string) => core.sessionEnded(team),
 		retractStale: () => core.retractStale(deps.retractCard),
-		/** Held send blob reference. */
 		namesBlob: (blobId: string) =>
-			[...held.values()].some((entry) => entry.files.some((file) => file.blobId === blobId)),
+			[...core.payloads()].some((payload) => payload.files.some((file) => file.blobId === blobId)),
 	};
 }
 
