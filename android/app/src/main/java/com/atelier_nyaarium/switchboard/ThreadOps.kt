@@ -10,6 +10,16 @@ internal data class ThreadsAfterForget(val threads: Map<String, List<Message>>, 
 ////////////////////////////////
 //  Functions & Helpers
 
+/** Null for the assistant, which never tabs. */
+internal fun tabsAfterOpen(state: ChatState, key: String): List<String>? = when {
+	isAssistant(state, key) -> null
+	key in state.openTabs -> state.openTabs
+	else -> state.openTabs + key
+}
+
+/** Autoplay threads, the assistant included. */
+internal fun followedTeams(state: ChatState): Set<String> = state.openTabs.toSet() + assistantTeams(state)
+
 /** The thread map after forgetting `key`: drops its own thread, then sweeps every remaining thread
  * for a peer-mirror row naming `key` as either party. The gateway mirrors an agent-to-agent exchange
  * into BOTH participants' mailboxes, so dropping only `threads[key]` would leave the identical row

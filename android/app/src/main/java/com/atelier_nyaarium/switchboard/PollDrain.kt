@@ -307,7 +307,7 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 			val lastAgent = messages.lastOrNull { !it.fromMe }
 			val scope = pollScope
 			val autoTier = host.autoPlayTier()
-			val followed = team in host.state.value.openTabs
+			val followed = team in followedTeams(host.state.value)
 			val eligible = scope != null && lastAgent != null && host.isSttsReady() && followed &&
 				(host.autoGenerate || autoTier != null)
 			val queueable = if (!eligible) emptyList() else messages.filter { !it.fromMe }

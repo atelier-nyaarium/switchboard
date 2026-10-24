@@ -8,6 +8,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleRoutinePutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineRunResult
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineState
+import com.atelier_nyaarium.switchboard.routines.RoutineDraft
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -58,13 +59,13 @@ internal class RoutineOps(
 	private val state: MutableStateFlow<ChatState>,
 	private val host: RoutineHost,
 ) {
-	private val drafts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, Routine>()
+	private val drafts = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, RoutineDraft>()
 
 	private val reads = GatewayReadFence()
 
-	fun draftFor(gatewayId: String, key: String): Routine? = drafts[gatewayId to key]
+	fun draftFor(gatewayId: String, key: String): RoutineDraft? = drafts[gatewayId to key]
 
-	fun keepDraft(gatewayId: String, key: String, draft: Routine) {
+	fun keepDraft(gatewayId: String, key: String, draft: RoutineDraft) {
 		drafts[gatewayId to key] = draft
 	}
 

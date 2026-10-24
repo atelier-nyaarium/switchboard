@@ -115,6 +115,9 @@ internal fun conversationViews(features: DrawerFeatures, terminal: Boolean): Lis
 		}
 	}
 
+internal fun assistantConversationViews(terminal: Boolean): List<ConversationView> =
+	listOfNotNull(ConversationView.CHAT, ConversationView.TERMINAL.takeIf { terminal })
+
 /** Unoffered views fall back. */
 internal fun <V> shownView(offered: List<V>, held: V): V = if (held in offered) held else offered.first()
 

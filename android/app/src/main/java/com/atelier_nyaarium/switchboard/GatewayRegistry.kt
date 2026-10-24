@@ -26,9 +26,17 @@ data class GatewayEntry(
 	val runbooks: List<Runbook>? = null,
 	val policies: List<AuthorizationPolicy>? = null,
 	val peers: List<com.atelier_nyaarium.switchboard.proto.CrossDomainPeerEntry>? = null,
-	val assistant: ConsoleAssistantStateResult? = null,
+	val assistant: AssistantWord? = null,
 ) {
 	val seen: Boolean get() = incarnation > 0
+}
+
+/** Only `Answered` defines placement. */
+sealed interface AssistantWord {
+	data class Answered(val state: ConsoleAssistantStateResult) : AssistantWord
+
+	/** Unsupported op or fault. */
+	data object Refused : AssistantWord
 }
 
 data class GatewayRegistry(
@@ -93,9 +101,10 @@ data class GatewayRegistry(
 	fun hasPeer(gatewayId: String, domainId: String): Boolean = entry(gatewayId)?.peers?.any { it.domainId == domainId } == true
 
 	/** Gateways answering a folder for the assistant. More than one means a release did not land. */
-	fun assistantHomes(): List<String> = gateways.filter { it.assistant?.workdir != null }.map { it.id }
+	fun assistantHomes(): List<String> = ids().filter { assistantOn(it)?.workdir != null }
 
-	fun assistantOn(gatewayId: String): ConsoleAssistantStateResult? = entry(gatewayId)?.assistant
+	fun assistantOn(gatewayId: String): ConsoleAssistantStateResult? =
+		(entry(gatewayId)?.assistant as? AssistantWord.Answered)?.state
 
 	/** Wake at earliest routine. */
 	fun soonestRoutineAt(): Long? =

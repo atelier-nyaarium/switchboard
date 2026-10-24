@@ -43,9 +43,10 @@ fun ChatRepository.markRead(team: String) {
  * a thread is what clears it now (the scroll-driven receipt model), not the act of opening it. */
 fun ChatRepository.openThread(team: String): String? {
 	val key = fromCanonical(team) ?: return null
+	if (tabsAfterOpen(_state.value, key) == null) return null
 	_state.update { s ->
 		s.copy(
-			openTabs = if (key in s.openTabs) s.openTabs else s.openTabs + key,
+			openTabs = tabsAfterOpen(s, key) ?: s.openTabs,
 			// Reopening un-mutes: a previously-closed team goes back to full notification treatment.
 			closedTeams = s.closedTeams - key,
 		)

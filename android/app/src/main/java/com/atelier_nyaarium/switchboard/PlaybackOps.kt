@@ -99,7 +99,7 @@ internal class PlaybackOps(
 		val entry = QueueEntry(team, at, tier)
 		advanceMutex.withLock {
 			// Recheck followed state under the advance lock.
-			if (requireFollowed && team !in state.value.openTabs) return
+			if (requireFollowed && team !in followedTeams(state.value)) return
 			val beginsRun = queue.isIdle()
 			if (!queue.enqueue(entry)) return
 			if (beginsRun) queueMarkers(entry, chime = announceRun)

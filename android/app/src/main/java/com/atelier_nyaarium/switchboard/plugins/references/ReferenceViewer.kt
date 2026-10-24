@@ -196,6 +196,9 @@ private fun ChangedStrip(showNow: Boolean, onShowNow: (Boolean) -> Unit) {
 /** The snapshot records what the agent meant; these reach what the code says now. */
 @Composable
 private fun RefExitRow(request: ReferenceOpenRequest, onLeave: () -> Unit) {
+	val state by Repo.get(LocalContext.current).state.collectAsState()
+	// The assistant has no Files.
+	if (com.atelier_nyaarium.switchboard.isAssistant(state, request.team)) return
 	val exits = remember(request) { exitsFor(request.meta, request.key) }
 	if (exits.filePath == null && exits.symbolId == null) return
 

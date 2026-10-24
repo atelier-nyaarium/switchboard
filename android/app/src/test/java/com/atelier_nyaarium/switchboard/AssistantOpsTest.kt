@@ -12,7 +12,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -40,6 +39,7 @@ class AssistantOpsTest {
 	/** One home at a time; a gateway in `refusing` turns down a place, one in `deaf` answers nothing. */
 	private class FakeGateway(var home: String?) : AssistantGateway {
 		val refusing = mutableSetOf<String>()
+		val refusingState = mutableSetOf<String>()
 		val deaf = mutableSetOf<String>()
 		val calls = mutableListOf<Pair<String, String>>()
 		var rules = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise(action = "inbox", revision = 0L), revision = 0L)
@@ -72,7 +72,9 @@ class AssistantOpsTest {
 					if (home == gatewayId) home = null
 					AssistantAnswer.State(stateOf(gatewayId))
 				}
-				else -> AssistantAnswer.State(stateOf(gatewayId))
+				else ->
+					if (gatewayId in refusingState) AssistantAnswer.Refused("content key unavailable")
+					else AssistantAnswer.State(stateOf(gatewayId))
 			}
 		}
 
@@ -115,12 +117,39 @@ class AssistantOpsTest {
 
 	@Test
 	fun aGatewayThatCouldNotBeReadIsNamedRatherThanAssumedEmpty() = runBlocking {
-		val fake = FakeGateway(home = "sakura").apply { deaf += "sakura" }
-		val (ops, _) = ops(fake, "sakura", "mikan")
+		val unreachable = FakeGateway(home = "sakura").apply { deaf += "sakura" }
+		val refused = FakeGateway(home = "sakura").apply { refusingState += "sakura" }
 
-		val moved = ops.move("mikan", "~/notes")
+		for (fake in listOf(unreachable, refused)) {
+			val (ops, _) = ops(fake, "sakura", "mikan")
+			assertEquals(AssistantMoved.StillOn(listOf("sakura")), ops.move("mikan", "~/notes"))
+		}
+	}
 
-		assertEquals(AssistantMoved.StillOn(listOf("sakura")), moved)
+	@Test
+	fun aRefusedReadIsHeldAsARefusalNeverAsHoldingNone() = runBlocking {
+		val fake = FakeGateway(home = "sakura")
+		val (ops, state) = ops(fake, "sakura")
+		ops.refreshAll()
+		fake.refusingState += "sakura"
+
+		ops.refresh("sakura")
+
+		assertEquals(AssistantWord.Refused, state.value.gateways.entry("sakura")?.assistant)
+		assertFalse(assistantReleased(state.value, "sakura"))
+		assertEquals(AssistantRoot.Unavailable(canPlace = true), assistantRoot(state.value, null))
+	}
+
+	@Test
+	fun aConfirmedReleaseIsDrawnEvenWhenTheNextReadIsRefused() = runBlocking {
+		val fake = FakeGateway(home = "sakura")
+		val (ops, state) = ops(fake, "sakura")
+		ops.refreshAll()
+		fake.refusingState += "sakura"
+
+		ops.release("sakura")
+
+		assertTrue(assistantReleased(state.value, "sakura"))
 	}
 
 	@Test
@@ -215,12 +244,13 @@ class AssistantOpsTest {
 	}
 
 	@Test
-	fun theAssistantIsReachedByItsMarkNotItsName() {
+	fun theAssistantIsKnownByItsMarkNeverItsName() {
 		val marked = Team(name = "dom.sakura.host.assistant", presence = Presence.ended(), role = ASSISTANT_ROLE)
 		val namedOnly = Team(name = "dom.mikan.host.assistant", presence = Presence.ended())
+		val state = ChatState(domainId = "dom", teams = listOf(marked, namedOnly))
 
-		assertEquals("dom.sakura.host.assistant", assistantAddress(listOf(marked, namedOnly), "dom", "sakura"))
+		assertTrue(isAssistant(state, marked.name))
+		assertFalse(isAssistant(state, namedOnly.name))
 		assertEquals(listOf(namedOnly), localSessions(listOf(marked, namedOnly), "dom"))
-		assertNull(assistantAddress(emptyList(), null, "sakura"))
 	}
 }

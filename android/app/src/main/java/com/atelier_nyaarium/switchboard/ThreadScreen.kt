@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -81,11 +82,12 @@ private fun draftFileUris(context: Context, files: List<MessageFile>): List<Uri>
 ////////////////////////////////
 //  Composables
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun ThreadScreen(
+internal fun ThreadScreen(
 	team: String,
 	label: String,
+	chrome: ThreadChrome,
 	presence: SessionWord?,
 	tabs: List<String>,
 	tabLabel: (String) -> String,
@@ -127,6 +129,7 @@ fun ThreadScreen(
 	onGateway: (String) -> Unit,
 	onCloseTab: (String) -> Unit,
 	onSessions: () -> Unit,
+	onSettings: () -> Unit = {},
 	// The four assembled subjects (see ThreadScreenState.kt): distinct types are what make handing
 	// one cluster's fact to another's slot a compile error instead of a plausible call.
 	composer: ComposerState,
@@ -332,13 +335,30 @@ fun ThreadScreen(
 					Column {
 						Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 							Text(
-								label,
-								fontFamily = FontFamily.Monospace,
+								chrome.title,
+								fontFamily = if (chrome.monospace) FontFamily.Monospace else FontFamily.Default,
 								maxLines = 1,
 								overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
 								modifier = Modifier.weight(1f, fill = false),
 							)
 							presence?.let { StatusChip(it.text, presenceColor(it)) }
+						}
+						if (chrome.chips.isNotEmpty()) {
+							androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+								for (chip in chrome.chips) {
+									androidx.compose.material3.AssistChip(
+										onClick = hapticClick(onSettings),
+										label = { Text(chip.text, style = MaterialTheme.typography.labelSmall) },
+										colors = if (chip.needsSecret) {
+											androidx.compose.material3.AssistChipDefaults.assistChipColors(
+												containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+											)
+										} else {
+											androidx.compose.material3.AssistChipDefaults.assistChipColors()
+										},
+									)
+								}
+							}
 						}
 						if (view != ConversationView.CHAT) {
 							Text(view.title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
@@ -363,8 +383,12 @@ fun ThreadScreen(
 							}
 						}
 					}
-					IconButton(onClick = hapticClick { showMenu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More options") }
-					DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+					if (!chrome.sessionMenu) {
+						IconButton(onClick = hapticClick(onSettings)) {
+							Icon(Icons.Default.Settings, contentDescription = "Assistant settings")
+						}
+					} else IconButton(onClick = hapticClick { showMenu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More options") }
+					if (chrome.sessionMenu) DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
 						if (canRename) {
 							DropdownMenuItem(
 								text = { Text("Rename") },
@@ -397,7 +421,7 @@ fun ThreadScreen(
 		// imePadding keeps the composer above the keyboard (adjustResize alone does
 		// not resize a Compose window on modern Android).
 		Column(Modifier.padding(pad).fillMaxSize().imePadding()) {
-			if (tabs.size > 1) {
+			if (chrome.tabRow) {
 				ReorderableTabRow(tabs = tabs, selected = team, tabLabel = tabLabel, onSelect = onGateway, onReorder = onReorderTabs)
 			}
 			// Below the tab row, not above it. The strip is the open tab's own entries and its height
@@ -440,7 +464,11 @@ fun ThreadScreen(
 					verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
 					horizontalAlignment = Alignment.CenterHorizontally,
 				) {
-					Text(label, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
+					Text(
+						chrome.title,
+						style = MaterialTheme.typography.titleLarge,
+						fontFamily = if (chrome.monospace) FontFamily.Monospace else FontFamily.Default,
+					)
 					Text(
 						when (presence) {
 							SessionWord.AVAILABLE, SessionWord.WAKING ->

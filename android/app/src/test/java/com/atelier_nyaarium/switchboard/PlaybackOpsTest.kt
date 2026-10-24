@@ -39,4 +39,25 @@ class PlaybackOpsTest {
 		assertEquals(setOf(1L, 2L), held)
 		assertEquals(true, ops.transportState().second)
 	}
+
+	@Test
+	fun theAssistantIsFollowedWithoutATab() = runBlocking {
+		val assistant = "local.gw.host.assistant"
+		val stranger = "local.gw.host.other"
+		val state = MutableStateFlow(
+			ChatState(
+				teams = listOf(Team(assistant, Presence.ended(), role = ASSISTANT_ROLE)),
+				threads = mapOf(assistant to listOf(Message(false, "one", 1L)), stranger to listOf(Message(false, "two", 2L))),
+			),
+		)
+		val ops = PlaybackOps(state, CoroutineScope(Dispatchers.Unconfined), FakePlayback(), object : PlaybackOpsCollaborators {
+			override fun openThread(team: String) = team
+		})
+
+		ops.enqueueForPlay(assistant, 1L, SttsPlayer.Tier.FULL, announceRun = false, requireFollowed = true)
+		ops.enqueueForPlay(stranger, 2L, SttsPlayer.Tier.FULL, announceRun = false, requireFollowed = true)
+		ops.pausePlayback()
+
+		assertEquals(setOf(assistant), (ops.queueRows() + ops.failedRows()).map { it.entry.team }.toSet())
+	}
 }

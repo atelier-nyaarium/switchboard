@@ -9,6 +9,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleRoutineRunResult
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineState
 import com.atelier_nyaarium.switchboard.proto.RoutineTarget
+import com.atelier_nyaarium.switchboard.routines.RoutineDraft
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -237,8 +238,8 @@ class RoutineOpsTest {
 	@Test
 	fun anEditOnOneGatewayIsNotTheEditOnAnotherOfTheSameId() {
 		val ops = RoutineOps(MutableStateFlow(ChatState()), Host(null))
-		val here = routine("triage", name = "Here")
-		val there = routine("triage", name = "There")
+		val here = RoutineDraft.of(routine("triage", name = "Here"))
+		val there = RoutineDraft.of(routine("triage", name = "There"))
 
 		ops.keepDraft("sakura", "triage", here)
 		ops.keepDraft("mikan", "triage", there)

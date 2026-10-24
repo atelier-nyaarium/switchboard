@@ -95,7 +95,7 @@ data class ChatState(
 			labels = nextLabels,
 			teamAbsenceStreaks = nextStreak,
 			roles = rolesAfter(roles, freshTeams),
-		)
+		).withoutAssistantTabs()
 	}
 
 	/** Presence outranks peek, then wake state, then message status. */

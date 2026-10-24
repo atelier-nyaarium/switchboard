@@ -9,6 +9,7 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo.CodecCapabilities
 import android.media.MediaFormat
 import android.media.MediaMuxer
+import com.atelier_nyaarium.switchboard.ASSISTANT_ROLE
 import com.atelier_nyaarium.switchboard.ActionRecord
 import com.atelier_nyaarium.switchboard.AppStateStore
 import com.atelier_nyaarium.switchboard.Attachments
@@ -73,6 +74,12 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 			kind = "loose",
 			sessionLabel = "Second",
 		),
+		Team(
+			name = ASSISTANT,
+			presence = sandboxPresence(),
+			kind = "loose",
+			role = ASSISTANT_ROLE,
+		),
 	)
 
 	/** LIVE, because a seeded session stands in for one the route Gateway just pushed. Anything less
@@ -83,7 +90,24 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 	/** Three admitted machines for two with sessions, so the board's idle-Gateway section is reachable. */
 	fun roster(): List<String> = listOf(GATEWAY, "parsing", "idle-box")
 
-	fun threads(): Map<String, List<Message>> = mapOf(SESSION to buildThread())
+	fun threads(): Map<String, List<Message>> = mapOf(SESSION to buildThread(), ASSISTANT to assistantThread())
+
+	private fun assistantThread(): List<Message> {
+		val now = System.currentTimeMillis()
+		return listOf(
+			Message(fromMe = true, text = "Anything new on GitHub?", at = now - 90_000, id = 0),
+			Message(
+				fromMe = false,
+				text = "Two reviews are waiting on you, both in switchboard. The dependabot bumps went to the inbox.",
+				at = now - 80_000,
+				id = 1,
+				from = ASSISTANT,
+				title = "Two reviews waiting",
+				epoch = SANDBOX_EPOCH,
+				seq = 30,
+			),
+		)
+	}
 
 	/** A draft holding enough images to overflow one row, plus a plain file, so the strip has both
 	 * tile kinds, the expanded view has to wrap, and the tap target has somewhere to go. */
@@ -408,6 +432,9 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 
 		/** A second session on a DIFFERENT gateway, since the thread's tab row is one tab per gateway. */
 		const val SESSION_2 = "local.parsing.host.other"
+
+		/** The sandbox assistant's home. */
+		const val ASSISTANT = "local.sandbox.host.assistant"
 
 		/** Must be the gateway segment of [SESSION]: `Team.gatewayId` derives from the address, and the
 		 * thread strip looks the board up under whatever that answers. */

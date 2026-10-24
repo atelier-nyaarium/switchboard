@@ -2,35 +2,25 @@ package com.atelier_nyaarium.switchboard.assistant
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -41,8 +31,8 @@ import com.atelier_nyaarium.switchboard.ConfirmDialog
 import com.atelier_nyaarium.switchboard.DirListing
 import com.atelier_nyaarium.switchboard.DirectoryField
 import com.atelier_nyaarium.switchboard.PickMenu
+import com.atelier_nyaarium.switchboard.AssistantRoot
 import com.atelier_nyaarium.switchboard.answerText
-import com.atelier_nyaarium.switchboard.assistantAddress
 import com.atelier_nyaarium.switchboard.canRetry
 import com.atelier_nyaarium.switchboard.folderOf
 import com.atelier_nyaarium.switchboard.hapticClick
@@ -56,79 +46,39 @@ import com.atelier_nyaarium.switchboard.routines.grantedLine
 import com.atelier_nyaarium.switchboard.runIsolated
 import com.atelier_nyaarium.switchboard.vault.grantableOn
 import com.atelier_nyaarium.switchboard.watcherActions
-import com.atelier_nyaarium.switchboard.watcherChip
 import com.atelier_nyaarium.switchboard.watcherHealth
 import kotlinx.coroutines.launch
 
 private const val ASSISTANT_SPAWN = "host"
 private const val DEFAULT_FOLDER = "~/"
 
-/** Assistant view. */
-@OptIn(ExperimentalLayoutApi::class)
+/** The Assistant root with no conversation. */
 @Composable
-internal fun AssistantScreen(
-	repo: ChatRepository,
-	state: ChatState,
-	onOpen: (String) -> Unit,
-	onListDirs: suspend (String, String, String) -> DirListing,
+internal fun AssistantRootScreen(
+	root: AssistantRoot,
+	onConfigure: () -> Unit,
+	onRetry: () -> Unit,
 	modifier: Modifier = Modifier,
 ) {
-	LaunchedEffect(state.gateways.incarnations()) { repo.assistantOps.refreshAll() }
-	val homes = state.gateways.assistantHomes()
-	val home = homes.firstOrNull()
-	val placed = home?.let { state.gateways.assistantOn(it) }
-	var settingsOpen by remember { mutableStateOf(false) }
-
 	Column(modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-		if (home == null || placed == null) {
-			Text("Set a Gateway and directory where the assistant session lives.", style = MaterialTheme.typography.bodyLarge)
-			Button(onClick = hapticClick { settingsOpen = true }) { Text("Configure") }
-		} else {
-			Row(
-				Modifier.fillMaxWidth(),
-				horizontalArrangement = Arrangement.SpaceBetween,
-				verticalAlignment = Alignment.CenterVertically,
-			) {
-				val address = assistantAddress(state.teams, state.domainId, home)
-				Button(onClick = hapticClick { address?.let(onOpen) }, enabled = address != null) {
-					Text("Open conversation")
-				}
-				IconButton(onClick = hapticClick { settingsOpen = true }) {
-					Icon(Icons.Default.Settings, contentDescription = "Assistant settings")
-				}
+		when (root) {
+			AssistantRoot.Unplaced -> {
+				Text("Set a Gateway and directory where the assistant session lives.", style = MaterialTheme.typography.bodyLarge)
+				Button(onClick = hapticClick(onConfigure)) { Text("Configure") }
 			}
-			if (homes.size > 1) {
-				Text(
-					"Also placed on ${homes.drop(1).joinToString()}. Move it in settings to release the rest.",
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.error,
-				)
-			}
-			FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-				for (watcher in placed.watchers) {
-					val chip = watcherChip(watcher)
-					AssistChip(
-						onClick = hapticClick { settingsOpen = true },
-						label = { Text(chip.text) },
-						colors = if (chip.needsSecret) {
-							AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
-						} else {
-							AssistChipDefaults.assistChipColors()
-						},
-					)
-				}
+			AssistantRoot.Loading, is AssistantRoot.Placed -> CircularProgressIndicator()
+			is AssistantRoot.Unavailable -> {
+				Text("A Gateway that may hold the assistant could not be read.", style = MaterialTheme.typography.bodyLarge)
+				OutlinedButton(onClick = hapticClick(onRetry)) { Text("Retry") }
+				if (root.canPlace) Button(onClick = hapticClick(onConfigure)) { Text("Configure") }
 			}
 		}
-	}
-
-	if (settingsOpen) {
-		AssistantSettingsSheet(repo, state, home, onListDirs) { settingsOpen = false }
 	}
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AssistantSettingsSheet(
+internal fun AssistantSettingsSheet(
 	repo: ChatRepository,
 	state: ChatState,
 	home: String?,
@@ -159,6 +109,14 @@ private fun AssistantSettingsSheet(
 			Text("Assistant settings", style = MaterialTheme.typography.titleLarge)
 
 			Text("Lives on", style = MaterialTheme.typography.labelLarge)
+			val others = state.gateways.assistantHomes().filter { it != home }
+			if (others.isNotEmpty()) {
+				Text(
+					"Also placed on ${others.joinToString()}. Move it to release the rest.",
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.error,
+				)
+			}
 			PickMenu(
 				label = "Gateway",
 				choices = gateways,

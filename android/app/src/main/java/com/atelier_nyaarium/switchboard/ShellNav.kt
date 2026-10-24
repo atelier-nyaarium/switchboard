@@ -49,6 +49,26 @@ internal fun ShellNav.arrive(
 	)
 }
 
+/** The assistant: its own root, no Files. */
+internal fun ShellNav.arriveAt(
+	team: String,
+	assistant: Boolean,
+	arrival: Arrival,
+	facts: ArrivalFacts,
+	place: WorkspacePlace? = null,
+): ShellNav {
+	val nextRoot = when {
+		assistant -> RootView.ASSISTANT
+		root == RootView.ASSISTANT -> RootView.SESSIONS
+		else -> root
+	}
+	val how = if (assistant && arrival == Arrival.FILES_ASKED) Arrival.OUTSIDE else arrival
+	return copy(root = nextRoot).arrive(team, how, facts, place.takeUnless { assistant })
+}
+
+/** Moves the open conversation's address. */
+internal fun ShellNav.retarget(team: String): ShellNav = copy(conversation = conversation?.copy(team = team))
+
 internal fun ShellNav.leave(): ShellNav = copy(conversation = null)
 
 /** Forget closes only the shown session. */
@@ -128,6 +148,7 @@ internal data class BackFacts(
 	val drawerOpen: Boolean,
 	val offeredRoot: List<RootView>,
 	val offeredConversation: List<ConversationView>,
+	val assistantOpen: Boolean = false,
 )
 
 /** Null lets the system handle Back. Editors draw over every screen, so they go first. */
@@ -153,9 +174,18 @@ internal fun ShellNav.back(layer: BackLayer, facts: BackFacts, provisioned: Bool
 	BackLayer.SETTINGS -> copy(settings = settings?.let { settingsBack(it, provisioned) })
 	BackLayer.FILES -> popFiles()
 	BackLayer.VIEW -> showView(facts.offeredConversation.first())
-	BackLayer.CONVERSATION -> leave()
+	BackLayer.CONVERSATION -> if (facts.assistantOpen) copy(conversation = null, root = RootView.SESSIONS) else leave()
 	BackLayer.ROOT_VIEW -> showRoot(facts.offeredRoot.first())
 	BackLayer.EDITOR, BackLayer.OVERLAY, BackLayer.DRAWER -> this
+}
+
+/** The arrow: the assistant steps, a session leaves. */
+internal fun ShellNav.up(facts: BackFacts): ShellNav {
+	val open = conversation ?: return this
+	if (!facts.assistantOpen) return leave()
+	val shown = shownView(facts.offeredConversation, open.view)
+	val layer = if (backFrom(facts.offeredConversation, shown) != null) BackLayer.VIEW else BackLayer.CONVERSATION
+	return back(layer, facts, provisioned = true)
 }
 
 /** Only root and settings survive recreation. */

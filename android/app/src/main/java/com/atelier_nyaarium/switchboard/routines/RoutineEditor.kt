@@ -68,11 +68,19 @@ fun RoutineEditor(
 	}
 	val zone = remember { java.time.ZoneId.systemDefault() }
 	val gatewayZone = group?.routineZone.orEmpty().ifBlank { zone.id }
-	// Read in the owner's own zone, whatever the gateway keeps it in.
-	var draft by remember(routineId, gatewayZone) {
+	// Shown in the owner's zone.
+	val draftKey = routineId ?: "new"
+	var draft by remember(gatewayId, routineId, gatewayZone) {
 		mutableStateOf(
-			held?.let { RoutineDraft.of(it).shown(zone.id) } ?: RoutineDraft.fresh(zone),
+			repo.routineOps.draftFor(gatewayId, draftKey)
+				?: held?.let { RoutineDraft.of(it).shown(zone.id) }
+				?: RoutineDraft.fresh(zone),
 		)
+	}
+	LaunchedEffect(draft) { repo.routineOps.keepDraft(gatewayId, draftKey, draft) }
+	val close = {
+		repo.routineOps.dropDraft(gatewayId, draftKey)
+		onClose()
 	}
 	val vaultRevision by repo.vault.revision
 	val entries = remember(vaultRevision) { repo.vaultOps.views() }
@@ -113,7 +121,7 @@ fun RoutineEditor(
 				when (val saved = repo.routineOps.save(candidate, draft.revision.takeIf { it > 0L }, gatewayId)) {
 					is RoutineSaved.Refused -> refused = saved.reason
 					RoutineSaved.Unreachable -> refused = com.atelier_nyaarium.switchboard.GATEWAY_UNREACHABLE
-					is RoutineSaved.Stored -> onClose()
+					is RoutineSaved.Stored -> close()
 				}
 				saving = false
 			}
@@ -124,7 +132,7 @@ fun RoutineEditor(
 		title = if (held == null) "New routine" else "Edit routine",
 		saving = saving,
 		canSave = draft.refusal() == null,
-		onCancel = onClose,
+		onCancel = close,
 		onSave = { if (ruleMoved(held, draft)) confirming = true else commit() },
 	) {
 			refused?.let {
@@ -341,7 +349,7 @@ fun RoutineEditor(
 						confirmingDelete = false
 						scope.launch {
 							if (repo.routineOps.delete(draft.id, gatewayId)) {
-								onClose()
+								close()
 							} else {
 								refused = "This Gateway still runs it; it was not reached"
 							}

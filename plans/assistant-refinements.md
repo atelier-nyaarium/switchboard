@@ -292,7 +292,7 @@ Hides the assistant from every session and friend. Gives the assistant no new to
 
 Reuses the session conversation screen for the assistant. Lands in one commit with Phase 3, since the gear opens Phase 3's pages.
 
-- **Identity:** one predicate beside `AssistantOps` says a team is the assistant, from Phase 1's role (presence or the persisted cache), never the name. `ShellNav` stores no kind: the open conversation is the assistant's when the predicate says so, and `BackFacts` carries it.
+- **Identity:** one predicate, `isAssistant`, says a team is the assistant: from Phase 1's role (presence or the persisted cache), or the address a Gateway answers as its assistant, which marks a fresh placement before any presence row. Never the name. `ShellNav` stores no kind: the open conversation is the assistant's when the predicate says so, and `BackFacts` carries it.
 - **Arrival:** one arrival operation reads the predicate before anything opens.
   - The assistant's road sets `root` to `ASSISTANT` and never calls `openThread`.
   - The ordinary road keeps `openThread`, and sets `root` to `SESSIONS` when it replaces the assistant's conversation.
@@ -302,7 +302,7 @@ Reuses the session conversation screen for the assistant. Lands in one commit wi
   - Placed: enter the conversation.
   - Confirmed unplaced: Configure. Placing enters the conversation.
   - Not yet read: a loading state.
-  - Its Gateway unreachable: unavailable, with Retry.
+  - Its Gateway unreachable, or a Gateway that may hold it unread and none still loading: unavailable, with Retry. When every unread Gateway refused rather than went unreached, Configure shows beside Retry, since an older build refuses the op and never holds it.
 - **Refresh:** the shell refreshes assistant state, keyed on Gateway incarnations, while the Assistant root or its conversation shows. `AssistantScreen` was its only caller.
 - **Presentation:** one pure value beside `ThreadScreenState`. The status chip and every other Chat surface stay.
   - "Assistant" in the top bar, the empty state and the conversation drawer header.
@@ -316,11 +316,15 @@ Reuses the session conversation screen for the assistant. Lands in one commit wi
 - **Move and release:** the open conversation follows the assistant's current home.
   - A completed move retargets it.
   - `StillOn` prefers the target just placed.
-  - A release returns to the Assistant root.
+  - A release returns to the Assistant root, even while another Gateway has not answered. Only the open conversation's own Gateway answering with no folder, or a current roster without it, is a release. A refusal, or no answer from a Gateway the roster still names, is not.
   - The old Gateway's transcript stays under its old address, unreachable.
 - **Tests:**
   - JVM cases: the root on assistant arrival and exit, Terminal to Chat to Sessions with the arrow, the offered views, `openThread` refusing the assistant, the followed read, the presentation value, and retargeting on a move.
   - `SandboxFixtures` seeds a role-marked `host.assistant` with a transcript, kept out of `openTabs`, asserted in `SandboxSeederTest`.
+
+### Bug Classes
+
+- **Mechanism:** `followAssistant` and the effect in `MainActivity.App` that decides the open assistant conversation is gone. **Class:** an unknown answer read as a release. **Rounds:** the align pass left the conversation open while another Gateway was unanswered, and was patched with a "was placed, no home known" check. The red team found that check fired on every Gateway re-registration, which discards the held answer, and it was patched to leave only when the held home answers with no folder (`assistantReleased`). The architecture audit found a third: `AssistantOps.refresh` turned any refusal, transient ones included, into a made-up "holds none" answer, and `followAssistant` left on `Unplaced` alone; the held home lived in composable state, so a cold arrival never read its release. The red team then found the same reading in two sibling readers: `AssistantOps.move` counted a refused state read as holding none, so it neither released that Gateway nor named it, and `assistantRoot` offered Configure beside a refused Gateway. **Ended by:** `GatewayEntry.assistant` is an `AssistantWord`, `Answered` or `Refused`, and only `Answered` speaks to placement. `assistantReleased` reads only an `Answered` word with no folder, or a current roster without that Gateway. `followAssistant` acts only under the Assistant root, reads the open conversation's own Gateway, retargets on `Placed`, and otherwise leaves only on that release. `assistantRoot` counts a refused Gateway as unread, answering Unavailable with Retry, plus Configure when refusals are all that is unread. Once placed, `move` names in `StillOn` every other Gateway that did not answer with its state. `AssistantOps.landed` draws an op's own state answer through the fence, so a confirmed release stands even when the read after it is refused. Still open: a re-registration drops the word, so chips blank until the refresh answers.
 
 ## Phase 3 - Assistant settings pages
 
@@ -329,7 +333,7 @@ Lands with Phase 2. `GrantSecretsSheet` stays a sheet, one over a page.
 - **Route:** one Assistant page field on `ShellNav`, apart from `SettingsRoute`: `Settings`, `Rules(gatewayId, watcherId)` and `Editor(gatewayId, watcherId, RuleSlot)`. `shellScreen` draws it in its own slot below BOOT and above CONVERSATION and ROOT, with its own `BackLayer`. `ShellNavSaver` carries it.
 - **Back:** `assistantPageBack` serves system Back and the top-bar arrow: Editor, Rules, Settings, then what lies beneath.
 - **Transitions:**
-  - `arrive` clears the pages.
+  - `arrive` clears the pages. What an arrival dismisses is one value with one reset, returned by a pure shell step beside `ShellNav`, so the hand-written list in `App`'s `arriveAt` goes, and close-tab and `enterAssistant` take the same step.
   - A completed move keeps Settings and closes the old Gateway's Rules and Editor.
   - A release keeps Settings, and the conversation beneath clears to the Assistant root, so Back lands there.
   - A route whose Gateway or watcher no longer resolves unwinds to Settings.

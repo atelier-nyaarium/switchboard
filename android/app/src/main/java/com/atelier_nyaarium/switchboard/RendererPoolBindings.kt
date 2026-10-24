@@ -141,12 +141,13 @@ internal fun rememberBoundRendererPool(
 	// way. Every open tab, since one terminal can start a message in a different thread.
 	LaunchedEffect(Unit) {
 		repo.playback.queueRevision.collect {
-			for (team in repo.state.value.openTabs) rendererPool.setPlayStates(team, repo.playback.playStatesFor(team))
+			for (team in followedTeams(repo.state.value)) rendererPool.setPlayStates(team, repo.playback.playStatesFor(team))
 		}
 	}
 	val dark = isSystemInDarkTheme()
 	LaunchedEffect(dark) { rendererPool.setDark(dark) }
-	LaunchedEffect(state.openTabs) { rendererPool.retain(state.openTabs.toSet()) }
+	val followed = followedTeams(state)
+	LaunchedEffect(followed) { rendererPool.retain(followed) }
 	DisposableEffect(Unit) { onDispose { rendererPool.destroyAll() } }
 
 	return rendererPool

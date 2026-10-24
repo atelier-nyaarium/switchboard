@@ -39,6 +39,10 @@ internal fun seedSandboxIdentity(identity: PhoneIdentity, domainId: String?) {
 	domainId?.let { identity.learnDomainId(it, SANDBOX_PROVISIONING) }
 }
 
+/** Seeded tabs, never the assistant. */
+internal fun sandboxTabs(teams: List<Team>, threads: Map<String, List<Message>>): List<String> =
+	threads.keys.filter { key -> teams.none { it.name == key && it.role == ASSISTANT_ROLE } }
+
 internal interface SandboxSeeder {
 	fun seedSandbox(
 		teams: List<Team>,
@@ -72,7 +76,8 @@ internal class ChatRepositorySandboxSeeder(private val repo: ChatRepository) : S
 			s.copy(
 				teams = teams,
 				threads = threads,
-				openTabs = threads.keys.toList(),
+				openTabs = sandboxTabs(teams, threads),
+				roles = rolesAfter(s.roles, teams),
 				unread = threads.mapValues { (team, msgs) -> unreadCount(msgs, s.readAnchors[team]) },
 				connected = true,
 				provisioned = true,

@@ -12,4 +12,13 @@ class SandboxSeederTest {
 		assertEquals(false, registry.entry(SANDBOX_NEVER_REGISTERED)?.seen)
 		assertEquals(true, registry.entry("sandbox")?.connected)
 	}
+
+	@Test
+	fun theAssistantsThreadIsSeededWithoutATab() {
+		val assistant = Team("local.sandbox.host.assistant", Presence.ended(), role = ASSISTANT_ROLE)
+		val demo = Team("local.sandbox.host.demo", Presence.ended())
+		val threads = mapOf(assistant.name to listOf(Message(false, "hi", 1L)), demo.name to listOf(Message(false, "yo", 2L)))
+
+		assertEquals(listOf(demo.name), sandboxTabs(listOf(assistant, demo), threads))
+	}
 }

@@ -1,12 +1,10 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
 import com.atelier_nyaarium.switchboard.proto.AssistantRule
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantPreviewResult
-import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlin.coroutines.cancellation.CancellationException
@@ -98,17 +96,15 @@ internal fun watcherActions(watcher: AssistantWatcher): List<AssistantActionDesc
 /** A stopped watcher that holds its secret can be asked again, as after a rotated key. */
 internal fun canRetry(watcher: AssistantWatcher): Boolean = watcher.stopped != null && watcher.grants.isNotEmpty()
 
-/** The assistant's conversation on a Gateway: its marked row, or the address the Gateway mints. */
-internal fun assistantAddress(teams: List<Team>, domainId: String?, gatewayId: String): String? =
-	teams.firstOrNull { it.role == ASSISTANT_ROLE && it.gatewayId == gatewayId }?.name
-		?: domainId?.let { runIsolated { Address.of(it, gatewayId, "host", "assistant").canonical }.getOrNull() }
-
 /** Nothing is held on the phone; every answer replaces what a Gateway last said. */
 internal class AssistantOps(
 	private val state: MutableStateFlow<ChatState>,
 	private val host: AssistantHost,
 ) {
 	private val reads = GatewayReadFence()
+
+	/** The last move's target. */
+	val preferredHome = MutableStateFlow<String?>(null)
 
 	suspend fun refreshAll() {
 		coroutineScope { state.value.gateways.ids().map { id -> async { refresh(id) } }.awaitAll() }
@@ -119,18 +115,14 @@ internal class AssistantOps(
 		if (gatewayId.isBlank()) return
 		val read = reads.read(gatewayId) { attempt { client.call(gatewayId, ConsoleOp.AssistantState) } }
 		when (val answer = (read as? GatewayRead.Fresh)?.value) {
-			is AssistantAnswer.State -> show(gatewayId, answer.state)
-			// An older build refuses an op it does not know, and holds no assistant.
-			is AssistantAnswer.Refused -> show(gatewayId, null)
+			is AssistantAnswer.State -> show(gatewayId, AssistantWord.Answered(answer.state))
+			// Refusal leaves placement unknown.
+			is AssistantAnswer.Refused -> show(gatewayId, AssistantWord.Refused)
 			AssistantAnswer.Unreachable, null -> {}
 		}
 	}
 
-	/**
-	 * Asks every Gateway itself, never the drawn copy, so a home not yet drawn is still released. Then
-	 * places, then releases. One that could not be asked may still hold it, so it is named with the
-	 * ones that did not let go.
-	 */
+	/** Queries other Gateways directly, places, then releases; lists uncertain homes. */
 	suspend fun move(target: String, workdir: String): AssistantMoved {
 		val client = host.gateway ?: return AssistantMoved.Unreachable
 		val others = coroutineScope {
@@ -139,9 +131,9 @@ internal class AssistantOps(
 			}.awaitAll()
 		}
 		val leaving = others.filter { (_, answer) -> (answer as? AssistantAnswer.State)?.state?.workdir != null }.map { it.first }
-		val unread = others.filter { (_, answer) -> answer is AssistantAnswer.Unreachable }.map { it.first }
+		val unread = others.filter { (_, answer) -> answer !is AssistantAnswer.State }.map { it.first }
 		when (val placed = landed(target, ConsoleOp.AssistantPlace(workdir = workdir))) {
-			is AssistantAnswer.State -> {}
+			is AssistantAnswer.State -> preferredHome.value = target
 			is AssistantAnswer.Refused -> return AssistantMoved.Refused(placed.reason)
 			AssistantAnswer.Unreachable -> return AssistantMoved.Unreachable
 		}
@@ -189,16 +181,23 @@ internal class AssistantOps(
 		return answer
 	}
 
-	/** Drawn only by the fenced read after it; a refusal reads too, since the drawn copy may be stale. */
+	/** Fenced draw; a refusal re-reads. */
 	private suspend fun landed(gatewayId: String, op: ConsoleOp): AssistantAnswer {
 		val client = host.gateway ?: return AssistantAnswer.Unreachable
 		val answer = attempt { client.call(gatewayId, op) } ?: AssistantAnswer.Unreachable
-		if (answer !is AssistantAnswer.Unreachable) refresh(gatewayId)
+		when (answer) {
+			is AssistantAnswer.State ->
+				if (reads.read(gatewayId) { answer } is GatewayRead.Fresh) show(gatewayId, AssistantWord.Answered(answer.state))
+			is AssistantAnswer.Refused -> refresh(gatewayId)
+			AssistantAnswer.Unreachable -> {}
+		}
 		return answer
 	}
 
-	private fun show(gatewayId: String, answer: ConsoleAssistantStateResult?) {
-		state.update { held -> held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(assistant = answer) }) }
+	private fun show(gatewayId: String, word: AssistantWord) {
+		state.update { held ->
+			held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(assistant = word) }).withoutAssistantTabs()
+		}
 	}
 
 	private suspend fun <T> attempt(call: suspend () -> T): T? = try {

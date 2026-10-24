@@ -219,12 +219,51 @@ fun App(
 	}
 	val features = DrawerFeatures(board = pluginManager.isActive("taskboard"), vault = pluginManager.isActive("vault"))
 	val offeredRoot = rootViews(features)
-	val offeredConversation = openTeam?.let { conversationViews(features, terminalEligible(state, it)) }.orEmpty()
+	val offeredFor = { team: String ->
+		val terminal = terminalEligible(state, team)
+		if (isAssistant(state, team)) assistantConversationViews(terminal) else conversationViews(features, terminal)
+	}
+	val offeredConversation = openTeam?.let(offeredFor).orEmpty()
+	val assistantOpen = openTeam?.let { isAssistant(state, it) } == true
+	val preferredHome by repo.assistantOps.preferredHome.collectAsState()
+	val assistantRoot = assistantRoot(state, preferredHome)
+	var assistantSettingsOpen by remember { mutableStateOf(false) }
 	val factsFor = { team: String ->
 		ArrivalFacts(
-			offered = conversationViews(features, terminalEligible(state, team)),
+			offered = offeredFor(team),
 			stuckAtLogin = stuckAtLogin(state.sessions().firstOrNull { it.name == team }?.presence),
 		)
+	}
+	// The one arrival road.
+	val arriveAt = { team: String, arrival: Arrival, place: WorkspacePlace? ->
+		val assistant = isAssistant(state, team)
+		val key = if (assistant) repo.fromCanonical(team) else repo.openThread(team)
+		if (key != null) {
+			overlays = emptyList()
+			editRunbook = null
+			editRoutine = null
+			editPolicy = null
+			fireRunbook = null
+			boardModal = null
+			vaultModal = null
+			viewer = null
+			openQueueRequest.value = false
+			linkMenuState.value = null
+			linkMenuNoteState.value = null
+			assistantSettingsOpen = false
+			nav = nav.arriveAt(key, assistant, arrival, factsFor(key), place)
+		}
+		key
+	}
+	val assistantShown = nav.root == RootView.ASSISTANT || assistantOpen
+	LaunchedEffect(state.gateways.incarnations(), state.gateways.reachableIds(), assistantShown) {
+		if (assistantShown) repo.assistantOps.refreshAll()
+	}
+	LaunchedEffect(assistantRoot, nav.root, nav.conversation == null, nav.settings) {
+		nav = nav.enterAssistant(assistantRoot, factsFor)
+	}
+	LaunchedEffect(assistantRoot, openTeam, nav.root, state.gateways) {
+		nav = nav.followAssistant(assistantRoot, state)
 	}
 	// A ref's exit opens Files. Clearing first prevents duplicate routing.
 	val workspaceRequest by com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus.pending.collectAsState()
@@ -233,9 +272,13 @@ fun App(
 		val standing = standingOf(state.teams, state.gateways.loaded, request.team)
 		if (standing == RequestStanding.Wait) return@LaunchedEffect
 		com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus.shown(request)
+		// The assistant has no Files.
+		if (isAssistant(state, request.team)) {
+			arriveAt(request.team, Arrival.FILES_ASKED, null)
+			return@LaunchedEffect
+		}
 		val row = state.teams.firstOrNull { it.name == request.team }
-		val opened = if (standing == RequestStanding.Show) repo.openThread(request.team) else null
-		if (row == null || opened == null) return@LaunchedEffect
+		if (row == null || standing != RequestStanding.Show) return@LaunchedEffect
 		val place = when (val open = request.open) {
 			is com.atelier_nyaarium.switchboard.workspace.WorkspaceOpen.File -> WorkspacePlace.Outline(open.path)
 			is com.atelier_nyaarium.switchboard.workspace.WorkspaceOpen.Window -> {
@@ -244,13 +287,11 @@ fun App(
 				WorkspacePlace.Windows
 			}
 		}
-		nav = nav.arrive(opened, Arrival.FILES_ASKED, factsFor(opened), place)
+		arriveAt(request.team, Arrival.FILES_ASKED, place)
 	}
 	LaunchedEffect(openTeamRequest.value) {
 		openTeamRequest.value?.let { team ->
-			val opened = repo.openThread(team) ?: return@let
-			overlays = emptyList()
-			nav = nav.arrive(opened, Arrival.OUTSIDE, factsFor(opened))
+			arriveAt(team, Arrival.OUTSIDE, null) ?: return@let
 			openTeamRequest.value = null
 		}
 	}
@@ -289,6 +330,7 @@ fun App(
 		drawerOpen = shownDrawer.holdsBack(),
 		offeredRoot = offeredRoot,
 		offeredConversation = offeredConversation,
+		assistantOpen = assistantOpen,
 	)
 	val layer = backLayer(nav, backFacts)
 	BackHandler(enabled = layer != null) {
@@ -398,10 +440,16 @@ fun App(
 				pendingRequests = ViewScope.Session(team).requestsOf(vaultPending).size,
 			)
 			val marks = offered.map { conversationMark(it, facts) }
+			val chrome = threadChrome(
+				assistant = assistantOpen,
+				label = tabLabelFor(state, team),
+				tabs = state.openTabs,
+				watchers = state.gateways.assistantOn(gatewayOf(team))?.watchers.orEmpty(),
+			)
 			SideDrawer(
 				drawers = conversationDrawer,
 				sheet = {
-					DrawerHeader(tabLabelFor(state, team), localFieldOf(team), monospace = true)
+					DrawerHeader(chrome.title, localFieldOf(team), monospace = chrome.monospace)
 					offered.forEachIndexed { index, view ->
 						if (index > 0 && view.scoped != null && offered[index - 1].scoped == null) DrawerDivider()
 						DrawerRow(view.title, iconOf(view), view == shown, marks[index]) {
@@ -414,6 +462,7 @@ fun App(
 			ThreadScreen(
 				team = openTeam!!,
 				label = tabLabelFor(state, openTeam!!),
+				chrome = chrome,
 				presence = presence,
 				tabs = state.openTabs,
 				tabLabel = { tabLabelFor(state, it) },
@@ -436,7 +485,7 @@ fun App(
 				revealAt = revealAt,
 				onRevealed = { revealAt = null },
 				unreadBoundary = repo::unreadBoundary,
-				onGateway = { t -> nav = nav.arrive(t, Arrival.TAB, factsFor(t)) },
+				onGateway = { t -> arriveAt(t, Arrival.TAB, null) },
 				onCloseTab = { t ->
 						// Leave closing tab before renderer removal.
 					if (t == openTeam) {
@@ -445,7 +494,8 @@ fun App(
 					}
 					repo.closeTab(t)
 				},
-				onSessions = { nav = nav.leave() },
+				onSessions = { nav = nav.up(backFacts) },
+				onSettings = { assistantSettingsOpen = true },
 				composer = ComposerState(
 					draft = state.drafts[openTeam!!] ?: Draft(),
 					sendAwaitingWake = state.awaitingWake(openTeam!!),
@@ -610,11 +660,10 @@ fun App(
 						onBoardSaved = { nav = nav.showRoot(RootView.SESSIONS) },
 					)
 				} else if (view == RootView.ASSISTANT) {
-					com.atelier_nyaarium.switchboard.assistant.AssistantScreen(
-						repo = repo,
-						state = state,
-						onOpen = { team -> repo.openThread(team)?.let { nav = nav.arrive(it, Arrival.OUTSIDE, factsFor(it)) } },
-						onListDirs = { path, hostTarget, spawn -> repo.sessions.listDirs(path, hostTarget, spawn) },
+					com.atelier_nyaarium.switchboard.assistant.AssistantRootScreen(
+						root = assistantRoot,
+						onConfigure = { assistantSettingsOpen = true },
+						onRetry = { shellScope.launch { repo.assistantOps.refreshAll() } },
 						modifier = modifier,
 					)
 				} else {
@@ -625,9 +674,7 @@ fun App(
 						onManage = { openOverlay(Overlay.Manage) },
 						onAddGateway = { openOverlay(Overlay.AddGateway) },
 						onHostHelp = { openOverlay(Overlay.HostHelp) },
-						onOpen = { team ->
-							repo.openThread(team)?.let { nav = nav.arrive(it, Arrival.OUTSIDE, factsFor(it)) }
-						},
+						onOpen = { team -> arriveAt(team, Arrival.OUTSIDE, null) },
 						onRename = { team, name -> repo.command { rename(team, name) } },
 						onForget = { team -> forgetSession.forget(team) },
 						// Spawn stays on board; next poll reveals session.
@@ -654,6 +701,14 @@ fun App(
 	}
 
 	QueueOverlay(repo, openQueueRequest, locked, revealAtState, openTeamRequest)
+	if (assistantSettingsOpen && !locked) {
+		com.atelier_nyaarium.switchboard.assistant.AssistantSettingsSheet(
+			repo = repo,
+			state = state,
+			home = assistantHome(state, preferredHome),
+			onListDirs = { path, hostTarget, spawn -> repo.sessions.listDirs(path, hostTarget, spawn) },
+		) { assistantSettingsOpen = false }
+	}
 	AttachmentViewerOverlay(viewerState, rendererPool)
 	LinkMenuDialog(linkMenuState, linkMenuNoteState)
 	// Board dialog replaces current screen.

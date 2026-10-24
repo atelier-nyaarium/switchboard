@@ -70,6 +70,28 @@ data class TerminalState(
 	val onResumeAfterLimit: suspend () -> Unit,
 )
 
+/** What a conversation's top bar shows. */
+internal data class ThreadChrome(
+	val title: String,
+	val monospace: Boolean,
+	val tabRow: Boolean,
+	/** Otherwise the gear. */
+	val sessionMenu: Boolean,
+	val chips: List<WatcherChip>,
+)
+
+internal fun threadChrome(
+	assistant: Boolean,
+	label: String,
+	tabs: List<String>,
+	watchers: List<com.atelier_nyaarium.switchboard.proto.AssistantWatcher>,
+): ThreadChrome =
+	if (assistant) {
+		ThreadChrome(RootView.ASSISTANT.title, monospace = false, tabRow = false, sessionMenu = false, chips = watchers.map(::watcherChip))
+	} else {
+		ThreadChrome(label, monospace = true, tabRow = tabs.size > 1, sessionMenu = true, chips = emptyList())
+	}
+
 /** A local composite session of this Domain has a drivable pane. */
 internal fun terminalEligible(state: ChatState, team: String): Boolean {
 	if (!com.atelier_nyaarium.switchboard.proto.isComposite(localFieldOf(team))) return false
