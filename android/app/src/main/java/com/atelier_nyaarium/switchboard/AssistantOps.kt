@@ -49,8 +49,11 @@ internal sealed interface AssistantMoved {
 	data class Refused(val reason: String) : AssistantMoved
 	data object Unreachable : AssistantMoved
 
-	/** Placed, but these Gateways it left did not release. */
-	data class StillOn(val gatewayIds: List<String>) : AssistantMoved
+	/**
+	 * Placed, but not every other Gateway is known to hold none: `stillOn` held it and did not
+	 * confirm the release, `unchecked` could not be asked.
+	 */
+	data class Unsettled(val stillOn: List<String>, val unchecked: List<String>) : AssistantMoved
 }
 
 /** The folder as the Gateway stores it: no trailing slash, the root kept. */
@@ -72,8 +75,12 @@ internal fun movedText(moved: AssistantMoved): String? = when (moved) {
 	AssistantMoved.Moved -> null
 	is AssistantMoved.Refused -> moved.reason
 	AssistantMoved.Unreachable -> "That Gateway could not be reached"
-	is AssistantMoved.StillOn ->
-		"Placed, but ${moved.gatewayIds.joinToString()} did not confirm it let go. Move again once it answers."
+	is AssistantMoved.Unsettled -> buildList {
+		add("Placed.")
+		if (moved.stillOn.isNotEmpty()) add("${moved.stillOn.joinToString()} did not confirm it let go.")
+		if (moved.unchecked.isNotEmpty()) add("Could not ask ${moved.unchecked.joinToString()} whether it holds one too.")
+		add(if (moved.stillOn.size + moved.unchecked.size == 1) "Move again once it answers." else "Move again once they answer.")
+	}.joinToString(" ")
 }
 
 /** One chip in the inbox strip. */
@@ -295,7 +302,10 @@ internal class AssistantOps(
 			}.awaitAll()
 		}
 		val leaving = others.filter { (_, answer) -> (answer as? AssistantAnswer.State)?.state?.workdir != null }.map { it.first }
-		val unread = others.filter { (_, answer) -> answer !is AssistantAnswer.State }.map { it.first }
+		// One whose last answer held none is not named; one never answered might hold it.
+		val unread = others
+			.filter { (id, answer) -> answer !is AssistantAnswer.State && !assistantReleased(state.value, id) }
+			.map { it.first }
 		when (val placed = landed(target, ConsoleOp.AssistantPlace(workdir = workdir))) {
 			is AssistantAnswer.State -> {
 				preferredHome.value = target
@@ -304,8 +314,8 @@ internal class AssistantOps(
 			is AssistantAnswer.Refused -> return AssistantMoved.Refused(placed.reason)
 			AssistantAnswer.Unreachable -> return AssistantMoved.Unreachable
 		}
-		val stuck = (leaving.filter { release(it) !is AssistantAnswer.State } + unread).distinct()
-		return if (stuck.isEmpty()) AssistantMoved.Moved else AssistantMoved.StillOn(stuck)
+		val stuck = leaving.filter { release(it) !is AssistantAnswer.State }
+		return if (stuck.isEmpty() && unread.isEmpty()) AssistantMoved.Moved else AssistantMoved.Unsettled(stuck, unread)
 	}
 
 	suspend fun release(gatewayId: String): AssistantAnswer = landed(gatewayId, ConsoleOp.AssistantRelease)

@@ -54,6 +54,7 @@ class AssistantOpsTest {
 	private class FakeGateway(var home: String?) : AssistantGateway {
 		val refusing = mutableSetOf<String>()
 		val refusingState = mutableSetOf<String>()
+		val refusingRelease = mutableSetOf<String>()
 		val deaf = mutableSetOf<String>()
 		val calls = mutableListOf<Pair<String, String>>()
 		var approveEverySend: Boolean? = null
@@ -89,6 +90,7 @@ class AssistantOpsTest {
 					AssistantAnswer.State(stateOf(gatewayId))
 				}
 				ConsoleOp.AssistantRelease -> {
+					if (gatewayId in refusingRelease) return AssistantAnswer.Refused("busy")
 					if (home == gatewayId) home = null
 					AssistantAnswer.State(stateOf(gatewayId))
 				}
@@ -163,8 +165,20 @@ class AssistantOpsTest {
 
 		for (fake in listOf(unreachable, refused)) {
 			val (ops, _) = ops(fake, "sakura", "mikan")
-			assertEquals(AssistantMoved.StillOn(listOf("sakura")), ops.move("mikan", "~/notes"))
+			assertEquals(AssistantMoved.Unsettled(emptyList(), listOf("sakura")), ops.move("mikan", "~/notes"))
 		}
+	}
+
+	@Test
+	fun aGatewayLastSeenHoldingNoneIsNotNamedWhenItCannotBeAsked() = runBlocking {
+		val fake = FakeGateway(home = "sakura")
+		val (ops, _) = ops(fake, "sakura", "mikan", "yuzu")
+		ops.refreshAll()
+		fake.deaf += "yuzu"
+
+		assertEquals(AssistantMoved.Moved, ops.move("mikan", "~/notes"))
+		// Could not ask is not the same as did not let go.
+		assertFalse(movedText(AssistantMoved.Unsettled(emptyList(), listOf("yuzu")))!!.contains("let go"))
 	}
 
 	@Test
@@ -198,12 +212,12 @@ class AssistantOpsTest {
 		val fake = FakeGateway(home = "sakura")
 		val (ops, _) = ops(fake, "sakura", "mikan")
 		ops.refreshAll()
-		fake.deaf += "sakura"
+		fake.refusingRelease += "sakura"
 
 		val moved = ops.move("mikan", "~/notes")
 
-		assertEquals(AssistantMoved.StillOn(listOf("sakura")), moved)
-		assertTrue(movedText(moved)!!.contains("sakura"))
+		assertEquals(AssistantMoved.Unsettled(listOf("sakura"), emptyList()), moved)
+		assertTrue(movedText(moved)!!.contains("sakura did not confirm it let go"))
 	}
 
 	@Test
