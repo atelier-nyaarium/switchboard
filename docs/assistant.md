@@ -82,9 +82,10 @@ it events. The session decides what to say and do.
   one makes the host fall back to home, and a link's spelling is not the place it leads. Project settings in the workdir still load, since they carry the owner's `AGENTS.md`;
   the session cannot write `.claude/`, so only the owner could add one.
 - **Its Switchboard server:** takes no capabilities and lists only `channel_reply`,
-  `channel_reply_structured`, `switchboard_capabilities`, `notify_human`, `inbox` and each declared
-  watcher action (`ASSISTANT_SWITCHBOARD_TOOLS`, through `scopeTools`), so no guidance names a tool
-  it lacks and no reply snapshots a ref. Its instructions carry the assistant's standing rules
+  `channel_reply_structured`, `switchboard_capabilities`, `notify_human`, `inbox`, each declared
+  watcher action and the crosstalk tools (`ASSISTANT_SWITCHBOARD_TOOLS`, through `scopeTools`), so
+  no guidance names a tool it lacks and no reply snapshots a ref. `ASSISTANT_ONLY_TOOLS` are
+  registered for it alone, which `check:boot` proves against a bound session and a tokenless one. Its instructions carry the assistant's standing rules
   (`ASSISTANT_INSTRUCTIONS`), so a release updates them in every folder.
 - **The hook:** a deny-only second layer, and the only check on MCP arguments the engine does not
   see.
@@ -101,9 +102,11 @@ fails to run exits 2, which blocks the tool. `gateVerdict` is a closed allowlist
   path through `confine`. Never `.git/`, a `.claude/` folder, an `AGENTS.md`, `CLAUDE.md` or
   `CLAUDE.local.md` at any depth, or `.mcp.json`.
 - **Allowed:** `channel_reply`, `channel_reply_structured`, `switchboard_capabilities`,
-  `notify_human`, `inbox`, each declared watcher action and `ToolSearch`. The reply route already refuses a conversation not
-  addressed to the caller. The attachments of `channel_reply` and `notify_human` take the read rule,
-  and a `ref://` to `/`, `~` or `..` in either is refused, since both are uploaded with the message.
+  `notify_human`, `inbox`, each declared watcher action, the crosstalk tools and `ToolSearch`. The
+  reply route already refuses a conversation not addressed to the caller. The attachments of
+  `channel_reply`, `notify_human` and `crosstalk_send` take the read rule, and a `ref://` to `/`, `~`
+  or `..` in the field each uploads (`full`, or a send's `body`) is refused. A field that is not
+  text is refused.
 - **Refused:** every other tool, including `Bash`, shell runs through `vault_run`, delegation to
   sub-agents, Codex or Copilot, web fetches, and other MCP servers' tools.
 
@@ -123,6 +126,48 @@ the open. A running pane keeps the hooks and flags it launched with, so restart 
 a plugin update. A hand resume must carry the assistant's flags too.
 
 **Event text is data:** notification titles and mail bodies are never instructions.
+
+## Sends
+
+The assistant reaches other sessions through `crosstalk_send`, and the owner approves each send on a
+phone card. Replies and notices to the owner never ask. `gateway/assistant/sendGuard.ts` holds the
+guard; `docs/vault.md` holds the request lifecycle it shares with the vault.
+
+- **One door:** the assistant's `crosstalk_send` posts to `/assistant/send` (`sendGuarded` in
+  `mcp/assistant/sendTools.ts`). An older Gateway answers a plain-text 404, which the tool reports
+  as a refusal. `/send` refuses a session send that presents the assistant's token, whatever `from`
+  names, so the guard's `assistant` ingress (`sendFromAssistant`) is the only road out.
+- **Bound once:** `createSendGuard` resolves the target to its canonical address, naming a friend
+  Domain when there is one, and binds it with the exact body, disposition, label, whether it creates
+  a session, and each file's digest, name, type and size. A label, file name or type that spans
+  lines is refused, as are files to a friend Domain and a card past the plugin action payload cap.
+  A repeat of the same intent joins the open card.
+- **Held:** the card is a `plugin_action` row, `assistant` `send-request`, retracted by
+  `send-retract`. The tool waits up to 230 seconds, then answers `pending` with a request id;
+  `crosstalk_collect` and `crosstalk_withdraw` continue it. The deadline is the vault's.
+- **Delivered at the tap, as bound:** `assistant_send_answer` approves or denies, deny with an
+  optional note. Approval rebinds the target and re-reads each file's staged size; a moved target
+  or a changed file fails the send. A relay that lost its answer reads as possibly delivered. The
+  outcome, sent, denied, expired, failed or withdrawn, stays collectable through a grace past the
+  deadline.
+- **Approve every send:** an owner setting per Gateway, on by default, read at every send; a failed
+  read asks. Off, a send goes without asking only while the owner spoke last: `createOriginMarker`
+  holds the origin of the newest row it saw in acceptance order. An owner row counts once
+  acknowledged; any other row counts as soon as it is offered; a reply counts as it is pushed. Every
+  channel row reaches the session through the delivery queue, whose observer is required, so no
+  road skips the marker. A restart, a session's end and a fresh placement clear it, and an owner row
+  accepted before boot never reads owner.
+- **Accepted risk:** the marker sees only channel rows. An earlier event still in context, or data
+  the assistant read through a tool after the owner's message, does not make it ask.
+- **Recorded where accepted:** a sent message lands in the owner's view of both conversations
+  through the `peer` mirror, keyed by the request id, with a `guard` word saying whether it was
+  approved or went unasked. A denied, expired or failed send is not recorded.
+- **Restart:** the request ids of open cards are written before a card goes and retracted at the
+  next federation activation, so no card outlives the process that could answer it.
+- **The phone:** `AssistantSendManager` holds the cards per Gateway, `AssistantPlugin` claims the rows,
+  and `AssistantSendSheet` shows every bound field and the full text. Approval takes `ApprovalGate`.
+  The notification posts on the assistant's channel, private on the lock screen, and no notification
+  action approves. Assistant settings' Safety section holds the setting and lists waiting cards.
 
 ## Actions
 

@@ -82,19 +82,26 @@ and the delta list are in `docs/federation.md` under Owner state.
 
 ## Request road
 
-`gateway/vault/requests.ts`.
+`gateway/vault/requests.ts`, an adapter over `createOwnerRequests` in `gateway/ownerRequests.ts`,
+which the assistant's send guard shares.
 
+- **The shared lifecycle:** ids, the deadline, the per-session cap, joins, settlement, collection,
+  withdrawal and retraction. Each request holds one phase, waiting, claimed or settled, and `step`
+  is its only mutator, `retire` its only delete, with one timer that re-arms when it fires early.
+  How long a settled answer stays collectable is the adapter's `collectUntil`: the vault keeps an
+  answer to its deadline and drops every lapse at once.
 - A request carries an id, the operation text, its `displayShape`, the `coveredShapes` it names, the
   session target, and a deadline twenty hours out (`VAULT_REQUEST_DEADLINE_MS`). It names an entry,
   or it is `typed` and asks the owner for a value.
 - **It reaches the phone as a `plugin_action` row:** `pluginId` `vault`, `actionType` `request`,
-  delivered through `deliverToOwner` into the session's conversation thread. The row is volatile: a
-  restart drops it, because the waiting answer lived in the process that died.
+  delivered through `deliverToOwner` into the session's conversation thread. The waiting answer
+  lives in this process, so a restart cannot answer it: open request ids are written to the
+  `vault-open-requests` ledger before the row goes, and retracted at the next federation activation.
 - The `vault_answer` value op carries the decision and, for a typed request, the value sealed to the
   request id. A typed answer settles as `once` whatever tier was named. Deny and the deadline refuse
   alike. A deny may carry a `note`, the owner's steering, which rides the refused answer to the
-  session's tool result and to the helper's stderr. An unknown or settled request answers
-  `request expired`.
+  session's tool result and to the helper's stderr. A request already answered answers
+  `already answered`; an unknown or lapsed one answers `request expired`.
 - An entry request resolved through a policy carries the same `policy` reference, and a retry
   joins only a request open under the same policy. A typed request carries none. **The policy is read again at the tap:** an approval
   is validated against the store's current record before any grant is minted, and a policy that is
@@ -102,7 +109,7 @@ and the delta list are in `docs/federation.md` under Owner state.
   request refused with that reason, which the phone's answer also carries. A policy that moves
   while a request is open refuses it; the asker resolves again.
 - An approval on an entry request also records the grant, qualified as the request was. The answer
-  waits for its collector until the deadline, and the first collector takes it.
+  waits for its collector until the deadline, and the first collector `take`s it.
 - **The value is read as it leaves, never from a snapshot taken when it was asked for:** `release`
   in `gateway/vault/vaultUse.ts` runs `usable` again at settlement on every road, so an entry
   rotated, emptied, or closed to this Gateway while the request waited answers with the current
