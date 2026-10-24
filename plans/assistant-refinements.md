@@ -288,7 +288,7 @@ Hides the assistant from every session and friend. Gives the assistant no new to
   - `router-presence.test.ts`: a marked assistant is dropped from a friend's projection even when shared, and a share of it is refused.
   - Kotlin: `ordinarySessions` over the three pickers, and an assistant thread reloaded with no presence staying out.
 
-## Phase 2 - The assistant's conversation
+## Phase 2 - The assistant's conversation ✅
 
 Reuses the session conversation screen for the assistant. Lands in one commit with Phase 3, since the gear opens Phase 3's pages.
 
@@ -500,3 +500,4 @@ A check-in arrives as owner ingress through `sendFromOwner`, so Phase 5's marker
 
 - **No same-Domain second Gateway in the harness:** `startFederationHarness` builds one Gateway per Domain, so a send relayed between two of the owner's Gateways, and `/discover`'s remote rows, cannot be driven end to end. Phase 1 covered the remote rows with a unit test of `createPresenceRoutes` and the relay through a friend Domain instead.
 - **Lexicon's rename keeps an object-literal key:** renaming `actsFor` produced `actsFor: actsForBoundSession` in the guards' return value, so every destructuring caller needed a hand edit.
+- **A console refusal carries no stable code:** `composeRouterFrames.ts` answers an unknown op, an envelope that does not parse, a missing content key and a thrown handler with the same bare refusal, and `ConsoleClientAssistant.kt` `assistantOp` passes each on as `AssistantAnswer.Refused`. The phone cannot tell an older build from a transient fault, so `AssistantWord.Refused` has to mean both, and `assistantRoot` shows Configure beside Retry as a compromise. Policies and routines make the same guess (AGENTS.md, "an older build refuses an unknown op with no stable code"). An `unknown_op` code on the refusal would let every reader decide.

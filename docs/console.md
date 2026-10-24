@@ -288,8 +288,10 @@ no TTL.
   tmux-wrapped rows.
 - **Designer plugin** (`plugins/designer/`): owns design cards, live content-keyed rendering, and
   per-team `DesignStore`.
-- **The Assistant view** (`AssistantOps.kt`, `assistant/AssistantScreen.kt`): where the assistant
-  lives, its watchers' inbox strip, and its settings sheet. A watcher's Rules button opens its rule
+- **The Assistant view** (`AssistantOps.kt`, `AssistantRoot.kt`, `assistant/AssistantScreen.kt`):
+  the root's resolver and the rules that enter, follow and leave the assistant's conversation, the
+  root with no conversation (`AssistantRootScreen`), and the settings sheet. The conversation is the
+  usual thread screen, drawn from `ThreadChrome`. A watcher's Rules button opens its rule
   list and editor (`assistant/WatcherRulesSheet.kt`). Each edit is one rule op; `RuleDraft.kt`
   holds the draft and `outcomeOf`, which reads the op's answer, never the drawn copy: done, an offer
   to go over a newer revision on a second tap, or the reason. `docs/assistant.md` holds the design.

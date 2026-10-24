@@ -21,11 +21,21 @@ it events. The session decides what to say and do.
   every other home (`AssistantOps.move`), so a refused place leaves the old home untouched. The
   phone names any Gateway that did not release.
 - **Opus only:** no model levels.
-- **Its own tab:** the phone's Assistant view shows where it lives, a strip with one chip per watcher
-  showing GitHub's unread count, the door to its conversation, and a gear for Assistant settings:
-  where it lives, each watcher's health, grants and actions, and Release. The conversation opens in the usual thread screen.
-  `host.assistant` stays out of the Sessions list because the Gateway marks its presence row with
-  `role: "assistant"` (`ASSISTANT_ROLE`), never because the phone matches a name.
+- **Its own root:** the drawer's Assistant entry resolves where it lives (`assistantRoot`).
+  - Placed enters its conversation in the usual thread screen, titled "Assistant", with one chip per
+    watcher under the title, a gear for Assistant settings in place of the session menu, and no tab
+    row (`threadChrome`). Settings hold where it lives, each watcher's health, grants and actions,
+    and Release. Back goes Terminal, Chat, Sessions.
+  - Confirmed unplaced offers Configure. Not yet read waits. A Gateway that may hold it and could
+    not be read offers Retry, plus Configure when only refusals are unread, since an older build
+    refuses the op.
+  - `isAssistant` knows it by its role or the address a Gateway answers, never by name.
+    `openThread` refuses it, and `followedTeams` keeps it followed without a tab.
+  - The open conversation follows a move and leaves on a release (`followAssistant`). A Gateway's
+    word is an `AssistantWord`, and only an `Answered` word with no folder, or a current roster
+    without that Gateway, is a release. A refusal or a missing answer leaves it open.
+  - `host.assistant` stays out of the Sessions list because the Gateway marks its presence row with
+    `role: "assistant"` (`ASSISTANT_ROLE`), never because the phone matches a name.
 - **Hidden from every session and friend:** only the owner sees it or opens a conversation with it.
   - The Gateway: `ordinaryRows` takes it out of `GET /teams` and `/discover`, so `crosstalk_discover`
     and the cross-Domain gate never offer it. `/pending` answers a session only its own jobs
