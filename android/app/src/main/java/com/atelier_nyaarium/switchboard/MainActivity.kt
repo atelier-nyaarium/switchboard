@@ -293,7 +293,9 @@ fun App(
 			stuckAtLogin = stuckAtLogin(state.sessions().firstOrNull { it.name == team }?.presence),
 		)
 	}
+	// Every road that lands somewhere takes this one list.
 	val dismissForArrival = {
+		nav = nav.closeSettings()
 		overlays = emptyList()
 		editRunbook = null
 		editRoutine = null
@@ -345,8 +347,9 @@ fun App(
 	}
 	// A ref's exit opens Files. Clearing first prevents duplicate routing.
 	val workspaceRequest by com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus.pending.collectAsState()
-	LaunchedEffect(workspaceRequest, state.teams, state.gateways.loaded) {
-		val request = workspaceRequest ?: return@LaunchedEffect
+	LaunchedEffect(workspaceRequest, state.teams, state.gateways.loaded, resumed) {
+		// The shown window takes it, never one beneath a picker.
+		val request = workspaceRequest?.takeIf { resumed } ?: return@LaunchedEffect
 		val standing = standingOf(state.teams, state.gateways.loaded, request.team)
 		if (standing == RequestStanding.Wait) return@LaunchedEffect
 		com.atelier_nyaarium.switchboard.workspace.WorkspaceOpenBus.shown(request)
@@ -374,7 +377,7 @@ fun App(
 		}
 	}
 
-	// A notification tap opens the request.
+	// A notification tap opens the request. It opens over drafts, so only settings and overlays close.
 	LaunchedEffect(vaultRequestRequest.value) {
 		vaultRequestRequest.value?.let { requestId ->
 			nav = nav.closeSettings()
@@ -386,16 +389,7 @@ fun App(
 
 	LaunchedEffect(assistantSendRequestRequest.value) {
 		assistantSendRequestRequest.value?.let { request ->
-			nav = nav.closeSettings()
-			overlays = emptyList()
-			vaultModal = null
-			boardModal = null
-			fireRunbook = null
-			editRunbook = null
-			editRoutine = null
-			editPolicy = null
-			viewer = null
-			openQueueRequest.value = false
+			dismissForArrival()
 			assistantSendModal = request
 			assistantSendRequestRequest.value = null
 		}
@@ -492,7 +486,7 @@ fun App(
 					// Wipe plugins and notifications after local wipe.
 					pluginManager.host.accountWipeHandlers.forEachCaught(onError = ::logPluginThrow) { it.onWipe(context) }
 					ServiceNotifications.cancelProvisioningNotifications(context)
-					overlays = emptyList()
+					dismissForArrival()
 					nav = ShellNav()
 				},
 				onCloseSettings = { nav = nav.closeSettings() },
