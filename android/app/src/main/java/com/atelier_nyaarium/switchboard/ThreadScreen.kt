@@ -49,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -102,6 +103,9 @@ internal fun ThreadScreen(
 	// App-scope openNonce); keys ThreadWebView's reveal effect so it re-snaps to the first unread
 	// row even when `team` itself is unchanged (re-tapping a notification for the open thread).
 	openNonce: Int,
+	/** One-shot summon composer focus. */
+	focusToken: Long? = null,
+	onFocused: (Long) -> Unit = {},
 	// This session's board strip content: the tree rows when expanded, the live line collapsed.
 	// Null hides the strip entirely (plugin off, or no board entries for this session).
 	boardStrip: BoardGroup? = null,
@@ -204,6 +208,15 @@ internal fun ThreadScreen(
 	}
 	val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
 		if (uris.isNotEmpty()) composer.onAddFiles(uris)
+	}
+	val composerFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+	val composerView = LocalView.current
+	LaunchedEffect(focusToken) {
+		val token = focusToken ?: return@LaunchedEffect
+		// Hidden composer: spent anyway. The insets controller waits for the IME.
+		runIsolated { composerFocus.requestFocus() }
+			.onSuccess { composerView.windowInsetsController?.show(android.view.WindowInsets.Type.ime()) }
+		onFocused(token)
 	}
 
 	// Hold the screen awake while a thread is open (reading or replying); released
@@ -594,7 +607,7 @@ internal fun ThreadScreen(
 					minLines = 2,
 					// Collapsed pins it at its minimum and scrolls inside; otherwise it grows freely.
 					maxLines = if (composerCollapsed) 2 else Int.MAX_VALUE,
-					modifier = Modifier.weight(1f),
+					modifier = Modifier.weight(1f).focusRequester(composerFocus),
 				)
 				// Attach stacks above Send in a narrow right column, so the text field
 				// takes the remaining width.

@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -72,7 +73,7 @@ class MainActivity : FragmentActivity() {
 		val repo = Repo.get(this)
 		val injected = intent.getStringExtra("provisioning_b64")
 			?.let { runIsolated { String(android.util.Base64.decode(it, android.util.Base64.DEFAULT)) }.getOrNull() }
-		consume(intent)
+		consume(intent, restored = savedInstanceState != null)
 		setContent {
 			val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
 			MaterialTheme(colorScheme = colors) {
@@ -84,11 +85,50 @@ class MainActivity : FragmentActivity() {
 	override fun onNewIntent(intent: Intent) {
 		super.onNewIntent(intent)
 		setIntent(intent)
-		consume(intent)
+		consume(intent, restored = false)
+	}
+
+	override fun onResume() {
+		super.onResume()
+		retryDismissal()
+	}
+
+	private fun keyguard(): KeyguardManager? = getSystemService(KeyguardManager::class.java)
+
+	private fun retryDismissal() {
+		val keyguard = keyguard()
+		SummonBus.retried(keyguard?.isKeyguardLocked == true, keyguard?.isDeviceLocked == true)?.let { dismissKeyguard(it.id) }
+	}
+
+	private fun dismissKeyguard(id: Long) {
+		val callback = object : KeyguardManager.KeyguardDismissCallback() {
+			override fun onDismissSucceeded() = SummonBus.step(id, Summon::dismissed)
+
+			override fun onDismissCancelled() = SummonBus.step(id, Summon::cancelled)
+
+			override fun onDismissError() = dismissFailed(id)
+		}
+		runIsolated { keyguard()?.requestDismissKeyguard(this, callback) }.onFailure { dismissFailed(id) }
+	}
+
+	private fun dismissFailed(id: Long) {
+		SummonBus.step(id, Summon::failed)
+		// Already resumed: no later resume retries it.
+		if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) retryDismissal()
 	}
 
 	/** Remove one-shot extras after consumption. */
-	private fun consume(intent: Intent) {
+	private fun consume(intent: Intent, restored: Boolean) {
+		val opensElsewhere = OPEN_EXTRAS.any(intent::hasExtra)
+		if (opensElsewhere) SummonBus.supersede()
+		if (intent.action == Intent.ACTION_ASSIST) {
+			if (isFreshSummon(intent.action, restored, intent.flags)) {
+				val keyguard = keyguard()
+				val summon = SummonBus.raise(keyguard?.isKeyguardLocked == true, keyguard?.isDeviceLocked == true)
+				if (requestsDismissal(summon)) dismissKeyguard(summon.id)
+			}
+			intent.action = null
+		}
 		intent.getStringExtra(SwitchboardService.EXTRA_OPEN_TEAM)?.let {
 			openTeamRequest.value = it
 			intent.removeExtra(SwitchboardService.EXTRA_OPEN_TEAM)
@@ -108,6 +148,14 @@ class MainActivity : FragmentActivity() {
 		intent.removeExtra(SwitchboardService.EXTRA_ASSISTANT_SEND_GATEWAY)
 	}
 }
+
+/** Extras that open views. */
+private val OPEN_EXTRAS = listOf(
+	SwitchboardService.EXTRA_OPEN_TEAM,
+	SwitchboardService.EXTRA_OPEN_QUEUE,
+	SwitchboardService.EXTRA_VAULT_REQUEST,
+	SwitchboardService.EXTRA_ASSISTANT_SEND_REQUEST,
+)
 
 /** The vault's open modal. */
 private sealed interface VaultModal {
@@ -245,25 +293,45 @@ fun App(
 			stuckAtLogin = stuckAtLogin(state.sessions().firstOrNull { it.name == team }?.presence),
 		)
 	}
+	val dismissForArrival = {
+		overlays = emptyList()
+		editRunbook = null
+		editRoutine = null
+		editPolicy = null
+		fireRunbook = null
+		boardModal = null
+		vaultModal = null
+		viewer = null
+		openQueueRequest.value = false
+		linkMenuState.value = null
+		linkMenuNoteState.value = null
+		assistantSendModal = null
+	}
 	// The one arrival road.
 	val arriveAt = { team: String, arrival: Arrival, place: WorkspacePlace? ->
 		val assistant = isAssistant(state, team)
 		val key = if (assistant) repo.fromCanonical(team) else repo.openThread(team)
 		if (key != null) {
-			overlays = emptyList()
-			editRunbook = null
-			editRoutine = null
-			editPolicy = null
-			fireRunbook = null
-			boardModal = null
-			vaultModal = null
-			viewer = null
-			openQueueRequest.value = false
-			linkMenuState.value = null
-			linkMenuNoteState.value = null
+			dismissForArrival()
 			nav = nav.arriveAt(key, assistant, arrival, factsFor(key), place)
 		}
 		key
+	}
+	val summon by SummonBus.pending.collectAsState()
+	val windowFocused = androidx.compose.ui.platform.LocalWindowInfo.current.isWindowFocused
+	val lifecycleState by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
+	val resumed = lifecycleState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+	LaunchedEffect(summon?.id, summon?.routed, missingBoot == null, resumed) {
+		val held = summon ?: return@LaunchedEffect
+		if (!routesNow(held, booted = missingBoot == null, resumed = resumed)) return@LaunchedEffect
+		val landing = summonLanding(state, assistantRoot, preferredHome).let { landing ->
+			val at = (landing as? SummonLanding.At)?.team ?: return@let landing
+			repo.fromCanonical(at)?.let { SummonLanding.At(it) } ?: SummonLanding.Root
+		}
+		dismissForArrival()
+		nav = nav.summonedTo(landing, factsFor)
+		if (landing == SummonLanding.Configure) SummonBus.step(held.id, Summon::focusSpent)
+		SummonBus.step(held.id, Summon::routedNow)
 	}
 	val assistantShown = nav.root == RootView.ASSISTANT || assistantOpen
 	LaunchedEffect(state.gateways.incarnations(), state.gateways.reachableIds(), assistantShown) {
@@ -339,14 +407,44 @@ fun App(
 	}
 
 	val locked = state.provisioned && state.biometricLock && !unlocked
-	LaunchedEffect(locked) {
-		if (locked && activity != null) promptUnlock(activity) { ok -> if (ok) unlocked = true }
+	LaunchedEffect(summon, resumed) {
+		val held = summon ?: return@LaunchedEffect
+		if (!resumed || !satisfiesAppLock(held)) return@LaunchedEffect
+		unlocked = true
+		SummonBus.step(held.id, Summon::lockTakenNow)
+	}
+	var lockPrompted by remember(locked) { mutableStateOf(false) }
+	LaunchedEffect(locked, windowFocused, summon) {
+		if (activity == null || !promptsAppLock(locked, windowFocused, lockPrompted, summon)) return@LaunchedEffect
+		lockPrompted = true
+		promptUnlock(activity) { ok -> if (ok) unlocked = true }
 	}
 
 	val screen = shellScreen(nav, locked, overlays.isNotEmpty(), missingBoot == null)
 	// One state per showing of its screen, so a drawer left open never reappears open.
 	val rootDrawer = remember(screen == ShellScreen.ROOT) { SideDrawers() }
 	val conversationDrawer = remember(screen == ShellScreen.CONVERSATION, openTeam) { SideDrawers() }
+	// No drawer over the summoned composer.
+	LaunchedEffect(summon?.id, summon?.routed) {
+		if (summon?.routed != true) return@LaunchedEffect
+		if (rootDrawer.holdsBack()) rootDrawer.close()
+		if (conversationDrawer.holdsBack()) conversationDrawer.close()
+	}
+	val shownConversationView = nav.conversation?.let { shownView(offeredConversation, it.view) }
+	val composerShown = openTeam != null && state.scheduledSends[openTeam] == null
+	val shownToSummon = summonShown(
+		screen,
+		nav,
+		assistantOpen,
+		shownConversationView,
+		assistantRoot,
+		composerShown,
+		covered = conversationDrawer.holdsBack(),
+	)
+	val focus = focusStep(summon, shownToSummon, windowFocused, resumed)
+	LaunchedEffect(focus, summon?.id) {
+		if (focus == FocusStep.DROP) summon?.let { SummonBus.step(it.id, Summon::focusSpent) }
+	}
 	// The one Back authority: `backLayer` orders what is drawn over what.
 	val shownDrawer = if (screen == ShellScreen.CONVERSATION) conversationDrawer else rootDrawer
 	val backFacts = BackFacts(
@@ -513,6 +611,8 @@ fun App(
 				rendererPool = rendererPool,
 				canRename = kind == "loose",
 				openNonce = nav.generation,
+				focusToken = summon?.id?.takeIf { focus == FocusStep.FIRE },
+				onFocused = { SummonBus.step(it, Summon::focusSpent) },
 				boardStrip = boardStripFor,
 				boardLiveLine = boardLiveLineFor,
 				boardRevision = boardRevision,

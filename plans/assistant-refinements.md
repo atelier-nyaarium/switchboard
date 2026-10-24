@@ -498,6 +498,11 @@ No `showWhenLocked` or `turnScreenOn` anywhere. No voice service, no speech-to-t
   2. Real path on the emulator, PIN set: `cmd role add-role-holder --user 0 android.app.role.ASSISTANT <pkg>`, `settings put global power_button_long_press 5`, lock, `input keyevent --duration 1000 KEYCODE_POWER`. Expect the system prompt, then the Assistant with the keyboard up. Repeat with Back on the prompt, warm and cold, with the app lock on, across a rotation, with the screen off, and with an attachment picker open.
   3. Acceptance: the same steps on the owner's Pixel.
 
+### Bug Classes
+
+- **Mechanism:** `App`'s arrival reset list (`dismissForArrival`). **Class:** a modal added later is missed from the list, so an arrival lands beneath it. **Rounds:** Phase 5 added the assistant send sheet without it; this lap's align pass found a summon landing under that sheet, patched by adding it. Already on the board as "Fold App's arrival reset list into one dismissible value".
+- **Mechanism:** the shared `SummonBus` read by every live `App` composition. **Class:** a composition that is not the one shown consumes the summon. **Rounds:** the emulator walk found a second `MainActivity` above the attachment picker, while the stopped one beneath took the routing; the same shape then threatened the focus drop and the app-lock handoff. **Ended by:** one gate, `resumed`, read by `routesNow`, `focusStep` and the lock handoff.
+
 ## Phase 8 - Check-ins
 
 A check-in arrives as owner ingress through `sendFromOwner`, so Phase 5's marker reads it as the owner's message.
