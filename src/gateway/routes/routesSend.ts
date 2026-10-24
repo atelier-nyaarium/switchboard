@@ -358,7 +358,7 @@ export function createSendRoutes({
 				{
 					error: `Team "${qualifiedTo}" is not connected`,
 					available: [...registry.keys()]
-						.filter((k) => k !== "host")
+						.filter((k) => k !== "host" && !isAssistantRecord(sessionStore?.getByTeam(k)))
 						.map((k) => tryLocalAddress(k)?.canonical)
 						.filter((c): c is string => c != null),
 				},

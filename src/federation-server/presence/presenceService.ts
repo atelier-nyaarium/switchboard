@@ -17,7 +17,7 @@ import {
 import { type Address, isValidSessionName, parseTarget } from "../../shared/session-id.js";
 import type { TeamInfo } from "../../shared/types.js";
 import { ASSISTANT_ROLE } from "../../shared/wire-vocabulary.js";
-import { type FoldedWrite, foldWriteResult } from "../../shared/write-result.js";
+import { type FoldedWrite, foldWriteResult, type WriteOutcome } from "../../shared/write-result.js";
 import type { GatewayRegistration } from "../gatewayBridge.js";
 import type { OwnerStoreRegistry } from "../inbox/ownerStoreRegistry.js";
 import { OwnerQuarantined } from "../owner/ownerStateStore.js";
@@ -50,8 +50,8 @@ export function createPresenceService(deps: {
 	friend?: FriendDeps;
 	/** Keep live shares alive. */
 	touch?: (domainId: string, sessionTarget: string) => void;
-	/** A row stamped as the assistant. */
-	assistantSeen?: (domainId: string, sessionTarget: string) => void;
+	/** A row stamped as the assistant; undefined once its shares are gone. */
+	assistantSeen?: (domainId: string, sessionTarget: string) => WriteOutcome | undefined;
 	/** Push changed projections. */
 	pokeOwner?: (domainId: string, lineage: PlaneLineage, projection: unknown) => void;
 }) {
@@ -154,11 +154,11 @@ export function createPresenceService(deps: {
 	};
 
 	/** After the rows land, so a withdrawal's refresh reads them whole. */
-	const withdrawAssistants = (reg: GatewayRegistration, rows: TeamInfo[]) => {
-		for (const row of rows)
-			if (row.role === ASSISTANT_ROLE)
-				deps.assistantSeen?.(reg.domainId, `${reg.domainId}.${reg.gatewayId}.${row.team}`);
-	};
+	const withdrawAssistants = (reg: GatewayRegistration, rows: TeamInfo[]): WriteOutcome | undefined =>
+		rows
+			.filter((row) => row.role === ASSISTANT_ROLE)
+			.map((row) => deps.assistantSeen?.(reg.domainId, `${reg.domainId}.${reg.gatewayId}.${row.team}`))
+			.find((outcome) => outcome !== undefined);
 
 	const applyBaseline = (reg: GatewayRegistration, params: Baseline) => {
 		// Invalid shape marks gateway unreachable.
@@ -176,13 +176,14 @@ export function createPresenceService(deps: {
 		}
 		const rowsResult = upsertRows(reg, parsed.rows);
 		if (rowsResult) return { ok: false, outcome: rowsResult.outcome };
+		const withdrawn = withdrawAssistants(reg, parsed.rows);
+		if (withdrawn) return { ok: false, outcome: withdrawn };
 		const gatewayResult = write(reg.domainId, gatewayRecordId(reg.gatewayId), {
 			incarnation: parsed.incarnation,
 			seq: 0,
 			spawnPoints: { ...parsed.spawnPoints, gatewayId: reg.gatewayId, domainId: reg.domainId },
 			lastRegisteredAt: now(),
 		});
-		withdrawAssistants(reg, parsed.rows);
 		// The gateway's presence protocol reads `ok`; an answer without it is retried as a baseline forever.
 		return { ok: gatewayResult.applied, outcome: gatewayResult.outcome };
 	};
@@ -208,8 +209,9 @@ export function createPresenceService(deps: {
 		}
 		const rowsResult = upsertRows(reg, parsed.upserts);
 		if (rowsResult) return { ok: false, outcome: rowsResult.outcome };
+		const withdrawn = withdrawAssistants(reg, parsed.upserts);
+		if (withdrawn) return { ok: false, outcome: withdrawn };
 		const gatewayResult = write(reg.domainId, gatewayRecordId(reg.gatewayId), { ...record.clear, seq: parsed.seq });
-		withdrawAssistants(reg, parsed.upserts);
 		return { ok: gatewayResult.applied, outcome: gatewayResult.outcome };
 	};
 

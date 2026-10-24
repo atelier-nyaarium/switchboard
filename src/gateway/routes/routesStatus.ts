@@ -20,7 +20,7 @@ export interface StatusRoutesDeps {
 	sessionStore?: Pick<import("../../shared/session-store.js").SessionStore, "touchLive">;
 	tryLocalAddress: (name: string) => Address | null;
 	provedLocalSession: (req: Request) => boolean;
-	actsFor: (req: Request, name: string) => boolean;
+	actsForBoundSession: (req: Request, name: string) => boolean;
 }
 
 export function createStatusRoutes({
@@ -33,7 +33,7 @@ export function createStatusRoutes({
 	sessionStore,
 	tryLocalAddress,
 	provedLocalSession,
-	actsFor,
+	actsForBoundSession,
 }: StatusRoutesDeps) {
 	const { localGatewayId } = config;
 
@@ -44,7 +44,7 @@ export function createStatusRoutes({
 		}
 		const list = store
 			.listAll()
-			.filter((e) => actsFor(req, e.from) || actsFor(req, e.to))
+			.filter((e) => actsForBoundSession(req, e.from) || actsForBoundSession(req, e.to))
 			.map((e) => ({ session_id: e.id, from: e.from, to: e.to, state: e.state }));
 		return jsonResponse(list);
 	}

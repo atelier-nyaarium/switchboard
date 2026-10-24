@@ -94,7 +94,7 @@ export function createRoutes(deps: RoutesDeps) {
 	const { localDomain, localAddress, consoleSelfAddress, tryLocalAddress, resolveLocalTarget } = createAddressing({
 		config,
 	});
-	const { provedLocalSession, actsFor, refuseImpersonation, refuseForeignReply, refuseForeignPoll } =
+	const { provedLocalSession, actsForBoundSession, refuseImpersonation, refuseForeignReply, refuseForeignPoll } =
 		createCallerGuards({
 			auth,
 			store,
@@ -145,7 +145,7 @@ export function createRoutes(deps: RoutesDeps) {
 		sessionStore: deps.sessionStore,
 		tryLocalAddress,
 		provedLocalSession,
-		actsFor,
+		actsForBoundSession,
 	});
 	const { capabilities } = createCapabilityRoutes({
 		capabilityStore: deps.capabilityStore,

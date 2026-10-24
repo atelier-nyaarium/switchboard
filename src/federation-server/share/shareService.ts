@@ -71,9 +71,13 @@ type Attestation = { incarnation: number; jobIds: string[]; observedAt: number; 
 export interface ShareService {
 	/** Reject unreported sessions. */
 	share(domainId: string, sessionTarget: string, target: CrossDomainShareTarget): { ok: boolean };
-	unshare(domainId: string, sessionTarget: string, target: CrossDomainShareTarget): { ok: boolean };
-	/** Unshares a session from everyone. */
-	withdraw(domainId: string, sessionTarget: string): void;
+	unshare(
+		domainId: string,
+		sessionTarget: string,
+		target: CrossDomainShareTarget,
+	): { ok: boolean; outcome?: WriteOutcome };
+	/** Unshares a session from everyone; undefined once landed. */
+	withdraw(domainId: string, sessionTarget: string): WriteOutcome | undefined;
 	listShares(domainId: string): { shares: Array<{ sessionTarget: string; target: CrossDomainShareTarget }> };
 	/** Shares at the revision the last membership change wrote. */
 	mirror(domainId: string, gatewayId: string): ShareMirrorSnapshot;
@@ -275,8 +279,10 @@ export function createShareService(deps: ShareServiceDeps): ShareService {
 			return answerOf(written);
 		},
 		withdraw(domainId, sessionTarget) {
-			for (const record of records(domainId).filter((held) => held.sessionTarget === sessionTarget))
-				this.unshare(domainId, sessionTarget, record.target);
+			const held = records(domainId).filter((record) => record.sessionTarget === sessionTarget);
+			return combinedOutcome(
+				...held.map((record) => this.unshare(domainId, sessionTarget, record.target).outcome),
+			);
 		},
 		listShares(domainId) {
 			return {

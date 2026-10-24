@@ -19,7 +19,7 @@ export function createCallerGuards({ auth, store }: CallerGuardsDeps) {
 	}
 
 	/** The caller presents this local name's binding; an unbound name is nobody's. */
-	function actsFor(req: Request, name: string): boolean {
+	function actsForBoundSession(req: Request, name: string): boolean {
 		if (!auth) return true;
 		const key = auth.localTeamKey(name);
 		if (key === null) return false;
@@ -73,5 +73,5 @@ export function createCallerGuards({ auth, store }: CallerGuardsDeps) {
 		return jsonResponse({ error: `No pending job for session_id "${sessionId}"` }, 404);
 	}
 
-	return { provedLocalSession, actsFor, refuseImpersonation, refuseForeignReply, refuseForeignPoll };
+	return { provedLocalSession, actsForBoundSession, refuseImpersonation, refuseForeignReply, refuseForeignPoll };
 }

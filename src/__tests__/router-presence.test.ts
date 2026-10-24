@@ -534,8 +534,10 @@ describe("router presence slice", () => {
 		const seen: string[][] = [];
 		const service = createPresenceService({
 			registry,
-			assistantSeen: (domainId, sessionTarget) =>
-				seen.push([sessionTarget, String(service.isAssistant(domainId, "gw", "host.assistant"))]),
+			assistantSeen: (domainId, sessionTarget) => {
+				seen.push([sessionTarget, String(service.isAssistant(domainId, "gw", "host.assistant"))]);
+				return undefined;
+			},
 		});
 		const assistant = TeamInfoSchema.parse({ ...row("host.assistant"), kind: "loose", role: "assistant" });
 		service.applyBaseline(reg, {
@@ -551,6 +553,22 @@ describe("router presence slice", () => {
 		expect(projection.sessions.map((s) => s.team)).toEqual(["proj.main"]);
 		expect(seen).toEqual([["domain.gw.host.assistant", "true"]]);
 		expect(service.isAssistant("domain", "gw", "proj.main")).toBe(false);
+		registry.close();
+	});
+
+	it("answers a baseline as not landed while the assistant's shares are still held", () => {
+		const { registry } = make();
+		const service = createPresenceService({ registry, assistantSeen: () => "durability_failure" });
+		const assistant = TeamInfoSchema.parse({ ...row("host.assistant"), kind: "loose", role: "assistant" });
+
+		const answer = service.applyBaseline(reg, {
+			incarnation: 1,
+			seq: 0,
+			rows: [assistant],
+			spawnPoints: { gatewayId: "gw", domainId: "domain", hostSpawns: [] },
+		});
+
+		expect(answer).toEqual({ ok: false, outcome: "durability_failure" });
 		registry.close();
 	});
 
