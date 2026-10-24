@@ -41,9 +41,13 @@ class PlaybackOpsTest {
 	}
 
 	/** The JVM cannot play audio, so a body is seen by its claim. */
-	private class FakePlayback(var locked: Boolean = false) : PlaybackPort {
+	private class FakePlayback(var locked: Boolean = false, gapMs: Long = SttsPlayer.MARKER_GAP_MS) : PlaybackPort {
 		val root = File.createTempFile("switchboard-playback", "test").apply { delete(); mkdirs() }
-		override val stts = SttsPlayer(root)
+		override val stts = SttsPlayer(root, gapMs)
+
+		/** Runs at a marker's terminal, before `PlaybackOps` hears it. */
+		@Volatile
+		var onMarkerEnded: (() -> Unit)? = null
 		private val server = SilentServer()
 		val client = SttsClient(server.url, "test-key")
 		val provider = SttsProvider(
@@ -57,7 +61,11 @@ class PlaybackOpsTest {
 			voiceHint = "voice",
 		)
 		val events = CopyOnWriteArrayList<Event>()
-		private val listener = stts.addListener { events += it }
+		// Registered before PlaybackOps, so it hears every event first.
+		private val listener = stts.addListener {
+			events += it
+			if (it is Event.Ended && it.team == SttsPlayer.MARKER_TEAM) onMarkerEnded?.invoke()
+		}
 
 		override fun sttsClient() = client
 		override fun currentProvider() = provider
@@ -95,8 +103,8 @@ class PlaybackOpsTest {
 		}
 	}
 
-	private inner class Fixture(val state: MutableStateFlow<ChatState>, locked: Boolean = false) {
-		val playback = FakePlayback(locked)
+	private inner class Fixture(val state: MutableStateFlow<ChatState>, locked: Boolean = false, gapMs: Long = SttsPlayer.MARKER_GAP_MS) {
+		val playback = FakePlayback(locked, gapMs)
 		private val scope = CoroutineScope(
 			SupervisorJob() + Dispatchers.Unconfined + CoroutineExceptionHandler { _, _ -> },
 		)
@@ -118,8 +126,8 @@ class PlaybackOpsTest {
 		fixtures.clear()
 	}
 
-	private fun fixture(state: MutableStateFlow<ChatState>, locked: Boolean = false) =
-		Fixture(state, locked).also(fixtures::add)
+	private fun fixture(state: MutableStateFlow<ChatState>, locked: Boolean = false, gapMs: Long = SttsPlayer.MARKER_GAP_MS) =
+		Fixture(state, locked, gapMs).also(fixtures::add)
 
 	private suspend fun awaitThat(f: Fixture, what: String, check: () -> Boolean) {
 		try {
@@ -221,7 +229,8 @@ class PlaybackOpsTest {
 
 	@Test
 	fun aLockInTheGapAfterTheAnnouncementSpeaksTheLockedLineWithoutAnnouncingAgain() = runBlocking {
-		val f = fixture(lockState())
+		// A gap no scheduler delay can outlast.
+		val f = fixture(lockState(), gapMs = 60_000L)
 		f.playback.seed(f.state.value, assistant, 1L)
 		val markerEnds = { f.playback.events.count { it is Event.Ended && it.team == SttsPlayer.MARKER_TEAM } }
 
@@ -235,6 +244,25 @@ class PlaybackOpsTest {
 		assertEquals(1, markerEnds())
 		assertTrue(f.playback.ends(assistant, 1L, SttsPlayer.Tier.FULL).isEmpty())
 		assertTrue(f.playback.claimed(assistant, 1L, SttsPlayer.Tier.LOCKED))
+	}
+
+	@Test
+	fun aLockAtTheAnnouncementsEndBeforeItIsHandledStillAnnouncesOnce() = runBlocking {
+		val f = fixture(lockState(), gapMs = 60_000L)
+		f.playback.seed(f.state.value, assistant, 1L)
+		val markerEnds = { f.playback.events.count { it is Event.Ended && it.team == SttsPlayer.MARKER_TEAM } }
+		f.playback.onMarkerEnded = {
+			f.playback.onMarkerEnded = null
+			f.playback.locked = true
+			runBlocking { f.ops.relock() }
+		}
+
+		f.ops.enqueueForPlay(assistant, 1L, SttsPlayer.Tier.FULL, announceRun = false, requireFollowed = false)
+		awaitClaimed(f, assistant, 1L, SttsPlayer.Tier.LOCKED)
+		delay(500L)
+
+		assertEquals(1, markerEnds())
+		assertTrue(f.playback.ends(assistant, 1L, SttsPlayer.Tier.FULL).isEmpty())
 	}
 
 	@Test

@@ -20,7 +20,7 @@ import java.util.concurrent.Executors
  * this class owns only the effects. Synthesis, playback, control and event delivery each get their own
  * lane, so a blocking fetch can never hold up a cancel, a cached playback, or an event.
  */
-class SttsPlayer(private val root: File) {
+class SttsPlayer(private val root: File, private val markerGapMs: Long = MARKER_GAP_MS) {
 	/** LOCKED is assistant-safe, unlike TITLE. */
 	enum class Tier(val suffix: String) { FULL("full"), SUMMARY("summary"), TITLE("title"), LOCKED("locked") }
 
@@ -94,6 +94,8 @@ class SttsPlayer(private val root: File) {
 
 	/** Claimed: sounding or still synthesizing. */
 	fun isClaimed(team: String, at: Long, tier: Tier?): Boolean = requests.isLive(team, at, tier)
+
+	fun isGenerationLive(gen: Long): Boolean = requests.isGenerationLive(gen)
 
 	/**
 	 * Where the audible playback is, how long it is, and WHICH request it belongs to. Null when
@@ -220,7 +222,7 @@ class SttsPlayer(private val root: File) {
 	 * back to back they blur into one utterance. */
 	fun afterGap(then: () -> Unit) {
 		playExec.execute {
-			runIsolated { Thread.sleep(MARKER_GAP_MS) }
+			runIsolated { Thread.sleep(markerGapMs) }
 			then()
 		}
 	}

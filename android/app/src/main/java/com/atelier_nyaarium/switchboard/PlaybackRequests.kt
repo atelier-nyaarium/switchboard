@@ -125,6 +125,10 @@ class PlaybackRequests(private val sink: Executor = Executor { it.run() }) {
 	@Synchronized
 	fun isLive(team: String, at: Long, tier: SttsPlayer.Tier?): Boolean = live.containsKey(Entry(team, at, tier))
 
+	/** Whether the request with this generation has no terminal yet. */
+	@Synchronized
+	fun isGenerationLive(gen: Long): Boolean = live.values.any { it.gen == gen }
+
 	/** Whether any TIER of this message is claimed, sounding or still synthesizing. */
 	@Synchronized
 	fun isLiveForMessage(team: String, at: Long): Boolean =

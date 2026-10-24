@@ -371,8 +371,10 @@ internal class PlaybackOps(
 	suspend fun relock() {
 		advanceMutex.withLock {
 			val head = queue.ticket() ?: return@withLock
-			// In the gap after its last marker, it was announced.
-			val markersAnnounced = markersFor != head || (pendingMarkers.isEmpty() && markerInFlight == null)
+			// In the gap after its last marker, it was announced. A marker whose terminal is not yet
+			// handled has still ended.
+			val markerDone = markerInFlight?.let { !playback.stts.isGenerationLive(it) } ?: true
+			val markersAnnounced = markersFor != head || (pendingMarkers.isEmpty() && markerDone)
 			val decided = decidedHead(head)
 			if (decided == head) return@withLock
 			markerInFlight?.let { playback.stts.abandonGeneration(it) }
