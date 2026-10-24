@@ -21,7 +21,8 @@ import java.util.concurrent.Executors
  * lane, so a blocking fetch can never hold up a cancel, a cached playback, or an event.
  */
 class SttsPlayer(private val root: File) {
-	enum class Tier(val suffix: String) { FULL("full"), SUMMARY("summary"), TITLE("title") }
+	/** LOCKED is assistant-safe, unlike TITLE. */
+	enum class Tier(val suffix: String) { FULL("full"), SUMMARY("summary"), TITLE("title"), LOCKED("locked") }
 
 	/** Why a playback ended. A queue advances on COMPLETED, PREEMPTED and the two errors, but not
 	 * on STOPPED, so these cannot collapse back into a single "ended" signal: a file that fails to
@@ -546,6 +547,7 @@ class SttsPlayer(private val root: File) {
 			Tier.SUMMARY -> m.summary ?: m.title ?: stripUnspeakable(m.text)
 			Tier.TITLE -> m.title ?: m.summary ?: stripUnspeakable(m.text)
 			Tier.FULL -> m.fullSpoken ?: m.summary ?: m.title ?: stripUnspeakable(m.text)
+			Tier.LOCKED -> lockedLine(m)
 		}
 
 		/** The tierless-row minimal strip: drop code/mermaid fences and FILES blocks, reduce

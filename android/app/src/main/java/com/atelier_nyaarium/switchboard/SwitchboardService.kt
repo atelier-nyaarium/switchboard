@@ -181,6 +181,15 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 		repo.scheduled.onScheduledSendFailed = { team, opId -> notifications.notifyScheduledSendFailed(repo, team, opId) }
 		repo.onRoutinesChanged = { notifications.reconcileRoutineNotifications(repo) }
 		repo.playback.chimeSource = { resolveChime() }
+		lockWatch = DeviceLockWatch(
+			this,
+			scope,
+			matters = { repo.playback.speaksUnlockedAssistant() },
+			onLocked = { repo.command { playback.relock() } },
+		).also { watch ->
+			repo.deviceLocked = { watch.locked() }
+			watch.register()
+		}
 		// Transport surfaces send commands and show state; they never hold state of their own, so the
 		// lockscreen and the in-thread row cannot disagree about what is playing.
 		transport = SttsTransport(
@@ -269,6 +278,16 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 					notifications.reconcileTeamNotifications(repo, unread)
 				}
 		}
+		// Redraw with locked text after assistant recognition.
+		scope.launch {
+			repo.state
+				.map { state -> state.threads.keys.filterTo(HashSet()) { isAssistant(state, it) } }
+				.distinctUntilChanged()
+				.collect {
+					repo.quietAssistantPeers()
+					notifications.reconcileTeamNotifications(repo, repo.state.value.unread)
+				}
+		}
 		// Level-based like the team reconcile: a request shows while it is pending and goes when it settles.
 		scope.launch {
 			val posted = mutableSetOf<String>()
@@ -320,6 +339,7 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 	}
 
 	private var transport: SttsTransport? = null
+	private var lockWatch: DeviceLockWatch? = null
 	private var bubble: QueueBubble? = null
 	private var vaultPrompt: VaultPrompt? = null
 
@@ -445,6 +465,9 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 		repo.scheduled.onScheduledSendFailed = null
 		repo.playback.chimeSource = null
 		repo.playback.onTransportChanged = null
+		lockWatch?.unregister()
+		lockWatch = null
+		repo.deviceLocked = { false }
 		// Captured into a local first: the field is cleared below, and a lambda referencing the FIELD
 		// would find it null by the time main ran it, leaking the window.
 		focus.release()

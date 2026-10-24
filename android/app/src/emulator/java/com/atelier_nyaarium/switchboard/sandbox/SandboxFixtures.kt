@@ -96,15 +96,30 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 		val now = System.currentTimeMillis()
 		return listOf(
 			Message(fromMe = true, text = "Anything new on GitHub?", at = now - 90_000, id = 0),
+			// Mark each surfaced field.
 			Message(
 				fromMe = false,
-				text = "Two reviews are waiting on you, both in switchboard. The dependabot bumps went to the inbox.",
+				text = "BODY MARK: Two reviews are waiting on you, both in switchboard. The dependabot bumps went to the inbox.",
 				at = now - 80_000,
 				id = 1,
 				from = ASSISTANT,
-				title = "Two reviews waiting",
+				title = "TITLE MARK: Two reviews waiting",
+				summary = "SUMMARY MARK: two reviews",
 				epoch = SANDBOX_EPOCH,
 				seq = 30,
+			),
+			// Quiet send stays visible.
+			Message(
+				fromMe = false,
+				text = "BODY MARK: Could you check whether the release notes mention the schema change?",
+				at = now - 70_000,
+				id = 2,
+				from = ASSISTANT,
+				to = SESSION,
+				isPeer = true,
+				quiet = true,
+				epoch = SANDBOX_EPOCH,
+				seq = 31,
 			),
 		)
 	}

@@ -207,6 +207,8 @@ internal class ChatRepositoryAssistantHost(private val repo: ChatRepository) : A
 
 	override val gateway: AssistantGateway? get() =
 		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsoleAssistantGateway)
+
+	override fun persistRoles(roles: Map<String, String>) = repo.persistence.persistRoles(roles)
 }
 
 /** The port over the console client's workspace reads. */
@@ -319,6 +321,7 @@ internal class ChatRepositoryPlaybackPort(private val repo: ChatRepository) : Pl
 	override val sttsChimeVolume: Int get() = repo.sttsChimeVolume
 	override val sttsAutoPlay: String get() = repo.sttsAutoPlay
 	override fun sttsReady() = repo.sttsReady()
+	override fun deviceLocked() = repo.deviceLocked()
 }
 
 internal class ChatRepositoryPlaybackCollaborators(private val repo: ChatRepository) : PlaybackOpsCollaborators {

@@ -72,7 +72,7 @@ internal class ServiceNotifications(private val context: Context) {
 		)
 		nm.createNotificationChannel(
 			NotificationChannel(CHANNEL_ASSISTANT, "Assistant", NotificationManager.IMPORTANCE_HIGH).apply {
-				description = "A send needs approval"
+				description = "The assistant's messages and send approvals"
 				lockscreenVisibility = Notification.VISIBILITY_PRIVATE
 			},
 		)
@@ -209,6 +209,10 @@ internal class ServiceNotifications(private val context: Context) {
 		val thread = state.threads[team].orEmpty()
 		val rows = unreadRows(thread, state.readAnchors[team])
 		val last = rows.lastOrNull() ?: return null
+		// Only the assistant writes records.
+		if (isAssistant(state, team) || thread.any { it.record != null }) {
+			return assistantNotificationBuilder(repo, state, team, rows)
+		}
 		val label = state.label(team)
 		val style = NotificationCompat.InboxStyle()
 		for (m in rows.takeLast(5)) {
@@ -231,6 +235,49 @@ internal class ServiceNotifications(private val context: Context) {
 		if (repo.sttsReady()) {
 			builder.addAction(0, "Play Full", actionIntent(team, NotificationReceiver.ACTION_PLAY_FULL, last.at))
 			builder.addAction(0, "Play Summary", actionIntent(team, NotificationReceiver.ACTION_PLAY_SUMMARY, last.at))
+		}
+		return builder
+	}
+
+	/** Watches may bridge assistant text; always lock it. */
+	private fun assistantNotificationBuilder(
+		repo: ChatRepository,
+		state: ChatState,
+		team: String,
+		rows: List<Message>,
+	): NotificationCompat.Builder {
+		val last = rows.last()
+		val label = state.label(team)
+		val style = NotificationCompat.InboxStyle()
+		for (m in rows.takeLast(5)) style.addLine(lockedLine(m).take(120))
+		val text = if (rows.size > 1) "${rows.size} messages" else lockedLine(last).take(120)
+		val publicVersion = NotificationCompat.Builder(context, CHANNEL_ASSISTANT)
+			.setSmallIcon(android.R.drawable.stat_notify_chat)
+			.setContentTitle(label)
+			.setContentText(text)
+			.build()
+		val builder = NotificationCompat.Builder(context, CHANNEL_ASSISTANT)
+			.setSmallIcon(android.R.drawable.stat_notify_chat)
+			.setContentTitle(label)
+			.setContentText(text)
+			.setStyle(style)
+			.setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+			.setPublicVersion(publicVersion)
+			.setAutoCancel(true)
+			.setContentIntent(contentIntent(team))
+			.setDeleteIntent(actionIntent(team, NotificationReceiver.ACTION_MARK_READ))
+		if (repo.sttsReady()) {
+			// Require unlock for playback.
+			for ((title, action) in listOf(
+				"Play Full" to NotificationReceiver.ACTION_PLAY_FULL,
+				"Play Summary" to NotificationReceiver.ACTION_PLAY_SUMMARY,
+			)) {
+				builder.addAction(
+					NotificationCompat.Action.Builder(0, title, actionIntent(team, action, last.at))
+						.setAuthenticationRequired(true)
+						.build(),
+				)
+			}
 		}
 		return builder
 	}
@@ -333,11 +380,17 @@ internal class ServiceNotifications(private val context: Context) {
 		if (!canNotify()) return
 		val who = requester(repo.state.value, pending)
 		val entryTitle = pending.entryId?.let { repo.vaultOps.view(it)?.title }
+		val publicVersion = NotificationCompat.Builder(context, CHANNEL_VAULT)
+			.setSmallIcon(android.R.drawable.ic_lock_lock)
+			.setContentTitle(VAULT_PUBLIC_TITLE)
+			.build()
 		val builder = NotificationCompat.Builder(context, CHANNEL_VAULT)
 			.setSmallIcon(android.R.drawable.ic_lock_lock)
 			.setContentTitle(requestTitle(pending, entryTitle))
 			.setContentText("$who: ${pending.operation}".take(120))
 			.setStyle(NotificationCompat.BigTextStyle().bigText("$who\n${pending.operation}"))
+			.setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+			.setPublicVersion(publicVersion)
 			.setOngoing(true)
 			.setContentIntent(vaultContentIntent(pending))
 		NotificationManagerCompat.from(context).notify(vaultNotificationId(pending.requestId), builder.build())
@@ -394,6 +447,7 @@ internal class ServiceNotifications(private val context: Context) {
 		const val CHANNEL_SCHEDULED_SEND_FAILED = "scheduled_send_failed"
 		const val CHANNEL_VAULT = "vault_requests"
 		const val CHANNEL_ASSISTANT = "assistant"
+		const val VAULT_PUBLIC_TITLE = "A session asks for a secret"
 		const val CHANNEL_ROUTINE = "routine_missed"
 
 		private const val TEAM_ID_RANGE_START = 1000

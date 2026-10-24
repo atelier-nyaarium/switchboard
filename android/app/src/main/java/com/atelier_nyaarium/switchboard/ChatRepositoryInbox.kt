@@ -29,7 +29,7 @@ internal suspend fun ChatRepository.reportConsumerCapabilities() {
 internal suspend fun ChatRepository.applyPlane(name: String, lineage: PlaneLineage, payload: JsonElement?): Boolean {
 	if (name == "taskBoard") return revisionPlane(name, lineage, board.planeLineage(), board::adoptEpoch) { boardOps.refreshBoard() }
 	if (name == "vault") return revisionPlane(name, lineage, vault.planeLineage(), vault::adoptEpoch) { vaultOps.refresh() }
-	if (name != "presence" || payload == null) return false
+	if (name != PRESENCE_PLANE || payload == null) return false
 	val projection = runIsolated {
 		wireJson.decodeFromJsonElement(com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection.serializer(), payload)
 	}.getOrNull() ?: return false

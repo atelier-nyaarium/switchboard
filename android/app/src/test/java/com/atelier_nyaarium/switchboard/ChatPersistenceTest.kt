@@ -143,11 +143,12 @@ class ChatPersistenceTest {
 		val threads = listOf(RecordThread("1", "v2", "https://github.com/a/b", "done"), RecordThread("2", null, null, "not_found"))
 		val loud = message(at = 1, text = "Worth a look.").copy(record = ActionRecord(true, threads))
 		val quiet = message(at = 2, text = "").copy(record = ActionRecord(false, threads.take(1)))
-		codec.persistThreads(mapOf(team to listOf(loud, quiet)))
+		val quietPeer = message(at = 3, text = "sent on").copy(quiet = true)
+		codec.persistThreads(mapOf(team to listOf(loud, quiet, quietPeer)))
 		val loaded = codec.loadPersistedThreads().getValue(team)
 
-		assertEquals(listOf(loud.record, quiet.record), loaded.map { it.record })
-		assertEquals(listOf(false, true), loaded.map { it.isQuietRecord() })
+		assertEquals(listOf(loud.record, quiet.record, null), loaded.map { it.record })
+		assertEquals(listOf(false, true, true), loaded.map { it.isQuiet() })
 	}
 
 	@Test

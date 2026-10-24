@@ -13,7 +13,7 @@ data class ReadAnchor(val epoch: Long, val seq: Long, val at: Long)
 
 /** A `sent` echo also carries seq > 0, being the owner's own message mirrored to their devices, so
  * unread is never a bare seq check. */
-internal fun Message.countsUnread(): Boolean = !fromMe && seq > 0L && !isQuietRecord()
+internal fun Message.countsUnread(): Boolean = !fromMe && seq > 0L && !isQuiet()
 
 /** The anchor's row index in arrival order, or -1 when there is no anchor or its row is gone. Every
  * inbound row then counts, and any receipt reads as a genuine advance. */

@@ -232,8 +232,9 @@ class ConsoleClientOwnerOpsTest {
 		val events = mutableListOf<String>()
 		val outcome = drainTick(client, coordinator, emptyMap(), { 1L }, { events += "rows" }, { name, lineage, _ -> events += "$name:${lineage.version}"; true })
 
-		assertEquals(listOf("inbox_read", "inbox_advance", "planes_read"), sent.map { it.op["kind"]?.jsonPrimitive?.content })
-		assertEquals(listOf("rows", "board:3"), events)
+		assertEquals(listOf("inbox_read", "planes_read", "inbox_advance"), sent.map { it.op["kind"]?.jsonPrimitive?.content })
+		// Presence sets role before rows; anchors apply after.
+		assertEquals(listOf("$PRESENCE_PLANE:1", "rows", "board:3"), events)
 		assertEquals(PlaneLineage(1, 3), outcome.known["board"]?.lineage)
 		assertTrue(outcome.inboxAdvanceSent)
 	}
@@ -256,7 +257,7 @@ class ConsoleClientOwnerOpsTest {
 		drainTick(retryClient, retryCoordinator, emptyMap(), { 1L }, {}, { _, _, _ -> true })
 
 		assertEquals(
-			listOf("inbox_read", "inbox_advance", "planes_read", "inbox_advance", "inbox_read", "planes_read"),
+			listOf("inbox_read", "planes_read", "inbox_advance", "inbox_advance", "inbox_read", "planes_read"),
 			sent.map { it.op["kind"]?.jsonPrimitive?.content },
 		)
 		assertEquals(null, retryCoordinator.pendingAdvance())
@@ -291,11 +292,11 @@ class ConsoleClientOwnerOpsTest {
 		val first = drainTick(client, coordinator, emptyMap(), { 1L }, {}, { _, _, _ -> applied++; true })
 		val second = drainTick(client, coordinator, first.known, { 2L }, {}, { _, _, _ -> applied++; true })
 
-		assertEquals(1, applied)
-		assertEquals(1, first.planesApplied)
+		assertEquals(2, applied)
+		assertEquals(2, first.planesApplied)
 		assertEquals(0, second.planesApplied)
 		assertEquals(PlaneLineage(1, 3), second.known["board"]?.lineage)
-		assertEquals(listOf("inbox_read", "inbox_advance", "planes_read", "inbox_read", "planes_read"), sent.map { it.op["kind"]?.jsonPrimitive?.content })
+		assertEquals(listOf("inbox_read", "planes_read", "inbox_advance", "inbox_read", "planes_read"), sent.map { it.op["kind"]?.jsonPrimitive?.content })
 	}
 
 	@Test
@@ -367,7 +368,12 @@ class ConsoleClientOwnerOpsTest {
 					"result",
 					wireJson.encodeToJsonElement(
 						PlanesReadResult.serializer(),
-						PlanesReadResult(listOf(PlaneRead("board", PlaneLineage(1, 3), buildJsonObject { put("value", true) }))),
+						PlanesReadResult(
+							listOf(
+								PlaneRead("board", PlaneLineage(1, 3), buildJsonObject { put("value", true) }),
+								PlaneRead(PRESENCE_PLANE, PlaneLineage(1, 1), buildJsonObject { put("value", true) }),
+							),
+						),
 					),
 				)
 			}

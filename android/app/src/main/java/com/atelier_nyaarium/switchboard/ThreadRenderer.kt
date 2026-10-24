@@ -65,7 +65,7 @@ internal fun messagesToJson(
 			.put("from", displayFrom(m))
 			.put("at", m.at)
 			.put("body", m.text)
-		if (playEnabled && !m.fromMe && !m.isQuietRecord()) obj.put("canPlay", true)
+		if (playEnabled && !m.fromMe && !m.isQuiet()) obj.put("canPlay", true)
 		m.record?.let { obj.put("record", recordView(it)) }
 		// Read-tracking flags (thread.js's pointer/region + arrival-suppression logic): `counts` is
 		// pure row eligibility (inbound with real mailbox coordinates - never anchor-dependent, so

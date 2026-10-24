@@ -39,6 +39,8 @@ internal fun knownPlanesJson(known: Map<String, HeldLineage>): JsonObject = buil
 	}
 }
 
+internal const val PRESENCE_PLANE = "presence"
+
 internal suspend fun drainTick(
 	client: ConsoleClient,
 	coordinator: ConsoleTransportCoordinator,
@@ -63,6 +65,23 @@ internal suspend fun drainTick(
 		}
 	}
 	val answer = client.inboxRead(coordinator.cursor() + 1, coordinator.cursorEpoch())
+	var nextKnown = known
+	var planesApplied = 0
+	val planes = client.planesRead(knownPlanesJson(known))?.planes.orEmpty()
+	// Stamp at receipt; fetches can finish out of order.
+	val observedAt = observe()
+	suspend fun apply(batch: List<com.atelier_nyaarium.switchboard.proto.PlaneRead>) {
+		for (plane in batch) {
+			val fold = foldVersionedSlot(nextKnown[plane.name] ?: HeldLineage.NONE, plane.lineage, observedAt)
+			if (fold is SlotFold.Take && onPlane(plane.name, plane.lineage, plane.payload)) {
+				nextKnown = nextKnown + (plane.name to HeldLineage(plane.lineage, observedAt))
+				planesApplied++
+			}
+		}
+	}
+	// Presence sets row roles; read anchors apply after rows.
+	val (presence, rest) = planes.partition { it.name == PRESENCE_PLANE }
+	apply(presence)
 	if (answer is JsonArray) {
 		val rows = answer.mapNotNull { element ->
 			val decoded = runIsolated {
@@ -103,7 +122,7 @@ internal suspend fun drainTick(
 					Protocol.Wire.CONSOLE_REASON_CURSOR_STALE -> {
 						coordinator.clearPendingAdvance()
 						coordinator.adoptFloor(advanceFloor(advance, coordinator.cursor()))
-						return TickOutcome(rowsDrained, 0, true, known, true)
+						return TickOutcome(rowsDrained, planesApplied, true, nextKnown, true)
 					}
 					// The Router keeps the older cursor and redelivers until a retry lands.
 					else -> {
@@ -115,20 +134,9 @@ internal suspend fun drainTick(
 		}
 	} else if (answer is JsonObject && answer["outcome"]?.jsonPrimitive?.content == Protocol.Wire.CONSOLE_REASON_CURSOR_STALE) {
 		coordinator.adoptFloor(answer["floor"]?.jsonPrimitive?.content?.toLongOrNull() ?: coordinator.cursor())
-		return TickOutcome(0, 0, false, known, true)
+		return TickOutcome(0, planesApplied, false, nextKnown, true)
 	}
-	var nextKnown = known
-	var planesApplied = 0
-	val planes = client.planesRead(knownPlanesJson(nextKnown))?.planes.orEmpty()
-	// Stamped at receipt, so a slower fetch cannot outrank a later one at apply time.
-	val observedAt = observe()
-	for (plane in planes) {
-		val fold = foldVersionedSlot(nextKnown[plane.name] ?: HeldLineage.NONE, plane.lineage, observedAt)
-		if (fold is SlotFold.Take && onPlane(plane.name, plane.lineage, plane.payload)) {
-			nextKnown = nextKnown + (plane.name to HeldLineage(plane.lineage, observedAt))
-			planesApplied++
-		}
-	}
+	apply(rest)
 	return TickOutcome(rowsDrained, planesApplied, inboxAdvanceSent, nextKnown)
 }
 
@@ -291,7 +299,7 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 				title = entry.title.tierOrNull(), summary = entry.summary.tierOrNull(), fullSpoken = entry.fullSpoken.tierOrNull(),
 				epoch = epoch, seq = entry.seq, from = attribution.from, to = attribution.to, isPeer = attribution.isPeer,
 				arrivedVisible = host.isVisible && !resumeBacklogPending, record = record,
-			)
+			).let { it.copy(quiet = quietInConversation(isAssistant(host.state.value, team), it)) }
 			val appended = host.appendInbound(team, message) {
 				inboundSubscribers.forEach { subscriber ->
 					runIsolated { subscriber.onMessage(team, message) }
@@ -299,7 +307,7 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 				}
 			}
 			// Quiet records skip alerts and autoplay.
-			if (appended && !message.isQuietRecord()) burst.getOrPut(team) { mutableListOf() }.add(message)
+			if (appended && !message.isQuiet()) burst.getOrPut(team) { mutableListOf() }.add(message)
 		}
 		val burstJobs = mutableListOf<Job>()
 		val autoPlayedPeerPairs = mutableSetOf<String>()

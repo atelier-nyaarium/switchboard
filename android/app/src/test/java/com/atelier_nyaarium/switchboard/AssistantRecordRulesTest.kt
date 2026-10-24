@@ -22,9 +22,42 @@ class AssistantRecordRulesTest {
 
 		assertNull(recordOf(entry(kind = "notice", threads = listOf(done))))
 		assertNull(recordOf(entry(threads = emptyList())))
-		assertTrue(Message(false, "", 1L, record = quiet).isQuietRecord())
-		assertFalse(Message(false, "Worth a look.", 1L, record = loud).isQuietRecord())
-		assertFalse(Message(false, "hi", 1L).isQuietRecord())
+		assertTrue(Message(false, "", 1L, record = quiet).isQuiet())
+		assertFalse(Message(false, "Worth a look.", 1L, record = loud).isQuiet())
+		assertFalse(Message(false, "hi", 1L).isQuiet())
+	}
+
+	@Test
+	fun peerRowsDrainedBeforeTheAssistantWasKnownGoQuietOnceItIs() {
+		val assistant = "local.gw.host.assistant"
+		val other = "local.gw.host.worker"
+		val peer = Message(false, "sent on", 1L, seq = 1L, isPeer = true)
+		val reply = Message(false, "to the owner", 2L, seq = 2L, title = "Done")
+		val loud = ChatState(threads = mapOf(assistant to listOf(peer, reply), other to listOf(peer)))
+		val known = loud.copy(roles = mapOf(assistant to ASSISTANT_ROLE))
+
+		val quieted = known.withAssistantPeersQuiet()
+
+		assertTrue(loud.withAssistantPeersQuiet() === loud)
+		assertEquals(listOf(true, false), quieted.threads.getValue(assistant).map { it.quiet })
+		assertEquals(listOf(false), quieted.threads.getValue(other).map { it.quiet })
+		assertEquals(1, quieted.unread[assistant])
+		assertTrue(quieted.withAssistantPeersQuiet() === quieted)
+	}
+
+	@Test
+	fun onlyPeerRowsInTheAssistantsConversationGoQuiet() {
+		val peer = Message(false, "sent on", 1L, isPeer = true)
+		val reply = Message(false, "to the owner", 2L)
+
+		assertEquals(
+			listOf(true, false, false),
+			listOf(
+				quietInConversation(assistant = true, peer),
+				quietInConversation(assistant = true, reply),
+				quietInConversation(assistant = false, peer),
+			),
+		)
 	}
 
 	@Test

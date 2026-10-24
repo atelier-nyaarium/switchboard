@@ -15,8 +15,22 @@ internal fun recordOf(entry: MailboxEntry): ActionRecord? {
 	return ActionRecord(notify = entry.notify == true, threads = threads)
 }
 
-/** Quiet records skip burst, alerts, autoplay, unread. */
-internal fun Message.isQuietRecord(): Boolean = record?.notify == false
+/** Quiet rows skip bursts, alerts, autoplay, and unread. */
+internal fun Message.isQuiet(): Boolean = quiet || record?.notify == false
+
+/** Quiet assistant sends and replies. */
+internal fun quietInConversation(assistant: Boolean, message: Message): Boolean = assistant && message.isPeer
+
+/** The same state when nothing changes. */
+internal fun ChatState.withAssistantPeersQuiet(): ChatState {
+	var next = this
+	for ((team, thread) in threads) {
+		if (!isAssistant(this, team) || thread.none { quietInConversation(true, it) && !it.quiet }) continue
+		val quieted = thread.map { if (quietInConversation(true, it)) it.copy(quiet = true) else it }
+		next = next.copy(threads = next.threads + (team to quieted)).recomputeUnread(team, quieted)
+	}
+	return next
+}
 
 /** Count every thread. */
 internal fun quietLine(record: ActionRecord): String = "${record.threads.size} cleared quietly"

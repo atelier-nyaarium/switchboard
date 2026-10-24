@@ -147,6 +147,15 @@ class PlaybackQueue {
 		return dropped
 	}
 
+	/** Replace the matching head; report success. */
+	@Synchronized
+	fun rewriteHead(from: QueueEntry, to: QueueEntry): Boolean {
+		if (head != from) return false
+		head = to
+		if (retried.remove(from)) retried.add(to)
+		return true
+	}
+
 	/** Put an entry back at the FRONT, ahead of everything waiting. A pause stops the audio by ending
 	 * the request, which retires it - so without this, resuming would skip the very message that was
 	 * paused. There is no seek yet, so it resumes from the start. */

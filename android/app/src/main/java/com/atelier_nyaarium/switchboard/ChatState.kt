@@ -127,8 +127,8 @@ data class ChatState(
 	val noGatewayState: NoGatewayState
 		get() = FriendOnboarding.noGatewayState(needsGateway, firstRooted)
 
-	/** Quiet records do not advance card reads. */
-	private fun cardRows(team: String): List<Message> = threads[team].orEmpty().filterNot { it.isQuietRecord() }
+	/** Quiet rows skip card reads. */
+	private fun cardRows(team: String): List<Message> = threads[team].orEmpty().filterNot { it.isQuiet() }
 
 	fun lastActivity(team: String): Long? = cardRows(team).maxByOrNull { it.at }?.at
 

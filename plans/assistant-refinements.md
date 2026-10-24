@@ -450,27 +450,32 @@ The guard covers `crosstalk_send` alone. Replies and notifications to the owner 
 Other sessions are unchanged. Code enforces where the title is used, never what it says.
 
 - **Instructions:** `ASSISTANT_INSTRUCTIONS` says the title of `channel_reply` and `notify_human` is shown and spoken while the phone is locked, and to use a generic title such as "Assistant update" when nothing safe can be said. The teaching test checks the rule is present.
-- **The locked form:** one pure decision beside `AssistantOps` takes the role, the row, the lock state and the requested tier, and answers what to show and speak. It never falls back to the summary or the body.
-  - An assistant reply or notice: its title.
-  - A notifying record: a fixed line such as "Assistant finished N items", with no thread titles, since those are GitHub's.
-  - Any other row: a fixed generic line.
-- **Locked means:** `isDeviceLocked` (Question 18). A phone Smart Lock keeps open reads in full; notifications follow Android's own redaction.
-- **Notifications:** assistant rows post on their own channel, created with lock-screen visibility private, since a channel's settings are fixed at creation and `messages_v2` stays as it is. Each notification is `VISIBILITY_PRIVATE` with a public version holding the locked form and no actions. Phase 5's approval card posts on the same channel. If a device shows the private version anyway, the reconcile road redraws on lock and unlock.
+- **The locked form:** `AssistantLockedForm.kt` beside `AssistantOps` holds the decision: `spokenTier` takes the role, the lock state and the requested tier, and `lockedLine` the row. It never falls back to the summary or the body.
+  - An assistant reply or notice: its title, on one line.
+  - A notifying record: "Assistant finished N items", with no thread titles, since those are GitHub's.
+  - Any other row: the generic line, "Assistant update".
+- **Locked means:** `isDeviceLocked` (Question 18), so a Smart Lock reads as unlocked. `ChatRepository.deviceLocked` reads it through the service, and reads unlocked before the service starts, when nothing is spoken but what the owner taps in the app.
+- **Notifications show the locked form everywhere:** a watch bridges what the phone shows and ignores a public version, so `assistantNotificationBuilder` carries only `lockedLine`, unlocked too, and no surface ever holds the body. It posts on the assistant channel, private with a public version, and its Play actions take `setAuthenticationRequired(true)`. The shade lost little, since it already showed an assistant reply by its title. This settles Question 19's mechanism with no research left: there is no full notification to bridge. A change in which threads read as the assistant redraws the team notifications.
 - **Read-aloud:**
-  - The decision runs at the queue head under `advanceMutex`, rewriting the head entry, and on lock transitions through `addKeyguardLockedStateListener` (minSdk 33).
-  - The locked form is its own tier value, never `TITLE`, so the queue key, cache and positions stay consistent.
-  - Speech in progress at lock stops, and its locked form is spoken.
-  - The assistant's notification Play actions take `setAuthenticationRequired(true)`.
-  - After unlock nothing replays; rows heard only as a title stay unread with Play.
-- **Vault notifications:** `CHANNEL_VAULT` sets no lock-screen visibility and `notifyVaultRequest` shows the requester and the operation. It takes the same private channel visibility and a public version naming only that a secret is asked for.
-- **Watch (Question 19):** a paired watch gets the locked form only. A public version does not reach a bridged notification, so the mechanism needs research: a phone-local full notification with a bridged title-only twin, or `WearableExtender` pages. Verified on a Wear OS emulator paired to the phone emulator.
-- **Peer rows in its conversation:** its send records and replies from sessions it asked are quiet: shown in the conversation, no alert, no read-aloud. The assistant reports replies in its own words.
-- **Role for a new address:** the phone seeds the role for a move's destination when the move completes and keeps it for past assistant addresses. A role change redraws the notifications.
+  - `SttsPlayer.Tier.LOCKED` speaks `lockedLine`, so the queue key, cache and positions stay consistent, and a locked line is never attributed with session labels. A run's boundary marker still names the assistant by the owner's label for it. A quiet row is never queued (`enqueueForPlay`), so no marker names the sessions on either side of a peer row.
+  - `PlaybackOps.speak` re-decides the head under `advanceMutex` (`decidedHead`) and `PlaybackQueue.rewriteHead` swaps it. A direct Play is decided as it starts and held as `direct`.
+  - **No public lock listener:** `addKeyguardLockedStateListener` needs a role-gated permission. `DeviceLockWatch` starts at screen off, or at registration when the screen is already off, and checks once a second, reading the keyguard only while a lock would change what is said (`speaksUnlockedAssistant`); screen on and user present stop it after one last check.
+  - On a lock, `relock` abandons the head's speech and speaks its locked form, and stops a direct Play and replays it locked. After unlock nothing replays; a row heard only as its locked line stays unread with Play.
+  - **A body posted before a move cannot play after it:** each `speakBody` post carries a generation (`bodyGen`) and stands down before it starts, and abandons itself after it claims, unless it is still the newest post and its entry still the head. The after-claim check closes the race only because every mover changes the head before it abandons: `relock` rewrites first, and `retireHead` and `pausePlayback` advance first. The abandon remembers the position when the entry is the one a pause parked. A quick pause and resume leaves one post, not two. The body after a run's boundary marker is decided again as it starts.
+- **Vault notifications:** `notifyVaultRequest` is private with a public version naming only that a secret is asked for. The channel needs no new id, since its visibility was never set.
+- **Peer rows in its conversation:** `PollDrain` marks a peer row in the assistant's conversation `quiet` (`quietInConversation`), persisted with the thread. `isQuiet` replaces `isQuietRecord` and covers both kinds: shown in the conversation, no alert, no Play, no autoplay, not unread. The assistant reports replies in its own words. The stamp is taken at drain, and `drainTick` applies the presence plane before a tick's rows and every other plane after them, which read anchors need. A row can still arrive first (the socket path reads presence and rows independently, or a first drain after provisioning), so when a thread comes to read as the assistant, `withAssistantPeersQuiet` re-stamps its peer rows and the team notifications redraw. Any thread holding a record takes the locked builder, since only the assistant writes records.
+- **Role for a new address:** `AssistantOps.move` seeds the destination's address as the assistant once the place lands and persists the roles; `rolesAfter` keeps a past address's role.
 - **Tests:**
-  - The decision, in its own JVM test.
-  - `PlaybackOpsTest`: autoplay, direct Play, the Play Full action, and the queue advancing after a rewrite.
-  - The Phase 2 sandbox fixture gets title and body markers and a control session.
-  - On a device, with a PIN and sensitive content shown: a notification posted before locking and one posted while locked, the lock-screen actions, and speech across a lock.
+  - `AssistantLockedFormTest`: the line for each row kind, and the tier matrix.
+  - `PlaybackOpsTest`: a locked run speaks the assistant at `LOCKED` and advances past it to another session at the tier asked; a lock mid-speech switches to `LOCKED` and an unlock replays nothing.
+  - `AssistantRecordRulesTest`, `ChatPersistenceTest` and `AssistantOpsTest`: quiet peer rows, their persistence, and the seeded role.
+  - The sandbox's assistant fixture carries title, summary and body markers and a quiet send record; the emulator shows the record with no Play.
+### Bug Classes
+
+- **Mechanism:** `PlaybackOps.speakBody`'s control-lane post against the movers (`relock`, `retireHead`, `pausePlayback`, a resume). **Class:** a body post outlives the decision that queued it and plays after the head moved or was re-decided. **Rounds:** the red team found a posted body could claim after `relock` rewrote the head and play the full text while locked (and that skip and pause always had the same gap), patched with an after-claim check plus movers advancing before they abandon. Its re-audit found a quick pause and resume left two posts for one equal entry, and the check's abandon dropped a paused position, patched with `bodyGen` and remembering for the parked entry. **Ended by:** not yet; the queue head and the post each hold a copy of "what should be spoken now". A head ticket the queue mints when it starts an entry, which a post must present to claim, would make a stale post unable to start at all.
+- **Mechanism:** the quiet stamp taken in `PollDrain` from `isAssistant` at drain time. **Class:** a row classified before its team's role is known. **Rounds:** the align pass recorded the window as accepted. The red team found rows drain before planes in a tick, patched by applying the presence plane first. Its re-audit found the socket path reads presence and rows independently, patched by `withAssistantPeersQuiet` re-stamping when a thread comes to read as the assistant. **Ended by:** the re-stamp makes the drain-time stamp a first guess that recognition corrects, for every path at once.
+
+- **Manual pass on the phone:** the sandbox posts no notifications and holds no voice key, so these run on a device with a PIN and sensitive content shown: a notification posted before locking and one while locked, the lock-screen Play actions asking to unlock, speech across a lock (including after the service was revived with the screen off), and a paired watch showing only the title.
 
 ## Phase 7 - Summon
 

@@ -297,13 +297,18 @@ describe("the assistant's guarded sends", () => {
 		);
 		const afterReply = await send(worker.team, "after a reply");
 		await post("/assistant/send/withdraw", { requestId: afterReply.json.requestId });
+		// Mirrors use outbox delivery.
+		const unasked = await h.waitFor(async () => {
+			const found = await records("unasked one");
+			return found.length >= 2 ? found : undefined;
+		}, "the unasked send's records");
 
 		expect(off.approveEverySend).toBe(false);
 		expect(afterOwner.json).toMatchObject({ outcome: "sent", guard: "unasked" });
 		expect(afterEvent.json.outcome).toBe("pending");
 		expect(afterOwnerAgain.json).toMatchObject({ outcome: "sent", guard: "unasked" });
 		expect(afterReply.json.outcome).toBe("pending");
-		expect((await records("unasked one")).map((entry) => entry.guard)).toEqual(["unasked", "unasked"]);
+		expect(unasked.map((entry) => entry.guard)).toEqual(["unasked", "unasked"]);
 	});
 
 	it("after a restart, keeps the setting, asks with no marker, and retracts a card it can no longer answer", async () => {

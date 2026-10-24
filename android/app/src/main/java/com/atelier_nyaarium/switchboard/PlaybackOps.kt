@@ -17,6 +17,7 @@ internal interface PlaybackPort {
 	val sttsChimeVolume: Int
 	val sttsAutoPlay: String
 	fun sttsReady(): Boolean
+	fun deviceLocked(): Boolean
 }
 
 internal interface PlaybackOpsCollaborators {
@@ -41,15 +42,29 @@ internal class PlaybackOps(
 		playback.stts.addListener { event ->
 			if (event is Event.Ended) {
 				val entry = QueueEntry(event.team, event.at, event.tier)
+				if (direct == entry) direct = null
 				// Generation identifies the exact request that ended.
 				repoScope.launch { onPlaybackEnded(entry, event.outcome, event.gen, event.reason) }
 			}
 		}
 	}
 
+	/** Standalone playback's spoken tier. */
+	@Volatile
+	private var direct: QueueEntry? = null
+
 	fun playMessage(team: String, at: Long, tier: SttsPlayer.Tier) {
-		playback.stts.post { startPlayback(team, at, tier) }
+		playback.stts.post {
+			val spokenAt = lockedTier(team, tier)
+			val spoken = QueueEntry(team, at, spokenAt)
+			// Set before start; terminal clears it.
+			direct = spoken
+			if (startPlayback(team, at, spokenAt) != null && direct == spoken) direct = null
+		}
 	}
+
+	private fun lockedTier(team: String, tier: SttsPlayer.Tier): SttsPlayer.Tier =
+		spokenTier(isAssistant(state.value, team), playback.deviceLocked(), tier)
 
 	private fun startPlayback(
 		team: String,
@@ -79,7 +94,11 @@ internal class PlaybackOps(
 
 	private var markersFor: QueueEntry? = null
 
+	@Volatile
 	private var parkedAnnounced: QueueEntry? = null
+
+	/** Names the newest body post, so a stale one stands down. */
+	private val bodyGen = java.util.concurrent.atomic.AtomicLong()
 
 	private var markerInFlight: Long? = null
 
@@ -100,6 +119,8 @@ internal class PlaybackOps(
 		advanceMutex.withLock {
 			// Recheck followed state under the advance lock.
 			if (requireFollowed && team !in followedTeams(state.value)) return
+			// Quiet rows stay unspoken.
+			if (state.value.threads[team]?.lastOrNull { it.at == at }?.isQuiet() == true) return
 			val beginsRun = queue.isIdle()
 			if (!queue.enqueue(entry)) return
 			if (beginsRun) queueMarkers(entry, chime = announceRun)
@@ -180,7 +201,7 @@ internal class PlaybackOps(
 							if (markersFor != owner || queue.playing() != owner) return@withLock
 							if (nextMarkerStarted()) return@withLock
 							clearMarkers()
-							speakBody(owner)
+							speakBody(decidedHead(owner))
 						}
 					}
 				}
@@ -273,8 +294,8 @@ internal class PlaybackOps(
 			if (head != null) {
 				queue.requeueFront(head)
 				parkedAnnounced = head
-				playback.stts.abandon(head.team, head.at, head.tier, remember = true)
 				queue.advance(head, SttsPlayer.Outcome.PREEMPTED)
+				playback.stts.abandon(head.team, head.at, head.tier, remember = true)
 			}
 		}
 		transportChanged()
@@ -328,8 +349,9 @@ internal class PlaybackOps(
 		markerInFlight?.let { playback.stts.abandonGeneration(it) }
 		clearMarkers()
 		playback.stts.forgetPosition(head.team, head.at, head.tier)
+		val next = queue.advance(head, SttsPlayer.Outcome.STOPPED).next
 		playback.stts.abandon(head.team, head.at, head.tier, remember = false)
-		val next = queue.advance(head, SttsPlayer.Outcome.STOPPED).next ?: return
+		if (next == null) return
 		if (transportPaused) {
 			queue.advance(next, SttsPlayer.Outcome.PREEMPTED)
 		} else {
@@ -355,7 +377,46 @@ internal class PlaybackOps(
 
 	fun queueCounts(): Triple<Int, Boolean, Int> = reads.queueCounts()
 
-	private fun speak(entry: QueueEntry) {
+	/** Re-decide the head's tier. */
+	private fun decidedHead(entry: QueueEntry): QueueEntry {
+		val tier = entry.tier ?: return entry
+		val decided = entry.copy(tier = lockedTier(entry.team, tier))
+		if (decided == entry || !queue.rewriteHead(entry, decided)) return entry
+		if (markersFor == entry) markersFor = decided
+		if (parkedAnnounced == entry) parkedAnnounced = decided
+		return decided
+	}
+
+	/** Locking converts assistant speech to locked form. */
+	suspend fun relock() {
+		advanceMutex.withLock {
+			val head = queue.playing() ?: return@withLock
+			val decided = decidedHead(head)
+			if (decided == head) return@withLock
+			markerInFlight?.let { playback.stts.abandonGeneration(it) }
+			clearMarkers()
+			head.tier?.let { playback.stts.abandon(head.team, head.at, it, remember = false) }
+			speakBody(decided)
+		}
+		direct?.let { playing ->
+			val tier = playing.tier ?: return@let
+			if (lockedTier(playing.team, tier) == tier) return@let
+			playback.stts.stopMessage(playing.team, playing.at)
+			playMessage(playing.team, playing.at, tier)
+		}
+		transportChanged()
+	}
+
+	/** Whether a lock would change what is said. */
+	fun speaksUnlockedAssistant(): Boolean {
+		val state = state.value
+		return listOfNotNull(queue.playing(), direct).any {
+			it.tier != null && it.tier != SttsPlayer.Tier.LOCKED && isAssistant(state, it.team)
+		}
+	}
+
+	private fun speak(queued: QueueEntry) {
+		val entry = decidedHead(queued)
 		val resuming = parkedAnnounced == entry
 		parkedAnnounced = null
 		if (!resuming && markersFor != entry) queueMarkers(entry, chime = false)
@@ -369,9 +430,17 @@ internal class PlaybackOps(
 			repoScope.launch { onPlaybackEnded(entry, SttsPlayer.Outcome.SYNTH_ERROR, reason = "no tier to speak") }
 			return
 		}
+		val gen = bodyGen.incrementAndGet()
+		val current = { gen == bodyGen.get() && queue.playing() == entry }
 		playback.stts.post {
-			startPlayback(entry.team, entry.at, tier, yielding = true, attributed = false)?.let { why ->
+			// A newer post or a moved head owns it now.
+			if (!current()) return@post
+			val why = startPlayback(entry.team, entry.at, tier, yielding = true, attributed = false)
+			if (why != null) {
 				repoScope.launch { onPlaybackEnded(entry, SttsPlayer.Outcome.SYNTH_ERROR, reason = why) }
+			} else if (!current()) {
+				// Movers change the head before they abandon.
+				playback.stts.abandon(entry.team, entry.at, tier, remember = parkedAnnounced == entry)
 			}
 		}
 	}

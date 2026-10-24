@@ -42,7 +42,8 @@ internal fun ttsTextFramed(
 	attributed: Boolean = false,
 ): String {
 	val text = SttsPlayer.ttsText(msg, tier)
-	if (!attributed || !msg.isPeer) return text
+	// Locked speech omits labels.
+	if (!attributed || !msg.isPeer || tier == SttsPlayer.Tier.LOCKED) return text
 	val fromLabel = msg.from?.let { state.label(it) } ?: "someone"
 	val toLabel = msg.to?.let { state.label(it) }
 	return if (toLabel != null) "$fromLabel to $toLabel: $text" else "$fromLabel: $text"

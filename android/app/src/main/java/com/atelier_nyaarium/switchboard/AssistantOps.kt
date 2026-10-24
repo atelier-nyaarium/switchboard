@@ -40,6 +40,7 @@ internal interface AssistantGateway {
 
 internal interface AssistantHost {
 	val gateway: AssistantGateway?
+	fun persistRoles(roles: Map<String, String>)
 }
 
 /** What a move did. Placing comes first, so a refused place leaves the old home untouched. */
@@ -278,6 +279,13 @@ internal class AssistantOps(
 		}
 	}
 
+	/** Resolve assistant identity before presence. */
+	private fun seedRole(gatewayId: String) {
+		val address = answeredAssistant(state.value, gatewayId) ?: return
+		val roles = state.updateAndGet { it.copy(roles = it.roles + (address to ASSISTANT_ROLE)) }.roles
+		host.persistRoles(roles)
+	}
+
 	/** Queries other Gateways directly, places, then releases; lists uncertain homes. */
 	suspend fun move(target: String, workdir: String): AssistantMoved {
 		val client = host.gateway ?: return AssistantMoved.Unreachable
@@ -289,7 +297,10 @@ internal class AssistantOps(
 		val leaving = others.filter { (_, answer) -> (answer as? AssistantAnswer.State)?.state?.workdir != null }.map { it.first }
 		val unread = others.filter { (_, answer) -> answer !is AssistantAnswer.State }.map { it.first }
 		when (val placed = landed(target, ConsoleOp.AssistantPlace(workdir = workdir))) {
-			is AssistantAnswer.State -> preferredHome.value = target
+			is AssistantAnswer.State -> {
+				preferredHome.value = target
+				seedRole(target)
+			}
 			is AssistantAnswer.Refused -> return AssistantMoved.Refused(placed.reason)
 			AssistantAnswer.Unreachable -> return AssistantMoved.Unreachable
 		}

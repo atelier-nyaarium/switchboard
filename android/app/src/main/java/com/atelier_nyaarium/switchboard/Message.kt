@@ -42,6 +42,8 @@ data class Message(
 	val arrivedVisible: Boolean = true,
 	/** Presence identifies assistant records. */
 	val record: ActionRecord? = null,
+	/** Visible, silent, and unalerted. */
+	val quiet: Boolean = false,
 )
 
 /** Per-item outcomes; summary stays in Message.text. */

@@ -78,6 +78,8 @@ describe("the assistant's tool scope", () => {
 
 		for (const tool of taught) expect(ASSISTANT_INSTRUCTIONS).toContain(`\`${tool}\``);
 		for (const tool of taught) expect(ASSISTANT_SWITCHBOARD_TOOLS).toContain(tool);
+		// Titles reach locked phones.
+		expect(ASSISTANT_INSTRUCTIONS).toMatch(/title.*locked phone/);
 	});
 });
 

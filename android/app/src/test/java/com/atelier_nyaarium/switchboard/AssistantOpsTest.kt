@@ -101,11 +101,32 @@ class AssistantOpsTest {
 		override suspend fun preview(gatewayId: String, op: ConsoleOp.AssistantRulesPreview): ConsoleAssistantPreviewResult? = null
 	}
 
-	private class Host(override val gateway: AssistantGateway?) : AssistantHost
+	private class Host(override val gateway: AssistantGateway?) : AssistantHost {
+		val persisted = mutableListOf<Map<String, String>>()
+
+		override fun persistRoles(roles: Map<String, String>) {
+			persisted += roles
+		}
+	}
 
 	private fun ops(fake: FakeGateway, vararg gatewayIds: String): Pair<AssistantOps, MutableStateFlow<ChatState>> {
 		val state = MutableStateFlow(ChatState(gateways = testRegistry(*gatewayIds)))
 		return AssistantOps(state, Host(fake)) to state
+	}
+
+	@Test
+	fun aMoveKnowsTheDestinationAsTheAssistantAndKeepsTheOldAddress() = runBlocking {
+		val old = "home.sakura.host.assistant"
+		val host = Host(FakeGateway(home = "sakura"))
+		val state = MutableStateFlow(
+			ChatState(domainId = "home", gateways = testRegistry("sakura", "mikan"), roles = mapOf(old to ASSISTANT_ROLE)),
+		)
+
+		AssistantOps(state, host).move("mikan", "~/notes")
+
+		val roles = mapOf(old to ASSISTANT_ROLE, "home.mikan.host.assistant" to ASSISTANT_ROLE)
+		assertEquals(roles, state.value.roles)
+		assertEquals(roles, host.persisted.last())
 	}
 
 	@Test

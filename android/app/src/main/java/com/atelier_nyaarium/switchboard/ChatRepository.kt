@@ -50,6 +50,10 @@ class ChatRepository(
 	private var keyDeliveryValue: KeyDeliveryOps? = null
 	val stts = SttsPlayer(filesDir)
 
+	/** Unlocked until the service reads it. */
+	@Volatile
+	internal var deviceLocked: () -> Boolean = { false }
+
 	val board = com.atelier_nyaarium.switchboard.board.BoardManager(store)
 
 	val vault = com.atelier_nyaarium.switchboard.vault.VaultManager(store)
@@ -481,6 +485,13 @@ class ChatRepository(
 		}.threads
 		persistence.persistThreads(threads)
 		return newId
+	}
+
+	/** Peer rows drained before the assistant was known go quiet once it is. */
+	internal fun quietAssistantPeers() {
+		var changed = false
+		val threads = _state.updateAndGet { s -> s.withAssistantPeersQuiet().also { changed = it !== s } }.threads
+		if (changed) persistence.persistThreads(threads)
 	}
 
 	internal fun appendInbound(team: String, msg: Message, beforeCommit: () -> Unit = {}): Boolean {
