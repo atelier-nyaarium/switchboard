@@ -313,7 +313,11 @@ no TTL.
   within about 22 degrees of horizontal (`swipeClaim`), so a scroll's drift stays a scroll, and a
   release settles by `releasedSlot`. Where the shell stands is one `ShellNav` value,
   and every road through it is a transition: `arrive` decides the view and whether the thread re-snaps
-  (`Arrival` names the road), and the conversation carries its own Files stack.
+  (`Arrival` names the road), and the conversation carries its own Files stack. Every road that lands
+  somewhere first clears what draws above the shell through one list, `dismissForArrival`; a vault
+  request's sheet is the exception, since it opens over drafts. A request held on a process-lifetime
+  bus (`WorkspaceOpenBus`, `SummonBus`) is taken only by a resumed window, since a picker can leave a
+  stopped `MainActivity` beneath a second one.
 
   **Back is ordered by what is drawn over what.** `shellScreen` is the one order the render and
   `backLayer` both read; `App` holds the only shell `BackHandler` and dispatches the layer it names

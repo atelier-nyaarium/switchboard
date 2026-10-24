@@ -25,6 +25,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../assistant/AssistantSendOps.kt` / `AssistantSendSheet.kt` / `AssistantSendText.kt` / `plugins/assistant/AssistantPlugin.kt` - the phone's held send cards per Gateway and their answer, the card, its pure text, and the core handlers that claim the rows
 - `android/.../AssistantLockedForm.kt` / `DeviceLockWatch.kt` - what a locked phone or a watch may show and speak of an assistant row (`lockedLine`, `spokenTier`), and the screen-off watch that tells playback the phone locked. `docs/assistant.md` holds the rules
   - **No surface ever holds the assistant's body while locked:** its notifications carry only `lockedLine`, unlocked too, since a watch bridges what the phone shows and ignores a public version.
+- `android/.../AssistantSummon.kt` - long-press-power summon: the `Summon` transitions, `SummonBus`, and every decision (`summonLanding`, `focusStep`, `promptsAppLock`); `MainActivity.consume` raises one and asks the keyguard to dismiss. `docs/assistant.md` holds the rules
+  - **Only a resumed window acts on a shared bus:** a picker leaves a stopped `MainActivity` beneath a second one, so `routesNow`, `focusStep`, the app-lock handoff and `WorkspaceOpenBus` routing all read `resumed`.
+  - **Nothing draws over the keyguard:** `summon-residue.test.ts` refuses `showWhenLocked`, `turnScreenOn` and `RECORD_AUDIO`.
 - `src/shared/gateway-long-waits.ts` - the POST routes whose default wait passes Bun's 255s idle cut, and which of them replay a repeat; read by `src/gateway/index.ts` and the plugin's `routerRequest`
   - **The plugin's fetch lift holds the long routes:** Bun 1.4.0 does not cut a POST after its body is
     read, and its fetch abandons an idle request at 300s. No gate here runs either Bun behavior;

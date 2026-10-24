@@ -416,6 +416,36 @@ title is used, never what it says; `ASSISTANT_INSTRUCTIONS` tells the assistant 
 - **A move seeds the role:** `AssistantOps.move` records the destination's address as the assistant
   once the place lands, and past addresses keep theirs.
 
+## Summon
+
+Long-press power, with Switchboard as the digital assistant, opens the Assistant view with the
+composer focused and the keyboard up. Nothing draws over the keyguard and the app holds no
+microphone; Gboard's mic key dictates. `summon-residue.test.ts` refuses `showWhenLocked`,
+`turnScreenOn` and `RECORD_AUDIO`, and pins `ACTION_ASSIST` to `MainActivity`. The decisions live in
+`AssistantSummon.kt`, the activity's half in `MainActivity` (`consume`, `retryDismissal`).
+
+- **Unlock first:** a summon that finds the keyguard showing calls `requestDismissKeyguard` at once,
+  so the system asks for the PIN, then the app lands. A dismissal error retries once, and the retry
+  re-reads whether the device is locked. Back on the prompt lands the Assistant without the keyboard.
+- **Read once, held in `SummonBus`:** a restored or from-history launch replays nothing, a rotation
+  keeps a summon not yet landed, and process death drops it. Every keyguard callback names its
+  summon, so an older one moves nothing. An intent asking to open something else supersedes it.
+- **Only the shown window acts on it:** routing, the app-lock handoff and the keyboard all wait for a
+  resumed window. A summon raised while the attachment picker is open creates a second
+  `MainActivity`, and the stopped one beneath must not take it.
+- **Landing:** placed, it lands on the Assistant's Chat; before any Gateway answers, on the last
+  assistant conversation (`lastAssistant`), which the answer then retargets; unplaced, on Settings.
+  The arrival clears what draws above the shell (`dismissForArrival`) and closes the drawers.
+- **The keyboard fires once** (`focusStep`), when the Chat and its composer are drawn, nothing covers
+  them, the app lock is clear and the window is focused. A locked summon arms it only when our
+  dismissal succeeds.
+- **The app lock:** a summon whose keyguard asked for a credential also stands for the app's own
+  lock, once; a Smart Lock dismissal does not. No API proves a credential was entered, so a trust
+  agent granting trust while the system prompt shows reads as a challenge.
+- **Setup:** the role cannot be requested by an app. Assistant settings shows a Digital assistant row
+  while the role is not held, opening the system's picker and naming the Press and hold power
+  setting.
+
 ## What the model reads
 
 - **Standing instructions appear once:** in the plugin's MCP instructions for `host.assistant`
