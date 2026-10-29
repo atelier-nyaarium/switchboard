@@ -1,6 +1,6 @@
 // The assistant's one session and its watchers, placed where the Router's home record names.
 
-import { type Ambient, type TimerHandle, withinMs } from "../../shared/ambient.js";
+import { type Ambient, withinMs } from "../../shared/ambient.js";
 import {
 	ASSISTANT_RESERVE_KEY,
 	ASSISTANT_SESSION_NAME,
@@ -31,7 +31,8 @@ import { createAssistantRoutes, type Handler } from "../assistant/assistantRoute
 import { createGithubClient, type GithubClientDeps, type TokenRead } from "../assistant/githubClient.js";
 import { GithubDone } from "../assistant/githubDone.js";
 import { createGithubWatcher } from "../assistant/githubWatcher.js";
-import { createHomeMarkStore, type HomeMark } from "../assistant/homeMark.js";
+import { createHomeFollow, type HomeFollowEffects } from "../assistant/homeFollow.js";
+import { createHomeMarkStore } from "../assistant/homeMark.js";
 import { createInboxListing } from "../assistant/inboxListing.js";
 import { createRulesStore } from "../assistant/rulesStore.js";
 import { createOriginMarker, createSafetyStore, createSendGuard } from "../assistant/sendGuard.js";
@@ -41,7 +42,6 @@ import type { ListPage, ListQuery, Watcher, WatcherEvent } from "../assistant/wa
 import type { WatcherActions } from "../assistant/watcherAction.js";
 import { createWatcherStateStore, FRESH_STATE, unexpectedNow } from "../assistant/watcherState.js";
 import type { AssistantConsoleHandlers } from "../console/consoleTypes.js";
-import { fireAndForget } from "../fireAndForget.js";
 import { presentedByRequest } from "../sessionAuthority.js";
 import type { VaultRelease } from "../vault/vaultUse.js";
 import type { GatewayRoutes } from "./composeRoutes.js";
@@ -53,9 +53,6 @@ const NOT_HERE = "the assistant does not live on this Gateway";
 const STOP_WAIT_MS = 5_000;
 /** Events a preview reads. */
 const PREVIEW_EVENTS = 50;
-/** A let-go whose forget was refused tries again after this. */
-const LET_GO_RETRY_MS = 30_000;
-const REPORT_RETRY_MS = 10_000;
 const MOVING_HERE = "the assistant is still moving here; try again shortly";
 
 /** What the assistant reaches in the vault, read late. */
@@ -72,12 +69,7 @@ export interface AssistantHomePort {
 	open: (
 		record: AssistantHomeRecord,
 	) => { kind: "ok"; sealed: AssistantHomeSealed } | { kind: "refused"; reason: string };
-	/** `retry` when the Router did not take it; `dropped` when it never will. */
-	report: (mark: {
-		version: number;
-		outcome: "placed" | "refused";
-		reason?: string;
-	}) => Promise<"accepted" | "dropped" | "retry">;
+	report: HomeFollowEffects["report"];
 	/** Ends the session's pane and record; throws when refused, as while it wakes. */
 	endSession: () => Promise<void>;
 }
@@ -85,6 +77,8 @@ export interface AssistantHomePort {
 export interface AssistantStageDeps {
 	dataDir: string;
 	localGatewayId: string;
+	/** The active Domain, which scopes the home mark. */
+	domainId: () => string | null;
 	ambient: Pick<Ambient, "now" | "newId" | "randomBytes" | "setTimer" | "clearTimer">;
 	sessions: Pick<SessionsStage, "sessionStore" | "presence" | "sessionAuthority" | "conversationRegistry">;
 	/** A checked save of the session records, which hold where it lives; throws when it did not land. */
@@ -150,7 +144,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		return isAssistantRecord(record) ? record : undefined;
 	};
 	const isAssistant = (team: string) => team === ASSISTANT_TEAM && held() !== undefined;
-	const home = openDurable(deps.dataDir, "assistant-home", (store) => createHomeMarkStore(store));
+	const home = openDurable(deps.dataDir, "assistant-home", (store) => createHomeMarkStore(store, deps.domainId));
 	/** Its routes answer only while the home lets its lanes run. */
 	const acting = (record: Parameters<typeof isAssistantRecord>[0]) => isAssistantRecord(record) && home.allowsLanes();
 
@@ -374,23 +368,6 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			return work();
 		});
 	let homePort: AssistantHomePort | null = null;
-	let letGoRetry: TimerHandle | null = null;
-	let reportRetry: TimerHandle | null = null;
-	const report = (mark: HomeMark | null) => {
-		if (!mark?.named || mark.applied === null || !homePort) return;
-		if (reportRetry) ambient.clearTimer(reportRetry);
-		reportRetry = null;
-		const { version, applied: outcome, reason } = mark;
-		const sent = homePort.report({ version, outcome, ...(reason ? { reason } : {}) }).then((answer) => {
-			// Refused while migrating, or lost.
-			if (answer !== "retry" || home.get()?.version !== version || !active) return;
-			reportRetry = ambient.setTimer(() => {
-				reportRetry = null;
-				report(home.get());
-			}, REPORT_RETRY_MS);
-		});
-		fireAndForget("assistant home report", sent);
-	};
 
 	/** With lanes stopped, the carried settings land; lanes start only once all of it is saved. */
 	const apply = async (record: AssistantHomeRecord): Promise<string | null> => {
@@ -427,11 +404,10 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		return null;
 	};
 
-	/** Lanes stop before anything awaits; the rest runs again until the forget lands. */
+	/** Waiting sends end and lanes stop before anything awaits; the rest runs again until the forget lands. */
 	const letGo = async (): Promise<boolean> => {
-		await stopLanes();
-		// End waiting sends now.
 		guard.sessionEnded(ASSISTANT_TEAM);
+		await stopLanes();
 		if (held()) {
 			try {
 				await homePort?.endSession();
@@ -454,58 +430,26 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		if (!safety.approveEverySend() && !safety.set(true)) return false;
 		return true;
 	};
-	const letGoUntilDone = async (): Promise<void> => {
-		if (letGoRetry) ambient.clearTimer(letGoRetry);
-		letGoRetry = null;
-		if (await letGo()) return;
-		letGoRetry = ambient.setTimer(() => {
-			letGoRetry = null;
-			if (home.letGo()) fireAndForget("assistant let-go", serial(letGoUntilDone));
-		}, LET_GO_RETRY_MS);
-	};
 
-	const follow = (record: AssistantHomeRecord | null, { registered }: { registered: boolean }) =>
-		serial(async () => {
-			// Never written: the local record stays as it is.
-			if (record === null) return;
-			const mark = home.get();
-			if (mark && record.version < mark.version) return;
-			const named = record.gatewayId === deps.localGatewayId;
-			if (mark?.version === record.version) {
-				if (!mark.named) return letGoUntilDone();
-				if (mark.applied !== null) {
-					if (registered) report(mark);
-					return;
-				}
-				// An unfinished apply reruns.
-			} else if (!home.set({ version: record.version, named, applied: null })) {
-				// Unsaved, it still stops acting.
-				await stopLanes();
-				throw new Error("the home mark could not be saved");
-			}
-			if (!named) return letGoUntilDone();
-			let refusal: string | null;
-			try {
-				refusal = await apply(record);
-			} catch (error) {
-				refusal = (error as Error).message;
-			}
-			const outcome = refusal === null ? ("placed" as const) : ("refused" as const);
-			const applied: HomeMark = {
-				version: record.version,
-				named: true,
-				applied: outcome,
-				...(refusal === null ? {} : { reason: refusal.slice(0, 512) }),
-			};
-			if (!home.set(applied)) throw new Error("the home mark could not be saved");
-			if (outcome === "placed") startLanes();
-			report(applied);
-		});
+	const homeFollow = createHomeFollow({
+		mark: home,
+		localGatewayId: deps.localGatewayId,
+		serial,
+		ambient,
+		effects: {
+			stopLanes,
+			startLanes,
+			apply,
+			letGo,
+			// Resent at the next registration.
+			report: (mark) => homePort?.report(mark) ?? Promise.resolve("dropped" as const),
+		},
+	});
 
 	return {
 		reserves: isAssistant,
 		placed: () => held() !== undefined && home.allowsLanes(),
-		follow,
+		follow: homeFollow.follow,
 		bindHome: (port) => {
 			homePort = port;
 		},
@@ -593,16 +537,14 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		start: () => {
 			active = true;
 			startLanes();
-			// Resume an unfinished let-go.
-			if (home.letGo()) fireAndForget("assistant let-go", serial(letGoUntilDone));
+			homeFollow.start();
 			guard.retractStale();
 		},
 		stop: async () => {
 			ownerOpsClosed = true;
 			// Late applies start nothing.
 			active = false;
-			if (letGoRetry) ambient.clearTimer(letGoRetry);
-			if (reportRetry) ambient.clearTimer(reportRetry);
+			homeFollow.stop();
 			// Drain before flush.
 			await withinMs(ambient, Promise.all([ownerOps.drain(), stopLanes()]), STOP_WAIT_MS);
 		},

@@ -5,6 +5,8 @@ import { commitChecked, type DurableStore } from "../../shared/durable-store.js"
 
 const StoredSchema = z.object({
 	v: z.literal(1),
+	/** Versions compare only within one Domain's record. */
+	domainId: z.string().min(1),
 	version: z.number().int().positive(),
 	named: z.boolean(),
 	/** Null until an apply of a choice naming this Gateway finished. */
@@ -12,37 +14,54 @@ const StoredSchema = z.object({
 	reason: z.string().optional(),
 });
 
-export type HomeMark = Omit<z.infer<typeof StoredSchema>, "v">;
+type Stored = z.infer<typeof StoredSchema>;
+export type HomeMark = Omit<Stored, "v" | "domainId">;
 
-const markOf = ({ v: _v, ...mark }: z.infer<typeof StoredSchema>): HomeMark => mark;
+const markOf = ({ v: _v, domainId: _domainId, ...mark }: Stored): HomeMark => mark;
 
-export function createHomeMarkStore(store: Pick<DurableStore, "load" | "saveChecked">) {
+/** `domainId` is the active Domain's; a mark from another reads as none. */
+export function createHomeMarkStore(store: Pick<DurableStore, "load" | "saveChecked">, domainId: () => string | null) {
 	const loaded = store.load();
-	let mark: HomeMark | null = loaded === null ? null : markOf(StoredSchema.parse(loaded));
+	let held: Stored | null = loaded === null ? null : StoredSchema.parse(loaded);
 	// A newer record whose mark did not land.
 	let unsettled = false;
 
+	const get = (): HomeMark | null => (held && held.domainId === domainId() ? markOf(held) : null);
+
 	return {
-		get: (): HomeMark | null => mark,
+		get,
 		/** False when the write did not land; the held mark is then unchanged and lanes stay shut. */
 		set: (next: HomeMark): boolean => {
-			const landed = commitChecked(
-				store,
-				{ v: 1, ...next },
-				() => {
-					mark = next;
-				},
-				{ label: "assistant home" },
-			).landed;
+			const domain = domainId();
+			const stored: Stored | null = domain === null ? null : { v: 1, domainId: domain, ...next };
+			const landed =
+				stored !== null &&
+				commitChecked(
+					store,
+					stored,
+					() => {
+						held = stored;
+					},
+					{ label: "assistant home" },
+				).landed;
 			unsettled = !landed;
 			return landed;
 		},
 		/** No mark is a Gateway before any record, which follows its own session record. */
-		allowsLanes: (): boolean => !unsettled && (mark === null || (mark.named && mark.applied === "placed")),
+		allowsLanes: (): boolean => {
+			const mark = get();
+			return !unsettled && (mark === null || (mark.named && mark.applied === "placed"));
+		},
 		/** A record named another, or nobody. */
-		letGo: (): boolean => mark !== null && !mark.named,
+		letGo: (): boolean => {
+			const mark = get();
+			return mark !== null && !mark.named;
+		},
 		/** Named, and an apply has not finished. */
-		applying: (): boolean => mark !== null && mark.named && mark.applied === null,
+		applying: (): boolean => {
+			const mark = get();
+			return mark?.named === true && mark.applied === null;
+		},
 	};
 }
 

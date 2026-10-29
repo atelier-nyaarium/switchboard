@@ -42,6 +42,7 @@ interface StageOptions {
 	fetch?: AssistantStageDeps["fetch"];
 	vault?: AssistantVault;
 	saveSessions?: () => void;
+	domainId?: string;
 	/** The Router's answers to reports, in order; then accepted. */
 	reportAnswers?: Awaited<ReturnType<AssistantHomePort["report"]>>[];
 }
@@ -134,6 +135,7 @@ function stage(options: StageOptions = {}) {
 	const assistant = composeAssistant({
 		dataDir,
 		localGatewayId: LOCAL_GATEWAY,
+		domainId: () => options.domainId ?? "home",
 		ambient: options.ambient ?? processAmbient(),
 		sessions: { sessionStore: store, presence: store, sessionAuthority: authority } as never,
 		saveSessions: options.saveSessions ?? (() => {}),
@@ -210,6 +212,16 @@ describe("the assistant's session", () => {
 		expect(store.list()).toHaveLength(1);
 		expect(assistant.reserves(ASSISTANT_TEAM)).toBe(true);
 		expect(assistant.forgetRefusal(ASSISTANT_TEAM)).not.toBeNull();
+	});
+
+	it("compares home versions only within one Domain", async () => {
+		const before = stage({ domainId: "old-domain" });
+		await before.followHome(5, OTHER_GATEWAY);
+		const enrolled = stage({ dataDir: before.dataDir, store: before.store, domainId: "new-domain" });
+
+		await enrolled.followHome(1);
+
+		expect(enrolled.assistant.console.state()).toMatchObject({ workdir: NOTES, team: ASSISTANT_TEAM });
 	});
 
 	it("stops acting when a newer home cannot be saved", async () => {

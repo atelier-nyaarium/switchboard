@@ -1,7 +1,7 @@
 // Everything the FederationActive phase owns, built from one bootstrap.
 
 import { DomainSnapshotSchema } from "../../shared/admission.js";
-import type { Ambient, TimerHandle } from "../../shared/ambient.js";
+import type { Ambient } from "../../shared/ambient.js";
 import { DurableStore, restoreDurable } from "../../shared/durable-store.js";
 import { stableHash } from "../../shared/plane-registry.js";
 import { ShareMirrorSnapshotSchema } from "../../shared/schemasShare.js";
@@ -26,6 +26,7 @@ import { createInboxDeliveryPump } from "../router/inboxDeliveryPump.js";
 import { createKeyRequester } from "../router/keyRequester.js";
 import { createPresenceReporter } from "../router/presenceReporter.js";
 import { buildRegisterAuth } from "../router/registerAuth.js";
+import { createRegistrationRead } from "../router/registrationRead.js";
 import { startRouterClient } from "../router/routerClient.js";
 import { createShareAttestor } from "../router/shareAttestor.js";
 import { routerWsConnection, saveRouterReach } from "../router/transport.js";
@@ -97,6 +98,7 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 	let shareAttestor: ReturnType<typeof createShareAttestor> | null = null;
 	let keyRequester: ReturnType<typeof createKeyRequester> | null = null;
 	let inboxPump: ReturnType<typeof createInboxDeliveryPump> | null = null;
+	let shareMirror: ReturnType<typeof createRegistrationRead> | null = null;
 
 	function buildSlice(gatewayBootstrap: GatewayBootstrap): FederationSlice {
 		let slice: FederationSlice;
@@ -132,41 +134,27 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 			}
 			shareAttestor?.attest();
 		});
-		let shareMirrorRetry: TimerHandle | null = null;
-		let shareMirrorRead: Promise<void> | null = null;
 		/** The Router's whole answer replaces the copy. */
-		function readShareMirror(): Promise<void> {
-			if (shareMirrorRead) return shareMirrorRead;
-			if (shareMirrorRetry) ambient.clearTimer(shareMirrorRetry);
-			shareMirrorRetry = null;
-			shareMirrorRead = (async () => {
-				const asked = routerClient.incarnation();
-				const answer = await routerClient.callInboxTool("share_mirror_read", {});
-				// Ignore stale registration answers.
-				if (routerClient.incarnation() !== asked) return;
+		shareMirror = createRegistrationRead({
+			label: "share mirror read",
+			ambient,
+			retryMs: SHARE_MIRROR_RETRY_MS,
+			client: () => routerClient,
+			call: () => routerClient.callInboxTool("share_mirror_read", {}),
+			apply: (answer) => {
 				const parsed = answer.error ? null : ShareMirrorSnapshotSchema.safeParse(answer.result);
-				let failure = answer.error ?? (parsed?.success ? null : "answered off its schema");
-				if (parsed?.success) {
-					try {
-						shareState.replace(parsed.data);
-					} catch (error) {
-						shareState.unready();
-						failure = `could not be written: ${(error as Error).message}`;
-					}
+				if (!parsed?.success) return answer.error ?? "answered off its schema";
+				try {
+					shareState.replace(parsed.data);
+					return null;
+				} catch (error) {
+					shareState.unready();
+					return `could not be written: ${(error as Error).message}`;
 				}
-				if (failure === null) return;
-				// Retry while registered.
-				console.warn(`[federation] share mirror read failed: ${failure}`);
-				if (routerClient.isRegistered())
-					shareMirrorRetry = ambient.setTimer(
-						() => fireAndForget("share mirror read", readShareMirror()),
-						SHARE_MIRROR_RETRY_MS,
-					);
-			})().finally(() => {
-				shareMirrorRead = null;
-			});
-			return shareMirrorRead;
-		}
+			},
+		});
+		const mirror = shareMirror;
+		const readShareMirror = () => mirror.read();
 		const federationIdentity = gatewayBootstrap.identity;
 		const replayDurable = new DurableStore(dataDir, "replay-guard");
 		const replayGuard = new ReplayGuard(ambient);
@@ -432,6 +420,7 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 			await inboxPump?.stop();
 		},
 		stop: () => {
+			shareMirror?.stop();
 			shareAttestor?.stop();
 			presenceReporter?.stop();
 			keyRequester?.stop();

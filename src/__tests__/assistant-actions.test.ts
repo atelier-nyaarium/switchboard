@@ -118,6 +118,7 @@ async function placed() {
 	const assistant = composeAssistant({
 		dataDir,
 		localGatewayId: LOCAL_GATEWAY,
+		domainId: () => "home",
 		// Polling stays idle.
 		ambient: fakeAmbient({ drive: "manual", now: () => T0 }),
 		sessions: { sessionStore: store, presence: store, sessionAuthority: authority } as never,

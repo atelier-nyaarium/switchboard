@@ -1,7 +1,7 @@
 // The Router frames this Gateway answers, and the console dispatcher behind the value op.
 
 import { z } from "zod";
-import type { Ambient, TimerHandle } from "../../shared/ambient.js";
+import type { Ambient } from "../../shared/ambient.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import type { BoardDisposition } from "../../shared/board-authority.js";
 import { assistantHomeAadKind, opPayloadAadKind } from "../../shared/content-envelope.js";
@@ -19,6 +19,7 @@ import { createConsoleDispatcher } from "../console/consoleHandler.js";
 import { createCrossDomainHandshakePump } from "../federation/crossDomainHandshake.js";
 import { createGatewayRelayHandler, createGatewayRelayPump } from "../federation/gatewayRelay.js";
 import { fireAndForget } from "../fireAndForget.js";
+import { createRegistrationRead } from "../router/registrationRead.js";
 import { composeValueResult } from "../router/valueResult.js";
 import { createRoutineExecution } from "../routines/execution.js";
 import type { AssistantStage } from "./composeAssistant.js";
@@ -179,31 +180,20 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			return { kind: "ok" as const, sealed: parsed.data };
 		}
 
-		let homeRetry: TimerHandle | null = null;
 		/** The whole record, at every registration; a missed push is recovered here. */
-		const readHome = async (): Promise<void> => {
-			if (homeRetry) ambient.clearTimer(homeRetry);
-			homeRetry = null;
-			const asked = slice.routerClient.incarnation();
-			const answer = await slice.routerClient.callInboxTool("assistant_home_read", {});
-			if (slice.routerClient.incarnation() !== asked) return;
-			const parsed = answer.error ? null : HomeReadAnswerSchema.safeParse(answer.result);
-			let failure = answer.error ?? (parsed?.success ? null : "answered off its schema");
-			if (parsed?.success) {
-				try {
-					await deps.assistant.follow(parsed.data.record, { registered: true });
-				} catch (error) {
-					failure = (error as Error).message;
-				}
-			}
-			if (failure === null) return;
-			console.warn(`[assistant] home read failed: ${failure}`);
-			if (slice.routerClient.isRegistered())
-				homeRetry = ambient.setTimer(
-					() => fireAndForget("assistant home read", readHome()),
-					HOME_READ_RETRY_MS,
-				);
-		};
+		const homeRead = createRegistrationRead({
+			label: "assistant home read",
+			ambient,
+			retryMs: HOME_READ_RETRY_MS,
+			client: () => slice.routerClient,
+			call: () => slice.routerClient.callInboxTool("assistant_home_read", {}),
+			apply: async (answer) => {
+				const parsed = answer.error ? null : HomeReadAnswerSchema.safeParse(answer.result);
+				if (!parsed?.success) return answer.error ?? "answered off its schema";
+				await deps.assistant.follow(parsed.data.record, { registered: true });
+				return null;
+			},
+		});
 		const assistantHome = (raw: unknown): void => {
 			const frame = AssistantHomeFrameSchema.safeParse(raw);
 			if (!frame.success) return;
@@ -211,7 +201,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			// A push that could not be followed is read again.
 			fireAndForget(
 				"assistant home",
-				followed.catch(() => readHome()),
+				followed.catch(() => homeRead.read()),
 			);
 		};
 
@@ -346,7 +336,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			valueOp,
 			crossDomainHandshake,
 			assistantHome,
-			registered: () => fireAndForget("assistant home read", readHome()),
+			registered: () => fireAndForget("assistant home read", homeRead.read()),
 			consoleDelivery: consoleHandler.handleDelivery,
 			peerHandleOp: gatewayRelayHandler.handleOp,
 		};

@@ -111,6 +111,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	const assistant = composeAssistant({
 		dataDir: bootstrap.dataDir,
 		localGatewayId: bootstrap.localGatewayId,
+		domainId: () => context.domainId(),
 		ambient: bootstrap.ambient,
 		sessions,
 		saveSessions: () => sessions.saveSessionsChecked(),

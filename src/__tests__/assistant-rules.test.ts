@@ -126,6 +126,7 @@ function stage(dataDir: string, watcher: Watcher, ambient: FakeAmbient) {
 	const assistant = composeAssistant({
 		dataDir,
 		localGatewayId: LOCAL_GATEWAY,
+		domainId: () => "home",
 		ambient,
 		sessions: { sessionStore: store, presence: store } as never,
 		saveSessions: () => {},
