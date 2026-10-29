@@ -25,7 +25,7 @@ class AssistantHomeRouterTest {
 			AssistantHomePutResult.serializer(),
 			AssistantHomePutResult("applied", AssistantHomeRecord(4L)),
 		)
-		assertEquals(AssistantHomeRecord(4L), router.put(3L, null, null)?.record)
+		assertEquals(HomePut.Applied(AssistantHomeRecord(4L)), router.put(3L, null, null))
 		assertEquals(
 			buildJsonObject {
 				put("kind", Protocol.Wire.OWNER_OP_ASSISTANT_HOME_PUT)
@@ -49,9 +49,12 @@ class AssistantHomeRouterTest {
 
 		answer = buildJsonObject { put("opKey", opKey); put("outcome", "refused"); put("reason", "stale") }
 		assertNull(router.read())
-		assertEquals(AssistantHomePutResult("refused", refusal = "stale"), router.put(1L, null, null))
+		assertEquals(HomePut.Refused("stale"), router.put(1L, null, null))
 
 		answer = buildJsonObject { put("opKey", opKey); put("outcome", "durability_uncertain") }
-		assertEquals(AssistantHomePutResult("durability_uncertain"), router.put(1L, null, null))
+		assertEquals(HomePut.Uncertain("durability_uncertain"), router.put(1L, null, null))
+
+		answer = null
+		assertEquals(HomePut.Uncertain(null), router.put(1L, null, null))
 	}
 }

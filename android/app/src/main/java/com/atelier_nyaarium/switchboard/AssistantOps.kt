@@ -11,6 +11,7 @@ import com.atelier_nyaarium.switchboard.assistant.outcomeOf
 import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarried
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarriedWatcher
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
 import com.atelier_nyaarium.switchboard.proto.AssistantRule
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
@@ -50,7 +51,7 @@ internal interface AssistantGateway {
 internal interface AssistantHost {
 	val gateway: AssistantGateway?
 	/** Null before the federation is reachable. */
-	val home: AssistantHomeRouter?
+	val homeRouter: AssistantHomeRouter?
 	fun persistRoles(roles: Map<String, String>)
 	fun persistHome(home: AssistantHome.Read)
 }
@@ -75,9 +76,6 @@ internal fun seedFrom(answers: List<Pair<String, AssistantAnswer?>>): SeedChoice
 	}
 	return holders.singleOrNull()
 }
-
-/** 0 never written, null unread. */
-internal fun choiceOf(home: AssistantHome): Long? = (home as? AssistantHome.Read)?.let { it.record?.version ?: 0L }
 
 /** Null when older; a repeat keeps its report. */
 internal fun newerHome(held: AssistantHome, incoming: AssistantHome.Read): AssistantHome.Read? {
@@ -238,25 +236,19 @@ internal fun watcherActions(watcher: AssistantWatcher): List<AssistantActionDesc
 /** A stopped watcher that holds its secret can be asked again, as after a rotated key. */
 internal fun canRetry(watcher: AssistantWatcher): Boolean = watcher.stopped != null && watcher.grants.isNotEmpty()
 
-/** Nothing is held on the phone; every answer replaces what a Gateway last said. */
+/** The home record is held; a Gateway's answer replaces what it last said. */
 internal class AssistantOps(
 	private val state: MutableStateFlow<ChatState>,
 	private val host: AssistantHost,
 ) {
 	private val reads = GatewayReadFence()
 
-	/** Put failure, until a newer choice. */
-	val homeFailure = MutableStateFlow<String?>(null)
+	private val fence = AssistantHomeFence(state, host::persistHome, host::persistRoles)
 
 	private val seeding = java.util.concurrent.atomic.AtomicBoolean(false)
 
 	/** Serializes owner writes and seeding. */
 	private val writes = Mutex()
-
-	private val persisting = Any()
-
-	/** Bumped by a re-provision; a read begun before lands nothing. */
-	private val provisioned = java.util.concurrent.atomic.AtomicLong()
 
 	/** Page results survive Back. */
 	val work = MutableStateFlow<Map<WorkKey, PageWork>>(emptyMap())
@@ -338,24 +330,31 @@ internal class AssistantOps(
 		return true
 	}
 
-	/** Reads and lands, never seeds, so the drain waits on no Gateway. */
+	/** Never seeds, so the drain waits on no Gateway. False when unanswered or stale. */
 	suspend fun fetchHome(): Boolean {
-		val router = host.home ?: return false
-		val since = provisioned.get()
+		val router = host.homeRouter ?: return false
+		val ticket = fence.begin()
 		val read = attempt { router.read() } ?: return false
-		landHome(AssistantHome.Read(read.record, read.report), since)
-		return true
+		return fence.land(ticket, HomeEffect.Record(AssistantHome.Read(read.record, read.report))) != HomeLanding.Stale
 	}
 
-	/** A re-provision: what was read names another Domain. */
-	fun forgetHome() {
-		provisioned.incrementAndGet()
-		state.update { it.copy(assistantHome = AssistantHome.Unread) }
-		homeFailure.value = null
-		work.update { it - WorkKey.Settings }
+	/** What a shown Assistant reads: the record while unsettled, then the home's answer. */
+	suspend fun refreshShown() {
+		if (homeUnsettled(state.value)) readHome()
+		refreshHome()
 	}
 
-	private fun choiceNow(): Long? = choiceOf(state.value.assistantHome)
+	/** A re-provision; `provision` runs inside the fence, never beside an owner write. */
+	suspend fun forgetHome(provision: () -> Unit = {}) = writes.withLock { fence.across(provision) }
+
+	/** Under `writes`, refused when a re-provision ran while it waited. */
+	private suspend fun owned(write: suspend (HomeTicket) -> String?): String? {
+		val called = fence.begin()
+		return writes.withLock {
+			val ticket = fence.begin()
+			if (ticket.generation == called.generation) write(ticket) else null
+		}
+	}
 
 	/** Only the home is asked for its state. */
 	suspend fun refreshHome() {
@@ -365,131 +364,118 @@ internal class AssistantOps(
 	suspend fun refresh(gatewayId: String) {
 		val client = host.gateway ?: return
 		if (gatewayId.isBlank()) return
-		val choice = choiceNow()
+		val ticket = fence.begin()
 		val read = reads.read(gatewayId) { attempt { client.call(gatewayId, ConsoleOp.AssistantState) } }
 		when (val answer = (read as? GatewayRead.Fresh)?.value) {
-			is AssistantAnswer.State -> show(gatewayId, AssistantWord.Answered(answer.state), choice)
+			is AssistantAnswer.State -> fence.land(ticket, HomeEffect.Word(gatewayId, AssistantWord.Answered(answer.state)))
 			// Refusal leaves placement unknown.
-			is AssistantAnswer.Refused -> show(gatewayId, AssistantWord.Refused, choice)
+			is AssistantAnswer.Refused -> fence.land(ticket, HomeEffect.Word(gatewayId, AssistantWord.Refused))
 			AssistantAnswer.Unreachable, null -> {}
 		}
 	}
 
-	/** New choice drops stale answers; a placed home is stamped. */
-	private fun landHome(incoming: AssistantHome.Read, since: Long) {
-		val before = state.getAndUpdate { current ->
-			if (provisioned.get() != since) return@getAndUpdate current
-			val home = newerHome(current.assistantHome, incoming) ?: return@getAndUpdate current
-			val landed = current.copy(assistantHome = home).withoutAssistantTabs()
-			if (choiceOf(current.assistantHome) != choiceOf(home)) landed.copy(gateways = landed.gateways.withoutAssistantWords()) else landed
-		}.assistantHome
-		val home = state.value.assistantHome as? AssistantHome.Read ?: return
-		if (home != before) {
-			// Newest under lock, so stale never lands last.
-			synchronized(persisting) {
-				if (provisioned.get() == since) (state.value.assistantHome as? AssistantHome.Read)?.let(host::persistHome)
-			}
-			if (choiceOf(before) != choiceOf(home)) {
-				homeFailure.value = null
-				work.update { held -> held[WorkKey.Settings]?.takeIf { !it.busy }?.let { held + (WorkKey.Settings to PageWork()) } ?: held }
-			}
-		}
-		val address = placedAddress(state.value) ?: return
-		if (state.value.roles[address] == ASSISTANT_ROLE) return
-		host.persistRoles(state.updateAndGet { it.copy(roles = it.roles + (address to ASSISTANT_ROLE)) }.roles)
-	}
-
 	/** Placed: fresh settings. Unplaced: what the record sealed. Offline: none, once confirmed. */
-	suspend fun moveAssistant(target: String, workdir: String, abandoning: String? = null): String? = writes.withLock {
-		val held = state.value.assistantHome as? AssistantHome.Read ?: return@withLock failed(NOT_READ)
-		val record = held.record
-		val base = record?.version ?: 0L
+	suspend fun moveAssistant(target: String, workdir: String, abandoning: String? = null): String? = owned { ticket ->
+		val base = baseOf(ticket) ?: return@owned failed(ticket, NOT_READ)
+		val record = (ticket.held as? AssistantHome.Read)?.record
 		val home = record?.gatewayId
 		val carried = when {
 			home == null -> null
 			placedGateway(state.value) != home -> {
-				val opened = record?.sealed?.let { host.home?.open(home, base, it) }
+				val opened = record?.sealed?.let { host.homeRouter?.open(home, base, it) }
 				when {
 					opened != null -> opened.carried
 					abandoning == home -> null
-					else -> return@withLock failed("could not open the assistant's settings")
+					else -> return@owned failed(ticket, "could not open the assistant's settings")
 				}
 			}
 			state.value.gateways.reachable(home) ->
-				carriedFrom(home) ?: return@withLock failed("could not read the assistant's settings on $home")
+				carriedFrom(ticket, home) ?: return@owned failed(ticket, "could not read the assistant's settings on $home")
 			abandoning == home -> null
-			else -> return@withLock failed(homeRefusalText(UNROUTABLE, home))
+			else -> return@owned failed(ticket, homeRefusalText(UNROUTABLE, home))
 		}
-		put(base, target, AssistantHomeSealed(workdirPath = workdir, carried = carried))
+		put(ticket, base, target, AssistantHomeSealed(workdirPath = workdir, carried = carried))
 	}
 
 	/** Removal needs no key. */
-	suspend fun removeAssistant(): String? = writes.withLock {
-		val held = state.value.assistantHome as? AssistantHome.Read ?: return@withLock failed(NOT_READ)
-		put(held.record?.version ?: 0L, null, null)
+	suspend fun removeAssistant(): String? = owned { ticket ->
+		put(ticket, baseOf(ticket) ?: return@owned failed(ticket, NOT_READ), null, null)
+	}
+
+	/** Null while unread. */
+	private fun baseOf(ticket: HomeTicket): Long? = when (val choice = ticket.choice) {
+		HomeChoice.Unread -> null
+		HomeChoice.NeverWritten -> 0L
+		is HomeChoice.At -> choice.version
 	}
 
 	/** A conflict adopts the winner; an unknown outcome is read back. */
-	private suspend fun put(base: Long, target: String?, sealed: AssistantHomeSealed?): String? {
-		val router = host.home ?: return failed(ROUTER_UNREACHABLE)
-		val since = provisioned.get()
+	private suspend fun put(ticket: HomeTicket, base: Long, target: String?, sealed: AssistantHomeSealed?): String? {
+		val router = host.homeRouter ?: return failed(ticket, ROUTER_UNREACHABLE)
 		val envelope = if (target != null && sealed != null) {
-			router.seal(target, base + 1, sealed) ?: return failed("this phone has no content key yet")
+			router.seal(target, base + 1, sealed) ?: return failed(ticket, "this phone has no content key yet")
 		} else {
 			null
 		}
-		homeFailure.value = null
-		val result = attempt { router.put(base, target, envelope) }
-		when (result?.outcome) {
-			"applied", "conflict" -> {
-				landHome(AssistantHome.Read(result.record, null), since)
-				// Catch an already filed report.
+		if (!fence.holds(ticket)) return null
+		fence.land(ticket, HomeEffect.Failure(null))
+		when (val result = attempt { router.put(base, target, envelope) } ?: HomePut.Uncertain(null)) {
+			is HomePut.Applied -> return adopt(ticket, result.record)
+			is HomePut.Conflict -> return adopt(ticket, result.record)
+			is HomePut.Refused -> return failed(ticket, homeRefusalText(result.reason, target))
+			is HomePut.Uncertain -> {
 				fetchHome()
-				return null
+				val now = (state.value.assistantHome as? AssistantHome.Read)?.record
+				if (now != null && now.version == base + 1 && now.gatewayId == target && now.sealed == envelope) return null
+				return failed(ticket, result.reason?.let { homeRefusalText(it, target) } ?: ROUTER_UNREACHABLE)
 			}
-			Protocol.Wire.SocketFrame.REFUSED -> return failed(homeRefusalText(result.refusal, target), base)
 		}
-		// Unanswered or uncertain: landed only as this exact write.
+	}
+
+	private suspend fun adopt(ticket: HomeTicket, record: AssistantHomeRecord?): String? {
+		fence.land(ticket, HomeEffect.Record(AssistantHome.Read(record, null)))
+		// Catch an already filed report.
 		fetchHome()
-		val now = (state.value.assistantHome as? AssistantHome.Read)?.record
-		if (now != null && now.version == base + 1 && now.gatewayId == target && now.sealed == envelope) return null
-		return failed(if (result == null) ROUTER_UNREACHABLE else homeRefusalText(result.refusal ?: result.outcome, target), base)
+		return null
 	}
 
-	/** Dropped once a newer choice landed. */
-	private fun failed(reason: String, base: Long? = null): String? {
-		if (base != null && choiceNow() != base) return null
-		homeFailure.value = reason
-		return reason
-	}
+	/** Null when a newer choice landed first. */
+	private fun failed(ticket: HomeTicket, reason: String): String? =
+		reason.takeIf { fence.land(ticket, HomeEffect.Failure(reason)) != HomeLanding.Stale }
 
-	private suspend fun carriedFrom(gatewayId: String): AssistantHomeCarried? {
+	private suspend fun carriedFrom(ticket: HomeTicket, gatewayId: String): AssistantHomeCarried? {
 		val client = host.gateway ?: return null
-		val choice = choiceNow()
 		val answer = attempt { client.call(gatewayId, ConsoleOp.AssistantState) } as? AssistantAnswer.State ?: return null
-		show(gatewayId, AssistantWord.Answered(answer.state), choice)
+		fence.land(ticket, HomeEffect.Word(gatewayId, AssistantWord.Answered(answer.state)))
 		return carriedOf(answer.state)
 	}
 
-	/** Fresh registered answers only; an owner choice wins. */
+	/** Fresh answers from the roster as asked; an owner choice wins. */
 	private suspend fun seed() {
 		val registry = state.value.gateways
 		if (!registry.current || !seeding.compareAndSet(false, true)) return
 		try {
 			val client = host.gateway ?: return
-			val asked = registry.gateways.filter { it.seen }.map { it.id }
+			val ticket = fence.begin()
+			if (ticket.choice != HomeChoice.NeverWritten) return
+			val asked = seenAt(registry)
 			val answers = coroutineScope {
-				asked.map { id -> async { id to attempt { client.call(id, ConsoleOp.AssistantState) } } }.awaitAll()
+				asked.map { (id, _) -> async { id to attempt { client.call(id, ConsoleOp.AssistantState) } } }.awaitAll()
 			}
 			val choice = seedFrom(answers) ?: return
 			writes.withLock {
-				if (!homeUnsettled(state.value) || state.value.assistantHome !is AssistantHome.Read) return@withLock
-				put(0L, choice.gatewayId, AssistantHomeSealed(workdirPath = choice.workdir, carried = carriedOf(choice.state)))
+				val now = state.value.gateways
+				if (!fence.current(ticket) || !now.current || seenAt(now) != asked) return@withLock
+				put(ticket, 0L, choice.gatewayId, AssistantHomeSealed(workdirPath = choice.workdir, carried = carriedOf(choice.state)))
 			}
 		} finally {
 			seeding.set(false)
 		}
 	}
+
+	/** An unregistered Gateway never held it; a restart moves its incarnation. */
+	private fun seenAt(registry: GatewayRegistry): List<Pair<String, Long>> =
+		registry.gateways.filter { it.seen }.map { it.id to it.incarnation }
 
 	suspend fun setSafety(gatewayId: String, approveEverySend: Boolean): AssistantAnswer =
 		landed(gatewayId, ConsoleOp.AssistantSafety(approveEverySend))
@@ -535,23 +521,17 @@ internal class AssistantOps(
 	/** Fenced draw; a refusal re-reads. */
 	private suspend fun landed(gatewayId: String, op: ConsoleOp): AssistantAnswer {
 		val client = host.gateway ?: return AssistantAnswer.Unreachable
-		val choice = choiceNow()
+		val ticket = fence.begin()
 		val answer = attempt { client.call(gatewayId, op) } ?: AssistantAnswer.Unreachable
 		when (answer) {
 			is AssistantAnswer.State ->
-				if (reads.read(gatewayId) { answer } is GatewayRead.Fresh) show(gatewayId, AssistantWord.Answered(answer.state), choice)
+				if (reads.read(gatewayId) { answer } is GatewayRead.Fresh) {
+					fence.land(ticket, HomeEffect.Word(gatewayId, AssistantWord.Answered(answer.state)))
+				}
 			is AssistantAnswer.Refused -> refresh(gatewayId)
 			AssistantAnswer.Unreachable -> {}
 		}
 		return answer
-	}
-
-	/** Dropped once the choice moved. */
-	private fun show(gatewayId: String, word: AssistantWord, choice: Long?) {
-		state.update { held ->
-			if (choiceOf(held.assistantHome) != choice) return@update held
-			held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(assistant = word) }).withoutAssistantTabs()
-		}
 	}
 
 	private suspend fun <T> attempt(call: suspend () -> T): T? = try {

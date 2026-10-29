@@ -61,13 +61,13 @@ private fun watcher(
 )
 
 class AssistantOpsTest {
-	private data class HomePut(val baseVersion: Long, val gatewayId: String?, val sealed: ContentEnvelope?)
+	private data class SentPut(val baseVersion: Long, val gatewayId: String?, val sealed: ContentEnvelope?)
 	private data class HomeSeal(val gatewayId: String, val version: Long, val sealed: AssistantHomeSealed)
 
 	private class FakeHomeRouter(
 		var current: AssistantHomeReadResult = AssistantHomeReadResult(),
 	) : AssistantHomeRouter {
-		val puts = mutableListOf<HomePut>()
+		val puts = mutableListOf<SentPut>()
 		val seals = mutableListOf<HomeSeal>()
 		var readAvailable = true
 		var putAnswers = true
@@ -77,24 +77,26 @@ class AssistantOpsTest {
 		var conflictRecord: AssistantHomeRecord? = null
 		var landsUnanswered = false
 		val opened = mutableMapOf<Pair<String, Long>, Pair<ContentEnvelope, AssistantHomeSealed>>()
-		var onRead: (() -> Unit)? = null
+		var onRead: (suspend () -> Unit)? = null
 
 		override suspend fun read(): AssistantHomeReadResult? {
 			onRead?.invoke()
 			return current.takeIf { readAvailable }
 		}
 
-		override suspend fun put(baseVersion: Long, gatewayId: String?, sealed: ContentEnvelope?): AssistantHomePutResult? {
-			puts += HomePut(baseVersion, gatewayId, sealed)
+		override suspend fun put(baseVersion: Long, gatewayId: String?, sealed: ContentEnvelope?): HomePut {
+			puts += SentPut(baseVersion, gatewayId, sealed)
 			if (landsUnanswered) current = AssistantHomeReadResult(AssistantHomeRecord(baseVersion + 1, gatewayId, sealed))
-			if (!putAnswers) return null
+			if (!putAnswers) return HomePut.Uncertain(null)
+			// As the Router: a stale base conflicts.
+			if (outcome == "applied" && (current.record?.version ?: 0L) != baseVersion) return HomePut.Conflict(current.record)
 			val record = when (outcome) {
 				"applied", UNCERTAIN -> AssistantHomeRecord(baseVersion + 1, gatewayId, sealed)
 				"conflict" -> conflictRecord ?: current.record ?: AssistantHomeRecord(baseVersion + 1, gatewayId, sealed)
 				else -> current.record
 			}
 			if (outcome != "refused") current = AssistantHomeReadResult(record)
-			return AssistantHomePutResult(outcome = outcome, record = record.takeIf { outcome != UNCERTAIN }, refusal = refusal)
+			return homePutOf(AssistantHomePutResult(outcome = outcome, record = record.takeIf { outcome != UNCERTAIN }, refusal = refusal))
 		}
 
 		override fun seal(gatewayId: String, version: Long, sealed: AssistantHomeSealed): ContentEnvelope? {
@@ -157,7 +159,7 @@ class AssistantOpsTest {
 
 	private class Host(
 		override val gateway: AssistantGateway?,
-		override val home: AssistantHomeRouter? = FakeHomeRouter(),
+		override val homeRouter: AssistantHomeRouter? = FakeHomeRouter(),
 	) : AssistantHost {
 		val persistedRoles = mutableListOf<Map<String, String>>()
 		val persistedHomes = mutableListOf<AssistantHome.Read>()
@@ -283,15 +285,36 @@ class AssistantOpsTest {
 
 		assertNull(ops.moveAssistant("mikan", "~/new"))
 		assertEquals("mikan", assistantGateway(state.value))
-		assertNull(ops.homeFailure.value)
+		assertNull(state.value.homeFailure)
 
-		val lost = FakeHomeRouter(placedAt(5L, "sakura")).apply {
+		val lost =FakeHomeRouter(placedAt(5L, "sakura")).apply {
 			putAnswers = false
 			landsUnanswered = true
 		}
 		val (removing, removed) = stateWithHome(FakeGateway(home = "sakura"), lost, listOf("sakura"))
 		assertNull(removing.removeAssistant())
 		assertNull(assistantGateway(removed.value))
+	}
+
+	@Test
+	fun aSeedPausedAcrossAReprovisionSendsNothing() = runBlocking {
+		val gate = CompletableDeferred<Unit>()
+		val fake = FakeGateway(home = null).apply {
+			states["alpha"] = assistantState(workdir = "~/holder")
+			this.gate = gate
+		}
+		val router = FakeHomeRouter()
+		val state = MutableStateFlow(ChatState(gateways = testRegistry("alpha")))
+		val ops = AssistantOps(state, Host(fake, router))
+
+		val seeding = async { ops.readHome() }
+		yield()
+		ops.forgetHome()
+		ops.fetchHome()
+		gate.complete(Unit)
+		seeding.await()
+
+		assertTrue(router.puts.isEmpty())
 	}
 
 	@Test
@@ -388,7 +411,7 @@ class AssistantOpsTest {
 
 			assertTrue(moved != null && removed != null)
 			assertEquals(record, (state.value.assistantHome as AssistantHome.Read).record)
-			assertEquals(AssistantRoot.Failed(removed!!), assistantRoot(state.value, ops.homeFailure.value))
+			assertEquals(AssistantRoot.Failed(removed!!), assistantRoot(state.value))
 		}
 	}
 
@@ -431,7 +454,7 @@ class AssistantOpsTest {
 		val fake = FakeGateway(home = "sakura")
 		fake.states["sakura"] = assistantState(workdir = "~/old", approveEverySend = true)
 		val (ops, state) = stateWithHome(fake, router, listOf("sakura", "mikan", "yuzu"))
-		ops.homeFailure.value = "previous failure"
+		state.value = state.value.copy(homeFailure = "previous failure")
 
 		assertNull(ops.moveAssistant("mikan", "~/new"))
 
@@ -439,7 +462,7 @@ class AssistantOpsTest {
 		assertEquals("mikan", router.puts.single().gatewayId)
 		assertEquals("yuzu", assistantGateway(state.value))
 		assertEquals(AssistantRoot.Moving("yuzu"), assistantRoot(state.value))
-		assertNull(ops.homeFailure.value)
+		assertNull(state.value.homeFailure)
 	}
 
 	@Test
@@ -450,7 +473,7 @@ class AssistantOpsTest {
 
 		assertNull(ops.removeAssistant())
 
-		assertEquals(listOf(HomePut(5L, null, null)), router.puts)
+		assertEquals(listOf(SentPut(5L, null, null)), router.puts)
 		assertTrue(router.seals.isEmpty())
 		assertNull(assistantGateway(state.value))
 	}
@@ -466,20 +489,17 @@ class AssistantOpsTest {
 				domainId = "domain",
 				gateways = testRegistry("sakura"),
 				assistantHome = AssistantHome.Read(held, null),
+				homeFailure = "old failure",
 			),
 		)
 		val host = Host(FakeGateway(home = "sakura"), router)
 		val ops = AssistantOps(state, host)
-		ops.homeFailure.value = "old failure"
-		ops.runWork(WorkKey.Settings) { "old failure" }
 
 		assertTrue(ops.readHome())
 
-		assertNull(ops.work.value[WorkKey.Settings]?.said)
-
 		assertEquals(listOf(AssistantHome.Read(latest, report)), host.persistedHomes)
-		assertEquals(AssistantRoot.Placed("domain.sakura.host.assistant"), assistantRoot(state.value, ops.homeFailure.value))
-		assertNull(ops.homeFailure.value)
+		assertEquals(AssistantRoot.Placed("domain.sakura.host.assistant"), assistantRoot(state.value))
+		assertNull(state.value.homeFailure)
 		// A past home's thread stays the assistant's.
 		assertEquals(mapOf("domain.sakura.host.assistant" to ASSISTANT_ROLE), host.persistedRoles.last())
 	}

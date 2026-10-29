@@ -74,8 +74,8 @@ internal fun assistantTeams(state: ChatState): Set<String> =
 internal fun routerUnreachable(state: ChatState): Boolean = !state.connected && (state.error != null || state.pollFailStreak > 0)
 
 /** The one landing state. */
-internal fun assistantRoot(state: ChatState, putFailure: String? = null): AssistantRoot {
-	if (putFailure != null) return AssistantRoot.Failed(putFailure)
+internal fun assistantRoot(state: ChatState): AssistantRoot {
+	state.homeFailure?.let { return AssistantRoot.Failed(it) }
 	if (routerUnreachable(state)) return AssistantRoot.RouterUnreachable
 	val held = state.assistantHome as? AssistantHome.Read ?: return AssistantRoot.Loading
 	val record = held.record

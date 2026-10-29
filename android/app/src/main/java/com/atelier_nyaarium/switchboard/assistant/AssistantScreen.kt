@@ -199,15 +199,15 @@ private fun AssistantSettingsPage(
 ) {
 	val ops = repo.assistantOps
 	val works by ops.work.collectAsState()
-	val homeFailure by ops.homeFailure.collectAsState()
 	val work = works[WorkKey.Settings] ?: PageWork()
 	val busy = work.busy
 	val gateways = state.gateways.ids()
-	val placed = home?.let { state.gateways.assistantOn(it) }
+	// Its answer, not proof of placement.
+	val homeState = home?.let { state.gateways.assistantOn(it) }
 	var target by rememberSaveable(home) { mutableStateOf(home ?: gateways.firstOrNull()) }
-	val folderText = placed?.workdir ?: DEFAULT_FOLDER
+	val folderText = homeState?.workdir ?: DEFAULT_FOLDER
 	// A late answer reseeds it.
-	var folder by rememberSaveable(home, placed?.workdir, stateSaver = TextFieldValue.Saver) {
+	var folder by rememberSaveable(home, homeState?.workdir, stateSaver = TextFieldValue.Saver) {
 		mutableStateOf(TextFieldValue(folderText, TextRange(folderText.length)))
 	}
 	// Leaving closes the dialogs.
@@ -232,7 +232,7 @@ private fun AssistantSettingsPage(
 	}
 
 	AssistantPageScaffold("Assistant settings", onBack) {
-		(work.said ?: homeFailure?.let(::moveErrorText))?.let {
+		(work.said ?: state.homeFailure?.let(::moveErrorText))?.let {
 			Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		}
 		if (!roleHeld) {
@@ -245,7 +245,7 @@ private fun AssistantSettingsPage(
 			OutlinedButton(onClick = hapticClick { openAssistantPicker(context) }) { Text("Choose assistant") }
 			HorizontalDivider()
 		}
-		for (section in assistantSections(home, placed)) {
+		for (section in assistantSections(home, homeState)) {
 			when (section) {
 				AssistantSection.LIVES_ON -> {
 					Text("Assistant location", style = MaterialTheme.typography.labelLarge)
@@ -276,7 +276,7 @@ private fun AssistantSettingsPage(
 							},
 						)
 					}
-					val action = locationAction(state.gateways, home, picked, folder.text, placed?.workdir)
+					val action = locationAction(state.gateways, home, picked, folder.text, homeState?.workdir)
 					if (action is LocationAction.Offline) {
 						Text(
 							"${action.gatewayId} can't be reached.",
@@ -298,7 +298,8 @@ private fun AssistantSettingsPage(
 								abandoning = pending
 							} else {
 								val workdir = folderOf(folder.text)
-								settings { moveAssistant(pending.target, workdir)?.let(::moveErrorText) }
+								// The failure shows from state.
+								settings { moveAssistant(pending.target, workdir); null }
 							}
 						},
 						enabled = !busy && action is LocationAction.Move,
@@ -309,7 +310,7 @@ private fun AssistantSettingsPage(
 				}
 				AssistantSection.SAFETY -> {
 					val gatewayId = home ?: continue
-					val approveEverySend = placed?.approveEverySend ?: continue
+					val approveEverySend = homeState?.approveEverySend ?: continue
 					HorizontalDivider()
 					Text("Safety", style = MaterialTheme.typography.labelLarge)
 					Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -328,7 +329,7 @@ private fun AssistantSettingsPage(
 				}
 				AssistantSection.WATCHERS -> {
 					val at = home ?: continue
-					val holding = placed ?: continue
+					val holding = homeState ?: continue
 					HorizontalDivider()
 					Text("Watchers", style = MaterialTheme.typography.labelLarge)
 					for (watcher in holding.watchers) {
@@ -346,7 +347,7 @@ private fun AssistantSettingsPage(
 		}
 	}
 
-	val grantFor = granting?.let { watcherId -> placed?.watchers?.find { it.id == watcherId } }
+	val grantFor = granting?.let { watcherId -> homeState?.watchers?.find { it.id == watcherId } }
 	if (home != null && grantFor != null) {
 		GrantSecretsSheet(
 			entries = offered,
@@ -370,7 +371,7 @@ private fun AssistantSettingsPage(
 			onConfirm = {
 				abandoning = null
 				val workdir = folderOf(folder.text)
-				settings { moveAssistant(pending.target, workdir, pending.abandoning)?.let(::moveErrorText) }
+				settings { moveAssistant(pending.target, workdir, pending.abandoning); null }
 			},
 			onDismiss = { abandoning = null },
 		)
@@ -383,7 +384,7 @@ private fun AssistantSettingsPage(
 			confirmText = "Remove",
 			onConfirm = {
 				removing = false
-				settings { removeAssistant()?.let(::moveErrorText) }
+				settings { removeAssistant(); null }
 			},
 			onDismiss = { removing = false },
 		)

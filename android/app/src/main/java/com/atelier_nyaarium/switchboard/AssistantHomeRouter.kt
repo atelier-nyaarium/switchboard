@@ -30,8 +30,7 @@ internal interface AssistantHomeRouter {
 	/** Null when unanswered. */
 	suspend fun read(): AssistantHomeReadResult?
 
-	/** Null when unanswered. */
-	suspend fun put(baseVersion: Long, gatewayId: String?, sealed: ContentEnvelope?): AssistantHomePutResult?
+	suspend fun put(baseVersion: Long, gatewayId: String?, sealed: ContentEnvelope?): HomePut
 
 	/** Null without a content key. */
 	fun seal(gatewayId: String, version: Long, sealed: AssistantHomeSealed): ContentEnvelope?
@@ -39,6 +38,28 @@ internal interface AssistantHomeRouter {
 	/** Null without its key. */
 	fun open(gatewayId: String, version: Long, envelope: ContentEnvelope): AssistantHomeSealed?
 }
+
+/** What a put answered. */
+internal sealed interface HomePut {
+	data class Applied(val record: AssistantHomeRecord?) : HomePut
+
+	data class Conflict(val record: AssistantHomeRecord?) : HomePut
+
+	data class Refused(val reason: String?) : HomePut
+
+	/** No answer, or one that may have landed. */
+	data class Uncertain(val reason: String?) : HomePut
+}
+
+internal fun homePutOf(result: AssistantHomePutResult): HomePut = when (result.outcome) {
+	PUT_APPLIED -> HomePut.Applied(result.record)
+	PUT_CONFLICT -> HomePut.Conflict(result.record)
+	Protocol.Wire.SocketFrame.REFUSED -> HomePut.Refused(result.refusal)
+	else -> HomePut.Uncertain(result.refusal ?: result.outcome)
+}
+
+internal const val PUT_APPLIED = "applied"
+internal const val PUT_CONFLICT = "conflict"
 
 /** The intake's answer, not the home's. */
 private fun intakeAnswer(answer: JsonElement): JsonObject? = (answer as? JsonObject)?.takeIf { "opKey" in it || "malformed" in it }
@@ -61,7 +82,7 @@ internal class OwnerOpHomeRouter(
 		return runIsolated { wireJson.decodeFromJsonElement(AssistantHomeReadResult.serializer(), answer) }.getOrNull()
 	}
 
-	override suspend fun put(baseVersion: Long, gatewayId: String?, sealed: ContentEnvelope?): AssistantHomePutResult? {
+	override suspend fun put(baseVersion: Long, gatewayId: String?, sealed: ContentEnvelope?): HomePut {
 		val answer = signAndPost(
 			buildJsonObject {
 				put("kind", Protocol.Wire.OWNER_OP_ASSISTANT_HOME_PUT)
@@ -69,12 +90,13 @@ internal class OwnerOpHomeRouter(
 				put("gatewayId", gatewayId?.let(::JsonPrimitive) ?: JsonNull)
 				put("sealed", sealed?.let { wireJson.encodeToJsonElement(ContentEnvelope.serializer(), it) } ?: JsonNull)
 			},
-		) ?: return null
+		) ?: return HomePut.Uncertain(null)
 		intakeAnswer(answer)?.let { intake ->
-			val outcome = (intake["outcome"] as? JsonPrimitive)?.content ?: return null
-			return AssistantHomePutResult(outcome = outcome, refusal = (intake["reason"] as? JsonPrimitive)?.content)
+			val outcome = (intake["outcome"] as? JsonPrimitive)?.content ?: return HomePut.Uncertain(null)
+			return homePutOf(AssistantHomePutResult(outcome = outcome, refusal = (intake["reason"] as? JsonPrimitive)?.content))
 		}
 		return runIsolated { wireJson.decodeFromJsonElement(AssistantHomePutResult.serializer(), answer) }.getOrNull()
+			?.let(::homePutOf) ?: HomePut.Uncertain(null)
 	}
 
 	override fun seal(gatewayId: String, version: Long, sealed: AssistantHomeSealed): ContentEnvelope? =

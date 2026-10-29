@@ -222,7 +222,7 @@ internal class ChatRepositoryAssistantHost(private val repo: ChatRepository) : A
 	override val gateway: AssistantGateway? get() =
 		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsoleAssistantGateway)
 
-	override val home: AssistantHomeRouter? get() = if (isSandbox) sandboxHome else routerHome
+	override val homeRouter: AssistantHomeRouter? get() = if (isSandbox) sandboxHome else routerHome
 
 	override fun persistRoles(roles: Map<String, String>) = repo.persistence.persistRoles(roles)
 

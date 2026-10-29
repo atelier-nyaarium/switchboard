@@ -34,9 +34,10 @@ suspend fun ChatRepository.provision(blob: String) = withContext(Dispatchers.IO)
 		_state.update { it.copy(error = "Invalid provisioning blob: ${e.message?.take(160) ?: "unparseable"}") }
 		return@withContext
 	}
-	identity.provision(blob)
-	assistantOps.forgetHome()
-	invalidateClient()
+	assistantOps.forgetHome {
+		identity.provision(blob)
+		invalidateClient()
+	}
 	sttsClient = null
 	// Mirror the reset in UI state.
 	_state.update {
@@ -142,7 +143,7 @@ suspend fun ChatRepository.clearAll() = withContext(Dispatchers.IO) {
 	// Join the poll loop before wiping state.
 	drain.stopAndJoin()
 	// Preserve voice settings.
-	identity.clear()
+	assistantOps.forgetHome { identity.clear() }
 	// Wipe durable state first.
 	for (cache in clearedOnReprovision) cache.clearInMemory()
 	stts.purgeAll()

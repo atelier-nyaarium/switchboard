@@ -9,7 +9,6 @@ import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldValue
-import com.atelier_nyaarium.switchboard.proto.AssistantHomePutResult
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReadResult
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
@@ -469,9 +468,9 @@ internal class SandboxAssistantHome(private val gateway: SandboxAssistantGateway
 
 	override suspend fun read() = AssistantHomeReadResult(record, report)
 
-	override suspend fun put(baseVersion: Long, gatewayId: String?, sealed: ContentEnvelope?): AssistantHomePutResult {
-		if ((record?.version ?: 0L) != baseVersion) return AssistantHomePutResult("conflict", record)
-		if (gatewayId == SANDBOX_NEVER_REGISTERED) return AssistantHomePutResult(Protocol.Wire.SocketFrame.REFUSED, record, "unroutable")
+	override suspend fun put(baseVersion: Long, gatewayId: String?, sealed: ContentEnvelope?): HomePut {
+		if ((record?.version ?: 0L) != baseVersion) return HomePut.Conflict(record)
+		if (gatewayId == SANDBOX_NEVER_REGISTERED) return HomePut.Refused("unroutable")
 		val version = baseVersion + 1
 		record = AssistantHomeRecord(version, gatewayId, sealed)
 		val folder = sealed?.let { open(gatewayId.orEmpty(), version, it) }?.workdirPath
@@ -484,7 +483,7 @@ internal class SandboxAssistantHome(private val gateway: SandboxAssistantGateway
 			}
 		}
 		gateway.homeAt(gatewayId?.takeIf { rooted && report != null }, folder)
-		return AssistantHomePutResult("applied", record)
+		return HomePut.Applied(record)
 	}
 
 	/** Unsealed: plaintext in base64, so a restart reopens it. */

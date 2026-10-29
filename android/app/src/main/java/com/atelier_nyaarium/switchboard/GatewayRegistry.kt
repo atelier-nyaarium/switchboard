@@ -31,7 +31,7 @@ data class GatewayEntry(
 	val seen: Boolean get() = incarnation > 0
 }
 
-/** Only `Answered` defines placement. */
+/** A Gateway's own answer; a refusal says nothing. */
 sealed interface AssistantWord {
 	data class Answered(val state: ConsoleAssistantStateResult) : AssistantWord
 

@@ -130,7 +130,7 @@ class AssistantRootTest {
 			AssistantHomeReport(2L, "sakura", "refused", "key unavailable"),
 		))
 		assertEquals(AssistantRoot.Failed("key unavailable"), assistantRoot(refused))
-		assertEquals(AssistantRoot.Failed("put failed"), assistantRoot(moving, "put failed"))
+		assertEquals(AssistantRoot.Failed("put failed"), assistantRoot(moving.copy(homeFailure = "put failed")))
 
 		val offline = homeAt("sakura").copy(
 			gateways = testRegistry("sakura").copy(

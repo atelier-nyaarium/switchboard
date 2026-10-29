@@ -35,6 +35,8 @@ data class ChatState(
 	val roles: Map<String, String> = emptyMap(),
 	/** Router home record, last read. */
 	val assistantHome: AssistantHome = AssistantHome.Unread,
+	/** A home put's failure, until a newer choice. */
+	val homeFailure: String? = null,
 	val connected: Boolean = false,
 	/** Mirrors repository visibility for Compose observation. */
 	val foreground: Boolean = false,

@@ -284,8 +284,7 @@ fun App(
 	}
 	val offeredConversation = openTeam?.let(offeredFor).orEmpty()
 	val assistantOpen = openTeam?.let { isAssistant(state, it) } == true
-	val homeFailure by repo.assistantOps.homeFailure.collectAsState()
-	val assistantRoot = assistantRoot(state, homeFailure)
+	val assistantRoot = assistantRoot(state)
 	val assistantPages = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
 	val factsFor = { team: String ->
 		ArrivalFacts(
@@ -339,8 +338,7 @@ fun App(
 	LaunchedEffect(homeVersions(state), state.gateways.incarnations(), state.gateways.reachableIds(), state.connected, assistantShown) {
 		if (!assistantShown) return@LaunchedEffect
 		// Covers a screen before the first drain.
-		if (homeUnsettled(state)) repo.assistantOps.readHome()
-		repo.assistantOps.refreshHome()
+		repo.assistantOps.refreshShown()
 	}
 	LaunchedEffect(assistantRoot, nav.root, nav.conversation == null, nav.settings) {
 		nav = nav.enterAssistant(assistantRoot, factsFor)
@@ -780,7 +778,7 @@ fun App(
 					repo.command { presence.refreshTeams() }
 						// Refresh retries non-route columns.
 					repo.boardOps.refreshBoard()
-					if (nav.root == RootView.ASSISTANT && homeUnsettled(state)) repo.command { assistantOps.readHome() }
+					if (nav.root == RootView.ASSISTANT) repo.command { assistantOps.refreshShown() }
 				},
 				onSettings = { nav = nav.openSettings() },
 				onAssistantSettings = { nav = nav.openAssistantPage(AssistantPage.Settings) }.takeIf { rootOffersSettings(assistantRoot) },
