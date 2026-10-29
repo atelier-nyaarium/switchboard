@@ -250,6 +250,20 @@ no TTL.
   drops it here when it goes off; the vault clears its pending requests.
 - **Row re-render** (`ThreadRenderer`): any changing row payload must enter its fingerprint. JS
   bridge state mutates in place and intentionally does not.
+- **Clear and all above** (`ThreadCut.kt`, `RowMenu.kt`, `ChatRepository.clearThrough`): a long-press
+  on a row outside its text (`thread.js`'s `contextmenu`, `ThreadRenderer.rowMenu`) opens the row
+  menu, so text keeps its selection. `threadCut` is the rule: the rows through the pressed one, and
+  the files nothing else names, with a pending send keeping its own; the read anchor stays. The
+  confirmation counts the rows and the freed files still on disk, and Clear waits for that measure.
+  A cut keeps a per-thread id floor, so no cut id is minted again, and drops the echo of a cut send
+  that had not landed (`swallowEcho`). It runs under the drain gate and deletes through
+  `AttachmentOps.deleteWhenDurable`. Phone only: the Router's copies expire on their own, and a new
+  mailbox epoch or another phone can still see them.
+- **Persistence writes** (`ChatPersistence`): every slot but the assistant home is written from the
+  live `ChatState` under one lock and takes no argument, so a stale snapshot cannot put an older
+  state back. The home's one writer is `AssistantHomeFence`. A file is deleted only through
+  `AttachmentOps.deleteWhenDurable`, which commits threads, anchors, drafts and scheduled sends in
+  one write first and keeps any file something still names.
 - **Presence authority** (`Presence.kt`): the gateway's own presence is pushed; other machines are
   discovered by `/discover`. A bare presence value does not reveal which channel produced it.
 - **Owner facts** (`ChatState.owner`, `PresenceOps.applyOwnerFacts`): the Router states the owner's

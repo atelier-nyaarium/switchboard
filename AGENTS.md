@@ -259,6 +259,9 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../RepositoryPorts.kt` / `RepositoryCollaborators.kt` - role ports for the ops classes and their repository adapters
 - `android/.../Message.kt` / `MessageFile.kt` / `MessageText.kt` / `Draft.kt` / `ThreadOps.kt` / `ReadAnchor.kt` / `ChatState.kt` / `ConnError.kt` / `FederationTypes.kt` / `ScheduledSend.kt` - repository value types and pure helpers
 - `android/.../ChatPersistence.kt` - JSON codec between repository state and AppStateStore
+  - **A slot is written from the live state, never a caller's snapshot:** every `persist*` but the
+    assistant home takes no argument and reads `live` under one lock, so a write that lands late
+    cannot put an older state back. The home's one writer is `AssistantHomeFence`.
 - `android/.../PollDrain.kt` - owner-inbox tick, four plane cursors, and drain-gate subscribers
 - `android/.../DrainGate.kt` / `DrainHost.kt` / `SessionHost.kt` / `PresenceHost.kt` - the re-entrant drain gate and one host interface per ops class, each with its repository adapter beside it
 - `android/.../ReportReadCompose.kt` / `CapabilitiesCompose.kt` - pure phone composers
@@ -513,7 +516,11 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
   - **A filtered view is the root's view with a `ViewScope.Session`:** its Gateway for Runbooks and
     Policies, its spawn point for Routines, its own requests and grants for Vault. The filters are pure
     functions in `ViewScope.kt`, tested there; a screen takes the scope and asks.
-- `android/.../AttachmentOps.kt` - attachment fetch-and-sweep state
+- `android/.../AttachmentOps.kt` - attachment fetch-and-sweep state, and `deleteWhenDurable`, the one road a file is deleted by
+  - **Committed first, then only what nothing names:** `commitFileOwners` writes threads, anchors,
+    drafts and scheduled sends in one commit, and a failed commit keeps the files. A reference added
+    between the check and the delete is not seen.
+- `android/.../ThreadCut.kt` / `RowMenu.kt` - Clear and all above: `threadCut`, the cut's id floor and swallowed echoes, the confirmation's lines; the row menu and its confirmation. `docs/console.md` holds the rules
 - `android/.../ScheduledSendOps.kt` - scheduled sends as Router-held intents: the drain, the cancel intent, and the Router's result rows, all under one mutex
   - **The Router fires; the phone intends:** a record is pending until `schedule_send` is accepted,
     a cancel of an accepted record is pending until `schedule_cancel` is, and a reschedule is a
