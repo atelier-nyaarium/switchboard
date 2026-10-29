@@ -124,7 +124,8 @@ export const ChannelFileSchema = z
 		// the sender said something deliberate and a wrong show heals at the receiver's next update
 		// while a wrong hide is a file the user cannot reach. z.enum emits an open Kotlin String, so
 		// a value newer than a given console still decodes there.
-		role: z.enum(["attachment", "ref-snapshot", "design-card"]),
+		// `screen` is what another app showed, captured by the assistant panel: never the owner's words.
+		role: z.enum(["attachment", "ref-snapshot", "design-card", "screen"]),
 		// Ref metadata for a `role: "ref-snapshot"` file. See RefFileMetaSchema.
 		ref: RefFileMetaSchema.optional(),
 		// Designer card facts for a `role: "design-card"` file, lifted from the HTML at compose time

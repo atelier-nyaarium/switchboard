@@ -69,7 +69,10 @@ export function createOriginMarker(bootSeq = 0) {
 	};
 	const originOf = (row: PendingDelivery): MarkOrigin => {
 		const origin = row.origin ?? "unknown";
-		return origin === "owner" && (row.seq ?? 0) < bootSeq ? "unknown" : origin;
+		if (origin !== "owner") return origin;
+		// Another app's screen.
+		if (!row.event && row.files?.some((f) => f.role === "screen")) return "unknown";
+		return (row.seq ?? 0) < bootSeq ? "unknown" : origin;
 	};
 	return {
 		/** Emitted into context. */

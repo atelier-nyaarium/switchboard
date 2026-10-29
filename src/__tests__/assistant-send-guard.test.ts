@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { createOriginMarker, createSendGuard } from "../gateway/assistant/sendGuard.js";
 import type { BoundTarget, SendRecord } from "../gateway/routes/routesSend.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
-import type { PendingDelivery } from "../shared/pending-delivery-store.js";
+import type { ChannelFile } from "../shared/channel-file.js";
+import type { MessageDelivery, PendingDelivery } from "../shared/pending-delivery-store.js";
 import type { AssistantSendRequest } from "../shared/schemasAssistantSend.js";
 import { VAULT_REQUEST_DEADLINE_MS } from "../shared/schemasVault.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
@@ -64,6 +65,27 @@ describe("the origin marker", () => {
 		const ownerAfterEvent = marker.readsOwner();
 
 		expect([preboot, owner, afterEnd, ownerAfterEvent]).toEqual([false, true, false, true]);
+	});
+
+	it("never reads an owner row carrying screen text as the owner's words", () => {
+		const marker = createOriginMarker();
+		const file = (role: ChannelFile["role"]): ChannelFile => ({
+			filename: "screen.txt",
+			mime: "text/plain",
+			size: 4,
+			descriptiveKey: "k",
+			role,
+		});
+		const ownerWith = (seq: number, role: ChannelFile["role"]): MessageDelivery => ({
+			...(row(seq, "owner") as MessageDelivery),
+			files: [file(role)],
+		});
+		marker.delivered(ownerWith(1, "screen"));
+		const withScreen = marker.readsOwner();
+		marker.delivered(ownerWith(2, "attachment"));
+		const withAttachment = marker.readsOwner();
+
+		expect([withScreen, withAttachment]).toEqual([false, true]);
 	});
 });
 
