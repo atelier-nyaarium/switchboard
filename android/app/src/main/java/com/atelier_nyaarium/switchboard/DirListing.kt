@@ -31,8 +31,10 @@ internal fun dirListError(cause: Throwable): String {
 	// broad offline test placed above it reports a reachable machine with no daemon as switched off.
 	return when {
 		raw.contains("terminal view", ignoreCase = true) -> "No host daemon on that machine."
-		raw.contains("not connected", ignoreCase = true) || raw.contains("gateway unavailable", ignoreCase = true) ->
-			"That machine is offline."
+		raw.contains("not connected", ignoreCase = true) ||
+			raw.contains("gateway unavailable", ignoreCase = true) ||
+			raw.endsWith("failed: unreachable") -> "That machine is offline."
+		raw.endsWith("failed: timeout") -> "That machine didn't answer."
 		raw.contains("unseal failed", ignoreCase = true) -> "Couldn't reach that machine."
 		raw.isBlank() -> "Couldn't read that folder."
 		else -> raw.take(120)

@@ -279,6 +279,7 @@ fun CreateSessionDialog(
 						value = dir,
 						onValueChange = { dir = it },
 						spawn = spawn,
+						machine = targetOf(spawn),
 						onListDirs = onListDirs,
 						isError = !dirOk,
 					)
@@ -372,6 +373,8 @@ fun DirectoryField(
 	/** Which spawn point's filesystem this field browses. Decides both the listing and what counts
 	 * as a listable prefix, since a Windows path is rooted at a drive rather than at `/`. */
 	spawn: String,
+	// The spawn target browsed. Listings belong to it.
+	machine: String,
 	// (path, spawn point). The spawn names WHICH filesystem to browse: a windows session is listed by
 	// Windows itself, so the picker cannot offer a Linux directory its launch would then refuse.
 	onListDirs: suspend (String, String) -> DirListing,
@@ -379,12 +382,12 @@ fun DirectoryField(
 ) {
 	// Per-directory cache of SUCCESSFUL listings, keyed by the listed prefix. Missing = not fetched
 	// yet, which is what makes the fetch below happen at all.
-	val cache = remember { mutableStateMapOf<String, List<String>>() }
+	val cache = remember(machine) { mutableStateMapOf<String, List<String>>() }
 	// Why a directory has no listing, kept apart from the cache ON PURPOSE. Caching a failure as if it
 	// were a listing makes it permanent for the dialog's life: the machine comes back, the owner
 	// retypes the same path, and the fetch never re-runs because the key is present. A failure is a
 	// fact about one moment, so it is displayed and then stands aside for the next attempt.
-	val failures = remember { mutableStateMapOf<String, String>() }
+	val failures = remember(machine) { mutableStateMapOf<String, String>() }
 	// Suggestions appear once the field is engaged, never under an untouched one: a dialog opened
 	// just to name a session should not carry a folder list it never asked for. Text alone also
 	// qualifies, so descending (which can move focus to the tapped row) never hides the list
@@ -393,7 +396,7 @@ fun DirectoryField(
 	// The machine's own default directory, learned from the first blank listing. Once known it STANDS
 	// IN for a blank field, so a cleared field still lists that directory and a tap still completes to
 	// an absolute path, without the text being written back.
-	var defaultDir by remember { mutableStateOf<String?>(null) }
+	var defaultDir by remember(machine) { mutableStateOf<String?>(null) }
 	// Read at the moment of the write. The effect's keys do not change while a bare fragment is typed,
 	// so its captured value would still be the empty one that launched it.
 	val latestValue = rememberUpdatedState(value)
@@ -408,7 +411,7 @@ fun DirectoryField(
 	// Retries a failed directory whenever these keys change again (a refocus, or moving away and back),
 	// which is the recovery path once the machine is reachable. Unchanged keys do not re-run it, so a
 	// machine that stays down is asked once per attempt rather than continuously.
-	LaunchedEffect(parent, listable, focused) {
+	LaunchedEffect(machine, parent, listable, focused) {
 		if (!listable || !(focused || text.isNotEmpty()) || parent in cache) return@LaunchedEffect
 		val listing = onListDirs(parent, spawn)
 		if (listing.error != null) {

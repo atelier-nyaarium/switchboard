@@ -15,6 +15,8 @@ class DirListingTest {
 	fun eachLayerHasItsOwnAnswer() {
 		assertEquals(3, setOf(offline, unreached, noDaemon).size)
 		assertEquals(offline, dirListError(Error("gateway unavailable")))
+		assertEquals(offline, dirListError(Error("list_dirs failed: unreachable")))
+		assertFalse(dirListError(Error("list_dirs failed: timeout")).contains("list_dirs"))
 	}
 
 	@Test

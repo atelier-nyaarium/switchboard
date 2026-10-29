@@ -266,12 +266,13 @@ private fun AssistantSettingsPage(
 					val domainId = state.domainId
 					val picked = target
 					if (picked != null && domainId != null) {
+						val hostTarget = runIsolated { SpawnPoint.of(domainId, picked, ASSISTANT_SPAWN).canonical }.getOrNull()
 						DirectoryField(
 							value = folder,
 							onValueChange = { folder = it },
 							spawn = ASSISTANT_SPAWN,
+							machine = hostTarget ?: picked,
 							onListDirs = { path, spawn ->
-								val hostTarget = runIsolated { SpawnPoint.of(domainId, picked, spawn).canonical }.getOrNull()
 								if (hostTarget == null) DirListing(emptyList()) else onListDirs(path, hostTarget, spawn)
 							},
 						)
