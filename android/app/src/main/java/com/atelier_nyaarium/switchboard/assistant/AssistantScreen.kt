@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -265,6 +266,7 @@ private fun AssistantSettingsPage(
 					)
 					val domainId = state.domainId
 					val picked = target
+					val action = locationAction(state.gateways, home, picked, folder.text, homeState?.workdir)
 					if (picked != null && domainId != null) {
 						val hostTarget = runIsolated { SpawnPoint.of(domainId, picked, ASSISTANT_SPAWN).canonical }.getOrNull()
 						DirectoryField(
@@ -272,15 +274,15 @@ private fun AssistantSettingsPage(
 							onValueChange = { folder = it },
 							spawn = ASSISTANT_SPAWN,
 							machine = hostTarget ?: picked,
+							offline = action is LocationAction.Offline,
 							onListDirs = { path, spawn ->
 								if (hostTarget == null) DirListing(emptyList()) else onListDirs(path, hostTarget, spawn)
 							},
 						)
 					}
-					val action = locationAction(state.gateways, home, picked, folder.text, homeState?.workdir)
 					if (action is LocationAction.Offline) {
 						Text(
-							"${action.gatewayId} can't be reached.",
+							"${action.gatewayId} is offline.",
 							style = MaterialTheme.typography.bodySmall,
 							color = MaterialTheme.colorScheme.error,
 						)
@@ -292,21 +294,34 @@ private fun AssistantSettingsPage(
 							color = MaterialTheme.colorScheme.error,
 						)
 					}
-					Button(
-						onClick = hapticClick {
-							val pending = action as? LocationAction.Move ?: return@hapticClick
-							if (pending.abandoning != null) {
-								abandoning = pending
-							} else {
-								val workdir = folderOf(folder.text)
-								// The failure shows from state.
-								settings { moveAssistant(pending.target, workdir); null }
-							}
-						},
-						enabled = !busy && action is LocationAction.Move,
-					) { Text(if (home == null) "Set up here" else "Move here") }
-					if (home != null) {
-						TextButton(onClick = hapticClick { removing = true }, enabled = !busy) { Text("Remove assistant") }
+					Row(
+						verticalAlignment = Alignment.CenterVertically,
+						horizontalArrangement = Arrangement.SpaceBetween,
+						modifier = Modifier.fillMaxWidth(),
+					) {
+						Button(
+							onClick = hapticClick {
+								val pending = action as? LocationAction.Move ?: return@hapticClick
+								if (pending.abandoning != null) {
+									abandoning = pending
+								} else {
+									val workdir = folderOf(folder.text)
+									// The failure shows from state.
+									settings { moveAssistant(pending.target, workdir); null }
+								}
+							},
+							enabled = !busy && action is LocationAction.Move,
+						) { Text(if (home == null) "Set up here" else "Move here") }
+						if (home != null) {
+							Button(
+								onClick = hapticClick { removing = true },
+								enabled = !busy,
+								colors = ButtonDefaults.buttonColors(
+									containerColor = MaterialTheme.colorScheme.error,
+									contentColor = MaterialTheme.colorScheme.onError,
+								),
+							) { Text("Remove assistant") }
+						}
 					}
 				}
 				AssistantSection.SAFETY -> {

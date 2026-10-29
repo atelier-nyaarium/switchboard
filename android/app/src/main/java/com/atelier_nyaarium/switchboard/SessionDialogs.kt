@@ -375,6 +375,8 @@ fun DirectoryField(
 	spawn: String,
 	// The spawn target browsed. Listings belong to it.
 	machine: String,
+	// Caller says so. No listing.
+	offline: Boolean = false,
 	// (path, spawn point). The spawn names WHICH filesystem to browse: a windows session is listed by
 	// Windows itself, so the picker cannot offer a Linux directory its launch would then refuse.
 	onListDirs: suspend (String, String) -> DirListing,
@@ -411,8 +413,8 @@ fun DirectoryField(
 	// Retries a failed directory whenever these keys change again (a refocus, or moving away and back),
 	// which is the recovery path once the machine is reachable. Unchanged keys do not re-run it, so a
 	// machine that stays down is asked once per attempt rather than continuously.
-	LaunchedEffect(machine, parent, listable, focused) {
-		if (!listable || !(focused || text.isNotEmpty()) || parent in cache) return@LaunchedEffect
+	LaunchedEffect(machine, parent, listable, focused, offline) {
+		if (offline || !listable || !(focused || text.isNotEmpty()) || parent in cache) return@LaunchedEffect
 		val listing = onListDirs(parent, spawn)
 		if (listing.error != null) {
 			failures[parent] = listing.error
@@ -436,7 +438,7 @@ fun DirectoryField(
 		cache[parent] = listing.dirs
 	}
 	val engaged = focused || text.isNotEmpty()
-	val showing = listable && engaged
+	val showing = listable && engaged && !offline
 	val failure = if (showing) failures[parent] else null
 	val matches = (if (showing) cache[parent].orEmpty() else emptyList())
 		.filter { it.startsWith(fragment, ignoreCase = true) }
