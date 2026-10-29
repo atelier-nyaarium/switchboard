@@ -161,7 +161,7 @@ Landing screen:
 - **Not on any Gateway:** "Visit Assistant Settings to set up." [Settings]
 - **Router unreachable:** "Could not reach the Federation Router." No button: the screen updates on its own once Switchboard reconnects.
 - **Cold start, before the first record:** nothing drawn. The phone keeps the last record it saw, so this lasts only until the first answer.
-- **Top bar:** an "Assistant settings" gear on every landing but the cold start and Router unreachable, so a stuck move or an unreachable home can still be moved away from. Added in implementation; not yet run past the owner.
+- **Top bar:** an "Assistant settings" gear on every landing but the cold start and Router unreachable, so a stuck move or an unreachable home can still be moved away from. Owner: "A", on all four landings, beside the [Settings] button where one shows.
 
 Assistant Settings:
 - **Section label:** "Assistant location" (was "Lives on").
@@ -177,6 +177,7 @@ Check-ins:
 - **Rows:** the second line reads "Assistant"; a stopped one reads "Stopped at {time}: the assistant isn't set up on this Gateway." `UNPLACED_REASON` takes the same words.
 
 Clear and all above (every conversation):
+- **Gesture:** a long-press beside the text (the sender and time line, or the space around the text) opens the menu; a long-press on the text keeps selecting it. Owner: "A it is".
 - **Long-press menu:** "Clear and all above".
 - **Confirmation body:**
 
