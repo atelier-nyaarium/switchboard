@@ -160,12 +160,13 @@ class AssistantOpsTest {
 	private class Host(
 		override val gateway: AssistantGateway?,
 		override val homeRouter: AssistantHomeRouter? = FakeHomeRouter(),
+		private val live: () -> ChatState = { ChatState() },
 	) : AssistantHost {
 		val persistedRoles = mutableListOf<Map<String, String>>()
 		val persistedHomes = mutableListOf<AssistantHome.Read>()
 
-		override fun persistRoles(roles: Map<String, String>) {
-			persistedRoles += roles
+		override fun persistRoles() {
+			persistedRoles += live().roles
 		}
 
 		override fun persistHome(home: AssistantHome.Read) {
@@ -355,7 +356,7 @@ class AssistantOpsTest {
 		val state = MutableStateFlow(
 			ChatState(domainId = "dom", gateways = testRegistry("sakura"), assistantHome = AssistantHome.Read(moving.record, null)),
 		)
-		val host = Host(FakeGateway(home = "sakura"), router)
+		val host = Host(FakeGateway(home = "sakura"), router) { state.value }
 		val ops = AssistantOps(state, host)
 
 		ops.readHome()
@@ -492,7 +493,7 @@ class AssistantOpsTest {
 				homeFailure = "old failure",
 			),
 		)
-		val host = Host(FakeGateway(home = "sakura"), router)
+		val host = Host(FakeGateway(home = "sakura"), router) { state.value }
 		val ops = AssistantOps(state, host)
 
 		assertTrue(ops.readHome())

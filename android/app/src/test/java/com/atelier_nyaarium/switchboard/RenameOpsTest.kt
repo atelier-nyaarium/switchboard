@@ -35,7 +35,7 @@ class RenameOpsTest {
 		override fun setLabel(team: String, name: String) {
 			state.value = state.value.copy(labels = if (name.isEmpty()) state.value.labels - team else state.value.labels + (team to name))
 		}
-		override fun persistLabels(labels: Map<String, String>) = Unit
+		override fun persistLabels() = Unit
 		override suspend fun renameSession(team: String, name: String) = ConsoleRenameSessionResult(renamed, name)
 		override suspend fun refreshPresence() {
 			presenceRefreshes++

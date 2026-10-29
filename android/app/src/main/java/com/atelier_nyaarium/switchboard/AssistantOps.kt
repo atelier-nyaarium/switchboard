@@ -52,7 +52,7 @@ internal interface AssistantHost {
 	val gateway: AssistantGateway?
 	/** Null before the federation is reachable. */
 	val homeRouter: AssistantHomeRouter?
-	fun persistRoles(roles: Map<String, String>)
+	fun persistRoles()
 	fun persistHome(home: AssistantHome.Read)
 }
 

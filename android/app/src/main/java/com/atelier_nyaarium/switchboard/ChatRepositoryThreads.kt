@@ -5,7 +5,6 @@ import com.atelier_nyaarium.switchboard.proto.Target
 import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 
 internal fun Target.isCloseTabTarget(): Boolean = this is Address
@@ -143,11 +142,11 @@ fun ChatRepository.closeTab(team: String) {
 /** Give a team a local display label (or clear it with a blank name). Local-only: the optimistic
  * cache that shows immediately and the fallback against a gateway with no server label. */
 fun ChatRepository.setLabel(team: String, name: String) {
-	val labels = _state.updateAndGet { s ->
+	_state.update { s ->
 		val next = if (name.isBlank()) s.labels - team else s.labels + (team to name.trim())
 		s.copy(labels = next)
-	}.labels
-	persistence.persistLabels(labels)
+	}
+	persistence.persistLabels()
 }
 
 /** The rules live on [RenameOps.rename]. */

@@ -5,7 +5,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 
 internal interface GoalOpsCollaborators {
@@ -104,20 +103,20 @@ internal class GoalOps(
 
 	// Persist every mutation so a restart resumes the wait.
 	private fun putGoal(team: String, rec: PendingGoal) {
-		val next = state.updateAndGet { s -> s.copy(goals = s.goals + (team to rec)) }.goals
-		persistence.persistGoals(next)
+		state.update { s -> s.copy(goals = s.goals + (team to rec)) }
+		persistence.persistGoals()
 	}
 
 	private fun updateGoal(team: String, edit: (PendingGoal) -> PendingGoal) {
-		val next = state.updateAndGet { s ->
-			val rec = s.goals[team] ?: return@updateAndGet s
+		state.update { s ->
+			val rec = s.goals[team] ?: return@update s
 			s.copy(goals = s.goals + (team to edit(rec)))
-		}.goals
-		persistence.persistGoals(next)
+		}
+		persistence.persistGoals()
 	}
 
 	private fun clearGoal(team: String) {
-		val next = state.updateAndGet { s -> s.copy(goals = s.goals - team) }.goals
-		persistence.persistGoals(next)
+		state.update { s -> s.copy(goals = s.goals - team) }
+		persistence.persistGoals()
 	}
 }

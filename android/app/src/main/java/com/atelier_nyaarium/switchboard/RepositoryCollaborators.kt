@@ -224,7 +224,7 @@ internal class ChatRepositoryAssistantHost(private val repo: ChatRepository) : A
 
 	override val homeRouter: AssistantHomeRouter? get() = if (isSandbox) sandboxHome else routerHome
 
-	override fun persistRoles(roles: Map<String, String>) = repo.persistence.persistRoles(roles)
+	override fun persistRoles() = repo.persistence.persistRoles()
 
 	override fun persistHome(home: AssistantHome.Read) = repo.persistence.persistAssistantHome(home)
 }

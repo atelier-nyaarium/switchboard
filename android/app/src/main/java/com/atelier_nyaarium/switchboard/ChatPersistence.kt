@@ -51,10 +51,14 @@ internal interface ChatPersistenceStore {
  * Every save swallows its own failure (a full disk must not crash a state transition), and every
  * load drops what it cannot trust rather than surfacing it.
  *
- * Threads and anchors are written from `live` under one lock, never a caller's snapshot, so a stale
- * one cannot restore cleared rows. */
+ * Every slot but the assistant home is written from `live` under one lock, never a caller's
+ * snapshot, so a stale one cannot put an older state back. The home has one writer of its own. */
 internal class ChatPersistence(private val store: ChatPersistenceStore, private val live: () -> ChatState) {
-	private val threadWrites = Any()
+	private val stateWrites = Any()
+
+	private fun written(save: (ChatState) -> Unit) {
+		synchronized(stateWrites) { runIsolated { save(live()) } }
+	}
 
 	private fun threadsJson(threads: Map<String, List<Message>>): String {
 		val root = JSONObject()
@@ -90,9 +94,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore, private 
 		return root.toString()
 	}
 
-	internal fun persistThreads() {
-		synchronized(threadWrites) { runIsolated { store.saveThreads(threadsJson(live().threads)) } }
-	}
+	internal fun persistThreads() = written { store.saveThreads(threadsJson(it.threads)) }
 
 	private fun readAnchorsJson(anchors: Map<String, ReadAnchor>): String {
 		val root = JSONObject()
@@ -102,23 +104,17 @@ internal class ChatPersistence(private val store: ChatPersistenceStore, private 
 		return root.toString()
 	}
 
-	internal fun persistReadAnchors() {
-		synchronized(threadWrites) { runIsolated { store.saveReadAnchors(readAnchorsJson(live().readAnchors)) } }
-	}
+	internal fun persistReadAnchors() = written { store.saveReadAnchors(readAnchorsJson(it.readAnchors)) }
 
 	/** Write threads AND read anchors in one SharedPreferences batch (see
 	 * AppStateStore.saveThreadsAndReadAnchors) - required whenever a single state transition
 	 * changed both, so a process kill between two separate writes can never strand one against
 	 * the other's stale value. */
-	internal fun persistThreadsAndReadAnchors() {
-		synchronized(threadWrites) {
-			val s = live()
-			runIsolated { store.saveThreadsAndReadAnchors(threadsJson(s.threads), readAnchorsJson(s.readAnchors)) }
-		}
-	}
+	internal fun persistThreadsAndReadAnchors() =
+		written { store.saveThreadsAndReadAnchors(threadsJson(it.threads), readAnchorsJson(it.readAnchors)) }
 
 	/** On disk before true; callers delete files after. */
-	internal fun commitThreadsAndReadAnchors(): Boolean = synchronized(threadWrites) {
+	internal fun commitThreadsAndReadAnchors(): Boolean = synchronized(stateWrites) {
 		val s = live()
 		runIsolated { store.commitThreadsAndReadAnchors(threadsJson(s.threads), readAnchorsJson(s.readAnchors)) }.getOrDefault(false)
 	}
@@ -206,12 +202,10 @@ internal class ChatPersistence(private val store: ChatPersistenceStore, private 
 		}.getOrDefault(emptyMap())
 	}
 
-	internal fun persistLabels(labels: Map<String, String>) {
-		runIsolated {
-			val root = JSONObject()
-			for ((team, name) in labels) root.put(team, name)
-			store.saveLabels(root.toString())
-		}
+	internal fun persistLabels() = written { s ->
+		val root = JSONObject()
+		for ((team, name) in s.labels) root.put(team, name)
+		store.saveLabels(root.toString())
 	}
 
 	internal fun loadPersistedLabels(): Map<String, String> {
@@ -251,9 +245,7 @@ internal class ChatPersistence(private val store: ChatPersistenceStore, private 
 		return root.toString()
 	}
 
-	internal fun persistScheduledSends(records: Map<String, ScheduledSend>) {
-		runIsolated { store.saveScheduledSends(scheduledSendsJson(records)) }
-	}
+	internal fun persistScheduledSends() = written { store.saveScheduledSends(scheduledSendsJson(it.scheduledSends)) }
 
 	/** Drops malformed rows individually. */
 	internal fun loadPersistedScheduledSends(): Map<String, ScheduledSend> {
@@ -289,20 +281,18 @@ internal class ChatPersistence(private val store: ChatPersistenceStore, private 
 		}
 	}
 
-	internal fun persistGoals(records: Map<String, PendingGoal>) {
-		runIsolated {
-			val root = JSONObject()
-			for ((team, rec) in records) {
-				root.put(
-					team,
-					JSONObject()
-						.put("text", rec.text)
-						.put("armedAt", rec.armedAt)
-						.putOpt("sentAt", rec.sentAt),
-				)
-			}
-			store.saveGoals(root.toString())
+	internal fun persistGoals() = written { s ->
+		val root = JSONObject()
+		for ((team, rec) in s.goals) {
+			root.put(
+				team,
+				JSONObject()
+					.put("text", rec.text)
+					.put("armedAt", rec.armedAt)
+					.putOpt("sentAt", rec.sentAt),
+			)
 		}
+		store.saveGoals(root.toString())
 	}
 
 	/** Per-row runCatching, so one malformed entry cannot throw away every other team's goal. A row
@@ -328,12 +318,10 @@ internal class ChatPersistence(private val store: ChatPersistenceStore, private 
 		}
 	}
 
-	internal fun persistAbsenceStreaks(streak: Map<String, Int>) {
-		runIsolated {
-			val root = JSONObject()
-			for ((team, count) in streak) root.put(team, count)
-			store.saveAbsenceStreaks(root.toString())
-		}
+	internal fun persistAbsenceStreaks() = written { s ->
+		val root = JSONObject()
+		for ((team, count) in s.teamAbsenceStreaks) root.put(team, count)
+		store.saveAbsenceStreaks(root.toString())
 	}
 
 	internal fun loadPersistedAbsenceStreaks(): Map<String, Int> {
@@ -349,12 +337,10 @@ internal class ChatPersistence(private val store: ChatPersistenceStore, private 
 		}.getOrDefault(emptyMap())
 	}
 
-	internal fun persistRoles(roles: Map<String, String>) {
-		runIsolated {
-			val root = JSONObject()
-			for ((team, role) in roles) root.put(team, role)
-			store.saveRoles(root.toString())
-		}
+	internal fun persistRoles() = written { s ->
+		val root = JSONObject()
+		for ((team, role) in s.roles) root.put(team, role)
+		store.saveRoles(root.toString())
 	}
 
 	internal fun loadPersistedRoles(): Map<String, String> {
@@ -397,18 +383,16 @@ internal class ChatPersistence(private val store: ChatPersistenceStore, private 
 		}
 	}
 
-	internal fun persistDrafts(records: Map<String, Draft>) {
-		runIsolated {
-			val root = JSONObject()
-			for ((team, draft) in records) {
-				val files = JSONArray()
-				for (f in draft.files) files.put(fileJson(f))
-				val locations = JSONObject()
-				for ((src, where) in draft.locations) locations.put(src, where)
-				root.put(team, JSONObject().put("text", draft.text).put("files", files).put("locations", locations))
-			}
-			store.saveDrafts(root.toString())
+	internal fun persistDrafts() = written { s ->
+		val root = JSONObject()
+		for ((team, draft) in s.drafts) {
+			val files = JSONArray()
+			for (f in draft.files) files.put(fileJson(f))
+			val locations = JSONObject()
+			for ((src, where) in draft.locations) locations.put(src, where)
+			root.put(team, JSONObject().put("text", draft.text).put("files", files).put("locations", locations))
 		}
+		store.saveDrafts(root.toString())
 	}
 
 	/** Unoccupied rows drop. */

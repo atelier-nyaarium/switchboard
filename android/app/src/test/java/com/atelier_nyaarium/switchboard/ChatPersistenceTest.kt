@@ -91,6 +91,12 @@ class ChatPersistenceTest {
 		codec.persistThreads()
 	}
 
+	/** Persists held state. */
+	private fun hold(edit: ChatState.() -> ChatState, write: ChatPersistence.() -> Unit) {
+		live = live.edit()
+		codec.write()
+	}
+
 	@Test
 	fun assistantHomeRoundTripsAndAnUnparseableSlotLoadsUnread() {
 		val home = AssistantHome.Read(
@@ -243,7 +249,7 @@ class ChatPersistenceTest {
 
 	@Test
 	fun labelsRoundTripAndDropNonAddressKeys() {
-		codec.persistLabels(mapOf(team to "Reviewer", "not-an-address" to "ghost"))
+		hold({ copy(labels = mapOf(team to "Reviewer", "not-an-address" to "ghost")) }) { persistLabels() }
 		assertEquals(mapOf(team to "Reviewer"), codec.loadPersistedLabels())
 	}
 
@@ -256,14 +262,14 @@ class ChatPersistenceTest {
 
 	@Test
 	fun absenceStreaksRoundTripAndDropNonAddressKeys() {
-		codec.persistAbsenceStreaks(mapOf(team to 4, "Pixel 10 Pro XL" to 9))
+		hold({ copy(teamAbsenceStreaks = mapOf(team to 4, "Pixel 10 Pro XL" to 9)) }) { persistAbsenceStreaks() }
 		assertEquals(mapOf(team to 4), codec.loadPersistedAbsenceStreaks())
 	}
 
 	@Test
 	fun anAssistantThreadReloadedWithoutPresenceStaysOutOfThePickers() {
 		val assistant = "home.gw.host.assistant"
-		codec.persistRoles(mapOf(assistant to ASSISTANT_ROLE, "not-an-address" to ASSISTANT_ROLE))
+		hold({ copy(roles = mapOf(assistant to ASSISTANT_ROLE, "not-an-address" to ASSISTANT_ROLE)) }) { persistRoles() }
 		val reloaded = ChatState(
 			domainId = "home",
 			threads = mapOf(assistant to listOf(message(1L)), team to listOf(message(2L))),
@@ -285,7 +291,7 @@ class ChatPersistenceTest {
 			targetDomainId = null,
 			createdAt = 1L,
 		)
-		codec.persistScheduledSends(mapOf(team to good))
+		hold({ copy(scheduledSends = mapOf(team to good)) }) { persistScheduledSends() }
 		// Splice a non-object sibling row into the persisted JSON.
 		store.slots["scheduled"] = store.slots.getValue("scheduled").removeSuffix("}") + ",\"$peerTeam\":42}"
 		val loaded = codec.loadPersistedScheduledSends()
@@ -319,7 +325,7 @@ class ChatPersistenceTest {
 			targetDomainId = null,
 			createdAt = 1L,
 		)
-		codec.persistScheduledSends(mapOf(team to blankOp, peerTeam to zeroFire))
+		hold({ copy(scheduledSends = mapOf(team to blankOp, peerTeam to zeroFire)) }) { persistScheduledSends() }
 
 		assertEquals(emptyMap<String, ScheduledSend>(), codec.loadPersistedScheduledSends())
 	}
@@ -331,7 +337,7 @@ class ChatPersistenceTest {
 	fun aGoalKeepsItsSendInstantAcrossARestart() {
 		val stillSending = PendingGoal(text = "Complete the plan", armedAt = 10L)
 		val sent = PendingGoal(text = "Ship it", armedAt = 20L, sentAt = 21L)
-		codec.persistGoals(mapOf(team to stillSending, peerTeam to sent))
+		hold({ copy(goals = mapOf(team to stillSending, peerTeam to sent)) }) { persistGoals() }
 		val loaded = codec.loadPersistedGoals()
 
 		// An absent instant must come back absent, not as a zero that reads as sent.
@@ -343,7 +349,7 @@ class ChatPersistenceTest {
 	fun aGoalThatCouldNeverFireOrTimeOutIsDropped() {
 		val noText = PendingGoal(text = "", armedAt = 10L)
 		val noClock = PendingGoal(text = "Complete the plan", armedAt = 0L)
-		codec.persistGoals(mapOf(team to noText, peerTeam to noClock))
+		hold({ copy(goals = mapOf(team to noText, peerTeam to noClock)) }) { persistGoals() }
 
 		// Nothing to type, and no clock to time out against.
 		assertEquals(emptyMap<String, PendingGoal>(), codec.loadPersistedGoals())
@@ -351,7 +357,7 @@ class ChatPersistenceTest {
 
 	@Test
 	fun oneUnreadableGoalRowDoesNotTakeTheOthersWithIt() {
-		codec.persistGoals(mapOf(team to PendingGoal(text = "Complete the plan", armedAt = 10L, sentAt = 11L)))
+		hold({ copy(goals = mapOf(team to PendingGoal(text = "Complete the plan", armedAt = 10L, sentAt = 11L))) }) { persistGoals() }
 		store.slots["goals"] = store.slots.getValue("goals").removeSuffix("}") + ",\"$peerTeam\":42}"
 		val loaded = codec.loadPersistedGoals()
 
@@ -373,7 +379,7 @@ class ChatPersistenceTest {
 	fun aDraftRoundTripsItsFilesAndLocationsAndDropsBlankLocations() {
 		val file = MessageFile(src = "draft/a.png", name = "a.png", mime = "image/png", size = 5L)
 		val draft = Draft(text = "note", files = listOf(file), locations = mapOf("draft/a.png" to "Downloads"))
-		codec.persistDrafts(mapOf(team to draft))
+		hold({ copy(drafts = mapOf(team to draft)) }) { persistDrafts() }
 		// A blank location must hide rather than show a guess.
 		store.slots["drafts"] = store.slots.getValue("drafts").replace("Downloads", "")
 		val loaded = codec.loadPersistedDrafts().getValue(team)

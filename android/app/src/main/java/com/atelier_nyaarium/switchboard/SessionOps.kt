@@ -10,7 +10,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
@@ -209,7 +208,7 @@ internal class SessionOps(
 		var dropped: List<Message> = emptyList()
 		val priorDraft = host.state.value.drafts[key]
 		// Persist threads and read anchors from the same state transition.
-		val next = host.state.updateAndGet { s ->
+		host.state.update { s ->
 			val afterForget = threadsAfterForget(s.threads, key)
 			dropped = afterForget.dropped
 			val newThreads = afterForget.threads
@@ -231,8 +230,8 @@ internal class SessionOps(
 			)
 		}
 		host.persistThreads()
-		host.persistLabels(next.labels)
-		host.persistDrafts(next.drafts)
+		host.persistLabels()
+		host.persistDrafts()
 		host.cancelScheduled(key)
 		host.cancelGoal(key)
 		// Remove playback queue entries before cached audio.

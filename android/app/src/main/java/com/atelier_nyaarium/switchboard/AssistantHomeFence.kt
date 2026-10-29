@@ -2,7 +2,6 @@ package com.atelier_nyaarium.switchboard
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.updateAndGet
 
 /** Which choice a home effect began under. */
 internal sealed interface HomeChoice {
@@ -60,7 +59,7 @@ internal fun homeLanding(state: ChatState, generation: Long, ticket: HomeTicket,
 internal class AssistantHomeFence(
 	private val state: MutableStateFlow<ChatState>,
 	private val persist: (AssistantHome.Read) -> Unit,
-	private val persistRoles: (Map<String, String>) -> Unit,
+	private val persistRoles: () -> Unit,
 ) {
 	private val lock = Any()
 	private var generation = 0L
@@ -100,6 +99,7 @@ internal class AssistantHomeFence(
 	private fun stampPlaced() {
 		val address = placedAddress(state.value) ?: return
 		if (state.value.roles[address] == ASSISTANT_ROLE) return
-		persistRoles(state.updateAndGet { it.copy(roles = it.roles + (address to ASSISTANT_ROLE)) }.roles)
+		state.update { it.copy(roles = it.roles + (address to ASSISTANT_ROLE)) }
+		persistRoles()
 	}
 }

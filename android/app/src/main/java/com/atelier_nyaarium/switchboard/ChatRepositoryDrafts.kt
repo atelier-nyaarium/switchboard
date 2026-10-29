@@ -4,7 +4,6 @@ import android.net.Uri
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.withContext
 
 ////////////////////////////////
@@ -21,10 +20,10 @@ import kotlinx.coroutines.withContext
 
 /** Set a team's composer text, replacing whatever text was there; files are untouched. */
 fun ChatRepository.setDraftText(team: String, text: String) {
-	val next = _state.updateAndGet { s ->
+	_state.update { s ->
 		s.withDraft(team, (s.drafts[team] ?: Draft()).copy(text = text))
-	}.drafts
-	persistence.persistDrafts(next)
+	}
+	persistence.persistDrafts()
 }
 
 /** Pick files into a team's draft, eagerly copying them into their own bucket - mirroring
@@ -51,18 +50,18 @@ suspend fun ChatRepository.addDraftFiles(team: String, uris: List<Uri>) = withCo
 		val src = stored.src ?: return@mapNotNull null
 		origins.getOrNull(picked.indexOf(out))?.let { src to it }
 	}.toMap()
-	val next = _state.updateAndGet { s ->
+	_state.update { s ->
 		val current = s.drafts[team] ?: Draft()
 		s.withDraft(team, current.copy(files = current.files + copied, locations = current.locations + located))
-	}.drafts
-	persistence.persistDrafts(next)
+	}
+	persistence.persistDrafts()
 }
 
 /** Drop one picked file from a team's draft (the attachment chip's remove) and delete its
  * now-unreferenced copy. */
 fun ChatRepository.removeDraftFile(team: String, src: String) {
-	val next = _state.updateAndGet { s ->
-		val current = s.drafts[team] ?: return@updateAndGet s
+	_state.update { s ->
+		val current = s.drafts[team] ?: return@update s
 		s.withDraft(
 			team,
 			current.copy(
@@ -70,8 +69,8 @@ fun ChatRepository.removeDraftFile(team: String, src: String) {
 				locations = current.locations - src,
 			),
 		)
-	}.drafts
-	persistence.persistDrafts(next)
+	}
+	persistence.persistDrafts()
 	attachments.scheduleAttachmentDelete(listOf(src))
 }
 
@@ -91,10 +90,10 @@ fun ChatRepository.appendDraftText(team: String, insert: String) {
  * write is what makes destroying composer contents unexpressible.
  */
 fun ChatRepository.takeBackIntoDraft(team: String, text: String, files: List<MessageFile>) {
-	val next = _state.updateAndGet { s ->
+	_state.update { s ->
 		s.withDraft(team, mergeTakenBackDraft(s.drafts[team] ?: Draft(), text, files))
-	}.drafts
-	persistence.persistDrafts(next)
+	}
+	persistence.persistDrafts()
 }
 
 /**
@@ -114,6 +113,6 @@ fun ChatRepository.takeBackIntoDraft(team: String, text: String, files: List<Mes
  */
 fun ChatRepository.clearDraft(team: String) {
 	if (_state.value.drafts[team] == null) return
-	val next = _state.updateAndGet { s -> s.copy(drafts = s.drafts - team) }.drafts
-	persistence.persistDrafts(next)
+	_state.update { s -> s.copy(drafts = s.drafts - team) }
+	persistence.persistDrafts()
 }

@@ -16,9 +16,9 @@ internal interface PresenceHost {
 
 	fun loadRouterState(kind: String): RouterStateSlot?
 	fun saveRouterState(kind: String, slot: RouterStateSlot)
-	fun persistLabels(labels: Map<String, String>)
-	fun persistAbsenceStreaks(streaks: Map<String, Int>)
-	fun persistRoles(roles: Map<String, String>)
+	fun persistLabels()
+	fun persistAbsenceStreaks()
+	fun persistRoles()
 	fun persistReadAnchors()
 	fun receiptFor(team: String, now: Long): ActionReceipt?
 	fun clearReceipt(team: String)
@@ -39,9 +39,9 @@ internal class ChatRepositoryPresenceHost(private val repo: ChatRepository) : Pr
 	override fun storedRunbooks(gatewayId: String) = repo.runbooks.placed()[gatewayId]
 	override fun loadRouterState(kind: String) = repo.store.loadRouterState(kind)
 	override fun saveRouterState(kind: String, slot: RouterStateSlot) = repo.store.saveRouterState(kind, slot)
-	override fun persistLabels(labels: Map<String, String>) = repo.persistence.persistLabels(labels)
-	override fun persistAbsenceStreaks(streaks: Map<String, Int>) = repo.persistence.persistAbsenceStreaks(streaks)
-	override fun persistRoles(roles: Map<String, String>) = repo.persistence.persistRoles(roles)
+	override fun persistLabels() = repo.persistence.persistLabels()
+	override fun persistAbsenceStreaks() = repo.persistence.persistAbsenceStreaks()
+	override fun persistRoles() = repo.persistence.persistRoles()
 	override fun persistReadAnchors() = repo.persistence.persistReadAnchors()
 	override fun receiptFor(team: String, now: Long) = repo.sessions.receiptFor(team, now)
 	override fun clearReceipt(team: String) = repo.sessions.clearReceipt(team)

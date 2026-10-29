@@ -253,6 +253,14 @@ Phone only, in every conversation (Question 10).
 - **What it does not reach:** the Router's sealed copies expire within 30 days. A redrain in the same cursor epoch keeps a cut row cut; a new mailbox epoch or another phone can see what the Router still holds.
 - **Tests:** the cut rule (anchor above and inside the cut, a file another thread names, a draft's file, a full clear and the next append's id), a late attachment landing, an emulator walk.
 
+### Bug Classes
+
+- **Mechanism:** `ChatPersistence`'s slot writes, each handed a snapshot its caller took from `ChatState`.
+- **Defect class:** a snapshot taken before a newer state change is written after it, so disk holds the older state. Here an append's pre-clear snapshot would put cleared rows back with their files deleted. bd_751500bf is the same class for roles.
+- **Patched, then redesigned:** red team fixed threads and read anchors first. The architecture pass then moved every slot but the assistant home to the same shape: each `persist*` takes no argument and writes its slot from `live` under one lock (`stateWrites`), so no caller can hand in a stale snapshot. That closes bd_751500bf. The home keeps its value write, since `AssistantHomeFence` is its one writer.
+- **Sibling class, left for later:** files deleted after an `apply()` write rather than a committed one. The clear commits first, but forget (`SessionOps`), removing a draft's attachment (`ChatRepositoryDrafts`), `reconcileSent`'s superseded files, and scheduled-send replace and cancel still delete after `apply()`, so a process death in between can restore a row or draft naming a missing file. The shape the architecture pass proposed: one road that commits the file-naming slots, then deletes only what nothing names, under a lock every reference-adding write also takes.
+- **Accepted:** playback names a row by `(team, at)`, since ids are reassigned on load. A cut row sharing its `at` with a surviving row keeps its queued audio rather than silencing the survivor's.
+
 ## Phase 4 - The assistant panel
 
 Long-press power opens the assistant as a panel over the current app (Question 11).

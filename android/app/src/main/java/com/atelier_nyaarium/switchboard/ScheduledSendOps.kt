@@ -273,8 +273,8 @@ internal class ScheduledSendOps(
 		return at > now && at - now <= ChatRepository.SCHEDULED_SEND_MAX_HORIZON_MS
 	}
 
-	private fun put(team: String, rec: ScheduledSend) { state.update { it.copy(scheduledSends = it.scheduledSends + (team to rec)) }; persistence.persistScheduledSends(state.value.scheduledSends) }
-	private fun remove(team: String, rec: ScheduledSend) { if (state.value.scheduledSends[team]?.opId != rec.opId) return; state.update { it.copy(scheduledSends = it.scheduledSends - team) }; persistence.persistScheduledSends(state.value.scheduledSends) }
+	private fun put(team: String, rec: ScheduledSend) { state.update { it.copy(scheduledSends = it.scheduledSends + (team to rec)) }; persistence.persistScheduledSends() }
+	private fun remove(team: String, rec: ScheduledSend) { if (state.value.scheduledSends[team]?.opId != rec.opId) return; state.update { it.copy(scheduledSends = it.scheduledSends - team) }; persistence.persistScheduledSends() }
 	private fun deleteSourcesIfUnreferenced(team: String, rec: ScheduledSend) { if (state.value.threads[team]?.any { it.opId == rec.opId } != true) collaborators.scheduleAttachmentDelete(rec.fileRefs.mapNotNull(MessageFile::src)) }
 	private fun setError(reason: String?) { state.update { it.copy(error = "Scheduled send: ${reason ?: "unavailable"}") } }
 }

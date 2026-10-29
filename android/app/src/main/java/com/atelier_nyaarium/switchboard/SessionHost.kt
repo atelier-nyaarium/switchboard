@@ -39,8 +39,8 @@ internal interface SessionHost {
 
 	/** Live threads and anchors, one write. */
 	fun persistThreads()
-	fun persistLabels(labels: Map<String, String>)
-	fun persistDrafts(drafts: Map<String, Draft>)
+	fun persistLabels()
+	fun persistDrafts()
 	fun cancelScheduled(team: String)
 	fun cancelGoal(team: String)
 	fun dropPlayback(team: String)
@@ -89,8 +89,8 @@ internal class ChatRepositorySessionHost(private val repo: ChatRepository) : Ses
 		repo.client().forget(team, boardDisposition, opId)
 
 	override fun persistThreads() = repo.persistence.persistThreadsAndReadAnchors()
-	override fun persistLabels(labels: Map<String, String>) = repo.persistence.persistLabels(labels)
-	override fun persistDrafts(drafts: Map<String, Draft>) = repo.persistence.persistDrafts(drafts)
+	override fun persistLabels() = repo.persistence.persistLabels()
+	override fun persistDrafts() = repo.persistence.persistDrafts()
 	override fun cancelScheduled(team: String) = repo.scheduled.cancelScheduledSend(team)
 	override fun cancelGoal(team: String) = repo.goals.cancelGoal(team)
 	override fun dropPlayback(team: String) {

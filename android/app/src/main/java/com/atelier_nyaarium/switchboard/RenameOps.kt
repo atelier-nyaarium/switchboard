@@ -13,7 +13,7 @@ internal interface RenameHost {
 	val state: MutableStateFlow<ChatState>
 	fun localDomain(): String
 	fun setLabel(team: String, name: String)
-	fun persistLabels(labels: Map<String, String>)
+	fun persistLabels()
 	suspend fun renameSession(team: String, name: String): ConsoleRenameSessionResult
 	suspend fun refreshPresence()
 }
@@ -44,10 +44,10 @@ internal class RenameOps(private val host: RenameHost) {
 		val applied = reply.takeIf { it.renamed }?.sessionLabel
 		if (applied != null && applied != trimmed) {
 			// A confirmed server value wins unless the optimistic write no longer holds what this call set.
-			val next = host.state.updateAndGet { s ->
+			host.state.update { s ->
 				if (!isLocal || s.labels[team] == trimmed) s.copy(labels = s.labels + (team to applied)) else s
 			}
-			host.persistLabels(next.labels)
+			host.persistLabels()
 		} else if (reply.renamed == false) {
 			var reverted = true
 			if (isLocal) {
@@ -57,7 +57,7 @@ internal class RenameOps(private val host: RenameHost) {
 						s.copy(labels = if (previous != null) s.labels + (team to previous) else s.labels - team)
 					} else s
 				}
-				host.persistLabels(next.labels)
+				host.persistLabels()
 				reverted = next.labels[team] != before
 			}
 			if (reverted) host.state.update { it.copy(transientMessages = it.transientMessages + "Could not rename to \"$trimmed\"") }
@@ -70,7 +70,7 @@ internal class ChatRepositoryRenameHost(private val repo: ChatRepository) : Rena
 	override val state get() = repo._state
 	override fun localDomain() = repo.localDomain()
 	override fun setLabel(team: String, name: String) = repo.setLabel(team, name)
-	override fun persistLabels(labels: Map<String, String>) = repo.persistence.persistLabels(labels)
+	override fun persistLabels() = repo.persistence.persistLabels()
 	override suspend fun renameSession(team: String, name: String) = repo.client().renameSession(team, name)
 	override suspend fun refreshPresence() = repo.presence.refreshAfterAction()
 }

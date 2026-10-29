@@ -6,7 +6,6 @@ import com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -155,10 +154,10 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 		freshTeamsMutex.withLock {
 			val now = System.currentTimeMillis()
 			val visible = filterTombstoned(raw, host.forgottenUntil, now).map(::foldReceipt)
-			val next = host.state.updateAndGet { it.withFreshTeams(visible) }
-			host.persistLabels(next.labels)
-			host.persistAbsenceStreaks(next.teamAbsenceStreaks)
-			host.persistRoles(next.roles)
+			host.state.update { it.withFreshTeams(visible) }
+			host.persistLabels()
+			host.persistAbsenceStreaks()
+			host.persistRoles()
 		}
 	}
 }

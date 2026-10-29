@@ -26,7 +26,7 @@ internal fun ChatRepository.wireMigration() {
 		reportError = { message -> _state.update { it.copy(error = message) } },
 		resetAccepted = {
 			_state.update { s -> s.copy(scheduledSends = s.scheduledSends.mapValues { (_, rec) -> rec.copy(routerVersion = null, replacesVersion = null) }) }
-			persistence.persistScheduledSends(_state.value.scheduledSends)
+			persistence.persistScheduledSends()
 		},
 	)
 }

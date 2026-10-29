@@ -58,8 +58,8 @@ class SessionOpsTest {
 			return boardDisposition
 		}
 		override fun persistThreads() { persisted++ }
-		override fun persistLabels(labels: Map<String, String>) { persisted++ }
-		override fun persistDrafts(drafts: Map<String, Draft>) { persisted++ }
+		override fun persistLabels() { persisted++ }
+		override fun persistDrafts() { persisted++ }
 		override fun cancelScheduled(team: String) { scheduled++ }
 		override fun cancelGoal(team: String) { goals++ }
 		override fun dropPlayback(team: String) { playback++ }
