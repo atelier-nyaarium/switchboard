@@ -198,7 +198,7 @@ Assistant panel (over another app):
 
 A clean break. Phases 1 and 2 ship together: the Router, then every Gateway, then the phone. The floor fences an older Gateway; dropping `assistant_place` and `assistant_release` fences an older phone, whose Move is refused until it updates. No Gateway holds the assistant on this Domain, so that gap costs nothing.
 
-## Phase 1 - The Router-owned home and the Gateways that follow it
+## Phase 1 - The Router-owned home and the Gateways that follow it ✅
 
 - **The record:** two rows per Domain owner in `OwnerStateStore`, under a new `RecordKind`.
   - **The choice:** absent (never written), nobody, or a Gateway. The Gateway id and the CAS version are clear; the `workdirPath` and the carried settings are sealed with the content key under their own AAD kind (`content-envelope.ts`, its twin in `ContentAadKinds`, one vector each). The path is applied; the notes in it are never copied. Remove writes nobody, with nothing sealed; the row is never deleted.
@@ -255,6 +255,11 @@ Long-press power opens the assistant as a panel over the current app (Question 1
 - **Integration probe:** debug builds only, through `DebugLog`'s ingest, best-effort, at app start and at each panel show. It reports allowlisted counts and booleans, never a package, an activity, a Bundle key, text or an image: the role and whether the session was adopted, the assist settings, torch-capable cameras, which intents resolve (alarm, `SENDTO` SMS, dial, calendar insert, the IFTTT app), each candidate permission (declared, granted, restricted), notification-listener, Do Not Disturb and Accessibility access, and whether the app beneath was `FLAG_SECURE`. Narrow `<queries>` entries cover the probed intents and the IFTTT package, so package visibility does not filter the answer. Dry runs resolve an intent or check a capability without acting.
 - **What "Use text from screen" carries, measured:** at each panel show, the shape of the assist data. `AssistStructure`: the window count, and per window its title presence and node count; across the `ViewNode` tree, how many nodes carry text, a hint, a content description, an id entry, a class name, autofill hints or values, a web domain or HTML info (Chrome and WebViews expose their page this way), and how many are password-typed and whether any of those still carried text. `AssistContent`: whether a web URI, an intent, structured data (JSON-LD) or clip data arrived. The app's own assist `Bundle`: its key count. The screenshot: present or not, and its size.
 - **Tests:** the panel's decisions (the keyguard and app-lock handoffs, chip states, the foreground lease, the role kept through admission and send) and the probe's report shape in JVM tests; the origin marker on a `screen` row in a TypeScript test. Screen text extraction runs over a plain projection of the node tree, since a JVM test cannot build an `AssistStructure`; the real extraction is checked in the emulator walk (role set by `cmd role`) and on the Pixel, and probe delivery on a debug Pixel. The residue test.
+
+## Painpoints
+
+- **Codegen lists every schema twice by hand:** `scripts/codegen-kotlin.ts` imports each schema and lists it again in its emit array, and an anonymous nested object fails only when the script runs ("inline object without $defs id"). A schema file could export its own list.
+- **A console op cannot leave in one commit:** `ConsoleOpSchema` generates `ConsoleOp` in `Protocol.kt`, so dropping an op breaks the phone's build until its callers go too. Phase 1 had to keep `assistant_place` and `assistant_release` as refusals.
 
 ## Integrations scope
 
