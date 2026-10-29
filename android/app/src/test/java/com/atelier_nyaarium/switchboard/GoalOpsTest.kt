@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import android.net.Uri
 import com.atelier_nyaarium.switchboard.proto.ConsolePeekResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -14,7 +13,7 @@ class GoalOpsTest {
 	private class FakeSessions(private val state: MutableStateFlow<ChatState>) : GoalOpsCollaborators {
 		val sends = mutableListOf<String>()
 		val typed = mutableListOf<Pair<String?, String?>>()
-		override suspend fun send(team: String, text: String, uris: List<Uri>): String {
+		override suspend fun send(team: String, text: String, files: List<MessageFile>): String {
 			sends += text
 			state.value = state.value.copy(threads = mapOf(team to listOf(Message(true, text, 1L, status = "pending", opId = "op"))))
 			return "op"

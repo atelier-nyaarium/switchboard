@@ -432,9 +432,8 @@ class ChatRepository(
 		onRoutinesChanged?.invoke()
 	}
 
-	fun onForeground() = focusHost.onForeground()
-
-	fun onBackground() = focusHost.onBackground()
+	/** The Activity and the assistant panel each hold it while shown. */
+	internal val foreground = ForegroundLease(focusHost::onForeground, focusHost::onBackground)
 
 	fun kickPoll() = focusHost.kickPoll()
 

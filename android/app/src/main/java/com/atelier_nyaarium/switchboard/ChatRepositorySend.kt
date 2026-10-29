@@ -7,8 +7,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
-suspend fun ChatRepository.send(team: String, text: String, uris: List<Uri> = emptyList()): String? = withContext(Dispatchers.IO) {
-	val (picked, refused) = admitPicked(uris, "pick-${java.util.UUID.randomUUID()}")
+/** `files` are local, a draft's or a staged screen's, and each keeps its role on the wire. */
+suspend fun ChatRepository.send(team: String, text: String, files: List<MessageFile> = emptyList()): String? = withContext(Dispatchers.IO) {
+	val (picked, refused) = rebuildFiles(files)
 	if (refused != null) {
 		DebugLog.log("Send", "admission refused before the wire: ${refused.message()}")
 		_state.update { it.copy(transientMessages = it.transientMessages + refused.message()) }
@@ -26,7 +27,8 @@ suspend fun ChatRepository.send(team: String, text: String, uris: List<Uri> = em
 	// Cold wake notices are attempt-scoped. Only the raising send may clear them.
 	val raisedWakeNotice = wasAvailable && !_state.value.awaitingWake(team)
 	if (raisedWakeNotice) _state.update { it.copy(wakingTeams = it.wakingTeams + (team to System.currentTimeMillis())) }
-	deliver(team, echoId, text, picked, opId, raisedWakeNotice)
+	// From the row's own copies, so a source cleared meanwhile cannot fail the upload.
+	deliver(team, echoId, text, rebuildFiles(localFiles).first, opId, raisedWakeNotice)
 	opId
 }
 
@@ -158,6 +160,22 @@ private fun ChatRepository.setMessageStatus(team: String, id: Long, status: Stri
 		s.copy(threads = s.threads + (team to thread.map { if (it.id == id) it.copy(status = status) else it }))
 	}
 	persistence.persistThreads()
+}
+
+/** A shared screen in its own bucket, as `screen` files [send] admits with the rest. Blocks on disk. */
+internal fun ChatRepository.stageScreen(png: ByteArray?, text: String?): List<MessageFile> {
+	val bucket = "pick-${java.util.UUID.randomUUID()}"
+	val dir = File(Attachments.root(filesDir), bucket)
+	val parts = listOfNotNull(
+		png?.let { Triple("screen.png", "image/png", it) },
+		text?.takeIf { it.isNotBlank() }?.let { Triple("screen.txt", "text/plain", it.toByteArray()) },
+	)
+	return parts.mapNotNull { (name, mime, bytes) ->
+		runIsolated { File(dir.apply { mkdirs() }, name).writeBytes(bytes) }
+			.onFailure { DebugLog.log("Send", "screen $name not staged: ${it.javaClass.simpleName}") }
+			.getOrNull() ?: return@mapNotNull null
+		MessageFile(name, mime, "${Attachments.assetBase()}/$bucket/$name", bytes.size.toLong(), role = ROLE_SCREEN)
+	}
 }
 
 internal fun ChatRepository.admitPicked(uris: List<Uri>, bucket: String): Pair<List<OutgoingFile>, Admission.Refused?> {

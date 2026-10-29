@@ -70,6 +70,7 @@ class MainActivity : FragmentActivity() {
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
 		DebugLog.init(this)
+		if (savedInstanceState == null) com.atelier_nyaarium.switchboard.assistant.IntegrationProbe.report(this, "start")
 		val repo = Repo.get(this)
 		val injected = intent.getStringExtra("provisioning_b64")
 			?.let { runIsolated { String(android.util.Base64.decode(it, android.util.Base64.DEFAULT)) }.getOrNull() }
@@ -91,6 +92,12 @@ class MainActivity : FragmentActivity() {
 	override fun onResume() {
 		super.onResume()
 		retryDismissal()
+	}
+
+	override fun onDestroy() {
+		// A rotation keeps the unlock.
+		if (isFinishing) AppLock.relock()
+		super.onDestroy()
 	}
 
 	private fun keyguard(): KeyguardManager? = getSystemService(KeyguardManager::class.java)
@@ -227,7 +234,7 @@ fun App(
 	val closeOverlay = { overlays = overlays.popOverlay() }
 	// Offer ceremony once.
 	var enrolleeCeremonyOffered by remember { mutableStateOf(false) }
-	var unlocked by remember { mutableStateOf(false) }
+	val unlocked by AppLock.unlocked.collectAsState()
 
 	// Initialize plugins before registry reads.
 	val pluginManager = remember { Plugins.get(context) }
@@ -269,11 +276,11 @@ fun App(
 	}
 	// Foreground triggers poll and reconciliation.
 	androidx.lifecycle.compose.LifecycleStartEffect(Unit) {
-		repo.onForeground()
+		repo.foreground.take(ForegroundHolder.ACTIVITY)
 		rendererPool.setVisible(true)
 		repo.command { reconcilePending() }
 		onStopOrDispose {
-			repo.onBackground()
+			repo.foreground.release(ForegroundHolder.ACTIVITY)
 			rendererPool.setVisible(false)
 		}
 	}
@@ -403,18 +410,18 @@ fun App(
 		if (openTeam == null) repo.declareFocus(FocusIntent(screen = "board"))
 	}
 
-	val locked = state.provisioned && state.biometricLock && !unlocked
+	val locked = appLockAsks(state, unlocked)
 	LaunchedEffect(summon, resumed) {
 		val held = summon ?: return@LaunchedEffect
 		if (!resumed || !satisfiesAppLock(held)) return@LaunchedEffect
-		unlocked = true
+		AppLock.unlock()
 		SummonBus.step(held.id, Summon::lockTakenNow)
 	}
 	var lockPrompted by remember(locked) { mutableStateOf(false) }
 	LaunchedEffect(locked, windowFocused, summon) {
 		if (activity == null || !promptsAppLock(locked, windowFocused, lockPrompted, summon)) return@LaunchedEffect
 		lockPrompted = true
-		promptUnlock(activity) { ok -> if (ok) unlocked = true }
+		promptUnlock(activity) { ok -> if (ok) AppLock.unlock() }
 	}
 
 	val screen = shellScreen(nav, locked, overlays.isNotEmpty(), missingBoot == null)
@@ -470,7 +477,7 @@ fun App(
 	}
 
 	when (screen) {
-		ShellScreen.LOCK -> LockScreen(onUnlock = { activity?.let { a -> promptUnlock(a) { ok -> if (ok) unlocked = true } } })
+		ShellScreen.LOCK -> LockScreen(onUnlock = { activity?.let { a -> promptUnlock(a) { ok -> if (ok) AppLock.unlock() } } })
 		ShellScreen.OVERLAY -> OverlayHost(overlays.last(), repo, state, openOverlay, closeOverlay)
 		// Settings remains reachable before provisioning.
 		ShellScreen.SETTINGS ->
@@ -636,7 +643,7 @@ fun App(
 				composer = ComposerState(
 					draft = state.drafts[openTeam!!] ?: Draft(),
 					sendAwaitingWake = state.awaitingWake(openTeam!!),
-					onSend = { text, uris -> repo.command { send(openTeam!!, text, uris) } },
+					onSend = { text, files -> repo.command { send(openTeam!!, text, files) } },
 					onTextChange = { repo.setDraftText(openTeam!!, it) },
 					onAddFiles = { uris -> repo.command { addDraftFiles(openTeam!!, uris) } },
 					onRemoveFile = { src -> repo.removeDraftFile(openTeam!!, src) },
@@ -662,13 +669,13 @@ fun App(
 				),
 				scheduled = ScheduledSendState(
 					record = state.scheduledSends[openTeam!!],
-					onSchedule = { text, uris, at -> repo.scheduled.scheduleSend(openTeam!!, text, uris, at) },
+					onSchedule = { text, files, at -> repo.scheduled.scheduleSend(openTeam!!, text, files, at) },
 					onReschedule = { at -> repo.scheduled.rescheduleSend(openTeam!!, at) },
 					onCancel = { repo.scheduled.cancelScheduledSendForEdit(openTeam!!) },
 				),
 				goal = GoalState(
 					record = state.goals[openTeam!!],
-					onArm = { g, text, uris -> repo.goals.armAndSend(openTeam!!, g, text, uris) },
+					onArm = { g, text, files -> repo.goals.armAndSend(openTeam!!, g, text, files) },
 					onCancel = { repo.goals.cancelGoal(openTeam!!) },
 				),
 				onRename = { name -> repo.command { rename(openTeam!!, name) } },

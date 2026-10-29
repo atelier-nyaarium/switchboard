@@ -33,6 +33,17 @@ class AttachmentsTest {
 		return "https://appassets.androidplatform.net/${Attachments.DIR}/$bucket/$name"
 	}
 
+	@Test
+	fun aScreenFileKeepsItsRoleOnTheWireAfterAStoreAndAReturnToTheDraft() {
+		val source = File(filesDir, "screen.txt").apply { writeText("text") }
+		val admitted = (OutgoingFiles.admit(source, "screen.txt", "text/plain", ROLE_SCREEN) as Admission.Granted).file
+		// A stored ref, admitted again as a resend is.
+		val stored = Attachments.storeOutgoing(filesDir, "out-1", listOf(admitted)).single()
+		val resent = (OutgoingFiles.admitAll(listOf(stored), filesDir).single() as Admission.Granted).file
+
+		assertEquals(listOf(ROLE_SCREEN, ROLE_SCREEN), listOf(admitted.wireFile(null).role, resent.wireFile("b").role))
+	}
+
 	// ---- land: the second half of an inbound attachment, after its bytes arrive ----
 
 	@Test

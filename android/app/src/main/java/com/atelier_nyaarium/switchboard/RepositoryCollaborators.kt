@@ -78,14 +78,14 @@ internal class ChatRepositoryDomainAdminCollaborators(private val repo: ChatRepo
 }
 
 internal class ChatRepositoryGoalCollaborators(private val repo: ChatRepository) : GoalOpsCollaborators {
-	override suspend fun send(team: String, text: String, uris: List<Uri>) = repo.send(team, text, uris)
+	override suspend fun send(team: String, text: String, files: List<MessageFile>) = repo.send(team, text, files)
 	override suspend fun peekTerminal(team: String): Result<ConsolePeekResult> = repo.sessions.peekTerminal(team, null)
 	override suspend fun tmuxSend(team: String, text: String?, key: String?, submit: Boolean) =
 		repo.sessions.tmuxSend(team, text, key, submit)
 }
 
 internal class ChatRepositoryScheduledSendCollaborators(private val repo: ChatRepository) : ScheduledSendOpsCollaborators {
-	override fun admitPicked(uris: List<Uri>, bucket: String) = repo.admitPicked(uris, bucket)
+	override fun admitFiles(files: List<MessageFile>) = repo.rebuildFiles(files)
 	override fun fromCanonical(team: String) = repo.fromCanonical(team)
 	override fun scheduleAttachmentDelete(srcs: List<String>) = repo.attachments.scheduleAttachmentDelete(srcs)
 	override fun takeBackIntoDraft(team: String, text: String, files: List<MessageFile>) = repo.takeBackIntoDraft(team, text, files)

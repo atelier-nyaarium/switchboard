@@ -12,7 +12,8 @@ data class ComposerState(
 	val draft: Draft,
 	/** A send is waiting on this team's cold boot (ChatState.wakingTeams); draws the notice card. */
 	val sendAwaitingWake: Boolean,
-	val onSend: (String, List<Uri>) -> Unit,
+	/** The draft's own files, so each keeps its role. */
+	val onSend: (String, List<MessageFile>) -> Unit,
 	val onTextChange: (String) -> Unit,
 	val onAddFiles: (List<Uri>) -> Unit,
 	val onRemoveFile: (String) -> Unit,
@@ -29,9 +30,8 @@ data class ScheduledSendState(
 	val record: ScheduledSend?,
 	/** suspend + Boolean: the repo-side time check is authoritative, and the caller must await the
 	 * real outcome before clearing the composer or a failure destroys the user's message. */
-	val onSchedule: suspend (String, List<Uri>, Long) -> Boolean,
-	/** Time-only on purpose: the banked attachments are copied MessageFile refs, not the live
-	 * content:// Uris onSchedule takes, so a full re-edit would risk a silent attachment drop. */
+	val onSchedule: suspend (String, List<MessageFile>, Long) -> Boolean,
+	/** Time-only: a full re-edit goes through Cancel, which hands the content back to the draft. */
 	val onReschedule: suspend (Long) -> Boolean,
 	/** Cancels and hands the content back into the draft; the dock reads the result through it. */
 	val onCancel: () -> Unit,
@@ -42,7 +42,7 @@ data class GoalState(
 	val record: PendingGoal?,
 	/** suspend + Boolean: arming SENDS, so the caller must await the outcome before clearing the
 	 * composer. Only the goal is typed into the pane; the rest is the message. */
-	val onArm: suspend (goal: String, text: String, uris: List<Uri>) -> Boolean,
+	val onArm: suspend (goal: String, text: String, files: List<MessageFile>) -> Boolean,
 	val onCancel: () -> Unit,
 )
 

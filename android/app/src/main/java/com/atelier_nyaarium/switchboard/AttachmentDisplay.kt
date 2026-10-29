@@ -62,13 +62,13 @@ internal fun viewerDecodableImage(mime: String): Boolean {
 
 /** The role vocabulary this build understands. A value outside it was said DELIBERATELY by a
  * NEWER sender; absent (a pre-role row, or a stripping middle hop) means an ordinary attachment. */
-private val KNOWN_ROLES = setOf("attachment", "ref-snapshot", "design-card")
+private val KNOWN_ROLES = setOf(ROLE_ATTACHMENT, "ref-snapshot", "design-card", ROLE_SCREEN)
 
 private fun unrecognizedRole(file: MessageFile): Boolean = file.role != null && file.role !in KNOWN_ROLES
 
-/** An ordinary attachment: absent role or the explicit value. Machinery and unknown roles are not,
- * however drawable their bytes happen to be. */
-private fun ordinaryRole(file: MessageFile): Boolean = file.role == null || file.role == "attachment"
+/** An ordinary attachment: absent role, the explicit value, or a shared screen. Machinery and
+ * unknown roles are not, however drawable their bytes happen to be. */
+private fun ordinaryRole(file: MessageFile): Boolean = file.role == null || file.role == ROLE_ATTACHMENT || file.role == ROLE_SCREEN
 
 /** A thumbnail needs a drawable format, bytes to draw, and an ordinary role: a file whose declared
  * role this build does not recognize renders as a plain named row, never a thumbnail - the unknown

@@ -38,6 +38,25 @@ describe("summon residue", () => {
 		expect(filter).toContain("android.intent.category.DEFAULT");
 	});
 
+	it("hands a locked summon to the app before the panel draws", () => {
+		const manifest = fs.readFileSync(MANIFEST, "utf8");
+		const service = /<service[^>]*AssistantVoiceService[\s\S]*?<\/service>/.exec(manifest)?.[0] ?? "";
+		expect(service).toContain("android.permission.BIND_VOICE_INTERACTION");
+		expect(service).toContain('android:resource="@xml/assistant_session"');
+		const xml = fs.readFileSync(path.join(MAIN, "res", "xml", "assistant_session.xml"), "utf8");
+		expect(xml).toContain('android:supportsLaunchVoiceAssistFromKeyguard="false"');
+		const session = fs.readFileSync(
+			path.join(KOTLIN, "com", "atelier_nyaarium", "switchboard", "assistant", "AssistantPanelSession.kt"),
+			"utf8",
+		);
+		const prepare = /override fun onPrepareShow[\s\S]*?\n\t}\n/.exec(session)?.[0] ?? "";
+		expect(prepare).toContain("isKeyguardLocked");
+		expect(prepare).toContain("appLockAsks(");
+		const decided = prepare.indexOf("panelShow(");
+		expect(decided).toBeGreaterThan(-1);
+		expect(decided).toBeLessThan(prepare.indexOf("setUiEnabled(true)"));
+	});
+
 	it("refuses drawing over the keyguard and the microphone", () => {
 		const files = [MANIFEST, ...kotlinFiles(KOTLIN)];
 		// Prevent vacuous file scans.

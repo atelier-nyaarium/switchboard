@@ -1,7 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import android.content.Context
-import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.combinedClickable
@@ -59,7 +57,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.core.content.FileProvider
 import com.atelier_nyaarium.switchboard.board.BoardDrop
 import com.atelier_nyaarium.switchboard.board.BoardGroup
 import com.atelier_nyaarium.switchboard.board.BoardLiveLine
@@ -69,16 +66,6 @@ import kotlinx.coroutines.launch
 
 ////////////////////////////////
 //  Functions & Helpers
-
-/** Mint content:// Uris over a draft's already-copied files - the one remaining FileProvider mint
- * site, feeding them back through the ordinary Uri-based send/schedule API exactly like a fresh
- * pick. Restore never touches a Uri (MessageFile is the sole currency between the store and the
- * draft); only Send and Schedule Send need one, to reach send/scheduleSend. */
-private fun draftFileUris(context: Context, files: List<MessageFile>): List<Uri> = files.mapNotNull { f ->
-	Attachments.fileFor(context.filesDir, f.src)?.let { file ->
-		FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-	}
-}
 
 ////////////////////////////////
 //  Composables
@@ -160,10 +147,6 @@ internal fun ThreadScreen(
 	var showRename by remember { mutableStateOf(false) }
 	var confirmForget by remember { mutableStateOf(false) }
 	var showSendMenu by remember { mutableStateOf(false) }
-	// The one remaining FileProvider mint site (see draftFileUris): Send and Schedule Send mint a
-	// content:// Uri over the draft's already-copied files to reach the existing Uri-based send API.
-	// Restore never touches a Uri - draft IS the restore, MessageFile the only currency, read
-	// straight off ChatState.
 	val composerContext = LocalContext.current
 	// Null: no dialog. Non-null: the seed instant it opens the picker at - a fresh Schedule Send
 	// seeds 5 minutes out, a dock edit seeds the record's own current fire time. Two distinct
@@ -274,7 +257,7 @@ internal fun ThreadScreen(
 				// Snapshot now: the async call below must bank exactly what was on screen at the
 				// moment of the tap, not whatever the draft happens to hold once it resolves.
 				val text = composer.draft.text
-				val files = draftFileUris(composerContext, composer.draft.files)
+				val files = composer.draft.files
 				val editingExisting = scheduled.record != null
 				val myGeneration = scheduleDialogGeneration
 				scheduleSubmitting = true
@@ -320,7 +303,7 @@ internal fun ThreadScreen(
 			onConfirm = { typed ->
 				// Snapshot at the tap, not whatever the draft holds once the call resolves.
 				val text = composer.draft.text
-				val files = draftFileUris(composerContext, composer.draft.files)
+				val files = composer.draft.files
 				val myGeneration = goalDialogGeneration
 				goalSubmitting = true
 				goalScope.launch {
@@ -640,7 +623,7 @@ internal fun ThreadScreen(
 								onLongClickLabel = "Schedule send",
 								onClick = {
 									sendHaptics.performHapticFeedback(HapticFeedbackType.LongPress)
-									composer.onSend(composer.draft.text, draftFileUris(composerContext, composer.draft.files))
+									composer.onSend(composer.draft.text, composer.draft.files)
 									composer.onClear()
 								},
 								onLongClick = {
@@ -691,7 +674,7 @@ internal fun ThreadScreen(
 							enabled = sendEnabled,
 							onClick = hapticClick {
 								showSendMenu = false
-								composer.onSend(composer.draft.text, draftFileUris(composerContext, composer.draft.files))
+								composer.onSend(composer.draft.text, composer.draft.files)
 								composer.onClear()
 							},
 						)

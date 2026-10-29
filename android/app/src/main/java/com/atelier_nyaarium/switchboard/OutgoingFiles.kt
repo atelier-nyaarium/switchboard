@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard
 import android.content.ContentResolver
 import android.net.Uri
 import android.provider.OpenableColumns
+import com.atelier_nyaarium.switchboard.proto.ChannelFile
 import java.io.File
 
 ////////////////////////////////
@@ -22,11 +23,23 @@ class OutgoingFile private constructor(
 	val mime: String,
 	val size: Long,
 	internal val source: File,
+	/** The `ChannelFile` role it is sent as. */
+	val role: String,
 ) {
 	internal companion object {
-		fun of(name: String, mime: String, size: Long, source: File) = OutgoingFile(name, mime, size, source)
+		fun of(name: String, mime: String, size: Long, source: File, role: String = ROLE_ATTACHMENT) =
+			OutgoingFile(name, mime, size, source, role)
 	}
 }
+
+/** The file as the wire names it; its role is the sender's word. */
+internal fun OutgoingFile.wireFile(blobId: String?): ChannelFile =
+	ChannelFile(filename = name, mime = mime, size = size, descriptiveKey = name, blobId = blobId, role = role)
+
+internal const val ROLE_ATTACHMENT = "attachment"
+
+/** Another app's screen, never the owner's words. */
+internal const val ROLE_SCREEN = "screen"
 
 /** Why a file was not cleared. A value rather than a null or a throw, so a caller cannot fall into
  * an accidental permit and cannot report the wrong reason to the user. */
@@ -59,9 +72,9 @@ sealed interface Admission {
  */
 object OutgoingFiles {
 	/** Admit an already-local file (a bucket copy from a first send, or a scheduled send's). */
-	fun admit(source: File, name: String, mime: String): Admission {
+	fun admit(source: File, name: String, mime: String, role: String = ROLE_ATTACHMENT): Admission {
 		if (!source.isFile) return Admission.Refused(name, Admission.Reason.GONE, 0, 0)
-		return decide(name, mime, source.length(), source)
+		return decide(name, mime, source.length(), source, role = role)
 	}
 
 	/**
@@ -104,7 +117,7 @@ object OutgoingFiles {
 			}
 			val size = source.length()
 			running += size
-			decide(ref.name, ref.mime, size, source, cumulative = running)
+			decide(ref.name, ref.mime, size, source, cumulative = running, role = ref.role ?: ROLE_ATTACHMENT)
 		}
 	}
 
@@ -114,11 +127,12 @@ object OutgoingFiles {
 		size: Long,
 		source: File,
 		cumulative: Long = size,
+		role: String = ROLE_ATTACHMENT,
 	): Admission {
 		if (cumulative > ChatRepository.MAX_OUTGOING_BYTES) {
 			return Admission.Refused(name, Admission.Reason.OVER_TRANSPORT, size, ChatRepository.MAX_OUTGOING_BYTES)
 		}
-		return Admission.Granted(OutgoingFile.of(name, mime, size, source))
+		return Admission.Granted(OutgoingFile.of(name, mime, size, source, role))
 	}
 
 	private fun displayName(resolver: ContentResolver, uri: Uri): String? = runIsolated {

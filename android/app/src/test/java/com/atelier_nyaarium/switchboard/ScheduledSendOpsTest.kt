@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import android.net.Uri
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.ScheduledRecord
@@ -38,7 +37,7 @@ class ScheduledSendOpsTest {
 		val deleted = mutableListOf<String>()
 		var answers: (String) -> JsonElement? = { buildJsonObject { put("outcome", "accepted"); put("version", 4) } }
 		var plaintext: ByteArray? = null
-		override fun admitPicked(uris: List<Uri>, bucket: String) = emptyList<OutgoingFile>() to null
+		override fun admitFiles(files: List<MessageFile>) = emptyList<OutgoingFile>() to null
 		override fun fromCanonical(team: String) = team
 		override fun scheduleAttachmentDelete(srcs: List<String>) { deleted += srcs }
 		override fun takeBackIntoDraft(team: String, text: String, files: List<MessageFile>) { drafts += text to files }

@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.ChannelFile
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.ConsoleSendResult
 import com.atelier_nyaarium.switchboard.proto.OwnerOp
@@ -288,16 +287,7 @@ class ConsoleClient internal constructor(
 		opId: String = ambient.newOpId(),
 		domainId: String? = null,
 	): SendResult {
-		val wireFiles = files.map { f ->
-			ChannelFile(
-				filename = f.name,
-				mime = f.mime,
-				size = f.size,
-				descriptiveKey = f.name,
-				blobId = uploadSealedBlob(f.source),
-				role = "attachment",
-			)
-		}
+		val wireFiles = files.map { f -> f.wireFile(uploadSealedBlob(f.source)) }
 		// Preserve the selected session's Domain.
 		val crossDomain = domainId?.ifEmpty { null }
 		val op = ConsoleOp.Send(to = to, domainId = crossDomain, body = body, files = wireFiles.ifEmpty { null })

@@ -225,9 +225,9 @@ private fun AssistantSettingsPage(
 
 	val context = androidx.compose.ui.platform.LocalContext.current
 	var roleHeld by remember { mutableStateOf(true) }
-	// Picker may change role.
+	// Picker may change role. Held but not adopted needs a re-pick to reach the panel.
 	androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
-		roleHeld = assistantRoleHeld(context)
+		roleHeld = assistantRoleHeld(context) && assistantSessionAdopted(context)
 		onPauseOrDispose {}
 	}
 

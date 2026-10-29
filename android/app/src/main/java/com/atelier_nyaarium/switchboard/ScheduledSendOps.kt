@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import android.net.Uri
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.ScheduleCancelValue
@@ -28,7 +27,8 @@ import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 
 internal interface ScheduledSendOpsCollaborators {
-	fun admitPicked(uris: List<Uri>, bucket: String): Pair<List<OutgoingFile>, Admission.Refused?>
+	/** A draft's local files, each keeping its role; a gone one is skipped. */
+	fun admitFiles(files: List<MessageFile>): Pair<List<OutgoingFile>, Admission.Refused?>
 	fun fromCanonical(team: String): String?
 	fun scheduleAttachmentDelete(srcs: List<String>)
 	fun takeBackIntoDraft(team: String, text: String, files: List<MessageFile>)
@@ -54,9 +54,9 @@ internal class ScheduledSendOps(
 	private val scheduledSendMutex = Mutex()
 	var onScheduledSendFailed: ((team: String, opId: String) -> Unit)? = null
 
-	suspend fun scheduleSend(team: String, text: String, uris: List<Uri>, fireAtMillis: Long): Boolean = withContext(Dispatchers.IO) {
+	suspend fun scheduleSend(team: String, text: String, files: List<MessageFile>, fireAtMillis: Long): Boolean = withContext(Dispatchers.IO) {
 		if (!validTime(fireAtMillis)) return@withContext false
-		val (picked, refused) = collaborators.admitPicked(uris, "pick-${java.util.UUID.randomUUID()}")
+		val (picked, refused) = collaborators.admitFiles(files)
 		if (refused != null) { state.update { it.copy(error = refused.message()) }; return@withContext false }
 		val opId = java.util.UUID.randomUUID().toString()
 		val fileRefs = Attachments.storeOutgoing(filesDir, "sched-$opId", picked)

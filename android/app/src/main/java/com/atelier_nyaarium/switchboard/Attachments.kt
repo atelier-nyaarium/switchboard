@@ -153,7 +153,7 @@ object Attachments {
 				dir.mkdirs()
 				val out = File(dir, name)
 				if (out.canonicalFile != f.source.canonicalFile) writeOutgoingAtomically(f.source, out)
-				f to MessageFile(name, f.mime, "$ASSET_BASE/$bucket/$name", f.size, role = "attachment")
+				f to MessageFile(name, f.mime, "$ASSET_BASE/$bucket/$name", f.size, role = f.role)
 			}.getOrNull()
 		}
 	}

@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import android.net.Uri
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -8,7 +7,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 internal interface GoalOpsCollaborators {
-	suspend fun send(team: String, text: String, uris: List<Uri>): String?
+	suspend fun send(team: String, text: String, files: List<MessageFile>): String?
 	suspend fun peekTerminal(team: String): Result<com.atelier_nyaarium.switchboard.proto.ConsolePeekResult>
 	suspend fun tmuxSend(team: String, text: String?, key: String?, submit: Boolean)
 }
@@ -22,14 +21,14 @@ internal class GoalOps(
 	// Prevent concurrent drivers from injecting one goal twice.
 	private val driving = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
-	suspend fun armAndSend(team: String, goal: String, text: String, uris: List<Uri>): Boolean {
+	suspend fun armAndSend(team: String, goal: String, text: String, files: List<MessageFile>): Boolean {
 		val clean = sanitizeGoalText(goal)
 		if (clean.isEmpty()) {
 		state.update { it.copy(error = "Type what the goal is before setting one.") }
 			return false
 		}
 		putGoal(team, PendingGoal(clean, System.currentTimeMillis()))
-		val opId = runCatchingCancellable { sessions.send(team, text, uris) }
+		val opId = runCatchingCancellable { sessions.send(team, text, files) }
 			.onFailure { DebugLog.log("Goal", "send threw while arming: ${it.javaClass.simpleName}") }
 			.getOrNull()
 		val settled = opId?.let { id -> state.value.threads[team]?.firstOrNull { it.opId == id } }
