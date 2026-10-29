@@ -16,7 +16,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 
 
@@ -72,7 +71,7 @@ class ChatRepository(
 	internal var onScheduledResult: (com.atelier_nyaarium.switchboard.proto.ScheduledResultRow) -> Unit = {}
 	internal var onBoardObservation: (com.atelier_nyaarium.switchboard.proto.BoardObservationRow) -> Unit = {}
 
-	internal val persistence = ChatPersistence(store)
+	internal val persistence: ChatPersistence = ChatPersistence(store) { _state.value }
 	internal val mutationJournal = MutationJournal(filesDir)
 
 	init {
@@ -478,28 +477,28 @@ class ChatRepository(
 
 	internal fun append(team: String, msg: Message): Long {
 		var newId = 0L
-		val threads = _state.updateAndGet { s ->
+		_state.update { s ->
 			val existing = s.threads[team].orEmpty()
-			newId = (existing.maxOfOrNull { it.id } ?: -1L) + 1
+			newId = nextRowId(existing, s.idFloors[team])
 			val next = existing + msg.copy(id = newId)
 			s.copy(threads = s.threads + (team to next)).recomputeUnread(team, next)
-		}.threads
-		persistence.persistThreads(threads)
+		}
+		persistence.persistThreads()
 		return newId
 	}
 
 	/** Peer rows drained before the assistant was known go quiet once it is. */
 	internal fun quietAssistantPeers() {
 		var changed = false
-		val threads = _state.updateAndGet { s -> s.withAssistantPeersQuiet().also { changed = it !== s } }.threads
-		if (changed) persistence.persistThreads(threads)
+		_state.update { s -> s.withAssistantPeersQuiet().also { changed = it !== s } }
+		if (changed) persistence.persistThreads()
 	}
 
 	internal fun appendInbound(team: String, msg: Message, beforeCommit: () -> Unit = {}): Boolean {
 		if (!msg.isPeer) _state.update { it.copy(wakingTeams = it.wakingTeams - team) }
 		if (msg.seq > 0) {
 			var folded = false
-			val updated = _state.updateAndGet { s ->
+			_state.update { s ->
 				val thread = s.threads[team].orEmpty()
 				val idx = thread.indexOfFirst { it.seq == msg.seq && it.epoch == msg.epoch }
 				if (idx >= 0) {
@@ -514,7 +513,7 @@ class ChatRepository(
 				}
 			}
 			if (folded) {
-				persistence.persistThreads(updated.threads)
+				persistence.persistThreads()
 				return false
 			}
 		}
@@ -525,10 +524,12 @@ class ChatRepository(
 
 	internal fun reconcileSent(team: String, echo: Message) {
 		var handled = false
+		var swallowed = false
 		var deleteSrcs: List<String> = emptyList()
-			val threads = _state.updateAndGet { s ->
+		_state.update { s ->
 			val thread = s.threads[team].orEmpty()
 			val idx = sentEchoMatch(thread, echo)
+			swallowed = false
 			if (idx >= 0) {
 				handled = true
 				val old = thread[idx]
@@ -539,13 +540,13 @@ class ChatRepository(
 			} else {
 				handled = false
 				deleteSrcs = emptyList()
-				s
+				s.swallowEcho(echo)?.also { swallowed = true } ?: s
 			}
-		}.threads
+		}
 		if (handled) {
-			persistence.persistThreads(threads)
-				attachments.scheduleAttachmentDelete(deleteSrcs)
-		} else {
+			persistence.persistThreads()
+			attachments.scheduleAttachmentDelete(deleteSrcs)
+		} else if (!swallowed) {
 			append(team, echo)
 		}
 	}

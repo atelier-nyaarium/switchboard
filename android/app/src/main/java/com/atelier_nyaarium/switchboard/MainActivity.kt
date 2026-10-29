@@ -237,7 +237,8 @@ fun App(
 	var viewer by viewerState
 	val linkMenuState = remember { mutableStateOf<Pair<String, String>?>(null) }
 	val linkMenuNoteState = remember { mutableStateOf<String?>(null) }
-	val rendererPool = rememberBoundRendererPool(repo, pluginManager, viewerState, linkMenuState, linkMenuNoteState)
+	val rowPressState = remember { mutableStateOf<RowPress?>(null) }
+	val rendererPool = rememberBoundRendererPool(repo, pluginManager, viewerState, linkMenuState, linkMenuNoteState, rowPressState)
 
 	LaunchedEffect(injectedBlob) {
 		if (injectedBlob != null && Need.PROVISIONING in (missingBoot?.needs ?: emptySet())) {
@@ -306,6 +307,7 @@ fun App(
 		openQueueRequest.value = false
 		linkMenuState.value = null
 		linkMenuNoteState.value = null
+		rowPressState.value = null
 		assistantSendModal = null
 	}
 	// The one arrival road.
@@ -839,6 +841,7 @@ fun App(
 	QueueOverlay(repo, openQueueRequest, locked, revealAtState, openTeamRequest)
 	AttachmentViewerOverlay(viewerState, rendererPool)
 	LinkMenuDialog(linkMenuState, linkMenuNoteState)
+	RowMenuDialog(repo, rowPressState)
 	// Board dialog replaces current screen.
 	boardModal?.let { entryId ->
 		BoardEntryDialog(state, repo, entryId) { boardModal = null }

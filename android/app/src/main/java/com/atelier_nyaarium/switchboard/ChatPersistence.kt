@@ -26,6 +26,8 @@ internal interface ChatPersistenceStore {
 	fun saveReadAnchors(json: String)
 	fun loadReadAnchors(): String?
 	fun saveThreadsAndReadAnchors(threadsJson: String, anchorsJson: String)
+	/** False if not on disk. */
+	fun commitThreadsAndReadAnchors(threadsJson: String, anchorsJson: String): Boolean
 	fun saveLabels(json: String)
 	fun loadLabels(): String?
 	fun saveScheduledSends(json: String)
@@ -47,8 +49,13 @@ internal interface ChatPersistenceStore {
 
 /** The JSON codec between ChatRepository's in-memory maps and the store's string slots.
  * Every save swallows its own failure (a full disk must not crash a state transition), and every
- * load drops what it cannot trust rather than surfacing it. */
-internal class ChatPersistence(private val store: ChatPersistenceStore) {
+ * load drops what it cannot trust rather than surfacing it.
+ *
+ * Threads and anchors are written from `live` under one lock, never a caller's snapshot, so a stale
+ * one cannot restore cleared rows. */
+internal class ChatPersistence(private val store: ChatPersistenceStore, private val live: () -> ChatState) {
+	private val threadWrites = Any()
+
 	private fun threadsJson(threads: Map<String, List<Message>>): String {
 		val root = JSONObject()
 		for ((team, msgs) in threads) {
@@ -83,8 +90,8 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 		return root.toString()
 	}
 
-	internal fun persistThreads(threads: Map<String, List<Message>>) {
-		runIsolated { store.saveThreads(threadsJson(threads)) }
+	internal fun persistThreads() {
+		synchronized(threadWrites) { runIsolated { store.saveThreads(threadsJson(live().threads)) } }
 	}
 
 	private fun readAnchorsJson(anchors: Map<String, ReadAnchor>): String {
@@ -95,16 +102,25 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 		return root.toString()
 	}
 
-	internal fun persistReadAnchors(anchors: Map<String, ReadAnchor>) {
-		runIsolated { store.saveReadAnchors(readAnchorsJson(anchors)) }
+	internal fun persistReadAnchors() {
+		synchronized(threadWrites) { runIsolated { store.saveReadAnchors(readAnchorsJson(live().readAnchors)) } }
 	}
 
 	/** Write threads AND read anchors in one SharedPreferences batch (see
 	 * AppStateStore.saveThreadsAndReadAnchors) - required whenever a single state transition
 	 * changed both, so a process kill between two separate writes can never strand one against
 	 * the other's stale value. */
-	internal fun persistThreadsAndReadAnchors(threads: Map<String, List<Message>>, anchors: Map<String, ReadAnchor>) {
-		runIsolated { store.saveThreadsAndReadAnchors(threadsJson(threads), readAnchorsJson(anchors)) }
+	internal fun persistThreadsAndReadAnchors() {
+		synchronized(threadWrites) {
+			val s = live()
+			runIsolated { store.saveThreadsAndReadAnchors(threadsJson(s.threads), readAnchorsJson(s.readAnchors)) }
+		}
+	}
+
+	/** On disk before true; callers delete files after. */
+	internal fun commitThreadsAndReadAnchors(): Boolean = synchronized(threadWrites) {
+		val s = live()
+		runIsolated { store.commitThreadsAndReadAnchors(threadsJson(s.threads), readAnchorsJson(s.readAnchors)) }.getOrDefault(false)
 	}
 
 	/** Load persisted read anchors, keyed by canonical address. On the FIRST run after this
@@ -127,7 +143,8 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 			}.getOrDefault(emptyMap())
 		}
 		val seeded = threads.mapNotNull { (team, msgs) -> lastInboundAnchor(msgs)?.let { team to it } }.toMap()
-		persistReadAnchors(seeded)
+		// Before any live state exists.
+		runIsolated { store.saveReadAnchors(readAnchorsJson(seeded)) }
 		return seeded
 	}
 

@@ -66,6 +66,9 @@ class ThreadRendererPool(private val context: Context) {
 	 * like [onLinkTap]. */
 	var onLinkMenu: ((String, String) -> Unit)? = null
 
+	/** Row long-press: (team, id, `at`). */
+	var onRowMenu: ((String, Long, Long) -> Unit)? = null
+
 	/** Whether agent rows render Play buttons. Set before threads first sync. */
 	var playEnabled = false
 		set(value) {
@@ -100,6 +103,7 @@ class ThreadRendererPool(private val context: Context) {
 				it.setHandledSchemes(handledSchemes)
 				it.onLinkTap = { url -> onLinkTap?.invoke(team, url) }
 				it.onLinkMenu = { url -> onLinkMenu?.invoke(team, url) }
+				it.onRowMenu = { id, at -> onRowMenu?.invoke(team, id, at) }
 				it.resolveFrom = { addr -> resolveFrom?.invoke(addr) ?: addr }
 				it.selfLabel = { selfLabel?.invoke() ?: "" }
 				it.decorateFile = { f -> decorateFile?.invoke(team, f) }

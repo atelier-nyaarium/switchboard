@@ -68,7 +68,7 @@ class ScheduledSendOpsTest {
 	): Triple<MutableStateFlow<ChatState>, Fake, ScheduledSendOps> {
 		val state = MutableStateFlow(ChatState(scheduledSends = records.associateBy { team }, threads = threads))
 		val fake = Fake()
-		val ops = ScheduledSendOps(state, ChatPersistence(testStore()), File("/tmp/scheduled"), CoroutineScope(Dispatchers.Unconfined), fake)
+		val ops = ScheduledSendOps(state, ChatPersistence(testStore()) { state.value }, File("/tmp/scheduled"), CoroutineScope(Dispatchers.Unconfined), fake)
 		return Triple(state, fake, ops)
 	}
 

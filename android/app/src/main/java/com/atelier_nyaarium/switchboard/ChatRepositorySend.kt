@@ -5,7 +5,6 @@ import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.withContext
 
 suspend fun ChatRepository.send(team: String, text: String, uris: List<Uri> = emptyList()): String? = withContext(Dispatchers.IO) {
@@ -48,7 +47,7 @@ suspend fun ChatRepository.retrySend(team: String, messageId: Long, targetDomain
 		}
 		if (!claimed) return@withContext
 		val msg = _state.value.threads[team]?.firstOrNull { it.id == messageId } ?: return@withContext
-		persistence.persistThreads(_state.value.threads)
+		persistence.persistThreads()
 		val (files, refused) = rebuildFiles(msg)
 		if (refused != null) {
 			setMessageStatus(team, messageId, "error")
@@ -146,19 +145,19 @@ fun ChatRepository.cancelFailedSend(team: String, messageId: Long) {
 }
 
 private fun ChatRepository.removeMessage(team: String, id: Long) {
-	val threads = _state.updateAndGet { s ->
-		val thread = s.threads[team] ?: return@updateAndGet s
+	_state.update { s ->
+		val thread = s.threads[team] ?: return@update s
 		s.copy(threads = s.threads + (team to thread.filterNot { it.id == id }))
-	}.threads
-	persistence.persistThreads(threads)
+	}
+	persistence.persistThreads()
 }
 
 private fun ChatRepository.setMessageStatus(team: String, id: Long, status: String?) {
-	val threads = _state.updateAndGet { s ->
-		val thread = s.threads[team] ?: return@updateAndGet s
+	_state.update { s ->
+		val thread = s.threads[team] ?: return@update s
 		s.copy(threads = s.threads + (team to thread.map { if (it.id == id) it.copy(status = status) else it }))
-	}.threads
-	persistence.persistThreads(threads)
+	}
+	persistence.persistThreads()
 }
 
 internal fun ChatRepository.admitPicked(uris: List<Uri>, bucket: String): Pair<List<OutgoingFile>, Admission.Refused?> {

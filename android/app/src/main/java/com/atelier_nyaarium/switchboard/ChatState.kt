@@ -13,6 +13,10 @@ data class ChatState(
 	/** Used only as a stale-safe create-dialog suggestion. */
 	val lastProjectByGateway: Map<String, String> = emptyMap(),
 	val threads: Map<String, List<Message>> = emptyMap(),
+	/** Highest id a cut retired per thread; ids reassign on load. */
+	val idFloors: Map<String, Long> = emptyMap(),
+	/** Op ids of cut sends whose echo has not landed. */
+	val clearedSends: Set<String> = emptySet(),
 	val unread: Map<String, Int> = emptyMap(),
 	/** Unread counts derive from these anchors. */
 	val readAnchors: Map<String, ReadAnchor> = emptyMap(),

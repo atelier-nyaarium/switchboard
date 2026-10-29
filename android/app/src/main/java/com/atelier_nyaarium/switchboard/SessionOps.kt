@@ -230,7 +230,7 @@ internal class SessionOps(
 				drafts = s.drafts - key,
 			)
 		}
-		host.persistThreads(next.threads, next.readAnchors)
+		host.persistThreads()
 		host.persistLabels(next.labels)
 		host.persistDrafts(next.drafts)
 		host.cancelScheduled(key)

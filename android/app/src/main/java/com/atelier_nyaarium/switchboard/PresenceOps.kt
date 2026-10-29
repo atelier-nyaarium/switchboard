@@ -40,7 +40,7 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 	fun applyReadAnchors(entries: List<com.atelier_nyaarium.switchboard.proto.ReadAnchorWireEntry>) {
 		// Epochs are random tags; compare them only for equality.
 		var anyChanged = false
-		val next = host.state.updateAndGet { s ->
+		host.state.update { s ->
 			var st = s
 			for (e in entries) {
 				val team = e.team
@@ -54,7 +54,7 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 			}
 			st
 		}
-		if (anyChanged) host.persistReadAnchors(next.readAnchors)
+		if (anyChanged) host.persistReadAnchors()
 	}
 
 	suspend fun reportLocalReadAdvances() {

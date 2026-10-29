@@ -57,7 +57,7 @@ class SessionOpsTest {
 			forgetSettled?.let { throw OwnerOpFailure(it, "forget failed: $it") }
 			return boardDisposition
 		}
-		override fun persistThreads(threads: Map<String, List<Message>>, anchors: Map<String, ReadAnchor>) { persisted++ }
+		override fun persistThreads() { persisted++ }
 		override fun persistLabels(labels: Map<String, String>) { persisted++ }
 		override fun persistDrafts(drafts: Map<String, Draft>) { persisted++ }
 		override fun cancelScheduled(team: String) { scheduled++ }

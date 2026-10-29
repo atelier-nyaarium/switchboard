@@ -32,6 +32,11 @@ class ChatPersistenceTest {
 			slots["anchors"] = anchorsJson
 		}
 
+		override fun commitThreadsAndReadAnchors(threadsJson: String, anchorsJson: String): Boolean {
+			saveThreadsAndReadAnchors(threadsJson, anchorsJson)
+			return true
+		}
+
 		override fun saveLabels(json: String) {
 			slots["labels"] = json
 		}
@@ -76,9 +81,15 @@ class ChatPersistenceTest {
 	}
 
 	private val store = FakeStore()
-	private val codec = ChatPersistence(store)
+	private var live = ChatState()
+	private val codec = ChatPersistence(store) { live }
 	private val team = "home.gw.app.dev"
 	private val peerTeam = "home.gw.lib.dev"
+
+	private fun persistThreads(threads: Map<String, List<Message>>) {
+		live = live.copy(threads = threads)
+		codec.persistThreads()
+	}
 
 	@Test
 	fun assistantHomeRoundTripsAndAnUnparseableSlotLoadsUnread() {
@@ -109,7 +120,7 @@ class ChatPersistenceTest {
 	@Test
 	fun aThreadRoundTripsWithItsCoordinatesAndDenseIdsByTime() {
 		val rows = listOf(message(at = 30), message(at = 10, fromMe = true, text = "mine"), message(at = 20))
-		codec.persistThreads(mapOf(team to rows))
+		persistThreads(mapOf(team to rows))
 		val loaded = codec.loadPersistedThreads().getValue(team)
 
 		assertEquals(listOf("mine", "hello", "hello"), loaded.map { it.text })
@@ -121,7 +132,7 @@ class ChatPersistenceTest {
 
 	@Test
 	fun aWakingRowIsDroppedAndALegacyPendingEchoDemotesToRetriable() {
-		codec.persistThreads(
+		persistThreads(
 			mapOf(
 				team to listOf(
 					message(at = 1, status = "waking"),
@@ -139,18 +150,18 @@ class ChatPersistenceTest {
 
 	@Test
 	fun aNonAddressKeyIsDroppedOnLoadAndForGoodOnTheNextSave() {
-		codec.persistThreads(mapOf(team to listOf(message(at = 1)), "Pixel 10 Pro XL" to listOf(message(at = 2))))
+		persistThreads(mapOf(team to listOf(message(at = 1)), "Pixel 10 Pro XL" to listOf(message(at = 2))))
 		val loaded = codec.loadPersistedThreads()
 
 		assertEquals(setOf(team), loaded.keys)
-		codec.persistThreads(loaded)
+		persistThreads(loaded)
 		assertTrue(!store.slots.getValue("threads").contains("Pixel"))
 	}
 
 	@Test
 	fun aMalformedPeerAttributionDegradesInsteadOfSurfacingVerbatim() {
 		val peer = Message(false, "hi", 5L, 0L, emptyList(), null, null, from = peerTeam, to = team, isPeer = true)
-		codec.persistThreads(mapOf(team to listOf(peer)))
+		persistThreads(mapOf(team to listOf(peer)))
 		// Corrupt the persisted from-address into a non-canonical value.
 		store.slots["threads"] = store.slots.getValue("threads").replace(peerTeam, "not an address")
 		val loaded = codec.loadPersistedThreads().getValue(team).single()
@@ -165,7 +176,7 @@ class ChatPersistenceTest {
 		val loud = message(at = 1, text = "Worth a look.").copy(record = ActionRecord(true, threads))
 		val quiet = message(at = 2, text = "").copy(record = ActionRecord(false, threads.take(1)))
 		val quietPeer = message(at = 3, text = "sent on").copy(quiet = true)
-		codec.persistThreads(mapOf(team to listOf(loud, quiet, quietPeer)))
+		persistThreads(mapOf(team to listOf(loud, quiet, quietPeer)))
 		val loaded = codec.loadPersistedThreads().getValue(team)
 
 		assertEquals(listOf(loud.record, quiet.record, null), loaded.map { it.record })
@@ -206,7 +217,8 @@ class ChatPersistenceTest {
 
 	@Test
 	fun persistedAnchorsWinOverTheSeedPath() {
-		codec.persistReadAnchors(mapOf(team to ReadAnchor(1L, 2L, 3L)))
+		live = live.copy(readAnchors = mapOf(team to ReadAnchor(1L, 2L, 3L)))
+		codec.persistReadAnchors()
 		val loaded = codec.loadPersistedReadAnchors(mapOf(peerTeam to listOf(message(at = 8))))
 
 		assertEquals(mapOf(team to ReadAnchor(1L, 2L, 3L)), loaded)

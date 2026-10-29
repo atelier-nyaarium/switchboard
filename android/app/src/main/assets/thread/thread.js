@@ -77,6 +77,15 @@
 		}
 	});
 
+	// Text keeps its selection.
+	container.addEventListener("contextmenu", (e) => {
+		if (e.target.closest(".body, a, button")) return;
+		const row = e.target.closest(".row[data-id]");
+		if (!row || !window.Android || typeof window.Android.rowMenu !== "function") return;
+		e.preventDefault();
+		window.Android.rowMenu(row.dataset.id || "", row.dataset.at || "");
+	});
+
 	// Label code fences with their language and divert ```mermaid fences to a
 	// lazily rendered placeholder that keeps the source for fallback + re-theme.
 	const defaultFence = md.renderer.rules.fence;

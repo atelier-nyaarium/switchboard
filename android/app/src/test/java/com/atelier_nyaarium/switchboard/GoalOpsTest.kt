@@ -27,7 +27,7 @@ class GoalOpsTest {
 	fun armPersistsTheGoalAndDrivesTheTerminal() = runBlocking {
 		val state = MutableStateFlow(ChatState())
 		val fake = FakeSessions(state)
-		val ops = GoalOps(state, ChatPersistence(testStore()), CoroutineScope(Dispatchers.Unconfined), fake)
+		val ops = GoalOps(state, ChatPersistence(testStore()) { state.value }, CoroutineScope(Dispatchers.Unconfined), fake)
 
 		assertTrue(ops.armAndSend("local.gw.host.session", "  ship  it ", "message", emptyList()))
 

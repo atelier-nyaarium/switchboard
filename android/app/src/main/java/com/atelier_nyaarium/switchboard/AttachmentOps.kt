@@ -6,7 +6,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -144,29 +143,35 @@ internal class AttachmentOps(
 		job.invokeOnCompletion { fetchingAttachments.set(false) }
 	}
 
-	/** Restores a landed row file. */
+	/** Lands fetched bytes; a cleared row's go. */
 	private fun landFetchedAttachment(team: String, messageId: Long, name: String, src: String) {
-		var changed = false
-		val threads = state.updateAndGet { s ->
-			// Re-establish on every CAS attempt.
-			changed = false
-			val thread = s.threads[team] ?: return@updateAndGet s
-			val idx = thread.indexOfFirst { it.id == messageId }
-			// Missing rows need no unwind.
-			if (idx < 0) {
-				changed = false
-				return@updateAndGet s
-			}
-			val row = thread[idx]
-			val files = row.files.map { if (it.name == name && it.src == null) it.copy(src = src) else it }
-			if (files == row.files) {
-				changed = false
-				return@updateAndGet s
-			}
-			changed = true
-			val next = thread.toMutableList().also { it[idx] = row.copy(files = files) }
-			s.copy(threads = s.threads + (team to next))
-		}.threads
-		if (changed) persistence.persistThreads(threads)
+		var landing = AttachmentLanding.Gone
+		state.update { s ->
+			val (outcome, next) = landedAttachment(s, team, messageId, name, src)
+			landing = outcome
+			next ?: s
+		}
+		when (landing) {
+			AttachmentLanding.Landed -> persistence.persistThreads()
+			AttachmentLanding.Gone -> Attachments.deleteFiles(filesDir, listOf(src))
+			AttachmentLanding.Held -> {}
+		}
 	}
+}
+
+internal enum class AttachmentLanding { Landed, Held, Gone }
+
+/** Held when nothing is owed or another row names `src`; Gone when nobody does. */
+internal fun landedAttachment(state: ChatState, team: String, messageId: Long, name: String, src: String): Pair<AttachmentLanding, ChatState?> {
+	val thread = state.threads[team].orEmpty()
+	val idx = thread.indexOfFirst { it.id == messageId }
+	if (idx < 0) {
+		val named = src in state.namedSrcs(state.threads.values.flatten())
+		return (if (named) AttachmentLanding.Held else AttachmentLanding.Gone) to null
+	}
+	val row = thread[idx]
+	val files = row.files.map { if (it.name == name && it.src == null) it.copy(src = src) else it }
+	if (files == row.files) return AttachmentLanding.Held to null
+	val next = thread.toMutableList().also { it[idx] = row.copy(files = files) }
+	return AttachmentLanding.Landed to state.copy(threads = state.threads + (team to next))
 }

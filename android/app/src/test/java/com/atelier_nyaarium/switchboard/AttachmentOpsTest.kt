@@ -14,9 +14,10 @@ class AttachmentOpsTest {
 		File(bucket, "bytes").writeText("orphan")
 		bucket.setLastModified(System.currentTimeMillis() - Attachments.ORPHAN_SWEEP_MIN_AGE_MS - 1L)
 		val store = testStore()
+		val state = MutableStateFlow(ChatState())
 		val ops = AttachmentOps(
-			MutableStateFlow(ChatState()),
-			ChatPersistence(store),
+			state,
+			ChatPersistence(store) { state.value },
 			FailingClientPort,
 			TestIdentityPort(store),
 			root,

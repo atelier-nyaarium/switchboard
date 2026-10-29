@@ -261,6 +261,9 @@ class AppStateStore internal constructor(
 		prefs.edit().putString(KEY_THREADS, threadsJson).putString(KEY_READ_ANCHORS, anchorsJson).apply()
 	}
 
+	override fun commitThreadsAndReadAnchors(threadsJson: String, anchorsJson: String): Boolean =
+		prefs.edit().putString(KEY_THREADS, threadsJson).putString(KEY_READ_ANCHORS, anchorsJson).commit()
+
 	override fun saveLabels(json: String) = prefs.edit().putString(KEY_LABELS, json).apply()
 
 	override fun loadLabels(): String? = prefs.getString(KEY_LABELS, null)

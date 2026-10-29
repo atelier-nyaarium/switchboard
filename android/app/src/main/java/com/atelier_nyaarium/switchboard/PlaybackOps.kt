@@ -320,6 +320,13 @@ internal class PlaybackOps(
 		}
 	}
 
+	/** Drops queued rows; stops playback. */
+	suspend fun dropRows(team: String, ats: Set<Long>) {
+		val cut = advanceMutex.withLock { queue.queued().filter { it.team == team && it.at in ats } }
+		for (entry in cut) dropFromQueue(entry)
+		for (at in ats) if (isMessagePlaying(team, at)) stopMessage(team, at)
+	}
+
 	// Skips advance as stopped, never completed.
 	private fun retireHead(head: HeadTicket) {
 		val entry = head.entry

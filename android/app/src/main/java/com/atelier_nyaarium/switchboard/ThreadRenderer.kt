@@ -161,6 +161,9 @@ class ThreadRenderer(context: Context) {
 	 * (which has no href to navigate, so it arrives via the JS bridge instead of a hit test). */
 	var onLinkMenu: ((String) -> Unit)? = null
 
+	/** Row long-press: (id, `at`). */
+	var onRowMenu: ((Long, Long) -> Unit)? = null
+
 	/** Set by the owner; maps a message's `from` canonical address to the session's human label at
 	 * render time (so a notice shows "My Work" rather than the opaque address). Identity when unset. */
 	var resolveFrom: ((String) -> String)? = null
@@ -248,6 +251,13 @@ class ThreadRenderer(context: Context) {
 					val rowId = id.toLongOrNull() ?: return
 					val rowAt = at.toLongOrNull() ?: return
 					webView.post { onClaimedLinkTap?.invoke(rowId, rowAt, url) }
+				}
+
+				@JavascriptInterface
+				fun rowMenu(id: String, at: String) {
+					val rowId = id.toLongOrNull() ?: return
+					val rowAt = at.toLongOrNull() ?: return
+					webView.post { onRowMenu?.invoke(rowId, rowAt) }
 				}
 
 				// A tapped "unhandled protocol" link (inert, no href) - raises the same context

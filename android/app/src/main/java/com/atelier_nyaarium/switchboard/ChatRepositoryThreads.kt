@@ -16,12 +16,36 @@ internal fun Target.isCloseTabTarget(): Boolean = this is Address
 //  Extensions rather than members: the anchors, the open tabs and the label overrides all live in
 //  ChatState and persist through ChatPersistence, so none of this holds state of its own.
 
+/** Phone only; files go once the cut is on disk. Null when the row is gone. */
+internal suspend fun ChatRepository.clearThrough(team: String, rowId: Long, rowAt: Long): ThreadCut? =
+	drainGate.withDrainMutex {
+		kotlinx.coroutines.withContext(Dispatchers.IO) {
+			var cut: ThreadCut? = null
+			_state.update { s ->
+				cut = threadCut(s, team, rowId, rowAt)
+				cut?.let(s::withCut) ?: s
+			}
+			cut?.also { landed ->
+				playback.dropRows(team, landed.silenced)
+				// On failure files stay; the next write lands the cut.
+				if (persistence.commitThreadsAndReadAnchors()) {
+					// Named since the cut, as by a draft.
+					val now = _state.value
+					val named = now.namedSrcs(now.threads.values.flatten())
+					Attachments.deleteFiles(filesDir, landed.freed.filterNot { it in named })
+				} else {
+					DebugLog.log("Clear", "the cut did not reach disk; its files stay")
+				}
+			}
+		}
+	}
+
 /** Mark a team fully read without opening it (swipe-away on its notification reads the burst).
  * Advances the persisted anchor to the thread's tail - not just the volatile `unread` count -
  * so a deliberate dismiss survives a process restart instead of resurrecting. */
 fun ChatRepository.markRead(team: String) {
 	var anchorChanged = false
-	val next = _state.updateAndGet { s ->
+	_state.update { s ->
 		val thread = s.threads[team].orEmpty()
 		val candidate = lastInboundAnchor(thread)
 		val withAnchor = if (candidate != null && isAnchorAdvance(thread, s.readAnchors[team], candidate)) {
@@ -33,7 +57,7 @@ fun ChatRepository.markRead(team: String) {
 		}
 		withAnchor.recomputeUnread(team, thread)
 	}
-	if (anchorChanged) persistence.persistReadAnchors(next.readAnchors)
+	if (anchorChanged) persistence.persistReadAnchors()
 }
 
 /** Open (or focus) a thread's tab, deduped by canonical key. The spawn dialog opens a local
@@ -80,7 +104,7 @@ fun ChatRepository.unreadBoundary(team: String): Pair<Long?, List<Long>> {
  * duplicate report is a harmless no-op. */
 fun ChatRepository.readUpTo(team: String, rowId: Long, at: Long) {
 	var changed = false
-	val next = _state.updateAndGet { s ->
+	_state.update { s ->
 		val thread = s.threads[team].orEmpty()
 		val candidate = resolveReportedAnchor(thread, rowId, at)
 		if (candidate != null && isAnchorAdvance(thread, s.readAnchors[team], candidate)) {
@@ -91,7 +115,7 @@ fun ChatRepository.readUpTo(team: String, rowId: Long, at: Long) {
 			s
 		}
 	}
-	if (changed) persistence.persistReadAnchors(next.readAnchors)
+	if (changed) persistence.persistReadAnchors()
 }
 
 /** Close a tab and its addressable session, keeping the resume record. */

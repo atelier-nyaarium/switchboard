@@ -27,6 +27,7 @@ internal fun rememberBoundRendererPool(
 	viewerState: MutableState<OpenAttachment?>,
 	linkMenuState: MutableState<Pair<String, String>?>,
 	linkMenuNoteState: MutableState<String?>,
+	rowPressState: MutableState<RowPress?>,
 ): ThreadRendererPool {
 	val state by repo.state.collectAsState()
 	val context = LocalContext.current
@@ -105,6 +106,7 @@ internal fun rememberBoundRendererPool(
 		linkMenuNote = null
 		linkMenu = team to url
 	}
+	rendererPool.onRowMenu = { team, id, at -> rowPressState.value = RowPress(team, id, at) }
 	// A tapped link whose scheme a plugin claims. The framework resolves the ROW first, so a handler
 	// receives that row's own files rather than a row id it would have to trust and resolve itself.
 	// The same ref in two messages points at two different snapshots, which is why the row's `at`
