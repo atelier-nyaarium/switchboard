@@ -264,6 +264,11 @@ no TTL.
   state back. The home's one writer is `AssistantHomeFence`. A file is deleted only through
   `AttachmentOps.deleteWhenDurable`, which commits threads, anchors, drafts and scheduled sends in
   one write first and keeps any file something still names.
+- **Sends by local file reference** (`ChatRepository.send`, `ScheduledSendOps.scheduleSend`,
+  `GoalOps.armAndSend`): a send takes the draft's own `MessageFile`s and admits them through
+  `rebuildFiles`, under one cumulative budget, so each keeps its role (`ROLE_SCREEN` included) on the
+  stored row and on the wire (`wireFile`). The upload reads the row's own copies. No send road mints
+  a FileProvider Uri for a file the app already holds.
 - **Presence authority** (`Presence.kt`): the gateway's own presence is pushed; other machines are
   discovered by `/discover`. A bare presence value does not reveal which channel produced it.
 - **Owner facts** (`ChatState.owner`, `PresenceOps.applyOwnerFacts`): the Router states the owner's

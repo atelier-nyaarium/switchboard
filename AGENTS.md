@@ -31,6 +31,14 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../AssistantSummon.kt` - long-press-power summon: the `Summon` transitions, `SummonBus`, and every decision (`summonLanding`, `focusStep`, `promptsAppLock`); `MainActivity.consume` raises one and asks the keyguard to dismiss. `docs/assistant.md` holds the rules
   - **Only a resumed window acts on a shared bus:** a picker leaves a stopped `MainActivity` beneath a second one, so `routesNow`, `focusStep`, the app-lock handoff and `WorkspaceOpenBus` routing all read `resumed`.
   - **Nothing draws over the keyguard:** `summon-residue.test.ts` refuses `showWhenLocked`, `turnScreenOn` and `RECORD_AUDIO`.
+- `android/.../assistant/AssistantPanelService.kt` / `AssistantPanelSession.kt` / `AssistantPanel.kt` / `AssistantPanelRules.kt` / `IntegrationProbe.kt` - the panel over another app: the services the assistant role binds, the session, its surface, every decision it makes, and the debug probe. `docs/assistant.md` holds the rules
+  - **`panelShow` decides before any UI is enabled:** a locked keyguard, an app lock that would ask or
+    no conversation hands off to `MainActivity`'s summon; `summon-residue.test.ts` pins the order.
+  - **Each summon is a fresh session:** `onHide` calls `finish`, so a capture landing late has no
+    session to land on.
+- `android/.../AppLock.kt` / `ForegroundLease.kt` - the app lock's one answer for the process, and the one foreground both hosts hold
+  - **The lock outlives a rotation, not the Activity:** `MainActivity` finishing gives it back,
+    since the service would otherwise keep the process, and the answer, alive.
 - `src/shared/gateway-long-waits.ts` - the POST routes whose default wait passes Bun's 255s idle cut, and which of them replay a repeat; read by `src/gateway/index.ts` and the plugin's `routerRequest`
   - **The plugin's fetch lift holds the long routes:** Bun 1.4.0 does not cut a POST after its body is
     read, and its fetch abandons an idle request at 300s. No gate here runs either Bun behavior;

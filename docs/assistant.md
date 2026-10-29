@@ -469,8 +469,41 @@ microphone; Gboard's mic key dictates. `summon-residue.test.ts` refuses `showWhe
   lock, once; a Smart Lock dismissal does not. No API proves a credential was entered, so a trust
   agent granting trust while the system prompt shows reads as a challenge.
 - **Setup:** the role cannot be requested by an app. Assistant settings shows a Digital assistant row
-  while the role is not held, opening the system's picker and naming the Press and hold power
-  setting.
+  while the role is not held or its session is not adopted (`assistantSessionAdopted`), opening the
+  system's picker and naming the Press and hold power setting. A role picked before the session
+  shipped recorded none, so it takes one re-pick.
+
+## The panel
+
+With the session adopted, long-press power opens a panel over the app beneath instead of switching
+to Switchboard. `AssistantVoiceService`, `AssistantPanelSessionService` and a stub
+`AssistantRecognitionService` (`AssistantPanelService.kt`) are what the role binds;
+`AssistantPanelSession` is the panel, and `AssistantPanelRules.kt` holds every decision it makes.
+
+- **Nothing draws over the keyguard or the app lock:** `onPrepareShow` asks `panelShow` before any UI
+  is enabled. A locked keyguard, an app lock that would ask (`AppLock`, `appLockAsks`) or no
+  conversation yet hands off to today's summon on `MainActivity`. An open panel hides if the app lock
+  asks again. `assistant_session.xml` refuses a keyguard launch, and `summon-residue.test.ts` pins both.
+- **One answer for the app lock:** `AppLock` holds it for the process, so the Activity and the panel
+  read the same one. A rotation keeps it; `MainActivity` finishing gives it back.
+- **One foreground:** `ForegroundLease` brings the process to the foreground on the first host shown
+  and back on the last one hidden, so closing the panel never backgrounds the Activity.
+- **The surface:** `AssistantPanel` draws the thread from its own renderer pool, the draft's text,
+  the screen chip and Send. It sends what it shows: the text and an attached screen; the draft's
+  files stay for the app's composer. Attachment taps, link menus and row menus do nothing here;
+  "Open in app" reaches them. Each summon is a fresh session, since `onHide` calls `finish`.
+- **Share screen:** the screenshot and the screen text arrive with the summon and stay in memory,
+  dropped on hide. A tap attaches them; only a send writes them, as `screen.png` and `screen.txt`
+  with role `screen`. The text is read from a bounded walk of the `AssistStructure`, password fields
+  left out (`screenText`).
+- **Screen text never speaks for the owner:** a `screen` file rides every send road to the Gateway,
+  where `createOriginMarker` reads an owner row carrying one as not the owner's own words, so a
+  `crosstalk_send` after it asks a card even with approve-every-send off.
+- **The integration probe** (`IntegrationProbe`): debug builds only, at app start and at each panel
+  show, it logs to the ingest what the phone would allow an assistant: the role, the assist
+  settings, the torch, which intents resolve, candidate permissions declared and granted, and
+  notification-listener, Do Not Disturb and Accessibility access. Each show also logs the shape of
+  the assist data (`assistFacts`). Only counts, booleans and setting states leave the phone.
 
 ## Check-ins
 
