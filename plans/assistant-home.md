@@ -261,7 +261,9 @@ Phone only, in every conversation (Question 10). Pixel acceptance waits for the 
 - **Sibling class, closed on the second pass:** files deleted after an `apply()` write rather than a committed one, in forget (`SessionOps`), removing a draft's attachment (`ChatRepositoryDrafts`), `reconcileSent`'s superseded files, and scheduled-send replace and cancel. Every delete now goes through `AttachmentOps.deleteWhenDurable`: `commitFileOwners` commits threads, anchors, drafts and scheduled sends in one write, then only what nothing names is deleted. The clear takes the same road. Not closed: a reference added between that check and the delete, which would need a lock every reference-adding write takes.
 - **Accepted:** playback names a row by `(team, at)`, since ids are reassigned on load. A cut row sharing its `at` with a surviving row keeps its queued audio rather than silencing the survivor's.
 
-## Phase 4 - The assistant panel
+## Phase 4 - The assistant panel ✅
+
+Built and walked on the emulator; Pixel acceptance and probe delivery on a debug Pixel wait for the deploy. What differs from the bullets below is under "Deviations found in implementation".
 
 Long-press power opens the assistant as a panel over the current app (Question 11).
 
@@ -299,6 +301,8 @@ Long-press power opens the assistant as a panel over the current app (Question 1
 - **A row has no identity that survives a load:** `ChatPersistence.loadPersistedThreads` reassigns ids 0..n-1, so a row is named by `(id, at)` in one process and by `at` alone across loads. Clear needed an id floor (`ChatState.idFloors`) so a full clear does not reuse id 0, and playback keys by `(team, at)`, so a cut row sharing its `at` with a survivor keeps its audio (`ThreadCut.silenced`). A persisted row id would retire both.
 - **The sandbox reseeds on every launch:** `ChatRepositorySandboxSeeder.seedSandbox` replaces threads and drafts each start, so no emulator walk can show that a clear or a draft survives a restart. Only the JVM codec tests can.
 - **An unbounded Codex relay can hold a fan-out for hours:** the first Phase 3 red team waited about 2.4 hours on two Luna turns that never answered. Every relay prompt since stops the agent after eight timed-out waits.
+- **`ThreadScreen` is welded to `MainActivity`:** about 700 lines holding activity-result launchers, schedule and goal dialogs and the composer, so the panel could not draw it and got its own compact surface. Splitting the composer and the dialogs out of `ThreadScreen` would let a second host draw the conversation whole.
+- **The phone's session and assist callbacks have no test bed:** with no `androidTest`, `AssistantPanelSession`'s lifecycle, the hand-off and the real `AssistStructure` walk are checked only on the emulator (the role set by `cmd role remove-role-holder` then `add-role-holder`, since a role picked before the session shipped records none).
 - **The task board refuses a self-assigned create with `held`:** follow-ups that should have gone on the board landed in this plan's Bug Classes instead.
 - **`AssistantOps.kt` holds two classes' worth:** the home lifecycle (read, move, remove, seed, the fence) sits beside rule drafts, page work and watcher chips. Extracting an `AssistantHomeOps` is a faithful move now that the fence is the only writer.
 
