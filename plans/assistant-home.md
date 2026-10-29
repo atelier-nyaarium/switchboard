@@ -220,7 +220,9 @@ A clean break. Phases 1 and 2 ship together: the Router, then every Gateway, the
 - **Floor, codegen and docs:** `FEDERATION_PROTOCOL_FLOOR` and the version rise together. `Protocol.kt` and the version's golden wire fixtures regenerate in the same commit. `docs/assistant.md`, `docs/console.md` and `AGENTS.md` describe the Router-owned home.
 - **Tests:** the record and ops (bounds, a target with no identity, a superseded or disconnected target, a conflict); the report fence (wrong sender, stale version, a resend); the Gateway follow (each state, apply once, settings before lanes, a forget refused while waking, a late wake registering after the let-go, boot from the home file); a harness Set up, Move to itself, Remove and refusal through one Gateway (the harness has no second Gateway in a Domain, so the not-named let-go is a unit test); `check:boot`; the Kotlin gate.
 
-## Phase 2 - The phone reads one home
+## Phase 2 - The phone reads one home ✅
+
+Built and walked in the emulator; the Pixel acceptance (a Move between two Gateways, a Remove, a refused move) waits for the deploy at the end of the plan, since Phases 1 and 2 ship together.
 
 - **Reads:** the home is the Router record, kept in `ChatPersistence` as the last seen and reread when its plane moves. `refreshAll`'s ask-every-Gateway effect goes: the phone reads `assistant_state` from the home alone, for Settings and the health lines. A pure status fold beside `AssistantOps` reads the record, the report, the held put result, Router reach, the roster and presence, and answers one landing state: not read yet (draw nothing), Router unreachable, set up (nobody or never written), moving, refused with the reason, home unreachable, or placed (draw the conversation).
 - **The put's result:** `ChatState.homeFailure`, written only through `AssistantHomeFence`, until a newer choice lands. Its returned record applies at once. A conflict adopts the held record and follows the winner; only a failure shows "Error moving assistant". An unanswered or uncertain put is read back and counts only as that exact write.
@@ -270,6 +272,12 @@ Long-press power opens the assistant as a panel over the current app (Question 1
 
 - **Codegen lists every schema twice by hand:** `scripts/codegen-kotlin.ts` imports each schema and lists it again in its emit array, and an anonymous nested object fails only when the script runs ("inline object without $defs id"). A schema file could export its own list.
 - **A console op cannot leave in one commit:** `ConsoleOpSchema` generates `ConsoleOp` in `Protocol.kt`, so dropping an op breaks the phone's build until its callers go too. Phase 1 had to keep `assistant_place` and `assistant_release` as refusals.
+- **The cancellation fence matches suspend names across the whole phone:** `src/__tests__/cancellation-residue.test.ts:offendersIn` treats any call whose name matches any `suspend fun` anywhere as suspending, and `priorCancellationCatch` reads the catch before it as the try body. Naming a new suspend function `remove` flagged an untouched catch in `ChatRepositorySend.kt:reconcilePending`. The fix was a rename, not a code change.
+- **Outcome enums reach Kotlin as plain strings:** a Zod enum with `catalog: "outcome"` metadata generates `String`, so "applied", "conflict" and "placed" are typed by hand on the phone, and the wire-vocabulary fence forces "refused" through `Protocol.Wire.SocketFrame.REFUSED`, a socket frame's name. `VaultOps` and `ScheduledSendOps` carry the same literals. Generated outcome constants per enum would close it.
+- **Emulator walks are hand-rolled shell:** every walk re-declares the same `tap` and `texts` helpers over `uiautomator dump`, the sandbox's app lock asks for the PIN on every launch, a text field is found by its current text because the Gateway picker is also an `EditText`, and select-all does not work, so clearing a field means counting backspaces. A shared `scripts/emu-walk.sh` with these helpers and an unlock step would save most of it.
+- **Prose passes repeat themselves:** each Luna comment pass rewords the comments the last one shortened, and many proposals change what a comment says. Three passes over one diff cost more than the comments are worth; one pass per commit, scoped to new lines, is enough.
+- **Two writers of `roles`:** `PresenceOps.reapplyCachedTeams` persists a whole-map snapshot taken before it awaits, so it can drop a role the home fence stamped meanwhile (tracked on the board as bd_751500bf).
+- **`AssistantOps.kt` holds two classes' worth:** the home lifecycle (read, move, remove, seed, the fence) sits beside rule drafts, page work and watcher chips. Extracting an `AssistantHomeOps` is a faithful move now that the fence is the only writer.
 
 ## Integrations scope
 
