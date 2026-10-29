@@ -33,6 +33,8 @@ data class ChatState(
 	val teamAbsenceStreaks: Map<String, Int> = emptyMap(),
 	/** Stamped roles outlive their presence rows. */
 	val roles: Map<String, String> = emptyMap(),
+	/** Router home record, last read. */
+	val assistantHome: AssistantHome = AssistantHome.Unread,
 	val connected: Boolean = false,
 	/** Mirrors repository visibility for Compose observation. */
 	val foreground: Boolean = false,

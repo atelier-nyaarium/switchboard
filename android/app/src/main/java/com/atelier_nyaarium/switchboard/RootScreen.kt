@@ -35,6 +35,7 @@ internal fun RootScreen(
 	snackbarHostState: SnackbarHostState,
 	onRefresh: () -> Unit,
 	onSettings: () -> Unit,
+	onAssistantSettings: (() -> Unit)?,
 	// Idle has no action.
 	queueState: QueueGlance,
 	onQueue: () -> Unit,
@@ -83,6 +84,11 @@ internal fun RootScreen(
 										else -> "Speaking queue"
 									},
 								)
+							}
+						}
+						if (shown == RootView.ASSISTANT && onAssistantSettings != null) {
+							IconButton(onClick = hapticClick(onAssistantSettings)) {
+								Icon(Icons.Default.Settings, contentDescription = "Assistant settings")
 							}
 						}
 						IconButton(onClick = hapticClick(onRefresh)) { Icon(Icons.Default.Refresh, contentDescription = "Refresh") }

@@ -1,5 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -65,12 +67,31 @@ class ChatPersistenceTest {
 		}
 
 		override fun loadRoles(): String? = slots["roles"]
+
+		override fun saveAssistantHome(json: String) {
+			slots["assistantHome"] = json
+		}
+
+		override fun loadAssistantHome(): String? = slots["assistantHome"]
 	}
 
 	private val store = FakeStore()
 	private val codec = ChatPersistence(store)
 	private val team = "home.gw.app.dev"
 	private val peerTeam = "home.gw.lib.dev"
+
+	@Test
+	fun assistantHomeRoundTripsAndAnUnparseableSlotLoadsUnread() {
+		val home = AssistantHome.Read(
+			AssistantHomeRecord(version = 4L, gatewayId = "sakura"),
+			AssistantHomeReport(version = 4L, gatewayId = "sakura", outcome = "placed"),
+		)
+		codec.persistAssistantHome(home)
+
+		assertEquals(home, codec.loadPersistedAssistantHome())
+		store.slots["assistantHome"] = "{ broken"
+		assertEquals(AssistantHome.Unread, codec.loadPersistedAssistantHome())
+	}
 
 	private fun message(
 		at: Long,

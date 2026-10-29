@@ -9,6 +9,9 @@ import com.atelier_nyaarium.switchboard.assistant.fieldLabel
 import com.atelier_nyaarium.switchboard.assistant.label
 import com.atelier_nyaarium.switchboard.assistant.outcomeOf
 import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarried
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarriedWatcher
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
 import com.atelier_nyaarium.switchboard.proto.AssistantRule
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
@@ -24,9 +27,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** The Gateway's mark on the assistant's presence row. */
 internal const val ASSISTANT_ROLE = Protocol.Wire.ASSISTANT_ROLE
+
+private const val ROUTER_UNREACHABLE = "could not reach the Federation Router"
+private const val NOT_READ = "where the assistant lives has not been read yet"
+private const val UNROUTABLE = "unroutable"
 
 /** The gateway calls this class makes, so a test can answer them without a transport. */
 internal interface AssistantGateway {
@@ -40,20 +49,58 @@ internal interface AssistantGateway {
 
 internal interface AssistantHost {
 	val gateway: AssistantGateway?
+	/** Null before the federation is reachable. */
+	val home: AssistantHomeRouter?
 	fun persistRoles(roles: Map<String, String>)
+	fun persistHome(home: AssistantHome.Read)
 }
 
-/** What a move did. Placing comes first, so a refused place leaves the old home untouched. */
-internal sealed interface AssistantMoved {
-	data object Moved : AssistantMoved
-	data class Refused(val reason: String) : AssistantMoved
-	data object Unreachable : AssistantMoved
+/** Settings a move carries. */
+internal fun carriedOf(state: ConsoleAssistantStateResult): AssistantHomeCarried = AssistantHomeCarried(
+	approveEverySend = state.approveEverySend ?: true,
+	watchers = state.watchers.mapNotNull { watcher ->
+		watcher.rules?.let { AssistantHomeCarriedWatcher(id = watcher.id, rules = it, grant = watcher.grants.firstOrNull()) }
+	},
+)
 
-	/**
-	 * Placed, but not every other Gateway is known to hold none: `stillOn` held it and did not
-	 * confirm the release, `unchecked` could not be asked.
-	 */
-	data class Unsettled(val stillOn: List<String>, val unchecked: List<String>) : AssistantMoved
+/** Sole holder, for seeding. */
+internal data class SeedChoice(val gatewayId: String, val workdir: String, val state: ConsoleAssistantStateResult)
+
+/** Every answer, one holder; silence is never "none". */
+internal fun seedFrom(answers: List<Pair<String, AssistantAnswer?>>): SeedChoice? {
+	if (answers.isEmpty() || answers.any { it.second !is AssistantAnswer.State }) return null
+	val holders = answers.mapNotNull { (gatewayId, answer) ->
+		val held = (answer as AssistantAnswer.State).state
+		held.workdir?.let { SeedChoice(gatewayId, it, held) }
+	}
+	return holders.singleOrNull()
+}
+
+/** 0 never written, null unread. */
+internal fun choiceOf(home: AssistantHome): Long? = (home as? AssistantHome.Read)?.let { it.record?.version ?: 0L }
+
+/** Null when older; a repeat keeps its report. */
+internal fun newerHome(held: AssistantHome, incoming: AssistantHome.Read): AssistantHome.Read? {
+	val kept = held as? AssistantHome.Read ?: return incoming
+	val version = incoming.record?.version ?: 0L
+	val heldVersion = kept.record?.version ?: 0L
+	return when {
+		version < heldVersion -> null
+		version == heldVersion && incoming.report == null -> incoming.copy(report = kept.report)
+		else -> incoming
+	}
+}
+
+internal fun moveErrorText(reason: String): String = "Error moving assistant: $reason"
+
+/** Put refusal, owner-facing. */
+internal fun homeRefusalText(refusal: String?, target: String?): String = when (refusal) {
+	UNROUTABLE -> "${target ?: "that Gateway"} can't be reached."
+	"too_large" -> "the assistant's settings are too large to move"
+	"durability_failure" -> "the Router could not save it"
+	"durability_uncertain" -> "the Router could not confirm it"
+	null -> "the Router turned it down"
+	else -> refusal
 }
 
 /** The folder as the Gateway stores it: no trailing slash, the root kept. */
@@ -63,24 +110,31 @@ internal fun folderOf(text: String): String = text.trim().trimEnd('/').ifEmpty {
 internal fun placementMoves(home: String?, target: String?, folder: String, workdir: String?): Boolean =
 	target != null && (target != home || workdir == null || folderOf(folder) != folderOf(workdir))
 
-/** Grant or release status; null when it landed. */
+/** What the location button does. */
+internal sealed interface LocationAction {
+	/** Grey: incomplete or unchanged. */
+	data object None : LocationAction
+
+	/** Grey; target offline. */
+	data class Offline(val gatewayId: String) : LocationAction
+
+	/** `abandoning`: offline home, confirmed first. */
+	data class Move(val target: String, val abandoning: String?) : LocationAction
+}
+
+internal fun locationAction(registry: GatewayRegistry, home: String?, target: String?, folder: String, workdir: String?): LocationAction =
+	when {
+		target == null || folder.isBlank() -> LocationAction.None
+		!registry.reachable(target) -> LocationAction.Offline(target)
+		!placementMoves(home, target, folder, workdir) -> LocationAction.None
+		else -> LocationAction.Move(target, home?.takeIf { it != target && !registry.reachable(it) })
+	}
+
+/** Grant or Safety status; null when it landed. */
 internal fun answerText(answer: AssistantAnswer): String? = when (answer) {
 	is AssistantAnswer.State -> null
 	is AssistantAnswer.Refused -> answer.reason
 	AssistantAnswer.Unreachable -> "That Gateway could not be reached"
-}
-
-/** Move status; null when it landed. */
-internal fun movedText(moved: AssistantMoved): String? = when (moved) {
-	AssistantMoved.Moved -> null
-	is AssistantMoved.Refused -> moved.reason
-	AssistantMoved.Unreachable -> "That Gateway could not be reached"
-	is AssistantMoved.Unsettled -> buildList {
-		add("Placed.")
-		if (moved.stillOn.isNotEmpty()) add("${moved.stillOn.joinToString()} did not confirm it let go.")
-		if (moved.unchecked.isNotEmpty()) add("Could not ask ${moved.unchecked.joinToString()} whether it holds one too.")
-		add(if (moved.stillOn.size + moved.unchecked.size == 1) "Move again once it answers." else "Move again once they answer.")
-	}.joinToString(" ")
 }
 
 /** One chip in the inbox strip. */
@@ -155,14 +209,11 @@ internal fun rulesCountText(rules: Int, invalid: Int): String {
 /** Lives on comes first. */
 internal enum class AssistantSection { LIVES_ON, SAFETY, WATCHERS }
 
-internal fun assistantSections(
-	home: String?,
-	placed: ConsoleAssistantStateResult?,
-	chosen: ConsoleAssistantStateResult? = placed,
-): List<AssistantSection> =
+/** Safety and watchers are the home's. */
+internal fun assistantSections(home: String?, placed: ConsoleAssistantStateResult?): List<AssistantSection> =
 	listOfNotNull(
 		AssistantSection.LIVES_ON,
-		AssistantSection.SAFETY.takeIf { chosen?.approveEverySend != null },
+		AssistantSection.SAFETY.takeIf { home != null && placed?.approveEverySend != null },
 		AssistantSection.WATCHERS.takeIf { home != null && placed != null },
 	)
 
@@ -194,8 +245,18 @@ internal class AssistantOps(
 ) {
 	private val reads = GatewayReadFence()
 
-	/** The last move's target. */
-	val preferredHome = MutableStateFlow<String?>(null)
+	/** Put failure, until a newer choice. */
+	val homeFailure = MutableStateFlow<String?>(null)
+
+	private val seeding = java.util.concurrent.atomic.AtomicBoolean(false)
+
+	/** Serializes owner writes and seeding. */
+	private val writes = Mutex()
+
+	private val persisting = Any()
+
+	/** Bumped by a re-provision; a read begun before lands nothing. */
+	private val provisioned = java.util.concurrent.atomic.AtomicLong()
 
 	/** Page results survive Back. */
 	val work = MutableStateFlow<Map<WorkKey, PageWork>>(emptyMap())
@@ -270,55 +331,165 @@ internal class AssistantOps(
 		return outcome
 	}
 
-	suspend fun refreshAll() {
-		coroutineScope { state.value.gateways.ids().map { id -> async { refresh(id) } }.awaitAll() }
+	/** True once read; an unwritten home may seed. */
+	suspend fun readHome(): Boolean {
+		if (!fetchHome()) return false
+		if (homeUnsettled(state.value)) seed()
+		return true
+	}
+
+	/** Reads and lands, never seeds, so the drain waits on no Gateway. */
+	suspend fun fetchHome(): Boolean {
+		val router = host.home ?: return false
+		val since = provisioned.get()
+		val read = attempt { router.read() } ?: return false
+		landHome(AssistantHome.Read(read.record, read.report), since)
+		return true
+	}
+
+	/** A re-provision: what was read names another Domain. */
+	fun forgetHome() {
+		provisioned.incrementAndGet()
+		state.update { it.copy(assistantHome = AssistantHome.Unread) }
+		homeFailure.value = null
+		work.update { it - WorkKey.Settings }
+	}
+
+	private fun choiceNow(): Long? = choiceOf(state.value.assistantHome)
+
+	/** Only the home is asked for its state. */
+	suspend fun refreshHome() {
+		assistantGateway(state.value)?.let { refresh(it) }
 	}
 
 	suspend fun refresh(gatewayId: String) {
 		val client = host.gateway ?: return
 		if (gatewayId.isBlank()) return
+		val choice = choiceNow()
 		val read = reads.read(gatewayId) { attempt { client.call(gatewayId, ConsoleOp.AssistantState) } }
 		when (val answer = (read as? GatewayRead.Fresh)?.value) {
-			is AssistantAnswer.State -> show(gatewayId, AssistantWord.Answered(answer.state))
+			is AssistantAnswer.State -> show(gatewayId, AssistantWord.Answered(answer.state), choice)
 			// Refusal leaves placement unknown.
-			is AssistantAnswer.Refused -> show(gatewayId, AssistantWord.Refused)
+			is AssistantAnswer.Refused -> show(gatewayId, AssistantWord.Refused, choice)
 			AssistantAnswer.Unreachable, null -> {}
 		}
 	}
 
-	/** Resolve assistant identity before presence. */
-	private fun seedRole(gatewayId: String) {
-		val address = answeredAssistant(state.value, gatewayId) ?: return
-		val roles = state.updateAndGet { it.copy(roles = it.roles + (address to ASSISTANT_ROLE)) }.roles
-		host.persistRoles(roles)
-	}
-
-	/** Queries other Gateways directly, places, then releases; lists uncertain homes. */
-	suspend fun move(target: String, workdir: String): AssistantMoved {
-		val client = host.gateway ?: return AssistantMoved.Unreachable
-		val others = coroutineScope {
-			state.value.gateways.ids().filter { it != target }.map { id ->
-				async { id to (attempt { client.call(id, ConsoleOp.AssistantState) } ?: AssistantAnswer.Unreachable) }
-			}.awaitAll()
-		}
-		val leaving = others.filter { (_, answer) -> (answer as? AssistantAnswer.State)?.state?.workdir != null }.map { it.first }
-		// One whose last answer held none is not named; one never answered might hold it.
-		val unread = others
-			.filter { (id, answer) -> answer !is AssistantAnswer.State && !assistantReleased(state.value, id) }
-			.map { it.first }
-		when (val placed = landed(target, ConsoleOp.AssistantPlace(workdir = workdir))) {
-			is AssistantAnswer.State -> {
-				preferredHome.value = target
-				seedRole(target)
+	/** New choice drops stale answers; a placed home is stamped. */
+	private fun landHome(incoming: AssistantHome.Read, since: Long) {
+		val before = state.getAndUpdate { current ->
+			if (provisioned.get() != since) return@getAndUpdate current
+			val home = newerHome(current.assistantHome, incoming) ?: return@getAndUpdate current
+			val landed = current.copy(assistantHome = home).withoutAssistantTabs()
+			if (choiceOf(current.assistantHome) != choiceOf(home)) landed.copy(gateways = landed.gateways.withoutAssistantWords()) else landed
+		}.assistantHome
+		val home = state.value.assistantHome as? AssistantHome.Read ?: return
+		if (home != before) {
+			// Newest under lock, so stale never lands last.
+			synchronized(persisting) {
+				if (provisioned.get() == since) (state.value.assistantHome as? AssistantHome.Read)?.let(host::persistHome)
 			}
-			is AssistantAnswer.Refused -> return AssistantMoved.Refused(placed.reason)
-			AssistantAnswer.Unreachable -> return AssistantMoved.Unreachable
+			if (choiceOf(before) != choiceOf(home)) {
+				homeFailure.value = null
+				work.update { held -> held[WorkKey.Settings]?.takeIf { !it.busy }?.let { held + (WorkKey.Settings to PageWork()) } ?: held }
+			}
 		}
-		val stuck = leaving.filter { release(it) !is AssistantAnswer.State }
-		return if (stuck.isEmpty() && unread.isEmpty()) AssistantMoved.Moved else AssistantMoved.Unsettled(stuck, unread)
+		val address = placedAddress(state.value) ?: return
+		if (state.value.roles[address] == ASSISTANT_ROLE) return
+		host.persistRoles(state.updateAndGet { it.copy(roles = it.roles + (address to ASSISTANT_ROLE)) }.roles)
 	}
 
-	suspend fun release(gatewayId: String): AssistantAnswer = landed(gatewayId, ConsoleOp.AssistantRelease)
+	/** Placed: fresh settings. Unplaced: what the record sealed. Offline: none, once confirmed. */
+	suspend fun moveAssistant(target: String, workdir: String, abandoning: String? = null): String? = writes.withLock {
+		val held = state.value.assistantHome as? AssistantHome.Read ?: return@withLock failed(NOT_READ)
+		val record = held.record
+		val base = record?.version ?: 0L
+		val home = record?.gatewayId
+		val carried = when {
+			home == null -> null
+			placedGateway(state.value) != home -> {
+				val opened = record?.sealed?.let { host.home?.open(home, base, it) }
+				when {
+					opened != null -> opened.carried
+					abandoning == home -> null
+					else -> return@withLock failed("could not open the assistant's settings")
+				}
+			}
+			state.value.gateways.reachable(home) ->
+				carriedFrom(home) ?: return@withLock failed("could not read the assistant's settings on $home")
+			abandoning == home -> null
+			else -> return@withLock failed(homeRefusalText(UNROUTABLE, home))
+		}
+		put(base, target, AssistantHomeSealed(workdirPath = workdir, carried = carried))
+	}
+
+	/** Removal needs no key. */
+	suspend fun removeAssistant(): String? = writes.withLock {
+		val held = state.value.assistantHome as? AssistantHome.Read ?: return@withLock failed(NOT_READ)
+		put(held.record?.version ?: 0L, null, null)
+	}
+
+	/** A conflict adopts the winner; an unknown outcome is read back. */
+	private suspend fun put(base: Long, target: String?, sealed: AssistantHomeSealed?): String? {
+		val router = host.home ?: return failed(ROUTER_UNREACHABLE)
+		val since = provisioned.get()
+		val envelope = if (target != null && sealed != null) {
+			router.seal(target, base + 1, sealed) ?: return failed("this phone has no content key yet")
+		} else {
+			null
+		}
+		homeFailure.value = null
+		val result = attempt { router.put(base, target, envelope) }
+		when (result?.outcome) {
+			"applied", "conflict" -> {
+				landHome(AssistantHome.Read(result.record, null), since)
+				// Catch an already filed report.
+				fetchHome()
+				return null
+			}
+			Protocol.Wire.SocketFrame.REFUSED -> return failed(homeRefusalText(result.refusal, target), base)
+		}
+		// Unanswered or uncertain: landed only as this exact write.
+		fetchHome()
+		val now = (state.value.assistantHome as? AssistantHome.Read)?.record
+		if (now != null && now.version == base + 1 && now.gatewayId == target && now.sealed == envelope) return null
+		return failed(if (result == null) ROUTER_UNREACHABLE else homeRefusalText(result.refusal ?: result.outcome, target), base)
+	}
+
+	/** Dropped once a newer choice landed. */
+	private fun failed(reason: String, base: Long? = null): String? {
+		if (base != null && choiceNow() != base) return null
+		homeFailure.value = reason
+		return reason
+	}
+
+	private suspend fun carriedFrom(gatewayId: String): AssistantHomeCarried? {
+		val client = host.gateway ?: return null
+		val choice = choiceNow()
+		val answer = attempt { client.call(gatewayId, ConsoleOp.AssistantState) } as? AssistantAnswer.State ?: return null
+		show(gatewayId, AssistantWord.Answered(answer.state), choice)
+		return carriedOf(answer.state)
+	}
+
+	/** Fresh registered answers only; an owner choice wins. */
+	private suspend fun seed() {
+		val registry = state.value.gateways
+		if (!registry.current || !seeding.compareAndSet(false, true)) return
+		try {
+			val client = host.gateway ?: return
+			val asked = registry.gateways.filter { it.seen }.map { it.id }
+			val answers = coroutineScope {
+				asked.map { id -> async { id to attempt { client.call(id, ConsoleOp.AssistantState) } } }.awaitAll()
+			}
+			val choice = seedFrom(answers) ?: return
+			writes.withLock {
+				if (!homeUnsettled(state.value) || state.value.assistantHome !is AssistantHome.Read) return@withLock
+				put(0L, choice.gatewayId, AssistantHomeSealed(workdirPath = choice.workdir, carried = carriedOf(choice.state)))
+			}
+		} finally {
+			seeding.set(false)
+		}
+	}
 
 	suspend fun setSafety(gatewayId: String, approveEverySend: Boolean): AssistantAnswer =
 		landed(gatewayId, ConsoleOp.AssistantSafety(approveEverySend))
@@ -364,18 +535,21 @@ internal class AssistantOps(
 	/** Fenced draw; a refusal re-reads. */
 	private suspend fun landed(gatewayId: String, op: ConsoleOp): AssistantAnswer {
 		val client = host.gateway ?: return AssistantAnswer.Unreachable
+		val choice = choiceNow()
 		val answer = attempt { client.call(gatewayId, op) } ?: AssistantAnswer.Unreachable
 		when (answer) {
 			is AssistantAnswer.State ->
-				if (reads.read(gatewayId) { answer } is GatewayRead.Fresh) show(gatewayId, AssistantWord.Answered(answer.state))
+				if (reads.read(gatewayId) { answer } is GatewayRead.Fresh) show(gatewayId, AssistantWord.Answered(answer.state), choice)
 			is AssistantAnswer.Refused -> refresh(gatewayId)
 			AssistantAnswer.Unreachable -> {}
 		}
 		return answer
 	}
 
-	private fun show(gatewayId: String, word: AssistantWord) {
+	/** Dropped once the choice moved. */
+	private fun show(gatewayId: String, word: AssistantWord, choice: Long?) {
 		state.update { held ->
+			if (choiceOf(held.assistantHome) != choice) return@update held
 			held.copy(gateways = held.gateways.withEntry(gatewayId) { it.copy(assistant = word) }).withoutAssistantTabs()
 		}
 	}

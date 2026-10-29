@@ -204,12 +204,13 @@ fun RoutineEditor(
 				)
 			}
 
+			val pickedTarget = targets.find {
+				it.kind == draft.targetKind && (it.kind == ROUTINE_TARGET_ASSISTANT || it.spawn == draft.spawn)
+			}
 			PickMenu(
 				label = "Target",
 				choices = targets,
-				picked = targets.find {
-					it.kind == draft.targetKind && (it.kind == ROUTINE_TARGET_ASSISTANT || it.spawn == draft.spawn)
-				},
+				picked = pickedTarget,
 				labelOf = { it.label },
 				onPick = {
 					draft = if (it.kind == ROUTINE_TARGET_ASSISTANT) {
@@ -218,8 +219,15 @@ fun RoutineEditor(
 						draft.selectSpawn(it.spawn)
 					}
 				},
-				trailingOf = { if (it.offered) null else "not offered now" },
+				trailingOf = ::targetTag,
 			)
+			if (pickedTarget != null && assistantAbsent(pickedTarget)) {
+				Text(
+					"The assistant isn't set up on this Gateway.",
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.error,
+				)
+			}
 
 			if (!assistantTarget) {
 				Text("Granted secrets", style = MaterialTheme.typography.labelLarge)

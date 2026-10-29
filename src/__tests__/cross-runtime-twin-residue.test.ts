@@ -13,7 +13,7 @@ const EXEMPTIONS: Record<string, Record<string, string>> = {
 		DEFAULT_ROUTER_PORT: "No Protocol constant.",
 		LAN_CONNECT_TIMEOUT_MS: "No Protocol constant.",
 	},
-	"main/java/com/atelier_nyaarium/switchboard/assistant/AssistantScreen.kt": {
+	"main/java/com/atelier_nyaarium/switchboard/AssistantRoot.kt": {
 		ASSISTANT_SPAWN: "No Protocol constant.",
 	},
 	"main/java/com/atelier_nyaarium/switchboard/crypto/ContentAadKinds.kt": {

@@ -171,8 +171,6 @@ object Protocol {
 			const val POLICY_DELETE: String = "policy_delete"
 			const val POLICY_ENABLE: String = "policy_enable"
 			const val ASSISTANT_STATE: String = "assistant_state"
-			const val ASSISTANT_PLACE: String = "assistant_place"
-			const val ASSISTANT_RELEASE: String = "assistant_release"
 			const val ASSISTANT_WATCHER_GRANTS: String = "assistant_watcher_grants"
 			const val ASSISTANT_RULE_PUT: String = "assistant_rule_put"
 			const val ASSISTANT_RULE_DELETE: String = "assistant_rule_delete"
@@ -657,16 +655,6 @@ sealed class ConsoleOp {
 	@Serializable
 	@SerialName("assistant_state")
 	data object AssistantState : ConsoleOp()
-
-	@Serializable
-	@SerialName("assistant_place")
-	data class AssistantPlace(
-		val workdir: String,
-	) : ConsoleOp()
-
-	@Serializable
-	@SerialName("assistant_release")
-	data object AssistantRelease : ConsoleOp()
 
 	@Serializable
 	@SerialName("assistant_watcher_grants")

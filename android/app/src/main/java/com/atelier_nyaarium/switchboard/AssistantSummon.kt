@@ -91,14 +91,16 @@ internal sealed interface SummonLanding {
 /** Resume latest assistant when unanswered. */
 internal fun summonLanding(state: ChatState, root: AssistantRoot, preferred: String?): SummonLanding = when (root) {
 	is AssistantRoot.Placed -> SummonLanding.At(root.team)
-	AssistantRoot.Unplaced -> SummonLanding.Configure
-	AssistantRoot.Loading, is AssistantRoot.Unavailable ->
+	AssistantRoot.SetUp -> SummonLanding.Configure
+	// The root names the error.
+	is AssistantRoot.Failed -> SummonLanding.Root
+	AssistantRoot.Loading, AssistantRoot.RouterUnreachable, is AssistantRoot.Moving, is AssistantRoot.HomeUnreachable ->
 		lastAssistant(state, preferred)?.let { SummonLanding.At(it) } ?: SummonLanding.Root
 }
 
-/** Preferred Gateway's newest thread; otherwise newest overall. */
+/** Newest nonempty thread, preferring `preferred`. */
 internal fun lastAssistant(state: ChatState, preferred: String?): String? {
-	val known = (state.roles.filterValues { it == ASSISTANT_ROLE }.keys + assistantTeams(state)).distinct()
+	val known = assistantTeams(state).filter { !state.threads[it].isNullOrEmpty() }
 	val newest = { team: String -> state.threads[team]?.lastOrNull()?.at ?: Long.MIN_VALUE }
 	val onPreferred = known.filter { preferred != null && gatewayOf(it) == preferred }
 	return onPreferred.maxByOrNull(newest) ?: known.maxByOrNull(newest)

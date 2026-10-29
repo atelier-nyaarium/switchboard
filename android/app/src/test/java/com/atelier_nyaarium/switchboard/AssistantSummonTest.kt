@@ -1,7 +1,8 @@
 package com.atelier_nyaarium.switchboard
 
 import android.content.Intent
-import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -12,13 +13,15 @@ class AssistantSummonTest {
 	private val assistant = "dom.sakura.host.assistant"
 	private val facts = { _: String -> ArrivalFacts(offered = assistantConversationViews(terminal = true), stuckAtLogin = false) }
 
-	private fun answered(team: String?) = AssistantWord.Answered(
-		ConsoleAssistantStateResult(workdir = team?.let { "~/notes" }, team = team, watchers = emptyList()),
+	private fun state(home: AssistantHome = AssistantHome.Unread) = ChatState(
+		domainId = "dom",
+		assistantHome = home,
+		gateways = testRegistry("sakura"),
 	)
 
-	private fun state(word: AssistantWord?) = ChatState(
-		domainId = "dom",
-		gateways = testRegistry("sakura").let { r -> r.withEntry("sakura") { it.copy(assistant = word) } },
+	private fun placedHome(gatewayId: String) = AssistantHome.Read(
+		AssistantHomeRecord(version = 1L, gatewayId = gatewayId),
+		AssistantHomeReport(version = 1L, gatewayId = gatewayId, outcome = "placed"),
 	)
 
 	private fun shown(
@@ -80,20 +83,31 @@ class AssistantSummonTest {
 	}
 
 	@Test
-	fun theResolverLandsPlacedUnplacedAndUnansweredSummons() {
-		assertEquals(SummonLanding.At(assistant), summonLanding(state(answered("host.assistant")), assistantRoot(state(answered("host.assistant")), null), null))
-		assertEquals(SummonLanding.Configure, summonLanding(state(answered(null)), AssistantRoot.Unplaced, null))
+	fun theResolverUsesCurrentRootsAndResumesKnownAssistantThreads() {
+		val home = state(placedHome("sakura"))
+		assertEquals(SummonLanding.At(assistant), summonLanding(home, assistantRoot(home), null))
+		val setUp = state(AssistantHome.Read(null, null))
+		assertEquals(SummonLanding.Configure, summonLanding(setUp, AssistantRoot.SetUp, null))
+		assertEquals(SummonLanding.Root, summonLanding(home, AssistantRoot.Failed("put failed"), null))
 
-		val unread = state(null)
-		assertEquals(SummonLanding.Root, summonLanding(unread, AssistantRoot.Loading, null))
+		val unread = state()
 		val past = "dom.mikan.host.assistant"
 		val older = "dom.sakura.host.old"
 		val remembered = unread.copy(
 			roles = mapOf(older to ASSISTANT_ROLE, past to ASSISTANT_ROLE),
-			threads = mapOf(older to listOf(Message(fromMe = true, text = "a", at = 2)), past to listOf(Message(fromMe = true, text = "b", at = 1))),
+			threads = mapOf(older to listOf(Message(fromMe = true, text = "a", at = 2)), past to listOf(Message(fromMe = true, text = "b", at = 3))),
 		)
-		assertEquals(SummonLanding.At(older), summonLanding(remembered, AssistantRoot.Loading, null))
-		assertEquals(SummonLanding.At(past), summonLanding(remembered, AssistantRoot.Unavailable(canPlace = false), "mikan"))
+		val roots = listOf(
+			AssistantRoot.Loading,
+			AssistantRoot.RouterUnreachable,
+			AssistantRoot.Moving("sakura"),
+			AssistantRoot.HomeUnreachable("sakura"),
+		)
+		assertTrue(roots.all { summonLanding(remembered, it, "mikan") == SummonLanding.At(past) })
+		assertTrue(roots.all { summonLanding(unread, it, null) == SummonLanding.Root })
+		// A moving home without a thread lands at the root.
+		val moving = state(AssistantHome.Read(AssistantHomeRecord(version = 2L, gatewayId = "sakura"), null))
+		assertEquals(SummonLanding.Root, summonLanding(moving, assistantRoot(moving), null))
 
 		val configure = ShellNav(root = RootView.SESSIONS).summonedTo(SummonLanding.Configure, facts)
 		assertEquals(RootView.ASSISTANT, configure.root)
@@ -129,7 +143,7 @@ class AssistantSummonTest {
 		val armed = summoned(1, keyguardShowing = false, deviceLocked = false).routedNow()
 		val atRoot = ShellNav().summonedTo(SummonLanding.Root, facts)
 		assertEquals(FocusStep.WAIT, focusStep(armed, shown(atRoot, AssistantRoot.Loading), windowFocused = true, resumed = true))
-		assertEquals(FocusStep.DROP, focusStep(armed, shown(atRoot, AssistantRoot.Unplaced), windowFocused = true, resumed = true))
+		assertEquals(FocusStep.DROP, focusStep(armed, shown(atRoot, AssistantRoot.SetUp), windowFocused = true, resumed = true))
 
 		val chat = ShellNav().summonedTo(SummonLanding.At(assistant), facts)
 		val scheduled = shown(chat, AssistantRoot.Placed(assistant), composerShown = false)

@@ -40,6 +40,7 @@ internal fun knownPlanesJson(known: Map<String, HeldLineage>): JsonObject = buil
 }
 
 internal const val PRESENCE_PLANE = "presence"
+internal const val ASSISTANT_HOME_PLANE = "assistantHome"
 
 internal suspend fun drainTick(
 	client: ConsoleClient,
@@ -79,8 +80,8 @@ internal suspend fun drainTick(
 			}
 		}
 	}
-	// Presence sets row roles; read anchors apply after rows.
-	val (presence, rest) = planes.partition { it.name == PRESENCE_PLANE }
+	// Presence and the home set row roles; read anchors apply after rows.
+	val (presence, rest) = planes.partition { it.name == PRESENCE_PLANE || it.name == ASSISTANT_HOME_PLANE }
 	apply(presence)
 	if (answer is JsonArray) {
 		val rows = answer.mapNotNull { element ->

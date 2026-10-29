@@ -284,8 +284,8 @@ fun App(
 	}
 	val offeredConversation = openTeam?.let(offeredFor).orEmpty()
 	val assistantOpen = openTeam?.let { isAssistant(state, it) } == true
-	val preferredHome by repo.assistantOps.preferredHome.collectAsState()
-	val assistantRoot = assistantRoot(state, preferredHome)
+	val homeFailure by repo.assistantOps.homeFailure.collectAsState()
+	val assistantRoot = assistantRoot(state, homeFailure)
 	val assistantPages = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
 	val factsFor = { team: String ->
 		ArrivalFacts(
@@ -326,7 +326,7 @@ fun App(
 	LaunchedEffect(summon?.id, summon?.routed, missingBoot == null, resumed) {
 		val held = summon ?: return@LaunchedEffect
 		if (!routesNow(held, booted = missingBoot == null, resumed = resumed)) return@LaunchedEffect
-		val landing = summonLanding(state, assistantRoot, preferredHome).let { landing ->
+		val landing = summonLanding(state, assistantRoot, assistantGateway(state)).let { landing ->
 			val at = (landing as? SummonLanding.At)?.team ?: return@let landing
 			repo.fromCanonical(at)?.let { SummonLanding.At(it) } ?: SummonLanding.Root
 		}
@@ -336,8 +336,11 @@ fun App(
 		SummonBus.step(held.id, Summon::routedNow)
 	}
 	val assistantShown = nav.root == RootView.ASSISTANT || assistantOpen
-	LaunchedEffect(state.gateways.incarnations(), state.gateways.reachableIds(), assistantShown) {
-		if (assistantShown) repo.assistantOps.refreshAll()
+	LaunchedEffect(homeVersions(state), state.gateways.incarnations(), state.gateways.reachableIds(), state.connected, assistantShown) {
+		if (!assistantShown) return@LaunchedEffect
+		// Covers a screen before the first drain.
+		if (homeUnsettled(state)) repo.assistantOps.readHome()
+		repo.assistantOps.refreshHome()
 	}
 	LaunchedEffect(assistantRoot, nav.root, nav.conversation == null, nav.settings) {
 		nav = nav.enterAssistant(assistantRoot, factsFor)
@@ -513,7 +516,7 @@ fun App(
 					repo = repo,
 					state = state,
 					page = page,
-					home = assistantHome(state, preferredHome),
+					home = assistantGateway(state),
 					onListDirs = { path, hostTarget, spawn -> repo.sessions.listDirs(path, hostTarget, spawn) },
 					onPage = { nav = nav.openAssistantPage(it) },
 					onBack = { nav = nav.back(BackLayer.ASSISTANT_PAGE, backFacts, state.provisioned) },
@@ -777,8 +780,10 @@ fun App(
 					repo.command { presence.refreshTeams() }
 						// Refresh retries non-route columns.
 					repo.boardOps.refreshBoard()
+					if (nav.root == RootView.ASSISTANT && homeUnsettled(state)) repo.command { assistantOps.readHome() }
 				},
 				onSettings = { nav = nav.openSettings() },
+				onAssistantSettings = { nav = nav.openAssistantPage(AssistantPage.Settings) }.takeIf { rootOffersSettings(assistantRoot) },
 				queueState = queueState,
 				onQueue = { openQueueRequest.value = true },
 			) { view, modifier ->
@@ -796,8 +801,7 @@ fun App(
 				} else if (view == RootView.ASSISTANT) {
 					com.atelier_nyaarium.switchboard.assistant.AssistantRootScreen(
 						root = assistantRoot,
-						onConfigure = { nav = nav.openAssistantPage(AssistantPage.Settings) },
-						onRetry = { shellScope.launch { repo.assistantOps.refreshAll() } },
+						onSettings = { nav = nav.openAssistantPage(AssistantPage.Settings) },
 						modifier = modifier,
 					)
 				} else {

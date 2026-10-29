@@ -100,11 +100,12 @@ data class GatewayRegistry(
 
 	fun hasPeer(gatewayId: String, domainId: String): Boolean = entry(gatewayId)?.peers?.any { it.domainId == domainId } == true
 
-	/** Gateways answering a folder for the assistant. More than one means a release did not land. */
-	fun assistantHomes(): List<String> = ids().filter { assistantOn(it)?.workdir != null }
-
+	/** Its watchers, rules and Safety; placement is the Router's. */
 	fun assistantOn(gatewayId: String): ConsoleAssistantStateResult? =
 		(entry(gatewayId)?.assistant as? AssistantWord.Answered)?.state
+
+	/** Answers predating a new choice. */
+	fun withoutAssistantWords(): GatewayRegistry = copy(gateways = gateways.map { it.copy(assistant = null) })
 
 	/** Wake at earliest routine. */
 	fun soonestRoutineAt(): Long? =

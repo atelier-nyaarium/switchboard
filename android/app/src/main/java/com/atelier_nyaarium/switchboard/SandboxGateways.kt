@@ -9,6 +9,12 @@ import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldValue
+import com.atelier_nyaarium.switchboard.proto.AssistantHomePutResult
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeReadResult
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
+import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleInvalid
 import com.atelier_nyaarium.switchboard.proto.AssistantUnexpectedValues
 import com.atelier_nyaarium.switchboard.proto.AssistantRule
@@ -432,18 +438,6 @@ internal class SandboxAssistantGateway : AssistantGateway {
 			claimed = true
 		}
 		return when (op) {
-			is ConsoleOp.AssistantPlace -> {
-				if (!op.workdir.startsWith("/") && !op.workdir.startsWith("~")) {
-					return AssistantAnswer.Refused("the folder must be an absolute or ~-rooted path")
-				}
-				home = gatewayId
-				workdir = op.workdir
-				AssistantAnswer.State(stateOf(gatewayId))
-			}
-			ConsoleOp.AssistantRelease -> {
-				if (home == gatewayId) home = null
-				AssistantAnswer.State(stateOf(gatewayId))
-			}
 			is ConsoleOp.AssistantWatcherGrants -> {
 				grants[op.watcherId] = op.entryIds
 				AssistantAnswer.State(stateOf(gatewayId))
@@ -455,6 +449,53 @@ internal class SandboxAssistantGateway : AssistantGateway {
 			else -> AssistantAnswer.State(stateOf(gatewayId))
 		}
 	}
+
+	/** Follows the record; null lets go. */
+	fun homeAt(gatewayId: String?, folder: String?) {
+		claimed = true
+		home = gatewayId
+		if (folder != null) workdir = folder
+	}
+}
+
+/** Resumes the held record; the empty Gateway never reports. */
+internal class SandboxAssistantHome(private val gateway: SandboxAssistantGateway, held: AssistantHome.Read?) : AssistantHomeRouter {
+	private var record: AssistantHomeRecord? = held?.record
+	private var report: AssistantHomeReport? = held?.report
+
+	init {
+		record?.gatewayId?.takeIf { report?.outcome == "placed" }?.let { gateway.homeAt(it, null) }
+	}
+
+	override suspend fun read() = AssistantHomeReadResult(record, report)
+
+	override suspend fun put(baseVersion: Long, gatewayId: String?, sealed: ContentEnvelope?): AssistantHomePutResult {
+		if ((record?.version ?: 0L) != baseVersion) return AssistantHomePutResult("conflict", record)
+		if (gatewayId == SANDBOX_NEVER_REGISTERED) return AssistantHomePutResult(Protocol.Wire.SocketFrame.REFUSED, record, "unroutable")
+		val version = baseVersion + 1
+		record = AssistantHomeRecord(version, gatewayId, sealed)
+		val folder = sealed?.let { open(gatewayId.orEmpty(), version, it) }?.workdirPath
+		val rooted = folder != null && (folder.startsWith("/") || folder.startsWith("~"))
+		report = gatewayId?.takeIf { it != EMPTY_GATEWAY }?.let {
+			if (rooted) {
+				AssistantHomeReport(version, it, "placed")
+			} else {
+				AssistantHomeReport(version, it, Protocol.Wire.SocketFrame.REFUSED, "the folder must be an absolute or ~-rooted path")
+			}
+		}
+		gateway.homeAt(gatewayId?.takeIf { rooted && report != null }, folder)
+		return AssistantHomePutResult("applied", record)
+	}
+
+	/** Unsealed: plaintext in base64, so a restart reopens it. */
+	override fun seal(gatewayId: String, version: Long, sealed: AssistantHomeSealed): ContentEnvelope {
+		val plain = wireJson.encodeToString(AssistantHomeSealed.serializer(), sealed).toByteArray()
+		return ContentEnvelope(v = 1L, epoch = 1L, nonce = "AAAAAAAAAAAAAAAA", ciphertext = java.util.Base64.getEncoder().encodeToString(plain))
+	}
+
+	override fun open(gatewayId: String, version: Long, envelope: ContentEnvelope): AssistantHomeSealed? = runIsolated {
+		wireJson.decodeFromString(AssistantHomeSealed.serializer(), String(java.util.Base64.getDecoder().decode(envelope.ciphertext)))
+	}.getOrNull()
 }
 
 private const val SANDBOX_MODULE = "src/shared/schemasRoutine.ts"

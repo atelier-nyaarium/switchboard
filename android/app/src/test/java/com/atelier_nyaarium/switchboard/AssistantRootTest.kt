@@ -1,6 +1,8 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.RuleSlot
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcherRules
@@ -41,24 +43,20 @@ class AssistantRootTest {
 		rules = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise(action = "inbox", revision = 0L), revision = 0L),
 	)
 
-	private fun placedOn(gatewayId: String, vararg others: String) = ChatState(
+	private fun homeAt(gatewayId: String, vararg others: String) = ChatState(
 		domainId = "dom",
-		gateways = testRegistry(gatewayId, *others).let { registry ->
-			registry.copy(
-				gateways = registry.gateways.map {
-					it.copy(
-						assistant = AssistantWord.Answered(
-							ConsoleAssistantStateResult(
-								workdir = "~/notes".takeIf { _ -> it.id == gatewayId },
-								team = "host.assistant".takeIf { _ -> it.id == gatewayId },
-								watchers = if (it.id == gatewayId) listOf(github) else emptyList(),
-							),
-						),
-					)
-				},
-			)
-		},
+		assistantHome = AssistantHome.Read(
+			AssistantHomeRecord(version = 1L, gatewayId = gatewayId),
+			AssistantHomeReport(version = 1L, gatewayId = gatewayId, outcome = "placed"),
+		),
+		gateways = testRegistry(gatewayId, *others),
 	)
+
+	private fun placedOn(gatewayId: String, vararg others: String) =
+		homeAt(gatewayId, *others).withWord(
+			gatewayId,
+			AssistantWord.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = listOf(github))),
+		)
 
 	private val holdsNone = AssistantWord.Answered(ConsoleAssistantStateResult(watchers = emptyList()))
 
@@ -100,23 +98,53 @@ class AssistantRootTest {
 	}
 
 	@Test
-	fun theRootResolvesPlacedUnplacedLoadingAndUnavailable() {
-		assertEquals(AssistantRoot.Placed(assistant), assistantRoot(placedOn("sakura", "mikan"), null))
-
-		assertEquals(AssistantRoot.Unplaced, assistantRoot(placedOn("sakura").withWord("sakura", holdsNone), null))
-		val refusedBesideEmpty = placedOn("mikan", "sakura").withWord("mikan", holdsNone).withWord("sakura", AssistantWord.Refused)
-		assertEquals(AssistantRoot.Unavailable(canPlace = true), assistantRoot(refusedBesideEmpty, null))
-		val refusedBesidePlaced = placedOn("mikan", "sakura").withWord("sakura", AssistantWord.Refused)
-		assertEquals(AssistantRoot.Placed("dom.mikan.host.assistant"), assistantRoot(refusedBesidePlaced, null))
-
+	fun theLandingFoldReadsTheHomeRecordAndCurrentReport() {
 		val unread = ChatState(domainId = "dom", gateways = testRegistry("sakura"))
-		assertEquals(AssistantRoot.Loading, assistantRoot(unread, null))
+		assertEquals(AssistantRoot.Loading, assistantRoot(unread))
+		assertEquals(AssistantRoot.RouterUnreachable, assistantRoot(unread.copy(connected = false, error = "offline")))
+		assertEquals(AssistantRoot.SetUp, assistantRoot(unread.copy(assistantHome = AssistantHome.Read(null, null))))
+		assertEquals(
+			AssistantRoot.SetUp,
+			assistantRoot(unread.copy(assistantHome = AssistantHome.Read(AssistantHomeRecord(1L, null), null))),
+		)
 
-		val offline = unread.copy(gateways = unread.gateways.withEntry("sakura") { it.copy(connected = false) })
-		assertEquals(AssistantRoot.Unavailable(canPlace = false), assistantRoot(offline, null))
+		val moving = homeAt("sakura").copy(
+			assistantHome = AssistantHome.Read(AssistantHomeRecord(2L, "sakura"), null),
+		)
+		assertEquals(AssistantRoot.Moving("sakura"), assistantRoot(moving))
+		assertEquals(AssistantRoot.Moving("sakura"), assistantRoot(moving.copy(
+			assistantHome = AssistantHome.Read(
+				AssistantHomeRecord(2L, "sakura"),
+				AssistantHomeReport(1L, "sakura", "placed"),
+			),
+		)))
+		assertEquals(AssistantRoot.Moving("sakura"), assistantRoot(moving.copy(
+			assistantHome = AssistantHome.Read(
+				AssistantHomeRecord(2L, "sakura"),
+				AssistantHomeReport(2L, "mikan", "placed"),
+			),
+		)))
 
-		val homeOffline = placedOn("sakura").let { s -> s.copy(gateways = s.gateways.withEntry("sakura") { it.copy(connected = false) }) }
-		assertEquals(AssistantRoot.Unavailable(canPlace = false), assistantRoot(homeOffline, null))
+		val refused = moving.copy(assistantHome = AssistantHome.Read(
+			AssistantHomeRecord(2L, "sakura"),
+			AssistantHomeReport(2L, "sakura", "refused", "key unavailable"),
+		))
+		assertEquals(AssistantRoot.Failed("key unavailable"), assistantRoot(refused))
+		assertEquals(AssistantRoot.Failed("put failed"), assistantRoot(moving, "put failed"))
+
+		val offline = homeAt("sakura").copy(
+			gateways = testRegistry("sakura").copy(
+				gateways = testRegistry("sakura").gateways.map { it.copy(connected = false) },
+			),
+		)
+		assertEquals(AssistantRoot.HomeUnreachable("sakura"), assistantRoot(offline))
+		assertEquals(AssistantRoot.Placed(assistant), assistantRoot(placedOn("sakura", "mikan")))
+
+		// A stuck landing still reaches Settings.
+		assertEquals(
+			listOf(false, false, true, true),
+			listOf(unread, unread.copy(connected = false, error = "offline"), offline, moving).map { rootOffersSettings(assistantRoot(it)) },
+		)
 	}
 
 	@Test
@@ -129,46 +157,54 @@ class AssistantRootTest {
 	}
 
 	@Test
-	fun itIsKnownByItsGatewaysAnswerBeforeAnyPresenceRow() {
-		val state = placedOn("sakura")
+	fun identityUsesRoleStampsPersistedRolesAndTheHomeAddress() {
+		val stamped = "dom.sakura.host.old"
+		val persisted = "dom.mikan.host.old"
+		val state = homeAt("sakura").copy(
+			teams = listOf(Team(stamped, Presence.ended(), role = ASSISTANT_ROLE)),
+			roles = mapOf(persisted to ASSISTANT_ROLE),
+		)
 
+		assertTrue(isAssistant(state, stamped))
+		assertTrue(isAssistant(state, persisted))
 		assertTrue(isAssistant(state, assistant))
-		assertFalse(isAssistant(state, "dom.mikan.host.assistant"))
-		assertTrue(assistant in followedTeams(state))
+		assertFalse(isAssistant(state, "dom.yuzu.host.assistant"))
+		assertEquals(setOf(stamped, persisted, assistant), assistantTeams(state))
 	}
 
 	@Test
-	fun theOpenConversationFollowsAMoveAndLeavesOnlyOnItsGatewaysRelease() {
+	fun theOpenConversationFollowsTheRouterHomeAndLeavesWhenItMovesElsewhere() {
 		val open = ShellNav().arriveAt(assistant, true, Arrival.OUTSIDE, facts(assistant))
-		val placed = placedOn("sakura", "mikan")
+		val placed = homeAt("mikan", "sakura")
 		val moved = "dom.mikan.host.assistant"
 
-		assertEquals(moved, open.followAssistant(AssistantRoot.Placed(moved), placed).conversation?.team)
+		assertEquals(moved, open.followAssistant(assistantRoot(placed), placed).conversation?.team)
 
-		val released = open.followAssistant(AssistantRoot.Loading, placed.withWord("sakura", holdsNone))
-		assertNull(released.conversation)
-		assertEquals(RootView.ASSISTANT, released.root)
+		val elsewhere = open.followAssistant(AssistantRoot.HomeUnreachable("sakura"), placed)
+		assertNull(elsewhere.conversation)
+		assertEquals(RootView.ASSISTANT, elsewhere.root)
 
-		assertEquals(open, open.followAssistant(AssistantRoot.Unavailable(canPlace = true), placed.withWord("sakura", AssistantWord.Refused)))
-		assertEquals(open, open.followAssistant(AssistantRoot.Loading, placed.withWord("sakura", null)))
+		// An unreachable home it still names keeps the thread.
+		assertEquals(open, open.followAssistant(AssistantRoot.HomeUnreachable("sakura"), homeAt("sakura")))
+
+		val refused = homeAt("sakura").copy(
+			assistantHome = AssistantHome.Read(
+				AssistantHomeRecord(2L, "sakura"),
+				AssistantHomeReport(2L, "sakura", "refused", "bad folder"),
+			),
+		)
+		val failed = assistantRoot(refused)
+		assertEquals(AssistantRoot.Failed("bad folder"), failed)
+		assertNull(open.followAssistant(failed, refused).conversation)
+		assertEquals(open, open.followAssistant(AssistantRoot.Failed("put failed"), homeAt("sakura")))
+
+		val nobody = placed.copy(assistantHome = AssistantHome.Read(AssistantHomeRecord(2L, null), null))
+		val left = open.followAssistant(AssistantRoot.SetUp, nobody)
+		assertNull(left.conversation)
+		assertEquals(RootView.ASSISTANT, left.root)
 
 		val aSession = ShellNav().arriveAt(session, false, Arrival.OUTSIDE, facts(session))
 		assertEquals(aSession, aSession.followAssistant(AssistantRoot.Placed(moved), placed))
-	}
-
-	@Test
-	fun onlyAnAnswerOrTheRosterReadsAsARelease() {
-		val placed = placedOn("sakura")
-		val revoked = { provenance: RegistryProvenance ->
-			placed.copy(gateways = placed.gateways.copy(provenance = provenance, gateways = emptyList()))
-		}
-
-		assertTrue(assistantReleased(placed.withWord("sakura", holdsNone), "sakura"))
-		assertTrue(assistantReleased(revoked(RegistryProvenance.Current), "sakura"))
-		assertFalse(assistantReleased(placed, "sakura"))
-		assertFalse(assistantReleased(placed.withWord("sakura", null), "sakura"))
-		assertFalse(assistantReleased(placed.withWord("sakura", AssistantWord.Refused), "sakura"))
-		assertFalse(assistantReleased(revoked(RegistryProvenance.Cached), "sakura"))
 	}
 
 	@Test
@@ -179,23 +215,13 @@ class AssistantRootTest {
 	}
 
 	@Test
-	fun aReachableHomeWinsOverAnOfflineOne() {
-		val both = placedOn("alpha", "zulu").let { s ->
-			s.copy(
-				gateways = s.gateways.copy(
-					gateways = s.gateways.gateways.map {
-						it.copy(
-							connected = it.id == "zulu",
-							assistant = AssistantWord.Answered(
-								ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = emptyList()),
-							),
-						)
-					},
-				),
-			)
-		}
-
-		assertEquals(AssistantRoot.Placed("dom.zulu.host.assistant"), assistantRoot(both, null))
+	fun assistantLeftUsesOnlyAReadRecord() {
+		assertFalse(assistantLeft(ChatState(), "sakura"))
+		assertFalse(assistantLeft(homeAt("sakura"), "sakura"))
+		assertTrue(assistantLeft(homeAt("mikan"), "sakura"))
+		assertTrue(assistantLeft(homeAt("sakura").copy(
+			assistantHome = AssistantHome.Read(AssistantHomeRecord(2L, null), null),
+		), "sakura"))
 	}
 
 	@Test
@@ -205,7 +231,7 @@ class AssistantRootTest {
 		val moved = placedOn("mikan", "sakura").withWord("sakura", holdsNone)
 		val mikan = "dom.mikan.host.assistant"
 
-		val after = rules.followAssistant(assistantRoot(moved, "mikan"), moved).resolvePage(moved)
+		val after = rules.followAssistant(assistantRoot(moved), moved).resolvePage(moved)
 
 		assertEquals(AssistantPage.Settings, after.assistantPage)
 		assertEquals(mikan, after.conversation?.team)
@@ -215,12 +241,14 @@ class AssistantRootTest {
 	}
 
 	@Test
-	fun settingsStayOverAReleaseAndBackLandsOnTheRoot() {
+	fun settingsStayOverRemoveAndBackLandsOnTheRoot() {
 		val editor = ShellNav().arriveAt(assistant, true, Arrival.OUTSIDE, facts(assistant))
 			.openAssistantPage(AssistantPage.Editor("sakura", "github", RuleSlot.New))
-		val released = placedOn("sakura").withWord("sakura", holdsNone)
+		val removed = homeAt("sakura").copy(
+			assistantHome = AssistantHome.Read(AssistantHomeRecord(2L, null), null),
+		)
 
-		val after = editor.followAssistant(assistantRoot(released, null), released).resolvePage(released)
+		val after = editor.followAssistant(assistantRoot(removed), removed).resolvePage(removed)
 		val back = after.back(BackLayer.ASSISTANT_PAGE, backFacts(after), provisioned = true)
 
 		assertEquals(AssistantPage.Settings, after.assistantPage)
@@ -241,6 +269,7 @@ class AssistantRootTest {
 		assertEquals(rules, rules.resolved(placed.withWord("sakura", null)))
 		assertEquals(rules, rules.resolved(placed.withWord("sakura", AssistantWord.Refused)))
 		assertEquals(AssistantPage.Settings, rules.resolved(noWatcher))
+		assertEquals(AssistantPage.Settings, rules.resolved(placedOn("mikan", "sakura")))
 
 		val editor = AssistantPage.Editor("sakura", "github", RuleSlot.New)
 		for (older in listOf(github.copy(fields = null), github.copy(rules = null))) {

@@ -3,72 +3,102 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.assistant.RuleSlot
 import com.atelier_nyaarium.switchboard.assistant.rulesOf
 import com.atelier_nyaarium.switchboard.proto.Address
-import com.atelier_nyaarium.switchboard.proto.parseSessionName
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
+import com.atelier_nyaarium.switchboard.proto.Protocol
+
+/** Same spawn and session everywhere. */
+internal const val ASSISTANT_SPAWN = "host"
+private const val ASSISTANT_SESSION = "assistant"
 
 /** What the Assistant root shows. */
 internal sealed interface AssistantRoot {
 	data class Placed(val team: String) : AssistantRoot
 
-	data object Unplaced : AssistantRoot
-
-	/** A Gateway that may hold it has not answered yet. */
+	/** Nothing read yet: nothing drawn. */
 	data object Loading : AssistantRoot
 
-	/** A possible home is unread. `canPlace`: refusals only. */
-	data class Unavailable(val canPlace: Boolean) : AssistantRoot
+	data object RouterUnreachable : AssistantRoot
+
+	/** Nobody, or never written. */
+	data object SetUp : AssistantRoot
+
+	/** Chosen; its Gateway has not reported. */
+	data class Moving(val gatewayId: String) : AssistantRoot
+
+	data class Failed(val reason: String) : AssistantRoot
+
+	data class HomeUnreachable(val gatewayId: String) : AssistantRoot
 }
 
-/** The Gateway's answered address. */
-internal fun answeredAssistant(state: ChatState, gatewayId: String): String? {
-	val team = state.gateways.assistantOn(gatewayId)?.team ?: return null
+/** The Gateway a read record names. */
+internal fun assistantGateway(state: ChatState): String? = (state.assistantHome as? AssistantHome.Read)?.record?.gatewayId
+
+/** Moves on a new choice or report. */
+internal fun homeVersions(state: ChatState): Pair<Long?, Long?> =
+	(state.assistantHome as? AssistantHome.Read).let { it?.record?.version to it?.report?.version }
+
+/** The chosen home's address. */
+internal fun assistantAddress(state: ChatState): String? = addressOn(state, assistantGateway(state))
+
+/** Its Gateway once reported placed. */
+internal fun placedGateway(state: ChatState): String? = currentReport(state)?.takeIf { it.outcome == HOME_PLACED }?.gatewayId
+
+internal fun placedAddress(state: ChatState): String? = addressOn(state, placedGateway(state))
+
+private fun addressOn(state: ChatState, gatewayId: String?): String? {
 	val domainId = state.domainId ?: return null
-	return runIsolated {
-		val name = parseSessionName(team)
-		Address.of(domainId, gatewayId, name.project, name.session).canonical
-	}.getOrNull()
+	val at = gatewayId ?: return null
+	return runIsolated { Address.of(domainId, at, ASSISTANT_SPAWN, ASSISTANT_SESSION).canonical }.getOrNull()
 }
 
-/** Stamp or answer, never the name. */
-internal fun isAssistant(state: ChatState, team: String): Boolean =
-	(state.teams.firstOrNull { it.name == team }?.role ?: state.roles[team]) == ASSISTANT_ROLE ||
-		state.gateways.ids().any { answeredAssistant(state, it) == team }
+/** The report for the held choice. */
+private fun currentReport(state: ChatState): AssistantHomeReport? {
+	val held = state.assistantHome as? AssistantHome.Read ?: return null
+	val record = held.record ?: return null
+	return held.report?.takeIf { it.version == record.version && it.gatewayId == record.gatewayId }
+}
 
-/** Where it lives now; the persisted cache only identifies past homes. */
+private const val HOME_PLACED = "placed"
+
+/** A role stamp, a persisted role, or where it lives now; never the name. */
+internal fun isAssistant(state: ChatState, team: String): Boolean =
+	(state.teams.firstOrNull { it.name == team }?.role ?: state.roles[team]) == ASSISTANT_ROLE || assistantAddress(state) == team
+
+/** Known past addresses and the current one. */
 internal fun assistantTeams(state: ChatState): Set<String> =
 	state.teams.filter { it.role == ASSISTANT_ROLE }.map { it.name }.toSet() +
-		state.gateways.ids().mapNotNull { answeredAssistant(state, it) }
+		state.roles.filterValues { it == ASSISTANT_ROLE }.keys +
+		listOfNotNull(assistantAddress(state))
 
-/** `preferred` wins, then a reachable home. */
-internal fun assistantHome(state: ChatState, preferred: String?): String? {
-	val homes = state.gateways.assistantHomes()
-	return homes.firstOrNull { it == preferred }
-		?: homes.firstOrNull { state.gateways.reachable(it) }
-		?: homes.firstOrNull()
-}
+/** Router unreached since last connect. */
+internal fun routerUnreachable(state: ChatState): Boolean = !state.connected && (state.error != null || state.pollFailStreak > 0)
 
-internal fun assistantRoot(state: ChatState, preferred: String?): AssistantRoot {
+/** The one landing state. */
+internal fun assistantRoot(state: ChatState, putFailure: String? = null): AssistantRoot {
+	if (putFailure != null) return AssistantRoot.Failed(putFailure)
+	if (routerUnreachable(state)) return AssistantRoot.RouterUnreachable
+	val held = state.assistantHome as? AssistantHome.Read ?: return AssistantRoot.Loading
+	val record = held.record
+	val gatewayId = record?.gatewayId ?: return AssistantRoot.SetUp
+	homeRefusal(state)?.let { return AssistantRoot.Failed(it) }
 	val registry = state.gateways
-	val home = assistantHome(state, preferred)
-	if (home != null && !registry.reachable(home)) {
-		return if (registry.current) AssistantRoot.Unavailable(canPlace = false) else AssistantRoot.Loading
-	}
-	if (home != null) return answeredAssistant(state, home)?.let { AssistantRoot.Placed(it) } ?: AssistantRoot.Loading
-	val unread = registry.gateways.filter { it.assistant !is AssistantWord.Answered }
-	return when {
-		!registry.current -> AssistantRoot.Loading
-		unread.isEmpty() -> AssistantRoot.Unplaced
-		unread.any { it.assistant == null && registry.reachable(it.id) } -> AssistantRoot.Loading
-		else -> AssistantRoot.Unavailable(canPlace = unread.all { it.assistant is AssistantWord.Refused })
-	}
+	if (registry.current && !registry.reachable(gatewayId)) return AssistantRoot.HomeUnreachable(gatewayId)
+	return placedAddress(state)?.let { AssistantRoot.Placed(it) } ?: AssistantRoot.Moving(gatewayId)
 }
 
-/** Answered gone, or unlisted. */
-internal fun assistantReleased(state: ChatState, gatewayId: String): Boolean {
-	val registry = state.gateways
-	val word = registry.entry(gatewayId)?.assistant as? AssistantWord.Answered
-		?: return registry.current && !registry.has(gatewayId)
-	return word.state.workdir == null
-}
+/** The top bar's way out of a stuck landing. */
+internal fun rootOffersSettings(root: AssistantRoot): Boolean = root != AssistantRoot.Loading && root != AssistantRoot.RouterUnreachable
+
+/** Why the current choice was refused. */
+internal fun homeRefusal(state: ChatState): String? =
+	currentReport(state)?.takeIf { it.outcome == Protocol.Wire.SocketFrame.REFUSED }?.let { it.reason ?: "the Gateway turned it down" }
+
+/** Unread or unwritten; a seed may still find a holder. */
+internal fun homeUnsettled(state: ChatState): Boolean = (state.assistantHome as? AssistantHome.Read)?.record == null
+
+/** A read record names elsewhere or nobody. */
+internal fun assistantLeft(state: ChatState, gatewayId: String): Boolean =
+	state.assistantHome is AssistantHome.Read && assistantGateway(state) != gatewayId
 
 /** Placed entry preserves pages. */
 internal fun ShellNav.enterAssistant(root: AssistantRoot, facts: (String) -> ArrivalFacts): ShellNav {
@@ -100,7 +130,7 @@ internal fun AssistantPage.resolved(state: ChatState): AssistantPage {
 		is AssistantPage.Rules -> gatewayId to watcherId
 		is AssistantPage.Editor -> gatewayId to watcherId
 	}
-	if (assistantReleased(state, gatewayId)) return AssistantPage.Settings
+	if (assistantLeft(state, gatewayId)) return AssistantPage.Settings
 	val answered = state.gateways.assistantOn(gatewayId) ?: return this
 	return if (answered.watchers.find { it.id == watcherId }?.let(::rulesOf) != null) this else AssistantPage.Settings
 }
@@ -154,12 +184,12 @@ private const val SLOT_HELD = "held"
 private const val SLOT_NEW = "new"
 private const val SLOT_OTHERWISE = "otherwise"
 
-/** Moves retarget; releases leave. */
+/** Moves retarget; a home elsewhere, nobody, or a refusal leaves. */
 internal fun ShellNav.followAssistant(root: AssistantRoot, state: ChatState): ShellNav {
 	val open = conversation?.takeIf { this.root == RootView.ASSISTANT } ?: return this
 	return when {
 		root is AssistantRoot.Placed -> if (root.team != open.team) retarget(root.team) else this
-		assistantReleased(state, gatewayOf(open.team)) -> leave()
+		assistantLeft(state, gatewayOf(open.team)) || homeRefusal(state) != null -> leave()
 		else -> this
 	}
 }

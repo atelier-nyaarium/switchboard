@@ -29,8 +29,6 @@ import { type ConsoleHandlerDeps, FAKE_REQ, type SendRouteJson } from "./console
 
 export type { ConsoleHandlerDeps, ConsoleRoutes } from "./consoleTypes.js";
 
-/** Place and release refusal. */
-const MOVES_THROUGH_ROUTER = "the assistant moves through the Router; update the app";
 /** Host kill dedupe key. */
 const ASSISTANT_HOME_CONVERSATION = "assistant-home";
 
@@ -422,10 +420,6 @@ export function createConsoleDispatcher({
 
 			case "assistant_state":
 				return requireAssistant().state();
-
-			case "assistant_place":
-			case "assistant_release":
-				throw new Error(MOVES_THROUGH_ROUTER);
 
 			case "assistant_watcher_grants":
 				return requireAssistant().setWatcherGrants(op.watcherId, op.entryIds);

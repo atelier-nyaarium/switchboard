@@ -32,7 +32,6 @@ it events. The session decides what to say and do.
   - **Never written:** a Gateway's own session record stays in charge.
   - **Cut off from the Router:** it keeps running on its mark. A mark write that fails stops it
     acting until one lands.
-  - `assistant_place` and `assistant_release` are refused, telling an older app to update.
 - **Opus only:** no model levels.
 - **Its own root:** the drawer's Assistant entry resolves where it lives (`assistantRoot`).
   - Placed enters its conversation in the usual thread screen, titled "Assistant", with one chip per

@@ -20,6 +20,7 @@ import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
 import com.atelier_nyaarium.switchboard.crypto.Crypto
 import com.atelier_nyaarium.switchboard.crypto.scheduledBodyAadKind
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonElement
 import com.atelier_nyaarium.switchboard.board.BoardManager
@@ -204,11 +205,28 @@ internal class ConsoleAssistantGateway(private val client: ConsoleClient) : Assi
 
 internal class ChatRepositoryAssistantHost(private val repo: ChatRepository) : AssistantHost {
 	private val sandbox by lazy { SandboxAssistantGateway() }
+	private val sandboxHome by lazy { SandboxAssistantHome(sandbox, repo.state.value.assistantHome as? AssistantHome.Read) }
+	private val routerHome by lazy {
+		OwnerOpHomeRouter(
+			signAndPost = { op -> repo.ownerOpsOrNull()?.sign(op)?.let { repo.clientOrNull()?.postOwnerOp(it) } },
+			sealing = {
+				repo.readyOrNull()?.let { boot ->
+					AssistantHomeSealing(boot, repo.ambient) { epoch ->
+						repo.repoScope.launch(kotlinx.coroutines.Dispatchers.IO) { repo.keyDeliveryOrNull()?.requestMissing(epoch) }
+					}
+				}
+			},
+		)
+	}
 
 	override val gateway: AssistantGateway? get() =
 		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsoleAssistantGateway)
 
+	override val home: AssistantHomeRouter? get() = if (isSandbox) sandboxHome else routerHome
+
 	override fun persistRoles(roles: Map<String, String>) = repo.persistence.persistRoles(roles)
+
+	override fun persistHome(home: AssistantHome.Read) = repo.persistence.persistAssistantHome(home)
 }
 
 /** The port over the console client's workspace reads. */

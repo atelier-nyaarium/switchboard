@@ -161,6 +161,7 @@ Landing screen:
 - **Not on any Gateway:** "Visit Assistant Settings to set up." [Settings]
 - **Router unreachable:** "Could not reach the Federation Router." No button: the screen updates on its own once Switchboard reconnects.
 - **Cold start, before the first record:** nothing drawn. The phone keeps the last record it saw, so this lasts only until the first answer.
+- **Top bar:** an "Assistant settings" gear on every landing but the cold start and Router unreachable, so a stuck move or an unreachable home can still be moved away from. Added in implementation; not yet run past the owner.
 
 Assistant Settings:
 - **Section label:** "Assistant location" (was "Lives on").
@@ -230,6 +231,14 @@ A clean break. Phases 1 and 2 ship together: the Router, then every Gateway, the
 - **The old ops go:** `assistant_place` and `assistant_release` leave `ConsoleOpSchema`, the console handler, `AssistantOps` and `SandboxGateways`, with `Protocol.kt` regenerated in the same commit.
 - **Sandbox:** `SandboxGateways` answers the record states (never written, nobody, a home, a conflict, a report placed or refused), so each landing state is reachable in the emulator.
 - **Tests:** the status fold, the put and seed decisions, and the identity readers in JVM tests; the AAD vector on both runtimes; the Kotlin gate; an emulator walk; on the Pixel, a Move between two Gateways, a Remove, and a refused move.
+
+### Bug Classes
+
+- **Mechanism:** `AssistantOps`' home state: the held record, the per-Gateway assistant words, `homeFailure`, the Settings work line and the persisted copy, each written by async work that started under an older choice.
+- **Defect class:** an answer computed under one choice lands after a newer choice did, and repaints what the newer choice settled.
+- **Rounds:** the alignment pass added `newerHome` for a stale read and cleared the Settings line on a new choice. The red team then found the same class four more times: a late Gateway answer repainting a dropped word (`show` now takes the choice it was asked under), a late put failure (`failed` drops one whose base moved), an older snapshot persisted last (persisted under one lock), and a seed write racing the owner's (one `writes` lock).
+- **Round two:** a read begun before a re-provision landed over it, since `Unread` holds no version to compare. Patched with a `provisioned` generation that `landHome` and its persist check.
+- **For architecture:** every home effect captures the choice, and now the provisioning generation, it began under and checks them where it lands, site by site. One fence that every home write passes through would close the class rather than each instance.
 
 ## Phase 3 - Clear and all above
 

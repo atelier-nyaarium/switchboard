@@ -54,9 +54,9 @@ describe("the assistant's session through the console", () => {
 		if (h) await h.close();
 	});
 
-	it("refuses the old console home operations", async () => {
-		const placed = await h.phone.value({ kind: "assistant_place", workdir: "~/projects/notes" });
-		const released = await h.phone.value({ kind: "assistant_release" });
+	it("refuses an older app's home operations, which no schema knows", async () => {
+		const placed = await h.phone.value({ kind: "assistant_place", workdir: "~/projects/notes" } as never);
+		const released = await h.phone.value({ kind: "assistant_release" } as never);
 		const home = await h.phone.homeRead();
 
 		expect(placed.result).toMatchObject({ kind: "refusal" });

@@ -38,6 +38,8 @@ internal interface ChatPersistenceStore {
 	fun loadDrafts(): String?
 	fun saveRoles(json: String)
 	fun loadRoles(): String?
+	fun saveAssistantHome(json: String)
+	fun loadAssistantHome(): String?
 }
 
 ////////////////////////////////
@@ -349,6 +351,24 @@ internal class ChatPersistence(private val store: ChatPersistenceStore) {
 				}
 			}
 		}.getOrDefault(emptyMap())
+	}
+
+	/** Drawn until the next read. */
+	internal fun persistAssistantHome(home: AssistantHome.Read) {
+		runIsolated {
+			val read = com.atelier_nyaarium.switchboard.proto.AssistantHomeReadResult(home.record, home.report)
+			store.saveAssistantHome(
+				wireJson.encodeToString(com.atelier_nyaarium.switchboard.proto.AssistantHomeReadResult.serializer(), read),
+			)
+		}
+	}
+
+	internal fun loadPersistedAssistantHome(): AssistantHome {
+		val json = store.loadAssistantHome() ?: return AssistantHome.Unread
+		return runIsolated {
+			val read = wireJson.decodeFromString(com.atelier_nyaarium.switchboard.proto.AssistantHomeReadResult.serializer(), json)
+			AssistantHome.Read(read.record, read.report)
+		}.getOrDefault(AssistantHome.Unread)
 	}
 
 	/** Absent on a draft saved before locations existed, and on any file the provider named nothing

@@ -35,6 +35,7 @@ suspend fun ChatRepository.provision(blob: String) = withContext(Dispatchers.IO)
 		return@withContext
 	}
 	identity.provision(blob)
+	assistantOps.forgetHome()
 	invalidateClient()
 	sttsClient = null
 	// Mirror the reset in UI state.

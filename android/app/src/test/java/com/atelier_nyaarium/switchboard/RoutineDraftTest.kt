@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineTarget
 import com.atelier_nyaarium.switchboard.routines.ROUTINE_TARGET_ASSISTANT
@@ -9,6 +10,8 @@ import com.atelier_nyaarium.switchboard.routines.RoutineDraft
 import com.atelier_nyaarium.switchboard.routines.assistantSpawnOn
 import com.atelier_nyaarium.switchboard.routines.routineTargetLine
 import com.atelier_nyaarium.switchboard.routines.routineTargetMenu
+import com.atelier_nyaarium.switchboard.routines.assistantAbsent
+import com.atelier_nyaarium.switchboard.routines.targetTag
 import com.atelier_nyaarium.switchboard.runbooks.SpawnChoice
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
@@ -68,25 +71,11 @@ class RoutineDraftTest {
 	}
 
 	@Test
-	fun theMenuOffersAssistantOnlyWhereAPlacedGatewayKeepsCheckInsAndKeepsAStalePickMarked() {
-		val registry = testRegistry("sakura", "mikan", "yuzu")
-		val state = ChatState(
-			gateways = registry.copy(
-				gateways = registry.gateways.map { entry ->
-					entry.copy(
-						assistant = AssistantWord.Answered(
-							ConsoleAssistantStateResult(
-								workdir = "~/notes".takeIf { entry.id != "mikan" },
-								team = "host.assistant".takeIf { entry.id != "mikan" },
-								watchers = emptyList(),
-								// yuzu is placed but predates check-ins.
-								checkIns = true.takeIf { entry.id == "sakura" },
-							),
-						),
-					)
-				},
-			),
-		)
+	fun theAssistantSpawnFollowsTheRouterRecord() {
+		val record = AssistantHomeRecord(version = 2L, gatewayId = "sakura")
+		val state = ChatState(assistantHome = AssistantHome.Read(record, AssistantHomeReport(2L, "sakura", "placed")))
+		// Moving offers no check-in yet.
+		assertNull(assistantSpawnOn(ChatState(assistantHome = AssistantHome.Read(record, null)), "sakura"))
 		val spawns = listOf(SpawnChoice("host", "Host"), SpawnChoice("windows", "Windows"))
 		val assistantSpawn = assistantSpawnOn(state, "sakura")
 		val placed = routineTargetMenu(spawns, ROUTINE_TARGET_SPAWN, "host", assistantSpawn)
@@ -95,15 +84,16 @@ class RoutineDraftTest {
 
 		assertEquals("host", assistantSpawn)
 		assertNull(assistantSpawnOn(state, "mikan"))
-		assertNull(assistantSpawnOn(state, "yuzu"))
 		assertEquals(listOf("Assistant", "Host", "Windows"), placed.map { it.label })
 		assertTrue(absent.none { it.kind == ROUTINE_TARGET_ASSISTANT })
-		// An unplaced check-in with no spawns known can still move to its own spawn.
 		assertEquals(
 			listOf(ROUTINE_TARGET_ASSISTANT to false, ROUTINE_TARGET_SPAWN to false),
 			held.map { it.kind to it.offered },
 		)
 		assertTrue(held.all { it.spawn == "host" })
+		assertEquals(listOf(true, false), held.map(::assistantAbsent))
+		assertNull(targetTag(placed.first()))
+		assertTrue(targetTag(held.first()) != targetTag(held.last()))
 	}
 
 	@Test

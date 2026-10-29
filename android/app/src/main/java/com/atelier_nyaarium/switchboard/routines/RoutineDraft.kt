@@ -1,11 +1,12 @@
 package com.atelier_nyaarium.switchboard.routines
 
+import com.atelier_nyaarium.switchboard.ASSISTANT_SPAWN
 import com.atelier_nyaarium.switchboard.ChatState
+import com.atelier_nyaarium.switchboard.placedGateway
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineTarget
 import com.atelier_nyaarium.switchboard.proto.Runbook
-import com.atelier_nyaarium.switchboard.proto.parseSessionName
 import com.atelier_nyaarium.switchboard.runbooks.SpawnChoice
 import com.atelier_nyaarium.switchboard.runbooks.spawnMenu
 import com.atelier_nyaarium.switchboard.runIsolated
@@ -188,15 +189,18 @@ internal data class RoutineTargetChoice(
 	val offered: Boolean = true,
 )
 
-/**
- * The assistant's spawn on a Gateway where it is placed and a routine can target it, else null. An
- * older Gateway drops the target's kind and stores a spawn routine.
- */
-internal fun assistantSpawnOn(state: ChatState, gatewayId: String): String? {
-	val assistant = state.gateways.assistantOn(gatewayId) ?: return null
-	if (assistant.workdir == null || assistant.checkIns != true) return null
-	val team = assistant.team ?: return null
-	return runIsolated { parseSessionName(team).project }.getOrNull()
+/** Assistant spawn, once placed on this Gateway. */
+internal fun assistantSpawnOn(state: ChatState, gatewayId: String): String? =
+	ASSISTANT_SPAWN.takeIf { placedGateway(state) == gatewayId }
+
+/** A check-in held on a Gateway the assistant left. */
+internal fun assistantAbsent(choice: RoutineTargetChoice): Boolean = choice.kind == ROUTINE_TARGET_ASSISTANT && !choice.offered
+
+/** A target not offered now says why. */
+internal fun targetTag(choice: RoutineTargetChoice): String? = when {
+	choice.offered -> null
+	assistantAbsent(choice) -> "not set up"
+	else -> "not offered now"
 }
 
 internal fun routineTargetMenu(

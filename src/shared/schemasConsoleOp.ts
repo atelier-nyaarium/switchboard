@@ -281,9 +281,6 @@ export const ConsoleOpSchema = z
 			baseRevision: z.number().int().positive(),
 		}),
 		z.object({ kind: z.literal("assistant_state") }),
-		/** Lives here, in this folder of the host. The phone releases the Gateway it left. */
-		z.object({ kind: z.literal("assistant_place"), workdir: z.string().min(1).max(1_024) }),
-		z.object({ kind: z.literal("assistant_release") }),
 		/** The whole set, never a patch. */
 		z.object({
 			kind: z.literal("assistant_watcher_grants"),
@@ -390,8 +387,6 @@ export const VALUE_OP_KINDS = new Set([
 	"policy_delete",
 	"policy_enable",
 	"assistant_state",
-	"assistant_place",
-	"assistant_release",
 	"assistant_watcher_grants",
 	"assistant_rule_put",
 	"assistant_rule_delete",

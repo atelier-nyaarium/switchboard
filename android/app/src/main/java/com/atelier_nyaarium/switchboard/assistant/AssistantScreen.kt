@@ -35,9 +35,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import com.atelier_nyaarium.switchboard.ASSISTANT_SPAWN
 import com.atelier_nyaarium.switchboard.AssistantOps
 import com.atelier_nyaarium.switchboard.AssistantPage
 import com.atelier_nyaarium.switchboard.AssistantRoot
@@ -56,10 +61,12 @@ import com.atelier_nyaarium.switchboard.assistantRoleHeld
 import com.atelier_nyaarium.switchboard.openAssistantPicker
 import com.atelier_nyaarium.switchboard.assistantSections
 import com.atelier_nyaarium.switchboard.canRetry
+import com.atelier_nyaarium.switchboard.LocationAction
 import com.atelier_nyaarium.switchboard.folderOf
 import com.atelier_nyaarium.switchboard.hapticClick
-import com.atelier_nyaarium.switchboard.movedText
-import com.atelier_nyaarium.switchboard.placementMoves
+import com.atelier_nyaarium.switchboard.homeRefusal
+import com.atelier_nyaarium.switchboard.locationAction
+import com.atelier_nyaarium.switchboard.moveErrorText
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.SpawnPoint
@@ -74,31 +81,41 @@ import com.atelier_nyaarium.switchboard.vault.grantableOn
 import com.atelier_nyaarium.switchboard.watcherActions
 import com.atelier_nyaarium.switchboard.watcherHealth
 
-private const val ASSISTANT_SPAWN = "host"
 private const val DEFAULT_FOLDER = "~/"
 
-/** The Assistant root with no conversation. */
+/** Root without a conversation; the shell enters Placed. */
 @Composable
 internal fun AssistantRootScreen(
 	root: AssistantRoot,
-	onConfigure: () -> Unit,
-	onRetry: () -> Unit,
+	onSettings: () -> Unit,
 	modifier: Modifier = Modifier,
 ) {
+	val body = MaterialTheme.typography.bodyLarge
 	Column(modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
 		when (root) {
-			AssistantRoot.Unplaced -> {
-				Text("Set a Gateway and directory where the assistant session lives.", style = MaterialTheme.typography.bodyLarge)
-				Button(onClick = hapticClick(onConfigure)) { Text("Configure") }
+			AssistantRoot.Loading, is AssistantRoot.Placed -> {}
+			AssistantRoot.RouterUnreachable -> Text("Could not reach the Federation Router.", style = body)
+			AssistantRoot.SetUp -> {
+				Text("Visit Assistant Settings to set up.", style = body)
+				Button(onClick = hapticClick(onSettings)) { Text("Settings") }
 			}
-			AssistantRoot.Loading, is AssistantRoot.Placed -> CircularProgressIndicator()
-			is AssistantRoot.Unavailable -> {
-				Text("A Gateway that may hold the assistant could not be read.", style = MaterialTheme.typography.bodyLarge)
-				OutlinedButton(onClick = hapticClick(onRetry)) { Text("Retry") }
-				if (root.canPlace) Button(onClick = hapticClick(onConfigure)) { Text("Configure") }
+			is AssistantRoot.Moving -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+				CircularProgressIndicator()
+				Text(gatewayLine("Moving the assistant to ", root.gatewayId, "…"), style = body)
 			}
+			is AssistantRoot.Failed -> {
+				Text(moveErrorText(root.reason), style = body)
+				Button(onClick = hapticClick(onSettings)) { Text("Settings") }
+			}
+			is AssistantRoot.HomeUnreachable -> Text(gatewayLine("Assistant on ", root.gatewayId, " could not be reached."), style = body)
 		}
 	}
+}
+
+private fun gatewayLine(before: String, gatewayId: String, after: String) = buildAnnotatedString {
+	append(before)
+	withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(gatewayId) }
+	append(after)
 }
 
 @Composable
@@ -182,19 +199,21 @@ private fun AssistantSettingsPage(
 ) {
 	val ops = repo.assistantOps
 	val works by ops.work.collectAsState()
+	val homeFailure by ops.homeFailure.collectAsState()
 	val work = works[WorkKey.Settings] ?: PageWork()
 	val busy = work.busy
 	val gateways = state.gateways.ids()
 	val placed = home?.let { state.gateways.assistantOn(it) }
 	var target by rememberSaveable(home) { mutableStateOf(home ?: gateways.firstOrNull()) }
-	val chosen = target?.let { state.gateways.assistantOn(it) }
 	val folderText = placed?.workdir ?: DEFAULT_FOLDER
-	var folder by rememberSaveable(home, stateSaver = TextFieldValue.Saver) {
+	// A late answer reseeds it.
+	var folder by rememberSaveable(home, placed?.workdir, stateSaver = TextFieldValue.Saver) {
 		mutableStateOf(TextFieldValue(folderText, TextRange(folderText.length)))
 	}
-	// Leaving closes both dialogs.
+	// Leaving closes the dialogs.
 	var granting by remember(home) { mutableStateOf<String?>(null) }
-	var releasing by remember { mutableStateOf(false) }
+	var removing by remember { mutableStateOf(false) }
+	var abandoning by remember { mutableStateOf<LocationAction.Move?>(null) }
 	var opening by remember { mutableStateOf<Pair<String, String>?>(null) }
 	val waitingSends by repo.assistantSendOps.pending.collectAsState()
 	val vaultRevision by repo.vault.revision
@@ -213,7 +232,9 @@ private fun AssistantSettingsPage(
 	}
 
 	AssistantPageScaffold("Assistant settings", onBack) {
-		work.said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+		(work.said ?: homeFailure?.let(::moveErrorText))?.let {
+			Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+		}
 		if (!roleHeld) {
 			Text("Digital assistant", style = MaterialTheme.typography.labelLarge)
 			Text(
@@ -224,18 +245,10 @@ private fun AssistantSettingsPage(
 			OutlinedButton(onClick = hapticClick { openAssistantPicker(context) }) { Text("Choose assistant") }
 			HorizontalDivider()
 		}
-		for (section in assistantSections(home, placed, chosen)) {
+		for (section in assistantSections(home, placed)) {
 			when (section) {
 				AssistantSection.LIVES_ON -> {
-					Text("Lives on", style = MaterialTheme.typography.labelLarge)
-					val others = state.gateways.assistantHomes().filter { it != home }
-					if (others.isNotEmpty()) {
-						Text(
-							"Also placed on ${others.joinToString()}. Move it to release the rest.",
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.error,
-						)
-					}
+					Text("Assistant location", style = MaterialTheme.typography.labelLarge)
 					PickMenu(
 						label = "Gateway",
 						choices = gateways,
@@ -263,18 +276,40 @@ private fun AssistantSettingsPage(
 							},
 						)
 					}
+					val action = locationAction(state.gateways, home, picked, folder.text, placed?.workdir)
+					if (action is LocationAction.Offline) {
+						Text(
+							"${action.gatewayId} can't be reached.",
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.error,
+						)
+					}
+					homeRefusal(state)?.let { reason ->
+						Text(
+							moveErrorText(reason),
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.error,
+						)
+					}
 					Button(
 						onClick = hapticClick {
-							val to = picked ?: return@hapticClick
-							val workdir = folderOf(folder.text)
-							settings { movedText(move(to, workdir)) }
+							val pending = action as? LocationAction.Move ?: return@hapticClick
+							if (pending.abandoning != null) {
+								abandoning = pending
+							} else {
+								val workdir = folderOf(folder.text)
+								settings { moveAssistant(pending.target, workdir)?.let(::moveErrorText) }
+							}
 						},
-						enabled = !busy && placementMoves(home, picked, folder.text, placed?.workdir),
-					) { Text(if (home == null) "Place here" else "Move here") }
+						enabled = !busy && action is LocationAction.Move,
+					) { Text(if (home == null) "Set up here" else "Move here") }
+					if (home != null) {
+						TextButton(onClick = hapticClick { removing = true }, enabled = !busy) { Text("Remove assistant") }
+					}
 				}
 				AssistantSection.SAFETY -> {
-					val gatewayId = target ?: continue
-					val approveEverySend = chosen?.approveEverySend ?: continue
+					val gatewayId = home ?: continue
+					val approveEverySend = placed?.approveEverySend ?: continue
 					HorizontalDivider()
 					Text("Safety", style = MaterialTheme.typography.labelLarge)
 					Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -306,8 +341,6 @@ private fun AssistantSettingsPage(
 							onRetry = { settings { answerText(retry(at, watcher)) } },
 						)
 					}
-					HorizontalDivider()
-					TextButton(onClick = hapticClick { releasing = true }, enabled = !busy) { Text("Release from $at") }
 				}
 			}
 		}
@@ -329,16 +362,30 @@ private fun AssistantSettingsPage(
 
 	opening?.let { (gatewayId, requestId) -> AssistantSendSheet(repo, gatewayId, requestId) { opening = null } }
 
-	if (releasing && home != null) {
+	abandoning?.let { pending ->
 		ConfirmDialog(
-			title = "Release the assistant from $home?",
-			body = "Ends its session there and stops its watchers. Its notes folder stays.",
-			confirmText = "Release",
+			title = "Move the assistant to ${pending.target}?",
+			body = "${pending.abandoning} can't be reached. Moving now will abandon the assistant settings and notes.",
+			confirmText = "Move",
 			onConfirm = {
-				releasing = false
-				settings { answerText(release(home)) }
+				abandoning = null
+				val workdir = folderOf(folder.text)
+				settings { moveAssistant(pending.target, workdir, pending.abandoning)?.let(::moveErrorText) }
 			},
-			onDismiss = { releasing = false },
+			onDismiss = { abandoning = null },
+		)
+	}
+
+	if (removing) {
+		ConfirmDialog(
+			title = "Remove assistant",
+			body = "This will remove the assistant configuration from your phone and gateway (if reachable).",
+			confirmText = "Remove",
+			onConfirm = {
+				removing = false
+				settings { removeAssistant()?.let(::moveErrorText) }
+			},
+			onDismiss = { removing = false },
 		)
 	}
 }
