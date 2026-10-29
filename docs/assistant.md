@@ -7,21 +7,32 @@ it events. The session decides what to say and do.
 
 - **One session:** `host.assistant`, resumed while it lives on a Gateway. A name is not a binding,
   so provenance decides, as for a routine: `isAssistantRecord` reads the record's `mintedFrom`. The
-  30-day and capacity sweeps skip it, and a plain forget is refused. A release ends it, and placing
-  it again starts a fresh conversation. Its notes folder keeps its files; a move does not copy them.
-- **Where it lives is its record:** the owner picks a Gateway and a folder on that Gateway's host in
-  Assistant settings. `assistant_place` mints the record there, or moves a held one's folder, which
-  a running session takes at its next launch; the first wake launches it, and the host daemon
-  creates the folder with its parents when it is missing (`ensureAssistantWorkdir`), never home or a
-  folder above it, since the Gateway that placed it cannot see that disk. The record is the commit:
-  place saves it before answering, and takes its change back when the save fails. A new placement
-  starts with no watcher grants. `assistant_release` ends the pane and forgets the record first, so
-  a refused forget changes nothing. Past it, the release saves, stops the watchers and drops their
-  grants there whatever the save says; an unsaved release or a grant left behind is named in the
-  answer, and releasing again finishes it. The stage runs these ops one at a time and starts none
-  after shutdown. A move reads every Gateway, places, then releases
-  every other home (`AssistantOps.move`), so a refused place leaves the old home untouched. The
-  phone names any Gateway that did not release.
+  30-day and capacity sweeps skip it, and a plain forget is refused: only a home change ends it, and
+  a new home starts a fresh conversation. Its notes folder keeps its files; a move does not copy them.
+- **Where it lives is the Router's record:** one per Domain owner (`assistantHomeService.ts`). The
+  phone writes it as a compare-and-swap (`assistant_home_put`) and reads it with
+  `assistant_home_read`. It names a Gateway or nobody, and seals the folder and what a move carries
+  (each watcher's rules and grant, and Safety) under `assistantHomeAadKind`, bound to the Gateway and
+  the version, so a replayed or swapped record does not open. A put naming a Gateway that is not
+  connected now is refused, and nobody is a stored row, never a delete. The named Gateway files one
+  report per version, placed or refused with a reason, which the Router keeps in its own row and
+  shows only beside the choice it answers. The `assistantHome` plane tells the phone either moved.
+- **Every Gateway follows it** (`createHomeFollow`): it reads the record at each registration
+  (`createRegistrationRead`) and takes each pushed change. A durable mark (`homeMark.ts`, scoped to
+  the active Domain) holds the newest version and lands before anything else, so a version applies
+  once and a restart never re-applies over an owner's edit.
+  - **Named:** with its watchers stopped, it places the session record in the sealed folder, resets
+    poll state and grants, takes the carried rules and Safety (fresh when nothing was carried), keeps
+    a carried grant only when this Gateway may use its entry, then starts its watchers and reports.
+    The first wake launches the session; the host daemon creates the folder with its parents when it
+    is missing (`ensureAssistantWorkdir`), never home or a folder above it.
+  - **Not named, or nobody:** it ends waiting sends, stops its watchers, forgets the session (retried
+    while it wakes), and drops its grants, rules and Safety. Its routes answer `not_assistant` from
+    the moment its mark says so, and a late wake cannot register once the record is gone.
+  - **Never written:** a Gateway's own session record stays in charge.
+  - **Cut off from the Router:** it keeps running on its mark. A mark write that fails stops it
+    acting until one lands.
+  - `assistant_place` and `assistant_release` are refused, telling an older app to update.
 - **Opus only:** no model levels.
 - **Its own root:** the drawer's Assistant entry resolves where it lives (`assistantRoot`).
   - Placed enters its conversation in the usual thread screen, titled "Assistant", with one chip per

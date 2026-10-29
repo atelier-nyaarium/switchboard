@@ -2,7 +2,7 @@
 
 The self-hosted Router, how a Gateway reaches it, and the trust model.
 
-**Compatibility:** Protocol version 3, and the floor is 3. A Gateway below it is refused at registration with `version_too_old` and the Router closes the socket after the answer; a current client logs the floor and stops, an older one reconnects and is refused again, and either way the Gateway serves nothing through the Router until it is restarted on a current build. A gateway id that is not a slug is refused before it is logged.
+**Compatibility:** Protocol version 4, and the floor is 4. A Gateway below it is refused at registration with `version_too_old` and the Router closes the socket after the answer; a current client logs the floor and stops, an older one reconnects and is refused again, and either way the Gateway serves nothing through the Router until it is restarted on a current build. A gateway id that is not a slug is refused before it is logged.
 
 ## Self-hosted Router
 
@@ -93,8 +93,9 @@ Gateway, so revocation still applies while the Router is unreachable.
 - A row is `{ seq, acceptedAt, size, envelope, producerSig, body }`. The producer signs the envelope; the Router adds seq, acceptedAt, and size.
 - The op ledger keys on `(owner, conversationId, opId)`. A repeat with the same hash answers the recorded result; a different hash answers `conflict`.
 - **A retry is one operation:** The producer mints `opId` once per invocation, and every retry carries it. The identity hash covers the CLEAR operation.
-- The Router and the current Gateway speak protocol version 3, which is also the floor. An older
-  Gateway is refused at registration, so every registered Gateway takes value ops and delivery ops.
+- The Router and the current Gateway speak protocol version 4, which is also the floor. An older
+  Gateway is refused at registration, so every registered Gateway takes value ops and delivery ops,
+  and follows the assistant's home record.
 - Capacity refuses before storage: the row cap answers `refused`, the Domain quota answers `durability_failure`, a failed fsync answers `durability_uncertain`.
 - Gateway frames name only themselves. The Router takes the Domain and gateway from the connection; a session origin must be in the session registry; a peer row into another Domain needs a link edge.
 - `gateway_register` returns an incarnation. Every inbox frame carries it; a stale one is refused.
@@ -119,6 +120,7 @@ Gateway, so revocation still applies while the Router is unreachable.
 - A peer reply back into the origin Domain targets a job key, not a registered session. It is admitted by the origin's own link edge instead of a share. A linked Domain can therefore append reply rows for jobs the gateway does not hold; the gateway drops them at delivery, and the inbox row cap bounds the flood.
 - `cross_domain_unlink` and a signed `revoke_xdomain_link` both drop the Domain's link edge and its shares, so a later link starts private.
 - Board: entries with a clear envelope and sealed title, body, and names; writes carry `expectedRevision` and no actor, because the receiver names the writer from the authenticated channel; the same authority and cascade rules the gateway used, plus `mayTake` for claim and release; observations land as `board_observation` rows in the affected sessions' inboxes. Attachments must be held in the reference-held store.
+- Assistant home: one choice row and one report row per owner (`assistantHomeService.ts`); the phone writes the choice by compare-and-swap, every connected Gateway is pushed each change, and only the named Gateway's current connection may report. `docs/assistant.md` holds the rest.
 - Scheduled sends: one record per target; replace and cancel are versioned; a Router timer fires through the op ledger under the send's own op id and writes a `scheduled_result` row the phones fold. A fired, cancelled or errored record stays for its op id echo and does not hold the slot: a fresh schedule over it names no version.
 - Capabilities and read anchors are tier-1 records with their own OwnerOps.
 - Vault: entries with a clear envelope (id, revision, tombstone, `createdBy`, `changedAt`) and six sealed fields under `vaultAadKind(kind, id)`, so a field opens only under its own entry. A phone writes through `vault_put` and `vault_delete` with `expectedRevision`; a gateway creates through the `vault_create` frame and never updates; both read through `vault_list` and `vault_read`, which answer a delta after `sinceRevision` with tombstones riding along, and a full list (`since` 0) when the cursor predates a swept tombstone. Tombstones keep the envelope with every field wiped and are swept after seven days. Every applied write pushes the `vault` plane with the new revision. The Router opens no field; `vault-router-residue.test.ts` fences the directory. The gateway's client, grants, request road, and loopback routes, and the phone's side, are in `docs/vault.md`.
