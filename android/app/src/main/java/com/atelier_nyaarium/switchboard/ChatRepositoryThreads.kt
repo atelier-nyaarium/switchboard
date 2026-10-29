@@ -26,15 +26,8 @@ internal suspend fun ChatRepository.clearThrough(team: String, rowId: Long, rowA
 			}
 			cut?.also { landed ->
 				playback.dropRows(team, landed.silenced)
-				// On failure files stay; the next write lands the cut.
-				if (persistence.commitThreadsAndReadAnchors()) {
-					// Named since the cut, as by a draft.
-					val now = _state.value
-					val named = now.namedSrcs(now.threads.values.flatten())
-					Attachments.deleteFiles(filesDir, landed.freed.filterNot { it in named })
-				} else {
-					DebugLog.log("Clear", "the cut did not reach disk; its files stay")
-				}
+				// Commits the cut too.
+				attachments.deleteWhenDurable(landed.freed)
 			}
 		}
 	}

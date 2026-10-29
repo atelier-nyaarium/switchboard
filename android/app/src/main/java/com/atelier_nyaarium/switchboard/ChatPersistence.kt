@@ -26,8 +26,8 @@ internal interface ChatPersistenceStore {
 	fun saveReadAnchors(json: String)
 	fun loadReadAnchors(): String?
 	fun saveThreadsAndReadAnchors(threadsJson: String, anchorsJson: String)
-	/** False if not on disk. */
-	fun commitThreadsAndReadAnchors(threadsJson: String, anchorsJson: String): Boolean
+	/** Every slot naming a file, in one commit; false if not on disk. */
+	fun commitFileOwners(threadsJson: String, anchorsJson: String, draftsJson: String, scheduledJson: String): Boolean
 	fun saveLabels(json: String)
 	fun loadLabels(): String?
 	fun saveScheduledSends(json: String)
@@ -114,9 +114,11 @@ internal class ChatPersistence(private val store: ChatPersistenceStore, private 
 		written { store.saveThreadsAndReadAnchors(threadsJson(it.threads), readAnchorsJson(it.readAnchors)) }
 
 	/** On disk before true; callers delete files after. */
-	internal fun commitThreadsAndReadAnchors(): Boolean = synchronized(stateWrites) {
+	internal fun commitFileOwners(): Boolean = synchronized(stateWrites) {
 		val s = live()
-		runIsolated { store.commitThreadsAndReadAnchors(threadsJson(s.threads), readAnchorsJson(s.readAnchors)) }.getOrDefault(false)
+		runIsolated {
+			store.commitFileOwners(threadsJson(s.threads), readAnchorsJson(s.readAnchors), draftsJson(s.drafts), scheduledSendsJson(s.scheduledSends))
+		}.getOrDefault(false)
 	}
 
 	/** Load persisted read anchors, keyed by canonical address. On the FIRST run after this
@@ -383,17 +385,19 @@ internal class ChatPersistence(private val store: ChatPersistenceStore, private 
 		}
 	}
 
-	internal fun persistDrafts() = written { s ->
+	private fun draftsJson(drafts: Map<String, Draft>): String {
 		val root = JSONObject()
-		for ((team, draft) in s.drafts) {
+		for ((team, draft) in drafts) {
 			val files = JSONArray()
 			for (f in draft.files) files.put(fileJson(f))
 			val locations = JSONObject()
 			for ((src, where) in draft.locations) locations.put(src, where)
 			root.put(team, JSONObject().put("text", draft.text).put("files", files).put("locations", locations))
 		}
-		store.saveDrafts(root.toString())
+		return root.toString()
 	}
+
+	internal fun persistDrafts() = written { store.saveDrafts(draftsJson(it.drafts)) }
 
 	/** Unoccupied rows drop. */
 	internal fun loadPersistedDrafts(): Map<String, Draft> {

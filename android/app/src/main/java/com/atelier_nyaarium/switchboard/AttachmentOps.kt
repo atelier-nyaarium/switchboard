@@ -94,7 +94,22 @@ internal class AttachmentOps(
 	/** Schedules background deletion. */
 	fun scheduleAttachmentDelete(srcs: List<String>) {
 		if (srcs.isEmpty()) return
-		scope()?.launch(Dispatchers.IO) { Attachments.deleteFiles(filesDir, srcs) }
+		scope()?.launch(Dispatchers.IO) { deleteWhenDurable(srcs) }
+	}
+
+	/**
+	 * Commits every slot naming a file, then deletes what nothing names. Blocks on disk; false keeps
+	 * the files. A reference added after the check is not seen.
+	 */
+	fun deleteWhenDurable(srcs: List<String>): Boolean {
+		if (!persistence.commitFileOwners()) {
+			DebugLog.log("Attachments", "state did not reach disk; ${srcs.size} files stay")
+			return false
+		}
+		val now = state.value
+		val named = now.namedSrcs(now.threads.values.flatten())
+		Attachments.deleteFiles(filesDir, srcs.filterNot { it in named })
+		return true
 	}
 
 	/** Fetches pending attachments one at a time. */

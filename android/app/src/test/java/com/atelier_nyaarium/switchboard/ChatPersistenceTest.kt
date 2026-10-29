@@ -32,8 +32,10 @@ class ChatPersistenceTest {
 			slots["anchors"] = anchorsJson
 		}
 
-		override fun commitThreadsAndReadAnchors(threadsJson: String, anchorsJson: String): Boolean {
+		override fun commitFileOwners(threadsJson: String, anchorsJson: String, draftsJson: String, scheduledJson: String): Boolean {
 			saveThreadsAndReadAnchors(threadsJson, anchorsJson)
+			saveDrafts(draftsJson)
+			saveScheduledSends(scheduledJson)
 			return true
 		}
 

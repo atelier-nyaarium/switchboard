@@ -261,8 +261,13 @@ class AppStateStore internal constructor(
 		prefs.edit().putString(KEY_THREADS, threadsJson).putString(KEY_READ_ANCHORS, anchorsJson).apply()
 	}
 
-	override fun commitThreadsAndReadAnchors(threadsJson: String, anchorsJson: String): Boolean =
-		prefs.edit().putString(KEY_THREADS, threadsJson).putString(KEY_READ_ANCHORS, anchorsJson).commit()
+	override fun commitFileOwners(threadsJson: String, anchorsJson: String, draftsJson: String, scheduledJson: String): Boolean =
+		prefs.edit()
+			.putString(KEY_THREADS, threadsJson)
+			.putString(KEY_READ_ANCHORS, anchorsJson)
+			.putString(KEY_DRAFTS, draftsJson)
+			.putString(KEY_SCHEDULED_SENDS, scheduledJson)
+			.commit()
 
 	override fun saveLabels(json: String) = prefs.edit().putString(KEY_LABELS, json).apply()
 
