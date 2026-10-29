@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AssistantHomeFrameSchema } from "./schemasAssistantHome.js";
 
 // Relay payloads stay opaque here.
 
@@ -74,6 +75,7 @@ export const RouterInboundFrameSchema = z.discriminatedUnion("type", [
 		type: z.literal("share_delta"),
 		incarnation: z.number().int().positive(),
 	}),
+	AssistantHomeFrameSchema,
 ]);
 
 export const ToolCallFrameSchema = z.object({
@@ -157,9 +159,9 @@ export const ValueResultParamsSchema = z.object({
 	incarnation: z.number().int().positive(),
 });
 
-/** Below 3 a Gateway keeps a share copy nothing writes. */
-export const FEDERATION_PROTOCOL_FLOOR = 3;
-export const FEDERATION_PROTOCOL_VERSION = 3;
+/** Below 4 a Gateway does not follow the assistant's home. */
+export const FEDERATION_PROTOCOL_FLOOR = 4;
+export const FEDERATION_PROTOCOL_VERSION = 4;
 
 export const GatewayRegisterParamsSchema = z.object({
 	gatewayId: z.string().min(1).max(64),

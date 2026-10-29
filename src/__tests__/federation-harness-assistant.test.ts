@@ -2,11 +2,32 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Watcher, WatcherEvent } from "../gateway/assistant/watcher.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import type { ConsoleAssistantStateResult } from "../shared/schemasAssistant.js";
+import type { AssistantHomeCarried } from "../shared/schemasAssistantHome.js";
+import { DEFAULT_RULES } from "../shared/schemasAssistantRules.js";
 import { ASSISTANT_COMMANDS } from "../shared/session-commands.js";
 import { composeSessionName } from "../shared/session-id.js";
 import type { TeamInfo } from "../shared/types.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type DomainPeer, type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
+
+const putHome = async (
+	h: FederationHarness,
+	gatewayId: string | null,
+	workdirPath: string | null,
+	carried: AssistantHomeCarried | null = null,
+) => {
+	const current = await h.phone.homeRead();
+	const baseVersion = current.record?.version ?? 0;
+	if (gatewayId === null) return h.phone.homePut({ gatewayId: null, workdirPath: null, carried: null, baseVersion });
+	if (workdirPath === null) throw new Error("a named home needs a workdir");
+	return h.phone.homePut({ gatewayId, workdirPath, carried, baseVersion });
+};
+
+const waitHomeReport = (h: FederationHarness, version: number, outcome: "placed" | "refused") =>
+	h.waitFor(async () => {
+		const answer = await h.phone.homeRead();
+		return answer.record?.version === version && answer.report?.outcome === outcome ? answer : undefined;
+	}, `the ${outcome} home report`);
 
 describe("the assistant's session through the console", () => {
 	let h: FederationHarness;
@@ -33,11 +54,34 @@ describe("the assistant's session through the console", () => {
 		if (h) await h.close();
 	});
 
+	it("refuses the old console home operations", async () => {
+		const placed = await h.phone.value({ kind: "assistant_place", workdir: "~/projects/notes" });
+		const released = await h.phone.value({ kind: "assistant_release" });
+		const home = await h.phone.homeRead();
+
+		expect(placed.result).toMatchObject({ kind: "refusal" });
+		expect(released.result).toMatchObject({ kind: "refusal" });
+		expect(home.record).toBeNull();
+	});
+
+	it("refuses a Gateway that is not registered", async () => {
+		const refused = await putHome(h, "not-registered", "~/projects/notes");
+		const home = await h.phone.homeRead();
+
+		expect(refused).toMatchObject({ outcome: "refused", refusal: "unroutable", record: null });
+		expect(home.record).toBeNull();
+	});
+
 	it("lives where the owner places it, and refuses a plain forget", async () => {
 		const before = await assistant({ kind: "assistant_state" });
-		await assistant({ kind: "assistant_place", workdir: "relative/notes" });
+		const invalid = await putHome(h, h.set.gateway.id, "relative/notes");
+		if (!invalid.record) throw new Error("the Router did not hold the home choice");
+		await waitHomeReport(h, invalid.record.version, "refused");
 		const refused = await assistant({ kind: "assistant_state" });
-		const placed = await assistant({ kind: "assistant_place", workdir: "~/projects/notes" });
+		const placement = await putHome(h, h.set.gateway.id, "~/projects/notes");
+		if (!placement.record) throw new Error("the Router did not hold the home choice");
+		await waitHomeReport(h, placement.record.version, "placed");
+		const placed = await assistant({ kind: "assistant_state" });
 		const opsBefore = h.host.ops.length;
 		const forgot = await dispatch(ASSISTANT_TEAM, { kind: "forget", target: h.target(ASSISTANT_TEAM) });
 
@@ -48,6 +92,37 @@ describe("the assistant's session through the console", () => {
 		expect(placed.watchers[0]?.secret).toBeTruthy();
 		expect(forgot.ok, JSON.stringify(forgot)).toBe(false);
 		expect(h.host.ops.length).toBe(opsBefore);
+	});
+
+	it("moves to itself with its carried rules", async () => {
+		await assistant({
+			kind: "assistant_rule_put",
+			watcherId: "github",
+			rule: {
+				id: "carried-rule",
+				conditions: [{ field: "repository", test: "is", value: "atelier/switchboard" }],
+				action: "wake",
+				revision: 0,
+			},
+		});
+		const before = await assistant({ kind: "assistant_state" });
+		if (!before.workdir) throw new Error("the assistant has no workdir to carry");
+		const carried: AssistantHomeCarried = {
+			approveEverySend: before.approveEverySend ?? true,
+			watchers: before.watchers.map((watcher) => ({
+				id: watcher.id,
+				rules: watcher.rules ?? DEFAULT_RULES,
+				grant: watcher.grants[0] ?? null,
+			})),
+		};
+		const moved = await putHome(h, h.set.gateway.id, before.workdir, carried);
+		if (!moved.record) throw new Error("the Router did not hold the moved home");
+		await waitHomeReport(h, moved.record.version, "placed");
+		const after = await assistant({ kind: "assistant_state" });
+
+		expect(after.watchers.find((watcher) => watcher.id === "github")?.rules?.rules).toContainEqual(
+			expect.objectContaining({ id: "carried-rule", action: "wake" }),
+		);
 	});
 
 	it("grants a watcher its entries, and refuses a watcher it does not know", async () => {
@@ -74,18 +149,27 @@ describe("the assistant's session through the console", () => {
 		await new Promise((resolve) => setTimeout(resolve, 5));
 
 		const swept = h.gateway.faults.sweepSessions(0);
+		const assistantState = await assistant({ kind: "assistant_state" });
 
 		expect(swept).toContain(idle);
 		expect(swept).not.toContain(ASSISTANT_TEAM);
-		expect(h.gateway.faults.sessionRecord(ASSISTANT_TEAM)).toBeDefined();
+		expect(assistantState.team).toBe(ASSISTANT_TEAM);
 	});
 
-	it("leaves on a release, ending its pane and its record", async () => {
-		const released = await assistant({ kind: "assistant_release" });
+	it("removes the home and ends its session", async () => {
+		const killsBefore = h.host.ops.filter((op) => op.kind === "killSession").length;
+		const removed = await putHome(h, null, null);
+		if (!removed.record) throw new Error("the Router did not hold the removal");
+		const ended = await h.waitFor(async () => {
+			const state = await assistant({ kind: "assistant_state" });
+			const kills = h.host.ops.filter((op) => op.kind === "killSession").length;
+			return state.workdir === null && state.team === null && kills > killsBefore ? state : undefined;
+		}, "the assistant session ending");
+		const home = await h.phone.homeRead();
 
-		expect(released).toMatchObject({ workdir: null, team: null });
-		expect(h.gateway.faults.sessionRecord(ASSISTANT_TEAM)).toBeUndefined();
-		expect(h.host.ops.some((op) => op.kind === "killSession")).toBe(true);
+		expect(removed).toMatchObject({ outcome: "applied", record: { gatewayId: null, sealed: null } });
+		expect(ended).toMatchObject({ workdir: null, team: null });
+		expect(home.record).toMatchObject({ gatewayId: null, sealed: null });
 	});
 });
 
@@ -153,7 +237,7 @@ describe("a watcher event reaching the assistant", () => {
 
 	it("wakes for no backlog, retries a wake that did not land, and wakes once with the new thread as data", async () => {
 		const poke = () => h.phone.value({ kind: "assistant_watcher_grants", watcherId: "fake", entryIds: [] });
-		await h.phone.value({
+		const ruleResult = await h.phone.value({
 			kind: "assistant_rule_put",
 			watcherId: "fake",
 			rule: {
@@ -163,7 +247,13 @@ describe("a watcher event reaching the assistant", () => {
 				revision: 0,
 			},
 		});
-		await h.phone.value({ kind: "assistant_place", workdir: "~/projects/notes" });
+		const rules = (ruleResult.result as { rules: ConsoleAssistantStateResult["watchers"][number]["rules"] }).rules;
+		const placement = await putHome(h, h.set.gateway.id, "~/projects/notes", {
+			approveEverySend: true,
+			watchers: [{ id: "fake", rules: rules ?? DEFAULT_RULES, grant: null }],
+		});
+		if (!placement.record) throw new Error("the Router did not hold the home choice");
+		await waitHomeReport(h, placement.record.version, "placed");
 		await h.waitFor(() => polls >= 1, "the backlog poll");
 		await poke();
 
@@ -281,7 +371,9 @@ describe("the assistant hidden from every session", () => {
 		h.host.handlers.onCreateSession = (op) =>
 			attach(composeSessionName(op.target.name, op.target.sessionName), op.sessionToken);
 		h.host.handlers.onWake = (frame) => attach(String(frame.team), frame.sessionToken as string | undefined);
-		await h.phone.value({ kind: "assistant_place", workdir: "~/projects/notes" });
+		const placement = await putHome(h, h.set.gateway.id, "~/projects/notes");
+		if (!placement.record) throw new Error("the Router did not hold the home choice");
+		await waitHomeReport(h, placement.record.version, "placed");
 		bob = await h.addDomain({ domainId: "bob", gatewayId: "desk" });
 		await h.link(h, bob);
 	}, 60_000);
@@ -397,7 +489,12 @@ describe("the assistant hidden from every session", () => {
 			"the answer reaching the assistant",
 		);
 
-		await h.phone.value({ kind: "assistant_release" });
+		const removed = await putHome(h, null, null);
+		const removedState = await h.waitFor(async () => {
+			const state = (await h.phone.value({ kind: "assistant_state" })).result as ConsoleAssistantStateResult;
+			return removed.outcome === "applied" && state.team === null ? state : undefined;
+		}, "the assistant removal");
+		expect(removedState).toMatchObject({ workdir: null, team: null });
 		assistant.close();
 		attached.delete(ASSISTANT_TEAM);
 		expect(await pending(bystander)).not.toContain(worker.team);

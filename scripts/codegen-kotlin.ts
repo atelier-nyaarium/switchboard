@@ -108,6 +108,18 @@ import {
 } from "../src/shared/schemas.js";
 import { AssistantWatcherSchema, ConsoleAssistantStateResultSchema } from "../src/shared/schemasAssistant.js";
 import {
+	AssistantHomeCarriedSchema,
+	AssistantHomeCarriedWatcherSchema,
+	AssistantHomePutResultSchema,
+	AssistantHomePutValueSchema,
+	AssistantHomeReadResultSchema,
+	AssistantHomeReadValueSchema,
+	AssistantHomeRecordSchema,
+	AssistantHomeRefusalSchema,
+	AssistantHomeReportSchema,
+	AssistantHomeSealedSchema,
+} from "../src/shared/schemasAssistantHome.js";
+import {
 	AssistantFieldOptionSchema,
 	AssistantFieldSpecSchema,
 	AssistantFieldValueSchema,
@@ -349,6 +361,16 @@ const ROOTS: z.ZodType[] = [
 	ConsolePolicyDeleteResultSchema,
 	AssistantWatcherSchema,
 	ConsoleAssistantStateResultSchema,
+	AssistantHomeCarriedWatcherSchema,
+	AssistantHomeCarriedSchema,
+	AssistantHomeSealedSchema,
+	AssistantHomeRecordSchema,
+	AssistantHomeReportSchema,
+	AssistantHomeReadValueSchema,
+	AssistantHomeReadResultSchema,
+	AssistantHomePutValueSchema,
+	AssistantHomeRefusalSchema,
+	AssistantHomePutResultSchema,
 	AssistantRuleConditionSchema,
 	AssistantRuleSchema,
 	AssistantRuleOtherwiseSchema,

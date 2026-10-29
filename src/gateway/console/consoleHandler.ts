@@ -1,4 +1,5 @@
 import { withinMs } from "../../shared/ambient.js";
+import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import {
 	type ConsoleOp,
 	type ConsoleOpResult,
@@ -27,6 +28,11 @@ import { createTerminalHandlers } from "./consoleTerminal.js";
 import { type ConsoleHandlerDeps, FAKE_REQ, type SendRouteJson } from "./consoleTypes.js";
 
 export type { ConsoleHandlerDeps, ConsoleRoutes } from "./consoleTypes.js";
+
+/** Place and release refusal. */
+const MOVES_THROUGH_ROUTER = "the assistant moves through the Router; update the app";
+/** Host kill dedupe key. */
+const ASSISTANT_HOME_CONVERSATION = "assistant-home";
 
 export function createConsoleDispatcher({
 	routes,
@@ -418,7 +424,8 @@ export function createConsoleDispatcher({
 				return requireAssistant().state();
 
 			case "assistant_place":
-				return requireAssistant().place(op.workdir);
+			case "assistant_release":
+				throw new Error(MOVES_THROUGH_ROUTER);
 
 			case "assistant_watcher_grants":
 				return requireAssistant().setWatcherGrants(op.watcherId, op.entryIds);
@@ -443,12 +450,6 @@ export function createConsoleDispatcher({
 
 			case "assistant_send_answer":
 				return requireAssistant().answerSend(op.requestId, op.decision, op.note);
-
-			case "assistant_release":
-				return requireAssistant().release(async (team) => {
-					const target = `${localDomainId}.${localGatewayId}.${team}`;
-					await sessionLifecycle.forget({ kind: "forget", target }, conversationId, opId, { released: true });
-				});
 
 			default: {
 				// Exhaustive by type.
@@ -540,5 +541,13 @@ export function createConsoleDispatcher({
 		return made.status === "pending" ? { kind: "pending" } : { kind: "ok", team };
 	}
 
-	return { handleValue, handleDelivery, reserveRoutineSession };
+	/** Ends the pane and record; refused while it wakes. */
+	async function forgetAssistant(): Promise<void> {
+		const target = `${localDomainId}.${localGatewayId}.${ASSISTANT_TEAM}`;
+		await sessionLifecycle.forget({ kind: "forget", target }, ASSISTANT_HOME_CONVERSATION, ambient.newId(), {
+			released: true,
+		});
+	}
+
+	return { handleValue, handleDelivery, reserveRoutineSession, forgetAssistant };
 }

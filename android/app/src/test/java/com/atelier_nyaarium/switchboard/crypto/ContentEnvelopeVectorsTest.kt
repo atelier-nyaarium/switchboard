@@ -14,6 +14,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.util.Base64
+import com.atelier_nyaarium.switchboard.crypto.assistantHomeAadKind
 import com.atelier_nyaarium.switchboard.crypto.boardTextAadKind
 import com.atelier_nyaarium.switchboard.crypto.inboxBodyAadKind
 import com.atelier_nyaarium.switchboard.crypto.opPayloadAadKind
@@ -40,6 +41,7 @@ class ContentEnvelopeVectorsTest {
 			"boardNameAad" to boardTextAadKind(BOARD_NAME_KIND, root["boardNameAad"]!!.jsonObject["entryId"]!!.jsonPrimitive.content, root["boardNameAad"]!!.jsonObject["attachmentId"]!!.jsonPrimitive.content),
 			"ownerRowAad" to inboxBodyAadKind(root["ownerRowAad"]!!.jsonObject["conversationId"]!!.jsonPrimitive.content, root["ownerRowAad"]!!.jsonObject["opId"]!!.jsonPrimitive.content),
 			"scheduledBodyAad" to scheduledBodyAadKind(root["scheduledBodyAad"]!!.jsonObject["conversationId"]!!.jsonPrimitive.content, root["scheduledBodyAad"]!!.jsonObject["opId"]!!.jsonPrimitive.content),
+			"assistantHomeAad" to assistantHomeAadKind(root["assistantHomeAad"]!!.jsonObject["gatewayId"]!!.jsonPrimitive.content, root["assistantHomeAad"]!!.jsonObject["version"]!!.jsonPrimitive.long),
 			"opPayloadAad" to opPayloadAadKind(),
 			"valueResultAad" to valueResultAadKind(root["valueResultAad"]!!.jsonObject["opId"]!!.jsonPrimitive.content),
 			"opResultAad" to opResultAadKind(root["opResultAad"]!!.jsonObject["conversationId"]!!.jsonPrimitive.content, root["opResultAad"]!!.jsonObject["opId"]!!.jsonPrimitive.content),
@@ -75,6 +77,7 @@ class ContentEnvelopeVectorsTest {
 		org.junit.Assert.assertThrows(Exception::class.java) { inboxBodyAadKind("conversation", "operation\n1") }
 		org.junit.Assert.assertThrows(Exception::class.java) { scheduledBodyAadKind("conversation\n1", "operation") }
 		org.junit.Assert.assertThrows(Exception::class.java) { scheduledBodyAadKind("conversation", "operation\n1") }
+		org.junit.Assert.assertThrows(Exception::class.java) { assistantHomeAadKind("gateway\n1", 1L) }
 		org.junit.Assert.assertThrows(Exception::class.java) { valueResultAadKind("operation\n1") }
 		org.junit.Assert.assertThrows(Exception::class.java) { opResultAadKind("conversation\n1", "operation") }
 		org.junit.Assert.assertThrows(Exception::class.java) { opResultAadKind("conversation", "operation\n1") }

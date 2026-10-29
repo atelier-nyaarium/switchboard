@@ -230,6 +230,19 @@ export function createRulesStore(deps: RulesStoreDeps) {
 			if (base !== current.revision) return stale(watcherId, current.revision, base);
 			return write(watcherId, held.rules, { ...incoming, revision: current.revision + 1 });
 		},
+		/**
+		 * Every watcher's rules at once, as a move carries them; null is the default. A list revision
+		 * climbs past both sides, so an edit drawn before the move is refused as stale.
+		 */
+		replaceAll(watcherIds: readonly string[], next: (watcherId: string) => AssistantWatcherRules | null): boolean {
+			const watchers: Snapshot["watchers"] = Object.create(null);
+			for (const watcherId of watcherIds) {
+				const carried = structuredClone(next(watcherId) ?? DEFAULT_RULES);
+				const revision = Math.max(get(watcherId).revision, carried.revision) + 1;
+				watchers[watcherId] = { ...carried, revision };
+			}
+			return commit({ v: 1, watchers });
+		},
 	};
 }
 

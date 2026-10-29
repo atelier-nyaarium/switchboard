@@ -8,7 +8,12 @@ import { GithubDone } from "../gateway/assistant/githubDone.js";
 import { createSourceLanes } from "../gateway/assistant/sourceLane.js";
 import { ASSISTANT_WAITS } from "../gateway/assistant/waits.js";
 import { FRESH_STATE } from "../gateway/assistant/watcherState.js";
-import { type AssistantVault, composeAssistant } from "../gateway/compose/composeAssistant.js";
+import {
+	type AssistantHomePort,
+	type AssistantStage,
+	type AssistantVault,
+	composeAssistant,
+} from "../gateway/compose/composeAssistant.js";
 import type { DeliverToOwnerOptions } from "../gateway/consolePushOps.js";
 import { actionText } from "../mcp/assistant/actionTools.js";
 import { processAmbient } from "../shared/ambient.js";
@@ -19,11 +24,20 @@ import {
 	ASSISTANT_ACTIONS,
 	type AssistantActionResult,
 } from "../shared/schemasAssistantActions.js";
+import type { AssistantHomeRecord, AssistantHomeSealed } from "../shared/schemasAssistantHome.js";
+import type { ContentEnvelope } from "../shared/schemasContentKey.js";
 import { SessionStore } from "../shared/session-store.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 
 const T0 = 1_800_000_000_000;
 const API = "https://api.github.com";
+const LOCAL_GATEWAY = "gateway-local";
+const HOME_ENVELOPE: ContentEnvelope = {
+	v: 1,
+	epoch: 1,
+	nonce: Buffer.alloc(12).toString("base64"),
+	ciphertext: Buffer.alloc(16).toString("base64"),
+};
 
 const dirs: string[] = [];
 afterAll(() => {
@@ -37,6 +51,32 @@ const thread = (id: string) => ({
 	subject: { title: `Release ${id}`, type: "Release", url: null },
 	repository: { full_name: "atelier/app" },
 });
+
+function bindHome(assistant: AssistantStage, store: SessionStore) {
+	const opened = new Map<number, AssistantHomeSealed>([[1, { workdirPath: "~/notes", carried: null }]]);
+	const reports: Parameters<AssistantHomePort["report"]>[0][] = [];
+	assistant.bindHome({
+		open: (record) => {
+			const sealed = opened.get(record.version);
+			return sealed ? { kind: "ok", sealed } : { kind: "refused", reason: "missing home" };
+		},
+		report: async (mark) => {
+			reports.push(mark);
+			return "accepted";
+		},
+		endSession: async () => {
+			store.forget(ASSISTANT_TEAM);
+		},
+	});
+	return {
+		reports,
+		follow: (version = 1) =>
+			assistant.follow(
+				{ version, gatewayId: LOCAL_GATEWAY, sealed: HOME_ENVELOPE } satisfies AssistantHomeRecord,
+				{ registered: false },
+			),
+	};
+}
 
 /** `404` means missing; poll idle. */
 function github() {
@@ -64,6 +104,7 @@ async function placed() {
 		watcherGrants: (watcherId) => grants.get(watcherId) ?? [],
 		setWatcherGrants: (watcherId, entryIds) => void grants.set(watcherId, entryIds),
 		readForWatcher: async () => ({ kind: "released", value: "ghp_test" }),
+		usableHere: async () => true,
 	};
 	const delivered: DeliverToOwnerOptions[] = [];
 	const source = github();
@@ -76,6 +117,7 @@ async function placed() {
 	};
 	const assistant = composeAssistant({
 		dataDir,
+		localGatewayId: LOCAL_GATEWAY,
 		// Polling stays idle.
 		ambient: fakeAmbient({ drive: "manual", now: () => T0 }),
 		sessions: { sessionStore: store, presence: store, sessionAuthority: authority } as never,
@@ -94,8 +136,9 @@ async function placed() {
 		lastDeliverySeq: () => 0,
 		fetch: source.fetch,
 	});
+	const home = bindHome(assistant, store);
 	assistant.start();
-	await assistant.console.place("~/notes");
+	await home.follow();
 	await assistant.console.setWatcherGrants("github", ["gh"]);
 	const route = assistant.routes.get(ASSISTANT_ACTION_PATH);
 	if (!route) throw new Error("no action route");

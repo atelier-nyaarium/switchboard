@@ -79,6 +79,12 @@ export function vaultAadKind(kind: VaultFieldKind, id: string): `${VaultFieldKin
 	return `${kind}\n${id}`;
 }
 
+/** Binds the choice's Gateway and version. */
+export function assistantHomeAadKind(gatewayId: string, version: number): `assistant.home\n${string}` {
+	assertNewlineFree(gatewayId);
+	return `assistant.home\n${gatewayId}\n${version}`;
+}
+
 export function inboxBodyAadKind(conversationId: string, opId: string): `inbox.body\n${string}` {
 	assertNewlineFree(conversationId, opId);
 	return `inbox.body\n${conversationId}\n${opId}`;
@@ -114,6 +120,7 @@ export interface ContentAad {
 		| Exclude<ContentKind, BoardTextKind | "inbox.body">
 		| `${BoardTextKind}\n${string}`
 		| `${VaultFieldKind}\n${string}`
+		| `assistant.home\n${string}`
 		| `inbox.body\n${string}`
 		| `op.result\n${string}`
 		| `blob\n${string}\n${number}\n${0 | 1}`;

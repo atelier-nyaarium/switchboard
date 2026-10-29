@@ -1,12 +1,31 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { nudgeFor } from "../gateway/routines/execution.js";
 import type { Occurrence } from "../gateway/routines/occurrences.js";
+import { UNPLACED_REASON } from "../gateway/routines/reservation.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { occurrenceIdOf, type Routine } from "../shared/schemasRoutine.js";
 import { SESSION_BASELINE_PATH } from "../shared/session-baseline.js";
 import { composeSessionName } from "../shared/session-id.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
+
+const setAssistantHome = async (h: FederationHarness) => {
+	const current = await h.phone.homeRead();
+	const placed = await h.phone.homePut({
+		gatewayId: h.set.gateway.id,
+		workdirPath: "~/projects/notes",
+		carried: null,
+		baseVersion: current.record?.version ?? 0,
+	});
+	if (!placed.record) throw new Error("the Router did not hold the home choice");
+	await h.waitFor(async () => {
+		const answer = await h.phone.homeRead();
+		return answer.report?.version === placed.record?.version && answer.report?.outcome === "placed"
+			? answer
+			: undefined;
+	}, "the assistant placement report");
+	return placed;
+};
 
 /** Monday, one hour before check-in. */
 const TAKEN_AT = Date.parse("2026-09-14T08:00:00Z");
@@ -82,11 +101,13 @@ describe("federation harness: a check-in reaching the assistant", () => {
 
 	it("is refused until the assistant lives on the Gateway", async () => {
 		const unplaced = await h.phone.value({ kind: "routine_put", routine: checkIn });
-		expect(unplaced.result).toMatchObject({ stored: false, reason: "the assistant is not placed on this Gateway" });
+		expect(unplaced.result).toMatchObject({ stored: false, reason: UNPLACED_REASON });
 
 		// The phone offers Assistant only where the answer says check-ins are kept.
-		const placed = await h.phone.value({ kind: "assistant_place", workdir: "~/projects/notes" });
-		expect(placed.result).toMatchObject({ checkIns: true });
+		const placed = await setAssistantHome(h);
+		const state = (await h.phone.value({ kind: "assistant_state" })).result;
+		expect(placed.outcome).toBe("applied");
+		expect(state).toMatchObject({ checkIns: true });
 		const saved = await h.phone.value({ kind: "routine_put", routine: checkIn });
 		expect(saved.result).toMatchObject({ stored: true });
 	});

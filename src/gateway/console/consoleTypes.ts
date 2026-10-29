@@ -137,9 +137,6 @@ export interface ConsoleHandlerDeps {
 /** A refusal throws with its reason, but a rule op answers its refusal with the held rules. One op at a time. */
 export interface AssistantConsoleHandlers {
 	state: () => ConsoleAssistantStateResult;
-	place: (workdir: string) => Promise<ConsoleAssistantStateResult>;
-	/** `forget` ends the session's pane and record; a refused one leaves the assistant as it was. */
-	release: (forget: (team: string) => Promise<void>) => Promise<ConsoleAssistantStateResult>;
 	setWatcherGrants: (watcherId: string, entryIds: string[]) => Promise<ConsoleAssistantStateResult>;
 	putRule: (watcherId: string, rule: AssistantRule) => Promise<ConsoleAssistantRulesResult>;
 	deleteRule: (watcherId: string, ruleId: string, base: number) => Promise<ConsoleAssistantRulesResult>;

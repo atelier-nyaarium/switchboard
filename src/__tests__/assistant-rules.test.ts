@@ -4,10 +4,17 @@ import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { createRulesStore } from "../gateway/assistant/rulesStore.js";
 import type { Watcher, WatcherEvent } from "../gateway/assistant/watcher.js";
-import { type AssistantVault, composeAssistant } from "../gateway/compose/composeAssistant.js";
+import {
+	type AssistantHomePort,
+	type AssistantStage,
+	type AssistantVault,
+	composeAssistant,
+} from "../gateway/compose/composeAssistant.js";
 import { processAmbient } from "../shared/ambient.js";
+import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { DurableStore } from "../shared/durable-store.js";
 import { AssistantWatcherSchema } from "../shared/schemasAssistant.js";
+import type { AssistantHomeRecord, AssistantHomeSealed } from "../shared/schemasAssistantHome.js";
 import {
 	type AssistantFieldSpec,
 	AssistantFieldSpecSchema,
@@ -16,10 +23,18 @@ import {
 	decideEvent,
 } from "../shared/schemasAssistantRules.js";
 import { ConsoleOpSchema } from "../shared/schemasConsoleOp.js";
+import type { ContentEnvelope } from "../shared/schemasContentKey.js";
 import { SessionStore } from "../shared/session-store.js";
 import { type FakeAmbient, fakeAmbient } from "../testing/fakeAmbient.js";
 
 const T0 = 1_800_000_000_000;
+const LOCAL_GATEWAY = "gateway-local";
+const HOME_ENVELOPE: ContentEnvelope = {
+	v: 1,
+	epoch: 1,
+	nonce: Buffer.alloc(12).toString("base64"),
+	ciphertext: Buffer.alloc(16).toString("base64"),
+};
 const SPECS: AssistantFieldSpec[] = [
 	{ kind: "text", field: "reason", label: "Reason" },
 	{ kind: "text", field: "repository", label: "Repository" },
@@ -73,6 +88,32 @@ function listing(held: WatcherEvent[], fieldSpecs = SPECS): Watcher {
 	};
 }
 
+function bindHome(assistant: AssistantStage, store: SessionStore) {
+	const opened = new Map<number, AssistantHomeSealed>([[1, { workdirPath: "~/notes", carried: null }]]);
+	const reports: Parameters<AssistantHomePort["report"]>[0][] = [];
+	assistant.bindHome({
+		open: (record) => {
+			const sealed = opened.get(record.version);
+			return sealed ? { kind: "ok", sealed } : { kind: "refused", reason: "missing home" };
+		},
+		report: async (mark) => {
+			reports.push(mark);
+			return "accepted";
+		},
+		endSession: async () => {
+			store.forget(ASSISTANT_TEAM);
+		},
+	});
+	return {
+		reports,
+		follow: (version = 1) =>
+			assistant.follow(
+				{ version, gatewayId: LOCAL_GATEWAY, sealed: HOME_ENVELOPE } satisfies AssistantHomeRecord,
+				{ registered: false },
+			),
+	};
+}
+
 function stage(dataDir: string, watcher: Watcher, ambient: FakeAmbient) {
 	const store = new SessionStore({ ambient: processAmbient() });
 	const grants = new Map<string, string[]>();
@@ -80,9 +121,11 @@ function stage(dataDir: string, watcher: Watcher, ambient: FakeAmbient) {
 		watcherGrants: (id) => grants.get(id) ?? [],
 		setWatcherGrants: (id, entryIds) => void grants.set(id, entryIds),
 		readForWatcher: async () => ({ kind: "released", value: "token" }),
+		usableHere: async () => true,
 	};
-	return composeAssistant({
+	const assistant = composeAssistant({
 		dataDir,
+		localGatewayId: LOCAL_GATEWAY,
 		ambient,
 		sessions: { sessionStore: store, presence: store } as never,
 		saveSessions: () => {},
@@ -95,6 +138,7 @@ function stage(dataDir: string, watcher: Watcher, ambient: FakeAmbient) {
 		fetch: async () => new Response(null, { status: 304 }),
 		watchers: [watcher],
 	});
+	return { assistant, home: bindHome(assistant, store) };
 }
 
 function rulesStore(dir = freshDir(), store?: DurableStore, specs = SPECS) {
@@ -367,12 +411,12 @@ describe("a watcher's rules", () => {
 
 	it("preview over the live first page, from the rule's place, and refuse what a put refuses", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
-		const assistant = stage(
+		const { assistant, home } = stage(
 			freshDir(),
 			listing([event("1", "subscribed", 2), event("2", "mention", 3), event("3", "mention", 1)]),
 			ambient,
 		);
-		await assistant.console.place("~/notes");
+		await home.follow();
 		assistant.start();
 		await assistant.console.putRule("github", rule("subs", "subscribed", "inbox"));
 		const atelier: AssistantRule = {
@@ -399,7 +443,7 @@ describe("a watcher's rules", () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const dir = freshDir();
 		seedStale(dir, rule("stale", "retired_reason", "inbox", { revision: 3 }));
-		const assistant = stage(dir, listing([], CHOICES), ambient);
+		const { assistant } = stage(dir, listing([], CHOICES), ambient);
 
 		const answered = AssistantWatcherSchema.parse(assistant.console.state().watchers[0]);
 
@@ -424,8 +468,8 @@ describe("a watcher's rules", () => {
 			revision: 3,
 		});
 		const watcher = listing([event("1", "mention", 2), event("2", "review_requested", 3)], CHOICES);
-		const assistant = stage(dir, watcher, ambient);
-		await assistant.console.place("~/notes");
+		const { assistant, home } = stage(dir, watcher, ambient);
+		await home.follow();
 		assistant.start();
 
 		const preview = await assistant.console.previewRule("github", rule("reviews", "review_requested", "wake"));

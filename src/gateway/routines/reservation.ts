@@ -87,7 +87,7 @@ const ASSISTANT_RULES: TargetRules = {
 	reserve: (_routine, roads) => roads.reserveAssistant(),
 };
 
-export const UNPLACED_REASON = "the assistant is not placed on this Gateway";
+export const UNPLACED_REASON = "the assistant isn't set up on this Gateway";
 
 export function targetRules(routine: Routine): TargetRules {
 	return targetKind(routine.target) === "assistant" ? ASSISTANT_RULES : SPAWN_RULES;

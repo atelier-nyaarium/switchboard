@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { resolveAdmittedConsole, signAdmission } from "../shared/admission.js";
 import {
+	assistantHomeAadKind,
 	BOARD_BODY_KIND,
 	BOARD_NAME_KIND,
 	BOARD_TITLE_KIND,
@@ -53,6 +54,7 @@ type Fixture = {
 	boardNameAad: { kind: BoardTextKind; entryId: string; attachmentId: string; expected: string };
 	ownerRowAad: { conversationId: string; opId: string; expected: string };
 	scheduledBodyAad: { conversationId: string; opId: string; expected: string };
+	assistantHomeAad: { gatewayId: string; version: number; expected: string };
 	opPayloadAad: { expected: string };
 	consoleOpPayloadAad: {
 		domainId: string;
@@ -128,6 +130,10 @@ describe("content envelope", () => {
 			scheduledBodyAad: scheduledBodyAadKind(
 				fixture.scheduledBodyAad.conversationId,
 				fixture.scheduledBodyAad.opId,
+			),
+			assistantHomeAad: assistantHomeAadKind(
+				fixture.assistantHomeAad.gatewayId,
+				fixture.assistantHomeAad.version,
 			),
 			opPayloadAad: opPayloadAadKind(),
 			valueResultAad: valueResultAadKind(fixture.valueResultAad.opId),
@@ -231,6 +237,7 @@ describe("content envelope", () => {
 		expect(() => inboxBodyAadKind("conversation", "operation\n1")).toThrow();
 		expect(() => scheduledBodyAadKind("conversation\n1", "operation")).toThrow();
 		expect(() => scheduledBodyAadKind("conversation", "operation\n1")).toThrow();
+		expect(() => assistantHomeAadKind("gateway\n1", 1)).toThrow();
 		expect(() => valueResultAadKind("operation\n1")).toThrow();
 		expect(() => opResultAadKind("conversation\n1", "operation")).toThrow();
 		expect(() => opResultAadKind("conversation", "operation\n1")).toThrow();

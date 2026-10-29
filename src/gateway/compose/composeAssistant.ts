@@ -1,7 +1,6 @@
-// The assistant's one session and its watchers. Where it lives is its reserved session record:
-// placed by an owner op, kept from both sweeps, released only by an owner op.
+// The assistant's one session and its watchers, placed where the Router's home record names.
 
-import { type Ambient, withinMs } from "../../shared/ambient.js";
+import { type Ambient, type TimerHandle, withinMs } from "../../shared/ambient.js";
 import {
 	ASSISTANT_RESERVE_KEY,
 	ASSISTANT_SESSION_NAME,
@@ -15,6 +14,7 @@ import { createFifo } from "../../shared/keyed-fifo.js";
 import type { PendingDelivery } from "../../shared/pending-delivery-store.js";
 import type { AssistantWatcher, ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
 import { actionsOf, GITHUB_WATCHER_ID } from "../../shared/schemasAssistantActions.js";
+import type { AssistantHomeRecord, AssistantHomeSealed } from "../../shared/schemasAssistantHome.js";
 import { eventLines } from "../../shared/schemasAssistantInbox.js";
 import {
 	canonicalRule,
@@ -31,6 +31,7 @@ import { createAssistantRoutes, type Handler } from "../assistant/assistantRoute
 import { createGithubClient, type GithubClientDeps, type TokenRead } from "../assistant/githubClient.js";
 import { GithubDone } from "../assistant/githubDone.js";
 import { createGithubWatcher } from "../assistant/githubWatcher.js";
+import { createHomeMarkStore, type HomeMark } from "../assistant/homeMark.js";
 import { createInboxListing } from "../assistant/inboxListing.js";
 import { createRulesStore } from "../assistant/rulesStore.js";
 import { createOriginMarker, createSafetyStore, createSendGuard } from "../assistant/sendGuard.js";
@@ -40,6 +41,7 @@ import type { ListPage, ListQuery, Watcher, WatcherEvent } from "../assistant/wa
 import type { WatcherActions } from "../assistant/watcherAction.js";
 import { createWatcherStateStore, FRESH_STATE, unexpectedNow } from "../assistant/watcherState.js";
 import type { AssistantConsoleHandlers } from "../console/consoleTypes.js";
+import { fireAndForget } from "../fireAndForget.js";
 import { presentedByRequest } from "../sessionAuthority.js";
 import type { VaultRelease } from "../vault/vaultUse.js";
 import type { GatewayRoutes } from "./composeRoutes.js";
@@ -51,16 +53,38 @@ const NOT_HERE = "the assistant does not live on this Gateway";
 const STOP_WAIT_MS = 5_000;
 /** Events a preview reads. */
 const PREVIEW_EVENTS = 50;
+/** A let-go whose forget was refused tries again after this. */
+const LET_GO_RETRY_MS = 30_000;
+const REPORT_RETRY_MS = 10_000;
+const MOVING_HERE = "the assistant is still moving here; try again shortly";
 
 /** What the assistant reaches in the vault, read late. */
 export interface AssistantVault {
 	watcherGrants: (watcherId: string) => string[];
 	setWatcherGrants: (watcherId: string, entryIds: string[]) => void;
 	readForWatcher: (watcherId: string, entryId: string) => Promise<VaultRelease>;
+	/** Whether this Gateway may use the entry's value. */
+	usableHere: (entryId: string) => Promise<boolean>;
+}
+
+/** The federation's half of following the home, bound on each activation. */
+export interface AssistantHomePort {
+	open: (
+		record: AssistantHomeRecord,
+	) => { kind: "ok"; sealed: AssistantHomeSealed } | { kind: "refused"; reason: string };
+	/** `retry` when the Router did not take it; `dropped` when it never will. */
+	report: (mark: {
+		version: number;
+		outcome: "placed" | "refused";
+		reason?: string;
+	}) => Promise<"accepted" | "dropped" | "retry">;
+	/** Ends the session's pane and record; throws when refused, as while it wakes. */
+	endSession: () => Promise<void>;
 }
 
 export interface AssistantStageDeps {
 	dataDir: string;
+	localGatewayId: string;
 	ambient: Pick<Ambient, "now" | "newId" | "randomBytes" | "setTimer" | "clearTimer">;
 	sessions: Pick<SessionsStage, "sessionStore" | "presence" | "sessionAuthority" | "conversationRegistry">;
 	/** A checked save of the session records, which hold where it lives; throws when it did not land. */
@@ -80,6 +104,11 @@ export interface AssistantStageDeps {
 export interface AssistantStage {
 	/** Whether that session is the assistant's, which no sweep takes. */
 	reserves: (team: string) => boolean;
+	/** Held here and not let go: what a check-in runs in. */
+	placed: () => boolean;
+	/** One Router record, pushed or read at registration; a null was never written. */
+	follow: (record: AssistantHomeRecord | null, how: { registered: boolean }) => Promise<void>;
+	bindHome: (port: AssistantHomePort) => void;
 	/** The refusal reason, or null. */
 	forgetRefusal: (team: string) => string | null;
 	console: AssistantConsoleHandlers;
@@ -121,6 +150,9 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		return isAssistantRecord(record) ? record : undefined;
 	};
 	const isAssistant = (team: string) => team === ASSISTANT_TEAM && held() !== undefined;
+	const home = openDurable(deps.dataDir, "assistant-home", (store) => createHomeMarkStore(store));
+	/** Its routes answer only while the home lets its lanes run. */
+	const acting = (record: Parameters<typeof isAssistantRecord>[0]) => isAssistantRecord(record) && home.allowsLanes();
 
 	const tokenFor = (watcherId: string) => async (): Promise<TokenRead> => {
 		const entryId = deps.vault.watcherGrants(watcherId)[0];
@@ -147,7 +179,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	let ownerOpsClosed = false;
 
 	const startLanes = () => {
-		if (!active || lanes || !held()) return;
+		if (!active || lanes || !held() || !home.allowsLanes()) return;
 		lanes = createSourceLanes({
 			ambient,
 			state: watcherState,
@@ -310,11 +342,11 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		caller: (req) => {
 			const record = sessions.sessionAuthority.resolveConfirmedManagedSession(req);
 			if (!record) return "unauthenticated";
-			return isAssistantRecord(record) ? "assistant" : "not_assistant";
+			return acting(record) ? "assistant" : "not_assistant";
 		},
 		sender: (req, conversationId) => {
 			const auth = sessions.sessionAuthority;
-			if (!isAssistantRecord(auth.resolveConfirmedManagedSession(req) ?? undefined)) return null;
+			if (!acting(auth.resolveConfirmedManagedSession(req) ?? undefined)) return null;
 			// Replies require caller ownership.
 			const holder = sessions.conversationRegistry.get(conversationId);
 			if (!auth.satisfies(auth.toAnswerFor(holder), presentedByRequest(req))) return null;
@@ -335,9 +367,149 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		};
 	};
 
+	/** Refused mid-apply. */
+	const settled = <T>(work: () => T | Promise<T>): Promise<T> =>
+		serial(() => {
+			if (home.applying()) throw new Error(MOVING_HERE);
+			return work();
+		});
+	let homePort: AssistantHomePort | null = null;
+	let letGoRetry: TimerHandle | null = null;
+	let reportRetry: TimerHandle | null = null;
+	const report = (mark: HomeMark | null) => {
+		if (!mark?.named || mark.applied === null || !homePort) return;
+		if (reportRetry) ambient.clearTimer(reportRetry);
+		reportRetry = null;
+		const { version, applied: outcome, reason } = mark;
+		const sent = homePort.report({ version, outcome, ...(reason ? { reason } : {}) }).then((answer) => {
+			// Refused while migrating, or lost.
+			if (answer !== "retry" || home.get()?.version !== version || !active) return;
+			reportRetry = ambient.setTimer(() => {
+				reportRetry = null;
+				report(home.get());
+			}, REPORT_RETRY_MS);
+		});
+		fireAndForget("assistant home report", sent);
+	};
+
+	/** With lanes stopped, the carried settings land; lanes start only once all of it is saved. */
+	const apply = async (record: AssistantHomeRecord): Promise<string | null> => {
+		await stopLanes();
+		const opened = homePort?.open(record) ?? { kind: "refused" as const, reason: "federation is not active" };
+		if (opened.kind === "refused") return opened.reason;
+		const { workdirPath, carried } = opened.sealed;
+		const refused = placeRefusal(workdirPath, sessions);
+		if (refused) return refused;
+		marker.ended();
+		for (const watcher of watchers) deps.vault.setWatcherGrants(watcher.id, []);
+		if (!watchers.every((watcher) => grantsLanded(watcher.id, [])))
+			return "a grant left from an earlier placement could not be dropped";
+		// First poll primes again.
+		if (!watchers.every((watcher) => watcherState.put(watcher.id, FRESH_STATE)))
+			return "a watcher's earlier state could not be reset";
+		const undo = place(workdirPath, sessions);
+		try {
+			deps.saveSessions();
+		} catch (error) {
+			undo();
+			throw error;
+		}
+		const byId = new Map((carried?.watchers ?? []).map((watcher) => [watcher.id, watcher]));
+		const ids = watchers.map((watcher) => watcher.id);
+		if (!rules.replaceAll(ids, (watcherId) => byId.get(watcherId)?.rules ?? null))
+			return "the rules could not be saved";
+		if (!safety.set(carried?.approveEverySend ?? true)) return "the Safety setting could not be saved";
+		// Unusable grants drop.
+		for (const watcher of watchers) {
+			const grant = byId.get(watcher.id)?.grant;
+			if (grant && (await deps.vault.usableHere(grant))) deps.vault.setWatcherGrants(watcher.id, [grant]);
+		}
+		return null;
+	};
+
+	/** Lanes stop before anything awaits; the rest runs again until the forget lands. */
+	const letGo = async (): Promise<boolean> => {
+		await stopLanes();
+		// End waiting sends now.
+		guard.sessionEnded(ASSISTANT_TEAM);
+		if (held()) {
+			try {
+				await homePort?.endSession();
+			} catch (error) {
+				console.warn(`[assistant] let-go waits: ${(error as Error).message}`);
+			}
+			if (held()) return false;
+		}
+		marker.ended();
+		for (const watcher of watchers) {
+			if (deps.vault.watcherGrants(watcher.id).length > 0) deps.vault.setWatcherGrants(watcher.id, []);
+		}
+		if (!watchers.every((watcher) => grantsLanded(watcher.id, []))) return false;
+		const ids = watchers.map((watcher) => watcher.id);
+		const residue = ids.some((watcherId) => {
+			const held = rules.get(watcherId);
+			return held.rules.length > 0 || held.revision > 0;
+		});
+		if (residue && !rules.replaceAll(ids, () => null)) return false;
+		if (!safety.approveEverySend() && !safety.set(true)) return false;
+		return true;
+	};
+	const letGoUntilDone = async (): Promise<void> => {
+		if (letGoRetry) ambient.clearTimer(letGoRetry);
+		letGoRetry = null;
+		if (await letGo()) return;
+		letGoRetry = ambient.setTimer(() => {
+			letGoRetry = null;
+			if (home.letGo()) fireAndForget("assistant let-go", serial(letGoUntilDone));
+		}, LET_GO_RETRY_MS);
+	};
+
+	const follow = (record: AssistantHomeRecord | null, { registered }: { registered: boolean }) =>
+		serial(async () => {
+			// Never written: the local record stays as it is.
+			if (record === null) return;
+			const mark = home.get();
+			if (mark && record.version < mark.version) return;
+			const named = record.gatewayId === deps.localGatewayId;
+			if (mark?.version === record.version) {
+				if (!mark.named) return letGoUntilDone();
+				if (mark.applied !== null) {
+					if (registered) report(mark);
+					return;
+				}
+				// An unfinished apply reruns.
+			} else if (!home.set({ version: record.version, named, applied: null })) {
+				// Unsaved, it still stops acting.
+				await stopLanes();
+				throw new Error("the home mark could not be saved");
+			}
+			if (!named) return letGoUntilDone();
+			let refusal: string | null;
+			try {
+				refusal = await apply(record);
+			} catch (error) {
+				refusal = (error as Error).message;
+			}
+			const outcome = refusal === null ? ("placed" as const) : ("refused" as const);
+			const applied: HomeMark = {
+				version: record.version,
+				named: true,
+				applied: outcome,
+				...(refusal === null ? {} : { reason: refusal.slice(0, 512) }),
+			};
+			if (!home.set(applied)) throw new Error("the home mark could not be saved");
+			if (outcome === "placed") startLanes();
+			report(applied);
+		});
+
 	return {
 		reserves: isAssistant,
-		forgetRefusal: (team) => (isAssistant(team) ? "the assistant's session leaves only by a release" : null),
+		placed: () => held() !== undefined && home.allowsLanes(),
+		follow,
+		bindHome: (port) => {
+			homePort = port;
+		},
+		forgetRefusal: (team) => (isAssistant(team) ? "the assistant's session ends only when its home changes" : null),
 		routes,
 		baselineFor: (team) => {
 			if (!isAssistant(team)) return undefined;
@@ -361,57 +533,9 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		},
 		console: {
 			state,
-			// The record is where it lives, so it is durable before the phone releases the old home.
-			place: (workdir) =>
-				serial(() => {
-					// A new placement starts afresh, whatever an interrupted release left.
-					if (!held()) {
-						marker.ended();
-						for (const watcher of watchers) deps.vault.setWatcherGrants(watcher.id, []);
-						if (!watchers.every((watcher) => grantsLanded(watcher.id, []))) {
-							throw new Error("a grant left from an earlier placement could not be dropped");
-						}
-						// First poll primes again.
-						if (!watchers.every((watcher) => watcherState.put(watcher.id, FRESH_STATE))) {
-							throw new Error("a watcher's earlier state could not be reset");
-						}
-					}
-					const undo = place(workdir, sessions);
-					try {
-						deps.saveSessions();
-					} catch (error) {
-						// Refused, so the next persist tick must not save it either.
-						undo();
-						throw error;
-					}
-					startLanes();
-					return state();
-				}),
-			// The record is the commit: a refused forget changes nothing. Past it the pane is gone, so
-			// the rest runs whatever the save says, and a retry saves again.
-			release: (forget) =>
-				serial(async () => {
-					if (held()) await forget(ASSISTANT_TEAM);
-					let unsaved: Error | null = null;
-					try {
-						deps.saveSessions();
-					} catch (error) {
-						unsaved = error as Error;
-					}
-					await stopLanes();
-					// Grants are this Gateway's; a leftover is inert unplaced, and a new placement drops it.
-					for (const watcher of watchers) deps.vault.setWatcherGrants(watcher.id, []);
-					const kept = watchers.filter((watcher) => !grantsLanded(watcher.id, []));
-					if (unsaved) throw new Error(`released, but not yet saved; release again: ${unsaved.message}`);
-					if (kept.length > 0) {
-						const ids = kept.map((watcher) => watcher.id).join(", ");
-						throw new Error(`released, but ${ids} kept a grant; release again to drop it`);
-					}
-					return state();
-				}),
 			/** Also the retry: the same set polls a stopped watcher again. */
 			setWatcherGrants: (watcherId, entryIds) =>
-				serial(() => {
+				settled(() => {
 					if (!watchers.some((watcher) => watcher.id === watcherId))
 						throw new Error(`no watcher "${watcherId}"`);
 					if (entryIds.length > 1) throw new Error("a watcher takes one secret");
@@ -423,14 +547,14 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					return state();
 				}),
 			// Only owner ops reach these, so no event text can rewrite what sorts later events.
-			putRule: (watcherId, rule) => serial(() => rules.putRule(watcherId, rule)),
-			deleteRule: (watcherId, ruleId, base) => serial(() => rules.deleteRule(watcherId, ruleId, base)),
+			putRule: (watcherId, rule) => settled(() => rules.putRule(watcherId, rule)),
+			deleteRule: (watcherId, ruleId, base) => settled(() => rules.deleteRule(watcherId, ruleId, base)),
 			moveRule: (watcherId, ruleId, beforeId, base) =>
-				serial(() => rules.moveRule(watcherId, ruleId, beforeId, base)),
-			putOtherwise: (watcherId, otherwise) => serial(() => rules.putOtherwise(watcherId, otherwise)),
-			// Gateway-local; survives release.
+				settled(() => rules.moveRule(watcherId, ruleId, beforeId, base)),
+			putOtherwise: (watcherId, otherwise) => settled(() => rules.putOtherwise(watcherId, otherwise)),
+			// A move carries it; a let-go resets it.
 			setSafety: (approveEverySend) =>
-				serial(() => {
+				settled(() => {
 					if (!safety.set(approveEverySend)) throw new Error("the setting could not be saved");
 					return state();
 				}),
@@ -469,10 +593,16 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		start: () => {
 			active = true;
 			startLanes();
+			// Resume an unfinished let-go.
+			if (home.letGo()) fireAndForget("assistant let-go", serial(letGoUntilDone));
 			guard.retractStale();
 		},
 		stop: async () => {
 			ownerOpsClosed = true;
+			// Late applies start nothing.
+			active = false;
+			if (letGoRetry) ambient.clearTimer(letGoRetry);
+			if (reportRetry) ambient.clearTimer(reportRetry);
 			// Drain before flush.
 			await withinMs(ambient, Promise.all([ownerOps.drain(), stopLanes()]), STOP_WAIT_MS);
 		},
@@ -489,16 +619,22 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	};
 }
 
+/** `place`'s refusal, checked first. */
+function placeRefusal(workdir: string, sessions: AssistantStageDeps["sessions"]): string | null {
+	if (!isSpawnWorkdirPath(ASSISTANT_SPAWN, workdir)) return "the folder must be an absolute or ~-rooted path";
+	const held = sessions.sessionStore.getByTeam(ASSISTANT_TEAM);
+	if (held && !isAssistantRecord(held)) return `${ASSISTANT_TEAM} is held by a session the assistant did not make`;
+	return null;
+}
+
 /**
  * Mints the record, or moves a held one to this folder, and answers how to take that back. The first
  * wake launches it, and a moved session takes the folder at its next launch.
  */
 function place(workdir: string, sessions: AssistantStageDeps["sessions"]): () => void {
-	if (!isSpawnWorkdirPath(ASSISTANT_SPAWN, workdir))
-		throw new Error("the folder must be an absolute or ~-rooted path");
+	const refusal = placeRefusal(workdir, sessions);
+	if (refusal) throw new Error(refusal);
 	const held = sessions.sessionStore.getByTeam(ASSISTANT_TEAM);
-	if (held && !isAssistantRecord(held))
-		throw new Error(`${ASSISTANT_TEAM} is held by a session the assistant did not make`);
 	if (held) {
 		const previous = held.workdirPath;
 		held.workdirPath = workdir;

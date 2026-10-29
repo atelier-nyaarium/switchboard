@@ -1,10 +1,17 @@
 // The Router frames this Gateway answers, and the console dispatcher behind the value op.
 
-import type { Ambient } from "../../shared/ambient.js";
+import { z } from "zod";
+import type { Ambient, TimerHandle } from "../../shared/ambient.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import type { BoardDisposition } from "../../shared/board-authority.js";
-import { opPayloadAadKind } from "../../shared/content-envelope.js";
+import { assistantHomeAadKind, opPayloadAadKind } from "../../shared/content-envelope.js";
 import { ValueOpFrameSchema } from "../../shared/router-protocol.js";
+import {
+	AssistantHomeFrameSchema,
+	type AssistantHomeRecord,
+	AssistantHomeRecordSchema,
+	AssistantHomeSealedSchema,
+} from "../../shared/schemasAssistantHome.js";
 import { ConsoleOpSchema } from "../../shared/schemasConsoleOp.js";
 import { ContentEnvelopeSchema } from "../../shared/schemasContentKey.js";
 import type { FederationSlice, RouterFrameHandlers } from "../boot.js";
@@ -41,8 +48,14 @@ export interface RouterFramesStageDeps {
 	policies: Pick<import("./composePolicies.js").PolicyStage, "console">;
 	workspacePlane: Pick<import("../workspacePlane.js").WorkspacePlane, "ask">;
 	awareness: Pick<AwarenessStage, "awareness" | "workspaceObserve">;
-	assistant: Pick<AssistantStage, "forgetRefusal" | "console" | "bindWake" | "sessionEnded" | "reserves">;
+	assistant: Pick<
+		AssistantStage,
+		"forgetRefusal" | "console" | "bindWake" | "sessionEnded" | "placed" | "follow" | "bindHome"
+	>;
 }
+
+const HOME_READ_RETRY_MS = 10_000;
+const HomeReadAnswerSchema = z.object({ record: AssistantHomeRecordSchema.nullable() });
 
 export interface RouterFramesBuild extends RouterFrameHandlers {
 	consoleDelivery: ReturnType<typeof createConsoleDispatcher>["handleDelivery"];
@@ -126,6 +139,81 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 		});
 
 		deps.assistant.bindWake((event) => deps.routes().deliverEvent(event));
+		deps.assistant.bindHome({
+			open: (record) => openHome(record),
+			report: async (mark) => {
+				const answer = await slice.routerClient.callInboxTool("assistant_home_report", mark);
+				const accepted = (answer.result as { accepted?: unknown } | undefined)?.accepted;
+				if (answer.error || typeof accepted !== "boolean") return "retry";
+				return accepted ? "accepted" : "dropped";
+			},
+			endSession: () => consoleHandler.forgetAssistant(),
+		});
+
+		/** Bound to the Gateway and version it names, so a replayed record does not open. */
+		function openHome(record: AssistantHomeRecord) {
+			const ownerSignPub = slice.allowlist.ownerSignPub;
+			const domainId = context.domainId();
+			if (record.gatewayId === null || record.sealed === null)
+				return { kind: "refused" as const, reason: "the record names no Gateway" };
+			if (!ownerSignPub || !domainId) return { kind: "refused" as const, reason: "federation is not active" };
+			const opened = slice.contentKeyStore.open(record.sealed, {
+				domainId,
+				ownerSignPub,
+				epoch: record.sealed.epoch,
+				kind: assistantHomeAadKind(record.gatewayId, record.version),
+			});
+			if (opened.kind === "missing_epoch")
+				return {
+					kind: "refused" as const,
+					reason: `content key epoch ${opened.epoch} is not on this Gateway yet`,
+				};
+			if (opened.kind !== "ok") return { kind: "refused" as const, reason: "the record could not be opened" };
+			let parsed: ReturnType<typeof AssistantHomeSealedSchema.safeParse>;
+			try {
+				parsed = AssistantHomeSealedSchema.safeParse(JSON.parse(opened.plaintext.toString("utf8")));
+			} catch {
+				return { kind: "refused" as const, reason: "the record did not parse" };
+			}
+			if (!parsed.success) return { kind: "refused" as const, reason: "the record did not parse" };
+			return { kind: "ok" as const, sealed: parsed.data };
+		}
+
+		let homeRetry: TimerHandle | null = null;
+		/** The whole record, at every registration; a missed push is recovered here. */
+		const readHome = async (): Promise<void> => {
+			if (homeRetry) ambient.clearTimer(homeRetry);
+			homeRetry = null;
+			const asked = slice.routerClient.incarnation();
+			const answer = await slice.routerClient.callInboxTool("assistant_home_read", {});
+			if (slice.routerClient.incarnation() !== asked) return;
+			const parsed = answer.error ? null : HomeReadAnswerSchema.safeParse(answer.result);
+			let failure = answer.error ?? (parsed?.success ? null : "answered off its schema");
+			if (parsed?.success) {
+				try {
+					await deps.assistant.follow(parsed.data.record, { registered: true });
+				} catch (error) {
+					failure = (error as Error).message;
+				}
+			}
+			if (failure === null) return;
+			console.warn(`[assistant] home read failed: ${failure}`);
+			if (slice.routerClient.isRegistered())
+				homeRetry = ambient.setTimer(
+					() => fireAndForget("assistant home read", readHome()),
+					HOME_READ_RETRY_MS,
+				);
+		};
+		const assistantHome = (raw: unknown): void => {
+			const frame = AssistantHomeFrameSchema.safeParse(raw);
+			if (!frame.success) return;
+			const followed = deps.assistant.follow(frame.data.record, { registered: false });
+			// A push that could not be followed is read again.
+			fireAndForget(
+				"assistant home",
+				followed.catch(() => readHome()),
+			);
+		};
 
 		deps.routines.bindExecution(
 			createRoutineExecution({
@@ -133,10 +221,12 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 				workingOf: (team) => sessions.presence.workingOf(team),
 				reserveSession: (routine) => consoleHandler.reserveRoutineSession(routine),
 				reserveAssistant: async () => {
-					if (!deps.assistant.reserves(ASSISTANT_TEAM)) return { kind: "unplaced" };
+					if (!deps.assistant.placed()) return { kind: "unplaced" };
 					// Wake before dispatch; failure keeps the occurrence pending.
 					const woken = await host.wakeService.tryWakeTeam(ASSISTANT_TEAM);
-					return woken.ok ? { kind: "ok", team: ASSISTANT_TEAM } : { kind: "pending" };
+					if (!woken.ok) return { kind: "pending" };
+					// Home may move during wake.
+					return deps.assistant.placed() ? { kind: "ok", team: ASSISTANT_TEAM } : { kind: "unplaced" };
 				},
 				hasSession: (team) => sessions.presence.getByTeam(team) !== undefined,
 				forgetSession: (team) => {
@@ -255,6 +345,8 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			gatewayRelay,
 			valueOp,
 			crossDomainHandshake,
+			assistantHome,
+			registered: () => fireAndForget("assistant home read", readHome()),
 			consoleDelivery: consoleHandler.handleDelivery,
 			peerHandleOp: gatewayRelayHandler.handleOp,
 		};

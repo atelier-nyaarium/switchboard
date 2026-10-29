@@ -27,6 +27,11 @@ fun vaultAadKind(kind: String, id: String): String {
 	return "$kind\n$id"
 }
 
+fun assistantHomeAadKind(gatewayId: String, version: Long): String {
+	assertNewlineFree(gatewayId)
+	return "assistant.home\n$gatewayId\n$version"
+}
+
 fun inboxBodyAadKind(conversationId: String, opId: String): String {
 	assertNewlineFree(conversationId, opId)
 	return "inbox.body\n$conversationId\n$opId"

@@ -1,5 +1,11 @@
 import { z } from "zod";
 import {
+	AssistantHomePutResultSchema,
+	AssistantHomePutValueSchema,
+	AssistantHomeReadResultSchema,
+	AssistantHomeReadValueSchema,
+} from "../shared/schemasAssistantHome.js";
+import {
 	BlobBeginAnswerSchema,
 	BlobBeginValueSchema,
 	BlobChunkAnswerSchema,
@@ -206,6 +212,18 @@ export const OWNER_OP_CATALOG = [
 		value: BlobUploadStatusValueSchema,
 		mutation: "read",
 		answer: BlobUploadStatusAnswerSchema,
+	},
+	{
+		kind: "assistant_home_read",
+		value: AssistantHomeReadValueSchema,
+		mutation: "read",
+		answer: AssistantHomeReadResultSchema,
+	},
+	{
+		kind: "assistant_home_put",
+		value: AssistantHomePutValueSchema,
+		mutation: "value",
+		answer: AssistantHomePutResultSchema,
 	},
 ] as const satisfies readonly OwnerOpCatalogEntry[];
 

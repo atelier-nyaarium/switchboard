@@ -23,8 +23,8 @@ object Protocol {
 	const val CONSOLE_PROTOCOL_VERSION: Int = 3
 	const val CONSOLE_ANSWER_WAIT_MS: Long = 35000L
 	const val CREATE_SESSION_BOUND_MS: Long = 25000L
-	const val FEDERATION_PROTOCOL_FLOOR: Int = 3
-	const val FEDERATION_PROTOCOL_VERSION: Int = 3
+	const val FEDERATION_PROTOCOL_FLOOR: Int = 4
+	const val FEDERATION_PROTOCOL_VERSION: Int = 4
 	const val MAX_HISTORY_COMMITS: Int = 200
 
 	object Wire {
@@ -71,6 +71,8 @@ object Protocol {
 		const val OWNER_OP_BLOB_BEGIN: String = "blob_begin"
 		const val OWNER_OP_BLOB_CHUNK: String = "blob_chunk"
 		const val OWNER_OP_BLOB_UPLOAD_STATUS: String = "blob_upload_status"
+		const val OWNER_OP_ASSISTANT_HOME_READ: String = "assistant_home_read"
+		const val OWNER_OP_ASSISTANT_HOME_PUT: String = "assistant_home_put"
 		const val SIGNING_TAG_ADMISSION: String = "ADMISSION_V1"
 		const val SIGNING_TAG_REVOCATION: String = "REVOCATION_V1"
 		const val SIGNING_TAG_SELF_REVOCATION: String = "SELF_REVOCATION_V1"
@@ -1126,6 +1128,68 @@ data class ConsoleAssistantStateResult(
 	val watchers: List<AssistantWatcher>,
 	val approveEverySend: Boolean? = null,
 	val checkIns: Boolean? = null,
+)
+
+@Serializable
+data class AssistantHomeCarriedWatcher(
+	val id: String,
+	val rules: AssistantWatcherRules,
+	val grant: String? = null,
+)
+
+@Serializable
+data class AssistantHomeCarried(
+	val approveEverySend: Boolean,
+	val watchers: List<AssistantHomeCarriedWatcher>,
+)
+
+@Serializable
+data class AssistantHomeSealed(
+	val workdirPath: String,
+	val carried: AssistantHomeCarried? = null,
+)
+
+@Serializable
+data class AssistantHomeRecord(
+	val version: Long,
+	val gatewayId: String? = null,
+	val sealed: ContentEnvelope? = null,
+)
+
+@Serializable
+data class AssistantHomeReport(
+	val version: Long,
+	val gatewayId: String,
+	val outcome: String,
+	val reason: String? = null,
+)
+
+@Serializable
+data class AssistantHomeReadValue(
+	@EncodeDefault
+	val kind: String = "assistant_home_read",
+)
+
+@Serializable
+data class AssistantHomeReadResult(
+	val record: AssistantHomeRecord? = null,
+	val report: AssistantHomeReport? = null,
+)
+
+@Serializable
+data class AssistantHomePutValue(
+	@EncodeDefault
+	val kind: String = "assistant_home_put",
+	val baseVersion: Long,
+	val gatewayId: String? = null,
+	val sealed: ContentEnvelope? = null,
+)
+
+@Serializable
+data class AssistantHomePutResult(
+	val outcome: String,
+	val record: AssistantHomeRecord? = null,
+	val refusal: String? = null,
 )
 
 @Serializable

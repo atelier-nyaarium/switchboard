@@ -31,7 +31,8 @@ export type RecordKind =
 	| "keyReceipt"
 	| "nonce"
 	| "gateway"
-	| "blob";
+	| "blob"
+	| "assistant.home";
 export interface StateRecord {
 	kind: RecordKind;
 	id: string;

@@ -41,6 +41,11 @@
 		"opId": "operation",
 		"expected": "op.result\nconversation\noperation"
 	},
+	"assistantHomeAad": {
+		"gatewayId": "gateway-1",
+		"version": 1,
+		"expected": "assistant.home\ngateway-1\n1"
+	},
 	"valueResultAad": {
 		"opId": "value-operation",
 		"expected": "op.result\nvalue-operation"

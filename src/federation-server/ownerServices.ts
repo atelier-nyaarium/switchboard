@@ -10,6 +10,7 @@ import {
 	signRowEnvelope,
 } from "../shared/schemasInbox.js";
 import type { WriteOutcome } from "../shared/write-result.js";
+import { createAssistantHomeService } from "./assistant/assistantHomeService.js";
 import { createBlobService } from "./blobs/blobService.js";
 import type { ReferenceHeldStore } from "./blobs/referenceHeldStore.js";
 import { createBoardService } from "./board/boardService.js";
@@ -230,6 +231,17 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		},
 	});
 
+	const assistantHome = createAssistantHomeService({
+		registry,
+		routable: (domainId, gatewayId) =>
+			admittedGateways(domainId).includes(gatewayId) && bridge.gatewayIncarnation(domainId, gatewayId) !== null,
+		pokeOwner: (domainId, version) => {
+			const epoch = presence.lineageEpoch(domainId);
+			if (epoch !== null)
+				deps.consoleSockets?.pushPlane(domainId, "assistantHome", { epoch, version }, undefined);
+		},
+	});
+
 	const cursors = createCursorService({ registry, migrationEpoch: () => readRouterMigrationWindow().epoch ?? 0 });
 	const blobs = createBlobService({ held: referenceHeld, now: () => registry.now() });
 	for (const service of [
@@ -243,6 +255,7 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		keyDelivery,
 		vault,
 		blobs,
+		assistantHome,
 	])
 		service.register(hooks);
 	// A catalogued kind nothing serves refuses at runtime, so construction refuses first.
@@ -267,6 +280,7 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		capabilities,
 		readAnchors,
 		vault,
+		assistantHome,
 		planeVersions(domainId: string, _signerSignPub: string): Record<string, PlaneLineage> {
 			const projection = presence.ownerProjection(domainId, projectionDeps);
 			const epoch = presence.lineageEpoch(domainId);
@@ -278,12 +292,13 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 					: {
 							taskBoard: { epoch, version: board.read(domainId).revision },
 							vault: { epoch, version: vault.revision(domainId) },
+							assistantHome: { epoch, version: assistantHome.planeVersion(domainId) },
 						}),
 			};
 		},
 		readPlane(domainId: string, _signerSignPub: string, name: string): unknown {
 			if (name === "presence") return presence.ownerProjection(domainId, projectionDeps);
-			// Board and vault planes carry revisions.
+			// Board, vault and home planes carry revisions.
 			return undefined;
 		},
 		reconcileReferences(): void {

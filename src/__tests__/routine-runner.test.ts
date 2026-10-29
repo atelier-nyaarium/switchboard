@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { composeRoutines } from "../gateway/compose/composeRoutines.js";
 import { createOccurrenceStore } from "../gateway/routines/occurrences.js";
+import { UNPLACED_REASON } from "../gateway/routines/reservation.js";
 import { createRoutineRunner, GRACE_MS, type RoutineAttempt } from "../gateway/routines/runner.js";
 import { createRoutineStore } from "../gateway/routines/store.js";
 import type { Ambient } from "../shared/ambient.js";
@@ -433,7 +434,7 @@ describe("the routine runner", () => {
 		placed = false;
 		now = MONDAY_0900_LA + 60_000;
 		await stage.console.run("triage");
-		expect(stage.console.list().routines[0]?.reviewReason).toBe("the assistant is not placed on this Gateway");
+		expect(stage.console.list().routines[0]?.reviewReason).toBe(UNPLACED_REASON);
 		await stage.stop();
 	});
 

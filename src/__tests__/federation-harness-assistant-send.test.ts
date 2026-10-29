@@ -3,6 +3,7 @@ import type { Watcher, WatcherEvent } from "../gateway/assistant/watcher.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { blobIdFor } from "../shared/blob-store.js";
 import type { ConsoleAssistantStateResult } from "../shared/schemasAssistant.js";
+import type { AssistantWatcherRules } from "../shared/schemasAssistantRules.js";
 import { type AssistantSendRequest, AssistantSendRequestSchema } from "../shared/schemasAssistantSend.js";
 import { composeSessionName } from "../shared/session-id.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
@@ -110,7 +111,7 @@ describe("the assistant's guarded sends", () => {
 		h.host.handlers.onCreateSession = (op) =>
 			void attach(composeSessionName(op.target.name, op.target.sessionName), op.sessionToken);
 		h.host.handlers.onWake = (frame) => void attach(String(frame.team), frame.sessionToken as string | undefined);
-		await h.phone.value({
+		const ruleResult = await h.phone.value({
 			kind: "assistant_rule_put",
 			watcherId: "fake",
 			rule: {
@@ -120,7 +121,21 @@ describe("the assistant's guarded sends", () => {
 				revision: 0,
 			},
 		});
-		await h.phone.value({ kind: "assistant_place", workdir: "~/projects/notes" });
+		const rules = (ruleResult.result as { rules: AssistantWatcherRules }).rules;
+		const current = await h.phone.homeRead();
+		const placement = await h.phone.homePut({
+			gatewayId: h.set.gateway.id,
+			workdirPath: "~/projects/notes",
+			carried: { approveEverySend: true, watchers: [{ id: "fake", rules, grant: null }] },
+			baseVersion: current.record?.version ?? 0,
+		});
+		if (!placement.record) throw new Error("the Router did not hold the home choice");
+		await h.waitFor(async () => {
+			const answer = await h.phone.homeRead();
+			return answer.report?.version === placement.record?.version && answer.report?.outcome === "placed"
+				? answer
+				: undefined;
+		}, "the assistant placement report");
 		await h.waitFor(() => polls >= 1, "the priming poll");
 		await ownerSays("hello");
 		worker = await created("Worker");

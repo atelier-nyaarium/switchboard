@@ -4,6 +4,7 @@ import type { RouterReachAnswer } from "../federation-server/consoleSurface.js";
 import { APP_TOKEN_HEADER } from "../federation-server/consoleSurface.js";
 import type { ConsoleOp } from "../shared/console-protocol.js";
 import {
+	assistantHomeAadKind,
 	type ContentAad,
 	inboxBodyAadKind,
 	openContent,
@@ -13,6 +14,14 @@ import {
 	valueResultAadKind,
 } from "../shared/content-envelope.js";
 import { type EnrollOp, type EnrollResult, EnrollResultSchema } from "../shared/federation-enroll-ops.js";
+import {
+	type AssistantHomeCarried,
+	type AssistantHomePutResult,
+	AssistantHomePutResultSchema,
+	type AssistantHomeReadResult,
+	AssistantHomeReadResultSchema,
+	AssistantHomeSealedSchema,
+} from "../shared/schemasAssistantHome.js";
 import { type BoardReadResult, BoardReadResultSchema } from "../shared/schemasBoardState.js";
 import { MailboxEntrySchema } from "../shared/schemasConsoleOp.js";
 import { type ContentEnvelope, ContentEnvelopeSchema } from "../shared/schemasContentKey.js";
@@ -76,6 +85,17 @@ export interface PhoneDriver {
 	openText(envelope: ContentEnvelope, kind: ContentAad["kind"]): string;
 	open(row: InboxRow): unknown;
 	boardRead(): Promise<BoardReadResult>;
+	homeRead(): Promise<AssistantHomeReadResult>;
+	homePut(
+		input:
+			| {
+					gatewayId: string;
+					workdirPath: string;
+					carried: AssistantHomeCarried | null;
+					baseVersion: number;
+			  }
+			| { gatewayId: null; workdirPath: null; carried: null; baseVersion: number },
+	): Promise<AssistantHomePutResult>;
 	entries(rows: InboxRow[]): MailboxEntry[];
 }
 
@@ -165,6 +185,30 @@ export function createPhoneDriver(deps: PhoneDriverDeps): PhoneDriver {
 		sealContent(Buffer.from(plaintext, "utf8"), key, aad(kind));
 	const openText = (envelope: ContentEnvelope, kind: ContentAad["kind"]): string =>
 		openContent(envelope, key, aad(kind, envelope.epoch)).toString("utf8");
+
+	const homeRead = async (): Promise<AssistantHomeReadResult> =>
+		AssistantHomeReadResultSchema.parse(await send({ kind: "assistant_home_read" }));
+
+	const homePut: PhoneDriver["homePut"] = async (input) => {
+		const sealed =
+			input.gatewayId === null
+				? null
+				: seal(
+						// Router cannot check plaintext.
+						JSON.stringify(
+							AssistantHomeSealedSchema.parse({ workdirPath: input.workdirPath, carried: input.carried }),
+						),
+						assistantHomeAadKind(input.gatewayId, input.baseVersion + 1),
+					);
+		return AssistantHomePutResultSchema.parse(
+			await send({
+				kind: "assistant_home_put",
+				baseVersion: input.baseVersion,
+				gatewayId: input.gatewayId,
+				sealed,
+			}),
+		);
+	};
 
 	async function value(consoleOp: ConsoleOp, opId = newOpId()): Promise<ValueAnswer> {
 		// Value answers may be clear refusals, not result envelopes.
@@ -256,6 +300,8 @@ export function createPhoneDriver(deps: PhoneDriverDeps): PhoneDriver {
 		openText,
 		open,
 		boardRead: async () => BoardReadResultSchema.parse(await send({ kind: "board_read" })),
+		homeRead,
+		homePut,
 		entries: (rows) =>
 			rows.filter((row) => ENTRY_KINDS.has(row.envelope.kind)).map((row) => MailboxEntrySchema.parse(open(row))),
 	};

@@ -48,6 +48,8 @@ export interface VaultStage {
 	/** The entries a watcher's standing grants name. */
 	watcherGrants: (watcherId: string) => string[];
 	readForWatcher: (watcherId: string, entryId: string) => Promise<VaultRelease>;
+	/** Whether this Gateway may use the entry's value, after a refresh. */
+	usableHere: (entryId: string) => Promise<boolean>;
 	/** Retracts stale cards when routable. */
 	retractStale: () => void;
 }
@@ -210,6 +212,10 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 				.filter((grant) => grant.holder.kind === "watcher" && grant.holder.watcherId === watcherId)
 				.map((grant) => grant.entryId),
 		readForWatcher: (watcherId, entryId) => use.readForWatcher(watcherId, entryId),
+		usableHere: async (entryId) => {
+			const answer = await use.ready();
+			return answer.kind === "ready" && use.usable(answer.client, entryId).kind === "usable";
+		},
 		retractStale: () => requests.retractStale(retract),
 	};
 }

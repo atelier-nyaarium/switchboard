@@ -26,6 +26,9 @@ export interface RouterFrameHandlers {
 	gatewayRelay: (frame: unknown) => void;
 	valueOp: (frame: unknown) => void;
 	crossDomainHandshake: (frame: unknown) => void;
+	assistantHome: (frame: unknown) => void;
+	/** Each landed registration. */
+	registered: () => void;
 }
 
 export interface RouterHandlers {

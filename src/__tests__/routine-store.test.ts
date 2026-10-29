@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { UNPLACED_REASON } from "../gateway/routines/reservation.js";
 import { createRoutineStore } from "../gateway/routines/store.js";
 import { openDurable } from "../shared/durable-store.js";
 import { type Routine, targetKind } from "../shared/schemasRoutine.js";
@@ -180,7 +181,7 @@ describe("routine store", () => {
 
 		expect(store.put(checkIn)).toMatchObject({
 			stored: false,
-			reason: "the assistant is not placed on this Gateway",
+			reason: UNPLACED_REASON,
 		});
 		placed = true;
 		expect(store.put({ ...checkIn, linkedEntries: ["deploy"] })).toMatchObject({ stored: false });

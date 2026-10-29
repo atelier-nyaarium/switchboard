@@ -269,6 +269,7 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 				presenceReporter?.baseline();
 				// The snapshot's landing attests; the copy answers nothing until then.
 				fireAndForget("share mirror read", readShareMirror());
+				slice.handlers?.frames.registered();
 				const resent = inboxPump?.resendReceipts();
 				if (resent) fireAndForget("inbox receipt resend", resent);
 				// Older rows are sealed under the epochs below the oldest held one.
@@ -286,6 +287,7 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 			onShareDelta: (frame) => {
 				handleShareDelta(shareState, frame, () => fireAndForget("share mirror read", readShareMirror()));
 			},
+			onAssistantHome: (frame) => slice.handlers?.frames.assistantHome(frame),
 			onInboxDeliver: (frame) => {
 				const pumped = inboxPump?.onFrame(
 					frame as { address: string; rows: unknown; incarnation?: number; deliveryEpoch: number },
