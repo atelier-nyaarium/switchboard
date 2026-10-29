@@ -288,14 +288,16 @@ no TTL.
   tmux-wrapped rows.
 - **Designer plugin** (`plugins/designer/`): owns design cards, live content-keyed rendering, and
   per-team `DesignStore`.
-- **The Assistant view** (`AssistantOps.kt`, `AssistantRoot.kt`, `assistant/AssistantScreen.kt`,
-  `assistant/WatcherRulesPage.kt`): the root's resolver and the rules that enter, follow and leave
-  the assistant's conversation, and the root with no conversation (`AssistantRootScreen`). The
-  conversation is the usual thread screen, drawn from `ThreadChrome`.
+- **The Assistant view** (`AssistantOps.kt`, `AssistantHomeFence.kt`, `AssistantRoot.kt`,
+  `assistant/AssistantScreen.kt`, `assistant/WatcherRulesPage.kt`): the landing fold over the
+  Router's home record and the rules that enter, follow and leave the assistant's conversation, and
+  the root with no conversation (`AssistantRootScreen`). The conversation is the usual thread
+  screen, drawn from `ThreadChrome`. Every write to the home lands through `AssistantHomeFence`.
   - **Its pages are one route on `ShellNav`:** `assistantPage` holds Settings, a watcher's Rules,
     or the rule Editor, drawn in their own `ShellScreen` slot above the conversation, with their own
     `BackLayer`. Back walks Editor, Rules, Settings, then what lies beneath; `arrive` clears them,
-    and `AssistantPage.resolved` unwinds a watcher page to Settings only on an answer.
+    and `AssistantPage.resolved` unwinds a watcher page to Settings when the home moved or an
+    answer no longer holds that watcher, never on a missing answer.
   - **A page reads its op's result from `AssistantOps`, never from its own coroutine:** `runWork`
     holds each page's busy flag and line under a `WorkKey`, and a rule save lands in
     `ruleDrafts` and `ruleLanded`, so Back never loses a result. The editor holds its draft's

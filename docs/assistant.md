@@ -1,7 +1,7 @@
 # Assistant
 
-The owner's assistant is a long-running Claude Code session on Sakura using Opus. The Gateway feeds
-it events. The session decides what to say and do.
+The owner's assistant is a long-running Claude Code session using Opus, on the one Gateway the
+Router's record names. That Gateway feeds it events. The session decides what to say and do.
 
 ## The session
 
@@ -33,21 +33,33 @@ it events. The session decides what to say and do.
   - **Cut off from the Router:** it keeps running on its mark. A mark write that fails stops it
     acting until one lands.
 - **Opus only:** no model levels.
-- **Its own root:** the drawer's Assistant entry resolves where it lives (`assistantRoot`).
-  - Placed enters its conversation in the usual thread screen, titled "Assistant", with one chip per
-    watcher under the title, a gear for Assistant settings in place of the session menu, and no tab
-    row (`threadChrome`). Back goes Terminal, Chat, Sessions.
-  - The gear opens the Settings page: where it lives, then each watcher's health
-    (`WatcherStatus`), secret, grants, actions, a Rules page with its count, and Retry when stopped,
-    then Release. Rules opens a rule's Editor page. `docs/console.md` holds how the pages route.
-  - Confirmed unplaced offers Configure. Not yet read waits. A Gateway that may hold it and could
-    not be read offers Retry, plus Configure when only refusals are unread, since an older build
-    refuses the op.
-  - `isAssistant` knows it by its role or the address a Gateway answers, never by name.
-    `openThread` refuses it, and `followedTeams` keeps it followed without a tab.
-  - The open conversation follows a move and leaves on a release (`followAssistant`). A Gateway's
-    word is an `AssistantWord`, and only an `Answered` word with no folder, or a current roster
-    without that Gateway, is a release. A refusal or a missing answer leaves it open.
+- **Its own root:** the drawer's Assistant entry draws the one landing `assistantRoot` folds from
+  the Router's record, its report, a held put failure, Router reach and the roster. Nothing is drawn
+  before the first read. Otherwise it is the Router unreachable, set up (nobody or never written),
+  moving, the move's error, the home unreachable, or placed. Set up and the error offer Settings, and
+  a gear in the top bar opens it on every landing past the first read while the Router is reachable
+  (`rootOffersSettings`).
+  - Placed, a `placed` report for the held choice (`placedGateway`), enters its conversation in the
+    usual thread screen, titled "Assistant", with one chip per watcher under the title, a gear for
+    Assistant settings in place of the session menu, and no tab row (`threadChrome`). Back goes
+    Terminal, Chat, Sessions.
+  - The gear opens the Settings page: Assistant location (the Gateway, the folder, Move here or Set
+    up here, Remove assistant), then the home's Safety and each watcher's health (`WatcherStatus`),
+    secret, grants, actions, a Rules page with its count, and Retry when stopped. Rules opens a
+    rule's Editor page. `docs/console.md` holds how the pages route.
+  - **Writes** (`AssistantOps`): Set up and Move are one sealed put. A placed, reachable home carries
+    its fresh `assistant_state`; an unplaced one carries what the record sealed; a placed home that
+    cannot be reached carries nothing, only once the owner confirms abandoning it. Remove puts
+    nobody. A conflict adopts the winner, and an unknown outcome is read back. A record never written
+    seeds from the one registered Gateway that answers holding it, unless the owner chose first.
+  - **One writer** (`AssistantHomeFence`): the record, its failure, each Gateway's answer, the stored
+    copy and the role stamp land only through it, against the ticket their work began under, so a
+    late answer or a re-provision never repaints a newer choice.
+  - `isAssistant` knows it by a role stamp, a persisted role, or the chosen home's address, never
+    by name. `openThread` refuses it, and `followedTeams` keeps it followed without a tab.
+  - The open conversation follows a move and leaves when the record names another Gateway, nobody,
+    or a refusal of the held choice (`followAssistant`). An unreachable home it still names keeps
+    the thread.
   - `host.assistant` stays out of the Sessions list because the Gateway marks its presence row with
     `role: "assistant"` (`ASSISTANT_ROLE`), never because the phone matches a name.
 - **Hidden from every session and friend:** only the owner sees it or opens a conversation with it.
@@ -424,10 +436,11 @@ title is used, never what it says; `ASSISTANT_INSTRUCTIONS` tells the assistant 
   stays unread with Play.
 - **Quiet peer rows:** the assistant's send records and the replies to them are stamped `quiet` at
   drain and re-stamped when a thread comes to read as the assistant (`withAssistantPeersQuiet`):
-  shown, never alerted, spoken or counted unread. The drain applies the presence plane before a
-  tick's rows. A row alerted before the phone knew its team is the assistant cannot be retracted.
-- **A move seeds the role:** `AssistantOps.move` records the destination's address as the assistant
-  once the place lands, and past addresses keep theirs.
+  shown, never alerted, spoken or counted unread. The drain applies the presence and assistantHome
+  planes before a tick's rows. A row alerted before the phone knew its team is the assistant cannot
+  be retracted.
+- **A placed home stamps the role:** `AssistantHomeFence` records the home's address as the
+  assistant once its report says placed, on every record landing, and past addresses keep theirs.
 
 ## Summon
 
