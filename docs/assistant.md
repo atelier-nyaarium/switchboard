@@ -222,7 +222,9 @@ guard; `docs/vault.md` holds the request lifecycle it shares with the vault.
 - **The phone:** `AssistantSendManager` holds the cards per Gateway, `AssistantPlugin` claims the rows,
   and `AssistantSendSheet` shows every bound field and the full text. Approval takes `ApprovalGate`.
   The notification posts on the assistant's channel, private on the lock screen, and no notification
-  action approves. Assistant settings' Safety section holds the setting and lists waiting cards.
+  action approves. Assistant settings' Safety section holds the setting alone. The oldest waiting
+  card shows as a tile in the assistant's conversation, as a vault request does (`assistantSendTile`),
+  and opens from there or from its notification.
 
 ## Actions
 

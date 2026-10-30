@@ -583,6 +583,10 @@ fun App(
 			)
 			val marks = offered.map { conversationMark(it, facts) }
 			val assistantWork by repo.assistantOps.work.collectAsState()
+			val assistantSends by repo.assistantSendOps.pending.collectAsState()
+			val assistantSendTileFor = remember(openTeam, assistantOpen, assistantSends) {
+				if (assistantOpen) com.atelier_nyaarium.switchboard.assistant.assistantSendTile(assistantSends, gatewayOf(openTeam!!)) else null
+			}
 			val chrome = threadChrome(
 				assistant = assistantOpen,
 				label = tabLabelFor(state, team),
@@ -627,6 +631,8 @@ fun App(
 				onMoveBoardEntry = shellActions.moveBoardEntry,
 				vaultTile = vaultTileFor,
 				onOpenVaultRequest = { vaultModal = VaultModal.Request(it) },
+				assistantSendTile = assistantSendTileFor,
+				onOpenAssistantSend = { requestId -> assistantSendModal = gatewayOf(team) to requestId },
 				revealAt = revealAt,
 				onRevealed = { revealAt = null },
 				unreadBoundary = repo::unreadBoundary,

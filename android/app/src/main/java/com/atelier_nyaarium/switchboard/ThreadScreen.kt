@@ -106,6 +106,9 @@ internal fun ThreadScreen(
 	/** A request this session is waiting on that the overlay prompt is not already drawing. */
 	vaultTile: com.atelier_nyaarium.switchboard.vault.VaultTile? = null,
 	onOpenVaultRequest: (String) -> Unit = {},
+	/** The assistant's oldest waiting send, by request id. */
+	assistantSendTile: com.atelier_nyaarium.switchboard.vault.VaultTile? = null,
+	onOpenAssistantSend: (String) -> Unit = {},
 	// (team, at) a queue tile asked to land on, or null. Passed straight through to ThreadWebView.
 	revealAt: Pair<String, Long>?,
 	// Cleared once the reveal has been handed to the renderer. Without it the request stays set and
@@ -426,6 +429,9 @@ internal fun ThreadScreen(
 			if (view == ConversationView.CHAT || terminalMode) {
 				vaultTile?.let { tile ->
 					com.atelier_nyaarium.switchboard.vault.VaultRequestTile(tile) { onOpenVaultRequest(tile.requestId) }
+				}
+				assistantSendTile?.let { tile ->
+					com.atelier_nyaarium.switchboard.vault.VaultRequestTile(tile) { onOpenAssistantSend(tile.requestId) }
 				}
 			}
 			if (view != ConversationView.CHAT && !terminalMode) {

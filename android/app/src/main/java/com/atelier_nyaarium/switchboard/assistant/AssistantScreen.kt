@@ -226,10 +226,8 @@ private fun AssistantSettingsPage(
 	// Leaving closes the dialogs.
 	var removing by remember { mutableStateOf(false) }
 	var abandoning by remember { mutableStateOf<LocationAction.Move?>(null) }
-	var opening by remember { mutableStateOf<Pair<String, String>?>(null) }
 	var showDisabled by rememberSaveable { mutableStateOf(false) }
-	val waitingSends by repo.assistantSendOps.pending.collectAsState()
-	val settings = { op: suspend AssistantOps.() -> String? ->
+	val settings ={ op: suspend AssistantOps.() -> String? ->
 		repo.command { assistantOps.runWork(WorkKey.Settings, op) }
 	}
 
@@ -346,11 +344,6 @@ private fun AssistantSettingsPage(
 							enabled = !busy,
 						)
 					}
-					for (send in sendsWaitingOn(waitingSends, gatewayId)) {
-						TextButton(onClick = hapticClick { opening = gatewayId to send.request.requestId }) {
-							Text(assistantSendRowText(send.request))
-						}
-					}
 				}
 				AssistantSection.WATCHERS -> {
 					val at = home ?: continue
@@ -373,8 +366,6 @@ private fun AssistantSettingsPage(
 			}
 		}
 	}
-
-	opening?.let { (gatewayId, requestId) -> AssistantSendSheet(repo, gatewayId, requestId) { opening = null } }
 
 	abandoning?.let { pending ->
 		ConfirmDialog(

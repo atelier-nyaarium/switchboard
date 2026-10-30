@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.proto.AssistantSendRequest
 import com.atelier_nyaarium.switchboard.vault.Expiry
+import com.atelier_nyaarium.switchboard.vault.VaultTile
 import com.atelier_nyaarium.switchboard.vault.expiresIn
 
 internal data class AssistantSendCardText(
@@ -49,12 +50,20 @@ internal fun assistantSendCardText(request: AssistantSendRequest, now: Long): As
 	)
 }
 
-/** Waiting card's settings label. */
-internal fun assistantSendRowText(request: AssistantSendRequest): String = "Waiting: send to ${request.intent.target}"
-
-/** Oldest deadline first. */
-internal fun sendsWaitingOn(pending: List<PendingAssistantSend>, gatewayId: String): List<PendingAssistantSend> =
-	pending.filter { it.gatewayId == gatewayId }.sortedBy { it.request.deadlineAt }
+/** The oldest send waiting on that Gateway, as the conversation's tile. */
+internal fun assistantSendTile(pending: List<PendingAssistantSend>, gatewayId: String): VaultTile? {
+	val here = pending.filter { it.gatewayId == gatewayId }
+	val oldest = here.minByOrNull { it.request.deadlineAt } ?: return null
+	val intent = oldest.request.intent
+	val more = here.size - 1
+	return VaultTile(
+		requestId = oldest.request.requestId,
+		title = if (more > 0) "${AssistantSendWords.TITLE} (+$more)" else AssistantSendWords.TITLE,
+		requester = "To ${intent.displayLabel ?: intent.target}${if (intent.createsSession) ", a new session" else ""}",
+		operation = intent.body.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty(),
+		deadlineAt = oldest.request.deadlineAt,
+	)
+}
 
 /** Hide request details publicly. */
 internal fun assistantSendPublicNotificationText(): String = AssistantSendWords.TITLE

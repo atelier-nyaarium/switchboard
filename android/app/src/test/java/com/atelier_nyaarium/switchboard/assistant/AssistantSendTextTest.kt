@@ -3,8 +3,10 @@ package com.atelier_nyaarium.switchboard.assistant
 import com.atelier_nyaarium.switchboard.proto.AssistantSendFile
 import com.atelier_nyaarium.switchboard.proto.AssistantSendIntent
 import com.atelier_nyaarium.switchboard.proto.AssistantSendRequest
+import com.atelier_nyaarium.switchboard.vault.VaultTile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class AssistantSendTextTest {
@@ -54,20 +56,29 @@ class AssistantSendTextTest {
 	}
 
 	@Test
-	fun theSafetyListShowsOnlyThisGatewaysCardsOldestFirst() {
-		fun waiting(gatewayId: String, id: String, deadlineAt: Long) = PendingAssistantSend(
-			gatewayId,
-			"host.assistant",
-			request(AssistantSendIntent(target = "home.$gatewayId.host.w", body = "b", createsSession = false, files = emptyList()))
-				.copy(requestId = id, deadlineAt = deadlineAt),
+	fun theConversationTileShowsThisGatewaysOldestSendByLabelAndFirstLine() {
+		fun waiting(gatewayId: String, id: String, deadlineAt: Long, intent: AssistantSendIntent) =
+			PendingAssistantSend(gatewayId, "host.assistant", request(intent).copy(requestId = id, deadlineAt = deadlineAt))
+		val ops = AssistantSendIntent(
+			target = "home.sakura.host.github-ops",
+			body = "\nHi, I'm the owner's assistant.\nThe PRs",
+			displayLabel = "GitHub Ops",
+			createsSession = true,
+			files = emptyList(),
 		)
+		val plain = AssistantSendIntent(target = "home.sakura.host.w", body = "b", createsSession = false, files = emptyList())
 
-		val shown = sendsWaitingOn(
-			listOf(waiting("sakura", "late", 9L), waiting("ume", "other", 1L), waiting("sakura", "early", 3L)),
+		val tile = assistantSendTile(
+			listOf(waiting("sakura", "late", 9L, plain), waiting("ume", "other", 1L, plain), waiting("sakura", "early", 3L, ops)),
 			"sakura",
 		)
 
-		assertEquals(listOf("early", "late"), shown.map { it.request.requestId })
+		assertEquals(
+			VaultTile("early", "${AssistantSendWords.TITLE} (+1)", "To GitHub Ops, a new session", "Hi, I'm the owner's assistant.", 3L),
+			tile,
+		)
+		assertEquals("To home.sakura.host.w", assistantSendTile(listOf(waiting("sakura", "only", 9L, plain)), "sakura")?.requester)
+		assertNull(assistantSendTile(listOf(waiting("ume", "other", 1L, plain)), "sakura"))
 	}
 
 	@Test
