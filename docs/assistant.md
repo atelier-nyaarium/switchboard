@@ -321,7 +321,10 @@ A watcher is plain Gateway code, never a model.
 ### GitHub notifications
 
 - **The poll:** it reads the unread list, sending the stored `Last-Modified` as `If-Modified-Since`. A
-  304 spends no rate limit and keeps the last unread count. It follows `Link: rel="next"` up to 500
+  304 spends no rate limit and keeps the last unread count. A thread marked done leaves that
+  `Last-Modified` unchanged, so an action that reached GitHub polls at once without the validator
+  (`recount`), and keeps doing so until a whole read commits. A restart forgets it. The whole read
+  wakes nothing older than the newest time seen. It follows `Link: rel="next"` up to 500
   threads, and only to `api.github.com`, so the token never follows a link elsewhere; past 500 the
   count reads "500+".
 - **New:** a thread updated after the newest time seen. The first poll after placement sets that

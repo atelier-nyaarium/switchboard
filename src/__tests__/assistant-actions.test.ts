@@ -78,24 +78,32 @@ function bindHome(assistant: AssistantStage, store: SessionStore) {
 	};
 }
 
-/** `404` means missing; poll idle. */
-function github() {
+/** `404` means missing. A validated list read answers 304, as done threads leave `Last-Modified`. */
+function github(listed: string[] = []) {
 	const asked: string[] = [];
+	const unread = new Set(listed);
 	const fetch = async (url: string, init: RequestInit) => {
 		const method = init.method ?? "GET";
 		const at = url.replace(API, "");
-		if (at.startsWith("/notifications?")) return new Response(null, { status: 304 });
+		if (at.startsWith("/notifications?")) {
+			if (new Headers(init.headers).has("if-modified-since")) return new Response(null, { status: 304 });
+			const headers = { "last-modified": "Sun, 18 Oct 2026 10:00:00 GMT" };
+			return Response.json([...unread].map(thread), { headers });
+		}
 		asked.push(`${method} ${at}`);
 		const id = at.match(/threads\/(\d+)$/)?.[1] ?? "";
 		if (id === "404") return new Response(null, { status: 404 });
 		if (method === "PATCH") return new Response(null, { status: 205 });
-		if (method === "DELETE") return new Response(null, { status: 204 });
+		if (method === "DELETE") {
+			unread.delete(id);
+			return new Response(null, { status: 204 });
+		}
 		return Response.json(thread(id));
 	};
 	return { fetch, asked };
 }
 
-async function placed() {
+async function placed(listed: string[] = []) {
 	const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "assistant-actions-"));
 	dirs.push(dataDir);
 	const store = new SessionStore({ ambient: processAmbient() });
@@ -107,7 +115,8 @@ async function placed() {
 		usableHere: async () => true,
 	};
 	const delivered: DeliverToOwnerOptions[] = [];
-	const source = github();
+	const source = github(listed);
+	const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 	const authority = {
 		resolveConfirmedManagedSession: (req: Request) => {
 			const caller = req.headers.get("x-caller");
@@ -119,8 +128,8 @@ async function placed() {
 		dataDir,
 		localGatewayId: LOCAL_GATEWAY,
 		domainId: () => "home",
-		// Polling stays idle.
-		ambient: fakeAmbient({ drive: "manual", now: () => T0 }),
+		// Polls only when advanced.
+		ambient,
 		sessions: { sessionStore: store, presence: store, sessionAuthority: authority } as never,
 		saveSessions: () => {},
 		vault,
@@ -147,7 +156,7 @@ async function placed() {
 		const headers: Record<string, string> = caller ? { "x-caller": caller } : {};
 		return (await route(new Request("http://gateway/", { headers }), body)).json();
 	};
-	return { assistant, call, delivered, asked: source.asked };
+	return { assistant, call, delivered, asked: source.asked, ambient };
 }
 
 describe("an assistant action", () => {
@@ -238,6 +247,7 @@ describe("an assistant action", () => {
 			actions: { github_done: new GithubDone(client) },
 			ambient,
 			write: lanes.write,
+			recount: lanes.recount,
 			record: () => true,
 		});
 		let free = () => {};
@@ -262,6 +272,26 @@ describe("an assistant action", () => {
 
 		expect(result).toMatchObject({ kind: "refused", reason: expect.stringMatching(/nothing was sent/) });
 		expect(source.asked).toEqual([]);
+	});
+
+	it("recounts the inbox once an action reaches GitHub, though GitHub answers 304 to a validated read", async () => {
+		const { assistant, call, ambient } = await placed(["7", "8"]);
+		const watcher = () => assistant.console.state().watchers[0];
+		const counted = async (unread: number) => {
+			for (let turn = 0; turn < 50 && watcher()?.unread !== unread; turn += 1) await ambient.advance(0);
+			return watcher();
+		};
+
+		await assistant.console.setWatcherEnabled("github", true);
+		const before = await counted(2);
+		await call({ action: "github_done", callId: "call-0008", params: { ids: ["7"] } });
+		const after = await counted(1);
+		await assistant.stop();
+
+		expect(before?.unread).toBe(2);
+		// A wake of a seen thread would back off.
+		expect(after).toMatchObject({ unread: 1 });
+		expect(after?.backoff).toBeUndefined();
 	});
 
 	it("joins a repeated call id, so a retry sends nothing twice, and clears quietly without a summary", async () => {

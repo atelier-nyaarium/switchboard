@@ -257,6 +257,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		ambient,
 		write: (watcherId, deadlineMs, work) =>
 			lanes ? lanes.write(watcherId, deadlineMs, work) : Promise.reject(new Error(NOT_HERE)),
+		recount: (watcherId) => lanes?.recount(watcherId),
 		record: postRecord,
 	});
 	/** Serializes owner operations. */

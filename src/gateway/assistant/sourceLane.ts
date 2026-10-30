@@ -52,6 +52,8 @@ export interface SourceLanes {
 	poke(watcherId: string): void;
 	/** Turned on or off: a poll in flight commits and wakes nothing, then as `poke`. */
 	switched(watcherId: string): void;
+	/** Next poll reads whole. */
+	recount(watcherId: string): void;
 	/** Released at the deadline; `settle` runs only while the read is live. */
 	read<L, T>(
 		watcherId: string,
@@ -135,6 +137,8 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 	const items = new Set<Linked>();
 	/** One queued poll each. */
 	const pollQueued = new Set<string>();
+	/** Until a whole read lands. */
+	const recounts = new Set<string>();
 	/** Bumped by `switched`. */
 	const generations = new Map<string, number>();
 	const generationOf = (watcherId: string) => generations.get(watcherId) ?? 0;
@@ -196,14 +200,15 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		timers.set(watcher.id, timer);
 	};
 
-	/** Fenced by stop. */
-	const settle = (watcher: Watcher, next: WatcherState, at: number | undefined): void => {
-		if (phase !== "running") return;
+	/** Fenced by stop; true once landed. */
+	const settle = (watcher: Watcher, next: WatcherState, at: number | undefined): boolean => {
+		if (phase !== "running") return false;
 		if (state.put(watcher.id, next)) {
 			if (at !== undefined) arm(watcher, at);
-		} else {
-			arm(watcher, Math.max(at ?? 0, ambient.now() + RETRY_MS));
+			return true;
 		}
+		arm(watcher, Math.max(at ?? 0, ambient.now() + RETRY_MS));
+		return false;
 	};
 
 	/** First failure, or null. */
@@ -240,7 +245,8 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		const live = () => phase === "running" && deps.enabled(watcher.id) && generationOf(watcher.id) === began;
 		if (!live()) return;
 		const held = state.get(watcher.id);
-		const answer = await answerOf(watcher, held.cursor, signal, ambient);
+		const whole = recounts.has(watcher.id);
+		const answer = await answerOf(watcher, whole ? null : held.cursor, signal, ambient);
 		if (!live()) return;
 		const now = ambient.now();
 		// Every settle writes the set pruned against the current specs.
@@ -285,7 +291,7 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		const next = now + answer.nextPollMs;
 		const { wakeRetryMs: _retry, ...rest } = health;
 		const advanced = { ...rest, ...read, cursor: answer.cursor, newest, primed: true, nextPollAt: next };
-		settle(watcher, advanced, next);
+		if (settle(watcher, advanced, next) && whole) recounts.delete(watcher.id);
 	};
 
 	const schedule = (watcher: Watcher): void => {
@@ -324,6 +330,11 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		poke,
 		switched(watcherId) {
 			generations.set(watcherId, generationOf(watcherId) + 1);
+			poke(watcherId);
+		},
+		recount(watcherId) {
+			if (phase !== "running" || !deps.watchers.some((watcher) => watcher.id === watcherId)) return;
+			recounts.add(watcherId);
 			poke(watcherId);
 		},
 		async read(watcherId, deadlineMs, load, settle) {

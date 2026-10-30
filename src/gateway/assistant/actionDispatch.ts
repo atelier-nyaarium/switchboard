@@ -25,6 +25,7 @@ export interface ActionDispatchDeps {
 	actions: WatcherActions;
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">;
 	write: SourceLanes["write"];
+	recount: SourceLanes["recount"];
 	record: (callId: string, record: ActionRecord) => boolean;
 }
 
@@ -62,6 +63,7 @@ export function createActionDispatch(
 		}
 		// Record attempted actions only.
 		const attempted = answer.threads.some((thread) => thread.outcome !== "not_attempted");
+		if (attempted) deps.recount(declaration.watcherId);
 		const { summary } = parsed.data as { summary?: string };
 		const recorded =
 			attempted &&
