@@ -5,7 +5,7 @@ import { isComposite, parseSessionName } from "../shared/session-id.js";
 import type { SessionStore } from "../shared/session-store.js";
 import { createSingleFlight } from "../shared/single-flight.js";
 import type { PresenceFacade } from "./presence.js";
-import { decideWakeCreate, type WakeCoordinator, type WakeResult } from "./wake.js";
+import { decideWakeCreate, type WakeCoordinator, type WakeCreate, type WakeResult } from "./wake.js";
 import { reached, sendOn } from "./wsSend.js";
 import { resolveLiveIncarnation, type TeamRegistry, type WsData } from "./wsTypes.js";
 
@@ -53,7 +53,7 @@ export class WakeService {
 		};
 	}
 
-	tryWakeTeam(team: string, createOpts?: { displayLabel?: string; mintedFrom?: string }): Promise<WakeResult> {
+	tryWakeTeam(team: string, createOpts?: WakeCreate): Promise<WakeResult> {
 		if (this.inflightWakes.has(team)) console.log(`[wake] ${team} wake already in flight; joining it`);
 		return this.inflightWakes.run(team, async () => {
 			this.deps.presence.wakeStart(team);
@@ -65,10 +65,7 @@ export class WakeService {
 		});
 	}
 
-	private async doWakeTeam(
-		team: string,
-		createOpts: { displayLabel?: string; mintedFrom?: string } = {},
-	): Promise<WakeResult> {
+	private async doWakeTeam(team: string, createOpts: WakeCreate = {}): Promise<WakeResult> {
 		const { project, session } = parseSessionName(team);
 		if (this.deps.isAvailableProject(project) && (!isComposite(team) || !this.deps.offlineCatalog.has(project))) {
 			console.log(`[wake] ${team} is a spawn-point project, not a session; not waking`);
@@ -95,8 +92,8 @@ export class WakeService {
 				console.log(`[wake] ${team} has no record and no displayLabel; refusing to adopt the typed name`);
 				return { ok: false, error: decision.error };
 			}
-			if (decision.kind === "mint" && isHostSpawn(project)) {
-				// Only authenticated create_session may mint host sessions.
+			if (decision.kind === "mint" && isHostSpawn(project) && !createOpts.ownerApproved) {
+				// Only create_session, or a send the owner approved, mints a host session.
 				console.log(`[wake] refusing to mint host session "${team}" - create_session owns that door`);
 				return { ok: false, error: `no session named "${team}"; create it from the console first` };
 			}

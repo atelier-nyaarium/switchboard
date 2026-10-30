@@ -192,6 +192,24 @@ describe("the assistant's guarded sends", () => {
 		expect(recorded.map((entry) => entry.guard)).toEqual(["approved", "approved"]);
 	});
 
+	it("creates a host session from an approved send's label, and answers with the address it minted", async () => {
+		const typed = h.target("host.github-ops");
+		const held = await send(typed, "approve the PRs", { displayLabel: "GitHub Ops" });
+		const shown = await card(held.json.requestId ?? "");
+		await answer(shown.requestId, "approve");
+		const outcome = await collect(shown.requestId);
+		const minted = String(outcome.json.target ?? "");
+		const session = await h.waitFor(
+			() => [...attached.values()].find((candidate) => h.target(candidate.team) === minted),
+			"the minted session",
+		);
+		await h.waitFor(() => session.inbound.find((frame) => frame.body === "approve the PRs"), "the delivery");
+
+		expect(shown.intent).toMatchObject({ displayLabel: "GitHub Ops", createsSession: true });
+		expect(outcome.json).toMatchObject({ outcome: "sent", guard: "approved" });
+		expect(minted).not.toBe(typed);
+	}, 30_000);
+
 	it("joins a repeat to the open card, opens another for different text, and sends nothing withdrawn", async () => {
 		const first = await send(worker.team, "joined text");
 		const repeat = await send(worker.team, "joined text");

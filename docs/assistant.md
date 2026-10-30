@@ -203,6 +203,11 @@ guard; `docs/vault.md` holds the request lifecycle it shares with the vault.
   or a changed file fails the send. A relay that lost its answer reads as possibly delivered. The
   outcome, sent, denied, expired, failed or withdrawn, stays collectable through a grace past the
   deadline.
+- **An approved send may create its session:** a label naming a session that does not exist creates
+  one from it, on a host spawn point too (`WakeCreate.ownerApproved`), which nothing else but the
+  phone's create mints. The session gets a minted id, never the typed name, and the `sent` answer's
+  `target` names it. An unasked send creates no host session, and another Gateway's host is not
+  reached this way.
 - **Approve every send:** an owner setting per Gateway, on by default, read at every send; a failed
   read asks. Off, a send goes without asking only while the owner spoke last: `createOriginMarker`
   holds the origin of the newest row it saw in acceptance order. An owner row counts once

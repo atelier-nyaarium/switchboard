@@ -18,7 +18,7 @@ import { createRespondRoutes } from "./routes/routesRespond.js";
 import { createSendRoutes } from "./routes/routesSend.js";
 import { createStatusRoutes } from "./routes/routesStatus.js";
 import type { Presented, SessionAuthority } from "./sessionAuthority.js";
-import type { WakeResult } from "./wake.js";
+import type { WakeCreate, WakeResult } from "./wake.js";
 import type { ConversationRegistry, HandshakeRepushOutcome, TeamRegistry } from "./wsTypes.js";
 
 export interface RoutesDeps {
@@ -27,7 +27,7 @@ export interface RoutesDeps {
 	registry: TeamRegistry;
 	conversationRegistry: ConversationRegistry;
 	store: PendingJobStore<ResponsePayload>;
-	tryWakeTeam: (team: string, createOpts?: { displayLabel?: string; mintedFrom?: string }) => Promise<WakeResult>;
+	tryWakeTeam: (team: string, createOpts?: WakeCreate) => Promise<WakeResult>;
 	// Resolves a live incarnation.
 	sessionStore?: import("../shared/session-store.js").SessionStore;
 	capabilityStore?: Pick<import("./console/capabilityStore.js").CapabilityStore, "snapshot">;

@@ -21,7 +21,7 @@ import { fireAndForget } from "../fireAndForget.js";
 import { holdIdFor } from "../router/blobUploader.js";
 import { fileBytes, getTeamMode, jsonResponse, MAX_RESPONSE_FILE_BYTES, SendRequestSchema } from "../routeSchemas.js";
 import { presentedByRequest, type SessionAuthority } from "../sessionAuthority.js";
-import { POST_WAKE_SETTLE_MS, type WakeResult } from "../wake.js";
+import { POST_WAKE_SETTLE_MS, type WakeCreate, type WakeResult } from "../wake.js";
 import { type ConversationRegistry, resolveLiveIncarnation, type TeamRegistry } from "../wsTypes.js";
 import type { CallerScope } from "./callerGuards.js";
 
@@ -51,7 +51,7 @@ export interface SendRoutesDeps {
 	registry: TeamRegistry;
 	conversationRegistry: ConversationRegistry;
 	store: Pick<PendingJobStore<ResponsePayload>, "reserve" | "commit" | "abort">;
-	tryWakeTeam: (team: string, createOpts?: { displayLabel?: string; mintedFrom?: string }) => Promise<WakeResult>;
+	tryWakeTeam: (team: string, createOpts?: WakeCreate) => Promise<WakeResult>;
 	sessionStore?: import("../../shared/session-store.js").SessionStore;
 	routerClient?: Pick<import("../router/routerClient.js").RouterClient, "isConnected"> | null;
 	auth?: SessionAuthority;
@@ -114,10 +114,7 @@ export function createSendRoutes({
 		  }
 		| { ok: false; error: string };
 
-	async function reach(
-		resolved: LocalTarget,
-		createOpts?: { displayLabel?: string; mintedFrom?: string },
-	): Promise<Reached> {
+	async function reach(resolved: LocalTarget, createOpts?: WakeCreate): Promise<Reached> {
 		let target = resolved;
 		let localName = target.name;
 		let qualifiedTo = target.address.canonical;
@@ -380,7 +377,9 @@ export function createSendRoutes({
 		// Wake or create the target before delivery.
 		const mintedFrom =
 			inboundSessionId ?? (fromConversationId ? `${fromConversationId}:${resolved.name}` : undefined);
-		const arrived = await reach(resolved, { displayLabel, mintedFrom });
+		// An approved card is the owner's word, which a host mint needs.
+		const approved = record?.guard === "approved" ? { ownerApproved: true as const } : {};
+		const arrived = await reach(resolved, { displayLabel, mintedFrom, ...approved });
 		if (!arrived.ok) return jsonResponse({ error: arrived.error }, 404);
 		const { localName, target, qualifiedTo, targetWs } = arrived;
 

@@ -12,6 +12,14 @@ export interface WakeResult {
 	resolvedTeam?: string;
 }
 
+/** What a wake may create a missing session from. */
+export interface WakeCreate {
+	displayLabel?: string;
+	mintedFrom?: string;
+	/** The owner approved it; a host spawn point mints nothing without. */
+	ownerApproved?: true;
+}
+
 export type WakeCreateDecision =
 	| { kind: "reattach" }
 	| { kind: "mint"; sessionLabel: string }
