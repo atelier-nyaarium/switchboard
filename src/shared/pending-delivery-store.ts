@@ -4,8 +4,8 @@ import { DurableOutbox } from "./durable-outbox.js";
 import { fenced, MIGRATING } from "./migration-fence.js";
 import { type ChannelFile, MAX_PENDING_DELIVERIES, type ReplyDisposition, type RidingAwareness } from "./types.js";
 
-/** Delivery acceptance source. */
-export const DELIVERY_ORIGINS = ["owner", "session", "gateway", "event"] as const;
+/** Delivery acceptance source. `routine`: the owner's, sent on a schedule. */
+export const DELIVERY_ORIGINS = ["owner", "routine", "session", "gateway", "event"] as const;
 export type DeliveryOrigin = (typeof DELIVERY_ORIGINS)[number];
 
 interface HeldRow {

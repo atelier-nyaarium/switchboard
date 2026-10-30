@@ -3,6 +3,7 @@ import { nudgeFor } from "../gateway/routines/execution.js";
 import type { Occurrence } from "../gateway/routines/occurrences.js";
 import { UNPLACED_REASON } from "../gateway/routines/reservation.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
+import { ASSISTANT_WRITE_LOCK_PATH } from "../shared/assistant-write-lock.js";
 import { occurrenceIdOf, type Routine } from "../shared/schemasRoutine.js";
 import { SESSION_BASELINE_PATH } from "../shared/session-baseline.js";
 import { composeSessionName } from "../shared/session-id.js";
@@ -112,7 +113,7 @@ describe("federation harness: a check-in reaching the assistant", () => {
 		expect(saved.result).toMatchObject({ stored: true });
 	});
 
-	it("nudges the assistant as the owner, names its run with the routine, and lets it send unasked", async () => {
+	it("nudges the assistant as the owner, names its run with the routine, lets it send unasked, but leaves AGENTS.md locked", async () => {
 		await h.phone.value({ kind: "assistant_safety", approveEverySend: false });
 		clock = SLOT + 60_000;
 		await h.gateway.faults.sweepRoutines();
@@ -138,10 +139,12 @@ describe("federation harness: a check-in reaching the assistant", () => {
 				waitMs: 0,
 			})
 		).json();
+		const lock = await (await assistant().post(ASSISTANT_WRITE_LOCK_PATH, {})).json();
 
 		expect(nudge).toContain(occurrenceId);
 		expect(instructions).toMatchObject({ kind: "instructions", text: "Ask what is blocking today." });
 		expect(baseline.routines).toEqual([{ occurrenceId, routine: "Standup" }]);
 		expect(sent).toMatchObject({ outcome: "sent", guard: "unasked" });
+		expect(lock).toEqual({ kind: "locked", idleMs: null });
 	});
 });

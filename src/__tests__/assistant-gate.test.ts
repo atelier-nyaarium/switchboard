@@ -146,17 +146,20 @@ describe("the gate hook", () => {
 		expect(JSON.parse((await gateHookOutput(bash, env)) ?? "").hookSpecificOutput.hookEventName).toBe("PreToolUse");
 	});
 
-	it("asks the write lock for a write alone, and bounces a locked one with how to ask", async () => {
-		const open = lock({ kind: "open" });
+	it("asks the write lock for its AGENTS.md alone, and bounces a locked one with how to ask", async () => {
+		const note = JSON.stringify({ tool_name: "Write", tool_input: { file_path: path.join(notes, "threads.md") } });
+		const alias = JSON.stringify({ tool_name: "Edit", tool_input: { file_path: path.join(notes, "alias.md") } });
 		const locked = lock({ kind: "locked", idleMs: 42 * 60_000 });
 		const fresh = lock({ kind: "locked", idleMs: null });
 
-		expect(decision(await gateHookOutput(read, env, open.fetchImpl))).toBe("allow");
-		expect(open.asked).toEqual([]);
-		expect(decision(await gateHookOutput(write, env, open.fetchImpl))).toBe("allow");
-		expect(open.asked).toEqual(["/assistant/write-lock"]);
+		expect(decision(await gateHookOutput(read, env, locked.fetchImpl))).toBe("allow");
+		expect(decision(await gateHookOutput(note, env, locked.fetchImpl))).toBe("allow");
+		expect(locked.asked).toEqual([]);
 		expect(reason(await gateHookOutput(write, env, locked.fetchImpl))).toContain("idle for 42 minutes");
+		expect(decision(await gateHookOutput(alias, env, locked.fetchImpl))).toBe("deny");
+		expect(locked.asked).toEqual(["/assistant/write-lock", "/assistant/write-lock"]);
 		expect(reason(await gateHookOutput(write, env, fresh.fetchImpl))).toContain("since it started");
+		expect(decision(await gateHookOutput(write, env, lock({ kind: "open" }).fetchImpl))).toBe("allow");
 	});
 
 	it("bounces a write whose lock cannot be read", async () => {

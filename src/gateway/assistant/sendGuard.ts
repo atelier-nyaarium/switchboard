@@ -76,9 +76,10 @@ export function createOriginMarker(bootSeq: number, now: () => number) {
 		if (!prompt || seq >= prompt.seq) prompt = { seq, origin };
 		if (origin === "owner") ownerAt = now();
 	};
+	const ownerSide = (origin: MarkOrigin) => origin === "owner" || origin === "routine";
 	const originOf = (row: PendingDelivery): MarkOrigin => {
 		const origin = row.origin ?? "unknown";
-		if (origin !== "owner") return origin;
+		if (!ownerSide(origin)) return origin;
 		// Another app's screen.
 		if (!row.event && row.files?.some((f) => f.role === "screen")) return "unknown";
 		return (row.seq ?? 0) < bootSeq ? "unknown" : origin;
@@ -90,7 +91,7 @@ export function createOriginMarker(bootSeq: number, now: () => number) {
 		},
 		/** Non-owner offers mark before ack. */
 		offered: (row: PendingDelivery) => {
-			if (row.team === ASSISTANT_TEAM && originOf(row) !== "owner") saw(row.seq ?? 0, originOf(row));
+			if (row.team === ASSISTANT_TEAM && !ownerSide(originOf(row))) saw(row.seq ?? 0, originOf(row));
 		},
 		/** Replies mark between rows. */
 		replyPushed: (lastSeq: number) => move(lastSeq + 0.5, "reply"),
@@ -100,8 +101,9 @@ export function createOriginMarker(bootSeq: number, now: () => number) {
 			prompt = null;
 			ownerAt = null;
 		},
-		readsOwner: () => mark?.origin === "owner",
-		/** Open while the owner prompted last or spoke within `WRITE_IDLE_MS`. */
+		/** A check-in reads as the owner for sends. */
+		readsOwner: () => mark !== null && ownerSide(mark.origin),
+		/** Open while the owner prompted last or spoke within `WRITE_IDLE_MS`; a check-in neither. */
 		writes: (): WriteLock => {
 			if (prompt?.origin === "owner") return { kind: "open" };
 			const idleMs = ownerAt === null ? null : Math.max(0, now() - ownerAt);

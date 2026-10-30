@@ -31,7 +31,7 @@ export async function gateHookOutput(
 		}
 		const verdict = gateVerdict(input, { notes: root, home });
 		if (!verdict.allow) return deny(verdict.reason);
-		return verdict.write ? await writeLocked(env, fetchImpl) : null;
+		return verdict.lock ? await writeLocked(env, fetchImpl) : null;
 	} catch (error) {
 		return deny(`assistant gate: ${(error as Error).message}`);
 	}

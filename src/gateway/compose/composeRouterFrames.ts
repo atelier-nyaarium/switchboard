@@ -89,8 +89,11 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			deps.assistant.sessionEnded(team);
 		};
 		/** Null when it landed. */
-		const nudgeAsOwner = async (nudge: { from: string; to: string; body: string; deliveryId: string }) => {
-			const res = await deps.routes().sendFromOwner({ ...nudge, channelOnly: true });
+		const nudgeAsOwner = async (
+			nudge: { from: string; to: string; body: string; deliveryId: string },
+			options: { scheduled?: true } = {},
+		) => {
+			const res = await deps.routes().sendFromOwner({ ...nudge, channelOnly: true }, options);
 			if (res.ok) return null;
 			const json = (await res.json().catch(() => ({}))) as { error?: string };
 			return json.error ?? `send to "${nudge.to}" failed`;
@@ -231,7 +234,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 					dropSessionResume(team, "release");
 					onSessionEnded(team);
 				},
-				deliver: nudgeAsOwner,
+				deliver: (nudge) => nudgeAsOwner(nudge, { scheduled: true }),
 			}),
 		);
 

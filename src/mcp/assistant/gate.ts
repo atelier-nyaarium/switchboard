@@ -12,8 +12,8 @@ import {
 import { CHANNEL_FILES_DIR } from "../channel/channelFiles.js";
 import { confine, type Withhold } from "../workspace/confine.js";
 
-/** `write`: the write lock decides. */
-export type GateVerdict = { allow: true; write?: true } | { allow: false; reason: string };
+/** `lock`: its `AGENTS.md`, so the write lock decides. */
+export type GateVerdict = { allow: true; lock?: true } | { allow: false; reason: string };
 
 const SWITCHBOARD_TOOLS: ReadonlySet<string> = new Set(ASSISTANT_SWITCHBOARD_TOOLS);
 
@@ -194,13 +194,29 @@ export function gateVerdict(input: unknown, places: GatePlaces): GateVerdict {
 		const written = params[writeKey];
 		if (typeof written !== "string" || written === "") return refuse(`${tool} names no path`);
 		const outside = placeIn(root, cwd, home, written, protectedWrite);
-		return outside ? refuse(outside) : { allow: true, write: true };
+		if (outside) return refuse(outside);
+		return ownInstructions(root, cwd, home, written) ? { allow: true, lock: true } : { allow: true };
 	}
 
 	return refuse(`${tool} is not on the assistant's allowlist`);
 }
 
-/** The refusal a locked write gets; null idle is since it started. */
+/** Its root `AGENTS.md`, by name or through a link. */
+function ownInstructions(root: string, cwd: string, home: string, written: string): boolean {
+	const expanded = expandHome(written, home);
+	if (expanded === null) return false;
+	const real = (at: string) => {
+		try {
+			return fs.realpathSync.native(at);
+		} catch {
+			// Not there yet: as written.
+			return at;
+		}
+	};
+	return path.relative(real(root), real(path.resolve(cwd, expanded))).toLowerCase() === "agents.md";
+}
+
+/** The refusal a locked `AGENTS.md` write gets; null idle is since it started. */
 export function writeLockReason(idleMs: number | null): string {
 	const minutes = idleMs === null ? null : Math.floor(idleMs / 60_000);
 	const idle =
@@ -208,7 +224,7 @@ export function writeLockReason(idleMs: number | null): string {
 			? "has not heard from the owner since it started"
 			: `has been idle for ${minutes < 120 ? `${minutes} minutes` : `${Math.floor(minutes / 60)} hours`}`;
 	return `
-Write tools are locked: this session ${idle}. The owner must reply once to unlock them. Ask in any form that shows what is changing, for example:
+AGENTS.md is locked: this session ${idle}. The owner must reply once to unlock it. Ask in any form that shows what is changing, for example:
 
 Can I adjust my rules about:
 - XXX to YYY

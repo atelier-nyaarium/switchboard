@@ -69,7 +69,7 @@ describe("the origin marker", () => {
 		expect([preboot, owner, afterEnd, ownerAfterEvent]).toEqual([false, true, false, true]);
 	});
 
-	it("opens writes while the owner prompted last or spoke within half an hour, its own replies aside", () => {
+	it("opens writes while the owner prompted last or spoke within half an hour, its own replies and check-ins aside", () => {
 		let now = 0;
 		const marker = createOriginMarker(0, () => now);
 		const fresh = marker.writes();
@@ -83,16 +83,22 @@ describe("the origin marker", () => {
 		now += 10 * 60_000;
 		marker.offered(row(4, "event"));
 		const eventSoon = marker.writes();
+		now += 50 * 60_000;
+		marker.delivered(row(5, "routine"));
+		const checkIn = marker.writes();
+		const checkInSends = marker.readsOwner();
 		marker.ended();
 		const afterEnd = marker.writes();
 
-		expect([fresh, afterOwnReply, eventLate, eventSoon, afterEnd]).toEqual([
+		expect([fresh, afterOwnReply, eventLate, eventSoon, checkIn, afterEnd]).toEqual([
 			{ kind: "locked", idleMs: null },
 			{ kind: "open" },
 			{ kind: "locked", idleMs: 40 * 60_000 },
 			{ kind: "open" },
+			{ kind: "locked", idleMs: 60 * 60_000 },
 			{ kind: "locked", idleMs: null },
 		]);
+		expect(checkInSends).toBe(true);
 	});
 
 	it("never reads an owner row carrying screen text as the owner's words", () => {

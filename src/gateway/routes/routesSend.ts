@@ -35,7 +35,7 @@ export interface SendRecord {
 
 /** Guard-only assistant ingress. */
 type Ingress =
-	| { kind: "owner"; ownerId: string }
+	| { kind: "owner"; ownerId: string; scheduled?: true }
 	| { kind: "session"; req: Request }
 	| { kind: "gateway" }
 	| { kind: "assistant"; conversationId: string; record: SendRecord };
@@ -304,7 +304,12 @@ export function createSendRoutes({
 			}
 		}
 		const record = ingress.kind === "assistant" ? ingress.record : undefined;
-		const origin: DeliveryOrigin = ingress.kind === "assistant" ? "session" : ingress.kind;
+		const origin: DeliveryOrigin =
+			ingress.kind === "assistant"
+				? "session"
+				: ingress.kind === "owner" && ingress.scheduled
+					? "routine"
+					: ingress.kind;
 		const trustedInbound = ingress.kind === "gateway";
 		// Federated fields are accepted only from the trusted relay.
 		const inboundSessionId = trustedInbound ? parsed.data.sessionId : undefined;
@@ -525,10 +530,10 @@ export function createSendRoutes({
 		return local ? storeKey({ kind: "conv", conversationId: owner, address: local.address }) : "";
 	}
 
-	async function sendFromOwner(body: Record<string, unknown>): Promise<Response> {
+	async function sendFromOwner(body: Record<string, unknown>, options: { scheduled?: true } = {}): Promise<Response> {
 		const owner = ownerId?.();
 		if (!owner) return jsonResponse({ error: "this Gateway has no owner to send as" }, 409);
-		return send({ kind: "owner", ownerId: owner }, body);
+		return send({ kind: "owner", ownerId: owner, ...options }, body);
 	}
 
 	async function sendFromSession(req: Request, body: Record<string, unknown>): Promise<Response> {

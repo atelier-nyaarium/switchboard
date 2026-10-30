@@ -102,7 +102,7 @@ Safety and Enabled on its own disk.
   actions, so none asks first. Every one is recorded in the conversation.
 - **Always refused:** writes to `CLAUDE.md`, an `AGENTS.md` below the notes root, session settings
   or hooks, and paths outside notes. The watcher rules have no path from the session at all.
-- **Locked while the owner is away:** every other write (the write lock, below).
+- **Locked while the owner is away:** its root `AGENTS.md` (the write lock, below).
 
 **The boundary** is Claude Code's own permission engine, with Switchboard's layers around it.
 
@@ -161,12 +161,14 @@ The hook alone is a path decision made before the tool runs; the engine is what 
 the open. A running pane keeps the hooks and flags it launched with, so restart the assistant after
 a plugin update. A hand resume must carry the assistant's flags too.
 
-**The write lock** (`src/shared/assistant-write-lock.ts`): every write the hook allows asks the
-Gateway, as the session, at `/assistant/write-lock`, which answers only the assistant's token.
+**The write lock** (`src/shared/assistant-write-lock.ts`): a write to its root `AGENTS.md`, by name
+or through a link, asks the Gateway, as the session, at `/assistant/write-lock`, which answers only
+the assistant's token. Every other note is written freely.
 
-- **Open** while the newest row that prompted the assistant is the owner's (a message, Check now or
-  a check-in), or the owner's last row landed under 30 minutes ago (`WRITE_IDLE_MS`). Its own
-  replies move neither, so a long task the owner asked for stays open.
+- **Open** while the newest row that prompted the assistant is the owner's (a message or Check now),
+  or the owner's last row landed under 30 minutes ago (`WRITE_IDLE_MS`). Its own replies move
+  neither. A check-in (origin `routine`) opens neither: it bounces and asks, though it still reads
+  as the owner for sends.
 - **Locked** otherwise, as when a watcher event wakes it after the owner left. The write bounces with
   how long the session has been idle and how to ask (`writeLockReason`); the owner's next reply
   opens it.

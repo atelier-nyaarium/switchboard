@@ -49,7 +49,8 @@ import type { DurableOpStore } from "./durableOpStore.js";
 
 export interface ConsoleRoutes {
 	// Owner-only console door.
-	sendFromOwner: (body: Record<string, unknown>) => Promise<Response>;
+	/** `scheduled`: a routine's, which never reads as the owner present. */
+	sendFromOwner: (body: Record<string, unknown>, options?: { scheduled?: true }) => Promise<Response>;
 	// The key that send will anchor on, for an answer owed before it resolves.
 	ownerSessionKey: (to: string, targetDomain?: string) => string;
 	respond: (
