@@ -311,6 +311,8 @@ Long-press power opens the assistant as a panel over the current app (Question 1
 
 Not built in this plan; the probe gathers what the Pixel actually allows, for a later plan. Today the assistant has no road to act on the phone; each phone action needs one (the assistant through the Gateway and the Router to the phone, which acts and answers), and anything that sends or reads private data rides an owner-approval card, as `crosstalk_send` does.
 
+Probe readings on the Pixel, 2026-10-30, once the role was re-granted: assist structure and screenshot on; one torch camera; alarm, SMS compose, dial and calendar insert resolve; IFTTT installed; no notification listener, DND access or accessibility service; none of the candidate runtime permissions declared. A summon delivered a titled window of 71 nodes with 12 texts on one screen and 1300 nodes with 79 texts on another, plus a 1344x2992 screenshot, with `intent=true` and no web URI, structured data or clip.
+
 | Integration | Where it plugs in | Grant | Risk if injected |
 |---|---|---|---|
 | Flashlight | Phone action | None (`setTorchMode`) | Low |

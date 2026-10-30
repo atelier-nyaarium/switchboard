@@ -61,6 +61,7 @@ import com.atelier_nyaarium.switchboard.DirectoryField
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.answerText
 import com.atelier_nyaarium.switchboard.assistantRoleHeld
+import com.atelier_nyaarium.switchboard.assistantSetupLine
 import com.atelier_nyaarium.switchboard.openAssistantPicker
 import com.atelier_nyaarium.switchboard.assistantSections
 import com.atelier_nyaarium.switchboard.canRetry
@@ -232,10 +233,10 @@ private fun AssistantSettingsPage(
 	}
 
 	val context = androidx.compose.ui.platform.LocalContext.current
-	var roleHeld by remember { mutableStateOf(true) }
-	// Picker may change role. Held but not adopted needs a re-pick to reach the panel.
+	var setupLine by remember { mutableStateOf<String?>(null) }
+	// Picker may change role.
 	androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
-		roleHeld = assistantRoleHeld(context) && assistantSessionAdopted(context)
+		setupLine = assistantSetupLine(assistantRoleHeld(context), assistantSessionAdopted(context))
 		onPauseOrDispose {}
 	}
 
@@ -243,13 +244,9 @@ private fun AssistantSettingsPage(
 		(work.said ?: state.homeFailure?.let(::moveErrorText))?.let {
 			Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		}
-		if (!roleHeld) {
+		setupLine?.let { line ->
 			Text("Digital assistant", style = MaterialTheme.typography.labelLarge)
-			Text(
-				"Pick Switchboard, then set Press and hold power button to Digital assistant.",
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-			)
+			Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			OutlinedButton(onClick = hapticClick { openAssistantPicker(context) }) { Text("Choose assistant") }
 			HorizontalDivider()
 		}

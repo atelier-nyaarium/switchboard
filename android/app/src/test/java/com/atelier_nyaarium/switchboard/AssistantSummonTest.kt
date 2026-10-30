@@ -194,4 +194,12 @@ class AssistantSummonTest {
 		assertEquals(FocusStep.FIRE, focusStep(landedAwaitingKeyboard, chat, windowFocused = true, resumed = true))
 		assertEquals(FocusStep.IDLE, focusStep(landedAwaitingKeyboard.superseded(), chat, windowFocused = true, resumed = true))
 	}
+
+	@Test
+	fun theSetupRowHidesOnlyOnceTheRoleIsHeldAndItsSessionAdopted() {
+		assertNull(assistantSetupLine(roleHeld = true, sessionAdopted = true))
+		val unheld = assistantSetupLine(roleHeld = false, sessionAdopted = false)
+		val unadopted = assistantSetupLine(roleHeld = true, sessionAdopted = false)
+		assertTrue(unheld != null && unadopted != null && unheld != unadopted)
+	}
 }

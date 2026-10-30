@@ -178,6 +178,13 @@ internal fun assistantRoleHeld(context: Context): Boolean = runIsolated {
 	context.getSystemService(RoleManager::class.java)?.isRoleHeld(RoleManager.ROLE_ASSISTANT) != false
 }.getOrDefault(true)
 
+/** Null hides the row. */
+internal fun assistantSetupLine(roleHeld: Boolean, sessionAdopted: Boolean): String? = when {
+	!roleHeld -> "Pick Switchboard, then set Press and hold power button to Digital assistant."
+	!sessionAdopted -> "Pick None, then Switchboard again."
+	else -> null
+}
+
 private val ASSISTANT_PICKERS = listOf(Settings.ACTION_VOICE_INPUT_SETTINGS, Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
 
 /** Role grants require system settings. */

@@ -521,8 +521,11 @@ microphone; Gboard's mic key dictates. `summon-residue.test.ts` refuses `showWhe
   agent granting trust while the system prompt shows reads as a challenge.
 - **Setup:** the role cannot be requested by an app. Assistant settings shows a Digital assistant row
   while the role is not held or its session is not adopted (`assistantSessionAdopted`), opening the
-  system's picker and naming the Press and hold power setting. A role picked before the session
-  shipped recorded none, so it takes one re-pick.
+  system's picker. `assistantSetupLine` tells the two apart: an unheld role names the Press and hold
+  power setting; a held role whose session is not adopted says to pick None, then Switchboard again.
+  A role picked before the session shipped recorded the app's activity and no voice interaction
+  service, so long-press power opened the app; a re-pick, or `cmd role remove-role-holder` then
+  `add-role-holder` over adb, records the service.
 
 ## The panel
 

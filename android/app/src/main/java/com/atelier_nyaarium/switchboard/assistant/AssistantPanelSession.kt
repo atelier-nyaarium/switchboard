@@ -84,8 +84,11 @@ internal class AssistantPanelSession(context: Context) :
 		super.onPrepareShow(args, showFlags)
 		val state = repo.state.value
 		val keyguardLocked = context.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
-		when (val show = panelShow(keyguardLocked, appLockAsks(state, AppLock.unlocked.value), panelTeam(state))) {
+		val asks = appLockAsks(state, AppLock.unlocked.value)
+		val landing = panelTeam(state)
+		when (val show = panelShow(keyguardLocked, asks, landing)) {
 			PanelShow.HandOff -> {
+				DebugLog.log("Panel", "hand-off keyguard=$keyguardLocked appLock=$asks team=${landing != null}")
 				setUiEnabled(false)
 				handOff()
 			}
