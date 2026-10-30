@@ -1,0 +1,111 @@
+{
+	"cases": [
+		{
+			"name": "a move to the front renumbers the group",
+			"entries": [{ "id": "a", "rank": 1 }, { "id": "b", "rank": 2 }, { "id": "c", "rank": 3 }],
+			"op": { "kind": "place", "id": "c", "index": 0 },
+			"expected": [{ "id": "a", "rank": 2 }, { "id": "b", "rank": 3 }, { "id": "c", "rank": 1 }]
+		},
+		{
+			"name": "an index past the end lands last and leaves the moved entry's children alone",
+			"entries": [
+				{ "id": "a", "rank": 1 },
+				{ "id": "b", "rank": 2 },
+				{ "id": "c", "rank": 3 },
+				{ "id": "d", "rank": 1, "parent": "a" }
+			],
+			"op": { "kind": "place", "id": "a", "index": 9 },
+			"expected": [
+				{ "id": "a", "rank": 3 },
+				{ "id": "b", "rank": 1 },
+				{ "id": "c", "rank": 2 },
+				{ "id": "d", "rank": 1, "parent": "a" }
+			]
+		},
+		{
+			"name": "a move under a new parent numbers only that parent's live children",
+			"entries": [
+				{ "id": "p", "rank": 1 },
+				{ "id": "x", "rank": 2 },
+				{ "id": "k1", "rank": 1, "parent": "p" },
+				{ "id": "gone", "rank": 2, "parent": "p", "trashedAt": 5 },
+				{ "id": "k2", "rank": 3, "parent": "p" }
+			],
+			"op": { "kind": "place", "id": "x", "parent": "p", "index": 1 },
+			"expected": [
+				{ "id": "p", "rank": 1 },
+				{ "id": "x", "rank": 2, "parent": "p" },
+				{ "id": "k1", "rank": 1, "parent": "p" },
+				{ "id": "gone", "rank": 2, "parent": "p", "trashedAt": 5 },
+				{ "id": "k2", "rank": 3, "parent": "p" }
+			]
+		},
+		{
+			"name": "a trashed entry moves without a rank change and numbers nobody",
+			"entries": [
+				{ "id": "p", "rank": 1, "trashedAt": 5 },
+				{ "id": "x", "rank": 4, "trashedAt": 5 },
+				{ "id": "k", "rank": 3, "parent": "p", "trashedAt": 5 }
+			],
+			"op": { "kind": "place", "id": "x", "parent": "p", "index": 0 },
+			"expected": [
+				{ "id": "p", "rank": 1, "trashedAt": 5 },
+				{ "id": "x", "rank": 4, "parent": "p", "trashedAt": 5 },
+				{ "id": "k", "rank": 3, "parent": "p", "trashedAt": 5 }
+			]
+		},
+		{
+			"name": "a new entry takes one past the last live sibling",
+			"entries": [
+				{ "id": "a", "rank": 1 },
+				{ "id": "gone", "rank": 7, "trashedAt": 5 },
+				{ "id": "b", "rank": 2 }
+			],
+			"op": { "kind": "end" },
+			"rank": 3
+		},
+		{
+			"name": "renumbering closes the gap a trash left and leaves trash alone",
+			"entries": [
+				{ "id": "a", "rank": 1 },
+				{ "id": "gone", "rank": 2, "trashedAt": 5 },
+				{ "id": "c", "rank": 3 },
+				{ "id": "k", "rank": 4, "parent": "a" }
+			],
+			"op": { "kind": "renumber" },
+			"expected": [
+				{ "id": "a", "rank": 1 },
+				{ "id": "gone", "rank": 2, "trashedAt": 5 },
+				{ "id": "c", "rank": 2 },
+				{ "id": "k", "rank": 1, "parent": "a" }
+			],
+			"moved": ["c", "k"]
+		},
+		{
+			"name": "renumbering breaks a tie by id",
+			"entries": [{ "id": "b", "rank": 1 }, { "id": "a", "rank": 1 }],
+			"op": { "kind": "renumber" },
+			"expected": [{ "id": "b", "rank": 2 }, { "id": "a", "rank": 1 }],
+			"moved": ["b"]
+		},
+		{
+			"name": "a restore brings its trashed parent back last and leaves the parent's other child in trash",
+			"entries": [
+				{ "id": "a", "rank": 1 },
+				{ "id": "p", "rank": 2, "trashedAt": 5 },
+				{ "id": "b", "rank": 2 },
+				{ "id": "k1", "rank": 2, "parent": "p", "trashedAt": 5 },
+				{ "id": "k2", "rank": 1, "parent": "p", "trashedAt": 5 }
+			],
+			"op": { "kind": "restore", "id": "k1" },
+			"expected": [
+				{ "id": "a", "rank": 1 },
+				{ "id": "p", "rank": 3 },
+				{ "id": "b", "rank": 2 },
+				{ "id": "k1", "rank": 2, "parent": "p" },
+				{ "id": "k2", "rank": 1, "parent": "p", "trashedAt": 5 }
+			],
+			"brought": ["p", "k1"]
+		}
+	]
+}

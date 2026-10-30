@@ -40,7 +40,7 @@ class BoardManagerTest {
 	private fun storeStub(): BoardStore = FakeStore()
 
 	private fun entry(id: String, sessionId: String? = null, state: String = "open", trashedAt: Long? = null) =
-		BoardEntry(id = id, title = "t-$id", state = state, rank = "m", sessionId = sessionId, trashedAt = trashedAt)
+		BoardEntry(id = id, title = "t-$id", state = state, rank = 1L, sessionId = sessionId, trashedAt = trashedAt)
 
 	private class RecordingSealing(
 		boot: PhoneBootstrap,
@@ -125,7 +125,7 @@ class BoardManagerTest {
 	@Test
 	fun aPreviousBlobWithGatewayColumnsLoadsRouterEntriesWithoutGatewayState() {
 		val oldBlob = """
-			{"gateways":{"old-gateway":{"entries":[]}},"routerRevision":7,"stored":[{"clear":{"id":"old-entry","state":"open","rank":"m","version":1},"sealed":{"title":{"v":1,"epoch":1,"nonce":"","ciphertext":""}}}]}
+			{"gateways":{"old-gateway":{"entries":[]}},"routerRevision":7,"stored":[{"clear":{"id":"old-entry","state":"open","rank":1,"version":1},"sealed":{"title":{"v":1,"epoch":1,"nonce":"","ciphertext":""}}}]}
 		""".trimIndent()
 		val board = BoardManager(FakeStore(oldBlob))
 

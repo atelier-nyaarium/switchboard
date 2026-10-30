@@ -16,7 +16,7 @@ const CONVERSATIONS = [
 ];
 
 function entry(id: string, fields: Partial<BoardEntry> = {}): BoardEntry {
-	return { id, title: `title ${id}`, state: "open", rank: "a", sessionId: TEAM, ...fields } as BoardEntry;
+	return { id, title: `title ${id}`, state: "open", rank: 1, sessionId: TEAM, ...fields } as BoardEntry;
 }
 
 function deps(overrides: Partial<BaselineRoutesDeps> = {}): BaselineRoutesDeps {

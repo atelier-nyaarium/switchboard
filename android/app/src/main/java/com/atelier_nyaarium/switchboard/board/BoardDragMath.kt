@@ -7,12 +7,12 @@ data class RowSpan(val id: String, val top: Int, val height: Int) {
 	val center: Int get() = top + height / 2
 }
 
-/** Where a drag would land: the new parent (null = top level), the rank to mint between the resolved
- * siblings, and the depth it lands at. No pixels: where the line is drawn is [boardDropBoundary]. */
+/** Where a drag would land: the new parent (null = top level), its index among the live siblings
+ * without it, and the depth it lands at. No pixels: where the line is drawn is [boardDropBoundary]. */
 data class BoardDrop(
 	val id: String,
 	val parent: String?,
-	val rank: String,
+	val index: Int,
 	val depth: Int,
 )
 
@@ -108,7 +108,7 @@ fun boardDropTarget(
 	) {
 		return null
 	}
-	return BoardDrop(draggedId, parent, BoardRank.between(prev?.entry?.rank, next?.entry?.rank), depth)
+	return BoardDrop(draggedId, parent, siblings.count { (position[it.entry.id] ?: -1) < insertAt }, depth)
 }
 
 /** Whether `candidate` sits at or below `ancestor` in the tree. Walks with a visited set so bad

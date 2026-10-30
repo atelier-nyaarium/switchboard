@@ -20,7 +20,7 @@
 				"clear": {
 					"id": "fixture-entry",
 					"state": "open",
-					"rank": "m",
+					"rank": 1,
 					"version": 1
 				}
 			}

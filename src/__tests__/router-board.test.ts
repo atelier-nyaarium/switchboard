@@ -137,7 +137,6 @@ const entry = (id: string, extra: Record<string, unknown> = {}) => ({
 	kind: "upsert" as const,
 	id,
 	state: "open" as const,
-	rank: "A",
 	title: envelope(),
 	...extra,
 });
@@ -487,24 +486,92 @@ describe("router board service", () => {
 		registry.close();
 	});
 
-	it("refuses invalid ranks on rank and parent updates", () => {
-		const { service, registry } = make();
-		service.write("a", { expectedRevision: 0, ops: [entry("one")] }, { kind: "owner" });
-		expect(
+	describe("sibling order", () => {
+		const s = { domainId: "a", gatewayId: "g", sessionId: "s" };
+		const asS = { kind: "session" as const, session: s };
+		const order = (service: ReturnType<typeof make>["service"], parent?: string) =>
+			service
+				.read("a")
+				.entries.filter((e) => e.clear.trashedAt === undefined && e.clear.parent === parent)
+				.sort((x, y) => x.clear.rank - y.clear.rank)
+				.map((e) => `${e.clear.id}:${e.clear.rank}`);
+
+		it("numbers live siblings from 1, so a session appends and moves among entries it does not hold", () => {
+			const { service, registry, rows } = make();
+			const other = { domainId: "a", gatewayId: "g", sessionId: "other" };
 			service.write(
 				"a",
-				{ expectedRevision: 1, ops: [{ kind: "set_rank", id: "one", rank: "0" }] },
+				{ expectedRevision: 0, ops: [entry("backlog"), entry("gone"), entry("theirs", { session: other })] },
 				{ kind: "owner" },
-			),
-		).toMatchObject({ outcome: "refused", refusal: "bad_rank" });
-		expect(
+			);
+			service.write("a", { expectedRevision: 1, ops: [{ kind: "trash", id: "gone" }] }, { kind: "owner" });
+			expect(order(service)).toEqual(["backlog:1", "theirs:2"]);
+			rows.length = 0;
+
+			expect(service.write("a", { expectedRevision: 2, ops: [entry("mine", { session: s })] }, asS).outcome).toBe(
+				"applied",
+			);
+			expect(order(service)).toEqual(["backlog:1", "theirs:2", "mine:3"]);
+			const moved = service.write(
+				"a",
+				{ expectedRevision: 3, ops: [{ kind: "move", id: "mine", index: 0 }] },
+				asS,
+			);
+			expect(moved.outcome).toBe("applied");
+			expect(order(service)).toEqual(["mine:1", "backlog:2", "theirs:3"]);
+			expect(rows).toHaveLength(0);
+			registry.close();
+		});
+
+		it("moves an entry under a new parent at an index and restores a trashed one last", () => {
+			const { service, registry } = make();
 			service.write(
 				"a",
-				{ expectedRevision: 1, ops: [{ kind: "set_parent", id: "one", parent: undefined, rank: "!" }] },
+				{ expectedRevision: 0, ops: ["p", "x", "y", "z"].map((id) => entry(id)) },
 				{ kind: "owner" },
-			),
-		).toMatchObject({ outcome: "refused", refusal: "bad_rank" });
-		registry.close();
+			);
+			service.write(
+				"a",
+				{
+					expectedRevision: 1,
+					ops: [
+						{ kind: "move", id: "y", parent: "p" },
+						{ kind: "move", id: "z", parent: "p", index: 0 },
+					],
+				},
+				{ kind: "owner" },
+			);
+			expect(order(service)).toEqual(["p:1", "x:2"]);
+			expect(order(service, "p")).toEqual(["z:1", "y:2"]);
+			service.write("a", { expectedRevision: 2, ops: [{ kind: "trash", id: "x" }] }, { kind: "owner" });
+			service.write("a", { expectedRevision: 3, ops: [entry("w")] }, { kind: "owner" });
+			service.write("a", { expectedRevision: 4, ops: [{ kind: "restore", id: "x" }] }, { kind: "owner" });
+			expect(order(service)).toEqual(["p:1", "w:2", "x:3"]);
+			registry.close();
+		});
+
+		it("numbers ranks stored as text in their old order, and the sweep stores them", () => {
+			const { service, registry } = make();
+			service.write(
+				"a",
+				{ expectedRevision: 0, ops: ["one", "two", "three"].map((id) => entry(id)) },
+				{ kind: "owner" },
+			);
+			const store = registry.for("a");
+			for (const [id, rank] of [
+				["one", "zzV"],
+				["two", "V"],
+				["three", "zl"],
+			]) {
+				const record = store.get("board.entry", id)!;
+				store.put("board.entry", id, record.version, { ...record, clear: { ...record.clear, rank } } as never);
+			}
+			expect(order(service)).toEqual(["two:1", "three:2", "one:3"]);
+			expect(service.settleRanks("a")).toBe(true);
+			expect(store.get("board.entry", "one")?.clear.rank).toBe(3);
+			expect(service.settleRanks("a")).toBe(false);
+			registry.close();
+		});
 	});
 
 	it("refuses assignments to missing sessions", () => {
@@ -589,7 +656,7 @@ describe("router board service", () => {
 				expectedRevision: 1,
 				ops: [
 					{ ...entry("two"), parent: "one" },
-					{ kind: "set_parent", id: "one", parent: "two", rank: "B" },
+					{ kind: "move", id: "one", parent: "two" },
 				],
 			},
 			{ kind: "owner" },
@@ -604,7 +671,7 @@ describe("router board service", () => {
 			"a",
 			{
 				expectedRevision: 0,
-				ops: [entry("parent"), entry("child", { parent: "parent", rank: "B" })],
+				ops: [entry("parent"), entry("child", { parent: "parent" })],
 			},
 			{ kind: "owner" },
 		);
@@ -794,7 +861,7 @@ describe("router board service", () => {
 		registry.close();
 	});
 
-	it("refuses set_parent under a parent the session cannot write", () => {
+	it("refuses a move under a parent the session cannot write", () => {
 		const { service, registry } = make();
 		service.write(
 			"a",
@@ -811,7 +878,7 @@ describe("router board service", () => {
 			"a",
 			{
 				expectedRevision: 1,
-				ops: [{ kind: "set_parent", id: "child", parent: "parent", rank: "A" }],
+				ops: [{ kind: "move", id: "child", parent: "parent" }],
 			},
 			{ kind: "session", session: { domainId: "a", gatewayId: "g", sessionId: "s" } },
 		);
@@ -825,7 +892,7 @@ describe("router board service", () => {
 			"a",
 			{
 				expectedRevision: 0,
-				ops: [entry("parent"), entry("child", { parent: "parent", rank: "B" })],
+				ops: [entry("parent"), entry("child", { parent: "parent" })],
 			},
 			{ kind: "owner" },
 		);
@@ -845,7 +912,7 @@ describe("router board service", () => {
 		const { service, registry } = make();
 		service.write(
 			"a",
-			{ expectedRevision: 0, ops: [entry("parent"), entry("child", { parent: "parent", rank: "B" })] },
+			{ expectedRevision: 0, ops: [entry("parent"), entry("child", { parent: "parent" })] },
 			{ kind: "owner" },
 		);
 		const result = service.write(
@@ -1034,7 +1101,7 @@ describe("router board service", () => {
 
 			const moved = service.write(
 				"a",
-				{ expectedRevision: 2, ops: [{ kind: "set_parent", id: "gone", parent: "kept", rank: "B" }] },
+				{ expectedRevision: 2, ops: [{ kind: "move", id: "gone", parent: "kept" }] },
 				{ kind: "owner" },
 			);
 			const made = service.write(

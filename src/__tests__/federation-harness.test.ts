@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { rankBetween } from "../shared/board-rank.js";
 import { BOARD_TITLE_KIND, boardTextAadKind, wrapContentKey } from "../shared/content-envelope.js";
 import { signSetDisplayName } from "../shared/federation-tenants.js";
 import type { KeyRequest } from "../shared/schemasContentKey.js";
@@ -165,7 +164,6 @@ describe("federation harness", () => {
 						kind: "upsert",
 						id,
 						state: "open",
-						rank: rankBetween(undefined, undefined),
 						title: h.phone.seal("Wire the phone", boardTextAadKind(BOARD_TITLE_KIND, id)),
 						session: { domainId: h.set.domain.id, gatewayId: h.set.gateway.id, sessionId: live.team },
 					},

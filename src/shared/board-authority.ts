@@ -9,7 +9,6 @@ export const BOARD_REFUSALS = [
 	"held",
 	"would_orphan",
 	"board_full",
-	"bad_rank",
 	"attachment_missing",
 	"session_missing",
 	"durability_failure",

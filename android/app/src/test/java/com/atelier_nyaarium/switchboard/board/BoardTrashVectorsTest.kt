@@ -28,7 +28,7 @@ class BoardTrashVectorsTest {
 					title = id,
 					state = "open",
 					parent = e["parent"]?.jsonPrimitive?.content,
-					rank = id,
+					rank = 1L,
 					trashedAt = e["trashedAt"]?.jsonPrimitive?.long,
 				)
 			}

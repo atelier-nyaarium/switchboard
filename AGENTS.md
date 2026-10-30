@@ -829,7 +829,7 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
     repeat idempotently takes `appliedOrUncertain` and passes the word on in its answer.
 - `src/shared/session-store.ts` - authoritative gateway sessions keyed by `spawn.id`
 - `src/shared/session-sanitize.ts` / `session-tokens.ts` - normalization, session ids, and bind tokens
-- `src/shared/board-rank.ts` - sibling ordering and asserted fractional ranks
+- `src/shared/board-order.ts` - sibling order: a rank is a position among live siblings, and only the Router numbers; `BoardOrder.kt` is the twin
 - `src/shared/agent-screen.ts` / `pane-trim.ts` - pure tmux-pane reads with Kotlin twins and shared fixtures
   - **A rule is a RUN, not a LINE, and `afterRuleRun` owns it:** `-J` welds rows. Windows panes weld composer rules to adjacent rows. Readers use `footerRegion`.
   - **Two rule notions are distinct:** `TOOLBAR_RUN_RE` is U+2500 only; `ANY_RULE_RUN_RE` spans U+2500-U+259F.

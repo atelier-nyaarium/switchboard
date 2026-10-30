@@ -3,7 +3,7 @@
 	"directories": [
 		"agent-screen",
 		"assistant-rules",
-		"board-rank",
+		"board-order",
 		"board-trash",
 		"code-spans",
 		"cross-domain-sas",

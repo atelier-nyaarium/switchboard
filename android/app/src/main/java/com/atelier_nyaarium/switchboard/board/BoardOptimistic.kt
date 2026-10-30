@@ -12,21 +12,21 @@ data class PendingWrite(
 	val attempts: Int = 0,
 )
 
-/** Applies queued intents in order. Missing entries are ignored except creates. */
+/** Applies queued intents as the Router would. Missing entries are ignored except creates. */
 fun applyPending(entries: List<BoardEntry>, pending: List<PendingWrite>): List<BoardEntry> {
 	val byId = entries.associateByTo(LinkedHashMap()) { it.id }
 	for (write in pending) {
 		for (intent in write.intents) {
 			when (intent) {
 				is BoardIntent.Create ->
-					byId.getOrPut(intent.id) {
-						BoardEntry(
+					if (intent.id !in byId) {
+						byId[intent.id] = BoardEntry(
 							id = intent.id,
 							title = intent.title,
 							body = intent.body,
 							state = intent.state,
 							parent = intent.parent,
-							rank = intent.rank,
+							rank = BoardOrder.endRank(byId.values, intent.parent, intent.id),
 							sessionId = intent.session?.sessionId,
 							session = intent.session,
 						)
@@ -34,16 +34,16 @@ fun applyPending(entries: List<BoardEntry>, pending: List<PendingWrite>): List<B
 				is BoardIntent.SetTitle -> byId.replace(intent.id) { it.copy(title = intent.title) }
 				is BoardIntent.SetBody -> byId.replace(intent.id) { it.copy(body = intent.body) }
 				is BoardIntent.SetState -> byId.replace(intent.id) { it.copy(state = intent.state) }
-				is BoardIntent.SetParent -> byId.replace(intent.id) { it.copy(parent = intent.parent, rank = intent.rank) }
-				is BoardIntent.SetRank -> byId.replace(intent.id) { it.copy(rank = intent.rank) }
+				is BoardIntent.Move -> BoardOrder.placeAt(byId, intent.id, intent.parent, intent.index)
 				is BoardIntent.SetSession ->
 					byId.replace(intent.id) { it.copy(session = intent.session, sessionId = intent.session?.sessionId) }
 				is BoardIntent.SetAttachments -> Unit
 				is BoardIntent.Trash -> for (id in trashTakes(byId, intent.id)) byId.replace(id) { it.copy(trashedAt = 1L) }
-				is BoardIntent.Restore -> for (id in restoreBrings(byId, intent.id)) byId.replace(id) { it.copy(trashedAt = null) }
+				is BoardIntent.Restore -> BoardOrder.restoreAtEnd(byId, intent.id)
 				is BoardIntent.Remove -> byId.remove(intent.id)
 			}
 		}
+		BoardOrder.renumber(byId)
 	}
 	return byId.values.toList()
 }

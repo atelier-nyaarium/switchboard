@@ -122,7 +122,7 @@ class WireFixtureGenerator {
 		}) { BoardWriteResult(outcome = "applied", revision = 1L, entries = emptyList()) }
 		runBlocking {
 			writer.write(
-				listOf(BoardIntent.Create("fixture-entry", "fixture-title", state = "open", rank = "m")),
+				listOf(BoardIntent.Create("fixture-entry", "fixture-title", state = "open")),
 				"board_write-op",
 				BoardSealing(boot, ambient) {},
 			)
@@ -157,7 +157,7 @@ class WireFixtureGenerator {
 			buildJsonObject { put("revision", 0L); put("entries", buildJsonArray {}) }
 		}) { BoardWriteResult(outcome = "applied", revision = 0L, entries = emptyList()) }
 		runBlocking { writer.read("board_read-op") { result -> wireJson.decodeFromJsonElement<BoardReadResult>(result) } }
-		return ownerCase(root, "BoardRouterWriter.read", "board_read", captured!!, "board_read-op", "{\"revision\":1,\"entries\":[{\"clear\":{\"id\":\"fixture-entry\",\"state\":\"open\",\"rank\":\"m\",\"version\":1}}]}", draws = draws)
+		return ownerCase(root, "BoardRouterWriter.read", "board_read", captured!!, "board_read-op", "{\"revision\":1,\"entries\":[{\"clear\":{\"id\":\"fixture-entry\",\"state\":\"open\",\"rank\":1,\"version\":1}}]}", draws = draws)
 	}
 
 	private fun vaultPut(root: JsonObject): Fixture {

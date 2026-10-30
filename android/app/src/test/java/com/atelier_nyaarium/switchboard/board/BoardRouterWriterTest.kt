@@ -50,7 +50,7 @@ class BoardRouterWriterTest {
 		body: ContentEnvelope? = null,
 		state: String = "open",
 		parent: String? = null,
-		rank: String = "m",
+		rank: Long = 1L,
 		session: BoardSession? = null,
 		trashedAt: Long? = null,
 		attachments: List<BoardStateAttachment>? = null,
@@ -88,7 +88,7 @@ class BoardRouterWriterTest {
 		val writer = writer(board, ArrayDeque(listOf(BoardWriteResult("applied", 7L, listOf(resultEntry)))), posts)
 
 		val outcome = writer.write(
-			listOf(BoardIntent.Create("id", "title", state = "open", rank = "m")),
+			listOf(BoardIntent.Create("id", "title", state = "open")),
 			"op",
 			sealing(),
 		)
@@ -99,8 +99,8 @@ class BoardRouterWriterTest {
 
 	@Test
 	fun conflictRetryMaterializesAgainstTheWinningBoard() = runBlocking {
-		val initial = stored("id", title("id", "old"), rank = "a")
-		val winner = stored("id", title("id", "winner"), rank = "b")
+		val initial = stored("id", title("id", "old"), rank = 1L)
+		val winner = stored("id", title("id", "winner"), rank = 1L)
 		val board = board(initial, 1L)
 		val posts = mutableListOf<JsonObject>()
 		val writer = writer(
@@ -118,7 +118,7 @@ class BoardRouterWriterTest {
 
 		val retry = postedWrite(posts, 1)
 		val retryOp = retry.ops.single() as BoardOp.Upsert
-		assertEquals("b", retryOp.rank)
+		assertEquals("new", sealing().open(retryOp.title, BOARD_KIND_TITLE, "id"))
 		assertEquals(2L, retry.expectedRevision)
 	}
 
@@ -131,7 +131,7 @@ class BoardRouterWriterTest {
 		val writer = writer(board, ArrayDeque(listOf(result)), posts)
 
 		val outcome = writer.write(
-			listOf(BoardIntent.Create("id", "title", state = "open", rank = "m")),
+			listOf(BoardIntent.Create("id", "title", state = "open")),
 			"op",
 			sealing(),
 		)
@@ -146,7 +146,7 @@ class BoardRouterWriterTest {
 		val posts = mutableListOf<JsonObject>()
 		val results = ArrayDeque((1L..4L).map { BoardWriteResult("conflict", it, emptyList()) })
 		val writer = writer(board, results, posts)
-		val intent = BoardIntent.Create("id", "title", state = "open", rank = "m")
+		val intent = BoardIntent.Create("id", "title", state = "open")
 
 		assertEquals(BoardWriteOutcome.Exhausted, writer.write(listOf(intent), "op", sealing()))
 		assertEquals(4, posts.size)
@@ -178,7 +178,7 @@ class BoardRouterWriterTest {
 			body
 		}
 
-		val outcome = writer.write(listOf(BoardIntent.Create("id", "title", state = "open", rank = "m")), "op", sealing())
+		val outcome = writer.write(listOf(BoardIntent.Create("id", "title", state = "open")), "op", sealing())
 		assertEquals(BoardWriteOutcome.Applied, outcome)
 		assertEquals(0L, board.routerRevision)
 		assertTrue(board.storedById().isEmpty())

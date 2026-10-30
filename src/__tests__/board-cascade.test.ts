@@ -6,7 +6,7 @@ const entry = (id: string, over: Partial<BoardEntry> = {}): BoardEntry => ({
 	id,
 	title: `t-${id}`,
 	state: "open",
-	rank: "m",
+	rank: 1,
 	...over,
 });
 

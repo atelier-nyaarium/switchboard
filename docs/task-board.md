@@ -29,6 +29,24 @@ clear structure with sealed title, body and attachment filenames. It never opens
 - Observations arrive as `board_observation` inbox rows, opened into the awareness bank by the
   delivery pump.
 
+## Sibling order
+
+`src/shared/board-order.ts` holds the rule; `BoardOrder.kt` is the phone's twin, pinned by
+`tests/fixtures/board-order/vectors.json`.
+
+- **A rank is a position, from 1, among the parent's live children:** trash takes no part, and keeps
+  whatever rank it had.
+- **Only the Router numbers:** a client never names a rank. A new entry lands last, `move` names an
+  index among the live siblings without the moved entry (absent lands last), and a restore puts the
+  topmost restored entry last. Every write renumbers each group 1..n, which closes the gap a trash or
+  a removal leaves. Renumbering touches entries no session holds, which only the Router may write.
+- **A shifted sibling is written but not observed:** only an entry the write names, or the cascade,
+  reaches its holder. A rank-only change is never announced.
+- The phone runs the same rule over its pending writes, renumbering after each, so a drag shows where
+  the Router will put it.
+- A Router that finds ranks stored as text numbers them in their old order and the board sweep stores
+  them. That reading goes after 2026-11-13.
+
 ## Attachments
 
 Attachment bytes live on the Router; no Gateway keeps a copy and no attachment names one. A

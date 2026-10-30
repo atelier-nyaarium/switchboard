@@ -10,7 +10,7 @@ import org.junit.Test
  */
 class CardBranchTest {
 	private fun row(id: String, depth: Int, state: String = "open") =
-		BoardRow(BoardEntry(id = id, title = "t-$id", state = state, rank = "m"), "gw", depth)
+		BoardRow(BoardEntry(id = id, title = "t-$id", state = state, rank = 1L), "gw", depth)
 
 	/** Two roots, the second with three children. Mirrors a session that finished one thing and is
 	 * partway into another. */

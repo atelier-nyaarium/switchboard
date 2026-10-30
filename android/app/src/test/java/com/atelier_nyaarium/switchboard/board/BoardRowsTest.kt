@@ -11,7 +11,7 @@ class BoardRowsTest {
 		id: String,
 		state: String = "open",
 		parent: String? = null,
-		rank: String = "m",
+		rank: Long = 1L,
 		sessionId: String? = null,
 		session: BoardSession? = null,
 		trashedAt: Long? = null,
@@ -36,10 +36,10 @@ class BoardRowsTest {
 		val rows = flattenBoard(
 			listOf(
 				entry("pile1"),
-				entry("pile2", parent = "pile1", rank = "V"),
+				entry("pile2", parent = "pile1", rank = 1L),
 				entry("mine", sessionId = "s1", state = "in_progress"),
 				entry("kid", parent = "mine", sessionId = "s1"),
-				entry("doneLeaf", sessionId = "s1", state = "done", rank = "x"),
+				entry("doneLeaf", sessionId = "s1", state = "done", rank = 1L),
 				entry("bin", trashedAt = 5L),
 			),
 		)
@@ -80,11 +80,11 @@ class BoardRowsTest {
 	fun aFinishedBranchStaysInPlaceWithEveryDescendantShown() {
 		val rows = flattenBoard(
 			listOf(
-				entry("root", state = "in_progress", sessionId = "s1", rank = "a"),
-				entry("doneParent", state = "done", sessionId = "s1", rank = "b"),
-				entry("d1", state = "done", parent = "doneParent", sessionId = "s1", rank = "a"),
-				entry("d2", state = "cancelled", parent = "doneParent", sessionId = "s1", rank = "b"),
-				entry("loneDone", state = "done", sessionId = "s1", rank = "c"),
+				entry("root", state = "in_progress", sessionId = "s1", rank = 1L),
+				entry("doneParent", state = "done", sessionId = "s1", rank = 2L),
+				entry("d1", state = "done", parent = "doneParent", sessionId = "s1", rank = 1L),
+				entry("d2", state = "cancelled", parent = "doneParent", sessionId = "s1", rank = 2L),
+				entry("loneDone", state = "done", sessionId = "s1", rank = 3L),
 			),
 		)
 		val group = rows.sessions.single()
@@ -107,10 +107,10 @@ class BoardRowsTest {
 	fun siblingsOrderByRankAndAClaimedChildRootsItsOwnGroup() {
 		val rows = flattenBoard(
 			listOf(
-				entry("p", rank = "m"),
+				entry("p", rank = 2L),
 				entry("claimed", parent = "p", sessionId = "s1"),
-				entry("second", rank = "x"),
-				entry("first", rank = "a"),
+				entry("second", rank = 3L),
+				entry("first", rank = 1L),
 			),
 		)
 		assertEquals(listOf("first", "p", "second"), rows.unassigned.rows.map { it.entry.id })
@@ -150,8 +150,8 @@ class BoardRowsTest {
 		val rows = flattenBoard(
 			listOf(
 				entry("parent", trashedAt = 5L),
-				entry("b", parent = "parent", rank = "b", trashedAt = 5L),
-				entry("a", parent = "parent", rank = "a", trashedAt = 5L),
+				entry("b", parent = "parent", rank = 2L, trashedAt = 5L),
+				entry("a", parent = "parent", rank = 1L, trashedAt = 5L),
 				entry("alone", trashedAt = 9L),
 			),
 		)

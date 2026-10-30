@@ -37,7 +37,14 @@ export function classifyBoardChange(
 		if (post.trashedAt !== undefined) return { kind: "gone", title, how: "trashed" };
 		return { kind: "gone", title, how: "reassigned" };
 	}
-	return stableHash(pre) === stableHash(post) ? null : { kind: "changed" };
+	return stableHash(unranked(pre)) === stableHash(unranked(post)) ? null : { kind: "changed" };
+}
+
+/** Reorders announce nothing. */
+function unranked(entry: BoardEntry | undefined): Omit<BoardEntry, "rank"> | undefined {
+	if (!entry) return undefined;
+	const { rank: _rank, ...rest } = entry;
+	return rest;
 }
 
 function lineFor(c: Exclude<BoardClassification, { kind: "changed" }>): string {

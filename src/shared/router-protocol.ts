@@ -159,9 +159,9 @@ export const ValueResultParamsSchema = z.object({
 	incarnation: z.number().int().positive(),
 });
 
-/** Below 4 a Gateway does not follow the assistant's home. */
-export const FEDERATION_PROTOCOL_FLOOR = 4;
-export const FEDERATION_PROTOCOL_VERSION = 4;
+/** Below 5 a Gateway mints board ranks as text. */
+export const FEDERATION_PROTOCOL_FLOOR = 5;
+export const FEDERATION_PROTOCOL_VERSION = 5;
 
 export const GatewayRegisterParamsSchema = z.object({
 	gatewayId: z.string().min(1).max(64),

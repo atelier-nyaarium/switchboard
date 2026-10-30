@@ -15,9 +15,6 @@ const BoardSessionSchema = z
  * the 8 MB sealed-frame cap alongside the mailbox. */
 export const BOARD_BODY_MAX = 8192;
 
-/** Mirrors board-rank.ts's RANK_MAX_LENGTH; the rank module rebalances instead of minting past it. */
-export const BOARD_RANK_MAX = 64;
-
 /** How many entries one upsert/remove may carry: a move ships a whole subtree as ONE linked pair,
  * so the bound is per-op, not per-entry. */
 export const BOARD_BATCH_MAX = 200;
@@ -56,10 +53,10 @@ export const BoardEntrySchema = z
 		// Absent means no long-form text; an absolute set-body op with body absent CLEARS it.
 		body: z.string().max(BOARD_BODY_MAX).optional(),
 		state: z.enum(["open", "in_progress", "paused", "done", "cancelled"]),
-		// Absent means top-level. An absolute set-parent op with parent absent means root - the op
-		// always sets placement, it never leaves it unchanged.
+		// Absent means top-level. A move with parent absent goes to the top level.
 		parent: z.string().min(1).max(64).optional(),
-		rank: z.string().min(1).max(BOARD_RANK_MAX),
+		// Position among live siblings, from 1. The Router assigns it.
+		rank: z.number().int().positive(),
 		// The session this entry is assigned to; absent means the backlog.
 		sessionId: z.string().min(1).max(128).optional(),
 		// The triple preserves cross-gateway identity.

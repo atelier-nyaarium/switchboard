@@ -121,7 +121,7 @@ class BoardDragController internal constructor(
 		val drop = pending
 		clear()
 		if (drag == null || drop == null) return
-		// A board revision change invalidates the snapshotted drop rank.
+		// A board revision change invalidates the snapshotted drop index.
 		if (drag.epoch != epoch) return
 		onDrop(drag.row, drop)
 	}

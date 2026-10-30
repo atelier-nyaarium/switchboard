@@ -11,7 +11,7 @@ import {
 import type { BoardEntry } from "../shared/console-protocol.js";
 
 function entry(id: string, parent?: string): BoardEntry {
-	return { id, title: id, state: "open", rank: id, ...(parent ? { parent } : {}) };
+	return { id, title: id, state: "open", rank: 1, ...(parent ? { parent } : {}) };
 }
 
 type TrashCase = {

@@ -2,7 +2,6 @@
 
 import { BOARD_REFUSALS, type BoardRefusal } from "../../shared/board-authority.js";
 import type { CascadeChange } from "../../shared/board-cascade.js";
-import { isValidRank, placeAtEnd } from "../../shared/board-rank.js";
 import type { BoardAttachment, BoardEntry } from "../../shared/console-protocol.js";
 import {
 	BOARD_BODY_KIND,
@@ -25,7 +24,6 @@ export type ClearBoardOp =
 	| {
 			kind: "upsert";
 			id: string;
-			rank: string;
 			title: string;
 			state?: BoardEntry["state"];
 			parent?: string;
@@ -35,8 +33,7 @@ export type ClearBoardOp =
 	  }
 	| { kind: "remove"; id: string }
 	| { kind: "set_state"; id: string; state: BoardEntry["state"] }
-	| { kind: "set_parent"; id: string; parent: string | undefined; rank: string }
-	| { kind: "set_rank"; id: string; rank: string }
+	| { kind: "move"; id: string; parent: string | undefined; index?: number }
 	| { kind: "set_attachments"; id: string; attachments: BoardAttachment[] }
 	| { kind: "set_session"; id: string; sessionKey: string | undefined }
 	| { kind: "trash"; id: string }
@@ -48,7 +45,6 @@ export interface BoardView {
 	entry(id: string): BoardEntry | undefined;
 	textIntact(id: string): boolean;
 	siblings(parent: string | undefined, exclude?: string): BoardEntry[];
-	placeAtEnd(parent: string | undefined, exclude?: string): { rank: string; rebalanced: ClearBoardOp[] };
 }
 
 /** Refusals retire writes. Unavailability does not. */
@@ -186,7 +182,6 @@ export function createBoardClient(deps: BoardClientDeps) {
 			return {
 				kind: "upsert",
 				id: op.id,
-				rank: op.rank,
 				title,
 				...(op.state ? { state: op.state } : { state: "open" as const }),
 				...(op.parent ? { parent: op.parent } : {}),
@@ -202,8 +197,13 @@ export function createBoardClient(deps: BoardClientDeps) {
 		}
 		if (op.kind === "set_session")
 			return { kind: "set_session", id: op.id, ...(op.sessionKey ? { session: triple(op.sessionKey) } : {}) };
-		if (op.kind === "set_parent")
-			return { kind: "set_parent", id: op.id, rank: op.rank, ...(op.parent ? { parent: op.parent } : {}) };
+		if (op.kind === "move")
+			return {
+				kind: "move",
+				id: op.id,
+				...(op.parent ? { parent: op.parent } : {}),
+				...(op.index === undefined ? {} : { index: op.index }),
+			};
 		return op;
 	}
 
@@ -217,13 +217,6 @@ export function createBoardClient(deps: BoardClientDeps) {
 			entry: (id) => byId.get(id),
 			textIntact: (id) => !damaged.has(id),
 			siblings,
-			placeAtEnd: (parent, exclude) => {
-				const placed = placeAtEnd(siblings(parent, exclude));
-				return {
-					rank: placed.rank,
-					rebalanced: placed.rebalanced.map((r) => ({ kind: "set_rank" as const, id: r.id, rank: r.rank })),
-				};
-			},
 		};
 	}
 
@@ -268,9 +261,6 @@ export function createBoardClient(deps: BoardClientDeps) {
 				return { kind: "unavailable", error: built.unavailable };
 			if (!Array.isArray(built)) return { kind: "refused", refused: built };
 			if (built.length === 0) return { kind: "unchanged" };
-			for (const op of built)
-				if ("rank" in op && op.rank !== undefined && !isValidRank(op.rank))
-					return { kind: "refused", refused: "bad_rank" };
 			const ops: BoardOp[] = [];
 			for (const op of built) {
 				const sealed = sealOp(op);

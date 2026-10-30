@@ -86,7 +86,7 @@ private fun trashRows(trashed: List<BoardEntry>): List<BoardRow> {
 	fun walk(e: BoardEntry, depth: Int) {
 		if (!visited.add(e.id)) return
 		rows.add(BoardRow(e, e.session?.gatewayId ?: "", depth))
-		for (kid in kids[e.id].orEmpty().sortedBy { it.rank }) walk(kid, depth + 1)
+		for (kid in kids[e.id].orEmpty().sortedWith(BoardOrder.byRank)) walk(kid, depth + 1)
 	}
 	for (root in trashed.filter { it.parent !in byId }.sortedByDescending { it.trashedAt }) walk(root, 0)
 	return rows
@@ -105,7 +105,7 @@ fun flattenBoard(entries: List<BoardEntry>): BoardRows {
 			childrenOf.getOrPut(parent) { mutableListOf() }.add(e)
 		}
 	}
-	for (list in childrenOf.values) list.sortBy { it.rank }
+	for (list in childrenOf.values) list.sortWith(BoardOrder.byRank)
 
 	// Cross-group children become roots.
 	// Group keys include gateway ids.
@@ -116,7 +116,7 @@ fun flattenBoard(entries: List<BoardEntry>): BoardRows {
 		val isRoot = parent == null || groupOf(parent) != groupOf(e)
 		if (isRoot) groups.getOrPut(groupOf(e)) { mutableListOf() }.add(e)
 	}
-	for (list in groups.values) list.sortBy { it.rank }
+	for (list in groups.values) list.sortWith(BoardOrder.byRank)
 
 	fun kidsIn(id: String, group: GroupKey?): List<BoardEntry> =
 		(childrenOf[id] ?: emptyList<BoardEntry>()).filter { groupOf(it) == group }

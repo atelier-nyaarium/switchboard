@@ -39,7 +39,7 @@ class BoardIntentTest {
 		body: ContentEnvelope? = null,
 		state: String = "open",
 		parent: String? = null,
-		rank: String = "m",
+		rank: Long = 1L,
 		session: BoardSession? = null,
 		trashedAt: Long? = null,
 		attachments: List<BoardStateAttachment>? = null,
@@ -55,13 +55,12 @@ class BoardIntentTest {
 	fun setTitleCopiesClearFieldsAndPassesThroughBody() {
 		val session = BoardSession(domainId, "gateway", "session")
 		val attachments = listOf(BoardStateAttachment("blob", 4L, "text/plain"))
-		val entry = stored("id", title("id", "old"), body("id", "old body"), "done", "parent", "rank", session, 42L, attachments)
+		val entry = stored("id", title("id", "old"), body("id", "old body"), "done", "parent", 42L, session, 42L, attachments)
 		val op = upsert(BoardIntent.SetTitle("id", "new"), entry)
 
 		assertEquals(entry.clear.id, op.id)
 		assertEquals(entry.clear.state, op.state)
 		assertEquals(entry.clear.parent, op.parent)
-		assertEquals(entry.clear.rank, op.rank)
 		assertEquals(entry.clear.session, op.session)
 		assertEquals(entry.clear.trashedAt, op.trashedAt)
 		assertEquals(entry.clear.attachments, op.attachments)
@@ -94,14 +93,14 @@ class BoardIntentTest {
 
 	@Test
 	fun createWithoutAnEpochReturnsNull() {
-		val intent = BoardIntent.Create("id", "title", state = "open", rank = "m")
+		val intent = BoardIntent.Create("id", "title", state = "open")
 
 		assertNull(materialize(intent, emptyMap(), sealing(ContentKeyring())))
 	}
 
 	@Test
 	fun createWithAnEpochSealsTitle() {
-		val intent = BoardIntent.Create("id", "title", state = "open", rank = "m")
+		val intent = BoardIntent.Create("id", "title", state = "open")
 		val op = checkNotNull(materialize(intent, emptyMap(), sealing())) as BoardOp.Upsert
 
 		assertEquals("title", sealing().open(op.title, BOARD_KIND_TITLE, "id"))
@@ -115,10 +114,9 @@ class BoardIntentTest {
 
 		assertEquals(BoardOp.SetState("id", "done"), materialize(BoardIntent.SetState("id", "done"), stored, sealing()))
 		assertEquals(
-			BoardOp.SetParent("id", "parent", "rank"),
-			materialize(BoardIntent.SetParent("id", "parent", "rank"), stored, sealing()),
+			BoardOp.Move("id", "parent", 2L),
+			materialize(BoardIntent.Move("id", "parent", 2), stored, sealing()),
 		)
-		assertEquals(BoardOp.SetRank("id", "rank"), materialize(BoardIntent.SetRank("id", "rank"), stored, sealing()))
 		assertEquals(
 			BoardOp.SetSession("id", session),
 			materialize(BoardIntent.SetSession("id", session), stored, sealing()),

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { type BoardActor, mayTake, mayWrite } from "../../shared/board-authority.js";
 import { applyCascade } from "../../shared/board-cascade.js";
 import { observationsFor } from "../../shared/board-observations.js";
-import { isValidRank } from "../../shared/board-rank.js";
+import { endRank, placeAt, renumber, restoreAtEnd } from "../../shared/board-order.js";
 import {
 	BOARD_TRASH_TTL_MS,
 	livesUnderTrash,
@@ -10,7 +10,6 @@ import {
 	orphanedParents,
 	promoteOrphans,
 	prunableSubtrees,
-	restoreBrings,
 	trashTakes,
 } from "../../shared/board-structure.js";
 import { canonicalJson, sha256Hex } from "../../shared/canonical-json.js";
@@ -40,7 +39,8 @@ type Deps = {
 	pokeOwner?: (domainId: string, revision: number) => void;
 	now?: () => number;
 };
-type Board = { revision: number; entries: Map<string, BoardEntry> };
+/** `legacy`: ids with text ranks. */
+type Board = { revision: number; entries: Map<string, BoardEntry>; legacy: Set<string> };
 type BoardReplay = {
 	hash: string;
 	createdAt: number;
@@ -67,7 +67,29 @@ const actor = (a: BoardActorState): BoardActor =>
 const copy = (b: Board): Board => ({
 	revision: b.revision,
 	entries: new Map([...b.entries].map(([id, e]) => [id, structuredClone(e)])),
+	legacy: b.legacy,
 });
+
+// Remove after 2026-11-13: numbers text ranks in their old order.
+const convertLegacyRanks = (entries: Map<string, BoardEntry>): Set<string> => {
+	const groups = new Map<string | undefined, BoardEntry[]>();
+	for (const e of entries.values()) {
+		const group = groups.get(e.parent) ?? [];
+		group.push(e);
+		groups.set(e.parent, group);
+	}
+	const legacy = new Set<string>();
+	for (const group of groups.values()) {
+		if (group.every((e) => typeof e.rank === "number")) continue;
+		const key = (e: BoardEntry) => String(e.rank);
+		group.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : a.id < b.id ? -1 : 1));
+		group.forEach((e, i) => {
+			e.rank = i + 1;
+			legacy.add(e.id);
+		});
+	}
+	return legacy;
+};
 type Versioned = BoardEntry & { version?: number; sealed?: BoardStoredEntry["sealed"] };
 
 export function createBoardService(deps: Deps) {
@@ -78,7 +100,9 @@ export function createBoardService(deps: Deps) {
 		const entries = new Map<string, BoardEntry>();
 		for (const record of store.list("board.entry"))
 			entries.set(record.clear.id as string, fromStored(record as unknown as BoardStoredEntry, record.version));
-		return { revision: Number(meta?.clear.revision ?? 0), entries };
+		const legacy = convertLegacyRanks(entries);
+		if (legacy.size > 0) renumber(entries);
+		return { revision: Number(meta?.clear.revision ?? 0), entries, legacy };
 	};
 	const stored = (e: BoardEntry): BoardStoredEntry => ({
 		clear: {
@@ -189,7 +213,6 @@ export function createBoardService(deps: Deps) {
 					const parentDenied = mayWrite(parent, a);
 					if (parentDenied) return rememberRefusal(parentDenied);
 				}
-				if (!isValidRank(op.rank)) return rememberRefusal("bad_rank");
 				// Only owners assign holders.
 				if (op.session) {
 					if (
@@ -206,11 +229,12 @@ export function createBoardService(deps: Deps) {
 				}
 				if (op.attachments && !attachmentsHeld(domainId, op.attachments))
 					return rememberRefusal("attachment_missing");
+				const parent = op.parent ?? e?.parent;
 				const entry = {
 					...(e ?? {}),
 					id: op.id,
 					state: op.state ?? e?.state ?? "open",
-					rank: op.rank,
+					rank: e && e.parent === parent ? e.rank : endRank(next.entries.values(), parent, op.id),
 					title: "",
 					...(op.parent ? { parent: op.parent } : {}),
 					...(op.session ? { sessionId: key(op.session) } : {}),
@@ -269,19 +293,14 @@ export function createBoardService(deps: Deps) {
 				const denied = mayWrite(e, a);
 				if (denied) return rememberRefusal(denied);
 				if (op.kind === "set_state") e.state = op.state;
-				else if (op.kind === "set_parent") {
-					if (!isValidRank(op.rank)) return rememberRefusal("bad_rank");
+				else if (op.kind === "move") {
 					if (op.parent) {
 						const parent = next.entries.get(op.parent);
 						if (!parent || livesUnderTrash(parent, e.trashedAt)) return rememberRefusal("parent_missing");
 						const parentDenied = mayWrite(parent, a);
 						if (parentDenied) return rememberRefusal(parentDenied);
 					}
-					e.parent = op.parent;
-					e.rank = op.rank;
-				} else if (op.kind === "set_rank") {
-					if (!isValidRank(op.rank)) return rememberRefusal("bad_rank");
-					e.rank = op.rank;
+					placeAt(next.entries, op.id, op.parent, op.index);
 				} else if (op.kind === "set_attachments") {
 					if (!attachmentsHeld(domainId, op.attachments)) return rememberRefusal("attachment_missing");
 					replaceAttachments(e, op.attachments as unknown as NonNullable<BoardEntry["attachments"]>);
@@ -295,10 +314,7 @@ export function createBoardService(deps: Deps) {
 						trashedHere.add(id);
 					}
 				} else {
-					for (const id of restoreBrings(next.entries, op.id)) {
-						delete (next.entries.get(id) as BoardEntry).trashedAt;
-						touched.add(id);
-					}
+					for (const id of restoreAtEnd(next.entries, op.id)) touched.add(id);
 				}
 				touched.add(op.id);
 			}
@@ -319,18 +335,22 @@ export function createBoardService(deps: Deps) {
 		// Authority gates writes. Cascade follows touched entries.
 		const cascaded = applyCascade(next.entries, [...touched], orphanedParents(before, next, touched));
 		for (const c of cascaded) touched.add(c.id);
+		renumber(next.entries);
+		// A shifted sibling is written, never observed.
+		const written = new Set([...touched, ...before.legacy]);
+		for (const [id, e] of next.entries) if (before.entries.get(id)?.rank !== e.rank) written.add(id);
 		next.revision++;
 		const meta = store.get("board.meta", "board.meta");
-		for (const id of touched) {
+		for (const id of written) {
 			const e = next.entries.get(id) as Versioned | undefined;
 			if (e) e.version = Number(store.get("board.entry", id)?.version ?? 0) + 1;
 		}
-		const refSets = [...touched].map((id) => ({
+		const refSets = [...written].map((id) => ({
 			ref: { kind: "entry" as const, entryId: id },
 			blobIds: next.entries.get(id)?.attachments?.map((attachment) => attachment.blobId) ?? [],
 		}));
 		const result = deps.referenceHeld.publish(domainId, refSets, (tx) => {
-			for (const id of touched) {
+			for (const id of written) {
 				const old = store.get("board.entry", id);
 				const e = next.entries.get(id);
 				if (e) tx.put("board.entry", id, old?.version ?? null, stored(e) as never);
@@ -423,6 +443,13 @@ export function createBoardService(deps: Deps) {
 			cascaded: [],
 		};
 	};
+	/** Persists unsettled ranks. */
+	const settleRanks = (domainId: string, at = now()): boolean => {
+		const b = load(domainId);
+		if (b.legacy.size === 0 && renumber(copy(b).entries).size === 0) return false;
+		const result = write(domainId, { expectedRevision: b.revision, ops: [] }, { kind: "owner" }, undefined, at);
+		return result.outcome === BOARD_OUTCOME_APPLIED;
+	};
 	const sweepTrash = (domainId: string, at = now()) => {
 		const store = deps.registry.for(domainId);
 		const b = load(domainId);
@@ -458,7 +485,10 @@ export function createBoardService(deps: Deps) {
 		return removed;
 	};
 	const register = (hooks: OwnerServiceHooks) => {
-		hooks.onSweep("board sweep", (domainId, at) => sweepTrash(domainId, at));
+		hooks.onSweep("board sweep", (domainId, at) => {
+			settleRanks(domainId, at);
+			sweepTrash(domainId, at);
+		});
 		// OwnerOp id is the idempotency key.
 		hooks.ownerOp("board_write", (op, value) =>
 			write(op.domainId, value.write ?? BoardWriteSchema.parse(value), { kind: "owner" }, op.opId),
@@ -495,5 +525,5 @@ export function createBoardService(deps: Deps) {
 			}
 		});
 	};
-	return { read, write, sessionEnded, sweepTrash, register };
+	return { read, write, sessionEnded, settleRanks, sweepTrash, register };
 }

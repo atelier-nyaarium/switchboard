@@ -7,7 +7,7 @@ const entry = (id: string, over: Partial<BoardEntry> = {}): BoardEntry => ({
 	id,
 	title: `t-${id}`,
 	state: "open",
-	rank: "m",
+	rank: 1,
 	...over,
 });
 
@@ -40,6 +40,7 @@ describe("board awareness classification", () => {
 			result: { kind: "gone", title: "t-a", how: "removed" },
 		},
 		{ name: "unchanged", pre: { sessionId: session }, post: { sessionId: session }, result: null },
+		{ name: "reorder", pre: { sessionId: session }, post: { sessionId: session, rank: 2 }, result: null },
 		{ name: "unheld", pre: {}, post: { title: "new" }, result: null },
 	])("classifies a net $name change", ({ pre, post, result }) => {
 		expect(classifyBoardChange(session, entry("a", pre), post && entry("a", post))).toEqual(result);

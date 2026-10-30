@@ -20,7 +20,6 @@ sealed interface BoardIntent {
 		val body: String? = null,
 		val state: String,
 		val parent: String? = null,
-		val rank: String,
 		val session: BoardSession? = null,
 	) : BoardIntent
 
@@ -30,9 +29,8 @@ sealed interface BoardIntent {
 
 	@Serializable data class SetState(override val id: String, val state: String) : BoardIntent
 
-	@Serializable data class SetParent(override val id: String, val parent: String? = null, val rank: String) : BoardIntent
-
-	@Serializable data class SetRank(override val id: String, val rank: String) : BoardIntent
+	/** Index among the live siblings without it; null lands last. */
+	@Serializable data class Move(override val id: String, val parent: String? = null, val index: Int? = null) : BoardIntent
 
 	@Serializable data class SetSession(override val id: String, val session: BoardSession? = null) : BoardIntent
 
@@ -56,7 +54,6 @@ fun materialize(intent: BoardIntent, stored: Map<String, BoardStoredEntry>, seal
 					id = intent.id,
 					state = intent.state,
 					parent = intent.parent,
-					rank = intent.rank,
 					session = intent.session,
 					title = it,
 					body = body,
@@ -74,8 +71,7 @@ fun materialize(intent: BoardIntent, stored: Map<String, BoardStoredEntry>, seal
 			entry.upsert(title = entry.sealed.title, body = body)
 		}
 		is BoardIntent.SetState -> BoardOp.SetState(intent.id, intent.state)
-		is BoardIntent.SetParent -> BoardOp.SetParent(intent.id, intent.parent, intent.rank)
-		is BoardIntent.SetRank -> BoardOp.SetRank(intent.id, intent.rank)
+		is BoardIntent.Move -> BoardOp.Move(intent.id, intent.parent, intent.index?.toLong())
 		is BoardIntent.SetSession -> BoardOp.SetSession(intent.id, intent.session)
 		is BoardIntent.SetAttachments -> BoardOp.SetAttachments(intent.id, intent.attachments)
 		is BoardIntent.Trash -> BoardOp.Trash(intent.id)
@@ -88,8 +84,7 @@ fun BoardOp.id(): String = when (this) {
 	is BoardOp.Upsert -> id
 	is BoardOp.Remove -> id
 	is BoardOp.SetState -> id
-	is BoardOp.SetParent -> id
-	is BoardOp.SetRank -> id
+	is BoardOp.Move -> id
 	is BoardOp.SetAttachments -> id
 	is BoardOp.SetSession -> id
 	is BoardOp.Trash -> id
@@ -100,8 +95,7 @@ fun BoardOp.kind(): String = when (this) {
 	is BoardOp.Upsert -> "upsert"
 	is BoardOp.Remove -> "remove"
 	is BoardOp.SetState -> "set_state"
-	is BoardOp.SetParent -> "set_parent"
-	is BoardOp.SetRank -> "set_rank"
+	is BoardOp.Move -> "move"
 	is BoardOp.SetAttachments -> "set_attachments"
 	is BoardOp.SetSession -> "set_session"
 	is BoardOp.Trash -> "trash"
@@ -113,7 +107,6 @@ private fun BoardStoredEntry.upsert(title: ContentEnvelope, body: ContentEnvelop
 		id = clear.id,
 		state = clear.state,
 		parent = clear.parent,
-		rank = clear.rank,
 		session = clear.session,
 		trashedAt = clear.trashedAt,
 		attachments = clear.attachments,

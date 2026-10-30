@@ -50,7 +50,7 @@ const sealed = (text: string, kind: ContentAad["kind"], epoch = 1): ContentEnvel
 	sealContent(Buffer.from(text), key, { domainId, ownerSignPub, kind, epoch });
 
 const stored = (id: string, title: string, extra: Partial<BoardStoredEntry["clear"]> = {}): BoardStoredEntry => ({
-	clear: { id, state: "open", rank: "A", version: 1, ...extra },
+	clear: { id, state: "open", rank: 1, version: 1, ...extra },
 	sealed: { title: sealed(title, boardTextAadKind(BOARD_TITLE_KIND, id)) },
 });
 
@@ -91,7 +91,7 @@ describe("board client", () => {
 		expect(answer).toEqual({
 			kind: "ok",
 			revision: 3,
-			entries: [{ id: "one", title: "Title", body: "Body", state: "open", rank: "A", attachments: [attachment] }],
+			entries: [{ id: "one", title: "Title", body: "Body", state: "open", rank: 1, attachments: [attachment] }],
 		});
 		expect(call).toHaveBeenCalledWith("board_read", {});
 	});
@@ -115,7 +115,7 @@ describe("board client", () => {
 		expect(await client(call).read()).toEqual({
 			kind: "ok",
 			revision: 1,
-			entries: [{ id: "one", title: "[unavailable]", state: "open", rank: "A" }],
+			entries: [{ id: "one", title: "[unavailable]", state: "open", rank: 1 }],
 		});
 	});
 
@@ -127,7 +127,7 @@ describe("board client", () => {
 			.mockResolvedValueOnce({ result: { outcome: "applied", revision: 2, entries: [entry], cascaded: [] } });
 
 		await client(call).mutate("alpha", () => [
-			{ kind: "upsert", id: "two", rank: "B", title: "Secret title", body: "Secret body" },
+			{ kind: "upsert", id: "two", title: "Secret title", body: "Secret body" },
 		]);
 
 		const params = call.mock.calls[1]?.[1] as {
@@ -199,7 +199,7 @@ describe("board client", () => {
 			.mockResolvedValueOnce({ result: { outcome: "applied", revision: 2, entries: [entry], cascaded: [] } });
 
 		const answer = await client(call).mutate("alpha", () => [
-			{ kind: "upsert", id: "one", rank: "A", title: "Title", sessionKey: "alpha" },
+			{ kind: "upsert", id: "one", title: "Title", sessionKey: "alpha" },
 		]);
 
 		expect(call.mock.calls[1]?.[1]).toMatchObject({ sessionId: "alpha" });

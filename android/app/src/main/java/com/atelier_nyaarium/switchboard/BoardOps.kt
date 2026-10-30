@@ -119,16 +119,12 @@ internal class BoardOps(
 
 	/** Captures a root thought. */
 	fun boardCapture(title: String, body: String?) {
-		val last = collaborators.board.routerEntries()
-			.filter { it.parent == null && it.trashedAt == null }
-			.maxOfOrNull { it.rank }
 		intend(
 			BoardIntent.Create(
 				id = UUID.randomUUID().toString().replace("-", "").take(32),
 				title = title,
 				body = body,
 				state = "open",
-				rank = com.atelier_nyaarium.switchboard.board.BoardRank.between(last, null),
 			),
 		)
 	}
@@ -139,8 +135,8 @@ internal class BoardOps(
 
 	fun boardSetBody(id: String, body: String?) = intend(BoardIntent.SetBody(id, body))
 
-	/** Reparents and reranks an entry. */
-	fun boardSetParent(id: String, parent: String?, rank: String) = intend(BoardIntent.SetParent(id, parent, rank))
+	/** Moves by index. */
+	fun boardMove(id: String, parent: String?, index: Int) = intend(BoardIntent.Move(id, parent, index))
 
 	fun boardSetTrashed(id: String, trashed: Boolean) =
 		intend(if (trashed) BoardIntent.Trash(id) else BoardIntent.Restore(id))

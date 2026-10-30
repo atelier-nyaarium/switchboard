@@ -66,7 +66,7 @@ fun BoardEntryDialog(
 	var viewer by remember { mutableStateOf<OpenAttachment?>(null) }
 	val changedElsewhere = entry.title != baseline.first || entry.body.orEmpty() != baseline.second
 	val children = remember(revision, entryId) {
-		repo.boardOps.boardEntries().filter { it.parent == entryId && it.trashedAt == null }.sortedBy { it.rank }
+		repo.boardOps.boardEntries().filter { it.parent == entryId && it.trashedAt == null }.sortedWith(BoardOrder.byRank)
 	}
 
 	Dialog(

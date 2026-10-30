@@ -38,7 +38,7 @@ class BoardRenderTest {
 		body: ContentEnvelope? = null,
 		state: String = "open",
 		parent: String? = null,
-		rank: String = "m",
+		rank: Long = 1L,
 		session: BoardSession? = null,
 		trashedAt: Long? = null,
 	) = BoardStoredEntry(
@@ -91,7 +91,7 @@ class BoardRenderTest {
 	fun renderBoardCarriesReadableEntryFields() {
 		val session = BoardSession(domainId, "gateway", "session")
 		val result = renderBoard(
-			listOf(stored("id", title("id", "title"), body("id", "body"), "done", "parent", "rank", session, 42L)),
+			listOf(stored("id", title("id", "title"), body("id", "body"), "done", "parent", 42L, session, 42L)),
 			sealing(),
 			emptyMap(),
 		)
@@ -102,7 +102,7 @@ class BoardRenderTest {
 		assertEquals("body", rendered.body)
 		assertEquals("done", rendered.state)
 		assertEquals("parent", rendered.parent)
-		assertEquals("rank", rendered.rank)
+		assertEquals(42L, rendered.rank)
 		assertEquals(session.sessionId, rendered.sessionId)
 		assertEquals(session, rendered.session)
 		assertEquals(42L, rendered.trashedAt)

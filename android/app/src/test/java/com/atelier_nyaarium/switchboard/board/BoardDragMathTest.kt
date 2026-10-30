@@ -7,15 +7,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BoardDragMathTest {
-	private fun row(id: String, rank: String, parent: String? = null, depth: Int = 0) =
-		BoardRow(BoardEntry(id = id, title = id, state = "open", parent = parent, rank = rank), "gw", depth)
+	private fun row(id: String, rank: Long, parent: String? = null, depth: Int = 0, trashedAt: Long? = null) =
+		BoardRow(BoardEntry(id = id, title = id, state = "open", parent = parent, rank = rank, trashedAt = trashedAt), "gw", depth)
 
 	/** Three roots at 100px each, plus one child of b. */
 	private val rows = listOf(
-		row("a", "a"),
-		row("b", "m"),
-		row("b1", "m", parent = "b", depth = 1),
-		row("c", "x"),
+		row("a", 1L),
+		row("b", 2L),
+		row("b1", 1L, parent = "b", depth = 1),
+		row("c", 3L),
 	)
 	private val visible = listOf(
 		RowSpan("a", 0, 100),
@@ -25,13 +25,12 @@ class BoardDragMathTest {
 	)
 
 	@Test
-	fun droppingBetweenTwoRootsMintsBetweenTheirRanks() {
+	fun droppingBetweenTwoRootsUsesTheirSiblingIndex() {
 		// Pointer in the lower half of "a" -> lands after a, before b.
 		val drop = boardDropTarget("c", pointerY = 80, visible = visible, rows = rows)!!
 		assertEquals("c", drop.id)
 		assertNull(drop.parent)
-		assertTrue(drop.rank > "a")
-		assertTrue(drop.rank < "m")
+		assertEquals(1, drop.index)
 	}
 
 	@Test
@@ -41,7 +40,7 @@ class BoardDragMathTest {
 		val drop = boardDropTarget("a", pointerY = 260, visible = visible, rows = rows)!!
 		assertEquals(null, drop.parent)
 		assertEquals(0, drop.depth)
-		assertTrue(BoardRank.isValid(drop.rank))
+		assertEquals(1, drop.index)
 	}
 
 	@Test
@@ -49,6 +48,7 @@ class BoardDragMathTest {
 		val drop = boardDropTarget("a", pointerY = 260, visible = visible, rows = rows, depthDelta = 1)!!
 		assertEquals("b", drop.parent)
 		assertEquals(1, drop.depth)
+		assertEquals(1, drop.index)
 	}
 
 	@Test
@@ -78,14 +78,13 @@ class BoardDragMathTest {
 	}
 
 	@Test
-	fun aPointerInAGapBetweenRowsTakesTheNearestSlotNotTheLastRow() {
+	fun aPointerInAGapUsesTheNearestSiblingIndex() {
 		// A spaced list leaves the pointer inside no row at all. Resolving by containment fell through
 		// to the last visible row, so a drop near the top landed at the bottom.
 		val spaced = listOf(RowSpan("a", 0, 60), RowSpan("b", 100, 60), RowSpan("b1", 200, 60), RowSpan("c", 300, 60))
 		// y=80 sits in the gap between a and b, above b's centre, so it lands between them.
 		val drop = boardDropTarget("c", pointerY = 80, visible = spaced, rows = rows)!!
-		assertTrue(drop.rank > "a")
-		assertTrue(drop.rank < "m")
+		assertEquals(1, drop.index)
 	}
 
 	@Test
@@ -114,10 +113,19 @@ class BoardDragMathTest {
 	fun aPointerPastEitherEdgeClampsToTheEndRowsInsteadOfFailing() {
 		val top = boardDropTarget("c", pointerY = -50, visible = visible, rows = rows)
 		assertEquals(null, top?.parent)
-		assertTrue(top!!.rank < "a")
+		assertEquals(0, top!!.index)
 
 		val bottom = boardDropTarget("a", pointerY = 9999, visible = visible, rows = rows)!!
-		assertTrue(bottom.rank > "x")
+		assertEquals(2, bottom.index)
+	}
+
+	@Test
+	fun insertionIndexSkipsTrashedAndDraggedSiblings() {
+		val ordered = listOf(row("a", 1L), row("bin", 2L, trashedAt = 1L), row("b", 3L), row("moving", 4L))
+		val spans = listOf(RowSpan("a", 0, 100), RowSpan("bin", 100, 100), RowSpan("b", 200, 100), RowSpan("moving", 300, 100))
+		val drop = boardDropTarget("moving", pointerY = 200, visible = spans, rows = ordered)!!
+
+		assertEquals(1, drop.index)
 	}
 
 	@Test

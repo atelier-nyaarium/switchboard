@@ -11,7 +11,6 @@ import { createSessionRegistryReporter } from "../src/gateway/router/sessionRegi
 import { composeValueResult } from "../src/gateway/router/valueResult.js";
 import { createVaultClient } from "../src/gateway/router/vaultClient.js";
 import type { Ambient, IntervalHandle, TimerHandle } from "../src/shared/ambient.js";
-import { rankBetween } from "../src/shared/board-rank.js";
 import type { ConsolePushEntry } from "../src/shared/federation-protocol.js";
 import type { PresenceRow } from "../src/shared/presence-identity.js";
 import { type WireFixture, WireFixtureSchema, WireManifestSchema } from "../src/shared/schemasWireFixture.js";
@@ -379,7 +378,6 @@ await board.mutate(
 			id: "t-fixture",
 			title: "Wire the phone",
 			body: "Sealed body",
-			rank: rankBetween(undefined, undefined),
 		},
 	],
 	"board-op",

@@ -26,7 +26,6 @@
 					{
 						"kind": "upsert",
 						"id": "t-fixture",
-						"rank": "V",
 						"title": {
 							"v": 1,
 							"epoch": 1,

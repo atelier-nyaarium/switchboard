@@ -23,8 +23,8 @@ object Protocol {
 	const val CONSOLE_PROTOCOL_VERSION: Int = 3
 	const val CONSOLE_ANSWER_WAIT_MS: Long = 35000L
 	const val CREATE_SESSION_BOUND_MS: Long = 25000L
-	const val FEDERATION_PROTOCOL_FLOOR: Int = 4
-	const val FEDERATION_PROTOCOL_VERSION: Int = 4
+	const val FEDERATION_PROTOCOL_FLOOR: Int = 5
+	const val FEDERATION_PROTOCOL_VERSION: Int = 5
 	const val MAX_HISTORY_COMMITS: Int = 200
 
 	object Wire {
@@ -1916,7 +1916,6 @@ sealed class BoardOp {
 		val id: String,
 		val state: String,
 		val parent: String? = null,
-		val rank: String,
 		val session: BoardSession? = null,
 		val trashedAt: Long? = null,
 		val attachments: List<BoardStateAttachment>? = null,
@@ -1939,18 +1938,11 @@ sealed class BoardOp {
 	) : BoardOp()
 
 	@Serializable
-	@SerialName("set_parent")
-	data class SetParent(
+	@SerialName("move")
+	data class Move(
 		val id: String,
 		val parent: String? = null,
-		val rank: String,
-	) : BoardOp()
-
-	@Serializable
-	@SerialName("set_rank")
-	data class SetRank(
-		val id: String,
-		val rank: String,
+		val index: Long? = null,
 	) : BoardOp()
 
 	@Serializable
@@ -2981,7 +2973,7 @@ data class BoardEntry(
 	val body: String? = null,
 	val state: String,
 	val parent: String? = null,
-	val rank: String,
+	val rank: Long,
 	val sessionId: String? = null,
 	val session: BoardSession? = null,
 	val trashedAt: Long? = null,
@@ -3261,7 +3253,7 @@ data class BoardEntryClear(
 	val id: String,
 	val state: String,
 	val parent: String? = null,
-	val rank: String,
+	val rank: Long,
 	val session: BoardSession? = null,
 	val trashedAt: Long? = null,
 	val attachments: List<BoardStateAttachment>? = null,

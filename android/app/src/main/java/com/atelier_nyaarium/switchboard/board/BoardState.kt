@@ -35,6 +35,6 @@ data class BoardBlob(
 )
 
 val BOARD_REFUSALS = setOf(
-	"entry_missing", "parent_missing", "cycle", "held", "would_orphan", "board_full", "bad_rank",
+	"entry_missing", "parent_missing", "cycle", "held", "would_orphan", "board_full",
 	"attachment_missing", "session_missing", "durability_failure", "operation_id_reused",
 )

@@ -8,7 +8,7 @@
 	},
 	"expect": {
 		"ok": true,
-		"protocolVersion": 4
+		"protocolVersion": 5
 	},
 	"request": {
 		"method": "GET",

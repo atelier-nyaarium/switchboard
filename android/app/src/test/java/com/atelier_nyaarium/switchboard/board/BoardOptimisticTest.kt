@@ -56,7 +56,7 @@ class BoardOptimisticTest {
 		body: ContentEnvelope? = null,
 		state: String = "open",
 		parent: String? = null,
-		rank: String = "m",
+		rank: Long = 1L,
 		session: BoardSession? = null,
 		trashedAt: Long? = null,
 		attachments: List<BoardStateAttachment>? = null,
@@ -71,7 +71,7 @@ class BoardOptimisticTest {
 		body: String? = "body-$id",
 		state: String = "open",
 		parent: String? = null,
-		rank: String = "m",
+		rank: Long = 1L,
 		session: BoardSession? = null,
 		trashedAt: Long? = null,
 	) = BoardEntry(id, title, body, state, parent, rank, session?.sessionId, session, trashedAt)
@@ -97,10 +97,10 @@ class BoardOptimisticTest {
 	@Test
 	fun createSynthesizesMissingRouterEntry() {
 		val session = BoardSession(domainId, "gateway", "session")
-		val intent = BoardIntent.Create("id", "title", "body", "done", "parent", "rank", session)
+		val intent = BoardIntent.Create("id", "title", "body", "done", "parent", session)
 
 		assertEquals(
-			listOf(entry("id", "title", "body", "done", "parent", "rank", session)),
+			listOf(entry("id", "title", "body", "done", "parent", 1L, session)),
 			applyPending(emptyList(), listOf(PendingWrite("op", listOf(intent)))),
 		)
 	}
@@ -108,7 +108,7 @@ class BoardOptimisticTest {
 	@Test
 	fun createDoesNotOverwriteExistingRouterEntry() {
 		val routerEntry = entry("id", "router title")
-		val intent = BoardIntent.Create("id", "new title", state = "done", rank = "z")
+		val intent = BoardIntent.Create("id", "new title", state = "done")
 
 		assertEquals(listOf(routerEntry), applyPending(listOf(routerEntry), listOf(PendingWrite("op", listOf(intent)))))
 	}
@@ -116,7 +116,7 @@ class BoardOptimisticTest {
 	@Test
 	fun editsApplyToExistingRouterEntry() {
 		val session = BoardSession(domainId, "gateway", "new-session")
-		val original = entry("id", session = BoardSession(domainId, "gateway", "old-session"), rank = "a")
+		val original = entry("id", session = BoardSession(domainId, "gateway", "old-session"))
 
 		assertEquals(
 			"new title",
@@ -124,15 +124,31 @@ class BoardOptimisticTest {
 		)
 		assertEquals("new body", applyPending(listOf(original), pending(BoardIntent.SetBody("id", "new body"))).single().body)
 		assertEquals("done", applyPending(listOf(original), pending(BoardIntent.SetState("id", "done"))).single().state)
-		assertEquals(
-			original.copy(parent = "parent", rank = "b"),
-			applyPending(listOf(original), pending(BoardIntent.SetParent("id", "parent", "b"))).single(),
-		)
-		assertEquals("z", applyPending(listOf(original), pending(BoardIntent.SetRank("id", "z"))).single().rank)
 		assertEquals(session, applyPending(listOf(original), pending(BoardIntent.SetSession("id", session))).single().session)
 		assertEquals(1L, applyPending(listOf(original), pending(BoardIntent.Trash("id"))).single().trashedAt)
 		assertNull(applyPending(listOf(original.copy(trashedAt = 5L)), pending(BoardIntent.Restore("id"))).single().trashedAt)
 		assertTrue(applyPending(listOf(original), pending(BoardIntent.Remove("id"))).isEmpty())
+	}
+
+	@Test
+	fun movePlacesEntryAtIndexAndRenumbersBothSiblingGroups() {
+		val entries = listOf(
+			entry("root-a", rank = 1L),
+			entry("parent", rank = 2L),
+			entry("root-c", rank = 3L),
+			entry("child-a", parent = "parent", rank = 1L),
+			entry("child-b", parent = "parent", rank = 2L),
+		)
+		val moved = applyPending(entries, pending(BoardIntent.Move("root-c", parent = "parent", index = 1)))
+		val byId = moved.associateBy { it.id }
+
+		assertEquals(listOf("root-a", "parent"), moved.filter { it.parent == null }.sortedBy { it.rank }.map { it.id })
+		assertEquals(listOf("child-a", "root-c", "child-b"), moved.filter { it.parent == "parent" }.sortedBy { it.rank }.map { it.id })
+		assertEquals(2L, byId.getValue("parent").rank)
+		assertEquals(1L, byId.getValue("root-a").rank)
+		assertEquals(1L, byId.getValue("child-a").rank)
+		assertEquals(2L, byId.getValue("root-c").rank)
+		assertEquals(3L, byId.getValue("child-b").rank)
 	}
 
 	@Test
@@ -172,15 +188,16 @@ class BoardOptimisticTest {
 	@Test
 	fun routerOrderIsPreservedAndCreatedEntryIsAppended() {
 		val router = listOf(entry("a"), entry("b"))
-		val create = BoardIntent.Create("c", "created", state = "open", rank = "z")
+		val create = BoardIntent.Create("c", "created", state = "open")
 
-		assertEquals(listOf("a", "b", "c"), applyPending(router, listOf(PendingWrite("op", listOf(create)))).map { it.id })
+		val appended = applyPending(router, listOf(PendingWrite("op", listOf(create))))
+		assertEquals(listOf("a" to 1L, "b" to 2L, "c" to 3L), appended.sortedBy { it.rank }.map { it.id to it.rank })
 	}
 
 	@Test
 	fun enqueueWriteReturnsQueuedWriteWithNoAttempts() {
 		val board = board()
-		val intents = listOf(BoardIntent.Create("id", "title", state = "open", rank = "m"))
+		val intents = listOf(BoardIntent.Create("id", "title", state = "open"))
 
 		assertEquals(BoardEnqueueResult.Queued("op"), board.enqueueWrite(intents, "op"))
 		assertEquals(listOf(PendingWrite("op", intents)), board.pendingWrites())
@@ -198,7 +215,7 @@ class BoardOptimisticTest {
 	fun failedEnqueueAnswersRefusalWithoutQueueing() {
 		val store = FakeStore().also { it.failNextSave = true }
 		val board = BoardManager(store)
-		val intent = BoardIntent.Create("id", "title", state = "open", rank = "m")
+		val intent = BoardIntent.Create("id", "title", state = "open")
 
 		assertEquals(BoardEnqueueResult.Refused("id", "durability_failure"), board.enqueueWrite(listOf(intent), "op"))
 		assertTrue(board.pendingWrites().isEmpty())
@@ -208,7 +225,7 @@ class BoardOptimisticTest {
 	@Test
 	fun failedIntentRemainsVisibleWhileTheStoreKeepsFailing() {
 		val board = BoardManager(FakeStore().also { it.failSaves = true })
-		val intent = BoardIntent.Create("id", "title", state = "open", rank = "m")
+		val intent = BoardIntent.Create("id", "title", state = "open")
 		val refused = board.enqueueWrite(listOf(intent), "op") as BoardEnqueueResult.Refused
 
 		board.noticeRefusal(refused.entryId, refused.reason)
@@ -233,8 +250,8 @@ class BoardOptimisticTest {
 	@Test
 	fun settleWriteLandsBoardAndRetiresOnlyItsWrite() {
 		val board = board()
-		val first = BoardIntent.Create("first", "first", state = "open", rank = "a")
-		val second = BoardIntent.Create("second", "second", state = "open", rank = "b")
+		val first = BoardIntent.Create("first", "first", state = "open")
+		val second = BoardIntent.Create("second", "second", state = "open")
 		enqueue(board, first, "first")
 		enqueue(board, second, "second")
 		val result = stored("id", title("id", "title"))
@@ -250,7 +267,7 @@ class BoardOptimisticTest {
 	fun lowerSettlementRevisionDoesNotMoveBoardBackwards() {
 		val original = stored("id", title("id", "original"))
 		val board = board(original, 5L)
-		enqueue(board, BoardIntent.Create("new", "new", state = "open", rank = "z"), "op")
+		enqueue(board, BoardIntent.Create("new", "new", state = "open"), "op")
 		val older = stored("id", title("id", "older"))
 
 		board.settleWrite("op", 4L, listOf(older))
@@ -263,7 +280,7 @@ class BoardOptimisticTest {
 	@Test
 	fun failWriteIncrementsAttemptsWithoutDroppingWrite() {
 		val board = board()
-		val intent = BoardIntent.Create("new", "new", state = "open", rank = "z")
+		val intent = BoardIntent.Create("new", "new", state = "open")
 		enqueue(board, intent, "op")
 
 		board.failWrite("op")
@@ -274,9 +291,9 @@ class BoardOptimisticTest {
 	@Test
 	fun drainSendsOldestFirstAndStopsAtUnreachableWrite() = runBlocking {
 		val board = board()
-		enqueue(board, BoardIntent.Create("one", "one", state = "open", rank = "a"), "one")
-		enqueue(board, BoardIntent.Create("two", "two", state = "open", rank = "b"), "two")
-		enqueue(board, BoardIntent.Create("three", "three", state = "open", rank = "c"), "three")
+		enqueue(board, BoardIntent.Create("one", "one", state = "open"), "one")
+		enqueue(board, BoardIntent.Create("two", "two", state = "open"), "two")
+		enqueue(board, BoardIntent.Create("three", "three", state = "open"), "three")
 		val posts = mutableListOf<String>()
 		val writer = writer(board, ArrayDeque(listOf(BoardWriteResult("applied", 1L, emptyList()))), posts) { _, opId ->
 			posts += opId

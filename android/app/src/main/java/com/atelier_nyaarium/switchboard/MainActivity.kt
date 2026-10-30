@@ -205,7 +205,7 @@ fun App(
 	val shellScope = rememberCoroutineScope()
 	val shellActions = ShellActions(
 		openBoardEntry = { boardModal = it },
-		moveBoardEntry = { row, drop -> repo.boardOps.boardSetParent(row.entry.id, drop.parent, drop.rank) },
+		moveBoardEntry = { row, drop -> repo.boardOps.boardMove(row.entry.id, drop.parent, drop.index) },
 		openVaultEntry = { vaultModal = VaultModal.Entry(it) },
 		openVaultRequest = { vaultModal = VaultModal.Request(it) },
 		fireRunbook = { gatewayId, id, into -> fireRunbook = RunbookFire(gatewayId, id, into) },

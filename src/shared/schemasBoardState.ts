@@ -24,7 +24,7 @@ export const BoardEntryClearSchema = z
 		id: entryId,
 		state,
 		parent: entryId.optional(),
-		rank: z.string(),
+		rank: z.number().int().positive(),
 		session: session.optional(),
 		trashedAt: z.number().int().nonnegative().optional(),
 		attachments: z.array(attachment).optional(),
@@ -52,7 +52,6 @@ const entryFields = z.object({
 	id: entryId,
 	state,
 	parent: entryId.optional(),
-	rank: z.string().optional(),
 	session: session.optional(),
 	trashedAt: z.number().int().nonnegative().optional(),
 	attachments: z.array(attachment).optional(),
@@ -62,11 +61,17 @@ const entryFields = z.object({
 });
 export const BoardOpSchema = z
 	.discriminatedUnion("kind", [
-		entryFields.extend({ kind: z.literal("upsert"), rank: z.string(), title: ContentEnvelopeSchema }),
+		// A new entry lands last; an existing one keeps its place unless its parent changes.
+		entryFields.extend({ kind: z.literal("upsert"), title: ContentEnvelopeSchema }),
 		z.object({ kind: z.literal("remove"), id: entryId }),
 		z.object({ kind: z.literal("set_state"), id: entryId, state }),
-		z.object({ kind: z.literal("set_parent"), id: entryId, parent: entryId.optional(), rank: z.string() }),
-		z.object({ kind: z.literal("set_rank"), id: entryId, rank: z.string() }),
+		// Index among the live siblings without it; absent lands last.
+		z.object({
+			kind: z.literal("move"),
+			id: entryId,
+			parent: entryId.optional(),
+			index: z.number().int().nonnegative().optional(),
+		}),
 		z.object({ kind: z.literal("set_attachments"), id: entryId, attachments: z.array(attachment) }),
 		// Absent session means backlog.
 		z.object({ kind: z.literal("set_session"), id: entryId, session: session.optional() }),

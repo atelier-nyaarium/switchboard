@@ -191,13 +191,10 @@ export function createBoardRoutes({
 								const denied = mayWrite(target, actor);
 								if (denied) return denied;
 							}
-							const placed = view.placeAtEnd(parent);
 							return [
-								...placed.rebalanced,
 								{
 									kind: "upsert" as const,
 									id,
-									rank: placed.rank,
 									title: create.title as string,
 									state: "open" as const,
 									...(typeof create.body === "string" ? { body: create.body } : {}),
@@ -232,7 +229,6 @@ export function createBoardRoutes({
 								ops.push({
 									kind: "upsert",
 									id,
-									rank: entry.rank,
 									state: entry.state,
 									title: update.title ?? entry.title,
 									...(body === undefined ? {} : { body }),
@@ -249,13 +245,7 @@ export function createBoardRoutes({
 										const parentDenied = mayWrite(target, actor);
 										if (parentDenied) return parentDenied;
 									}
-									const placed = view.placeAtEnd(parent, id);
-									ops.push(...placed.rebalanced, {
-										kind: "set_parent",
-										id,
-										parent,
-										rank: placed.rank,
-									});
+									ops.push({ kind: "move", id, parent });
 								}
 							}
 							return ops.length > 0 ? ops : "unchanged";
