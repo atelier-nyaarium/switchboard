@@ -52,7 +52,8 @@ describe("buildLaunchCommand", () => {
 			expect(args).not.toContain("--dangerously-skip-permissions");
 			expect(args[args.indexOf("--permission-mode") + 1]).toBe("dontAsk");
 			expect(settings.permissions.allow).toContain(`Edit(/${notes}/**)`);
-			expect(settings.permissions.deny).toContain("Edit(AGENTS.md)");
+			expect(settings.permissions.deny).toContain("Edit(*/**/AGENTS.md)");
+			expect(settings.permissions.deny).not.toContain("Edit(AGENTS.md)");
 		});
 
 		it("keeps every other session on the open profile", () => {

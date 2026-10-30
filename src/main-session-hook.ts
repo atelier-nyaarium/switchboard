@@ -4,7 +4,9 @@ import { baselineHookOutput } from "./mcp/baseline/baselineHook.js";
 // Stdout becomes the hook's answer.
 
 const output =
-	process.argv[2] === "gate" ? gateHookOutput(await readStdin(), process.env) : await baselineHookOutput(process.env);
+	process.argv[2] === "gate"
+		? await gateHookOutput(await readStdin(), process.env)
+		: await baselineHookOutput(process.env);
 // Exit only once the pipe has the whole answer, or a cut deny reads as invalid.
 if (output) process.stdout.write(output, () => process.exit(0));
 else process.exit(0);

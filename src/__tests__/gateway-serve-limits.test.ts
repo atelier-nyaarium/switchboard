@@ -56,6 +56,7 @@ const SHORT_POST_PATHS = [
 	"/routine/session",
 	"/routine/report",
 	"/session/baseline",
+	"/assistant/write-lock",
 ];
 
 function quotedPaths(source: string): string[] {
@@ -107,6 +108,7 @@ describe("gateway long waits", () => {
 		const sendPaths = fs.readFileSync("src/shared/schemasAssistantSend.ts", "utf8");
 		const commandPaths = fs.readFileSync("src/shared/session-commands.ts", "utf8");
 		const baselinePaths = fs.readFileSync("src/shared/session-baseline.ts", "utf8");
+		const writeLockPaths = fs.readFileSync("src/shared/assistant-write-lock.ts", "utf8");
 
 		expect(mapKeys(vaultRoutes)).toEqual([
 			'"/vault/search"',
@@ -119,6 +121,7 @@ describe("gateway long waits", () => {
 		expect(mapKeys(assistantRoutes)).toEqual([
 			"INBOX.path",
 			"ASSISTANT_ACTION_PATH",
+			"ASSISTANT_WRITE_LOCK_PATH",
 			"ASSISTANT_SEND_ROUTES.send",
 			"ASSISTANT_SEND_ROUTES.collect",
 			"ASSISTANT_SEND_ROUTES.withdraw",
@@ -132,6 +135,7 @@ describe("gateway long waits", () => {
 			...quotedPaths(sendPaths),
 			...quotedPaths(commandPaths),
 			...quotedPaths(baselinePaths),
+			...quotedPaths(writeLockPaths),
 			...AGENT_BACKENDS.map(({ id }) => agentHttpPath(id)),
 		];
 		const postPaths = new Set([...postHttpPaths(httpRouter), ...loopbackPaths]);

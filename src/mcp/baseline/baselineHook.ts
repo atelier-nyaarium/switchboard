@@ -1,6 +1,5 @@
 // The SessionStart compact hook: the session's baseline, as one reminder block of hook context.
 
-import { isInsideContainer } from "../../shared/env.js";
 import {
 	MAX_BASELINE_CHARS,
 	SESSION_BASELINE_PATH,
@@ -8,11 +7,9 @@ import {
 	SessionBaselineSchema,
 } from "../../shared/session-baseline.js";
 import { oneLine as flat, neutralizeMarkup, reminderBlock } from "../../shared/system-reminder.js";
+import { askGateway, type HookEnv } from "../hookGateway.js";
 
-////////////////////////////////
-//  Interfaces & Types
-
-export type HookEnv = Readonly<Record<string, string | undefined>>;
+export type { HookEnv } from "../hookGateway.js";
 
 ////////////////////////////////
 //  Constants
@@ -72,23 +69,11 @@ export function renderBaseline(baseline: SessionBaseline): string {
 
 /** The hook's stdout, or null to print nothing. Never throws. */
 export async function baselineHookOutput(env: HookEnv, fetchImpl: typeof fetch = fetch): Promise<string | null> {
-	const token = env.SWITCHBOARD_SESSION_TOKEN;
-	if (!token) return null;
-	const base = env.BRIDGE_ROUTER_URL ?? (isInsideContainer() ? "http://switchboard:20000" : "http://localhost:20000");
-	try {
-		const res = await fetchImpl(`${base}${SESSION_BASELINE_PATH}`, {
-			method: "POST",
-			headers: { "content-type": "application/json", "x-session-token": token },
-			body: "{}",
-			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-		});
-		if (!res.ok) return null;
-		const parsed = SessionBaselineSchema.safeParse(await res.json());
-		if (!parsed.success) return null;
-		const context = renderBaseline(parsed.data);
-		if (!context) return null;
-		return JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: context } });
-	} catch {
-		return null;
-	}
+	const parsed = SessionBaselineSchema.safeParse(
+		await askGateway(env, SESSION_BASELINE_PATH, FETCH_TIMEOUT_MS, fetchImpl),
+	);
+	if (!parsed.success) return null;
+	const context = renderBaseline(parsed.data);
+	if (!context) return null;
+	return JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: context } });
 }

@@ -3,12 +3,18 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { gateVerdict } from "./gate.js";
+import { ASSISTANT_WRITE_LOCK_PATH, WriteLockAnswerSchema } from "../../shared/assistant-write-lock.js";
+import { askGateway, type HookEnv } from "../hookGateway.js";
+import { gateVerdict, writeLockReason } from "./gate.js";
 
-type HookEnv = Readonly<Record<string, string | undefined>>;
+const LOCK_TIMEOUT_MS = 5_000;
 
 /** Never throws, and denies whatever it cannot read. */
-export function gateHookOutput(stdin: string, env: HookEnv): string | null {
+export async function gateHookOutput(
+	stdin: string,
+	env: HookEnv,
+	fetchImpl: typeof fetch = fetch,
+): Promise<string | null> {
 	let input: unknown;
 	try {
 		input = JSON.parse(stdin);
@@ -24,10 +30,22 @@ export function gateHookOutput(stdin: string, env: HookEnv): string | null {
 			return deny(`assistant gate: ${root} is not a notes folder`);
 		}
 		const verdict = gateVerdict(input, { notes: root, home });
-		return verdict.allow ? null : deny(verdict.reason);
+		if (!verdict.allow) return deny(verdict.reason);
+		return verdict.write ? await writeLocked(env, fetchImpl) : null;
 	} catch (error) {
 		return deny(`assistant gate: ${(error as Error).message}`);
 	}
+}
+
+/** An unread lock refuses. */
+async function writeLocked(env: HookEnv, fetchImpl: typeof fetch): Promise<string | null> {
+	const answer = WriteLockAnswerSchema.safeParse(
+		await askGateway(env, ASSISTANT_WRITE_LOCK_PATH, LOCK_TIMEOUT_MS, fetchImpl),
+	);
+	if (!answer.success) return deny("assistant gate: the write lock could not be read");
+	if (answer.data.kind === "open") return null;
+	if (answer.data.kind === "locked") return deny(writeLockReason(answer.data.idleMs));
+	return deny(`assistant gate: the write lock answered ${answer.data.kind}`);
 }
 
 function holds(root: string, inner: string): boolean {

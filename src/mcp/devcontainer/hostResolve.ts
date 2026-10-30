@@ -141,7 +141,8 @@ const CHANNEL_FLAG = "--dangerously-load-development-channels plugin:switchboard
 
 /** Files the assistant never edits, at any depth, and secrets it never reads. */
 const ASSISTANT_DENY = [
-	"Edit(AGENTS.md)",
+	// Its own root `AGENTS.md` stays writable.
+	"Edit(*/**/AGENTS.md)",
 	"Edit(CLAUDE.md)",
 	"Edit(CLAUDE.local.md)",
 	"Edit(.claude/**)",

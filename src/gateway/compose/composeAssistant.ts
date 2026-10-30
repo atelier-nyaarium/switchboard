@@ -304,7 +304,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	};
 	const safety = openDurable(deps.dataDir, "assistant-safety", (store) => createSafetyStore(store));
 	// Preboot rows cannot establish owner activity.
-	const marker = createOriginMarker(deps.lastDeliverySeq() + 1);
+	const marker = createOriginMarker(deps.lastDeliverySeq() + 1, () => ambient.now());
 	/** Owner-thread send card. */
 	const card = (actionType: "send-request" | "send-retract", payload: Record<string, unknown>) => {
 		const routes = deps.routes();
@@ -374,6 +374,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		list: (scope, page) => inbox.list(scope, page),
 		dispatch,
 		guard,
+		writes: () => marker.writes(),
 	});
 	const state = (): ConsoleAssistantStateResult => {
 		const record = held();

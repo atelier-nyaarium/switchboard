@@ -12,6 +12,8 @@ import {
 } from "../gateway/compose/composeAssistant.js";
 import { processAmbient } from "../shared/ambient.js";
 import { ASSISTANT_RESERVE_KEY, ASSISTANT_SESSION_NAME, ASSISTANT_TEAM } from "../shared/assistant-session.js";
+import { ASSISTANT_WRITE_LOCK_PATH } from "../shared/assistant-write-lock.js";
+import type { PendingDelivery } from "../shared/pending-delivery-store.js";
 import { ASSISTANT_ACTION_PATH } from "../shared/schemasAssistantActions.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../shared/schemasAssistantHome.js";
 import type { AssistantFieldSpec, AssistantRule, AssistantWatcherRules } from "../shared/schemasAssistantRules.js";
@@ -366,6 +368,36 @@ describe("the assistant's session", () => {
 
 		expect(sent.map((nudge) => nudge.deliveryId)).toEqual(["assistant-check:op-1", "assistant-check:op-3"]);
 		expect(sent[0]).toMatchObject({ from: "Pixel", body: expect.stringContaining(ASSISTANT_COMMANDS.inbox.tool) });
+	});
+
+	it("answers its write lock to its own token alone: locked until the owner speaks, then open", async () => {
+		const test = stage();
+		await test.followHome(1, LOCAL_GATEWAY, movedHome());
+		const route = test.assistant.routes.get(ASSISTANT_WRITE_LOCK_PATH);
+		if (!route) throw new Error("no write-lock route");
+		const ask = async (caller: string) =>
+			(await route(new Request("http://gateway/", { headers: { "x-caller": caller } }), {})).json();
+		const owner: PendingDelivery = {
+			deliveryId: "d1",
+			team: ASSISTANT_TEAM,
+			body: "hello",
+			enqueuedAt: 0,
+			channelJobId: "j",
+			from: "Pixel",
+			seq: 1,
+			origin: "owner",
+		};
+
+		const before = await ask("assistant");
+		test.assistant.delivered(owner);
+		const after = await ask("assistant");
+		const stranger = await ask("someone");
+
+		expect([before, after, stranger]).toEqual([
+			{ kind: "locked", idleMs: null },
+			{ kind: "open" },
+			{ kind: "not_assistant" },
+		]);
 	});
 
 	it("reports a failed session save and rolls the placement back", async () => {

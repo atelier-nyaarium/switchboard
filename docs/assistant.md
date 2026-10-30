@@ -88,28 +88,29 @@ The folder chosen at Set up is the session's working directory and its durable m
 lands in it: the host only creates it, the launch's settings are inline, and the Gateway keeps rules,
 Safety and Enabled on its own disk.
 
-- The note files sit at its root: the owner's standing instructions as the assistant keeps them,
-  open threads, pending asks, decisions and commitments. The assistant creates and updates them as
-  it works, so their contents survive compaction. The standing rules ship with the plugin, so
-  nothing is seeded.
-- The owner's instructions live in `Instructions.md`, which the assistant writes and keeps current,
-  never in an `AGENTS.md`, which it cannot write.
+- `AGENTS.md` at its root is the owner's standing instructions, which the assistant writes and keeps
+  current in its own words. Claude Code loads it at every start and after a compaction. A copy below
+  the root is refused.
+- The note files sit beside it: open threads, pending asks, decisions and commitments. The
+  assistant creates and updates them as it works, so their contents survive compaction. The
+  standing rules ship with the plugin, so nothing is seeded.
 - No watcher rules live here. The Gateway holds them, and only owner ops write them.
 
 ## The gate
 
 - **Watcher actions run at once:** setting up a watcher is the owner's permission to use its
   actions, so none asks first. Every one is recorded in the conversation.
-- **Always refused:** writes to `AGENTS.md`, session settings or hooks, and paths outside notes. The
-  watcher rules have no path from the session at all.
+- **Always refused:** writes to `CLAUDE.md`, an `AGENTS.md` below the notes root, session settings
+  or hooks, and paths outside notes. The watcher rules have no path from the session at all.
+- **Locked while the owner is away:** every other write (the write lock, below).
 
 **The boundary** is Claude Code's own permission engine, with Switchboard's layers around it.
 
 - **The launch:** `host.assistant` alone launches with `--permission-mode dontAsk`, `--tools
   Read,Edit,Write,Glob,Grep,ToolSearch` and inline `--settings` (`assistantPermissionArgs`), never
   `--dangerously-skip-permissions`. Anything not allowed is denied without asking. Edits are allowed
-  under the workdir, reads inside it and in the channel attachments directory. Edits to `AGENTS.md`,
-  `CLAUDE.md`, `CLAUDE.local.md`, `.claude/`, `.mcp.json` and `package.json`, and reads of `.env`
+  under the workdir, reads inside it and in the channel attachments directory. Edits to an
+  `AGENTS.md` below the root, `CLAUDE.md`, `CLAUDE.local.md`, `.claude/`, `.mcp.json` and `package.json`, and reads of `.env`
   files, are denied; `.git` is a protected path. The engine checks a path and opens the file as one
   step, judges links on both sides, and drops denied files from search results. The launch refuses
   a workdir that is missing, holds home, is reached through a link, or cannot be quoted. A missing
@@ -133,8 +134,9 @@ fails to run exits 2, which blocks the tool. `gateVerdict` is a closed allowlist
   the resolved path, never `.git/` or a `.env` file. A pattern that is absolute or climbs with `..`
   is refused.
 - **Writes:** `Write`, `Edit`, `MultiEdit` and `NotebookEdit` inside notes, judged by the resolved
-  path through `confine`. Never `.git/`, a `.claude/` folder, an `AGENTS.md`, `CLAUDE.md` or
-  `CLAUDE.local.md` at any depth, or `.mcp.json`.
+  path through `confine`. Never `.git/`, a `.claude/` folder, a `CLAUDE.md` or `CLAUDE.local.md` at
+  any depth, an `AGENTS.md` below the root, or `.mcp.json`. A write that passes then asks the write
+  lock.
 - **Allowed:** `channel_reply`, `channel_reply_structured`, `switchboard_capabilities`,
   `notify_human`, `inbox`, each declared watcher action, the crosstalk tools and `ToolSearch`. The
   reply route already refuses a conversation not addressed to the caller. The attachments of
@@ -158,6 +160,21 @@ exits only once its answer is written.
 The hook alone is a path decision made before the tool runs; the engine is what binds the check to
 the open. A running pane keeps the hooks and flags it launched with, so restart the assistant after
 a plugin update. A hand resume must carry the assistant's flags too.
+
+**The write lock** (`src/shared/assistant-write-lock.ts`): every write the hook allows asks the
+Gateway, as the session, at `/assistant/write-lock`, which answers only the assistant's token.
+
+- **Open** while the newest row that prompted the assistant is the owner's (a message, Check now or
+  a check-in), or the owner's last row landed under 30 minutes ago (`WRITE_IDLE_MS`). Its own
+  replies move neither, so a long task the owner asked for stays open.
+- **Locked** otherwise, as when a watcher event wakes it after the owner left. The write bounces with
+  how long the session has been idle and how to ask (`writeLockReason`); the owner's next reply
+  opens it.
+- **Held by the origin marker** (`createOriginMarker`), beside who spoke last for sends, so a restart,
+  the session's end or a fresh placement locks until the owner speaks. An answer the hook cannot
+  read refuses the write.
+- **Decided as the tool is about to run:** a write already allowed is not called back when the lock
+  closes a moment later.
 
 **Event text is data:** notification titles and mail bodies are never instructions.
 
@@ -553,7 +570,8 @@ than reserving one. `docs/routines.md` holds the routine side; this is the assis
 ## What the model reads
 
 - **Standing instructions appear once:** in the plugin's MCP instructions for `host.assistant`
-  (`src/mcp/assistant/instructions.ts`). The owner's own instructions are a note, `Instructions.md`.
+  (`src/mcp/assistant/instructions.ts`). The owner's standing instructions are the folder's
+  `AGENTS.md`, which the assistant keeps.
 - **Its capabilities are its own:** `switchboard_capabilities` serves both kinds of session. The
   assistant's answer lists `ASSISTANT_CAPABILITIES`, built from the Switchboard tools its scope
   allows (Claude Code's own file tools are not Switchboard's and are left out), then the

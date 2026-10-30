@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { gateVerdict } from "../mcp/assistant/gate.js";
+import { gateVerdict, writeLockReason } from "../mcp/assistant/gate.js";
 import { gateHookOutput } from "../mcp/assistant/gateHook.js";
 
 const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "assistant-gate-")));
@@ -39,6 +39,8 @@ describe("the assistant gate", () => {
 		["Grep", { pattern: "todo", path: path.join(notes, "sub") }],
 		["Grep", { pattern: "/api/../v2" }],
 		["Write", { file_path: path.join(notes, "Assistant", "threads.md") }],
+		["Write", { file_path: path.join(notes, "AGENTS.md") }],
+		["Edit", { file_path: path.join(notes, "alias.md") }],
 		["Edit", { file_path: "threads.md" }, path.join(notes, "Assistant")],
 		["NotebookEdit", { notebook_path: path.join(notes, "sub", "n.ipynb") }],
 		[`${SB}channel_reply`, {}],
@@ -77,8 +79,8 @@ describe("the assistant gate", () => {
 		["Write", { file_path: "~/.bashrc" }],
 		["Write", { file_path: path.join(notes, "dangling.md") }],
 		["Write", { file_path: path.join(notes, "twin") }],
-		["Write", { file_path: path.join(notes, "AGENTS.md") }],
-		["Write", { file_path: path.join(notes, "alias.md") }],
+		["Write", { file_path: path.join(notes, "sub", "AGENTS.md") }],
+		["Write", { file_path: path.join(notes, "CLAUDE.md") }],
 		["Write", { file_path: path.join(notes, "sub", "CLAUDE.md") }],
 		["Edit", { file_path: path.join(notes, ".claude", "settings.json") }],
 		["Write", { file_path: path.join(notes, "settings", "settings.json") }],
@@ -120,31 +122,70 @@ describe("the assistant gate", () => {
 });
 
 describe("the gate hook", () => {
-	const env = { CLAUDE_PROJECT_DIR: notes, HOME: base };
+	const env = { CLAUDE_PROJECT_DIR: notes, HOME: base, SWITCHBOARD_SESSION_TOKEN: "t" };
 	const decision = (output: string | null) =>
 		output === null ? "allow" : JSON.parse(output).hookSpecificOutput.permissionDecision;
+	const reason = (output: string | null) => JSON.parse(output ?? "").hookSpecificOutput.permissionDecisionReason;
+	const read = JSON.stringify({ tool_name: "Read", tool_input: { file_path: path.join(notes, "AGENTS.md") } });
+	const write = JSON.stringify({ tool_name: "Write", tool_input: { file_path: path.join(notes, "AGENTS.md") } });
+	/** The Gateway's write-lock answer, and the routes asked. */
+	const lock = (answer: unknown) => {
+		const asked: string[] = [];
+		const fetchImpl = (async (url: string) => {
+			asked.push(new URL(url).pathname);
+			return answer instanceof Error ? Promise.reject(answer) : new Response(JSON.stringify(answer));
+		}) as unknown as typeof fetch;
+		return { fetchImpl, asked };
+	};
 
-	it("answers nothing to allow and a PreToolUse deny to refuse", () => {
-		const read = JSON.stringify({ tool_name: "Read", tool_input: { file_path: path.join(notes, "AGENTS.md") } });
+	it("answers nothing to allow and a PreToolUse deny to refuse", async () => {
 		const bash = JSON.stringify({ tool_name: "Bash", tool_input: { command: "ls" } });
 
-		expect(decision(gateHookOutput(read, env))).toBe("allow");
-		expect(decision(gateHookOutput(bash, env))).toBe("deny");
-		expect(JSON.parse(gateHookOutput(bash, env) ?? "").hookSpecificOutput.hookEventName).toBe("PreToolUse");
+		expect(decision(await gateHookOutput(read, env))).toBe("allow");
+		expect(decision(await gateHookOutput(bash, env))).toBe("deny");
+		expect(JSON.parse((await gateHookOutput(bash, env)) ?? "").hookSpecificOutput.hookEventName).toBe("PreToolUse");
 	});
 
-	it("denies what it cannot read", () => {
-		expect(decision(gateHookOutput("not json", env))).toBe("deny");
-		expect(decision(gateHookOutput(JSON.stringify({ tool_name: "Read" }), {}))).toBe("deny");
+	it("asks the write lock for a write alone, and bounces a locked one with how to ask", async () => {
+		const open = lock({ kind: "open" });
+		const locked = lock({ kind: "locked", idleMs: 42 * 60_000 });
+		const fresh = lock({ kind: "locked", idleMs: null });
+
+		expect(decision(await gateHookOutput(read, env, open.fetchImpl))).toBe("allow");
+		expect(open.asked).toEqual([]);
+		expect(decision(await gateHookOutput(write, env, open.fetchImpl))).toBe("allow");
+		expect(open.asked).toEqual(["/assistant/write-lock"]);
+		expect(reason(await gateHookOutput(write, env, locked.fetchImpl))).toContain("idle for 42 minutes");
+		expect(reason(await gateHookOutput(write, env, fresh.fetchImpl))).toContain("since it started");
 	});
 
-	it("denies everything when the session landed in home instead of notes", () => {
-		const read = JSON.stringify({ tool_name: "Read", tool_input: { file_path: path.join(notes, "AGENTS.md") } });
+	it("bounces a write whose lock cannot be read", async () => {
+		const unreachable = lock(new Error("refused"));
+		const stranger = lock({ kind: "not_assistant" });
 
-		expect(decision(gateHookOutput(read, { CLAUDE_PROJECT_DIR: notes, HOME: notes }))).toBe("deny");
-		expect(decision(gateHookOutput(read, { CLAUDE_PROJECT_DIR: base, HOME: notes }))).toBe("deny");
-		expect(decision(gateHookOutput(read, { CLAUDE_PROJECT_DIR: path.join(base, "home-alias"), HOME: home }))).toBe(
-			"deny",
-		);
+		expect(decision(await gateHookOutput(write, env, unreachable.fetchImpl))).toBe("deny");
+		expect(decision(await gateHookOutput(write, env, stranger.fetchImpl))).toBe("deny");
+		expect(decision(await gateHookOutput(write, { ...env, SWITCHBOARD_SESSION_TOKEN: undefined }))).toBe("deny");
+	});
+
+	it("denies what it cannot read", async () => {
+		expect(decision(await gateHookOutput("not json", env))).toBe("deny");
+		expect(decision(await gateHookOutput(JSON.stringify({ tool_name: "Read" }), {}))).toBe("deny");
+	});
+
+	it("denies everything when the session landed in home instead of notes", async () => {
+		expect(decision(await gateHookOutput(read, { CLAUDE_PROJECT_DIR: notes, HOME: notes }))).toBe("deny");
+		expect(decision(await gateHookOutput(read, { CLAUDE_PROJECT_DIR: base, HOME: notes }))).toBe("deny");
+		expect(
+			decision(await gateHookOutput(read, { CLAUDE_PROJECT_DIR: path.join(base, "home-alias"), HOME: home })),
+		).toBe("deny");
+	});
+});
+
+describe("the write lock's refusal", () => {
+	it("names the idle time in minutes, then hours, and says when nothing was heard", () => {
+		expect(writeLockReason(31 * 60_000)).toContain("idle for 31 minutes");
+		expect(writeLockReason(5 * 60 * 60_000)).toContain("idle for 5 hours");
+		expect(writeLockReason(null)).toContain("has not heard from the owner since it started");
 	});
 });

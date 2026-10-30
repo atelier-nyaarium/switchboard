@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
+import { ASSISTANT_WRITE_LOCK_PATH, type WriteLock, type WriteLockAnswer } from "../../shared/assistant-write-lock.js";
 import {
 	ASSISTANT_ACTION_PATH,
 	type AssistantActionRequest,
@@ -29,6 +30,7 @@ export interface AssistantRoutesDeps {
 	/** The assistant holding that conversation. */
 	sender: (req: Request, conversationId: string) => SendCaller | null;
 	guard: Pick<SendGuard, "send" | "collect" | "withdraw">;
+	writes: () => WriteLock;
 }
 
 const json = (body: unknown, status: number): Response =>
@@ -78,9 +80,16 @@ export function createAssistantRoutes(deps: AssistantRoutesDeps): Map<string, Ha
 		return replied(deps.guard.withdraw(ASSISTANT_TEAM, parsed.data.requestId));
 	};
 
+	const writeLock: Handler = async (req) => {
+		const caller = deps.caller(req);
+		const answer: WriteLockAnswer = caller === "assistant" ? deps.writes() : { kind: caller };
+		return json(answer, 200);
+	};
+
 	return new Map<string, Handler>([
 		[INBOX.path, list],
 		[ASSISTANT_ACTION_PATH, action],
+		[ASSISTANT_WRITE_LOCK_PATH, writeLock],
 		[ASSISTANT_SEND_ROUTES.send, send],
 		[ASSISTANT_SEND_ROUTES.collect, collect],
 		[ASSISTANT_SEND_ROUTES.withdraw, withdraw],
