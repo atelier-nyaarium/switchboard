@@ -84,13 +84,17 @@ Router's record names. That Gateway feeds it events. The session decides what to
 
 ## Notes
 
-`~/projects/notes/` is durable memory under git and the session's working directory.
+The folder chosen at Set up is the session's working directory and its durable memory. Nothing else
+lands in it: the host only creates it, the launch's settings are inline, and the Gateway keeps rules,
+Safety and Enabled on its own disk.
 
-- `AGENTS.md` holds the owner's own instructions, if any. The assistant's standing rules ship with
-  the plugin, so nothing is seeded into the folder.
-- `Assistant/` holds the note files: open threads, pending asks, decisions and commitments. The
-  assistant creates and updates them as it works, so their contents survive compaction.
-- No rules live here. The Gateway holds them, and only owner ops write them.
+- The note files sit at its root: the owner's standing instructions as the assistant keeps them,
+  open threads, pending asks, decisions and commitments. The assistant creates and updates them as
+  it works, so their contents survive compaction. The standing rules ship with the plugin, so
+  nothing is seeded.
+- The owner's instructions live in `Instructions.md`, which the assistant writes and keeps current,
+  never in an `AGENTS.md`, which it cannot write.
+- No watcher rules live here. The Gateway holds them, and only owner ops write them.
 
 ## The gate
 
@@ -109,7 +113,7 @@ Router's record names. That Gateway feeds it events. The session decides what to
   files, are denied; `.git` is a protected path. The engine checks a path and opens the file as one
   step, judges links on both sides, and drops denied files from search results. The launch refuses
   a workdir that is missing, holds home, is reached through a link, or cannot be quoted. A missing
-  one makes the host fall back to home, and a link's spelling is not the place it leads. Project settings in the workdir still load, since they carry the owner's `AGENTS.md`;
+  one makes the host fall back to home, and a link's spelling is not the place it leads. Project settings in the workdir still load;
   the session cannot write `.claude/`, so only the owner could add one.
 - **Its Switchboard server:** takes no capabilities and lists only `channel_reply`,
   `channel_reply_structured`, `switchboard_capabilities`, `notify_human`, `inbox`, each declared
@@ -549,7 +553,7 @@ than reserving one. `docs/routines.md` holds the routine side; this is the assis
 ## What the model reads
 
 - **Standing instructions appear once:** in the plugin's MCP instructions for `host.assistant`
-  (`src/mcp/assistant/instructions.ts`). The folder's `AGENTS.md` holds the owner's own instructions.
+  (`src/mcp/assistant/instructions.ts`). The owner's own instructions are a note, `Instructions.md`.
 - **Its capabilities are its own:** `switchboard_capabilities` serves both kinds of session. The
   assistant's answer lists `ASSISTANT_CAPABILITIES`, built from the Switchboard tools its scope
   allows (Claude Code's own file tools are not Switchboard's and are left out), then the
