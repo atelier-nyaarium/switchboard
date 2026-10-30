@@ -79,8 +79,9 @@ export function registerBridgeTools(mcpServer: McpServer, capabilities: Capabili
 	});
 
 	// Shared outgoing tools (all agents)
-	registerBridgeDiscover(mcpServer);
-	registerBridgeSend(mcpServer, { guarded: projectName === ASSISTANT_TEAM });
+	const guarded = projectName === ASSISTANT_TEAM;
+	registerBridgeDiscover(mcpServer, { guarded });
+	registerBridgeSend(mcpServer, { guarded });
 	registerBridgeWait(mcpServer);
 
 	registerChannelReply(mcpServer, capabilities);

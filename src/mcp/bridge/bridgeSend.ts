@@ -8,71 +8,79 @@ import { dropReferenceArtifacts } from "../channel/channelFiles.js";
 import { bridgeConversationId, bridgeProjectName, opLedgerRefusal, routerPost } from "./helpers.js";
 import { literalEscapeHazard, literalEscapeReject, readReplyAttachments, toolError } from "./replyTool.js";
 
-export const BridgeSendSchema = z
-	.object({
-		to: z
-			.string()
-			.optional()
-			.describe(
-				`
+/** Assistant reaches own host. */
+export const createsUnder = (guarded: boolean) =>
+	guarded
+		? `under it, this Gateway's host spawn point included. Another Gateway's host spawn point refuses this, and so does any spawn point in another Domain.`
+		: `under it. A host spawn point refuses this, and so does one in another Domain. The owner creates host sessions from the phone.`;
+
+const bridgeSendSchema = (guarded: boolean) =>
+	z
+		.object({
+			to: z
+				.string()
+				.optional()
+				.describe(
+					`
 Target session. Copy the full address from \`crosstalk_discover\`: \`domain.gateway.spawn.session\`.
 
 Never shorten it. A shortened address resolves locally instead of to the intended target.
 
 - An online session receives it directly.
 - An asleep session is woken on send.
-- A spawn point without a session is not a valid target. Set \`displayLabel\` to create one under it.
+- A spawn point without a session is not a valid target. Set \`displayLabel\` to create one ${createsUnder(guarded)}
 
 A created session may take a different name. Use the resolved address from the response afterwards.
 `.trim(),
-			),
-		body: z.string().optional().describe(`Markdown request details and relevant context.`),
-		displayLabel: z
-			.string()
-			.min(1)
-			.max(64)
-			.optional()
-			.describe(
-				`
+				),
+			body: z.string().optional().describe(`Markdown request details and relevant context.`),
+			displayLabel: z
+				.string()
+				.min(1)
+				.max(64)
+				.optional()
+				.describe(
+					`
 Human-readable label for a new session, e.g. \`Bug Investigation\`. Never a slug, \`id\`, or generated string.
 
 Required for a target that does not yet exist. Ignored when it already exists.
 `.trim() + REAL_NEWLINES_GUIDANCE,
-			),
-		disposition: z
-			.enum(["asking", "informing", "closing"])
-			.optional()
-			.describe(
-				`
+				),
+			disposition: z
+				.enum(["asking", "informing", "closing"])
+				.optional()
+				.describe(
+					`
 What you need back. Set it on every send; omitted means \`asking\`.
 
 - \`asking\`: you are waiting on a reply.
 - \`informing\`: no reply needed. They stay silent unless it affects them in a way you would want to know now.
 - \`closing\`: the thread is over. Silence is correct.
 `.trim(),
-			),
-		session_id: z
-			.string()
-			.optional()
-			.describe(
-				`
+				),
+			session_id: z
+				.string()
+				.optional()
+				.describe(
+					`
 Polling only. Pass \`session_id\` with no \`body\` to peek at a conversation's latest result.
 
 Omit it for sends. Channel conversations derive from the sender and target pair.
 `.trim(),
-			),
-		attachments: z
-			.array(z.string())
-			.optional()
-			.describe(
-				`
+				),
+			attachments: z
+				.array(z.string())
+				.optional()
+				.describe(
+					`
 Absolute paths to send with \`body\`. Requires \`body\`.
 
 The receiving agent gets local files listed in a \`[FILES]\` block.
 `.trim(),
-			),
-	})
-	.strict();
+				),
+		})
+		.strict();
+export const BridgeSendSchema = bridgeSendSchema(false);
 type BridgeSendArgs = z.infer<typeof BridgeSendSchema>;
 
 type SendResult = ResponsePayload & { error?: string; available?: string[] };
@@ -157,7 +165,7 @@ export function registerBridgeSend(mcpServer: McpServer, { guarded = false }: { 
 			title: `Crosstalk Send`,
 			description,
 			// biome-ignore lint/suspicious/noExplicitAny: MCP SDK expects this type
-			inputSchema: BridgeSendSchema as any,
+			inputSchema: bridgeSendSchema(guarded) as any,
 		},
 		async ({ to, body, session_id, displayLabel, disposition, attachments }: BridgeSendArgs) => {
 			try {

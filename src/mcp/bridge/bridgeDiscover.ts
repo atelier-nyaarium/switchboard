@@ -3,6 +3,7 @@ import type { DiscoverCoverage } from "../../shared/console-protocol.js";
 import { DiscoverAnswerSchema } from "../../shared/schemasConsoleResults.js";
 import { Address, isComposite, parseSessionName, SpawnPoint } from "../../shared/session-id.js";
 import type { TeamInfo } from "../../shared/types.js";
+import { createsUnder } from "./bridgeSend.js";
 import { bridgeProjectName, routerGet } from "./helpers.js";
 
 ////////////////////////////////
@@ -98,22 +99,23 @@ function formatSessionLine(t: TeamInfo): string {
 	return `${name}: ${status}`;
 }
 
-const DESCRIPTION = `
+const description = (guarded: boolean) =>
+	`
 # Crosstalk Discover
 
 List reachable agent teams, excluding this session.
 
-Each team has a spawn-point address. A spawn point without a session is not a valid target. Use \`crosstalk_send\` with \`displayLabel\` to create a session under it.
+Each team has a spawn-point address. A spawn point without a session is not a valid target. Use \`crosstalk_send\` with \`displayLabel\` to create one ${createsUnder(guarded)}
 
 Active sessions appear under each team at their full addresses. Asleep sessions show their last-seen time.
 `.trim();
 
-export function registerBridgeDiscover(mcpServer: McpServer): void {
+export function registerBridgeDiscover(mcpServer: McpServer, { guarded = false }: { guarded?: boolean } = {}): void {
 	mcpServer.registerTool(
 		"crosstalk_discover",
 		{
 			title: `Crosstalk Discover`,
-			description: DESCRIPTION,
+			description: description(guarded),
 			inputSchema: {},
 		},
 		async () => {
