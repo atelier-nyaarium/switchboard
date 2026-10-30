@@ -42,6 +42,9 @@ export const AssistantWatcherSchema = z
 		secret: z.string().max(400).optional(),
 		// Required starting 2026-11-04.
 		actions: z.array(AssistantActionDescriptorSchema).optional(),
+		/** Disabled polls nothing. */
+		// Required starting 2026-11-12.
+		enabled: z.boolean().optional(),
 	})
 	.meta({ id: "AssistantWatcher" });
 

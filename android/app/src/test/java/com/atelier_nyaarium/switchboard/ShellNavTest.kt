@@ -33,7 +33,7 @@ class ShellNavTest {
 	}
 
 	@Test
-	fun `the Assistant pages draw over the conversation, Back walks Editor, Rules, Settings, then beneath, and an arrival clears them`() {
+	fun `the Assistant pages draw over the conversation, Back walks Editor, Rules, Watcher, Settings, then beneath, and an arrival clears them`() {
 		val editor = AssistantPage.Editor("sakura", "github", RuleSlot.Held("reviews"))
 		val open = ShellNav().arrive(a, Arrival.OUTSIDE, facts).openAssistantPage(editor)
 		val walked = generateSequence(open) { nav ->
@@ -41,8 +41,9 @@ class ShellNavTest {
 		}.map { it.assistantPage }.toList()
 
 		assertEquals(ShellScreen.ASSISTANT_PAGE, shellScreen(open, locked = false, overlayOpen = false, booted = true))
-		assertEquals(listOf(editor, AssistantPage.Rules("sakura", "github"), AssistantPage.Settings, null), walked)
-		assertEquals(listOf(BackLayer.ASSISTANT_PAGE, BackLayer.ASSISTANT_PAGE, BackLayer.ASSISTANT_PAGE, BackLayer.CONVERSATION), backAll(open))
+		val pages = listOf(editor, AssistantPage.Rules("sakura", "github"), AssistantPage.Watcher("sakura", "github"), AssistantPage.Settings)
+		assertEquals(pages + null, walked)
+		assertEquals(List(4) { BackLayer.ASSISTANT_PAGE } + BackLayer.CONVERSATION, backAll(open))
 		assertNull(open.arrive(b, Arrival.OUTSIDE, facts).assistantPage)
 	}
 
@@ -50,6 +51,7 @@ class ShellNavTest {
 	fun `every Assistant page survives recreation`() {
 		val pages = listOf(
 			AssistantPage.Settings,
+			AssistantPage.Watcher("sakura", "github"),
 			AssistantPage.Rules("sakura", "github"),
 			AssistantPage.Editor("sakura", "github", RuleSlot.Held("reviews")),
 			AssistantPage.Editor("sakura", "github", RuleSlot.New),

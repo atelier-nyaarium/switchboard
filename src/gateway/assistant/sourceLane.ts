@@ -30,6 +30,8 @@ export interface SourceLanesDeps {
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">;
 	state: WatcherStateStore;
 	watchers: readonly Watcher[];
+	/** Disabled polls nothing. */
+	enabled: (watcherId: string) => boolean;
 	/** Read as a poll lands. */
 	sort: (watcherId: string, event: WatcherEvent) => RuleAction;
 	/** Null until the routes are bound. */
@@ -46,8 +48,10 @@ export type ReadAnswer<T> = WriteAnswer<T> | { kind: "gave_up"; end: LaneEnd };
 
 export interface SourceLanes {
 	start(): void;
-	/** Polls now, stopped or not. */
+	/** Polls now, stopped or not; a disabled one drops its timer. */
 	poke(watcherId: string): void;
+	/** Turned on or off: a poll in flight commits and wakes nothing, then as `poke`. */
+	switched(watcherId: string): void;
 	/** Released at the deadline; `settle` runs only while the read is live. */
 	read<L, T>(
 		watcherId: string,
@@ -131,6 +135,9 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 	const items = new Set<Linked>();
 	/** One queued poll each. */
 	const pollQueued = new Set<string>();
+	/** Bumped by `switched`. */
+	const generations = new Map<string, number>();
+	const generationOf = (watcherId: string) => generations.get(watcherId) ?? 0;
 
 	/**
 	 * The one road into a lane. An item's deadline counts the queue: one not started by then answers
@@ -177,6 +184,8 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		if (phase !== "running") return;
 		const held = timers.get(watcher.id);
 		if (held) ambient.clearTimer(held);
+		timers.delete(watcher.id);
+		if (!deps.enabled(watcher.id)) return;
 		const timer = ambient.setTimer(
 			() => {
 				timers.delete(watcher.id);
@@ -227,9 +236,12 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 
 	/** Validator and newest commit only once every wake is queued. */
 	const pollOnce = async (watcher: Watcher, signal: AbortSignal): Promise<void> => {
+		const began = generationOf(watcher.id);
+		const live = () => phase === "running" && deps.enabled(watcher.id) && generationOf(watcher.id) === began;
+		if (!live()) return;
 		const held = state.get(watcher.id);
 		const answer = await answerOf(watcher, held.cursor, signal, ambient);
-		if (phase !== "running") return;
+		if (!live()) return;
 		const now = ambient.now();
 		// Every settle writes the set pruned against the current specs.
 		const health = { ...cleared(held), unexpected: unexpectedNow(held, watcher.fieldSpecs) };
@@ -255,7 +267,7 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		const fresh = held.primed ? answer.events.filter((event) => event.at > held.newest) : [];
 		const wakes = fresh.filter((event) => deps.sort(watcher.id, event) === "wake").sort(oldestFirst);
 		const failed = await pushAll(watcher, wakes, signal);
-		if (phase !== "running") return;
+		if (!live()) return;
 		if (failed) {
 			const retry = held.wakeRetryMs ?? WAKE_RETRY_MS;
 			const until = ambient.now() + retry;
@@ -277,13 +289,22 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 	};
 
 	const schedule = (watcher: Watcher): void => {
-		if (phase !== "running" || pollQueued.has(watcher.id)) return;
+		if (phase !== "running" || pollQueued.has(watcher.id) || !deps.enabled(watcher.id)) return;
 		pollQueued.add(watcher.id);
 		const flight = queued(watcher.id, null, (signal) => {
 			pollQueued.delete(watcher.id);
 			return pollOnce(watcher, signal);
 		});
 		fireAndForget(`assistant watcher ${watcher.id}`, flight);
+	};
+
+	const poke = (watcherId: string): void => {
+		const watcher = deps.watchers.find((candidate) => candidate.id === watcherId);
+		if (phase !== "running" || !watcher) return;
+		const held = timers.get(watcherId);
+		if (held) ambient.clearTimer(held);
+		timers.delete(watcherId);
+		schedule(watcher);
 	};
 
 	const watcherOf = (watcherId: string): Watcher => {
@@ -300,13 +321,10 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 			const now = ambient.now();
 			for (const watcher of deps.watchers) arm(watcher, state.get(watcher.id).nextPollAt ?? now);
 		},
-		poke(watcherId) {
-			const watcher = deps.watchers.find((candidate) => candidate.id === watcherId);
-			if (phase !== "running" || !watcher) return;
-			const held = timers.get(watcherId);
-			if (held) ambient.clearTimer(held);
-			timers.delete(watcherId);
-			schedule(watcher);
+		poke,
+		switched(watcherId) {
+			generations.set(watcherId, generationOf(watcherId) + 1);
+			poke(watcherId);
 		},
 		async read(watcherId, deadlineMs, load, settle) {
 			const watcher = watcherOf(watcherId);

@@ -320,6 +320,13 @@ export const ConsoleOpSchema = z
 		}),
 		/** Gateway-local; survives release. */
 		z.object({ kind: z.literal("assistant_safety"), approveEverySend: z.boolean() }),
+		z.object({
+			kind: z.literal("assistant_watcher_enabled"),
+			watcherId: z.string().min(1).max(64),
+			enabled: z.boolean(),
+		}),
+		/** The Check now nudge. */
+		z.object({ kind: z.literal("assistant_watcher_check"), watcherId: z.string().min(1).max(64) }),
 		/** Delivers the bound send once. */
 		z.object({
 			kind: z.literal("assistant_send_answer"),
@@ -394,6 +401,8 @@ export const VALUE_OP_KINDS = new Set([
 	"assistant_otherwise_put",
 	"assistant_rules_preview",
 	"assistant_safety",
+	"assistant_watcher_enabled",
+	"assistant_watcher_check",
 	"assistant_send_answer",
 ]);
 

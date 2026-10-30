@@ -8,11 +8,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -81,6 +83,8 @@ import com.atelier_nyaarium.switchboard.unexpectedLines
 import com.atelier_nyaarium.switchboard.vault.grantableOn
 import com.atelier_nyaarium.switchboard.watcherActions
 import com.atelier_nyaarium.switchboard.watcherHealth
+import com.atelier_nyaarium.switchboard.watcherOn
+import com.atelier_nyaarium.switchboard.watcherTroubled
 
 private const val DEFAULT_FOLDER = "~/"
 
@@ -131,9 +135,17 @@ internal fun AssistantPageHost(
 ) {
 	when (page) {
 		AssistantPage.Settings ->
-			AssistantSettingsPage(repo, state, home, onListDirs, onRules = { g, w -> onPage(AssistantPage.Rules(g, w)) }, onBack)
+			AssistantSettingsPage(repo, state, home, onListDirs, onWatcher = { g, w -> onPage(AssistantPage.Watcher(g, w)) }, onBack)
+		is AssistantPage.Watcher -> {
+			val watcher = watcherIn(state.gateways.assistantOn(page.gatewayId), page.watcherId)
+			if (watcher == null) {
+				UnreadPage("Watcher", repo, state, page.gatewayId, onBack)
+			} else {
+				AssistantWatcherPage(repo, page.gatewayId, watcher, { onPage(AssistantPage.Rules(page.gatewayId, page.watcherId)) }, onBack)
+			}
+		}
 		is AssistantPage.Rules -> {
-			val watcher = watcherOn(state.gateways.assistantOn(page.gatewayId), page.watcherId)
+			val watcher = watcherIn(state.gateways.assistantOn(page.gatewayId), page.watcherId)
 			if (watcher == null) {
 				UnreadPage("Rules", repo, state, page.gatewayId, onBack)
 			} else {
@@ -141,7 +153,7 @@ internal fun AssistantPageHost(
 			}
 		}
 		is AssistantPage.Editor -> {
-			val watcher = watcherOn(state.gateways.assistantOn(page.gatewayId), page.watcherId)
+			val watcher = watcherIn(state.gateways.assistantOn(page.gatewayId), page.watcherId)
 			if (watcher == null) {
 				UnreadPage("Rule", repo, state, page.gatewayId, onBack)
 			} else {
@@ -164,7 +176,7 @@ private fun UnreadPage(title: String, repo: ChatRepository, state: ChatState, ga
 	}
 }
 
-private fun watcherOn(placed: ConsoleAssistantStateResult?, watcherId: String): AssistantWatcher? =
+private fun watcherIn(placed: ConsoleAssistantStateResult?, watcherId: String): AssistantWatcher? =
 	placed?.watchers?.find { it.id == watcherId }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -195,7 +207,7 @@ private fun AssistantSettingsPage(
 	state: ChatState,
 	home: String?,
 	onListDirs: suspend (String, String, String) -> DirListing,
-	onRules: (String, String) -> Unit,
+	onWatcher: (String, String) -> Unit,
 	onBack: () -> Unit,
 ) {
 	val ops = repo.assistantOps
@@ -212,14 +224,11 @@ private fun AssistantSettingsPage(
 		mutableStateOf(TextFieldValue(folderText, TextRange(folderText.length)))
 	}
 	// Leaving closes the dialogs.
-	var granting by remember(home) { mutableStateOf<String?>(null) }
 	var removing by remember { mutableStateOf(false) }
 	var abandoning by remember { mutableStateOf<LocationAction.Move?>(null) }
 	var opening by remember { mutableStateOf<Pair<String, String>?>(null) }
+	var showDisabled by rememberSaveable { mutableStateOf(false) }
 	val waitingSends by repo.assistantSendOps.pending.collectAsState()
-	val vaultRevision by repo.vault.revision
-	val entries = remember(vaultRevision) { repo.vaultOps.views() }
-	val offered = remember(entries, home) { home?.let(entries::grantableOn).orEmpty() }
 	val settings = { op: suspend AssistantOps.() -> String? ->
 		repo.command { assistantOps.runWork(WorkKey.Settings, op) }
 	}
@@ -346,35 +355,23 @@ private fun AssistantSettingsPage(
 				AssistantSection.WATCHERS -> {
 					val at = home ?: continue
 					val holding = homeState ?: continue
+					val (on, off) = holding.watchers.partition(::watcherOn)
 					HorizontalDivider()
 					Text("Watchers", style = MaterialTheme.typography.labelLarge)
-					for (watcher in holding.watchers) {
-						WatcherBlock(
-							watcher = watcher,
-							grantLine = grantedLine(watcher.grants, entries),
-							busy = busy,
-							onAssign = { granting = watcher.id },
-							onRules = { onRules(at, watcher.id) },
-							onRetry = { settings { answerText(retry(at, watcher)) } },
-						)
+					for (watcher in on) {
+						WatcherRow(watcher.label, watcherHealth(watcher, ::agoText), watcherTroubled(watcher)) {
+							onWatcher(at, watcher.id)
+						}
+					}
+					if (off.isNotEmpty()) {
+						FoldRow("Disabled", showDisabled) { showDisabled = !showDisabled }
+						if (showDisabled) {
+							for (watcher in off) WatcherRow(watcher.label, null, false) { onWatcher(at, watcher.id) }
+						}
 					}
 				}
 			}
 		}
-	}
-
-	val grantFor = granting?.let { watcherId -> homeState?.watchers?.find { it.id == watcherId } }
-	if (home != null && grantFor != null) {
-		GrantSecretsSheet(
-			entries = offered,
-			granted = grantFor.grants,
-			onDone = { picks ->
-				granting = null
-				settings { answerText(setGrants(home, grantFor.id, picks)) }
-			},
-			onDismiss = { granting = null },
-			needs = grantFor.secret,
-		)
 	}
 
 	opening?.let { (gatewayId, requestId) -> AssistantSendSheet(repo, gatewayId, requestId) { opening = null } }
@@ -407,30 +404,93 @@ private fun AssistantSettingsPage(
 	}
 }
 
+/** Red health when troubled. */
 @Composable
-private fun WatcherBlock(
-	watcher: AssistantWatcher,
-	grantLine: String,
-	busy: Boolean,
-	onAssign: () -> Unit,
-	onRules: () -> Unit,
-	onRetry: () -> Unit,
-) {
-	Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-		Text(watcher.label, style = MaterialTheme.typography.titleSmall)
-		Text(
-			watcherHealth(watcher, ::agoText),
-			style = MaterialTheme.typography.bodySmall,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
+private fun WatcherRow(label: String, health: String?, troubled: Boolean, onOpen: () -> Unit) {
+	Row(
+		Modifier.fillMaxWidth().clickable(onClick = hapticClick(onOpen)).padding(vertical = 8.dp),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(8.dp),
+	) {
+		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+			Text(label, style = MaterialTheme.typography.bodyLarge)
+			health?.let {
+				Text(
+					it,
+					style = MaterialTheme.typography.bodySmall,
+					color = if (troubled) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+		}
+		Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+	}
+}
+
+@Composable
+private fun FoldRow(label: String, open: Boolean, onToggle: () -> Unit) {
+	Row(
+		Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 4.dp),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(8.dp),
+	) {
+		Icon(
+			if (open) Icons.Default.ExpandMore else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+			contentDescription = if (open) "Collapse" else "Expand",
+			modifier = Modifier.size(18.dp),
 		)
-		watcher.secret?.let { SecretNeeded(it) }
-		Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-			Text(grantLine, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-			OutlinedButton(onClick = hapticClick(onAssign), enabled = !busy) { Text("Assign secret") }
+		Text(label, style = MaterialTheme.typography.labelLarge)
+	}
+}
+
+@Composable
+private fun AssistantWatcherPage(
+	repo: ChatRepository,
+	gatewayId: String,
+	watcher: AssistantWatcher,
+	onRules: () -> Unit,
+	onBack: () -> Unit,
+) {
+	val key = WorkKey.Watcher(gatewayId, watcher.id)
+	val works by repo.assistantOps.work.collectAsState()
+	val work = works[key] ?: PageWork()
+	val busy = work.busy
+	val vaultRevision by repo.vault.revision
+	val entries = remember(vaultRevision) { repo.vaultOps.views() }
+	val offered = remember(entries, gatewayId) { entries.grantableOn(gatewayId) }
+	var granting by remember { mutableStateOf(false) }
+	val run = { op: suspend AssistantOps.() -> String? -> repo.command { assistantOps.runWork(key, op) } }
+	val on = watcherOn(watcher)
+
+	AssistantPageScaffold(watcher.label, onBack) {
+		work.said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+		Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+			Text("Enabled", modifier = Modifier.weight(1f))
+			Switch(
+				checked = on,
+				onCheckedChange = { enabled -> run { answerText(setEnabled(gatewayId, watcher.id, enabled)) } },
+				enabled = !busy,
+			)
+		}
+		if (on) {
+			Text(
+				watcherHealth(watcher, ::agoText),
+				style = MaterialTheme.typography.bodySmall,
+				color = if (watcherTroubled(watcher)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+		watcher.secret?.let { needs ->
+			HorizontalDivider()
+			Text("Secret", style = MaterialTheme.typography.labelLarge)
+			SecretNeeded(needs)
+			Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+				Text(grantedLine(watcher.grants, entries), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+				OutlinedButton(onClick = hapticClick { granting = true }, enabled = !busy) { Text("Assign secret") }
+			}
 		}
 		val may = watcherActions(watcher)
 		if (may.isNotEmpty()) {
-			Text("The assistant may", style = MaterialTheme.typography.labelMedium)
+			HorizontalDivider()
+			Text("The assistant may", style = MaterialTheme.typography.labelLarge)
 			for (action in may) {
 				Column {
 					Text(action.label, style = MaterialTheme.typography.bodyMedium)
@@ -443,6 +503,7 @@ private fun WatcherBlock(
 			}
 		}
 		rulesOf(watcher)?.let { rules ->
+			HorizontalDivider()
 			Row(
 				Modifier.fillMaxWidth().clickable(enabled = !busy, onClick = hapticClick(onRules)).padding(vertical = 8.dp),
 				verticalAlignment = Alignment.CenterVertically,
@@ -459,14 +520,27 @@ private fun WatcherBlock(
 		}
 		val unexpected = unexpectedLines(watcher)
 		if (unexpected.isNotEmpty()) {
-			Text("Seen outside its lists", style = MaterialTheme.typography.labelMedium)
+			Text("Seen outside its lists", style = MaterialTheme.typography.labelLarge)
 			for (line in unexpected) {
 				Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			}
 		}
 		if (canRetry(watcher)) {
-			TextButton(onClick = hapticClick(onRetry), enabled = !busy) { Text("Retry") }
+			TextButton(onClick = hapticClick { run { answerText(retry(gatewayId, watcher)) } }, enabled = !busy) { Text("Retry") }
 		}
+	}
+
+	if (granting) {
+		GrantSecretsSheet(
+			entries = offered,
+			granted = watcher.grants,
+			onDone = { picks ->
+				granting = false
+				run { answerText(setGrants(gatewayId, watcher.id, picks)) }
+			},
+			onDismiss = { granting = false },
+			needs = watcher.secret,
+		)
 	}
 }
 

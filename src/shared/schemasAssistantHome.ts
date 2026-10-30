@@ -17,6 +17,8 @@ export const AssistantHomeCarriedWatcherSchema = z
 		rules: AssistantWatcherRulesSchema,
 		/** Its standing grant's entry. */
 		grant: z.string().min(1).max(64).nullable(),
+		/** Absent means on. */
+		enabled: z.boolean().optional(),
 	})
 	.meta({ id: "AssistantHomeCarriedWatcher" });
 

@@ -442,6 +442,12 @@ export function createConsoleDispatcher({
 			case "assistant_safety":
 				return requireAssistant().setSafety(op.approveEverySend);
 
+			case "assistant_watcher_enabled":
+				return requireAssistant().setWatcherEnabled(op.watcherId, op.enabled);
+
+			case "assistant_watcher_check":
+				return requireAssistant().checkWatcher(op.watcherId, device, opId);
+
 			case "assistant_send_answer":
 				return requireAssistant().answerSend(op.requestId, op.decision, op.note);
 

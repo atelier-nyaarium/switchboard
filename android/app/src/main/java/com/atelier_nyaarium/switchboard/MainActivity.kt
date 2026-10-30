@@ -582,6 +582,7 @@ fun App(
 				pendingRequests = ViewScope.Session(team).requestsOf(vaultPending).size,
 			)
 			val marks = offered.map { conversationMark(it, facts) }
+			val assistantWork by repo.assistantOps.work.collectAsState()
 			val chrome = threadChrome(
 				assistant = assistantOpen,
 				label = tabLabelFor(state, team),
@@ -640,6 +641,14 @@ fun App(
 				},
 				onSessions = { nav = nav.up(backFacts) },
 				onSettings = { nav = nav.openAssistantPage(AssistantPage.Settings) },
+				inboxWork = { row -> assistantWork[WorkKey.Check(gatewayOf(team), row.watcherId)] ?: PageWork() },
+				onCheckWatcher = { watcherId ->
+					val gatewayId = gatewayOf(team)
+					repo.command {
+						assistantOps.runWork(WorkKey.Check(gatewayId, watcherId)) { answerText(checkNow(gatewayId, watcherId)) }
+					}
+				},
+				onWatcherPage = { watcherId -> nav = nav.openAssistantPage(AssistantPage.Watcher(gatewayOf(team), watcherId)) },
 				composer = ComposerState(
 					draft = state.drafts[openTeam!!] ?: Draft(),
 					sendAwaitingWake = state.awaitingWake(openTeam!!),

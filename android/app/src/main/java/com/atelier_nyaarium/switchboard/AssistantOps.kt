@@ -60,7 +60,9 @@ internal interface AssistantHost {
 internal fun carriedOf(state: ConsoleAssistantStateResult): AssistantHomeCarried = AssistantHomeCarried(
 	approveEverySend = state.approveEverySend ?: true,
 	watchers = state.watchers.mapNotNull { watcher ->
-		watcher.rules?.let { AssistantHomeCarriedWatcher(id = watcher.id, rules = it, grant = watcher.grants.firstOrNull()) }
+		watcher.rules?.let {
+			AssistantHomeCarriedWatcher(id = watcher.id, rules = it, grant = watcher.grants.firstOrNull(), enabled = watcherOn(watcher))
+		}
 	},
 )
 
@@ -135,12 +137,41 @@ internal fun answerText(answer: AssistantAnswer): String? = when (answer) {
 	AssistantAnswer.Unreachable -> "That Gateway could not be reached"
 }
 
-/** One chip in the inbox strip. */
-internal data class WatcherChip(val text: String, val needsSecret: Boolean)
+/** Older Gateways run every watcher. */
+internal fun watcherOn(watcher: AssistantWatcher): Boolean = watcher.enabled != false
+
+/** Inbox strip row. */
+internal sealed interface InboxRow {
+	val watcherId: String
+	val label: String
+
+	/** Check now nudges. */
+	data class Waiting(override val watcherId: String, override val label: String, val badge: String) : InboxRow
+
+	/** Settings opens its page. */
+	data class Problem(override val watcherId: String, override val label: String) : InboxRow
+}
+
+/** Enabled watchers needing attention. */
+internal fun inboxRows(watchers: List<AssistantWatcher>): List<InboxRow> = watchers.filter(::watcherOn).mapNotNull { watcher ->
+	when (val status = watcherStatus(watcher)) {
+		WatcherStatus.NeedsSecret, is WatcherStatus.Stopped -> InboxRow.Problem(watcher.id, watcher.label)
+		WatcherStatus.NotChecked -> null
+		is WatcherStatus.Waiting -> if (status.checkedAt != null && watcher.unread > 0) waiting(watcher) else null
+		is WatcherStatus.Checked -> if (watcher.unread > 0) waiting(watcher) else null
+	}
+}
+
+private fun waiting(watcher: AssistantWatcher) = InboxRow.Waiting(watcher.id, watcher.label, "${countText(watcher)} new")
 
 /** "+" when capped. */
-internal fun unreadText(watcher: AssistantWatcher): String =
-	"${watcher.unread}${if (watcher.capped == true) "+" else ""} unread"
+private fun countText(watcher: AssistantWatcher): String = "${watcher.unread}${if (watcher.capped == true) "+" else ""}"
+
+internal fun unreadText(watcher: AssistantWatcher): String = "${countText(watcher)} unread"
+
+/** Needs a secret or stopped. */
+internal fun watcherTroubled(watcher: AssistantWatcher): Boolean =
+	watcherStatus(watcher).let { it == WatcherStatus.NeedsSecret || it is WatcherStatus.Stopped }
 
 /** Chip and health agree. */
 internal sealed interface WatcherStatus {
@@ -162,19 +193,6 @@ internal fun watcherStatus(watcher: AssistantWatcher): WatcherStatus = when {
 	watcher.backoff != null -> WatcherStatus.Waiting(watcher.backoff.reason, watcher.lastSuccessAt)
 	watcher.lastSuccessAt == null -> WatcherStatus.NotChecked
 	else -> WatcherStatus.Checked(watcher.lastSuccessAt)
-}
-
-/** No count before a poll has read one. */
-internal fun watcherChip(watcher: AssistantWatcher): WatcherChip {
-	val label = watcher.label
-	val counted = "$label · ${unreadText(watcher)}"
-	return when (val status = watcherStatus(watcher)) {
-		WatcherStatus.NeedsSecret -> WatcherChip("$label needs a secret", needsSecret = true)
-		is WatcherStatus.Stopped -> WatcherChip("$label stopped", needsSecret = false)
-		is WatcherStatus.Waiting -> WatcherChip(if (status.checkedAt == null) "$label not checked yet" else counted, needsSecret = false)
-		WatcherStatus.NotChecked -> WatcherChip("$label not checked yet", needsSecret = false)
-		is WatcherStatus.Checked -> WatcherChip(counted, needsSecret = false)
-	}
 }
 
 /** A watcher's settings row. */
@@ -222,6 +240,11 @@ internal data class PageWork(val busy: Boolean = false, val said: String? = null
 internal sealed interface WorkKey {
 	data object Settings : WorkKey
 
+	data class Watcher(val gatewayId: String, val watcherId: String) : WorkKey
+
+	/** The strip's Check now. */
+	data class Check(val gatewayId: String, val watcherId: String) : WorkKey
+
 	data class RuleList(val gatewayId: String, val watcherId: String) : WorkKey
 }
 
@@ -234,7 +257,8 @@ internal data class HeldRuleDraft(val draft: RuleDraft, val opening: Long, val s
 internal fun watcherActions(watcher: AssistantWatcher): List<AssistantActionDescriptor> = watcher.actions.orEmpty()
 
 /** A stopped watcher that holds its secret can be asked again, as after a rotated key. */
-internal fun canRetry(watcher: AssistantWatcher): Boolean = watcher.stopped != null && watcher.grants.isNotEmpty()
+internal fun canRetry(watcher: AssistantWatcher): Boolean =
+	watcherOn(watcher) && watcher.stopped != null && watcher.grants.isNotEmpty()
 
 /** The home record is held; a Gateway's answer replaces what it last said. */
 internal class AssistantOps(
@@ -478,14 +502,25 @@ internal class AssistantOps(
 		registry.gateways.filter { it.seen }.map { it.id to it.incarnation }
 
 	suspend fun setSafety(gatewayId: String, approveEverySend: Boolean): AssistantAnswer =
-		landed(gatewayId, ConsoleOp.AssistantSafety(approveEverySend))
+		carriedSetting(gatewayId, ConsoleOp.AssistantSafety(approveEverySend))
 
 	suspend fun setGrants(gatewayId: String, watcherId: String, entryIds: List<String>): AssistantAnswer =
-		landed(gatewayId, ConsoleOp.AssistantWatcherGrants(watcherId = watcherId, entryIds = entryIds))
+		carriedSetting(gatewayId, ConsoleOp.AssistantWatcherGrants(watcherId = watcherId, entryIds = entryIds))
 
 	/** The same set again, which the Gateway reads as a poll now. */
 	suspend fun retry(gatewayId: String, watcher: AssistantWatcher): AssistantAnswer =
 		setGrants(gatewayId, watcher.id, watcher.grants)
+
+	suspend fun setEnabled(gatewayId: String, watcherId: String, enabled: Boolean): AssistantAnswer =
+		carriedSetting(gatewayId, ConsoleOp.AssistantWatcherEnabled(watcherId = watcherId, enabled = enabled))
+
+	/** Under `writes`, so a move seals it or the old home refuses it. */
+	private suspend fun carriedSetting(gatewayId: String, op: ConsoleOp): AssistantAnswer =
+		writes.withLock { landed(gatewayId, op) }
+
+	/** Nudges the assistant now. */
+	suspend fun checkNow(gatewayId: String, watcherId: String): AssistantAnswer =
+		landed(gatewayId, ConsoleOp.AssistantWatcherCheck(watcherId = watcherId))
 
 	/** 0 adds the rule. */
 	suspend fun saveRule(gatewayId: String, watcherId: String, rule: AssistantRule): RuleSaved =

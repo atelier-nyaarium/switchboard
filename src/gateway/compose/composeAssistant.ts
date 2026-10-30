@@ -8,6 +8,7 @@ import {
 	ASSISTANT_TEAM,
 	isAssistantRecord,
 } from "../../shared/assistant-session.js";
+import { SEND_BOUND_MS } from "../../shared/console-protocol.js";
 import { openDurable } from "../../shared/durable-store.js";
 import { isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { createFifo } from "../../shared/keyed-fifo.js";
@@ -26,6 +27,7 @@ import {
 } from "../../shared/schemasAssistantRules.js";
 import type { AssistantSendRequest } from "../../shared/schemasAssistantSend.js";
 import type { SessionBaseline } from "../../shared/session-baseline.js";
+import { ASSISTANT_COMMANDS } from "../../shared/session-commands.js";
 import { type ActionRecord, createActionDispatch } from "../assistant/actionDispatch.js";
 import { createAssistantRoutes, type Handler } from "../assistant/assistantRoutes.js";
 import { createGithubClient, type GithubClientDeps, type TokenRead } from "../assistant/githubClient.js";
@@ -40,6 +42,7 @@ import { type AssistantWake, createSourceLanes, type SourceLanes } from "../assi
 import { ASSISTANT_WAITS } from "../assistant/waits.js";
 import type { ListPage, ListQuery, Watcher, WatcherEvent } from "../assistant/watcher.js";
 import type { WatcherActions } from "../assistant/watcherAction.js";
+import { createWatcherEnabledStore } from "../assistant/watcherEnabled.js";
 import { createWatcherStateStore, FRESH_STATE, unexpectedNow } from "../assistant/watcherState.js";
 import type { AssistantConsoleHandlers } from "../console/consoleTypes.js";
 import { presentedByRequest } from "../sessionAuthority.js";
@@ -54,6 +57,17 @@ const STOP_WAIT_MS = 5_000;
 /** Events a preview reads. */
 const PREVIEW_EVENTS = 50;
 const MOVING_HERE = "the assistant is still moving here; try again shortly";
+
+/** Owner send; null when it landed. */
+export type AssistantNudge = (nudge: { from: string; body: string; deliveryId: string }) => Promise<string | null>;
+
+/** Names the catalogued command. */
+const checkNudge = (label: string) =>
+	`
+The owner asked you to check ${label} now.
+Call ${ASSISTANT_COMMANDS.inbox.tool} with scope "new" and handle what it lists by your rules.
+Reply only if something needs the owner.
+	`.trim();
 
 /** What the assistant reaches in the vault, read late. */
 export interface AssistantVault {
@@ -112,6 +126,8 @@ export interface AssistantStage {
 	baselineFor: (team: string) => SessionBaseline["assistant"];
 	/** The send path's event road, bound on each federation activation. */
 	bindWake: (wake: AssistantWake) => void;
+	/** Check now's road. */
+	bindNudge: (nudge: AssistantNudge) => void;
 	/** Arms the watchers, once federation is active. */
 	start: () => void;
 	/** Final, and before the shutdown flush, so it sees no poll halfway through its write. */
@@ -162,6 +178,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	const actions: WatcherActions = { github_done: new GithubDone(github) };
 
 	const watcherState = openDurable(deps.dataDir, "assistant-watchers", (store) => createWatcherStateStore(store));
+	const enabled = openDurable(deps.dataDir, "assistant-watcher-enabled", (store) => createWatcherEnabledStore(store));
 	// Unknown watcher returns undefined.
 	const specsOf = (watcherId: string) => watchers.find((candidate) => candidate.id === watcherId)?.fieldSpecs;
 	const rules = openDurable(deps.dataDir, "assistant-rules", (store) => createRulesStore({ store, specsOf }));
@@ -169,6 +186,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 
 	let lanes: SourceLanes | null = null;
 	let wake: AssistantWake | null = null;
+	let nudge: AssistantNudge | null = null;
 	let active = false;
 	let ownerOpsClosed = false;
 
@@ -178,6 +196,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			ambient,
 			state: watcherState,
 			watchers,
+			enabled: (watcherId) => enabled.enabled(watcherId),
 			sort: (watcherId, event) => decideEvent(rules.get(watcherId), specsOf(watcherId) ?? [], event.fields),
 			wake: () => wake,
 			to: ASSISTANT_TEAM,
@@ -212,6 +231,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	};
 	const inbox = createInboxListing({
 		watchers,
+		enabled: (watcherId) => enabled.enabled(watcherId),
 		state: watcherState,
 		rulesFor: (watcherId) => rules.get(watcherId),
 		ambient,
@@ -274,9 +294,14 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			unexpected: unexpectedNow(state, specs),
 			...(watcher.secret === undefined ? {} : { secret: watcher.secret }),
 			actions: actionsOf(watcher.id),
+			enabled: enabled.enabled(watcher.id),
 		};
 	};
-
+	const watcherNamed = (watcherId: string) => {
+		const found = watchers.find((watcher) => watcher.id === watcherId);
+		if (!found) throw new Error(`no watcher "${watcherId}"`);
+		return found;
+	};
 	const safety = openDurable(deps.dataDir, "assistant-safety", (store) => createSafetyStore(store));
 	// Preboot rows cannot establish owner activity.
 	const marker = createOriginMarker(deps.lastDeliverySeq() + 1);
@@ -396,6 +421,12 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		if (!rules.replaceAll(ids, (watcherId) => byId.get(watcherId)?.rules ?? null))
 			return "the rules could not be saved";
 		if (!safety.set(carried?.approveEverySend ?? true)) return "the Safety setting could not be saved";
+		// Fresh is off; unflagged carried is on.
+		const off = watchers.filter((watcher) => {
+			const moved = byId.get(watcher.id);
+			return moved === undefined || moved.enabled === false;
+		});
+		if (!enabled.replaceOff(off.map((watcher) => watcher.id))) return "the watchers' Enabled could not be saved";
 		// Unusable grants drop.
 		for (const watcher of watchers) {
 			const grant = byId.get(watcher.id)?.grant;
@@ -428,6 +459,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		});
 		if (residue && !rules.replaceAll(ids, () => null)) return false;
 		if (!safety.approveEverySend() && !safety.set(true)) return false;
+		if (ids.some((watcherId) => !enabled.enabled(watcherId)) && !enabled.replaceOff([])) return false;
 		return true;
 	};
 
@@ -458,22 +490,27 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		baselineFor: (team) => {
 			if (!isAssistant(team)) return undefined;
 			return {
-				watchers: watchers.map((watcher) => {
-					const health = watcherState.get(watcher.id);
-					return {
-						label: watcher.label,
-						unread: health.unread,
-						capped: health.capped,
-						checked: health.lastSuccessAt !== undefined,
-						evicted: 0,
-						...(health.stopped !== undefined ? { stopped: health.stopped } : {}),
-						...(health.backoff ? { waiting: health.backoff.reason } : {}),
-					};
-				}),
+				watchers: watchers
+					.filter((watcher) => enabled.enabled(watcher.id))
+					.map((watcher) => {
+						const health = watcherState.get(watcher.id);
+						return {
+							label: watcher.label,
+							unread: health.unread,
+							capped: health.capped,
+							checked: health.lastSuccessAt !== undefined,
+							evicted: 0,
+							...(health.stopped !== undefined ? { stopped: health.stopped } : {}),
+							...(health.backoff ? { waiting: health.backoff.reason } : {}),
+						};
+					}),
 			};
 		},
 		bindWake: (bound) => {
 			wake = bound;
+		},
+		bindNudge: (bound) => {
+			nudge = bound;
 		},
 		console: {
 			state,
@@ -502,6 +539,47 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					if (!safety.set(approveEverySend)) throw new Error("the setting could not be saved");
 					return state();
 				}),
+			// No await: `switched` voids a poll in flight before it can commit.
+			setWatcherEnabled: (watcherId, on) =>
+				settled(() => {
+					watcherNamed(watcherId);
+					if (!held()) throw new Error(NOT_HERE);
+					if (enabled.enabled(watcherId) === on) return state();
+					// Backlog wakes nothing.
+					const unprimed = { ...watcherState.get(watcherId), primed: false };
+					if (on && !watcherState.put(watcherId, unprimed)) throw new Error("the watcher could not be reset");
+					if (!enabled.set(watcherId, on)) throw new Error("the setting could not be saved");
+					if (lanes) lanes.switched(watcherId);
+					else startLanes();
+					return state();
+				}),
+			checkWatcher: async (watcherId, from, opId) => {
+				const watcher = await settled(() => {
+					const found = watcherNamed(watcherId);
+					if (!held() || !home.allowsLanes()) throw new Error(NOT_HERE);
+					if (!enabled.enabled(watcherId)) throw new Error(`${found.label} is disabled`);
+					return found;
+				});
+				if (!nudge) throw new Error("federation is not active");
+				// Outside the queue; wakes are slow.
+				const sent = nudge({
+					from,
+					body: checkNudge(watcher.label),
+					deliveryId: `assistant-check:${opId}`,
+				}).catch((error: Error) => error.message);
+				const answered = await withinMs(
+					ambient,
+					sent.then((refused) => ({ refused })),
+					SEND_BOUND_MS,
+				);
+				if (answered?.refused) throw new Error(answered.refused);
+				if (!answered) {
+					void sent.then((refused) => {
+						if (refused) console.warn(`[assistant] check of ${watcherId} not delivered: ${refused}`);
+					});
+				}
+				return state();
+			},
 			answerSend: (requestId, decision, note) => guard.answer(requestId, decision, note),
 			/** Over the live first page, from the rule's place. */
 			previewRule: async (watcherId, rule) => {

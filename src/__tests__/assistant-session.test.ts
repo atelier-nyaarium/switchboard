@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import type { Watcher } from "../gateway/assistant/watcher.js";
 import {
 	type AssistantHomePort,
+	type AssistantNudge,
 	type AssistantStageDeps,
 	type AssistantVault,
 	composeAssistant,
@@ -15,6 +16,7 @@ import { ASSISTANT_ACTION_PATH } from "../shared/schemasAssistantActions.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../shared/schemasAssistantHome.js";
 import type { AssistantFieldSpec, AssistantRule, AssistantWatcherRules } from "../shared/schemasAssistantRules.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
+import { ASSISTANT_COMMANDS } from "../shared/session-commands.js";
 import { SessionStore } from "../shared/session-store.js";
 import { type FakeAmbient, fakeAmbient } from "../testing/fakeAmbient.js";
 
@@ -102,15 +104,23 @@ function rule(id: string, action: AssistantRule["action"] = "wake"): AssistantRu
 	};
 }
 
-function carriedSettings(options: { approveEverySend?: boolean; rules?: AssistantRule[]; grant?: string | null } = {}) {
+function carriedSettings(
+	options: { approveEverySend?: boolean; rules?: AssistantRule[]; grant?: string | null; enabled?: boolean } = {},
+) {
+	const enabled = options.enabled === undefined ? {} : { enabled: options.enabled };
 	return {
 		approveEverySend: options.approveEverySend ?? true,
-		watchers: [{ id: "github", rules: rules(options.rules), grant: options.grant ?? null }],
+		watchers: [{ id: "github", rules: rules(options.rules), grant: options.grant ?? null, ...enabled }],
 	};
 }
 
 function sealedHome(workdirPath = NOTES, carried: AssistantHomeSealed["carried"] = null): AssistantHomeSealed {
 	return { workdirPath, carried };
+}
+
+/** A move's home; watcher on. */
+function movedHome(): HomeOpen {
+	return { kind: "ok", sealed: sealedHome(NOTES, carriedSettings()) };
 }
 
 function homeRecord(version: number, gatewayId: string | null = LOCAL_GATEWAY): AssistantHomeRecord {
@@ -229,7 +239,7 @@ describe("the assistant's session", () => {
 		const watcher = counting({ repeat: true });
 		const test = stage({ ambient, watchers: [watcher] });
 		test.assistant.start();
-		await test.followHome();
+		await test.followHome(1, LOCAL_GATEWAY, movedHome());
 		await ambient.advance(0);
 		const polled = watcher.polls;
 
@@ -283,7 +293,7 @@ describe("the assistant's session", () => {
 		test.assistant.start();
 		await ambient.advance(0);
 		const unplaced = watcher.polls;
-		await test.followHome();
+		await test.followHome(1, LOCAL_GATEWAY, movedHome());
 		await ambient.advance(0);
 		const placed = watcher.polls;
 		await test.assistant.console.setWatcherGrants("github", ["gh-token"]);
@@ -305,6 +315,57 @@ describe("the assistant's session", () => {
 		expect(released.watchers[0]?.grants).toEqual([]);
 		expect(test.assistant.placed()).toBe(false);
 		await expect(test.assistant.console.setWatcherGrants("github", ["gh-token"])).rejects.toThrow();
+	});
+
+	it("starts a fresh home's watchers off, a carried one as it was, and polls only while enabled", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const watcher = counting({ repeat: true });
+		const test = stage({ ambient, watchers: [watcher] });
+		test.assistant.start();
+		await test.followHome();
+		await test.assistant.console.setWatcherGrants("github", ["gh-token"]);
+		await ambient.advance(60_000);
+		const fresh = { enabled: test.assistant.console.state().watchers[0]?.enabled, polls: watcher.polls };
+
+		await test.assistant.console.setWatcherEnabled("github", true);
+		await ambient.advance(0);
+		const on = watcher.polls;
+		await test.assistant.console.setWatcherEnabled("github", false);
+		await ambient.advance(120_000);
+		const off = watcher.polls;
+
+		await test.followHome(2, LOCAL_GATEWAY, { kind: "ok", sealed: sealedHome(NOTES, carriedSettings()) });
+		const olderRecord = test.assistant.console.state().watchers[0]?.enabled;
+		const carriedOff = sealedHome(NOTES, carriedSettings({ enabled: false }));
+		await test.followHome(3, LOCAL_GATEWAY, { kind: "ok", sealed: carriedOff });
+		const movedOff = test.assistant.console.state().watchers[0]?.enabled;
+		await stopped(test.assistant, ambient);
+
+		expect(fresh).toEqual({ enabled: false, polls: 0 });
+		expect(on).toBe(1);
+		expect(off).toBe(on);
+		expect([olderRecord, movedOff]).toEqual([true, false]);
+	});
+
+	it("checks a watcher by an owner nudge naming the inbox command, and refuses a disabled one", async () => {
+		const test = stage();
+		const sent: Parameters<AssistantNudge>[0][] = [];
+		test.assistant.bindNudge(async (nudge) => {
+			sent.push(nudge);
+			return nudge.deliveryId.endsWith("op-3") ? "the session is gone" : null;
+		});
+		await test.followHome(1, LOCAL_GATEWAY, { kind: "ok", sealed: sealedHome(NOTES, carriedSettings()) });
+
+		await test.assistant.console.checkWatcher("github", "Pixel", "op-1");
+		await test.assistant.console.setWatcherEnabled("github", false);
+		const disabled = test.assistant.console.checkWatcher("github", "Pixel", "op-2");
+		await expect(disabled).rejects.toThrow("disabled");
+		await test.assistant.console.setWatcherEnabled("github", true);
+		const refused = test.assistant.console.checkWatcher("github", "Pixel", "op-3");
+		await expect(refused).rejects.toThrow("the session is gone");
+
+		expect(sent.map((nudge) => nudge.deliveryId)).toEqual(["assistant-check:op-1", "assistant-check:op-3"]);
+		expect(sent[0]).toMatchObject({ from: "Pixel", body: expect.stringContaining(ASSISTANT_COMMANDS.inbox.tool) });
 	});
 
 	it("reports a failed session save and rolls the placement back", async () => {
@@ -347,7 +408,7 @@ describe("the assistant's session", () => {
 			},
 		});
 		test.assistant.start();
-		await test.followHome();
+		await test.followHome(1, LOCAL_GATEWAY, movedHome());
 		await ambient.advance(0);
 		const ungranted = test.assistant.console.state().watchers[0]?.stopped;
 
@@ -514,7 +575,7 @@ describe("the assistant's session", () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const store = new SessionStore({ ambient: processAmbient() });
 		const first = stage({ ambient, store });
-		await first.followHome();
+		await first.followHome(1, LOCAL_GATEWAY, movedHome());
 		await stopped(first.assistant, ambient);
 		const watcher = counting();
 		const restarted = stage({ dataDir: first.dataDir, store, ambient, watchers: [watcher] });

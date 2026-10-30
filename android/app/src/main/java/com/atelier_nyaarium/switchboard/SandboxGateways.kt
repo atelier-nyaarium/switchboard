@@ -343,6 +343,7 @@ internal class SandboxAssistantGateway : AssistantGateway {
 	private var workdir = "~/projects/notes"
 	private var approveEverySend = true
 	private val grants = mutableMapOf<String, List<String>>()
+	private val off = mutableSetOf<String>()
 	/** Exercises unlisted choices. */
 	private var rules = AssistantWatcherRules(
 		rules = listOf(
@@ -391,7 +392,7 @@ internal class SandboxAssistantGateway : AssistantGateway {
 		return RuleSaved.Stored(rules)
 	}
 
-	/** Ungranted at first, so the needs-a-secret chip is reachable. */
+	/** Ungranted at first, so the problem row is reachable. */
 	private fun watchers() = listOf(
 		AssistantWatcher(
 			id = "github",
@@ -408,6 +409,7 @@ internal class SandboxAssistantGateway : AssistantGateway {
 			unexpected = AssistantUnexpectedValues(listOf(AssistantFieldValue("type", "WorkflowRun")), capped = false),
 			secret = "GitHub PAT (Classic) with scope:\n- Notifications",
 			actions = listOf(AssistantActionDescriptor("github_done", "Mark done", "Clears threads from your GitHub inbox.")),
+			enabled = "github" !in off,
 		),
 	)
 
@@ -445,6 +447,12 @@ internal class SandboxAssistantGateway : AssistantGateway {
 				approveEverySend = op.approveEverySend
 				AssistantAnswer.State(stateOf(gatewayId))
 			}
+			is ConsoleOp.AssistantWatcherEnabled -> {
+				if (op.enabled) off -= op.watcherId else off += op.watcherId
+				AssistantAnswer.State(stateOf(gatewayId))
+			}
+			is ConsoleOp.AssistantWatcherCheck ->
+				if (op.watcherId in off) AssistantAnswer.Refused("${op.watcherId} is disabled") else AssistantAnswer.State(stateOf(gatewayId))
 			else -> AssistantAnswer.State(stateOf(gatewayId))
 		}
 	}

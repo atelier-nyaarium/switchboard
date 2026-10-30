@@ -121,6 +121,10 @@ internal fun ThreadScreen(
 	onCloseTab: (String) -> Unit,
 	onSessions: () -> Unit,
 	onSettings: () -> Unit = {},
+	/** Inbox strip, by watcher id. */
+	inboxWork: (InboxRow) -> PageWork = { PageWork() },
+	onCheckWatcher: (String) -> Unit = {},
+	onWatcherPage: (String) -> Unit = {},
 	// The four assembled subjects (see ThreadScreenState.kt): distinct types are what make handing
 	// one cluster's fact to another's slot a compile error instead of a plausible call.
 	composer: ComposerState,
@@ -339,23 +343,6 @@ internal fun ThreadScreen(
 							)
 							presence?.let { StatusChip(it.text, presenceColor(it)) }
 						}
-						if (chrome.chips.isNotEmpty()) {
-							androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-								for (chip in chrome.chips) {
-									androidx.compose.material3.AssistChip(
-										onClick = hapticClick(onSettings),
-										label = { Text(chip.text, style = MaterialTheme.typography.labelSmall) },
-										colors = if (chip.needsSecret) {
-											androidx.compose.material3.AssistChipDefaults.assistChipColors(
-												containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-											)
-										} else {
-											androidx.compose.material3.AssistChipDefaults.assistChipColors()
-										},
-									)
-								}
-							}
-						}
 						if (view != ConversationView.CHAT) {
 							Text(view.title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
 						}
@@ -419,6 +406,9 @@ internal fun ThreadScreen(
 		Column(Modifier.padding(pad).fillMaxSize().imePadding()) {
 			if (chrome.tabRow) {
 				ReorderableTabRow(tabs = tabs, selected = team, tabLabel = tabLabel, onSelect = onGateway, onReorder = onReorderTabs)
+			}
+			if (view == ConversationView.CHAT) {
+				com.atelier_nyaarium.switchboard.assistant.InboxStrip(chrome.inbox, inboxWork, onCheckWatcher, onWatcherPage)
 			}
 			// Below the tab row, not above it. The strip is the open tab's own entries and its height
 			// changes as they do, which walked the tab row up and down the screen under it.

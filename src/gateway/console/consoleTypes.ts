@@ -149,6 +149,9 @@ export interface AssistantConsoleHandlers {
 	putOtherwise: (watcherId: string, otherwise: AssistantRuleOtherwise) => Promise<ConsoleAssistantRulesResult>;
 	previewRule: (watcherId: string, rule: AssistantRule) => Promise<ConsoleAssistantPreviewResult>;
 	setSafety: (approveEverySend: boolean) => Promise<ConsoleAssistantStateResult>;
+	setWatcherEnabled: (watcherId: string, enabled: boolean) => Promise<ConsoleAssistantStateResult>;
+	/** Bounded by the send wait. */
+	checkWatcher: (watcherId: string, from: string, opId: string) => Promise<ConsoleAssistantStateResult>;
 	/** One delivery; collect outcome. */
 	answerSend: (requestId: string, decision: "approve" | "deny", note?: string) => ConsoleAssistantSendAnswerResult;
 }

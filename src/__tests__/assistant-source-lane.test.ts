@@ -154,11 +154,13 @@ function lanes(
 	watcher: Watcher,
 	wake: AssistantWake,
 	sort: (event: WatcherEvent) => RuleAction = () => "wake",
+	enabled: () => boolean = () => true,
 ): SourceLanes {
 	return createSourceLanes({
 		ambient,
 		state,
 		watchers: [watcher],
+		enabled,
 		sort: (_watcherId, event) => sort(event),
 		wake: () => wake,
 		to: "host.assistant",
@@ -206,6 +208,43 @@ describe("a watcher's source lane", () => {
 		expect(poked).toBe(2);
 		expect(beforeInterval).toBe(2);
 		expect(source.cursors).toEqual([null, "c1", "c1"]);
+	});
+
+	it("polls only while enabled, and a switch off voids the poll in flight: no wake, no commit", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const source = scripted();
+		const state = stateIn(stateDir());
+		const pushes = wakes();
+		let on = false;
+		const lane = lanes(
+			ambient,
+			state,
+			source.watcher,
+			pushes.wake,
+			() => "wake",
+			() => on,
+		);
+
+		lane.start();
+		await ambient.advance(60_000);
+		const whileOff = source.cursors.length;
+		on = true;
+		lane.switched("github");
+		await ambient.advance(0);
+		source.answer(unread("c1", [thread("a", 100)], 30_000));
+		await ambient.advance(0);
+		await ambient.advance(30_000);
+		on = false;
+		lane.switched("github");
+		source.answer(unread("c2", [thread("b", 200)], 30_000));
+		await ambient.advance(0);
+		await ambient.advance(120_000);
+		await stopped(lane, ambient);
+
+		expect(whileOff).toBe(0);
+		expect(source.cursors).toEqual([null, "c1"]);
+		expect(pushes.pushed).toEqual([]);
+		expect(state.get("github").cursor).toBe("c1");
 	});
 
 	it("sees the backlog at the first poll without waking, then wakes only what is newer than the newest seen", async () => {

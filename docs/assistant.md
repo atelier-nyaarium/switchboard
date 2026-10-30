@@ -22,8 +22,10 @@ Router's record names. That Gateway feeds it events. The session decides what to
   the active Domain) holds the newest version and lands before anything else, so a version applies
   once and a restart never re-applies over an owner's edit.
   - **Named:** with its watchers stopped, it places the session record in the sealed folder, resets
-    poll state and grants, takes the carried rules and Safety (fresh when nothing was carried), keeps
-    a carried grant only when this Gateway may use its entry, then starts its watchers and reports.
+    poll state and grants, takes the carried rules and Safety (fresh when nothing was carried), sets
+    each watcher's Enabled from what was carried (off when fresh, on for a carried watcher an older
+    record names without the flag), keeps a carried grant only when this Gateway may use its entry,
+    then starts its watchers and reports.
     The first wake launches the session; the host daemon creates the folder with its parents when it
     is missing (`ensureAssistantWorkdir`), never home or a folder above it.
   - **Not named, or nobody:** it ends waiting sends, stops its watchers, forgets the session (retried
@@ -40,13 +42,18 @@ Router's record names. That Gateway feeds it events. The session decides what to
   a gear in the top bar opens it on every landing past the first read while the Router is reachable
   (`rootOffersSettings`).
   - Placed, a `placed` report for the held choice (`placedGateway`), enters its conversation in the
-    usual thread screen, titled "Assistant", with one chip per watcher under the title, a gear for
-    Assistant settings in place of the session menu, and no tab row (`threadChrome`). Back goes
-    Terminal, Chat, Sessions.
+    usual thread screen, titled "Assistant" on one line, with a gear for Assistant settings in place
+    of the session menu, and no tab row (`threadChrome`). Back goes Terminal, Chat, Sessions.
+  - **The inbox strip** (`InboxStrip.kt`) docks under the top bar on Chat, collapsible, and draws only
+    while an enabled watcher has a problem or new items (`inboxRows`). A problem row shows Settings,
+    which opens that watcher's page, where the problem is named. A row with new items shows the
+    count as a badge ("4 new") and Check now.
   - The gear opens the Settings page: Assistant location (the Gateway, the folder, Move here or Set
-    up here, Remove assistant), then the home's Safety and each watcher's health (`WatcherStatus`),
-    secret, grants, actions, a Rules page with its count, and Retry when stopped. Rules opens a
-    rule's Editor page. `docs/console.md` holds how the pages route.
+    up here, Remove assistant), the home's Safety, then one row per enabled watcher with its health
+    line (`WatcherStatus`), red when it needs a secret or stopped, and a collapsible Disabled group
+    after them. A row opens the watcher's page: Enabled, its health, secret, grants, actions, a
+    Rules page with its count, and Retry when stopped. Rules opens a rule's Editor page.
+    `docs/console.md` holds how the pages route.
   - **Writes** (`AssistantOps`): Set up and Move are one sealed put. A placed, reachable home carries
     its fresh `assistant_state`; an unplaced one carries what the record sealed; a placed home that
     cannot be reached carries nothing, only once the owner confirms abandoning it. Remove puts
@@ -269,6 +276,18 @@ A watcher is plain Gateway code, never a model.
   checks the grant after the vault refresh and takes the same release a session's use does. A
   missing or refused grant stops the watcher, and an unreachable vault backs it off. A Gmail
   watcher needs its own OAuth token in the vault, since a watcher cannot use Claude's connectors.
+- **Enabled** (`watcherEnabled.ts`, `assistant_watcher_enabled`): a disabled watcher polls, wakes
+  and lists nothing for the assistant, and the baseline leaves it out; its grant and rules stay, and
+  an owner's rule preview still reads it. The store holds the off set, so a Gateway that predates it
+  runs every watcher. A switch calls the lane's `switched`, which voids a poll in flight: it commits
+  and wakes nothing. Enabling resets `primed` in the same tick, so what arrived while it was off
+  wakes nothing, then polls it now. A move carries the flag. On the phone, Safety, grants and
+  Enabled are written under the same mutex a move takes, so a move seals the setting or the old
+  home refuses it.
+- **Check now** (`assistant_watcher_check`): an owner nudge into the assistant's session naming the
+  `inbox` command, sent like a check-in through `sendFromOwner` with `channelOnly`, so it wakes a sleeping
+  session. The op answers once the nudge lands or `SEND_BOUND_MS` passes; a disabled watcher is
+  refused. The delivery id is the op's, so a retried op nudges once.
 
 ### GitHub notifications
 
@@ -408,11 +427,11 @@ before the shutdown flush. Stop is final. `src/gateway/assistant/` holds the wat
   phone drops it unseen. Titles, links and outcomes come from GitHub and render as a fixed list of
   text; only the summary is the model's. The conversation is the only action history. A crash after
   GitHub confirms a clear but before its row is queued leaves that clear without a row.
-- **Counts:** the chip, the settings health line and the baseline show GitHub's unread count from the
-  last poll that read it ("4 unread"), "not checked yet" before one has, and "+" past the 500 a poll
-  reads (`unreadText` in
-  `AssistantOps.kt`, `renderBaseline`). Settings list each watcher's actions under its secret, from
-  `assistant_state` (`watcherActions`); an older Gateway names none.
+- **Counts:** the strip's badge ("4 new"), the health line and the baseline show GitHub's unread
+  count from the last poll that read it, "not checked yet" before one has, and "+" past the 500 a
+  poll reads (`inboxRows` and `unreadText` in `AssistantOps.kt`, `renderBaseline`). A watcher's page
+  lists its actions under its secret, from `assistant_state` (`watcherActions`); an older Gateway
+  names none.
 
 ## The locked phone
 

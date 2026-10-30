@@ -178,6 +178,8 @@ object Protocol {
 			const val ASSISTANT_OTHERWISE_PUT: String = "assistant_otherwise_put"
 			const val ASSISTANT_RULES_PREVIEW: String = "assistant_rules_preview"
 			const val ASSISTANT_SAFETY: String = "assistant_safety"
+			const val ASSISTANT_WATCHER_ENABLED: String = "assistant_watcher_enabled"
+			const val ASSISTANT_WATCHER_CHECK: String = "assistant_watcher_check"
 			const val ASSISTANT_SEND_ANSWER: String = "assistant_send_answer"
 		}
 
@@ -708,6 +710,19 @@ sealed class ConsoleOp {
 	) : ConsoleOp()
 
 	@Serializable
+	@SerialName("assistant_watcher_enabled")
+	data class AssistantWatcherEnabled(
+		val watcherId: String,
+		val enabled: Boolean,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("assistant_watcher_check")
+	data class AssistantWatcherCheck(
+		val watcherId: String,
+	) : ConsoleOp()
+
+	@Serializable
 	@SerialName("assistant_send_answer")
 	data class AssistantSendAnswer(
 		val requestId: String,
@@ -1107,6 +1122,7 @@ data class AssistantWatcher(
 	val unexpected: AssistantUnexpectedValues? = null,
 	val secret: String? = null,
 	val actions: List<AssistantActionDescriptor>? = null,
+	val enabled: Boolean? = null,
 )
 
 @Serializable
@@ -1123,6 +1139,7 @@ data class AssistantHomeCarriedWatcher(
 	val id: String,
 	val rules: AssistantWatcherRules,
 	val grant: String? = null,
+	val enabled: Boolean? = null,
 )
 
 @Serializable

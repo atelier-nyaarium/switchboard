@@ -584,12 +584,13 @@ class AssistantOpsTest {
 	}
 
 	@Test
-	fun carriedOfKeepsSafetyRulesAndOneGrantPerConfiguredWatcher() {
+	fun carriedOfKeepsSafetyRulesOneGrantAndEnabledPerConfiguredWatcher() {
 		val rules = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise("inbox", 1L), 2L)
 		val state = assistantState(
 			approveEverySend = false,
 			watchers = listOf(
 				watcher(grants = listOf("first-grant", "second-grant")).copy(rules = rules),
+				watcher().copy(id = "off", rules = rules, enabled = false),
 				watcher().copy(id = "unconfigured", rules = null),
 			),
 		)
@@ -597,7 +598,10 @@ class AssistantOpsTest {
 		assertEquals(
 			AssistantHomeCarried(
 				approveEverySend = false,
-				watchers = listOf(AssistantHomeCarriedWatcher("github", rules, "first-grant")),
+				watchers = listOf(
+					AssistantHomeCarriedWatcher("github", rules, "first-grant", enabled = true),
+					AssistantHomeCarriedWatcher("off", rules, "gh-token", enabled = false),
+				),
 			),
 			carriedOf(state),
 		)
@@ -647,17 +651,20 @@ class AssistantOpsTest {
 	}
 
 	@Test
-	fun theStripAsksForASecretBeforeItCountsGithubsUnread() {
+	fun theInboxStripShowsAnEnabledWatcherOnlyWithSomethingToProcessOrAProblem() {
 		val unset = watcher(grants = emptyList(), secret = "A GitHub token", lastSuccessAt = 1L)
-		assertEquals(WatcherChip("GitHub notifications needs a secret", needsSecret = true), watcherChip(unset))
-		assertEquals("GitHub notifications not checked yet", watcherChip(watcher(grants = emptyList())).text)
-		assertEquals("GitHub notifications stopped", watcherChip(watcher(stopped = "GitHub refused the token")).text)
-		assertEquals("GitHub notifications not checked yet", watcherChip(watcher(unread = 0L)).text)
-		assertEquals("GitHub notifications · 2 unread", watcherChip(watcher(lastSuccessAt = 1L)).text)
+		val problem = listOf(InboxRow.Problem("github", "GitHub notifications"))
+		val rows = { watcher: AssistantWatcher -> inboxRows(listOf(watcher)) }
+
+		assertEquals(problem, rows(unset))
+		assertEquals(problem, rows(watcher(stopped = "GitHub refused the token")))
+		assertEquals(listOf(InboxRow.Waiting("github", "GitHub notifications", "2 new")), rows(watcher(lastSuccessAt = 1L)))
 		assertEquals(
-			"GitHub notifications · 500+ unread",
-			watcherChip(watcher(unread = 500L, capped = true, lastSuccessAt = 1L)).text,
+			listOf(InboxRow.Waiting("github", "GitHub notifications", "500+ new")),
+			rows(watcher(unread = 500L, capped = true, lastSuccessAt = 1L)),
 		)
+		val quiet = listOf(watcher(), watcher(unread = 0L, lastSuccessAt = 1L), unset.copy(enabled = false))
+		assertEquals(emptyList<InboxRow>(), inboxRows(quiet))
 	}
 
 	@Test
@@ -798,6 +805,7 @@ class AssistantOpsTest {
 		assertTrue(canRetry(watcher(stopped = "GitHub refused the token")))
 		assertFalse(canRetry(watcher(grants = emptyList(), stopped = "needs a secret")))
 		assertFalse(canRetry(watcher()))
+		assertFalse(canRetry(watcher(stopped = "GitHub refused the token").copy(enabled = false)))
 	}
 
 	@Test

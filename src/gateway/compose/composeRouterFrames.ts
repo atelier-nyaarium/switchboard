@@ -51,7 +51,7 @@ export interface RouterFramesStageDeps {
 	awareness: Pick<AwarenessStage, "awareness" | "workspaceObserve">;
 	assistant: Pick<
 		AssistantStage,
-		"forgetRefusal" | "console" | "bindWake" | "sessionEnded" | "placed" | "follow" | "bindHome"
+		"forgetRefusal" | "console" | "bindWake" | "bindNudge" | "sessionEnded" | "placed" | "follow" | "bindHome"
 	>;
 }
 
@@ -87,6 +87,13 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			deps.vault.sessionEnded(team);
 			deps.routines.sessionEnded(team);
 			deps.assistant.sessionEnded(team);
+		};
+		/** Null when it landed. */
+		const nudgeAsOwner = async (nudge: { from: string; to: string; body: string; deliveryId: string }) => {
+			const res = await deps.routes().sendFromOwner({ ...nudge, channelOnly: true });
+			if (res.ok) return null;
+			const json = (await res.json().catch(() => ({}))) as { error?: string };
+			return json.error ?? `send to "${nudge.to}" failed`;
 		};
 
 		const consoleHandler = createConsoleDispatcher({
@@ -140,6 +147,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 		});
 
 		deps.assistant.bindWake((event) => deps.routes().deliverEvent(event));
+		deps.assistant.bindNudge((nudge) => nudgeAsOwner({ ...nudge, to: ASSISTANT_TEAM }));
 		deps.assistant.bindHome({
 			open: (record) => openHome(record),
 			report: async (mark) => {
@@ -223,12 +231,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 					dropSessionResume(team, "release");
 					onSessionEnded(team);
 				},
-				deliver: async ({ from, to, body, deliveryId }) => {
-					const res = await deps.routes().sendFromOwner({ from, to, body, deliveryId, channelOnly: true });
-					if (res.ok) return null;
-					const json = (await res.json().catch(() => ({}))) as { error?: string };
-					return json.error ?? `send to "${to}" failed`;
-				},
+				deliver: nudgeAsOwner,
 			}),
 		);
 

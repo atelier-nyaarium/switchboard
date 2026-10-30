@@ -54,6 +54,7 @@ function github(ambient: FakeAmbient, replies: Reply[], token: TokenRead = TOKEN
 	const lane = createSourceLanes({
 		ambient,
 		state: { get: () => FRESH_STATE, put: () => true },
+		enabled: () => true,
 		watchers: [
 			{
 				id: "github",

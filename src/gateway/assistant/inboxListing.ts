@@ -14,6 +14,8 @@ const MAX_LIST_BYTES = 64_000;
 
 export interface InboxListingDeps {
 	watchers: readonly Watcher[];
+	/** Disabled lists nothing. */
+	enabled: (watcherId: string) => boolean;
 	state: Pick<WatcherStateStore, "get" | "put">;
 	rulesFor: (watcherId: string) => AssistantWatcherRules;
 	ambient: Pick<Ambient, "randomBytes">;
@@ -115,7 +117,7 @@ export function createInboxListing(deps: InboxListingDeps): InboxListing {
 				return [{ label: "Inbox", items: [], error: "stale page; list again" }];
 			}
 			const listed = deps.watchers.filter(
-				(watcher) => watcher.list && (!asked || asked.watcherId === watcher.id),
+				(watcher) => watcher.list && deps.enabled(watcher.id) && (!asked || asked.watcherId === watcher.id),
 			);
 			return Promise.all(listed.map((watcher) => listOne(watcher, scope, asked ?? { skip: 0 })));
 		},

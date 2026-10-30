@@ -271,11 +271,15 @@ class AssistantRootTest {
 		assertEquals(AssistantPage.Settings, rules.resolved(noWatcher))
 		assertEquals(AssistantPage.Settings, rules.resolved(placedOn("mikan", "sakura")))
 
+		val watcherPage = AssistantPage.Watcher("sakura", "github")
+		assertEquals(watcherPage, watcherPage.resolved(placed))
+		assertEquals(AssistantPage.Settings, watcherPage.resolved(noWatcher))
+
 		val editor = AssistantPage.Editor("sakura", "github", RuleSlot.New)
 		for (older in listOf(github.copy(fields = null), github.copy(rules = null))) {
 			val answer = ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = listOf(older))
 			val olderGateway = placed.withWord("sakura", AssistantWord.Answered(answer))
-			assertEquals(listOf(AssistantPage.Settings, AssistantPage.Settings), listOf(rules, editor).map { it.resolved(olderGateway) })
+			assertEquals(listOf(watcherPage, watcherPage), listOf(rules, editor).map { it.resolved(olderGateway) })
 		}
 	}
 
@@ -307,15 +311,21 @@ class AssistantRootTest {
 	}
 
 	@Test
-	fun theAssistantShowsItsTitleChipsAndGearWithNoTabs() {
-		val watcher = com.atelier_nyaarium.switchboard.proto.AssistantWatcher(id = "github", label = "GitHub", grants = emptyList(), unread = 0L)
+	fun theAssistantShowsItsTitleInboxAndGearWithNoTabs() {
+		val watcher = com.atelier_nyaarium.switchboard.proto.AssistantWatcher(
+			id = "github",
+			label = "GitHub",
+			grants = listOf("gh-token"),
+			unread = 3L,
+			lastSuccessAt = 1L,
+		)
 		val tabs = listOf(session, "dom.mikan.app.dev")
 		val chrome = threadChrome(assistant = true, label = "assistant", tabs = tabs, watchers = listOf(watcher))
 		val sessionChrome = threadChrome(assistant = false, label = "dev", tabs = tabs, watchers = listOf(watcher))
 
 		assertEquals(Triple("Assistant", false, false), Triple(chrome.title, chrome.tabRow, chrome.sessionMenu))
-		assertEquals(listOf(watcherChip(watcher)), chrome.chips)
+		assertEquals(listOf(InboxRow.Waiting("github", "GitHub", "3 new")), chrome.inbox)
 		assertEquals(Triple("dev", true, true), Triple(sessionChrome.title, sessionChrome.tabRow, sessionChrome.sessionMenu))
-		assertEquals(emptyList<WatcherChip>(), sessionChrome.chips)
+		assertEquals(emptyList<InboxRow>(), sessionChrome.inbox)
 	}
 }

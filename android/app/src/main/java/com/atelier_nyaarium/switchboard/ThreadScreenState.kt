@@ -77,7 +77,8 @@ internal data class ThreadChrome(
 	val tabRow: Boolean,
 	/** Otherwise the gear. */
 	val sessionMenu: Boolean,
-	val chips: List<WatcherChip>,
+	/** Empty draws no strip. */
+	val inbox: List<InboxRow>,
 )
 
 internal fun threadChrome(
@@ -87,9 +88,9 @@ internal fun threadChrome(
 	watchers: List<com.atelier_nyaarium.switchboard.proto.AssistantWatcher>,
 ): ThreadChrome =
 	if (assistant) {
-		ThreadChrome(RootView.ASSISTANT.title, monospace = false, tabRow = false, sessionMenu = false, chips = watchers.map(::watcherChip))
+		ThreadChrome(RootView.ASSISTANT.title, monospace = false, tabRow = false, sessionMenu = false, inbox = inboxRows(watchers))
 	} else {
-		ThreadChrome(label, monospace = true, tabRow = tabs.size > 1, sessionMenu = true, chips = emptyList())
+		ThreadChrome(label, monospace = true, tabRow = tabs.size > 1, sessionMenu = true, inbox = emptyList())
 	}
 
 /** A local composite session of this Domain has a drivable pane. */

@@ -220,6 +220,7 @@ describe("an assistant action", () => {
 		const lanes = createSourceLanes({
 			ambient,
 			state: { get: () => FRESH_STATE, put: () => true },
+			enabled: () => true,
 			watchers: [
 				{
 					id: "github",
