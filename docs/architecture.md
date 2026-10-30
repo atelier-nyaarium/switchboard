@@ -172,7 +172,8 @@ through `toClaim`. A fresh launch presents its token before the binding activate
 rule refuses every real host session.
 
 **`doWakeTeam` refuses to mint under a host spawn,** because `/send` accepts an unbound sender. Only
-the console's authenticated `create_session` opens a host record. A reattached pane and a purged
+the console's authenticated `create_session` and an assistant send its guard cleared
+(`WakeCreate.cleared`) open a host record. A reattached pane and a purged
 `DATA_DIR` lose their proof and must be relaunched.
 
 ## Phone path

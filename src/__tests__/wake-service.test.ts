@@ -116,15 +116,15 @@ describe("WakeService", () => {
 		expect(s.forgotten).toHaveLength(0);
 	});
 
-	it("mints a host session only with the owner's approval, and never the typed name", async () => {
+	it("mints a host session only for a cleared send, and never the typed name", async () => {
 		const s = setup();
-		const unasked = await s.service.tryWakeTeam("host.github-ops", { displayLabel: "GitHub Ops" });
+		const uncleared = await s.service.tryWakeTeam("host.github-ops", { displayLabel: "GitHub Ops" });
 		const before = s.sent.length;
-		const wake = s.service.tryWakeTeam("host.github-ops", { displayLabel: "GitHub Ops", ownerApproved: true });
+		const wake = s.service.tryWakeTeam("host.github-ops", { displayLabel: "GitHub Ops", cleared: true });
 		const launched = s.sent[0]?.team ?? "";
 		s.wakeCoordinator.notify(launched);
 
-		expect(unasked).toMatchObject({ ok: false });
+		expect(uncleared).toMatchObject({ ok: false });
 		expect(before).toBe(0);
 		expect(launched.startsWith("host.")).toBe(true);
 		expect(launched).not.toBe("host.github-ops");

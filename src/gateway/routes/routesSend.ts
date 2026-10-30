@@ -377,9 +377,9 @@ export function createSendRoutes({
 		// Wake or create the target before delivery.
 		const mintedFrom =
 			inboundSessionId ?? (fromConversationId ? `${fromConversationId}:${resolved.name}` : undefined);
-		// An approved card is the owner's word, which a host mint needs.
-		const approved = record?.guard === "approved" ? { ownerApproved: true as const } : {};
-		const arrived = await reach(resolved, { displayLabel, mintedFrom, ...approved });
+		// The guard cleared it, by card or by the owner's setting.
+		const cleared = record ? { cleared: true as const } : {};
+		const arrived = await reach(resolved, { displayLabel, mintedFrom, ...cleared });
 		if (!arrived.ok) return jsonResponse({ error: arrived.error }, 404);
 		const { localName, target, qualifiedTo, targetWs } = arrived;
 

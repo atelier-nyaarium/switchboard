@@ -92,8 +92,8 @@ export class WakeService {
 				console.log(`[wake] ${team} has no record and no displayLabel; refusing to adopt the typed name`);
 				return { ok: false, error: decision.error };
 			}
-			if (decision.kind === "mint" && isHostSpawn(project) && !createOpts.ownerApproved) {
-				// Only create_session, or a send the owner approved, mints a host session.
+			if (decision.kind === "mint" && isHostSpawn(project) && !createOpts.cleared) {
+				// Only create_session, or a cleared assistant send, mints a host session.
 				console.log(`[wake] refusing to mint host session "${team}" - create_session owns that door`);
 				return { ok: false, error: `no session named "${team}"; create it from the console first` };
 			}

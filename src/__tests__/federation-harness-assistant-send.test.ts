@@ -344,6 +344,21 @@ describe("the assistant's guarded sends", () => {
 		expect(unasked.map((entry) => entry.guard)).toEqual(["unasked", "unasked"]);
 	});
 
+	it("with approval off, an unasked send creates its host session too", async () => {
+		await ownerSays("hand it off");
+		const typed = h.target("host.release-ops");
+		const outcome = await send(typed, "cut the release", { displayLabel: "Release Ops" });
+		const minted = String(outcome.json.target ?? "");
+		const session = await h.waitFor(
+			() => [...attached.values()].find((candidate) => h.target(candidate.team) === minted),
+			"the minted session",
+		);
+		await h.waitFor(() => session.inbound.find((frame) => frame.body === "cut the release"), "the delivery");
+
+		expect(outcome.json).toMatchObject({ outcome: "sent", guard: "unasked" });
+		expect(minted).not.toBe(typed);
+	}, 30_000);
+
 	it("after a restart, keeps the setting, asks with no marker, and retracts a card it can no longer answer", async () => {
 		await ownerSays("before restart");
 		const held = await safety(true).then(() => send(worker.team, "held over restart"));

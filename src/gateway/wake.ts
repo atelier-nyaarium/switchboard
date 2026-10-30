@@ -16,8 +16,8 @@ export interface WakeResult {
 export interface WakeCreate {
 	displayLabel?: string;
 	mintedFrom?: string;
-	/** The owner approved it; a host spawn point mints nothing without. */
-	ownerApproved?: true;
+	/** The send guard cleared it; a host spawn point mints nothing without. */
+	cleared?: true;
 }
 
 export type WakeCreateDecision =
