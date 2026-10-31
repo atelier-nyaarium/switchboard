@@ -113,7 +113,7 @@ describe("Router holder recipient", () => {
 	it("stamps the holder beside the signed envelope and replays that stamp", () => {
 		const harness = make();
 		const input = harness.row("request-1");
-		harness.hold.claim(domainId, "phone-a", 10_000);
+		harness.hold.claim(domainId, "phone-a", "Pixel", 10_000);
 
 		const answer = harness.append(input) as {
 			outcome: string;
@@ -124,17 +124,17 @@ describe("Router holder recipient", () => {
 			opKey: { conversationId: "assistant", opId: "request-1" },
 			outcome: "accepted",
 			seq: 1,
-			result: { stamp: { device: "phone-a" } },
+			result: { stamp: { holder: "phone-a" } },
 		});
-		expect(stored.stamp).toEqual({ device: "phone-a" });
+		expect(stored.stamp).toEqual({ holder: "phone-a" });
 		expect(stored.envelope).toEqual(input.envelope);
 		expect(verifyRowEnvelope(stored.envelope, stored.producerSig, harness.gateway.sign.pub)).toBe(true);
-		expect(harness.pushed[0]?.stamp).toEqual({ device: "phone-a" });
+		expect(harness.pushed[0]?.stamp).toEqual({ holder: "phone-a" });
 
 		harness.setNow(10_001);
-		harness.hold.claim(domainId, "phone-b", 10_001);
+		harness.hold.claim(domainId, "phone-b", "Pixel", 10_001);
 		const replay = harness.append(input) as typeof answer;
-		expect(replay.result?.stamp).toEqual({ device: "phone-a" });
+		expect(replay.result?.stamp).toEqual({ holder: "phone-a" });
 		expect(harness.inbox.rows(harness.address, 1, 10)).toHaveLength(1);
 		expect(harness.pushed).toHaveLength(1);
 	});
@@ -153,22 +153,22 @@ describe("Router holder recipient", () => {
 	it("replays an accepted holder append after the hold lapses", () => {
 		const harness = make();
 		const input = harness.row("request-lapsed-retry");
-		harness.hold.claim(domainId, "phone-a", 10_000);
-		expect(harness.append(input)).toMatchObject({ outcome: "accepted", result: { stamp: { device: "phone-a" } } });
+		harness.hold.claim(domainId, "phone-a", "Pixel", 10_000);
+		expect(harness.append(input)).toMatchObject({ outcome: "accepted", result: { stamp: { holder: "phone-a" } } });
 
 		harness.setNow(10_000 + PHONE_HOLD_WINDOW_MS);
 		expect(harness.hold.read(domainId, 10_000 + PHONE_HOLD_WINDOW_MS)).toBeNull();
 		expect(harness.append(input)).toMatchObject({
 			outcome: "accepted",
 			seq: 1,
-			result: { stamp: { device: "phone-a" } },
+			result: { stamp: { holder: "phone-a" } },
 		});
 		expect(harness.inbox.rows(harness.address, 1, 10)).toHaveLength(1);
 	});
 
 	it("refuses a holder recipient addressed to a session", () => {
 		const harness = make();
-		harness.hold.claim(domainId, "phone-a", 10_000);
+		harness.hold.claim(domainId, "phone-a", "Pixel", 10_000);
 		const answer = harness.frames.appendRow(
 			{ domainId, gatewayId: "gateway", signPub: harness.gateway.sign.pub, incarnation: 1 },
 			{
@@ -182,8 +182,8 @@ describe("Router holder recipient", () => {
 
 	it("refuses a producer-supplied stamp", () => {
 		const harness = make();
-		harness.hold.claim(domainId, "phone-a", 10_000);
-		const input = { ...harness.row("request-3"), stamp: { device: "phone-spoof" } };
+		harness.hold.claim(domainId, "phone-a", "Pixel", 10_000);
+		const input = { ...harness.row("request-3"), stamp: { holder: "phone-spoof" } };
 
 		expect(harness.append(input)).toEqual({ ok: false, error: "invalid inbox_append" });
 		expect(harness.inbox.rows(harness.address, 1, 10)).toEqual([]);

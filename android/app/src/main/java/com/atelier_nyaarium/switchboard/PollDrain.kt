@@ -42,6 +42,10 @@ internal fun knownPlanesJson(known: Map<String, HeldLineage>): JsonObject = buil
 internal const val PRESENCE_PLANE = "presence"
 internal const val ASSISTANT_HOME_PLANE = "assistantHome"
 
+/** Older rows are backlog. */
+internal fun arrivedWhileVisible(visible: Boolean, at: Long, foregroundSince: Long): Boolean =
+	visible && foregroundSince > 0L && at >= foregroundSince
+
 internal suspend fun drainTick(
 	client: ConsoleClient,
 	coordinator: ConsoleTransportCoordinator,
@@ -178,8 +182,8 @@ internal class PollDrain(
 	/** Loop-bound work scope. */
 	val scope: CoroutineScope? get() = pollScope
 
-	// Tags backlog drained after resume.
-	@Volatile private var resumeBacklogPending = false
+	// Backlog is older than this.
+	@Volatile private var foregroundSince = 0L
 
 	private val kick = Channel<Unit>(Channel.CONFLATED)
 
@@ -221,7 +225,7 @@ internal class PollDrain(
 
 	/** Mark the resume backlog. */
 	fun onForegroundResume() {
-		resumeBacklogPending = true
+		foregroundSince = System.currentTimeMillis()
 		pollFails = 0
 	}
 
@@ -311,7 +315,7 @@ internal class PollDrain(
 				false, body, entry.at, files = files, status = entry.status,
 				title = entry.title.tierOrNull(), summary = entry.summary.tierOrNull(), fullSpoken = entry.fullSpoken.tierOrNull(),
 				epoch = epoch, seq = entry.seq, from = attribution.from, to = attribution.to, isPeer = attribution.isPeer,
-				arrivedVisible = host.isVisible && !resumeBacklogPending, record = record,
+				arrivedVisible = arrivedWhileVisible(host.isVisible, entry.at, foregroundSince), record = record,
 			).let { it.copy(quiet = quietInConversation(isAssistant(host.state.value, team), it)) }
 			val appended = host.appendInbound(team, message) {
 				inboundSubscribers.forEach { subscriber ->

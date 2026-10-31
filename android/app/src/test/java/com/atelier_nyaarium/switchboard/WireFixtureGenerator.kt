@@ -90,7 +90,7 @@ class WireFixtureGenerator {
 		val op = buildJsonObject { put("kind", case) }
 		val bootstrap = world.bootstrap()
 		val signed = OwnerOps(bootstrap, world.ambient(draws)).sign(op, opId)
-		val expect = "{\"hold\":{\"holder\":\"${bootstrap.device}\"}}"
+		val expect = "{\"hold\":{\"holder\":\"${bootstrap.consoleIdentity.sign.pub}\",\"label\":\"${bootstrap.device}\"}}"
 		return ownerCase(root, composer, case, signed, opId, expect, draws = draws)
 	}
 

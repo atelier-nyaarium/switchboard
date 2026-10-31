@@ -78,7 +78,7 @@ describe("phone capabilities through the federation harness", () => {
 		expect((result as { detail?: string }).detail).toContain("No phone holds me");
 
 		const claimed = await h.phone.claimHold();
-		expect(claimed.hold.holder).toBe(h.phone.device);
+		expect(claimed.hold).toMatchObject({ holder: h.phone.signerSignPub, label: h.phone.device });
 		await waitForHold("held");
 	});
 
@@ -94,7 +94,7 @@ describe("phone capabilities through the federation harness", () => {
 		const phone = await h.phone.answerPhone(callId, answerPhone({ holder: h.phone.device, keys: [] }));
 		const result = await (await pending).json();
 
-		expect(row.stamp).toEqual({ device: h.phone.device });
+		expect(row.stamp).toEqual({ holder: h.phone.signerSignPub });
 		expect(entry).toMatchObject({
 			kind: "plugin_action",
 			pluginId: "phone",
@@ -184,6 +184,6 @@ describe("phone capabilities through the federation harness", () => {
 			kind: string;
 			holder?: string;
 		};
-		expect(hold).toMatchObject({ kind: "lapsed", holder: h.phone.device });
+		expect(hold).toMatchObject({ kind: "lapsed", holder: h.phone.signerSignPub, label: h.phone.device });
 	});
 });

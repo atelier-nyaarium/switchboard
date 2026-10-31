@@ -104,8 +104,8 @@ describe("compact baseline", () => {
 
 	it("prints the current phone hold on one line", async () => {
 		for (const [hold, line] of [
-			[{ kind: "held", holder: "Pixel", remainingMs: 42_000 }, "phone hold: held by Pixel, 42000ms remaining"],
-			[{ kind: "lapsed", holder: "Pixel", lapsedMs: 1_000 }, "phone hold: lapsed 1000ms ago, last held by Pixel"],
+			[{ kind: "held", label: "Pixel", remainingMs: 42_000 }, "phone hold: held by Pixel, 42000ms remaining"],
+			[{ kind: "lapsed", label: "Pixel", lapsedMs: 1_000 }, "phone hold: lapsed 1000ms ago, last held by Pixel"],
 			[{ kind: "none" }, "phone hold: none"],
 		] as const) {
 			const lines = await hookLines(deps({ assistant: () => ({ hold, watchers: [] }) }));

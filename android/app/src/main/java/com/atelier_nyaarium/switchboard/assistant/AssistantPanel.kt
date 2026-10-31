@@ -1,12 +1,18 @@
 package com.atelier_nyaarium.switchboard.assistant
 
 import android.graphics.Bitmap
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
@@ -33,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -40,13 +48,17 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.ThreadRendererPool
 import com.atelier_nyaarium.switchboard.ThreadWebView
 import com.atelier_nyaarium.switchboard.setDraftText
 import com.atelier_nyaarium.switchboard.unreadBoundary
+
+private const val PANEL_RESIZE_MS = 300
 
 /** The panel over another app: the assistant's thread, the screen chip and a composer. */
 @Composable
@@ -58,6 +70,7 @@ internal fun AssistantPanel(
 	showing: Int,
 	chip: ScreenChip,
 	thumbnail: Bitmap?,
+	sending: Boolean,
 	onAttach: (Boolean) -> Unit,
 	onSend: () -> Unit,
 	onOpenInApp: () -> Unit,
@@ -66,14 +79,17 @@ internal fun AssistantPanel(
 	val state by repo.state.collectAsState()
 	val draft = state.drafts[team]
 	val text = draft?.text.orEmpty()
-	val sendable = text.isNotBlank() || chip == ScreenChip.ATTACHED
+	val sendable = (text.isNotBlank() || chip == ScreenChip.ATTACHED) && !sending
 	val focus = remember { FocusRequester() }
 	val keyboard = LocalSoftwareKeyboardController.current
+	val scope = rememberCoroutineScope()
+	val height = remember(showing) { Animatable(PANEL_DEFAULT_FRACTION) }
 	LaunchedEffect(showing) {
 		focus.requestFocus()
 		keyboard?.show()
 	}
-	Box(Modifier.fillMaxSize()) {
+	BoxWithConstraints(Modifier.fillMaxSize()) {
+		val windowPx = with(LocalDensity.current) { maxHeight.toPx() }
 		Box(
 			Modifier
 				.fillMaxSize()
@@ -84,14 +100,25 @@ internal fun AssistantPanel(
 			modifier = Modifier
 				.align(Alignment.BottomCenter)
 				.fillMaxWidth()
-				.fillMaxHeight(0.7f)
+				.fillMaxHeight(height.value)
 				.imePadding()
 				.navigationBarsPadding(),
 			shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
 			tonalElevation = 3.dp,
 		) {
 			Column(Modifier.fillMaxSize()) {
-				Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+				Row(
+					Modifier
+						.fillMaxWidth()
+						.draggable(
+							orientation = Orientation.Vertical,
+							state = rememberDraggableState { delta ->
+								scope.launch { height.snapTo(panelDragFraction(height.value, delta, windowPx)) }
+							},
+						)
+						.padding(start = 16.dp, end = 4.dp),
+					verticalAlignment = Alignment.CenterVertically,
+				) {
 					Text("Assistant", style = MaterialTheme.typography.titleMedium)
 					Spacer(Modifier.weight(1f))
 					TextButton(onClick = onOpenInApp) { Text("Open in app ↗") }
@@ -144,8 +171,18 @@ internal fun AssistantPanel(
 						maxLines = 4,
 						modifier = Modifier.weight(1f).focusRequester(focus),
 					)
-					IconButton(onClick = onSend, enabled = sendable) {
-						Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+					IconButton(
+						onClick = {
+							onSend()
+							scope.launch { height.animateTo(panelSentFraction(height.value), tween(PANEL_RESIZE_MS)) }
+						},
+						enabled = sendable,
+					) {
+						if (sending) {
+							CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+						} else {
+							Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+						}
 					}
 				}
 			}

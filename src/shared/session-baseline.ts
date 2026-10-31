@@ -43,12 +43,13 @@ export const SessionBaselineSchema = z.object({
 				.discriminatedUnion("kind", [
 					z.object({
 						kind: z.literal("held"),
-						holder: z.string(),
+						/** Holder's device name. */
+						label: z.string(),
 						remainingMs: z.number().int().nonnegative(),
 					}),
 					z.object({
 						kind: z.literal("lapsed"),
-						holder: z.string(),
+						label: z.string(),
 						lapsedMs: z.number().int().nonnegative(),
 					}),
 					z.object({ kind: z.literal("none") }),

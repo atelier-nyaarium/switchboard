@@ -18,11 +18,17 @@ export function createHoldFollow(now: () => number) {
 			return {
 				kind: "held",
 				holder: hold.holder,
+				label: hold.label,
 				claimedAt: hold.claimedAt,
 				remainingMs: Math.max(0, PHONE_HOLD_WINDOW_MS - elapsed),
 			};
 		}
-		return { kind: "lapsed", holder: hold.holder, lapsedMs: Math.max(0, elapsed - PHONE_HOLD_WINDOW_MS) };
+		return {
+			kind: "lapsed",
+			holder: hold.holder,
+			label: hold.label,
+			lapsedMs: Math.max(0, elapsed - PHONE_HOLD_WINDOW_MS),
+		};
 	};
 
 	return {

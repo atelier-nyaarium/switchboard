@@ -45,7 +45,7 @@ export function createPhoneRequests(deps: PhoneRequestsDeps) {
 			appendAnswers.set(request.requestId, delivered.completion);
 			void delivered.completion.then((answer) => {
 				if (answer.kind === "accepted" && answer.stamp) {
-					stamps.set(request.requestId, answer.stamp.device);
+					stamps.set(request.requestId, answer.stamp.holder);
 					return;
 				}
 				const settled =
@@ -95,10 +95,11 @@ export function createPhoneRequests(deps: PhoneRequestsDeps) {
 			}),
 		});
 
+	/** Answering phone's signing key. */
 	const answer = async (
 		requestId: string,
 		raw: unknown,
-		device: string,
+		signer: string,
 	): Promise<{ ok: boolean; reason?: string }> => {
 		const request = core.live(requestId);
 		if (!request) return { ok: false, reason: core.answered(requestId) ? "already answered" : "request expired" };
@@ -107,9 +108,9 @@ export function createPhoneRequests(deps: PhoneRequestsDeps) {
 		const appended = await append;
 		if (appended.kind !== "accepted" || !appended.stamp)
 			return { ok: false, reason: "the phone request has no holder stamp" };
-		const stampedDevice = stamps.get(requestId);
-		if (!stampedDevice) return { ok: false, reason: "the phone request has no holder stamp" };
-		if (device !== stampedDevice) return { ok: false, reason: "the answer came from a different phone" };
+		const stampedHolder = stamps.get(requestId);
+		if (!stampedHolder) return { ok: false, reason: "the phone request has no holder stamp" };
+		if (signer !== stampedHolder) return { ok: false, reason: "the answer came from a different phone" };
 		const live = core.live(requestId);
 		if (!live) return { ok: false, reason: core.answered(requestId) ? "already answered" : "request expired" };
 		const parsed = PhoneCapabilityAnswerSchema.safeParse(raw);

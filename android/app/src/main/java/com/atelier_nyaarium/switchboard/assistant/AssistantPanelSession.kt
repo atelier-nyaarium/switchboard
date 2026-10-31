@@ -67,6 +67,7 @@ internal class AssistantPanelSession(context: Context) :
 	private val team = MutableStateFlow<String?>(null)
 	private val screen = MutableStateFlow(HeldScreen())
 	private val attached = MutableStateFlow(false)
+	private val sending = MutableStateFlow(false)
 	private val shows = MutableStateFlow(0)
 	private var leased = false
 
@@ -151,6 +152,7 @@ internal class AssistantPanelSession(context: Context) :
 			val held by screen.collectAsState()
 			val isAttached by attached.collectAsState()
 			val showing by shows.collectAsState()
+			val isSending by sending.collectAsState()
 			val state by repo.state.collectAsState()
 			val unlocked by AppLock.unlocked.collectAsState()
 			// The app lock relocked while shown.
@@ -174,6 +176,7 @@ internal class AssistantPanelSession(context: Context) :
 						showing = showing,
 						chip = screenChip(held.screenshot != null, !held.text.isNullOrBlank(), isAttached),
 						thumbnail = held.screenshot,
+						sending = isSending,
 						onAttach = { attached.value = it },
 						onSend = { send(at) },
 						onOpenInApp = ::handOff,
@@ -220,16 +223,22 @@ internal class AssistantPanelSession(context: Context) :
 
 	/** What the panel shows: the draft's text and the screen when attached. Its files stay for the app. */
 	private fun send(at: String) {
+		if (sending.value) return
 		val text = repo.state.value.drafts[at]?.text.orEmpty()
 		val held = screen.value.takeIf { attached.value } ?: HeldScreen()
+		sending.value = true
 		repo.command {
-			val png = held.screenshot?.let { shot ->
-				ByteArrayOutputStream().also { shot.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+			try {
+				val png = held.screenshot?.let { shot ->
+					ByteArrayOutputStream().also { shot.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+				}
+				val staged = stageScreen(png, held.text)
+				send(at, text, staged)
+				// The row holds its own copy.
+				attachments.scheduleAttachmentDelete(staged.mapNotNull { it.src })
+			} finally {
+				sending.value = false
 			}
-			val staged = stageScreen(png, held.text)
-			send(at, text, staged)
-			// The row holds its own copy.
-			attachments.scheduleAttachmentDelete(staged.mapNotNull { it.src })
 		}
 		repo.setDraftText(at, "")
 		attached.value = false

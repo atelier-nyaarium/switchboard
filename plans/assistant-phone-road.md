@@ -218,6 +218,22 @@ The hold end to end, the write lock migrated onto it and deleted, the denial tex
 - Align lap 1 (17 findings, 13 real) fixed by hand while Codex was rate-limited: phone dispatch reads the hold and refuses with `holdDenial`, rechecked when a card's approval opens the request; a phone row's op id is fresh per Gateway attempt and the phone resends a stored answer for a known request id, a Gateway refusal ending its retries; the hold plane keeps a lapsed holder until the sweep; a holder recipient is refused unless addressed to the appender's own owner mailbox (`recipient`); the denial names a short phone label; Kotlin keys come from `Protocol.Wire.PhoneCapabilityKey`; a late claim answer never replaces a newer hold row (`landsHold`); a row needs this phone's stamp (`stampedFor`); torch checks no camera permission; request cards (vault, send, act) wait for the app unlock; a swiped routine miss sends the Gateway's dismissal. Harness gains a lapse case and a cross-phone read-anchor case.
 - Dismissed in lap 1: announcing on an uncertain write (matches the assistant home's rule); wire generators for the stamp and answer (the protocol corpus pins both runtimes); the registry fixture in the vectors manifest (not a vectors corpus); the fixture hash of the derived needs line.
 - Next when Codex is back: re-audit (`align-fan-out`), then red-team, commit, architecture, docs, crust, completeness; Pixel verification after the commit, with the plugin released alongside the Gateway since the gate hook asks `/assistant/hold`.
+- Committed `92b21bd6`, plugin 8.14.8 `d5939105`, Router and Gateway restarted, phone on 8.14.8 debug. Pixel, 18:29: the panel pops over Discord as a bottom sheet; showing it claimed the hold within the second; Share screen attached and the assistant described the screen exactly (text and image).
+
+### Owner requests from the Pixel pass
+
+1. **The hold keys on the phone's signing key, not its name.** Found live: a phone's `device` is its model name ("Pixel 10 Pro XL"), so two phones of one model share a hold, a stamp and the speak and alert rules. The holder is the console signing key the Router verifies on every owner op (`signerSignPub`); the record carries the device name as a `label` for the denial text. The stamp, the Gateway's answer check and the phone's own comparison all use the key.
+
+> did you key holds by device display name? or thieir unique 12/16 or whatever digit ids??
+
+2. **The send button becomes a spinner while the send is out**, in the panel.
+
+> Would be nice if the send button was replaced with a spinny circle.
+
+3. **Following a new message, in the panel and in the in-app thread.** Only when the list was already parked at the bottom. A new message whose height fits the viewport plus 8px tolerance: follow to the bottom. Taller: stop following and place the message's top at 5% of the viewport, so the last 5% of the previous message shows above it and the new one runs past the bottom, to be read top-down. The move slides over 0.3 s. A pure rule beside the thread's ops, tested.
+4. **The panel's title bar is a drag handle that sizes it.** Every summon starts at today's size; sending a message grows it so its top sits about 5% from the top of the screen, giving the follow rule room.
+
+> wait.. did it actually arrive but the message is below the bottom? [...] Dont just jump to the bottom, because you cant see the top lines for a long message. Rules: Must have already been parked at the bottom-most position. Test if the large new message's pixel height is equal or under the viewport + like 8px for tolerance. If pass, auto follow. If not, we stop auto follow and position it so the top of the message is at the 5% top of the view. This means the last message ~5% of it's bottom is visible on the top of the viewport, and the large new message directly follows, ending beyond the bottom of the viewport. This makes it so the user can see the whole messgage and follow it as they read. Slide effect 0.3 sec so it's apparent that it's moving and not teleporting. Assistant Summon panel gets a new bonus: The title bar "Assistant Open in App ->" is a draggable sizing bar. Starts at this current size by default every summon, but upon sending a message, it will resize taller so the top is abuot 5% of top of screen. Gives more room for auto follow to work it's magic.
 
 ## Phase 2 - Capabilities
 

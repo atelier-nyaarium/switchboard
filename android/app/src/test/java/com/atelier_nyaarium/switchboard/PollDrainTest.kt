@@ -235,4 +235,15 @@ class PollDrainTest {
 		drain.applyPlane("presence", lineage(1, 50), JsonPrimitive("old"), early)
 		assertEquals(listOf("presence@2/1"), host.applied)
 	}
+
+	@Test
+	fun onlyARowProducedAfterTheAppCameForwardFollows() {
+		val since = 10_000L
+		assertEquals(true, arrivedWhileVisible(visible = true, at = since + 5_000L, foregroundSince = since))
+		assertEquals(true, arrivedWhileVisible(visible = true, at = since, foregroundSince = since))
+		// Backlog after resume.
+		assertEquals(false, arrivedWhileVisible(visible = true, at = since - 1L, foregroundSince = since))
+		assertEquals(false, arrivedWhileVisible(visible = false, at = since + 5_000L, foregroundSince = since))
+		assertEquals(false, arrivedWhileVisible(visible = true, at = since, foregroundSince = 0L))
+	}
 }

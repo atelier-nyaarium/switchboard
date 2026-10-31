@@ -15,7 +15,8 @@
 	},
 	"expect": {
 		"hold": {
-			"holder": "fixture-phone"
+			"holder": "bXhwDB5nEMCvY00l2qbzOl9wvzHx/hMdPCJc9PMHBh4=",
+			"label": "fixture-phone"
 		}
 	},
 	"request": {

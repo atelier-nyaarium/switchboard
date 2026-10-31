@@ -107,7 +107,8 @@ export const RowEnvelopeSchema = z
 	.meta({ id: "RowEnvelope" });
 
 /** Router-owned stamp; outside envelope. */
-export const RowStampSchema = z.object({ device: deviceField }).meta({ id: "RowStamp" });
+/** Holder's signing key. */
+export const RowStampSchema = z.object({ holder: b64Field() }).meta({ id: "RowStamp" });
 
 export type RowStamp = z.infer<typeof RowStampSchema>;
 

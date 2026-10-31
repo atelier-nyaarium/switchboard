@@ -160,7 +160,7 @@ describe("the gate hook", () => {
 	it("asks the hold for every write and allows only a held answer", async () => {
 		const note = JSON.stringify({ tool_name: "Write", tool_input: { file_path: path.join(notes, "threads.md") } });
 		const alias = JSON.stringify({ tool_name: "Edit", tool_input: { file_path: path.join(notes, "alias.md") } });
-		const held = hold({ kind: "held", holder: "phone-a", claimedAt: 1, remainingMs: 60_000 });
+		const held = hold({ kind: "held", holder: "phone-a", label: "Pixel", claimedAt: 1, remainingMs: 60_000 });
 		const none = hold({ kind: "none" });
 
 		expect(decision(await gateHookOutput(read, env, held.fetchImpl))).toBe("allow");

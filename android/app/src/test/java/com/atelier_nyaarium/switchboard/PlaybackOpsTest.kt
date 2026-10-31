@@ -196,7 +196,7 @@ class PlaybackOpsTest {
 		val state = MutableStateFlow(
 			ChatState(
 				openTabs = listOf(team),
-				phoneHold = PhoneHold("device-b", now, 1L),
+				phoneHold = PhoneHold("device-b", "Pixel", now, 1L),
 				threads = mapOf(team to listOf(Message(false, "one", 1L))),
 			),
 		)
@@ -209,7 +209,7 @@ class PlaybackOpsTest {
 		state.value = state.value.copy(phoneHold = null)
 		f.ops.enqueueForPlay(team, 1L, SttsPlayer.Tier.FULL, announceRun = false)
 		awaitClaimed(f, team, 1L, SttsPlayer.Tier.FULL)
-		state.value = state.value.copy(phoneHold = PhoneHold("device-b", now + 1L, 2L))
+		state.value = state.value.copy(phoneHold = PhoneHold("device-b", "Pixel", now + 1L, 2L))
 		f.ops.clearForOtherHolder()
 		awaitEnd(f, team, 1L, SttsPlayer.Tier.FULL, SttsPlayer.Outcome.PREEMPTED)
 

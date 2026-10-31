@@ -367,9 +367,12 @@ class ChatRepository(
 		collaborators = playbackCollaborators,
 		speaksForHold = { todayRule -> phoneHoldOps.speaks(todayRule) },
 	)
+	/** Holds key on signing keys. */
+	private fun holdSelf(): String = readyOrNull()?.consoleIdentity?.sign?.pub.orEmpty()
+
 	internal val phoneHoldOps: PhoneHoldOps = PhoneHoldOps(
 		state = _state,
-		self = { readyOrNull()?.device.orEmpty() },
+		self = ::holdSelf,
 		router = OwnerOpHoldRouter { op ->
 			ownerOpsOrNull()?.sign(op)?.let { clientOrNull()?.postOwnerOp(it) }
 		},
@@ -379,7 +382,7 @@ class ChatRepository(
 	internal val phoneCapabilityOps = PhoneCapabilityOps(
 		context = applicationContext,
 		state = { _state.value },
-		self = { readyOrNull()?.device.orEmpty() },
+		self = ::holdSelf,
 		scope = repoScope,
 		store = store,
 		client = ::clientOrNull,

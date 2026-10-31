@@ -636,9 +636,9 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			return {
 				hold:
 					hold.kind === "held"
-						? { kind: "held", holder: hold.holder, remainingMs: hold.remainingMs }
+						? { kind: "held", label: hold.label, remainingMs: hold.remainingMs }
 						: hold.kind === "lapsed"
-							? { kind: "lapsed", holder: hold.holder, lapsedMs: hold.lapsedMs }
+							? { kind: "lapsed", label: hold.label, lapsedMs: hold.lapsedMs }
 							: { kind: "none" },
 				watchers: watchers
 					.filter((watcher) => enabled.enabled(watcher.id))

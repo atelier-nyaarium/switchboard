@@ -78,8 +78,13 @@ function make() {
 	};
 }
 
-const operation = (device: string) =>
-	({ domainId, device, conversationId: "phone" }) as Parameters<ErasedOwnerOpHandler>[0];
+const operation = (signer: string) =>
+	({
+		domainId,
+		signerSignPub: signer,
+		device: "Pixel",
+		conversationId: "phone",
+	}) as Parameters<ErasedOwnerOpHandler>[0];
 
 async function call(
 	harness: ReturnType<typeof make>,
@@ -109,15 +114,27 @@ describe("Router phone hold", () => {
 			{ kind: "phone_hold_read" },
 		);
 
-		expect(claim).toEqual({ hold: { holder: "phone-a", claimedAt: 1_000, version: 1 } });
-		expect(read).toEqual({ hold: { holder: "phone-a", claimedAt: 1_000, version: 1 } });
+		expect(claim).toEqual({ hold: { holder: "phone-a", label: "Pixel", claimedAt: 1_000, version: 1 } });
+		expect(read).toEqual({ hold: { holder: "phone-a", label: "Pixel", claimedAt: 1_000, version: 1 } });
 		expect(gatewayRead).toEqual(read);
 		expect(harness.frames).toEqual([
-			{ type: "phone_hold", incarnation: 4, hold: { holder: "phone-a", claimedAt: 1_000, version: 1 } },
-			{ type: "phone_hold", incarnation: 4, hold: { holder: "phone-a", claimedAt: 1_000, version: 1 } },
+			{
+				type: "phone_hold",
+				incarnation: 4,
+				hold: { holder: "phone-a", label: "Pixel", claimedAt: 1_000, version: 1 },
+			},
+			{
+				type: "phone_hold",
+				incarnation: 4,
+				hold: { holder: "phone-a", label: "Pixel", claimedAt: 1_000, version: 1 },
+			},
 		]);
 		expect(harness.planePushes).toEqual([
-			{ domainId, version: 1, payload: { hold: { holder: "phone-a", claimedAt: 1_000, version: 1 } } },
+			{
+				domainId,
+				version: 1,
+				payload: { hold: { holder: "phone-a", label: "Pixel", claimedAt: 1_000, version: 1 } },
+			},
 		]);
 		expect(harness.service.read("friend", harness.now())).toBeNull();
 	});
@@ -127,7 +144,12 @@ describe("Router phone hold", () => {
 		await call(harness, "hold_claim", operation("phone-a"), { kind: "hold_claim" });
 		harness.setNow(2_000);
 		await call(harness, "hold_claim", operation("phone-b"), { kind: "hold_claim" });
-		expect(harness.service.read(domainId, 2_000)).toEqual({ holder: "phone-b", claimedAt: 2_000, version: 2 });
+		expect(harness.service.read(domainId, 2_000)).toEqual({
+			holder: "phone-b",
+			label: "Pixel",
+			claimedAt: 2_000,
+			version: 2,
+		});
 		expect(harness.service.read(domainId, 2_000 + PHONE_HOLD_WINDOW_MS)).toBeNull();
 	});
 
@@ -137,7 +159,9 @@ describe("Router phone hold", () => {
 		harness.setNow(1_000 + PHONE_HOLD_WINDOW_MS);
 
 		expect(harness.service.read(domainId, harness.now())).toBeNull();
-		expect(harness.service.plane(domainId)).toEqual({ hold: { holder: "phone-a", claimedAt: 1_000, version: 1 } });
+		expect(harness.service.plane(domainId)).toEqual({
+			hold: { holder: "phone-a", label: "Pixel", claimedAt: 1_000, version: 1 },
+		});
 		harness.sweepers[0]?.(domainId, harness.now());
 		expect(harness.service.plane(domainId)).toEqual({ hold: null });
 	});

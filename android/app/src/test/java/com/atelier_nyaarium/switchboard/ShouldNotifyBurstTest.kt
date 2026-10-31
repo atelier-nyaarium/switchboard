@@ -49,13 +49,13 @@ class ShouldNotifyBurstTest {
 
 	@Test
 	fun anotherStandingHolderSuppressesTheBurst() {
-		val hold = PhoneHold(holder = "device-b", claimedAt = 100L, version = 1L)
+		val hold = PhoneHold(holder = "device-b", label = "Pixel", claimedAt = 100L, version = 1L)
 		assertFalse(shouldNotifyBurst(false, true, emptySet(), team, hold, "device-a", 200L))
 	}
 
 	@Test
 	fun theHoldingPhoneStillFollowsTheExistingGate() {
-		val hold = PhoneHold(holder = "device-a", claimedAt = 100L, version = 1L)
+		val hold = PhoneHold(holder = "device-a", label = "Pixel", claimedAt = 100L, version = 1L)
 		assertTrue(shouldNotifyBurst(false, true, emptySet(), team, hold, "device-a", 200L))
 	}
 }

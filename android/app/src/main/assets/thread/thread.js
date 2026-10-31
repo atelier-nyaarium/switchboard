@@ -536,6 +536,7 @@
 		// A prior divider snap must not survive a bottom jump - otherwise the next resize/growth
 		// repin (which fires both flags' pins) would yank the reader straight back to the divider.
 		snapped = false;
+		cancelSlide();
 		runPin(() => {
 			const last = container.lastElementChild;
 			if (last) {
@@ -547,6 +548,60 @@
 				document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight;
 			}
 		});
+	}
+
+	// Slide, not teleport.
+	let slideFrame = 0;
+	function cancelSlide() {
+		if (!slideFrame) return;
+		cancelAnimationFrame(slideFrame);
+		slideFrame = 0;
+	}
+
+	function slideTo(target, thenPinBottom) {
+		const el = document.scrollingElement;
+		cancelSlide();
+		const from = el.scrollTop;
+		const start = performance.now();
+		pinning = true;
+		clearTimeout(pinTimer);
+		const step = (now) => {
+			const progress = window.threadFollow.slideProgress(now - start);
+			el.scrollTop = from + (target - from) * progress;
+			if (progress < 1) {
+				slideFrame = requestAnimationFrame(step);
+				return;
+			}
+			slideFrame = 0;
+			// Heights below are estimates.
+			if (thenPinBottom) scrollToBottom();
+			else {
+				pinTimer = setTimeout(() => {
+					pinning = false;
+					walkPointer();
+				}, 200);
+			}
+		};
+		slideFrame = requestAnimationFrame(step);
+	}
+
+	// Fit follows; tall lands top.
+	function followNew(first) {
+		const el = document.scrollingElement;
+		const firstTop = first.getBoundingClientRect().top + el.scrollTop;
+		const last = container.lastElementChild;
+		const end = last ? last.getBoundingClientRect().bottom + el.scrollTop : firstTop;
+		const target = window.threadFollow.followTarget({
+			parked: true,
+			spanPx: end - firstTop,
+			firstTopPx: firstTop,
+			viewportPx: el.clientHeight,
+			scrollHeightPx: el.scrollHeight,
+		});
+		if (!target) return;
+		stuck = target.follow;
+		snapped = false;
+		slideTo(target.scrollTop, target.follow);
 	}
 
 	// Snap/hold at the divider (the first still-unread row): reader intent here is "reading
@@ -573,6 +628,7 @@
 	let scrollSettleTimer = 0;
 
 	function repin() {
+		if (slideFrame) return;
 		if (stuck) requestAnimationFrame(scrollToBottom);
 		if (snapped) requestAnimationFrame(scrollToDivider);
 	}
@@ -585,8 +641,10 @@
 	// state) re-checks the read pointer, since shrinking content can pull a row's bottom into view
 	// with nothing else to trigger a walk.
 	new ResizeObserver(() => {
-		if (stuck) requestAnimationFrame(scrollToBottom);
-		if (snapped) requestAnimationFrame(scrollToDivider);
+		if (!slideFrame) {
+			if (stuck) requestAnimationFrame(scrollToBottom);
+			if (snapped) requestAnimationFrame(scrollToDivider);
+		}
 		walkPointer();
 	}).observe(container);
 
@@ -729,7 +787,8 @@
 	//  Public API
 
 	function appendMessages(messages) {
-		const stick = nearBottom();
+		const parked = stuck && nearBottom();
+		let firstNew = null;
 		// A brand-new OWN-send row (the local optimistic append, never a settled echo from another
 		// device - see `ownSend`) always jumps to the bottom, even scrolled up. Agent rows respect
 		// the reader's position and only follow when already near the bottom or the batch arrived
@@ -765,6 +824,7 @@
 				}
 			} else {
 				container.appendChild(row);
+				if (!firstNew) firstNew = row;
 				if (m.role === "user" && m.ownSend) sentByUser = true;
 				if (firstTimeEligible) {
 					newEligibleIds.push(m.id);
@@ -793,7 +853,13 @@
 		if (heldForVisibility && !sentByUser) {
 			// This batch arrived while backgrounded: hold position instead of auto-following.
 			stuck = false;
-		} else if (stick || sentByUser) {
+		} else if (sentByUser) {
+			scrollToBottom();
+		} else if (parked && firstNew) {
+			// Measured once laid out.
+			const first = firstNew;
+			requestAnimationFrame(() => followNew(first));
+		} else if (parked) {
 			scrollToBottom();
 		}
 	}

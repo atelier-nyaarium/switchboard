@@ -262,12 +262,13 @@ data class RowRecipient(
 
 @Serializable
 data class RowStamp(
-	val device: String,
+	val holder: String,
 )
 
 @Serializable
 data class PhoneHold(
 	val holder: String,
+	val label: String,
 	val claimedAt: Long,
 	val version: Long,
 )

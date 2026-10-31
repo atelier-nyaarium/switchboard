@@ -35,7 +35,7 @@ export interface DeliverToOwnerOptions {
 }
 
 export type DeliverToOwnerResult = boolean | typeof MIGRATING;
-export type OwnerAppendAnswer = { kind: "accepted"; stamp?: { device: string } } | { kind: "refused"; reason: string };
+export type OwnerAppendAnswer = { kind: "accepted"; stamp?: { holder: string } } | { kind: "refused"; reason: string };
 export type DeliverToOwnerCompletion =
 	| { queued: false }
 	| { queued: true; completion: Promise<OwnerAppendAnswer> }

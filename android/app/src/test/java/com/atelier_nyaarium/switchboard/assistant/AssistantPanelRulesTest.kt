@@ -88,4 +88,15 @@ class AssistantPanelRulesTest {
 		assertTrue(isPasswordInput(InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD))
 		assertFalse(isPasswordInput(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS))
 	}
+
+	@Test
+	fun theTitleBarSizesThePanelWithinItsBoundsAndASendGrowsIt() {
+		// Down 200px on a 2000px window.
+		assertEquals(0.6f, panelDragFraction(0.7f, 200f, 2000f), 0.0001f)
+		assertEquals(0.3f, panelDragFraction(0.35f, 400f, 2000f), 0.0001f)
+		assertEquals(PANEL_TALL_FRACTION, panelDragFraction(0.9f, -400f, 2000f), 0.0001f)
+		assertEquals(0.7f, panelDragFraction(0.7f, 200f, 0f), 0.0001f)
+		assertEquals(PANEL_TALL_FRACTION, panelSentFraction(PANEL_DEFAULT_FRACTION), 0.0001f)
+		assertEquals(PANEL_TALL_FRACTION, panelSentFraction(0.5f), 0.0001f)
+	}
 }

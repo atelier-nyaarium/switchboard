@@ -305,6 +305,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 									frame.data.conversationId,
 									frame.data.opId,
 									ownerSignPub,
+									frame.data.signerSignPub,
 								),
 							};
 						} catch (error) {

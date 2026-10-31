@@ -17,7 +17,7 @@ import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonPrimitive
 
 /** Unstamped is nobody's. */
-internal fun stampedFor(stamp: RowStamp?, device: String): Boolean = stamp != null && stamp.device == device
+internal fun stampedFor(stamp: RowStamp?, signer: String): Boolean = stamp != null && stamp.holder == signer
 
 class PhonePlugin : PluginEntry {
 	override fun register(host: PluginHost) {
@@ -30,8 +30,8 @@ class PhonePlugin : PluginEntry {
 		val payload = action.payload ?: return
 		val row = runIsolated { wireJson.decodeFromJsonElement(PhoneCapabilityRow.serializer(), payload) }.getOrNull()
 			?.takeIf(::validPhoneCapabilityRow) ?: return
-		val device = repo.readyOrNull()?.device ?: return
-		if (!stampedFor(action.stamp, device)) {
+		val signer = repo.readyOrNull()?.consoleIdentity?.sign?.pub ?: return
+		if (!stampedFor(action.stamp, signer)) {
 			CapabilityLog.record(row.key, CapabilityLogEvent.IGNORED, accepted = false)
 			return
 		}

@@ -30,6 +30,21 @@ internal fun panelTeam(state: ChatState): String? =
 ////////////////////////////////
 //  Share screen
 
+/** Each summon starts here. */
+internal const val PANEL_DEFAULT_FRACTION = 0.7f
+
+/** Top at 5%. */
+internal const val PANEL_TALL_FRACTION = 0.95f
+
+private const val PANEL_MIN_FRACTION = 0.3f
+
+/** Drag down shrinks. */
+internal fun panelDragFraction(current: Float, deltaPx: Float, windowPx: Float): Float =
+	if (windowPx <= 0f) current else (current - deltaPx / windowPx).coerceIn(PANEL_MIN_FRACTION, PANEL_TALL_FRACTION)
+
+/** Sending only grows. */
+internal fun panelSentFraction(current: Float): Float = maxOf(current, PANEL_TALL_FRACTION)
+
 internal enum class ScreenChip { NONE, OFFER, ATTACHED }
 
 /** No chip when the system shared nothing, as for `FLAG_SECURE` or the settings off. */

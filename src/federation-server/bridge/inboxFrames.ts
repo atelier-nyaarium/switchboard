@@ -108,7 +108,7 @@ export class InboxFrames {
 			if (address.kind !== "owner" || address.domainId !== reg.domainId)
 				return { ok: false, error: "refused", reason: "recipient" };
 			const hold = this.phoneHoldRead?.(address.domainId, this.deps.ambient.now());
-			if (hold) stamp = { device: hold.holder };
+			if (hold) stamp = { holder: hold.holder };
 			else recipientNoHolder = true;
 		}
 		// Share state authorizes friend rows and supplies generation.

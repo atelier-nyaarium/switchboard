@@ -21,6 +21,7 @@ class PhoneHoldRulesTest {
 			val hold = holdValue?.let {
 				PhoneHold(
 					holder = it["holder"]!!.jsonPrimitive.content,
+					label = "Pixel",
 					claimedAt = it["claimedAt"]!!.jsonPrimitive.content.toLong(),
 					version = 1L,
 				)
@@ -39,7 +40,7 @@ class PhoneHoldRulesTest {
 
 	@Test
 	fun onlySendReclaimsAnAlreadyHeldPhone() {
-		val hold = PhoneHold(holder = "device-a", claimedAt = 10L, version = 1L)
+		val hold = hold("device-a", 10L, 1L)
 		assertEquals(false, shouldClaimPhoneHold(HoldClaimTrigger.CONVERSATION, hold, "device-a", 20L))
 		assertEquals(false, shouldClaimPhoneHold(HoldClaimTrigger.PANEL, hold, "device-a", 20L))
 		assertEquals(false, shouldClaimPhoneHold(HoldClaimTrigger.ASSISTANT_TAB, hold, "device-a", 20L))
@@ -49,15 +50,17 @@ class PhoneHoldRulesTest {
 	@Test
 	fun openingClaimsWhenThereIsNoCurrentHolder() {
 		assertEquals(true, shouldClaimPhoneHold(HoldClaimTrigger.CONVERSATION, null, "device-a", 20L))
-		assertEquals(true, shouldClaimPhoneHold(HoldClaimTrigger.PANEL, PhoneHold("device-b", 10L, 1L), "device-a", 20L))
+		assertEquals(true, shouldClaimPhoneHold(HoldClaimTrigger.PANEL, hold("device-b", 10L, 1L), "device-a", 20L))
 	}
 
 	@Test
 	fun onlyAStandingSelfHoldAuthorizesPhoneWork() {
-		assertEquals(true, isCurrentPhoneHolder(PhoneHold("device-a", 10L, 1L), "device-a", 20L))
-		assertEquals(false, isCurrentPhoneHolder(PhoneHold("device-b", 10L, 1L), "device-a", 20L))
-		assertEquals(false, isCurrentPhoneHolder(PhoneHold("device-a", 10L, 1L), "device-a", 10L + PHONE_HOLD_WINDOW_MS))
+		assertEquals(true, isCurrentPhoneHolder(hold("device-a", 10L, 1L), "device-a", 20L))
+		assertEquals(false, isCurrentPhoneHolder(hold("device-b", 10L, 1L), "device-a", 20L))
+		assertEquals(false, isCurrentPhoneHolder(hold("device-a", 10L, 1L), "device-a", 10L + PHONE_HOLD_WINDOW_MS))
 	}
+
+	private fun hold(holder: String, claimedAt: Long, version: Long) = PhoneHold(holder, "Pixel", claimedAt, version)
 
 	@Test
 	fun aLateClaimAnswerNeverReplacesANewerRow() {

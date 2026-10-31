@@ -9,10 +9,11 @@ export const HoldAnswerSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("held"),
 		holder,
+		label: holder,
 		claimedAt: z.number().int().nonnegative(),
 		remainingMs: z.number().int().nonnegative(),
 	}),
-	z.object({ kind: z.literal("lapsed"), holder, lapsedMs: z.number().int().nonnegative() }),
+	z.object({ kind: z.literal("lapsed"), holder, label: holder, lapsedMs: z.number().int().nonnegative() }),
 	/** No hold claimed. */
 	z.object({ kind: z.literal("none") }),
 	z.object({ kind: z.literal("not_assistant") }),
@@ -33,15 +34,10 @@ function minutes(ms: number): string {
 	return `${whole} minute${whole === 1 ? "" : "s"}`;
 }
 
-/** Until devices have names. */
-export function shortPhoneLabel(holder: string): string {
-	return `phone ${holder.slice(0, 8)}`;
-}
-
-export function holdDenial(denial: HoldDenial, label: (holder: string) => string = shortPhoneLabel): string {
+export function holdDenial(denial: HoldDenial): string {
 	switch (denial.kind) {
 		case "lapsed":
-			return `Your phone's hold lapsed ${minutes(denial.lapsedMs)} ago (last held by ${label(denial.holder)}). I can't write files or act on your phone until you hold me again. ${HOLD_REBIND_LINE}`;
+			return `Your phone's hold lapsed ${minutes(denial.lapsedMs)} ago (last held by your ${denial.label}). I can't write files or act on your phone until you hold me again. ${HOLD_REBIND_LINE}`;
 		case "none":
 			return `No phone holds me right now, so I can't write files or act on your phone. ${HOLD_REBIND_LINE}`;
 		case "unreadable":

@@ -379,7 +379,7 @@ describe("the assistant's session", () => {
 		const ask = async (caller: string) =>
 			(await route(new Request("http://gateway/", { headers: { "x-caller": caller } }), {})).json();
 		const before = await ask("assistant");
-		test.assistant.followPhoneHold({ holder: "phone-a", claimedAt: T0, version: 1 });
+		test.assistant.followPhoneHold({ holder: "phone-a", label: "Pixel", claimedAt: T0, version: 1 });
 		const after = await ask("assistant");
 		now += 10 * 60_000;
 		const lapsed = await ask("assistant");
@@ -390,8 +390,8 @@ describe("the assistant's session", () => {
 
 		expect([before, after, lapsed, cleared, stranger, unauthenticated]).toEqual([
 			{ kind: "none" },
-			{ kind: "held", holder: "phone-a", claimedAt: T0, remainingMs: 10 * 60_000 },
-			{ kind: "lapsed", holder: "phone-a", lapsedMs: 0 },
+			{ kind: "held", holder: "phone-a", label: "Pixel", claimedAt: T0, remainingMs: 10 * 60_000 },
+			{ kind: "lapsed", holder: "phone-a", label: "Pixel", lapsedMs: 0 },
 			{ kind: "none" },
 			{ kind: "not_assistant" },
 			{ kind: "unauthenticated" },

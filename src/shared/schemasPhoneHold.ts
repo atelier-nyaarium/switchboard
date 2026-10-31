@@ -10,7 +10,10 @@ const holderField = z.string().min(1).max(64);
 
 export const PhoneHoldRecordSchema = z
 	.object({
+		/** Console signing key. */
 		holder: holderField,
+		/** Device name, not unique. */
+		label: z.string().min(1).max(64),
 		/** Router timestamp. */
 		claimedAt: z.number().int().nonnegative(),
 		version: z.number().int().positive(),

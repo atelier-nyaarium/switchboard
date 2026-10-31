@@ -23,7 +23,8 @@ export interface IdentitySet {
 export function admitSecondConsole(set: IdentitySet): IdentitySet {
 	if (set.console2) return set;
 	const identity = generateIdentity();
-	const device = `${set.domain.id}-phone-2`;
+	// Same name; keys differ.
+	const device = set.console.device;
 	const conversationId = `${set.domain.id}-console-2`;
 	const admission = signAdmission(
 		{

@@ -36,9 +36,9 @@ function linesOf(baseline: SessionBaseline): string[] {
 			? []
 			: [
 					baseline.assistant.hold.kind === "held"
-						? `phone hold: held by ${flat(baseline.assistant.hold.holder)}, ${baseline.assistant.hold.remainingMs}ms remaining`
+						? `phone hold: held by ${flat(baseline.assistant.hold.label)}, ${baseline.assistant.hold.remainingMs}ms remaining`
 						: baseline.assistant.hold.kind === "lapsed"
-							? `phone hold: lapsed ${baseline.assistant.hold.lapsedMs}ms ago, last held by ${flat(baseline.assistant.hold.holder)}`
+							? `phone hold: lapsed ${baseline.assistant.hold.lapsedMs}ms ago, last held by ${flat(baseline.assistant.hold.label)}`
 							: "phone hold: none",
 				]),
 		...(baseline.assistant?.watchers ?? []).map(

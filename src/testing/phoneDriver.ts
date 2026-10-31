@@ -71,6 +71,8 @@ export interface ValueAnswer {
 
 export interface PhoneDriver {
 	device: string;
+	/** The hold's holder key. */
+	signerSignPub: string;
 	ownerOp(op: Record<string, unknown>, opId?: string): OwnerOp;
 	post(op: OwnerOp): Promise<PostAnswer>;
 	console(body: Record<string, unknown>): Promise<PostAnswer>;
@@ -320,6 +322,7 @@ export function createPhoneDriver(deps: PhoneDriverDeps): PhoneDriver {
 
 	return {
 		device: admittedConsole.device,
+		signerSignPub: admittedConsole.identity.sign.pub,
 		ownerOp,
 		post,
 		console: consolePost,

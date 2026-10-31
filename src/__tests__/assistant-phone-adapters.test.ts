@@ -11,6 +11,8 @@ import { generateIdentity } from "../shared/crypto.js";
 import { Address } from "../shared/session-id.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 
+const HOLDER_KEY = generateIdentity().sign.pub;
+
 describe("phone request append completion", () => {
 	it("returns the Router stamp and carries the holder recipient", async () => {
 		const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "assistant-phone-outbox-"));
@@ -30,7 +32,7 @@ describe("phone request append completion", () => {
 						result: {
 							opKey: params.opKey,
 							outcome: "accepted",
-							result: { stamp: { device: "phone-a" } },
+							result: { stamp: { holder: HOLDER_KEY } },
 						},
 					} as never;
 				},
@@ -60,7 +62,7 @@ describe("phone request append completion", () => {
 			expect(queued).toMatchObject({ queued: true });
 			if (queued === "migrating" || !queued.queued) throw new Error("phone row did not queue");
 
-			expect(await queued.completion).toEqual({ kind: "accepted", stamp: { device: "phone-a" } });
+			expect(await queued.completion).toEqual({ kind: "accepted", stamp: { holder: HOLDER_KEY } });
 			expect((appended?.row as { envelope?: { recipient?: unknown } } | undefined)?.envelope?.recipient).toEqual({
 				kind: "holder",
 			});
@@ -162,7 +164,7 @@ describe("phone request append completion", () => {
 		const dispatch = createPhoneDispatch({
 			ambient,
 			approveEverySend: () => true,
-			hold: () => ({ kind: "held", holder: "phone-a", claimedAt: 1_000, remainingMs: 1_000 }),
+			hold: () => ({ kind: "held", holder: "phone-a", label: "Pixel", claimedAt: 1_000, remainingMs: 1_000 }),
 			phone: requests,
 			act: { run: async () => ({ kind: "refused", reason: "unused" }) } as never,
 			gateways: {} as never,
@@ -185,7 +187,7 @@ describe("phone request append completion", () => {
 		const dispatch = createPhoneDispatch({
 			ambient,
 			approveEverySend: () => true,
-			hold: () => ({ kind: "lapsed", holder: "phone-abcdef1234", lapsedMs: 120_000 }),
+			hold: () => ({ kind: "lapsed", holder: "phone-a", label: "Pixel 10 Pro XL", lapsedMs: 120_000 }),
 			phone: {
 				open: () => {
 					opened += 1;
@@ -200,7 +202,7 @@ describe("phone request append completion", () => {
 		const result = await dispatch({ key: "torch", callId: "call-lapsed1", params: { on: true } });
 		expect(result).toMatchObject({ kind: "unavailable", reason: "no_holder" });
 		expect((result as { detail?: string }).detail).toContain("lapsed 2 minutes ago");
-		expect((result as { detail?: string }).detail).toContain("phone phone-ab");
+		expect((result as { detail?: string }).detail).toContain("your Pixel 10 Pro XL");
 		expect(opened).toBe(0);
 	});
 
@@ -214,7 +216,7 @@ describe("phone request append completion", () => {
 					delivered.push(request.requestId);
 					return {
 						queued: true,
-						completion: Promise.resolve({ kind: "accepted", stamp: { device: "phone-a" } }),
+						completion: Promise.resolve({ kind: "accepted", stamp: { holder: "phone-a" } }),
 					};
 				},
 				retract: () => true,

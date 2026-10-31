@@ -7,7 +7,7 @@ describe("the Gateway phone hold follow", () => {
 		let now = 10_000;
 		const follow = createHoldFollow(() => now);
 		const none = follow.answer();
-		follow.apply({ holder: "phone-a", claimedAt: now, version: 1 });
+		follow.apply({ holder: "phone-a", label: "Pixel", claimedAt: now, version: 1 });
 		const held = follow.answer();
 		now += PHONE_HOLD_WINDOW_MS + 23;
 		const lapsed = follow.answer();
@@ -16,8 +16,8 @@ describe("the Gateway phone hold follow", () => {
 
 		expect([none, held, lapsed, cleared]).toEqual([
 			{ kind: "none" },
-			{ kind: "held", holder: "phone-a", claimedAt: 10_000, remainingMs: PHONE_HOLD_WINDOW_MS },
-			{ kind: "lapsed", holder: "phone-a", lapsedMs: 23 },
+			{ kind: "held", holder: "phone-a", label: "Pixel", claimedAt: 10_000, remainingMs: PHONE_HOLD_WINDOW_MS },
+			{ kind: "lapsed", holder: "phone-a", label: "Pixel", lapsedMs: 23 },
 			{ kind: "none" },
 		]);
 	});

@@ -138,6 +138,7 @@ export function createConsoleDispatcher({
 		opId: string,
 		ownerSignPub: string,
 		generation = 0,
+		signer = "",
 	): Promise<ConsoleOpResult> {
 		switch (op.kind) {
 			case "send": {
@@ -452,7 +453,7 @@ export function createConsoleDispatcher({
 				return requireAssistant().answerSend(op.requestId, op.decision, op.note);
 
 			case "phone_capability_answer":
-				return requireAssistant().answerPhone(op.requestId, op.answer, device);
+				return requireAssistant().answerPhone(op.requestId, op.answer, signer);
 
 			case "assistant_act_answer":
 				return requireAssistant().answerAct(op.requestId, op.decision, op.note);
@@ -498,16 +499,18 @@ export function createConsoleDispatcher({
 		durableOpStore?.clear(conv, durableOpKey(kind, opId), generation);
 	}
 
+	/** Router-verified phone key. */
 	async function handleValue(
 		op: ConsoleOp,
 		device: string,
 		conversationId: string,
 		opId: string,
 		ownerSignPub: string,
+		signer = "",
 	): Promise<ConsoleOpResult> {
 		if (!VALUE_OP_KINDS.has(op.kind)) throw new Error("value op kind is not allowed");
 		ownerByConversation.set(conversationId, ownerKeyId(ownerSignPub));
-		return dispatch(op, device, conversationId, ownerKeyId(ownerSignPub), opId, ownerSignPub);
+		return dispatch(op, device, conversationId, ownerKeyId(ownerSignPub), opId, ownerSignPub, 0, signer);
 	}
 
 	async function handleDelivery(

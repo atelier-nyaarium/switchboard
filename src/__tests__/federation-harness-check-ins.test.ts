@@ -143,7 +143,7 @@ describe("federation harness: a check-in reaching the assistant", () => {
 		expect(nudge).toContain(occurrenceId);
 		expect(instructions).toMatchObject({ kind: "instructions", text: "Ask what is blocking today." });
 		expect(baseline.routines).toEqual([{ occurrenceId, routine: "Standup" }]);
-		expect(baseline.assistant.hold).toMatchObject({ kind: "held", holder: h.phone.device });
+		expect(baseline.assistant.hold).toMatchObject({ kind: "held", label: h.phone.device });
 		expect(sent).toMatchObject({ outcome: "sent", guard: "unasked" });
 	});
 });

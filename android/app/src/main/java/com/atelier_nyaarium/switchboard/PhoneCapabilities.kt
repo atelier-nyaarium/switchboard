@@ -148,7 +148,8 @@ private fun <Req : Any, Ans : Any> bind(capability: PhoneCapability<Req, Ans>): 
 private suspend fun phoneStatus(context: PhoneCapabilityContext, request: PhoneStatusRequest): PhoneStatusAnswer {
 	val now = System.currentTimeMillis()
 	val hold = context.state().phoneHold
-	val holder = hold?.holder?.takeIf { holdStanding(hold, now) == HoldStanding.HELD }
+	// A name, not a key.
+	val holder = hold?.label?.takeIf { holdStanding(hold, now) == HoldStanding.HELD }
 	val keys = PhoneCapabilities.bindings.values.map { binding ->
 		val state = context.permissionState(binding.key)
 		PhoneStatusKey(binding.key, state.available, state.reason, state.needs)

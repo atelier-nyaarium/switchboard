@@ -24,6 +24,7 @@ function recordOf(row: StateRecord | null): PhoneHoldRecord | null {
 	if (!row || typeof row.clear.holder !== "string") return null;
 	const parsed = PhoneHoldRecordSchema.safeParse({
 		holder: row.clear.holder,
+		label: row.clear.label,
 		claimedAt: row.clear.claimedAt,
 		version: row.version,
 	});
@@ -57,17 +58,19 @@ export function createPhoneHoldService(deps: Deps) {
 		}
 	};
 
-	const claim = (domainId: string, device: string, now: number): { hold: PhoneHoldRecord } => {
+	/** Key decides; label displays. */
+	const claim = (domainId: string, signer: string, label: string, now: number): { hold: PhoneHoldRecord } => {
 		const store = storeOf(domainId);
 		for (;;) {
 			const current = store.get(KIND, HOLDER_ID);
 			const result = store.put(KIND, HOLDER_ID, current?.version ?? null, {
-				clear: { holder: device, claimedAt: now },
+				clear: { holder: signer, label, claimedAt: now },
 			});
 			if (result.kind === "conflict") continue;
 			if (!appliedOrUncertain(result)) throw new OwnerOpRefused("durability_failure");
 			const hold = PhoneHoldRecordSchema.parse({
-				holder: device,
+				holder: signer,
+				label,
 				claimedAt: now,
 				version: (current?.version ?? 0) + 1,
 			});
@@ -88,7 +91,7 @@ export function createPhoneHoldService(deps: Deps) {
 
 	const register = (registered: OwnerServiceHooks): void => {
 		hooks = registered;
-		registered.ownerOp("hold_claim", (op) => claim(op.domainId, op.device, deps.registry.now()));
+		registered.ownerOp("hold_claim", (op) => claim(op.domainId, op.signerSignPub, op.device, deps.registry.now()));
 		registered.ownerOp("phone_hold_read", (op) => plane(op.domainId));
 		registered.gatewayFrame("phone_hold_read", "read", (reg) => {
 			try {
