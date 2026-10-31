@@ -276,6 +276,7 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 				handleShareDelta(shareState, frame, () => fireAndForget("share mirror read", readShareMirror()));
 			},
 			onAssistantHome: (frame) => slice.handlers?.frames.assistantHome(frame),
+			onPhoneHold: (frame) => slice.handlers?.frames.phoneHold(frame),
 			onInboxDeliver: (frame) => {
 				const pumped = inboxPump?.onFrame(
 					frame as { address: string; rows: unknown; incarnation?: number; deliveryEpoch: number },

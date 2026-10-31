@@ -50,6 +50,7 @@ fun ChatRepository.markRead(team: String) {
 		withAnchor.recomputeUnread(team, thread)
 	}
 	if (anchorChanged) persistence.persistReadAnchors()
+	repoScope.launch(Dispatchers.IO) { presence.reportLocalReadAdvances() }
 }
 
 /** Open (or focus) a thread's tab, deduped by canonical key. The spawn dialog opens a local
@@ -67,6 +68,7 @@ fun ChatRepository.openThread(team: String): String? {
 			closedTeams = s.closedTeams - key,
 		)
 	}
+	repoScope.launch(Dispatchers.IO) { presence.reportLocalReadAdvances() }
 	return key
 }
 
@@ -108,6 +110,7 @@ fun ChatRepository.readUpTo(team: String, rowId: Long, at: Long) {
 		}
 	}
 	if (changed) persistence.persistReadAnchors()
+	if (changed) repoScope.launch(Dispatchers.IO) { presence.reportLocalReadAdvances() }
 }
 
 /** Close a tab and its addressable session, keeping the resume record. */

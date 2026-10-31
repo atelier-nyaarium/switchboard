@@ -73,6 +73,8 @@ object Protocol {
 		const val OWNER_OP_BLOB_UPLOAD_STATUS: String = "blob_upload_status"
 		const val OWNER_OP_ASSISTANT_HOME_READ: String = "assistant_home_read"
 		const val OWNER_OP_ASSISTANT_HOME_PUT: String = "assistant_home_put"
+		const val OWNER_OP_HOLD_CLAIM: String = "hold_claim"
+		const val OWNER_OP_PHONE_HOLD_READ: String = "phone_hold_read"
 		const val SIGNING_TAG_ADMISSION: String = "ADMISSION_V1"
 		const val SIGNING_TAG_REVOCATION: String = "REVOCATION_V1"
 		const val SIGNING_TAG_SELF_REVOCATION: String = "SELF_REVOCATION_V1"
@@ -118,6 +120,8 @@ object Protocol {
 		const val ASSISTANT_RULE_CONDITIONS_MAX: Int = 8
 		const val ASSISTANT_RULE_VALUE_MAX: Int = 200
 		const val ASSISTANT_ROLE: String = "assistant"
+		const val PHONE_HOLD_PLANE: String = "phoneHold"
+		const val PHONE_HOLD_WINDOW_MS: Int = 600000
 
 		object ConsoleOpKind {
 			const val SEND: String = "send"
@@ -181,6 +185,8 @@ object Protocol {
 			const val ASSISTANT_WATCHER_ENABLED: String = "assistant_watcher_enabled"
 			const val ASSISTANT_WATCHER_CHECK: String = "assistant_watcher_check"
 			const val ASSISTANT_SEND_ANSWER: String = "assistant_send_answer"
+			const val PHONE_CAPABILITY_ANSWER: String = "phone_capability_answer"
+			const val ASSISTANT_ACT_ANSWER: String = "assistant_act_answer"
 		}
 
 		object SocketFrame {
@@ -196,6 +202,23 @@ object Protocol {
 			const val KEY_GRANT: String = "key_grant"
 			const val KEY_RECEIPT: String = "key_receipt"
 			const val KEY_RECEIPTS_READ: String = "key_receipts_read"
+		}
+
+		object RecordOutcome {
+			const val DONE: String = "done"
+			const val NOT_FOUND: String = "not_found"
+			const val RATE_LIMITED: String = "rate_limited"
+			const val UNCERTAIN: String = "uncertain"
+			const val NOT_ATTEMPTED: String = "not_attempted"
+			const val RAN: String = "ran"
+			const val UNAVAILABLE: String = "unavailable"
+			const val REFUSED: String = "refused"
+		}
+
+		object PhoneCapabilityKey {
+			const val STATUS: String = "status"
+			const val CONTACTS_SEARCH: String = "contacts_search"
+			const val TORCH: String = "torch"
 		}
 	}
 
@@ -230,6 +253,133 @@ object Protocol {
 	/** Board attachment limit. */
 	const val BOARD_ATTACHMENTS_MAX: Int = 10
 }
+
+@Serializable
+data class RowRecipient(
+	@EncodeDefault
+	val kind: String = "holder",
+)
+
+@Serializable
+data class RowStamp(
+	val device: String,
+)
+
+@Serializable
+data class PhoneHold(
+	val holder: String,
+	val claimedAt: Long,
+	val version: Long,
+)
+
+@Serializable
+data class PhoneHoldPlane(
+	val hold: PhoneHold? = null,
+)
+
+@Serializable
+data class HoldClaimValue(
+	@EncodeDefault
+	val kind: String = "hold_claim",
+)
+
+@Serializable
+data class HoldClaimResult(
+	val hold: PhoneHold,
+)
+
+@Serializable
+data class PhoneHoldReadValue(
+	@EncodeDefault
+	val kind: String = "phone_hold_read",
+)
+
+@Serializable
+data class PhoneStatusKey(
+	val key: String,
+	val available: Boolean,
+	val reason: String? = null,
+	val needs: List<String>,
+)
+
+@Serializable
+data class PhoneContact(
+	val id: String,
+	val name: String,
+	val phones: List<String>,
+	val emails: List<String>,
+	val birthday: String? = null,
+)
+
+@Serializable
+class PhoneStatusRequest
+
+@Serializable
+data class PhoneStatusAnswer(
+	val holder: String? = null,
+	val keys: List<PhoneStatusKey>,
+)
+
+@Serializable
+data class ContactsSearchRequest(
+	/** A name, number or email fragment. */
+	val query: String,
+	val limit: Long? = null,
+)
+
+@Serializable
+data class ContactsSearchAnswer(
+	val contacts: List<PhoneContact>,
+)
+
+@Serializable
+data class TorchRequest(
+	val on: Boolean,
+	val strength: Long? = null,
+)
+
+@Serializable
+data class TorchAnswer(
+	val on: Boolean,
+	val levels: Long,
+)
+
+@Serializable
+data class PhoneCapabilityRow(
+	val requestId: String,
+	val key: String,
+	val params: JsonElement,
+	val guard: String,
+	val deadlineAt: Long,
+)
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
+sealed class PhoneCapabilityAnswer {
+	@Serializable
+	@SerialName("ok")
+	data class Ok(
+		val answer: JsonElement,
+	) : PhoneCapabilityAnswer()
+
+	@Serializable
+	@SerialName("unavailable")
+	data class Unavailable(
+		val reason: String,
+		val needs: List<String>? = null,
+		val detail: String? = null,
+	) : PhoneCapabilityAnswer()
+}
+
+@Serializable
+data class AssistantActRequest(
+	val requestId: String,
+	val key: String,
+	val label: String,
+	val summary: String,
+	val deadlineAt: Long,
+)
 
 @Serializable
 data class ChannelFile(
@@ -725,6 +875,21 @@ sealed class ConsoleOp {
 	@Serializable
 	@SerialName("assistant_send_answer")
 	data class AssistantSendAnswer(
+		val requestId: String,
+		val decision: String,
+		val note: String? = null,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("phone_capability_answer")
+	data class PhoneCapabilityAnswer(
+		val requestId: String,
+		val answer: com.atelier_nyaarium.switchboard.proto.PhoneCapabilityAnswer,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("assistant_act_answer")
+	data class AssistantActAnswer(
 		val requestId: String,
 		val decision: String,
 		val note: String? = null,
@@ -1807,6 +1972,7 @@ data class InboxRow(
 	val seq: Long,
 	val acceptedAt: Long,
 	val size: Long,
+	val stamp: RowStamp? = null,
 )
 
 @Serializable
@@ -1816,6 +1982,7 @@ data class RowEnvelope(
 	val epoch: JsonElement,
 	val kind: String,
 	val contentRefs: List<String>,
+	val recipient: RowRecipient? = null,
 )
 
 @Serializable

@@ -1,5 +1,6 @@
 // What a hook asks the Gateway, as its own session.
 
+import { ASSISTANT_HOLD_PATH } from "../shared/assistant-hold.js";
 import { isInsideContainer } from "../shared/env.js";
 
 export type HookEnv = Readonly<Record<string, string | undefined>>;
@@ -25,4 +26,8 @@ export async function askGateway(
 	} catch {
 		return null;
 	}
+}
+
+export function askAssistantHold(env: HookEnv, timeoutMs: number, fetchImpl: typeof fetch = fetch): Promise<unknown> {
+	return askGateway(env, ASSISTANT_HOLD_PATH, timeoutMs, fetchImpl);
 }

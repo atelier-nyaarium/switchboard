@@ -451,6 +451,12 @@ export function createConsoleDispatcher({
 			case "assistant_send_answer":
 				return requireAssistant().answerSend(op.requestId, op.decision, op.note);
 
+			case "phone_capability_answer":
+				return requireAssistant().answerPhone(op.requestId, op.answer, device);
+
+			case "assistant_act_answer":
+				return requireAssistant().answerAct(op.requestId, op.decision, op.note);
+
 			default: {
 				// Exhaustive by type.
 				const unhandled: never = op;

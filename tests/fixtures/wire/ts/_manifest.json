@@ -50,6 +50,12 @@
 			"peer": "phone"
 		},
 		{
+			"file": "gateway/consolePushOps/plugin_action.json",
+			"composer": "gateway/consolePushOps",
+			"case": "plugin_action",
+			"peer": "phone"
+		},
+		{
 			"file": "gateway/router/presenceReporter/baseline.json",
 			"composer": "gateway/router/presenceReporter",
 			"case": "baseline",

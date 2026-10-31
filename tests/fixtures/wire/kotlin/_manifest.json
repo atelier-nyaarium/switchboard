@@ -8,6 +8,18 @@
 			"peer": "router.handle"
 		},
 		{
+			"file": "PhoneHoldOps.claim/hold_claim.json",
+			"composer": "PhoneHoldOps.claim",
+			"case": "hold_claim",
+			"peer": "router.handle"
+		},
+		{
+			"file": "PhoneHoldOps.read/phone_hold_read.json",
+			"composer": "PhoneHoldOps.read",
+			"case": "phone_hold_read",
+			"peer": "router.handle"
+		},
+		{
 			"file": "KeyDeliveryOps.requestMissing/key_request.json",
 			"composer": "KeyDeliveryOps.requestMissing",
 			"case": "key_request",

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AssistantHomeFrameSchema } from "./schemasAssistantHome.js";
+import { PhoneHoldFrameSchema } from "./schemasPhoneHold.js";
 
 // Relay payloads stay opaque here.
 
@@ -76,6 +77,7 @@ export const RouterInboundFrameSchema = z.discriminatedUnion("type", [
 		incarnation: z.number().int().positive(),
 	}),
 	AssistantHomeFrameSchema,
+	PhoneHoldFrameSchema,
 ]);
 
 export const ToolCallFrameSchema = z.object({

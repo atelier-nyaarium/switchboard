@@ -74,6 +74,7 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun ThreadScreen(
 	team: String,
+	onConversationShown: (String) -> Unit = {},
 	label: String,
 	chrome: ThreadChrome,
 	presence: SessionWord?,
@@ -109,6 +110,8 @@ internal fun ThreadScreen(
 	/** The assistant's oldest waiting send, by request id. */
 	assistantSendTile: com.atelier_nyaarium.switchboard.vault.VaultTile? = null,
 	onOpenAssistantSend: (String) -> Unit = {},
+	assistantActTile: com.atelier_nyaarium.switchboard.vault.VaultTile? = null,
+	onOpenAssistantAct: (String) -> Unit = {},
 	// (team, at) a queue tile asked to land on, or null. Passed straight through to ThreadWebView.
 	revealAt: Pair<String, Long>?,
 	// Cleared once the reveal has been handed to the renderer. Without it the request stays set and
@@ -433,6 +436,9 @@ internal fun ThreadScreen(
 				assistantSendTile?.let { tile ->
 					com.atelier_nyaarium.switchboard.vault.VaultRequestTile(tile) { onOpenAssistantSend(tile.requestId) }
 				}
+				assistantActTile?.let { tile ->
+					com.atelier_nyaarium.switchboard.vault.VaultRequestTile(tile) { onOpenAssistantAct(tile.requestId) }
+				}
 			}
 			if (view != ConversationView.CHAT && !terminalMode) {
 				body(Modifier.weight(1f).fillMaxWidth())
@@ -516,6 +522,9 @@ internal fun ThreadScreen(
 			// tap that lands after a tab switch never opens in the wrong conversation.
 			var openReference by remember(team) {
 				mutableStateOf<com.atelier_nyaarium.switchboard.plugins.references.ReferenceOpenRequest?>(null)
+			}
+			LaunchedEffect(team) {
+				onConversationShown(team)
 			}
 			LaunchedEffect(team) {
 				com.atelier_nyaarium.switchboard.plugins.references.ReferenceOpenBus.events.collect { request ->

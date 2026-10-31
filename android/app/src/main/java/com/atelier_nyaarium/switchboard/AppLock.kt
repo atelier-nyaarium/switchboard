@@ -22,3 +22,6 @@ internal object AppLock {
 
 /** Whether the app lock asks before anything shows. */
 internal fun appLockAsks(state: ChatState, unlocked: Boolean): Boolean = state.provisioned && state.biometricLock && !unlocked
+
+/** Notifications open cards. */
+internal fun requestCardsShow(locked: Boolean): Boolean = !locked

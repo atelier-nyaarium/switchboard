@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import android.content.ContentResolver
+import android.content.Context
 import com.atelier_nyaarium.switchboard.board.BoardRouterWriter
 import com.atelier_nyaarium.switchboard.proto.BoardWriteResult
 import com.atelier_nyaarium.switchboard.proto.MailboxEntry
@@ -19,7 +20,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 
-internal data class Drained(val entry: MailboxEntry) : SyncEntry {
+internal data class Drained(val entry: MailboxEntry, val stamp: com.atelier_nyaarium.switchboard.proto.RowStamp? = null) : SyncEntry {
 	override val seq: Long get() = entry.seq
 }
 
@@ -37,6 +38,7 @@ class ChatRepository(
 	internal val store: AppStateStore,
 	internal val filesDir: File,
 	internal val contentResolver: ContentResolver,
+	internal val applicationContext: Context,
 	internal val sttsCatalog: List<com.atelier_nyaarium.switchboard.proto.SttsProvider> = emptyList(),
 ) : ClearsOnReprovision {
 	internal val federation = FederationManager(store)
@@ -58,6 +60,8 @@ class ChatRepository(
 	val vault = com.atelier_nyaarium.switchboard.vault.VaultManager(store)
 
 	internal val assistantSends = com.atelier_nyaarium.switchboard.assistant.AssistantSendManager(store)
+
+	internal val assistantActs = com.atelier_nyaarium.switchboard.assistant.AssistantActManager(store)
 
 	val runbooks = com.atelier_nyaarium.switchboard.runbooks.RunbookManager(store)
 
@@ -277,7 +281,7 @@ class ChatRepository(
 
 	internal val clearedOnReprovision: List<ClearsOnReprovision>
 		get() = listOf(
-			this, board, vault, assistantSends, runbooks, presence, trust, drain, playback, workspaceHost, composedRequests, windowOps,
+			this, board, vault, assistantSends, assistantActs, runbooks, presence, trust, drain, playback, phoneHoldOps, phoneCapabilityOps, workspaceHost, composedRequests, windowOps,
 			symbolViews, windowRequests, rawFileOps, fileOps,
 		)
 
@@ -311,7 +315,7 @@ class ChatRepository(
 		get() = focusHost.currentFocus
 		set(value) { focusHost.currentFocus = value }
 
-	internal val drain = PollDrain(drainHost, ports)
+	internal val drain = PollDrain(drainHost, ports) { todayRule -> phoneHoldOps.speaks(todayRule) }
 
 	init {
 		// Restore the held roster before the first poll.
@@ -361,6 +365,24 @@ class ChatRepository(
 		repoScope = repoScope,
 		playback = playbackPort,
 		collaborators = playbackCollaborators,
+		speaksForHold = { todayRule -> phoneHoldOps.speaks(todayRule) },
+	)
+	internal val phoneHoldOps: PhoneHoldOps = PhoneHoldOps(
+		state = _state,
+		self = { readyOrNull()?.device.orEmpty() },
+		router = OwnerOpHoldRouter { op ->
+			ownerOpsOrNull()?.sign(op)?.let { clientOrNull()?.postOwnerOp(it) }
+		},
+		scope = repoScope,
+		clearSpeech = { playback.clearForOtherHolder() },
+	)
+	internal val phoneCapabilityOps = PhoneCapabilityOps(
+		context = applicationContext,
+		state = { _state.value },
+		self = { readyOrNull()?.device.orEmpty() },
+		scope = repoScope,
+		store = store,
+		client = ::clientOrNull,
 	)
 	internal val boardOps = BoardOps(
 		state = _state,
@@ -378,6 +400,15 @@ class ChatRepository(
 	internal val policyOps = PolicyOps(state = _state, host = ChatRepositoryPolicyHost(this))
 	internal val assistantOps = AssistantOps(state = _state, host = ChatRepositoryAssistantHost(this))
 	internal val assistantSendOps = com.atelier_nyaarium.switchboard.assistant.AssistantSendOps(_state, assistantSends, ::clientOrNull)
+	internal val assistantActOps = com.atelier_nyaarium.switchboard.assistant.AssistantActOps(
+		manager = assistantActs,
+		ownerPresent = vaultOps::ownerPresent,
+		send = { gatewayId, op, opId ->
+			clientOrNull()?.let { console ->
+				console.valueResult<kotlinx.serialization.json.JsonObject>(console.sendValueOp(gatewayId, op, opId), "assistant_act_answer")
+			}
+		},
+	)
 	/** One shared draft writer. */
 	// Keep this directory name, since another name would orphan every held draft.
 	private val workspaceDrafts = WorkspaceDraftStore(File(filesDir, "window-drafts"), repoScope)

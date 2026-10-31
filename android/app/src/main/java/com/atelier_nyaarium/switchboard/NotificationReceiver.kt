@@ -22,6 +22,12 @@ class NotificationReceiver : BroadcastReceiver() {
 			SttsTransport.ACTION_PAUSE -> return repo.command { playback.pausePlayback() }
 			SttsTransport.ACTION_SKIP -> return repo.command { playback.skipPlayback() }
 		}
+		if (intent.action == ACTION_DISMISS_ROUTINE_MISS) {
+			val gatewayId = intent.getStringExtra(EXTRA_GATEWAY) ?: return
+			val routineId = intent.getStringExtra(EXTRA_ROUTINE) ?: return
+			val occurrenceId = intent.getStringExtra(EXTRA_OCCURRENCE) ?: return
+			return repo.command { routineOps.dismiss(routineId, occurrenceId, gatewayId) }
+		}
 		// A vault notification answers nothing from here; every answer lives in the sheet.
 		if (intent.hasExtra(SwitchboardService.EXTRA_VAULT_REQUEST)) return
 		val team = intent.getStringExtra(SwitchboardService.EXTRA_OPEN_TEAM)?.let(repo::fromCanonical) ?: return
@@ -47,5 +53,9 @@ class NotificationReceiver : BroadcastReceiver() {
 		const val ACTION_PLAY_FULL = "com.atelier_nyaarium.switchboard.PLAY_FULL"
 		const val ACTION_PLAY_SUMMARY = "com.atelier_nyaarium.switchboard.PLAY_SUMMARY"
 		const val ACTION_STATUS_DISMISSED = "com.atelier_nyaarium.switchboard.STATUS_DISMISSED"
+		const val ACTION_DISMISS_ROUTINE_MISS = "com.atelier_nyaarium.switchboard.DISMISS_ROUTINE_MISS"
+		const val EXTRA_GATEWAY = "gateway"
+		const val EXTRA_ROUTINE = "routine"
+		const val EXTRA_OCCURRENCE = "occurrence"
 	}
 }

@@ -8,7 +8,7 @@ import { DurableStore } from "../shared/durable-store.js";
 import { type ConsolePushEntry, ConsolePushEntrySchema } from "../shared/federation-protocol.js";
 import { fenced, MIGRATING } from "../shared/migration-fence.js";
 import { type NoticeTierWire, pickTiers } from "../shared/notice.js";
-import { formatInboxAddress, OpResultEnvelopeSchema, signRowEnvelope } from "../shared/schemasInbox.js";
+import { formatInboxAddress, OpResultEnvelopeSchema, RowStampSchema, signRowEnvelope } from "../shared/schemasInbox.js";
 import { type Address, storeKey } from "../shared/session-id.js";
 import type { ChannelFile } from "../shared/types.js";
 import type { ChannelDeliveryCoordinator } from "./channelDelivery.js";
@@ -31,10 +31,19 @@ export interface DeliverToOwnerOptions {
 	label?: string;
 	/** A row only this process can act on; a restart drops it undelivered. */
 	volatile?: boolean;
+	recipient?: { kind: "holder" };
 }
 
 export type DeliverToOwnerResult = boolean | typeof MIGRATING;
-export type DeliverToOwner = (opts: DeliverToOwnerOptions) => DeliverToOwnerResult;
+export type OwnerAppendAnswer = { kind: "accepted"; stamp?: { device: string } } | { kind: "refused"; reason: string };
+export type DeliverToOwnerCompletion =
+	| { queued: false }
+	| { queued: true; completion: Promise<OwnerAppendAnswer> }
+	| typeof MIGRATING;
+export type DeliverToOwner = {
+	(opts: DeliverToOwnerOptions & { completion: true }): DeliverToOwnerCompletion;
+	(opts: DeliverToOwnerOptions): DeliverToOwnerResult;
+};
 
 export interface ConsolePushOpsDeps {
 	dataDir: string;
@@ -66,9 +75,10 @@ type OwnerRowOutboxItem = {
 	entry: ConsolePushEntry;
 	opId: string;
 	label: string;
-	// Stamped at enqueue for identical retries.
+	// Pin timestamp across retries.
 	at?: number;
 	volatile?: boolean;
+	recipient?: { kind: "holder" };
 };
 
 const withoutBytes = ({ blobId: _gone, ...file }: ChannelFile): ChannelFile => file;
@@ -105,8 +115,13 @@ export function createConsolePushOps({
 			label: z.string().min(1),
 			at: z.number().int().nonnegative().optional(),
 			volatile: z.boolean().optional(),
+			recipient: z.object({ kind: z.literal("holder") }).optional(),
 		}),
 	);
+	const completions = new Map<
+		string,
+		{ promise: Promise<OwnerAppendAnswer>; resolve: (answer: OwnerAppendAnswer) => void }
+	>();
 	let storedInvalid = false;
 	const outbox = new DurableOutbox<OwnerRowOutboxItem>({
 		durable: outboxStore,
@@ -154,6 +169,7 @@ export function createConsolePushOps({
 			epoch: sealed.envelope.epoch,
 			kind: entry.kind,
 			contentRefs: [...new Set((entry.files ?? []).flatMap((file) => (file.blobId ? [file.blobId] : [])))],
+			...(item.recipient ? { recipient: item.recipient } : {}),
 		};
 		const payload = {
 			address: formatInboxAddress({ kind: "owner", domainId, ownerSignPub: ownerSign }),
@@ -168,6 +184,24 @@ export function createConsolePushOps({
 		if (line === lastWait) return;
 		lastWait = line;
 		console.log(`[owner-outbox] waiting: ${line}`);
+	}
+
+	function completionFor(key: string): Promise<OwnerAppendAnswer> {
+		const held = completions.get(key);
+		if (held) return held.promise;
+		let resolve: (answer: OwnerAppendAnswer) => void = () => undefined;
+		const promise = new Promise<OwnerAppendAnswer>((done) => {
+			resolve = done;
+		});
+		completions.set(key, { promise, resolve });
+		return promise;
+	}
+
+	function settleCompletion(key: string, answer: OwnerAppendAnswer): void {
+		const held = completions.get(key);
+		if (!held) return;
+		completions.delete(key);
+		held.resolve(answer);
 	}
 
 	/** Stages bytes before row. */
@@ -247,6 +281,12 @@ export function createConsolePushOps({
 				}
 				console.warn(`[${item.label}] owner row ${item.opId} refused: ${parsed.reason ?? "refused"}`);
 			}
+			const stamp = RowStampSchema.safeParse((parsed.result as { stamp?: unknown } | undefined)?.stamp);
+			const appendAnswer: OwnerAppendAnswer =
+				parsed.outcome === "accepted"
+					? { kind: "accepted", ...(stamp.success ? { stamp: stamp.data } : {}) }
+					: { kind: "refused", reason: parsed.reason ?? parsed.outcome };
+			settleCompletion(opKeyOf(item), appendAnswer);
 			try {
 				if (outbox.retire(opKeyOf(item)) === MIGRATING) return;
 			} catch (err) {
@@ -263,25 +303,29 @@ export function createConsolePushOps({
 	const drainTimer = ambient.setInterval(() => fireAndForget("owner outbox drain", drainOutbox()), 1000);
 	const stop = (): void => ambient.clearInterval(drainTimer);
 
+	function deliverToOwner(options: DeliverToOwnerOptions & { completion: true }): DeliverToOwnerCompletion;
+	function deliverToOwner(options: DeliverToOwnerOptions): DeliverToOwnerResult;
 	function deliverToOwner({
 		entry,
 		dedupeKey,
 		label = "deliver",
 		volatile = false,
-	}: DeliverToOwnerOptions): DeliverToOwnerResult {
+		recipient,
+		completion = false,
+	}: DeliverToOwnerOptions & { completion?: boolean }): DeliverToOwnerResult | DeliverToOwnerCompletion {
 		if (fenced()) {
 			console.warn(`[${label}] refused: migrating`);
 			return MIGRATING;
 		}
 		if (entry.files && entry.files.length > 0 && fileBytes(entry.files) > MAX_RESPONSE_FILE_BYTES) {
 			console.warn(`[${label}] dropped an oversized entry (over ${MAX_RESPONSE_FILE_BYTES} bytes)`);
-			return false;
+			return completion ? { queued: false } : false;
 		}
 		if (entry.payload && payloadBytes(entry.payload) > MAX_PLUGIN_ACTION_PAYLOAD_BYTES) {
 			console.warn(
 				`[${label}] dropped an oversized plugin_action payload (over ${MAX_PLUGIN_ACTION_PAYLOAD_BYTES} bytes)`,
 			);
-			return false;
+			return completion ? { queued: false } : false;
 		}
 		// Unrestorable rows invalidate the outbox.
 		const checked = ConsolePushEntrySchema.safeParse(entry);
@@ -291,14 +335,29 @@ export function createConsolePushOps({
 			);
 			return false;
 		}
-		return appendOwnerRow(entry, entry.opId ?? dedupeKey, label, volatile);
+		return appendOwnerRow(entry, entry.opId ?? dedupeKey, label, volatile, recipient, completion);
 	}
 
-	function appendOwnerRow(entry: ConsolePushEntry, opId: string, label: string, volatile = false): boolean {
-		const item: OwnerRowOutboxItem = { entry, opId, label, at: now(), ...(volatile ? { volatile } : {}) };
-		if (!queueOutbox(item)) return false;
+	function appendOwnerRow(
+		entry: ConsolePushEntry,
+		opId: string,
+		label: string,
+		volatile = false,
+		recipient?: { kind: "holder" },
+		withCompletion = false,
+	): boolean | DeliverToOwnerCompletion {
+		const item: OwnerRowOutboxItem = {
+			entry,
+			opId,
+			label,
+			at: now(),
+			...(volatile ? { volatile } : {}),
+			...(recipient ? { recipient } : {}),
+		};
+		if (!queueOutbox(item)) return withCompletion ? { queued: false } : false;
+		const completion = withCompletion ? completionFor(opKeyOf(item)) : undefined;
 		fireAndForget("owner outbox drain", drainOutbox());
-		return true;
+		return withCompletion ? { queued: true, completion: completion as Promise<OwnerAppendAnswer> } : true;
 	}
 
 	function mirrorPeer(

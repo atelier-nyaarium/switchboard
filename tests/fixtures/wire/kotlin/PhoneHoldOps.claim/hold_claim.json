@@ -1,0 +1,29 @@
+{
+	"producer": "kotlin",
+	"composer": "PhoneHoldOps.claim",
+	"case": "hold_claim",
+	"clock": 1757000000000,
+	"inputs": {
+		"op": {
+			"kind": "hold_claim"
+		},
+		"opId": "hold_claim-op",
+		"nonce": "7RiFSsBGQ3BwZxI83qgQPiZC",
+		"draws": {
+			"0": "7RiFSsBGQ3BwZxI83qgQPiZC"
+		}
+	},
+	"expect": {
+		"hold": {
+			"holder": "fixture-phone"
+		}
+	},
+	"request": {
+		"method": "POST",
+		"path": "/console",
+		"headers": {
+			"x-console-bridge-token": "Bearer fixture-console-token"
+		},
+		"body": "{\"ownerOp\":{\"v\":1,\"domainId\":\"fixture-domain\",\"signerSignPub\":\"bXhwDB5nEMCvY00l2qbzOl9wvzHx/hMdPCJc9PMHBh4=\",\"conversationId\":\"fixture-console\",\"device\":\"fixture-phone\",\"opId\":\"hold_claim-op\",\"at\":1757000000000,\"nonce\":\"7RiFSsBGQ3BwZxI83qgQPiZC\",\"op\":{\"kind\":\"hold_claim\"},\"signature\":\"O9jQU+gBieIrvfWVTvB3HuPWNNsw34XmiFwsXLD9wTkJ41vFc6QSUOpP2xz6+eG2FF2FSB9dhY0w0IHZrgPxBA==\"}}"
+	}
+}

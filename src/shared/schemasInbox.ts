@@ -92,6 +92,9 @@ export const RowKindSchema = z.enum([
 	"op_result",
 ]);
 
+/** Signed selector; Router resolves. */
+export const RowRecipientSchema = z.object({ kind: z.literal("holder") }).meta({ id: "RowRecipient" });
+
 export const RowEnvelopeSchema = z
 	.object({
 		origin: RowOriginSchema,
@@ -99,8 +102,14 @@ export const RowEnvelopeSchema = z
 		epoch: z.union([z.number().int().min(1).max(2147483647), z.enum(["peer", "clear"])]),
 		kind: RowKindSchema,
 		contentRefs: z.array(z.string().refine(isBlobId)).max(64),
+		recipient: RowRecipientSchema.optional(),
 	})
 	.meta({ id: "RowEnvelope" });
+
+/** Router-owned stamp; outside envelope. */
+export const RowStampSchema = z.object({ device: deviceField }).meta({ id: "RowStamp" });
+
+export type RowStamp = z.infer<typeof RowStampSchema>;
 
 export type RowOrigin = z.infer<typeof RowOriginSchema>;
 export type OpKey = z.infer<typeof OpKeySchema>;
@@ -164,6 +173,7 @@ export const InboxRowSchema = z
 		seq: z.number().int().min(1),
 		acceptedAt: z.number().int().nonnegative(),
 		size: z.number().int().nonnegative(),
+		stamp: RowStampSchema.optional(),
 	})
 	.superRefine(refineInboxRowInput)
 	.meta({ id: "InboxRow" });

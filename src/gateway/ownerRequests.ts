@@ -235,11 +235,14 @@ export function createOwnerRequests<R extends OwnerRequestRow, A, P = undefined>
 
 	const open = (input: {
 		sessionTarget: string;
+		requestId?: string;
 		build: (requestId: string, deadlineAt: number) => R;
 		payload: P;
 	}): OwnerRequestOpened<R, A> => {
 		if (openFor(input.sessionTarget) >= deps.maxOpenPerTarget) return { kind: "undeliverable", reason: "flooded" };
-		const requestId = ambient.newId();
+		const requestId = input.requestId ?? ambient.newId();
+		if (pending.has(requestId) || stale.some((stub) => stub.requestId === requestId))
+			return { kind: "undeliverable", reason: "unreachable" };
 		const request = input.build(requestId, ambient.now() + deps.deadlineMs);
 		let resolve: (answer: A) => void = () => undefined;
 		const answer = new Promise<A>((done) => {

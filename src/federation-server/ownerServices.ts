@@ -23,6 +23,7 @@ import { createKeyDeliveryService } from "./keyDeliveryService.js";
 import { createCursorService } from "./migration/cursorService.js";
 import { createLeaseService, readRouterMigrationWindow } from "./migration/leaseService.js";
 import type { OwnerServiceHooks } from "./ownerServiceHooks.js";
+import { createPhoneHoldService } from "./phone/phoneHoldService.js";
 import { createPresenceService } from "./presence/presenceService.js";
 import { createScheduledService } from "./scheduled/scheduledService.js";
 import { createShareService } from "./share/shareService.js";
@@ -221,7 +222,19 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 	});
 
 	const capabilities = createCapabilitiesService({ registry });
-	const readAnchors = createReadAnchorsService({ registry });
+	const readAnchors = createReadAnchorsService({
+		registry,
+		pokeOwner: (domainId, result) =>
+			deps.consoleSockets?.pushPlane(domainId, "readAnchors", result.version, result),
+	});
+	const phoneHold = createPhoneHoldService({
+		registry,
+		pokeOwner: (domainId, version, payload) => {
+			const epoch = presence.lineageEpoch(domainId);
+			if (epoch !== null) deps.consoleSockets?.pushPlane(domainId, "phoneHold", { epoch, version }, payload);
+		},
+	});
+	bridge.setPhoneHoldReader((domainId, now) => phoneHold.read(domainId, now));
 	const vault = createVaultService({
 		registry,
 		pokeOwner: (domainId, revision) => {
@@ -256,6 +269,7 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		vault,
 		blobs,
 		assistantHome,
+		phoneHold,
 	])
 		service.register(hooks);
 	// A catalogued kind nothing serves refuses at runtime, so construction refuses first.
@@ -281,9 +295,11 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		readAnchors,
 		vault,
 		assistantHome,
+		phoneHold,
 		planeVersions(domainId: string, _signerSignPub: string): Record<string, PlaneLineage> {
 			const projection = presence.ownerProjection(domainId, projectionDeps);
 			const epoch = presence.lineageEpoch(domainId);
+			const anchors = readAnchors.read(domainId);
 			// A plane whose lineage is not durable is not served.
 			return {
 				...("outcome" in projection ? {} : { presence: projection.plane }),
@@ -293,11 +309,15 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 							taskBoard: { epoch, version: board.read(domainId).revision },
 							vault: { epoch, version: vault.revision(domainId) },
 							assistantHome: { epoch, version: assistantHome.planeVersion(domainId) },
+							phoneHold: { epoch, version: phoneHold.planeVersion(domainId) },
 						}),
+				...("outcome" in anchors ? {} : { readAnchors: anchors.version }),
 			};
 		},
 		readPlane(domainId: string, _signerSignPub: string, name: string): unknown {
 			if (name === "presence") return presence.ownerProjection(domainId, projectionDeps);
+			if (name === "phoneHold") return phoneHold.plane(domainId);
+			if (name === "readAnchors") return readAnchors.read(domainId);
 			// Board, vault and home planes carry revisions.
 			return undefined;
 		},

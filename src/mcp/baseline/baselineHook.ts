@@ -32,6 +32,15 @@ function linesOf(baseline: SessionBaseline): string[] {
 		),
 		...baseline.routines.map(({ occurrenceId, routine }) => `routine: ${occurrenceId} ${flat(routine)}`),
 		...baseline.agents.map(({ family, agentId }) => `agent: ${family} ${agentId} turn running`),
+		...(baseline.assistant?.hold === undefined
+			? []
+			: [
+					baseline.assistant.hold.kind === "held"
+						? `phone hold: held by ${flat(baseline.assistant.hold.holder)}, ${baseline.assistant.hold.remainingMs}ms remaining`
+						: baseline.assistant.hold.kind === "lapsed"
+							? `phone hold: lapsed ${baseline.assistant.hold.lapsedMs}ms ago, last held by ${flat(baseline.assistant.hold.holder)}`
+							: "phone hold: none",
+				]),
 		...(baseline.assistant?.watchers ?? []).map(
 			({ label, unread, capped, checked, stopped, waiting }) =>
 				`watcher: ${flat(label)} ${checked === false ? "not checked yet" : `${unread}${capped ? "+" : ""} unread`}` +

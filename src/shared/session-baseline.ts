@@ -38,6 +38,22 @@ export const SessionBaselineSchema = z.object({
 	/** The assistant's session alone. */
 	assistant: z
 		.object({
+			/** Optional for Gateway compatibility. */
+			hold: z
+				.discriminatedUnion("kind", [
+					z.object({
+						kind: z.literal("held"),
+						holder: z.string(),
+						remainingMs: z.number().int().nonnegative(),
+					}),
+					z.object({
+						kind: z.literal("lapsed"),
+						holder: z.string(),
+						lapsedMs: z.number().int().nonnegative(),
+					}),
+					z.object({ kind: z.literal("none") }),
+				])
+				.optional(),
 			watchers: z.array(
 				z.object({
 					label: z.string(),

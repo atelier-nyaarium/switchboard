@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.PhoneHold
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -44,5 +45,17 @@ class ShouldNotifyBurstTest {
 	@Test
 	fun closingADifferentTeamDoesNotMuteThisOne() {
 		assertTrue(shouldNotifyBurst(isVisible = false, canNotify = true, closedTeams = setOf("alice.sakura.other.main"), team = team))
+	}
+
+	@Test
+	fun anotherStandingHolderSuppressesTheBurst() {
+		val hold = PhoneHold(holder = "device-b", claimedAt = 100L, version = 1L)
+		assertFalse(shouldNotifyBurst(false, true, emptySet(), team, hold, "device-a", 200L))
+	}
+
+	@Test
+	fun theHoldingPhoneStillFollowsTheExistingGate() {
+		val hold = PhoneHold(holder = "device-a", claimedAt = 100L, version = 1L)
+		assertTrue(shouldNotifyBurst(false, true, emptySet(), team, hold, "device-a", 200L))
 	}
 }

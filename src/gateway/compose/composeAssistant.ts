@@ -1,6 +1,7 @@
 // The assistant's one session and its watchers, placed where the Router's home record names.
 
 import { type Ambient, withinMs } from "../../shared/ambient.js";
+import type { HoldAnswer } from "../../shared/assistant-hold.js";
 import {
 	ASSISTANT_RESERVE_KEY,
 	ASSISTANT_SESSION_NAME,
@@ -12,6 +13,7 @@ import { SEND_BOUND_MS } from "../../shared/console-protocol.js";
 import { openDurable } from "../../shared/durable-store.js";
 import { isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { createFifo } from "../../shared/keyed-fifo.js";
+import { MIGRATING } from "../../shared/migration-fence.js";
 import type { PendingDelivery } from "../../shared/pending-delivery-store.js";
 import type { AssistantWatcher, ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
 import { actionsOf, GITHUB_WATCHER_ID } from "../../shared/schemasAssistantActions.js";
@@ -26,8 +28,11 @@ import {
 	ruleMatches,
 } from "../../shared/schemasAssistantRules.js";
 import type { AssistantSendRequest } from "../../shared/schemasAssistantSend.js";
+import type { GatewayCapabilityRuns } from "../../shared/schemasPhoneCapabilities.js";
+import type { PhoneHoldRecord } from "../../shared/schemasPhoneHold.js";
 import type { SessionBaseline } from "../../shared/session-baseline.js";
 import { ASSISTANT_COMMANDS } from "../../shared/session-commands.js";
+import { createActGuard } from "../assistant/actGuard.js";
 import { type ActionRecord, createActionDispatch } from "../assistant/actionDispatch.js";
 import { createAssistantRoutes, type Handler } from "../assistant/assistantRoutes.js";
 import { createGithubClient, type GithubClientDeps, type TokenRead } from "../assistant/githubClient.js";
@@ -36,6 +41,8 @@ import { createGithubWatcher } from "../assistant/githubWatcher.js";
 import { createHomeFollow, type HomeFollowEffects } from "../assistant/homeFollow.js";
 import { createHomeMarkStore } from "../assistant/homeMark.js";
 import { createInboxListing } from "../assistant/inboxListing.js";
+import { createPhoneDispatch, holdRefusal } from "../assistant/phoneDispatch.js";
+import { createPhoneRequests, type PhoneRequest, type PhoneRequestDelivery } from "../assistant/phoneRequests.js";
 import { createRulesStore } from "../assistant/rulesStore.js";
 import { createOriginMarker, createSafetyStore, createSendGuard } from "../assistant/sendGuard.js";
 import { type AssistantWake, createSourceLanes, type SourceLanes } from "../assistant/sourceLane.js";
@@ -45,6 +52,7 @@ import type { WatcherActions } from "../assistant/watcherAction.js";
 import { createWatcherEnabledStore } from "../assistant/watcherEnabled.js";
 import { createWatcherStateStore, FRESH_STATE, unexpectedNow } from "../assistant/watcherState.js";
 import type { AssistantConsoleHandlers } from "../console/consoleTypes.js";
+import { createHoldFollow } from "../phone/holdFollow.js";
 import { presentedByRequest } from "../sessionAuthority.js";
 import type { VaultRelease } from "../vault/vaultUse.js";
 import type { GatewayRoutes } from "./composeRoutes.js";
@@ -116,6 +124,9 @@ export interface AssistantStage {
 	placed: () => boolean;
 	/** One Router record, pushed or read at registration; a null was never written. */
 	follow: (record: AssistantHomeRecord | null, how: { registered: boolean }) => Promise<void>;
+	followPhoneHold: (record: PhoneHoldRecord | null) => void;
+	phoneHoldRevision: () => number;
+	holdAnswer: () => HoldAnswer;
 	bindHome: (port: AssistantHomePort) => void;
 	/** The refusal reason, or null. */
 	forgetRefusal: (team: string) => string | null;
@@ -304,10 +315,14 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		return found;
 	};
 	const safety = openDurable(deps.dataDir, "assistant-safety", (store) => createSafetyStore(store));
+	const phoneHold = createHoldFollow(() => ambient.now());
 	// Preboot rows cannot establish owner activity.
-	const marker = createOriginMarker(deps.lastDeliverySeq() + 1, () => ambient.now());
+	const marker = createOriginMarker(deps.lastDeliverySeq() + 1);
 	/** Owner-thread send card. */
-	const card = (actionType: "send-request" | "send-retract", payload: Record<string, unknown>) => {
+	const card = (
+		actionType: "send-request" | "send-retract" | "act-request" | "act-retract",
+		payload: Record<string, unknown>,
+	) => {
 		const routes = deps.routes();
 		const sessionId = routes.ownerSessionKey(ASSISTANT_TEAM);
 		if (!sessionId) return null;
@@ -321,6 +336,28 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				payload,
 			},
 		};
+	};
+	const phonePluginRow = (actionType: "retract", requestId: string, dedupeKey: string): boolean => {
+		try {
+			const routes = deps.routes();
+			const sessionId = routes.ownerSessionKey(ASSISTANT_TEAM);
+			if (!sessionId) return false;
+			return (
+				routes.deliverToOwner({
+					entry: {
+						kind: "plugin_action",
+						session_id: sessionId,
+						pluginId: "phone",
+						actionType,
+						payload: { requestId },
+					},
+					dedupeKey,
+					label: "assistant",
+				}) === true
+			);
+		} catch {
+			return false;
+		}
 	};
 	const guard = openDurable(deps.dataDir, "assistant-open-sends", (ledger) =>
 		createSendGuard({
@@ -357,6 +394,103 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			},
 		}),
 	);
+	const phoneRequests = openDurable(deps.dataDir, "assistant-phone-requests", (ledger) =>
+		createPhoneRequests({
+			ambient,
+			ledger,
+			deliver: (request: PhoneRequest) => {
+				try {
+					const routes = deps.routes();
+					const sessionId = routes.ownerSessionKey(ASSISTANT_TEAM);
+					if (!sessionId) return false;
+					const delivered = routes.deliverToOwner({
+						entry: {
+							kind: "plugin_action",
+							session_id: sessionId,
+							pluginId: "phone",
+							actionType: "capability",
+							payload: {
+								requestId: request.requestId,
+								key: request.key,
+								params: request.params,
+								guard: request.guard,
+								deadlineAt: request.deadlineAt,
+							},
+						},
+						// Fresh row per attempt.
+						dedupeKey: `assistant-phone:${request.requestId}:${ambient.newId()}`,
+						label: "assistant",
+						volatile: true,
+						recipient: { kind: "holder" },
+						completion: true,
+					});
+					if (delivered === MIGRATING) return MIGRATING;
+					if (!delivered.queued) return false;
+					return delivered as PhoneRequestDelivery;
+				} catch {
+					return false;
+				}
+			},
+			retract: (request) =>
+				phonePluginRow("retract", request.requestId, `assistant-phone-retract:${request.requestId}`),
+		}),
+	);
+	const actGuard = openDurable(deps.dataDir, "assistant-open-acts", (ledger) =>
+		createActGuard({
+			ambient,
+			ledger,
+			deliver: (request) => {
+				try {
+					const built = card("act-request", request);
+					if (!built) return false;
+					return built.routes.deliverToOwner({
+						entry: built.entry,
+						dedupeKey: `assistant-act:${request.requestId}`,
+						label: "assistant",
+						volatile: true,
+					});
+				} catch {
+					return false;
+				}
+			},
+			retract: (requestId) => {
+				try {
+					const built = card("act-retract", { requestId });
+					if (!built) return false;
+					return (
+						built.routes.deliverToOwner({
+							entry: built.entry,
+							dedupeKey: `assistant-act-retract:${requestId}`,
+							label: "assistant",
+						}) === true
+					);
+				} catch {
+					return false;
+				}
+			},
+			runPhone: (input) => {
+				const denied = holdRefusal(phoneHold.answer);
+				if (denied) return Promise.resolve(denied);
+				const opened = phoneRequests.open(input);
+				return opened.kind === "opened"
+					? opened.answer
+					: Promise.resolve({
+							kind: "refused",
+							reason: `the phone request could not be opened: ${opened.reason}`,
+						});
+			},
+		}),
+	);
+	const gatewayRuns: GatewayCapabilityRuns<unknown> = {};
+	const phoneDispatch = createPhoneDispatch({
+		ambient,
+		approveEverySend: safety.approveEverySend,
+		hold: phoneHold.answer,
+		phone: phoneRequests,
+		act: actGuard,
+		gateways: gatewayRuns,
+		record: postRecord,
+	});
 
 	const routes = createAssistantRoutes({
 		caller: (req) => {
@@ -374,8 +508,10 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		},
 		list: (scope, page) => inbox.list(scope, page),
 		dispatch,
+		phone: phoneDispatch,
 		guard,
-		writes: () => marker.writes(),
+		hold: phoneHold.answer,
+		ambient,
 	});
 	const state = (): ConsoleAssistantStateResult => {
 		const record = held();
@@ -440,6 +576,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	/** Waiting sends end and lanes stop before anything awaits; the rest runs again until the forget lands. */
 	const letGo = async (): Promise<boolean> => {
 		guard.sessionEnded(ASSISTANT_TEAM);
+		phoneRequests.sessionEnded(ASSISTANT_TEAM);
+		actGuard.sessionEnded(ASSISTANT_TEAM);
 		await stopLanes();
 		if (held()) {
 			try {
@@ -484,6 +622,9 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		reserves: isAssistant,
 		placed: () => held() !== undefined && home.allowsLanes(),
 		follow: homeFollow.follow,
+		followPhoneHold: phoneHold.apply,
+		phoneHoldRevision: phoneHold.revision,
+		holdAnswer: phoneHold.answer,
 		bindHome: (port) => {
 			homePort = port;
 		},
@@ -491,7 +632,14 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		routes,
 		baselineFor: (team) => {
 			if (!isAssistant(team)) return undefined;
+			const hold = phoneHold.answer();
 			return {
+				hold:
+					hold.kind === "held"
+						? { kind: "held", holder: hold.holder, remainingMs: hold.remainingMs }
+						: hold.kind === "lapsed"
+							? { kind: "lapsed", holder: hold.holder, lapsedMs: hold.lapsedMs }
+							: { kind: "none" },
 				watchers: watchers
 					.filter((watcher) => enabled.enabled(watcher.id))
 					.map((watcher) => {
@@ -583,6 +731,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				return state();
 			},
 			answerSend: (requestId, decision, note) => guard.answer(requestId, decision, note),
+			answerPhone: (requestId, answer, device) => phoneRequests.answer(requestId, answer, device),
+			answerAct: (requestId, decision, note) => actGuard.answer(requestId, decision, note),
 			/** Over the live first page, from the rule's place. */
 			previewRule: async (watcherId, rule) => {
 				const refusal = rules.refusalOf(watcherId, rule);
@@ -619,6 +769,24 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			startLanes();
 			homeFollow.start();
 			guard.retractStale();
+			phoneRequests.retractStale((stub) =>
+				phonePluginRow("retract", stub.requestId, `assistant-phone-retract:${stub.requestId}`),
+			);
+			actGuard.retractStale((stub) => {
+				try {
+					const built = card("act-retract", { requestId: stub.requestId });
+					if (!built) return false;
+					return (
+						built.routes.deliverToOwner({
+							entry: built.entry,
+							dedupeKey: `assistant-act-retract:${stub.requestId}`,
+							label: "assistant",
+						}) === true
+					);
+				} catch {
+					return false;
+				}
+			});
 		},
 		stop: async () => {
 			ownerOpsClosed = true;
@@ -636,6 +804,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		namesBlob: (blobId) => guard.namesBlob(blobId),
 		sessionEnded: (team) => {
 			guard.sessionEnded(team);
+			phoneRequests.sessionEnded(team);
+			actGuard.sessionEnded(team);
 			if (team === ASSISTANT_TEAM) marker.ended();
 		},
 	};

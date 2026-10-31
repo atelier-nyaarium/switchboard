@@ -97,6 +97,7 @@ internal suspend fun ChatRepository.deliver(
 				?.takeIf { it.isNotEmpty() && adminDomain != null && it != adminDomain }
 		}
 		DebugLog.log("Send", "op=${opId.take(8)} team=$team files=${picked.size} domain=${targetDomain ?: "local"}")
+		phoneHoldOps.beforeSend()
 		val r = client().send(team, text, picked, opId, targetDomain)
 		when {
 			!r.ok -> {

@@ -19,7 +19,14 @@ import { MAX_BLOB_BYTES } from "../shared/router-protocol.js";
 import { type FakeAmbient, fakeAmbient } from "./fakeAmbient.js";
 import { attachFakeHost, createFakeCodexDaemon, type FakeHost, type FakeHostOptions } from "./fakeHost.js";
 import { FixtureWorld } from "./fixtureWorld.js";
-import { type IdentitySet, loadIdentitySet, mintIdentitySet, seedDomain, seedRouter } from "./identitySet.js";
+import {
+	admitSecondConsole,
+	type IdentitySet,
+	loadIdentitySet,
+	mintIdentitySet,
+	seedDomain,
+	seedRouter,
+} from "./identitySet.js";
 import { createPhoneDriver, type PhoneDriver } from "./phoneDriver.js";
 
 export interface FederationHarnessOptions {
@@ -47,10 +54,11 @@ export interface RouterOnlyHarness {
 	ambientFor: (dir: string) => FakeAmbient;
 	router: { server: RouterServer; port: number; certFp: string; store: FileSecretStore; dataDir: string };
 	phone: PhoneDriver;
+	phone2: PhoneDriver;
 	waitFor<T>(probe: () => Probe<T>, label: string, timeoutMs?: number): Promise<T>;
 	composeGateway(options?: GatewayComposeOptions): GatewayGraph;
 	composeGatewayFor(set: IdentitySet, dir: string, options?: GatewayComposeOptions): GatewayGraph;
-	phoneFor(set: IdentitySet): PhoneDriver;
+	phoneFor(set: IdentitySet, phone?: 1 | 2): PhoneDriver;
 	close(): Promise<void>;
 }
 
@@ -62,6 +70,7 @@ export interface DomainPeer {
 	gateway: GatewayGraph;
 	host: FakeHost;
 	phone: PhoneDriver;
+	phone2: PhoneDriver;
 	/** The console target for a local team field (`spawn` or `spawn.session`) on this Gateway. */
 	target(team: string): string;
 	restartGateway(): Promise<void>;
@@ -89,7 +98,7 @@ export interface FederationHarness extends DomainPeer {
 	router: { server: RouterServer; port: number; certFp: string; store: FileSecretStore; dataDir: string };
 	waitFor<T>(probe: () => Probe<T>, label: string, timeoutMs?: number): Promise<T>;
 	/** Another of the owner's phones, holding its own view of what the gateway last said. */
-	phoneFor(set: IdentitySet): PhoneDriver;
+	phoneFor(set: IdentitySet, phone?: 1 | 2): PhoneDriver;
 	restartGateway(): Promise<void>;
 	restartRouter(): Promise<void>;
 	addDomain(options: AddDomainOptions): Promise<DomainPeer>;
@@ -146,6 +155,7 @@ export async function startFederationHarness(options: FederationHarnessOptions =
 			return own.host;
 		},
 		phone: own.phone,
+		phone2: own.phone2,
 		target: own.target,
 		phoneFor: base.phoneFor,
 		waitFor,
@@ -177,13 +187,14 @@ export async function startFederationHarness(options: FederationHarnessOptions =
 			for (const peer of peers) await registered(peer.gateway);
 		},
 		addDomain: async (domainOptions) => {
-			const set = mintIdentitySet({
-				domainId: domainOptions.domainId,
-				gatewayId: domainOptions.gatewayId,
-				router: base.set.router.identity,
-				// One app token is shared; host tokens remain per machine.
-				tokens: { ...base.set.tokens, host: `${domainOptions.domainId}-host-token` },
-			});
+			const set = admitSecondConsole(
+				mintIdentitySet({
+					domainId: domainOptions.domainId,
+					gatewayId: domainOptions.gatewayId,
+					router: base.set.router.identity,
+					tokens: { ...base.set.tokens, host: `${domainOptions.domainId}-host-token` },
+				}),
+			);
 			await seedDomain(base.router.store, set);
 			const peer = await attachDomain(base, set, path.join(base.root, "domains", domainOptions.domainId), {
 				host: domainOptions.host,
@@ -211,6 +222,7 @@ async function attachDomain(
 		assistantWatchers?: readonly Watcher[];
 	},
 ): Promise<DomainPeer> {
+	set = admitSecondConsole(set);
 	const world = FixtureWorld.from(set);
 	const federationDir = path.join(gatewayDir, "federation");
 	const compose = () =>
@@ -249,6 +261,7 @@ async function attachDomain(
 			return host;
 		},
 		phone: base.phoneFor(set),
+		phone2: base.phoneFor(set, 2),
 		target: (team) => [set.domain.id, set.gateway.id, team].join("."),
 		restartGateway: async () => {
 			host.close();
@@ -332,7 +345,7 @@ async function linkDomains(receiver: DomainPeer, requester: DomainPeer, now: () 
 export async function startRouterOnly(
 	options: { now?: () => number; drive?: "real" | "manual"; wakeTimeoutMs?: number } = {},
 ): Promise<RouterOnlyHarness> {
-	const set = loadIdentitySet();
+	const set = admitSecondConsole(loadIdentitySet());
 	const world = FixtureWorld.from(set);
 	const drive = options.drive ?? "real";
 	const ambient = fakeAmbient({ now: options.now, drive });
@@ -412,9 +425,10 @@ export async function startRouterOnly(
 			graphCloses.push(close);
 			return { ...graph, close };
 		};
-		const phoneFor = (phoneSet: IdentitySet): PhoneDriver =>
+		const phoneFor = (phoneSet: IdentitySet, phone: 1 | 2 = 1): PhoneDriver =>
 			createPhoneDriver({
 				world: phoneSet === set ? world : FixtureWorld.from(phoneSet),
+				phone,
 				handle: (request) => router.server.handle(request),
 				now,
 			});
@@ -427,6 +441,7 @@ export async function startRouterOnly(
 			ambientFor,
 			router,
 			phone: phoneFor(set),
+			phone2: phoneFor(set, 2),
 			waitFor,
 			composeGateway: (gatewayOptions) => composeGatewayFor(set, gatewayDir, gatewayOptions),
 			composeGatewayFor,

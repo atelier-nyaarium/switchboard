@@ -50,7 +50,10 @@ class WireFixtureGenerator {
 	fun generateOrCheck() {
 		val root = load("identity/set.json")
 		val out = System.getProperty("wireFixturesOut")?.let(::File)
-		val fixtures = listOf(hello(root), keyRequest(root), keyGrant(root), cursorTranslate(root), boardWrite(root), boardRead(root)) +
+		val fixtures = listOf(
+			hello(root), holdClaim(root), phoneHoldRead(root), keyRequest(root), keyGrant(root), cursorTranslate(root),
+			boardWrite(root), boardRead(root),
+		) +
 			listOf(vaultPut(root), vaultList(root)) +
 			listOf(deliver(root), gatewayValue(root), keyGrantCase(root), reportRead(root), capabilities(root)) + consoleOps(root) + transport(root)
 		val manifest = WireManifest("Kotlin phone wire fixtures.", fixtures.map { it.second })
@@ -75,6 +78,20 @@ class WireFixtureGenerator {
 		val op = buildJsonObject { put("kind", "hello") }
 		val signed = OwnerOps(world.bootstrap(), world.ambient(draws)).sign(op, opId)
 		return ownerCase(root, "OwnerOps.sign", case, signed, opId, "{\"outcome\":\"complete\"}", draws = draws)
+	}
+
+	private fun holdClaim(root: JsonObject): Fixture = phoneHoldOp(root, "hold_claim", "PhoneHoldOps.claim")
+
+	private fun phoneHoldRead(root: JsonObject): Fixture = phoneHoldOp(root, "phone_hold_read", "PhoneHoldOps.read")
+
+	private fun phoneHoldOp(root: JsonObject, case: String, composer: String): Fixture {
+		val draws = FixtureDraws.forCase(composer, case)
+		val opId = "$case-op"
+		val op = buildJsonObject { put("kind", case) }
+		val bootstrap = world.bootstrap()
+		val signed = OwnerOps(bootstrap, world.ambient(draws)).sign(op, opId)
+		val expect = "{\"hold\":{\"holder\":\"${bootstrap.device}\"}}"
+		return ownerCase(root, composer, case, signed, opId, expect, draws = draws)
 	}
 
 	private fun transport(root: JsonObject): List<Fixture> {

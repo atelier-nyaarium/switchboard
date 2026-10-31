@@ -249,8 +249,25 @@ const ownerEntries: ConsolePushEntry[] = [
 			{ threadId: "2", outcome: "not_found" },
 		],
 	},
+	{
+		kind: "plugin_action",
+		session_id: "host.assistant",
+		pluginId: "phone",
+		actionType: "capability",
+		payload: {
+			requestId: "fixture-phone-request",
+			key: "contacts_search",
+			params: { query: "Ada" },
+			guard: "none",
+		},
+	},
 ];
-for (const entry of ownerEntries) ownerPush.deliverToOwner({ entry, dedupeKey: `owner-${entry.kind}` });
+for (const entry of ownerEntries)
+	ownerPush.deliverToOwner({
+		entry,
+		dedupeKey: `owner-${entry.kind}`,
+		...(entry.kind === "plugin_action" ? { recipient: { kind: "holder" } } : {}),
+	});
 for (let attempt = 0; ownerFrames.length < ownerEntries.length && attempt < 20; attempt++) {
 	await new Promise((resolve) => setImmediate(resolve));
 	await ownerPush.drainOutbox();
@@ -284,6 +301,9 @@ for (const [index, frame] of ownerFrames.entries()) {
 						kind: entry?.kind,
 						body: entry?.body,
 						...(entry?.threads ? { notify: entry.notify, threads: entry.threads } : {}),
+						...(entry?.pluginId
+							? { pluginId: entry.pluginId, actionType: entry.actionType, payload: entry.payload }
+							: {}),
 					},
 				},
 			],

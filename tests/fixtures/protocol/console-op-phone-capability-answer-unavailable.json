@@ -1,0 +1,5 @@
+{
+	"kind": "phone_capability_answer",
+	"requestId": "phone-request-unavailable",
+	"answer": { "kind": "unavailable", "reason": "not_granted", "needs": ["contacts"] }
+}

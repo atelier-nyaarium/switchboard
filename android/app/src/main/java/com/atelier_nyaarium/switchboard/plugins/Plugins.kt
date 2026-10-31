@@ -24,6 +24,7 @@ object Plugins {
 		val host = PluginHost(runtime, app)
 		// Core claims; always on.
 		com.atelier_nyaarium.switchboard.plugins.assistant.AssistantPlugin().register(host)
+		com.atelier_nyaarium.switchboard.plugins.phone.PhonePlugin().register(host)
 		val store = AppStateStore(app)
 		val manager = PluginManager(
 			runtime = runtime,
@@ -53,9 +54,9 @@ object Plugins {
 		// exact "pluginId:actionType" key (a registry claim is unique, so at most one handler ever
 		// exists for a given key); an unclaimed key is silently skipped.
 		Repo.get(app).drain.addPluginActionSubscriber(
-			PluginActionSubscriber { team, pluginId, actionType, payload ->
+			PluginActionSubscriber { team, pluginId, actionType, payload, stamp ->
 				host.pluginActions.get("$pluginId:$actionType")?.let { handler ->
-					runIsolated { handler.onAction(PluginAction(team, payload)) }
+					runIsolated { handler.onAction(PluginAction(team, payload, stamp)) }
 						.onFailure { com.atelier_nyaarium.switchboard.DebugLog.log("Plugins", "plugin action handler threw: $it") }
 				}
 			},

@@ -8,5 +8,15 @@ package com.atelier_nyaarium.switchboard
  * gates `notifyBurst`'s banner/TTS path. False while the Activity is visible (the user is already
  * looking at the app), notifications are otherwise unavailable, or the team's tab is muted
  * (explicitly Closed and not yet reopened; a never-opened team is not muted). */
-internal fun shouldNotifyBurst(isVisible: Boolean, canNotify: Boolean, closedTeams: Set<String>, team: String): Boolean =
-	!isVisible && canNotify && team !in closedTeams
+internal fun shouldNotifyBurst(
+	isVisible: Boolean,
+	canNotify: Boolean,
+	closedTeams: Set<String>,
+	team: String,
+	hold: com.atelier_nyaarium.switchboard.proto.PhoneHold? = null,
+	self: String = "",
+	now: Long = System.currentTimeMillis(),
+): Boolean {
+	val todayRule = !isVisible && canNotify && team !in closedTeams
+	return alertsFor(hold, self, now, isVisible, todayRule)
+}

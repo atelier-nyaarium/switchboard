@@ -36,16 +36,20 @@ import kotlinx.coroutines.launch
 object Repo {
 	@Volatile private var instance: ChatRepository? = null
 
-	fun get(context: Context): ChatRepository =
-		instance ?: synchronized(this) {
+	fun get(context: Context): ChatRepository {
+		val repo = instance ?: synchronized(this) {
 			val app = context.applicationContext
 			instance ?: ChatRepository(
-				AppStateStore(app),
-				app.filesDir,
-				app.contentResolver,
-				loadSttsCatalog(app),
+				store = AppStateStore(app),
+				filesDir = app.filesDir,
+				contentResolver = app.contentResolver,
+				applicationContext = app,
+				sttsCatalog = loadSttsCatalog(app),
 			).also { instance = it }
 		}
+		repo.phoneCapabilityOps.start()
+		return repo
+	}
 
 	/** Malformed catalog means empty. */
 	private fun loadSttsCatalog(app: Context): List<com.atelier_nyaarium.switchboard.proto.SttsProvider> =
@@ -66,6 +70,7 @@ class MainActivity : FragmentActivity() {
 	private val vaultRequestRequest = mutableStateOf<String?>(null)
 
 	private val assistantSendRequestRequest = mutableStateOf<Pair<String, String>?>(null)
+	private val assistantActRequestRequest = mutableStateOf<Pair<String, String>?>(null)
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
@@ -78,7 +83,7 @@ class MainActivity : FragmentActivity() {
 		setContent {
 			val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
 			MaterialTheme(colorScheme = colors) {
-				App(repo, injected, openTeamRequest, openQueueRequest, vaultRequestRequest, assistantSendRequestRequest)
+				App(repo, injected, openTeamRequest, openQueueRequest, vaultRequestRequest, assistantSendRequestRequest, assistantActRequestRequest)
 			}
 		}
 	}
@@ -153,6 +158,11 @@ class MainActivity : FragmentActivity() {
 		if (requestId != null && gatewayId != null) assistantSendRequestRequest.value = gatewayId to requestId
 		intent.removeExtra(SwitchboardService.EXTRA_ASSISTANT_SEND_REQUEST)
 		intent.removeExtra(SwitchboardService.EXTRA_ASSISTANT_SEND_GATEWAY)
+		val actRequestId = intent.getStringExtra(SwitchboardService.EXTRA_ASSISTANT_ACT_REQUEST)
+		val actGatewayId = intent.getStringExtra(SwitchboardService.EXTRA_ASSISTANT_ACT_GATEWAY)
+		if (actRequestId != null && actGatewayId != null) assistantActRequestRequest.value = actGatewayId to actRequestId
+		intent.removeExtra(SwitchboardService.EXTRA_ASSISTANT_ACT_REQUEST)
+		intent.removeExtra(SwitchboardService.EXTRA_ASSISTANT_ACT_GATEWAY)
 	}
 }
 
@@ -162,6 +172,7 @@ private val OPEN_EXTRAS = listOf(
 	SwitchboardService.EXTRA_OPEN_QUEUE,
 	SwitchboardService.EXTRA_VAULT_REQUEST,
 	SwitchboardService.EXTRA_ASSISTANT_SEND_REQUEST,
+	SwitchboardService.EXTRA_ASSISTANT_ACT_REQUEST,
 )
 
 /** The vault's open modal. */
@@ -183,6 +194,7 @@ fun App(
 	openQueueRequest: MutableState<Boolean>,
 	vaultRequestRequest: MutableState<String?> = remember { mutableStateOf(null) },
 	assistantSendRequestRequest: MutableState<Pair<String, String>?> = remember { mutableStateOf(null) },
+	assistantActRequestRequest: MutableState<Pair<String, String>?> = remember { mutableStateOf(null) },
 ) {
 	val state by repo.state.collectAsState()
 	val bootState by repo.bootState.collectAsState()
@@ -196,6 +208,7 @@ fun App(
 	var boardModal by remember { mutableStateOf<String?>(null) }
 	var vaultModal by remember { mutableStateOf<VaultModal?>(null) }
 	var assistantSendModal by remember { mutableStateOf<Pair<String, String>?>(null) }
+	var assistantActModal by remember { mutableStateOf<Pair<String, String>?>(null) }
 	var fireRunbook by remember { mutableStateOf<RunbookFire?>(null) }
 	// Gateway and id. Null is closed, a blank id is a new one.
 	var editRunbook by rememberSaveable { mutableStateOf<Pair<String, String>?>(null) }
@@ -316,6 +329,7 @@ fun App(
 		linkMenuNoteState.value = null
 		rowPressState.value = null
 		assistantSendModal = null
+		assistantActModal = null
 	}
 	// The one arrival road.
 	val arriveAt = { team: String, arrival: Arrival, place: WorkspacePlace? ->
@@ -344,6 +358,9 @@ fun App(
 		SummonBus.step(held.id, Summon::routedNow)
 	}
 	val assistantShown = nav.root == RootView.ASSISTANT || assistantOpen
+	LaunchedEffect(assistantShown) {
+		if (assistantShown) repo.phoneHoldOps.onAssistantShown()
+	}
 	LaunchedEffect(homeVersions(state), state.gateways.incarnations(), state.gateways.reachableIds(), state.connected, assistantShown) {
 		if (!assistantShown) return@LaunchedEffect
 		// Covers a screen before the first drain.
@@ -402,6 +419,14 @@ fun App(
 			dismissForArrival()
 			assistantSendModal = request
 			assistantSendRequestRequest.value = null
+		}
+	}
+
+	LaunchedEffect(assistantActRequestRequest.value) {
+		assistantActRequestRequest.value?.let { request ->
+			dismissForArrival()
+			assistantActModal = request
+			assistantActRequestRequest.value = null
 		}
 	}
 
@@ -584,8 +609,12 @@ fun App(
 			val marks = offered.map { conversationMark(it, facts) }
 			val assistantWork by repo.assistantOps.work.collectAsState()
 			val assistantSends by repo.assistantSendOps.pending.collectAsState()
+			val assistantActs by repo.assistantActOps.pending.collectAsState()
 			val assistantSendTileFor = remember(openTeam, assistantOpen, assistantSends) {
 				if (assistantOpen) com.atelier_nyaarium.switchboard.assistant.assistantSendTile(assistantSends, gatewayOf(openTeam!!)) else null
+			}
+			val assistantActTileFor = remember(openTeam, assistantOpen, assistantActs) {
+				if (assistantOpen) com.atelier_nyaarium.switchboard.assistant.assistantActTile(assistantActs, gatewayOf(openTeam!!)) else null
 			}
 			val chrome = threadChrome(
 				assistant = assistantOpen,
@@ -608,6 +637,7 @@ fun App(
 			) {
 			ThreadScreen(
 				team = openTeam!!,
+				onConversationShown = repo.phoneHoldOps::onConversationShown,
 				label = tabLabelFor(state, openTeam!!),
 				chrome = chrome,
 				presence = presence,
@@ -633,6 +663,8 @@ fun App(
 				onOpenVaultRequest = { vaultModal = VaultModal.Request(it) },
 				assistantSendTile = assistantSendTileFor,
 				onOpenAssistantSend = { requestId -> assistantSendModal = gatewayOf(team) to requestId },
+				assistantActTile = assistantActTileFor,
+				onOpenAssistantAct = { requestId -> assistantActModal = gatewayOf(team) to requestId },
 				revealAt = revealAt,
 				onRevealed = { revealAt = null },
 				unreadBoundary = repo::unreadBoundary,
@@ -868,15 +900,23 @@ fun App(
 	boardModal?.let { entryId ->
 		BoardEntryDialog(state, repo, entryId) { boardModal = null }
 	}
+	// Cards wait for unlock.
+	val cardsShow = requestCardsShow(locked)
 	when (val modal = vaultModal) {
 		is VaultModal.Entry ->
 			com.atelier_nyaarium.switchboard.vault.VaultEntryDialog(repo, state, modal.id) { vaultModal = null }
-		is VaultModal.Request ->
+		is VaultModal.Request -> if (cardsShow) {
 			com.atelier_nyaarium.switchboard.vault.VaultRequestSheet(repo, state, modal.id) { vaultModal = null }
+		}
 		null -> {}
 	}
-	assistantSendModal?.let { (gatewayId, requestId) ->
-		com.atelier_nyaarium.switchboard.assistant.AssistantSendSheet(repo, gatewayId, requestId) { assistantSendModal = null }
+	if (cardsShow) {
+		assistantSendModal?.let { (gatewayId, requestId) ->
+			com.atelier_nyaarium.switchboard.assistant.AssistantSendSheet(repo, gatewayId, requestId) { assistantSendModal = null }
+		}
+		assistantActModal?.let { (gatewayId, requestId) ->
+			com.atelier_nyaarium.switchboard.assistant.AssistantActSheet(repo, gatewayId, requestId) { assistantActModal = null }
+		}
 	}
 	fireRunbook?.let { fire ->
 		com.atelier_nyaarium.switchboard.runbooks.RunbookFireSheet(repo, state, fire.gatewayId, fire.id, fire.into) { fireRunbook = null }

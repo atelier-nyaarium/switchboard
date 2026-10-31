@@ -75,6 +75,7 @@ fun interface InboundMessageHandler {
 class PluginAction(
 	val team: String,
 	val payload: JsonObject?,
+	val stamp: com.atelier_nyaarium.switchboard.proto.RowStamp? = null,
 )
 
 /** Decorates ONE attachment chip in the thread renderer: given the thread and the file as the

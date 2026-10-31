@@ -1,0 +1,29 @@
+[
+	{
+		"key": "status",
+		"kind": "read",
+		"where": "phone",
+		"needs": [],
+		"requestId": "PhoneStatusRequest",
+		"answerId": "PhoneStatusAnswer",
+		"describeHash": "8700dae450aac7057959edcfbfbb6d228bc5505830f285259eabe9153c28ef23"
+	},
+	{
+		"key": "contacts_search",
+		"kind": "read",
+		"where": "phone",
+		"needs": ["contacts"],
+		"requestId": "ContactsSearchRequest",
+		"answerId": "ContactsSearchAnswer",
+		"describeHash": "89f322482748b7804ce0dc89f6bc3e68c7eb4a113c62407067c8f1ba8554278c"
+	},
+	{
+		"key": "torch",
+		"kind": "act",
+		"where": "phone",
+		"needs": [],
+		"requestId": "TorchRequest",
+		"answerId": "TorchAnswer",
+		"describeHash": "aaf35ae6f96a1e8c81159e21368ffe5481b8e28aa54ed1fd454119c04fce895b"
+	}
+]

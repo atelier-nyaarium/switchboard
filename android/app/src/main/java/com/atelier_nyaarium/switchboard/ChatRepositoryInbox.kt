@@ -6,6 +6,8 @@ import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
 import com.atelier_nyaarium.switchboard.proto.MailboxEntry
 import com.atelier_nyaarium.switchboard.proto.PlaneLineage
 import com.atelier_nyaarium.switchboard.proto.Protocol
+import com.atelier_nyaarium.switchboard.proto.ReadAnchorsResult
+import com.atelier_nyaarium.switchboard.proto.PhoneHoldPlane
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -31,13 +33,31 @@ internal suspend fun ChatRepository.applyPlane(name: String, lineage: PlaneLinea
 	if (name == "vault") return revisionPlane(name, lineage, vault.planeLineage(), vault::adoptEpoch) { vaultOps.refresh() }
 	// Small; read whole, acked once landed.
 	if (name == ASSISTANT_HOME_PLANE) return assistantOps.fetchHome()
-	if (name != PRESENCE_PLANE || payload == null) return false
+	if (name == PHONE_HOLD_PLANE) {
+		val plane = if (payload == null) phoneHoldOps.read() else runIsolated {
+			wireJson.decodeFromJsonElement(PhoneHoldPlane.serializer(), payload)
+		}.getOrNull()
+		if (plane == null) return false
+		phoneHoldOps.apply(plane.hold, lineage.version)
+		return true
+	}
+	if (name == READ_ANCHORS_PLANE) {
+		val result = payload?.let {
+			runIsolated { wireJson.decodeFromJsonElement(ReadAnchorsResult.serializer(), it) }.getOrNull()
+		} ?: return false
+		presence.applyReadAnchors(result.anchors)
+		return true
+	}
+	if (name != PRESENCE_PLANE || payload == null) return name !in knownPlaneNames
 	val projection = runIsolated {
 		wireJson.decodeFromJsonElement(com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection.serializer(), payload)
 	}.getOrNull() ?: return false
 	presence.applyOwnerProjection(projection)
 	return true
 }
+
+private val knownPlaneNames = setOf("taskBoard", "vault", ASSISTANT_HOME_PLANE, PHONE_HOLD_PLANE, READ_ANCHORS_PLANE, PRESENCE_PLANE)
+internal const val READ_ANCHORS_PLANE = "readAnchors"
 
 private fun ChatRepository.revisionPlane(
 	name: String,
@@ -88,6 +108,11 @@ private fun unavailableEntry(row: com.atelier_nyaarium.switchboard.proto.InboxRo
 
 internal suspend fun ChatRepository.dispatchInboxRows(rows: List<com.atelier_nyaarium.switchboard.proto.InboxRow>) {
 	val entries = mutableListOf<MailboxEntry>()
+	val stamps = mutableMapOf<Long, com.atelier_nyaarium.switchboard.proto.RowStamp>()
+	fun addEntry(entry: MailboxEntry, row: com.atelier_nyaarium.switchboard.proto.InboxRow) {
+		entries += entry
+		row.stamp?.let { stamps[entry.seq] = it }
+	}
 	for (row in rows) {
 		val epochText = (row.envelope.epoch as? JsonPrimitive)?.content
 		if (epochText == "clear" && row.envelope.kind in setOf("scheduled_result", "board_observation")) {
@@ -96,13 +121,13 @@ internal suspend fun ChatRepository.dispatchInboxRows(rows: List<com.atelier_nya
 					wireJson.decodeFromJsonElement(com.atelier_nyaarium.switchboard.proto.ScheduledResultRow.serializer(), row.body)
 				}.onSuccess(onScheduledResult).onFailure {
 					DebugLog.log("Inbox", "scheduled result parse failed seq=${row.seq}")
-					entries += unavailableEntry(row)
+					addEntry(unavailableEntry(row), row)
 				}
 				"board_observation" -> runIsolated {
 					wireJson.decodeFromJsonElement(com.atelier_nyaarium.switchboard.proto.BoardObservationRow.serializer(), row.body)
 				}.onSuccess(onBoardObservation).onFailure {
 					DebugLog.log("Inbox", "board observation parse failed seq=${row.seq}")
-					entries += unavailableEntry(row)
+					addEntry(unavailableEntry(row), row)
 				}
 			}
 			continue
@@ -166,10 +191,10 @@ internal suspend fun ChatRepository.dispatchInboxRows(rows: List<com.atelier_nya
 		}.onFailure {
 			DebugLog.log("Inbox", "row open failed seq=${row.seq}")
 			(row.envelope.epoch as? JsonPrimitive)?.content?.toIntOrNull()?.let { keyDelivery.requestMissing(it) }
-			entries += unavailableEntry(row)
+			addEntry(unavailableEntry(row), row)
 		}.getOrNull()
-		entry?.let { entries += it }
+		entry?.let { addEntry(it, row) }
 	}
 	val last = rows.maxByOrNull { it.seq } ?: return
-	drain.processEntries(entries, last.seq, transportCoordinator.cursorEpoch(), 0L)
+	drain.processEntries(entries, last.seq, transportCoordinator.cursorEpoch(), 0L, stamps)
 }

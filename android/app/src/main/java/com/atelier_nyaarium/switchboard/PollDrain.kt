@@ -81,7 +81,9 @@ internal suspend fun drainTick(
 		}
 	}
 	// Presence and the home set row roles; read anchors apply after rows.
-	val (presence, rest) = planes.partition { it.name == PRESENCE_PLANE || it.name == ASSISTANT_HOME_PLANE }
+	val (presence, rest) = planes.partition {
+		it.name == PRESENCE_PLANE || it.name == ASSISTANT_HOME_PLANE || it.name == PHONE_HOLD_PLANE
+	}
 	apply(presence)
 	if (answer is JsonArray) {
 		val rows = answer.mapNotNull { element ->
@@ -163,7 +165,11 @@ private fun advanceFloor(answer: kotlinx.serialization.json.JsonElement?, fallba
 	(answer as? JsonObject)?.get("floor")?.jsonPrimitive?.content?.toLongOrNull() ?: fallback
 
 /** Four plane cursors and drain-gate subscribers. */
-internal class PollDrain(private val host: DrainHost, private val presence: PresencePort) : ClearsOnReprovision {
+internal class PollDrain(
+	private val host: DrainHost,
+	private val presence: PresencePort,
+	private val speaksForHold: (Boolean) -> Boolean = { it },
+) : ClearsOnReprovision {
 	private var pollFails = 0
 	private var pollJob: Job? = null
 	// Scope for loop-bound work.
@@ -263,8 +269,14 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 		}
 	}
 
-	internal suspend fun processEntries(entries: List<MailboxEntry>, cursor: Long, epoch: Long, dropped: Long) {
-		val advanced = host.advanceMailbox(SyncPollResult(entries.map { Drained(it) }, cursor, epoch, dropped))
+	internal suspend fun processEntries(
+		entries: List<MailboxEntry>,
+		cursor: Long,
+		epoch: Long,
+		dropped: Long,
+		stamps: Map<Long, com.atelier_nyaarium.switchboard.proto.RowStamp> = emptyMap(),
+	) {
+		val advanced = host.advanceMailbox(SyncPollResult(entries.map { Drained(it, stamps[it.seq]) }, cursor, epoch, dropped))
 		if (advanced.fresh.isNotEmpty()) host.markCommsActivity(System.currentTimeMillis())
 		val burst = mutableMapOf<String, MutableList<Message>>()
 		for (drained in advanced.fresh) {
@@ -286,7 +298,7 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 			if (entry.kind == "plugin_action") {
 				if (entry.pluginId != null && entry.actionType != null) {
 					pluginActionSubscribers.forEach { subscriber ->
-						runIsolated { subscriber.onAction(team, entry.pluginId, entry.actionType, entry.payload) }
+						runIsolated { subscriber.onAction(team, entry.pluginId, entry.actionType, entry.payload, drained.stamp) }
 							.onFailure { DebugLog.log("Drain", "plugin action failed seq=${entry.seq}") }
 					}
 				}
@@ -317,7 +329,7 @@ internal class PollDrain(private val host: DrainHost, private val presence: Pres
 			val scope = pollScope
 			val autoTier = host.autoPlayTier()
 			val followed = team in followedTeams(host.state.value)
-			val eligible = scope != null && lastAgent != null && host.isSttsReady() && followed &&
+			val eligible = scope != null && lastAgent != null && host.isSttsReady() && followed && speaksForHold(true) &&
 				(host.autoGenerate || autoTier != null)
 			val queueable = if (!eligible) emptyList() else messages.filter { !it.fromMe }
 				.filterNot { isDuplicatePeerAutoPlay(it, autoPlayedPeerPairs) }

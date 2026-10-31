@@ -1,6 +1,7 @@
 import { type DomainSnapshot, resolveAdmitted, type SignedAdmission } from "../shared/admission.js";
 import type { Ambient } from "../shared/ambient.js";
 import { type InboxRow, parseInboxAddress } from "../shared/schemasInbox.js";
+import type { PhoneHoldRecord } from "../shared/schemasPhoneHold.js";
 import {
 	GATEWAY_ERROR_INBOX_UNAVAILABLE,
 	GATEWAY_ERROR_NOT_ADMITTED,
@@ -472,6 +473,10 @@ export class GatewayBridge implements ToolProvider {
 	/** Owner rows a gateway appends reach the bound console sockets through this. */
 	public setOwnerRowPush(push: (domainId: string, row: InboxRow) => void): void {
 		this.inboxFrames.setOwnerRowPush(push);
+	}
+
+	public setPhoneHoldReader(read: (domainId: string, now: number) => PhoneHoldRecord | null): void {
+		this.inboxFrames.setPhoneHoldReader(read);
 	}
 
 	public setMigrationFence(fenced: (domainId: string, gatewayId: string) => boolean): void {

@@ -1,5 +1,7 @@
+import type { z } from "zod";
 import { mintEpoch } from "../../shared/epoch.js";
 import { MAX_TEAMS_PER_OWNER, mergeReadAnchor, type ReadAnchorEntry } from "../../shared/read-anchor-rules.js";
+import { ReadAnchorsResultSchema } from "../../shared/schemasTier1.js";
 import { foldWriteResult } from "../../shared/write-result.js";
 import { OwnerOpRefused } from "../inbox/ownerOpIntake.js";
 import type { OwnerStoreRegistry } from "../inbox/ownerStoreRegistry.js";
@@ -8,7 +10,10 @@ import type { OwnerServiceHooks } from "../ownerServiceHooks.js";
 
 export interface ReadAnchorsServiceDeps {
 	registry: OwnerStoreRegistry;
+	pokeOwner?: (domainId: string, result: ReadAnchorsResult) => void;
 }
+
+type ReadAnchorsResult = z.infer<typeof ReadAnchorsResultSchema>;
 
 // Keep version outside team namespace.
 const VERSION_ID = "readAnchor.version";
@@ -29,18 +34,18 @@ export function createReadAnchorsService(deps: ReadAnchorsServiceDeps) {
 		return store.get("readAnchor", VERSION_ID) as StateRecord;
 	};
 
-	const read = (domainId: string) => {
+	const read = (domainId: string): ReadAnchorsResult => {
 		const store = deps.registry.for(domainId);
 		const version = ensureVersion(domainId);
 		if ("outcome" in version) return version as never;
-		return {
+		return ReadAnchorsResultSchema.parse({
 			version: { epoch: Number(version.clear.epoch), version: Number(version.clear.version) },
 			anchors: store
 				.list("readAnchor")
 				.filter((record) => record.id !== VERSION_ID)
 				.map((record) => ({ team: record.id.slice("readAnchor:".length), ...record.clear }))
 				.sort((a, b) => a.team.localeCompare(b.team)),
-		};
+		});
 	};
 
 	const reportResult = (domainId: string, team: string, entry: ReadAnchorEntry) => {
@@ -86,7 +91,9 @@ export function createReadAnchorsService(deps: ReadAnchorsServiceDeps) {
 			hooks.ownerOp("report_read", async (op, value) => {
 				// Router stamps time; epochs use equality, never ordering.
 				const at = deps.registry.now();
-				return reportResult(op.domainId, value.team, { ...value, at });
+				const result = reportResult(op.domainId, value.team, { ...value, at });
+				if ("advanced" in result) deps.pokeOwner?.(op.domainId, read(op.domainId));
+				return result;
 			});
 			hooks.ownerOp("read_anchors_read", async (op) => read(op.domainId));
 		},

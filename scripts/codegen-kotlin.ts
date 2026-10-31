@@ -119,6 +119,7 @@ import {
 	AssistantHomeReportSchema,
 	AssistantHomeSealedSchema,
 } from "../src/shared/schemasAssistantHome.js";
+import { ACTION_OUTCOMES } from "../src/shared/schemasAssistantRecord.js";
 import {
 	AssistantFieldOptionSchema,
 	AssistantFieldSpecSchema,
@@ -160,6 +161,28 @@ import {
 	ConsoleSocketOutboundSchema,
 	ConsoleWelcomeFrameSchema,
 } from "../src/shared/schemasConsoleSocket.js";
+import { RowRecipientSchema, RowStampSchema } from "../src/shared/schemasInbox.js";
+import {
+	AssistantActRequestSchema,
+	CapabilityGuardSchema,
+	PHONE_CAPABILITIES,
+	PHONE_CAPABILITY_KEYS,
+	PhoneCapabilityAnswerSchema,
+	PhoneCapabilityRowSchema,
+	PhoneContactSchema,
+	PhonePermissionSchema,
+	PhoneStatusKeySchema,
+	UnavailableReasonSchema,
+} from "../src/shared/schemasPhoneCapabilities.js";
+import {
+	HoldClaimResultSchema,
+	HoldClaimValueSchema,
+	PHONE_HOLD_PLANE,
+	PHONE_HOLD_WINDOW_MS,
+	PhoneHoldPlaneSchema,
+	PhoneHoldReadValueSchema,
+	PhoneHoldRecordSchema,
+} from "../src/shared/schemasPhoneHold.js";
 import {
 	AuthorizationPolicySchema,
 	ConsolePolicyDeleteResultSchema,
@@ -305,6 +328,22 @@ const OUT_PATH =
 	join(import.meta.dir, "../android/app/src/main/java/com/atelier_nyaarium/switchboard/proto/Protocol.kt");
 
 const ROOTS: z.ZodType[] = [
+	RowRecipientSchema,
+	RowStampSchema,
+	PhoneHoldRecordSchema,
+	PhoneHoldPlaneSchema,
+	HoldClaimValueSchema,
+	HoldClaimResultSchema,
+	PhoneHoldReadValueSchema,
+	PhonePermissionSchema,
+	UnavailableReasonSchema,
+	CapabilityGuardSchema,
+	PhoneStatusKeySchema,
+	PhoneContactSchema,
+	...PHONE_CAPABILITY_KEYS.flatMap((key) => [PHONE_CAPABILITIES[key].request, PHONE_CAPABILITIES[key].answer]),
+	PhoneCapabilityRowSchema,
+	PhoneCapabilityAnswerSchema,
+	AssistantActRequestSchema,
 	ChannelFileSchema,
 	TeamInfoSchema,
 	MailboxEntrySchema,
@@ -542,6 +581,7 @@ const SEALED_ROOTS = new Set([
 	"WorkspaceFacet",
 	"WorkspaceFacetAnswer",
 	"AssistantFieldSpec",
+	"PhoneCapabilityAnswer",
 ]);
 
 type Json = Record<string, unknown>;
@@ -679,7 +719,15 @@ function emitParams(node: Json, defs: Map<string, Json>, omit: Set<string>): str
 
 function emitDataClass(name: string, node: Json, defs: Map<string, Json>): string {
 	const params = emitParams(node, defs, new Set());
+	// Data classes require parameters.
+	if (params.length === 0) return [`@Serializable`, `class ${name}`].join("\n");
 	return [`@Serializable`, `data class ${name}(`, ...params, `)`].join("\n");
+}
+
+const PROTO_PACKAGE = "com.atelier_nyaarium.switchboard.proto";
+
+function qualifyShadowed(line: string, memberName: string): string {
+	return line.replace(new RegExp(`\\b${memberName}\\b`, "g"), `${PROTO_PACKAGE}.${memberName}`);
 }
 
 function emitSealedClass(name: string, node: Json, discriminator: string, defs: Map<string, Json>): string {
@@ -697,7 +745,9 @@ function emitSealedClass(name: string, node: Json, discriminator: string, defs: 
 		const kindValue = props[discriminator]?.const as string | undefined;
 		if (!kindValue) throw new Error(`sealed member of ${name} lacks const ${discriminator}`);
 		const memberName = pascal(kindValue);
-		const params = emitParams(member, defs, new Set([discriminator]));
+		const params = emitParams(member, defs, new Set([discriminator])).map((line) =>
+			qualifyShadowed(line, memberName),
+		);
 		out.push(`${INDENT}@Serializable`);
 		out.push(`${INDENT}@SerialName(${kotlinString(kindValue)})`);
 		if (params.length === 0) {
@@ -786,6 +836,8 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["ASSISTANT_RULE_CONDITIONS_MAX", ASSISTANT_RULE_CONDITIONS_MAX],
 	["ASSISTANT_RULE_VALUE_MAX", ASSISTANT_RULE_VALUE_MAX],
 	["ASSISTANT_ROLE", ASSISTANT_ROLE],
+	["PHONE_HOLD_PLANE", PHONE_HOLD_PLANE],
+	["PHONE_HOLD_WINDOW_MS", PHONE_HOLD_WINDOW_MS],
 ];
 const wireConstantBlock = wireConstants
 	.map(
@@ -869,6 +921,10 @@ ${schemaConstantBlock("ConsoleOpKind", consoleOpKinds)}
 ${schemaConstantBlock("SocketFrame", socketFrameTypes)}
 
 ${schemaConstantBlock("KeyOpKind", keyOpKinds)}
+
+${schemaConstantBlock("RecordOutcome", [...ACTION_OUTCOMES])}
+
+${schemaConstantBlock("PhoneCapabilityKey", [...PHONE_CAPABILITY_KEYS])}
 ${INDENT}}
 
 ${INDENT}/** Address and store separator. */

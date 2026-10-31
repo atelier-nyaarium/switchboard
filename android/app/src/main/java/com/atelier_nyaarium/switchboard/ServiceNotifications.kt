@@ -16,8 +16,12 @@ import com.atelier_nyaarium.switchboard.SwitchboardService.Companion.EXTRA_OPEN_
 import com.atelier_nyaarium.switchboard.SwitchboardService.Companion.EXTRA_VAULT_REQUEST
 import com.atelier_nyaarium.switchboard.SwitchboardService.Companion.EXTRA_ASSISTANT_SEND_REQUEST
 import com.atelier_nyaarium.switchboard.SwitchboardService.Companion.EXTRA_ASSISTANT_SEND_GATEWAY
+import com.atelier_nyaarium.switchboard.SwitchboardService.Companion.EXTRA_ASSISTANT_ACT_REQUEST
+import com.atelier_nyaarium.switchboard.SwitchboardService.Companion.EXTRA_ASSISTANT_ACT_GATEWAY
 import com.atelier_nyaarium.switchboard.assistant.PendingAssistantSend
+import com.atelier_nyaarium.switchboard.assistant.PendingAssistantAct
 import com.atelier_nyaarium.switchboard.assistant.assistantSendPublicNotificationText
+import com.atelier_nyaarium.switchboard.assistant.AssistantActWords
 import com.atelier_nyaarium.switchboard.vault.OverlayPermission
 import com.atelier_nyaarium.switchboard.vault.VaultPendingRequest
 import com.atelier_nyaarium.switchboard.vault.requestTitle
@@ -121,15 +125,16 @@ internal class ServiceNotifications(private val context: Context) {
 				if (id in active) nmc.cancel(id)
 				continue
 			}
-			val notification = NotificationCompat.Builder(context, CHANNEL_ROUTINE)
+			val builder = NotificationCompat.Builder(context, CHANNEL_ROUTINE)
 				.setSmallIcon(android.R.drawable.stat_notify_error)
 				.setContentTitle(told.first)
 				.setContentText(told.second)
 				.setAutoCancel(true)
 				.setOnlyAlertOnce(true)
 				.setContentIntent(contentIntent(null))
-				.build()
-			nmc.notify(id, notification)
+			// Swipe dismisses everywhere.
+			row.missed?.let { builder.setDeleteIntent(routineMissDismissIntent(gatewayId, row.routine.id, it.occurrenceId)) }
+			nmc.notify(id, builder.build())
 		}
 	}
 
@@ -156,6 +161,20 @@ internal class ServiceNotifications(private val context: Context) {
 	/** Broadcast to NotificationReceiver for swipe/action handling. The request code
 	 * mixes team and action so per-team intents never collide; the message `at` rides
 	 * as an extra, and FLAG_UPDATE_CURRENT keeps it on the burst-last message. */
+	private fun routineMissDismissIntent(gatewayId: String, routineId: String, occurrenceId: String): PendingIntent {
+		val intent = Intent(context, NotificationReceiver::class.java)
+			.setAction(NotificationReceiver.ACTION_DISMISS_ROUTINE_MISS)
+			.putExtra(NotificationReceiver.EXTRA_GATEWAY, gatewayId)
+			.putExtra(NotificationReceiver.EXTRA_ROUTINE, routineId)
+			.putExtra(NotificationReceiver.EXTRA_OCCURRENCE, occurrenceId)
+		return PendingIntent.getBroadcast(
+			context,
+			routineNotificationId(gatewayId, routineId),
+			intent,
+			PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+		)
+	}
+
 	private fun actionIntent(team: String, action: String, at: Long? = null): PendingIntent {
 		val intent = Intent(context, NotificationReceiver::class.java).setAction(action).putExtra(EXTRA_OPEN_TEAM, team)
 		if (at != null) intent.putExtra(EXTRA_MESSAGE_AT, at)
@@ -288,7 +307,15 @@ internal class ServiceNotifications(private val context: Context) {
 	 * never re-alert. */
 	internal fun notifyBurst(repo: ChatRepository, team: String, messages: List<Message>) {
 		val state = repo.state.value
-		if (!shouldNotifyBurst(repo.isVisible, canNotify(), state.closedTeams, team)) return
+		if (!shouldNotifyBurst(
+				repo.isVisible,
+				canNotify(),
+				state.closedTeams,
+				team,
+				state.phoneHold,
+				repo.readyOrNull()?.device.orEmpty(),
+			)
+		) return
 		val builder = teamNotificationBuilder(repo, state, team) ?: return
 		NotificationManagerCompat.from(context).notify(teamNotificationId(team), builder.build())
 	}
@@ -330,11 +357,18 @@ internal class ServiceNotifications(private val context: Context) {
 		if (active.isEmpty()) return
 		val state = repo.state.value
 		val nmc = NotificationManagerCompat.from(context)
+		val hold = state.phoneHold
+		val heldByAnother = holdStanding(hold, System.currentTimeMillis()) == HoldStanding.HELD &&
+			hold?.holder != repo.readyOrNull()?.device
 		val liveIds = HashSet<Int>(state.threads.size)
 		for (team in state.threads.keys) {
 			val id = teamNotificationId(team)
 			liveIds += id
 			if (id !in active) continue
+			if (heldByAnother) {
+				nmc.cancel(id)
+				continue
+			}
 			// A team muted via Close Tab must not have its already-showing notification silently
 			// updated with new content - shouldNotifyBurst already refuses to POST for a muted team;
 			// this is the same gate applied to an existing entry instead of a fresh one.
@@ -377,6 +411,10 @@ internal class ServiceNotifications(private val context: Context) {
 	 * one while busy used to deny it outright. Only an answer or the deadline ends a request.
 	 */
 	internal fun notifyVaultRequest(repo: ChatRepository, pending: VaultPendingRequest) {
+		if (!repo.phoneHoldOps.alerts(true, repo.isVisible)) {
+			NotificationManagerCompat.from(context).cancel(vaultNotificationId(pending.requestId))
+			return
+		}
 		if (!canNotify()) return
 		val who = requester(repo.state.value, pending)
 		val entryTitle = pending.entryId?.let { repo.vaultOps.view(it)?.title }
@@ -400,7 +438,7 @@ internal class ServiceNotifications(private val context: Context) {
 		NotificationManagerCompat.from(context).cancel(vaultNotificationId(requestId))
 	}
 
-	internal fun reconcileAssistantSendRequests(requests: List<PendingAssistantSend>) {
+	internal fun reconcileAssistantSendRequests(repo: ChatRepository, requests: List<PendingAssistantSend>) {
 		val manager = context.getSystemService(NotificationManager::class.java) ?: return
 		val nmc = NotificationManagerCompat.from(context)
 		val expected = requests.mapTo(HashSet()) { assistantSendNotificationId(it.gatewayId, it.request.requestId) }
@@ -408,6 +446,10 @@ internal class ServiceNotifications(private val context: Context) {
 			if (shown.id in ASSISTANT_SEND_ID_RANGE_START until ASSISTANT_SEND_ID_RANGE_START + ASSISTANT_SEND_ID_RANGE_SIZE && shown.id !in expected) {
 				nmc.cancel(shown.id)
 			}
+		}
+		if (!repo.phoneHoldOps.alerts(true, repo.isVisible)) {
+			expected.forEach { nmc.cancel(it) }
+			return
 		}
 		if (!canNotify()) return
 		requests.forEach { request ->
@@ -432,6 +474,58 @@ internal class ServiceNotifications(private val context: Context) {
 				.setContentText(request.request.intent.target)
 				.setOngoing(true)
 				.setOnlyAlertOnce(true)
+				.setPublicVersion(publicVersion)
+				.setContentIntent(content)
+				.build()
+			nmc.notify(id, notification)
+		}
+	}
+
+	internal fun reconcilePhoneHold(repo: ChatRepository) {
+		reconcileTeamNotifications(repo, repo.state.value.unread)
+		reconcileAssistantSendRequests(repo, repo.assistantSendOps.pending.value)
+		reconcileAssistantActRequests(repo, repo.assistantActOps.pending.value)
+		repo.vault.pending.value.forEach { notifyVaultRequest(repo, it) }
+	}
+
+	internal fun reconcileAssistantActRequests(repo: ChatRepository, requests: List<PendingAssistantAct>) {
+		val manager = context.getSystemService(NotificationManager::class.java) ?: return
+		val nmc = NotificationManagerCompat.from(context)
+		val expected = requests.mapTo(HashSet()) { assistantActNotificationId(it.gatewayId, it.request.requestId) }
+		for (shown in manager.activeNotifications) {
+			if (shown.id in ASSISTANT_ACT_ID_RANGE_START until ASSISTANT_ACT_ID_RANGE_START + ASSISTANT_ACT_ID_RANGE_SIZE && shown.id !in expected) {
+				nmc.cancel(shown.id)
+			}
+		}
+		if (!repo.phoneHoldOps.alerts(true, repo.isVisible)) {
+			expected.forEach { nmc.cancel(it) }
+			return
+		}
+		if (!canNotify()) return
+		requests.forEach { pending ->
+			val id = assistantActNotificationId(pending.gatewayId, pending.request.requestId)
+			val intent = Intent(context, MainActivity::class.java)
+				.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+				.putExtra(EXTRA_ASSISTANT_ACT_REQUEST, pending.request.requestId)
+				.putExtra(EXTRA_ASSISTANT_ACT_GATEWAY, pending.gatewayId)
+			val content = PendingIntent.getActivity(
+				context,
+				"act/${pending.gatewayId}/${pending.request.requestId}".hashCode(),
+				intent,
+				PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+			)
+			val publicVersion = NotificationCompat.Builder(context, CHANNEL_ASSISTANT)
+				.setSmallIcon(android.R.drawable.stat_notify_chat)
+				.setContentTitle(ASSISTANT_GENERIC_LINE)
+				.setContentText(ASSISTANT_GENERIC_LINE)
+				.build()
+			val notification = NotificationCompat.Builder(context, CHANNEL_ASSISTANT)
+				.setSmallIcon(android.R.drawable.stat_notify_chat)
+				.setContentTitle(AssistantActWords.TITLE)
+				.setContentText(pending.request.label)
+				.setOngoing(true)
+				.setOnlyAlertOnce(true)
+				.setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
 				.setPublicVersion(publicVersion)
 				.setContentIntent(content)
 				.build()
@@ -483,6 +577,12 @@ internal class ServiceNotifications(private val context: Context) {
 		internal fun assistantSendNotificationId(gatewayId: String, requestId: String): Int =
 			ASSISTANT_SEND_ID_RANGE_START + ("$gatewayId/$requestId".hashCode() and 0x7FFFFFFF) % ASSISTANT_SEND_ID_RANGE_SIZE
 
+		internal const val ASSISTANT_ACT_ID_RANGE_START = 7_000_000
+		internal const val ASSISTANT_ACT_ID_RANGE_SIZE = 1_000_000
+
+		internal fun assistantActNotificationId(gatewayId: String, requestId: String): Int =
+			ASSISTANT_ACT_ID_RANGE_START + ("$gatewayId/$requestId".hashCode() and 0x7FFFFFFF) % ASSISTANT_ACT_ID_RANGE_SIZE
+
 		// Own id range, like the others.
 		internal const val ROUTINE_ID_RANGE_START = 4_000_000
 		internal const val ROUTINE_ID_RANGE_SIZE = 1_000_000
@@ -494,6 +594,9 @@ internal class ServiceNotifications(private val context: Context) {
 		init {
 			require(ASSISTANT_SEND_ID_RANGE_START >= ROUTINE_ID_RANGE_START + ROUTINE_ID_RANGE_SIZE) {
 				"ASSISTANT_SEND_ID_RANGE must fall outside the routine id range"
+			}
+			require(ASSISTANT_ACT_ID_RANGE_START >= ASSISTANT_SEND_ID_RANGE_START + ASSISTANT_SEND_ID_RANGE_SIZE) {
+				"ASSISTANT_ACT_ID_RANGE must fall outside the assistant send id range"
 			}
 			require(ROUTINE_ID_RANGE_START >= VAULT_ID_RANGE_START + VAULT_ID_RANGE_SIZE) {
 				"ROUTINE_ID_RANGE must fall entirely outside the vault id range"
@@ -544,7 +647,8 @@ internal class ServiceNotifications(private val context: Context) {
 					id < SCHEDULED_SEND_FAILED_ID_RANGE_START + SCHEDULED_SEND_FAILED_ID_RANGE_SIZE
 				val vault = id >= VAULT_ID_RANGE_START && id < VAULT_ID_RANGE_START + VAULT_ID_RANGE_SIZE
 				val assistant = id >= ASSISTANT_SEND_ID_RANGE_START && id < ASSISTANT_SEND_ID_RANGE_START + ASSISTANT_SEND_ID_RANGE_SIZE
-				if (message || failed || vault || assistant) nmc.cancel(id)
+				val assistantAct = id >= ASSISTANT_ACT_ID_RANGE_START && id < ASSISTANT_ACT_ID_RANGE_START + ASSISTANT_ACT_ID_RANGE_SIZE
+				if (message || failed || vault || assistant || assistantAct) nmc.cancel(id)
 			}
 		}
 	}

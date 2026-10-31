@@ -23,6 +23,7 @@ const VAULT_REFRESH_BOUND_MS = VAULT_REFRESH_MAX_CALLS * TOOL_CALL_TIMEOUT_MS;
 const IDLE_CUT_MS = GATEWAY_IDLE_TIMEOUT_S * 1000;
 
 const VAULT_HOLD_FLOOR_MS = VAULT_ROUTE_WAIT_CAP_MS + VAULT_REFRESH_BOUND_MS;
+const PHONE_ROUTE_WAIT_MS = ASSISTANT_WAITS.phone * 2 + CONSOLE_ANSWER_WAIT_MS + CONSOLE_HOP_MARGIN_MS;
 
 // Long floors, short ceilings.
 const ROUTE_WAIT_MS = new Map<string, number>([
@@ -36,6 +37,7 @@ const ROUTE_WAIT_MS = new Map<string, number>([
 	["/vault/askpass", VAULT_HOLD_FLOOR_MS],
 	["/assistant/action", ASSISTANT_WAITS.action],
 	["/assistant/list", ASSISTANT_WAITS.list],
+	["/assistant/phone", PHONE_ROUTE_WAIT_MS],
 	// Unasked sends wake targets.
 	["/assistant/send", Math.max(SEND_ROUTE_WAIT_CAP_MS, DEFAULT_WAKE_TIMEOUT_MS + POST_WAKE_SETTLE_MS)],
 	["/assistant/send/collect", SEND_ROUTE_WAIT_CAP_MS],
@@ -56,7 +58,7 @@ const SHORT_POST_PATHS = [
 	"/routine/session",
 	"/routine/report",
 	"/session/baseline",
-	"/assistant/write-lock",
+	"/assistant/hold",
 ];
 
 function quotedPaths(source: string): string[] {
@@ -105,10 +107,11 @@ describe("gateway long waits", () => {
 		const routineRoutes = fs.readFileSync("src/gateway/routines/routineRoutes.ts", "utf8");
 		const baselineRoutes = fs.readFileSync("src/gateway/sessionBaseline.ts", "utf8");
 		const assistantPaths = fs.readFileSync("src/shared/schemasAssistantActions.ts", "utf8");
+		const phonePaths = fs.readFileSync("src/shared/schemasPhoneCapabilities.ts", "utf8");
+		const holdPaths = fs.readFileSync("src/shared/assistant-hold.ts", "utf8");
 		const sendPaths = fs.readFileSync("src/shared/schemasAssistantSend.ts", "utf8");
 		const commandPaths = fs.readFileSync("src/shared/session-commands.ts", "utf8");
 		const baselinePaths = fs.readFileSync("src/shared/session-baseline.ts", "utf8");
-		const writeLockPaths = fs.readFileSync("src/shared/assistant-write-lock.ts", "utf8");
 
 		expect(mapKeys(vaultRoutes)).toEqual([
 			'"/vault/search"',
@@ -121,7 +124,8 @@ describe("gateway long waits", () => {
 		expect(mapKeys(assistantRoutes)).toEqual([
 			"INBOX.path",
 			"ASSISTANT_ACTION_PATH",
-			"ASSISTANT_WRITE_LOCK_PATH",
+			"ASSISTANT_HOLD_PATH",
+			"PHONE_CAPABILITY_PATH",
 			"ASSISTANT_SEND_ROUTES.send",
 			"ASSISTANT_SEND_ROUTES.collect",
 			"ASSISTANT_SEND_ROUTES.withdraw",
@@ -132,10 +136,11 @@ describe("gateway long waits", () => {
 		const loopbackPaths = [
 			...quotedPaths(vaultRoutes),
 			...quotedPaths(assistantPaths),
+			...quotedPaths(phonePaths),
+			...quotedPaths(holdPaths),
 			...quotedPaths(sendPaths),
 			...quotedPaths(commandPaths),
 			...quotedPaths(baselinePaths),
-			...quotedPaths(writeLockPaths),
 			...AGENT_BACKENDS.map(({ id }) => agentHttpPath(id)),
 		];
 		const postPaths = new Set([...postHttpPaths(httpRouter), ...loopbackPaths]);

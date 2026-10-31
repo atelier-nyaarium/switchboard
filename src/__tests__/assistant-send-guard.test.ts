@@ -20,10 +20,8 @@ const row = (seq: number, origin: PendingDelivery["origin"], team = ASSISTANT_TE
 });
 
 describe("the origin marker", () => {
-	const clock = () => 0;
-
 	it("reads the owner only while the newest acceptance it saw was the owner's", () => {
-		const marker = createOriginMarker(0, clock);
+		const marker = createOriginMarker(0);
 		const missing = marker.readsOwner();
 		marker.delivered(row(1, "owner"));
 		const owner = marker.readsOwner();
@@ -55,7 +53,7 @@ describe("the origin marker", () => {
 	});
 
 	it("asks after a session ends, and never reads an owner row accepted before boot", () => {
-		const marker = createOriginMarker(10, clock);
+		const marker = createOriginMarker(10);
 		marker.delivered(row(9, "owner"));
 		const preboot = marker.readsOwner();
 		marker.delivered(row(10, "owner"));
@@ -69,40 +67,8 @@ describe("the origin marker", () => {
 		expect([preboot, owner, afterEnd, ownerAfterEvent]).toEqual([false, true, false, true]);
 	});
 
-	it("opens writes while the owner prompted last or spoke within half an hour, its own replies and check-ins aside", () => {
-		let now = 0;
-		const marker = createOriginMarker(0, () => now);
-		const fresh = marker.writes();
-		marker.delivered(row(1, "owner"));
-		marker.replyPushed(1);
-		now = 40 * 60_000;
-		const afterOwnReply = marker.writes();
-		marker.offered(row(2, "event"));
-		const eventLate = marker.writes();
-		marker.delivered(row(3, "owner"));
-		now += 10 * 60_000;
-		marker.offered(row(4, "event"));
-		const eventSoon = marker.writes();
-		now += 50 * 60_000;
-		marker.delivered(row(5, "routine"));
-		const checkIn = marker.writes();
-		const checkInSends = marker.readsOwner();
-		marker.ended();
-		const afterEnd = marker.writes();
-
-		expect([fresh, afterOwnReply, eventLate, eventSoon, checkIn, afterEnd]).toEqual([
-			{ kind: "locked", idleMs: null },
-			{ kind: "open" },
-			{ kind: "locked", idleMs: 40 * 60_000 },
-			{ kind: "open" },
-			{ kind: "locked", idleMs: 60 * 60_000 },
-			{ kind: "locked", idleMs: null },
-		]);
-		expect(checkInSends).toBe(true);
-	});
-
 	it("never reads an owner row carrying screen text as the owner's words", () => {
-		const marker = createOriginMarker(0, clock);
+		const marker = createOriginMarker(0);
 		const file = (role: ChannelFile["role"]): ChannelFile => ({
 			filename: "screen.txt",
 			mime: "text/plain",

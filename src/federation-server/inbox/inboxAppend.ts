@@ -9,6 +9,7 @@ import {
 	type OpKey,
 	type OpResultEnvelope,
 	OpResultEnvelopeSchema,
+	type RowStamp,
 	verifyRowEnvelope,
 } from "../../shared/schemasInbox.js";
 import { foldWriteResult } from "../../shared/write-result.js";
@@ -42,6 +43,8 @@ export function appendInboxRow(
 	input: {
 		address: InboxAddress;
 		row: InboxRowInput;
+		stamp?: RowStamp;
+		recipientNoHolder?: boolean;
 		producerSignPub: string;
 		opKey?: OpKeyInput;
 		shareGeneration?: number;
@@ -75,8 +78,10 @@ export function appendInboxRow(
 				const result = OpResultEnvelopeSchema.safeParse(clear.result);
 				if (result.success) return result.data;
 			}
-			if (clear.state === "accepted" && clear.address !== formatInboxAddress(address))
-				return appendResultRow(registry, store, address, row, existing, refs);
+			if (clear.state === "accepted" && clear.address !== formatInboxAddress(address)) {
+				if (input.recipientNoHolder) return { opKey: key, outcome: "refused", reason: "no_holder" };
+				return appendResultRow(registry, store, address, row, existing, refs, input.stamp);
+			}
 		}
 		if (clear.address && clear.address !== formatInboxAddress(address)) return { opKey: key, outcome: "conflict" };
 		// Matching op hash replays. Differing hash conflicts.
@@ -86,7 +91,8 @@ export function appendInboxRow(
 		}
 		return { opKey: key, outcome: "conflict" };
 	}
-	const size = Buffer.byteLength(canonicalJson(row));
+	if (input.recipientNoHolder) return { opKey: key, outcome: "refused", reason: "no_holder" };
+	const size = Buffer.byteLength(canonicalJson({ ...row, ...(input.stamp ? { stamp: input.stamp } : {}) }));
 	let refusal: string | null;
 	try {
 		refusal = capacityRefusal(address, store, size);
@@ -107,6 +113,7 @@ export function appendInboxRow(
 		},
 		input.nonce,
 		refs,
+		input.stamp,
 	);
 }
 
@@ -117,18 +124,20 @@ function appendResultRow(
 	input: InboxRowInput,
 	existing: { id: string; version: number; clear: Record<string, unknown> },
 	refs?: RowRefs,
+	stamp?: RowStamp,
 ): OpResultEnvelope & { row?: InboxRow } {
+	const persisted = { ...input, ...(stamp ? { stamp } : {}) };
 	const row = InboxRowSchema.parse({
-		...input,
+		...persisted,
 		seq: store.nextSeq(formatInboxAddress(address)),
 		acceptedAt: registry.now(),
-		size: Buffer.byteLength(canonicalJson(input)),
+		size: Buffer.byteLength(canonicalJson(persisted)),
 	});
 	const result: OpResultEnvelope = {
 		opKey: input.envelope.opKey,
 		outcome: "accepted",
 		seq: row.seq,
-		result: input.body,
+		...(stamp ? { result: { stamp, body: input.body } } : { result: input.body }),
 	};
 	const write = rowTransaction(store, refs, address, row, (tx) => {
 		tx.put("op", existing.id, existing.version, {
@@ -151,14 +160,21 @@ function appendLedgerTransaction(
 	ledger: { state: string; opHash: string; at: number; shareGeneration?: number },
 	nonce?: { signerSignPub: string; nonce: string; at: number },
 	refs?: RowRefs,
+	stamp?: RowStamp,
 ): OpResultEnvelope & { row?: InboxRow } {
+	const persisted = { ...input, ...(stamp ? { stamp } : {}) };
 	const row = {
-		...input,
+		...persisted,
 		seq: store.nextSeq(formatInboxAddress(address)),
 		acceptedAt: ledger.at,
-		size: Buffer.byteLength(canonicalJson(input)),
+		size: Buffer.byteLength(canonicalJson(persisted)),
 	} as InboxRow;
-	const result = { opKey: input.envelope.opKey, outcome: "accepted" as const, seq: row.seq };
+	const result: OpResultEnvelope = {
+		opKey: input.envelope.opKey,
+		outcome: "accepted",
+		seq: row.seq,
+		...(stamp ? { result: { stamp } } : {}),
+	};
 	const write = rowTransaction(store, refs, address, row, (tx) => {
 		tx.put("op", recordId(input.envelope.opKey, registry.ownerKey(address.domainId).ownerSignPub), null, {
 			clear: { ...ledger, address: formatInboxAddress(address), seq: row.seq, result },

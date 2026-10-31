@@ -1,0 +1,93 @@
+{
+	"producer": "ts",
+	"composer": "gateway/consolePushOps",
+	"case": "plugin_action",
+	"clock": 1757000000000,
+	"inputs": {
+		"draws": {
+			"0": "tY6ObOTbCVRYL4u6",
+			"1": "xs9ehC3AjZCI1/Zf",
+			"2": "YZY39jZQHUYECqM4",
+			"3": "7Y0GBw1gcR8AXKPf"
+		},
+		"entry": {
+			"kind": "plugin_action",
+			"session_id": "host.assistant",
+			"pluginId": "phone",
+			"actionType": "capability",
+			"payload": {
+				"requestId": "fixture-phone-request",
+				"key": "contacts_search",
+				"params": {
+					"query": "Ada"
+				},
+				"guard": "none"
+			}
+		},
+		"opId": "owner-plugin_action",
+		"conversationId": "a8c11c07b51a7e6d796d84a79d515c22abfbc20ad6a414e1553de680f4a8f180"
+	},
+	"expect": {
+		"outcome": "accepted"
+	},
+	"frame": {
+		"name": "inbox_append",
+		"params": {
+			"address": "owner:fixture-domain/s1H7W7bG7tz0kA+qDERSO9pCIZ3USsFnGLpqFZ13m28=",
+			"row": {
+				"envelope": {
+					"origin": {
+						"kind": "gateway",
+						"domainId": "fixture-domain",
+						"gatewayId": "laptop"
+					},
+					"opKey": {
+						"conversationId": "a8c11c07b51a7e6d796d84a79d515c22abfbc20ad6a414e1553de680f4a8f180",
+						"opId": "owner-plugin_action"
+					},
+					"epoch": 1,
+					"kind": "plugin_action",
+					"contentRefs": [],
+					"recipient": {
+						"kind": "holder"
+					}
+				},
+				"producerSig": "OTGh2/TUr4EUy3t+tp8bTfMx8IBODzoE7CIwJQNi+Na55g+IrTcZabLCWM/q+NnK76grvx1xdu/lBHPGUfSQBQ==",
+				"body": {
+					"v": 1,
+					"epoch": 1,
+					"nonce": "7Y0GBw1gcR8AXKPf",
+					"ciphertext": "ZIsd3ozRIB9z/tNcxSa7tLPaMbK+JutOp3pc+ajQTZ90pmwevxzBUJMwf/Wp40qKTsoILfIYJypwDe0jraKRcUyGlvNrJmAOxF/toTH160Ecaj+9/CcTHh5gUPVLdUUnb2sO+E++97cmRsv0RUuP/I2giU1GoW8ecmFgsXHMebBD9u/GpKKbOeZPkEsjyhFSiCdhT+BqX3WQmMQGmZX7lcMeXuj+pV3d0xZuizuuOBYjU/qYzduSMFqyG2425nyjnR3+Mrihdw9d4gLeGDernqcN7hOccczHu38m77LZbtYMYcvwE9QTLsrhWrgasGmI77ToRjTUDiWMIl1YZWs="
+				}
+			},
+			"opKey": {
+				"conversationId": "a8c11c07b51a7e6d796d84a79d515c22abfbc20ad6a414e1553de680f4a8f180",
+				"opId": "owner-plugin_action",
+				"hash": "e8082377698c7e68121beed8dffbd894b414ae5ee9c0cd966d2cf190efc74b91"
+			}
+		}
+	},
+	"phone": {
+		"decodeAs": "RowEnvelope",
+		"sealed": [
+			{
+				"path": "row.body",
+				"aadKind": "inbox.body\na8c11c07b51a7e6d796d84a79d515c22abfbc20ad6a414e1553de680f4a8f180\nowner-plugin_action",
+				"decodeAs": "MailboxEntry",
+				"expectJson": {
+					"kind": "plugin_action",
+					"pluginId": "phone",
+					"actionType": "capability",
+					"payload": {
+						"requestId": "fixture-phone-request",
+						"key": "contacts_search",
+						"params": {
+							"query": "Ada"
+						},
+						"guard": "none"
+					}
+				}
+			}
+		]
+	}
+}

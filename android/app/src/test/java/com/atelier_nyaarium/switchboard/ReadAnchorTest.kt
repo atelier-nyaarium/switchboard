@@ -225,4 +225,28 @@ class ReadAnchorTest {
 		val lastReported = mapOf("team-a" to ReadAnchor(1, 10, 1000))
 		assertEquals(emptyList<String>(), teamsNeedingReadReport(anchors, lastReported))
 	}
+
+	@Test
+	fun aMergedRemoteAnchorNeverMovesTheLocalPositionBackwards() {
+		val thread = listOf(inbound(epoch = 3, seq = 1), inbound(epoch = 3, seq = 2))
+		val current = ReadAnchor(3, 2, 2)
+
+		assertEquals(current, mergeReadAnchor(thread, current, ReadAnchor(3, 1, 1)))
+		assertEquals(current, mergeReadAnchor(thread, current, current.copy(at = 99)))
+	}
+
+	@Test
+	fun aNewerRemoteAnchorAdvancesTheLocalPosition() {
+		val thread = listOf(inbound(epoch = 3, seq = 1), inbound(epoch = 3, seq = 2))
+		assertEquals(ReadAnchor(3, 2, 2), mergeReadAnchor(thread, ReadAnchor(3, 1, 1), ReadAnchor(3, 2, 2)))
+	}
+
+	@Test
+	fun anOlderRemoteAnchorDoesNotSuppressReportingTheLocalAdvance() {
+		val local = ReadAnchor(3, 2, 2)
+		val olderRemote = ReadAnchor(3, 1, 1)
+		assertNull(mergedReadAnchorReported(local, olderRemote, local))
+		assertEquals(local, mergedReadAnchorReported(local, local.copy(at = 99), local))
+		assertEquals(olderRemote, mergedReadAnchorReported(null, olderRemote, olderRemote))
+	}
 }

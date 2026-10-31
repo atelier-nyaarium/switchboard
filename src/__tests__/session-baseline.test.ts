@@ -102,6 +102,17 @@ describe("compact baseline", () => {
 		expect(lines.indexOf(watchers[1] ?? "")).toBeLessThan(lines.findIndex((line) => line.startsWith("board: ")));
 	});
 
+	it("prints the current phone hold on one line", async () => {
+		for (const [hold, line] of [
+			[{ kind: "held", holder: "Pixel", remainingMs: 42_000 }, "phone hold: held by Pixel, 42000ms remaining"],
+			[{ kind: "lapsed", holder: "Pixel", lapsedMs: 1_000 }, "phone hold: lapsed 1000ms ago, last held by Pixel"],
+			[{ kind: "none" }, "phone hold: none"],
+		] as const) {
+			const lines = await hookLines(deps({ assistant: () => ({ hold, watchers: [] }) }));
+			expect(lines.filter((line) => line.startsWith("phone hold:"))).toEqual([line]);
+		}
+	});
+
 	it("still answers the rest when the board cannot be read", async () => {
 		const lines = await hookLines(deps({ board: async () => null }));
 

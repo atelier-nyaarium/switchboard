@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.MailboxEntry
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -36,11 +37,14 @@ internal fun ChatState.withAssistantPeersQuiet(): ChatState {
 internal fun quietLine(record: ActionRecord): String = "${record.threads.size} cleared quietly"
 
 internal fun outcomeLabel(outcome: String): String = when (outcome) {
-	"done" -> "Done"
-	"not_found" -> "Not found"
-	"rate_limited" -> "Rate limited"
-	"uncertain" -> "Uncertain"
-	"not_attempted" -> "Not attempted"
+	Protocol.Wire.RecordOutcome.RAN -> "Ran"
+	Protocol.Wire.RecordOutcome.UNAVAILABLE -> "Unavailable"
+	Protocol.Wire.RecordOutcome.REFUSED -> "Refused"
+	Protocol.Wire.RecordOutcome.DONE -> "Done"
+	Protocol.Wire.RecordOutcome.NOT_FOUND -> "Not found"
+	Protocol.Wire.RecordOutcome.RATE_LIMITED -> "Rate limited"
+	Protocol.Wire.RecordOutcome.UNCERTAIN -> "Uncertain"
+	Protocol.Wire.RecordOutcome.NOT_ATTEMPTED -> "Not attempted"
 	else -> "Unknown"
 }
 

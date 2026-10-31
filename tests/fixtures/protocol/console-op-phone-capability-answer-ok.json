@@ -1,0 +1,5 @@
+{
+	"kind": "phone_capability_answer",
+	"requestId": "phone-request-ok",
+	"answer": { "kind": "ok", "answer": { "on": true, "levels": 4 } }
+}

@@ -32,6 +32,12 @@ import {
 	PlanesReadValueSchema,
 } from "../shared/schemasInbox.js";
 import {
+	HoldClaimResultSchema,
+	HoldClaimValueSchema,
+	PhoneHoldPlaneSchema,
+	PhoneHoldReadValueSchema,
+} from "../shared/schemasPhoneHold.js";
+import {
 	ScheduleCancelValueSchema,
 	ScheduleListValueSchema,
 	ScheduleSendValueSchema,
@@ -225,6 +231,8 @@ export const OWNER_OP_CATALOG = [
 		mutation: "value",
 		answer: AssistantHomePutResultSchema,
 	},
+	{ kind: "hold_claim", value: HoldClaimValueSchema, mutation: "value", answer: HoldClaimResultSchema },
+	{ kind: "phone_hold_read", value: PhoneHoldReadValueSchema, mutation: "read", answer: PhoneHoldPlaneSchema },
 ] as const satisfies readonly OwnerOpCatalogEntry[];
 
 type Catalog = (typeof OWNER_OP_CATALOG)[number];

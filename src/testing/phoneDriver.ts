@@ -37,6 +37,8 @@ import {
 	signOwnerOp,
 	signRowEnvelope,
 } from "../shared/schemasInbox.js";
+import { type PhoneCapabilityAnswer, PhoneCapabilityAnswerSchema } from "../shared/schemasPhoneCapabilities.js";
+import { HoldClaimResultSchema, type PhoneHoldRecord } from "../shared/schemasPhoneHold.js";
 import { type FixtureDraws, FixtureWorld } from "./fixtureWorld.js";
 import type { IdentitySet } from "./identitySet.js";
 
@@ -45,6 +47,7 @@ export type MailboxEntry = z.infer<typeof MailboxEntrySchema>;
 export interface PhoneDriverDeps {
 	world?: FixtureWorld;
 	set?: IdentitySet;
+	phone?: 1 | 2;
 	handle: (request: Request) => Promise<Response>;
 	now?: () => number;
 	draws?: FixtureDraws;
@@ -67,6 +70,7 @@ export interface ValueAnswer {
 }
 
 export interface PhoneDriver {
+	device: string;
 	ownerOp(op: Record<string, unknown>, opId?: string): OwnerOp;
 	post(op: OwnerOp): Promise<PostAnswer>;
 	console(body: Record<string, unknown>): Promise<PostAnswer>;
@@ -96,6 +100,12 @@ export interface PhoneDriver {
 			  }
 			| { gatewayId: null; workdirPath: null; carried: null; baseVersion: number },
 	): Promise<AssistantHomePutResult>;
+	claimHold(): Promise<{ hold: PhoneHoldRecord }>;
+	drainPhoneCapability(
+		requestId?: string,
+	): Promise<{ row: InboxRow; stamp: import("../shared/schemasInbox.js").RowStamp; entry: MailboxEntry }>;
+	answerPhone(requestId: string, answer: PhoneCapabilityAnswer): Promise<ValueAnswer>;
+	answerAct(requestId: string, decision: "approve" | "deny", note?: string): Promise<ValueAnswer>;
 	entries(rows: InboxRow[]): MailboxEntry[];
 }
 
@@ -104,6 +114,9 @@ const ENTRY_KINDS = new Set<string>(MailboxEntrySchema.shape.kind.options);
 export function createPhoneDriver(deps: PhoneDriverDeps): PhoneDriver {
 	const world = deps.world ?? FixtureWorld.from(deps.set as IdentitySet);
 	const { set } = world;
+	const consoleIdentity = deps.phone === 2 ? set.console2 : set.console;
+	if (!consoleIdentity) throw new Error("the second console is not admitted");
+	const admittedConsole = consoleIdentity as NonNullable<typeof consoleIdentity>;
 	const now = deps.now ?? Date.now;
 	const randomBytes = deps.randomBytes ?? (deps.draws ? deps.draws.next.bind(deps.draws) : nodeRandomBytes);
 	const newOpId = deps.newOpId ?? (() => `op-${randomBytes(6).toString("hex")}`);
@@ -119,15 +132,15 @@ export function createPhoneDriver(deps: PhoneDriverDeps): PhoneDriver {
 		const fields: OwnerOpFields = {
 			v: 1,
 			domainId: set.domain.id,
-			signerSignPub: set.console.identity.sign.pub,
-			conversationId: set.console.conversationId,
-			device: set.console.device,
+			signerSignPub: admittedConsole.identity.sign.pub,
+			conversationId: admittedConsole.conversationId,
+			device: admittedConsole.device,
 			opId,
 			at: now(),
 			nonce: randomBytes(18).toString("base64"),
 			op,
 		};
-		return signOwnerOp(fields, set.console.identity.sign.priv);
+		return signOwnerOp(fields, admittedConsole.identity.sign.priv);
 	}
 
 	async function consolePost(body: Record<string, unknown>): Promise<PostAnswer> {
@@ -159,7 +172,7 @@ export function createPhoneDriver(deps: PhoneDriverDeps): PhoneDriver {
 			new Request("https://router.test/console", {
 				method: "POST",
 				headers,
-				body: JSON.stringify({ reach: { signerSignPub: set.console.identity.sign.pub } }),
+				body: JSON.stringify({ reach: { signerSignPub: admittedConsole.identity.sign.pub } }),
 			}),
 		);
 		if (!reachResponse.ok) throw new Error(`reach answered ${reachResponse.status}`);
@@ -210,6 +223,9 @@ export function createPhoneDriver(deps: PhoneDriverDeps): PhoneDriver {
 		);
 	};
 
+	const claimHold: PhoneDriver["claimHold"] = async () =>
+		HoldClaimResultSchema.parse(await send({ kind: "hold_claim" }));
+
 	async function value(consoleOp: ConsoleOp, opId = newOpId()): Promise<ValueAnswer> {
 		// Value answers may be clear refusals, not result envelopes.
 		const body = await send(
@@ -229,15 +245,15 @@ export function createPhoneDriver(deps: PhoneDriverDeps): PhoneDriver {
 
 	async function deliver(sessionId: string, consoleOp: ConsoleOp, opId = newOpId()): Promise<OpResultEnvelope> {
 		const envelope = {
-			origin: { kind: "console" as const, domainId: set.domain.id, device: set.console.device },
-			opKey: { conversationId: set.console.conversationId, opId },
+			origin: { kind: "console" as const, domainId: set.domain.id, device: admittedConsole.device },
+			opKey: { conversationId: admittedConsole.conversationId, opId },
 			epoch: set.content.epoch,
 			kind: "console_op" as const,
 			contentRefs: [],
 		};
 		const row = {
 			envelope,
-			producerSig: signRowEnvelope(envelope, set.console.identity.sign.priv),
+			producerSig: signRowEnvelope(envelope, admittedConsole.identity.sign.priv),
 			body: seal(JSON.stringify(consoleOp), opPayloadAadKind()),
 		};
 		const address = formatInboxAddress({
@@ -248,6 +264,31 @@ export function createPhoneDriver(deps: PhoneDriverDeps): PhoneDriver {
 		});
 		return OpResultEnvelopeSchema.parse(await send({ kind: "deliver", address, row }, opId));
 	}
+
+	const drainPhoneCapability: PhoneDriver["drainPhoneCapability"] = async (requestId) => {
+		const row = (await inboxRead()).find((candidate) => {
+			if (candidate.envelope.kind !== "plugin_action") return false;
+			const entry = MailboxEntrySchema.safeParse(open(candidate));
+			return (
+				entry.success &&
+				entry.data.kind === "plugin_action" &&
+				entry.data.pluginId === "phone" &&
+				entry.data.actionType === "capability" &&
+				(requestId === undefined || entry.data.payload?.requestId === requestId)
+			);
+		});
+		if (!row) throw new Error("no phone capability row is waiting");
+		if (!row.stamp) throw new Error("the phone capability row has no holder stamp");
+		return { row, stamp: row.stamp, entry: MailboxEntrySchema.parse(open(row)) };
+	};
+
+	const answerPhone: PhoneDriver["answerPhone"] = async (requestId, answer) => {
+		const parsed = PhoneCapabilityAnswerSchema.parse(answer);
+		return value({ kind: "phone_capability_answer", requestId, answer: parsed });
+	};
+
+	const answerAct: PhoneDriver["answerAct"] = async (requestId, decision, note) =>
+		value({ kind: "assistant_act_answer", requestId, decision, ...(note ? { note } : {}) });
 
 	let consumer: { cursor: number; cursorEpoch: number } | null = null;
 	async function consumerRegister(): Promise<{ cursor: number; cursorEpoch: number }> {
@@ -278,6 +319,7 @@ export function createPhoneDriver(deps: PhoneDriverDeps): PhoneDriver {
 	}
 
 	return {
+		device: admittedConsole.device,
 		ownerOp,
 		post,
 		console: consolePost,
@@ -302,6 +344,10 @@ export function createPhoneDriver(deps: PhoneDriverDeps): PhoneDriver {
 		boardRead: async () => BoardReadResultSchema.parse(await send({ kind: "board_read" })),
 		homeRead,
 		homePut,
+		claimHold,
+		drainPhoneCapability,
+		answerPhone,
+		answerAct,
 		entries: (rows) =>
 			rows.filter((row) => ENTRY_KINDS.has(row.envelope.kind)).map((row) => MailboxEntrySchema.parse(open(row))),
 	};

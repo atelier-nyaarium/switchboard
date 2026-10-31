@@ -7,6 +7,7 @@ import {
 	type OpKey,
 	type OpResultEnvelope,
 	parseInboxAddress,
+	type RowStamp,
 } from "../../shared/schemasInbox.js";
 import { landed } from "../../shared/write-result.js";
 import type { ReferenceHeldStore } from "../blobs/referenceHeldStore.js";
@@ -59,6 +60,8 @@ export class InboxService {
 	appendRow(input: {
 		address: InboxAddress;
 		row: InboxRowInput;
+		stamp?: RowStamp;
+		recipientNoHolder?: boolean;
 		producerSignPub: string;
 		opKey?: OpKeyInput;
 		shareGeneration?: number;

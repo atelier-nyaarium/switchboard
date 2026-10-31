@@ -2,8 +2,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { gateVerdict, writeLockReason } from "../mcp/assistant/gate.js";
+import { gateVerdict } from "../mcp/assistant/gate.js";
 import { gateHookOutput } from "../mcp/assistant/gateHook.js";
+import { holdDenial } from "../shared/assistant-hold.js";
 
 const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "assistant-gate-")));
 const notes = path.join(base, "notes");
@@ -119,6 +120,16 @@ describe("the assistant gate", () => {
 		expect(verdict("Glob", { pattern: "**/*" }, outside)).toBe(false);
 		expect(verdict("Grep", { pattern: "x" }, outside)).toBe(false);
 	});
+
+	it("marks every allowed file write for a hold check", () => {
+		for (const [tool, input] of [
+			["Write", { file_path: path.join(notes, "AGENTS.md") }],
+			["Edit", { file_path: path.join(notes, "threads.md") }],
+		] as const) {
+			const verdict = gateVerdict({ tool_name: tool, tool_input: input, cwd: notes }, { notes });
+			expect(verdict.allow && verdict.hold).toBe(true);
+		}
+	});
 });
 
 describe("the gate hook", () => {
@@ -128,8 +139,8 @@ describe("the gate hook", () => {
 	const reason = (output: string | null) => JSON.parse(output ?? "").hookSpecificOutput.permissionDecisionReason;
 	const read = JSON.stringify({ tool_name: "Read", tool_input: { file_path: path.join(notes, "AGENTS.md") } });
 	const write = JSON.stringify({ tool_name: "Write", tool_input: { file_path: path.join(notes, "AGENTS.md") } });
-	/** The Gateway's write-lock answer, and the routes asked. */
-	const lock = (answer: unknown) => {
+	/** Hold lookup. */
+	const hold = (answer: unknown) => {
 		const asked: string[] = [];
 		const fetchImpl = (async (url: string) => {
 			asked.push(new URL(url).pathname);
@@ -146,25 +157,23 @@ describe("the gate hook", () => {
 		expect(JSON.parse((await gateHookOutput(bash, env)) ?? "").hookSpecificOutput.hookEventName).toBe("PreToolUse");
 	});
 
-	it("asks the write lock for its AGENTS.md alone, and bounces a locked one with how to ask", async () => {
+	it("asks the hold for every write and allows only a held answer", async () => {
 		const note = JSON.stringify({ tool_name: "Write", tool_input: { file_path: path.join(notes, "threads.md") } });
 		const alias = JSON.stringify({ tool_name: "Edit", tool_input: { file_path: path.join(notes, "alias.md") } });
-		const locked = lock({ kind: "locked", idleMs: 42 * 60_000 });
-		const fresh = lock({ kind: "locked", idleMs: null });
+		const held = hold({ kind: "held", holder: "phone-a", claimedAt: 1, remainingMs: 60_000 });
+		const none = hold({ kind: "none" });
 
-		expect(decision(await gateHookOutput(read, env, locked.fetchImpl))).toBe("allow");
-		expect(decision(await gateHookOutput(note, env, locked.fetchImpl))).toBe("allow");
-		expect(locked.asked).toEqual([]);
-		expect(reason(await gateHookOutput(write, env, locked.fetchImpl))).toContain("idle for 42 minutes");
-		expect(decision(await gateHookOutput(alias, env, locked.fetchImpl))).toBe("deny");
-		expect(locked.asked).toEqual(["/assistant/write-lock", "/assistant/write-lock"]);
-		expect(reason(await gateHookOutput(write, env, fresh.fetchImpl))).toContain("since it started");
-		expect(decision(await gateHookOutput(write, env, lock({ kind: "open" }).fetchImpl))).toBe("allow");
+		expect(decision(await gateHookOutput(read, env, held.fetchImpl))).toBe("allow");
+		expect(decision(await gateHookOutput(note, env, held.fetchImpl))).toBe("allow");
+		expect(held.asked).toEqual(["/assistant/hold"]);
+		expect(reason(await gateHookOutput(write, env, none.fetchImpl))).toBe(holdDenial({ kind: "none" }));
+		expect(decision(await gateHookOutput(alias, env, none.fetchImpl))).toBe("deny");
+		expect(none.asked).toEqual(["/assistant/hold", "/assistant/hold"]);
 	});
 
-	it("bounces a write whose lock cannot be read", async () => {
-		const unreachable = lock(new Error("refused"));
-		const stranger = lock({ kind: "not_assistant" });
+	it("bounces a write whose hold cannot be read", async () => {
+		const unreachable = hold(new Error("refused"));
+		const stranger = hold({ kind: "not_assistant" });
 
 		expect(decision(await gateHookOutput(write, env, unreachable.fetchImpl))).toBe("deny");
 		expect(decision(await gateHookOutput(write, env, stranger.fetchImpl))).toBe("deny");
@@ -185,10 +194,9 @@ describe("the gate hook", () => {
 	});
 });
 
-describe("the write lock's refusal", () => {
-	it("names the idle time in minutes, then hours, and says when nothing was heard", () => {
-		expect(writeLockReason(31 * 60_000)).toContain("idle for 31 minutes");
-		expect(writeLockReason(5 * 60 * 60_000)).toContain("idle for 5 hours");
-		expect(writeLockReason(null)).toContain("has not heard from the owner since it started");
+describe("the hold denial", () => {
+	it("uses one reason for no holder and an unreadable answer", () => {
+		expect(holdDenial({ kind: "none" })).toContain("No phone holds me right now");
+		expect(holdDenial({ kind: "unreadable", reason: "timeout" })).toContain("hold from the Gateway");
 	});
 });

@@ -3,7 +3,6 @@
 
 import type { Ambient } from "../../shared/ambient.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
-import { WRITE_IDLE_MS, type WriteLock } from "../../shared/assistant-write-lock.js";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
 import type { MIGRATING } from "../../shared/migration-fence.js";
 import type { DeliveryOrigin, PendingDelivery } from "../../shared/pending-delivery-store.js";
@@ -63,19 +62,12 @@ type MarkOrigin = DeliveryOrigin | "reply" | "unknown";
  * Last speaker, by acceptance order. Owner rows mark on ack, others on offer.
  * Memory only; rows from before boot never read owner.
  */
-export function createOriginMarker(bootSeq: number, now: () => number) {
+export function createOriginMarker(bootSeq: number) {
 	let mark: { seq: number; origin: MarkOrigin } | null = null;
-	/** The newest row's origin, replies aside. */
-	let prompt: { seq: number; origin: MarkOrigin } | null = null;
-	let ownerAt: number | null = null;
 	const move = (seq: number, origin: MarkOrigin) => {
 		if (!mark || seq >= mark.seq) mark = { seq, origin };
 	};
-	const saw = (seq: number, origin: MarkOrigin) => {
-		move(seq, origin);
-		if (!prompt || seq >= prompt.seq) prompt = { seq, origin };
-		if (origin === "owner") ownerAt = now();
-	};
+	const saw = (seq: number, origin: MarkOrigin) => move(seq, origin);
 	const ownerSide = (origin: MarkOrigin) => origin === "owner" || origin === "routine";
 	const originOf = (row: PendingDelivery): MarkOrigin => {
 		const origin = row.origin ?? "unknown";
@@ -98,17 +90,9 @@ export function createOriginMarker(bootSeq: number, now: () => number) {
 		/** A new session has heard nothing. */
 		ended: () => {
 			mark = null;
-			prompt = null;
-			ownerAt = null;
 		},
 		/** A check-in reads as the owner for sends. */
 		readsOwner: () => mark !== null && ownerSide(mark.origin),
-		/** Open while the owner prompted last or spoke within `WRITE_IDLE_MS`; a check-in neither. */
-		writes: (): WriteLock => {
-			if (prompt?.origin === "owner") return { kind: "open" };
-			const idleMs = ownerAt === null ? null : Math.max(0, now() - ownerAt);
-			return idleMs !== null && idleMs < WRITE_IDLE_MS ? { kind: "open" } : { kind: "locked", idleMs };
-		},
 	};
 }
 

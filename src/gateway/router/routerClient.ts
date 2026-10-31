@@ -14,6 +14,7 @@ import {
 	reachCandidates,
 	reachHost,
 } from "../../shared/router-reach.js";
+import { PhoneHoldFrameSchema } from "../../shared/schemasPhoneHold.js";
 import { GatewayRegisterAnswerSchema } from "../../shared/schemasRegister.js";
 import { pinnedDial, pinRefusal, realWebSocket } from "./pinnedSocket.js";
 import { registerFrame } from "./registerAuth.js";
@@ -45,6 +46,7 @@ export interface RouterClientConfig {
 	onUnlink?: (frame: unknown) => void;
 	onShareDelta?: (frame: unknown) => void;
 	onAssistantHome?: (frame: unknown) => void;
+	onPhoneHold?: (frame: unknown) => void;
 	onValueOp?: (frame: unknown) => void;
 	onDisconnect?: () => void;
 	isClosing?: () => boolean;
@@ -164,6 +166,12 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 
 			const parsed = RouterInboundFrameSchema.safeParse(msg);
 			if (!parsed.success) {
+				const phoneHold = PhoneHoldFrameSchema.safeParse(msg);
+				if (phoneHold.success) {
+					if (gatewayIncarnation !== null && phoneHold.data.incarnation !== gatewayIncarnation) return;
+					if (!config.isClosing?.()) config.onPhoneHold?.(phoneHold.data);
+					return;
+				}
 				droppedFrames++;
 				const kind = (msg as { type?: unknown } | null)?.type;
 				console.warn(
@@ -183,6 +191,11 @@ export function startRouterClient(config: RouterClientConfig): RouterClient {
 			if (config.isClosing?.() && frame.type !== "tool_result" && frame.type !== "tool_error") return;
 			if ((frame as { type?: string }).type === "value_op") {
 				config.onValueOp?.(frame);
+				return;
+			}
+			if ((frame as { type?: string }).type === "phone_hold") {
+				const phoneHold = PhoneHoldFrameSchema.safeParse(frame);
+				if (phoneHold.success) config.onPhoneHold?.(phoneHold.data);
 				return;
 			}
 

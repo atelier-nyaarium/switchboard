@@ -37,6 +37,10 @@ describe("TS wire fixtures", () => {
 			const incarnation = fixture.frame.params.incarnation;
 			if (incarnation !== undefined && incarnation !== live)
 				throw new Error(`fixture incarnation ${String(incarnation)} differs from live ${String(live)}`);
+			// Hold required for recipients.
+			const recipient = (fixture.frame.params.row as { envelope?: { recipient?: unknown } } | undefined)?.envelope
+				?.recipient;
+			if (fixture.frame.name === "inbox_append" && recipient) await h.phone.claimHold();
 			// The transport stamps the incarnation.
 			const answer = await h.gateway.faults.routerInboxCall(fixture.frame.name, fixture.frame.params);
 			expect(answer.result ?? answer).toMatchObject(fixture.expect);

@@ -1,0 +1,78 @@
+{
+	"_comment": "The hold's standing and the speak and alert decisions both runtimes make from it. windowMs is 600000. Replayed by phone-hold-rules.test.ts and PhoneHoldRulesTest.kt.",
+	"windowMs": 600000,
+	"cases": [
+		{
+			"name": "no hold falls to today's rule",
+			"hold": null,
+			"self": "phone-a",
+			"now": 1000000,
+			"visible": false,
+			"todayRule": true,
+			"expect": { "standing": "none", "speaks": true, "alerts": true }
+		},
+		{
+			"name": "no hold and today's rule says no",
+			"hold": null,
+			"self": "phone-a",
+			"now": 1000000,
+			"visible": false,
+			"todayRule": false,
+			"expect": { "standing": "none", "speaks": false, "alerts": false }
+		},
+		{
+			"name": "the holder speaks and alerts when not visible",
+			"hold": { "holder": "phone-a", "claimedAt": 1000000 },
+			"self": "phone-a",
+			"now": 1300000,
+			"visible": false,
+			"todayRule": false,
+			"expect": { "standing": "held", "speaks": true, "alerts": true }
+		},
+		{
+			"name": "a visible holder speaks and alerts nothing",
+			"hold": { "holder": "phone-a", "claimedAt": 1000000 },
+			"self": "phone-a",
+			"now": 1300000,
+			"visible": true,
+			"todayRule": true,
+			"expect": { "standing": "held", "speaks": true, "alerts": false }
+		},
+		{
+			"name": "another phone holds: silent, no alert, whatever today's rule",
+			"hold": { "holder": "phone-b", "claimedAt": 1000000 },
+			"self": "phone-a",
+			"now": 1300000,
+			"visible": false,
+			"todayRule": true,
+			"expect": { "standing": "held", "speaks": false, "alerts": false }
+		},
+		{
+			"name": "held up to the last millisecond of the window",
+			"hold": { "holder": "phone-b", "claimedAt": 1000000 },
+			"self": "phone-a",
+			"now": 1599999,
+			"visible": false,
+			"todayRule": true,
+			"expect": { "standing": "held", "speaks": false, "alerts": false }
+		},
+		{
+			"name": "lapsed at the window falls to today's rule",
+			"hold": { "holder": "phone-b", "claimedAt": 1000000 },
+			"self": "phone-a",
+			"now": 1600000,
+			"visible": false,
+			"todayRule": true,
+			"expect": { "standing": "lapsed", "speaks": true, "alerts": true }
+		},
+		{
+			"name": "a claim stamped ahead of this clock is held",
+			"hold": { "holder": "phone-b", "claimedAt": 1000500 },
+			"self": "phone-a",
+			"now": 1000000,
+			"visible": false,
+			"todayRule": true,
+			"expect": { "standing": "held", "speaks": false, "alerts": false }
+		}
+	]
+}

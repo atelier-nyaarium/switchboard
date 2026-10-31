@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.SttsDefaults
 import com.atelier_nyaarium.switchboard.proto.SttsProvider
+import com.atelier_nyaarium.switchboard.proto.PhoneHold
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -108,9 +109,15 @@ class PlaybackOpsTest {
 		private val scope = CoroutineScope(
 			SupervisorJob() + Dispatchers.Unconfined + CoroutineExceptionHandler { _, _ -> },
 		)
-		val ops = PlaybackOps(state, scope, playback, object : PlaybackOpsCollaborators {
-			override fun openThread(team: String) = team
-		})
+		val ops = PlaybackOps(
+			state,
+			scope,
+			playback,
+			object : PlaybackOpsCollaborators {
+				override fun openThread(team: String) = team
+			},
+			speaksForHold = { today -> speaksFor(state.value.phoneHold, "device-a", System.currentTimeMillis(), today) },
+		)
 
 		fun close() {
 			scope.cancel()
@@ -180,6 +187,33 @@ class PlaybackOpsTest {
 
 		assertEquals(listOf(1L, 2L), f.ops.queueRows().map { it.entry.at })
 		assertTrue(f.ops.transportState().second)
+	}
+
+	@Test
+	fun aNewPhoneHolderRejectsEnqueueAndClearsThePlayingHead() = runBlocking {
+		val team = "local.gw.host.session"
+		val now = System.currentTimeMillis()
+		val state = MutableStateFlow(
+			ChatState(
+				openTabs = listOf(team),
+				phoneHold = PhoneHold("device-b", now, 1L),
+				threads = mapOf(team to listOf(Message(false, "one", 1L))),
+			),
+		)
+		val f = fixture(state)
+		f.playback.seed(state.value, team, 1L)
+
+		f.ops.enqueueForPlay(team, 1L, SttsPlayer.Tier.FULL, announceRun = false)
+		assertTrue(f.ops.queueRows().isEmpty())
+
+		state.value = state.value.copy(phoneHold = null)
+		f.ops.enqueueForPlay(team, 1L, SttsPlayer.Tier.FULL, announceRun = false)
+		awaitClaimed(f, team, 1L, SttsPlayer.Tier.FULL)
+		state.value = state.value.copy(phoneHold = PhoneHold("device-b", now + 1L, 2L))
+		f.ops.clearForOtherHolder()
+		awaitEnd(f, team, 1L, SttsPlayer.Tier.FULL, SttsPlayer.Outcome.PREEMPTED)
+
+		assertTrue(f.ops.queueRows().isEmpty())
 	}
 
 	@Test

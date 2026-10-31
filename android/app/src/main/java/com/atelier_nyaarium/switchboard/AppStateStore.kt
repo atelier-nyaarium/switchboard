@@ -7,6 +7,7 @@ import androidx.security.crypto.MasterKey
 import com.atelier_nyaarium.switchboard.crypto.Crypto
 import com.atelier_nyaarium.switchboard.proto.SyncCursor
 import com.atelier_nyaarium.switchboard.assistant.AssistantSendStore
+import com.atelier_nyaarium.switchboard.assistant.AssistantActStore
 import java.io.File
 import java.util.Base64
 import kotlinx.serialization.json.JsonObject
@@ -59,7 +60,9 @@ class AppStateStore internal constructor(
 	com.atelier_nyaarium.switchboard.board.BoardStore,
 	com.atelier_nyaarium.switchboard.runbooks.RunbookStore,
 	com.atelier_nyaarium.switchboard.vault.VaultStore,
-	AssistantSendStore {
+	AssistantSendStore,
+	AssistantActStore,
+	PhoneCapabilityStore {
 	private constructor(context: Context, secure: Pair<SharedPreferences, Boolean>) : this(
 		context.filesDir,
 		secure.first,
@@ -314,6 +317,15 @@ class AppStateStore internal constructor(
 
 	override fun loadAssistantSends(): String? = prefs.getString(KEY_ASSISTANT_SENDS, null)
 
+	override fun saveAssistantActs(json: String) = check(prefs.edit().putString(KEY_ASSISTANT_ACTS, json).commit())
+
+	override fun loadAssistantActs(): String? = prefs.getString(KEY_ASSISTANT_ACTS, null)
+
+	override fun savePhoneCapabilityRuns(json: String): Boolean =
+		prefs.edit().putString(KEY_PHONE_CAPABILITY_RUNS, json).commit()
+
+	override fun loadPhoneCapabilityRuns(): String? = prefs.getString(KEY_PHONE_CAPABILITY_RUNS, null)
+
 	override fun saveRunbooks(json: String) = check(prefs.edit().putString(KEY_RUNBOOKS, json).commit())
 
 	override fun loadRunbooks(): String? = prefs.getString(KEY_RUNBOOKS, null)
@@ -523,6 +535,8 @@ class AppStateStore internal constructor(
 		const val KEY_TASK_BOARD = "task_board"
 		const val KEY_VAULT = "vault"
 		const val KEY_ASSISTANT_SENDS = "assistant_sends"
+		const val KEY_ASSISTANT_ACTS = "assistant_acts"
+		const val KEY_PHONE_CAPABILITY_RUNS = "phone_capability_runs"
 		const val KEY_RUNBOOKS = "runbooks"
 		const val KEY_VAULT_UNLOCK = "vault_unlock"
 		const val KEY_AUTO_TTS = "auto_tts"
@@ -555,7 +569,8 @@ class AppStateStore internal constructor(
 		/** Keep every grammar key here. */
 		val SCHEMA_WIPE_KEYS = listOf(
 			KEY_THREADS, KEY_READ_ANCHORS, KEY_LABELS, KEY_DRAFTS, KEY_SCHEDULED_SENDS, KEY_GOALS, KEY_ABSENCE_STREAKS,
-			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_TASK_BOARD, KEY_VAULT, KEY_ASSISTANT_SENDS, KEY_RUNBOOKS, KEY_ROLES,
+			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_TASK_BOARD, KEY_VAULT, KEY_ASSISTANT_SENDS, KEY_ASSISTANT_ACTS, KEY_PHONE_CAPABILITY_RUNS,
+			KEY_RUNBOOKS, KEY_ROLES,
 			KEY_ASSISTANT_HOME,
 		)
 
@@ -569,7 +584,8 @@ class AppStateStore internal constructor(
 			KEY_PENDING_UNTRUST,
 			KEY_THREADS, KEY_READ_ANCHORS, KEY_LABELS, KEY_DRAFTS, KEY_SCHEDULED_SENDS, KEY_GOALS,
 			KEY_CONVERSATION_ID,
-			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_ABSENCE_STREAKS, KEY_TASK_BOARD, KEY_VAULT, KEY_ASSISTANT_SENDS,
+			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_ABSENCE_STREAKS, KEY_TASK_BOARD, KEY_VAULT, KEY_ASSISTANT_SENDS, KEY_ASSISTANT_ACTS,
+			KEY_PHONE_CAPABILITY_RUNS,
 			KEY_RUNBOOKS, KEY_LAST_PROJECT, KEY_ROLES, KEY_ASSISTANT_HOME,
 		)
 	}

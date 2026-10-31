@@ -114,6 +114,7 @@ internal class AssistantPanelSession(context: Context) :
 		if (team.value == null) return
 		IntegrationProbe.report(context, "panel")
 		shows.update { it + 1 }
+		repo.phoneHoldOps.onPanelShown()
 		registry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
 		if (!leased) repo.foreground.take(ForegroundHolder.PANEL)
 		leased = true

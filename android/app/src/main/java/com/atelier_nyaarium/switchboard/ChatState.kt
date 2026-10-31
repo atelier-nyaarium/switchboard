@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.Address
 import com.atelier_nyaarium.switchboard.proto.CrossDomainPresenceEntry
 import com.atelier_nyaarium.switchboard.proto.OwnerFacts
+import com.atelier_nyaarium.switchboard.proto.PhoneHold
 import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
 
 data class ChatState(
@@ -39,6 +40,7 @@ data class ChatState(
 	val roles: Map<String, String> = emptyMap(),
 	/** Router home record, last read. */
 	val assistantHome: AssistantHome = AssistantHome.Unread,
+	val phoneHold: PhoneHold? = null,
 	/** A home put's failure, until a newer choice. */
 	val homeFailure: String? = null,
 	val connected: Boolean = false,

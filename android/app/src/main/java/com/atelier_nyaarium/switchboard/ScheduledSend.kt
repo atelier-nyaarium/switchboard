@@ -35,5 +35,11 @@ fun interface InboundSubscriber {
  * Deliberately carries no plugin types: the plugin-framework bridge maps these fields onto its own
  * claim-keyed dispatch. */
 fun interface PluginActionSubscriber {
-	fun onAction(team: String, pluginId: String, actionType: String, payload: JsonObject?)
+	fun onAction(
+		team: String,
+		pluginId: String,
+		actionType: String,
+		payload: JsonObject?,
+		stamp: com.atelier_nyaarium.switchboard.proto.RowStamp?,
+	)
 }

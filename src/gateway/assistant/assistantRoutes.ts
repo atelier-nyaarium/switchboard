@@ -1,8 +1,10 @@
 // The assistant session's own doors. Every one checks the caller's token resolves to its record.
 
 import { z } from "zod";
+import { type Ambient, withinMs } from "../../shared/ambient.js";
+import { ASSISTANT_HOLD_PATH, type HoldAnswer, HoldAnswerSchema } from "../../shared/assistant-hold.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
-import { ASSISTANT_WRITE_LOCK_PATH, type WriteLock, type WriteLockAnswer } from "../../shared/assistant-write-lock.js";
+import { CONSOLE_ANSWER_WAIT_MS, CONSOLE_HOP_MARGIN_MS } from "../../shared/console-protocol.js";
 import {
 	ASSISTANT_ACTION_PATH,
 	type AssistantActionRequest,
@@ -16,10 +18,18 @@ import {
 	AssistantSendCollectSchema,
 	AssistantSendWithdrawSchema,
 } from "../../shared/schemasAssistantSend.js";
+import {
+	PHONE_CAPABILITY_PATH,
+	PhoneCapabilityRequestSchema,
+	type PhoneCapabilityResult,
+	PhoneCapabilityResultSchema,
+} from "../../shared/schemasPhoneCapabilities.js";
 import { ASSISTANT_COMMANDS } from "../../shared/session-commands.js";
 import type { GuardReply, SendCaller, SendGuard } from "./sendGuard.js";
+import { ASSISTANT_WAITS } from "./waits.js";
 
 const INBOX = ASSISTANT_COMMANDS.inbox;
+const PHONE_ROUTE_WAIT_MS = ASSISTANT_WAITS.phone * 2 + CONSOLE_ANSWER_WAIT_MS + CONSOLE_HOP_MARGIN_MS;
 
 export type Handler = (req: Request, body: unknown) => Promise<Response>;
 
@@ -27,10 +37,12 @@ export interface AssistantRoutesDeps {
 	caller: (req: Request) => "assistant" | "not_assistant" | "unauthenticated";
 	list: (scope: InboxScope, page: string | undefined) => Promise<InboxList[]>;
 	dispatch: (request: AssistantActionRequest) => Promise<AssistantActionResult>;
+	phone: (request: z.infer<typeof PhoneCapabilityRequestSchema>) => Promise<PhoneCapabilityResult>;
 	/** The assistant holding that conversation. */
 	sender: (req: Request, conversationId: string) => SendCaller | null;
 	guard: Pick<SendGuard, "send" | "collect" | "withdraw">;
-	writes: () => WriteLock;
+	hold: () => HoldAnswer;
+	ambient: Pick<Ambient, "setTimer" | "clearTimer">;
 }
 
 const json = (body: unknown, status: number): Response =>
@@ -80,16 +92,26 @@ export function createAssistantRoutes(deps: AssistantRoutesDeps): Map<string, Ha
 		return replied(deps.guard.withdraw(ASSISTANT_TEAM, parsed.data.requestId));
 	};
 
-	const writeLock: Handler = async (req) => {
+	const hold: Handler = async (req) => {
 		const caller = deps.caller(req);
-		const answer: WriteLockAnswer = caller === "assistant" ? deps.writes() : { kind: caller };
-		return json(answer, 200);
+		const answer: HoldAnswer = caller === "assistant" ? deps.hold() : { kind: caller };
+		return json(HoldAnswerSchema.parse(answer), 200);
+	};
+
+	const phone: Handler = async (req, body) => {
+		const parsed = PhoneCapabilityRequestSchema.safeParse(body);
+		if (!parsed.success) return json({ error: "not a phone capability request" }, 400);
+		const caller = deps.caller(req);
+		if (caller !== "assistant") return json({ kind: caller }, 200);
+		const result = await withinMs(deps.ambient, deps.phone(parsed.data), PHONE_ROUTE_WAIT_MS);
+		return json(PhoneCapabilityResultSchema.parse(result ?? { kind: "unavailable", reason: "timeout" }), 200);
 	};
 
 	return new Map<string, Handler>([
 		[INBOX.path, list],
 		[ASSISTANT_ACTION_PATH, action],
-		[ASSISTANT_WRITE_LOCK_PATH, writeLock],
+		[ASSISTANT_HOLD_PATH, hold],
+		[PHONE_CAPABILITY_PATH, phone],
 		[ASSISTANT_SEND_ROUTES.send, send],
 		[ASSISTANT_SEND_ROUTES.collect, collect],
 		[ASSISTANT_SEND_ROUTES.withdraw, withdraw],

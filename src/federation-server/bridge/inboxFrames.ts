@@ -14,7 +14,9 @@ import {
 	type InboxRow,
 	InboxRowInputSchema,
 	parseInboxAddress,
+	type RowStamp,
 } from "../../shared/schemasInbox.js";
+import type { PhoneHoldRecord } from "../../shared/schemasPhoneHold.js";
 import { GATEWAY_REASON_NO_WAITER } from "../../shared/wire-vocabulary.js";
 import type { ConnGatewayRecord, GatewayRegistration } from "../gatewayBridge.js";
 import type { ConnectionId, GatewayTransport } from "../gatewayTransport.js";
@@ -28,7 +30,7 @@ type WSLike = ReturnType<GatewayTransport["getConnection"]>;
 
 export interface InboxFramesDeps {
 	inbox: InboxService | null;
-	ambient: Pick<Ambient, "setTimer" | "clearTimer">;
+	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer">;
 	hasLinkEdge: (srcDomainId: string, dstDomainId: string) => boolean;
 	getDomain: (domainId: string) => DomainSnapshot | null;
 	isMigrationFenced: (domainId: string, gatewayId: string) => boolean;
@@ -43,6 +45,7 @@ export interface InboxFramesDeps {
 export class InboxFrames {
 	private peerRowGate: PeerRowGate | null = null;
 	private ownerRowPush: ((domainId: string, row: InboxRow) => void) | null = null;
+	private phoneHoldRead: ((domainId: string, now: number) => PhoneHoldRecord | null) | null = null;
 	private pendingValues = new Map<
 		string,
 		{ resolve: (result: unknown) => void; timer: TimerHandle; connId: ConnectionId }[]
@@ -60,10 +63,17 @@ export class InboxFrames {
 		this.ownerRowPush = push;
 	}
 
+	setPhoneHoldReader(read: (domainId: string, now: number) => PhoneHoldRecord | null): void {
+		this.phoneHoldRead = read;
+	}
+
 	appendRow(reg: GatewayRegistration, params: Record<string, unknown>): unknown {
 		if (!this.deps.inbox) return { ok: false, error: "inbox unavailable" };
 		const parsed = InboxAppendParamsSchema.safeParse(params);
 		const address = parsed.success ? parseInboxAddress(parsed.data.address) : null;
+		const rawRow = parsed.success ? parsed.data.row : null;
+		if (rawRow && typeof rawRow === "object" && !Array.isArray(rawRow) && "stamp" in rawRow)
+			return { ok: false, error: "invalid inbox_append" };
 		const row = parsed.success ? InboxRowInputSchema.safeParse(parsed.data.row) : null;
 		if (!parsed.success || !address || !row?.success) return { ok: false, error: "invalid inbox_append" };
 		// Migration-fenced gateways must reconcile before writing.
@@ -91,6 +101,16 @@ export class InboxFrames {
 					this.deps.inbox.hasSession(reg.domainId, reg.gatewayId, origin.sessionId)));
 		if (!allowedDomain || !addressOwned || !originAllowed) return { ok: false, error: "refused" };
 		if (peerRow && row.data.envelope.contentRefs.length > 0) return { ok: false, error: "refused", reason: "blob" };
+		let stamp: RowStamp | undefined;
+		let recipientNoHolder = false;
+		if (row.data.envelope.recipient?.kind === "holder") {
+			// Own owner mailbox only.
+			if (address.kind !== "owner" || address.domainId !== reg.domainId)
+				return { ok: false, error: "refused", reason: "recipient" };
+			const hold = this.phoneHoldRead?.(address.domainId, this.deps.ambient.now());
+			if (hold) stamp = { device: hold.holder };
+			else recipientNoHolder = true;
+		}
 		// Share state authorizes friend rows and supplies generation.
 		let shareGeneration: number | undefined;
 		if (address.domainId !== reg.domainId && this.peerRowGate && !peerReply) {
@@ -104,6 +124,8 @@ export class InboxFrames {
 		const result = this.deps.inbox.appendRow({
 			address,
 			row: row.data,
+			stamp,
+			recipientNoHolder,
 			producerSignPub: reg.signPub,
 			shareGeneration,
 			...(hash.success ? { opKey: { ...row.data.envelope.opKey, hash: hash.data } } : {}),

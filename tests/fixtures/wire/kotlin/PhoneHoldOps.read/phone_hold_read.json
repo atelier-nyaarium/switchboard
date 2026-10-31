@@ -1,0 +1,29 @@
+{
+	"producer": "kotlin",
+	"composer": "PhoneHoldOps.read",
+	"case": "phone_hold_read",
+	"clock": 1757000000000,
+	"inputs": {
+		"op": {
+			"kind": "phone_hold_read"
+		},
+		"opId": "phone_hold_read-op",
+		"nonce": "W1zEwIezq3G9Wjge+ZjQKFj/",
+		"draws": {
+			"0": "W1zEwIezq3G9Wjge+ZjQKFj/"
+		}
+	},
+	"expect": {
+		"hold": {
+			"holder": "fixture-phone"
+		}
+	},
+	"request": {
+		"method": "POST",
+		"path": "/console",
+		"headers": {
+			"x-console-bridge-token": "Bearer fixture-console-token"
+		},
+		"body": "{\"ownerOp\":{\"v\":1,\"domainId\":\"fixture-domain\",\"signerSignPub\":\"bXhwDB5nEMCvY00l2qbzOl9wvzHx/hMdPCJc9PMHBh4=\",\"conversationId\":\"fixture-console\",\"device\":\"fixture-phone\",\"opId\":\"phone_hold_read-op\",\"at\":1757000000000,\"nonce\":\"W1zEwIezq3G9Wjge+ZjQKFj/\",\"op\":{\"kind\":\"phone_hold_read\"},\"signature\":\"dHG1cDYRX/p+VjmRdmzn8WVYYHvNp84AQmJRkuvq2ae0Atx4E+VNDHp0F24FMt7cNl6J1mJbanfFddj/8Q6dDQ==\"}}"
+	}
+}

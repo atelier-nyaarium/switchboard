@@ -3,9 +3,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ASSISTANT_WRITE_LOCK_PATH, WriteLockAnswerSchema } from "../../shared/assistant-write-lock.js";
-import { askGateway, type HookEnv } from "../hookGateway.js";
-import { gateVerdict, writeLockReason } from "./gate.js";
+import { HoldAnswerSchema, type HoldDenial, holdDenial } from "../../shared/assistant-hold.js";
+import { askAssistantHold, type HookEnv } from "../hookGateway.js";
+import { gateVerdict } from "./gate.js";
 
 const LOCK_TIMEOUT_MS = 5_000;
 
@@ -31,21 +31,20 @@ export async function gateHookOutput(
 		}
 		const verdict = gateVerdict(input, { notes: root, home });
 		if (!verdict.allow) return deny(verdict.reason);
-		return verdict.lock ? await writeLocked(env, fetchImpl) : null;
+		return verdict.hold ? await holdRequired(env, fetchImpl) : null;
 	} catch (error) {
 		return deny(`assistant gate: ${(error as Error).message}`);
 	}
 }
 
-/** An unread lock refuses. */
-async function writeLocked(env: HookEnv, fetchImpl: typeof fetch): Promise<string | null> {
-	const answer = WriteLockAnswerSchema.safeParse(
-		await askGateway(env, ASSISTANT_WRITE_LOCK_PATH, LOCK_TIMEOUT_MS, fetchImpl),
-	);
-	if (!answer.success) return deny("assistant gate: the write lock could not be read");
-	if (answer.data.kind === "open") return null;
-	if (answer.data.kind === "locked") return deny(writeLockReason(answer.data.idleMs));
-	return deny(`assistant gate: the write lock answered ${answer.data.kind}`);
+async function holdRequired(env: HookEnv, fetchImpl: typeof fetch): Promise<string | null> {
+	const answer = HoldAnswerSchema.safeParse(await askAssistantHold(env, LOCK_TIMEOUT_MS, fetchImpl));
+	if (!answer.success) {
+		const unreadable: HoldDenial = { kind: "unreadable", reason: "the Gateway did not answer" };
+		return deny(holdDenial(unreadable));
+	}
+	if (answer.data.kind === "held") return null;
+	return deny(holdDenial(answer.data));
 }
 
 function holds(root: string, inner: string): boolean {

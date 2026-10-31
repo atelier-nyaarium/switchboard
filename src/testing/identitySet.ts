@@ -15,8 +15,28 @@ export interface IdentitySet {
 	domain: { id: string; owner: Identity; isAdminDomain: boolean };
 	gateway: { id: string; identity: Identity; admission: SignedAdmission };
 	console: { device: string; conversationId: string; identity: Identity; admission: SignedAdmission };
+	console2?: { device: string; conversationId: string; identity: Identity; admission: SignedAdmission };
 	tokens: { console: string; federation: string; host: string };
 	content: { epoch: number; key: string };
+}
+
+export function admitSecondConsole(set: IdentitySet): IdentitySet {
+	if (set.console2) return set;
+	const identity = generateIdentity();
+	const device = `${set.domain.id}-phone-2`;
+	const conversationId = `${set.domain.id}-console-2`;
+	const admission = signAdmission(
+		{
+			kind: "console",
+			signPub: identity.sign.pub,
+			boxPub: identity.box.pub,
+			issuedAt: set.issuedAt,
+			nonce: randomBytes(12).toString("base64"),
+		},
+		set.domain.owner.sign.priv,
+		set.domain.owner.sign.pub,
+	);
+	return { ...set, console2: { device, conversationId, identity, admission } };
 }
 
 export interface RouterTransportSeed {
@@ -123,7 +143,7 @@ export async function seedDomain(store: FileSecretStore, set: IdentitySet): Prom
 	store.saveDomain(set.domain.id, {
 		ownerSignPub: set.domain.owner.sign.pub,
 		ownerBoxPub: set.domain.owner.box.pub,
-		admissions: [set.gateway.admission, set.console.admission],
+		admissions: [set.gateway.admission, set.console.admission, ...(set.console2 ? [set.console2.admission] : [])],
 		revocations: [],
 		isAdminDomain: set.domain.isAdminDomain,
 	});
@@ -143,7 +163,7 @@ export function seedGateway(
 	Allowlist.writeFile(path.join(federationDir, ALLOWLIST_FILE), {
 		ownerSignPub: set.domain.owner.sign.pub,
 		domainId: set.domain.id,
-		admissions: [set.gateway.admission, set.console.admission],
+		admissions: [set.gateway.admission, set.console.admission, ...(set.console2 ? [set.console2.admission] : [])],
 		revocations: [],
 	});
 	fs.writeFileSync(

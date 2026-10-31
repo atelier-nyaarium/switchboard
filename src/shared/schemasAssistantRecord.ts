@@ -1,6 +1,15 @@
 import { z } from "zod";
 
-export const ACTION_OUTCOMES = ["done", "not_found", "rate_limited", "uncertain", "not_attempted"] as const;
+export const ACTION_OUTCOMES = [
+	"done",
+	"not_found",
+	"rate_limited",
+	"uncertain",
+	"not_attempted",
+	"ran",
+	"unavailable",
+	"refused",
+] as const;
 
 export const ActionOutcomeSchema = z.enum(ACTION_OUTCOMES);
 

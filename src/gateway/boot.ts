@@ -27,6 +27,7 @@ export interface RouterFrameHandlers {
 	valueOp: (frame: unknown) => void;
 	crossDomainHandshake: (frame: unknown) => void;
 	assistantHome: (frame: unknown) => void;
+	phoneHold: (frame: unknown) => void;
 	/** Each landed registration. */
 	registered: () => void;
 }

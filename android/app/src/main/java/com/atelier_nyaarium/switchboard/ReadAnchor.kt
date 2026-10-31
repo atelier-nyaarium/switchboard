@@ -65,6 +65,15 @@ internal fun isAnchorAdvance(thread: List<Message>, current: ReadAnchor?, candid
 	return candidateIdx > anchorIndex(thread, current)
 }
 
+internal fun mergeReadAnchor(thread: List<Message>, current: ReadAnchor?, candidate: ReadAnchor): ReadAnchor? =
+	candidate.takeIf { isAnchorAdvance(thread, current, it) } ?: current
+
+internal fun mergedReadAnchorReported(current: ReadAnchor?, remote: ReadAnchor, merged: ReadAnchor): ReadAnchor? = when {
+	current == null || merged == remote -> merged
+	current.epoch == remote.epoch && current.seq == remote.seq -> merged
+	else -> null
+}
+
 /** Re-anchor a sibling thread whose anchor row [threadsAfterForget] swept away. Falls back by `at`
  * rather than by position, since the removed row's position no longer exists in `newThread`. */
 internal fun reanchorAfterForget(newThread: List<Message>, anchor: ReadAnchor?): ReadAnchor? {

@@ -14,7 +14,11 @@ import {
 	type AssistantVault,
 	composeAssistant,
 } from "../gateway/compose/composeAssistant.js";
-import type { DeliverToOwnerOptions } from "../gateway/consolePushOps.js";
+import type {
+	DeliverToOwnerCompletion,
+	DeliverToOwnerOptions,
+	DeliverToOwnerResult,
+} from "../gateway/consolePushOps.js";
 import { actionText } from "../mcp/assistant/actionTools.js";
 import { processAmbient } from "../shared/ambient.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
@@ -115,6 +119,14 @@ async function placed(listed: string[] = []) {
 		usableHere: async () => true,
 	};
 	const delivered: DeliverToOwnerOptions[] = [];
+	function deliverToOwner(options: DeliverToOwnerOptions & { completion: true }): DeliverToOwnerCompletion;
+	function deliverToOwner(options: DeliverToOwnerOptions): DeliverToOwnerResult;
+	function deliverToOwner(
+		options: DeliverToOwnerOptions & { completion?: true },
+	): DeliverToOwnerCompletion | DeliverToOwnerResult {
+		delivered.push(options);
+		return options.completion ? { queued: false } : true;
+	}
 	const source = github(listed);
 	const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 	const authority = {
@@ -134,10 +146,7 @@ async function placed(listed: string[] = []) {
 		saveSessions: () => {},
 		vault,
 		routes: () => ({
-			deliverToOwner: (options) => {
-				delivered.push(options);
-				return true;
-			},
+			deliverToOwner,
 			ownerSessionKey: (to) => `owner:${to}`,
 			bindTarget: () => ({ ok: false, error: "no sends here", status: 404 }),
 			sendFromAssistant: async () => new Response(null, { status: 500 }),

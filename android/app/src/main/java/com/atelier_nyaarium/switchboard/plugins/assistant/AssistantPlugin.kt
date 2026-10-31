@@ -9,6 +9,7 @@ import com.atelier_nyaarium.switchboard.plugins.PluginHost
 import com.atelier_nyaarium.switchboard.plugins.ThreadForgetHandler
 import com.atelier_nyaarium.switchboard.proto.AssistantSendRequest
 import com.atelier_nyaarium.switchboard.proto.AssistantSendRetract
+import com.atelier_nyaarium.switchboard.proto.AssistantActRequest
 import com.atelier_nyaarium.switchboard.runIsolated
 import com.atelier_nyaarium.switchboard.wireJson
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -33,11 +34,29 @@ class AssistantPlugin : PluginEntry {
 			val gatewayId = runIsolated { gatewayOf(action.team) }.getOrNull() ?: return@PluginActionHandler
 			repo.assistantSendOps.onRetract(gatewayId, retract.requestId)
 		})
+		host.pluginActions.claim("assistant:act-request", PluginActionHandler { action ->
+			val payload = action.payload ?: return@PluginActionHandler
+			val request = runIsolated {
+				wireJson.decodeFromJsonElement(AssistantActRequest.serializer(), payload)
+			}.getOrNull() ?: return@PluginActionHandler
+			val gatewayId = runIsolated { gatewayOf(action.team) }.getOrNull() ?: return@PluginActionHandler
+			repo.assistantActOps.onRequest(gatewayId, action.team, request)
+		})
+		host.pluginActions.claim("assistant:act-retract", PluginActionHandler { action ->
+			val payload = action.payload ?: return@PluginActionHandler
+			val retract = runIsolated {
+				wireJson.decodeFromJsonElement(AssistantSendRetract.serializer(), payload)
+			}.getOrNull() ?: return@PluginActionHandler
+			val gatewayId = runIsolated { gatewayOf(action.team) }.getOrNull() ?: return@PluginActionHandler
+			repo.assistantActOps.onRetract(gatewayId, retract.requestId)
+		})
 		host.threadForgetHandlers.claim("assistant:send-forget", ThreadForgetHandler { _, team ->
 			repo.assistantSendOps.forgetTeam(team)
+			repo.assistantActOps.forgetTeam(team)
 		})
 		host.accountWipeHandlers.claim("assistant:send-wipe", AccountWipeHandler {
 			repo.assistantSendOps.clearRequests()
+			repo.assistantActOps.clearRequests()
 		})
 	}
 }

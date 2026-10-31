@@ -1,6 +1,7 @@
 // The assistant's one session. A name is not a binding, so provenance decides, as for a routine.
 
 import { ASSISTANT_ACTION_KEYS } from "./schemasAssistantActions.js";
+import { PHONE_CAPABILITY_KEYS } from "./schemasPhoneCapabilities.js";
 import { ASSISTANT_COMMANDS, SESSION_COMMANDS } from "./session-commands.js";
 import { composeSessionName } from "./session-id.js";
 import { ASSISTANT_ROLE } from "./wire-vocabulary.js";
@@ -42,6 +43,7 @@ export const ASSISTANT_SWITCHBOARD_TOOLS: readonly string[] = [
 	...Object.values(ASSISTANT_REPLY_TOOLS),
 	...Object.values(ASSISTANT_COMMANDS).map(({ tool }) => tool),
 	...ASSISTANT_ACTION_KEYS,
+	...PHONE_CAPABILITY_KEYS,
 	...Object.values(ASSISTANT_CROSSTALK_TOOLS),
 	...Object.values(ASSISTANT_ROUTINE_TOOLS),
 ];
@@ -50,6 +52,7 @@ export const ASSISTANT_SWITCHBOARD_TOOLS: readonly string[] = [
 export const ASSISTANT_ONLY_TOOLS: readonly string[] = [
 	ASSISTANT_COMMANDS.inbox.tool,
 	...ASSISTANT_ACTION_KEYS,
+	...PHONE_CAPABILITY_KEYS,
 	ASSISTANT_CROSSTALK_TOOLS.collect,
 	ASSISTANT_CROSSTALK_TOOLS.withdraw,
 ];

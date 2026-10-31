@@ -13,6 +13,8 @@
 		"test": "vitest run",
 		"gen:fixtures": "bun scripts/gen-wire-fixtures.ts",
 		"check:fixtures": "bun scripts/check-wire-fixtures.ts",
+		"gen:capabilities": "bun scripts/gen-phone-capability-fixture.ts",
+		"check:capabilities": "bun run gen:capabilities && git diff --exit-code -- tests/fixtures/phone-capabilities/registry.json",
 		"gen:facets": "bun scripts/gen-facet-vectors.ts",
 		"check:facets": "bun scripts/check-facet-vectors.ts",
 		"check:pinning": "bun run scripts/check-pinning-runtime.ts",

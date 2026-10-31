@@ -21,6 +21,7 @@ import type {
 } from "../../shared/schemasAssistantRules.js";
 import type { ConsoleAssistantSendAnswerResult } from "../../shared/schemasAssistantSend.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
+import type { PhoneCapabilityAnswer } from "../../shared/schemasPhoneCapabilities.js";
 import type {
 	AuthorizationPolicy,
 	ConsolePolicyDeleteResult,
@@ -155,6 +156,12 @@ export interface AssistantConsoleHandlers {
 	checkWatcher: (watcherId: string, from: string, opId: string) => Promise<ConsoleAssistantStateResult>;
 	/** One delivery; collect outcome. */
 	answerSend: (requestId: string, decision: "approve" | "deny", note?: string) => ConsoleAssistantSendAnswerResult;
+	answerPhone: (
+		requestId: string,
+		answer: PhoneCapabilityAnswer,
+		device: string,
+	) => Promise<{ ok: boolean; reason?: string }>;
+	answerAct: (requestId: string, decision: "approve" | "deny", note?: string) => { ok: boolean; reason?: string };
 }
 
 export interface PolicyConsoleHandlers {

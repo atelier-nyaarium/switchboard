@@ -11,9 +11,8 @@ import {
 	composeAssistant,
 } from "../gateway/compose/composeAssistant.js";
 import { processAmbient } from "../shared/ambient.js";
+import { ASSISTANT_HOLD_PATH } from "../shared/assistant-hold.js";
 import { ASSISTANT_RESERVE_KEY, ASSISTANT_SESSION_NAME, ASSISTANT_TEAM } from "../shared/assistant-session.js";
-import { ASSISTANT_WRITE_LOCK_PATH } from "../shared/assistant-write-lock.js";
-import type { PendingDelivery } from "../shared/pending-delivery-store.js";
 import { ASSISTANT_ACTION_PATH } from "../shared/schemasAssistantActions.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../shared/schemasAssistantHome.js";
 import type { AssistantFieldSpec, AssistantRule, AssistantWatcherRules } from "../shared/schemasAssistantRules.js";
@@ -370,33 +369,32 @@ describe("the assistant's session", () => {
 		expect(sent[0]).toMatchObject({ from: "Pixel", body: expect.stringContaining(ASSISTANT_COMMANDS.inbox.tool) });
 	});
 
-	it("answers its write lock to its own token alone: locked until the owner speaks, then open", async () => {
-		const test = stage();
+	it("answers the Router hold to its own token alone", async () => {
+		let now = T0;
+		const ambient = fakeAmbient({ drive: "manual", now: () => now });
+		const test = stage({ ambient });
 		await test.followHome(1, LOCAL_GATEWAY, movedHome());
-		const route = test.assistant.routes.get(ASSISTANT_WRITE_LOCK_PATH);
-		if (!route) throw new Error("no write-lock route");
+		const route = test.assistant.routes.get(ASSISTANT_HOLD_PATH);
+		if (!route) throw new Error("no hold route");
 		const ask = async (caller: string) =>
 			(await route(new Request("http://gateway/", { headers: { "x-caller": caller } }), {})).json();
-		const owner: PendingDelivery = {
-			deliveryId: "d1",
-			team: ASSISTANT_TEAM,
-			body: "hello",
-			enqueuedAt: 0,
-			channelJobId: "j",
-			from: "Pixel",
-			seq: 1,
-			origin: "owner",
-		};
-
 		const before = await ask("assistant");
-		test.assistant.delivered(owner);
+		test.assistant.followPhoneHold({ holder: "phone-a", claimedAt: T0, version: 1 });
 		const after = await ask("assistant");
+		now += 10 * 60_000;
+		const lapsed = await ask("assistant");
+		test.assistant.followPhoneHold(null);
+		const cleared = await ask("assistant");
 		const stranger = await ask("someone");
+		const unauthenticated = await ask("");
 
-		expect([before, after, stranger]).toEqual([
-			{ kind: "locked", idleMs: null },
-			{ kind: "open" },
+		expect([before, after, lapsed, cleared, stranger, unauthenticated]).toEqual([
+			{ kind: "none" },
+			{ kind: "held", holder: "phone-a", claimedAt: T0, remainingMs: 10 * 60_000 },
+			{ kind: "lapsed", holder: "phone-a", lapsedMs: 0 },
+			{ kind: "none" },
 			{ kind: "not_assistant" },
+			{ kind: "unauthenticated" },
 		]);
 	});
 

@@ -142,7 +142,7 @@ class PollDrainTest {
 		val host = FakeHost(emptyMap())
 		val drain = PollDrain(host, IdlePresencePort)
 		val actions = mutableListOf<String>()
-		drain.addPluginActionSubscriber { team, _, _, _ -> actions += team }
+		drain.addPluginActionSubscriber { team, _, _, _, _ -> actions += team }
 		val gone = Address.of("dom", "gw", "host", "gone")
 		val kept = Address.of("dom", "gw", "host", "kept")
 		host.forgotten += gone.canonical

@@ -54,6 +54,7 @@ export class FixtureWorld {
 	readonly domain: DomainSnapshot;
 	readonly contentKey: Buffer;
 	readonly phone: FixturePhoneFacts;
+	readonly phone2?: FixturePhoneFacts;
 
 	private constructor(readonly set: IdentitySet) {
 		this.contentKey = Buffer.from(set.content.key, "base64");
@@ -64,9 +65,15 @@ export class FixtureWorld {
 			throw new Error("gateway admission is invalid");
 		if (!verifyAdmission(set.console.admission, set.domain.owner.sign.pub))
 			throw new Error("console admission is invalid");
+		const admissions = [set.gateway.admission, set.console.admission];
+		if (set.console2) {
+			if (!verifyAdmission(set.console2.admission, set.domain.owner.sign.pub))
+				throw new Error("second console admission is invalid");
+			admissions.push(set.console2.admission);
+		}
 		this.domain = {
 			ownerSignPub: set.domain.owner.sign.pub,
-			admissions: [set.gateway.admission, set.console.admission],
+			admissions,
 			revocations: [],
 		};
 		this.phone = {
@@ -77,6 +84,15 @@ export class FixtureWorld {
 			conversationId: set.console.conversationId,
 			contentKey: Buffer.from(this.contentKey),
 		};
+		if (set.console2)
+			this.phone2 = {
+				domainId: set.domain.id,
+				ownerSignPub: set.domain.owner.sign.pub,
+				consoleIdentity: set.console2.identity,
+				device: set.console2.device,
+				conversationId: set.console2.conversationId,
+				contentKey: Buffer.from(this.contentKey),
+			};
 	}
 
 	static from(set: IdentitySet): FixtureWorld {

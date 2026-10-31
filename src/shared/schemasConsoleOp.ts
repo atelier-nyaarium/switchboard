@@ -5,6 +5,7 @@ import { RecordThreadSchema } from "./schemasAssistantRecord.js";
 import { AssistantRuleOtherwiseSchema, AssistantRuleSchema, RULE_ID_RE } from "./schemasAssistantRules.js";
 import { SEND_DECISIONS, SEND_GUARDS, SEND_NOTE_MAX } from "./schemasAssistantSend.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
+import { PhoneCapabilityAnswerSchema } from "./schemasPhoneCapabilities.js";
 import { AuthorizationPolicySchema } from "./schemasPolicy.js";
 import { RoutineSchema } from "./schemasRoutine.js";
 import { RunbookFireTargetSchema, RunbookSchema } from "./schemasRunbook.js";
@@ -334,6 +335,17 @@ export const ConsoleOpSchema = z
 			decision: z.enum(SEND_DECISIONS),
 			note: z.string().max(SEND_NOTE_MAX).optional(),
 		}),
+		z.object({
+			kind: z.literal("phone_capability_answer"),
+			requestId: z.string().min(1).max(128),
+			answer: PhoneCapabilityAnswerSchema,
+		}),
+		z.object({
+			kind: z.literal("assistant_act_answer"),
+			requestId: z.string().min(1).max(128),
+			decision: z.enum(SEND_DECISIONS),
+			note: z.string().max(SEND_NOTE_MAX).optional(),
+		}),
 	])
 	.meta({ id: "ConsoleOp" });
 
@@ -404,6 +416,8 @@ export const VALUE_OP_KINDS = new Set([
 	"assistant_watcher_enabled",
 	"assistant_watcher_check",
 	"assistant_send_answer",
+	"phone_capability_answer",
+	"assistant_act_answer",
 ]);
 
 export const MailboxEntrySchema = z

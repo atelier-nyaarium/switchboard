@@ -14,6 +14,7 @@ import {
 } from "../../shared/schemasAssistantHome.js";
 import { ConsoleOpSchema } from "../../shared/schemasConsoleOp.js";
 import { ContentEnvelopeSchema } from "../../shared/schemasContentKey.js";
+import { PhoneHoldFrameSchema, PhoneHoldPlaneSchema } from "../../shared/schemasPhoneHold.js";
 import type { FederationSlice, RouterFrameHandlers } from "../boot.js";
 import { createConsoleDispatcher } from "../console/consoleHandler.js";
 import { createCrossDomainHandshakePump } from "../federation/crossDomainHandshake.js";
@@ -51,7 +52,16 @@ export interface RouterFramesStageDeps {
 	awareness: Pick<AwarenessStage, "awareness" | "workspaceObserve">;
 	assistant: Pick<
 		AssistantStage,
-		"forgetRefusal" | "console" | "bindWake" | "bindNudge" | "sessionEnded" | "placed" | "follow" | "bindHome"
+		| "forgetRefusal"
+		| "console"
+		| "bindWake"
+		| "bindNudge"
+		| "sessionEnded"
+		| "placed"
+		| "follow"
+		| "bindHome"
+		| "followPhoneHold"
+		| "phoneHoldRevision"
 	>;
 }
 
@@ -205,6 +215,24 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 				return null;
 			},
 		});
+		let phoneHoldReadRevision = 0;
+		const phoneHoldRead = createRegistrationRead({
+			label: "phone hold read",
+			ambient,
+			retryMs: HOME_READ_RETRY_MS,
+			client: () => slice.routerClient,
+			call: () => {
+				phoneHoldReadRevision = deps.assistant.phoneHoldRevision();
+				return slice.routerClient.callInboxTool("phone_hold_read", {});
+			},
+			apply: (answer) => {
+				const parsed = answer.error ? null : PhoneHoldPlaneSchema.safeParse(answer.result);
+				if (!parsed?.success) return answer.error ?? "answered off its schema";
+				if (deps.assistant.phoneHoldRevision() === phoneHoldReadRevision)
+					deps.assistant.followPhoneHold(parsed.data.hold);
+				return null;
+			},
+		});
 		const assistantHome = (raw: unknown): void => {
 			const frame = AssistantHomeFrameSchema.safeParse(raw);
 			if (!frame.success) return;
@@ -214,6 +242,10 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 				"assistant home",
 				followed.catch(() => homeRead.read()),
 			);
+		};
+		const phoneHold = (raw: unknown): void => {
+			const frame = PhoneHoldFrameSchema.safeParse(raw);
+			if (frame.success) deps.assistant.followPhoneHold(frame.data.hold);
 		};
 
 		deps.routines.bindExecution(
@@ -342,7 +374,11 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			valueOp,
 			crossDomainHandshake,
 			assistantHome,
-			registered: () => fireAndForget("assistant home read", homeRead.read()),
+			phoneHold,
+			registered: () => {
+				fireAndForget("assistant home read", homeRead.read());
+				fireAndForget("phone hold read", phoneHoldRead.read());
+			},
 			consoleDelivery: consoleHandler.handleDelivery,
 			peerHandleOp: gatewayRelayHandler.handleOp,
 		};

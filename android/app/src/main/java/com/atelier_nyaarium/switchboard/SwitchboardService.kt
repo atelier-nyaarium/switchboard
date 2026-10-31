@@ -278,6 +278,12 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 					notifications.reconcileTeamNotifications(repo, unread)
 				}
 		}
+		scope.launch {
+			repo.state.map { it.phoneHold }.distinctUntilChanged().collect {
+				notifications.reconcilePhoneHold(repo)
+				showVaultPrompt(repo, repo.vault.pending.value.firstOrNull())
+			}
+		}
 		// Redraw with locked text after assistant recognition.
 		scope.launch {
 			repo.state
@@ -307,7 +313,12 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 		}
 		scope.launch {
 			repo.assistantSendOps.pending.collect { requests ->
-				notifications.reconcileAssistantSendRequests(requests)
+				notifications.reconcileAssistantSendRequests(repo, requests)
+			}
+		}
+		scope.launch {
+			repo.assistantActOps.pending.collect { requests ->
+				notifications.reconcileAssistantActRequests(repo, requests)
 			}
 		}
 		scope.launch {
@@ -315,6 +326,13 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 				val deadlineAt = requests.minOfOrNull { it.request.deadlineAt } ?: return@collectLatest
 				delay((deadlineAt - System.currentTimeMillis()).coerceAtLeast(0L))
 				repo.assistantSendOps.sweepRequests()
+			}
+		}
+		scope.launch {
+			repo.assistantActOps.pending.collectLatest { requests ->
+				val deadlineAt = requests.minOfOrNull { it.request.deadlineAt } ?: return@collectLatest
+				delay((deadlineAt - System.currentTimeMillis()).coerceAtLeast(0L))
+				repo.assistantActOps.sweepRequests()
 			}
 		}
 	}
@@ -333,6 +351,10 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 	/** The one road to the prompt, so the shade and a fresh request reach it the same way. */
 	private fun showVaultPrompt(repo: ChatRepository, front: VaultPendingRequest?) {
 		val pending = front ?: return
+		if (!repo.phoneHoldOps.alerts(true, repo.isVisible)) {
+			mainHandler.post { vaultPrompt?.clear(pending.requestId) }
+			return
+		}
 		val title = requestTitle(pending, pending.entryId?.let { repo.vaultOps.view(it)?.title })
 		val who = requester(repo.state.value, pending)
 		mainHandler.post { vaultPrompt?.show(pending, title, who) }
@@ -539,6 +561,8 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 		const val EXTRA_VAULT_REQUEST = "vault_request"
 		const val EXTRA_ASSISTANT_SEND_REQUEST = "assistant_send_request"
 		const val EXTRA_ASSISTANT_SEND_GATEWAY = "assistant_send_gateway"
+		const val EXTRA_ASSISTANT_ACT_REQUEST = "assistant_act_request"
+		const val EXTRA_ASSISTANT_ACT_GATEWAY = "assistant_act_gateway"
 		const val ACTION_VAULT_REOPEN = "com.atelier_nyaarium.switchboard.VAULT_REOPEN"
 
 		/** Its own request code, so the queue's PendingIntent cannot collapse into a team's. */

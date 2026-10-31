@@ -81,4 +81,11 @@ class AssistantRecordRulesTest {
 
 		assertEquals(record, loadRecord(stored))
 	}
+
+	@Test
+	fun phoneActOutcomesHaveOwnerLabels() {
+		assertEquals("Ran", outcomeLabel("ran"))
+		assertEquals("Unavailable", outcomeLabel("unavailable"))
+		assertEquals("Refused", outcomeLabel("refused"))
+	}
 }

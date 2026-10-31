@@ -30,6 +30,7 @@ internal class PlaybackOps(
 	private val repoScope: CoroutineScope,
 	private val playback: PlaybackPort,
 	private val collaborators: PlaybackOpsCollaborators,
+	private val speaksForHold: (Boolean) -> Boolean = { it },
 ) : ClearsOnReprovision {
 	/** One mutex serializes terminals and user transport actions. */
 	private val queue = PlaybackQueue { id, remember -> playback.stts.end(id, remember) }
@@ -88,10 +89,22 @@ internal class PlaybackOps(
 			if (requireFollowed && team !in followedTeams(state.value)) return
 			// Quiet rows stay unspoken.
 			if (state.value.threads[team]?.lastOrNull { it.at == at }?.isQuiet() == true) return
+			if (!speaksForHold(true)) return
 			val beginsRun = queue.isIdle()
 			if (!queue.enqueue(entry)) return
 			if (beginsRun) nextRunChime = announceRun
 			resumeIfSilent()
+		}
+		transportChanged()
+	}
+
+	suspend fun clearForOtherHolder() {
+		advanceMutex.withLock {
+			markerInFlight?.let { playback.stts.abandonGeneration(it) }
+			clearMarkers()
+			queue.clear()
+			parkedAnnounced = null
+			nextRunChime = false
 		}
 		transportChanged()
 	}
