@@ -392,7 +392,7 @@ describe("the assistant's session", () => {
 			{ kind: "none" },
 			{ kind: "held", holder: "phone-a", label: "Pixel", claimedAt: T0, remainingMs: 10 * 60_000 },
 			{ kind: "lapsed", holder: "phone-a", label: "Pixel", lapsedMs: 0 },
-			{ kind: "none" },
+			{ kind: "lapsed", holder: "phone-a", label: "Pixel", lapsedMs: 0 },
 			{ kind: "not_assistant" },
 			{ kind: "unauthenticated" },
 		]);

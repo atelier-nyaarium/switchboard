@@ -1,6 +1,7 @@
-// The SessionStart compact hook: the session's baseline, as one reminder block of hook context.
+// Compact session baseline hook.
 
 import {
+	holdLine,
 	MAX_BASELINE_CHARS,
 	SESSION_BASELINE_PATH,
 	type SessionBaseline,
@@ -32,15 +33,7 @@ function linesOf(baseline: SessionBaseline): string[] {
 		),
 		...baseline.routines.map(({ occurrenceId, routine }) => `routine: ${occurrenceId} ${flat(routine)}`),
 		...baseline.agents.map(({ family, agentId }) => `agent: ${family} ${agentId} turn running`),
-		...(baseline.assistant?.hold === undefined
-			? []
-			: [
-					baseline.assistant.hold.kind === "held"
-						? `phone hold: held by ${flat(baseline.assistant.hold.label)}, ${baseline.assistant.hold.remainingMs}ms remaining`
-						: baseline.assistant.hold.kind === "lapsed"
-							? `phone hold: lapsed ${baseline.assistant.hold.lapsedMs}ms ago, last held by ${flat(baseline.assistant.hold.label)}`
-							: "phone hold: none",
-				]),
+		...(baseline.assistant?.hold === undefined ? [] : [holdLine(baseline.assistant.hold)]),
 		...(baseline.assistant?.watchers ?? []).map(
 			({ label, unread, capped, checked, stopped, waiting }) =>
 				`watcher: ${flat(label)} ${checked === false ? "not checked yet" : `${unread}${capped ? "+" : ""} unread`}` +

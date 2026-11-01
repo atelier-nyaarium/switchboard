@@ -129,6 +129,16 @@ describe("what a routine does when its moment comes", () => {
 		expect(nudgeFor(routine(), occurrence)).toContain(`"triage@${occurrence.scheduledAt}"`);
 	});
 
+	it("starts assistant check-ins with the current phone hold", async () => {
+		const checkIn = routine({ target: { kind: "assistant", spawn: "host" } });
+		let line = "phone hold: held by Pixel, 42000ms remaining";
+		const { execution, delivered } = seam({ holdLine: () => line });
+		line = "phone hold: lapsed 1000ms ago, last held by Pixel";
+		await execution.deliver(checkIn, occurrence);
+
+		expect(delivered[0]?.body.startsWith(`${line}\n`)).toBe(true);
+	});
+
 	it("refuses for review when something else holds the session it reserves", async () => {
 		const { execution } = seam({ reserveSession: async () => ({ kind: "taken" }) });
 

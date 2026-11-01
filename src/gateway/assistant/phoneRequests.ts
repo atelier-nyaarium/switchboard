@@ -114,11 +114,19 @@ export function createPhoneRequests(deps: PhoneRequestsDeps) {
 		const live = core.live(requestId);
 		if (!live) return { ok: false, reason: core.answered(requestId) ? "already answered" : "request expired" };
 		const parsed = PhoneCapabilityAnswerSchema.safeParse(raw);
-		if (!parsed.success) return { ok: false, reason: "the phone answer did not parse" };
+		if (!parsed.success) {
+			const reason = "the phone answer did not parse";
+			core.settle(requestId, { kind: "refused", reason });
+			return { ok: false, reason };
+		}
 		if (parsed.data.kind === "ok") {
 			const declaration = PHONE_CAPABILITIES[live.key];
 			const result = declaration.answer.safeParse(parsed.data.answer);
-			if (!result.success) return { ok: false, reason: "the capability answer did not match its schema" };
+			if (!result.success) {
+				const reason = "the capability answer did not match its schema";
+				core.settle(requestId, { kind: "refused", reason });
+				return { ok: false, reason };
+			}
 			const settled = core.settle(requestId, { kind: "ok", answer: result.data });
 			return settled ? { ok: true } : { ok: false, reason: "request expired" };
 		}

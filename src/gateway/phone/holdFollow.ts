@@ -3,10 +3,16 @@ import { holdStanding, PHONE_HOLD_WINDOW_MS, type PhoneHoldRecord } from "../../
 
 export function createHoldFollow(now: () => number) {
 	let hold: PhoneHoldRecord | null = null;
+	let swept = false;
 	let revision = 0;
 
 	const apply = (record: PhoneHoldRecord | null): void => {
-		hold = record;
+		if (record === null) {
+			if (hold !== null) swept = true;
+		} else {
+			hold = record;
+			swept = false;
+		}
 		revision += 1;
 	};
 
@@ -14,7 +20,7 @@ export function createHoldFollow(now: () => number) {
 		if (hold === null) return { kind: "none" };
 		const current = now();
 		const elapsed = Math.max(0, current - hold.claimedAt);
-		if (holdStanding(hold, current) === "held") {
+		if (!swept && holdStanding(hold, current) === "held") {
 			return {
 				kind: "held",
 				holder: hold.holder,

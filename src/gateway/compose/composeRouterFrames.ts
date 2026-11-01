@@ -62,6 +62,7 @@ export interface RouterFramesStageDeps {
 		| "bindHome"
 		| "followPhoneHold"
 		| "phoneHoldRevision"
+		| "phoneHoldLine"
 	>;
 }
 
@@ -266,6 +267,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 					dropSessionResume(team, "release");
 					onSessionEnded(team);
 				},
+				holdLine: deps.assistant.phoneHoldLine,
 				deliver: (nudge) => nudgeAsOwner(nudge, { scheduled: true }),
 			}),
 		);

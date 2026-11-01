@@ -250,6 +250,7 @@ describe("an assistant action", () => {
 			sort: () => "wake",
 			wake: () => null,
 			to: "host.assistant",
+			holdLine: () => "",
 			render: () => "",
 		});
 		const dispatch = createActionDispatch({

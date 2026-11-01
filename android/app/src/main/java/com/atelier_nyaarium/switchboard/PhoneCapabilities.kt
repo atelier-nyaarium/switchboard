@@ -54,8 +54,6 @@ class PhoneCapability<Req : Any, Ans : Any>(
 	val kind: String,
 	val where: String,
 	val needs: List<String>,
-	val requestId: String,
-	val answerId: String,
 	val label: String,
 	val requestSerializer: KSerializer<Req>,
 	val answerSerializer: KSerializer<Ans>,
@@ -81,8 +79,6 @@ object PhoneCapabilities {
 				kind = "read",
 				where = "phone",
 				needs = emptyList(),
-				requestId = "PhoneStatusRequest",
-				answerId = "PhoneStatusAnswer",
 				label = "Phone status",
 				requestSerializer = PhoneStatusRequest.serializer(),
 				answerSerializer = PhoneStatusAnswer.serializer(),
@@ -95,8 +91,6 @@ object PhoneCapabilities {
 				kind = "read",
 				where = "phone",
 				needs = listOf("contacts"),
-				requestId = "ContactsSearchRequest",
-				answerId = "ContactsSearchAnswer",
 				label = "Search contacts",
 				requestSerializer = ContactsSearchRequest.serializer(),
 				answerSerializer = ContactsSearchAnswer.serializer(),
@@ -109,8 +103,6 @@ object PhoneCapabilities {
 				kind = "act",
 				where = "phone",
 				needs = emptyList(),
-				requestId = "TorchRequest",
-				answerId = "TorchAnswer",
 				label = "Torch",
 				requestSerializer = TorchRequest.serializer(),
 				answerSerializer = TorchAnswer.serializer(),
@@ -126,8 +118,8 @@ private fun <Req : Any, Ans : Any> bind(capability: PhoneCapability<Req, Ans>): 
 		kind = capability.kind,
 		where = capability.where,
 		needs = capability.needs,
-		requestId = capability.requestId,
-		answerId = capability.answerId,
+		requestId = schemaId(capability.requestSerializer),
+		answerId = schemaId(capability.answerSerializer),
 		label = capability.label,
 		run = { context, params ->
 			val answer = runCatchingCancellable {
@@ -145,10 +137,11 @@ private fun <Req : Any, Ans : Any> bind(capability: PhoneCapability<Req, Ans>): 
 		},
 	)
 
+private fun schemaId(serializer: KSerializer<*>): String = serializer.descriptor.serialName.substringAfterLast('.')
+
 private suspend fun phoneStatus(context: PhoneCapabilityContext, request: PhoneStatusRequest): PhoneStatusAnswer {
 	val now = System.currentTimeMillis()
 	val hold = context.state().phoneHold
-	// A name, not a key.
 	val holder = hold?.label?.takeIf { holdStanding(hold, now) == HoldStanding.HELD }
 	val keys = PhoneCapabilities.bindings.values.map { binding ->
 		val state = context.permissionState(binding.key)

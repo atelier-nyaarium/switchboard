@@ -26,7 +26,7 @@ class PhoneHoldRulesTest {
 					version = 1L,
 				)
 			}
-			val self = value["self"]!!.jsonPrimitive.content
+			val self = HoldSelf.fromConsoleSigningKey(value["self"]!!.jsonPrimitive.content)
 			val now = value["now"]!!.jsonPrimitive.content.toLong()
 			val visible = value["visible"]!!.jsonPrimitive.content.toBoolean()
 			val todayRule = value["todayRule"]!!.jsonPrimitive.content.toBoolean()
@@ -40,31 +40,50 @@ class PhoneHoldRulesTest {
 
 	@Test
 	fun onlySendReclaimsAnAlreadyHeldPhone() {
-		val hold = hold("device-a", 10L, 1L)
-		assertEquals(false, shouldClaimPhoneHold(HoldClaimTrigger.CONVERSATION, hold, "device-a", 20L))
-		assertEquals(false, shouldClaimPhoneHold(HoldClaimTrigger.PANEL, hold, "device-a", 20L))
-		assertEquals(false, shouldClaimPhoneHold(HoldClaimTrigger.ASSISTANT_TAB, hold, "device-a", 20L))
-		assertEquals(true, shouldClaimPhoneHold(HoldClaimTrigger.SEND, hold, "device-a", 20L))
+		val self = HoldSelf.fromConsoleSigningKey("key-a")
+		val hold = hold("key-a", 10L, 1L)
+		assertEquals(false, shouldClaimPhoneHold(HoldClaimTrigger.CONVERSATION, hold, self, 20L))
+		assertEquals(false, shouldClaimPhoneHold(HoldClaimTrigger.PANEL, hold, self, 20L))
+		assertEquals(false, shouldClaimPhoneHold(HoldClaimTrigger.ASSISTANT_TAB, hold, self, 20L))
+		assertEquals(true, shouldClaimPhoneHold(HoldClaimTrigger.SEND, hold, self, 20L))
 	}
 
 	@Test
 	fun openingClaimsWhenThereIsNoCurrentHolder() {
-		assertEquals(true, shouldClaimPhoneHold(HoldClaimTrigger.CONVERSATION, null, "device-a", 20L))
-		assertEquals(true, shouldClaimPhoneHold(HoldClaimTrigger.PANEL, hold("device-b", 10L, 1L), "device-a", 20L))
+		val self = HoldSelf.fromConsoleSigningKey("key-a")
+		assertEquals(true, shouldClaimPhoneHold(HoldClaimTrigger.CONVERSATION, null, self, 20L))
+		assertEquals(true, shouldClaimPhoneHold(HoldClaimTrigger.PANEL, hold("key-b", 10L, 1L), self, 20L))
 	}
 
 	@Test
 	fun onlyAStandingSelfHoldAuthorizesPhoneWork() {
-		assertEquals(true, isCurrentPhoneHolder(hold("device-a", 10L, 1L), "device-a", 20L))
-		assertEquals(false, isCurrentPhoneHolder(hold("device-b", 10L, 1L), "device-a", 20L))
-		assertEquals(false, isCurrentPhoneHolder(hold("device-a", 10L, 1L), "device-a", 10L + PHONE_HOLD_WINDOW_MS))
+		val self = HoldSelf.fromConsoleSigningKey("key-a")
+		assertEquals(true, isCurrentPhoneHolder(hold("key-a", 10L, 1L), self, 20L))
+		assertEquals(false, isCurrentPhoneHolder(hold("key-b", 10L, 1L), self, 20L))
+		assertEquals(false, isCurrentPhoneHolder(hold("key-a", 10L, 1L), self, 10L + PHONE_HOLD_WINDOW_MS))
+	}
+
+	@Test
+	fun holdRulesCompareTheSigningKeyNotTheDisplayLabel() {
+		val hold = PhoneHold("console-key-a", "Pixel 10 Pro XL", 10L, 1L)
+		val self = HoldSelf.fromConsoleSigningKey("console-key-a")
+
+		assertEquals(true, speaksFor(hold, self, 20L, todayRule = false))
+		assertEquals(true, alertsFor(hold, self, 20L, visible = false, todayRule = false))
+		assertEquals(false, isHeldByAnother(hold, self, 20L))
+	}
+
+	@Test
+	fun holdLapseUsesTheHoldWindow() {
+		assertEquals(null, holdLapseAt(null))
+		assertEquals(10L + PHONE_HOLD_WINDOW_MS, holdLapseAt(hold("key-a", 10L, 1L)))
 	}
 
 	private fun hold(holder: String, claimedAt: Long, version: Long) = PhoneHold(holder, "Pixel", claimedAt, version)
 
 	@Test
 	fun aLateClaimAnswerNeverReplacesANewerRow() {
-		// Clear at 3, claim at 2.
+		// Older claim loses.
 		assertEquals(true, landsHold(landed = 0L, incoming = 2L))
 		assertEquals(true, landsHold(landed = 2L, incoming = 3L))
 		assertEquals(false, landsHold(landed = 3L, incoming = 2L))

@@ -32,15 +32,15 @@ export interface SourceLanesDeps {
 	watchers: readonly Watcher[];
 	/** Disabled polls nothing. */
 	enabled: (watcherId: string) => boolean;
-	/** Read as a poll lands. */
+	/** Read on commit. */
 	sort: (watcherId: string, event: WatcherEvent) => RuleAction;
-	/** Null until the routes are bound. */
+	/** Null until bound. */
 	wake: () => AssistantWake | null;
 	to: string;
+	holdLine: () => string;
 	render: (watcher: Watcher, event: WatcherEvent) => string;
 }
 
-/** Why the lane ended a signal. */
 export type LaneEnd = "past_deadline" | "stopping";
 
 export type WriteAnswer<T> = { kind: "ran"; value: T } | { kind: "not_started"; end: LaneEnd };
@@ -220,8 +220,13 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 				.slice(at, at + WAKE_BATCH)
 				.map((event) => ({ key: memberKey(watcher.id, event), text: deps.render(watcher, event) }));
 			const batch = linkedSignal(ambient, { parent: signal, ms: WAKE_DEADLINE_MS, reason: CUT });
-			// A push given up on composes nothing when it lands late.
-			const compose = () => (!batch.signal.aborted && phase === "running" ? members : null);
+			const compose = () => {
+				if (batch.signal.aborted || phase !== "running") return null;
+				const line = deps.holdLine();
+				const [first, ...rest] = members;
+				if (!line || !first) return members;
+				return [{ ...first, text: `${line}\n${first.text}` }, ...rest];
+			};
 			const sent = wake({ to: deps.to, compose }).then(
 				(failed) => ({ failed }),
 				(error: Error) => ({ failed: error.message }),

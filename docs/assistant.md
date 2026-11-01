@@ -102,7 +102,7 @@ Safety and Enabled on its own disk.
   actions, so none asks first. Every one is recorded in the conversation.
 - **Always refused:** writes to `CLAUDE.md`, an `AGENTS.md` below the notes root, session settings
   or hooks, and paths outside notes. The watcher rules have no path from the session at all.
-- **Locked while the owner is away:** its root `AGENTS.md` (the write lock, below).
+- **Locked while the owner is away:** its root `AGENTS.md` (the hold, below).
 
 **The boundary** is Claude Code's own permission engine, with Switchboard's layers around it.
 
@@ -161,22 +161,15 @@ The hook alone is a path decision made before the tool runs; the engine is what 
 the open. A running pane keeps the hooks and flags it launched with, so restart the assistant after
 a plugin update. A hand resume must carry the assistant's flags too.
 
-**The write lock** (`src/shared/assistant-write-lock.ts`): a write to its root `AGENTS.md`, by name
-or through a link, asks the Gateway, as the session, at `/assistant/write-lock`, which answers only
-the assistant's token. Every other note is written freely.
+**The phone hold** (`src/shared/assistant-hold.ts`): a write to its root `AGENTS.md`, by name or
+through a link, asks the Gateway at `/assistant/hold`, which answers only the assistant's token.
+Every allowed write needs a held claim from the summon panel or Assistant tab within the last 10
+minutes on the Router's clock. An unreadable hold refuses the write.
 
-- **Open** while the newest row that prompted the assistant is the owner's (a message or Check now),
-  or the owner's last row landed under 30 minutes ago (`WRITE_IDLE_MS`). Its own replies move
-  neither. A check-in (origin `routine`) opens neither: it bounces and asks, though it still reads
-  as the owner for sends.
-- **Locked** otherwise, as when a watcher event wakes it after the owner left. The write bounces with
-  how long the session has been idle and how to ask (`writeLockReason`); the owner's next reply
-  opens it.
-- **Held by the origin marker** (`createOriginMarker`), beside who spoke last for sends, so a restart,
-  the session's end or a fresh placement locks until the owner speaks. An answer the hook cannot
-  read refuses the write.
-- **Decided as the tool is about to run:** a write already allowed is not called back when the lock
-  closes a moment later.
+- **Lapsed or absent:** the write refuses; the denial names the last phone and elapsed minutes when
+  available.
+- **Checked before the tool runs:** closing the hold after an allowed decision does not call back
+  that write.
 
 **Event text is data:** notification titles and mail bodies are never instructions.
 

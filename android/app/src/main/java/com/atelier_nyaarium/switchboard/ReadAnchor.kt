@@ -3,20 +3,21 @@ package com.atelier_nyaarium.switchboard
 ////////////////////////////////
 //  Interfaces & Types
 
-/** The persisted per-team read anchor, a mailbox journal coordinate. Resolved to its row by EQUALITY
- * only: mailbox epochs are random per instance and never ordered, so comparing them numerically is
- * unsound. `at` rides along for diagnostics. */
+/** Epochs are unordered. */
 data class ReadAnchor(val epoch: Long, val seq: Long, val at: Long)
+
+internal interface ReadAnchorSync {
+	suspend fun reportLocalReadAdvances()
+	fun retryPendingReadAnchor(team: String)
+}
 
 ////////////////////////////////
 //  Functions & Helpers
 
-/** A `sent` echo also carries seq > 0, being the owner's own message mirrored to their devices, so
- * unread is never a bare seq check. */
+/** Sent echoes stay read. */
 internal fun Message.countsUnread(): Boolean = !fromMe && seq > 0L && !isQuiet()
 
-/** The anchor's row index in arrival order, or -1 when there is no anchor or its row is gone. Every
- * inbound row then counts, and any receipt reads as a genuine advance. */
+/** Resolve anchors by arrival. */
 internal fun anchorIndex(thread: List<Message>, anchor: ReadAnchor?): Int {
 	if (anchor == null) return -1
 	return thread.indexOfFirst { it.epoch == anchor.epoch && it.seq == anchor.seq }

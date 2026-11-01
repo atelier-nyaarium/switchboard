@@ -313,7 +313,7 @@ internal class ServiceNotifications(private val context: Context) {
 				state.closedTeams,
 				team,
 				state.phoneHold,
-				repo.readyOrNull()?.device.orEmpty(),
+				repo.holdSelf(),
 			)
 		) return
 		val builder = teamNotificationBuilder(repo, state, team) ?: return
@@ -358,29 +358,19 @@ internal class ServiceNotifications(private val context: Context) {
 		val state = repo.state.value
 		val nmc = NotificationManagerCompat.from(context)
 		val hold = state.phoneHold
-		val heldByAnother = holdStanding(hold, System.currentTimeMillis()) == HoldStanding.HELD &&
-			hold?.holder != repo.readyOrNull()?.device
+		val heldByAnother = isHeldByAnother(hold, repo.holdSelf(), System.currentTimeMillis())
 		val liveIds = HashSet<Int>(state.threads.size)
 		for (team in state.threads.keys) {
 			val id = teamNotificationId(team)
 			liveIds += id
-			if (id !in active) continue
-			if (heldByAnother) {
-				nmc.cancel(id)
-				continue
-			}
-			// A team muted via Close Tab must not have its already-showing notification silently
-			// updated with new content - shouldNotifyBurst already refuses to POST for a muted team;
-			// this is the same gate applied to an existing entry instead of a fresh one.
-			if (team in state.closedTeams || (unread[team] ?: 0) <= 0) {
-				nmc.cancel(id)
-			} else {
-				teamNotificationBuilder(repo, state, team)?.let { nmc.notify(id, it.setOnlyAlertOnce(true).build()) }
+			when (teamNotificationAction(id in active, unread[team] ?: 0, heldByAnother, team in state.closedTeams)) {
+				TeamNotificationAction.CANCEL -> nmc.cancel(id)
+				TeamNotificationAction.SILENT_REFRESH ->
+					teamNotificationBuilder(repo, state, team)?.let { nmc.notify(id, it.setOnlyAlertOnce(true).build()) }
+				TeamNotificationAction.LEAVE -> Unit
 			}
 		}
-		// A showing entry whose thread is gone: the loop above is keyed on live threads, so nothing
-		// else can reach it. Identifiable because team ids occupy their own disjoint range, and safe
-		// because a thread's absence is the same fact the loop cancels on when unread reaches 0.
+		// Orphaned team notifications.
 		for (id in active) {
 			if (id >= TEAM_ID_RANGE_START && id < TEAM_ID_RANGE_START + TEAM_ID_RANGE_SIZE && id !in liveIds) {
 				nmc.cancel(id)

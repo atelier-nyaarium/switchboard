@@ -116,7 +116,7 @@ class PlaybackOpsTest {
 			object : PlaybackOpsCollaborators {
 				override fun openThread(team: String) = team
 			},
-			speaksForHold = { today -> speaksFor(state.value.phoneHold, "device-a", System.currentTimeMillis(), today) },
+			speaksForHold = { today -> speaksFor(state.value.phoneHold, HoldSelf.fromConsoleSigningKey("console-key-a"), System.currentTimeMillis(), today) },
 		)
 
 		fun close() {

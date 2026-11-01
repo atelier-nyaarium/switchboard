@@ -787,12 +787,16 @@
 	//  Public API
 
 	function appendMessages(messages) {
-		const parked = stuck && nearBottom();
+		const el = document.scrollingElement;
+		const parked = stuck && window.threadFollow.parkedAtBottom({
+			scrollTop: el.scrollTop,
+			viewportPx: el.clientHeight,
+			scrollHeightPx: el.scrollHeight,
+		});
 		let firstNew = null;
-		// A brand-new OWN-send row (the local optimistic append, never a settled echo from another
-		// device - see `ownSend`) always jumps to the bottom, even scrolled up. Agent rows respect
-		// the reader's position and only follow when already near the bottom or the batch arrived
-		// while visible (see heldForVisibility below).
+		// Own sends always jump.
+		// Agents follow when parked.
+		// Visible batches also follow.
 		let sentByUser = false;
 		let heldForVisibility = false;
 		const newEligibleIds = [];

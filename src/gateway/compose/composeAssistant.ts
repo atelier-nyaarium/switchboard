@@ -30,8 +30,9 @@ import {
 import type { AssistantSendRequest } from "../../shared/schemasAssistantSend.js";
 import type { GatewayCapabilityRuns } from "../../shared/schemasPhoneCapabilities.js";
 import type { PhoneHoldRecord } from "../../shared/schemasPhoneHold.js";
-import type { SessionBaseline } from "../../shared/session-baseline.js";
+import { type BaselineHold, holdLine, type SessionBaseline } from "../../shared/session-baseline.js";
 import { ASSISTANT_COMMANDS } from "../../shared/session-commands.js";
+import { neutralizeMarkup, oneLine } from "../../shared/system-reminder.js";
 import { createActGuard } from "../assistant/actGuard.js";
 import { type ActionRecord, createActionDispatch } from "../assistant/actionDispatch.js";
 import { createAssistantRoutes, type Handler } from "../assistant/assistantRoutes.js";
@@ -60,16 +61,22 @@ import type { SessionsStage } from "./composeSessions.js";
 
 const NEEDS_SECRET = "needs a secret";
 const NOT_HERE = "the assistant does not live on this Gateway";
-/** Shutdown waits this long for an owner op already running. */
 const STOP_WAIT_MS = 5_000;
-/** Events a preview reads. */
 const PREVIEW_EVENTS = 50;
 const MOVING_HERE = "the assistant is still moving here; try again shortly";
+export function renderPhoneHold(answer: HoldAnswer): { baseline: BaselineHold; line: string } {
+	const baseline: BaselineHold =
+		answer.kind === "held"
+			? { kind: "held", label: answer.label, remainingMs: answer.remainingMs }
+			: answer.kind === "lapsed"
+				? { kind: "lapsed", label: answer.label, lapsedMs: answer.lapsedMs }
+				: { kind: "none" };
+	return { baseline, line: neutralizeMarkup(holdLine(baseline)) };
+}
 
-/** Owner send; null when it landed. */
+/** Owner send callback. */
 export type AssistantNudge = (nudge: { from: string; body: string; deliveryId: string }) => Promise<string | null>;
 
-/** Names the catalogued command. */
 const checkNudge = (label: string) =>
 	`
 The owner asked you to check ${label} now.
@@ -118,30 +125,29 @@ export interface AssistantStageDeps {
 }
 
 export interface AssistantStage {
-	/** Whether that session is the assistant's, which no sweep takes. */
+	/** Identifies sweep-exempt sessions. */
 	reserves: (team: string) => boolean;
-	/** Held here and not let go: what a check-in runs in. */
+	/** Check-ins use this session. */
 	placed: () => boolean;
-	/** One Router record, pushed or read at registration; a null was never written. */
+	/** Null means unwritten. */
 	follow: (record: AssistantHomeRecord | null, how: { registered: boolean }) => Promise<void>;
 	followPhoneHold: (record: PhoneHoldRecord | null) => void;
 	phoneHoldRevision: () => number;
 	holdAnswer: () => HoldAnswer;
+	phoneHoldLine: () => string;
 	bindHome: (port: AssistantHomePort) => void;
-	/** The refusal reason, or null. */
 	forgetRefusal: (team: string) => string | null;
 	console: AssistantConsoleHandlers;
 	/** Assistant-only loopback routes. */
 	routes: Map<string, Handler>;
-	/** Its watchers' lines after a compaction; undefined for any other session. */
 	baselineFor: (team: string) => SessionBaseline["assistant"];
-	/** The send path's event road, bound on each federation activation. */
+	/** Bound on federation activation. */
 	bindWake: (wake: AssistantWake) => void;
 	/** Check now's road. */
 	bindNudge: (nudge: AssistantNudge) => void;
-	/** Arms the watchers, once federation is active. */
+	/** Arms watchers after activation. */
 	start: () => void;
-	/** Final, and before the shutdown flush, so it sees no poll halfway through its write. */
+	/** Stop lanes before flush. */
 	stop: () => Promise<void>;
 	/** Plugin-confirmed delivery. */
 	delivered: (row: PendingDelivery) => void;
@@ -211,6 +217,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			sort: (watcherId, event) => decideEvent(rules.get(watcherId), specsOf(watcherId) ?? [], event.fields),
 			wake: () => wake,
 			to: ASSISTANT_TEAM,
+			holdLine: () => renderPhoneHold(phoneHold.answer()).line,
 			render,
 		});
 		lanes.start();
@@ -481,7 +488,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			},
 		}),
 	);
-	const gatewayRuns: GatewayCapabilityRuns<unknown> = {};
+	const gatewayRuns: GatewayCapabilityRuns = {};
 	const phoneDispatch = createPhoneDispatch({
 		ambient,
 		approveEverySend: safety.approveEverySend,
@@ -625,6 +632,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		followPhoneHold: phoneHold.apply,
 		phoneHoldRevision: phoneHold.revision,
 		holdAnswer: phoneHold.answer,
+		phoneHoldLine: () => renderPhoneHold(phoneHold.answer()).line,
 		bindHome: (port) => {
 			homePort = port;
 		},
@@ -632,14 +640,9 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		routes,
 		baselineFor: (team) => {
 			if (!isAssistant(team)) return undefined;
-			const hold = phoneHold.answer();
+			const { baseline: hold } = renderPhoneHold(phoneHold.answer());
 			return {
-				hold:
-					hold.kind === "held"
-						? { kind: "held", label: hold.label, remainingMs: hold.remainingMs }
-						: hold.kind === "lapsed"
-							? { kind: "lapsed", label: hold.label, lapsedMs: hold.lapsedMs }
-							: { kind: "none" },
+				hold,
 				watchers: watchers
 					.filter((watcher) => enabled.enabled(watcher.id))
 					.map((watcher) => {

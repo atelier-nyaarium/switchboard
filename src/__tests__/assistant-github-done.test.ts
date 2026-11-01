@@ -66,6 +66,7 @@ function github(ambient: FakeAmbient, replies: Reply[], token: TokenRead = TOKEN
 		sort: () => "wake",
 		wake: () => null,
 		to: "host.assistant",
+		holdLine: () => "",
 		render: () => "",
 	});
 	const run = async (ids: string[], deadlineMs = 60_000) => {

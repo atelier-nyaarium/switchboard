@@ -10,18 +10,21 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision {
+internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision, ReadAnchorSync {
 	private val projectionMutex = Mutex()
 	private val readAnchorReportMutex = Mutex()
 	private val readAnchorLock = Any()
+	private val pendingReadAnchorLock = Any()
+	private val pendingRemoteReadAnchors = mutableMapOf<String, ReadAnchor>()
 
-	// Raw rows remain available for tombstone expiry recovery.
+	// Raw rows support recovery.
 	@Volatile var lastRawTeams: List<Team>? = null
 
 	@Volatile var lastReportedReadAnchors: Map<String, ReadAnchor> = emptyMap()
 
 	override suspend fun clearInMemory() {
 		lastRawTeams = null
+		synchronized(pendingReadAnchorLock) { pendingRemoteReadAnchors.clear() }
 		readAnchorReportMutex.withLock {
 			synchronized(readAnchorLock) { lastReportedReadAnchors = emptyMap() }
 		}
@@ -41,38 +44,57 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 	}
 
 	fun applyReadAnchors(entries: List<com.atelier_nyaarium.switchboard.proto.ReadAnchorWireEntry>) {
-		// Epochs are random tags; compare them only for equality.
-		var anyChanged = false
-		host.state.update { s ->
-			anyChanged = false
-			var st = s
-			for (e in entries) {
-				val team = e.team
-				val thread = st.threads[team].orEmpty()
-				val candidate = ReadAnchor(e.epoch, e.seq, e.at)
-				val current = st.readAnchors[team]
+		val changed = synchronized(pendingReadAnchorLock) {
+			entries.forEach { entry ->
+				pendingRemoteReadAnchors[entry.team] = ReadAnchor(entry.epoch, entry.seq, entry.at)
+			}
+			mergePendingReadAnchorsLocked(pendingRemoteReadAnchors.toMap())
+		}
+		if (changed) host.persistReadAnchors()
+	}
+
+	override fun retryPendingReadAnchor(team: String) {
+		val changed = synchronized(pendingReadAnchorLock) {
+			val candidate = pendingRemoteReadAnchors[team] ?: return@synchronized false
+			mergePendingReadAnchorsLocked(mapOf(team to candidate))
+		}
+		if (changed) host.persistReadAnchors()
+	}
+
+	private fun mergePendingReadAnchorsLocked(candidates: Map<String, ReadAnchor>): Boolean {
+		if (candidates.isEmpty()) return false
+		val before = host.state.value.readAnchors
+		var folded: ChatState? = null
+		host.state.update { state ->
+			var next = state
+			candidates.forEach { (team, candidate) ->
+				val thread = next.threads[team].orEmpty()
+				if (anchorIndex(thread, candidate) < 0) return@forEach
+				val current = next.readAnchors[team]
 				val merged = mergeReadAnchor(thread, current, candidate)
-				if (merged != null) {
-					if (merged != current) {
-						anyChanged = true
-						st = st.copy(readAnchors = st.readAnchors + (team to merged)).recomputeUnread(team, thread)
-					}
+				if (merged != null && merged != current) {
+					next = next.copy(readAnchors = next.readAnchors + (team to merged)).recomputeUnread(team, thread)
 				}
 			}
-			st
+			folded = next
+			next
 		}
-		val landed = host.state.value.readAnchors
-		val reported = entries.mapNotNull { entry ->
-			landed[entry.team]?.takeIf { it.epoch == entry.epoch && it.seq == entry.seq }
-				?.let { entry.team to it }
+		val landed = folded ?: host.state.value
+		val resolved = candidates.filter { (team, candidate) ->
+			anchorIndex(landed.threads[team].orEmpty(), candidate) >= 0
+		}
+		resolved.keys.forEach { pendingRemoteReadAnchors.remove(it) }
+		val reported = resolved.mapNotNull { (team, candidate) ->
+			landed.readAnchors[team]?.takeIf { it.epoch == candidate.epoch && it.seq == candidate.seq }
+				?.let { team to it }
 		}.toMap()
 		if (reported.isNotEmpty()) synchronized(readAnchorLock) {
 			lastReportedReadAnchors = lastReportedReadAnchors + reported
 		}
-		if (anyChanged) host.persistReadAnchors()
+		return before != landed.readAnchors
 	}
 
-	suspend fun reportLocalReadAdvances() = readAnchorReportMutex.withLock {
+	override suspend fun reportLocalReadAdvances() = readAnchorReportMutex.withLock {
 		val anchors = host.state.value.readAnchors
 		val reportedAtStart = synchronized(readAnchorLock) { lastReportedReadAnchors }
 		for (team in teamsNeedingReadReport(anchors, reportedAtStart)) {

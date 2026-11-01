@@ -1,6 +1,7 @@
-// What a session holds through Switchboard, re-sent after its context is compacted.
+// Session baseline after compaction.
 
 import { z } from "zod";
+import { oneLine } from "./system-reminder.js";
 
 ////////////////////////////////
 //  Constants
@@ -73,3 +74,13 @@ export const SessionBaselineSchema = z.object({
 		.optional(),
 });
 export type SessionBaseline = z.infer<typeof SessionBaselineSchema>;
+export type BaselineHold = NonNullable<NonNullable<SessionBaseline["assistant"]>["hold"]>;
+
+////////////////////////////////
+//  Functions & Helpers
+
+export function holdLine(hold: BaselineHold): string {
+	if (hold.kind === "held") return `phone hold: held by ${oneLine(hold.label)}, ${hold.remainingMs}ms remaining`;
+	if (hold.kind === "lapsed") return `phone hold: lapsed ${hold.lapsedMs}ms ago, last held by ${oneLine(hold.label)}`;
+	return "phone hold: none";
+}

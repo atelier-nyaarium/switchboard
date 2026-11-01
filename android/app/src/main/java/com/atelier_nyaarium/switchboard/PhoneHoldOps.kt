@@ -22,9 +22,9 @@ internal enum class HoldClaimTrigger { CONVERSATION, PANEL, ASSISTANT_TAB, SEND 
 internal fun shouldClaimPhoneHold(
 	trigger: HoldClaimTrigger,
 	hold: PhoneHold?,
-	self: String,
+	self: HoldSelf,
 	now: Long,
-): Boolean = trigger == HoldClaimTrigger.SEND || holdStanding(hold, now) != HoldStanding.HELD || hold?.holder != self
+): Boolean = trigger == HoldClaimTrigger.SEND || holdStanding(hold, now) != HoldStanding.HELD || hold?.holder != self.key
 
 /** Newer rows only. */
 internal fun landsHold(landed: Long, incoming: Long): Boolean = incoming > landed
@@ -54,7 +54,7 @@ internal class OwnerOpHoldRouter(private val signAndPost: suspend (JsonObject) -
 
 internal class PhoneHoldOps(
 	private val state: MutableStateFlow<ChatState>,
-	private val self: () -> String,
+	private val self: () -> HoldSelf,
 	private val router: PhoneHoldRouter?,
 	private val scope: CoroutineScope,
 	private val clearSpeech: suspend () -> Unit,
@@ -89,17 +89,23 @@ internal class PhoneHoldOps(
 	fun alerts(todayRule: Boolean, visible: Boolean, at: Long = now()): Boolean =
 		alertsFor(state.value.phoneHold, self(), at, visible, todayRule)
 
-	/** The hold row's version. */
-	suspend fun apply(hold: PhoneHold?, version: Long) {
+	/** Hold row version. */
+	suspend fun apply(hold: PhoneHold?, version: Long, ownClaimAnswer: Boolean = false): Boolean {
 		val lands = synchronized(this) {
-			landsHold(landedVersion, version).also { if (it) landedVersion = version }
+			if (!landsHold(landedVersion, version)) {
+				false
+			} else {
+				landedVersion = version
+				state.update { it.copy(phoneHold = hold) }
+				provisionalClaim = ownClaimAnswer
+				true
+			}
 		}
-		if (!lands) return
-		state.update { it.copy(phoneHold = hold) }
-		provisionalClaim = false
-		if (holdStanding(hold, now()) == HoldStanding.HELD && hold?.holder != self()) {
+		if (!lands) return false
+		if (isHeldByAnother(hold, self(), now())) {
 			clearSpeech()
 		}
+		return true
 	}
 
 	private fun requestClaim(trigger: HoldClaimTrigger) {
@@ -116,8 +122,7 @@ internal class PhoneHoldOps(
 			repeat(CLAIM_ATTEMPTS) { attempt ->
 				val answer = runCatchingCancellable { router?.claim() }.getOrNull()
 				if (answer != null) {
-					apply(answer, answer.version)
-					provisionalClaim = true
+					apply(answer, answer.version, ownClaimAnswer = true)
 					return@withLock true
 				}
 				if (attempt + 1 < CLAIM_ATTEMPTS) delay(CLAIM_RETRY_DELAY_MS)
@@ -127,9 +132,11 @@ internal class PhoneHoldOps(
 	}
 
 	override suspend fun clearInMemory() {
-		provisionalClaim = false
-		synchronized(this) { landedVersion = 0L }
-		state.update { it.copy(phoneHold = null) }
+		synchronized(this) {
+			provisionalClaim = false
+			landedVersion = 0L
+			state.update { it.copy(phoneHold = null) }
+		}
 	}
 
 	private companion object {

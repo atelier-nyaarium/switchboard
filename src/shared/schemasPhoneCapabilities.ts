@@ -145,8 +145,8 @@ export type GatewayCapabilityKey = KeysWhere<"gateway">;
 export type PhoneSideCapabilityKey = KeysWhere<"phone">;
 
 /** Required gateway handlers. */
-export type GatewayCapabilityRuns<Ctx> = {
-	[K in GatewayCapabilityKey]: (params: PhoneRequestOf<K>, ctx: Ctx) => Promise<PhoneAnswerOf<K>>;
+export type GatewayCapabilityRuns = {
+	[K in GatewayCapabilityKey]: (params: PhoneRequestOf<K>) => Promise<PhoneAnswerOf<K>>;
 };
 
 /** Tool names stay disjoint. */

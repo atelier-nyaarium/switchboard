@@ -10,26 +10,22 @@ import type { PrepareResult, RoutineAttempt } from "./runner.js";
 
 export interface RoutineExecutionDeps extends TargetReserve {
 	getRunbook: (runbookId: string) => Runbook | null;
-	/** True while the session is working, false while it is not, undefined when nobody knows. */
+	/** Activity, when known. */
 	workingOf: (team: string) => boolean | undefined;
-	/** Whether a record still stands for that session, so an already-forgotten one is left alone. */
 	hasSession: (team: string) => boolean;
-	/** The same teardown an owner's forget takes, so the automatic one cannot do less. */
+	/** Match owner teardown. */
 	forgetSession: (team: string) => void;
-	/** Why the nudge was refused, or null. */
+	holdLine?: () => string;
+	/** Refusal reason, or null. */
 	deliver: (nudge: { from: string; to: string; body: string; deliveryId: string }) => Promise<string | null>;
 }
 
-/**
- * The words a routine's session is nudged with. The instructions are not inlined, because a
- * compaction would take them with it and the tool can be asked again.
- */
-export function nudgeFor(routine: Routine, occurrence: Occurrence): string {
+export function nudgeFor(routine: Routine, occurrence: Occurrence, holdLine?: string): string {
 	return [
+		...(routine.target.kind === "assistant" && holdLine ? [holdLine] : []),
 		`Owner issued a routine: ${routine.name}.`,
-		// Named from the catalog, so the words cannot ask for a tool nothing registers.
 		`Call ${SESSION_COMMANDS.sessionRoutine.tool} with occurrenceId "${occurrenceIdOf(occurrence.routineId, occurrence.scheduledAt)}" for the instructions.`,
-		// Said here because nothing else would: a run that never files holds its authority for hours.
+		// Unfiled runs retain authority.
 		`When the work is done, call ${SESSION_COMMANDS.sessionReport.tool} with the same occurrenceId.`,
 		"If any blocker occurs, channel_reply.",
 	].join("\n");
@@ -65,15 +61,14 @@ export function createRoutineExecution(deps: RoutineExecutionDeps): RoutineAttem
 			const team = occurrence.team ?? routineTeam(routine);
 			const refused = await deps
 				.deliver({
-					// Display only; it sends as the owner.
+					// Display identity only.
 					from: routineSessionName(routine.id),
 					to: team,
-					body: nudgeFor(routine, occurrence),
-					// Names the row, and never the guarantee, which the occurrence state holds.
+					body: nudgeFor(routine, occurrence, deps.holdLine?.()),
+					// Occurrence state owns guarantees.
 					deliveryId: deliveryKey(occurrence.routineId, occurrence.scheduledAt),
 				})
 				.catch((error: Error) => error.message);
-			// Dispatched either way, so this is the only account.
 			if (refused) console.warn(`[routine] ${routine.id} nudge to ${team} was not delivered: ${refused}`);
 		},
 	};

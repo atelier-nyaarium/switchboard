@@ -2,7 +2,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { nudgeFor } from "../gateway/routines/execution.js";
 import type { Occurrence } from "../gateway/routines/occurrences.js";
 import { UNPLACED_REASON } from "../gateway/routines/reservation.js";
+import { ASSISTANT_HOLD_PATH } from "../shared/assistant-hold.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
+import { PHONE_HOLD_WINDOW_MS } from "../shared/schemasPhoneHold.js";
 import { occurrenceIdOf, type Routine } from "../shared/schemasRoutine.js";
 import { SESSION_BASELINE_PATH } from "../shared/session-baseline.js";
 import { composeSessionName } from "../shared/session-id.js";
@@ -115,12 +117,33 @@ describe("federation harness: a check-in reaching the assistant", () => {
 	it("nudges the assistant as the owner and carries the phone hold into its baseline", async () => {
 		await h.phone.value({ kind: "assistant_safety", approveEverySend: false });
 		clock = SLOT + 60_000;
+		await h.phone.deliver(ASSISTANT_TEAM, {
+			kind: "send",
+			to: ASSISTANT_TEAM,
+			body: "Start the check-in session.",
+		});
+		await h.waitFor(() => attached.get(ASSISTANT_TEAM), "assistant session");
+		await assistant().registered();
+		await assistant().ready();
 		await h.phone.claimHold();
+		await h.waitFor(async () => {
+			const answer = (await (await assistant().post(ASSISTANT_HOLD_PATH, {})).json()) as { kind: string };
+			return answer.kind === "held" ? answer : undefined;
+		}, "held phone");
 		await h.gateway.faults.sweepRoutines();
 
-		const nudge = nudgeFor(checkIn, dispatched);
-		await h.waitFor(() => attached.get(ASSISTANT_TEAM)?.inbound.find((frame) => frame.body === nudge), "the nudge");
 		const occurrenceId = occurrenceIdOf(checkIn.id, SLOT);
+		const holdLine = `phone hold: held by ${h.phone.device}, ${PHONE_HOLD_WINDOW_MS}ms remaining`;
+		const nudge = nudgeFor(checkIn, dispatched, holdLine);
+		const delivered = await h.waitFor(
+			() =>
+				attached
+					.get(ASSISTANT_TEAM)
+					?.inbound.find((frame) => typeof frame.body === "string" && frame.body.includes(occurrenceId)),
+			"the nudge",
+		);
+		expect(String(delivered.body).startsWith(`${holdLine}\n`)).toBe(true);
+		expect(String(delivered.body)).toBe(nudge);
 		const instructions = await (await assistant().post("/routine/session", { occurrenceId })).json();
 		const baseline = await (await assistant().post(SESSION_BASELINE_PATH, {})).json();
 

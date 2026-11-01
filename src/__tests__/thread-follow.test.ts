@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-// @ts-expect-error - plain JS, no .d.ts
+// @ts-expect-error plain JS
 import threadFollow from "../../android/app/src/main/assets/thread/thread-follow.js";
 
-const { followTarget, slideProgress, SLIDE_MS } = threadFollow as {
+const { followTarget, parkedAtBottom, slideProgress, SLIDE_MS } = threadFollow as {
 	followTarget: (input: {
 		parked: boolean;
 		spanPx: number;
@@ -10,6 +10,7 @@ const { followTarget, slideProgress, SLIDE_MS } = threadFollow as {
 		viewportPx: number;
 		scrollHeightPx: number;
 	}) => { scrollTop: number; follow: boolean } | null;
+	parkedAtBottom: (input: { scrollTop: number; viewportPx: number; scrollHeightPx: number }) => boolean;
 	slideProgress: (elapsedMs: number) => number;
 	SLIDE_MS: number;
 };
@@ -19,6 +20,11 @@ describe("thread follow", () => {
 
 	it("holds when the reader was not parked at the bottom", () => {
 		expect(followTarget({ ...base, parked: false, spanPx: 200 })).toBeNull();
+	});
+
+	it("does not follow when the reader is 100 px from the bottom", () => {
+		const parked = parkedAtBottom({ scrollTop: 4900, viewportPx: 1000, scrollHeightPx: 6000 });
+		expect(followTarget({ ...base, parked, spanPx: 200 })).toBeNull();
 	});
 
 	it("follows to the bottom when the new rows fit the viewport", () => {

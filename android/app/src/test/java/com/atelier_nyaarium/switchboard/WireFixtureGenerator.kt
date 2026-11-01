@@ -87,11 +87,28 @@ class WireFixtureGenerator {
 	private fun phoneHoldOp(root: JsonObject, case: String, composer: String): Fixture {
 		val draws = FixtureDraws.forCase(composer, case)
 		val opId = "$case-op"
-		val op = buildJsonObject { put("kind", case) }
 		val bootstrap = world.bootstrap()
-		val signed = OwnerOps(bootstrap, world.ambient(draws)).sign(op, opId)
+		val ownerOps = OwnerOps(bootstrap, world.ambient(draws))
+		var signed: OwnerOp? = null
+		val hold = buildJsonObject {
+			put("holder", bootstrap.consoleIdentity.sign.pub)
+			put("label", bootstrap.device)
+			put("claimedAt", world.clock)
+			put("version", 1L)
+		}
+		val router = OwnerOpHoldRouter { op ->
+			signed = ownerOps.sign(op, opId)
+			buildJsonObject { put("hold", hold) }
+		}
+		runBlocking {
+			when (case) {
+				"hold_claim" -> router.claim()
+				"phone_hold_read" -> router.read()
+				else -> error("unsupported hold op: $case")
+			}
+		}
 		val expect = "{\"hold\":{\"holder\":\"${bootstrap.consoleIdentity.sign.pub}\",\"label\":\"${bootstrap.device}\"}}"
-		return ownerCase(root, composer, case, signed, opId, expect, draws = draws)
+		return ownerCase(root, composer, case, checkNotNull(signed), opId, expect, draws = draws)
 	}
 
 	private fun transport(root: JsonObject): List<Fixture> {

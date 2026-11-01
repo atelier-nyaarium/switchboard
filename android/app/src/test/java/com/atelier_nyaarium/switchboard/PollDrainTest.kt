@@ -15,8 +15,16 @@ import com.atelier_nyaarium.switchboard.proto.SyncAdvance
 import com.atelier_nyaarium.switchboard.proto.SyncCursor
 import com.atelier_nyaarium.switchboard.proto.SyncPollResult
 import com.atelier_nyaarium.switchboard.proto.storeKey
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -29,13 +37,13 @@ class PollDrainTest {
 	private class FakeHost(var router: Map<String, PlaneRead>) : DrainHost {
 		override val drainGate = DrainGate()
 		override val state = MutableStateFlow(ChatState())
-		override val isVisible = false
+		@Volatile override var isVisible = false
 		override val autoGenerate = false
 		val applied = mutableListOf<String>()
 		val reads = mutableListOf<JsonObject>()
 		var dispatched = 0
 		override fun link() = ConsoleLink.POLL
-		var routineRefreshes = 0
+		@Volatile var routineRefreshes = 0
 		override suspend fun refreshRoutines() {
 			routineRefreshes += 1
 		}
@@ -69,7 +77,7 @@ class PollDrainTest {
 		}
 		override suspend fun poll(known: Map<String, HeldLineage>, observe: () -> Long): TickOutcome = error("unused")
 
-		/** The Router's rule: served unless held at this lineage and version or past it. */
+		/** Router serves newer planes. */
 		override suspend fun readPlanes(held: JsonObject): List<PlaneRead> {
 			reads += held
 			return router.values.filter { plane ->
@@ -199,7 +207,7 @@ class PollDrainTest {
 		assertEquals(2, host.reads.size)
 		assertEquals(listOf("presence@1/2", "taskBoard@1/1"), host.applied)
 
-		// Asking for everything re-reads; the cursor still holds what it landed.
+		// Full reads preserve cursors.
 		drain.pullPlanes(everything = true)
 		assertEquals(3, host.reads.size)
 		assertEquals(buildJsonObject {}, host.reads.last())
@@ -245,5 +253,35 @@ class PollDrainTest {
 		assertEquals(false, arrivedWhileVisible(visible = true, at = since - 1L, foregroundSince = since))
 		assertEquals(false, arrivedWhileVisible(visible = false, at = since + 5_000L, foregroundSince = since))
 		assertEquals(false, arrivedWhileVisible(visible = true, at = since, foregroundSince = 0L))
+	}
+
+	@Test
+	fun visiblePollRefreshesRoutinesOncePerInterval() = runBlocking {
+		val host = FakeHost(emptyMap()).apply { isVisible = true }
+		val clock = AtomicLong(100_000L)
+		val drain = PollDrain(host, IdlePresencePort, clockMillis = clock::get)
+		val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, _ -> })
+
+		try {
+			drain.start(scope)
+			withTimeout(2_000L) {
+				while (host.routineRefreshes < 1) delay(1L)
+			}
+
+			clock.addAndGet(VISIBLE_ROUTINE_REFRESH_MS - 1L)
+			repeat(3) { drain.kickPoll() }
+			delay(100L)
+			assertEquals(1, host.routineRefreshes)
+
+			clock.incrementAndGet()
+			drain.kickPoll()
+			withTimeout(2_000L) {
+				while (host.routineRefreshes < 2) delay(1L)
+			}
+			assertEquals(2, host.routineRefreshes)
+		} finally {
+			drain.stopAndJoin()
+			scope.cancel()
+		}
 	}
 }

@@ -155,6 +155,7 @@ function lanes(
 	wake: AssistantWake,
 	sort: (event: WatcherEvent) => RuleAction = () => "wake",
 	enabled: () => boolean = () => true,
+	holdLine: () => string = () => "",
 ): SourceLanes {
 	return createSourceLanes({
 		ambient,
@@ -164,11 +165,12 @@ function lanes(
 		sort: (_watcherId, event) => sort(event),
 		wake: () => wake,
 		to: "host.assistant",
+		holdLine,
 		render: (_watcher, event) => event.id,
 	});
 }
 
-/** Stop's wait needs manual time. */
+/** Manual stop timing. */
 async function stopped(lane: SourceLanes, ambient: FakeAmbient): Promise<void> {
 	const done = lane.stop();
 	await ambient.advance(POLL_TIMEOUT_MS);
@@ -176,6 +178,35 @@ async function stopped(lane: SourceLanes, ambient: FakeAmbient): Promise<void> {
 }
 
 describe("a watcher's source lane", () => {
+	it("starts each wake batch with the current phone hold", async () => {
+		let line = "phone hold: held by Pixel, 42000ms remaining";
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const source = scripted();
+		const pushes = wakes();
+		const lane = lanes(
+			ambient,
+			stateIn(stateDir()),
+			source.watcher,
+			pushes.wake,
+			() => "wake",
+			() => true,
+			() => line,
+		);
+
+		lane.start();
+		await ambient.advance(0);
+		source.answer(unread("c1", [], 10_000));
+		await ambient.advance(0);
+		line = "phone hold: lapsed 1000ms ago, last held by Pixel";
+		await ambient.advance(10_000);
+		source.answer(unread("c2", [thread("wake", 100)]));
+		await ambient.advance(0);
+		const text = pushes.pushed[0]?.ids[0];
+		await stopped(lane, ambient);
+
+		expect(text).toBe(`${line}\nwake`);
+	});
+
 	it("refuses a watcher with no label, so none shows by its id", () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const unnamed = { ...scripted().watcher, label: "  " };

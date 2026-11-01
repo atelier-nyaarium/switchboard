@@ -315,10 +315,10 @@ class ChatRepository(
 		get() = focusHost.currentFocus
 		set(value) { focusHost.currentFocus = value }
 
-	internal val drain = PollDrain(drainHost, ports) { todayRule -> phoneHoldOps.speaks(todayRule) }
+	internal val drain = PollDrain(drainHost, ports, readAnchorSync = presence) { todayRule -> phoneHoldOps.speaks(todayRule) }
 
 	init {
-		// Restore the held roster before the first poll.
+		// Restore held roster first.
 		repoScope.launch(Dispatchers.IO) { presence.restoreLastProjection() }
 	}
 
@@ -367,8 +367,7 @@ class ChatRepository(
 		collaborators = playbackCollaborators,
 		speaksForHold = { todayRule -> phoneHoldOps.speaks(todayRule) },
 	)
-	/** Holds key on signing keys. */
-	private fun holdSelf(): String = readyOrNull()?.consoleIdentity?.sign?.pub.orEmpty()
+	internal fun holdSelf(): HoldSelf = HoldSelf.fromConsoleSigningKey(readyOrNull()?.consoleIdentity?.sign?.pub.orEmpty())
 
 	internal val phoneHoldOps: PhoneHoldOps = PhoneHoldOps(
 		state = _state,

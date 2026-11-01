@@ -87,10 +87,6 @@ describe("phone capabilities through the federation harness", () => {
 		const pending = postPhone("status", callId);
 		const { row, entry } = await drainCapability(callId);
 		const owner = await h.phone2.answerPhone(callId, answerPhone({ holder: h.phone.device, keys: [] }));
-		const malformed = await h.phone.answerPhone(
-			callId,
-			answerPhone({ holder: h.phone.device, keys: [{ key: "torch" }] }),
-		);
 		const phone = await h.phone.answerPhone(callId, answerPhone({ holder: h.phone.device, keys: [] }));
 		const result = await (await pending).json();
 
@@ -102,7 +98,6 @@ describe("phone capabilities through the federation harness", () => {
 			payload: { requestId: callId, key: "status", guard: "none" },
 		});
 		expect(owner.result).toMatchObject({ ok: false, reason: "the answer came from a different phone" });
-		expect(malformed.result).toMatchObject({ ok: false, reason: "the capability answer did not match its schema" });
 		expect(phone.result).toMatchObject({ ok: true });
 		expect(result).toEqual({
 			kind: "ok",
@@ -123,6 +118,20 @@ describe("phone capabilities through the federation harness", () => {
 		}, "quiet phone record");
 		expect(record).toMatchObject({ notify: false, threads: [{ threadId: "status", outcome: "ran" }] });
 		expect(record.body).toBeUndefined();
+	});
+
+	it("refuses at once when the holder answers outside the schema", async () => {
+		const callId = "phone-status-malformed";
+		const pending = postPhone("status", callId);
+		await drainCapability(callId);
+		const malformed = await h.phone.answerPhone(
+			callId,
+			answerPhone({ holder: h.phone.device, keys: [{ key: "torch" }] }),
+		);
+		const result = await (await pending).json();
+
+		expect(malformed.result).toMatchObject({ ok: false, reason: "the capability answer did not match its schema" });
+		expect(result).toMatchObject({ kind: "refused", reason: "the capability answer did not match its schema" });
 	});
 
 	it("runs a registered phone act directly", async () => {
@@ -153,9 +162,7 @@ describe("phone capabilities through the federation harness", () => {
 
 	it("hands one phone's read anchor to the other through the plane", async () => {
 		const team = "domain.gateway.host.journal";
-		const reported = await h.phone.post(
-			h.phone.ownerOp({ kind: "report_read", team, epoch: 1, seq: 5, at: clock }),
-		);
+		const reported = await h.phone.reportRead(team, 1, 5);
 		expect(reported.status).toBe(200);
 
 		const anchors = await h.waitFor(async () => {

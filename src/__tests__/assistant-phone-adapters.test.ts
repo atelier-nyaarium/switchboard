@@ -150,6 +150,35 @@ describe("phone request append completion", () => {
 		expect(retracted).toEqual(["call-0001"]);
 	});
 
+	it.each([
+		{
+			name: "phone answer",
+			raw: { kind: "invalid" },
+			reason: "the phone answer did not parse",
+		},
+		{
+			name: "capability answer",
+			raw: { kind: "ok", answer: {} },
+			reason: "the capability answer did not match its schema",
+		},
+	])("settles an invalid stamped $name as refused", async ({ raw, reason }) => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => 1_000 });
+		const requests = createPhoneRequests({
+			ambient,
+			deliver: () => ({
+				queued: true,
+				completion: Promise.resolve({ kind: "accepted", stamp: { holder: HOLDER_KEY } }),
+			}),
+			retract: () => true,
+		});
+		const opened = requests.open({ callId: "call-invalid", key: "status", params: {}, guard: "none" });
+		if (opened.kind !== "opened") throw new Error(`request did not open: ${opened.reason}`);
+
+		expect(await requests.answer("call-invalid", raw, HOLDER_KEY)).toEqual({ ok: false, reason });
+		const pending = Symbol("pending");
+		expect(await Promise.race([opened.answer, Promise.resolve(pending)])).toEqual({ kind: "refused", reason });
+	});
+
 	it("answers a capability unavailable when the Router reports no holder", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => 1_000 });
 		const requests = createPhoneRequests({

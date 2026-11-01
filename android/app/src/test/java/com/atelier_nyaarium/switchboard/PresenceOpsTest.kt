@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.proto.GatewaySpawnPoints
 import com.atelier_nyaarium.switchboard.proto.OwnerFacts
 import com.atelier_nyaarium.switchboard.proto.OwnerPresenceProjection
 import com.atelier_nyaarium.switchboard.proto.PresencePlane
+import com.atelier_nyaarium.switchboard.proto.ReadAnchorWireEntry
 import com.atelier_nyaarium.switchboard.proto.RosterEntry
 import com.atelier_nyaarium.switchboard.proto.TeamInfo
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -102,6 +103,27 @@ class PresenceOpsTest {
 
 		ops.refreshAfterAction()
 		assertEquals(3, host.pulls)
+	}
+
+	@Test
+	fun aRemoteReadAnchorWaitsForItsThreadRow() {
+		val host = FakeHost()
+		val ops = PresenceOps(host)
+		val team = "dom.gateway.host.session"
+		val anchor = ReadAnchor(epoch = 7, seq = 3, at = 30)
+
+		ops.applyReadAnchors(listOf(ReadAnchorWireEntry(team, anchor.epoch, anchor.seq, anchor.at)))
+		assertNull(host.state.value.readAnchors[team])
+
+		host.state.update { state ->
+			state.copy(
+				threads = state.threads + (team to listOf(Message(fromMe = false, text = "in", at = 30, epoch = 7, seq = 3))),
+			)
+		}
+		ops.retryPendingReadAnchor(team)
+
+		assertEquals(anchor, host.state.value.readAnchors[team])
+		assertEquals(0, unreadCount(host.state.value.threads.getValue(team), anchor))
 	}
 
 	@Test

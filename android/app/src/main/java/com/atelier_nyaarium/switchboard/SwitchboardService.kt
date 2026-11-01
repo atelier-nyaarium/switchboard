@@ -279,7 +279,15 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 				}
 		}
 		scope.launch {
-			repo.state.map { it.phoneHold }.distinctUntilChanged().collect {
+			repo.state.map { it.phoneHold to it.foreground }.distinctUntilChanged().collect {
+				notifications.reconcilePhoneHold(repo)
+				showVaultPrompt(repo, repo.vault.pending.value.firstOrNull())
+			}
+		}
+		scope.launch {
+			repo.state.map { it.phoneHold }.distinctUntilChanged().collectLatest { hold ->
+				val lapseAt = holdLapseAt(hold) ?: return@collectLatest
+				delay((lapseAt - System.currentTimeMillis()).coerceAtLeast(0))
 				notifications.reconcilePhoneHold(repo)
 				showVaultPrompt(repo, repo.vault.pending.value.firstOrNull())
 			}

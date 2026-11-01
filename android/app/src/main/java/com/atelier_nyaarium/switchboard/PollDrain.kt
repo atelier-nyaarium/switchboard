@@ -41,6 +41,7 @@ internal fun knownPlanesJson(known: Map<String, HeldLineage>): JsonObject = buil
 
 internal const val PRESENCE_PLANE = "presence"
 internal const val ASSISTANT_HOME_PLANE = "assistantHome"
+internal const val VISIBLE_ROUTINE_REFRESH_MS = 60_000L
 
 /** Older rows are backlog. */
 internal fun arrivedWhileVisible(visible: Boolean, at: Long, foregroundSince: Long): Boolean =
@@ -168,15 +169,15 @@ private fun advanceOutcome(answer: kotlinx.serialization.json.JsonElement?): Str
 private fun advanceFloor(answer: kotlinx.serialization.json.JsonElement?, fallback: Long): Long =
 	(answer as? JsonObject)?.get("floor")?.jsonPrimitive?.content?.toLongOrNull() ?: fallback
 
-/** Four plane cursors and drain-gate subscribers. */
 internal class PollDrain(
 	private val host: DrainHost,
 	private val presence: PresencePort,
+	private val readAnchorSync: ReadAnchorSync? = null,
+	private val clockMillis: () -> Long = System::currentTimeMillis,
 	private val speaksForHold: (Boolean) -> Boolean = { it },
 ) : ClearsOnReprovision {
 	private var pollFails = 0
 	private var pollJob: Job? = null
-	// Scope for loop-bound work.
 	private var pollScope: CoroutineScope? = null
 
 	/** Loop-bound work scope. */
@@ -249,13 +250,14 @@ internal class PollDrain(
 
 	/** Welcome carries lineages only. */
 	internal suspend fun applyWelcomePlanes(welcome: JsonObject) {
-		// A would-be stamp: the peek consumes none.
+		// Peek consumes no stamp.
 		val peek = observations.get() + 1
 		val newer = welcome.any { (name, value) -> lineageOf(value)?.let { mayApplyPlane(name, it, peek) } ?: false }
 		if (newer) pullPlanes()
+		readAnchorSync?.reportLocalReadAdvances()
 	}
 
-	/** Reads then lands planes past the cursor; `everything` asks for all of them and the fold still decides. */
+	/** Fold decides plane advancement. */
 	suspend fun pullPlanes(everything: Boolean = false) {
 		withDrainMutex {
 			val planes = host.readPlanes(if (everything) buildJsonObject {} else knownPlanesJson()) ?: return@withDrainMutex
@@ -297,6 +299,7 @@ internal class PollDrain(
 			if (entry.kind == "sent") {
 				val echo = Message(true, body, entry.at, files = files, opId = entry.opId, epoch = epoch, seq = entry.seq)
 				host.reconcileSent(team, echo)
+				readAnchorSync?.retryPendingReadAnchor(team)
 				continue
 			}
 			if (entry.kind == "plugin_action") {
@@ -323,7 +326,7 @@ internal class PollDrain(
 						.onFailure { DebugLog.log("Drain", "inbound subscriber failed seq=${entry.seq}") }
 				}
 			}
-			// Quiet records skip alerts and autoplay.
+			readAnchorSync?.retryPendingReadAnchor(team)
 			if (appended && !message.isQuiet()) burst.getOrPut(team) { mutableListOf() }.add(message)
 		}
 		val burstJobs = mutableListOf<Job>()
@@ -359,6 +362,9 @@ internal class PollDrain(
 			knownPlanes = outcome.known
 			if (outcome.cursorStale) DebugLog.log("Inbox", "cursor below the Router's floor; adopting it")
 		}
+		readAnchorSync?.let { sync ->
+			pollScope?.launch(Dispatchers.IO) { sync.reportLocalReadAdvances() }
+		}
 	}
 
 	fun start(scope: CoroutineScope) {
@@ -367,22 +373,26 @@ internal class PollDrain(
 		pollJob = scope.launch(Dispatchers.IO) {
 				// Restore cached roster first.
 				runCatchingCancellable { presence.restoreLastProjection() }
+			var lastVisibleRoutineRefreshAt: Long? = null
 			pollLoop@ while (isActive) {
 				var failed = false
 				var heldEmpty = false
 				var hold = 0L
 				try {
 					if (host.isVisible) {
+						val now = clockMillis()
+						val lastRefresh = lastVisibleRoutineRefreshAt
+						if (lastRefresh == null || now - lastRefresh >= VISIBLE_ROUTINE_REFRESH_MS) {
+							host.refreshRoutines()
+							lastVisibleRoutineRefreshAt = now
+						}
 						withTimeoutOrNull(ChatRepository.POLL_INTERVAL_MS) { kick.receive() }
 						continue@pollLoop
 					}
 					if (!host.isVisible && host.link() == ConsoleLink.POLL) {
 						drainOwnerInbox()
-						// Routines are read, never pushed, so a background pass is the only thing that
-						// learns a run missed while the tab was closed.
 						host.refreshRoutines()
-						// Through the coordinator, which is what arms the alarm. Waiting on a bare tick
-						// here left a backgrounded phone with no wake at all once doze suspended it.
+						// Coordinator owns alarm scheduling.
 						park(host.plan(false, false).wait, kick, ChatRepository.BACKGROUND_TICK_MS)
 						continue@pollLoop
 					}

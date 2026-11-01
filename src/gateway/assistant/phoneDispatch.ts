@@ -9,7 +9,6 @@ import type {
 	PhoneCapabilityRequest,
 	PhoneCapabilityResult,
 	PhoneCapabilityRow,
-	PhoneRequestOf,
 } from "../../shared/schemasPhoneCapabilities.js";
 import { PHONE_CAPABILITIES } from "../../shared/schemasPhoneCapabilities.js";
 import type { ActGuard } from "./actGuard.js";
@@ -25,7 +24,7 @@ export interface PhoneDispatchDeps {
 	hold: () => HoldAnswer;
 	phone: Pick<PhoneRequests, "open">;
 	act: Pick<ActGuard, "run">;
-	gateways: GatewayCapabilityRuns<unknown>;
+	gateways: GatewayCapabilityRuns;
 	record: (callId: string, record: ActionRecord) => boolean;
 }
 
@@ -56,6 +55,17 @@ function resultOf(answer: PhoneAnswer, recorded: boolean): PhoneCapabilityResult
 	return { kind: "refused", reason: answer.reason.slice(0, 400) };
 }
 
+function parseParams<K extends PhoneCapabilityKey>(key: K, raw: unknown) {
+	return PHONE_CAPABILITIES[key].request.safeParse(raw);
+}
+
+type LooseRun = (params: unknown) => Promise<unknown>;
+
+function gatewayRun(runs: GatewayCapabilityRuns, key: PhoneCapabilityKey): LooseRun | undefined {
+	// Parsed by key.
+	return (runs as Partial<Record<PhoneCapabilityKey, LooseRun>>)[key];
+}
+
 export function createPhoneDispatch(
 	deps: PhoneDispatchDeps,
 ): (request: PhoneCapabilityRequest) => Promise<PhoneCapabilityResult> {
@@ -63,7 +73,7 @@ export function createPhoneDispatch(
 
 	const runOne = async (request: PhoneCapabilityRequest): Promise<PhoneCapabilityResult> => {
 		const declaration: PhoneCapabilityDeclaration = PHONE_CAPABILITIES[request.key];
-		const parsed = declaration.request.safeParse(request.params);
+		const parsed = parseParams(request.key, request.params);
 		if (!parsed.success) {
 			const issue = parsed.error.issues[0];
 			return finish(request.callId, request.key, {
@@ -71,11 +81,9 @@ export function createPhoneDispatch(
 				reason: `${issue?.path.join(".") || "params"}: ${issue?.message}`.slice(0, 400),
 			});
 		}
-		const params = parsed.data as PhoneRequestOf<typeof request.key>;
+		const params = parsed.data;
 		if (declaration.where === "gateway") {
-			const run = (deps.gateways as Record<string, ((value: unknown) => Promise<unknown>) | undefined>)[
-				request.key
-			];
+			const run = gatewayRun(deps.gateways, request.key);
 			if (!run) return finish(request.callId, request.key, { kind: "unavailable", reason: "not_supported" });
 			try {
 				const answer = declaration.answer.parse(await run(params));
@@ -83,7 +91,7 @@ export function createPhoneDispatch(
 			} catch (error) {
 				return finish(request.callId, request.key, {
 					kind: "refused",
-					reason: (error as Error).message.slice(0, 400),
+					reason: (error instanceof Error ? error.message : String(error)).slice(0, 400),
 				});
 			}
 		}
@@ -93,23 +101,10 @@ export function createPhoneDispatch(
 
 		let answer: PhoneAnswer;
 		if (declaration.kind === "guarded" && safelyApproves(deps.approveEverySend)) {
-			answer = await (
-				deps.act.run as unknown as (input: {
-					callId: string;
-					key: PhoneCapabilityKey;
-					params: unknown;
-				}) => Promise<PhoneAnswer>
-			)({ callId: request.callId, key: request.key, params });
+			answer = await deps.act.run({ callId: request.callId, key: request.key, params });
 		} else {
 			const guard: CapabilityGuard = declaration.kind === "guarded" ? "unasked" : "none";
-			const opened = await (
-				deps.phone.open as unknown as (input: {
-					callId: string;
-					key: PhoneCapabilityKey;
-					params: unknown;
-					guard: CapabilityGuard;
-				}) => ReturnType<PhoneRequests["open"]>
-			)({
+			const opened = await deps.phone.open({
 				callId: request.callId,
 				key: request.key,
 				params,
