@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Bundle
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.atelier_nyaarium.switchboard.SwitchboardService.Companion.CHANNEL_SPEECH_FAILED
@@ -226,7 +227,7 @@ internal class ServiceNotifications(private val context: Context) {
 	 * Null when the team has nothing unread (nothing to show). */
 	private fun teamNotificationBuilder(repo: ChatRepository, state: ChatState, team: String): NotificationCompat.Builder? {
 		val thread = state.threads[team].orEmpty()
-		val rows = unreadRows(thread, state.readAnchors[team])
+		val rows = unreadRows(thread, state.readAnchors[conversationStream(team)])
 		val last = rows.lastOrNull() ?: return null
 		// Only the assistant writes records.
 		if (isAssistant(state, team) || thread.any { it.record != null }) {
@@ -329,16 +330,28 @@ internal class ServiceNotifications(private val context: Context) {
 	 * state.closedTeams either: a user who closed the tab after scheduling still needs to hear that
 	 * it failed. */
 	internal fun notifyScheduledSendFailed(repo: ChatRepository, team: String, opId: String) {
+		val position = repo.scheduled.takeFailurePosition(opId)
 		if (!canNotify()) return
 		val state = repo.state.value
+		if (position != null && shouldCancelScheduledFailureNotification(team, state.readAnchors, position)) return
 		val label = state.label(team)
-		val notification = NotificationCompat.Builder(context, CHANNEL_SCHEDULED_SEND_FAILED)
+		val builder = NotificationCompat.Builder(context, CHANNEL_SCHEDULED_SEND_FAILED)
 			.setSmallIcon(android.R.drawable.stat_notify_error)
 			.setContentTitle("Scheduled send failed")
 			.setContentText("Could not send to $label")
 			.setAutoCancel(true)
 			.setContentIntent(contentIntent(team))
-			.build()
+		if (position != null) {
+			builder
+				.setDeleteIntent(scheduledFailureDeleteIntent(team, position))
+				.addExtras(Bundle().apply {
+					putString(EXTRA_OPEN_TEAM, team)
+					putLong(NotificationReceiver.EXTRA_SCHEDULED_EPOCH, position.epoch)
+					putLong(NotificationReceiver.EXTRA_SCHEDULED_SEQ, position.seq)
+					putLong(NotificationReceiver.EXTRA_SCHEDULED_AT, position.at)
+				})
+		}
+		val notification = builder.build()
 		NotificationManagerCompat.from(context).notify(scheduledSendFailedNotificationId(team), notification)
 	}
 
@@ -353,7 +366,8 @@ internal class ServiceNotifications(private val context: Context) {
 	 * path itself would not have posted, nor re-alert one the user already dismissed by tapping. */
 	internal fun reconcileTeamNotifications(repo: ChatRepository, unread: Map<String, Int>) {
 		if (!canNotify()) return
-		val active = context.getSystemService(NotificationManager::class.java).activeNotifications.mapTo(HashSet()) { it.id }
+		val activeNotifications = context.getSystemService(NotificationManager::class.java).activeNotifications
+		val active = activeNotifications.mapTo(HashSet()) { it.id }
 		if (active.isEmpty()) return
 		val state = repo.state.value
 		val nmc = NotificationManagerCompat.from(context)
@@ -376,6 +390,38 @@ internal class ServiceNotifications(private val context: Context) {
 				nmc.cancel(id)
 			}
 		}
+		val scheduledFailureIds = SCHEDULED_SEND_FAILED_ID_RANGE_START until (
+			SCHEDULED_SEND_FAILED_ID_RANGE_START + SCHEDULED_SEND_FAILED_ID_RANGE_SIZE
+		)
+		for (shown in activeNotifications) {
+			if (shown.id !in scheduledFailureIds) continue
+			val extras = shown.notification.extras
+			val team = extras.getString(EXTRA_OPEN_TEAM) ?: continue
+			if (!extras.containsKey(NotificationReceiver.EXTRA_SCHEDULED_EPOCH)) continue
+			if (!extras.containsKey(NotificationReceiver.EXTRA_SCHEDULED_SEQ)) continue
+			if (!extras.containsKey(NotificationReceiver.EXTRA_SCHEDULED_AT)) continue
+			val failure = ReadAnchor(
+				extras.getLong(NotificationReceiver.EXTRA_SCHEDULED_EPOCH),
+				extras.getLong(NotificationReceiver.EXTRA_SCHEDULED_SEQ),
+				extras.getLong(NotificationReceiver.EXTRA_SCHEDULED_AT),
+			)
+			if (shouldCancelScheduledFailureNotification(team, state.readAnchors, failure)) nmc.cancel(shown.id)
+		}
+	}
+
+	private fun scheduledFailureDeleteIntent(team: String, position: ReadAnchor): PendingIntent {
+		val intent = Intent(context, NotificationReceiver::class.java)
+			.setAction(NotificationReceiver.ACTION_MARK_SCHEDULED_READ)
+			.putExtra(EXTRA_OPEN_TEAM, team)
+			.putExtra(NotificationReceiver.EXTRA_SCHEDULED_EPOCH, position.epoch)
+			.putExtra(NotificationReceiver.EXTRA_SCHEDULED_SEQ, position.seq)
+			.putExtra(NotificationReceiver.EXTRA_SCHEDULED_AT, position.at)
+		return PendingIntent.getBroadcast(
+			context,
+			scheduledSendFailedNotificationId(team),
+			intent,
+			PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+		)
 	}
 
 	/**

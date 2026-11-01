@@ -40,6 +40,7 @@ internal data class PhoneCapabilityRun(
 	val gatewayId: String,
 	val team: String,
 	val deadlineAt: Long,
+	val retainUntil: Long,
 	val answer: PhoneCapabilityAnswer? = null,
 	val delivered: Boolean = false,
 )
@@ -47,8 +48,7 @@ internal data class PhoneCapabilityRun(
 @Serializable
 private data class PhoneCapabilityRunBlob(
 	val runs: List<PhoneCapabilityRun> = emptyList(),
-	val retracted: Set<String> = emptySet(),
-	val retractedUntil: Map<String, Long> = emptyMap(),
+	val retracted: Map<String, Long> = emptyMap(),
 )
 
 internal sealed interface PhoneCapabilityRunStart {
@@ -98,14 +98,7 @@ internal class PhoneCapabilityJournal(
 		val raw = store.loadPhoneCapabilityRuns() ?: return PhoneCapabilityRunBlob()
 		val loaded = runIsolated { json.decodeFromString<PhoneCapabilityRunBlob>(raw) }.getOrDefault(PhoneCapabilityRunBlob())
 		val at = now()
-		val normalized = loaded.copy(
-			retractedUntil = loaded.retracted.associateWith { requestId ->
-				loaded.retractedUntil[requestId]
-					?: loaded.runs.firstOrNull { it.requestId == requestId }?.let { retentionUntil(it.deadlineAt) }
-					?: retentionUntil(at)
-			},
-		)
-		val live = prune(normalized, at)
+		val live = prune(loaded, at)
 		if (live != loaded) {
 			val saved = runIsolated {
 				store.savePhoneCapabilityRuns(json.encodeToString(PhoneCapabilityRunBlob.serializer(), live))
@@ -127,11 +120,7 @@ internal class PhoneCapabilityJournal(
 	private fun armPruneTimer(source: PhoneCapabilityRunBlob, at: Long) {
 		pruneJob?.cancel()
 		pruneJob = null
-		val cutoff = (source.runs.map { retentionUntil(it.deadlineAt) } + source.retracted.map { requestId ->
-			source.retractedUntil[requestId]
-				?: source.runs.firstOrNull { it.requestId == requestId }?.let { retentionUntil(it.deadlineAt) }
-				?: retentionUntil(at)
-		}).minOrNull() ?: return
+		val cutoff = (source.runs.map { it.retainUntil } + source.retracted.values).minOrNull() ?: return
 		if (cutoff == Long.MAX_VALUE) return
 		val waitMs = if (cutoff <= at) 1_000L else cutoff - at + 1L
 		pruneJob = timer.schedule(waitMs) {
@@ -151,22 +140,22 @@ internal class PhoneCapabilityJournal(
 	}
 
 	private fun prune(source: PhoneCapabilityRunBlob, at: Long): PhoneCapabilityRunBlob {
-		val retractedUntil = source.retracted.mapNotNull { requestId ->
-			val until = source.retractedUntil[requestId]
-				?: source.runs.firstOrNull { it.requestId == requestId }?.let { retentionUntil(it.deadlineAt) }
-				?: retentionUntil(at)
-			if (at <= until) requestId to until else null
-		}.toMap()
 		return source.copy(
-			runs = source.runs.filter { at <= retentionUntil(it.deadlineAt) },
-			retracted = retractedUntil.keys,
-			retractedUntil = retractedUntil,
+			runs = source.runs.filter { at <= it.retainUntil },
+			retracted = source.retracted.filterValues { at <= it },
 		)
 	}
 
-	private fun retentionUntil(deadlineAt: Long): Long =
-		if (deadlineAt > Long.MAX_VALUE - PHONE_CAPABILITY_RESTART_GRACE_MS) Long.MAX_VALUE
-		else deadlineAt + PHONE_CAPABILITY_RESTART_GRACE_MS
+	private fun retentionUntil(deadlineAt: Long, at: Long): Long {
+		val waitLimit = addSaturated(at, Protocol.Wire.PHONE_CAPABILITY_WAIT_MS.toLong())
+		return addSaturated(minOf(deadlineAt, waitLimit), PHONE_CAPABILITY_RESTART_GRACE_MS)
+	}
+
+	private fun retractionRetentionUntil(at: Long): Long =
+		addSaturated(addSaturated(at, Protocol.Wire.PHONE_CAPABILITY_WAIT_MS.toLong()), PHONE_CAPABILITY_RESTART_GRACE_MS)
+
+	private fun addSaturated(value: Long, amount: Long): Long =
+		if (value > Long.MAX_VALUE - amount) Long.MAX_VALUE else value + amount
 
 	suspend fun begin(gatewayId: String, team: String, row: PhoneCapabilityRow): PhoneCapabilityRunStart = lock.withLock {
 		val at = now()
@@ -179,7 +168,14 @@ internal class PhoneCapabilityJournal(
 			if (current != blob) persist(current, at)
 			return@withLock PhoneCapabilityRunStart.NotStored
 		}
-		val started = PhoneCapabilityRun(row.requestId, row.key, gatewayId, team, row.deadlineAt)
+		val started = PhoneCapabilityRun(
+			requestId = row.requestId,
+			key = row.key,
+			gatewayId = gatewayId,
+			team = team,
+			deadlineAt = row.deadlineAt,
+			retainUntil = retentionUntil(row.deadlineAt, at),
+		)
 		if (persist(current.copy(runs = current.runs + started), at)) PhoneCapabilityRunStart.Started(started) else PhoneCapabilityRunStart.NotStored
 	}
 
@@ -235,12 +231,10 @@ internal class PhoneCapabilityJournal(
 			if (saved) pendingRetractions.remove(requestId)
 			return@withLock
 		}
-		val until = live.runs.firstOrNull { it.requestId == requestId }?.let { retentionUntil(it.deadlineAt) }
-			?: retentionUntil(at)
+		val until = live.runs.firstOrNull { it.requestId == requestId }?.retainUntil ?: retractionRetentionUntil(at)
 		if (persist(
 			live.copy(
-				retracted = live.retracted + requestId,
-				retractedUntil = live.retractedUntil + (requestId to until),
+				retracted = live.retracted + (requestId to until),
 			),
 			at,
 		)) pendingRetractions.remove(requestId)
@@ -284,7 +278,7 @@ internal fun interface PhoneCapabilityJournalTimer {
 internal class PhoneCapabilityOps(
 	private val context: Context,
 	private val state: () -> ChatState,
-	private val self: () -> HoldSelf,
+	private val self: () -> HoldSelf?,
 	private val scope: CoroutineScope,
 	private val store: PhoneCapabilityStore,
 	private val client: () -> ConsoleClient?,
@@ -308,7 +302,6 @@ internal class PhoneCapabilityOps(
 	private val permissionContext = PhoneCapabilityContext(
 		applicationContext = context.applicationContext,
 		state = state,
-		self = { self().key },
 		permissionState = ::permissionState,
 	)
 

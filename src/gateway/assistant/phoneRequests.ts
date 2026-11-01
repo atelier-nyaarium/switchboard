@@ -2,8 +2,10 @@ import type { Ambient } from "../../shared/ambient.js";
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import type { DurableStore } from "../../shared/durable-store.js";
 import type { MIGRATING } from "../../shared/migration-fence.js";
+import { RowStampSchema } from "../../shared/schemasInbox.js";
 import {
 	PHONE_CAPABILITIES,
+	PHONE_CAPABILITY_WAIT_MS,
 	type PhoneCapabilityAnswer,
 	PhoneCapabilityAnswerSchema,
 	type PhoneCapabilityKey,
@@ -11,9 +13,9 @@ import {
 	PhoneCapabilityRowSchema,
 	type PhoneRequestOf,
 } from "../../shared/schemasPhoneCapabilities.js";
+import type { HolderKey } from "../../shared/schemasPhoneHold.js";
 import type { OwnerAppendAnswer } from "../consolePushOps.js";
 import { createOwnerRequests, type OpenStub, type OwnerRequestOpened } from "../ownerRequests.js";
-import { ASSISTANT_WAITS } from "./waits.js";
 
 export type PhoneRequest = Omit<PhoneCapabilityRow, "key"> & { key: PhoneCapabilityKey; sessionTarget: string };
 export type PhoneRequestAnswer = PhoneCapabilityAnswer | { kind: "refused"; reason: string };
@@ -33,19 +35,20 @@ export interface PhoneRequestsDeps {
 }
 
 export function createPhoneRequests(deps: PhoneRequestsDeps) {
-	const stamps = new Map<string, string>();
+	const stamps = new Map<string, HolderKey>();
 	const appendAnswers = new Map<string, Promise<OwnerAppendAnswer>>();
 	const core = createOwnerRequests<PhoneRequest, PhoneRequestAnswer>({
 		ambient: deps.ambient,
-		deadlineMs: ASSISTANT_WAITS.phone,
+		deadlineMs: PHONE_CAPABILITY_WAIT_MS,
 		maxOpenPerTarget: 8,
 		deliver: (request) => {
 			const delivered = deps.deliver(request);
 			if (typeof delivered !== "object") return delivered;
 			appendAnswers.set(request.requestId, delivered.completion);
 			void delivered.completion.then((answer) => {
-				if (answer.kind === "accepted" && answer.stamp) {
-					stamps.set(request.requestId, answer.stamp.holder);
+				const stamp = answer.kind === "accepted" ? RowStampSchema.safeParse(answer.stamp) : null;
+				if (stamp?.success) {
+					stamps.set(request.requestId, stamp.data.holder);
 					return;
 				}
 				const settled =
@@ -99,7 +102,7 @@ export function createPhoneRequests(deps: PhoneRequestsDeps) {
 	const answer = async (
 		requestId: string,
 		raw: unknown,
-		signer: string,
+		signer: HolderKey,
 	): Promise<{ ok: boolean; reason?: string }> => {
 		const request = core.live(requestId);
 		if (!request) return { ok: false, reason: core.answered(requestId) ? "already answered" : "request expired" };

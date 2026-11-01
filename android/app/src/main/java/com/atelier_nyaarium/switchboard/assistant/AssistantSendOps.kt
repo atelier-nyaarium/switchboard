@@ -4,8 +4,10 @@ import com.atelier_nyaarium.switchboard.ClearsOnReprovision
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.ConsoleClient
 import com.atelier_nyaarium.switchboard.DebugLog
+import com.atelier_nyaarium.switchboard.answerDeliverySettled
 import com.atelier_nyaarium.switchboard.runCatchingCancellable
 import com.atelier_nyaarium.switchboard.runIsolated
+import com.atelier_nyaarium.switchboard.wireJson
 import com.atelier_nyaarium.switchboard.proto.AssistantSendRequest
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantSendAnswerResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
@@ -14,6 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromJsonElement
 
 interface AssistantSendStore {
 	fun loadAssistantSends(): String?
@@ -121,7 +124,7 @@ internal class AssistantSendManager(private val store: AssistantSendStore) : Cle
 internal class AssistantSendOps(
 	private val state: MutableStateFlow<ChatState>,
 	private val manager: AssistantSendManager,
-	private val client: () -> ConsoleClient?,
+	private val send: suspend (String, ConsoleOp) -> ConsoleClient.ValueAnswer,
 ) {
 	val pending: StateFlow<List<PendingAssistantSend>> get() = manager.pending
 
@@ -145,22 +148,27 @@ internal class AssistantSendOps(
 			manager.sweepRequests()
 			return AssistantSendAnswer.Expired
 		}
-		val console = client() ?: return AssistantSendAnswer.Unreachable
-		val result = runCatchingCancellable {
-			console.valueResult<ConsoleAssistantSendAnswerResult>(
-				console.sendValueOp(
-					pending.gatewayId,
-					ConsoleOp.AssistantSendAnswer(
-						requestId = pending.request.requestId,
-						decision = decision,
-						note = note?.trim()?.ifEmpty { null },
-					),
+		val answer = runCatchingCancellable {
+			send(
+				pending.gatewayId,
+				ConsoleOp.AssistantSendAnswer(
+					requestId = pending.request.requestId,
+					decision = decision,
+					note = note?.trim()?.ifEmpty { null },
 				),
-				"assistant_send_answer",
 			)
 		}.onFailure { DebugLog.log("AssistantSend", "answer failed: ${it.message?.take(80)}") }.getOrNull()
 			?: return AssistantSendAnswer.Unreachable
+		if (!answerDeliverySettled(answer)) return AssistantSendAnswer.Unreachable
 		manager.settleRequest(pending.gatewayId, pending.request.requestId)
+		if (answer is ConsoleClient.ValueAnswer.Refused) {
+			state.update { it.copy(error = "Assistant: ${answer.reason}") }
+			return AssistantSendAnswer.Refused(answer.reason)
+		}
+		if (answer !is ConsoleClient.ValueAnswer.Answered) return AssistantSendAnswer.Unreachable
+		val result = runIsolated {
+			wireJson.decodeFromJsonElement<ConsoleAssistantSendAnswerResult>(answer.result)
+		}.getOrNull() ?: return AssistantSendAnswer.Unreachable
 		if (result.ok) return AssistantSendAnswer.Answered
 		val reason = result.reason ?: "The answer was refused"
 		state.update { it.copy(error = "Assistant: $reason") }

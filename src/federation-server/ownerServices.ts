@@ -229,6 +229,7 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 	});
 	const phoneHold = createPhoneHoldService({
 		registry,
+		lineageEpoch: (domainId) => presence.lineageEpoch(domainId),
 		pokeOwner: (domainId, version, payload) => {
 			const epoch = presence.lineageEpoch(domainId);
 			if (epoch !== null) deps.consoleSockets?.pushPlane(domainId, "phoneHold", { epoch, version }, payload);

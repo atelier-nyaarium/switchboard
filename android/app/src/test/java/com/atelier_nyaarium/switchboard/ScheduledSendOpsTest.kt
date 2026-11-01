@@ -162,7 +162,7 @@ class ScheduledSendOpsTest {
 	fun aSentResultEchoesTheMessageAndClearsTheRecord() = runBlocking {
 		val file = MessageFile("a.png", "image/png", src = "/tmp/a.png", blobId = "sha256-a")
 		val (state, fake, ops) = world(record(routerVersion = 4, files = listOf(file)))
-		ops.applyRouterResult(ScheduledResultRow("op", "sent", 9, envelope))
+		ops.applyRouterResult(ScheduledResultRow("op", "sent", 9, envelope), ReadAnchor(1, 1, 1))
 		val echo = fake.appended.single()
 		assertEquals("op", echo.opId)
 		assertEquals(listOf(file), echo.files)
@@ -174,10 +174,12 @@ class ScheduledSendOpsTest {
 	fun aFailedResultClearsTheRecordAndReportsIt() = runBlocking {
 		val (state, _, ops) = world(record(routerVersion = 4))
 		val failed = mutableListOf<String>()
+		val position = ReadAnchor(3, 8, 900)
 		ops.onScheduledSendFailed = { _, opId -> failed += opId }
-		ops.applyRouterResult(ScheduledResultRow("op", "failed", null, envelope))
+		ops.applyRouterResult(ScheduledResultRow("op", "failed", null, envelope), position)
 		assertEquals(listOf("op"), failed)
 		assertTrue(state.value.scheduledSends.isEmpty())
+		assertEquals(position, ops.takeFailurePosition("op"))
 	}
 
 	@Test
@@ -283,7 +285,7 @@ class ScheduledSendOpsTest {
 			if (kind == Protocol.Wire.OWNER_OP_SCHEDULE_LIST) JsonArray(listOf(wireJson.encodeToJsonElement(ScheduledRecord.serializer(), wire))) else null
 		}
 		fake.plaintext = """{"text":"later","messageId":"op9","files":[{"name":"a.png","mime":"image/png"}]}""".toByteArray()
-		ops.applyRouterResult(ScheduledResultRow("op9", "pending", null, envelope))
+		ops.applyRouterResult(ScheduledResultRow("op9", "pending", null, envelope), ReadAnchor(1, 1, 1))
 		val mirrored = state.value.scheduledSends.getValue(team)
 		assertEquals("later", mirrored.text)
 		assertEquals(11L, mirrored.routerVersion)
@@ -300,7 +302,7 @@ class ScheduledSendOpsTest {
 			if (kind == Protocol.Wire.OWNER_OP_SCHEDULE_LIST) JsonArray(listOf(wireJson.encodeToJsonElement(ScheduledRecord.serializer(), wire))) else null
 		}
 		fake.plaintext = """{"text":"later","messageId":"op9","files":[{"name":"a.png","mime":"image/png"}]}""".toByteArray()
-		ops.applyRouterResult(ScheduledResultRow("op9", "sent", null, envelope))
+		ops.applyRouterResult(ScheduledResultRow("op9", "sent", null, envelope), ReadAnchor(1, 1, 1))
 		assertEquals(listOf(team), fake.appendedTeams)
 		assertEquals("op9", fake.appended.single().opId)
 		assertEquals("sha256-a", fake.appended.single().files.single().blobId)
@@ -314,7 +316,7 @@ class ScheduledSendOpsTest {
 		fake.answers = { kind ->
 			if (kind == Protocol.Wire.OWNER_OP_SCHEDULE_LIST) JsonArray(listOf(wireJson.encodeToJsonElement(ScheduledRecord.serializer(), wire))) else null
 		}
-		ops.applyRouterResult(ScheduledResultRow("op9", "sent", null, envelope))
+		ops.applyRouterResult(ScheduledResultRow("op9", "sent", null, envelope), ReadAnchor(1, 1, 1))
 		assertTrue(fake.appended.isEmpty())
 	}
 }

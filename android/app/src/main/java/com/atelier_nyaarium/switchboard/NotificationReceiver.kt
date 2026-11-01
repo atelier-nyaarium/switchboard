@@ -28,6 +28,14 @@ class NotificationReceiver : BroadcastReceiver() {
 			val occurrenceId = intent.getStringExtra(EXTRA_OCCURRENCE) ?: return
 			return repo.command { routineOps.dismiss(routineId, occurrenceId, gatewayId) }
 		}
+		if (intent.action == ACTION_MARK_SCHEDULED_READ) {
+			val team = intent.getStringExtra(SwitchboardService.EXTRA_OPEN_TEAM)?.let(repo::fromCanonical) ?: return
+			val epoch = intent.getLongExtra(EXTRA_SCHEDULED_EPOCH, Long.MIN_VALUE)
+			val seq = intent.getLongExtra(EXTRA_SCHEDULED_SEQ, -1L)
+			val at = intent.getLongExtra(EXTRA_SCHEDULED_AT, -1L)
+			if (epoch == Long.MIN_VALUE || seq <= 0L || at < 0L) return
+			return repo.markScheduledResultRead(team, ReadAnchor(epoch, seq, at))
+		}
 		// A vault notification answers nothing from here; every answer lives in the sheet.
 		if (intent.hasExtra(SwitchboardService.EXTRA_VAULT_REQUEST)) return
 		val team = intent.getStringExtra(SwitchboardService.EXTRA_OPEN_TEAM)?.let(repo::fromCanonical) ?: return
@@ -50,6 +58,7 @@ class NotificationReceiver : BroadcastReceiver() {
 
 	companion object {
 		const val ACTION_MARK_READ = "com.atelier_nyaarium.switchboard.MARK_READ"
+		const val ACTION_MARK_SCHEDULED_READ = "com.atelier_nyaarium.switchboard.MARK_SCHEDULED_READ"
 		const val ACTION_PLAY_FULL = "com.atelier_nyaarium.switchboard.PLAY_FULL"
 		const val ACTION_PLAY_SUMMARY = "com.atelier_nyaarium.switchboard.PLAY_SUMMARY"
 		const val ACTION_STATUS_DISMISSED = "com.atelier_nyaarium.switchboard.STATUS_DISMISSED"
@@ -57,5 +66,8 @@ class NotificationReceiver : BroadcastReceiver() {
 		const val EXTRA_GATEWAY = "gateway"
 		const val EXTRA_ROUTINE = "routine"
 		const val EXTRA_OCCURRENCE = "occurrence"
+		const val EXTRA_SCHEDULED_EPOCH = "scheduled_epoch"
+		const val EXTRA_SCHEDULED_SEQ = "scheduled_seq"
+		const val EXTRA_SCHEDULED_AT = "scheduled_at"
 	}
 }

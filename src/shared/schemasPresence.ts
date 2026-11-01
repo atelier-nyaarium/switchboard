@@ -155,15 +155,10 @@ export const CrossDomainPresenceEntrySchema = z
 	})
 	.meta({ id: "CrossDomainPresenceEntry" });
 
-/** One team's synced read position: the furthest any of this owner's OWN devices has confirmed
- * reading, merged monotonically server-side (see ReadAnchors.report - never regresses). `epoch`/
- * `seq` are the SAME mailbox journal coordinate the app's own local ReadAnchor already uses
- * (device-mailbox.ts) - meaningful across an owner's whole device fleet because the mailbox itself
- * is already shared per owner, not per device. An array (never a map - codegen has no typed map
- * outside the fixture gates), one entry per team that has ever been reported. */
+/** One synced read stream. */
 export const ReadAnchorWireEntrySchema = z
 	.object({
-		team: z.string(),
+		stream: z.string(),
 		epoch: z.number().int(),
 		seq: z.number().int().nonnegative(),
 		at: z.number().int().nonnegative(),

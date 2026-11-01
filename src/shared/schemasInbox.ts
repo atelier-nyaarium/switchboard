@@ -4,6 +4,8 @@ import { canonicalJson, sha256Hex } from "./canonical-json.js";
 import { b64Field, SealedEnvelopeSchema, sign, verify } from "./crypto.js";
 import { CONVERSATION_ID_RE, MAX_CONVERSATION_ID_LEN } from "./host-op.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
+import { HolderKeySchema } from "./schemasPhoneHold.js";
+import { PlaneLineageSchema } from "./schemasPlaneLineage.js";
 import { SIGNING_TAGS } from "./wire-vocabulary.js";
 
 const idField = (max: number) =>
@@ -108,7 +110,7 @@ export const RowEnvelopeSchema = z
 
 /** Router-owned stamp; outside envelope. */
 /** Holder's signing key. */
-export const RowStampSchema = z.object({ holder: b64Field() }).meta({ id: "RowStamp" });
+export const RowStampSchema = z.object({ holder: b64Field().pipe(HolderKeySchema) }).meta({ id: "RowStamp" });
 
 export type RowStamp = z.infer<typeof RowStampSchema>;
 
@@ -205,12 +207,7 @@ export const OwnerOpSchema = z
 export type OwnerOp = z.infer<typeof OwnerOpSchema>;
 export type OwnerOpFields = Omit<OwnerOp, "signature">;
 
-/** Where a Router plane stands. `epoch` is a random tag compared for equality only; `version` orders inside it. */
-export const PlaneLineageSchema = z
-	.object({ epoch: z.number().int().positive(), version: z.number().int().nonnegative() })
-	.meta({ id: "PlaneLineage" });
-
-export type PlaneLineage = z.infer<typeof PlaneLineageSchema>;
+export { type PlaneLineage, PlaneLineageSchema } from "./schemasPlaneLineage.js";
 
 export const PlanesReadValueSchema = z
 	.object({ kind: z.literal("planes_read"), known: z.record(z.string(), PlaneLineageSchema) })

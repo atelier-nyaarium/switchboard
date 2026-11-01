@@ -29,7 +29,7 @@ import {
 } from "../../shared/schemasAssistantRules.js";
 import type { AssistantSendRequest } from "../../shared/schemasAssistantSend.js";
 import type { GatewayCapabilityRuns } from "../../shared/schemasPhoneCapabilities.js";
-import type { PhoneHoldRecord } from "../../shared/schemasPhoneHold.js";
+import type { PhoneHoldPlane } from "../../shared/schemasPhoneHold.js";
 import { type BaselineHold, holdLine, type SessionBaseline } from "../../shared/session-baseline.js";
 import { ASSISTANT_COMMANDS } from "../../shared/session-commands.js";
 import { neutralizeMarkup, oneLine } from "../../shared/system-reminder.js";
@@ -131,8 +131,7 @@ export interface AssistantStage {
 	placed: () => boolean;
 	/** Null means unwritten. */
 	follow: (record: AssistantHomeRecord | null, how: { registered: boolean }) => Promise<void>;
-	followPhoneHold: (record: PhoneHoldRecord | null) => void;
-	phoneHoldRevision: () => number;
+	followPhoneHold: (plane: PhoneHoldPlane) => void;
 	holdAnswer: () => HoldAnswer;
 	phoneHoldLine: () => string;
 	bindHome: (port: AssistantHomePort) => void;
@@ -630,7 +629,6 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		placed: () => held() !== undefined && home.allowsLanes(),
 		follow: homeFollow.follow,
 		followPhoneHold: phoneHold.apply,
-		phoneHoldRevision: phoneHold.revision,
 		holdAnswer: phoneHold.answer,
 		phoneHoldLine: () => renderPhoneHold(phoneHold.answer()).line,
 		bindHome: (port) => {
@@ -734,7 +732,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 				return state();
 			},
 			answerSend: (requestId, decision, note) => guard.answer(requestId, decision, note),
-			answerPhone: (requestId, answer, device) => phoneRequests.answer(requestId, answer, device),
+			answerPhone: (requestId, answer, signer) => phoneRequests.answer(requestId, answer, signer),
 			answerAct: (requestId, decision, note) => actGuard.answer(requestId, decision, note),
 			/** Over the live first page, from the rule's place. */
 			previewRule: async (watcherId, rule) => {

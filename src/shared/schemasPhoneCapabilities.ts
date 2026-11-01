@@ -5,6 +5,8 @@ import type { AssistantActionKey } from "./schemasAssistantActions.js";
 
 export const PHONE_CAPABILITY_PATH = "/assistant/phone";
 
+export const PHONE_CAPABILITY_WAIT_MS = 120_000;
+
 export const PHONE_PERMISSIONS = ["contacts", "calendar", "notifications", "send_sms", "call_phone"] as const;
 
 export const PhonePermissionSchema = z.enum(PHONE_PERMISSIONS).meta({ id: "PhonePermission" });

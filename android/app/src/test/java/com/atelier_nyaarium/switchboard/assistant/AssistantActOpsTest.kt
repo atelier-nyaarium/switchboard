@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard.assistant
 
+import com.atelier_nyaarium.switchboard.ConsoleClient
 import com.atelier_nyaarium.switchboard.proto.AssistantActRequest
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import kotlinx.coroutines.runBlocking
@@ -26,7 +27,7 @@ class AssistantActOpsTest {
 				answerGateway = gateway
 				answered = op
 				answerOpId = opId
-				buildJsonObject { put("ok", true) }
+				ConsoleClient.ValueAnswer.Answered(buildJsonObject { put("ok", true) })
 			},
 		)
 
@@ -38,6 +39,45 @@ class AssistantActOpsTest {
 		assertEquals("Do not run", answered?.note)
 		assertTrue(ops.pending.value.isEmpty())
 	}
+
+	@Test
+	fun routerNonDeliveryKeepsTheActCardUntilAnswered() = runBlocking {
+		val manager = AssistantActManager(MemoryStore())
+		val request = actRequest()
+		assertTrue(manager.onRequest("gateway-a", "team-a", request))
+		val answers = listOf(
+			ConsoleClient.ValueAnswer.Undelivered("no holder"),
+			ConsoleClient.ValueAnswer.Answered(buildJsonObject { put("ok", true) }),
+		)
+		var calls = 0
+		val ops = AssistantActOps(manager, { true }) { _, _, _ -> answers[calls++] }
+		val pending = ops.request("gateway-a", request.requestId)!!
+
+		assertEquals(AssistantActAnswer.Unreachable, ops.answer(pending, "deny"))
+		assertTrue(ops.request("gateway-a", request.requestId) != null)
+		assertEquals(AssistantActAnswer.Answered, ops.answer(pending, "deny"))
+		assertTrue(ops.pending.value.isEmpty())
+	}
+
+	@Test
+	fun aGatewayRefusalSettlesTheActCardWithItsReason() = runBlocking {
+		val manager = AssistantActManager(MemoryStore())
+		val request = actRequest()
+		assertTrue(manager.onRequest("gateway-a", "team-a", request))
+		val ops = AssistantActOps(manager, { true }) { _, _, _ -> ConsoleClient.ValueAnswer.Refused("request expired") }
+		val pending = ops.request("gateway-a", request.requestId)!!
+
+		assertEquals(AssistantActAnswer.Refused("request expired"), ops.answer(pending, "deny"))
+		assertTrue(ops.pending.value.isEmpty())
+	}
+
+	private fun actRequest() = AssistantActRequest(
+		"act-call-1234",
+		"torch",
+		"Torch",
+		"Turn on",
+		System.currentTimeMillis() + 60_000L,
+	)
 
 	private class MemoryStore : AssistantActStore {
 		var raw: String? = null

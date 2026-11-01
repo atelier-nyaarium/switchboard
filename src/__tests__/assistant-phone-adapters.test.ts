@@ -8,10 +8,11 @@ import { createPhoneDispatch } from "../gateway/assistant/phoneDispatch.js";
 import { createPhoneRequests } from "../gateway/assistant/phoneRequests.js";
 import { createConsolePushOps } from "../gateway/consolePushOps.js";
 import { generateIdentity } from "../shared/crypto.js";
+import { HolderKeySchema } from "../shared/schemasPhoneHold.js";
 import { Address } from "../shared/session-id.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 
-const HOLDER_KEY = generateIdentity().sign.pub;
+const HOLDER_KEY = HolderKeySchema.parse(generateIdentity().sign.pub);
 
 describe("phone request append completion", () => {
 	it("returns the Router stamp and carries the holder recipient", async () => {
@@ -245,7 +246,7 @@ describe("phone request append completion", () => {
 					delivered.push(request.requestId);
 					return {
 						queued: true,
-						completion: Promise.resolve({ kind: "accepted", stamp: { holder: "phone-a" } }),
+						completion: Promise.resolve({ kind: "accepted", stamp: { holder: HOLDER_KEY } }),
 					};
 				},
 				retract: () => true,

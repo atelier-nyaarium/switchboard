@@ -32,6 +32,12 @@
 			"peer": "router"
 		},
 		{
+			"file": "gateway/router/phoneHold/read.json",
+			"composer": "gateway/router/phoneHold",
+			"case": "read",
+			"peer": "router"
+		},
+		{
 			"file": "gateway/consolePushOps/message.json",
 			"composer": "gateway/consolePushOps",
 			"case": "message",

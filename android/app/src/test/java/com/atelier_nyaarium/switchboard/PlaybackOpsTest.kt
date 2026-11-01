@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.crypto.Crypto
 import com.atelier_nyaarium.switchboard.proto.SttsDefaults
 import com.atelier_nyaarium.switchboard.proto.SttsProvider
 import com.atelier_nyaarium.switchboard.proto.PhoneHold
@@ -116,7 +117,7 @@ class PlaybackOpsTest {
 			object : PlaybackOpsCollaborators {
 				override fun openThread(team: String) = team
 			},
-			speaksForHold = { today -> speaksFor(state.value.phoneHold, HoldSelf.fromConsoleSigningKey("console-key-a"), System.currentTimeMillis(), today) },
+			speaksForHold = { today -> speaksFor(state.value.phoneHold, holdSelf("console-key-a"), System.currentTimeMillis(), today) },
 		)
 
 		fun close() {
@@ -126,6 +127,10 @@ class PlaybackOpsTest {
 	}
 
 	private val fixtures = mutableListOf<Fixture>()
+
+	private fun holdSelf(key: String): HoldSelf = HoldSelf.of(
+		Crypto.Identity(Crypto.KeyPairRaw(key, ""), Crypto.KeyPairRaw("", "")),
+	)
 
 	@After
 	fun closeFixtures() {

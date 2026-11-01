@@ -36,18 +36,32 @@ internal suspend fun ChatRepository.clearThrough(team: String, rowId: Long, rowA
  * Advances the persisted anchor to the thread's tail - not just the volatile `unread` count -
  * so a deliberate dismiss survives a process restart instead of resurrecting. */
 fun ChatRepository.markRead(team: String) {
+	val stream = conversationStream(team)
 	var anchorChanged = false
 	_state.update { s ->
 		val thread = s.threads[team].orEmpty()
 		val candidate = lastInboundAnchor(thread)
-		val withAnchor = if (candidate != null && isAnchorAdvance(thread, s.readAnchors[team], candidate)) {
+		val withAnchor = if (candidate != null && isAnchorAdvance(thread, s.readAnchors[stream], candidate)) {
 			anchorChanged = true
-			s.copy(readAnchors = s.readAnchors + (team to candidate))
+			s.copy(readAnchors = s.readAnchors + (stream to candidate))
 		} else {
 			anchorChanged = false
 			s
 		}
 		withAnchor.recomputeUnread(team, thread)
+	}
+	if (anchorChanged) persistence.persistReadAnchors()
+	repoScope.launch(Dispatchers.IO) { presence.reportLocalReadAdvances() }
+}
+
+fun ChatRepository.markScheduledResultRead(team: String, candidate: ReadAnchor) {
+	val stream = scheduledResultsStream(team)
+	var anchorChanged = false
+	_state.update { state ->
+		val current = state.readAnchors[stream]
+		val merged = mergeStreamAnchor(current, candidate)
+		anchorChanged = merged != current
+		if (anchorChanged) state.copy(readAnchors = state.readAnchors + (stream to merged)) else state
 	}
 	if (anchorChanged) persistence.persistReadAnchors()
 	repoScope.launch(Dispatchers.IO) { presence.reportLocalReadAdvances() }
@@ -87,7 +101,7 @@ fun ChatRepository.reorderTabs(newOrder: List<String>) {
 fun ChatRepository.unreadBoundary(team: String): Pair<Long?, List<Long>> {
 	val s = _state.value
 	val thread = s.threads[team].orEmpty()
-	val anchor = s.readAnchors[team]
+	val anchor = s.readAnchors[conversationStream(team)]
 	return firstUnreadId(thread, anchor) to unreadRows(thread, anchor).map { it.id }
 }
 
@@ -97,13 +111,14 @@ fun ChatRepository.unreadBoundary(team: String): Pair<Long?, List<Long>> {
  * only advances the anchor when that resolves to a genuinely later position - so a stale or
  * duplicate report is a harmless no-op. */
 fun ChatRepository.readUpTo(team: String, rowId: Long, at: Long) {
+	val stream = conversationStream(team)
 	var changed = false
 	_state.update { s ->
 		val thread = s.threads[team].orEmpty()
 		val candidate = resolveReportedAnchor(thread, rowId, at)
-		if (candidate != null && isAnchorAdvance(thread, s.readAnchors[team], candidate)) {
+		if (candidate != null && isAnchorAdvance(thread, s.readAnchors[stream], candidate)) {
 			changed = true
-			s.copy(readAnchors = s.readAnchors + (team to candidate)).recomputeUnread(team, thread)
+			s.copy(readAnchors = s.readAnchors + (stream to candidate)).recomputeUnread(team, thread)
 		} else {
 			changed = false
 			s

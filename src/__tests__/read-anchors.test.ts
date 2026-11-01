@@ -5,7 +5,7 @@ import { PlaneRegistry } from "../shared/plane-registry.js";
 import { ReportReadSchema } from "../shared/schemasTier1.js";
 
 describe("ReadAnchors", () => {
-	it("the first report for a team always advances (nothing stored yet)", () => {
+	it("the first report for a stream advances", () => {
 		const registry = new PlaneRegistry(processAmbient());
 		const anchors = new ReadAnchors(registry, undefined);
 		expect(anchors.report("alice", "team-a", { epoch: 1, seq: 10, at: 1000 })).toBe(true);
@@ -118,10 +118,10 @@ describe("ReadAnchors", () => {
 			anchors.report("alice", "team-a", { epoch: 1, seq: 10, at: 1000 });
 			anchors.report("bob", "team-a", { epoch: 1, seq: 999, at: 1000 });
 			expect(registry.snapshot(readAnchorsPlaneName("alice"))).toEqual([
-				{ team: "team-a", epoch: 1, seq: 10, at: 1000 },
+				{ stream: "team-a", epoch: 1, seq: 10, at: 1000 },
 			]);
 			expect(registry.snapshot(readAnchorsPlaneName("bob"))).toEqual([
-				{ team: "team-a", epoch: 1, seq: 999, at: 1000 },
+				{ stream: "team-a", epoch: 1, seq: 999, at: 1000 },
 			]);
 		});
 	});
@@ -156,14 +156,18 @@ describe("ReadAnchors", () => {
 	});
 
 	describe("abuse hardening", () => {
-		it("report_read's wire schema rejects an epoch outside the range a real device could ever mint", () => {
-			const report = (epoch: number) => ({ kind: "report_read", team: "team-a", epoch, seq: 0, at: 0 });
-			expect(ReportReadSchema.safeParse(report(0x7fffffff + 1)).success).toBe(false);
-			expect(ReportReadSchema.safeParse(report(-1)).success).toBe(false);
-			expect(ReportReadSchema.safeParse(report(0x7fffffff)).success).toBe(true);
+		it("report_read accepts scheduled streams and rejects team keys", () => {
+			const report = (stream: string, epoch = 1) => ({ kind: "report_read", stream, epoch, seq: 0, at: 0 });
+			expect(ReportReadSchema.safeParse(report(`scheduled:${"x".repeat(320)}`)).success).toBe(true);
+			expect(
+				ReportReadSchema.safeParse({ kind: "report_read", team: "team-a", epoch: 1, seq: 0, at: 0 }).success,
+			).toBe(false);
+			expect(ReportReadSchema.safeParse(report("team-a", 0x7fffffff + 1)).success).toBe(false);
+			expect(ReportReadSchema.safeParse(report("team-a", -1)).success).toBe(false);
+			expect(ReportReadSchema.safeParse(report("team-a", 0x7fffffff)).success).toBe(true);
 		});
 
-		it("report() refuses a genuinely NEW team beyond the per-owner cap, without disturbing already-tracked teams", () => {
+		it("report() refuses a new stream beyond the per-owner cap", () => {
 			const registry = new PlaneRegistry(processAmbient());
 			const anchors = new ReadAnchors(registry, undefined);
 			for (let i = 0; i < 500; i++) {

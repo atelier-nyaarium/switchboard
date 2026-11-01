@@ -72,7 +72,7 @@ class ChatRepository(
 	)
 
 	internal val planeFetches = java.util.concurrent.ConcurrentHashMap<String, PlaneFetch>()
-	internal var onScheduledResult: (com.atelier_nyaarium.switchboard.proto.ScheduledResultRow) -> Unit = {}
+	internal var onScheduledResult: (com.atelier_nyaarium.switchboard.proto.ScheduledResultRow, ReadAnchor) -> Unit = { _, _ -> }
 	internal var onBoardObservation: (com.atelier_nyaarium.switchboard.proto.BoardObservationRow) -> Unit = {}
 
 	internal val persistence: ChatPersistence = ChatPersistence(store) { _state.value }
@@ -367,7 +367,7 @@ class ChatRepository(
 		collaborators = playbackCollaborators,
 		speaksForHold = { todayRule -> phoneHoldOps.speaks(todayRule) },
 	)
-	internal fun holdSelf(): HoldSelf = HoldSelf.fromConsoleSigningKey(readyOrNull()?.consoleIdentity?.sign?.pub.orEmpty())
+	internal fun holdSelf(): HoldSelf? = readyOrNull()?.consoleIdentity?.let { HoldSelf.of(it) }
 
 	internal val phoneHoldOps: PhoneHoldOps = PhoneHoldOps(
 		state = _state,
@@ -375,6 +375,8 @@ class ChatRepository(
 		router = OwnerOpHoldRouter { op ->
 			ownerOpsOrNull()?.sign(op)?.let { clientOrNull()?.postOwnerOp(it) }
 		},
+		applyPlane = { lineage, payload -> drain.applyPlane(PHONE_HOLD_PLANE, lineage, payload) },
+		pullPlanes = { drain.pullPlanes() },
 		scope = repoScope,
 		clearSpeech = { playback.clearForOtherHolder() },
 	)
@@ -401,14 +403,14 @@ class ChatRepository(
 	internal val routineOps = RoutineOps(state = _state, host = ChatRepositoryRoutineHost(this))
 	internal val policyOps = PolicyOps(state = _state, host = ChatRepositoryPolicyHost(this))
 	internal val assistantOps = AssistantOps(state = _state, host = ChatRepositoryAssistantHost(this))
-	internal val assistantSendOps = com.atelier_nyaarium.switchboard.assistant.AssistantSendOps(_state, assistantSends, ::clientOrNull)
+	internal val assistantSendOps = com.atelier_nyaarium.switchboard.assistant.AssistantSendOps(_state, assistantSends) { gatewayId, op ->
+		clientOrNull()?.sendValueAnswer(gatewayId, op) ?: ConsoleClient.ValueAnswer.Unreachable
+	}
 	internal val assistantActOps = com.atelier_nyaarium.switchboard.assistant.AssistantActOps(
 		manager = assistantActs,
 		ownerPresent = vaultOps::ownerPresent,
 		send = { gatewayId, op, opId ->
-			clientOrNull()?.let { console ->
-				console.valueResult<kotlinx.serialization.json.JsonObject>(console.sendValueOp(gatewayId, op, opId), "assistant_act_answer")
-			}
+			clientOrNull()?.sendValueAnswer(gatewayId, op, opId) ?: ConsoleClient.ValueAnswer.Unreachable
 		},
 	)
 	/** One shared draft writer. */

@@ -60,6 +60,7 @@ export const ChannelReplySchema = z
 
 export type ChannelReplyArgs = z.infer<typeof ChannelReplySchema>;
 
+// FIXME: validate against a real schema.
 export const ChannelReplyStructuredSchema = z
 	.object({
 		session_id: z.string().describe(`The session_id for this request. Required to route the reply correctly.`),

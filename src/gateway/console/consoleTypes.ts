@@ -22,6 +22,7 @@ import type {
 import type { ConsoleAssistantSendAnswerResult } from "../../shared/schemasAssistantSend.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
 import type { PhoneCapabilityAnswer } from "../../shared/schemasPhoneCapabilities.js";
+import type { HolderKey } from "../../shared/schemasPhoneHold.js";
 import type {
 	AuthorizationPolicy,
 	ConsolePolicyDeleteResult,
@@ -159,7 +160,7 @@ export interface AssistantConsoleHandlers {
 	answerPhone: (
 		requestId: string,
 		answer: PhoneCapabilityAnswer,
-		device: string,
+		signer: HolderKey,
 	) => Promise<{ ok: boolean; reason?: string }>;
 	answerAct: (requestId: string, decision: "approve" | "deny", note?: string) => { ok: boolean; reason?: string };
 }

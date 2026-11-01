@@ -142,11 +142,11 @@ describe("Router tier 1 services", () => {
 		expect(service.report("a", "team", { epoch: 1, seq: 5, at: 2 })).toBe(false);
 		expect(service.read("a").version.version).toBe(first.version.version);
 		expect(service.report("a", "team", { epoch: 2, seq: 1, at: 3 })).toBe(true);
-		expect(service.read("a").anchors).toEqual([{ team: "team", epoch: 2, seq: 1, at: 3 }]);
+		expect(service.read("a").anchors).toEqual([{ stream: "team", epoch: 2, seq: 1, at: 3 }]);
 		registry.close();
 	});
 
-	it("stores a team named version without replacing the version record", () => {
+	it("stores a stream named version without replacing the version record", () => {
 		const { registry } = make();
 		const service = createReadAnchorsService({ registry });
 		const initial = service.read("a");
@@ -155,12 +155,12 @@ describe("Router tier 1 services", () => {
 
 		expect(service.read("a")).toMatchObject({
 			version: { epoch: initial.version.epoch, version: initial.version.version + 1 },
-			anchors: [{ team: "version", epoch: 1, seq: 1, at: 1 }],
+			anchors: [{ stream: "version", epoch: 1, seq: 1, at: 1 }],
 		});
 		registry.close();
 	});
 
-	it("isolates Domains and caps new anchor teams", () => {
+	it("isolates Domains and caps new anchor streams", () => {
 		const { registry } = make();
 		const service = createReadAnchorsService({ registry });
 		service.report("a", "same", { epoch: 1, seq: 1, at: 1 });
@@ -183,7 +183,7 @@ describe("Router tier 1 services", () => {
 
 		await ownerOps.get("report_read")?.(op, {
 			kind: "report_read",
-			team: "team",
+			stream: "team",
 			epoch: 1,
 			seq: 1,
 			at: Number.MAX_SAFE_INTEGER,
@@ -191,7 +191,7 @@ describe("Router tier 1 services", () => {
 		setNow(2000);
 		const advanced = await ownerOps.get("report_read")?.(op, {
 			kind: "report_read",
-			team: "team",
+			stream: "team",
 			epoch: 2,
 			seq: 1,
 			at: 1,
@@ -218,12 +218,12 @@ describe("Router tier 1 services", () => {
 		expect([...classes]).toEqual([["capabilities_read", "read"]]);
 		const op = { domainId: "a", conversationId: "phone" } as Parameters<ErasedOwnerOpHandler>[0];
 		await ownerOps.get("capabilities_report")?.(op, { kind: "capabilities_report", capabilities: [] });
-		await ownerOps.get("report_read")?.(op, { kind: "report_read", team: "team", epoch: 1, seq: 1, at: 1 });
+		await ownerOps.get("report_read")?.(op, { kind: "report_read", stream: "team", epoch: 1, seq: 1, at: 1 });
 		expect(await ownerOps.get("capabilities_read")?.(op, { kind: "capabilities_read" })).toMatchObject({
 			known: true,
 		});
 		expect(await ownerOps.get("read_anchors_read")?.(op, { kind: "read_anchors_read" })).toMatchObject({
-			anchors: [{ team: "team" }],
+			anchors: [{ stream: "team" }],
 		});
 		expect(
 			await gatewayFrames.get("capabilities_read")?.({ domainId: "a" } as Parameters<GatewayFrameHandler>[0], {
@@ -247,7 +247,7 @@ describe("Router tier 1 services", () => {
 			outcome: "durability_failure",
 		});
 		expect(
-			await ownerOps.get("report_read")?.(op, { kind: "report_read", team: "team", epoch: 1, seq: 1, at: 1 }),
+			await ownerOps.get("report_read")?.(op, { kind: "report_read", stream: "team", epoch: 1, seq: 1, at: 1 }),
 		).toEqual({
 			outcome: "durability_failure",
 		});

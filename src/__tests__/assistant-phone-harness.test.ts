@@ -79,6 +79,7 @@ describe("phone capabilities through the federation harness", () => {
 
 		const claimed = await h.phone.claimHold();
 		expect(claimed.hold).toMatchObject({ holder: h.phone.signerSignPub, label: h.phone.device });
+		expect(claimed.lineage?.version).toBe(claimed.hold.version);
 		await waitForHold("held");
 	});
 
@@ -162,16 +163,17 @@ describe("phone capabilities through the federation harness", () => {
 
 	it("hands one phone's read anchor to the other through the plane", async () => {
 		const team = "domain.gateway.host.journal";
-		const reported = await h.phone.reportRead(team, 1, 5);
+		const stream = `scheduled:${team}`;
+		const reported = await h.phone.reportRead(stream, 1, 5);
 		expect(reported.status).toBe(200);
 
 		const anchors = await h.waitFor(async () => {
 			const { planes } = await h.phone2.planesRead({});
 			const plane = planes.find((candidate) => candidate.name === "readAnchors");
-			const payload = plane?.payload as { anchors?: Array<{ team: string; seq: number }> } | undefined;
-			return payload?.anchors?.find((anchor) => anchor.team === team);
+			const payload = plane?.payload as { anchors?: Array<{ stream: string; seq: number }> } | undefined;
+			return payload?.anchors?.find((anchor) => anchor.stream === stream);
 		}, "read anchor on the second phone");
-		expect(anchors).toMatchObject({ team, seq: 5 });
+		expect(anchors).toMatchObject({ stream, seq: 5 });
 	});
 
 	// Lapses the hold; keep last.

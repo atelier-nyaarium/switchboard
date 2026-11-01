@@ -17,6 +17,7 @@ import { ASSISTANT_ACTION_PATH } from "../shared/schemasAssistantActions.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../shared/schemasAssistantHome.js";
 import type { AssistantFieldSpec, AssistantRule, AssistantWatcherRules } from "../shared/schemasAssistantRules.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
+import { HolderKeySchema } from "../shared/schemasPhoneHold.js";
 import { ASSISTANT_COMMANDS } from "../shared/session-commands.js";
 import { SessionStore } from "../shared/session-store.js";
 import { type FakeAmbient, fakeAmbient } from "../testing/fakeAmbient.js";
@@ -379,11 +380,14 @@ describe("the assistant's session", () => {
 		const ask = async (caller: string) =>
 			(await route(new Request("http://gateway/", { headers: { "x-caller": caller } }), {})).json();
 		const before = await ask("assistant");
-		test.assistant.followPhoneHold({ holder: "phone-a", label: "Pixel", claimedAt: T0, version: 1 });
+		test.assistant.followPhoneHold({
+			hold: { holder: HolderKeySchema.parse("phone-a"), label: "Pixel", claimedAt: T0, version: 1 },
+			version: 1,
+		});
 		const after = await ask("assistant");
 		now += 10 * 60_000;
 		const lapsed = await ask("assistant");
-		test.assistant.followPhoneHold(null);
+		test.assistant.followPhoneHold({ hold: null, version: 2 });
 		const cleared = await ask("assistant");
 		const stranger = await ask("someone");
 		const unauthenticated = await ask("");

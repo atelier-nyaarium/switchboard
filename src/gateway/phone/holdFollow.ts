@@ -1,19 +1,25 @@
 import type { HoldAnswer } from "../../shared/assistant-hold.js";
-import { holdStanding, PHONE_HOLD_WINDOW_MS, type PhoneHoldRecord } from "../../shared/schemasPhoneHold.js";
+import {
+	holdStanding,
+	PHONE_HOLD_WINDOW_MS,
+	type PhoneHoldPlane,
+	type PhoneHoldRecord,
+} from "../../shared/schemasPhoneHold.js";
 
 export function createHoldFollow(now: () => number) {
 	let hold: PhoneHoldRecord | null = null;
 	let swept = false;
-	let revision = 0;
+	let version = -1;
 
-	const apply = (record: PhoneHoldRecord | null): void => {
-		if (record === null) {
+	const apply = (plane: PhoneHoldPlane): void => {
+		if (plane.version <= version) return;
+		version = plane.version;
+		if (plane.hold === null) {
 			if (hold !== null) swept = true;
 		} else {
-			hold = record;
+			hold = plane.hold;
 			swept = false;
 		}
-		revision += 1;
 	};
 
 	const answer = (): HoldAnswer => {
@@ -40,8 +46,6 @@ export function createHoldFollow(now: () => number) {
 	return {
 		apply,
 		answer,
-		hold: () => hold,
-		revision: () => revision,
 	};
 }
 

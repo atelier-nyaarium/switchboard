@@ -1,8 +1,11 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.proto.PhoneCapabilityAnswer
+import com.atelier_nyaarium.switchboard.crypto.Crypto
 import com.atelier_nyaarium.switchboard.plugins.phone.stampedFor
+import com.atelier_nyaarium.switchboard.proto.PhoneCapabilityAnswer
+import com.atelier_nyaarium.switchboard.proto.PhoneHold
 import com.atelier_nyaarium.switchboard.proto.PhoneCapabilityRow
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.RowStamp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -97,6 +100,31 @@ class PhoneCapabilityOpsTest {
 	}
 
 	@Test
+	fun aFarDeadlineCannotExtendRetentionPastThePhoneWaitAndGrace() = runBlocking {
+		val store = MemoryStore()
+		val startAt = 100_000L
+		var now = startAt
+		val timer = ManualTimer()
+		val row = PhoneCapabilityRow(
+			"call-1234",
+			"torch",
+			JsonObject(emptyMap()),
+			"none",
+			startAt + Protocol.Wire.PHONE_CAPABILITY_WAIT_MS.toLong() * 10L,
+		)
+		val journal = PhoneCapabilityJournal(store, timer, now = { now })
+		assertTrue(journal.begin("gateway-a", "team-a", row) is PhoneCapabilityRunStart.Started)
+		journal.answer(row.requestId, PhoneCapabilityAnswer.Unavailable("timeout"))
+
+		now = startAt + Protocol.Wire.PHONE_CAPABILITY_WAIT_MS.toLong() + PHONE_CAPABILITY_RESTART_GRACE_MS - 1L
+		assertTrue(journal.begin("gateway-a", "team-a", row) is PhoneCapabilityRunStart.Existing)
+
+		now += 2L
+		timer.fire()
+		assertTrue(journal.begin("gateway-a", "team-a", row) is PhoneCapabilityRunStart.Started)
+	}
+
+	@Test
 	fun anActionRetractedBeforeBindingRunsNoHandler() = runBlocking {
 		val store = MemoryStore()
 		val row = PhoneCapabilityRow("call-1234", "torch", JsonObject(emptyMap()), "none", 200_000L)
@@ -137,9 +165,16 @@ class PhoneCapabilityOpsTest {
 
 	@Test
 	fun onlyThisPhonesStampRunsARow() {
-		assertTrue(stampedFor(RowStamp("phone-a"), "phone-a"))
-		assertFalse(stampedFor(RowStamp("phone-b"), "phone-a"))
-		assertFalse(stampedFor(null, "phone-a"))
+		val self = HoldSelf.of(Crypto.Identity(Crypto.KeyPairRaw("phone-a", ""), Crypto.KeyPairRaw("", "")))
+		assertTrue(stampedFor(RowStamp("phone-a"), self))
+		assertFalse(stampedFor(RowStamp("phone-b"), self))
+		assertFalse(stampedFor(null, self))
+	}
+
+	@Test
+	fun capabilityRefusesWhenPhoneIdentityIsUnavailable() {
+		val hold = PhoneHold("phone-a", "Phone A", 100L, 1L)
+		assertFalse(isCurrentPhoneHolder(hold, null, 101L))
 	}
 
 	@Test

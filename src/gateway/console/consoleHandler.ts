@@ -9,6 +9,7 @@ import {
 import { fenced, MIGRATING } from "../../shared/migration-fence.js";
 import { ownerKeyId } from "../../shared/owner-id.js";
 import { DELIVERY_OP_KINDS, TOLERATED_DELIVERY_OP_KINDS, VALUE_OP_KINDS } from "../../shared/schemasConsoleOp.js";
+import { type HolderKey, HolderKeySchema } from "../../shared/schemasPhoneHold.js";
 import { type Routine, routineSessionName } from "../../shared/schemasRoutine.js";
 import { SpawnPoint } from "../../shared/session-id.js";
 import type { WorkspaceOp } from "../../shared/workspace-op.js";
@@ -137,8 +138,8 @@ export function createConsoleDispatcher({
 		ownerId: string,
 		opId: string,
 		ownerSignPub: string,
+		signer: HolderKey | null,
 		generation = 0,
-		signer = "",
 	): Promise<ConsoleOpResult> {
 		switch (op.kind) {
 			case "send": {
@@ -453,6 +454,7 @@ export function createConsoleDispatcher({
 				return requireAssistant().answerSend(op.requestId, op.decision, op.note);
 
 			case "phone_capability_answer":
+				if (signer === null) throw new Error("phone signer is missing");
 				return requireAssistant().answerPhone(op.requestId, op.answer, signer);
 
 			case "assistant_act_answer":
@@ -506,11 +508,19 @@ export function createConsoleDispatcher({
 		conversationId: string,
 		opId: string,
 		ownerSignPub: string,
-		signer = "",
+		signer: string,
 	): Promise<ConsoleOpResult> {
 		if (!VALUE_OP_KINDS.has(op.kind)) throw new Error("value op kind is not allowed");
 		ownerByConversation.set(conversationId, ownerKeyId(ownerSignPub));
-		return dispatch(op, device, conversationId, ownerKeyId(ownerSignPub), opId, ownerSignPub, 0, signer);
+		return dispatch(
+			op,
+			device,
+			conversationId,
+			ownerKeyId(ownerSignPub),
+			opId,
+			ownerSignPub,
+			HolderKeySchema.parse(signer),
+		);
 	}
 
 	async function handleDelivery(
@@ -523,7 +533,7 @@ export function createConsoleDispatcher({
 		if (!DELIVERY_OP_KINDS.has(op.kind) && !TOLERATED_DELIVERY_OP_KINDS.has(op.kind))
 			throw new Error("delivery op kind is not allowed");
 		ownerByConversation.set(conversationId, ownerKeyId(ownerSignPub));
-		return dispatch(op, device, conversationId, ownerKeyId(ownerSignPub), opId, ownerSignPub);
+		return dispatch(op, device, conversationId, ownerKeyId(ownerSignPub), opId, ownerSignPub, null);
 	}
 
 	/**

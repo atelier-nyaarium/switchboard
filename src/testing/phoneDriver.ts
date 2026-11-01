@@ -38,7 +38,7 @@ import {
 	signRowEnvelope,
 } from "../shared/schemasInbox.js";
 import { type PhoneCapabilityAnswer, PhoneCapabilityAnswerSchema } from "../shared/schemasPhoneCapabilities.js";
-import { HoldClaimResultSchema, type PhoneHoldRecord } from "../shared/schemasPhoneHold.js";
+import { type HoldClaimResult, HoldClaimResultSchema } from "../shared/schemasPhoneHold.js";
 import { type FixtureDraws, FixtureWorld } from "./fixtureWorld.js";
 import type { IdentitySet } from "./identitySet.js";
 
@@ -102,8 +102,8 @@ export interface PhoneDriver {
 			  }
 			| { gatewayId: null; workdirPath: null; carried: null; baseVersion: number },
 	): Promise<AssistantHomePutResult>;
-	claimHold(): Promise<{ hold: PhoneHoldRecord }>;
-	reportRead(team: string, epoch: number, seq: number): Promise<PostAnswer>;
+	claimHold(): Promise<HoldClaimResult>;
+	reportRead(stream: string, epoch: number, seq: number): Promise<PostAnswer>;
 	drainPhoneCapability(
 		requestId?: string,
 	): Promise<{ row: InboxRow; stamp: import("../shared/schemasInbox.js").RowStamp; entry: MailboxEntry }>;
@@ -349,7 +349,7 @@ export function createPhoneDriver(deps: PhoneDriverDeps): PhoneDriver {
 		homeRead,
 		homePut,
 		claimHold,
-		reportRead: (team, epoch, seq) => post(ownerOp({ kind: "report_read", team, epoch, seq, at: now() })),
+		reportRead: (stream, epoch, seq) => post(ownerOp({ kind: "report_read", stream, epoch, seq, at: now() })),
 		drainPhoneCapability,
 		answerPhone,
 		answerAct,

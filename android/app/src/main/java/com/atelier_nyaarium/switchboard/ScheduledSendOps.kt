@@ -52,6 +52,8 @@ internal class ScheduledSendOps(
 	private val collaborators: ScheduledSendOpsCollaborators,
 ) {
 	private val scheduledSendMutex = Mutex()
+	private val failurePositionLock = Any()
+	private val failurePositions = LinkedHashMap<String, ReadAnchor>()
 	var onScheduledSendFailed: ((team: String, opId: String) -> Unit)? = null
 
 	suspend fun scheduleSend(team: String, text: String, files: List<MessageFile>, fireAtMillis: Long): Boolean = withContext(Dispatchers.IO) {
@@ -194,9 +196,15 @@ internal class ScheduledSendOps(
 
 	fun kickDrain() { repoScope.launch(Dispatchers.IO) { drainPending() } }
 
-	fun onRouterResult(row: ScheduledResultRow) { repoScope.launch(Dispatchers.IO) { applyRouterResult(row) } }
+	fun onRouterResult(row: ScheduledResultRow, position: ReadAnchor) {
+		repoScope.launch(Dispatchers.IO) { applyRouterResult(row, position) }
+	}
 
-	internal suspend fun applyRouterResult(row: ScheduledResultRow) = scheduledSendMutex.withLock {
+	internal fun takeFailurePosition(opId: String): ReadAnchor? = synchronized(failurePositionLock) {
+		failurePositions.remove(opId)
+	}
+
+	internal suspend fun applyRouterResult(row: ScheduledResultRow, position: ReadAnchor) = scheduledSendMutex.withLock {
 		val found = state.value.scheduledSends.entries.firstOrNull { it.value.opId == row.opId }
 		when (row.outcome) {
 			"pending" -> if (found == null) mirror(row)
@@ -209,7 +217,14 @@ internal class ScheduledSendOps(
 				val (text, files) = decodedBody(wire) ?: return@withLock
 				collaborators.append(team, Message(true, text, System.currentTimeMillis(), files = files, opId = wire.opId))
 			}
-			"failed" -> found?.let { (team, rec) -> remove(team, rec); onScheduledSendFailed?.invoke(team, rec.opId) }
+			"failed" -> found?.let { (team, rec) ->
+				synchronized(failurePositionLock) {
+					failurePositions[rec.opId] = position
+					while (failurePositions.size > 128) failurePositions.remove(failurePositions.keys.first())
+				}
+				remove(team, rec)
+				onScheduledSendFailed?.invoke(team, rec.opId)
+			}
 		}
 	}
 

@@ -14,7 +14,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-// Owner-inbox rows and the Router blob read.
+// Inbox rows and blobs.
 
 internal suspend fun ChatRepository.reportConsumerCapabilities() {
 	val plugins = enabledPlugins?.invoke() ?: return
@@ -27,19 +27,17 @@ internal suspend fun ChatRepository.reportConsumerCapabilities() {
 	client().postOwnerOp(signed)
 }
 
-/** True acknowledges the lineage; a revision plane is acknowledged only once the list has landed. */
+/** Plane apply reports completion. */
 internal suspend fun ChatRepository.applyPlane(name: String, lineage: PlaneLineage, payload: JsonElement?): Boolean {
 	if (name == "taskBoard") return revisionPlane(name, lineage, board.planeLineage(), board::adoptEpoch) { boardOps.refreshBoard() }
 	if (name == "vault") return revisionPlane(name, lineage, vault.planeLineage(), vault::adoptEpoch) { vaultOps.refresh() }
-	// Small; read whole, acked once landed.
+	// Whole planes apply.
 	if (name == ASSISTANT_HOME_PLANE) return assistantOps.fetchHome()
 	if (name == PHONE_HOLD_PLANE) {
-		val plane = if (payload == null) phoneHoldOps.read() else runIsolated {
-			wireJson.decodeFromJsonElement(PhoneHoldPlane.serializer(), payload)
-		}.getOrNull()
-		if (plane == null) return false
-		phoneHoldOps.apply(plane.hold, lineage.version)
-		return true
+		val plane = payload?.let {
+			runIsolated { wireJson.decodeFromJsonElement(PhoneHoldPlane.serializer(), it) }.getOrNull()
+		} ?: return false
+		return phoneHoldOps.apply(plane.hold)
 	}
 	if (name == READ_ANCHORS_PLANE) {
 		val result = payload?.let {
@@ -119,7 +117,9 @@ internal suspend fun ChatRepository.dispatchInboxRows(rows: List<com.atelier_nya
 			when (row.envelope.kind) {
 				"scheduled_result" -> runIsolated {
 					wireJson.decodeFromJsonElement(com.atelier_nyaarium.switchboard.proto.ScheduledResultRow.serializer(), row.body)
-				}.onSuccess(onScheduledResult).onFailure {
+				}.onSuccess { result ->
+					onScheduledResult(result, ReadAnchor(transportCoordinator.cursorEpoch(), row.seq, row.acceptedAt))
+				}.onFailure {
 					DebugLog.log("Inbox", "scheduled result parse failed seq=${row.seq}")
 					addEntry(unavailableEntry(row), row)
 				}
@@ -153,7 +153,7 @@ internal suspend fun ChatRepository.dispatchInboxRows(rows: List<com.atelier_nya
 				wireJson.parseToJsonElement(plain.toString(Charsets.UTF_8))
 			}.onFailure { DebugLog.log("Inbox", "op_result open failed opId=${row.envelope.opKey.opId}") }.getOrNull()
 			val completed = transportCoordinator.completeOpResult(row.envelope.opKey.opId, result)
-			// An unopened result, an absent waiter, or a refusal each strand the caller.
+			// Missing answers strand callers.
 			val failure = (result as? JsonObject)?.takeIf { it["ok"]?.toString() == "false" }
 			if (result == null || !completed || failure != null) {
 				DebugLog.log(

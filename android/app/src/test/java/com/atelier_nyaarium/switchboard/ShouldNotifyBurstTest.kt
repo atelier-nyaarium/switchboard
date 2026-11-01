@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.crypto.Crypto
 import com.atelier_nyaarium.switchboard.proto.PhoneHold
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -8,7 +9,7 @@ import org.junit.Test
 
 class ShouldNotifyBurstTest {
 	private val team = "alice.sakura.coollib.main"
-	private val self = HoldSelf.fromConsoleSigningKey("console-key-a")
+	private val self = holdSelf("console-key-a")
 
 	@Test
 	fun firesWhenBackgroundedNotifiableAndUnmuted() {
@@ -48,6 +49,12 @@ class ShouldNotifyBurstTest {
 	}
 
 	@Test
+	fun aStandingHoldSuppressesBurstsWithoutAReadyIdentity() {
+		val hold = PhoneHold(holder = "console-key-a", label = "Pixel", claimedAt = 100L, version = 1L)
+		assertFalse(shouldNotifyBurst(false, true, emptySet(), team, hold, null, 200L))
+	}
+
+	@Test
 	fun reconcileLeavesANotShowingTeamAlone() {
 		assertEquals(TeamNotificationAction.LEAVE, teamNotificationAction(false, 1, false, false))
 	}
@@ -71,4 +78,8 @@ class ShouldNotifyBurstTest {
 	fun reconcileCancelsAClosedShowingTeam() {
 		assertEquals(TeamNotificationAction.CANCEL, teamNotificationAction(true, 2, false, true))
 	}
+
+	private fun holdSelf(key: String): HoldSelf = HoldSelf.of(
+		Crypto.Identity(Crypto.KeyPairRaw(key, ""), Crypto.KeyPairRaw("", "")),
+	)
 }

@@ -1,118 +1,128 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.crypto.Crypto
+import com.atelier_nyaarium.switchboard.proto.HoldClaimResult
 import com.atelier_nyaarium.switchboard.proto.PhoneHold
 import com.atelier_nyaarium.switchboard.proto.PhoneHoldPlane
+import com.atelier_nyaarium.switchboard.proto.PlaneLineage
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
+import kotlinx.serialization.json.decodeFromJsonElement
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class PhoneHoldOpsTest {
-	private class ClaimRouter(private val laterHold: PhoneHold) : PhoneHoldRouter {
-		val firstStarted = CompletableDeferred<Unit>()
-		val staleAnswer = CompletableDeferred<PhoneHold?>()
-		val laterStarted = CompletableDeferred<Unit>()
-		private val claims = AtomicInteger()
-		val claimCount: Int get() = claims.get()
-
-		override suspend fun claim(): PhoneHold? = when (claims.incrementAndGet()) {
-			1 -> {
-				firstStarted.complete(Unit)
-				staleAnswer.await()
-			}
-			2 -> {
-				laterStarted.complete(Unit)
-				laterHold
-			}
-			else -> error("Unexpected claim")
-		}
-
-		override suspend fun read(): PhoneHoldPlane? = null
-	}
-
 	@Test
-	fun aStaleClaimAnswerDoesNotSuppressALaterConversationClaim() = runBlocking {
-		val otherHold = PhoneHold("console-key-b", "Pixel", 150L, 2L)
-		val laterHold = PhoneHold("console-key-a", "Pixel", 190L, 3L)
-		val router = ClaimRouter(laterHold)
+	fun aClaimAnswerLandsThroughThePlaneFoldAfterTheSendReturns() = runBlocking {
+		val hold = PhoneHold("console-key-b", "Pixel", 150L, 2L)
+		val lineage = PlaneLineage(2L, 2L)
+		val answer = HoldClaimResult(hold, lineage)
+		val claimStarted = CompletableDeferred<Unit>()
+		val claimAnswer = CompletableDeferred<HoldClaimResult?>()
+		val foldStarted = CompletableDeferred<Pair<PlaneLineage, PhoneHoldPlane>>()
+		val releaseFold = CompletableDeferred<Unit>()
+		val cleared = AtomicInteger()
 		val state = MutableStateFlow(ChatState())
-		val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
-		val ops = PhoneHoldOps(
-			state = state,
-			self = { HoldSelf.fromConsoleSigningKey("console-key-a") },
-			router = router,
-			scope = scope,
-			clearSpeech = {},
-			now = { 200L },
-		)
-
-		try {
-			ops.onConversationShown("team")
-			withTimeout(2_000L) { router.firstStarted.await() }
-			val firstClaim = checkNotNull(scope.coroutineContext[Job]).children.single()
-
-			ops.apply(otherHold, 2L)
-			router.staleAnswer.complete(PhoneHold("console-key-a", "Pixel", 100L, 1L))
-			withTimeout(2_000L) { firstClaim.join() }
-
-			ops.onConversationShown("team")
-			withTimeout(2_000L) { router.laterStarted.await() }
-			withTimeout(2_000L) {
-				while (state.value.phoneHold?.version != laterHold.version) yield()
-			}
-
-			assertEquals(2, router.claimCount)
-			assertEquals(laterHold, state.value.phoneHold)
-		} finally {
-			scope.cancel()
-		}
-	}
-
-	@Test
-	fun anOlderOwnClaimAnswerLeavesTheNewerHoldAndClaimState() = runBlocking {
-		val newerHold = PhoneHold("console-key-b", "Pixel", 150L, 2L)
-		val olderOwnAnswer = PhoneHold("console-key-a", "Pixel", 100L, 1L)
-		val claims = AtomicInteger()
+		val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, _ -> })
 		val router = object : PhoneHoldRouter {
-			override suspend fun claim(): PhoneHold? {
-				claims.incrementAndGet()
-				return null
+			override suspend fun claim(): HoldClaimResult? {
+				claimStarted.complete(Unit)
+				return claimAnswer.await()
 			}
-
-			override suspend fun read(): PhoneHoldPlane? = null
 		}
+		lateinit var ops: PhoneHoldOps
+		ops = PhoneHoldOps(
+			state = state,
+			self = { holdSelf("console-key-a") },
+			router = router,
+			applyPlane = { incoming, payload ->
+				val plane = wireJson.decodeFromJsonElement(PhoneHoldPlane.serializer(), payload)
+				foldStarted.complete(incoming to plane)
+				releaseFold.await()
+				ops.apply(plane.hold)
+			},
+			pullPlanes = {},
+			scope = scope,
+			clearSpeech = { cleared.incrementAndGet() },
+			now = { 200L },
+		)
+
+		try {
+			val send = async { ops.beforeSend() }
+			withTimeout(2_000L) { claimStarted.await() }
+			claimAnswer.complete(answer)
+			withTimeout(2_000L) { send.await() }
+
+			val (foldedLineage, foldedPlane) = withTimeout(2_000L) { foldStarted.await() }
+			assertEquals(lineage, foldedLineage)
+			assertEquals(PhoneHoldPlane(version = hold.version, hold = hold), foldedPlane)
+			assertEquals(null, state.value.phoneHold)
+			assertEquals(0, cleared.get())
+
+			releaseFold.complete(Unit)
+			withTimeout(2_000L) {
+				while (cleared.get() == 0) yield()
+			}
+			assertEquals(hold, state.value.phoneHold)
+			assertEquals(1, cleared.get())
+		} finally {
+			scope.cancel()
+		}
+	}
+
+	@Test
+	fun aClaimAnswerWithoutLineagePullsPlanesWithoutHoldingTheSend() = runBlocking {
+		val hold = PhoneHold("console-key-a", "Pixel", 150L, 2L)
+		val claimStarted = CompletableDeferred<Unit>()
+		val pullStarted = CompletableDeferred<Unit>()
+		val releasePull = CompletableDeferred<Unit>()
+		val foldCalls = AtomicInteger()
 		val state = MutableStateFlow(ChatState())
-		val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+		val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, _ -> })
+		val router = object : PhoneHoldRouter {
+			override suspend fun claim(): HoldClaimResult? {
+				claimStarted.complete(Unit)
+				return HoldClaimResult(hold, null)
+			}
+		}
 		val ops = PhoneHoldOps(
 			state = state,
-			self = { HoldSelf.fromConsoleSigningKey("console-key-a") },
+			self = { holdSelf("console-key-a") },
 			router = router,
+			applyPlane = { _, _ -> foldCalls.incrementAndGet() },
+			pullPlanes = {
+				pullStarted.complete(Unit)
+				releasePull.await()
+			},
 			scope = scope,
 			clearSpeech = {},
 			now = { 200L },
 		)
 
 		try {
-			ops.apply(newerHold, 2L)
-			assertEquals(false, ops.apply(olderOwnAnswer, 1L, ownClaimAnswer = true))
-			assertEquals(newerHold, state.value.phoneHold)
-
-			ops.onConversationShown("team")
-			withTimeout(2_000L) {
-				while (claims.get() != 2) yield()
-			}
-			assertEquals(2, claims.get())
+			val send = async { ops.beforeSend() }
+			withTimeout(2_000L) { claimStarted.await() }
+			withTimeout(2_000L) { send.await() }
+			withTimeout(2_000L) { pullStarted.await() }
+			assertEquals(null, state.value.phoneHold)
+			assertEquals(0, foldCalls.get())
 		} finally {
+			releasePull.complete(Unit)
 			scope.cancel()
 		}
 	}
+
+	private fun holdSelf(key: String): HoldSelf = HoldSelf.of(
+		Crypto.Identity(Crypto.KeyPairRaw(key, ""), Crypto.KeyPairRaw("", "")),
+	)
 }

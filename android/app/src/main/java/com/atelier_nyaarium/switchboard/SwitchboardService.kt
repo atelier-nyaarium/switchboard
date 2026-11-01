@@ -284,6 +284,13 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 				showVaultPrompt(repo, repo.vault.pending.value.firstOrNull())
 			}
 		}
+		// Another phone's dismissal lands as an anchor.
+		scope.launch {
+			repo.state
+				.map { state -> state.readAnchors.filterKeys { !isConversationStream(it) } }
+				.distinctUntilChanged()
+				.collect { notifications.reconcileTeamNotifications(repo, repo.state.value.unread) }
+		}
 		scope.launch {
 			repo.state.map { it.phoneHold }.distinctUntilChanged().collectLatest { hold ->
 				val lapseAt = holdLapseAt(hold) ?: return@collectLatest

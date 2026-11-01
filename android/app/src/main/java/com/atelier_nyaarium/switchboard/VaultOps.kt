@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.decodeFromJsonElement
 
 internal interface VaultOpsCollaborators {
 	val vault: VaultManager
@@ -45,6 +46,7 @@ internal class VaultOps(
 	private val state: MutableStateFlow<ChatState>,
 	private val repoScope: CoroutineScope,
 	private val collaborators: VaultOpsCollaborators,
+	private val valueAnswer: (suspend (String, ConsoleOp) -> ConsoleClient.ValueAnswer)? = null,
 ) {
 	private val manager get() = collaborators.vault
 
@@ -143,32 +145,43 @@ internal class VaultOps(
 		typedValue: String? = null,
 		note: String? = null,
 	): Boolean {
-		val client = collaborators.client ?: return false.also { report("Vault: not connected") }
+		val client = collaborators.client
+		if (client == null && valueAnswer == null) return false.also { report("Vault: not connected") }
 		val value = typedValue?.let { text ->
 			collaborators.sealing()?.seal(text, VAULT_TYPED_KIND, pending.requestId)
 				?: return false.also { report("Vault: no content key to seal the value") }
 		}
 		val gatewayId = runIsolated { gatewayOf(pending.team) }.getOrNull()
 			?: return false.also { report("Vault: the request names no gateway") }
-		val result = runCatchingCancellable {
-			client.valueResult<ConsoleVaultAnswerResult>(
-				client.sendValueOp(gatewayId, ConsoleOp.VaultAnswer(pending.requestId, decision, value, note?.trim()?.ifEmpty { null })),
-				"vault_answer",
-			)
+		val op = ConsoleOp.VaultAnswer(pending.requestId, decision, value, note?.trim()?.ifEmpty { null })
+		val answer = runCatchingCancellable {
+			valueAnswer?.invoke(gatewayId, op) ?: client?.sendValueAnswer(gatewayId, op) ?: ConsoleClient.ValueAnswer.Unreachable
 		}.onFailure { DebugLog.log("Vault", "answer failed: ${it.message?.take(80)}") }.getOrNull()
-		when {
-			result == null -> report("Vault: the gateway could not be reached")
-			result.ok -> {
-				if (decision != VAULT_DECISION_DENY) manager.recordAnswer(pending)
-				manager.settleRequest(pending.requestId)
+			?: return false.also { report("Vault: the gateway could not be reached") }
+		if (!answerDeliverySettled(answer)) {
+			when (answer) {
+				is ConsoleClient.ValueAnswer.Undelivered -> report("Vault: the Router did not deliver the answer: ${answer.reason}")
+				ConsoleClient.ValueAnswer.Unreachable -> report("Vault: the gateway could not be reached")
+				else -> Unit
 			}
-			else -> {
-				manager.settleRequest(pending.requestId)
-				report("Vault: ${result.reason ?: "the answer was refused"}")
-			}
+			return false
 		}
-		if (result?.ok == true && decision != VAULT_DECISION_DENY) refreshGrantsNow(gatewayId)
-		return result?.ok == true
+		manager.settleRequest(pending.requestId)
+		if (answer is ConsoleClient.ValueAnswer.Refused) {
+			report("Vault: ${answer.reason}")
+			return false
+		}
+		if (answer !is ConsoleClient.ValueAnswer.Answered) return false
+		val result = runIsolated {
+			wireJson.decodeFromJsonElement<ConsoleVaultAnswerResult>(answer.result)
+		}.getOrNull() ?: return false.also { report("Vault: the answer could not be read") }
+		if (result.ok) {
+			if (decision != VAULT_DECISION_DENY) manager.recordAnswer(pending)
+		} else {
+			report("Vault: ${result.reason ?: "the answer was refused"}")
+		}
+		if (result.ok && decision != VAULT_DECISION_DENY) refreshGrantsNow(gatewayId)
+		return result.ok
 	}
 
 	suspend fun answerById(requestId: String, decision: String, typedValue: String? = null): Boolean {

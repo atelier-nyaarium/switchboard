@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import { mintEpoch } from "../../shared/epoch.js";
-import { MAX_TEAMS_PER_OWNER, mergeReadAnchor, type ReadAnchorEntry } from "../../shared/read-anchor-rules.js";
+import { MAX_STREAMS_PER_OWNER, mergeReadAnchor, type ReadAnchorEntry } from "../../shared/read-anchor-rules.js";
 import { ReadAnchorsResultSchema } from "../../shared/schemasTier1.js";
 import { foldWriteResult } from "../../shared/write-result.js";
 import { OwnerOpRefused } from "../inbox/ownerOpIntake.js";
@@ -15,9 +15,9 @@ export interface ReadAnchorsServiceDeps {
 
 type ReadAnchorsResult = z.infer<typeof ReadAnchorsResultSchema>;
 
-// Keep version outside team namespace.
+// Keep version outside streams.
 const VERSION_ID = "readAnchor.version";
-const anchorId = (team: string): string => `readAnchor:${team}`;
+const anchorId = (stream: string): string => `readAnchor:${stream}`;
 const write = (result: Parameters<typeof foldWriteResult>[0]) => foldWriteResult(result);
 
 export function createReadAnchorsService(deps: ReadAnchorsServiceDeps) {
@@ -43,12 +43,12 @@ export function createReadAnchorsService(deps: ReadAnchorsServiceDeps) {
 			anchors: store
 				.list("readAnchor")
 				.filter((record) => record.id !== VERSION_ID)
-				.map((record) => ({ team: record.id.slice("readAnchor:".length), ...record.clear }))
-				.sort((a, b) => a.team.localeCompare(b.team)),
+				.map((record) => ({ stream: record.id.slice("readAnchor:".length), ...record.clear }))
+				.sort((a, b) => a.stream.localeCompare(b.stream)),
 		});
 	};
 
-	const reportResult = (domainId: string, team: string, entry: ReadAnchorEntry) => {
+	const reportResult = (domainId: string, stream: string, entry: ReadAnchorEntry) => {
 		const store = deps.registry.for(domainId);
 		const version = ensureVersion(domainId);
 		if ("outcome" in version) return version as never;
@@ -61,17 +61,17 @@ export function createReadAnchorsService(deps: ReadAnchorsServiceDeps) {
 				]),
 			),
 		};
-		const merged = mergeReadAnchor(state, domainId, team, entry);
+		const merged = mergeReadAnchor(state, domainId, stream, entry);
 		if (!merged.advanced) {
-			if (!state[domainId][team] && currentRecords.length >= MAX_TEAMS_PER_OWNER)
-				throw new OwnerOpRefused("read-anchor team limit");
+			if (!state[domainId][stream] && currentRecords.length >= MAX_STREAMS_PER_OWNER)
+				throw new OwnerOpRefused("read-anchor stream limit");
 			return { advanced: false, outcome: "accepted" as const };
 		}
-		const current = store.get("readAnchor", anchorId(team));
+		const current = store.get("readAnchor", anchorId(stream));
 		const nextVersion = Number(version.clear.version) + 1;
 		const result = store.batch((tx) => {
-			tx.put("readAnchor", anchorId(team), current?.version ?? null, {
-				clear: merged.state[domainId][team] as unknown as Record<string, unknown>,
+			tx.put("readAnchor", anchorId(stream), current?.version ?? null, {
+				clear: merged.state[domainId][stream] as unknown as Record<string, unknown>,
 			});
 			tx.put("readAnchor", VERSION_ID, version.version, {
 				clear: { epoch: version.clear.epoch, version: nextVersion },
@@ -81,8 +81,8 @@ export function createReadAnchorsService(deps: ReadAnchorsServiceDeps) {
 		if (!folded.applied) return { advanced: false, outcome: folded.outcome };
 		return { advanced: true, outcome: folded.outcome };
 	};
-	const report = (domainId: string, team: string, entry: ReadAnchorEntry): boolean =>
-		reportResult(domainId, team, entry).advanced;
+	const report = (domainId: string, stream: string, entry: ReadAnchorEntry): boolean =>
+		reportResult(domainId, stream, entry).advanced;
 
 	return {
 		report,
@@ -91,7 +91,7 @@ export function createReadAnchorsService(deps: ReadAnchorsServiceDeps) {
 			hooks.ownerOp("report_read", async (op, value) => {
 				// Router stamps time; epochs use equality, never ordering.
 				const at = deps.registry.now();
-				const result = reportResult(op.domainId, value.team, { ...value, at });
+				const result = reportResult(op.domainId, value.stream, { ...value, at });
 				if ("advanced" in result) deps.pokeOwner?.(op.domainId, read(op.domainId));
 				return result;
 			});

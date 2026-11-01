@@ -74,7 +74,7 @@ describe("Router read-anchor plane", () => {
 
 		const answer = await report(operation, {
 			kind: "report_read",
-			team: "team-a",
+			stream: "team-a",
 			epoch: 2,
 			seq: 17,
 			at: 1,
@@ -89,15 +89,15 @@ describe("Router read-anchor plane", () => {
 			version: (held as { version: { epoch: number; version: number } }).version,
 			payload: held,
 		});
-		expect(held).toMatchObject({ anchors: [{ team: "team-a", epoch: 2, seq: 17, at: 4_000 }] });
+		expect(held).toMatchObject({ anchors: [{ stream: "team-a", epoch: 2, seq: 17, at: 4_000 }] });
 	});
 
 	it("pushes the held plane for a stale report", async () => {
 		const harness = make();
 		const report = harness.ownerOps.get("report_read");
 		if (!report) throw new Error("report_read was not registered");
-		await report(operation, { kind: "report_read", team: "team-a", epoch: 2, seq: 17, at: 1 });
-		await report(operation, { kind: "report_read", team: "team-a", epoch: 2, seq: 16, at: 2 });
+		await report(operation, { kind: "report_read", stream: "team-a", epoch: 2, seq: 17, at: 1 });
+		await report(operation, { kind: "report_read", stream: "team-a", epoch: 2, seq: 16, at: 2 });
 
 		expect(harness.planes).toHaveLength(2);
 		expect(harness.planes[1]).toEqual(harness.planes[0]);

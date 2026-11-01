@@ -1,4 +1,5 @@
 import {
+	HolderKeySchema,
 	holdStanding,
 	PhoneHoldFrameSchema,
 	type PhoneHoldPlane,
@@ -17,6 +18,7 @@ const HOLDER_ID = "holder";
 
 type Deps = {
 	registry: OwnerStoreRegistry;
+	lineageEpoch?: (domainId: string) => number | null;
 	pokeOwner?: (domainId: string, version: number, payload: PhoneHoldPlane) => void;
 };
 
@@ -43,23 +45,30 @@ export function createPhoneHoldService(deps: Deps) {
 	};
 
 	/** Kept until swept. */
-	const plane = (domainId: string): PhoneHoldPlane =>
-		PhoneHoldPlaneSchema.parse({ hold: recordOf(storeOf(domainId).get(KIND, HOLDER_ID)) });
+	const plane = (domainId: string): PhoneHoldPlane => {
+		const row = storeOf(domainId).get(KIND, HOLDER_ID);
+		return PhoneHoldPlaneSchema.parse({ version: row?.version ?? 0, hold: recordOf(row) });
+	};
 
 	const announce = (domainId: string, version: number, hold: PhoneHoldRecord | null): void => {
-		const payload = PhoneHoldPlaneSchema.parse({ hold });
+		const payload = PhoneHoldPlaneSchema.parse({ version, hold });
 		deps.pokeOwner?.(domainId, version, payload);
 		if (!hooks) return;
 		for (const gatewayId of hooks.connectedGateways(domainId)) {
 			const incarnation = hooks.gatewayIncarnation(domainId, gatewayId);
 			if (incarnation === null) continue;
-			const frame = PhoneHoldFrameSchema.parse({ type: "phone_hold", incarnation, hold });
+			const frame = PhoneHoldFrameSchema.parse({ type: "phone_hold", incarnation, version, hold });
 			hooks.pushFrameTo(domainId, gatewayId, frame);
 		}
 	};
 
 	/** Key decides; label displays. */
-	const claim = (domainId: string, signer: string, label: string, now: number): { hold: PhoneHoldRecord } => {
+	const claim = (
+		domainId: string,
+		signer: string,
+		label: string,
+		now: number,
+	): { hold: PhoneHoldRecord; lineage: { epoch: number; version: number } | null } => {
 		const store = storeOf(domainId);
 		for (;;) {
 			const current = store.get(KIND, HOLDER_ID);
@@ -75,7 +84,8 @@ export function createPhoneHoldService(deps: Deps) {
 				version: (current?.version ?? 0) + 1,
 			});
 			announce(domainId, hold.version, hold);
-			return { hold };
+			const epoch = deps.lineageEpoch?.(domainId) ?? null;
+			return { hold, lineage: epoch === null ? null : { epoch, version: hold.version } };
 		}
 	};
 
@@ -91,7 +101,9 @@ export function createPhoneHoldService(deps: Deps) {
 
 	const register = (registered: OwnerServiceHooks): void => {
 		hooks = registered;
-		registered.ownerOp("hold_claim", (op) => claim(op.domainId, op.signerSignPub, op.device, deps.registry.now()));
+		registered.ownerOp("hold_claim", (op) =>
+			claim(op.domainId, HolderKeySchema.parse(op.signerSignPub), op.device, deps.registry.now()),
+		);
 		registered.ownerOp("phone_hold_read", (op) => plane(op.domainId));
 		registered.gatewayFrame("phone_hold_read", "read", (reg) => {
 			try {

@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -188,42 +189,59 @@ class ReadAnchorTest {
 	}
 
 	@Test
-	fun teamsNeedingReadReportIncludesATeamNeverReportedBefore() {
+	fun streamsNeedingReadReportIncludesANeverReportedStream() {
 		val anchors = mapOf("team-a" to ReadAnchor(1, 10, 1000))
-		assertEquals(listOf("team-a"), teamsNeedingReadReport(anchors, emptyMap()))
+		assertEquals(listOf("team-a"), streamsNeedingReadReport(anchors, emptyMap()))
 	}
 
 	@Test
-	fun teamsNeedingReadReportExcludesATeamAlreadyReportedAtTheSamePosition() {
+	fun streamsNeedingReadReportExcludesAnAlreadyReportedPosition() {
 		val anchor = ReadAnchor(1, 10, 1000)
 		val anchors = mapOf("team-a" to anchor)
-		assertEquals(emptyList<String>(), teamsNeedingReadReport(anchors, mapOf("team-a" to anchor)))
+		assertEquals(emptyList<String>(), streamsNeedingReadReport(anchors, mapOf("team-a" to anchor)))
 	}
 
 	@Test
-	fun teamsNeedingReadReportIncludesATeamThatAdvancedSinceItsLastReport() {
+	fun streamsNeedingReadReportIncludesAStreamThatAdvanced() {
 		val anchors = mapOf("team-a" to ReadAnchor(1, 20, 2000))
 		val lastReported = mapOf("team-a" to ReadAnchor(1, 10, 1000))
-		assertEquals(listOf("team-a"), teamsNeedingReadReport(anchors, lastReported))
+		assertEquals(listOf("team-a"), streamsNeedingReadReport(anchors, lastReported))
 	}
 
 	@Test
-	fun teamsNeedingReadReportIsSelectivePerTeam() {
+	fun streamsNeedingReadReportIsSelectivePerStream() {
 		val anchors = mapOf(
 			"team-a" to ReadAnchor(1, 10, 1000), // unchanged
 			"team-b" to ReadAnchor(1, 30, 3000), // advanced
 		)
 		val lastReported = mapOf("team-a" to ReadAnchor(1, 10, 1000), "team-b" to ReadAnchor(1, 20, 2000))
-		assertEquals(listOf("team-b"), teamsNeedingReadReport(anchors, lastReported))
+		assertEquals(listOf("team-b"), streamsNeedingReadReport(anchors, lastReported))
 	}
 
 	@Test
-	fun teamsNeedingReadReportIgnoresAtWhenComparingAlreadyReportedPositions() {
+	fun streamsNeedingReadReportIgnoresAtForTheSamePosition() {
 		// `at` is diagnostic only (see ReadAnchor's own doc) - a re-derivation that lands on the same
 		// (epoch, seq) with a different `at` must not re-trigger a report.
 		val anchors = mapOf("team-a" to ReadAnchor(1, 10, 9999))
 		val lastReported = mapOf("team-a" to ReadAnchor(1, 10, 1000))
-		assertEquals(emptyList<String>(), teamsNeedingReadReport(anchors, lastReported))
+		assertEquals(emptyList<String>(), streamsNeedingReadReport(anchors, lastReported))
+	}
+
+	@Test
+	fun conversationAndScheduledResultsUseTheirOwnStreamKeys() {
+		val team = "domain.gateway.spawn.session"
+		assertEquals(team, conversationStream(team))
+		assertEquals("scheduled:$team", scheduledResultsStream(team))
+	}
+
+	@Test
+	fun scheduledFailureAtOrAfterItsPositionIsCancelled() {
+		val team = "domain.gateway.spawn.session"
+		val failure = ReadAnchor(epoch = 5, seq = 12, at = 100)
+		val remote = ReadAnchor(epoch = 5, seq = 13, at = 200)
+		assertTrue(shouldCancelScheduledFailureNotification(team, mapOf(scheduledResultsStream(team) to remote), failure))
+		assertTrue(shouldCancelScheduledFailureNotification(team, mapOf(scheduledResultsStream(team) to failure), failure))
+		assertFalse(shouldCancelScheduledFailureNotification(team, mapOf(conversationStream(team) to remote), failure))
 	}
 
 	@Test

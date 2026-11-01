@@ -122,6 +122,7 @@ object Protocol {
 		const val ASSISTANT_ROLE: String = "assistant"
 		const val PHONE_HOLD_PLANE: String = "phoneHold"
 		const val PHONE_HOLD_WINDOW_MS: Int = 600000
+		const val PHONE_CAPABILITY_WAIT_MS: Int = 120000
 
 		object ConsoleOpKind {
 			const val SEND: String = "send"
@@ -275,6 +276,7 @@ data class PhoneHold(
 
 @Serializable
 data class PhoneHoldPlane(
+	val version: Long,
 	val hold: PhoneHold? = null,
 )
 
@@ -287,6 +289,7 @@ data class HoldClaimValue(
 @Serializable
 data class HoldClaimResult(
 	val hold: PhoneHold,
+	val lineage: PlaneLineage? = null,
 )
 
 @Serializable
@@ -2523,7 +2526,7 @@ data class CapabilitySnapshot(
 data class ReportRead(
 	@EncodeDefault
 	val kind: String = "report_read",
-	val team: String,
+	val stream: String,
 	val epoch: Long,
 	val seq: Long,
 	val at: Long,
@@ -3122,7 +3125,7 @@ data class LinkedPeersVersion(
 
 @Serializable
 data class ReadAnchorWireEntry(
-	val team: String,
+	val stream: String,
 	val epoch: Long,
 	val seq: Long,
 	val at: Long,

@@ -127,6 +127,20 @@ class PresenceOpsTest {
 	}
 
 	@Test
+	fun aScheduledResultsAnchorAppliesWithoutAThreadRow() {
+		val host = FakeHost()
+		val ops = PresenceOps(host)
+		val team = "dom.gateway.host.session"
+		val stream = scheduledResultsStream(team)
+		val anchor = ReadAnchor(epoch = 7, seq = 3, at = 30)
+
+		ops.applyReadAnchors(listOf(ReadAnchorWireEntry(stream, anchor.epoch, anchor.seq, anchor.at)))
+
+		assertEquals(anchor, host.state.value.readAnchors[stream])
+		assertNull(host.state.value.threads[stream])
+	}
+
+	@Test
 	fun projectedSpawnPointsReachThePickerAndLeaveWhenAGatewayStopsAdvertising() = runBlocking {
 		val host = FakeHost()
 		val ops = PresenceOps(host)

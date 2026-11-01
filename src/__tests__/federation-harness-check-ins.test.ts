@@ -125,7 +125,8 @@ describe("federation harness: a check-in reaching the assistant", () => {
 		await h.waitFor(() => attached.get(ASSISTANT_TEAM), "assistant session");
 		await assistant().registered();
 		await assistant().ready();
-		await h.phone.claimHold();
+		const claimed = await h.phone.claimHold();
+		expect(claimed.lineage?.version).toBe(claimed.hold.version);
 		await h.waitFor(async () => {
 			const answer = (await (await assistant().post(ASSISTANT_HOLD_PATH, {})).json()) as { kind: string };
 			return answer.kind === "held" ? answer : undefined;

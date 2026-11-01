@@ -1,0 +1,15 @@
+{
+	"producer": "ts",
+	"composer": "gateway/router/phoneHold",
+	"case": "read",
+	"clock": 1757000000000,
+	"inputs": {},
+	"expect": {
+		"version": 0,
+		"hold": null
+	},
+	"frame": {
+		"name": "phone_hold_read",
+		"params": {}
+	}
+}

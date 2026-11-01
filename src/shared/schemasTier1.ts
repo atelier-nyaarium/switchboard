@@ -17,7 +17,7 @@ export const CapabilitiesReadSchema = z
 export const ReportReadSchema = z
 	.object({
 		kind: z.literal("report_read"),
-		team: z.string().min(1).max(128),
+		stream: z.string().min(1).max(330),
 		epoch: z.number().int().nonnegative().max(0x7fffffff),
 		seq: z.number().int().nonnegative(),
 		at: z.number().int().nonnegative(),

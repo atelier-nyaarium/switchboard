@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.crypto.Crypto
 import com.atelier_nyaarium.switchboard.proto.PhoneHold
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -26,7 +27,7 @@ class PhoneHoldRulesTest {
 					version = 1L,
 				)
 			}
-			val self = HoldSelf.fromConsoleSigningKey(value["self"]!!.jsonPrimitive.content)
+			val self = holdSelf(value["self"]!!.jsonPrimitive.content)
 			val now = value["now"]!!.jsonPrimitive.content.toLong()
 			val visible = value["visible"]!!.jsonPrimitive.content.toBoolean()
 			val todayRule = value["todayRule"]!!.jsonPrimitive.content.toBoolean()
@@ -40,7 +41,7 @@ class PhoneHoldRulesTest {
 
 	@Test
 	fun onlySendReclaimsAnAlreadyHeldPhone() {
-		val self = HoldSelf.fromConsoleSigningKey("key-a")
+		val self = holdSelf("key-a")
 		val hold = hold("key-a", 10L, 1L)
 		assertEquals(false, shouldClaimPhoneHold(HoldClaimTrigger.CONVERSATION, hold, self, 20L))
 		assertEquals(false, shouldClaimPhoneHold(HoldClaimTrigger.PANEL, hold, self, 20L))
@@ -50,14 +51,14 @@ class PhoneHoldRulesTest {
 
 	@Test
 	fun openingClaimsWhenThereIsNoCurrentHolder() {
-		val self = HoldSelf.fromConsoleSigningKey("key-a")
+		val self = holdSelf("key-a")
 		assertEquals(true, shouldClaimPhoneHold(HoldClaimTrigger.CONVERSATION, null, self, 20L))
 		assertEquals(true, shouldClaimPhoneHold(HoldClaimTrigger.PANEL, hold("key-b", 10L, 1L), self, 20L))
 	}
 
 	@Test
 	fun onlyAStandingSelfHoldAuthorizesPhoneWork() {
-		val self = HoldSelf.fromConsoleSigningKey("key-a")
+		val self = holdSelf("key-a")
 		assertEquals(true, isCurrentPhoneHolder(hold("key-a", 10L, 1L), self, 20L))
 		assertEquals(false, isCurrentPhoneHolder(hold("key-b", 10L, 1L), self, 20L))
 		assertEquals(false, isCurrentPhoneHolder(hold("key-a", 10L, 1L), self, 10L + PHONE_HOLD_WINDOW_MS))
@@ -66,7 +67,7 @@ class PhoneHoldRulesTest {
 	@Test
 	fun holdRulesCompareTheSigningKeyNotTheDisplayLabel() {
 		val hold = PhoneHold("console-key-a", "Pixel 10 Pro XL", 10L, 1L)
-		val self = HoldSelf.fromConsoleSigningKey("console-key-a")
+		val self = holdSelf("console-key-a")
 
 		assertEquals(true, speaksFor(hold, self, 20L, todayRule = false))
 		assertEquals(true, alertsFor(hold, self, 20L, visible = false, todayRule = false))
@@ -82,11 +83,19 @@ class PhoneHoldRulesTest {
 	private fun hold(holder: String, claimedAt: Long, version: Long) = PhoneHold(holder, "Pixel", claimedAt, version)
 
 	@Test
-	fun aLateClaimAnswerNeverReplacesANewerRow() {
-		// Older claim loses.
-		assertEquals(true, landsHold(landed = 0L, incoming = 2L))
-		assertEquals(true, landsHold(landed = 2L, incoming = 3L))
-		assertEquals(false, landsHold(landed = 3L, incoming = 2L))
-		assertEquals(false, landsHold(landed = 3L, incoming = 3L))
+	fun aMissingIdentityNeverMatchesAndAStandingHoldBelongsToAnotherPhone() {
+		val hold = hold("key-a", 10L, 1L)
+
+		assertEquals(false, isCurrentPhoneHolder(hold, null, 20L))
+		assertEquals(true, isHeldByAnother(hold, null, 20L))
+		assertEquals(false, isHeldByAnother(hold, null, 10L + PHONE_HOLD_WINDOW_MS))
+		assertEquals(false, isHeldByAnother(null, null, 20L))
+		assertEquals(false, speaksFor(hold, null, 20L, todayRule = false))
+		assertEquals(false, alertsFor(hold, null, 20L, visible = false, todayRule = false))
+		assertEquals(true, shouldClaimPhoneHold(HoldClaimTrigger.CONVERSATION, hold, null, 20L))
 	}
+
+	private fun holdSelf(key: String): HoldSelf = HoldSelf.of(
+		Crypto.Identity(Crypto.KeyPairRaw(key, ""), Crypto.KeyPairRaw("", "")),
+	)
 }

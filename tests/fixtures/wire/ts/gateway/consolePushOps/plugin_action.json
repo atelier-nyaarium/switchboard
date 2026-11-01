@@ -28,7 +28,12 @@
 		"conversationId": "a8c11c07b51a7e6d796d84a79d515c22abfbc20ad6a414e1553de680f4a8f180"
 	},
 	"expect": {
-		"outcome": "accepted"
+		"outcome": "accepted",
+		"result": {
+			"stamp": {
+				"holder": "bXhwDB5nEMCvY00l2qbzOl9wvzHx/hMdPCJc9PMHBh4="
+			}
+		}
 	},
 	"frame": {
 		"name": "inbox_append",

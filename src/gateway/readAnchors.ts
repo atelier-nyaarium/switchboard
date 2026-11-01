@@ -44,8 +44,8 @@ export class ReadAnchors {
 				name,
 				snapshot: () =>
 					Object.entries(this.state[ownerId] ?? {})
-						.map(([team, entry]) => ({ team, ...entry }))
-						.sort((a, b) => a.team.localeCompare(b.team)),
+						.map(([stream, entry]) => ({ stream, ...entry }))
+						.sort((a, b) => a.stream.localeCompare(b.stream)),
 				identityOf: (snapshot) => stableHash(snapshot),
 			},
 			this.restoredPlanes?.[name],
@@ -53,11 +53,11 @@ export class ReadAnchors {
 	}
 
 	/** Reports an anchor and returns whether it advanced. */
-	report(ownerId: string, team: string, entry: ReadAnchorEntry): boolean {
+	report(ownerId: string, stream: string, entry: ReadAnchorEntry): boolean {
 		// Never advanced under the fence, so the reporter tries again after the window.
 		if (fenced()) return false;
 		this.ensureRegistered(ownerId);
-		const result = mergeReadAnchor(this.state, ownerId, team, entry);
+		const result = mergeReadAnchor(this.state, ownerId, stream, entry);
 		this.state = result.state;
 		// The plane reads this state, so the write announces itself.
 		if (result.advanced) this.planeRegistry.markDirty(readAnchorsPlaneName(ownerId));

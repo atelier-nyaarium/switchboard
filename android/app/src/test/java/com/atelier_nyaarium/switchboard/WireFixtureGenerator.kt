@@ -98,7 +98,16 @@ class WireFixtureGenerator {
 		}
 		val router = OwnerOpHoldRouter { op ->
 			signed = ownerOps.sign(op, opId)
-			buildJsonObject { put("hold", hold) }
+			buildJsonObject {
+				if (case == "phone_hold_read") put("version", 1L)
+				put("hold", hold)
+				if (case == "hold_claim") {
+					put("lineage", buildJsonObject {
+						put("epoch", 9L)
+						put("version", 1L)
+					})
+				}
+			}
 		}
 		runBlocking {
 			when (case) {
@@ -107,7 +116,15 @@ class WireFixtureGenerator {
 				else -> error("unsupported hold op: $case")
 			}
 		}
-		val expect = "{\"hold\":{\"holder\":\"${bootstrap.consoleIdentity.sign.pub}\",\"label\":\"${bootstrap.device}\"}}"
+		val holdJson = "\"hold\":{\"holder\":\"${bootstrap.consoleIdentity.sign.pub}\",\"label\":\"${bootstrap.device}\"}"
+		// Epochs are random tags.
+		val expect = if (case == "hold_claim") {
+			"{$holdJson,\"lineage\":{\"version\":1}}"
+		} else if (case == "phone_hold_read") {
+			"{\"version\":1,$holdJson}"
+		} else {
+			"{$holdJson}"
+		}
 		return ownerCase(root, composer, case, checkNotNull(signed), opId, expect, draws = draws)
 	}
 

@@ -1,6 +1,6 @@
-import { holdStanding, PHONE_HOLD_WINDOW_MS, type PhoneHoldRecord } from "./schemasPhoneHold.js";
+import { holdStanding, PHONE_HOLD_WINDOW_MS } from "./schemasPhoneHold.js";
 
-export type HoldView = Pick<PhoneHoldRecord, "holder" | "claimedAt"> | null;
+export type HoldView = { holder: string; claimedAt: number } | null;
 
 export interface HoldDecisionInput {
 	hold: HoldView;

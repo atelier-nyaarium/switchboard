@@ -45,7 +45,6 @@ internal fun permissionState(
 class PhoneCapabilityContext(
 	val applicationContext: Context,
 	val state: () -> ChatState,
-	val self: () -> String,
 	val permissionState: (String) -> CapabilityAvailability,
 )
 

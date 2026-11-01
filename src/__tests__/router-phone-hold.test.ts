@@ -61,6 +61,7 @@ function make() {
 	} satisfies OwnerServiceHooks;
 	const service = createPhoneHoldService({
 		registry,
+		lineageEpoch: () => 9,
 		pokeOwner: (id, version, payload) => planePushes.push({ domainId: id, version, payload }),
 	});
 	service.register(hooks);
@@ -114,18 +115,26 @@ describe("Router phone hold", () => {
 			{ kind: "phone_hold_read" },
 		);
 
-		expect(claim).toEqual({ hold: { holder: "phone-a", label: "Pixel", claimedAt: 1_000, version: 1 } });
-		expect(read).toEqual({ hold: { holder: "phone-a", label: "Pixel", claimedAt: 1_000, version: 1 } });
+		expect(claim).toEqual({
+			hold: { holder: "phone-a", label: "Pixel", claimedAt: 1_000, version: 1 },
+			lineage: { epoch: 9, version: 1 },
+		});
+		expect(read).toEqual({
+			version: 1,
+			hold: { holder: "phone-a", label: "Pixel", claimedAt: 1_000, version: 1 },
+		});
 		expect(gatewayRead).toEqual(read);
 		expect(harness.frames).toEqual([
 			{
 				type: "phone_hold",
 				incarnation: 4,
+				version: 1,
 				hold: { holder: "phone-a", label: "Pixel", claimedAt: 1_000, version: 1 },
 			},
 			{
 				type: "phone_hold",
 				incarnation: 4,
+				version: 1,
 				hold: { holder: "phone-a", label: "Pixel", claimedAt: 1_000, version: 1 },
 			},
 		]);
@@ -133,7 +142,10 @@ describe("Router phone hold", () => {
 			{
 				domainId,
 				version: 1,
-				payload: { hold: { holder: "phone-a", label: "Pixel", claimedAt: 1_000, version: 1 } },
+				payload: {
+					version: 1,
+					hold: { holder: "phone-a", label: "Pixel", claimedAt: 1_000, version: 1 },
+				},
 			},
 		]);
 		expect(harness.service.read("friend", harness.now())).toBeNull();
@@ -160,10 +172,11 @@ describe("Router phone hold", () => {
 
 		expect(harness.service.read(domainId, harness.now())).toBeNull();
 		expect(harness.service.plane(domainId)).toEqual({
+			version: 1,
 			hold: { holder: "phone-a", label: "Pixel", claimedAt: 1_000, version: 1 },
 		});
 		harness.sweepers[0]?.(domainId, harness.now());
-		expect(harness.service.plane(domainId)).toEqual({ hold: null });
+		expect(harness.service.plane(domainId)).toEqual({ version: 2, hold: null });
 	});
 
 	it("clears a lapsed claim durably and pushes its next version", async () => {
@@ -174,10 +187,10 @@ describe("Router phone hold", () => {
 		if (!sweep) throw new Error("phone hold sweep was not registered");
 		sweep(domainId, harness.now());
 
-		expect(harness.planePushes.at(-1)).toEqual({ domainId, version: 2, payload: { hold: null } });
+		expect(harness.planePushes.at(-1)).toEqual({ domainId, version: 2, payload: { version: 2, hold: null } });
 		expect(harness.frames.slice(-2)).toEqual([
-			{ type: "phone_hold", incarnation: 4, hold: null },
-			{ type: "phone_hold", incarnation: 4, hold: null },
+			{ type: "phone_hold", incarnation: 4, version: 2, hold: null },
+			{ type: "phone_hold", incarnation: 4, version: 2, hold: null },
 		]);
 		harness.registry.close();
 		const reopened = makeRegistry(harness.dataDir, harness.now);

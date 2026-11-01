@@ -61,7 +61,6 @@ export interface RouterFramesStageDeps {
 		| "follow"
 		| "bindHome"
 		| "followPhoneHold"
-		| "phoneHoldRevision"
 		| "phoneHoldLine"
 	>;
 }
@@ -216,21 +215,16 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 				return null;
 			},
 		});
-		let phoneHoldReadRevision = 0;
 		const phoneHoldRead = createRegistrationRead({
 			label: "phone hold read",
 			ambient,
 			retryMs: HOME_READ_RETRY_MS,
 			client: () => slice.routerClient,
-			call: () => {
-				phoneHoldReadRevision = deps.assistant.phoneHoldRevision();
-				return slice.routerClient.callInboxTool("phone_hold_read", {});
-			},
+			call: () => slice.routerClient.callInboxTool("phone_hold_read", {}),
 			apply: (answer) => {
 				const parsed = answer.error ? null : PhoneHoldPlaneSchema.safeParse(answer.result);
 				if (!parsed?.success) return answer.error ?? "answered off its schema";
-				if (deps.assistant.phoneHoldRevision() === phoneHoldReadRevision)
-					deps.assistant.followPhoneHold(parsed.data.hold);
+				deps.assistant.followPhoneHold(parsed.data);
 				return null;
 			},
 		});
@@ -246,7 +240,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 		};
 		const phoneHold = (raw: unknown): void => {
 			const frame = PhoneHoldFrameSchema.safeParse(raw);
-			if (frame.success) deps.assistant.followPhoneHold(frame.data.hold);
+			if (frame.success) deps.assistant.followPhoneHold({ hold: frame.data.hold, version: frame.data.version });
 		};
 
 		deps.routines.bindExecution(

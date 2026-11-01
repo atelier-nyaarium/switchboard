@@ -1,14 +1,40 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.parseQualifiedTarget
+
 ////////////////////////////////
 //  Interfaces & Types
 
 /** Epochs are unordered. */
 data class ReadAnchor(val epoch: Long, val seq: Long, val at: Long)
 
+internal fun conversationStream(team: String): String = team
+
+internal fun scheduledResultsStream(team: String): String = "scheduled:$team"
+
+internal fun isConversationStream(stream: String): Boolean =
+	runIsolated { parseQualifiedTarget(stream) }.isSuccess
+
+internal fun anchorPositionAtOrAfter(anchor: ReadAnchor, position: ReadAnchor): Boolean =
+	if (anchor.epoch == position.epoch) anchor.seq >= position.seq else anchor.at >= position.at
+
+internal fun mergeStreamAnchor(current: ReadAnchor?, candidate: ReadAnchor): ReadAnchor = when {
+	current == null -> candidate
+	current.epoch == candidate.epoch && candidate.seq > current.seq -> candidate
+	current.epoch == candidate.epoch && candidate.seq == current.seq && candidate.at > current.at -> candidate
+	current.epoch != candidate.epoch && candidate.at > current.at -> candidate
+	else -> current
+}
+
+internal fun shouldCancelScheduledFailureNotification(
+	team: String,
+	readAnchors: Map<String, ReadAnchor>,
+	failure: ReadAnchor,
+): Boolean = readAnchors[scheduledResultsStream(team)]?.let { anchorPositionAtOrAfter(it, failure) } == true
+
 internal interface ReadAnchorSync {
 	suspend fun reportLocalReadAdvances()
-	fun retryPendingReadAnchor(team: String)
+	fun retryPendingReadAnchor(stream: String)
 }
 
 ////////////////////////////////
@@ -84,8 +110,8 @@ internal fun reanchorAfterForget(newThread: List<Message>, anchor: ReadAnchor?):
 
 /** Teams whose local anchor has advanced past what this device last reported to the read-anchor sync
  * plane. A team absent from `lastReported` needs reporting only if its current anchor differs. */
-internal fun teamsNeedingReadReport(readAnchors: Map<String, ReadAnchor>, lastReported: Map<String, ReadAnchor>): List<String> =
-	readAnchors.filter { (team, anchor) ->
-		val already = lastReported[team]
+internal fun streamsNeedingReadReport(readAnchors: Map<String, ReadAnchor>, lastReported: Map<String, ReadAnchor>): List<String> =
+	readAnchors.filter { (stream, anchor) ->
+		val already = lastReported[stream]
 		already == null || already.epoch != anchor.epoch || already.seq != anchor.seq
 	}.keys.toList()

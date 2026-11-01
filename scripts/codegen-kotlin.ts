@@ -167,6 +167,7 @@ import {
 	CapabilityGuardSchema,
 	PHONE_CAPABILITIES,
 	PHONE_CAPABILITY_KEYS,
+	PHONE_CAPABILITY_WAIT_MS,
 	PhoneCapabilityAnswerSchema,
 	PhoneCapabilityRowSchema,
 	PhoneContactSchema,
@@ -838,6 +839,7 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["ASSISTANT_ROLE", ASSISTANT_ROLE],
 	["PHONE_HOLD_PLANE", PHONE_HOLD_PLANE],
 	["PHONE_HOLD_WINDOW_MS", PHONE_HOLD_WINDOW_MS],
+	["PHONE_CAPABILITY_WAIT_MS", PHONE_CAPABILITY_WAIT_MS],
 ];
 const wireConstantBlock = wireConstants
 	.map(

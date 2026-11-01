@@ -136,8 +136,7 @@ export const ConsolePollResultSchema = z
 		// accompanies `linkedPeers` (never one without the other).
 		linkedPeers: z.array(CrossDomainPeerEntrySchema).optional(),
 		linkedPeersVersion: LinkedPeersVersionSchema.optional(),
-		// This owner's read-anchors plane, same piggyback shape again - a single scalar version
-		// (see knownReadAnchorsVersion) and the full per-team snapshot on any real change.
+		// This owner's read-anchor streams.
 		readAnchors: z.array(ReadAnchorWireEntrySchema).optional(),
 		readAnchorsVersion: ReadAnchorsVersionSchema.optional(),
 		// This owner's task-board plane, same piggyback shape. `taskBoardTruncated` marks a

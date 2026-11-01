@@ -306,7 +306,7 @@ class ConsoleClientOwnerOpsTest {
 		val report = wireJson.decodeFromJsonElement(com.atelier_nyaarium.switchboard.proto.ReportRead.serializer(), ownerOp.op)
 
 		assertEquals("report_read", ownerOp.op["kind"]?.jsonPrimitive?.content)
-		assertEquals("team", report.team)
+		assertEquals("team", report.stream)
 		assertEquals(7L, report.epoch)
 		assertEquals(9L, report.seq)
 		assertTrue(report.at > 0L)

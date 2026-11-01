@@ -1,3 +1,5 @@
+import { PHONE_CAPABILITY_WAIT_MS } from "../../shared/schemasPhoneCapabilities.js";
+
 /** Order pinned by `gateway-serve-limits.test.ts`. */
 export const ASSISTANT_WAITS = {
 	/** Counts the queue. */
@@ -7,5 +9,5 @@ export const ASSISTANT_WAITS = {
 	list: 25_000,
 	/** Inside `CONSOLE_ANSWER_WAIT_MS`. */
 	preview: 25_000,
-	phone: 120_000,
+	phone: PHONE_CAPABILITY_WAIT_MS,
 } as const;

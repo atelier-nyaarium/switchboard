@@ -13,6 +13,7 @@ import { createVaultClient } from "../src/gateway/router/vaultClient.js";
 import type { Ambient, IntervalHandle, TimerHandle } from "../src/shared/ambient.js";
 import type { ConsolePushEntry } from "../src/shared/federation-protocol.js";
 import type { PresenceRow } from "../src/shared/presence-identity.js";
+import { PhoneHoldPlaneSchema } from "../src/shared/schemasPhoneHold.js";
 import { type WireFixture, WireFixtureSchema, WireManifestSchema } from "../src/shared/schemasWireFixture.js";
 import { Address, parseSessionName } from "../src/shared/session-id.js";
 import { SessionStore } from "../src/shared/session-store.js";
@@ -203,6 +204,14 @@ write(
 	{ settled: false, reason: "no_waiter" },
 );
 
+write(
+	"gateway/router/phoneHold",
+	"read",
+	{},
+	{ name: "phone_hold_read", params: {} },
+	PhoneHoldPlaneSchema.parse({ version: 0, hold: null }),
+);
+
 const ownerContext = FixtureDraws.forCase("ts", "gateway/consolePushOps", "owner-rows");
 activeDraws = ownerContext;
 const ownerFrames: Record<string, unknown>[] = [];
@@ -215,7 +224,18 @@ const ownerPush = createConsolePushOps({
 		callInboxTool: async (name, params) => {
 			ownerFrames.push({ name, params });
 			const { opKey } = (params.row as { envelope: { opKey: Record<string, string> } }).envelope;
-			return { callId: name, result: { opKey, outcome: "accepted", seq: ownerFrames.length } };
+			const row = params.row as { envelope: { recipient?: { kind: string } } };
+			return {
+				callId: name,
+				result: {
+					opKey,
+					outcome: "accepted",
+					seq: ownerFrames.length,
+					...(row.envelope.recipient?.kind === "holder"
+						? { result: { stamp: { holder: set.console.identity.sign.pub } } }
+						: {}),
+				},
+			};
 		},
 	},
 	localGatewayId: set.gateway.id,
@@ -288,7 +308,12 @@ for (const [index, frame] of ownerFrames.entries()) {
 			conversationId: params.row.envelope.opKey.conversationId,
 		},
 		frame,
-		{ outcome: "accepted" },
+		{
+			outcome: "accepted",
+			...(entry?.kind === "plugin_action"
+				? { result: { stamp: { holder: set.console.identity.sign.pub } } }
+				: {}),
+		},
 		{
 			// Router stamps seq, acceptedAt, size.
 			decodeAs: "RowEnvelope",

@@ -299,7 +299,7 @@ internal class PollDrain(
 			if (entry.kind == "sent") {
 				val echo = Message(true, body, entry.at, files = files, opId = entry.opId, epoch = epoch, seq = entry.seq)
 				host.reconcileSent(team, echo)
-				readAnchorSync?.retryPendingReadAnchor(team)
+				readAnchorSync?.retryPendingReadAnchor(conversationStream(team))
 				continue
 			}
 			if (entry.kind == "plugin_action") {
@@ -326,7 +326,7 @@ internal class PollDrain(
 						.onFailure { DebugLog.log("Drain", "inbound subscriber failed seq=${entry.seq}") }
 				}
 			}
-			readAnchorSync?.retryPendingReadAnchor(team)
+			readAnchorSync?.retryPendingReadAnchor(conversationStream(team))
 			if (appended && !message.isQuiet()) burst.getOrPut(team) { mutableListOf() }.add(message)
 		}
 		val burstJobs = mutableListOf<Job>()

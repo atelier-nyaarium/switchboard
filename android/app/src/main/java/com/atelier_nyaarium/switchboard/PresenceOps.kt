@@ -46,17 +46,17 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 	fun applyReadAnchors(entries: List<com.atelier_nyaarium.switchboard.proto.ReadAnchorWireEntry>) {
 		val changed = synchronized(pendingReadAnchorLock) {
 			entries.forEach { entry ->
-				pendingRemoteReadAnchors[entry.team] = ReadAnchor(entry.epoch, entry.seq, entry.at)
+				pendingRemoteReadAnchors[entry.stream] = ReadAnchor(entry.epoch, entry.seq, entry.at)
 			}
 			mergePendingReadAnchorsLocked(pendingRemoteReadAnchors.toMap())
 		}
 		if (changed) host.persistReadAnchors()
 	}
 
-	override fun retryPendingReadAnchor(team: String) {
+	override fun retryPendingReadAnchor(stream: String) {
 		val changed = synchronized(pendingReadAnchorLock) {
-			val candidate = pendingRemoteReadAnchors[team] ?: return@synchronized false
-			mergePendingReadAnchorsLocked(mapOf(team to candidate))
+			val candidate = pendingRemoteReadAnchors[stream] ?: return@synchronized false
+			mergePendingReadAnchorsLocked(mapOf(stream to candidate))
 		}
 		if (changed) host.persistReadAnchors()
 	}
@@ -67,26 +67,31 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 		var folded: ChatState? = null
 		host.state.update { state ->
 			var next = state
-			candidates.forEach { (team, candidate) ->
-				val thread = next.threads[team].orEmpty()
-				if (anchorIndex(thread, candidate) < 0) return@forEach
-				val current = next.readAnchors[team]
-				val merged = mergeReadAnchor(thread, current, candidate)
-				if (merged != null && merged != current) {
-					next = next.copy(readAnchors = next.readAnchors + (team to merged)).recomputeUnread(team, thread)
+			candidates.forEach { (stream, candidate) ->
+				val current = next.readAnchors[stream]
+				if (!isConversationStream(stream)) {
+					val merged = mergeStreamAnchor(current, candidate)
+					if (merged != current) next = next.copy(readAnchors = next.readAnchors + (stream to merged))
+				} else {
+					val thread = next.threads[stream].orEmpty()
+					if (anchorIndex(thread, candidate) < 0) return@forEach
+					val merged = mergeReadAnchor(thread, current, candidate)
+					if (merged != null && merged != current) {
+						next = next.copy(readAnchors = next.readAnchors + (stream to merged)).recomputeUnread(stream, thread)
+					}
 				}
 			}
 			folded = next
 			next
 		}
 		val landed = folded ?: host.state.value
-		val resolved = candidates.filter { (team, candidate) ->
-			anchorIndex(landed.threads[team].orEmpty(), candidate) >= 0
+		val resolved = candidates.filter { (stream, candidate) ->
+			!isConversationStream(stream) || anchorIndex(landed.threads[stream].orEmpty(), candidate) >= 0
 		}
 		resolved.keys.forEach { pendingRemoteReadAnchors.remove(it) }
-		val reported = resolved.mapNotNull { (team, candidate) ->
-			landed.readAnchors[team]?.takeIf { it.epoch == candidate.epoch && it.seq == candidate.seq }
-				?.let { team to it }
+		val reported = resolved.mapNotNull { (stream, candidate) ->
+			landed.readAnchors[stream]?.takeIf { it.epoch == candidate.epoch && it.seq == candidate.seq }
+				?.let { stream to it }
 		}.toMap()
 		if (reported.isNotEmpty()) synchronized(readAnchorLock) {
 			lastReportedReadAnchors = lastReportedReadAnchors + reported
@@ -97,17 +102,17 @@ internal class PresenceOps(private val host: PresenceHost) : ClearsOnReprovision
 	override suspend fun reportLocalReadAdvances() = readAnchorReportMutex.withLock {
 		val anchors = host.state.value.readAnchors
 		val reportedAtStart = synchronized(readAnchorLock) { lastReportedReadAnchors }
-		for (team in teamsNeedingReadReport(anchors, reportedAtStart)) {
-			val anchor = anchors.getValue(team)
-			runCatchingCancellable { host.reportRead(team, anchor) }
+		for (stream in streamsNeedingReadReport(anchors, reportedAtStart)) {
+			val anchor = anchors.getValue(stream)
+			runCatchingCancellable { host.reportRead(stream, anchor) }
 				.onSuccess {
 					synchronized(readAnchorLock) {
-						if (lastReportedReadAnchors[team] == reportedAtStart[team]) {
-							lastReportedReadAnchors = lastReportedReadAnchors + (team to anchor)
+						if (lastReportedReadAnchors[stream] == reportedAtStart[stream]) {
+							lastReportedReadAnchors = lastReportedReadAnchors + (stream to anchor)
 						}
 					}
 				}
-				.onFailure { DebugLog.log("Plane", "report_read failed for $team: ${it.message?.take(120)}") }
+				.onFailure { DebugLog.log("Plane", "report_read failed for $stream: ${it.message?.take(120)}") }
 		}
 	}
 
