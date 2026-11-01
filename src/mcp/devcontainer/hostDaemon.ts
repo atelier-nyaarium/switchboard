@@ -50,6 +50,7 @@ import {
 	paneAgentState,
 	peekPane,
 	peekWithFallback,
+	reattachStep,
 	sendKey,
 	sendText,
 } from "./tmuxCore.js";
@@ -380,33 +381,32 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 		try {
 			const { created } = await ensureSession(target, launch);
 			let res = created ? await awaitReady(target) : undefined;
-			// `exec bash` outlives claude, so a reattach can land on a dead shell. The SCREEN cannot
-			// see that: the frame the agent painted before it died still carries its own composer at
-			// column 0, so isAgentReady answers yes for a pane holding nothing but a prompt, and this
-			// recovery never ran for the case it was written for. So the OS is asked too, and either
-			// answer alone is enough to relaunch. A limit dialog is alive, not dead: relaunching would
-			// discard it and hit the same limit again.
-			const processGone = !created && (await paneAgentState(target)) === "gone";
-			if (!created && !processGone) res = await awaitReady(target);
-			if (!res) throw new Error("session readiness unavailable");
-			const screenDead = !created && !res?.ready && !isAgentWorking(res?.screen ?? "");
-			if (!created && !res.limit && (processGone || screenDead)) {
-				// A proven-gone process needs no second look - the recheck reads the same lying frame.
-				const recheck = processGone
-					? ""
-					: await peekPane(target)
-							.then((p) => p.ansi)
-							.catch(() => res?.screen ?? "");
-				const ready = isAgentReady(recheck);
-				if (!processGone && (ready || isAgentWorking(recheck))) {
-					// The frame was a sub-second transition after all.
-					res = { alive: true, ready, screen: recheck };
-				} else {
+			if (!created) {
+				// `exec bash` outlives claude, so a reattach can land on a dead shell. The SCREEN cannot
+				// see that: the frame the agent painted before it died still carries its own composer at
+				// column 0, so isAgentReady answers yes for a pane holding nothing but a prompt. So the OS
+				// is asked first, and a gone process relaunches without reading the screen. A limit dialog
+				// is alive, not dead: relaunching would discard it and hit the same limit again.
+				const seen = (await paneAgentState(target)) === "gone" ? undefined : await awaitReady(target);
+				let step = reattachStep(seen);
+				if (step === "recheck") {
+					const recheck = await peekPane(target)
+						.then((p) => p.ansi)
+						.catch(() => seen?.screen ?? "");
+					const ready = isAgentReady(recheck);
+					// A sub-second transition, after all.
+					if (ready || isAgentWorking(recheck)) res = { alive: true, ready, screen: recheck };
+					else step = "relaunch";
+				}
+				if (step === "relaunch") {
 					await killSession(target);
 					await ensureSession(target, launch);
 					res = await awaitReady(target);
+				} else {
+					res ??= seen;
 				}
 			}
+			if (!res) throw new Error("session readiness unavailable");
 			// Original ensureSession, not relaunch.
 			greetFreshLaunch(target, { created, resumeSessionId: msg.resumeSessionId, ready: res.ready });
 			const live = res.ready || isAgentWorking(res.screen);

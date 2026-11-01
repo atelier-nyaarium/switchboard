@@ -59,6 +59,8 @@ import {
 	paneAgentState,
 	peekPane,
 	peekWithFallback,
+	type ReadyAnswer,
+	reattachStep,
 	selfSessionTarget,
 	sendKey,
 	sendText,
@@ -334,6 +336,16 @@ describe("tmuxCore paneAgentState", () => {
 	it("reads a shells-only tty as gone and anything else as alive", () => {
 		expect(classifyPaneProcesses(DEAD)).toBe("gone");
 		expect(classifyPaneProcesses(LIVE)).toBe("alive");
+	});
+
+	it("relaunches a gone agent, keeps a ready or limited one, and rechecks a blank frame", () => {
+		const limit = { headline: "limit", detail: "resets 4pm" } as unknown as NonNullable<ReadyAnswer["limit"]>;
+		expect([
+			reattachStep(undefined),
+			reattachStep({ alive: true, ready: true, screen: "" }),
+			reattachStep({ alive: true, ready: false, screen: "", limit }),
+			reattachStep({ alive: true, ready: false, screen: "" }),
+		]).toEqual(["relaunch", "keep", "keep", "recheck"]);
 	});
 
 	it("never answers gone without evidence, since gone is what relaunches", () => {

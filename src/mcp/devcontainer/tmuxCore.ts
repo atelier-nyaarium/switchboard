@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
-import { isAgentReady, type LimitNotice, limitNotice, stripAnsi } from "../../shared/agent-screen.js";
+import { isAgentReady, isAgentWorking, type LimitNotice, limitNotice, stripAnsi } from "../../shared/agent-screen.js";
 import {
 	ALLOWED_KEYS,
 	assertTmuxName,
@@ -303,6 +303,15 @@ export async function paneAgentState(target: TmuxTarget): Promise<PaneAgentState
 	} catch {
 		return "unknown";
 	}
+}
+
+export type ReadyAnswer = Awaited<ReturnType<typeof awaitReady>>;
+
+/** Undefined means agent gone. */
+export function reattachStep(seen: ReadyAnswer | undefined): "relaunch" | "recheck" | "keep" {
+	if (seen === undefined) return "relaunch";
+	if (seen.limit) return "keep";
+	return !seen.ready && !isAgentWorking(seen.screen) ? "recheck" : "keep";
 }
 
 /** Whether `target.sessionName` exists. */
