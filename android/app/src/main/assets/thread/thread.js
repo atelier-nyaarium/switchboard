@@ -552,15 +552,23 @@
 
 	// Slide, not teleport.
 	let slideFrame = 0;
+	let slideDone = null;
+	function finishSlide() {
+		const done = slideDone;
+		slideDone = null;
+		if (done) done();
+	}
 	function cancelSlide() {
+		finishSlide();
 		if (!slideFrame) return;
 		cancelAnimationFrame(slideFrame);
 		slideFrame = 0;
 	}
 
-	function slideTo(target, thenPinBottom) {
+	function slideTo(target, thenPinBottom, done) {
 		const el = document.scrollingElement;
 		cancelSlide();
+		slideDone = done || null;
 		const from = el.scrollTop;
 		const start = performance.now();
 		pinning = true;
@@ -573,6 +581,7 @@
 				return;
 			}
 			slideFrame = 0;
+			finishSlide();
 			// Heights below are estimates.
 			if (thenPinBottom) scrollToBottom();
 			else {
@@ -585,9 +594,20 @@
 		slideFrame = requestAnimationFrame(step);
 	}
 
+	// Skipped rows measure as placeholders.
+	function renderedFrom(first) {
+		const rows = [];
+		for (let row = first; row; row = row.nextElementSibling) rows.push(row);
+		for (const row of rows) row.style.contentVisibility = "visible";
+		return () => {
+			for (const row of rows) row.style.contentVisibility = "";
+		};
+	}
+
 	// Fit follows; tall lands top.
 	function followNew(first) {
 		const el = document.scrollingElement;
+		const release = renderedFrom(first);
 		const firstTop = first.getBoundingClientRect().top + el.scrollTop;
 		const last = container.lastElementChild;
 		const end = last ? last.getBoundingClientRect().bottom + el.scrollTop : firstTop;
@@ -598,10 +618,13 @@
 			viewportPx: el.clientHeight,
 			scrollHeightPx: el.scrollHeight,
 		});
-		if (!target) return;
+		if (!target) {
+			release();
+			return;
+		}
 		stuck = target.follow;
 		snapped = false;
-		slideTo(target.scrollTop, target.follow);
+		slideTo(target.scrollTop, target.follow, release);
 	}
 
 	// Snap/hold at the divider (the first still-unread row): reader intent here is "reading
