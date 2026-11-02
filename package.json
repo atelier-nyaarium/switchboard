@@ -1,6 +1,6 @@
 {
 	"name": "switchboard",
-	"version": "8.14.19",
+	"version": "8.14.20",
 	"private": true,
 	"type": "module",
 	"scripts": {
