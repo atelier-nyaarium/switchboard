@@ -10,7 +10,8 @@ import com.atelier_nyaarium.switchboard.assistantSetupLine
 
 internal enum class PermissionDoor { REQUEST, APP_SETTINGS }
 
-internal enum class RequiredDoor { PICKER, NOTIFICATIONS }
+/** The request while a grant is missing, the app's notification page once held. */
+internal enum class RequiredDoor { PICKER, NOTIFICATIONS, NOTIFICATION_PAGE }
 
 internal data class RequiredFacts(
 	val roleHeld: Boolean,
@@ -78,7 +79,12 @@ internal fun requiredRows(facts: RequiredFacts): List<RequiredRow> = listOf(
 		RequiredDoor.PICKER,
 	),
 	RequiredRow("Screen and app data", facts.screenData, "Off", RequiredDoor.PICKER),
-	RequiredRow("Notifications", facts.notifications, "Not granted", RequiredDoor.NOTIFICATIONS),
+	RequiredRow(
+		"Notifications",
+		facts.notifications,
+		"Not granted",
+		if (facts.notifications) RequiredDoor.NOTIFICATION_PAGE else RequiredDoor.NOTIFICATIONS,
+	),
 )
 
 /** Grouped by first need, the act trace aside; registry order kept. */

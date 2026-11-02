@@ -488,6 +488,7 @@ private fun AssistantFeaturesPage(repo: ChatRepository, onBack: () -> Unit) {
 				when (row.door) {
 					RequiredDoor.PICKER -> openAssistantPicker(context)
 					RequiredDoor.NOTIFICATIONS -> open("notifications")
+					RequiredDoor.NOTIFICATION_PAGE -> openNotificationSettings(context)
 				}
 			}
 		}
@@ -554,6 +555,16 @@ private fun grantedOn(context: android.content.Context, need: String): Boolean {
 	val manifest = manifestPermissionOf(need) ?: return false
 	return runIsolated { context.checkSelfPermission(manifest) == android.content.pm.PackageManager.PERMISSION_GRANTED }
 		.getOrDefault(false)
+}
+
+private fun openNotificationSettings(context: android.content.Context) {
+	runIsolated {
+		context.startActivity(
+			android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+				.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+				.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+		)
+	}
 }
 
 private fun openAppSettings(context: android.content.Context) {

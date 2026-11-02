@@ -65,6 +65,7 @@ class AssistantPermissionsTest {
 		assertEquals(false, requiredRows(unadopted).first().on)
 		assertNotNull(requiredRows(unheld).first().offWord)
 		assertEquals(false, requiredRows(held.copy(notifications = false)).last().on)
-		assertEquals(RequiredDoor.NOTIFICATIONS, requiredRows(held).last().door)
+		assertEquals(RequiredDoor.NOTIFICATIONS, requiredRows(held.copy(notifications = false)).last().door)
+		assertEquals(RequiredDoor.NOTIFICATION_PAGE, requiredRows(held).last().door)
 	}
 }

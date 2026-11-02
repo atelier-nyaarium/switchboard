@@ -219,7 +219,9 @@ Luna's map, verified where it changes the design:
 
 - `ifttt_trigger`, `where: gateway`, `kind: act`: `src/gateway/assistant/iftttClient.ts` reads the webhook key through `readForWatcher` under the fixed grant scope `ifttt`, as `githubClient.ts` reads its token under `github`, and posts `maker.ifttt.com/trigger/{event}/with/key`. The setting stores the vault entry id only, chosen on the phone through the same grant road as the GitHub token; the key never sits in a setting.
 
-## Phase 1 - Roads
+## Phase 1 - Roads ✅
+
+Done on the Pixel except the second-phone pass (handoff, speak and alert), which waits for a second phone; the red-team survivors not fixed in this phase sit on the board under it.
 
 The hold end to end, the write lock migrated onto it and deleted, the denial text and its relay rule; the acknowledgement journal on the revived read anchors, with the dismiss-clears-all behaviour on both phones; the registry with its fixture, tools, scope, gate and boot check; the request road with the recipient stamp, the row completion, the wrong-device refusal and `no_holder`; the card road; the phone plugin, dispatch, dedupe and `permissionState`; `status`, `contacts_search` and `torch` as the proofs of read and act; the hold rules in both runtimes with their vectors; the unknown-plane acknowledgement. Fixtures: the new owner op, answer and stamped-row cases in `gen-wire-fixtures.ts` `ownerEntries` and `WireFixtureGenerator.kt`, both manifests updated. The harness gains a second admitted console and drives a fake phone through a claim, an answer, a wrong-device answer, `no_holder` and a lapse. Deploy order: Router, Gateway, phones. Verified on the Pixel with both phones: claim, handoff, speak and alert; `status`; `contacts_search` with the grant on and off; the torch.
 
@@ -279,7 +281,10 @@ The hold end to end, the write lock migrated onto it and deleted, the denial tex
 
 Every remaining key, one Luna per family, each adding the declaration, the Kotlin handler, the fixture regen, tests and the tool description: contacts and calendar; notifications with the listener and inline reply; maps, apps, shortcuts, alarms; SMS and calls, compose and silent; IFTTT on the Gateway. Audits: comments, architecture, residue, Kotlin gate.
 
-Before the keys: A1 from the architecture audit, the generated Kotlin capability declarations and a typed handler interface, so a missing or mistyped handler fails to compile.
+Before the keys, in this order:
+
+1. The actions front from Question 7b: `list_actions` and `run_action` in front of both registries, namespaced ids (`phone/torch`, `watcher/github_done`), the parameter schema rendered with `z.toJSONSchema` from the Zod object the Gateway validates against at `/assistant/actions` and `/assistant/run`, the per-key phone tools and the per-action watcher tools retired, the allowlist, the gate and `check:boot` following. Its own red-team before the keys.
+2. A1 from the architecture audit: the generated Kotlin capability declarations and a typed handler interface, so a missing or mistyped handler fails to compile.
 
 Also in this phase, the working indicator: the send button is a locked spinner while a message is leaving the phone and the plain button once it has left; while the assistant's pane is working (the `working(team)` the session cards already read), the message input shows a wave. The wave lives on the one input composable the panel and the session threads share, extracted so neither copies it; the concept is picked from the three dock cards (border comet, divider wave, border ripple).
 
@@ -290,3 +295,12 @@ Also in this phase, the working indicator: the send button is a locked spinner w
 ## Phase 3 - Acceptance and docs
 
 The owner's three sentences on the Pixel through the summon panel, with the second phone showing the hold change, and a launch failing out as `not_showing` on a pocketed holder, relayed by the assistant. `docs/assistant.md` (the phone road, the registry, the card), `docs/console.md` (the hold, speak and alert), `docs/federation.md` (the plane and the stamp), `docs/testing.md` (the harness's second console; the emulator sandbox stays outside this feature's verification), AGENTS.md map lines. Painpoints to the board.
+
+## Painpoints
+
+- **Four components, no version handshake.** The Router ran `0b8cea42`, the Gateway a tree from before `2f2bc843`, the phone and the plugin HEAD, and the only symptom was `no_holder` from a tool. `setup.sh --verify` compares package versions, which every commit between releases shares, and `registerGateway` reads nothing of the Router's protocol version. Boarded: a Gateway-side Router minimum at register, a build sha in `/health`.
+- **A refused console op decodes as a missing field.** The phone's `report_read` against the older Gateway logged `Field 'advanced' is required`, since the refusal object was decoded as the result type. `ConsoleClient.sendValueAnswer` keeps the refusal's reason out of its log too. The real cause (an unknown `stream` key) was found by dating containers against commits.
+- **Three moving parts to move the assistant's plugin.** The marketplace cache (`claude plugin update`), the running MCP process (only a restart replaces it) and the assistant's launch (`/exit` in its tmux pane, then a message). A wake alone looks like a restart and is not one. The deploy section now says the order; a single script would be better.
+- **`scripts/kotlin-gate.sh`'s tail says little.** "26 actionable tasks: 1 executed" after a source change reads as if nothing compiled; the compile ran in an earlier Gradle invocation of the same script. Confirming the new tests ran meant reading `build/test-results`.
+- **Driving the Pixel over adb is hand-rolled.** `input text` breaks on a parenthesis, every walk is tap coordinates from a screenshot, and a chained sequence once landed in Calendar. On the board already: scripted emulator and phone walks.
+- **`AssistantScreen.kt` attracts decisions.** Every page added this stretch began with a rule inside a Composable (the askable door, the gear target, the Required rows, the switch guard) and each had to be pulled out into `AssistantPermissions.kt` after an audit named it. The file is past 600 lines; a split by page is due.

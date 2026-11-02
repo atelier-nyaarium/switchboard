@@ -209,7 +209,9 @@ class PhoneCapabilityOpsTest {
 			val answers = withTimeout(5_000L) { List(3) { sent.receive() } }.associate { it.requestId to it.answer }
 
 			assertEquals(PhoneCapabilityAnswer.Ok(JsonObject(emptyMap())), answers["call-0001"])
-			assertEquals(PhoneCapabilityAnswer.Unavailable("disabled", emptyList()), answers["call-0002"])
+			val off = answers["call-0002"] as PhoneCapabilityAnswer.Unavailable
+			assertEquals("disabled", off.reason)
+			assertEquals(emptyList<String>(), off.needs)
 			assertEquals(PhoneCapabilityAnswer.Unavailable("not_granted", listOf("contacts")), answers["call-0003"])
 			assertEquals(listOf(Protocol.Wire.PhoneCapabilityKey.STATUS), platform.runs)
 		} finally {
