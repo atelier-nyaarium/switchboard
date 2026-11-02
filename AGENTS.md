@@ -1175,7 +1175,7 @@ The MCP and harness diagnostics are in
 
 New wire fields OPTIONAL at the gateway and tolerated by both peers. Deploy gateway first, then push the version bump. The plugin can update before the other components.
 
-A new VALUE on a required enum deploys every reader before the emitter: a phone reason the Gateway and the plugin parse strictly (`UNAVAILABLE_REASONS`) ships in the Gateway and the plugin release before the app that answers it, or the answer is refused as malformed and the call lapses to `timeout`. A release alone moves no running MCP server: the assistant's picks up the new build only after `claude plugin update switchboard@atelier-nyaarium` and a restart of its Claude (`/exit` in its pane, then a message wakes it).
+A new VALUE on a required enum deploys every reader before the emitter: a phone reason the Gateway and the plugin parse strictly (`UNAVAILABLE_REASONS`) ships in the Gateway and the plugin release before the app that answers it, or the answer is refused as malformed and the call lapses to `timeout`. A release alone moves no running MCP server: the assistant's picks up the new build only after `claude plugin update switchboard@atelier-nyaarium` and a restart of its Claude (`/exit` in its pane, then a message wakes it). A new tool on the assistant's allowlist (`ASSISTANT_SWITCHBOARD_TOOLS`) also needs `./start-host-daemon.sh` before that restart, since the daemon builds the launch's `--tools` from its own copy.
 
 A field that is optional only to cross that gap, and should be required once every part has updated, carries a comment above it naming the date it becomes required, about two weeks out. A field that is optional by meaning carries no date.
 
