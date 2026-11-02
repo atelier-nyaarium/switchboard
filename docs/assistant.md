@@ -278,7 +278,8 @@ actions; `run_action` runs a listed id.
   shared rate limit, so polls, listings and actions cannot disagree.
 - **Gateway-side capability:** `iftttClient.ts` reads the webhook key at each post through the fixed
   `ifttt` standing grant. The phone manages that grant under Integrations. The key appears only in
-  the URL passed to fetch and never in logs or answers.
+  the URL passed to fetch and never in logs or answers. A `status` of 0 means no response reached
+  the Gateway, so the event may have fired.
 - **The action tools are fixed:** `ASSISTANT_SWITCHBOARD_TOOLS` names `list_actions` and `run_action`
   for actions. A new key needs a registry entry and handler, with no allowlist change.
 - **`watcher/github_done` params (`{ ids, summary? }`):** up to 50 unique digit-string thread ids,
@@ -562,14 +563,18 @@ Launch acts answer `not_showing` unless the phone is interactive, unlocked and t
 `sms` needs `SEND_SMS` and `call` needs `CALL_PHONE`. Both default to opening the owner's app with
 the recipient or number prepared. Set `send` or `place` true only for a direct request to send or
 call through; when unclear, ask the owner out loud. A sideloaded build may not hold `SEND_SMS`
-without installer allowlisting; `status` reports `sms` as `not_granted`.
+without installer allowlisting; `status` reports `sms` as `not_granted`. An emergency number only
+opens the dialer, since Android refuses a third-party `ACTION_CALL` for it, and `calling` is then
+false. `sent` means handed to the SMS service; no sent intents are registered. A calendar read scans
+at most `CALENDAR_SCAN_CAP` rows, so a selective query cannot spend the deadline on a crowded window.
 
 A guarded act (`notification_reply`, a `send`, a `place`) opens an owner card on the holder's phone
 first, through the send guard; with Approve every send off it runs unasked. An
 `unavailable` answer names only the needs still missing.
 
 Notification access is the Android listener grant. `AssistantNotificationListener` seeds and updates
-a process-wide ring capped at 100 entries, evicting a dismissed row before a showing one. A dismissed
+a process-wide ring capped at 100 entries, evicting a dismissed row before a showing one; a listener
+disconnect marks every row dismissed until reconnect seeds again. A dismissed
 notification stays listed without its reply action; a reply goes only to one the ring holds as showing
 with a free-text `RemoteInput`, and a reconnect marks every row the system no longer shows as dismissed.
 Capability logging uses `CapabilityLog` with a key, count, boolean or event enum, and never includes
