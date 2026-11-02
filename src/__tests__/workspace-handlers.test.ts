@@ -1197,20 +1197,38 @@ describe("file state and whole-file mutations", () => {
 describe("the index deadline", () => {
 	// BOTH calls slow is the defect condition: a budget each would spend the budget twice.
 	it("spends ONE deadline across both index calls, not a budget each", async () => {
-		const slowThenHangs = async (): Promise<Session> => {
-			await new Promise((resolve) => setTimeout(resolve, 150));
-			return { outlineModule: () => new Promise(() => {}) } as unknown as Session;
-		};
-		const started = Date.now();
+		vi.useFakeTimers();
+		try {
+			let hung = 0;
+			const slowThenHangs = async (): Promise<Session> => {
+				await new Promise((resolve) => setTimeout(resolve, 150));
+				return {
+					outlineModule: () => {
+						hung += 1;
+						return new Promise(() => {});
+					},
+				} as unknown as Session;
+			};
+			const root = workspace();
+			let settled = false;
+			const pending = answerWorkspaceOp(
+				{ root: () => root, session: slowThenHangs, budgetMs: 200 },
+				{ kind: "outline", path: "src/app.ts" },
+			).then((result) => {
+				settled = true;
+				return result;
+			});
 
-		const result = await answerWorkspaceOp(
-			{ root: () => workspace(), session: slowThenHangs, budgetMs: 200 },
-			{ kind: "outline", path: "src/app.ts" },
-		);
-
-		// Shared: 150 then 50. Per call: 150 then 200.
-		expect(Date.now() - started).toBeLessThan(300);
-		expect(result).toMatchObject({ ok: false, failure: "failed" });
+			// Shared: 150 then 50. Per call: 150 then 200.
+			await vi.advanceTimersByTimeAsync(199);
+			expect(hung).toBe(1);
+			expect(settled).toBe(false);
+			await vi.advanceTimersByTimeAsync(2);
+			expect(settled).toBe(true);
+			expect(await pending).toMatchObject({ ok: false, failure: "failed" });
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("bounds a read's wait behind an index write by what the deadline leaves, and answers one held past it as late", async () => {
