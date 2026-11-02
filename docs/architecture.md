@@ -133,6 +133,8 @@ Windows workdir paths use forward slashes. UNC paths are rejected. Browsing uses
 `hostWorkdirHint` falls back to the session label. A label is not necessarily a path and must not be
 passed to `wslpath`.
 
+The daemon also serves `kasaScan`, a host op with a closed contract: no caller input, a discovery broadcast on every non-loopback IPv4 interface, typed candidates back. `docs/devices.md` holds the scan.
+
 ## Sessions and wake
 
 Devcontainer sessions are loose `project.session` peers. The daemon sets `PROJECT_NAME` to the

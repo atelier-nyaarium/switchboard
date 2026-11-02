@@ -255,6 +255,7 @@ function messageOf(error: unknown): string {
 	return error instanceof Error ? error.message : "Kasa request failed";
 }
 
+/** Kasa over the legacy XOR protocol. */
 export function createKasaDriver(options: { transport?: KasaTransport; port?: number } = {}): DeviceDriver {
 	const transport = options.transport ?? createKasaTransport(options.port);
 

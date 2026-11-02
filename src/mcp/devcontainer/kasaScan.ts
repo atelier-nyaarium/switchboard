@@ -104,6 +104,7 @@ function candidateFrom(message: Uint8Array, remote: Pick<RemoteInfo, "address">)
 	}
 }
 
+/** Legacy Kasa discovery broadcast. */
 export function createKasaScanner(deps: KasaScannerDeps = {}): () => Promise<HostKasaScanResult> {
 	const listInterfaces = deps.interfaces ?? networkInterfaces;
 	const socketFactory = deps.socketFactory ?? (() => createSocket("udp4") as unknown as KasaUdpSocket);

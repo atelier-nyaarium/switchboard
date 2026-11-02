@@ -4,6 +4,7 @@ import { ConsoleDeviceScanResultSchema } from "../../shared/schemasDevices.js";
 
 export type KasaScanRelay = (op: Extract<HostOp, { kind: "kasaScan" }>) => Promise<HostOpResult>;
 
+/** Relays the daemon's scan. */
 export function createDeviceScan(relayToHost: KasaScanRelay) {
 	return async function scanDevices() {
 		let relay: HostOpResult;

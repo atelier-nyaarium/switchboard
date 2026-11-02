@@ -134,6 +134,13 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `src/gateway/vault/operationSet.ts` - the wrapper table read from each program's help, and the set a window grant covers
 - `src/shared/selector-key.ts` - the one shape rule, `shapeFrom`; `selectorKey`, what askpass presents and what a policy stores; `withoutAskpassFlags`, the one walk the helper's brief and a policy's keys both take, so `sudo -A apt` keys as `sudo apt`
 - `src/gateway/compose/composeVault.ts` - vault client, decisions, requests, routes, and console operations
+- `src/shared/schemasDevices.ts` / `src/gateway/devices/store.ts` / `driver.ts` / `road.ts` / `shapes.ts` / `scan.ts` / `kasa/` / `src/gateway/compose/composeDevices.ts` / `src/mcp/devcontainer/kasaScan.ts` / `src/testing/fakeKasaPlug.ts` - the device layer: the wire, the durable store with tombstones, the driver contract, the one road every handler takes, the decline projections, the Gateway's relay to the daemon's scan, the Kasa driver on its own XOR transport, the handler bodies, the daemon's broadcast scan, and the loopback fake plug. `docs/devices.md` holds the design
+  - **Every handler goes through the road:** `composeDevices.ts` holds the handler bodies and cannot name a store or a driver; `device-road-residue.test.ts` reads it. The road owns the leases (console 30 s, assistant `ASSISTANT_WAITS.action`, nested per-plug bounds, all drained by close), the per-device queue raced at its start against the lease, the close fence, the toggle doubt and the one failure map.
+  - **The deadline gates starting an effect, never committing one that landed:** a plug answer that arrives after the deadline still commits.
+  - **The effect latch says whether an effect may have landed:** `mutateWithIdentity` marks it after the identity read passes and before the mutation is written, and clears it when the plug refuses that command or the transport never wrote it. The transport's `sent` is its own typed fact, and the road is its only reader, for not started.
+  - **Identity before every mutation:** the driver reads `sysinfo` and sends nothing on a MAC mismatch, so a reused DHCP address cannot switch the wrong plug.
+  - **The scan is a closed host op:** no caller input, the daemon's own four-second window under the host bound, typed candidates; the Gateway answers a daemon that is down or late as a refusal, never as an empty list.
+  - **The fake plug applies a held command:** `hold` runs the command and withholds only the reply, so a held relay command flips the fake's relay; one `waitForHeldReply` takes one hold.
 - `src/gateway/runbooks/store.ts` - gateway-held runbooks; sole writer, so a stored record has passed the rules
 - `src/gateway/routines/store.ts` - gateway-held routines; sole writer, and it publishes `onChanged` so the runner cannot be left armed for what the store no longer says
 - `src/gateway/routines/memory.ts` - what a routine remembers between runs, keyed by its incarnation
@@ -901,6 +908,7 @@ How each subsystem works lives in `docs/`:
 | `docs/runbooks.md` | The `{{name}}` grammar, the gateway store, the fire, the view, the editor, a refused push |
 | `docs/routines.md` | The routine record, its targets, recurrence in a recorded zone, the console operations, what a session asks back, and the manual pass no gate here can reach |
 | `docs/assistant.md` | Assistant session, notes, gate, actions, watchers, rules, delivery and check-ins |
+| `docs/devices.md` | The device record and store, the driver contract, the Kasa driver, the road, the scan, the assistant's device actions |
 | `docs/references.md` | `ref://` grammar and matchers |
 | `docs/testing.md` | The federation harness, the minted wire fixtures, the identity set, the gates |
 | `docs/environment.md` | Every environment variable |

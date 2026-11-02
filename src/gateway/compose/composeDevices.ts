@@ -45,6 +45,7 @@ export interface DeviceStage {
 	close: () => Promise<void>;
 }
 
+/** Handler bodies; the road does the rest. */
 export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 	const road = createDeviceRoad(deps);
 	const runScan = createDeviceScan(deps.relayToHost);

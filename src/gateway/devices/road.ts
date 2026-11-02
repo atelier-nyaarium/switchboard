@@ -108,6 +108,7 @@ function withRecord<T extends object>(value: T, record: DeviceRecord | null): T 
 	return record ? { ...value, record } : value;
 }
 
+/** The one road to a store or a driver. */
 export function createDeviceRoad(deps: DeviceRoadDeps): DeviceRoad {
 	const store =
 		deps.deviceStore ?? openDeviceStore(deps.dataDir, { onChanged: (deviceId) => deps.onChanged?.(deviceId) });

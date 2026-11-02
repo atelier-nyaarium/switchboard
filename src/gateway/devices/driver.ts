@@ -82,6 +82,7 @@ export interface DeviceSettingsAccess {
 	put(setting: DeviceSetting): Promise<DeviceSettings>;
 }
 
+/** Identity before every mutation. */
 export interface DeviceDriver {
 	kinds(): readonly DeviceRecord["kind"][];
 	identify(address: string, ctx: DeviceOperationContext): Promise<string>;

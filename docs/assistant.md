@@ -296,6 +296,8 @@ actions; `run_action` runs a listed id.
 - **The record:** an action that reached the source is recorded in the assistant's conversation
   (Delivery). One where every id answered `not_attempted` posts nothing.
 
+The device actions, `devices` and `device_set`, are answered on the Gateway by the device road; `docs/devices.md` holds that layer.
+
 ## Events
 
 The source is the only copy. The Gateway stores nothing about a GitHub thread: per watcher it keeps

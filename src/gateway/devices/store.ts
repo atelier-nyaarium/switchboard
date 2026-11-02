@@ -83,6 +83,7 @@ function restore(store: DeviceStoreDeps["store"]): DeviceSnapshot {
 	return { revision: snapshot.revision, records, tombstones };
 }
 
+/** Sole writer of the device file. */
 export function createDeviceStore(deps: DeviceStoreDeps) {
 	let snapshot = restore(deps.store);
 	const fifo = createKeyedFifo<string>();

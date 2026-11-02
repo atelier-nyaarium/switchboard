@@ -83,6 +83,7 @@ function requestOf(value: unknown, connection: number): FakeKasaRequest | null {
 	return { connection, module, command, args: value[module][command] };
 }
 
+/** A loopback Kasa plug. */
 export async function createFakeKasaPlug(options: FakeKasaPlugOptions = {}): Promise<FakeKasaPlug> {
 	const receivedRows: FakeKasaReceived[] = [];
 	const sockets = new Set<Socket>();

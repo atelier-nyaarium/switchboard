@@ -36,6 +36,7 @@ function parseAnswer(packet: Uint8Array): unknown {
 	}
 }
 
+/** One connection per command. */
 export function createKasaTransport(port = KASA_PORT): KasaTransport {
 	return {
 		request(address, command, signal) {
