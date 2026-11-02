@@ -96,7 +96,7 @@
 		"needs": ["send_sms", "notifications"],
 		"requestId": "SmsRequest",
 		"answerId": "SmsAnswer",
-		"describeHash": "08d65e6436671caef15dc6c45649e0c12fdaf2948bd54253d70c0304260d22e8"
+		"describeHash": "2ed3ac6de89fbbcd61b5bf5929fa114a907a9ddc1eb5e0e55b19e0e338341f60"
 	},
 	{
 		"key": "call",
@@ -105,6 +105,6 @@
 		"needs": ["call_phone", "notifications"],
 		"requestId": "CallRequest",
 		"answerId": "CallAnswer",
-		"describeHash": "f8be45d615f0a4d49e5b37f62174c063315d5bf368f04e315a80e33223f99943"
+		"describeHash": "848fd2eac43aa92802274685999ccc65f617903adc64530c63a5ece734cec811"
 	}
 ]

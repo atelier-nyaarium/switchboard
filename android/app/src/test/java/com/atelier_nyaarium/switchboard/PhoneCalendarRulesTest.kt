@@ -63,6 +63,15 @@ class PhoneCalendarRulesTest {
 	}
 
 	@Test
+	fun aSelectiveQueryStopsReadingAtTheScanCap() {
+		var read = 0
+		val rows = generateSequence { read += 1; row(read.toString(), "Work") }
+
+		assertEquals(emptyList<CalendarRow>(), selectEvents(rows, "plan", 5))
+		assertEquals(CALENDAR_SCAN_CAP, read)
+	}
+
+	@Test
 	fun formatsAllDayDatesAndTimedOffsets() {
 		val now = Instant.parse("2025-06-09T19:00:00Z")
 		val allDay = row(

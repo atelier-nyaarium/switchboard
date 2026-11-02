@@ -322,8 +322,8 @@ Set it true only when the owner directly asks in words to send the text through,
 "send a text to mom saying ...". Never set it for "draft", "write up" or "get ready to" requests.
 When unclear, ask the owner out loud first; a plain "yes" or "yeah" is enough. Use digits with an
 optional leading plus for the number; look up a contact with \`contacts_search\` first. \`sent\`
-means the SMS service accepted the message, not that it was delivered. A draft needs the phone
-shown and unlocked, else \`not_showing\`; a send does not.
+means the message was handed to the SMS service; it says nothing about leaving the phone or being
+delivered. A draft needs the phone shown and unlocked, else \`not_showing\`; a send does not.
 		`.trim(),
 	},
 	call: {
@@ -344,7 +344,8 @@ only when the owner directly asks in words to call through, such as "call mom". 
 "draft", "write up" or "get ready to" requests. When unclear, ask the owner out loud first; a
 plain "yes" or "yeah" is enough. Use digits with an optional leading plus for the number; look up
 a contact with \`contacts_search\` first. Either way the phone must be shown and unlocked, else
-\`not_showing\`.
+\`not_showing\`. An emergency number only opens the dialer, since Android lets the owner alone
+place that call, and \`calling\` is then false.
 		`.trim(),
 	},
 	ifttt_trigger: {
@@ -368,7 +369,7 @@ a contact with \`contacts_search\` first. Either way the phone must be shown and
 		describe: `
 # Fire an IFTTT event
 
-Posts the event to the owner's IFTTT Webhooks with the three optional values. The webhook key must be granted on the phone under Integrations. The \`ok\` field means the webhook accepted it.
+Posts the event to the owner's IFTTT Webhooks with the three optional values. The webhook key must be granted on the phone under Integrations. The \`ok\` field means the webhook accepted it. A \`status\` of 0 means no response reached the Gateway, so the event may or may not have fired; do not fire it again without asking.
 		`.trim(),
 	},
 } as const satisfies Record<string, PhoneCapabilityDeclaration>;

@@ -35,9 +35,12 @@ internal fun matchesQuery(title: String, query: String?): Boolean {
 	return needle.isEmpty() || title.contains(needle, ignoreCase = true)
 }
 
+/** Rows read before a selective query gives up. */
+internal const val CALENDAR_SCAN_CAP = 2000
+
 internal fun selectEvents(rows: Sequence<CalendarRow>, query: String?, limit: Int?): List<CalendarRow> {
 	val cap = (limit ?: 20).coerceIn(1, 50)
-	return rows.filter { matchesQuery(it.title, query) }.take(cap).toList()
+	return rows.take(CALENDAR_SCAN_CAP).filter { matchesQuery(it.title, query) }.take(cap).toList()
 }
 
 internal fun eventOf(row: CalendarRow, now: Instant, zone: ZoneId): PhoneCalendarEvent {

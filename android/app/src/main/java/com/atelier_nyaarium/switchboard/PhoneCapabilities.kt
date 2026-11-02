@@ -16,6 +16,7 @@ import android.provider.AlarmClock
 import android.provider.CalendarContract
 import android.provider.ContactsContract
 import android.telephony.SmsManager
+import android.telephony.TelephonyManager
 import com.atelier_nyaarium.switchboard.proto.AlarmSetAnswer
 import com.atelier_nyaarium.switchboard.proto.AlarmSetRequest
 import com.atelier_nyaarium.switchboard.proto.AppOpenAnswer
@@ -448,7 +449,11 @@ private fun smsBody(context: PhoneCapabilityContext, request: SmsRequest): SmsAn
 
 private fun callBody(context: PhoneCapabilityContext, request: CallRequest): CallAnswer {
 	val number = phoneNumberOf(request.number) ?: throw CapabilityUnavailable("not_supported")
-	val place = request.place == true
+	// Android lets only the owner place an emergency call.
+	val emergency = runIsolated {
+		context.applicationContext.getSystemService(TelephonyManager::class.java)?.isEmergencyNumber(number) == true
+	}.getOrDefault(false)
+	val place = request.place == true && !emergency
 	val action = if (place) Intent.ACTION_CALL else Intent.ACTION_DIAL
 	val intent = Intent(action, Uri.parse(telUri(number)))
 	if (!place) {

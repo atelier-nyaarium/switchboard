@@ -11,6 +11,11 @@ class AssistantNotificationListener : NotificationListenerService() {
 		NotificationRing.shared.reconcile(active.mapTo(HashSet()) { it.key })
 	}
 
+	/** Nothing is known until reconnect. */
+	override fun onListenerDisconnected() {
+		NotificationRing.shared.reconcile(emptySet())
+	}
+
 	override fun onNotificationPosted(sbn: StatusBarNotification) {
 		postNotification(sbn)
 	}

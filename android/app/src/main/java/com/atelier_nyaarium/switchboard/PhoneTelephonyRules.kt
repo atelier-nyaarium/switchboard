@@ -31,7 +31,7 @@ internal fun smsBodyOf(body: String?): String? =
 	body?.trim()?.take(1000)?.takeIf { it.isNotEmpty() }
 
 /** Two septets each. */
-private const val GSM_7_EXTENSION = "^{}\\[]~|€"
+private val GSM_7_EXTENSION = "^{}\\[]~|€" + Char(0x0c)
 
 internal fun smsParts(body: String): Int {
 	val gsm7 = body.all { it in GSM_7_BASIC || it in GSM_7_EXTENSION }

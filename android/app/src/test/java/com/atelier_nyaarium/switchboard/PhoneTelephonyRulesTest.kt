@@ -36,5 +36,6 @@ class PhoneTelephonyRulesTest {
 		assertEquals(2, smsParts("ÆæßÉ".repeat(41)))
 		assertEquals(1, smsParts("{".repeat(80)))
 		assertEquals(2, smsParts("{".repeat(81)))
+		assertEquals(1, smsParts("a" + Char(0x0c).toString().repeat(71) + "b"))
 	}
 }

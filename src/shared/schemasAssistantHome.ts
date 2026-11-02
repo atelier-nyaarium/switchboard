@@ -35,8 +35,8 @@ export const AssistantHomeCarriedSchema = z
 	.object({
 		approveEverySend: z.boolean(),
 		watchers: z.array(AssistantHomeCarriedWatcherSchema).max(WATCHERS_MAX),
-		// Required starting 2026-11-15.
-		integrations: z.array(AssistantHomeCarriedIntegrationSchema).optional(),
+		// Required starting 2026-11-15. Null from a phone that read an older Gateway.
+		integrations: z.array(AssistantHomeCarriedIntegrationSchema).nullish(),
 	})
 	.meta({ id: "AssistantHomeCarried" });
 
