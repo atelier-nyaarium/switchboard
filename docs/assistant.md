@@ -119,8 +119,8 @@ Safety and Enabled on its own disk.
   one makes the host fall back to home, and a link's spelling is not the place it leads. Project settings in the workdir still load;
   the session cannot write `.claude/`, so only the owner could add one.
 - **Its Switchboard server:** takes no capabilities and lists only `channel_reply`,
-  `channel_reply_structured`, `switchboard_capabilities`, `notify_human`, `inbox`, each declared
-  watcher action and the crosstalk tools (`ASSISTANT_SWITCHBOARD_TOOLS`, through `scopeTools`), so
+  `channel_reply_structured`, `switchboard_capabilities`, `notify_human`, `inbox`, `list_actions`,
+  `run_action` and the crosstalk tools (`ASSISTANT_SWITCHBOARD_TOOLS`, through `scopeTools`), so
   no guidance names a tool it lacks and no reply snapshots a ref. `ASSISTANT_ONLY_TOOLS` are
   registered for it alone, which `check:boot` proves against a bound session and a tokenless one. Its instructions carry the assistant's standing rules
   (`ASSISTANT_INSTRUCTIONS`), so a release updates them in every folder.
@@ -140,7 +140,7 @@ fails to run exits 2, which blocks the tool. `gateVerdict` is a closed allowlist
   any depth, an `AGENTS.md` below the root, or `.mcp.json`. A write that passes then asks the write
   lock.
 - **Allowed:** `channel_reply`, `channel_reply_structured`, `switchboard_capabilities`,
-  `notify_human`, `inbox`, each declared watcher action, the crosstalk tools and `ToolSearch`. The
+  `notify_human`, `inbox`, `list_actions`, `run_action`, the crosstalk tools and `ToolSearch`. The
   reply route already refuses a conversation not addressed to the caller. The attachments of
   `channel_reply`, `notify_human` and `crosstalk_send` take the read rule, and a `ref://` to `/`, `~`
   or `..` in the field each uploads (`full`, or a send's `body`) is refused. A field that is not
@@ -228,24 +228,39 @@ guard; `docs/vault.md` holds the request lifecycle it shares with the vault.
 ## Actions
 
 A watcher declares what the assistant may do with its source. Setting the watcher up is the
-permission, so an action runs at once.
+permission, so an action runs at once. `list_actions` discovers phone capabilities and watcher
+actions; `run_action` runs a listed id.
 
-- **One shared registry:** `ASSISTANT_ACTIONS` in `src/shared/schemasAssistantActions.ts` holds, per
-  action, a key that is its MCP tool name, the watcher it belongs to, a label and a one-line
-  description for the owner, its usage text for the model, and Zod schemas for its params and its
-  answer. Every action takes an optional `summary`. It holds data and schemas only, so the plugin
-  imports no Gateway code, and `assistant_state` carries each watcher's descriptors (`actionsOf`).
+- **Discovery:** `list_actions` returns each id (`phone/<key>` or `watcher/<key>`), its kind, needs,
+  usage and parameter JSON Schema. For a phone id, `available` and `reason` reflect the holder's
+  last `status` answer during the hold window; availability is `null` until that answer, and
+  `statusMemo.ts` clears it on `no_holder`. Watcher availability is `null`.
+- **One params schema:** `actionParamsSchema` in `src/shared/schemasActionFront.ts` selects the Zod
+  params object for each id. The listing renders that object as JSON Schema, and the Gateway parses
+  `run_action` params with it.
+- **The watcher registry:** `ASSISTANT_ACTIONS` in `src/shared/schemasAssistantActions.ts` holds, per
+  action, its key, watcher, label, owner description, model usage, and Zod schemas for params and
+  answer. Every watcher action takes an optional `summary`. The registry holds data and schemas only,
+  so the plugin imports no Gateway code, and `assistant_state` carries each watcher's descriptors
+  (`actionsOf`).
 - **One class per action on the Gateway:** `WatcherAction<K>` (`watcherAction.ts`), with its `key`,
   its `declaration` and a typed `run(params, ctx)`. The instances sit in a map typed by the
   registry's keys, so a declared action with no class does not compile.
-- **One route:** `/assistant/action` takes `{ action, callId, params }`, answers only the assistant's
-  own token, parses the params with that action's schema, and runs it (`actionDispatch.ts`).
+- **Two routes:** `POST /assistant/actions` lists the actions for the assistant's own token.
+  `POST /assistant/run` takes `{ id, callId, params }`, validates the params and hands the call to
+  the matching family dispatcher (`assistantRoutes.ts`). Watcher ids run in their watcher's lane;
+  phone ids wait on the holder.
+- **Run answers:** `ok` returns the family's answer and a `recorded` flag. `refused` means the
+  Gateway or dispatcher rejects the call and gives a reason. `unavailable` means current conditions
+  prevent the action from running; it gives a reason and optional needs or detail. `not_assistant`
+  identifies a non-assistant session; `unauthenticated` identifies a request without a Gateway
+  binding.
 - **The lane owns every deadline:** each item enters through one road with a deadline that counts
   the queue. One not started by then answers `not_started` and later runs nothing. A `read` (a
   listing, a preview) frees the lane at its deadline and commits nothing that lands after it; a
   `write` (an action) holds the lane until it settles, and its signal ends at the deadline with a
   typed reason (`laneEnd`) the action reads. Stop ends queued and running work at once.
-- **An action's deadline is 60 seconds:** one its lane has not started by then is refused with
+- **A watcher action's deadline is 60 seconds:** one its lane has not started by then is refused with
   nothing sent. No request starts past it, and one in flight is cut there or at 15 seconds. An id
   never sent answers `not_attempted`; a `DELETE` cut before its answer answers `uncertain`. The
   caller-facing waits live in one table (`ASSISTANT_WAITS`, `waits.ts`), and a test pins their
@@ -253,18 +268,20 @@ permission, so an action runs at once.
   routes sit inside the Gateway's 255-second idle timeout, pinned by `gateway-serve-limits.test.ts`.
 - **`rate_limited` means GitHub answered with a rate limit:** an id the shared limit held back was not
   sent, so it answers `not_attempted`, and the note names the wait.
-- **A call id makes a retry safe:** the tool mints one per call and repeats it on a retried post. The
-  Gateway joins a repeated id to the first call's answer through `createOpDedupe`, holding a settled
-  answer ten minutes, so neither the requests nor the record repeat, and keys the record row by it.
+- **A call id makes a retry safe:** `run_action` mints one per call and repeats it on a retried post.
+  Each family dispatcher joins a repeated id to the first call's answer through `createOpDedupe`,
+  holding a settled answer ten minutes, so neither the requests nor the record repeat, and keys the
+  record row by it.
 - **One GitHub client:** `githubClient.ts` owns the token read, the headers, the refusals and the
   shared rate limit, so polls, listings and actions cannot disagree.
-- **The tools follow the registry:** `ASSISTANT_SWITCHBOARD_TOOLS` is derived from its keys, so the
-  MCP scope, the gate and the launch permissions list the same tools.
-- **`github_done({ ids, summary? })`:** up to 50 unique digit-string thread ids, and an optional
-  summary of up to 300 characters. Per id it reads the thread for its title and link, marks it done
-  (`DELETE`, 204), then read (`PATCH`, 205, which a done thread also takes). Unread is the inbox,
-  since GitHub keeps listing a done thread under `all=true`, and done comes first so a thread leaves
-  the inbox only once GitHub confirmed it done; `not_attempted` then always means nothing changed.
+- **The action tools are fixed:** `ASSISTANT_SWITCHBOARD_TOOLS` names `list_actions` and `run_action`
+  for actions. A new key needs a registry entry and handler, with no allowlist change.
+- **`watcher/github_done` params (`{ ids, summary? }`):** up to 50 unique digit-string thread ids,
+  and an optional summary of up to 300 characters. Per id it reads the thread for its title and link,
+  marks it done (`DELETE`, 204), then read (`PATCH`, 205, which a done thread also takes). Unread is
+  the inbox, since GitHub keeps listing a done thread under `all=true`, and done comes first so a
+  thread leaves the inbox only once GitHub confirmed it done; `not_attempted` then always means
+  nothing changed.
   Each id answers one shared outcome: `done`, `not_found`, `rate_limited`, `uncertain` or
   `not_attempted`. A rate limit stops the batch, and the ids after it answer `not_attempted`; so does
   a refused token. A done thread whose mark-read failed answers `done` with a note that it stays in
@@ -334,7 +351,7 @@ A watcher is plain Gateway code, never a model.
   once.
 - **No error carries the token:** a value that is not visible ASCII stops the watcher before any
   request. A rate limit holds for polls and the rules preview alike.
-- Its one action is `github_done`.
+- Its one action id is `watcher/github_done`.
 - **Its fields:** `reason`, a list of GitHub's 16 reasons; `type`, a list of the subject types seen;
   `repository` and `title`, text. `GITHUB_FIELD_SPECS` holds them.
 - Reads a classic token from its granted vault entry. The notification endpoints take no
@@ -371,7 +388,7 @@ assistant cannot rewrite what sorts its own events.
   the priming poll included, and keeps each value outside its field's list once, up to 32, with an
   overflow flag. An entry leaves once the declaration lists it. The phone shows them under the
   watcher's Rules row, so a new GitHub value is seen before a rule needs it.
-- **No drop, no ping:** GitHub threads are cleared at GitHub through `github_done`, and the agent
+- **No drop, no ping:** GitHub threads are cleared at GitHub through `watcher/github_done`, and the agent
   alone decides what is worth telling the owner. The rules file is read through a decoder that
   runs before the schema parse: it removes `drop` rules, maps an `otherwise` of `drop` to `inbox`
   and strips `ping`, keeping the rest's order and revisions.
@@ -528,8 +545,8 @@ microphone; Gboard's mic key dictates. `summon-residue.test.ts` refuses `showWhe
 
 The assistant reaches the holding phone through the capability registry (`PHONE_CAPABILITIES` in
 `src/shared/schemasPhoneCapabilities.ts`, pinned to the Kotlin bindings by
-`tests/fixtures/phone-capabilities/registry.json`): `status`, `contacts_search` and `torch`, each a
-tool of its own with the registry's needs in its description. A request lands on the phone as a
+`tests/fixtures/phone-capabilities/registry.json`): `status`, `contacts_search` and `torch`, exposed
+as `phone/<key>` ids by `list_actions`. A `run_action` call with a phone id lands on the holder as a
 stamped row, runs through `PhoneCapabilityOps` and answers through the journal, at most once per
 request id.
 
@@ -613,17 +630,18 @@ than reserving one. `docs/routines.md` holds the routine side; this is the assis
   (`src/mcp/assistant/instructions.ts`). The owner's standing instructions are the folder's
   `AGENTS.md`, which the assistant keeps.
 - **Its capabilities are its own:** `switchboard_capabilities` serves both kinds of session. The
-  assistant's answer lists `ASSISTANT_CAPABILITIES`, built from the Switchboard tools its scope
-  allows (Claude Code's own file tools are not Switchboard's and are left out), then the
-  standing rules again for after a compaction. What the Gateway enables is named as other sessions',
-  never as something a restart would add.
+  assistant's answer lists the `ASSISTANT_CAPABILITIES` groups `replies`, `inbox`, `actions`,
+  `guarded-sends` and `check-ins`. Its single `actions` entry names `list_actions` and `run_action`.
+  Claude Code's own file tools are not Switchboard's and are left out. The answer repeats the
+  standing rules after a compaction. What the Gateway enables is named as other sessions', never as
+  something a restart would add.
 - **Events:** a channel message with `event="true"` and no sender, `session_id` or
   `meta.instructions`. `CHANNEL_INSTRUCTIONS` says it is data and owes no `channel_reply`. Its body
   is each event's data lines (`eventLines`), thread id included, every value collapsed to one line
   by `oneLine` so a title cannot forge another line, then neutralized like any message body.
 - **What it does with one:** the instructions say to decide whether an event is worth bringing up,
-  and to answer with `github_done` and a summary if so, or with `github_done` alone to clear it
-  quietly.
+  and to run `watcher/github_done` through `run_action` with a summary if so, or without one to clear
+  it quietly.
 - **After a compaction:** the SessionStart `compact` hook adds one line per watcher, with GitHub's
   unread count and any stopped or waiting reason, beside the session's conversations, routine runs,
   agents and board entries. The watcher lines come before the board, the part a full baseline cuts.

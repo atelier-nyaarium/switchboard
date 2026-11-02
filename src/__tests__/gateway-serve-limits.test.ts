@@ -35,8 +35,11 @@ const ROUTE_WAIT_MS = new Map<string, number>([
 	["/vault/collect", VAULT_HOLD_FLOOR_MS],
 	["/vault/capture", VAULT_REFRESH_BOUND_MS + TOOL_CALL_TIMEOUT_MS],
 	["/vault/askpass", VAULT_HOLD_FLOOR_MS],
-	["/assistant/action", ASSISTANT_WAITS.action],
+	["/assistant/actions", ASSISTANT_WAITS.list],
 	["/assistant/list", ASSISTANT_WAITS.list],
+	["/assistant/run", PHONE_ROUTE_WAIT_MS],
+	// Remove after 2026-11-16: an older plugin's doors.
+	["/assistant/action", ASSISTANT_WAITS.action],
 	["/assistant/phone", PHONE_ROUTE_WAIT_MS],
 	// Unasked sends wake targets.
 	["/assistant/send", Math.max(SEND_ROUTE_WAIT_CAP_MS, DEFAULT_WAKE_TIMEOUT_MS + POST_WAKE_SETTLE_MS)],
@@ -106,8 +109,7 @@ describe("gateway long waits", () => {
 		const assistantRoutes = fs.readFileSync("src/gateway/assistant/assistantRoutes.ts", "utf8");
 		const routineRoutes = fs.readFileSync("src/gateway/routines/routineRoutes.ts", "utf8");
 		const baselineRoutes = fs.readFileSync("src/gateway/sessionBaseline.ts", "utf8");
-		const assistantPaths = fs.readFileSync("src/shared/schemasAssistantActions.ts", "utf8");
-		const phonePaths = fs.readFileSync("src/shared/schemasPhoneCapabilities.ts", "utf8");
+		const actionFrontPaths = fs.readFileSync("src/shared/schemasActionFront.ts", "utf8");
 		const holdPaths = fs.readFileSync("src/shared/assistant-hold.ts", "utf8");
 		const sendPaths = fs.readFileSync("src/shared/schemasAssistantSend.ts", "utf8");
 		const commandPaths = fs.readFileSync("src/shared/session-commands.ts", "utf8");
@@ -123,9 +125,11 @@ describe("gateway long waits", () => {
 		]);
 		expect(mapKeys(assistantRoutes)).toEqual([
 			"INBOX.path",
-			"ASSISTANT_ACTION_PATH",
+			"ACTION_FRONT_ROUTES.list",
+			"ACTION_FRONT_ROUTES.run",
+			"ACTION_FRONT_LEGACY_ROUTES.action",
+			"ACTION_FRONT_LEGACY_ROUTES.phone",
 			"ASSISTANT_HOLD_PATH",
-			"PHONE_CAPABILITY_PATH",
 			"ASSISTANT_SEND_ROUTES.send",
 			"ASSISTANT_SEND_ROUTES.collect",
 			"ASSISTANT_SEND_ROUTES.withdraw",
@@ -135,8 +139,7 @@ describe("gateway long waits", () => {
 
 		const loopbackPaths = [
 			...quotedPaths(vaultRoutes),
-			...quotedPaths(assistantPaths),
-			...quotedPaths(phonePaths),
+			...quotedPaths(actionFrontPaths),
 			...quotedPaths(holdPaths),
 			...quotedPaths(sendPaths),
 			...quotedPaths(commandPaths),

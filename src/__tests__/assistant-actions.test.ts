@@ -19,15 +19,12 @@ import type {
 	DeliverToOwnerOptions,
 	DeliverToOwnerResult,
 } from "../gateway/consolePushOps.js";
-import { actionText } from "../mcp/assistant/actionTools.js";
+import { watcherText } from "../mcp/assistant/actionFront.js";
 import { processAmbient } from "../shared/ambient.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { ConsolePushEntrySchema } from "../shared/federation-protocol.js";
-import {
-	ASSISTANT_ACTION_PATH,
-	ASSISTANT_ACTIONS,
-	type AssistantActionResult,
-} from "../shared/schemasAssistantActions.js";
+import { ACTION_FRONT_ROUTES, type ActionRunResult } from "../shared/schemasActionFront.js";
+import { ASSISTANT_ACTIONS } from "../shared/schemasAssistantActions.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../shared/schemasAssistantHome.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
 import { SessionStore } from "../shared/session-store.js";
@@ -159,9 +156,9 @@ async function placed(listed: string[] = []) {
 	assistant.start();
 	await home.follow();
 	await assistant.console.setWatcherGrants("github", ["gh"]);
-	const route = assistant.routes.get(ASSISTANT_ACTION_PATH);
+	const route = assistant.routes.get(ACTION_FRONT_ROUTES.run);
 	if (!route) throw new Error("no action route");
-	const call = async (body: unknown, caller = "assistant"): Promise<AssistantActionResult> => {
+	const call = async (body: unknown, caller = "assistant"): Promise<ActionRunResult> => {
 		const headers: Record<string, string> = caller ? { "x-caller": caller } : {};
 		return (await route(new Request("http://gateway/", { headers }), body)).json();
 	};
@@ -173,14 +170,14 @@ describe("an assistant action", () => {
 		const { assistant, call, delivered, asked } = await placed();
 
 		const result = await call({
-			action: "github_done",
+			id: "watcher/github_done",
 			callId: "call-0001",
 			params: { ids: ["7", "404"], summary: "The release is out." },
 		});
 		await assistant.stop();
 
 		expect(result).toEqual({
-			kind: "ran",
+			kind: "ok",
 			recorded: true,
 			answer: {
 				threads: [
@@ -216,10 +213,10 @@ describe("an assistant action", () => {
 	it("tells the model whether its summary was recorded, whatever stopped it", () => {
 		const done = { threads: [{ threadId: "1", outcome: "done" as const }] };
 
-		const refused = actionText({ kind: "refused", reason: "busy" }, null, true);
-		const unrecorded = actionText({ kind: "ran", answer: done, recorded: false }, done, true);
-		const recorded = actionText({ kind: "ran", answer: done, recorded: true }, done, true);
-		const quiet = actionText({ kind: "ran", answer: done, recorded: false }, done, false);
+		const refused = watcherText({ kind: "refused", reason: "busy" }, null, true);
+		const unrecorded = watcherText({ kind: "ok", answer: done, recorded: false }, done, true);
+		const recorded = watcherText({ kind: "ok", answer: done, recorded: true }, done, true);
+		const quiet = watcherText({ kind: "ok", answer: done, recorded: false }, done, false);
 
 		expect(refused).toMatch(/summary was not recorded/);
 		expect(unrecorded).toMatch(/summary was not recorded/);
@@ -294,7 +291,7 @@ describe("an assistant action", () => {
 
 		await assistant.console.setWatcherEnabled("github", true);
 		const before = await counted(2);
-		await call({ action: "github_done", callId: "call-0008", params: { ids: ["7"] } });
+		await call({ id: "watcher/github_done", callId: "call-0008", params: { ids: ["7"] } });
 		const after = await counted(1);
 		await assistant.stop();
 
@@ -306,7 +303,7 @@ describe("an assistant action", () => {
 
 	it("joins a repeated call id, so a retry sends nothing twice, and clears quietly without a summary", async () => {
 		const { assistant, call, delivered, asked } = await placed();
-		const body = { action: "github_done", callId: "call-0002", params: { ids: ["8"] } };
+		const body = { id: "watcher/github_done", callId: "call-0002", params: { ids: ["8"] } };
 
 		const [first, retried] = await Promise.all([call(body), call(body)]);
 		await assistant.stop();
@@ -320,7 +317,7 @@ describe("an assistant action", () => {
 
 	it("answers only the assistant, refuses what its declaration refuses, and records nothing that never reached GitHub", async () => {
 		const { assistant, call, delivered } = await placed();
-		const done = (callId: string, ids: string[]) => ({ action: "github_done", callId, params: { ids } });
+		const done = (callId: string, ids: string[]) => ({ id: "watcher/github_done", callId, params: { ids } });
 
 		const stranger = await call(done("call-0003", ["1"]), "someone");
 		const unbound = await call(done("call-0004", ["1"]), "");
@@ -333,7 +330,7 @@ describe("an assistant action", () => {
 		expect(unbound).toEqual({ kind: "unauthenticated" });
 		expect(malformed.kind).toBe("refused");
 		expect(ungranted).toMatchObject({
-			kind: "ran",
+			kind: "ok",
 			recorded: false,
 			answer: { threads: [{ threadId: "1", outcome: "not_attempted" }] },
 		});

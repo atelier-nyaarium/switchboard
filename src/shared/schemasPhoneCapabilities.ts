@@ -3,8 +3,6 @@
 import { z } from "zod";
 import type { AssistantActionKey } from "./schemasAssistantActions.js";
 
-export const PHONE_CAPABILITY_PATH = "/assistant/phone";
-
 export const PHONE_CAPABILITY_WAIT_MS = 120_000;
 
 export const PHONE_PERMISSIONS = ["contacts", "calendar", "notifications", "send_sms", "call_phone"] as const;
@@ -234,11 +232,14 @@ export type PhoneCapabilityResult = z.infer<typeof PhoneCapabilityResultSchema>;
 export function capabilityNeedsLine(key: PhoneCapabilityKey): string {
 	const declaration = PHONE_CAPABILITIES[key];
 	const needs = declaration.needs.length === 0 ? "no phone permission" : declaration.needs.join(", ");
+	const where = declaration.where as CapabilityHost;
 	const kind =
-		declaration.kind === "read"
-			? "A read: runs on the holding phone."
-			: declaration.kind === "act"
-				? "An act: runs on the holding phone and leaves a trace."
-				: "A guarded act: the owner approves a card first unless approvals are off.";
+		where === "gateway"
+			? "Runs on the Gateway."
+			: declaration.kind === "read"
+				? "A read: runs on the holding phone."
+				: declaration.kind === "act"
+					? "An act: runs on the holding phone and leaves a trace."
+					: "A guarded act: the owner approves a card first unless approvals are off.";
 	return `${kind} Needs ${needs}.`;
 }

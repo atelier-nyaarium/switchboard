@@ -1,11 +1,12 @@
-import { z } from "zod";
+import type { z } from "zod";
 import type { Ambient } from "../../shared/ambient.js";
 import { createOpDedupe } from "../../shared/op-dedupe.js";
-import type {
-	AssistantActionKey,
-	AssistantActionRequest,
-	AssistantActionResult,
-	ParamsOf,
+import {
+	type AssistantActionKey,
+	type AssistantActionRequest,
+	type AssistantActionResult,
+	type ParamsOf,
+	watcherParamsSchema,
 } from "../../shared/schemasAssistantActions.js";
 import type { RecordThread } from "../../shared/schemasAssistantRecord.js";
 import type { SourceLanes } from "./sourceLane.js";
@@ -42,7 +43,7 @@ export function createActionDispatch(
 	): Promise<AssistantActionResult> => {
 		const action = deps.actions[key];
 		const { declaration } = action;
-		const parsed = z.strictObject(declaration.params).safeParse(raw);
+		const parsed = watcherParamsSchema(key).safeParse(raw);
 		if (!parsed.success) {
 			const issue = parsed.error.issues[0];
 			return { kind: "refused", reason: `${issue?.path.join(".") || "params"}: ${issue?.message}`.slice(0, 400) };

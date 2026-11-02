@@ -13,7 +13,7 @@ import {
 import { processAmbient } from "../shared/ambient.js";
 import { ASSISTANT_HOLD_PATH } from "../shared/assistant-hold.js";
 import { ASSISTANT_RESERVE_KEY, ASSISTANT_SESSION_NAME, ASSISTANT_TEAM } from "../shared/assistant-session.js";
-import { ASSISTANT_ACTION_PATH } from "../shared/schemasAssistantActions.js";
+import { ACTION_FRONT_ROUTES } from "../shared/schemasActionFront.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../shared/schemasAssistantHome.js";
 import type { AssistantFieldSpec, AssistantRule, AssistantWatcherRules } from "../shared/schemasAssistantRules.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
@@ -479,10 +479,10 @@ describe("the assistant's session", () => {
 
 		await test.followHome(2, OTHER_GATEWAY);
 		const state = assistant.console.state();
-		const action = assistant.routes.get(ASSISTANT_ACTION_PATH);
+		const action = assistant.routes.get(ACTION_FRONT_ROUTES.run);
 		if (!action) throw new Error("no action route");
 		const answer = await action(new Request("http://gateway/", { headers: { "x-caller": "assistant" } }), {
-			action: "github_done",
+			id: "watcher/github_done",
 			callId: "old-session",
 			params: { ids: ["1"] },
 		}).then((response) => response.json());

@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { registerActionFront } from "../mcp/assistant/actionFront.js";
 import { registerInboxTool } from "../mcp/assistant/inboxTool.js";
 import { ASSISTANT_CAPABILITIES, ASSISTANT_INSTRUCTIONS, scopeTools } from "../mcp/assistant/instructions.js";
 import { sendGuarded } from "../mcp/assistant/sendTools.js";
@@ -14,9 +15,11 @@ import {
 	ASSISTANT_SWITCHBOARD_TOOLS,
 } from "../shared/assistant-session.js";
 import type { Capability } from "../shared/capabilities.js";
+import { ACTION_FRONT_TOOLS } from "../shared/schemasActionFront.js";
 import { ASSISTANT_ACTION_KEYS } from "../shared/schemasAssistantActions.js";
 import type { InboxItem } from "../shared/schemasAssistantInbox.js";
 import { ASSISTANT_SEND_ROUTES, SEND_ROUTE_WAIT_CAP_MS } from "../shared/schemasAssistantSend.js";
+import { PHONE_CAPABILITY_KEYS } from "../shared/schemasPhoneCapabilities.js";
 import { ASSISTANT_COMMANDS } from "../shared/session-commands.js";
 
 const posted: { path: string; body: unknown }[] = [];
@@ -68,17 +71,22 @@ describe("the assistant's tool scope", () => {
 				.registerTool("reload_plugins", { description: "x", inputSchema: {} }, noop)
 				.update({ callback: noop });
 			registerInboxTool(server);
+			registerActionFront(server);
 		});
 
 		const { tools } = await client.listTools();
+		const names = tools.map((tool) => tool.name);
 
-		expect(tools.map((tool) => tool.name).sort()).toEqual(["channel_reply", "inbox", "switchboard_capabilities"]);
+		expect(names.sort()).toEqual(
+			["channel_reply", "inbox", "switchboard_capabilities", ...Object.values(ACTION_FRONT_TOOLS)].sort(),
+		);
+		for (const key of [...ASSISTANT_ACTION_KEYS, ...PHONE_CAPABILITY_KEYS]) expect(names).not.toContain(key);
 	});
 
 	it("teaches the assistant every command and action it is given", () => {
 		const taught = [
 			...Object.values(ASSISTANT_COMMANDS).map(({ tool }) => tool),
-			...ASSISTANT_ACTION_KEYS,
+			...Object.values(ACTION_FRONT_TOOLS),
 			...Object.values(ASSISTANT_CROSSTALK_TOOLS),
 			...Object.values(ASSISTANT_ROUTINE_TOOLS),
 		];

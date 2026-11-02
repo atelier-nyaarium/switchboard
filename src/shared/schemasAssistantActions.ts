@@ -8,12 +8,10 @@ const INBOX = ASSISTANT_COMMANDS.inbox.tool;
 
 export const GITHUB_WATCHER_ID = "github";
 
-export const ASSISTANT_ACTION_PATH = "/assistant/action";
-
 const SummarySchema = z
 	.string()
 	.max(RECORD_SUMMARY_MAX)
-	.refine((summary) => summary.trim().length > 0, "a summary says something")
+	.regex(/\S/, "a summary says something")
 	.describe("Your message to the owner. Omit to clear quietly.");
 
 /** Per-id source result. */
@@ -63,6 +61,7 @@ Answers per id what GitHub confirmed, and whether your summary was recorded.
 				.min(1)
 				.max(RECORD_THREADS_MAX)
 				.refine((ids) => new Set(ids).size === ids.length, "each id once")
+				.meta({ uniqueItems: true })
 				.describe(`Thread ids, as events and \`${INBOX}\` give them.`),
 			summary: SummarySchema.optional(),
 		},
@@ -76,6 +75,13 @@ export const ASSISTANT_ACTION_KEYS = Object.keys(ASSISTANT_ACTIONS) as Assistant
 
 export type ParamsOf<K extends AssistantActionKey> = z.infer<z.ZodObject<(typeof ASSISTANT_ACTIONS)[K]["params"]>>;
 export type AnswerOf<K extends AssistantActionKey> = z.infer<(typeof ASSISTANT_ACTIONS)[K]["answer"]>;
+
+/** Shared parse and listing schema. */
+export function watcherParamsSchema<K extends AssistantActionKey>(
+	key: K,
+): z.ZodObject<(typeof ASSISTANT_ACTIONS)[K]["params"]> {
+	return z.strictObject(ASSISTANT_ACTIONS[key].params);
+}
 
 export const AssistantActionRequestSchema = z.strictObject({
 	action: z.enum(ASSISTANT_ACTION_KEYS as [AssistantActionKey, ...AssistantActionKey[]]),

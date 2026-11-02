@@ -19,10 +19,9 @@ import { isValidSessionName, parseSessionName } from "../shared/session-id.js";
 import { REMINDER_RULE } from "../shared/system-reminder.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper } from "../shared/vault-askpass-wrapper.js";
 import type { AgentDispatch } from "./agentDispatch.js";
-import { registerActionTools } from "./assistant/actionTools.js";
+import { registerActionFront } from "./assistant/actionFront.js";
 import { registerInboxTool } from "./assistant/inboxTool.js";
 import { ASSISTANT_INSTRUCTIONS, scopeTools } from "./assistant/instructions.js";
-import { registerPhoneTools } from "./assistant/phoneTools.js";
 import { registerAssistantSendTools } from "./assistant/sendTools.js";
 import { registerBoardTools } from "./board/boardTools.js";
 import { closeRouter, connectToRouter } from "./bridge/helpers.js";
@@ -195,8 +194,7 @@ export async function startMcp(): Promise<void> {
 	// The Gateway checks the token is the assistant's too; this only keeps it off other sessions.
 	if (isAssistant) {
 		registerInboxTool(mcpServer);
-		registerActionTools(mcpServer);
-		registerPhoneTools(mcpServer);
+		registerActionFront(mcpServer);
 		registerAssistantSendTools(mcpServer);
 	}
 	// Not a tool of its own: it rides the reply path, so it is switched on rather than registered.

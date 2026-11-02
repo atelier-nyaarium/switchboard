@@ -15,6 +15,7 @@ import { isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { createFifo } from "../../shared/keyed-fifo.js";
 import { MIGRATING } from "../../shared/migration-fence.js";
 import type { PendingDelivery } from "../../shared/pending-delivery-store.js";
+import { actionListings } from "../../shared/schemasActionFront.js";
 import type { AssistantWatcher, ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
 import { actionsOf, GITHUB_WATCHER_ID } from "../../shared/schemasAssistantActions.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../../shared/schemasAssistantHome.js";
@@ -32,7 +33,7 @@ import type { GatewayCapabilityRuns } from "../../shared/schemasPhoneCapabilitie
 import type { PhoneHoldPlane } from "../../shared/schemasPhoneHold.js";
 import { type BaselineHold, holdLine, type SessionBaseline } from "../../shared/session-baseline.js";
 import { ASSISTANT_COMMANDS } from "../../shared/session-commands.js";
-import { neutralizeMarkup, oneLine } from "../../shared/system-reminder.js";
+import { neutralizeMarkup } from "../../shared/system-reminder.js";
 import { createActGuard } from "../assistant/actGuard.js";
 import { type ActionRecord, createActionDispatch } from "../assistant/actionDispatch.js";
 import { createAssistantRoutes, type Handler } from "../assistant/assistantRoutes.js";
@@ -47,6 +48,7 @@ import { createPhoneRequests, type PhoneRequest, type PhoneRequestDelivery } fro
 import { createRulesStore } from "../assistant/rulesStore.js";
 import { createOriginMarker, createSafetyStore, createSendGuard } from "../assistant/sendGuard.js";
 import { type AssistantWake, createSourceLanes, type SourceLanes } from "../assistant/sourceLane.js";
+import { createStatusMemo } from "../assistant/statusMemo.js";
 import { ASSISTANT_WAITS } from "../assistant/waits.js";
 import type { ListPage, ListQuery, Watcher, WatcherEvent } from "../assistant/watcher.js";
 import type { WatcherActions } from "../assistant/watcherAction.js";
@@ -488,6 +490,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		}),
 	);
 	const gatewayRuns: GatewayCapabilityRuns = {};
+	const statusMemo = createStatusMemo(phoneHold.answer);
 	const phoneDispatch = createPhoneDispatch({
 		ambient,
 		approveEverySend: safety.approveEverySend,
@@ -513,8 +516,13 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			return { team: ASSISTANT_TEAM, conversationId };
 		},
 		list: (scope, page) => inbox.list(scope, page),
+		listActions: () => actionListings(statusMemo.read()),
 		dispatch,
-		phone: phoneDispatch,
+		phone: async (request) => {
+			const result = await phoneDispatch(request);
+			statusMemo.note(request.key, result);
+			return result;
+		},
 		guard,
 		hold: phoneHold.answer,
 		ambient,

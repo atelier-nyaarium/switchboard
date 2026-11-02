@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ASSISTANT_HOLD_PATH } from "../shared/assistant-hold.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
-import { PHONE_CAPABILITY_PATH, type PhoneCapabilityAnswer } from "../shared/schemasPhoneCapabilities.js";
+import { ACTION_FRONT_ROUTES } from "../shared/schemasActionFront.js";
+import type { PhoneCapabilityAnswer } from "../shared/schemasPhoneCapabilities.js";
 import { PHONE_HOLD_WINDOW_MS } from "../shared/schemasPhoneHold.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
@@ -13,7 +14,7 @@ describe("phone capabilities through the federation harness", () => {
 	let clock: number;
 
 	const postPhone = (key: string, callId: string, params: Record<string, unknown> = {}) =>
-		assistant.post(PHONE_CAPABILITY_PATH, { key, callId, params });
+		assistant.post(ACTION_FRONT_ROUTES.run, { id: `phone/${key}`, callId, params });
 
 	const drainCapability = (requestId: string) =>
 		h.waitFor(async () => {

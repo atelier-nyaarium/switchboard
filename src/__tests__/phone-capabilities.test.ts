@@ -3,8 +3,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { ASSISTANT_ONLY_TOOLS, ASSISTANT_SWITCHBOARD_TOOLS } from "../shared/assistant-session.js";
-import { ASSISTANT_ACTION_KEYS } from "../shared/schemasAssistantActions.js";
 import { PHONE_CAPABILITIES, PHONE_CAPABILITY_KEYS } from "../shared/schemasPhoneCapabilities.js";
 
 const FIXTURE = path.join(import.meta.dirname, "../../tests/fixtures/phone-capabilities/registry.json");
@@ -47,14 +45,6 @@ describe("phone capability registry fixture", () => {
 				additionalProperties: false,
 			});
 			expect(capability.answer.meta()?.id).toEqual(expect.any(String));
-		}
-	});
-
-	it("keeps capability tools in the assistant scope", () => {
-		for (const key of PHONE_CAPABILITY_KEYS) {
-			expect(ASSISTANT_ACTION_KEYS).not.toContain(key);
-			expect(ASSISTANT_SWITCHBOARD_TOOLS).toContain(key);
-			expect(ASSISTANT_ONLY_TOOLS).toContain(key);
 		}
 	});
 });
