@@ -388,7 +388,9 @@ Two facts told back: the local protocol can unbind the plug from its account and
 - Console ops, each with its own answer schema in `VALUE_OP_KINDS` and `ownerOpRegistry`: `device_list` (records only, never a plug read), `device_read` (one device's live state and its schedule), `device_scan`, `device_add`, `device_rename`, `device_remove`, `device_set`, `device_schedule_put`, `device_setting_put`. Every record-backed write and the removal carry the revision read and answer the held record on refusal, as runbooks do; a repeat of a stored write at its base is a lost answer.
 - A new unavailable reason `unreachable`. A plug that answers but rejects a command is `refused` with the plug's `err_code` in the reason, not `unreachable`. A command sent with no reply by the deadline answers `timeout` with a detail saying the outcome is unknown.
 
-**1. The device layer on the Gateway** (`src/gateway/devices/`):
+## Phase 2.5a - The device layer on the Gateway
+
+`src/gateway/devices/`:
 
 - The store on `openDurable`, the sole writer, `commitChecked`, Gateway-named revisions. Restore refuses the file whole on a duplicate id, an unnormalized MAC, a driver that does not serve the record's kind, or invalid driver settings, as the policy store does. An address refresh from a scan is a store mutation that moves the revision only when the address changed. Schedule and setting writes serialize per device.
 - The driver interface takes an operation context (the ambient clock and an abort signal from `linkedSignal` within `ASSISTANT_WAITS.action`): `kinds`, `identify` (the MAC the address answers with), `read`, `set`, `schedule` (read, reconcile, write), `settings` (read, put). Bun's TCP connect takes no signal, so the transport closes the socket itself at the deadline and drops a late result.
@@ -398,7 +400,7 @@ Two facts told back: the local protocol can unbind the plug from its account and
 - The assistant: `devices` is a `read` and `device_set` an `act`, both `where: "gateway"`, behind the existing `list_actions` and `run_action` with no allowlist change. `device_set` takes the record id and a verb typed per kind (`on`, `off`, `toggle`); a name is accepted only when it matches one paired device exactly, case-insensitively, else refused with the candidates and nothing sent. `devices` answers the authoritative inventory (id, name, kind, live state), and `ASSISTANT_INSTRUCTIONS` says to read it before a set, to use the id, to ask when a target is ambiguous, and to read state before repeating a `toggle` that timed out.
 - The harness gains a fake plug on a loopback TCP port, speaking the XOR protocol: answers, a silent connection, a late reply, a nonzero `err_code`, a wrong MAC. Audits: comments, architecture, residue, the whole suite, the Kotlin gate.
 
-**2. The phone:**
+## Phase 2.5b - The phone
 
 - Integrations as a peer of Watchers through the whole `AssistantPage` lifecycle: `assistantSections`, the host dispatch, back, resolution, `pageWords`, `pageOf`. The IFTTT row moves there with its grant carry untouched. With no assistant home placed the row says to place one first; devices are the home Gateway's.
 - A Devices section: Scan, found-but-unpaired rows with Add, paired rows with live state and a switch. A scan refusal, a timeout and a daemon that is away each draw as a retry state; an empty list is only a scan that found nothing. The list read is fenced by Gateway, each live read by Gateway and device, both through `GatewayReadFence`.
@@ -406,7 +408,7 @@ Two facts told back: the local protocol can unbind the plug from its account and
 - A device page keyed by Gateway and device, resolving back to Integrations when either no longer applies: rename, the schedule editor (a controlled clock picker extracted from the routine editor's, times shown in the plug's reported zone, no routine zone conversion), and the driver's settings. The Kasa cloud disconnect sits behind a confirmation naming what it costs and how to undo it: setting the plug up again in the Kasa app.
 - Every write sends the revision read and follows the routine editor's stored-or-refused handling. The sandbox gains a fake device Gateway in `SandboxGateways` with one paired plug, one found plug, and answers for add, set and schedule.
 
-**3. Acceptance and docs:**
+## Phase 2.5c - Acceptance and docs
 
 - Both plugs plugged in and scanned, each MAC, hardware, firmware and protocol recorded; DHCP reservations set on the router. Light switched from the app and through the assistant; a weekly schedule written and read back; a plug moved to another address re-matched by a scan; the cloud disconnect run on Light with the owner confirming the Kasa app lost it, then the recovery text tried.
 - `docs/assistant.md` (the device layer, the drivers, the actions and the instructions), `docs/architecture.md` (the host scan op), `docs/testing.md` (the loopback fake plug), AGENTS.md map lines.
