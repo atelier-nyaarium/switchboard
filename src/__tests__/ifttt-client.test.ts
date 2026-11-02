@@ -52,7 +52,6 @@ function dispatchFor(
 			},
 		} as never,
 		gateways: { ifttt_trigger: trigger },
-		record: () => true,
 	});
 }
 
@@ -165,7 +164,6 @@ describe("IFTTT trigger client", () => {
 				},
 			} as never,
 			gateways: { ifttt_trigger: (request) => trigger.trigger(request) },
-			record: () => true,
 		});
 
 		expect(await dispatch({ key: "ifttt_trigger", callId: "ifttt-call-no-hold", params })).toMatchObject({

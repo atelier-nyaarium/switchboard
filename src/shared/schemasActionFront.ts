@@ -160,8 +160,8 @@ export const ActionRunResultSchema = z.discriminatedUnion("kind", [
 		needs: z.array(PhonePermissionSchema).optional(),
 		detail: z.string().max(400).optional(),
 	}),
-	/** Per-id answer schema. */
-	z.strictObject({ kind: z.literal("ok"), answer: z.unknown(), recorded: z.boolean() }),
+	/** Per-id answer schema. A phone action records nothing. */
+	z.strictObject({ kind: z.literal("ok"), answer: z.unknown(), recorded: z.boolean().optional() }),
 ]);
 
 export type ActionRunResult = z.infer<typeof ActionRunResultSchema>;

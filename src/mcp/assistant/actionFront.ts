@@ -115,7 +115,7 @@ function render(ref: ActionRef | null, result: ActionRunResult, params: Record<s
 			: ref
 				? PHONE_CAPABILITIES[ref.key].answer.safeParse(result.answer).data
 				: result.answer;
-	return text(phoneText(result, answer), result.kind !== "ok" || answer === undefined || !result.recorded);
+	return text(phoneText(result, answer), result.kind !== "ok" || answer === undefined);
 }
 
 function unreachable(ref: ActionRef | null, error: unknown): ToolText {

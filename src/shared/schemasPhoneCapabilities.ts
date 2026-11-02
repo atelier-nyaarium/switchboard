@@ -467,7 +467,7 @@ export const PhoneCapabilityResultSchema = z.discriminatedUnion("kind", [
 		needs: z.array(PhonePermissionSchema).optional(),
 		detail: z.string().max(400).optional(),
 	}),
-	z.strictObject({ kind: z.literal("ok"), answer: z.unknown(), recorded: z.boolean() }),
+	z.strictObject({ kind: z.literal("ok"), answer: z.unknown() }),
 ]);
 
 export type PhoneCapabilityResult = z.infer<typeof PhoneCapabilityResultSchema>;

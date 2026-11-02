@@ -74,7 +74,7 @@ describe("action routes", () => {
 			},
 			phone: async (request) => {
 				phoneCalls.push(request);
-				return { kind: "ok", answer: { on: true, levels: 1 }, recorded: true };
+				return { kind: "ok", answer: { on: true, levels: 1 } };
 			},
 			sender: () => null,
 			guard: {} as never,
@@ -103,7 +103,6 @@ describe("action routes", () => {
 		expect(await phone.json()).toEqual({
 			kind: "ok",
 			answer: { on: true, levels: 1 },
-			recorded: true,
 		});
 		expect(phoneCalls).toEqual([{ key: "torch", callId: "phone-call-1", params: { on: true } }]);
 
@@ -158,14 +157,13 @@ describe("status memo", () => {
 		const status = (holder: string | null) => ({
 			kind: "ok" as const,
 			answer: { holder, keys: [{ key: "torch", available: true, needs: [] }] },
-			recorded: true,
 		});
 
 		memo.note("status", status("Phone A"));
 		expect([...(memo.read() ?? [])]).toEqual([["torch", { available: true }]]);
 		memo.note("torch", { kind: "unavailable", reason: "disabled" });
 		expect(memo.read()?.get("torch")).toEqual({ available: false, reason: "disabled" });
-		memo.note("torch", { kind: "ok", answer: { on: true, levels: 1 }, recorded: true });
+		memo.note("torch", { kind: "ok", answer: { on: true, levels: 1 } });
 		expect(memo.read()?.get("torch")).toEqual({ available: true });
 
 		hold = held("phone-b");

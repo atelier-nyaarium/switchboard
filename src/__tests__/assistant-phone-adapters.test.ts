@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createActGuard } from "../gateway/assistant/actGuard.js";
-import type { ActionRecord } from "../gateway/assistant/actionDispatch.js";
 import { createPhoneDispatch } from "../gateway/assistant/phoneDispatch.js";
 import { createPhoneRequests } from "../gateway/assistant/phoneRequests.js";
 import { createConsolePushOps } from "../gateway/consolePushOps.js";
@@ -190,7 +189,6 @@ describe("phone request append completion", () => {
 			}),
 			retract: () => true,
 		});
-		const records: ActionRecord[] = [];
 		const dispatch = createPhoneDispatch({
 			ambient,
 			approveEverySend: () => true,
@@ -198,17 +196,12 @@ describe("phone request append completion", () => {
 			phone: requests,
 			act: { run: async () => ({ kind: "refused", reason: "unused" }) } as never,
 			gateways: {} as never,
-			record: (_callId, record) => {
-				records.push(record);
-				return true;
-			},
 		});
 
 		expect(await dispatch({ key: "status", callId: "call-0002", params: {} })).toEqual({
 			kind: "unavailable",
 			reason: "no_holder",
 		});
-		expect(records[0]?.threads).toEqual([{ threadId: "status", outcome: "unavailable" }]);
 	});
 
 	it("opens a text draft without a card and sends only through an approval card", async () => {
@@ -239,7 +232,6 @@ describe("phone request append completion", () => {
 			} as never,
 			act: guard,
 			gateways: {} as never,
-			record: () => true,
 		});
 
 		const draft = await dispatch({
@@ -277,7 +269,6 @@ describe("phone request append completion", () => {
 			} as never,
 			act: { run: async () => ({ kind: "refused", reason: "unused" }) } as never,
 			gateways: {} as never,
-			record: () => true,
 		});
 
 		const result = await dispatch({ key: "torch", callId: "call-lapsed1", params: { on: true } });

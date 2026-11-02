@@ -555,7 +555,8 @@ The assistant reaches the holding phone through the capability registry (`PHONE_
 `timer_set`, `sms` and `call`, exposed as `phone/<key>` ids by `list_actions`.
 A `run_action` call with a phone id lands on the holder as a
 stamped row, runs through `PhoneCapabilityOps` and answers through the journal, at most once per
-request id.
+request id. It leaves no record row in the conversation; the record and its "cleared quietly" line
+are a watcher clear's.
 
 Launch acts answer `not_showing` unless the phone is interactive, unlocked and the app is shown.
 `sms` needs `SEND_SMS` and `call` needs `CALL_PHONE`. Both default to opening the owner's app with

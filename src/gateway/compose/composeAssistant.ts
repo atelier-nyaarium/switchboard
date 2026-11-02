@@ -512,7 +512,6 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		phone: phoneRequests,
 		act: actGuard,
 		gateways: gatewayRuns,
-		record: postRecord,
 	});
 
 	const routes = createAssistantRoutes({
