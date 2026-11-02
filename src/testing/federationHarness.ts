@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { FileSecretStore } from "../federation-server/fileSecretStore.js";
@@ -366,9 +365,9 @@ export async function startRouterOnly(
 	try {
 		const store = await seedRouter(routerDir, set);
 		const tls = loadRouterTls(routerDir);
-		const port = await availablePort();
+		// Port 0: a probed port can be taken by another worker before the Router binds.
 		const server = new RouterServer({
-			port,
+			port: 0,
 			dataDir: routerDir,
 			consoleToken: set.tokens.console,
 			federationToken: set.tokens.federation,
@@ -377,6 +376,8 @@ export async function startRouterOnly(
 			ambient,
 		});
 		await server.start();
+		const port = server.listeningPort;
+		if (port === null) throw new Error("the Router did not bind");
 		const router = { server, port, certFp: tls.certFp, store, dataDir: routerDir };
 		/** Every graph closes before the Router, once. */
 		const graphCloses: (() => Promise<void>)[] = [];
@@ -458,17 +459,4 @@ export async function startRouterOnly(
 		fs.rmSync(root, { recursive: true, force: true });
 		throw error;
 	}
-}
-
-async function availablePort(): Promise<number> {
-	const listener = net.createServer();
-	await new Promise<void>((resolve, reject) => {
-		listener.once("error", reject);
-		listener.listen(0, "127.0.0.1", () => resolve());
-	});
-	const address = listener.address();
-	if (!address || typeof address === "string") throw new Error("port probe did not bind");
-	const port = address.port;
-	await new Promise<void>((resolve, reject) => listener.close((error) => (error ? reject(error) : resolve())));
-	return port;
 }
