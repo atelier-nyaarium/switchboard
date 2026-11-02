@@ -327,6 +327,12 @@ import {
 const OUT_PATH =
 	process.env.KOTLIN_PROTOCOL_OUT ??
 	join(import.meta.dir, "../android/app/src/main/java/com/atelier_nyaarium/switchboard/proto/Protocol.kt");
+const PHONE_CAPABILITY_REGISTRY_OUT_PATH =
+	process.env.KOTLIN_PHONE_CAPABILITY_REGISTRY_OUT ??
+	join(
+		import.meta.dir,
+		"../android/app/src/main/java/com/atelier_nyaarium/switchboard/proto/PhoneCapabilityRegistry.kt",
+	);
 
 const ROOTS: z.ZodType[] = [
 	RowRecipientSchema,
@@ -617,6 +623,132 @@ function idOf(schema: z.ZodType): string {
 	return id;
 }
 
+const KOTLIN_KEYWORDS = new Set([
+	"as",
+	"break",
+	"class",
+	"continue",
+	"do",
+	"else",
+	"false",
+	"for",
+	"fun",
+	"if",
+	"in",
+	"interface",
+	"is",
+	"null",
+	"object",
+	"package",
+	"return",
+	"super",
+	"this",
+	"throw",
+	"true",
+	"try",
+	"typealias",
+	"typeof",
+	"val",
+	"var",
+	"when",
+	"while",
+]);
+
+function isKotlinIdentifier(value: string): boolean {
+	return /^[A-Za-z_][A-Za-z0-9_]*$/.test(value) && !KOTLIN_KEYWORDS.has(value);
+}
+
+function kotlinConstName(name: string): string {
+	return name.replace(/[a-z][A-Z]/g, (match) => `${match[0]}_${match[1]}`).toUpperCase();
+}
+
+type PhoneCapabilityCodegenSpec = {
+	key: keyof typeof PHONE_CAPABILITIES;
+	methodName: string;
+	constantName: string;
+	requestId: string;
+	answerId: string;
+};
+
+function phoneCapabilityCodegenSpecs(): PhoneCapabilityCodegenSpec[] {
+	const specs: PhoneCapabilityCodegenSpec[] = [];
+	const methodOwners = new Map<string, string>();
+	const constantOwners = new Map<string, string>();
+	const schemaIdOwners = new Map<string, { key: string; side: string }>();
+
+	for (const key of PHONE_CAPABILITY_KEYS) {
+		const capability = PHONE_CAPABILITIES[key];
+		const pieces = key.split(/[_-]/);
+		if (!/^[A-Za-z][A-Za-z0-9]*(?:[_-][A-Za-z0-9]+)*$/.test(key)) {
+			throw new Error(`${key}: capability key cannot form a Kotlin handler name`);
+		}
+		const methodName =
+			pieces[0]!.charAt(0).toLowerCase() +
+			pieces[0]!.slice(1) +
+			pieces
+				.slice(1)
+				.map((piece) => piece.charAt(0).toUpperCase() + piece.slice(1))
+				.join("");
+		if (!isKotlinIdentifier(methodName)) {
+			throw new Error(`${key}: handler name "${methodName}" is not a Kotlin identifier`);
+		}
+		const methodOwner = methodOwners.get(methodName);
+		if (methodOwner) throw new Error(`${key}: handler name "${methodName}" collides with key "${methodOwner}"`);
+		methodOwners.set(methodName, key);
+
+		const constantName = kotlinConstName(key);
+		if (!isKotlinIdentifier(constantName)) {
+			throw new Error(`${key}: key constant "${constantName}" is not a Kotlin identifier`);
+		}
+		const constantOwner = constantOwners.get(constantName);
+		if (constantOwner)
+			throw new Error(`${key}: key constant "${constantName}" collides with key "${constantOwner}"`);
+		constantOwners.set(constantName, key);
+
+		const schemaIds: { side: string; schema: z.ZodType; id: string | undefined }[] = [
+			{ side: "request", schema: capability.request, id: z.globalRegistry.get(capability.request)?.id },
+			{ side: "answer", schema: capability.answer, id: z.globalRegistry.get(capability.answer)?.id },
+		];
+		for (const { side, schema, id } of schemaIds) {
+			if (!id) throw new Error(`${key}: ${side} schema is missing .meta({ id })`);
+			if (!isKotlinIdentifier(id)) {
+				throw new Error(`${key}: ${side} schema id "${id}" is not a Kotlin identifier`);
+			}
+			const schemaOwner = schemaIdOwners.get(id);
+			if (schemaOwner) {
+				throw new Error(
+					`${key}: ${side} schema id "${id}" collides with ${schemaOwner.key} ${schemaOwner.side}`,
+				);
+			}
+			const rootOwner = ROOTS.find((root) => root !== schema && z.globalRegistry.get(root)?.id === id);
+			if (rootOwner) {
+				const capabilityOwner = PHONE_CAPABILITY_KEYS.find((ownerKey) => {
+					const owner = PHONE_CAPABILITIES[ownerKey];
+					return (
+						(owner.request === rootOwner && ownerKey !== key) ||
+						(owner.answer === rootOwner && ownerKey !== key)
+					);
+				});
+				throw new Error(
+					`${key}: ${side} schema id "${id}" collides with ${capabilityOwner ?? "another schema"}`,
+				);
+			}
+			schemaIdOwners.set(id, { key, side });
+		}
+
+		specs.push({
+			key,
+			methodName,
+			constantName,
+			requestId: schemaIds[0]!.id!,
+			answerId: schemaIds[1]!.id!,
+		});
+	}
+	return specs;
+}
+
+const PHONE_CAPABILITY_SPECS = phoneCapabilityCodegenSpecs();
+
 const INDENT = "\t";
 
 function pascal(value: string): string {
@@ -790,6 +922,18 @@ for (const schema of ROOTS) {
 	rootIds.push(id);
 }
 
+for (const spec of PHONE_CAPABILITY_SPECS) {
+	for (const [side, id] of [
+		["request", spec.requestId],
+		["answer", spec.answerId],
+	] as const) {
+		const node = defs.get(id);
+		if (!node?.properties) {
+			throw new Error(`${spec.key}: ${side} schema id "${id}" does not resolve to a Kotlin class`);
+		}
+	}
+}
+
 const order = [...new Set([...rootIds, ...defs.keys()])];
 
 function literalValues(schema: z.ZodType, field: string): string[] {
@@ -809,10 +953,6 @@ function objectLiteralValue(schema: z.ZodType, field: string): string[] {
 }
 
 type ZodInternal = { _def: { values?: unknown[] } };
-
-function kotlinConstName(name: string): string {
-	return name.replace(/[a-z][A-Z]/g, (match) => `${match[0]}_${match[1]}`).toUpperCase();
-}
 
 const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	...Object.entries(ROUTER_PATHS).map(([name, value]) => [`ROUTER_PATH_${name}`, value] as const),
@@ -861,6 +1001,64 @@ const schemaConstantBlock = (name: string, values: string[]) =>
 		),
 		`${INDENT}${INDENT}}`,
 	].join("\n");
+
+const GENERATED_HEADER = `// Generated by scripts/codegen-kotlin.ts.
+// Do not edit.`;
+
+function emitPhoneCapabilityRegistry(): string {
+	const phoneCapabilities = PHONE_CAPABILITY_SPECS.filter(({ key }) => PHONE_CAPABILITIES[key].where === "phone");
+	const handlers = phoneCapabilities
+		.map(({ key, methodName, requestId, answerId }) => {
+			return [
+				`${INDENT}suspend fun ${methodName}(`,
+				`${INDENT}${INDENT}context: PhoneCapabilityContext,`,
+				`${INDENT}${INDENT}request: ${requestId},`,
+				`${INDENT}): ${answerId}`,
+			].join("\n");
+		})
+		.join("\n\n");
+	const bindings = phoneCapabilities
+		.map(({ key, methodName, constantName, requestId, answerId }) => {
+			const capability = PHONE_CAPABILITIES[key];
+			const needs =
+				capability.needs.length === 0
+					? "emptyList()"
+					: `listOf(${capability.needs.map(kotlinString).join(", ")})`;
+			return [
+				`${INDENT}${INDENT}bind(`,
+				`${INDENT}${INDENT}${INDENT}PhoneCapability(`,
+				`${INDENT}${INDENT}${INDENT}${INDENT}key = Protocol.Wire.PhoneCapabilityKey.${constantName},`,
+				`${INDENT}${INDENT}${INDENT}${INDENT}kind = ${kotlinString(capability.kind)},`,
+				`${INDENT}${INDENT}${INDENT}${INDENT}where = ${kotlinString(capability.where)},`,
+				`${INDENT}${INDENT}${INDENT}${INDENT}needs = ${needs},`,
+				`${INDENT}${INDENT}${INDENT}${INDENT}label = ${kotlinString(capability.label)},`,
+				`${INDENT}${INDENT}${INDENT}${INDENT}requestSerializer = ${requestId}.serializer(),`,
+				`${INDENT}${INDENT}${INDENT}${INDENT}answerSerializer = ${answerId}.serializer(),`,
+				`${INDENT}${INDENT}${INDENT}${INDENT}handler = handlers::${methodName},`,
+				`${INDENT}${INDENT}${INDENT}),`,
+				`${INDENT}${INDENT})`,
+			].join("\n");
+		})
+		.join(",\n");
+	return `${GENERATED_HEADER}
+
+package com.atelier_nyaarium.switchboard.proto
+
+import com.atelier_nyaarium.switchboard.PhoneCapability
+import com.atelier_nyaarium.switchboard.PhoneCapabilityBinding
+import com.atelier_nyaarium.switchboard.PhoneCapabilityContext
+import com.atelier_nyaarium.switchboard.bind
+
+internal interface PhoneCapabilityHandlers {
+${handlers}
+}
+
+internal fun phoneCapabilityBindings(handlers: PhoneCapabilityHandlers): Map<String, PhoneCapabilityBinding> =
+	listOf<PhoneCapabilityBinding>(
+${bindings}
+	).associateBy { it.key }
+`;
+}
 
 const blocks: string[] = [];
 const declared = new Set<string>();
@@ -962,7 +1160,11 @@ ${INDENT}const val BOARD_ATTACHMENTS_MAX: Int = ${BOARD_ATTACHMENTS_MAX}
 }`;
 
 const output = `${[header, ...blocks].join("\n\n")}\n`;
+const phoneCapabilityRegistryOutput = emitPhoneCapabilityRegistry();
 
 mkdirSync(dirname(OUT_PATH), { recursive: true });
 writeFileSync(OUT_PATH, output);
+mkdirSync(dirname(PHONE_CAPABILITY_REGISTRY_OUT_PATH), { recursive: true });
+writeFileSync(PHONE_CAPABILITY_REGISTRY_OUT_PATH, phoneCapabilityRegistryOutput);
 console.log(`Wrote ${OUT_PATH} (${blocks.length} types + constants).`);
+console.log(`Wrote ${PHONE_CAPABILITY_REGISTRY_OUT_PATH} (phone capability registry).`);

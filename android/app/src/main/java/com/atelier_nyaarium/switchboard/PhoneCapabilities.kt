@@ -10,13 +10,14 @@ import android.provider.ContactsContract
 import com.atelier_nyaarium.switchboard.proto.ContactsSearchAnswer
 import com.atelier_nyaarium.switchboard.proto.ContactsSearchRequest
 import com.atelier_nyaarium.switchboard.proto.PhoneCapabilityAnswer
+import com.atelier_nyaarium.switchboard.proto.PhoneCapabilityHandlers
 import com.atelier_nyaarium.switchboard.proto.PhoneContact
 import com.atelier_nyaarium.switchboard.proto.PhoneStatusAnswer
 import com.atelier_nyaarium.switchboard.proto.PhoneStatusKey
 import com.atelier_nyaarium.switchboard.proto.PhoneStatusRequest
-import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.TorchAnswer
 import com.atelier_nyaarium.switchboard.proto.TorchRequest
+import com.atelier_nyaarium.switchboard.proto.phoneCapabilityBindings
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonElement
@@ -78,48 +79,24 @@ class PhoneCapabilityBinding internal constructor(
 	val run: suspend (PhoneCapabilityContext, JsonElement) -> PhoneCapabilityAnswer,
 )
 
-object PhoneCapabilities {
-	val bindings: Map<String, PhoneCapabilityBinding> = listOf(
-		bind(
-			PhoneCapability(
-				key = Protocol.Wire.PhoneCapabilityKey.STATUS,
-				kind = "read",
-				where = "phone",
-				needs = emptyList(),
-				label = "Phone status",
-				requestSerializer = PhoneStatusRequest.serializer(),
-				answerSerializer = PhoneStatusAnswer.serializer(),
-				handler = ::phoneStatus,
-			),
-		),
-		bind(
-			PhoneCapability(
-				key = Protocol.Wire.PhoneCapabilityKey.CONTACTS_SEARCH,
-				kind = "read",
-				where = "phone",
-				needs = listOf("contacts"),
-				label = "Search contacts",
-				requestSerializer = ContactsSearchRequest.serializer(),
-				answerSerializer = ContactsSearchAnswer.serializer(),
-				handler = ::contactsSearch,
-			),
-		),
-		bind(
-			PhoneCapability(
-				key = Protocol.Wire.PhoneCapabilityKey.TORCH,
-				kind = "act",
-				where = "phone",
-				needs = listOf("notifications"),
-				label = "Torch",
-				requestSerializer = TorchRequest.serializer(),
-				answerSerializer = TorchAnswer.serializer(),
-				handler = ::torch,
-			),
-		),
-	).associateBy { it.key }
+internal object PhoneCapabilityHandlerSet : PhoneCapabilityHandlers {
+	override suspend fun status(context: PhoneCapabilityContext, request: PhoneStatusRequest): PhoneStatusAnswer =
+		phoneStatus(context, request)
+
+	override suspend fun contactsSearch(
+		context: PhoneCapabilityContext,
+		request: ContactsSearchRequest,
+	): ContactsSearchAnswer = contactsSearchBody(context, request)
+
+	override suspend fun torch(context: PhoneCapabilityContext, request: TorchRequest): TorchAnswer =
+		torchBody(context, request)
 }
 
-private fun <Req : Any, Ans : Any> bind(capability: PhoneCapability<Req, Ans>): PhoneCapabilityBinding =
+object PhoneCapabilities {
+	val bindings: Map<String, PhoneCapabilityBinding> = phoneCapabilityBindings(PhoneCapabilityHandlerSet)
+}
+
+internal fun <Req : Any, Ans : Any> bind(capability: PhoneCapability<Req, Ans>): PhoneCapabilityBinding =
 	PhoneCapabilityBinding(
 		key = capability.key,
 		kind = capability.kind,
@@ -157,7 +134,7 @@ private suspend fun phoneStatus(context: PhoneCapabilityContext, request: PhoneS
 	return PhoneStatusAnswer(holder = holder, keys = keys)
 }
 
-private suspend fun contactsSearch(
+private suspend fun contactsSearchBody(
 	context: PhoneCapabilityContext,
 	request: ContactsSearchRequest,
 ): ContactsSearchAnswer {
@@ -235,7 +212,7 @@ private fun isBirthday(value: String): Boolean =
 	(value.length == 8 && value.startsWith("--") && value[4] == '-' && value.substring(2, 4).all { it in '0'..'9' } &&
 		value.takeLast(2).all { it in '0'..'9' })
 
-private suspend fun torch(context: PhoneCapabilityContext, request: TorchRequest): TorchAnswer {
+private suspend fun torchBody(context: PhoneCapabilityContext, request: TorchRequest): TorchAnswer {
 	val manager = context.applicationContext.getSystemService(CameraManager::class.java)
 		?: throw UnsupportedOperationException()
 	val id = backFlashCameraId(manager) ?: throw UnsupportedOperationException()
