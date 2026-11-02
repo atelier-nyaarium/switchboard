@@ -326,7 +326,7 @@ Also in this phase, the working indicator: the send button is a locked spinner w
 
 ## Phase 3 - Acceptance and docs
 
-The owner's three sentences on the Pixel through the summon panel, with the second phone showing the hold change, and a launch failing out as `not_showing` on a pocketed holder, relayed by the assistant. `docs/assistant.md` (the phone road, the registry, the card), `docs/console.md` (the hold, speak and alert), `docs/federation.md` (the plane and the stamp), `docs/testing.md` (the harness's second console; the emulator sandbox stays outside this feature's verification), AGENTS.md map lines. Painpoints to the board.
+Shipped: a launch failing out as `not_showing` on a sleeping holder, relayed by the assistant; `docs/assistant.md` (the phone road, the registry, the card), `docs/console.md` (the phone hold, pointing at the locked phone's rules), `docs/federation.md` (the capability row's stamp and answer op), `docs/testing.md` (the harness's two phone drivers), the AGENTS.md map lines, and painpoints to the plan and the board. Pending on the owner: their own sentences on the Pixel through the summon panel (a text send, a placed call, a notification reply, an alarm, an IFTTT event), and the second phone showing the hold change once a phone exists.
 
 ### Progress
 
