@@ -23,18 +23,30 @@ class MessagesToJsonTest {
 
 	private fun filesOf(json: String): JSONArray = JSONArray(json).getJSONObject(0).getJSONArray("files")
 
+	private fun messagesToJson(
+		messages: List<Message>,
+		displayFrom: (Message) -> String,
+		playEnabled: Boolean,
+		frames: (MessageFile) -> List<String> = { emptyList() },
+		decorate: (MessageFile) -> ChipDecoration?,
+	): String = rowsToJson(threadRows(messages), displayFrom, playEnabled, frames, decorate)
+
 	@Test
-	fun aQuietRecordNeitherCountsNorPlaysAndCarriesItsDecidedView() {
+	fun aQuietRunNeitherCountsNorPlaysAndAPressClearsThroughItsLastRecord() {
 		val thread = RecordThread("1", "v2", "https://github.com/a/b", "done")
 		val quiet = Message(false, "", 1000L, id = 1, epoch = 1, seq = 4, record = ActionRecord(false, listOf(thread)))
-		val response = quiet.copy(id = 2, text = "Worth a look.", seq = 5, record = ActionRecord(true, listOf(thread)))
+		val later = quiet.copy(id = 2, at = 2000L, seq = 5)
+		val response = quiet.copy(id = 3, text = "Worth a look.", seq = 6, record = ActionRecord(true, listOf(thread)))
 
-		val rows = JSONArray(messagesToJson(listOf(quiet, response), displayFrom, playEnabled = true) { null })
+		val rows = JSONArray(messagesToJson(listOf(quiet, later, response), displayFrom, playEnabled = true) { null })
 		val (q, r) = rows.getJSONObject(0) to rows.getJSONObject(1)
 
+		assertEquals(2, rows.length())
 		assertFalse(q.has("counts") || q.has("canPlay"))
 		assertTrue(r.getBoolean("counts") && r.getBoolean("canPlay"))
-		assertEquals("1 cleared quietly", q.getJSONObject("record").getString("line"))
+		assertEquals("2 cleared quietly", q.getJSONObject("record").getString("line"))
+		assertEquals(2L to 2000L, q.getJSONObject("through").let { it.getLong("id") to it.getLong("at") })
+		assertFalse(r.has("through"))
 		assertEquals(false, r.getJSONObject("record").getBoolean("quiet"))
 	}
 

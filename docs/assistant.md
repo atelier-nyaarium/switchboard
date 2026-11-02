@@ -472,10 +472,13 @@ before the shutdown flush. Stop is final. `src/gateway/assistant/` holds the wat
   with `notify_human` instead. It carries a
   `notify` flag, the summary in `body` (at most 300 characters, present exactly when `notify` is
   true), and per thread its id, outcome and, when GitHub answered, title and link. With a summary it
-  is the assistant's message with the threads folded under it, and it notifies. Without one it is a
-  muted "N cleared quietly" line that expands to its threads, kept out of the phone's burst, alert,
-  autoplay and unread processing and the session card. A quiet row carries no body, so an older
-  phone drops it unseen. Titles, links and outcomes come from GitHub and render as a fixed list of
+  is the assistant's message with the threads folded under it, and it notifies. Without one it is
+  quiet, kept out of the phone's burst, alert, autoplay and unread processing and the session card.
+  Consecutive quiet records draw as one muted line, "N cleared quietly" with the first record's time,
+  and the last record's only when it falls in a later minute than the first. The line expands to the
+  threads of the run's newest 32 records in order, under a line counting the earlier threads it does
+  not list (`threadRows`, `recordView`). A quiet row carries no body, so an older phone drops it
+  unseen. Titles, links and outcomes come from GitHub and render as a fixed list of
   text; only the summary is the model's. The conversation is the only action history. A crash after
   GitHub confirms a clear but before its row is queued leaves that clear without a row.
 - **Counts:** the strip's badge ("4 new"), the health line and the baseline show GitHub's unread

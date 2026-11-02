@@ -8,6 +8,10 @@ import org.json.JSONObject
 /** Assistant action record kind. */
 internal const val ASSISTANT_RECORD_KIND = "assistant_record"
 
+private const val MINUTE_MS = 60_000L
+
+private const val LISTED_RECORDS = 32
+
 /** Missing notify means quiet. */
 internal fun recordOf(entry: MailboxEntry): ActionRecord? {
 	if (entry.kind != ASSISTANT_RECORD_KIND) return null
@@ -16,8 +20,36 @@ internal fun recordOf(entry: MailboxEntry): ActionRecord? {
 	return ActionRecord(notify = entry.notify == true, threads = threads)
 }
 
+/** Record with no summary. */
+internal fun Message.isQuietRecord(): Boolean = record?.notify == false
+
 /** Quiet rows skip bursts, alerts, autoplay, and unread. */
-internal fun Message.isQuiet(): Boolean = quiet || record?.notify == false
+internal fun Message.isQuiet(): Boolean = quiet || isQuietRecord()
+
+/** Keyed by its head. */
+internal data class ThreadRow(val messages: List<Message>, val fingerprint: Int, val threadCount: Int) {
+	val head: Message get() = messages.first()
+}
+
+/** Consecutive quiet records fold. */
+internal fun threadRows(messages: List<Message>, print: (Message) -> Int = { 0 }): List<ThreadRow> {
+	val rows = ArrayList<ThreadRow>()
+	var start = 0
+	var hash = 0
+	var threads = 0
+	for ((i, m) in messages.withIndex()) {
+		if (i > start && !(m.isQuietRecord() && messages[start].isQuietRecord())) {
+			rows += ThreadRow(messages.subList(start, i), hash, threads)
+			start = i
+			hash = 0
+			threads = 0
+		}
+		hash = 31 * hash + print(m)
+		threads += m.record?.threads?.size ?: 0
+	}
+	if (messages.isNotEmpty()) rows += ThreadRow(messages.subList(start, messages.size), hash, threads)
+	return rows
+}
 
 /** Quiet assistant sends and replies. */
 internal fun quietInConversation(assistant: Boolean, message: Message): Boolean = assistant && message.isPeer
@@ -33,8 +65,7 @@ internal fun ChatState.withAssistantPeersQuiet(): ChatState {
 	return next
 }
 
-/** Count every thread. */
-internal fun quietLine(record: ActionRecord): String = "${record.threads.size} cleared quietly"
+internal fun quietLine(threads: Int): String = "$threads cleared quietly"
 
 internal fun outcomeLabel(outcome: String): String = when (outcome) {
 	Protocol.Wire.RecordOutcome.RAN -> "Ran"
@@ -53,18 +84,27 @@ internal fun recordLabel(thread: RecordThread): String = thread.title ?: thread.
 /** Only HTTPS links open. */
 internal fun recordHref(url: String?): String? = url?.takeIf { it.startsWith("https://") }
 
-/** Decide presentation before rendering. */
-internal fun recordView(record: ActionRecord): JSONObject {
+/** Lists newest records only. */
+internal fun recordView(row: ThreadRow): JSONObject {
+	val head = row.head
+	val last = row.messages.last()
 	val items = JSONArray()
-	for (thread in record.threads) {
-		items.put(
-			JSONObject()
-				.put("label", recordLabel(thread))
-				.putOpt("href", recordHref(thread.url))
-				.put("outcome", outcomeLabel(thread.outcome)),
-		)
+	for (m in row.messages.takeLast(LISTED_RECORDS)) {
+		for (thread in m.record?.threads.orEmpty()) {
+			items.put(
+				JSONObject()
+					.put("label", recordLabel(thread))
+					.putOpt("href", recordHref(thread.url))
+					.put("outcome", outcomeLabel(thread.outcome)),
+			)
+		}
 	}
-	return JSONObject().put("quiet", !record.notify).put("line", quietLine(record)).put("items", items)
+	val view = JSONObject().put("quiet", head.isQuietRecord()).put("line", quietLine(row.threadCount)).put("items", items)
+	val earlier = row.threadCount - items.length()
+	if (earlier > 0) view.put("earlier", "$earlier earlier not listed")
+	// Span once minutes differ.
+	if (last.at / MINUTE_MS > head.at / MINUTE_MS) view.put("until", last.at)
+	return view
 }
 
 internal fun recordJson(record: ActionRecord): JSONObject {

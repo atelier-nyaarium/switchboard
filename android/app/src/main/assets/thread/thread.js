@@ -12,8 +12,9 @@
 //   thread.revealMessage(id)                        scroll to one row, no unread divider
 //   thread.flushReadUpTo()                          flush any pending debounced read receipt now
 // Message shape: {id, role: "user"|"agent", from, at, body, status?, counts?, ownSend?,
-//   arrivedVisible?, files?: [{name, mime, src?, size?, modifiedAt?, previewable, label,
-//   decoration?: {title, kind}}]}
+//   arrivedVisible?, record?, through?, files?: [{name, mime, src?, size?, modifiedAt?, previewable,
+//   label, decoration?: {title, kind}}]}
+// `through`: {id, at} a press clears through.
 // The host classifies, labels, orders, and filters attachments; hidden ones never arrive.
 // `counts`: this row counts toward unread (an inbound row with real mailbox coordinates).
 // `ownSend`: this row is the local optimistic send (never a settled echo from another device).
@@ -83,7 +84,9 @@
 		const row = e.target.closest(".row[data-id]");
 		if (!row || !window.Android || typeof window.Android.rowMenu !== "function") return;
 		e.preventDefault();
-		window.Android.rowMenu(row.dataset.id || "", row.dataset.at || "");
+		const id = row.dataset.throughId || row.dataset.id || "";
+		const at = row.dataset.throughAt || row.dataset.at || "";
+		window.Android.rowMenu(id, at);
 	});
 
 	// Label code fences with their language and divert ```mermaid fences to a
@@ -203,6 +206,10 @@
 		row.className = "row " + (m.role === "user" ? "user" : "agent");
 		if (m.id !== undefined && m.id !== null) row.dataset.id = String(m.id);
 		if (m.at !== undefined && m.at !== null) row.dataset.at = String(m.at);
+		if (m.through) {
+			row.dataset.throughId = String(m.through.id);
+			row.dataset.throughAt = String(m.through.at);
+		}
 
 		// DOM controls visual order.
 		const quiet = Boolean(m.record && m.record.quiet);
@@ -247,6 +254,31 @@
 
 		row.appendChild(actions);
 
+		if (quiet) {
+			row.classList.add("quiet-record");
+		} else {
+			row.appendChild(buildMeta(m));
+			const body = document.createElement("div");
+			body.className = "body";
+			// Break CommonMark's blockquote lazy-continuation (see markdown-lazy-blockquote.js's own
+			// header) before rendering, so a plain line right after a quoted line with no blank line
+			// between them starts its own block instead of being absorbed into the quote.
+			body.innerHTML = md.render(window.breakLazyBlockquoteContinuations(m.body || ""));
+			splitRefLabels(body);
+			row.appendChild(body);
+		}
+		if (m.record) row.appendChild(buildRecord(m.record, m.at));
+
+		if (Array.isArray(m.files) && m.files.length > 0) {
+			row.appendChild(buildFiles(m.files));
+		}
+		if (m.status === "error" && m.role === "user" && m.id !== undefined && m.id !== null) {
+			row.appendChild(buildFailedActions(String(m.id)));
+		}
+		return row;
+	}
+
+	function buildMeta(m) {
 		const meta = document.createElement("div");
 		meta.className = "meta";
 		const from = document.createElement("span");
@@ -263,39 +295,34 @@
 			status.textContent = m.status === "error" ? "failed" : m.status;
 			meta.appendChild(status);
 		}
-		row.appendChild(meta);
-
-		if (quiet) row.classList.add("quiet-record");
-		if (!quiet) {
-			const body = document.createElement("div");
-			body.className = "body";
-			// Break CommonMark's blockquote lazy-continuation (see markdown-lazy-blockquote.js's own
-			// header) before rendering, so a plain line right after a quoted line with no blank line
-			// between them starts its own block instead of being absorbed into the quote.
-			body.innerHTML = md.render(window.breakLazyBlockquoteContinuations(m.body || ""));
-			splitRefLabels(body);
-			row.appendChild(body);
-		}
-		if (m.record) row.appendChild(buildRecord(m.record));
-
-		if (Array.isArray(m.files) && m.files.length > 0) {
-			row.appendChild(buildFiles(m.files));
-		}
-		if (m.status === "error" && m.role === "user" && m.id !== undefined && m.id !== null) {
-			row.appendChild(buildFailedActions(String(m.id)));
-		}
-		return row;
+		return meta;
 	}
 
 	/** Record values stay text. */
-	function buildRecord(record) {
+	function buildRecord(record, at) {
 		const details = document.createElement("details");
 		details.className = "record";
 		const summary = document.createElement("summary");
 		const items = Array.isArray(record.items) ? record.items : [];
-		summary.textContent = record.quiet ? record.line || "" : items.length === 1 ? "1 thread" : `${items.length} threads`;
+		if (record.quiet) {
+			const line = document.createElement("span");
+			line.className = "line";
+			line.textContent = record.line || "";
+			const when = document.createElement("span");
+			when.className = "when";
+			when.textContent = record.until ? formatTime(at) + " - " + formatTime(record.until) : formatTime(at);
+			summary.append(line, when);
+		} else {
+			summary.textContent = items.length === 1 ? "1 thread" : `${items.length} threads`;
+		}
 		details.appendChild(summary);
 		const list = document.createElement("ul");
+		if (record.earlier) {
+			const earlier = document.createElement("li");
+			earlier.className = "earlier";
+			earlier.textContent = record.earlier;
+			list.appendChild(earlier);
+		}
 		for (const item of items) {
 			const li = document.createElement("li");
 			const label = document.createElement(item.href ? "a" : "span");
@@ -840,6 +867,10 @@
 					observer.unobserve(block);
 				}
 				stopCycling(existing);
+				// Keep expanded records open.
+				if (existing.querySelector("details.record[open]")) {
+					row.querySelector("details.record")?.setAttribute("open", "");
+				}
 				existing.replaceWith(row);
 				// A row can transition to eligible via an id-repeat (a re-render of the same row id
 				// carrying coordinates it did not have before), not just a fresh append. Without
@@ -891,9 +922,39 @@
 		}
 	}
 
+	// Open ids, visible anchors.
+	function viewNow() {
+		const open = [];
+		for (const details of container.querySelectorAll(".row[data-id] details.record[open]")) {
+			open.push(details.closest(".row").dataset.id);
+		}
+		const anchors = [];
+		for (const row of container.querySelectorAll(".row[data-id]")) {
+			const box = row.getBoundingClientRect();
+			if (box.bottom <= 0) continue;
+			if (box.top >= window.innerHeight) break;
+			anchors.push({ id: row.dataset.id, top: box.top });
+		}
+		return { open, anchors };
+	}
+
+	// False: no anchor survived.
+	function keepView(view) {
+		for (const id of view.open) rowFor(id)?.querySelector("details.record")?.setAttribute("open", "");
+		const anchor = view.anchors.find((a) => rowFor(a.id));
+		if (!anchor) return false;
+		runPin(() => {
+			const el = document.scrollingElement;
+			el.scrollTop += rowFor(anchor.id).getBoundingClientRect().top - anchor.top;
+		});
+		return true;
+	}
+
 	function setMessages(payload) {
 		const messages = payload.messages;
 		const firstUnreadId = payload.firstUnreadId;
+		// Redraws keep the place.
+		const kept = container.querySelector(".row[data-id]") ? viewNow() : null;
 		observer.disconnect();
 		stopCycling(container);
 		container.replaceChildren();
@@ -920,6 +981,7 @@
 			observeMermaid(row);
 		}
 		pointerIdx = 0;
+		if (kept && keepView(kept)) return;
 		if (divider) {
 			scrollToDivider();
 		} else {

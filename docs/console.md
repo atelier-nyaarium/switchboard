@@ -259,11 +259,21 @@ no TTL.
 - **Plugin retract** (`PluginHost.onRetract`): a plugin that holds state outside the registries
   drops it here when it goes off; the vault clears its pending requests.
 - **Row re-render** (`ThreadRenderer`): any changing row payload must enter its fingerprint. JS
-  bridge state mutates in place and intentionally does not.
+  bridge state mutates in place and intentionally does not. A row is one message or a run of
+  consecutive quiet records (`threadRows`), keyed by its first message, its fingerprint folding every
+  member's, so a record joining the run re-renders that row in place. The fold is the sync's one
+  walk over the thread and counts each row's threads. A run's line shows its last record's time only
+  when that record falls in a later minute than the first, and lists the threads of its newest 32
+  records (`recordView`), so a long run's redraw stays bounded. A shown position whose head changed,
+  as when a clear lands under a growing run or a retry moves a send to the end, rebuilds the page
+  (`rowDelta`), since the page replaces by head id. A rebuild over drawn rows keeps the open records
+  and the first surviving visible row at its offset. The first draw, or a rebuild that keeps no
+  visible row, snaps to the divider or the bottom.
 - **Clear and all above** (`ThreadCut.kt`, `RowMenu.kt`, `ChatRepository.clearThrough`): a long-press
   on a row outside its text (`thread.js`'s `contextmenu`, `ThreadRenderer.rowMenu`) opens the row
-  menu, so text keeps its selection. `threadCut` is the rule: the rows through the pressed one, and
-  the files nothing else names, with a pending send keeping its own; the read anchor stays. The
+  menu, so text keeps its selection. A run row is pressed as its last record (`through`). `threadCut`
+  is the rule: the rows through the pressed one, and the files nothing else names, with a pending
+  send keeping its own; the read anchor stays. The
   confirmation counts the rows and the freed files still on disk, and Clear waits for that measure.
   A cut keeps a per-thread id floor, so no cut id is minted again, and drops the echo of a cut send
   that had not landed (`swallowEcho`). It runs under the drain gate and deletes through

@@ -202,7 +202,7 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 		rows += Message(
 			fromMe = false,
 			text = REF_BODY,
-			at = now - 60_000,
+			at = now - 108_000,
 			id = id++,
 			files = attach("sandbox-refs", refArtifacts()).map { it.copy(role = "ref-snapshot", ref = refMeta()) },
 			from = SESSION,
@@ -214,7 +214,7 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 		rows += Message(
 			fromMe = false,
 			text = "The v2 release is out; nothing in it touches your code.",
-			at = now - 45_000,
+			at = now - 106_000,
 			id = id++,
 			from = SESSION,
 			epoch = SANDBOX_EPOCH,
@@ -230,7 +230,7 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 		rows += Message(
 			fromMe = false,
 			text = "",
-			at = now - 40_000,
+			at = now - 105_000,
 			id = id++,
 			from = SESSION,
 			epoch = SANDBOX_EPOCH,
@@ -242,6 +242,19 @@ class SandboxFixtures(private val filesDir: File, private val assets: AssetManag
 					RecordThread("1002", "CI passed on main", "https://github.com/atelier/app", "done"),
 					RecordThread("1003", "Weekly digest", null, "uncertain"),
 				),
+			),
+		)
+		rows += Message(
+			fromMe = false,
+			text = "",
+			at = now - 35_000,
+			id = id++,
+			from = SESSION,
+			epoch = SANDBOX_EPOCH,
+			seq = 26,
+			record = ActionRecord(
+				notify = false,
+				threads = listOf(RecordThread("1004", "Dependabot bumped biome", "https://github.com/atelier/app/pull/42", "done")),
 			),
 		)
 

@@ -48,8 +48,8 @@ class ChipDecoration(
  * pure/testable, matching `renderedSender`. Decoration fields ride `JSONObject.put` like every
  * other field - never hand-concatenated - so string escaping through the eval-wrapped payload is
  * inherited automatically. */
-internal fun messagesToJson(
-	messages: List<Message>,
+internal fun rowsToJson(
+	rows: List<ThreadRow>,
 	displayFrom: (Message) -> String,
 	playEnabled: Boolean,
 	// Ahead of `decorate` so the trailing-lambda call sites keep binding to the callback they always
@@ -58,7 +58,8 @@ internal fun messagesToJson(
 	decorate: (MessageFile) -> ChipDecoration?,
 ): String {
 	val arr = JSONArray()
-	for (m in messages) {
+	for (row in rows) {
+		val m = row.head
 		val obj = JSONObject()
 			.put("id", m.id)
 			.put("role", if (m.fromMe) "user" else "agent")
@@ -66,7 +67,12 @@ internal fun messagesToJson(
 			.put("at", m.at)
 			.put("body", m.text)
 		if (playEnabled && !m.fromMe && !m.isQuiet()) obj.put("canPlay", true)
-		m.record?.let { obj.put("record", recordView(it)) }
+		if (m.record != null) obj.put("record", recordView(row))
+		// Press clears the run.
+		if (row.messages.size > 1) {
+			val last = row.messages.last()
+			obj.put("through", JSONObject().put("id", last.id).put("at", last.at))
+		}
 		// Read-tracking flags (thread.js's pointer/region + arrival-suppression logic): `counts` is
 		// pure row eligibility (inbound with real mailbox coordinates - never anchor-dependent, so
 		// the client can filter a full setMessages payload locally without a shipped region list);
@@ -106,6 +112,26 @@ internal fun messagesToJson(
 		arr.put(obj)
 	}
 	return arr.toString()
+}
+
+/** What one sync sends. */
+internal sealed interface RowDelta {
+	data class Rebuild(val rows: List<ThreadRow>) : RowDelta
+
+	/** Tail, then in-place changes. */
+	data class Patch(val appended: List<ThreadRow>, val changed: List<ThreadRow>) : RowDelta
+}
+
+/** Moved heads rebuild. */
+internal fun rowDelta(rows: List<ThreadRow>, shown: List<ThreadRow>): RowDelta {
+	if (shown.isEmpty() || rows.size < shown.size) return RowDelta.Rebuild(rows)
+	val changed = ArrayList<ThreadRow>()
+	for ((i, was) in shown.withIndex()) {
+		val row = rows[i]
+		if (row.head.id != was.head.id) return RowDelta.Rebuild(rows)
+		if (row.fingerprint != was.fingerprint) changed += row
+	}
+	return RowDelta.Patch(rows.subList(shown.size, rows.size), changed)
 }
 
 /**
@@ -187,11 +213,9 @@ class ThreadRenderer(context: Context) {
 	// neither is a suspend call, so Compose leaving the composable cannot cancel them.
 	private var destroyed = false
 	private val pending = mutableListOf<String>()
-	private var renderedCount = 0
 
-	// Per-row content fingerprints of what is on screen, so an in-place change
-	// re-renders just that row via the id-replace path in appendMessages.
-	private var fingerprints = mapOf<Long, Int>()
+	// Rows as last sent.
+	private var shown = emptyList<ThreadRow>()
 
 	init {
 		configure(context)
@@ -322,7 +346,7 @@ class ThreadRenderer(context: Context) {
 				// Returning true keeps the app alive. Recovery destroys this WebView,
 				// which must not run re-entrantly inside this callback, so post it.
 				ready = false
-				renderedCount = 0
+				shown = emptyList()
 				view.post { onRendererGone?.invoke() }
 				return true
 			}
@@ -333,29 +357,22 @@ class ThreadRenderer(context: Context) {
 
 	/**
 	 * Feed the current transcript, sending only what changed so re-opening a thread
-	 * keeps its scroll position and rendered DOM. A grown list appends the tail,
+	 * keeps its scroll position and rendered DOM. A grown row list appends the tail,
 	 * rows whose content changed in place re-render by id, and a shrink replaces
 	 * wholesale. `firstUnreadId` (the row to snap/hold at, null = bottom) is consulted only by the
 	 * `setMessages` branch (a fresh render or a shrink rebuild) - `appendMessages` derives its own
 	 * follow/hold decision from each row's `counts`/`ownSend`/`arrivedVisible` flags instead.
 	 */
 	fun sync(messages: List<Message>, firstUnreadId: Long?) {
-		val prevRendered = renderedCount
-		if (renderedCount == 0 || messages.size < renderedCount) {
-			eval("window.thread.setMessages(${wrapForSetMessages(toJson(messages), firstUnreadId)})")
-			renderedCount = messages.size
-			fingerprints = messages.associate { it.id to fingerprint(it) }
-			return
+		val rows = threadRows(messages, ::fingerprint)
+		when (val delta = rowDelta(rows, shown)) {
+			is RowDelta.Rebuild -> eval("window.thread.setMessages(${wrapForSetMessages(toJson(delta.rows), firstUnreadId)})")
+			is RowDelta.Patch -> {
+				if (delta.appended.isNotEmpty()) eval("window.thread.appendMessages(${toJson(delta.appended)})")
+				if (delta.changed.isNotEmpty()) eval("window.thread.appendMessages(${toJson(delta.changed)})")
+			}
 		}
-		if (messages.size > renderedCount) {
-			eval("window.thread.appendMessages(${toJson(messages.subList(renderedCount, messages.size))})")
-			renderedCount = messages.size
-		}
-		val changed = messages.subList(0, prevRendered).filter { fingerprints[it.id] != fingerprint(it) }
-		if (changed.isNotEmpty()) {
-			eval("window.thread.appendMessages(${toJson(changed)})")
-		}
-		fingerprints = messages.associate { it.id to fingerprint(it) }
+		shown = rows
 	}
 
 	private fun wrapForSetMessages(rowsJson: String, firstUnreadId: Long?): String =
@@ -490,6 +507,6 @@ class ThreadRenderer(context: Context) {
 		}
 	}
 
-	private fun toJson(messages: List<Message>): String =
-		messagesToJson(messages, ::displayFrom, playEnabled, ::framesFor) { f -> decorateFile?.invoke(f) }
+	private fun toJson(rows: List<ThreadRow>): String =
+		rowsToJson(rows, ::displayFrom, playEnabled, ::framesFor) { f -> decorateFile?.invoke(f) }
 }
