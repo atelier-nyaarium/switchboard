@@ -328,6 +328,10 @@ Also in this phase, the working indicator: the send button is a locked spinner w
 
 Owner, 01:50: "IFTTT should not be in Watchers. It should be a separate category next to watchers." and "lets make Switchboard handle local network IFTTT." The plugs are two Kasa HS103 (US). The IFTTT road costs credits per fire since IFTTT's credit pricing (the free plan's 1,000 a month would not cover a daily on and off), so the plugs are to be driven locally. Questionnaire in progress; the questions land under the questionnaire above as they are answered.
 
+> I think I want to have a framework layer that is a smart device layer. Should promote configuring and calling against devices. And for specific models like Kasa, the ability to take it off the cloud and have it securely local. So Switchboard will be the controller of it.
+
+Two facts told back: the local protocol can unbind the plug from its account and point its cloud server at nothing, so off the cloud is a Gateway act; the protocol is obfuscated, not authenticated, so securely local is a network segment only Sakura reaches.
+
 ### Spike
 
 - Discovery from Sakura (python-kasa 0.11.0.1 in `~/.venvs/kasa`, outside the project): one plug answered, alias `Light`, HS103(US) hardware 3.0, firmware 1.0.3, at 192.168.1.151 on the same /24 as Sakura's `wlo1`, relay off, signal -44 dBm, cloud-connected, clock in PST. It speaks the plain local protocol on TCP 9999 with no credentials. Flickered on and off from Sakura; the owner saw it. The second plug was not plugged in.
