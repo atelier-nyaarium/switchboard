@@ -40,7 +40,7 @@ internal const val CALENDAR_SCAN_CAP = 2000
 
 internal data class CalendarSelection(val rows: List<CalendarRow>, val partial: Boolean)
 
-/** Partial when the scan hit its cap. */
+/** Partial: scan hit cap. */
 internal fun selectEvents(rows: Sequence<CalendarRow>, query: String?, limit: Int?): CalendarSelection {
 	val cap = (limit ?: 20).coerceIn(1, 50)
 	var scanned = 0

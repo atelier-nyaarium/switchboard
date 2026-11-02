@@ -452,7 +452,7 @@ private fun smsBody(context: PhoneCapabilityContext, request: SmsRequest): SmsAn
 
 private fun callBody(context: PhoneCapabilityContext, request: CallRequest): CallAnswer {
 	val number = phoneNumberOf(request.number) ?: throw CapabilityUnavailable("not_supported")
-	// Android lets only the owner place an emergency call; unknown dials.
+	// Emergency or unknown dials.
 	val emergency = runIsolated {
 		context.applicationContext.getSystemService(TelephonyManager::class.java)
 			?.isEmergencyNumber(number.removePrefix("+"))
