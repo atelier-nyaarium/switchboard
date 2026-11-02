@@ -58,6 +58,26 @@ internal interface PhoneCapabilityHandlers {
 		context: PhoneCapabilityContext,
 		request: TimerSetRequest,
 	): TimerSetAnswer
+
+	suspend fun smsCompose(
+		context: PhoneCapabilityContext,
+		request: SmsComposeRequest,
+	): SmsComposeAnswer
+
+	suspend fun dial(
+		context: PhoneCapabilityContext,
+		request: DialRequest,
+	): DialAnswer
+
+	suspend fun smsSend(
+		context: PhoneCapabilityContext,
+		request: SmsSendRequest,
+	): SmsSendAnswer
+
+	suspend fun call(
+		context: PhoneCapabilityContext,
+		request: CallRequest,
+	): CallAnswer
 }
 
 internal fun phoneCapabilityBindings(handlers: PhoneCapabilityHandlers): Map<String, PhoneCapabilityBinding> =
@@ -180,6 +200,54 @@ internal fun phoneCapabilityBindings(handlers: PhoneCapabilityHandlers): Map<Str
 				requestSerializer = TimerSetRequest.serializer(),
 				answerSerializer = TimerSetAnswer.serializer(),
 				handler = handlers::timerSet,
+			),
+		),
+		bind(
+			PhoneCapability(
+				key = Protocol.Wire.PhoneCapabilityKey.SMS_COMPOSE,
+				kind = "act",
+				where = "phone",
+				needs = listOf("notifications"),
+				label = "Compose a text",
+				requestSerializer = SmsComposeRequest.serializer(),
+				answerSerializer = SmsComposeAnswer.serializer(),
+				handler = handlers::smsCompose,
+			),
+		),
+		bind(
+			PhoneCapability(
+				key = Protocol.Wire.PhoneCapabilityKey.DIAL,
+				kind = "act",
+				where = "phone",
+				needs = listOf("notifications"),
+				label = "Open the dialer",
+				requestSerializer = DialRequest.serializer(),
+				answerSerializer = DialAnswer.serializer(),
+				handler = handlers::dial,
+			),
+		),
+		bind(
+			PhoneCapability(
+				key = Protocol.Wire.PhoneCapabilityKey.SMS_SEND,
+				kind = "guarded",
+				where = "phone",
+				needs = listOf("send_sms"),
+				label = "Send a text",
+				requestSerializer = SmsSendRequest.serializer(),
+				answerSerializer = SmsSendAnswer.serializer(),
+				handler = handlers::smsSend,
+			),
+		),
+		bind(
+			PhoneCapability(
+				key = Protocol.Wire.PhoneCapabilityKey.CALL,
+				kind = "guarded",
+				where = "phone",
+				needs = listOf("call_phone"),
+				label = "Place a call",
+				requestSerializer = CallRequest.serializer(),
+				answerSerializer = CallAnswer.serializer(),
+				handler = handlers::call,
 			),
 		)
 	).associateBy { it.key }

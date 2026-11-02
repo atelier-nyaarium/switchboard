@@ -230,6 +230,52 @@ class PhoneCapabilityOpsTest {
 	}
 
 	@Test
+	fun guardedTelephonyAnswersDeniedNeedsThroughDelivery() = runBlocking {
+		val self = HoldSelf.of(Crypto.Identity(Crypto.KeyPairRaw("phone-a", ""), Crypto.KeyPairRaw("", "")))
+		val state = ChatState(phoneHold = PhoneHold("phone-a", "Phone A", 100_000L, 1L))
+		val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+		val platform = FakePlatform()
+		val sent = Channel<ConsoleOp.PhoneCapabilityAnswer>(Channel.UNLIMITED)
+		val ops = PhoneCapabilityOps(
+			platform = platform,
+			state = { state },
+			self = { self },
+			scope = scope,
+			store = MemoryStore(),
+			send = { _, op, _ ->
+				sent.send(op)
+				ConsoleClient.ValueAnswer.Answered(JsonObject(emptyMap()))
+			},
+			now = { 100_000L },
+			timer = ManualTimer(),
+		)
+		val smsKey = Protocol.Wire.PhoneCapabilityKey.SMS_SEND
+		val callKey = Protocol.Wire.PhoneCapabilityKey.CALL
+		val smsRow = PhoneCapabilityRow("call-sms-0001", smsKey, JsonObject(emptyMap()), "approved", 200_000L)
+		val callRow = PhoneCapabilityRow("call-call-0001", callKey, JsonObject(emptyMap()), "approved", 200_000L)
+
+		try {
+			ops.features.setWanted(smsKey, true)
+			ops.features.setWanted(callKey, true)
+			ops.enqueue("gateway-a", "team-a", smsRow)
+			ops.enqueue("gateway-a", "team-a", callRow)
+
+			val answers = withTimeout(5_000L) { List(2) { sent.receive() } }.associate { it.requestId to it.answer }
+			assertEquals(
+				PhoneCapabilityAnswer.Unavailable("not_granted", listOf("send_sms")),
+				answers[smsRow.requestId],
+			)
+			assertEquals(
+				PhoneCapabilityAnswer.Unavailable("not_granted", listOf("call_phone")),
+				answers[callRow.requestId],
+			)
+			assertTrue(platform.runs.isEmpty())
+		} finally {
+			scope.cancel()
+		}
+	}
+
+	@Test
 	fun listenerSettingGrantsNotificationCapabilities() {
 		val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 		val platform = FakePlatform()

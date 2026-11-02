@@ -298,6 +298,68 @@ Sets an alarm for \`hour\` and \`minutes\`. \`set\` says Android accepted the re
 Sets a timer for \`seconds\`. \`set\` says Android accepted the request; the clock app decides whether its screen opens. \`app_missing\` says no clock app handles it.
 		`.trim(),
 	},
+	sms_compose: {
+		request: z
+			.strictObject({
+				to: z.string().min(1).max(40),
+				body: z.string().max(1000).optional(),
+			})
+			.meta({ id: "SmsComposeRequest" }),
+		answer: z.object({ opened: z.boolean() }).meta({ id: "SmsComposeAnswer" }),
+		kind: "act",
+		where: "phone",
+		needs: ["notifications"],
+		label: "Compose a text",
+		describe: `
+# Compose a text
+
+Opens the messaging app with the recipient and optional body prefilled. A number holds digits and an optional leading plus; spaces, dashes, dots and parentheses are dropped.
+		`.trim(),
+	},
+	dial: {
+		request: z.strictObject({ number: z.string().min(1).max(40) }).meta({ id: "DialRequest" }),
+		answer: z.object({ opened: z.boolean() }).meta({ id: "DialAnswer" }),
+		kind: "act",
+		where: "phone",
+		needs: ["notifications"],
+		label: "Open the dialer",
+		describe: `
+# Open the dialer
+
+Opens the dialer with the number, digits and an optional leading plus. The owner presses call.
+		`.trim(),
+	},
+	sms_send: {
+		request: z
+			.strictObject({
+				to: z.string().min(1).max(40),
+				body: z.string().min(1).max(1000),
+			})
+			.meta({ id: "SmsSendRequest" }),
+		answer: z.object({ sent: z.boolean(), parts: z.number().int().positive() }).meta({ id: "SmsSendAnswer" }),
+		kind: "guarded",
+		where: "phone",
+		needs: ["send_sms"],
+		label: "Send a text",
+		describe: `
+# Send a text
+
+Sends the text after owner approval. The number is used as given, digits and an optional leading plus; search \`contacts_search\` first for a contact's number. \`sent\` says the phone's SMS service accepted the message, not that it was delivered; \`parts\` is how many messages it took.
+		`.trim(),
+	},
+	call: {
+		request: z.strictObject({ number: z.string().min(1).max(40) }).meta({ id: "CallRequest" }),
+		answer: z.object({ calling: z.boolean() }).meta({ id: "CallAnswer" }),
+		kind: "guarded",
+		where: "phone",
+		needs: ["call_phone"],
+		label: "Place a call",
+		describe: `
+# Place a call
+
+Starts the in-call screen after owner approval, only while the phone is interactive, unlocked and the app shown, else \`not_showing\`.
+		`.trim(),
+	},
 } as const satisfies Record<string, PhoneCapabilityDeclaration>;
 
 export type PhoneCapabilityKey = keyof typeof PHONE_CAPABILITIES;

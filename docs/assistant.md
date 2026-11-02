@@ -547,12 +547,16 @@ The assistant reaches the holding phone through the capability registry (`PHONE_
 `src/shared/schemasPhoneCapabilities.ts`, pinned to the Kotlin bindings by
 `tests/fixtures/phone-capabilities/registry.json`): `status`, `contacts_search`, `calendar_events`,
 `notifications_recent`, `notification_reply`, `torch`, `maps_open`, `app_open`, `alarm_set` and
-`timer_set`, exposed as `phone/<key>` ids by `list_actions`.
+`timer_set`, `sms_compose`, `dial`, `sms_send` and `call`, exposed as `phone/<key>` ids by
+`list_actions`.
 A `run_action` call with a phone id lands on the holder as a
 stamped row, runs through `PhoneCapabilityOps` and answers through the journal, at most once per
 request id.
 
 Launch acts answer `not_showing` unless the phone is interactive, unlocked and the app is shown.
+`sms_send` and `call` ask the owner first and need the dangerous `SEND_SMS` and `CALL_PHONE`
+permissions. A sideloaded build may not hold `SEND_SMS` without installer allowlisting; `status`
+reports `sms_send` as `not_granted`.
 
 Notification access is the Android listener grant. `AssistantNotificationListener` seeds and updates
 a process-wide ring capped at 100 entries, evicting a dismissed row before a showing one. A dismissed

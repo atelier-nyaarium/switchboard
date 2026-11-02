@@ -15,14 +15,19 @@ import android.os.Bundle
 import android.provider.AlarmClock
 import android.provider.CalendarContract
 import android.provider.ContactsContract
+import android.telephony.SmsManager
 import com.atelier_nyaarium.switchboard.proto.AlarmSetAnswer
 import com.atelier_nyaarium.switchboard.proto.AlarmSetRequest
 import com.atelier_nyaarium.switchboard.proto.AppOpenAnswer
 import com.atelier_nyaarium.switchboard.proto.AppOpenRequest
 import com.atelier_nyaarium.switchboard.proto.CalendarEventsAnswer
 import com.atelier_nyaarium.switchboard.proto.CalendarEventsRequest
+import com.atelier_nyaarium.switchboard.proto.CallAnswer
+import com.atelier_nyaarium.switchboard.proto.CallRequest
 import com.atelier_nyaarium.switchboard.proto.ContactsSearchAnswer
 import com.atelier_nyaarium.switchboard.proto.ContactsSearchRequest
+import com.atelier_nyaarium.switchboard.proto.DialAnswer
+import com.atelier_nyaarium.switchboard.proto.DialRequest
 import com.atelier_nyaarium.switchboard.proto.LaunchableApp
 import com.atelier_nyaarium.switchboard.proto.MapsOpenAnswer
 import com.atelier_nyaarium.switchboard.proto.MapsOpenRequest
@@ -36,6 +41,10 @@ import com.atelier_nyaarium.switchboard.proto.PhoneContact
 import com.atelier_nyaarium.switchboard.proto.PhoneStatusAnswer
 import com.atelier_nyaarium.switchboard.proto.PhoneStatusKey
 import com.atelier_nyaarium.switchboard.proto.PhoneStatusRequest
+import com.atelier_nyaarium.switchboard.proto.SmsComposeAnswer
+import com.atelier_nyaarium.switchboard.proto.SmsComposeRequest
+import com.atelier_nyaarium.switchboard.proto.SmsSendAnswer
+import com.atelier_nyaarium.switchboard.proto.SmsSendRequest
 import com.atelier_nyaarium.switchboard.proto.TorchAnswer
 import com.atelier_nyaarium.switchboard.proto.TorchRequest
 import com.atelier_nyaarium.switchboard.proto.TimerSetAnswer
@@ -146,6 +155,18 @@ internal object PhoneCapabilityHandlerSet : PhoneCapabilityHandlers {
 
 	override suspend fun timerSet(context: PhoneCapabilityContext, request: TimerSetRequest): TimerSetAnswer =
 		timerSetBody(context, request)
+
+	override suspend fun smsCompose(context: PhoneCapabilityContext, request: SmsComposeRequest): SmsComposeAnswer =
+		smsComposeBody(context, request)
+
+	override suspend fun dial(context: PhoneCapabilityContext, request: DialRequest): DialAnswer =
+		dialBody(context, request)
+
+	override suspend fun smsSend(context: PhoneCapabilityContext, request: SmsSendRequest): SmsSendAnswer =
+		smsSendBody(context, request)
+
+	override suspend fun call(context: PhoneCapabilityContext, request: CallRequest): CallAnswer =
+		callBody(context, request)
 }
 
 object PhoneCapabilities {
@@ -411,6 +432,56 @@ private fun timerSetBody(context: PhoneCapabilityContext, request: TimerSetReque
 	)
 	return TimerSetAnswer(set = launchIntent(context, intent))
 }
+
+private fun smsComposeBody(context: PhoneCapabilityContext, request: SmsComposeRequest): SmsComposeAnswer {
+	val number = phoneNumberOf(request.to) ?: throw CapabilityUnavailable("not_supported")
+	val intent = Intent(Intent.ACTION_SENDTO, Uri.parse(smsUri(number)))
+	smsBodyOf(request.body)?.let { body ->
+		intent.putLaunchExtras(listOf(LaunchExtra.TextExtra("sms_body", body)))
+	}
+	return SmsComposeAnswer(opened = launchIntent(context, intent))
+}
+
+private fun dialBody(context: PhoneCapabilityContext, request: DialRequest): DialAnswer {
+	val number = phoneNumberOf(request.number) ?: throw CapabilityUnavailable("not_supported")
+	val intent = Intent(Intent.ACTION_DIAL, Uri.parse(telUri(number)))
+	return DialAnswer(opened = launchIntent(context, intent))
+}
+
+private fun smsSendBody(context: PhoneCapabilityContext, request: SmsSendRequest): SmsSendAnswer {
+	val number = phoneNumberOf(request.to) ?: throw CapabilityUnavailable("not_supported")
+	val body = smsBodyOf(request.body) ?: throw CapabilityUnavailable("not_supported")
+	val expectedParts = smsParts(body)
+	val manager = smsManagerOf(context.applicationContext)
+		?: return SmsSendAnswer(sent = false, parts = expectedParts.toLong())
+	return try {
+		val parts = manager.divideMessage(body)
+		manager.sendMultipartTextMessage(number, null, parts, null, null)
+		SmsSendAnswer(sent = true, parts = parts.size.toLong())
+	} catch (_: IllegalArgumentException) {
+		SmsSendAnswer(sent = false, parts = expectedParts.toLong())
+	} catch (_: SecurityException) {
+		throw CapabilityUnavailable("not_granted")
+	}
+}
+
+private fun callBody(context: PhoneCapabilityContext, request: CallRequest): CallAnswer {
+	val number = phoneNumberOf(request.number) ?: throw CapabilityUnavailable("not_supported")
+	val intent = Intent(Intent.ACTION_CALL, Uri.parse(telUri(number)))
+	return try {
+		CallAnswer(calling = launchIntent(context, intent))
+	} catch (_: SecurityException) {
+		throw CapabilityUnavailable("not_granted")
+	}
+}
+
+@Suppress("DEPRECATION")
+private fun smsManagerOf(context: Context): SmsManager? =
+	if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+		context.getSystemService(SmsManager::class.java)
+	} else {
+		SmsManager.getDefault()
+	}
 
 /** Checked at the start itself. */
 private fun launchIntent(context: PhoneCapabilityContext, intent: Intent): Boolean {
