@@ -567,7 +567,8 @@ call through; when unclear, ask the owner out loud. A sideloaded build may not h
 without installer allowlisting; `status` reports `sms` as `not_granted`. An emergency number only
 opens the dialer, since Android refuses a third-party `ACTION_CALL` for it, and `calling` is then
 false. `sent` means handed to the SMS service; no sent intents are registered. A calendar read scans
-at most `CALENDAR_SCAN_CAP` rows, so a selective query cannot spend the deadline on a crowded window.
+at most `CALENDAR_SCAN_CAP` rows, so a selective query cannot spend the deadline on a crowded window,
+and answers `partial` when it stopped there.
 
 A guarded act (`notification_reply`, a `send`, a `place`) opens an owner card on the holder's phone
 first, through the act guard (`actGuard.ts`); with Approve every send off it runs unasked. An
