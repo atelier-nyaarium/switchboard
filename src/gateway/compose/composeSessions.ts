@@ -8,7 +8,6 @@ import type { HostSpawnState } from "../../shared/host-spawn.js";
 import { PlaneRegistry } from "../../shared/plane-registry.js";
 import { type CodexCatalogWriter, type CopilotCatalogWriter, SessionStore } from "../../shared/session-store.js";
 import type { TrustedCatalogProject } from "../console/consoleTypes.js";
-import { IntentTracker } from "../intent.js";
 import { PresenceFacade } from "../presence.js";
 import { ReadAnchors } from "../readAnchors.js";
 import { createSessionRegistryReporter } from "../router/sessionRegistryReporter.js";
@@ -39,7 +38,6 @@ export interface SessionsStage {
 	planeRegistry: PlaneRegistry;
 	presence: PresenceFacade;
 	sessionAuthority: SessionAuthority;
-	intentTracker: IntentTracker;
 	readAnchors: ReadAnchors;
 	tripwireTimer: IntervalHandle;
 	sessionResumeSnapshot: (cleanShutdown: boolean) => Record<string, unknown>;
@@ -124,7 +122,6 @@ export function composeSessions({ localGatewayId, ambient, stores, context }: Se
 	planeRegistry.reconcileOnBoot();
 	const tripwireTimer = ambient.setInterval(() => planeRegistry.tripwireTick(), 60_000);
 
-	const intentTracker = new IntentTracker({ ambient });
 	const readAnchors = new ReadAnchors(planeRegistry, stores.restored.planes);
 	readAnchors.restore(stores.restored.readAnchors);
 	const sessionResumeSnapshot = (cleanShutdown: boolean) => ({
@@ -155,7 +152,6 @@ export function composeSessions({ localGatewayId, ambient, stores, context }: Se
 		planeRegistry,
 		presence,
 		sessionAuthority,
-		intentTracker,
 		readAnchors,
 		tripwireTimer,
 		sessionResumeSnapshot,

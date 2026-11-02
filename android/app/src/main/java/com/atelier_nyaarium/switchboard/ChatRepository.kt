@@ -28,12 +28,6 @@ internal interface ClearsOnReprovision {
 	suspend fun clearInMemory()
 }
 
-data class FocusIntent(
-	val screen: String,
-	val terminalTeam: String? = null,
-	val terminalRateMs: Long? = null,
-)
-
 class ChatRepository(
 	internal val store: AppStateStore,
 	internal val filesDir: File,
@@ -311,10 +305,6 @@ class ChatRepository(
 		sessions.armPendingForgetTombstones()
 	}
 
-	internal var currentFocus: FocusIntent
-		get() = focusHost.currentFocus
-		set(value) { focusHost.currentFocus = value }
-
 	internal val drain = PollDrain(drainHost, ports, readAnchorSync = presence) { todayRule -> phoneHoldOps.speaks(todayRule) }
 
 	init {
@@ -474,8 +464,6 @@ class ChatRepository(
 	internal val foreground = ForegroundLease(focusHost::onForeground, focusHost::onBackground)
 
 	fun kickPoll() = focusHost.kickPoll()
-
-	internal fun declareFocus(focus: FocusIntent) = focusHost.declareFocus(focus)
 
 	internal fun client(): ConsoleClient = provisioningHost.client()
 

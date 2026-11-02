@@ -11,17 +11,13 @@ import { resolveLiveIncarnation, type WsData } from "../wsTypes.js";
 import type { SessionsStage } from "./composeSessions.js";
 
 const HOST_OP_TIMEOUT_MS = 20_000;
+export const PRESENCE_PEEK_MS = 2_000;
+const WATCH_PUSH_MS = 2_000;
 
 export interface HostStageDeps {
 	sessions: Pick<
 		SessionsStage,
-		| "registry"
-		| "sessionStore"
-		| "presence"
-		| "isAvailableProject"
-		| "knownTeamPaths"
-		| "offlineCatalog"
-		| "intentTracker"
+		"registry" | "sessionStore" | "presence" | "isAvailableProject" | "knownTeamPaths" | "offlineCatalog"
 	>;
 	wakeTimeoutMs: number;
 	ambient: Ambient;
@@ -79,14 +75,14 @@ export function composeHost({ sessions, wakeTimeoutMs, ambient }: HostStageDeps)
 			.snapshot()
 			.filter((row) => row.status === "online" || row.status === "verifying")
 			.map((row) => row.team);
-		const watch = sessions.intentTracker.watchList(liveTeams);
+		const watch = liveTeams.map((team) => ({ team, cadenceMs: PRESENCE_PEEK_MS }));
 		const serialized = JSON.stringify(watch);
 		if (!force && serialized === lastPushedWatch) return;
 		// Retry dropped watches.
 		if (reached(sendOn(hostWs, JSON.stringify({ type: "presence_watch", watch }), "presence_watch")))
 			lastPushedWatch = serialized;
 	}
-	const presenceWatchTimer = ambient.setInterval(() => pushPresenceWatch(), 2_000);
+	const presenceWatchTimer = ambient.setInterval(() => pushPresenceWatch(), WATCH_PUSH_MS);
 
 	return {
 		liveHostSocket,

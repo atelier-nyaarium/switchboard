@@ -565,7 +565,8 @@ Cross-team communication and devcontainer coordination. This file is a map, not 
 - `android/.../crypto/ContentKeyring.kt` - phone keyring, classify then commit
 - `android/.../crypto/ContentAadKinds.kt` - sole AAD kind builders, twins of `content-envelope.ts`; `aad-kinds-residue.test.ts` pins both to one vector each
 - `android/.../MainActivity.kt` - `Repo`, activity, and `App` navigation shell
-- `android/.../SessionsScreen.kt` / `SettingsScreen.kt` / `ThreadScreen.kt` / `Onboarding.kt` / `SessionDialogs.kt` / `ReorderableTabRow.kt` / `TabDragMath.kt` / `TimeText.kt` - screen siblings and tab geometry
+- `android/.../SessionsScreen.kt` / `SettingsScreen.kt` / `ThreadScreen.kt` / `ComposerField.kt` / `Onboarding.kt` / `SessionDialogs.kt` / `ReorderableTabRow.kt` / `TabDragMath.kt` / `TimeText.kt` - screen siblings and tab geometry
+  - **One composer field for the panel and the thread:** `ComposerField` wraps the text field; while `working` it dims the border and draws the comet from `cometSpans`, the one span rule.
 - `android/.../RendererPoolBindings.kt` / `AppOverlays.kt` / `LinkMenu.kt` - WebView pool, overlays, and link actions
 - `android/.../SettingsSections.kt` / `SettingsSystem.kt` / `SettingsVoice.kt` - settings leaf screens
 - `android/.../SessionsHeaders.kt` / `SessionCard.kt` / `SessionCardPreview.kt` / `SessionsEmptyState.kt` - the Sessions view's headers, cards, rules, and empty-state machine

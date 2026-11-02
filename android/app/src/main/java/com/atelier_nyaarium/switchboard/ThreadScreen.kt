@@ -30,7 +30,6 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -144,7 +143,7 @@ internal fun ThreadScreen(
 	// two surfaces cannot disagree about when a forget is safe.
 	undoneTasks: Int = 0,
 	onForgetWithTasks: (Boolean) -> Unit = {},
-	onFocusChange: (FocusIntent) -> Unit = {},
+	onKickPoll: () -> Unit,
 	view: ConversationView = ConversationView.CHAT,
 	onView: (ConversationView) -> Unit = {},
 	drawerSide: DrawerSide = DrawerSide.LEFT,
@@ -193,11 +192,8 @@ internal fun ThreadScreen(
 	var goalDialogGeneration by remember { mutableStateOf(0) }
 	val goalScope = rememberCoroutineScope()
 	val terminalMode = view == ConversationView.TERMINAL
-	// The chat half shows daemon-derived state too (the presence chip), and closing the terminal
-	// declares background on the way out. Without this the chip sits at the background cadence until
-	// the user navigates all the way back to the session list.
 	LaunchedEffect(terminalMode) {
-		if (!terminalMode) onFocusChange(FocusIntent(screen = "board"))
+		if (!terminalMode) onKickPoll()
 	}
 	val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
 		if (uris.isNotEmpty()) composer.onAddFiles(uris)
@@ -452,7 +448,6 @@ internal fun ThreadScreen(
 					onPeek = terminal.onPeek,
 					onSend = terminal.onSend,
 					onResumeAfterLimit = terminal.onResumeAfterLimit,
-					onFocusChange = onFocusChange,
 					modifier = Modifier.weight(1f).fillMaxWidth(),
 				)
 			} else {
@@ -588,9 +583,10 @@ internal fun ThreadScreen(
 				}
 			}
 			Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
-				OutlinedTextField(
+				ComposerField(
 					value = composer.draft.text,
 					onValueChange = composer.onTextChange,
+					working = presence?.busy == true,
 					label = { Text("Message") },
 					minLines = 2,
 					// Collapsed pins it at its minimum and scrolls inside; otherwise it grows freely.

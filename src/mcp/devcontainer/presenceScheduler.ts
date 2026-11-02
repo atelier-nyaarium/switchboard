@@ -13,7 +13,7 @@ export interface DerivedState {
 	limitDetail?: string;
 }
 
-/** One watched session. `cadenceMs` is the resolved max over every declared intent. */
+/** One watched session. */
 export interface WatchEntry {
 	team: string;
 	target: TmuxTarget;

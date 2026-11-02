@@ -75,20 +75,6 @@ export const PresenceVersionSchema = z
 	})
 	.meta({ id: "PresenceVersion" });
 
-/** What the phone is currently looking at, declared on every poll so it survives a reconnect with
- * no separate op. Absent/omitted degrades to "background" once the prior declaration's TTL lapses
- * (a killed app needs no goodbye) - see gateway/intent.ts's IntentTracker, the server-side owner of
- * that TTL. */
-export const FocusIntentSchema = z
-	.object({
-		screen: z.enum(["board", "terminal", "background"]),
-		// Required when screen is "terminal": which session's terminal is open.
-		terminalTeam: z.string().optional(),
-		// The phone's configured terminal refresh rate; only meaningful with terminalTeam set.
-		terminalRateMs: z.number().int().positive().optional(),
-	})
-	.meta({ id: "FocusIntent" });
-
 /** A registry plane's version, for a plane with no multi-source concept (unlike presence's
  * per-source-gateway array - this Gateway's linked-peers roster is ALWAYS this Gateway's own
  * single view, never relayed from a peer). Same {epoch, counter} shape PlaneRegistry.version

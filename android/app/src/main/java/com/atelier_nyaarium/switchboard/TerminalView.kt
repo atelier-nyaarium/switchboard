@@ -20,7 +20,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -104,21 +103,8 @@ fun TerminalView(
 	onSend: suspend (text: String?, key: String?, submit: Boolean) -> Unit,
 	// Answer a usage-limit dialog with choice 1 and type "resume". Throws on failure.
 	onResumeAfterLimit: suspend () -> Unit,
-	onFocusChange: (FocusIntent) -> Unit = {},
 	modifier: Modifier = Modifier,
 ) {
-	// Declares terminal focus while this session's terminal is on screen, at the SAME rate its own
-	// peek loop below runs at, so the Gateway's intent tracker ramps the host daemon's derivation
-	// cadence for exactly this team - belt and suspenders with the terminal's own rendering peek,
-	// which already implies terminal intent (item 5's own doc). Re-declares on a team/rate change
-	// (switching sessions, or a settings edit); on dispose (closing the terminal, or leaving the
-	// screen) falls back to "background" rather than assuming what comes next - whatever screen
-	// takes over (the board, another thread) declares its own focus shortly after, and the
-	// intent's own TTL self-heals even if nothing does.
-	DisposableEffect(team, refreshMs) {
-		onFocusChange(FocusIntent(screen = "terminal", terminalTeam = team, terminalRateMs = refreshMs))
-		onDispose { onFocusChange(FocusIntent(screen = "background")) }
-	}
 	var ansi by remember(team) { mutableStateOf("") }
 	var logs by remember(team) { mutableStateOf("") }
 	var kind by remember(team) { mutableStateOf<String?>(null) }

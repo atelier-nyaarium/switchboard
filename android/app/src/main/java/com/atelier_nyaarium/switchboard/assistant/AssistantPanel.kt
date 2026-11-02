@@ -31,7 +31,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -53,8 +52,10 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import com.atelier_nyaarium.switchboard.ChatRepository
+import com.atelier_nyaarium.switchboard.ComposerField
 import com.atelier_nyaarium.switchboard.ThreadRendererPool
 import com.atelier_nyaarium.switchboard.ThreadWebView
+import com.atelier_nyaarium.switchboard.sessionWord
 import com.atelier_nyaarium.switchboard.setDraftText
 import com.atelier_nyaarium.switchboard.unreadBoundary
 
@@ -164,9 +165,12 @@ internal fun AssistantPanel(
 					verticalAlignment = Alignment.CenterVertically,
 					horizontalArrangement = Arrangement.spacedBy(8.dp),
 				) {
-					OutlinedTextField(
+					ComposerField(
 						value = text,
 						onValueChange = { repo.setDraftText(team, it) },
+						working = state.teams.firstOrNull { it.name == team }
+							?.let { state.sessionWord(team, it.presence, System.currentTimeMillis()) }
+							?.busy == true,
 						placeholder = { Text("Message the assistant") },
 						maxLines = 4,
 						modifier = Modifier.weight(1f).focusRequester(focus),

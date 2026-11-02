@@ -421,9 +421,8 @@ fun App(
 		}
 	}
 
-	// Board focus drives daemon cadence.
 	LaunchedEffect(openTeam) {
-		if (openTeam == null) repo.declareFocus(FocusIntent(screen = "board"))
+		if (openTeam == null) repo.kickPoll()
 	}
 
 	val locked = appLockAsks(state, unlocked)
@@ -755,7 +754,7 @@ fun App(
 					onSend = { text, key, submit -> repo.sessions.tmuxSend(openTeam!!, text, key, submit) },
 					onResumeAfterLimit = { repo.sessions.resumeAfterLimit(openTeam!!) },
 				),
-				onFocusChange = repo::declareFocus,
+				onKickPoll = repo::kickPoll,
 				view = shown,
 				onView = { nav = nav.showView(it) },
 				drawerSide = drawerSide,
