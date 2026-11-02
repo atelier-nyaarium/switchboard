@@ -585,7 +585,7 @@ private fun PhoneSettingRowView(row: PhoneSettingRow, onGear: () -> Unit) {
 private fun FeatureRowView(view: FeatureView, model: FeatureRowModel, onToggle: (Boolean) -> Unit, onGear: (GearTarget) -> Unit) {
 	Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-			Text(if (view.row.guarded) "${view.row.label} · Asks first" else view.row.label, style = MaterialTheme.typography.bodyLarge)
+			Text(view.row.label, style = MaterialTheme.typography.bodyLarge)
 			needsLine(view)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 		}
 		Switch(checked = view.wanted, onCheckedChange = onToggle, enabled = model.switchEnabled)

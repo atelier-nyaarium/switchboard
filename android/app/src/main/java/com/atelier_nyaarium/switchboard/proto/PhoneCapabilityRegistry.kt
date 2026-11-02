@@ -59,20 +59,10 @@ internal interface PhoneCapabilityHandlers {
 		request: TimerSetRequest,
 	): TimerSetAnswer
 
-	suspend fun smsCompose(
+	suspend fun sms(
 		context: PhoneCapabilityContext,
-		request: SmsComposeRequest,
-	): SmsComposeAnswer
-
-	suspend fun dial(
-		context: PhoneCapabilityContext,
-		request: DialRequest,
-	): DialAnswer
-
-	suspend fun smsSend(
-		context: PhoneCapabilityContext,
-		request: SmsSendRequest,
-	): SmsSendAnswer
+		request: SmsRequest,
+	): SmsAnswer
 
 	suspend fun call(
 		context: PhoneCapabilityContext,
@@ -135,7 +125,7 @@ internal fun phoneCapabilityBindings(handlers: PhoneCapabilityHandlers): Map<Str
 				key = Protocol.Wire.PhoneCapabilityKey.NOTIFICATION_REPLY,
 				kind = "guarded",
 				where = "phone",
-				needs = listOf("notification_access"),
+				needs = listOf("notification_access", "notifications"),
 				label = "Reply to a notification",
 				requestSerializer = NotificationReplyRequest.serializer(),
 				answerSerializer = NotificationReplyAnswer.serializer(),
@@ -204,38 +194,14 @@ internal fun phoneCapabilityBindings(handlers: PhoneCapabilityHandlers): Map<Str
 		),
 		bind(
 			PhoneCapability(
-				key = Protocol.Wire.PhoneCapabilityKey.SMS_COMPOSE,
-				kind = "act",
-				where = "phone",
-				needs = listOf("notifications"),
-				label = "Compose a text",
-				requestSerializer = SmsComposeRequest.serializer(),
-				answerSerializer = SmsComposeAnswer.serializer(),
-				handler = handlers::smsCompose,
-			),
-		),
-		bind(
-			PhoneCapability(
-				key = Protocol.Wire.PhoneCapabilityKey.DIAL,
-				kind = "act",
-				where = "phone",
-				needs = listOf("notifications"),
-				label = "Open the dialer",
-				requestSerializer = DialRequest.serializer(),
-				answerSerializer = DialAnswer.serializer(),
-				handler = handlers::dial,
-			),
-		),
-		bind(
-			PhoneCapability(
-				key = Protocol.Wire.PhoneCapabilityKey.SMS_SEND,
+				key = Protocol.Wire.PhoneCapabilityKey.SMS,
 				kind = "guarded",
 				where = "phone",
-				needs = listOf("send_sms"),
-				label = "Send a text",
-				requestSerializer = SmsSendRequest.serializer(),
-				answerSerializer = SmsSendAnswer.serializer(),
-				handler = handlers::smsSend,
+				needs = listOf("send_sms", "notifications"),
+				label = "Text",
+				requestSerializer = SmsRequest.serializer(),
+				answerSerializer = SmsAnswer.serializer(),
+				handler = handlers::sms,
 			),
 		),
 		bind(
@@ -243,8 +209,8 @@ internal fun phoneCapabilityBindings(handlers: PhoneCapabilityHandlers): Map<Str
 				key = Protocol.Wire.PhoneCapabilityKey.CALL,
 				kind = "guarded",
 				where = "phone",
-				needs = listOf("call_phone"),
-				label = "Place a call",
+				needs = listOf("call_phone", "notifications"),
+				label = "Call",
 				requestSerializer = CallRequest.serializer(),
 				answerSerializer = CallAnswer.serializer(),
 				handler = handlers::call,

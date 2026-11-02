@@ -219,10 +219,7 @@ class PhoneCapabilityOpsTest {
 			assertEquals(emptyList<String>(), off.needs)
 			assertEquals(PhoneCapabilityAnswer.Unavailable("not_granted", listOf("contacts")), answers["call-0003"])
 			assertEquals(PhoneCapabilityAnswer.Unavailable("not_granted", listOf("calendar")), answers["call-0004"])
-			assertEquals(
-				PhoneCapabilityAnswer.Unavailable("not_granted", listOf("notification_access")),
-				answers["call-0005"],
-			)
+			assertEquals(PhoneCapabilityAnswer.Unavailable("not_granted", listOf("notification_access")), answers["call-0005"])
 			assertEquals(listOf(Protocol.Wire.PhoneCapabilityKey.STATUS), platform.runs)
 		} finally {
 			scope.cancel()
@@ -249,7 +246,7 @@ class PhoneCapabilityOpsTest {
 			now = { 100_000L },
 			timer = ManualTimer(),
 		)
-		val smsKey = Protocol.Wire.PhoneCapabilityKey.SMS_SEND
+		val smsKey = Protocol.Wire.PhoneCapabilityKey.SMS
 		val callKey = Protocol.Wire.PhoneCapabilityKey.CALL
 		val smsRow = PhoneCapabilityRow("call-sms-0001", smsKey, JsonObject(emptyMap()), "approved", 200_000L)
 		val callRow = PhoneCapabilityRow("call-call-0001", callKey, JsonObject(emptyMap()), "approved", 200_000L)
@@ -262,11 +259,11 @@ class PhoneCapabilityOpsTest {
 
 			val answers = withTimeout(5_000L) { List(2) { sent.receive() } }.associate { it.requestId to it.answer }
 			assertEquals(
-				PhoneCapabilityAnswer.Unavailable("not_granted", listOf("send_sms")),
+				PhoneCapabilityAnswer.Unavailable("not_granted", listOf("send_sms", "notifications")),
 				answers[smsRow.requestId],
 			)
 			assertEquals(
-				PhoneCapabilityAnswer.Unavailable("not_granted", listOf("call_phone")),
+				PhoneCapabilityAnswer.Unavailable("not_granted", listOf("call_phone", "notifications")),
 				answers[callRow.requestId],
 			)
 			assertTrue(platform.runs.isEmpty())

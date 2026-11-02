@@ -227,9 +227,7 @@ object Protocol {
 			const val APP_OPEN: String = "app_open"
 			const val ALARM_SET: String = "alarm_set"
 			const val TIMER_SET: String = "timer_set"
-			const val SMS_COMPOSE: String = "sms_compose"
-			const val DIAL: String = "dial"
-			const val SMS_SEND: String = "sms_send"
+			const val SMS: String = "sms"
 			const val CALL: String = "call"
 			const val IFTTT_TRIGGER: String = "ifttt_trigger"
 		}
@@ -442,34 +440,14 @@ data class TimerSetAnswer(
 )
 
 @Serializable
-data class SmsComposeRequest(
-	val to: String,
-	val body: String? = null,
-)
-
-@Serializable
-data class SmsComposeAnswer(
-	val opened: Boolean,
-)
-
-@Serializable
-data class DialRequest(
-	val number: String,
-)
-
-@Serializable
-data class DialAnswer(
-	val opened: Boolean,
-)
-
-@Serializable
-data class SmsSendRequest(
+data class SmsRequest(
 	val to: String,
 	val body: String,
+	val send: Boolean? = null,
 )
 
 @Serializable
-data class SmsSendAnswer(
+data class SmsAnswer(
 	val sent: Boolean,
 	val parts: Long,
 )
@@ -477,6 +455,7 @@ data class SmsSendAnswer(
 @Serializable
 data class CallRequest(
 	val number: String,
+	val place: Boolean? = null,
 )
 
 @Serializable

@@ -22,10 +22,12 @@ const rows = PHONE_CAPABILITY_KEYS.filter((key) => PHONE_CAPABILITIES[key].where
 });
 
 fs.mkdirSync(path.dirname(output), { recursive: true });
+const renderValue = (value: unknown): string =>
+	Array.isArray(value) ? `[${value.map((item) => JSON.stringify(item)).join(", ")}]` : JSON.stringify(value);
 const rendered = rows.map((row) => {
 	const fields = Object.entries(row).map(([key, value], index, all) => {
 		const comma = index < all.length - 1 ? "," : "";
-		return `\t\t"${key}": ${JSON.stringify(value)}${comma}`;
+		return `\t\t"${key}": ${renderValue(value)}${comma}`;
 	});
 	return `\t{\n${fields.join("\n")}\n\t}`;
 });

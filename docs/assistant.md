@@ -551,17 +551,17 @@ microphone; Gboard's mic key dictates. `summon-residue.test.ts` refuses `showWhe
 The assistant reaches the holding phone through the capability registry (`PHONE_CAPABILITIES` in
 `src/shared/schemasPhoneCapabilities.ts`, pinned to the Kotlin bindings by
 `tests/fixtures/phone-capabilities/registry.json`): `status`, `contacts_search`, `calendar_events`,
-`notifications_recent`, `notification_reply`, `torch`, `maps_open`, `app_open`, `alarm_set` and
-`timer_set`, `sms_compose`, `dial`, `sms_send` and `call`, exposed as `phone/<key>` ids by
-`list_actions`.
+`notifications_recent`, `notification_reply`, `torch`, `maps_open`, `app_open`, `alarm_set`,
+`timer_set`, `sms` and `call`, exposed as `phone/<key>` ids by `list_actions`.
 A `run_action` call with a phone id lands on the holder as a
 stamped row, runs through `PhoneCapabilityOps` and answers through the journal, at most once per
 request id.
 
 Launch acts answer `not_showing` unless the phone is interactive, unlocked and the app is shown.
-`sms_send` and `call` ask the owner first and need the dangerous `SEND_SMS` and `CALL_PHONE`
-permissions. A sideloaded build may not hold `SEND_SMS` without installer allowlisting; `status`
-reports `sms_send` as `not_granted`.
+`sms` needs `SEND_SMS` and `call` needs `CALL_PHONE`. Both default to opening the owner's app with
+the recipient or number prepared. Set `send` or `place` true only for a direct request to send or
+call through; when unclear, ask the owner out loud. A sideloaded build may not hold `SEND_SMS`
+without installer allowlisting; `status` reports `sms` as `not_granted`.
 
 Notification access is the Android listener grant. `AssistantNotificationListener` seeds and updates
 a process-wide ring capped at 100 entries, evicting a dismissed row before a showing one. A dismissed
@@ -583,8 +583,8 @@ notification content or app names.
 - **A lost grant:** the switch stays drawn and only goes On to Off until the grant is back; the
   index warns "Permission missing for" only for a feature that was on. The gear opens the request
   while Android still shows one, else the app's settings page (`permissionDoor`, `askable`).
-- **An act leaves a trace:** every act binding needs `notifications`, so a denied grant refuses the
-  act as `not_granted` instead of running it with its notification dropped. The trace has its own
+- **An act leaves a trace:** every act and guarded binding needs `notifications`, so a denied grant
+  refuses the act as `not_granted` instead of running it with its notification dropped. The trace has its own
   notification id band (`assistantTraceNotificationId`).
 - **The Android reads** sit behind `PhoneCapabilityPlatform`; `PhoneCapabilityOpsTest` drives
   `enqueue` through `execute` to delivery with a fake.

@@ -18,7 +18,7 @@ export const PhonePermissionSchema = z.enum(PHONE_PERMISSIONS).meta({ id: "Phone
 
 export type PhonePermission = z.infer<typeof PhonePermissionSchema>;
 
-/** Guarded acts ask first. */
+/** Capability action kinds. */
 export const CAPABILITY_KINDS = ["read", "act", "guarded"] as const;
 
 export type CapabilityKind = (typeof CAPABILITY_KINDS)[number];
@@ -35,6 +35,7 @@ export interface PhoneCapabilityDeclaration<
 	readonly request: Request;
 	readonly answer: Answer;
 	readonly kind: CapabilityKind;
+	readonly guardedWhen?: (params: z.infer<Request>) => boolean;
 	readonly where: CapabilityHost;
 	readonly needs: readonly PhonePermission[];
 	/** Owner-visible card label. */
@@ -197,7 +198,7 @@ Lists the last 100 notifications the listener has seen, newest first, showing or
 		answer: z.object({ sent: z.boolean() }).meta({ id: "NotificationReplyAnswer" }),
 		kind: "guarded",
 		where: "phone",
-		needs: ["notification_access"],
+		needs: ["notification_access", "notifications"],
 		label: "Reply to a notification",
 		describe: `
 # Reply to a notification
@@ -299,66 +300,51 @@ Sets an alarm for \`hour\` and \`minutes\`. \`set\` says Android accepted the re
 Sets a timer for \`seconds\`. \`set\` says Android accepted the request; the clock app decides whether its screen opens. \`app_missing\` says no clock app handles it.
 		`.trim(),
 	},
-	sms_compose: {
-		request: z
-			.strictObject({
-				to: z.string().min(1).max(40),
-				body: z.string().max(1000).optional(),
-			})
-			.meta({ id: "SmsComposeRequest" }),
-		answer: z.object({ opened: z.boolean() }).meta({ id: "SmsComposeAnswer" }),
-		kind: "act",
-		where: "phone",
-		needs: ["notifications"],
-		label: "Compose a text",
-		describe: `
-# Compose a text
-
-Opens the messaging app with the recipient and optional body prefilled. A number holds digits and an optional leading plus; spaces, dashes, dots and parentheses are dropped.
-		`.trim(),
-	},
-	dial: {
-		request: z.strictObject({ number: z.string().min(1).max(40) }).meta({ id: "DialRequest" }),
-		answer: z.object({ opened: z.boolean() }).meta({ id: "DialAnswer" }),
-		kind: "act",
-		where: "phone",
-		needs: ["notifications"],
-		label: "Open the dialer",
-		describe: `
-# Open the dialer
-
-Opens the dialer with the number, digits and an optional leading plus. The owner presses call.
-		`.trim(),
-	},
-	sms_send: {
+	sms: {
 		request: z
 			.strictObject({
 				to: z.string().min(1).max(40),
 				body: z.string().min(1).max(1000),
+				send: z.boolean().optional(),
 			})
-			.meta({ id: "SmsSendRequest" }),
-		answer: z.object({ sent: z.boolean(), parts: z.number().int().positive() }).meta({ id: "SmsSendAnswer" }),
+			.meta({ id: "SmsRequest" }),
+		answer: z.object({ sent: z.boolean(), parts: z.number().int().nonnegative() }).meta({ id: "SmsAnswer" }),
 		kind: "guarded",
+		guardedWhen: (params) => (params as { send?: boolean }).send === true,
 		where: "phone",
-		needs: ["send_sms"],
-		label: "Send a text",
+		needs: ["send_sms", "notifications"],
+		label: "Text",
 		describe: `
-# Send a text
+# Text
 
-Sends the text after owner approval. The number is used as given, digits and an optional leading plus; search \`contacts_search\` first for a contact's number. \`sent\` says the phone's SMS service accepted the message, not that it was delivered; \`parts\` is how many messages it took.
+\`send\` defaults to false and opens the owner's messaging app with the recipient and body prepared.
+Set it true only when the owner directly asks in words to send the text through, such as
+"send a text to mom saying ...". Never set it for "draft", "write up" or "get ready to" requests.
+When unclear, ask the owner out loud first; a plain "yes" or "yeah" is enough. Use digits with an
+optional leading plus for the number; look up a contact with \`contacts_search\` first. \`sent\`
+means the SMS service accepted the message, not that it was delivered. A draft needs the phone
+shown and unlocked, else \`not_showing\`; a send does not.
 		`.trim(),
 	},
 	call: {
-		request: z.strictObject({ number: z.string().min(1).max(40) }).meta({ id: "CallRequest" }),
+		request: z
+			.strictObject({ number: z.string().min(1).max(40), place: z.boolean().optional() })
+			.meta({ id: "CallRequest" }),
 		answer: z.object({ calling: z.boolean() }).meta({ id: "CallAnswer" }),
 		kind: "guarded",
+		guardedWhen: (params) => (params as { place?: boolean }).place === true,
 		where: "phone",
-		needs: ["call_phone"],
-		label: "Place a call",
+		needs: ["call_phone", "notifications"],
+		label: "Call",
 		describe: `
-# Place a call
+# Call
 
-Starts the in-call screen after owner approval, only while the phone is interactive, unlocked and the app shown, else \`not_showing\`.
+\`place\` defaults to false and opens the owner's dialer with the number prepared. Set it true
+only when the owner directly asks in words to call through, such as "call mom". Never set it for
+"draft", "write up" or "get ready to" requests. When unclear, ask the owner out loud first; a
+plain "yes" or "yeah" is enough. Use digits with an optional leading plus for the number; look up
+a contact with \`contacts_search\` first. Either way the phone must be shown and unlocked, else
+\`not_showing\`.
 		`.trim(),
 	},
 	ifttt_trigger: {
@@ -497,6 +483,6 @@ export function capabilityNeedsLine(key: PhoneCapabilityKey): string {
 				? "A read: runs on the holding phone."
 				: declaration.kind === "act"
 					? "An act: runs on the holding phone and leaves a trace."
-					: "A guarded act: the owner approves a card first unless approvals are off.";
+					: "A guarded act may need owner approval.";
 	return `${kind} Needs ${needs}.`;
 }

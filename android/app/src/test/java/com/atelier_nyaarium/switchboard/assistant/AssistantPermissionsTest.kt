@@ -17,6 +17,14 @@ class AssistantPermissionsTest {
 	}
 
 	@Test
+	fun communicationRowsKeepTheirLabelsAndPermissionNeeds() {
+		assertEquals("Text", row("sms").label)
+		assertEquals(listOf("send_sms", "notifications"), row("sms").needs)
+		assertEquals("Call", row("call").label)
+		assertEquals(listOf("call_phone", "notifications"), row("call").needs)
+	}
+
+	@Test
 	fun theIndexLineNamesTheRoleAndEveryFeatureThatIsOnAndGranted() {
 		val views = listOf(
 			FeatureView(row("status"), wanted = true, granted = true),

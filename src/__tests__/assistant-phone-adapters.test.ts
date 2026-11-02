@@ -211,6 +211,57 @@ describe("phone request append completion", () => {
 		expect(records[0]?.threads).toEqual([{ threadId: "status", outcome: "unavailable" }]);
 	});
 
+	it("opens a text draft without a card and sends only through an approval card", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => 1_000 });
+		const cards: Array<{ requestId: string; key: string; label: string; summary: string }> = [];
+		const opened: Array<{ callId: string; key: string; params: unknown; guard: string }> = [];
+		const guard = createActGuard({
+			ambient,
+			deliver: (request) => {
+				cards.push(request);
+				return true;
+			},
+			retract: () => true,
+			runPhone: async () => ({ kind: "ok", answer: { sent: true, parts: 1 } }),
+		});
+		const dispatch = createPhoneDispatch({
+			ambient,
+			approveEverySend: () => true,
+			hold: () => ({ kind: "held", holder: "phone-a", label: "Pixel", claimedAt: 1_000, remainingMs: 1_000 }),
+			phone: {
+				open: (input: (typeof opened)[number]) => {
+					opened.push(input);
+					return {
+						kind: "opened",
+						answer: Promise.resolve({ kind: "ok", answer: { sent: false, parts: 0 } }),
+					};
+				},
+			} as never,
+			act: guard,
+			gateways: {} as never,
+			record: () => true,
+		});
+
+		const draft = await dispatch({
+			key: "sms",
+			callId: "sms-draft-01",
+			params: { to: "+15551234567", body: "Hello" },
+		});
+		expect(draft).toMatchObject({ kind: "ok", answer: { sent: false, parts: 0 } });
+		expect(opened).toMatchObject([{ key: "sms", guard: "none" }]);
+		expect(cards).toHaveLength(0);
+
+		const sending = dispatch({
+			key: "sms",
+			callId: "sms-send-001",
+			params: { to: "+15551234567", body: "Hello", send: true },
+		});
+		expect(opened).toHaveLength(1);
+		expect(cards).toMatchObject([{ requestId: "sms-send-001", key: "sms", label: "Text" }]);
+		expect(guard.answer("sms-send-001", "approve")).toEqual({ ok: true });
+		expect(await sending).toMatchObject({ kind: "ok", answer: { sent: true, parts: 1 } });
+	});
+
 	it("refuses a lapsed hold with the gate's text and opens nothing", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => 1_000 });
 		let opened = 0;

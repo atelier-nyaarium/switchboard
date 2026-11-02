@@ -39,7 +39,7 @@
 		"key": "notification_reply",
 		"kind": "guarded",
 		"where": "phone",
-		"needs": ["notification_access"],
+		"needs": ["notification_access", "notifications"],
 		"requestId": "NotificationReplyRequest",
 		"answerId": "NotificationReplyAnswer",
 		"describeHash": "fee6880e306b37e2452e5152f3beffdf9014c6b6eb318675a871da2107d74aee"
@@ -90,39 +90,21 @@
 		"describeHash": "55be9be9e5db275f7ad9596c6639794a2457147dc3e298672748d89bc80d1224"
 	},
 	{
-		"key": "sms_compose",
-		"kind": "act",
-		"where": "phone",
-		"needs": ["notifications"],
-		"requestId": "SmsComposeRequest",
-		"answerId": "SmsComposeAnswer",
-		"describeHash": "75c7c2ad11d16e4f6e5440b3efc39017b0b7643564d695213b3ab2fbe7001fbe"
-	},
-	{
-		"key": "dial",
-		"kind": "act",
-		"where": "phone",
-		"needs": ["notifications"],
-		"requestId": "DialRequest",
-		"answerId": "DialAnswer",
-		"describeHash": "c5efd8c452cfb77f9fbfe6daf390a962f4a4799f75b0354eb8b65f951fb3137f"
-	},
-	{
-		"key": "sms_send",
+		"key": "sms",
 		"kind": "guarded",
 		"where": "phone",
-		"needs": ["send_sms"],
-		"requestId": "SmsSendRequest",
-		"answerId": "SmsSendAnswer",
-		"describeHash": "1bd435e3a5dc73d614614a17cc7ada739f1a58790ca581b43477e29a0392f014"
+		"needs": ["send_sms", "notifications"],
+		"requestId": "SmsRequest",
+		"answerId": "SmsAnswer",
+		"describeHash": "08d65e6436671caef15dc6c45649e0c12fdaf2948bd54253d70c0304260d22e8"
 	},
 	{
 		"key": "call",
 		"kind": "guarded",
 		"where": "phone",
-		"needs": ["call_phone"],
+		"needs": ["call_phone", "notifications"],
 		"requestId": "CallRequest",
 		"answerId": "CallAnswer",
-		"describeHash": "2cc59bf94756335e4dc13d84ff655e66483cf00ac50b42b190b11951718a313a"
+		"describeHash": "f8be45d615f0a4d49e5b37f62174c063315d5bf368f04e315a80e33223f99943"
 	}
 ]

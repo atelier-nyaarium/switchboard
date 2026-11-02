@@ -108,10 +108,11 @@ export function createPhoneDispatch(
 		if (denied) return finish(request.callId, request.key, denied);
 
 		let answer: PhoneAnswer;
-		if (declaration.kind === "guarded" && safelyApproves(deps.approveEverySend)) {
+		const guarded = declaration.kind === "guarded" && (declaration.guardedWhen?.(params) ?? true);
+		if (guarded && safelyApproves(deps.approveEverySend)) {
 			answer = await deps.act.run({ callId: request.callId, key: request.key, params });
 		} else {
-			const guard: CapabilityGuard = declaration.kind === "guarded" ? "unasked" : "none";
+			const guard: CapabilityGuard = guarded ? "unasked" : "none";
 			const opened = await deps.phone.open({
 				callId: request.callId,
 				key: request.key,

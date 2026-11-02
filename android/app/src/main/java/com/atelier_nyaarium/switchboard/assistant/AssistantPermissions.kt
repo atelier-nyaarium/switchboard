@@ -24,7 +24,7 @@ internal data class PhoneSettingFacts(
 
 internal data class PhoneSettingRow(val label: String, val on: Boolean, val offWord: String, val door: PhoneSettingDoor)
 
-internal data class FeatureRow(val key: String, val label: String, val guarded: Boolean, val needs: List<String>)
+internal data class FeatureRow(val key: String, val label: String, val needs: List<String>)
 
 /** `wanted` survives a revoke. */
 internal data class FeatureView(
@@ -93,7 +93,6 @@ internal fun featureRows(bindings: Collection<PhoneCapabilityBinding>): List<Fea
 		FeatureRow(
 			key = binding.key,
 			label = binding.label,
-			guarded = binding.kind == "guarded",
 			needs = binding.needs,
 		)
 	}

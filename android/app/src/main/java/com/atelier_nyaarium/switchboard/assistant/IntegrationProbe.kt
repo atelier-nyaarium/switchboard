@@ -63,8 +63,8 @@ internal object IntegrationProbe {
 			"assistScreenshot" to secureSetting(context, "assist_screenshot_enabled"),
 			"torchCameras" to torchCameras(context),
 			"alarm" to resolves(pm, Intent(AlarmClock.ACTION_SET_ALARM)),
-			"smsCompose" to resolves(pm, Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:"))),
-			"dial" to resolves(pm, Intent(Intent.ACTION_DIAL, Uri.parse("tel:"))),
+			"sms" to resolves(pm, Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:"))),
+			"call" to resolves(pm, Intent(Intent.ACTION_DIAL, Uri.parse("tel:"))),
 			"calendarInsert" to resolves(pm, Intent(Intent.ACTION_INSERT).setData(CalendarContract.Events.CONTENT_URI)),
 			"ifttt" to (runIsolated { pm.getLaunchIntentForPackage(IFTTT) }.getOrNull() != null),
 			"notificationListener" to runIsolated {

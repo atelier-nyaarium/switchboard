@@ -473,7 +473,7 @@ internal class PhoneCapabilityOps(
 					val result = journal.runUnlessRetracted(run.requestId) {
 						runBinding(binding, row, run.deadlineAt)
 					} ?: return
-					if (binding.kind == "act" && result is PhoneCapabilityAnswer.Ok) platform.trace(binding.label, run.requestId)
+					if (binding.kind != "read" && result is PhoneCapabilityAnswer.Ok) platform.trace(binding.label, run.requestId)
 					result
 				}
 			}
