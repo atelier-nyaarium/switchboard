@@ -204,11 +204,13 @@ class PhoneCapabilityOpsTest {
 			ops.features.setWanted(Protocol.Wire.PhoneCapabilityKey.STATUS, true)
 			ops.features.setWanted(Protocol.Wire.PhoneCapabilityKey.CONTACTS_SEARCH, true)
 			ops.features.setWanted(Protocol.Wire.PhoneCapabilityKey.CALENDAR_EVENTS, true)
+			ops.features.setWanted(Protocol.Wire.PhoneCapabilityKey.NOTIFICATIONS_RECENT, true)
 			ops.enqueue("gateway-a", "team-a", row("call-0001", Protocol.Wire.PhoneCapabilityKey.STATUS))
 			ops.enqueue("gateway-a", "team-a", row("call-0002", Protocol.Wire.PhoneCapabilityKey.TORCH))
 			ops.enqueue("gateway-a", "team-a", row("call-0003", Protocol.Wire.PhoneCapabilityKey.CONTACTS_SEARCH))
 			ops.enqueue("gateway-a", "team-a", row("call-0004", Protocol.Wire.PhoneCapabilityKey.CALENDAR_EVENTS))
-			val answers = withTimeout(5_000L) { List(4) { sent.receive() } }.associate { it.requestId to it.answer }
+			ops.enqueue("gateway-a", "team-a", row("call-0005", Protocol.Wire.PhoneCapabilityKey.NOTIFICATIONS_RECENT))
+			val answers = withTimeout(5_000L) { List(5) { sent.receive() } }.associate { it.requestId to it.answer }
 
 			assertEquals(PhoneCapabilityAnswer.Ok(JsonObject(emptyMap())), answers["call-0001"])
 			val off = answers["call-0002"] as PhoneCapabilityAnswer.Unavailable
@@ -216,7 +218,40 @@ class PhoneCapabilityOpsTest {
 			assertEquals(emptyList<String>(), off.needs)
 			assertEquals(PhoneCapabilityAnswer.Unavailable("not_granted", listOf("contacts")), answers["call-0003"])
 			assertEquals(PhoneCapabilityAnswer.Unavailable("not_granted", listOf("calendar")), answers["call-0004"])
+			assertEquals(
+				PhoneCapabilityAnswer.Unavailable("not_granted", listOf("notification_access")),
+				answers["call-0005"],
+			)
 			assertEquals(listOf(Protocol.Wire.PhoneCapabilityKey.STATUS), platform.runs)
+		} finally {
+			scope.cancel()
+		}
+	}
+
+	@Test
+	fun listenerSettingGrantsNotificationCapabilities() {
+		val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+		val platform = FakePlatform()
+		val ops = PhoneCapabilityOps(
+			platform = platform,
+			state = { ChatState() },
+			self = { null },
+			scope = scope,
+			store = MemoryStore(),
+			send = { _, _, _ -> ConsoleClient.ValueAnswer.Answered(JsonObject(emptyMap())) },
+			now = { 100_000L },
+			timer = ManualTimer(),
+		)
+		val key = Protocol.Wire.PhoneCapabilityKey.NOTIFICATIONS_RECENT
+
+		try {
+			ops.features.setWanted(key, true)
+			assertEquals("not_granted", ops.permissionState(key).reason)
+
+			platform.listenerAccess = true
+
+			assertTrue(ops.grants(key).available)
+			assertTrue(ops.permissionState(key).available)
 		} finally {
 			scope.cancel()
 		}
@@ -263,7 +298,9 @@ class PhoneCapabilityOpsTest {
 	/** Nothing granted; torch present. */
 	private class FakePlatform : PhoneCapabilityPlatform {
 		val runs = java.util.concurrent.CopyOnWriteArrayList<String>()
+		var listenerAccess = false
 		override fun granted(manifestPermission: String): Boolean = false
+		override fun listenerEnabled(): Boolean = listenerAccess
 		override fun hasTorch(): Boolean = true
 		override suspend fun run(
 			binding: PhoneCapabilityBinding,

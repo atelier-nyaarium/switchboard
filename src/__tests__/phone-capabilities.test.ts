@@ -47,4 +47,24 @@ describe("phone capability registry fixture", () => {
 			expect(capability.answer.meta()?.id).toEqual(expect.any(String));
 		}
 	});
+
+	it("bounds notification reads and guarded replies", () => {
+		const recent = PHONE_CAPABILITIES.notifications_recent;
+		const reply = PHONE_CAPABILITIES.notification_reply;
+		const notification = {
+			id: "listener-key",
+			app: "Mail",
+			package: "org.example.mail",
+			postedAt: "2026-11-01T12:00:00-07:00",
+			replyable: true,
+		};
+
+		expect(recent.request.safeParse({ app: "Mail", limit: 30 }).success).toBe(true);
+		expect(recent.request.safeParse({ app: "", limit: 31 }).success).toBe(false);
+		expect(recent.answer.safeParse({ notifications: [notification] }).success).toBe(true);
+		expect(recent.answer.safeParse({ notifications: Array(31).fill(notification) }).success).toBe(false);
+		expect(reply.request.safeParse({ id: "listener-key", text: "Thanks" }).success).toBe(true);
+		expect(reply.request.safeParse({ id: "", text: "" }).success).toBe(false);
+		expect(reply.request.safeParse({ id: "listener-key", text: "x".repeat(1001) }).success).toBe(false);
+	});
 });

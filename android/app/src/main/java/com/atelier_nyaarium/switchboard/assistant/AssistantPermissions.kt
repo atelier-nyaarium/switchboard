@@ -8,7 +8,7 @@ import com.atelier_nyaarium.switchboard.assistantSetupLine
 ////////////////////////////////
 //  Interfaces & Types
 
-internal enum class PermissionDoor { REQUEST, APP_SETTINGS }
+internal enum class PermissionDoor { REQUEST, APP_SETTINGS, LISTENER_SETTINGS }
 
 /** Row destinations. */
 internal enum class PhoneSettingDoor { PICKER, NOTIFICATIONS, NOTIFICATION_PAGE }
@@ -57,6 +57,7 @@ internal fun manifestPermissionOf(need: String): String? = when (need) {
 	"send_sms" -> Manifest.permission.SEND_SMS
 	"call_phone" -> Manifest.permission.CALL_PHONE
 	NOTIFICATIONS_NEED -> Manifest.permission.POST_NOTIFICATIONS
+	"notification_access" -> null
 	else -> null
 }
 
@@ -66,6 +67,7 @@ internal fun needLabel(need: String): String = when (need) {
 	"send_sms" -> "SMS"
 	"call_phone" -> "Phone calls"
 	NOTIFICATIONS_NEED -> "Notifications"
+	"notification_access" -> "Notification access"
 	else -> need
 }
 
@@ -140,5 +142,8 @@ internal fun featureRowModel(view: FeatureView): FeatureRowModel = FeatureRowMod
 /** Final denial opens settings. */
 internal fun askable(need: String, denied: Set<String>, rationale: Boolean): Boolean = need !in denied || rationale
 
-internal fun permissionDoor(need: String, askable: Boolean): PermissionDoor =
-	if (manifestPermissionOf(need) != null && askable) PermissionDoor.REQUEST else PermissionDoor.APP_SETTINGS
+internal fun permissionDoor(need: String, askable: Boolean): PermissionDoor = when {
+	need == "notification_access" -> PermissionDoor.LISTENER_SETTINGS
+	manifestPermissionOf(need) != null && askable -> PermissionDoor.REQUEST
+	else -> PermissionDoor.APP_SETTINGS
+}

@@ -281,6 +281,8 @@ internal fun interface PhoneCapabilityJournalTimer {
 internal interface PhoneCapabilityPlatform {
 	fun granted(manifestPermission: String): Boolean
 
+	fun listenerEnabled(): Boolean
+
 	fun hasTorch(): Boolean
 
 	suspend fun run(
@@ -299,6 +301,10 @@ internal class AndroidPhoneCapabilityPlatform(
 ) : PhoneCapabilityPlatform {
 	override fun granted(manifestPermission: String): Boolean =
 		runIsolated { context.checkSelfPermission(manifestPermission) == PackageManager.PERMISSION_GRANTED }.getOrDefault(false)
+
+	override fun listenerEnabled(): Boolean = runIsolated {
+		androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+	}.getOrDefault(false)
 
 	override fun hasTorch(): Boolean = runIsolated {
 		context.getSystemService(android.hardware.camera2.CameraManager::class.java)?.let(::backFlashCameraId) != null
@@ -399,7 +405,10 @@ internal class PhoneCapabilityOps(
 	fun grants(key: String): CapabilityAvailability {
 		val binding = PhoneCapabilities.bindings[key] ?: return UNSUPPORTED
 		val availability = permissionState(binding.needs) { permission ->
-			manifestPermissionOf(permission)?.let(platform::granted) ?: false
+			when (permission) {
+				"notification_access" -> platform.listenerEnabled()
+				else -> manifestPermissionOf(permission)?.let(platform::granted) ?: false
+			}
 		}
 		if (!availability.available || key != Protocol.Wire.PhoneCapabilityKey.TORCH) return availability
 		return if (platform.hasTorch()) availability else CapabilityAvailability(false, "not_supported", binding.needs)

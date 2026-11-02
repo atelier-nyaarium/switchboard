@@ -28,7 +28,10 @@ const relative = (file: string) => path.relative(ANDROID, file).split(path.sep).
 function isCapabilityFile(file: string): boolean {
 	const rel = relative(file);
 	const name = path.posix.basename(rel);
-	return rel.includes("/phone/") || /^(PhoneCapabilit|CapabilityLog|AssistantNotificationListener)/.test(name);
+	return (
+		rel.includes("/phone/") ||
+		/^(PhoneCapabilit|CapabilityLog|AssistantNotificationListener|NotificationRing|NotificationRules)/.test(name)
+	);
 }
 
 describe("capability logging residue", () => {

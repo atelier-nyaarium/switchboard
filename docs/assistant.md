@@ -545,10 +545,18 @@ microphone; Gboard's mic key dictates. `summon-residue.test.ts` refuses `showWhe
 
 The assistant reaches the holding phone through the capability registry (`PHONE_CAPABILITIES` in
 `src/shared/schemasPhoneCapabilities.ts`, pinned to the Kotlin bindings by
-`tests/fixtures/phone-capabilities/registry.json`): `status`, `contacts_search`, `calendar_events` and `torch`, exposed
-as `phone/<key>` ids by `list_actions`. A `run_action` call with a phone id lands on the holder as a
+`tests/fixtures/phone-capabilities/registry.json`): `status`, `contacts_search`, `calendar_events`,
+`notifications_recent`, `notification_reply` and `torch`, exposed as `phone/<key>` ids by `list_actions`.
+A `run_action` call with a phone id lands on the holder as a
 stamped row, runs through `PhoneCapabilityOps` and answers through the journal, at most once per
 request id.
+
+Notification access is the Android listener grant. `AssistantNotificationListener` seeds and updates
+a process-wide ring capped at 100 entries, evicting a dismissed row before a showing one. A dismissed
+notification stays listed without its reply action; a reply goes only to one the ring holds as showing
+with a free-text `RemoteInput`, and a reconnect marks every row the system no longer shows as dismissed.
+Capability logging uses `CapabilityLog` with a key, count, boolean or event enum, and never includes
+notification content or app names.
 
 - **Off until ticked on:** the Features page has two sections. `Phone settings` gives each row a
   gear. `The assistant may` lists every capability as a toggle in registry order. The owner's

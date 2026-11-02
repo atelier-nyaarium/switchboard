@@ -27,6 +27,24 @@
 		"describeHash": "f3f2f5a0d1892fb01d1432e013e7839d96fa84da99c61312e19a835914ab736b"
 	},
 	{
+		"key": "notifications_recent",
+		"kind": "read",
+		"where": "phone",
+		"needs": ["notification_access"],
+		"requestId": "NotificationsRecentRequest",
+		"answerId": "NotificationsRecentAnswer",
+		"describeHash": "32129e0e8eff25fa9ca5001b6226054003e50506b36308df2bc804a62615b139"
+	},
+	{
+		"key": "notification_reply",
+		"kind": "guarded",
+		"where": "phone",
+		"needs": ["notification_access"],
+		"requestId": "NotificationReplyRequest",
+		"answerId": "NotificationReplyAnswer",
+		"describeHash": "fee6880e306b37e2452e5152f3beffdf9014c6b6eb318675a871da2107d74aee"
+	},
+	{
 		"key": "torch",
 		"kind": "act",
 		"where": "phone",

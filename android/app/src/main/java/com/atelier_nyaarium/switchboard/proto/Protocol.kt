@@ -220,6 +220,8 @@ object Protocol {
 			const val STATUS: String = "status"
 			const val CONTACTS_SEARCH: String = "contacts_search"
 			const val CALENDAR_EVENTS: String = "calendar_events"
+			const val NOTIFICATIONS_RECENT: String = "notifications_recent"
+			const val NOTIFICATION_REPLY: String = "notification_reply"
 			const val TORCH: String = "torch"
 		}
 	}
@@ -348,6 +350,28 @@ data class CalendarEventsRequest(
 @Serializable
 data class CalendarEventsAnswer(
 	val events: List<PhoneCalendarEvent>,
+)
+
+@Serializable
+data class NotificationsRecentRequest(
+	val app: String? = null,
+	val limit: Long? = null,
+)
+
+@Serializable
+data class NotificationsRecentAnswer(
+	val notifications: List<PhoneNotification>,
+)
+
+@Serializable
+data class NotificationReplyRequest(
+	val id: String,
+	val text: String,
+)
+
+@Serializable
+data class NotificationReplyAnswer(
+	val sent: Boolean,
 )
 
 @Serializable
@@ -3056,6 +3080,17 @@ data class PhoneCalendarEvent(
 	val daysUntil: Long,
 	val location: String? = null,
 	val calendar: String? = null,
+)
+
+@Serializable
+data class PhoneNotification(
+	val id: String,
+	val app: String,
+	val `package`: String,
+	val title: String? = null,
+	val text: String? = null,
+	val postedAt: String,
+	val replyable: Boolean,
 )
 
 @Serializable

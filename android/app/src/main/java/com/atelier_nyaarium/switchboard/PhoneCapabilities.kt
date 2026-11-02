@@ -1,18 +1,26 @@
 package com.atelier_nyaarium.switchboard
 
+import android.app.PendingIntent
+import android.app.RemoteInput
 import android.content.ContentUris
 import android.content.Context
+import android.content.Intent
 import android.database.Cursor
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.CalendarContract
 import android.provider.ContactsContract
 import com.atelier_nyaarium.switchboard.proto.CalendarEventsAnswer
 import com.atelier_nyaarium.switchboard.proto.CalendarEventsRequest
 import com.atelier_nyaarium.switchboard.proto.ContactsSearchAnswer
 import com.atelier_nyaarium.switchboard.proto.ContactsSearchRequest
+import com.atelier_nyaarium.switchboard.proto.NotificationReplyAnswer
+import com.atelier_nyaarium.switchboard.proto.NotificationReplyRequest
+import com.atelier_nyaarium.switchboard.proto.NotificationsRecentAnswer
+import com.atelier_nyaarium.switchboard.proto.NotificationsRecentRequest
 import com.atelier_nyaarium.switchboard.proto.PhoneCapabilityAnswer
 import com.atelier_nyaarium.switchboard.proto.PhoneCapabilityHandlers
 import com.atelier_nyaarium.switchboard.proto.PhoneContact
@@ -99,6 +107,16 @@ internal object PhoneCapabilityHandlerSet : PhoneCapabilityHandlers {
 		context: PhoneCapabilityContext,
 		request: CalendarEventsRequest,
 	): CalendarEventsAnswer = calendarEventsBody(context, request)
+
+	override suspend fun notificationsRecent(
+		context: PhoneCapabilityContext,
+		request: NotificationsRecentRequest,
+	): NotificationsRecentAnswer = notificationsRecentBody(request)
+
+	override suspend fun notificationReply(
+		context: PhoneCapabilityContext,
+		request: NotificationReplyRequest,
+	): NotificationReplyAnswer = notificationReplyBody(context, request)
 
 	override suspend fun torch(context: PhoneCapabilityContext, request: TorchRequest): TorchAnswer =
 		torchBody(context, request)
@@ -232,6 +250,38 @@ private suspend fun calendarEventsBody(
 		selectEvents(rows, request.query, limit)
 	}.orEmpty()
 	return CalendarEventsAnswer(selected.map { eventOf(it, now, zone) })
+}
+
+private fun notificationsRecentBody(
+	request: NotificationsRecentRequest,
+): NotificationsRecentAnswer {
+	val selected = selectNotifications(NotificationRing.shared.all(), request.app, request.limit)
+	val zone = ZoneId.systemDefault()
+	return NotificationsRecentAnswer(selected.map { notificationOf(it, zone) })
+}
+
+private fun notificationReplyBody(
+	context: PhoneCapabilityContext,
+	request: NotificationReplyRequest,
+): NotificationReplyAnswer {
+	if (!validReplyRequest(request.id, request.text)) return NotificationReplyAnswer(false)
+	// Send outside the lock.
+	val reply = NotificationRing.shared.withEntry(request.id) { entry ->
+		entry?.replyAction?.let { action -> replyInputOf(entry)?.let { action to it } }
+	} ?: return NotificationReplyAnswer(false)
+	val (action, remoteInput) = reply
+	val intent = Intent()
+	RemoteInput.addResultsToIntent(
+		arrayOf(remoteInput),
+		intent,
+		Bundle().apply { putCharSequence(remoteInput.resultKey, request.text) },
+	)
+	return try {
+		action.actionIntent.send(context.applicationContext, 0, intent)
+		NotificationReplyAnswer(true)
+	} catch (_: PendingIntent.CanceledException) {
+		NotificationReplyAnswer(false)
+	}
 }
 
 private fun calendarRowOf(cursor: Cursor): CalendarRow = CalendarRow(

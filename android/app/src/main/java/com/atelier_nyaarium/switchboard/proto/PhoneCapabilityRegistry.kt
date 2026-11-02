@@ -24,6 +24,16 @@ internal interface PhoneCapabilityHandlers {
 		request: CalendarEventsRequest,
 	): CalendarEventsAnswer
 
+	suspend fun notificationsRecent(
+		context: PhoneCapabilityContext,
+		request: NotificationsRecentRequest,
+	): NotificationsRecentAnswer
+
+	suspend fun notificationReply(
+		context: PhoneCapabilityContext,
+		request: NotificationReplyRequest,
+	): NotificationReplyAnswer
+
 	suspend fun torch(
 		context: PhoneCapabilityContext,
 		request: TorchRequest,
@@ -66,6 +76,30 @@ internal fun phoneCapabilityBindings(handlers: PhoneCapabilityHandlers): Map<Str
 				requestSerializer = CalendarEventsRequest.serializer(),
 				answerSerializer = CalendarEventsAnswer.serializer(),
 				handler = handlers::calendarEvents,
+			),
+		),
+		bind(
+			PhoneCapability(
+				key = Protocol.Wire.PhoneCapabilityKey.NOTIFICATIONS_RECENT,
+				kind = "read",
+				where = "phone",
+				needs = listOf("notification_access"),
+				label = "Recent notifications",
+				requestSerializer = NotificationsRecentRequest.serializer(),
+				answerSerializer = NotificationsRecentAnswer.serializer(),
+				handler = handlers::notificationsRecent,
+			),
+		),
+		bind(
+			PhoneCapability(
+				key = Protocol.Wire.PhoneCapabilityKey.NOTIFICATION_REPLY,
+				kind = "guarded",
+				where = "phone",
+				needs = listOf("notification_access"),
+				label = "Reply to a notification",
+				requestSerializer = NotificationReplyRequest.serializer(),
+				answerSerializer = NotificationReplyAnswer.serializer(),
+				handler = handlers::notificationReply,
 			),
 		),
 		bind(

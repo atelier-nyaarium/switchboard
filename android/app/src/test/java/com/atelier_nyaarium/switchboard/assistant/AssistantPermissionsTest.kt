@@ -13,7 +13,10 @@ class AssistantPermissionsTest {
 
 	@Test
 	fun featureRowsKeepRegistryOrder() {
-		assertEquals(listOf("status", "contacts_search", "calendar_events", "torch"), rows.map { it.key })
+		assertEquals(
+			listOf("status", "contacts_search", "calendar_events", "notifications_recent", "notification_reply", "torch"),
+			rows.map { it.key },
+		)
 	}
 
 	@Test
@@ -49,6 +52,20 @@ class AssistantPermissionsTest {
 		assertEquals(PermissionDoor.APP_SETTINGS, permissionDoor("mystery", askable = true))
 		assertEquals(PermissionDoor.APP_SETTINGS, permissionDoor("contacts", askable("contacts", setOf("contacts"), rationale = false)))
 		assertEquals(PermissionDoor.REQUEST, permissionDoor("contacts", askable("contacts", setOf("contacts"), rationale = true)))
+	}
+
+	@Test
+	fun notificationAccessUsesItsSystemSettingsDoor() {
+		val recent = FeatureView(
+			row("notifications_recent"),
+			wanted = true,
+			granted = false,
+			missing = listOf("notification_access"),
+		)
+
+		assertNull(manifestPermissionOf("notification_access"))
+		assertEquals(GearTarget.Need("notification_access"), featureRowModel(recent).gear)
+		assertEquals(PermissionDoor.LISTENER_SETTINGS, permissionDoor("notification_access", askable = false))
 	}
 
 	@Test

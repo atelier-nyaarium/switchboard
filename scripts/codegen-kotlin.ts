@@ -658,6 +658,10 @@ function isKotlinIdentifier(value: string): boolean {
 	return /^[A-Za-z_][A-Za-z0-9_]*$/.test(value) && !KOTLIN_KEYWORDS.has(value);
 }
 
+function kotlinIdentifier(value: string): string {
+	return KOTLIN_KEYWORDS.has(value) ? `\`${value}\`` : value;
+}
+
 function kotlinConstName(name: string): string {
 	return name.replace(/[a-z][A-Z]/g, (match) => `${match[0]}_${match[1]}`).toUpperCase();
 }
@@ -832,19 +836,21 @@ function emitParams(node: Json, defs: Map<string, Json>, omit: Set<string>): str
 		if (description) lines.push(`${INDENT}/** ${escapeKdoc(description)} */`);
 		if (typeof constValue === "string") {
 			if (required.has(name)) lines.push(`${INDENT}@EncodeDefault`);
-			lines.push(`${INDENT}val ${name}: ${baseType} = ${kotlinString(constValue)},`);
+			lines.push(`${INDENT}val ${kotlinIdentifier(name)}: ${baseType} = ${kotlinString(constValue)},`);
 		} else if (constValue !== undefined) {
 			if (typeof constValue !== "number") throw new Error(`unsupported const for ${name}`);
 			const isInteger = Number.isInteger(constValue);
 			const type = isInteger ? "Long" : baseType;
 			const literal = isInteger ? `${constValue}L` : `${constValue}`;
 			lines.push(
-				required.has(name) ? `${INDENT}val ${name}: ${type},` : `${INDENT}val ${name}: ${type} = ${literal},`,
+				required.has(name)
+					? `${INDENT}val ${kotlinIdentifier(name)}: ${type},`
+					: `${INDENT}val ${kotlinIdentifier(name)}: ${type} = ${literal},`,
 			);
 		} else if (optional) {
-			lines.push(`${INDENT}val ${name}: ${baseType}? = null,`);
+			lines.push(`${INDENT}val ${kotlinIdentifier(name)}: ${baseType}? = null,`);
 		} else {
-			lines.push(`${INDENT}val ${name}: ${baseType},`);
+			lines.push(`${INDENT}val ${kotlinIdentifier(name)}: ${baseType},`);
 		}
 	}
 	return lines;

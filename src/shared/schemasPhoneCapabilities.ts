@@ -5,7 +5,14 @@ import type { AssistantActionKey } from "./schemasAssistantActions.js";
 
 export const PHONE_CAPABILITY_WAIT_MS = 120_000;
 
-export const PHONE_PERMISSIONS = ["contacts", "calendar", "notifications", "send_sms", "call_phone"] as const;
+export const PHONE_PERMISSIONS = [
+	"contacts",
+	"calendar",
+	"notifications",
+	"notification_access",
+	"send_sms",
+	"call_phone",
+] as const;
 
 export const PhonePermissionSchema = z.enum(PHONE_PERMISSIONS).meta({ id: "PhonePermission" });
 
@@ -85,6 +92,18 @@ export const PhoneCalendarEventSchema = z
 	})
 	.meta({ id: "PhoneCalendarEvent" });
 
+export const PhoneNotificationSchema = z
+	.object({
+		id: z.string().max(120),
+		app: z.string().max(80),
+		package: z.string().max(120),
+		title: z.string().max(200).optional(),
+		text: z.string().max(500).optional(),
+		postedAt: z.string(),
+		replyable: z.boolean(),
+	})
+	.meta({ id: "PhoneNotification" });
+
 export const PHONE_CAPABILITIES = {
 	status: {
 		request: z.strictObject({}).meta({ id: "PhoneStatusRequest" }),
@@ -141,6 +160,44 @@ Contacts on the holding phone matching \`query\`, with phones, emails and a birt
 # Calendar events
 
 Lists the holding phone's calendar instances from \`from\` (default now) for \`days\` (default 7) ahead, optionally filtered by \`query\` on the title, up to \`limit\` (default 20). Times are ISO 8601 with the phone's offset; an all-day event carries dates, and its \`end\` is the day after its last day. \`daysUntil\` counts calendar days from the phone's today to the event's start day.
+		`.trim(),
+	},
+	notifications_recent: {
+		request: z
+			.strictObject({
+				app: z.string().min(1).max(80).optional(),
+				limit: z.number().int().min(1).max(30).optional(),
+			})
+			.meta({ id: "NotificationsRecentRequest" }),
+		answer: z
+			.object({ notifications: z.array(PhoneNotificationSchema).max(30) })
+			.meta({ id: "NotificationsRecentAnswer" }),
+		kind: "read",
+		where: "phone",
+		needs: ["notification_access"],
+		label: "Recent notifications",
+		describe: `
+# Recent notifications
+
+Lists the last 100 notifications the listener has seen, newest first, showing or dismissed since. Replyable means the notification carries an inline reply action. Posted times use ISO 8601 with the phone's offset. The optional app filters by a case-insensitive substring of the app label or package; limit defaults to 10.
+		`.trim(),
+	},
+	notification_reply: {
+		request: z
+			.strictObject({
+				id: z.string().min(1).max(120),
+				text: z.string().min(1).max(1000),
+			})
+			.meta({ id: "NotificationReplyRequest" }),
+		answer: z.object({ sent: z.boolean() }).meta({ id: "NotificationReplyAnswer" }),
+		kind: "guarded",
+		where: "phone",
+		needs: ["notification_access"],
+		label: "Reply to a notification",
+		describe: `
+# Reply to a notification
+
+Sends the text through the notification's own inline reply. The owner approves it first. Sent is false when the notification is gone or has no reply.
 		`.trim(),
 	},
 	// An act leaves a trace notification.

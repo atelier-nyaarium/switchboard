@@ -478,6 +478,7 @@ private fun AssistantFeaturesPage(repo: ChatRepository, onBack: () -> Unit) {
 				request.launch(it)
 			}
 			PermissionDoor.APP_SETTINGS -> openAppSettings(context)
+			PermissionDoor.LISTENER_SETTINGS -> openNotificationListenerSettings(context)
 		}
 	}
 	AssistantPageScaffold("Features", onBack) {
@@ -560,6 +561,15 @@ private fun openNotificationSettings(context: android.content.Context) {
 		context.startActivity(
 			android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
 				.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+				.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+		)
+	}
+}
+
+private fun openNotificationListenerSettings(context: android.content.Context) {
+	runIsolated {
+		context.startActivity(
+			android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
 				.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
 		)
 	}
