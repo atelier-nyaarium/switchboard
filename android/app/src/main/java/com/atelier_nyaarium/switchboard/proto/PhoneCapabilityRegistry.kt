@@ -38,6 +38,26 @@ internal interface PhoneCapabilityHandlers {
 		context: PhoneCapabilityContext,
 		request: TorchRequest,
 	): TorchAnswer
+
+	suspend fun mapsOpen(
+		context: PhoneCapabilityContext,
+		request: MapsOpenRequest,
+	): MapsOpenAnswer
+
+	suspend fun appOpen(
+		context: PhoneCapabilityContext,
+		request: AppOpenRequest,
+	): AppOpenAnswer
+
+	suspend fun alarmSet(
+		context: PhoneCapabilityContext,
+		request: AlarmSetRequest,
+	): AlarmSetAnswer
+
+	suspend fun timerSet(
+		context: PhoneCapabilityContext,
+		request: TimerSetRequest,
+	): TimerSetAnswer
 }
 
 internal fun phoneCapabilityBindings(handlers: PhoneCapabilityHandlers): Map<String, PhoneCapabilityBinding> =
@@ -112,6 +132,54 @@ internal fun phoneCapabilityBindings(handlers: PhoneCapabilityHandlers): Map<Str
 				requestSerializer = TorchRequest.serializer(),
 				answerSerializer = TorchAnswer.serializer(),
 				handler = handlers::torch,
+			),
+		),
+		bind(
+			PhoneCapability(
+				key = Protocol.Wire.PhoneCapabilityKey.MAPS_OPEN,
+				kind = "act",
+				where = "phone",
+				needs = listOf("notifications"),
+				label = "Open maps",
+				requestSerializer = MapsOpenRequest.serializer(),
+				answerSerializer = MapsOpenAnswer.serializer(),
+				handler = handlers::mapsOpen,
+			),
+		),
+		bind(
+			PhoneCapability(
+				key = Protocol.Wire.PhoneCapabilityKey.APP_OPEN,
+				kind = "act",
+				where = "phone",
+				needs = listOf("notifications"),
+				label = "Open an app",
+				requestSerializer = AppOpenRequest.serializer(),
+				answerSerializer = AppOpenAnswer.serializer(),
+				handler = handlers::appOpen,
+			),
+		),
+		bind(
+			PhoneCapability(
+				key = Protocol.Wire.PhoneCapabilityKey.ALARM_SET,
+				kind = "act",
+				where = "phone",
+				needs = listOf("notifications"),
+				label = "Set an alarm",
+				requestSerializer = AlarmSetRequest.serializer(),
+				answerSerializer = AlarmSetAnswer.serializer(),
+				handler = handlers::alarmSet,
+			),
+		),
+		bind(
+			PhoneCapability(
+				key = Protocol.Wire.PhoneCapabilityKey.TIMER_SET,
+				kind = "act",
+				where = "phone",
+				needs = listOf("notifications"),
+				label = "Set a timer",
+				requestSerializer = TimerSetRequest.serializer(),
+				answerSerializer = TimerSetAnswer.serializer(),
+				handler = handlers::timerSet,
 			),
 		)
 	).associateBy { it.key }

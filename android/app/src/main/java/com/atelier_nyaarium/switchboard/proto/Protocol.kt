@@ -223,6 +223,10 @@ object Protocol {
 			const val NOTIFICATIONS_RECENT: String = "notifications_recent"
 			const val NOTIFICATION_REPLY: String = "notification_reply"
 			const val TORCH: String = "torch"
+			const val MAPS_OPEN: String = "maps_open"
+			const val APP_OPEN: String = "app_open"
+			const val ALARM_SET: String = "alarm_set"
+			const val TIMER_SET: String = "timer_set"
 		}
 	}
 
@@ -384,6 +388,52 @@ data class TorchRequest(
 data class TorchAnswer(
 	val on: Boolean,
 	val levels: Long,
+)
+
+@Serializable
+data class MapsOpenRequest(
+	val query: String,
+	val navigate: Boolean? = null,
+)
+
+@Serializable
+data class MapsOpenAnswer(
+	val opened: Boolean,
+)
+
+@Serializable
+data class AppOpenRequest(
+	val app: String,
+)
+
+@Serializable
+data class AppOpenAnswer(
+	val opened: Boolean,
+	val `package`: String? = null,
+	val candidates: List<LaunchableApp>? = null,
+)
+
+@Serializable
+data class AlarmSetRequest(
+	val hour: Long,
+	val minutes: Long,
+	val message: String? = null,
+)
+
+@Serializable
+data class AlarmSetAnswer(
+	val set: Boolean,
+)
+
+@Serializable
+data class TimerSetRequest(
+	val seconds: Long,
+	val message: String? = null,
+)
+
+@Serializable
+data class TimerSetAnswer(
+	val set: Boolean,
 )
 
 @Serializable
@@ -3091,6 +3141,12 @@ data class PhoneNotification(
 	val text: String? = null,
 	val postedAt: String,
 	val replyable: Boolean,
+)
+
+@Serializable
+data class LaunchableApp(
+	val label: String,
+	val `package`: String,
 )
 
 @Serializable

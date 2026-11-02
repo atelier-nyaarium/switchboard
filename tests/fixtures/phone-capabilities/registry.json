@@ -52,5 +52,41 @@
 		"requestId": "TorchRequest",
 		"answerId": "TorchAnswer",
 		"describeHash": "aaf35ae6f96a1e8c81159e21368ffe5481b8e28aa54ed1fd454119c04fce895b"
+	},
+	{
+		"key": "maps_open",
+		"kind": "act",
+		"where": "phone",
+		"needs": ["notifications"],
+		"requestId": "MapsOpenRequest",
+		"answerId": "MapsOpenAnswer",
+		"describeHash": "c62a3beaae61bd3c0e7fb78e1ccb6d12721a00a257b287f27d27705c0721f5a5"
+	},
+	{
+		"key": "app_open",
+		"kind": "act",
+		"where": "phone",
+		"needs": ["notifications"],
+		"requestId": "AppOpenRequest",
+		"answerId": "AppOpenAnswer",
+		"describeHash": "435e3315e33cb70fcf70a890212d5fad01c48716796d9490e4e9b5cbf2528287"
+	},
+	{
+		"key": "alarm_set",
+		"kind": "act",
+		"where": "phone",
+		"needs": ["notifications"],
+		"requestId": "AlarmSetRequest",
+		"answerId": "AlarmSetAnswer",
+		"describeHash": "de80b0cd13795dac80c0339d742e294bea82b93c289d2e264a26f28c78a85ab1"
+	},
+	{
+		"key": "timer_set",
+		"kind": "act",
+		"where": "phone",
+		"needs": ["notifications"],
+		"requestId": "TimerSetRequest",
+		"answerId": "TimerSetAnswer",
+		"describeHash": "55be9be9e5db275f7ad9596c6639794a2457147dc3e298672748d89bc80d1224"
 	}
 ]

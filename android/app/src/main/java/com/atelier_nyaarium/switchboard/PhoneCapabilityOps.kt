@@ -285,6 +285,8 @@ internal interface PhoneCapabilityPlatform {
 
 	fun hasTorch(): Boolean
 
+	fun canLaunch(): Boolean
+
 	suspend fun run(
 		binding: PhoneCapabilityBinding,
 		params: JsonElement,
@@ -299,6 +301,12 @@ internal class AndroidPhoneCapabilityPlatform(
 	private val context: Context,
 	private val state: () -> ChatState,
 ) : PhoneCapabilityPlatform {
+	override fun canLaunch(): Boolean = runIsolated {
+		val keyguard = context.getSystemService(android.app.KeyguardManager::class.java)
+		val power = context.getSystemService(android.os.PowerManager::class.java)
+		keyguard != null && !keyguard.isKeyguardLocked && power?.isInteractive == true && state().foreground
+	}.getOrDefault(false)
+
 	override fun granted(manifestPermission: String): Boolean =
 		runIsolated { context.checkSelfPermission(manifestPermission) == PackageManager.PERMISSION_GRANTED }.getOrDefault(false)
 
@@ -314,7 +322,10 @@ internal class AndroidPhoneCapabilityPlatform(
 		binding: PhoneCapabilityBinding,
 		params: JsonElement,
 		permissionState: (String) -> CapabilityAvailability,
-	): PhoneCapabilityAnswer = binding.run(PhoneCapabilityContext(context.applicationContext, state, permissionState), params)
+	): PhoneCapabilityAnswer = binding.run(
+		PhoneCapabilityContext(context.applicationContext, state, permissionState, ::canLaunch),
+		params,
+	)
 
 	override fun trace(label: String, requestId: String) {
 		runIsolated {

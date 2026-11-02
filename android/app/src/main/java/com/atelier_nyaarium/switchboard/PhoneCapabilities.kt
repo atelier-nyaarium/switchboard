@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import android.app.PendingIntent
 import android.app.RemoteInput
+import android.content.ActivityNotFoundException
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
@@ -11,12 +12,20 @@ import android.hardware.camera2.CameraManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.AlarmClock
 import android.provider.CalendarContract
 import android.provider.ContactsContract
+import com.atelier_nyaarium.switchboard.proto.AlarmSetAnswer
+import com.atelier_nyaarium.switchboard.proto.AlarmSetRequest
+import com.atelier_nyaarium.switchboard.proto.AppOpenAnswer
+import com.atelier_nyaarium.switchboard.proto.AppOpenRequest
 import com.atelier_nyaarium.switchboard.proto.CalendarEventsAnswer
 import com.atelier_nyaarium.switchboard.proto.CalendarEventsRequest
 import com.atelier_nyaarium.switchboard.proto.ContactsSearchAnswer
 import com.atelier_nyaarium.switchboard.proto.ContactsSearchRequest
+import com.atelier_nyaarium.switchboard.proto.LaunchableApp
+import com.atelier_nyaarium.switchboard.proto.MapsOpenAnswer
+import com.atelier_nyaarium.switchboard.proto.MapsOpenRequest
 import com.atelier_nyaarium.switchboard.proto.NotificationReplyAnswer
 import com.atelier_nyaarium.switchboard.proto.NotificationReplyRequest
 import com.atelier_nyaarium.switchboard.proto.NotificationsRecentAnswer
@@ -29,6 +38,8 @@ import com.atelier_nyaarium.switchboard.proto.PhoneStatusKey
 import com.atelier_nyaarium.switchboard.proto.PhoneStatusRequest
 import com.atelier_nyaarium.switchboard.proto.TorchAnswer
 import com.atelier_nyaarium.switchboard.proto.TorchRequest
+import com.atelier_nyaarium.switchboard.proto.TimerSetAnswer
+import com.atelier_nyaarium.switchboard.proto.TimerSetRequest
 import com.atelier_nyaarium.switchboard.proto.phoneCapabilityBindings
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.KSerializer
@@ -70,7 +81,10 @@ class PhoneCapabilityContext(
 	val applicationContext: Context,
 	val state: () -> ChatState,
 	val permissionState: (String) -> CapabilityAvailability,
+	val canLaunch: () -> Boolean,
 )
+
+internal class CapabilityUnavailable(val reason: String) : Exception()
 
 class PhoneCapability<Req : Any, Ans : Any>(
 	val key: String,
@@ -120,6 +134,18 @@ internal object PhoneCapabilityHandlerSet : PhoneCapabilityHandlers {
 
 	override suspend fun torch(context: PhoneCapabilityContext, request: TorchRequest): TorchAnswer =
 		torchBody(context, request)
+
+	override suspend fun mapsOpen(context: PhoneCapabilityContext, request: MapsOpenRequest): MapsOpenAnswer =
+		mapsOpenBody(context, request)
+
+	override suspend fun appOpen(context: PhoneCapabilityContext, request: AppOpenRequest): AppOpenAnswer =
+		appOpenBody(context, request)
+
+	override suspend fun alarmSet(context: PhoneCapabilityContext, request: AlarmSetRequest): AlarmSetAnswer =
+		alarmSetBody(context, request)
+
+	override suspend fun timerSet(context: PhoneCapabilityContext, request: TimerSetRequest): TimerSetAnswer =
+		timerSetBody(context, request)
 }
 
 object PhoneCapabilities {
@@ -145,7 +171,8 @@ internal fun <Req : Any, Ans : Any> bind(capability: PhoneCapability<Req, Ans>):
 				onSuccess = { PhoneCapabilityAnswer.Ok(it) },
 				onFailure = { error ->
 					if (error is CancellationException) throw error
-					PhoneCapabilityAnswer.Unavailable("not_supported")
+					if (error is CapabilityUnavailable) PhoneCapabilityAnswer.Unavailable(error.reason)
+					else PhoneCapabilityAnswer.Unavailable("not_supported")
 				},
 			)
 		},
@@ -340,4 +367,69 @@ private suspend fun torchBody(context: PhoneCapabilityContext, request: TorchReq
 		manager.setTorchMode(id, true)
 	}
 	return TorchAnswer(on = request.on, levels = maximum.toLong())
+}
+
+private fun mapsOpenBody(context: PhoneCapabilityContext, request: MapsOpenRequest): MapsOpenAnswer {
+	val uri = Uri.parse(mapsUri(request.query, request.navigate == true))
+	return MapsOpenAnswer(opened = launchIntent(context, Intent(Intent.ACTION_VIEW, uri)))
+}
+
+private fun appOpenBody(context: PhoneCapabilityContext, request: AppOpenRequest): AppOpenAnswer {
+	val packageManager = context.applicationContext.packageManager
+	val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+	val candidates = packageManager.queryIntentActivities(launcher, 0).mapNotNull { resolved ->
+		val activity = resolved.activityInfo ?: return@mapNotNull null
+		AppCandidate(packageManager.getApplicationLabel(activity.applicationInfo).toString(), activity.packageName)
+	}
+	return when (val resolution = resolveApp(candidates, request.app)) {
+		is AppResolution.One -> {
+			val intent = packageManager.getLaunchIntentForPackage(resolution.packageName)
+				?: return AppOpenAnswer(opened = false, `package` = resolution.packageName.take(120))
+			AppOpenAnswer(
+				opened = launchIntent(context, intent),
+				`package` = resolution.packageName.take(120),
+			)
+		}
+		is AppResolution.Several -> AppOpenAnswer(
+			opened = false,
+			candidates = resolution.candidates.map { LaunchableApp(label = it.label, `package` = it.packageName) },
+		)
+		AppResolution.None -> AppOpenAnswer(opened = false)
+	}
+}
+
+private fun alarmSetBody(context: PhoneCapabilityContext, request: AlarmSetRequest): AlarmSetAnswer {
+	val intent = Intent(AlarmClock.ACTION_SET_ALARM).putLaunchExtras(
+		alarmExtras(request.hour, request.minutes, request.message),
+	)
+	return AlarmSetAnswer(set = launchIntent(context, intent))
+}
+
+private fun timerSetBody(context: PhoneCapabilityContext, request: TimerSetRequest): TimerSetAnswer {
+	val intent = Intent(AlarmClock.ACTION_SET_TIMER).putLaunchExtras(
+		timerExtras(request.seconds, request.message),
+	)
+	return TimerSetAnswer(set = launchIntent(context, intent))
+}
+
+/** Checked at the start itself. */
+private fun launchIntent(context: PhoneCapabilityContext, intent: Intent): Boolean {
+	if (!context.canLaunch()) throw CapabilityUnavailable("not_showing")
+	return try {
+		context.applicationContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+		true
+	} catch (_: ActivityNotFoundException) {
+		throw CapabilityUnavailable("app_missing")
+	}
+}
+
+private fun Intent.putLaunchExtras(extras: List<LaunchExtra>): Intent {
+	for (extra in extras) {
+		when (extra) {
+			is LaunchExtra.IntExtra -> putExtra(extra.key, extra.value)
+			is LaunchExtra.TextExtra -> putExtra(extra.key, extra.value)
+			is LaunchExtra.FlagExtra -> putExtra(extra.key, extra.value)
+		}
+	}
+	return this
 }

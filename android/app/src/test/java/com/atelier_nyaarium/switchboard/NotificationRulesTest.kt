@@ -19,15 +19,12 @@ class NotificationRulesTest {
 	}
 
 	@Test
-	fun filtersAppLabelsAndPackagesWithoutCaseSensitivity() {
+	fun filtersByAppThroughTheSharedMatch() {
 		val mail = entry("mail", appLabel = "Mail Client", packageName = "org.example.mail")
 		val chat = entry("chat", appLabel = "Chat", packageName = "org.example.chat")
 
-		assertTrue(appMatches(mail.appLabel, mail.packageName, " MAIL "))
-		assertTrue(appMatches(mail.appLabel, mail.packageName, "EXAMPLE.MAIL"))
-		assertTrue(appMatches(mail.appLabel, mail.packageName, "  "))
-		assertFalse(appMatches(mail.appLabel, mail.packageName, "chat"))
 		assertEquals(listOf(mail), selectNotifications(listOf(mail, chat), "example.MAIL", null))
+		assertEquals(listOf(chat, mail), selectNotifications(listOf(mail, chat), "  ", null).sortedBy { it.key })
 	}
 
 	@Test

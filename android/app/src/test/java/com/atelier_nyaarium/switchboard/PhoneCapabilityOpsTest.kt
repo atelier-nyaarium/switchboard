@@ -18,6 +18,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -258,6 +259,50 @@ class PhoneCapabilityOpsTest {
 	}
 
 	@Test
+	fun launchActAnswersNotShowingThroughDelivery() = runBlocking {
+		val self = HoldSelf.of(Crypto.Identity(Crypto.KeyPairRaw("phone-a", ""), Crypto.KeyPairRaw("", "")))
+		val state = ChatState(phoneHold = PhoneHold("phone-a", "Phone A", 100_000L, 1L))
+		val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+		val platform = FakePlatform().apply {
+			notifications = true
+			launchAllowed = false
+		}
+		val sent = Channel<ConsoleOp.PhoneCapabilityAnswer>(Channel.UNLIMITED)
+		val ops = PhoneCapabilityOps(
+			platform = platform,
+			state = { state },
+			self = { self },
+			scope = scope,
+			store = MemoryStore(),
+			send = { _, op, _ ->
+				sent.send(op)
+				ConsoleClient.ValueAnswer.Answered(JsonObject(emptyMap()))
+			},
+			now = { 100_000L },
+			timer = ManualTimer(),
+		)
+		val key = Protocol.Wire.PhoneCapabilityKey.MAPS_OPEN
+		val row = PhoneCapabilityRow(
+			"call-0006",
+			key,
+			JsonObject(mapOf("query" to JsonPrimitive("coffee"))),
+			"none",
+			200_000L,
+		)
+
+		try {
+			ops.features.setWanted(key, true)
+			ops.enqueue("gateway-a", "team-a", row)
+
+			val answer = withTimeout(5_000L) { sent.receive() }
+			assertEquals(row.requestId, answer.requestId)
+			assertEquals(PhoneCapabilityAnswer.Unavailable("not_showing"), answer.answer)
+		} finally {
+			scope.cancel()
+		}
+	}
+
+	@Test
 	fun onlyThisPhonesStampRunsARow() {
 		val self = HoldSelf.of(Crypto.Identity(Crypto.KeyPairRaw("phone-a", ""), Crypto.KeyPairRaw("", "")))
 		assertTrue(stampedFor(RowStamp("phone-a"), self))
@@ -299,15 +344,25 @@ class PhoneCapabilityOpsTest {
 	private class FakePlatform : PhoneCapabilityPlatform {
 		val runs = java.util.concurrent.CopyOnWriteArrayList<String>()
 		var listenerAccess = false
-		override fun granted(manifestPermission: String): Boolean = false
+		var notifications = false
+		var launchAllowed = true
+		override fun granted(manifestPermission: String): Boolean =
+			manifestPermission == "android.permission.POST_NOTIFICATIONS" && notifications
 		override fun listenerEnabled(): Boolean = listenerAccess
 		override fun hasTorch(): Boolean = true
+		override fun canLaunch(): Boolean = launchAllowed
 		override suspend fun run(
 			binding: PhoneCapabilityBinding,
 			params: JsonElement,
 			permissionState: (String) -> CapabilityAvailability,
 		): PhoneCapabilityAnswer {
 			runs += binding.key
+			if (binding.kind == "act" && !canLaunch()) {
+				return binding.run(
+					PhoneCapabilityContext(android.content.ContextWrapper(null), { ChatState() }, permissionState, ::canLaunch),
+					params,
+				)
+			}
 			return PhoneCapabilityAnswer.Ok(JsonObject(emptyMap()))
 		}
 		override fun trace(label: String, requestId: String) = Unit

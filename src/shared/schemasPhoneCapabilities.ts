@@ -104,6 +104,10 @@ export const PhoneNotificationSchema = z
 	})
 	.meta({ id: "PhoneNotification" });
 
+export const LaunchableAppSchema = z
+	.object({ label: z.string().max(80), package: z.string().max(120) })
+	.meta({ id: "LaunchableApp" });
+
 export const PHONE_CAPABILITIES = {
 	status: {
 		request: z.strictObject({}).meta({ id: "PhoneStatusRequest" }),
@@ -218,6 +222,80 @@ Sends the text through the notification's own inline reply. The owner approves i
 # Torch
 
 Turn the holding phone's torch on or off. \`strength\` is a percent where the phone has levels.
+		`.trim(),
+	},
+	maps_open: {
+		request: z
+			.strictObject({
+				query: z.string().min(1).max(200),
+				navigate: z.boolean().optional(),
+			})
+			.meta({ id: "MapsOpenRequest" }),
+		answer: z.object({ opened: z.boolean() }).meta({ id: "MapsOpenAnswer" }),
+		kind: "act",
+		where: "phone",
+		needs: ["notifications"],
+		label: "Open maps",
+		describe: `
+# Open maps
+
+Opens \`query\` in a map app. \`opened\` says Android accepted the start; \`app_missing\` says no app handles it.
+		`.trim(),
+	},
+	app_open: {
+		request: z.strictObject({ app: z.string().min(1).max(80) }).meta({ id: "AppOpenRequest" }),
+		answer: z
+			.object({
+				opened: z.boolean(),
+				package: z.string().max(120).optional(),
+				candidates: z.array(LaunchableAppSchema).max(10).optional(),
+			})
+			.meta({ id: "AppOpenAnswer" }),
+		kind: "act",
+		where: "phone",
+		needs: ["notifications"],
+		label: "Open an app",
+		describe: `
+# Open an app
+
+Opens the one launchable app matching \`app\` by label or package. \`opened\` says Android accepted the start; \`candidates\` lists label and package when several match, so a package names one exactly.
+		`.trim(),
+	},
+	alarm_set: {
+		request: z
+			.strictObject({
+				hour: z.number().int().min(0).max(23),
+				minutes: z.number().int().min(0).max(59),
+				message: z.string().min(1).max(80).optional(),
+			})
+			.meta({ id: "AlarmSetRequest" }),
+		answer: z.object({ set: z.boolean() }).meta({ id: "AlarmSetAnswer" }),
+		kind: "act",
+		where: "phone",
+		needs: ["notifications"],
+		label: "Set an alarm",
+		describe: `
+# Set an alarm
+
+Sets an alarm for \`hour\` and \`minutes\`. \`set\` says Android accepted the request; the clock app decides whether its screen opens. \`app_missing\` says no clock app handles it.
+		`.trim(),
+	},
+	timer_set: {
+		request: z
+			.strictObject({
+				seconds: z.number().int().min(1).max(86400),
+				message: z.string().min(1).max(80).optional(),
+			})
+			.meta({ id: "TimerSetRequest" }),
+		answer: z.object({ set: z.boolean() }).meta({ id: "TimerSetAnswer" }),
+		kind: "act",
+		where: "phone",
+		needs: ["notifications"],
+		label: "Set a timer",
+		describe: `
+# Set a timer
+
+Sets a timer for \`seconds\`. \`set\` says Android accepted the request; the clock app decides whether its screen opens. \`app_missing\` says no clock app handles it.
 		`.trim(),
 	},
 } as const satisfies Record<string, PhoneCapabilityDeclaration>;

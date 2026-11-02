@@ -13,10 +13,7 @@ class AssistantPermissionsTest {
 
 	@Test
 	fun featureRowsKeepRegistryOrder() {
-		assertEquals(
-			listOf("status", "contacts_search", "calendar_events", "notifications_recent", "notification_reply", "torch"),
-			rows.map { it.key },
-		)
+		assertEquals(PhoneCapabilities.bindings.keys.toList(), rows.map { it.key })
 	}
 
 	@Test
