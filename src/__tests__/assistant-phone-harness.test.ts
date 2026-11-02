@@ -101,25 +101,12 @@ describe("phone capabilities through the federation harness", () => {
 		});
 		expect(owner.result).toMatchObject({ ok: false, reason: "the answer came from a different phone" });
 		expect(phone.result).toMatchObject({ ok: true });
-		expect(result).toEqual({
-			kind: "ok",
-			answer: { holder: h.phone.device, keys: [] },
-			recorded: true,
-		});
+		expect(result).toEqual({ kind: "ok", answer: { holder: h.phone.device, keys: [] } });
 
-		const record = await h.waitFor(async () => {
-			const rows = await h.phone.inboxRead();
-			return rows
-				.map((candidate) => h.phone.open(candidate) as MailboxEntry)
-				.find(
-					(candidate) =>
-						candidate.kind === "assistant_record" &&
-						candidate.threads?.[0]?.threadId === "status" &&
-						candidate.threads[0]?.outcome === "ran",
-				);
-		}, "quiet phone record");
-		expect(record).toMatchObject({ notify: false, threads: [{ threadId: "status", outcome: "ran" }] });
-		expect(record.body).toBeUndefined();
+		const records = (await h.phone.inboxRead())
+			.map((candidate) => h.phone.open(candidate) as MailboxEntry)
+			.filter((candidate) => candidate.kind === "assistant_record");
+		expect(records).toEqual([]);
 	});
 
 	it("refuses at once when the holder answers outside the schema", async () => {
