@@ -156,6 +156,15 @@ A: The host daemon. One typed `HostOp` to scan for Kasa plugs; the Integrations 
 
 The layering is fixed by that: a generic device layer the assistant and the app call against, a driver per brand beneath it, and brand-specific acts such as the Kasa cloud disconnect living in the driver's own configuration, never in the generic surface.
 
+## Question 12 - What vocabulary does the generic layer speak?
+
+Q: Typed device kinds with fixed verbs, a flat feature list each driver declares, or switches only until a second brand?
+A: Typed kinds. A device has a kind (`switch` now; `light` and `sensor` when they come), each kind has fixed verbs the generic layer defines (a switch: on, off, toggle, state, a weekly schedule), a driver implements the kinds it supports, and brand extras (the LED, the cloud disconnect, the clock) are driver settings on the device's page. The assistant sees one `devices` and one `device_set` that read the same for every brand; a small driver-settings map is the escape hatch for what no kind models.
+
+> A
+
+Decided alongside, not asked: a switch's weekly schedule is written to the device when its driver can hold one (Kasa can) and read back from it; a driver without on-device schedules answers the verb unsupported until a Gateway-held runner exists. The IFTTT action keeps its id; only its row moves to the new category.
+
 ## Refinements found while mapping the seams
 
 - **Sealed payloads refine question 6.** An owner row's payload and a value op are sealed; the Router reads only a row's clear envelope and cannot open an answer. The envelope is Gateway-signed (`rowEnvelopeSigningBytes`), so the Router cannot rewrite it either. So: `recipient: holder` is the Gateway's signed selector inside the envelope; the Router resolves it on the `inbox_append` frame path (`InboxFrames.appendRow`, before `InboxService.appendRow`; `OwnerOpIntake` sees console-origin ops only) and writes the device as Router-owned row metadata beside the envelope, as it stamps `seq` and `at`, refusing a producer-supplied stamp. The Gateway keeps the stamp on the request entry and refuses an answer whose signed device differs, since it is the only party that can open one. The Router stays the authority on who holds; the enforcement sits where the answer is readable. Deploy the Router first: an older Router strips the unknown envelope field before verifying the signature and refuses the row.
