@@ -203,16 +203,19 @@ class PhoneCapabilityOpsTest {
 		try {
 			ops.features.setWanted(Protocol.Wire.PhoneCapabilityKey.STATUS, true)
 			ops.features.setWanted(Protocol.Wire.PhoneCapabilityKey.CONTACTS_SEARCH, true)
+			ops.features.setWanted(Protocol.Wire.PhoneCapabilityKey.CALENDAR_EVENTS, true)
 			ops.enqueue("gateway-a", "team-a", row("call-0001", Protocol.Wire.PhoneCapabilityKey.STATUS))
 			ops.enqueue("gateway-a", "team-a", row("call-0002", Protocol.Wire.PhoneCapabilityKey.TORCH))
 			ops.enqueue("gateway-a", "team-a", row("call-0003", Protocol.Wire.PhoneCapabilityKey.CONTACTS_SEARCH))
-			val answers = withTimeout(5_000L) { List(3) { sent.receive() } }.associate { it.requestId to it.answer }
+			ops.enqueue("gateway-a", "team-a", row("call-0004", Protocol.Wire.PhoneCapabilityKey.CALENDAR_EVENTS))
+			val answers = withTimeout(5_000L) { List(4) { sent.receive() } }.associate { it.requestId to it.answer }
 
 			assertEquals(PhoneCapabilityAnswer.Ok(JsonObject(emptyMap())), answers["call-0001"])
 			val off = answers["call-0002"] as PhoneCapabilityAnswer.Unavailable
 			assertEquals("disabled", off.reason)
 			assertEquals(emptyList<String>(), off.needs)
 			assertEquals(PhoneCapabilityAnswer.Unavailable("not_granted", listOf("contacts")), answers["call-0003"])
+			assertEquals(PhoneCapabilityAnswer.Unavailable("not_granted", listOf("calendar")), answers["call-0004"])
 			assertEquals(listOf(Protocol.Wire.PhoneCapabilityKey.STATUS), platform.runs)
 		} finally {
 			scope.cancel()

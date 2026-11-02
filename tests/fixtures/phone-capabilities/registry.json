@@ -18,6 +18,15 @@
 		"describeHash": "89f322482748b7804ce0dc89f6bc3e68c7eb4a113c62407067c8f1ba8554278c"
 	},
 	{
+		"key": "calendar_events",
+		"kind": "read",
+		"where": "phone",
+		"needs": ["calendar"],
+		"requestId": "CalendarEventsRequest",
+		"answerId": "CalendarEventsAnswer",
+		"describeHash": "f3f2f5a0d1892fb01d1432e013e7839d96fa84da99c61312e19a835914ab736b"
+	},
+	{
 		"key": "torch",
 		"kind": "act",
 		"where": "phone",

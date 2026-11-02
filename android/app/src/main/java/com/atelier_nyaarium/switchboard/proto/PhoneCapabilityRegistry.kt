@@ -19,6 +19,11 @@ internal interface PhoneCapabilityHandlers {
 		request: ContactsSearchRequest,
 	): ContactsSearchAnswer
 
+	suspend fun calendarEvents(
+		context: PhoneCapabilityContext,
+		request: CalendarEventsRequest,
+	): CalendarEventsAnswer
+
 	suspend fun torch(
 		context: PhoneCapabilityContext,
 		request: TorchRequest,
@@ -49,6 +54,18 @@ internal fun phoneCapabilityBindings(handlers: PhoneCapabilityHandlers): Map<Str
 				requestSerializer = ContactsSearchRequest.serializer(),
 				answerSerializer = ContactsSearchAnswer.serializer(),
 				handler = handlers::contactsSearch,
+			),
+		),
+		bind(
+			PhoneCapability(
+				key = Protocol.Wire.PhoneCapabilityKey.CALENDAR_EVENTS,
+				kind = "read",
+				where = "phone",
+				needs = listOf("calendar"),
+				label = "Calendar events",
+				requestSerializer = CalendarEventsRequest.serializer(),
+				answerSerializer = CalendarEventsAnswer.serializer(),
+				handler = handlers::calendarEvents,
 			),
 		),
 		bind(

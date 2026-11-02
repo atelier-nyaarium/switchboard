@@ -219,6 +219,7 @@ object Protocol {
 		object PhoneCapabilityKey {
 			const val STATUS: String = "status"
 			const val CONTACTS_SEARCH: String = "contacts_search"
+			const val CALENDAR_EVENTS: String = "calendar_events"
 			const val TORCH: String = "torch"
 		}
 	}
@@ -334,6 +335,19 @@ data class ContactsSearchRequest(
 @Serializable
 data class ContactsSearchAnswer(
 	val contacts: List<PhoneContact>,
+)
+
+@Serializable
+data class CalendarEventsRequest(
+	val from: String? = null,
+	val days: Long? = null,
+	val query: String? = null,
+	val limit: Long? = null,
+)
+
+@Serializable
+data class CalendarEventsAnswer(
+	val events: List<PhoneCalendarEvent>,
 )
 
 @Serializable
@@ -3030,6 +3044,18 @@ data class WorkspacePaintTextAnswer(
 	val textHash: String,
 	val spans: List<List<Long>>? = null,
 	val reason: String? = null,
+)
+
+@Serializable
+data class PhoneCalendarEvent(
+	val id: String,
+	val title: String,
+	val start: String,
+	val end: String,
+	val allDay: Boolean,
+	val daysUntil: Long,
+	val location: String? = null,
+	val calendar: String? = null,
 )
 
 @Serializable

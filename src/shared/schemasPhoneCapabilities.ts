@@ -72,6 +72,19 @@ export const PhoneContactSchema = z
 	})
 	.meta({ id: "PhoneContact" });
 
+export const PhoneCalendarEventSchema = z
+	.object({
+		id: z.string(),
+		title: z.string().max(200),
+		start: z.string(),
+		end: z.string(),
+		allDay: z.boolean(),
+		daysUntil: z.number().int(),
+		location: z.string().max(200).optional(),
+		calendar: z.string().max(80).optional(),
+	})
+	.meta({ id: "PhoneCalendarEvent" });
+
 export const PHONE_CAPABILITIES = {
 	status: {
 		request: z.strictObject({}).meta({ id: "PhoneStatusRequest" }),
@@ -108,6 +121,26 @@ Which phone holds you, and which phone capabilities it can serve right now with 
 # Search contacts
 
 Contacts on the holding phone matching \`query\`, with phones, emails and a birthday where one is set.
+		`.trim(),
+	},
+	calendar_events: {
+		request: z
+			.strictObject({
+				from: z.string().datetime({ offset: true }).optional(),
+				days: z.number().int().min(1).max(31).optional(),
+				query: z.string().min(1).max(80).optional(),
+				limit: z.number().int().min(1).max(50).optional(),
+			})
+			.meta({ id: "CalendarEventsRequest" }),
+		answer: z.object({ events: z.array(PhoneCalendarEventSchema).max(50) }).meta({ id: "CalendarEventsAnswer" }),
+		kind: "read",
+		where: "phone",
+		needs: ["calendar"],
+		label: "Calendar events",
+		describe: `
+# Calendar events
+
+Lists the holding phone's calendar instances from \`from\` (default now) for \`days\` (default 7) ahead, optionally filtered by \`query\` on the title, up to \`limit\` (default 20). Times are ISO 8601 with the phone's offset; an all-day event carries dates, and its \`end\` is the day after its last day. \`daysUntil\` counts calendar days from the phone's today to the event's start day.
 		`.trim(),
 	},
 	// An act leaves a trace notification.

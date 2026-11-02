@@ -545,7 +545,7 @@ microphone; Gboard's mic key dictates. `summon-residue.test.ts` refuses `showWhe
 
 The assistant reaches the holding phone through the capability registry (`PHONE_CAPABILITIES` in
 `src/shared/schemasPhoneCapabilities.ts`, pinned to the Kotlin bindings by
-`tests/fixtures/phone-capabilities/registry.json`): `status`, `contacts_search` and `torch`, exposed
+`tests/fixtures/phone-capabilities/registry.json`): `status`, `contacts_search`, `calendar_events` and `torch`, exposed
 as `phone/<key>` ids by `list_actions`. A `run_action` call with a phone id lands on the holder as a
 stamped row, runs through `PhoneCapabilityOps` and answers through the journal, at most once per
 request id.

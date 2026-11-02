@@ -30,12 +30,17 @@ const ANDROID_SRC = path.join(
 	"switchboard",
 );
 
+const PROTOCOL = path.join(ANDROID_SRC, "proto", "Protocol.kt");
+
 /** Every type a file's fields travel through on the way out, in order. */
 const FILE_SHAPED_SOURCES = [
 	path.join(REPO_ROOT, "src", "shared", "channel-file.ts"),
-	path.join(ANDROID_SRC, "proto", "Protocol.kt"),
+	PROTOCOL,
 	path.join(ANDROID_SRC, "OutgoingFiles.kt"),
 ];
+
+/** Generated classes whose `location` is a place, never a path. */
+const PLACE_CLASSES = ["PhoneCalendarEvent"];
 
 /** A declaration of a field whose name suggests a filesystem origin. Matches a Kotlin `val x:` or a
  * zod `x:` property, not a mention in prose. */
@@ -66,14 +71,28 @@ function dataClassBody(name: string): string {
 	return hits[0].slice(start, hits[0].indexOf("\n)", start));
 }
 
+/** The source with the named data classes cut out. A missing one throws, so a rename cannot widen the exemption. */
+function withoutClasses(source: string, names: readonly string[]): string {
+	return names.reduce((rest, name) => {
+		const needle = `data class ${name}(`;
+		const start = rest.indexOf(needle);
+		if (start === -1) throw new Error(`expected a declaration of ${name}`);
+		return rest.slice(0, start) + rest.slice(rest.indexOf("\n)", start));
+	}, source);
+}
+
 ////////////////////////////////
 //  Tests
 
 describe("a picked file's origin never reaches the wire", () => {
 	it.each(FILE_SHAPED_SOURCES)("%s declares no origin field", (file) => {
-		const source = read(file);
+		const source = file === PROTOCOL ? withoutClasses(read(file), PLACE_CLASSES) : read(file);
 
 		expect(LOCATION_FIELD.test(source)).toBe(false);
+	});
+
+	it("a place class is the only reason the generated file is cut, so the cut is proving something", () => {
+		for (const name of PLACE_CLASSES) expect(dataClassBody(name)).toMatch(LOCATION_FIELD);
 	});
 
 	it("MessageFile declares no origin field, so the conversion has nowhere to put one", () => {

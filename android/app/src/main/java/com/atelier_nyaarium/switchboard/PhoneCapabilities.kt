@@ -1,12 +1,16 @@
 package com.atelier_nyaarium.switchboard
 
+import android.content.ContentUris
 import android.content.Context
 import android.database.Cursor
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.net.Uri
 import android.os.Build
+import android.provider.CalendarContract
 import android.provider.ContactsContract
+import com.atelier_nyaarium.switchboard.proto.CalendarEventsAnswer
+import com.atelier_nyaarium.switchboard.proto.CalendarEventsRequest
 import com.atelier_nyaarium.switchboard.proto.ContactsSearchAnswer
 import com.atelier_nyaarium.switchboard.proto.ContactsSearchRequest
 import com.atelier_nyaarium.switchboard.proto.PhoneCapabilityAnswer
@@ -23,6 +27,9 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
+import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.ZoneId
 import kotlin.math.roundToInt
 
 data class CapabilityAvailability(
@@ -87,6 +94,11 @@ internal object PhoneCapabilityHandlerSet : PhoneCapabilityHandlers {
 		context: PhoneCapabilityContext,
 		request: ContactsSearchRequest,
 	): ContactsSearchAnswer = contactsSearchBody(context, request)
+
+	override suspend fun calendarEvents(
+		context: PhoneCapabilityContext,
+		request: CalendarEventsRequest,
+	): CalendarEventsAnswer = calendarEventsBody(context, request)
 
 	override suspend fun torch(context: PhoneCapabilityContext, request: TorchRequest): TorchAnswer =
 		torchBody(context, request)
@@ -184,6 +196,53 @@ private suspend fun contactsSearchBody(
 	}
 	return ContactsSearchAnswer(contacts)
 }
+
+private suspend fun calendarEventsBody(
+	context: PhoneCapabilityContext,
+	request: CalendarEventsRequest,
+): CalendarEventsAnswer {
+	val now = Instant.now()
+	val zone = ZoneId.systemDefault()
+	val from = request.from?.let { OffsetDateTime.parse(it).toInstant() }
+	val days = request.days?.toInt()
+	val window = calendarWindow(from, days, now)
+	val builder = CalendarContract.Instances.CONTENT_URI.buildUpon()
+	ContentUris.appendId(builder, window.first.toEpochMilli())
+	ContentUris.appendId(builder, window.second.toEpochMilli())
+	val uri = builder.build()
+	val projection = arrayOf(
+		CalendarContract.Instances.EVENT_ID,
+		CalendarContract.Instances.TITLE,
+		CalendarContract.Instances.BEGIN,
+		CalendarContract.Instances.END,
+		CalendarContract.Instances.ALL_DAY,
+		CalendarContract.Instances.EVENT_LOCATION,
+		CalendarContract.Instances.CALENDAR_DISPLAY_NAME,
+	)
+	val limit = request.limit?.toInt()
+	// The cap ends the read.
+	val selected = context.applicationContext.contentResolver.query(
+		uri,
+		projection,
+		"${CalendarContract.Instances.VISIBLE}=1",
+		null,
+		"${CalendarContract.Instances.BEGIN} ASC",
+	)?.use { cursor ->
+		val rows = generateSequence { if (cursor.moveToNext()) calendarRowOf(cursor) else null }
+		selectEvents(rows, request.query, limit)
+	}.orEmpty()
+	return CalendarEventsAnswer(selected.map { eventOf(it, now, zone) })
+}
+
+private fun calendarRowOf(cursor: Cursor): CalendarRow = CalendarRow(
+	id = cursor.getLong(0).toString(),
+	title = cursor.getString(1).orEmpty(),
+	start = Instant.ofEpochMilli(cursor.getLong(2)),
+	end = Instant.ofEpochMilli(cursor.getLong(3)),
+	allDay = cursor.getInt(4) != 0,
+	location = cursor.getString(5),
+	calendar = cursor.getString(6),
+)
 
 private fun dataValues(cursor: Cursor?, limit: Int = 16): List<String> = cursor?.use { rows ->
 	buildList {
