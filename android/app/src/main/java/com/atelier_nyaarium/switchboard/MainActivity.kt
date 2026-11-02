@@ -357,15 +357,6 @@ fun App(
 		if (landing == SummonLanding.Configure) SummonBus.step(held.id, Summon::focusSpent)
 		SummonBus.step(held.id, Summon::routedNow)
 	}
-	val assistantShown = nav.showsAssistant(assistantOpen)
-	LaunchedEffect(assistantShown) {
-		if (assistantShown) repo.phoneHoldOps.onAssistantShown()
-	}
-	LaunchedEffect(homeVersions(state), state.gateways.incarnations(), state.gateways.reachableIds(), state.connected, assistantShown) {
-		if (!assistantShown) return@LaunchedEffect
-		// Covers a screen before the first drain.
-		repo.assistantOps.refreshShown()
-	}
 	LaunchedEffect(assistantRoot, nav.root, nav.conversation == null, nav.settings) {
 		nav = nav.enterAssistant(assistantRoot, factsFor)
 	}
@@ -450,6 +441,15 @@ fun App(
 	}
 
 	val screen = shellScreen(nav, locked, overlays.isNotEmpty(), missingBoot == null)
+	val assistantShown = nav.showsAssistant(assistantOpen, screen)
+	LaunchedEffect(assistantShown) {
+		if (assistantShown) repo.phoneHoldOps.onAssistantShown()
+	}
+	LaunchedEffect(homeVersions(state), state.gateways.incarnations(), state.gateways.reachableIds(), state.connected, assistantShown) {
+		if (!assistantShown) return@LaunchedEffect
+		// Covers a screen before the first drain.
+		repo.assistantOps.refreshShown()
+	}
 	// One state per showing of its screen, so a drawer left open never reappears open.
 	val rootDrawer = remember(screen == ShellScreen.ROOT) { SideDrawers() }
 	val conversationDrawer = remember(screen == ShellScreen.CONVERSATION, openTeam) { SideDrawers() }

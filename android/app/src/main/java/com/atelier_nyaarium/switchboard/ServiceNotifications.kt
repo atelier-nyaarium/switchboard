@@ -613,6 +613,12 @@ internal class ServiceNotifications(private val context: Context) {
 		internal fun assistantSendNotificationId(gatewayId: String, requestId: String): Int =
 			ASSISTANT_SEND_ID_RANGE_START + ("$gatewayId/$requestId".hashCode() and 0x7FFFFFFF) % ASSISTANT_SEND_ID_RANGE_SIZE
 
+		internal const val ASSISTANT_TRACE_ID_RANGE_START = 6_000_000
+		internal const val ASSISTANT_TRACE_ID_RANGE_SIZE = 1_000_000
+
+		internal fun assistantTraceNotificationId(requestId: String): Int =
+			ASSISTANT_TRACE_ID_RANGE_START + (requestId.hashCode() and 0x7FFFFFFF) % ASSISTANT_TRACE_ID_RANGE_SIZE
+
 		internal const val ASSISTANT_ACT_ID_RANGE_START = 7_000_000
 		internal const val ASSISTANT_ACT_ID_RANGE_SIZE = 1_000_000
 
@@ -631,8 +637,11 @@ internal class ServiceNotifications(private val context: Context) {
 			require(ASSISTANT_SEND_ID_RANGE_START >= ROUTINE_ID_RANGE_START + ROUTINE_ID_RANGE_SIZE) {
 				"ASSISTANT_SEND_ID_RANGE must fall outside the routine id range"
 			}
-			require(ASSISTANT_ACT_ID_RANGE_START >= ASSISTANT_SEND_ID_RANGE_START + ASSISTANT_SEND_ID_RANGE_SIZE) {
-				"ASSISTANT_ACT_ID_RANGE must fall outside the assistant send id range"
+			require(ASSISTANT_TRACE_ID_RANGE_START >= ASSISTANT_SEND_ID_RANGE_START + ASSISTANT_SEND_ID_RANGE_SIZE) {
+				"ASSISTANT_TRACE_ID_RANGE must fall outside the assistant send id range"
+			}
+			require(ASSISTANT_ACT_ID_RANGE_START >= ASSISTANT_TRACE_ID_RANGE_START + ASSISTANT_TRACE_ID_RANGE_SIZE) {
+				"ASSISTANT_ACT_ID_RANGE must fall outside the assistant trace id range"
 			}
 			require(ROUTINE_ID_RANGE_START >= VAULT_ID_RANGE_START + VAULT_ID_RANGE_SIZE) {
 				"ROUTINE_ID_RANGE must fall entirely outside the vault id range"
@@ -684,7 +693,8 @@ internal class ServiceNotifications(private val context: Context) {
 				val vault = id >= VAULT_ID_RANGE_START && id < VAULT_ID_RANGE_START + VAULT_ID_RANGE_SIZE
 				val assistant = id >= ASSISTANT_SEND_ID_RANGE_START && id < ASSISTANT_SEND_ID_RANGE_START + ASSISTANT_SEND_ID_RANGE_SIZE
 				val assistantAct = id >= ASSISTANT_ACT_ID_RANGE_START && id < ASSISTANT_ACT_ID_RANGE_START + ASSISTANT_ACT_ID_RANGE_SIZE
-				if (message || failed || vault || assistant || assistantAct) nmc.cancel(id)
+				val trace = id >= ASSISTANT_TRACE_ID_RANGE_START && id < ASSISTANT_TRACE_ID_RANGE_START + ASSISTANT_TRACE_ID_RANGE_SIZE
+				if (message || failed || vault || assistant || assistantAct || trace) nmc.cancel(id)
 			}
 		}
 	}

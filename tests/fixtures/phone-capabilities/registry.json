@@ -21,7 +21,7 @@
 		"key": "torch",
 		"kind": "act",
 		"where": "phone",
-		"needs": [],
+		"needs": ["notifications"],
 		"requestId": "TorchRequest",
 		"answerId": "TorchAnswer",
 		"describeHash": "aaf35ae6f96a1e8c81159e21368ffe5481b8e28aa54ed1fd454119c04fce895b"

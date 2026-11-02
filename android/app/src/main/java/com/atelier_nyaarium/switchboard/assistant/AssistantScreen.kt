@@ -459,6 +459,7 @@ private fun AssistantFeaturesPage(repo: ChatRepository, onBack: () -> Unit) {
 	}
 	var asking by remember { mutableStateOf<String?>(null) }
 	var denied by remember { mutableStateOf(setOf<String>()) }
+	var saveFailed by remember { mutableStateOf(false) }
 	val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
 		if (!granted) asking?.let { denied = denied + it }
 		asking = null
@@ -480,6 +481,7 @@ private fun AssistantFeaturesPage(repo: ChatRepository, onBack: () -> Unit) {
 		}
 	}
 	AssistantPageScaffold("Features", onBack) {
+		if (saveFailed) Text("Could not save", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		Text("Required", style = MaterialTheme.typography.labelLarge)
 		for (row in requiredRows(required)) {
 			RequiredRowView(row) {
@@ -496,7 +498,7 @@ private fun AssistantFeaturesPage(repo: ChatRepository, onBack: () -> Unit) {
 				FeatureRowView(
 					view,
 					featureRowModel(view),
-					onToggle = { on -> toggles.setWanted(view.row.key, toggledWanted(view, on)) },
+					onToggle = { on -> saveFailed = !toggles.setWanted(view.row.key, toggledWanted(view, on)) },
 					onGear = { gear ->
 						when (gear) {
 							is GearTarget.Need -> open(gear.need)

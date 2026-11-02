@@ -52,10 +52,11 @@ class ShellNavTest {
 		)
 		assertEquals(pages + null, walked)
 		assertEquals(List(5) { BackLayer.ASSISTANT_PAGE } + BackLayer.CONVERSATION, backAll(open))
-		assertTrue(open.showsAssistant(assistantOpen = false))
+		assertTrue(open.showsAssistant(assistantOpen = false, screen = ShellScreen.ASSISTANT_PAGE))
+		assertFalse(open.showsAssistant(assistantOpen = false, screen = ShellScreen.LOCK))
 		val left = open.arrive(b, Arrival.OUTSIDE, facts)
 		assertNull(left.assistantPage)
-		assertFalse(left.showsAssistant(assistantOpen = false))
+		assertFalse(left.showsAssistant(assistantOpen = false, screen = ShellScreen.CONVERSATION))
 	}
 
 	@Test

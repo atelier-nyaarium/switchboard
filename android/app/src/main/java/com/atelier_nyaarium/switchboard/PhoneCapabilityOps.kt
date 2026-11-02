@@ -330,15 +330,12 @@ internal class AndroidPhoneCapabilityPlatform(
 				.setPublicVersion(public)
 				.setAutoCancel(true)
 				.build()
-			NotificationManagerCompat.from(context).notify(traceId(requestId), note)
+			NotificationManagerCompat.from(context).notify(ServiceNotifications.assistantTraceNotificationId(requestId), note)
 		}.onFailure { CapabilityLog.record("trace", CapabilityLogEvent.FAILED, accepted = false) }
 	}
 
 	private companion object {
 		const val TRACE_CHANNEL = "assistant_acts"
-		const val TRACE_ID_BASE = 6_000_000
-
-		fun traceId(requestId: String): Int = TRACE_ID_BASE + (requestId.hashCode() and 0x000FFFFF)
 	}
 }
 
@@ -449,7 +446,8 @@ internal class PhoneCapabilityOps(
 				val permission = permissionState(run.key)
 				if (!permission.available) {
 					CapabilityLog.record(run.key, CapabilityLogEvent.DENIED, permission.needs.size, false)
-					PhoneCapabilityAnswer.Unavailable(permission.reason ?: "not_granted", permission.needs)
+					val reason = permission.reason ?: "not_granted"
+					PhoneCapabilityAnswer.Unavailable(reason, permission.needs, DISABLED_DETAIL.takeIf { reason == "disabled" })
 				} else {
 					val binding = PhoneCapabilities.bindings.getValue(run.key)
 					val result = journal.runUnlessRetracted(run.requestId) {
@@ -498,6 +496,7 @@ internal class PhoneCapabilityOps(
 
 	private companion object {
 		const val ANSWER_RETRY_MS = 1_000L
+		const val DISABLED_DETAIL = "switched off in Assistant settings, Features"
 		val UNSUPPORTED = CapabilityAvailability(false, "not_supported", emptyList())
 	}
 }

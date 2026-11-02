@@ -109,7 +109,7 @@ object PhoneCapabilities {
 				key = Protocol.Wire.PhoneCapabilityKey.TORCH,
 				kind = "act",
 				where = "phone",
-				needs = emptyList(),
+				needs = listOf("notifications"),
 				label = "Torch",
 				requestSerializer = TorchRequest.serializer(),
 				answerSerializer = TorchAnswer.serializer(),

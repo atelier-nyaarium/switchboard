@@ -97,9 +97,11 @@ internal fun ShellNav.closeSettings(): ShellNav = copy(settings = null)
 
 internal fun ShellNav.openAssistantPage(page: AssistantPage): ShellNav = copy(assistantPage = page)
 
-/** Root, a page, or its conversation. */
-internal fun ShellNav.showsAssistant(assistantOpen: Boolean): Boolean =
-	root == RootView.ASSISTANT || assistantPage != null || assistantOpen
+/** Root, a page, or its conversation, when drawn. */
+internal fun ShellNav.showsAssistant(assistantOpen: Boolean, screen: ShellScreen): Boolean =
+	screen in ASSISTANT_DRAWN && (root == RootView.ASSISTANT || assistantPage != null || assistantOpen)
+
+private val ASSISTANT_DRAWN = setOf(ShellScreen.ROOT, ShellScreen.CONVERSATION, ShellScreen.ASSISTANT_PAGE)
 
 /** Routes allowed before provisioning. */
 private val PRE_PROVISION_ROUTES = setOf(SettingsRoute.HUB, SettingsRoute.SYSTEM, SettingsRoute.PLUGINS, SettingsRoute.FEDERATION)

@@ -112,6 +112,7 @@ Which phone holds you, and which phone capabilities it can serve right now with 
 Contacts on the holding phone matching \`query\`, with phones, emails and a birthday where one is set.
 		`.trim(),
 	},
+	// An act leaves a trace notification.
 	torch: {
 		request: z
 			.strictObject({
@@ -123,7 +124,7 @@ Contacts on the holding phone matching \`query\`, with phones, emails and a birt
 		answer: z.object({ on: z.boolean(), levels: z.number().int().nonnegative() }).meta({ id: "TorchAnswer" }),
 		kind: "act",
 		where: "phone",
-		needs: [],
+		needs: ["notifications"],
 		label: "Torch",
 		describe: `
 # Torch

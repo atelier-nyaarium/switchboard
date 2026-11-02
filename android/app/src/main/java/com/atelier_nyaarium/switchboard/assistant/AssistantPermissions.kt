@@ -81,13 +81,13 @@ internal fun requiredRows(facts: RequiredFacts): List<RequiredRow> = listOf(
 	RequiredRow("Notifications", facts.notifications, "Not granted", RequiredDoor.NOTIFICATIONS),
 )
 
-/** Grouped by first need; registry order kept. */
+/** Grouped by first need, the act trace aside; registry order kept. */
 internal fun featureRows(bindings: Collection<PhoneCapabilityBinding>): List<FeatureRow> =
 	bindings.map { binding ->
 		FeatureRow(
 			key = binding.key,
 			label = binding.label,
-			group = binding.needs.firstOrNull()?.let(::needLabel) ?: PHONE_GROUP,
+			group = binding.needs.firstOrNull { it != NOTIFICATIONS_NEED }?.let(::needLabel) ?: PHONE_GROUP,
 			guarded = binding.kind == "guarded",
 			needs = binding.needs,
 		)
