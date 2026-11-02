@@ -35,7 +35,7 @@ internal fun matchesQuery(title: String, query: String?): Boolean {
 	return needle.isEmpty() || title.contains(needle, ignoreCase = true)
 }
 
-/** Rows read before a selective query gives up. */
+/** Rows scanned per read. */
 internal const val CALENDAR_SCAN_CAP = 2000
 
 internal fun selectEvents(rows: Sequence<CalendarRow>, query: String?, limit: Int?): List<CalendarRow> {

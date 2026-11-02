@@ -13,7 +13,6 @@ export interface DerivedState {
 	limitDetail?: string;
 }
 
-/** One watched session. */
 export interface WatchEntry {
 	team: string;
 	target: TmuxTarget;

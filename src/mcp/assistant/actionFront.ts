@@ -166,7 +166,7 @@ Read it before a \`${RUN}\`. \`${STATUS_ID}\` refreshes what the holding phone s
 
 Run one action by \`id\` from \`${LIST}\`, with \`params\` in its schema.
 
-A \`phone/\` id runs on the holding phone unless its listing says it runs on the Gateway; a \`watcher/\` id runs on the Gateway. Each call is its own; only this tool's transport retries share a call.
+A \`phone/\` id runs on the holding phone unless listed for the Gateway; a \`watcher/\` id runs on the Gateway. Only this tool's transport retries share a call.
 			`.trim(),
 			inputSchema: {
 				id: z.string().describe(`An id from \`${LIST}\`, such as \`${STATUS_ID}\`.`),

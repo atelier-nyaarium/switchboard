@@ -78,7 +78,7 @@ export const ActionListingSchema = z.object({
 	/** Null until reported. */
 	available: z.boolean().nullable(),
 	reason: z.string().max(64).optional(),
-	/** The host of a phone id. */
+	/** Phone action host. */
 	where: z.string().max(16).optional(),
 	/** JSON Schema of `params`. */
 	params: z.record(z.string(), z.unknown()),
@@ -160,7 +160,7 @@ export const ActionRunResultSchema = z.discriminatedUnion("kind", [
 		needs: z.array(PhonePermissionSchema).optional(),
 		detail: z.string().max(400).optional(),
 	}),
-	/** Per-id answer schema. A phone action records nothing. */
+	/** Per-id answer; phone records nothing. */
 	z.strictObject({ kind: z.literal("ok"), answer: z.unknown(), recorded: z.boolean().optional() }),
 ]);
 

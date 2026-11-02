@@ -555,8 +555,8 @@ The assistant reaches the holding phone through the capability registry (`PHONE_
 `timer_set`, `sms` and `call`, exposed as `phone/<key>` ids by `list_actions`.
 A `run_action` call with a phone id lands on the holder as a
 stamped row, runs through `PhoneCapabilityOps` and answers through the journal, at most once per
-request id. It leaves no record row in the conversation; the record and its "cleared quietly" line
-are a watcher clear's.
+request id. A phone action adds no record row; a watcher clear does, quiet when it carries no
+summary.
 
 Launch acts answer `not_showing` unless the phone is interactive, unlocked and the app is shown.
 `sms` needs `SEND_SMS` and `call` needs `CALL_PHONE`. Both default to opening the owner's app with
@@ -565,7 +565,7 @@ call through; when unclear, ask the owner out loud. A sideloaded build may not h
 without installer allowlisting; `status` reports `sms` as `not_granted`.
 
 A guarded act (`notification_reply`, a `send`, a `place`) opens an owner card on the holder's phone
-first, through the guard a send takes, unless Approve every send is off, when it runs unasked. An
+first, through the send guard; with Approve every send off it runs unasked. An
 `unavailable` answer names only the needs still missing.
 
 Notification access is the Android listener grant. `AssistantNotificationListener` seeds and updates

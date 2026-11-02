@@ -24,7 +24,7 @@
 		"needs": ["calendar"],
 		"requestId": "CalendarEventsRequest",
 		"answerId": "CalendarEventsAnswer",
-		"describeHash": "f3f2f5a0d1892fb01d1432e013e7839d96fa84da99c61312e19a835914ab736b"
+		"describeHash": "b995af383489636e330da4b7881399c5a6d2561ed5f4594a9eb3e7039647e51d"
 	},
 	{
 		"key": "notifications_recent",
@@ -33,7 +33,7 @@
 		"needs": ["notification_access"],
 		"requestId": "NotificationsRecentRequest",
 		"answerId": "NotificationsRecentAnswer",
-		"describeHash": "32129e0e8eff25fa9ca5001b6226054003e50506b36308df2bc804a62615b139"
+		"describeHash": "81825099271ae941310e22c34c5de61ccf6ceb8f458b56356354cf9da7795b2c"
 	},
 	{
 		"key": "notification_reply",

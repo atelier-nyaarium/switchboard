@@ -39,7 +39,7 @@ internal fun ComposerField(
 	maxLines: Int = Int.MAX_VALUE,
 ) {
 	val shape = OutlinedTextFieldDefaults.shape
-	// The comet is the border while working.
+	// Comet replaces the border.
 	val colors = if (working) {
 		val resting = MaterialTheme.colorScheme.outlineVariant
 		OutlinedTextFieldDefaults.colors(focusedBorderColor = resting, unfocusedBorderColor = resting)
@@ -59,7 +59,7 @@ internal fun ComposerField(
 	)
 }
 
-/** Material's border offset under a label. */
+/** Label border offset. */
 private val LABEL_FLOAT_INSET = 8.dp
 
 internal fun cometSpans(
@@ -129,7 +129,7 @@ internal fun Modifier.workingComet(active: Boolean, shape: Shape, topInset: Dp =
 			val pathMeasure = PathMeasure().apply { setPath(path, false) }
 			val pathLength = pathMeasure.length
 			val segmentPath = Path()
-			// Butt joints, or translucent caps overlap into dots.
+			// Caps overlap into dots.
 			val tail = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
 			val head = Stroke(width = strokeWidth, cap = StrokeCap.Round)
 			onDrawWithContent {

@@ -165,7 +165,12 @@ Contacts on the holding phone matching \`query\`, with phones, emails and a birt
 		describe: `
 # Calendar events
 
-Lists the holding phone's calendar instances from \`from\` (default now) for \`days\` (default 7) ahead, optionally filtered by \`query\` on the title, up to \`limit\` (default 20). Times are ISO 8601 with the phone's offset; an all-day event carries dates, and its \`end\` is the day after its last day. \`daysUntil\` counts calendar days from the phone's today to the event's start day.
+Lists the holding phone's calendar instances.
+
+- \`from\` defaults to now; \`days\` ahead defaults to 7.
+- \`query\` filters on the title; \`limit\` defaults to 20.
+- Times are ISO 8601 with the phone's offset. An all-day event carries dates, and its \`end\` is the day after its last day.
+- \`daysUntil\` counts calendar days from the phone's today to the event's start day.
 		`.trim(),
 	},
 	notifications_recent: {
@@ -185,7 +190,11 @@ Lists the holding phone's calendar instances from \`from\` (default now) for \`d
 		describe: `
 # Recent notifications
 
-Lists the last 100 notifications the listener has seen, newest first, showing or dismissed since. Replyable means the notification carries an inline reply action. Posted times use ISO 8601 with the phone's offset. The optional app filters by a case-insensitive substring of the app label or package; limit defaults to 10.
+Lists the last 100 notifications the listener has seen, newest first, showing or dismissed since.
+
+- \`replyable\` means the notification carries an inline reply action.
+- Posted times are ISO 8601 with the phone's offset.
+- \`app\` filters by a case-insensitive substring of the app label or package; \`limit\` defaults to 10.
 		`.trim(),
 	},
 	notification_reply: {
