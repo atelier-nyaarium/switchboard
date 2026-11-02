@@ -324,7 +324,7 @@ Also in this phase, the working indicator: the send button is a locked spinner w
 - CI was red from 8.14.21 to 8.14.23 on one harness test that still expected `recorded` on a phone answer; the local gate chains ran test subsets by name and never reached it, and the CI watch loops matched an older run. The whole suite runs before every push from here. The run after it failed on a different file: the harness probed a free port, released it and handed the number to the Router, and another of the 349 workers bound it in between (`EADDRINUSE`). The Router now binds port 0 and the harness reads `listeningPort`, so no window exists.
 - Held back from the launch family: shortcuts and App Actions. `LauncherApps.startShortcut` needs the launcher role or shortcut host permission, which Switchboard does not hold on the Pixel, and App Actions fire only through Google's Assistant. Owner's call before any code.
 
-## Phase 3 - Acceptance and docs
+## Phase 3 - Acceptance and docs ✅ (owner's QA pending)
 
 Shipped: a launch failing out as `not_showing` on a sleeping holder, relayed by the assistant; `docs/assistant.md` (the phone road, the registry, the card), `docs/console.md` (the phone hold, pointing at the locked phone's rules), `docs/federation.md` (the capability row's stamp and answer op), `docs/testing.md` (the harness's two phone drivers), the AGENTS.md map lines, and painpoints to the plan and the board. Pending on the owner: their own sentences on the Pixel through the summon panel (a text send, a placed call, a notification reply, an alarm, an IFTTT event), and the second phone showing the hold change once a phone exists.
 
