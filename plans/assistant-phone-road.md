@@ -324,6 +324,16 @@ Also in this phase, the working indicator: the send button is a locked spinner w
 - CI was red from 8.14.21 to 8.14.23 on one harness test that still expected `recorded` on a phone answer; the local gate chains ran test subsets by name and never reached it, and the CI watch loops matched an older run. The whole suite runs before every push from here. The run after it failed on a different file: the harness probed a free port, released it and handed the number to the Router, and another of the 349 workers bound it in between (`EADDRINUSE`). The Router now binds port 0 and the harness reads `listeningPort`, so no window exists.
 - Held back from the launch family: shortcuts and App Actions. `LauncherApps.startShortcut` needs the launcher role or shortcut host permission, which Switchboard does not hold on the Pixel, and App Actions fire only through Google's Assistant. Owner's call before any code.
 
+## Phase 2.5 - Integrations
+
+Owner, 01:50: "IFTTT should not be in Watchers. It should be a separate category next to watchers." and "lets make Switchboard handle local network IFTTT." The plugs are two Kasa HS103 (US). The IFTTT road costs credits per fire since IFTTT's credit pricing (the free plan's 1,000 a month would not cover a daily on and off), so the plugs are to be driven locally. Questionnaire in progress; the questions land under the questionnaire above as they are answered.
+
+### Spike
+
+- Discovery from Sakura (python-kasa 0.11.0.1 in `~/.venvs/kasa`, outside the project): one plug answered, alias `Light`, HS103(US) hardware 3.0, firmware 1.0.3, at 192.168.1.151 on the same /24 as Sakura's `wlo1`, relay off, signal -44 dBm, cloud-connected, clock in PST. It speaks the plain local protocol on TCP 9999 with no credentials. Flickered on and off from Sakura; the owner saw it. The second plug was not plugged in.
+- What the local protocol offers this hardware: state, on-since, signal, the status LED, the clock and zone, cloud state; switch, rename, LED, clock, reboot, countdown, weekly schedules stored on the plug, factory reset and WiFi provisioning. No energy metering on HS103.
+- The on-device schedule means the owner's daily on and off can live in the plug, written once by Switchboard; Gateway routines stay for what a plug cannot hold.
+
 ## Phase 3 - Acceptance and docs ✅ (owner's QA pending)
 
 Shipped: a launch failing out as `not_showing` on a sleeping holder, relayed by the assistant; `docs/assistant.md` (the phone road, the registry, the card), `docs/console.md` (the phone hold, pointing at the locked phone's rules), `docs/federation.md` (the capability row's stamp and answer op), `docs/testing.md` (the harness's two phone drivers), the AGENTS.md map lines, and painpoints to the plan and the board. Pending on the owner: their own sentences on the Pixel through the summon panel (a text send, a placed call, a notification reply, an alarm, an IFTTT event), and the second phone showing the hold change once a phone exists.
