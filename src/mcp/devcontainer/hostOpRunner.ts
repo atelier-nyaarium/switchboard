@@ -1,4 +1,10 @@
-import type { HostListDirsResult, HostOp, HostPeekResult, TmuxTarget } from "../../shared/host-op.js";
+import type {
+	HostKasaScanResult,
+	HostListDirsResult,
+	HostOp,
+	HostPeekResult,
+	TmuxTarget,
+} from "../../shared/host-op.js";
 import { createOpDedupe } from "../../shared/op-dedupe.js";
 import { createSingleFlight } from "../../shared/single-flight.js";
 
@@ -15,6 +21,7 @@ export interface TmuxOps {
 	reloadPlugins: (target: TmuxTarget) => Promise<unknown>;
 	killSession: (target: TmuxTarget) => Promise<void>;
 	listDirs: (path: string, spawn?: string) => Promise<HostListDirsResult>;
+	kasaScan: () => Promise<HostKasaScanResult>;
 }
 
 export type PeekPriority = "interactive" | "derive";
@@ -35,7 +42,7 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 	let activePeeks = 0;
 	const interactiveWaiters: Array<() => void> = [];
 	const deriveWaiters: Array<() => void> = [];
-	// Interactive peeks preempt derive peeks. Each lane remains FIFO.
+	// Interactive preempts derive; lanes FIFO.
 	async function withPeekSlot<T>(priority: PeekPriority, fn: () => Promise<T>): Promise<T> {
 		if (activePeeks >= MAX_CONCURRENT_PEEKS) {
 			const queue = priority === "interactive" ? interactiveWaiters : deriveWaiters;
@@ -73,7 +80,7 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 		exec: () => Promise<unknown>,
 		result: unknown,
 	): Promise<unknown> {
-		// Missing dedup keys intentionally execute every request.
+		// No key: always execute.
 		if (!dedupKey) {
 			return (await exec()) ?? result;
 		}
@@ -88,6 +95,7 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 
 	async function run(op: HostOp): Promise<unknown> {
 		if (op.kind === "peek") return runPeek(op.target);
+		if (op.kind === "kasaScan") return ops.kasaScan();
 		if (op.kind === "sendText" || op.kind === "sendKey") return runSend(op);
 		if (op.kind === "listDirs") return ops.listDirs(op.path, op.spawn);
 		if (op.kind === "createSession")

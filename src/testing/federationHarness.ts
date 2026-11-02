@@ -7,6 +7,7 @@ import { RouterServer } from "../federation-server/routerServer.js";
 import { loadRouterTls } from "../federation-server/routerTls.js";
 import type { Watcher } from "../gateway/assistant/watcher.js";
 import { composeGateway, type GatewayGraph } from "../gateway/composeGateway.js";
+import { createKasaTransport } from "../gateway/devices/kasa/transport.js";
 import type {
 	CrossDomainListenResult,
 	CrossDomainListenStateResult,
@@ -35,6 +36,7 @@ export interface FederationHarnessOptions {
 	host?: Omit<FakeHostOptions, "token">;
 	seedContentKey?: boolean;
 	assistantWatchers?: readonly Watcher[];
+	kasaPort?: number;
 }
 
 export interface GatewayComposeOptions {
@@ -42,6 +44,7 @@ export interface GatewayComposeOptions {
 	seedContentKey?: boolean;
 	arming?: boolean;
 	assistantWatchers?: readonly Watcher[];
+	kasaPort?: number;
 }
 
 export interface RouterOnlyHarness {
@@ -133,6 +136,7 @@ export async function startFederationHarness(options: FederationHarnessOptions =
 			host: options.host,
 			seedContentKey: options.seedContentKey,
 			assistantWatchers: options.assistantWatchers,
+			kasaPort: options.kasaPort,
 		});
 	} catch (error) {
 		await base.close();
@@ -219,6 +223,7 @@ async function attachDomain(
 		host?: Omit<FakeHostOptions, "token">;
 		seedContentKey?: boolean;
 		assistantWatchers?: readonly Watcher[];
+		kasaPort?: number;
 	},
 ): Promise<DomainPeer> {
 	set = admitSecondConsole(set);
@@ -228,6 +233,7 @@ async function attachDomain(
 		base.composeGatewayFor(set, gatewayDir, {
 			seedContentKey: options.seedContentKey,
 			assistantWatchers: options.assistantWatchers,
+			kasaPort: options.kasaPort,
 		});
 	// The daemon survives gateway restarts.
 	let daemon = createFakeCodexDaemon();
@@ -417,6 +423,9 @@ export async function startRouterOnly(
 					throw new Error("the harness reaches no network");
 				},
 				...(gatewayOptions.assistantWatchers ? { assistantWatchers: gatewayOptions.assistantWatchers } : {}),
+				...(gatewayOptions.kasaPort === undefined
+					? {}
+					: { kasaTransport: createKasaTransport(gatewayOptions.kasaPort) }),
 			});
 			let closing: Promise<void> | undefined;
 			const close = () => {

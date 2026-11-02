@@ -161,6 +161,57 @@ import {
 	ConsoleSocketOutboundSchema,
 	ConsoleWelcomeFrameSchema,
 } from "../src/shared/schemasConsoleSocket.js";
+import {
+	ConsoleDeviceAddResultSchema,
+	ConsoleDeviceListResultSchema,
+	ConsoleDeviceReadResultSchema,
+	ConsoleDeviceRemoveResultSchema,
+	ConsoleDeviceRenameResultSchema,
+	ConsoleDeviceScanResultSchema,
+	ConsoleDeviceSchedulePutResultSchema,
+	ConsoleDeviceSetResultSchema,
+	ConsoleDeviceSettingPutResultSchema,
+	DEVICE_ACTIONS,
+	DEVICE_CLOUD_STATES,
+	DEVICE_DRIVERS,
+	DEVICE_KINDS,
+	DEVICE_OPERATION_REASONS,
+	DEVICE_SCAN_REFUSALS,
+	DEVICE_STATES,
+	DEVICE_VERBS,
+	DeviceAddRequestSchema,
+	DeviceAddressSchema,
+	DeviceCandidateSchema,
+	DeviceCloudStateSchema,
+	DeviceDriverSchema,
+	DeviceIdSchema,
+	DeviceKindSchema,
+	DeviceListRequestSchema,
+	DeviceLiveStateSchema,
+	DeviceNameSchema,
+	DeviceOperationReasonSchema,
+	DeviceReadRequestSchema,
+	DeviceRecordSchema,
+	DeviceRemoveRequestSchema,
+	DeviceRenameRequestSchema,
+	DeviceRevisionSchema,
+	DeviceScanRefusalSchema,
+	DeviceScanRequestSchema,
+	DeviceScheduleActionSchema,
+	DeviceSchedulePutRequestSchema,
+	DeviceScheduleRuleSchema,
+	DeviceScheduleSchema,
+	DeviceSetRequestSchema,
+	DeviceSettingPutRequestSchema,
+	DeviceSettingPutSchema,
+	DeviceSettingsSchema,
+	DeviceStateSchema,
+	DeviceVerbSchema,
+	KASA_SETTING_KEYS,
+	KasaClockSchema,
+	KasaDeviceSettingsSchema,
+	KasaSettingPutSchema,
+} from "../src/shared/schemasDevices.js";
 import { RowRecipientSchema, RowStampSchema } from "../src/shared/schemasInbox.js";
 import {
 	AssistantActRequestSchema,
@@ -173,6 +224,7 @@ import {
 	PhoneContactSchema,
 	PhonePermissionSchema,
 	PhoneStatusKeySchema,
+	UNAVAILABLE_REASONS,
 	UnavailableReasonSchema,
 } from "../src/shared/schemasPhoneCapabilities.js";
 import {
@@ -405,6 +457,46 @@ const ROOTS: z.ZodType[] = [
 	ConsolePolicyListResultSchema,
 	ConsolePolicyPutResultSchema,
 	ConsolePolicyDeleteResultSchema,
+	DeviceKindSchema,
+	DeviceDriverSchema,
+	DeviceCloudStateSchema,
+	DeviceIdSchema,
+	DeviceNameSchema,
+	DeviceAddressSchema,
+	DeviceRevisionSchema,
+	DeviceRecordSchema,
+	DeviceOperationReasonSchema,
+	DeviceStateSchema,
+	DeviceScheduleActionSchema,
+	DeviceVerbSchema,
+	DeviceLiveStateSchema,
+	DeviceScheduleRuleSchema,
+	DeviceScheduleSchema,
+	KasaClockSchema,
+	KasaDeviceSettingsSchema,
+	DeviceSettingsSchema,
+	KasaSettingPutSchema,
+	DeviceSettingPutSchema,
+	DeviceCandidateSchema,
+	DeviceListRequestSchema,
+	DeviceReadRequestSchema,
+	DeviceScanRequestSchema,
+	DeviceAddRequestSchema,
+	DeviceRenameRequestSchema,
+	DeviceRemoveRequestSchema,
+	DeviceSetRequestSchema,
+	DeviceSchedulePutRequestSchema,
+	DeviceSettingPutRequestSchema,
+	DeviceScanRefusalSchema,
+	ConsoleDeviceListResultSchema,
+	ConsoleDeviceReadResultSchema,
+	ConsoleDeviceScanResultSchema,
+	ConsoleDeviceAddResultSchema,
+	ConsoleDeviceRenameResultSchema,
+	ConsoleDeviceRemoveResultSchema,
+	ConsoleDeviceSetResultSchema,
+	ConsoleDeviceSchedulePutResultSchema,
+	ConsoleDeviceSettingPutResultSchema,
 	AssistantWatcherSchema,
 	ConsoleAssistantStateResultSchema,
 	AssistantHomeCarriedWatcherSchema,
@@ -582,6 +674,9 @@ const SEALED_ROOTS = new Set([
 	"VaultGrant",
 	"VaultHolder",
 	"VaultRequest",
+	"DeviceSettings",
+	"DeviceSettingPut",
+	"KasaSettingPut",
 	"WireFixture",
 	"WorkspaceFileMutation",
 	"WorkspaceFileDestination",
@@ -1131,6 +1226,26 @@ ${schemaConstantBlock("KeyOpKind", keyOpKinds)}
 ${schemaConstantBlock("RecordOutcome", [...ACTION_OUTCOMES])}
 
 ${schemaConstantBlock("PhoneCapabilityKey", [...PHONE_CAPABILITY_KEYS])}
+
+${schemaConstantBlock("PhoneUnavailableReason", [...UNAVAILABLE_REASONS])}
+
+${schemaConstantBlock("DeviceKind", [...DEVICE_KINDS])}
+
+${schemaConstantBlock("DeviceDriver", [...DEVICE_DRIVERS])}
+
+${schemaConstantBlock("DeviceState", [...DEVICE_STATES])}
+
+${schemaConstantBlock("DeviceScheduleAction", [...DEVICE_ACTIONS])}
+
+${schemaConstantBlock("DeviceVerb", [...DEVICE_VERBS])}
+
+${schemaConstantBlock("DeviceCloudState", [...DEVICE_CLOUD_STATES])}
+
+${schemaConstantBlock("DeviceScanRefusal", [...DEVICE_SCAN_REFUSALS])}
+
+${schemaConstantBlock("DeviceOperationReason", [...DEVICE_OPERATION_REASONS])}
+
+${schemaConstantBlock("KasaSettingKey", [...KASA_SETTING_KEYS])}
 ${INDENT}}
 
 ${INDENT}/** Address and store separator. */

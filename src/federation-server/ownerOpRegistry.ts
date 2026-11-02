@@ -24,6 +24,26 @@ import {
 	KeyRequestOpSchema,
 } from "../shared/schemasContentKey.js";
 import {
+	ConsoleDeviceAddResultSchema,
+	ConsoleDeviceListResultSchema,
+	ConsoleDeviceReadResultSchema,
+	ConsoleDeviceRemoveResultSchema,
+	ConsoleDeviceRenameResultSchema,
+	ConsoleDeviceScanResultSchema,
+	ConsoleDeviceSchedulePutResultSchema,
+	ConsoleDeviceSetResultSchema,
+	ConsoleDeviceSettingPutResultSchema,
+	DeviceAddRequestSchema,
+	DeviceListRequestSchema,
+	DeviceReadRequestSchema,
+	DeviceRemoveRequestSchema,
+	DeviceRenameRequestSchema,
+	DeviceScanRequestSchema,
+	DeviceSchedulePutRequestSchema,
+	DeviceSetRequestSchema,
+	DeviceSettingPutRequestSchema,
+} from "../shared/schemasDevices.js";
+import {
 	GatewayValueOpSchema,
 	OpKeySchema,
 	OpResultEnvelopeSchema,
@@ -233,11 +253,66 @@ export const OWNER_OP_CATALOG = [
 	},
 	{ kind: "hold_claim", value: HoldClaimValueSchema, mutation: "value", answer: HoldClaimResultSchema },
 	{ kind: "phone_hold_read", value: PhoneHoldReadValueSchema, mutation: "read", answer: PhoneHoldPlaneSchema },
+	{
+		kind: "device_list",
+		value: DeviceListRequestSchema.extend({ kind: z.literal("device_list") }),
+		mutation: "read",
+		answer: ConsoleDeviceListResultSchema,
+	},
+	{
+		kind: "device_read",
+		value: DeviceReadRequestSchema.extend({ kind: z.literal("device_read") }),
+		mutation: "read",
+		answer: ConsoleDeviceReadResultSchema,
+	},
+	{
+		kind: "device_scan",
+		value: DeviceScanRequestSchema.extend({ kind: z.literal("device_scan") }),
+		mutation: "read",
+		answer: ConsoleDeviceScanResultSchema,
+	},
+	{
+		kind: "device_add",
+		value: DeviceAddRequestSchema.extend({ kind: z.literal("device_add") }),
+		mutation: "value",
+		answer: ConsoleDeviceAddResultSchema,
+	},
+	{
+		kind: "device_rename",
+		value: DeviceRenameRequestSchema.extend({ kind: z.literal("device_rename") }),
+		mutation: "value",
+		answer: ConsoleDeviceRenameResultSchema,
+	},
+	{
+		kind: "device_remove",
+		value: DeviceRemoveRequestSchema.extend({ kind: z.literal("device_remove") }),
+		mutation: "value",
+		answer: ConsoleDeviceRemoveResultSchema,
+	},
+	{
+		kind: "device_set",
+		value: DeviceSetRequestSchema.extend({ kind: z.literal("device_set") }),
+		mutation: "value",
+		answer: ConsoleDeviceSetResultSchema,
+	},
+	{
+		kind: "device_schedule_put",
+		value: DeviceSchedulePutRequestSchema.extend({ kind: z.literal("device_schedule_put") }),
+		mutation: "value",
+		answer: ConsoleDeviceSchedulePutResultSchema,
+	},
+	{
+		kind: "device_setting_put",
+		value: DeviceSettingPutRequestSchema.extend({ kind: z.literal("device_setting_put") }),
+		mutation: "value",
+		answer: ConsoleDeviceSettingPutResultSchema,
+	},
 ] as const satisfies readonly OwnerOpCatalogEntry[];
 
 type Catalog = (typeof OWNER_OP_CATALOG)[number];
 
 export type OwnerOpKind = Catalog["kind"];
+
 export type OwnerOpValue<Kind extends OwnerOpKind = OwnerOpKind> = Kind extends OwnerOpKind
 	? z.infer<Extract<Catalog, { kind: Kind }>["value"]>
 	: never;
@@ -284,7 +359,7 @@ export class OwnerOpRegistry {
 		return this.handlers.get(kind) ?? null;
 	}
 
-	/** Catalogued kinds no handler serves. */
+	/** Required kinds without handlers. */
 	unregistered(): OwnerOpKind[] {
 		return OWNER_OP_KIND_LIST.filter((kind) => !this.handlers.has(kind));
 	}

@@ -117,6 +117,8 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 				return { kind: "tmux", ansi: options.screen ?? "$ ", hash: "h1" };
 			case "listDirs":
 				return { entries: options.entries ?? ["projects"], path: op.path || HOST_HOME };
+			case "kasaScan":
+				return { candidates: [] };
 			case "createSession":
 				// The shell comes up after the answer.
 				setTimeout(() => handlers.onCreateSession?.(op), 0);

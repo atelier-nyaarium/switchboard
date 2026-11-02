@@ -25,6 +25,7 @@ import { composeValueResult } from "../router/valueResult.js";
 import { createRoutineExecution } from "../routines/execution.js";
 import type { AssistantStage } from "./composeAssistant.js";
 import type { AwarenessStage } from "./composeAwareness.js";
+import type { DeviceStage } from "./composeDevices.js";
 import type { HostStage } from "./composeHost.js";
 import type { RouterPresenceBuild } from "./composeRouterPresence.js";
 import type { GatewayRoutes } from "./composeRoutes.js";
@@ -48,6 +49,7 @@ export interface RouterFramesStageDeps {
 	runbooks: Pick<RunbookStage, "console">;
 	routines: Pick<RoutineStage, "console" | "bindExecution" | "sessionEnded">;
 	policies: Pick<import("./composePolicies.js").PolicyStage, "console">;
+	devices: Pick<DeviceStage, "console">;
 	workspacePlane: Pick<import("../workspacePlane.js").WorkspacePlane, "ask">;
 	awareness: Pick<AwarenessStage, "awareness" | "workspaceObserve">;
 	assistant: Pick<
@@ -149,6 +151,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			runbooks: deps.runbooks.console,
 			routines: deps.routines.console,
 			policies: deps.policies.console,
+			devices: deps.devices.console,
 			workspaceAsk: deps.workspacePlane.ask,
 			workspaceChanged: (team, change) =>
 				deps.awareness.workspaceObserve([

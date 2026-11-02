@@ -39,6 +39,7 @@ import {
 	setProjectDirs,
 	shouldGreetLaunch,
 } from "./hostResolve.js";
+import { createKasaScanner } from "./kasaScan.js";
 import { PresenceScheduler, type WatchEntry } from "./presenceScheduler.js";
 import { spawnReloadPlugins } from "./reloadPlugins.js";
 import {
@@ -497,6 +498,7 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 
 // The runner owns single-flight and the cadence floor.
 const hostOpRunner = createHostOpRunner({
+	kasaScan: createKasaScanner(),
 	// Internal callers use peekPane for its reject-on-absent.
 	peekPane: peekWithFallback,
 	sendText,

@@ -7,6 +7,7 @@ import { composeAssistant } from "./compose/composeAssistant.js";
 import { composeAwareness } from "./compose/composeAwareness.js";
 import { composeBaseline } from "./compose/composeBaseline.js";
 import { composeBootstrap } from "./compose/composeBootstrap.js";
+import { composeDevices, type DeviceStage } from "./compose/composeDevices.js";
 import { composeEnrollment } from "./compose/composeEnrollment.js";
 import { composeFaults } from "./compose/composeFaults.js";
 import { composeFederation, type FederationStage } from "./compose/composeFederation.js";
@@ -58,6 +59,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	let frames: RouterFramesBuild | undefined;
 	let presenceHandlers: RouterPresenceBuild | undefined;
 	let vault: VaultStage | undefined;
+	let devices: DeviceStage | undefined;
 
 	const requireRoutes = (): GatewayRoutes => {
 		if (!routes) throw new Error("the routes stage is not composed yet");
@@ -68,6 +70,10 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	const requireDeliveries = (): ChannelDeliveryCoordinator => {
 		if (!websockets) throw new Error("the websockets stage is not composed yet");
 		return websockets.channelDeliveries;
+	};
+	const requireDevices = (): DeviceStage => {
+		if (!devices) throw new Error("the devices stage is not composed yet");
+		return devices;
 	};
 
 	const context = new FederationContext({
@@ -127,6 +133,10 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 					? vault.readForWatcher(watcherId, entryId)
 					: { kind: "unready", reason: "the vault is not composed yet" },
 			usableHere: async (entryId) => (vault ? vault.usableHere(entryId) : false),
+		},
+		devices: {
+			listDevices: () => requireDevices().listDevices(),
+			setDevice: (target, verb) => requireDevices().setDevice(target, verb),
 		},
 		routes: requireRoutes,
 		blobSize: (blobId) => {
@@ -262,6 +272,12 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		onPolicyMoved: (policyId) => vault?.policyMoved(policyId),
 		onPoliciesListed: (listed) => vault?.policiesListed(listed),
 	});
+	devices = composeDevices({
+		dataDir: bootstrap.dataDir,
+		ambient: bootstrap.ambient,
+		relayToHost: host.relayToHost,
+		...(deps.kasaTransport === undefined ? {} : { transport: deps.kasaTransport }),
+	});
 	routerFrames = composeRouterFrames({
 		localGatewayId: bootstrap.localGatewayId,
 		wakeTimeoutMs: config.wakeTimeoutMs,
@@ -275,6 +291,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		runbooks,
 		routines,
 		policies,
+		devices: requireDevices(),
 		workspacePlane: websockets.workspacePlane,
 		awareness,
 		assistant,
@@ -318,6 +335,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			};
 			try {
 				await capture(() => enrollment.stop());
+				await capture(() => devices?.close());
 				await capture(() => federation?.drainInboxPump());
 				await capture(() => routines.stop());
 				await capture(() => assistant.stop());

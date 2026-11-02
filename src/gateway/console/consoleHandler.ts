@@ -57,6 +57,7 @@ export function createConsoleDispatcher({
 	runbooks,
 	routines,
 	policies,
+	devices,
 	workspaceAsk,
 	workspaceChanged,
 	onSessionEnded,
@@ -420,6 +421,33 @@ export function createConsoleDispatcher({
 			case "policy_enable":
 				return requirePolicies().enable(op.policyId, op.enabled, op.baseRevision);
 
+			case "device_list":
+				return requireDevices().list();
+
+			case "device_read":
+				return requireDevices().read(op.id);
+
+			case "device_scan":
+				return requireDevices().scan();
+
+			case "device_add":
+				return requireDevices().add({ mac: op.mac, address: op.address, name: op.name });
+
+			case "device_rename":
+				return requireDevices().rename(op.id, op.name, op.revision);
+
+			case "device_remove":
+				return requireDevices().remove(op.id, op.revision);
+
+			case "device_set":
+				return requireDevices().set(op.id, op.verb);
+
+			case "device_schedule_put":
+				return requireDevices().schedulePut(op.id, op.revision, op.schedule);
+
+			case "device_setting_put":
+				return requireDevices().settingPut(op.id, op.revision, op.setting);
+
 			case "assistant_state":
 				return requireAssistant().state();
 
@@ -461,9 +489,8 @@ export function createConsoleDispatcher({
 				return requireAssistant().answerAct(op.requestId, op.decision, op.note);
 
 			default: {
-				// Exhaustive by type.
 				const unhandled: never = op;
-				throw new Error(`unhandled console op ${(unhandled as ConsoleOp).kind}`);
+				throw new Error(`unhandled console op ${String(unhandled)}`);
 			}
 		}
 	}
@@ -476,6 +503,11 @@ export function createConsoleDispatcher({
 	function requirePolicies() {
 		if (!policies) throw new Error("policies are not available on this Gateway");
 		return policies;
+	}
+
+	function requireDevices() {
+		if (!devices) throw new Error("devices are not available on this Gateway");
+		return devices;
 	}
 
 	function requireAssistant() {

@@ -4,6 +4,7 @@ import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { ACTION_FRONT_ROUTES } from "../shared/schemasActionFront.js";
 import type { PhoneCapabilityAnswer } from "../shared/schemasPhoneCapabilities.js";
 import { PHONE_HOLD_WINDOW_MS } from "../shared/schemasPhoneHold.js";
+import { createFakeKasaPlug, type FakeKasaPlug } from "../testing/fakeKasaPlug.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
 import type { MailboxEntry } from "../testing/phoneDriver.js";
@@ -11,6 +12,7 @@ import type { MailboxEntry } from "../testing/phoneDriver.js";
 describe("phone capabilities through the federation harness", () => {
 	let h: FederationHarness;
 	let assistant: FakeSession;
+	let plug: FakeKasaPlug;
 	let clock: number;
 
 	const postPhone = (key: string, callId: string, params: Record<string, unknown> = {}) =>
@@ -35,7 +37,8 @@ describe("phone capabilities through the federation harness", () => {
 
 	beforeAll(async () => {
 		clock = Date.now();
-		h = await startFederationHarness({ now: () => clock });
+		plug = await createFakeKasaPlug({ mac: "aa:bb:cc:dd:ee:ff" });
+		h = await startFederationHarness({ now: () => clock, kasaPort: plug.port });
 		h.host.handlers.onWake = (frame) => {
 			if (frame.team !== ASSISTANT_TEAM) return;
 			assistant = attachFakeSession(h.gateway, {
@@ -71,6 +74,7 @@ describe("phone capabilities through the federation harness", () => {
 	afterAll(async () => {
 		assistant?.close();
 		if (h) await h.close();
+		if (plug) await plug.close();
 	});
 
 	it("answers no holder as unavailable, then claims the phone hold", async () => {
@@ -130,6 +134,27 @@ describe("phone capabilities through the federation harness", () => {
 		expect(request.entry).toMatchObject({ payload: { guard: "none", key: "torch" } });
 		await h.phone.answerPhone(callId, answerPhone({ on: true, levels: 1 }));
 		expect(await (await pending).json()).toMatchObject({ kind: "ok", answer: { on: true, levels: 1 } });
+	});
+
+	it("adds a device through the Router and lists its set state in the assistant", async () => {
+		const added = await h.phone.value({
+			kind: "device_add",
+			mac: "aa:bb:cc:dd:ee:ff",
+			address: "127.0.0.1",
+			name: "Hall lamp",
+		});
+		expect(added.result).toMatchObject({ stored: true, record: { id: "aa:bb:cc:dd:ee:ff", name: "Hall lamp" } });
+
+		const set = await h.phone.value({ kind: "device_set", id: "aa:bb:cc:dd:ee:ff", verb: "on" });
+		expect(set.result).toMatchObject({ state: { state: "on" } });
+
+		const action = await (await postPhone("devices", "assistant-device-list-01")).json();
+		expect(action).toEqual({
+			kind: "ok",
+			answer: {
+				devices: [{ id: "aa:bb:cc:dd:ee:ff", name: "Hall lamp", kind: "switch", state: "on" }],
+			},
+		});
 	});
 
 	it("replays a call id without appending a second phone row", async () => {

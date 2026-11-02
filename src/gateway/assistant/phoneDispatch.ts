@@ -11,7 +11,7 @@ import type {
 } from "../../shared/schemasPhoneCapabilities.js";
 import { PHONE_CAPABILITIES } from "../../shared/schemasPhoneCapabilities.js";
 import type { ActGuard } from "./actGuard.js";
-import { GatewayCapabilityRefusal } from "./gatewayCapabilityRefusal.js";
+import { GatewayCapabilityRefusal, GatewayCapabilityRejected } from "./gatewayCapabilityRefusal.js";
 import type { PhoneRequestAnswer, PhoneRequests } from "./phoneRequests.js";
 import { ASSISTANT_WAITS } from "./waits.js";
 
@@ -91,7 +91,13 @@ export function createPhoneDispatch(
 				return resultOf({ kind: "ok", answer });
 			} catch (error) {
 				if (error instanceof GatewayCapabilityRefusal)
-					return resultOf({ kind: "unavailable", reason: error.reason });
+					return resultOf({
+						kind: "unavailable",
+						reason: error.reason,
+						...(error.detail ? { detail: error.detail.slice(0, 400) } : {}),
+					});
+				if (error instanceof GatewayCapabilityRejected)
+					return resultOf({ kind: "refused", reason: error.reason.slice(0, 400) });
 				return resultOf({
 					kind: "refused",
 					reason: "Gateway capability failed",
@@ -99,7 +105,7 @@ export function createPhoneDispatch(
 			}
 		}
 
-		// The hold is the phone's road.
+		// Phone road requires hold.
 		const denied = holdRefusal(deps.hold);
 		if (denied) return resultOf(denied);
 

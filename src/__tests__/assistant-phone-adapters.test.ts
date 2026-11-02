@@ -3,10 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createActGuard } from "../gateway/assistant/actGuard.js";
+import { GatewayCapabilityRefusal, GatewayCapabilityRejected } from "../gateway/assistant/gatewayCapabilityRefusal.js";
 import { createPhoneDispatch } from "../gateway/assistant/phoneDispatch.js";
 import { createPhoneRequests } from "../gateway/assistant/phoneRequests.js";
+import { composeDevices } from "../gateway/compose/composeDevices.js";
 import { createConsolePushOps } from "../gateway/consolePushOps.js";
+import type { KasaTransport } from "../gateway/devices/kasa/transport.js";
 import { generateIdentity } from "../shared/crypto.js";
+import type { GatewayCapabilityRuns } from "../shared/schemasPhoneCapabilities.js";
 import { HolderKeySchema } from "../shared/schemasPhoneHold.js";
 import { Address } from "../shared/session-id.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
@@ -335,5 +339,152 @@ describe("phone request append completion", () => {
 		expect(guard.answer("act-00002", "deny", "owner said no")).toEqual({ ok: true });
 		expect(await denied).toEqual({ kind: "refused", reason: "owner said no" });
 		expect(retracted).toEqual(["act-00001", "act-00002"]);
+	});
+});
+
+describe("Gateway device actions", () => {
+	it("lists live devices and resolves ids or exact names", async () => {
+		const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "assistant-device-actions-"));
+		const macs = new Map([
+			["127.0.0.2", "aa:bb:cc:dd:ee:ff"],
+			["127.0.0.3", "aa:bb:cc:dd:ee:ee"],
+		]);
+		const states = new Map<string, 0 | 1>();
+		const requests: string[] = [];
+		let refuseRelay = false;
+		const transport: KasaTransport = {
+			request: async (address, command) => {
+				requests.push(address);
+				const modules = command as Record<string, Record<string, Record<string, unknown>>>;
+				const [module] = Object.keys(modules);
+				const commands = modules[module ?? ""];
+				const [name] = Object.keys(commands ?? {});
+				const args = commands?.[name ?? ""] ?? {};
+				if (module === "system" && name === "get_sysinfo") {
+					return {
+						system: {
+							get_sysinfo: {
+								err_code: 0,
+								mac: macs.get(address),
+								relay_state: states.get(address) ?? 0,
+								led_off: 0,
+							},
+						},
+					};
+				}
+				if (module === "system" && name === "set_relay_state") {
+					if (refuseRelay) {
+						return { system: { set_relay_state: { err_code: -17, err_msg: "private plug text" } } };
+					}
+					states.set(address, args.state === 1 ? 1 : 0);
+					return { system: { set_relay_state: { err_code: 0 } } };
+				}
+				if (module === "schedule" && name === "get_rules") {
+					return { schedule: { get_rules: { err_code: 0, rule_list: [], enable: 1 } } };
+				}
+				return { [module ?? ""]: { [name ?? ""]: { err_code: 0 } } };
+			},
+		};
+		const devices = composeDevices({
+			dataDir,
+			ambient: fakeAmbient({ now: () => 1_000 }),
+			transport,
+			relayToHost: async () => ({ ok: false, error: "unused" }),
+		});
+		const runs: GatewayCapabilityRuns = {
+			ifttt_trigger: async () => ({ status: 200, ok: true }),
+			devices: async () => {
+				const result = await devices.listDevices();
+				if (result.kind === "ok") return result.answer;
+				throw new GatewayCapabilityRefusal(result.reason, result.detail);
+			},
+			device_set: async ({ target, verb }) => {
+				const result = await devices.setDevice(target, verb);
+				if (result.kind === "ok") return result.answer;
+				if (result.kind === "unavailable") throw new GatewayCapabilityRefusal(result.reason, result.detail);
+				throw new GatewayCapabilityRejected(result.reason);
+			},
+		};
+		const dispatch = createPhoneDispatch({
+			ambient: fakeAmbient({ now: () => 1_000 }),
+			approveEverySend: () => true,
+			hold: () => ({ kind: "none" }),
+			phone: { open: () => ({ kind: "refused" }) } as never,
+			act: { run: async () => ({ kind: "refused", reason: "unused" }) } as never,
+			gateways: runs,
+		});
+
+		try {
+			expect(
+				await devices.console.add({
+					mac: "aa:bb:cc:dd:ee:ff",
+					address: "127.0.0.2",
+					name: "Lamp",
+				}),
+			).toMatchObject({ stored: true });
+			const listed = await dispatch({ key: "devices", callId: "device-list-0001", params: {} });
+			expect(listed).toMatchObject({
+				kind: "ok",
+				answer: { devices: [{ id: "aa:bb:cc:dd:ee:ff", name: "Lamp", kind: "switch", state: "off" }] },
+			});
+
+			const byName = await dispatch({
+				key: "device_set",
+				callId: "device-name-0001",
+				params: { target: "lAmP", verb: "on" },
+			});
+			expect(byName).toEqual({ kind: "ok", answer: { id: "aa:bb:cc:dd:ee:ff", state: "on" } });
+
+			const byId = await dispatch({
+				key: "device_set",
+				callId: "device-id-000001",
+				params: { target: "aa:bb:cc:dd:ee:ff", verb: "off" },
+			});
+			expect(byId).toEqual({ kind: "ok", answer: { id: "aa:bb:cc:dd:ee:ff", state: "off" } });
+
+			expect(
+				await devices.console.add({
+					mac: "aa:bb:cc:dd:ee:ee",
+					address: "127.0.0.3",
+					name: "Lamp",
+				}),
+			).toMatchObject({ stored: true });
+			const beforeRefusals = requests.length;
+			const ambiguous = await dispatch({
+				key: "device_set",
+				callId: "device-ambiguous-01",
+				params: { target: "Lamp", verb: "on" },
+			});
+			expect(ambiguous).toMatchObject({ kind: "refused" });
+			expect((ambiguous as { reason: string }).reason).toContain("aa:bb:cc:dd:ee:ff");
+			expect((ambiguous as { reason: string }).reason).toContain("aa:bb:cc:dd:ee:ee");
+
+			const unknown = await dispatch({
+				key: "device_set",
+				callId: "device-unknown-001",
+				params: { target: "Missing", verb: "on" },
+			});
+			expect(unknown).toMatchObject({ kind: "refused" });
+			expect((unknown as { reason: string }).reason).toContain("Lamp");
+			expect(requests.length).toBe(beforeRefusals);
+
+			const secondById = await dispatch({
+				key: "device_set",
+				callId: "device-id-000002",
+				params: { target: "aa:bb:cc:dd:ee:ee", verb: "on" },
+			});
+			expect(secondById).toEqual({ kind: "ok", answer: { id: "aa:bb:cc:dd:ee:ee", state: "on" } });
+
+			refuseRelay = true;
+			const refused = await dispatch({
+				key: "device_set",
+				callId: "device-error-0001",
+				params: { target: "aa:bb:cc:dd:ee:ff", verb: "on" },
+			});
+			expect(refused).toEqual({ kind: "refused", reason: "the device answered err_code -17" });
+			expect(JSON.stringify(refused)).not.toContain("private plug text");
+		} finally {
+			fs.rmSync(dataDir, { recursive: true, force: true });
+		}
 	});
 });

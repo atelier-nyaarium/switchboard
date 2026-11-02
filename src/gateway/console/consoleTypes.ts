@@ -1,3 +1,4 @@
+import type { z } from "zod";
 import type { DomainSnapshot } from "../../shared/admission.js";
 import type { Ambient } from "../../shared/ambient.js";
 import type { BoardDisposition } from "../../shared/board-authority.js";
@@ -21,6 +22,18 @@ import type {
 } from "../../shared/schemasAssistantRules.js";
 import type { ConsoleAssistantSendAnswerResult } from "../../shared/schemasAssistantSend.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
+import type {
+	ConsoleDeviceAddResultSchema,
+	ConsoleDeviceListResultSchema,
+	ConsoleDeviceReadResultSchema,
+	ConsoleDeviceRemoveResultSchema,
+	ConsoleDeviceRenameResultSchema,
+	ConsoleDeviceScanResultSchema,
+	ConsoleDeviceSchedulePutResultSchema,
+	ConsoleDeviceSetResultSchema,
+	ConsoleDeviceSettingPutResultSchema,
+	DeviceAddRequestSchema,
+} from "../../shared/schemasDevices.js";
 import type { PhoneCapabilityAnswer } from "../../shared/schemasPhoneCapabilities.js";
 import type { HolderKey } from "../../shared/schemasPhoneHold.js";
 import type {
@@ -135,6 +148,27 @@ export interface ConsoleHandlerDeps {
 	/** The refusal reason, or null. */
 	forgetRefusal?: (team: string) => string | null;
 	assistant?: AssistantConsoleHandlers;
+	devices?: DeviceConsoleHandlers;
+}
+
+export interface DeviceConsoleHandlers {
+	list: () => Promise<z.infer<typeof ConsoleDeviceListResultSchema>>;
+	read: (id: string) => Promise<z.infer<typeof ConsoleDeviceReadResultSchema>>;
+	scan: () => Promise<z.infer<typeof ConsoleDeviceScanResultSchema>>;
+	add: (request: z.infer<typeof DeviceAddRequestSchema>) => Promise<z.infer<typeof ConsoleDeviceAddResultSchema>>;
+	rename: (id: string, name: string, revision: number) => Promise<z.infer<typeof ConsoleDeviceRenameResultSchema>>;
+	remove: (id: string, revision: number) => Promise<z.infer<typeof ConsoleDeviceRemoveResultSchema>>;
+	set: (id: string, verb: "on" | "off" | "toggle") => Promise<z.infer<typeof ConsoleDeviceSetResultSchema>>;
+	schedulePut: (
+		id: string,
+		revision: number,
+		schedule: z.infer<typeof import("../../shared/schemasDevices.js").DeviceScheduleSchema>,
+	) => Promise<z.infer<typeof ConsoleDeviceSchedulePutResultSchema>>;
+	settingPut: (
+		id: string,
+		revision: number,
+		setting: z.infer<typeof import("../../shared/schemasDevices.js").DeviceSettingPutSchema>,
+	) => Promise<z.infer<typeof ConsoleDeviceSettingPutResultSchema>>;
 }
 
 /** A refusal throws with its reason, but a rule op answers its refusal with the held rules. One op at a time. */

@@ -75,6 +75,15 @@ object Protocol {
 		const val OWNER_OP_ASSISTANT_HOME_PUT: String = "assistant_home_put"
 		const val OWNER_OP_HOLD_CLAIM: String = "hold_claim"
 		const val OWNER_OP_PHONE_HOLD_READ: String = "phone_hold_read"
+		const val OWNER_OP_DEVICE_LIST: String = "device_list"
+		const val OWNER_OP_DEVICE_READ: String = "device_read"
+		const val OWNER_OP_DEVICE_SCAN: String = "device_scan"
+		const val OWNER_OP_DEVICE_ADD: String = "device_add"
+		const val OWNER_OP_DEVICE_RENAME: String = "device_rename"
+		const val OWNER_OP_DEVICE_REMOVE: String = "device_remove"
+		const val OWNER_OP_DEVICE_SET: String = "device_set"
+		const val OWNER_OP_DEVICE_SCHEDULE_PUT: String = "device_schedule_put"
+		const val OWNER_OP_DEVICE_SETTING_PUT: String = "device_setting_put"
 		const val SIGNING_TAG_ADMISSION: String = "ADMISSION_V1"
 		const val SIGNING_TAG_REVOCATION: String = "REVOCATION_V1"
 		const val SIGNING_TAG_SELF_REVOCATION: String = "SELF_REVOCATION_V1"
@@ -175,6 +184,15 @@ object Protocol {
 			const val POLICY_PUT: String = "policy_put"
 			const val POLICY_DELETE: String = "policy_delete"
 			const val POLICY_ENABLE: String = "policy_enable"
+			const val DEVICE_LIST: String = "device_list"
+			const val DEVICE_READ: String = "device_read"
+			const val DEVICE_SCAN: String = "device_scan"
+			const val DEVICE_ADD: String = "device_add"
+			const val DEVICE_RENAME: String = "device_rename"
+			const val DEVICE_REMOVE: String = "device_remove"
+			const val DEVICE_SET: String = "device_set"
+			const val DEVICE_SCHEDULE_PUT: String = "device_schedule_put"
+			const val DEVICE_SETTING_PUT: String = "device_setting_put"
 			const val ASSISTANT_STATE: String = "assistant_state"
 			const val ASSISTANT_WATCHER_GRANTS: String = "assistant_watcher_grants"
 			const val ASSISTANT_RULE_PUT: String = "assistant_rule_put"
@@ -230,6 +248,69 @@ object Protocol {
 			const val SMS: String = "sms"
 			const val CALL: String = "call"
 			const val IFTTT_TRIGGER: String = "ifttt_trigger"
+			const val DEVICES: String = "devices"
+			const val DEVICE_SET: String = "device_set"
+		}
+
+		object PhoneUnavailableReason {
+			const val NOT_GRANTED: String = "not_granted"
+			const val DISABLED: String = "disabled"
+			const val NOT_SHOWING: String = "not_showing"
+			const val APP_MISSING: String = "app_missing"
+			const val NOT_SUPPORTED: String = "not_supported"
+			const val NO_HOLDER: String = "no_holder"
+			const val NOT_READY: String = "not_ready"
+			const val TIMEOUT: String = "timeout"
+			const val UNREACHABLE: String = "unreachable"
+		}
+
+		object DeviceKind {
+			const val SWITCH: String = "switch"
+		}
+
+		object DeviceDriver {
+			const val KASA: String = "kasa"
+		}
+
+		object DeviceState {
+			const val ON: String = "on"
+			const val OFF: String = "off"
+			const val UNKNOWN: String = "unknown"
+			const val UNREACHABLE: String = "unreachable"
+		}
+
+		object DeviceScheduleAction {
+			const val ON: String = "on"
+			const val OFF: String = "off"
+		}
+
+		object DeviceVerb {
+			const val ON: String = "on"
+			const val OFF: String = "off"
+			const val TOGGLE: String = "toggle"
+		}
+
+		object DeviceCloudState {
+			const val BOUND: String = "bound"
+			const val DISCONNECTED: String = "disconnected"
+		}
+
+		object DeviceScanRefusal {
+			const val DAEMON_AWAY: String = "daemon_away"
+			const val TIMEOUT: String = "timeout"
+			const val REFUSED: String = "refused"
+		}
+
+		object DeviceOperationReason {
+			const val UNREACHABLE: String = "unreachable"
+			const val TIMEOUT: String = "timeout"
+			const val REFUSED: String = "refused"
+			const val NOT_SUPPORTED: String = "not_supported"
+		}
+
+		object KasaSettingKey {
+			const val LED: String = "led"
+			const val CLOUD: String = "cloud"
 		}
 	}
 
@@ -476,6 +557,26 @@ data class IftttTriggerRequest(
 data class IftttTriggerAnswer(
 	val status: Long,
 	val ok: Boolean,
+)
+
+@Serializable
+class DevicesRequest
+
+@Serializable
+data class DevicesAnswer(
+	val devices: List<DeviceCapabilitySummary>,
+)
+
+@Serializable
+data class DeviceActionSetRequest(
+	val target: String,
+	val verb: String,
+)
+
+@Serializable
+data class DeviceActionSetAnswer(
+	val id: String,
+	val state: String,
 )
 
 @Serializable
@@ -936,6 +1037,66 @@ sealed class ConsoleOp {
 		val policyId: String,
 		val enabled: Boolean,
 		val baseRevision: Long,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("device_list")
+	data object DeviceList : ConsoleOp()
+
+	@Serializable
+	@SerialName("device_read")
+	data class DeviceRead(
+		val id: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("device_scan")
+	data object DeviceScan : ConsoleOp()
+
+	@Serializable
+	@SerialName("device_add")
+	data class DeviceAdd(
+		val mac: String,
+		val address: String,
+		val name: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("device_rename")
+	data class DeviceRename(
+		val id: String,
+		val name: String,
+		val revision: Long,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("device_remove")
+	data class DeviceRemove(
+		val id: String,
+		val revision: Long,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("device_set")
+	data class DeviceSet(
+		val id: String,
+		val verb: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("device_schedule_put")
+	data class DeviceSchedulePut(
+		val id: String,
+		val revision: Long,
+		val schedule: DeviceSchedule,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("device_setting_put")
+	data class DeviceSettingPut(
+		val id: String,
+		val revision: Long,
+		val setting: com.atelier_nyaarium.switchboard.proto.DeviceSettingPut,
 	) : ConsoleOp()
 
 	@Serializable
@@ -1400,6 +1561,224 @@ data class ConsolePolicyPutResult(
 data class ConsolePolicyDeleteResult(
 	val deleted: Boolean,
 	val reason: String? = null,
+)
+
+@Serializable
+data class DeviceRecord(
+	val id: String,
+	val name: String,
+	val kind: String,
+	val driver: String,
+	val address: String,
+	val revision: Long,
+)
+
+@Serializable
+data class DeviceLiveState(
+	val state: String,
+	val readAt: Long,
+)
+
+@Serializable
+data class DeviceScheduleRule(
+	val id: String? = null,
+	val days: List<Boolean>,
+	val time: String,
+	val action: String,
+	val enabled: Boolean,
+)
+
+@Serializable
+data class DeviceSchedule(
+	val enabled: Boolean,
+	val rules: List<DeviceScheduleRule>,
+)
+
+@Serializable
+data class KasaClock(
+	val time: String,
+	val zone: String,
+)
+
+@Serializable
+data class KasaDeviceSettings(
+	@EncodeDefault
+	val driver: String = "kasa",
+	val led: Boolean,
+	val clock: KasaClock,
+	val cloud: String,
+)
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("driver")
+sealed class DeviceSettings {
+	@Serializable
+	@SerialName("kasa")
+	data class Kasa(
+		val led: Boolean,
+		val clock: KasaClock,
+		val cloud: String,
+	) : DeviceSettings()
+}
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("key")
+sealed class KasaSettingPut {
+	@Serializable
+	@SerialName("led")
+	data class Led(
+		val value: Boolean,
+	) : KasaSettingPut()
+
+	@Serializable
+	@SerialName("cloud")
+	data class Cloud(
+		val value: String,
+	) : KasaSettingPut()
+}
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("driver")
+sealed class DeviceSettingPut {
+	@Serializable
+	@SerialName("kasa")
+	data class Kasa(
+		val setting: KasaSettingPut,
+	) : DeviceSettingPut()
+}
+
+@Serializable
+data class DeviceCandidate(
+	val mac: String,
+	val address: String,
+	val alias: String,
+	val model: String,
+	val hardware: String,
+	val firmware: String,
+)
+
+@Serializable
+class DeviceListRequest
+
+@Serializable
+data class DeviceReadRequest(
+	val id: String,
+)
+
+@Serializable
+class DeviceScanRequest
+
+@Serializable
+data class DeviceAddRequest(
+	val mac: String,
+	val address: String,
+	val name: String,
+)
+
+@Serializable
+data class DeviceRenameRequest(
+	val id: String,
+	val name: String,
+	val revision: Long,
+)
+
+@Serializable
+data class DeviceRemoveRequest(
+	val id: String,
+	val revision: Long,
+)
+
+@Serializable
+data class DeviceSetRequest(
+	val id: String,
+	val verb: String,
+)
+
+@Serializable
+data class DeviceSchedulePutRequest(
+	val id: String,
+	val revision: Long,
+	val schedule: DeviceSchedule,
+)
+
+@Serializable
+data class DeviceSettingPutRequest(
+	val id: String,
+	val revision: Long,
+	val setting: DeviceSettingPut,
+)
+
+@Serializable
+data class ConsoleDeviceListResult(
+	val records: List<DeviceRecord>? = null,
+	val revision: Long? = null,
+	val reason: String? = null,
+	val detail: String? = null,
+)
+
+@Serializable
+data class ConsoleDeviceReadResult(
+	val state: DeviceLiveState? = null,
+	val schedule: DeviceSchedule? = null,
+	val reason: String? = null,
+	val detail: String? = null,
+)
+
+@Serializable
+data class ConsoleDeviceScanResult(
+	val candidates: List<DeviceCandidate>? = null,
+	val reason: String? = null,
+	val detail: String? = null,
+)
+
+@Serializable
+data class ConsoleDeviceAddResult(
+	val stored: Boolean,
+	val record: DeviceRecord? = null,
+	val reason: String? = null,
+	val detail: String? = null,
+)
+
+@Serializable
+data class ConsoleDeviceRenameResult(
+	val stored: Boolean,
+	val record: DeviceRecord? = null,
+	val reason: String? = null,
+	val detail: String? = null,
+)
+
+@Serializable
+data class ConsoleDeviceRemoveResult(
+	val deleted: Boolean,
+	val record: DeviceRecord? = null,
+	val reason: String? = null,
+	val detail: String? = null,
+)
+
+@Serializable
+data class ConsoleDeviceSetResult(
+	val state: DeviceLiveState? = null,
+	val reason: String? = null,
+	val detail: String? = null,
+)
+
+@Serializable
+data class ConsoleDeviceSchedulePutResult(
+	val schedule: DeviceSchedule? = null,
+	val record: DeviceRecord? = null,
+	val reason: String? = null,
+	val detail: String? = null,
+)
+
+@Serializable
+data class ConsoleDeviceSettingPutResult(
+	val settings: DeviceSettings? = null,
+	val record: DeviceRecord? = null,
+	val reason: String? = null,
+	val detail: String? = null,
 )
 
 @Serializable
@@ -3191,6 +3570,14 @@ data class PhoneNotification(
 data class LaunchableApp(
 	val label: String,
 	val `package`: String,
+)
+
+@Serializable
+data class DeviceCapabilitySummary(
+	val id: String,
+	val name: String,
+	val kind: String,
+	val state: String,
 )
 
 @Serializable

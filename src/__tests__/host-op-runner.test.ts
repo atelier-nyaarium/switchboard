@@ -17,6 +17,7 @@ function makeOps(): { ops: TmuxOps } {
 		reloadPlugins: vi.fn(async () => {}),
 		killSession: vi.fn(async () => {}),
 		listDirs: vi.fn(async () => ({ entries: ["projects"] })),
+		kasaScan: vi.fn(async () => ({ candidates: [] })),
 	};
 	return { ops };
 }
@@ -104,6 +105,13 @@ describe("createHostOpRunner", () => {
 		expect(h.ops.reloadPlugins).toHaveBeenCalledWith(T);
 	});
 
+	it("relays kasaScan and returns its candidate result", async () => {
+		const h = makeOps();
+		const runner = createHostOpRunner(h.ops);
+		expect(await runner.run({ kind: "kasaScan" })).toEqual({ candidates: [] });
+		expect(h.ops.kasaScan).toHaveBeenCalledTimes(1);
+	});
+
 	it("forwards a createSession workdirHint to the tmux op", async () => {
 		const h = makeOps();
 		const runner = createHostOpRunner(h.ops);
@@ -160,6 +168,7 @@ describe("createHostOpRunner", () => {
 			reloadPlugins: async () => {},
 			killSession: async () => {},
 			listDirs: async () => ({ entries: [] }),
+			kasaScan: async () => ({ candidates: [] }),
 		};
 		const runner = createHostOpRunner(ops, { minPeekIntervalMs: 0 });
 
@@ -190,6 +199,7 @@ describe("createHostOpRunner", () => {
 			reloadPlugins: async () => {},
 			killSession: async () => {},
 			listDirs: async () => ({ entries: [] }),
+			kasaScan: async () => ({ candidates: [] }),
 		};
 		const runner = createHostOpRunner(ops, { minPeekIntervalMs: 0 });
 		await expect(runner.run({ kind: "peek", target: T })).rejects.toThrow();
@@ -233,6 +243,7 @@ describe("createHostOpRunner peek priority lanes", () => {
 			reloadPlugins: async () => {},
 			killSession: async () => {},
 			listDirs: async () => ({ entries: [] }),
+			kasaScan: async () => ({ candidates: [] }),
 		};
 		return { ops, resolveTarget: (name) => resolvers.get(name)?.(), admissionOrder };
 	}

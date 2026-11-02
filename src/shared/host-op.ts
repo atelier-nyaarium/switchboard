@@ -1,4 +1,6 @@
+import { z } from "zod";
 import { WINDOWS_SPAWN } from "./host-spawn.js";
+import { DEVICE_MAX_RECORDS, DeviceCandidateSchema } from "./schemasDevices.js";
 
 export interface TmuxTarget {
 	kind: "host" | "devcontainer";
@@ -6,7 +8,7 @@ export interface TmuxTarget {
 	sessionName: string;
 }
 
-// Validate control keys at both gateway and host boundaries.
+// Validated at both boundaries.
 export const ALLOWED_KEYS: ReadonlySet<string> = new Set([
 	"Enter",
 	"Escape",
@@ -34,14 +36,14 @@ export function assertTmuxName(name: string): void {
 	if (!isTmuxName(name)) throw new Error(`invalid tmux name "${name}"`);
 }
 
-// Reserve the daemon supervisor session from all host operations.
+// Reserved: daemon supervisor session.
 export const RESERVED_HOST_SESSIONS: ReadonlySet<string> = new Set(["host-daemon"]);
 export function isReservedHostSession(session: string): boolean {
 	return RESERVED_HOST_SESSIONS.has(session);
 }
 
 export const SHELL_SAFE_NAME_RE = /^[a-z0-9][a-z0-9.-]*$/;
-// Reject shell metacharacters before launch commands are built.
+// Rejects shell metacharacters.
 export function isShellSafeName(name: string): boolean {
 	return name.length <= MAX_TMUX_NAME_LEN && SHELL_SAFE_NAME_RE.test(name);
 }
@@ -71,7 +73,8 @@ export const MAX_CONVERSATION_ID_LEN = 128;
 
 export type HostOp =
 	| { kind: "peek"; target: TmuxTarget }
-	// Mutating operations replay completed acknowledgements by dedupKey.
+	| { kind: "kasaScan" }
+	// Mutations replay by dedupKey.
 	| { kind: "sendText"; target: TmuxTarget; text: string; submit?: boolean; dedupKey?: string }
 	| { kind: "sendKey"; target: TmuxTarget; key: string; dedupKey?: string }
 	| {
@@ -85,6 +88,13 @@ export type HostOp =
 	| { kind: "listDirs"; path: string; spawn?: string }
 	| { kind: "reloadPlugins"; target: TmuxTarget; dedupKey?: string }
 	| { kind: "killSession"; target: TmuxTarget; dedupKey?: string };
+
+export const HostKasaScanResultSchema = z.union([
+	z.object({ candidates: z.array(DeviceCandidateSchema).max(DEVICE_MAX_RECORDS) }).strict(),
+	z.object({ reason: z.enum(["no_interface", "socket"]) }).strict(),
+]);
+
+export type HostKasaScanResult = z.infer<typeof HostKasaScanResultSchema>;
 
 export interface HostListDirsResult {
 	entries: string[];
@@ -117,7 +127,7 @@ const PEEK_ABSENT_PATTERNS = [
 	"no such container",
 	"is not running",
 ];
-// Classify vanished panes as absence, not operational failure.
+// Vanished panes mean absent.
 export function classifyPeekError(error: string): PeekErrorKind {
 	const lower = error.toLowerCase();
 	if (lower.includes("timed out") || lower.includes("tmux command exited")) return "failure";

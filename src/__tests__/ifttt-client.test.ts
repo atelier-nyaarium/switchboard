@@ -51,7 +51,11 @@ function dispatchFor(
 				throw new Error("unexpected phone act");
 			},
 		} as never,
-		gateways: { ifttt_trigger: trigger },
+		gateways: {
+			ifttt_trigger: trigger,
+			devices: async () => ({ devices: [] }),
+			device_set: async () => ({ id: "device", state: "off" }),
+		},
 	});
 }
 
@@ -163,7 +167,11 @@ describe("IFTTT trigger client", () => {
 					throw new Error("unexpected phone act");
 				},
 			} as never,
-			gateways: { ifttt_trigger: (request) => trigger.trigger(request) },
+			gateways: {
+				ifttt_trigger: (request) => trigger.trigger(request),
+				devices: async () => ({ devices: [] }),
+				device_set: async () => ({ id: "device", state: "off" }),
+			},
 		});
 
 		expect(await dispatch({ key: "ifttt_trigger", callId: "ifttt-call-no-hold", params })).toMatchObject({

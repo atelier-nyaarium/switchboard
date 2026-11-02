@@ -7,6 +7,17 @@ import { BoardEntrySchema } from "./schemasBoard.js";
 import { CrossDomainShareTargetSchema, MailboxEntrySchema } from "./schemasConsoleOp.js";
 import { DomainStatusSchema } from "./schemasCore.js";
 import {
+	ConsoleDeviceAddResultSchema,
+	ConsoleDeviceListResultSchema,
+	ConsoleDeviceReadResultSchema,
+	ConsoleDeviceRemoveResultSchema,
+	ConsoleDeviceRenameResultSchema,
+	ConsoleDeviceScanResultSchema,
+	ConsoleDeviceSchedulePutResultSchema,
+	ConsoleDeviceSetResultSchema,
+	ConsoleDeviceSettingPutResultSchema,
+} from "./schemasDevices.js";
+import {
 	ConsolePolicyDeleteResultSchema,
 	ConsolePolicyListResultSchema,
 	ConsolePolicyPutResultSchema,
@@ -448,6 +459,15 @@ export const ConsoleOpResultSchema = z.union([
 	ConsolePolicyListResultSchema,
 	ConsolePolicyPutResultSchema,
 	ConsolePolicyDeleteResultSchema,
+	ConsoleDeviceListResultSchema,
+	ConsoleDeviceReadResultSchema,
+	ConsoleDeviceScanResultSchema,
+	ConsoleDeviceAddResultSchema,
+	ConsoleDeviceRenameResultSchema,
+	ConsoleDeviceRemoveResultSchema,
+	ConsoleDeviceSetResultSchema,
+	ConsoleDeviceSchedulePutResultSchema,
+	ConsoleDeviceSettingPutResultSchema,
 	ConsoleAssistantStateResultSchema,
 	ConsoleAssistantRulesResultSchema,
 	ConsoleAssistantPreviewResultSchema,
