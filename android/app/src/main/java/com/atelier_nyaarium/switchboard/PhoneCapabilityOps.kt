@@ -415,14 +415,15 @@ internal class PhoneCapabilityOps(
 	/** Needs and hardware, the switch aside. */
 	fun grants(key: String): CapabilityAvailability {
 		val binding = PhoneCapabilities.bindings[key] ?: return UNSUPPORTED
-		val availability = permissionState(binding.needs) { permission ->
+		if (key == Protocol.Wire.PhoneCapabilityKey.TORCH && !platform.hasTorch()) {
+			return CapabilityAvailability(false, "not_supported", binding.needs)
+		}
+		return permissionState(binding.needs) { permission ->
 			when (permission) {
 				"notification_access" -> platform.listenerEnabled()
 				else -> manifestPermissionOf(permission)?.let(platform::granted) ?: false
 			}
 		}
-		if (!availability.available || key != Protocol.Wire.PhoneCapabilityKey.TORCH) return availability
-		return if (platform.hasTorch()) availability else CapabilityAvailability(false, "not_supported", binding.needs)
 	}
 
 	override suspend fun clearInMemory() {

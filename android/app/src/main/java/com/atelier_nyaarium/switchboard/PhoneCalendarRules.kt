@@ -38,9 +38,19 @@ internal fun matchesQuery(title: String, query: String?): Boolean {
 /** Rows scanned per read. */
 internal const val CALENDAR_SCAN_CAP = 2000
 
-internal fun selectEvents(rows: Sequence<CalendarRow>, query: String?, limit: Int?): List<CalendarRow> {
+internal data class CalendarSelection(val rows: List<CalendarRow>, val partial: Boolean)
+
+/** Partial when the scan hit its cap. */
+internal fun selectEvents(rows: Sequence<CalendarRow>, query: String?, limit: Int?): CalendarSelection {
 	val cap = (limit ?: 20).coerceIn(1, 50)
-	return rows.take(CALENDAR_SCAN_CAP).filter { matchesQuery(it.title, query) }.take(cap).toList()
+	var scanned = 0
+	val selected = rows
+		.take(CALENDAR_SCAN_CAP)
+		.onEach { scanned += 1 }
+		.filter { matchesQuery(it.title, query) }
+		.take(cap)
+		.toList()
+	return CalendarSelection(selected, partial = selected.size < cap && scanned == CALENDAR_SCAN_CAP)
 }
 
 internal fun eventOf(row: CalendarRow, now: Instant, zone: ZoneId): PhoneCalendarEvent {

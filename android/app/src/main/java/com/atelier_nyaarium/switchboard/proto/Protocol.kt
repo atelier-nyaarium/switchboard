@@ -357,6 +357,7 @@ data class CalendarEventsRequest(
 @Serializable
 data class CalendarEventsAnswer(
 	val events: List<PhoneCalendarEvent>,
+	val partial: Boolean? = null,
 )
 
 @Serializable

@@ -157,7 +157,9 @@ Contacts on the holding phone matching \`query\`, with phones, emails and a birt
 				limit: z.number().int().min(1).max(50).optional(),
 			})
 			.meta({ id: "CalendarEventsRequest" }),
-		answer: z.object({ events: z.array(PhoneCalendarEventSchema).max(50) }).meta({ id: "CalendarEventsAnswer" }),
+		answer: z
+			.object({ events: z.array(PhoneCalendarEventSchema).max(50), partial: z.boolean().optional() })
+			.meta({ id: "CalendarEventsAnswer" }),
 		kind: "read",
 		where: "phone",
 		needs: ["calendar"],
@@ -171,6 +173,7 @@ Lists the holding phone's calendar instances.
 - \`query\` filters on the title; \`limit\` defaults to 20.
 - Times are ISO 8601 with the phone's offset. An all-day event carries dates, and its \`end\` is the day after its last day.
 - \`daysUntil\` counts calendar days from the phone's today to the event's start day.
+- \`partial\` true means the scan stopped at its row cap before the window ended; narrow \`days\` and ask again.
 		`.trim(),
 	},
 	notifications_recent: {

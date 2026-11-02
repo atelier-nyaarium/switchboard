@@ -24,7 +24,7 @@
 		"needs": ["calendar"],
 		"requestId": "CalendarEventsRequest",
 		"answerId": "CalendarEventsAnswer",
-		"describeHash": "b995af383489636e330da4b7881399c5a6d2561ed5f4594a9eb3e7039647e51d"
+		"describeHash": "8531c55899ba07415cfe4c334fbdae5945e1baf1753b8e83f2e96806f4ab7ba3"
 	},
 	{
 		"key": "notifications_recent",

@@ -49,8 +49,8 @@ class PhoneCalendarRulesTest {
 		assertTrue(matchesQuery("Planning", "  "))
 		assertFalse(matchesQuery("Planning", "travel"))
 		assertFalse(matchesQuery("Planning", "p".repeat(81)))
-		assertEquals(listOf(first, second), selectEvents(sequenceOf(first, second, third), "PLAN", 2))
-		assertEquals(listOf(first), selectEvents(sequenceOf(first, second, third), "plan", 1))
+		assertEquals(listOf(first, second), selectEvents(sequenceOf(first, second, third), "PLAN", 2).rows)
+		assertEquals(listOf(first), selectEvents(sequenceOf(first, second, third), "plan", 1).rows)
 	}
 
 	@Test
@@ -58,17 +58,21 @@ class PhoneCalendarRulesTest {
 		var read = 0
 		val rows = generateSequence { read += 1; row(read.toString(), "Planning") }
 
-		assertEquals(3, selectEvents(rows, null, 3).size)
+		val selection = selectEvents(rows, null, 3)
+		assertEquals(3, selection.rows.size)
 		assertEquals(3, read)
+		assertFalse(selection.partial)
 	}
 
 	@Test
-	fun aSelectiveQueryStopsReadingAtTheScanCap() {
+	fun aSelectiveQueryStopsReadingAtTheScanCapAndSaysSo() {
 		var read = 0
 		val rows = generateSequence { read += 1; row(read.toString(), "Work") }
 
-		assertEquals(emptyList<CalendarRow>(), selectEvents(rows, "plan", 5))
+		val selection = selectEvents(rows, "plan", 5)
+		assertEquals(emptyList<CalendarRow>(), selection.rows)
 		assertEquals(CALENDAR_SCAN_CAP, read)
+		assertTrue(selection.partial)
 	}
 
 	@Test

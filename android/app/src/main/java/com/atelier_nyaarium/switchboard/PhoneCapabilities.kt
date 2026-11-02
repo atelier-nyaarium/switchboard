@@ -287,8 +287,11 @@ private suspend fun calendarEventsBody(
 	)?.use { cursor ->
 		val rows = generateSequence { if (cursor.moveToNext()) calendarRowOf(cursor) else null }
 		selectEvents(rows, request.query, limit)
-	}.orEmpty()
-	return CalendarEventsAnswer(selected.map { eventOf(it, now, zone) })
+	} ?: CalendarSelection(emptyList(), partial = false)
+	return CalendarEventsAnswer(
+		selected.rows.map { eventOf(it, now, zone) },
+		partial = true.takeIf { selected.partial },
+	)
 }
 
 private fun notificationsRecentBody(
@@ -449,10 +452,11 @@ private fun smsBody(context: PhoneCapabilityContext, request: SmsRequest): SmsAn
 
 private fun callBody(context: PhoneCapabilityContext, request: CallRequest): CallAnswer {
 	val number = phoneNumberOf(request.number) ?: throw CapabilityUnavailable("not_supported")
-	// Android lets only the owner place an emergency call.
+	// Android lets only the owner place an emergency call; unknown dials.
 	val emergency = runIsolated {
-		context.applicationContext.getSystemService(TelephonyManager::class.java)?.isEmergencyNumber(number) == true
-	}.getOrDefault(false)
+		context.applicationContext.getSystemService(TelephonyManager::class.java)
+			?.isEmergencyNumber(number.removePrefix("+"))
+	}.getOrNull() ?: true
 	val place = request.place == true && !emergency
 	val action = if (place) Intent.ACTION_CALL else Intent.ACTION_DIAL
 	val intent = Intent(action, Uri.parse(telUri(number)))

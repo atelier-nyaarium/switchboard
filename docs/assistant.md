@@ -234,7 +234,8 @@ actions; `run_action` runs a listed id.
 
 - **Discovery:** `list_actions` returns each id (`phone/<key>` or `watcher/<key>`), its kind, needs,
   usage and parameter JSON Schema. For a phone id hosted on the phone, `available` and `reason`
-  reflect the holder's last `status` answer during the hold window; availability is `null` until
+  reflect the holder's last `status` answer, and any later result for that key, during the hold
+  window; availability is `null` until
   that answer, and `statusMemo.ts` clears it on `no_holder`. A phone id hosted on the Gateway
   (`ifttt_trigger`) and a watcher id have no availability.
 - **One params schema:** `actionParamsSchema` in `src/shared/schemasActionFront.ts` selects the Zod
