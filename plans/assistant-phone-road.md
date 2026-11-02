@@ -145,6 +145,17 @@ A: Cut it off the cloud; no network isolation.
 
 > ok we won't worry about vlan. but having the disconnect from cloud is enough
 
+## Question 11 - Who scans the network for plugs?
+
+Q: The Gateway cannot broadcast from its Docker network. The host daemon on Sakura, the phone on the home WiFi, or no scanning with addresses typed by hand?
+A: The host daemon. One typed `HostOp` to scan for Kasa plugs; the Integrations page shows Scan and lists what Sakura found with an Add button each; works away from home.
+
+> A.
+>
+> and once more, that destructive disconnect is a brand/model specific config. So we would have a generic smart device layer, and the brand Kasa for this plug layer. The Kasa plug layer does this specific disconnect.
+
+The layering is fixed by that: a generic device layer the assistant and the app call against, a driver per brand beneath it, and brand-specific acts such as the Kasa cloud disconnect living in the driver's own configuration, never in the generic surface.
+
 ## Refinements found while mapping the seams
 
 - **Sealed payloads refine question 6.** An owner row's payload and a value op are sealed; the Router reads only a row's clear envelope and cannot open an answer. The envelope is Gateway-signed (`rowEnvelopeSigningBytes`), so the Router cannot rewrite it either. So: `recipient: holder` is the Gateway's signed selector inside the envelope; the Router resolves it on the `inbox_append` frame path (`InboxFrames.appendRow`, before `InboxService.appendRow`; `OwnerOpIntake` sees console-origin ops only) and writes the device as Router-owned row metadata beside the envelope, as it stamps `seq` and `at`, refusing a producer-supplied stamp. The Gateway keeps the stamp on the request entry and refuses an answer whose signed device differs, since it is the only party that can open one. The Router stays the authority on who holds; the enforcement sits where the answer is readable. Deploy the Router first: an older Router strips the unknown envelope field before verifying the signature and refuses the row.
