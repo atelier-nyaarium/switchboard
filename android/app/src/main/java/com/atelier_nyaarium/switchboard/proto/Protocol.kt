@@ -231,6 +231,7 @@ object Protocol {
 			const val DIAL: String = "dial"
 			const val SMS_SEND: String = "sms_send"
 			const val CALL: String = "call"
+			const val IFTTT_TRIGGER: String = "ifttt_trigger"
 		}
 	}
 
@@ -481,6 +482,20 @@ data class CallRequest(
 @Serializable
 data class CallAnswer(
 	val calling: Boolean,
+)
+
+@Serializable
+data class IftttTriggerRequest(
+	val event: String,
+	val value1: String? = null,
+	val value2: String? = null,
+	val value3: String? = null,
+)
+
+@Serializable
+data class IftttTriggerAnswer(
+	val status: Long,
+	val ok: Boolean,
 )
 
 @Serializable
@@ -1436,6 +1451,7 @@ data class ConsoleAssistantStateResult(
 	val watchers: List<AssistantWatcher>,
 	val approveEverySend: Boolean? = null,
 	val checkIns: Boolean? = null,
+	val integrations: List<AssistantIntegration>? = null,
 )
 
 @Serializable
@@ -1450,6 +1466,7 @@ data class AssistantHomeCarriedWatcher(
 data class AssistantHomeCarried(
 	val approveEverySend: Boolean,
 	val watchers: List<AssistantHomeCarriedWatcher>,
+	val integrations: List<AssistantHomeCarriedIntegration>? = null,
 )
 
 @Serializable
@@ -3379,6 +3396,19 @@ data class AssistantActionDescriptor(
 	val key: String,
 	val label: String,
 	val description: String,
+)
+
+@Serializable
+data class AssistantIntegration(
+	val id: String,
+	val label: String,
+	val grants: List<String>,
+)
+
+@Serializable
+data class AssistantHomeCarriedIntegration(
+	val id: String,
+	val grant: String? = null,
 )
 
 @Serializable

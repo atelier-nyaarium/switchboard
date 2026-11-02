@@ -49,6 +49,7 @@ export const UNAVAILABLE_REASONS = [
 	"app_missing",
 	"not_supported",
 	"no_holder",
+	"not_ready",
 	"timeout",
 ] as const;
 
@@ -360,6 +361,30 @@ Sends the text after owner approval. The number is used as given, digits and an 
 Starts the in-call screen after owner approval, only while the phone is interactive, unlocked and the app shown, else \`not_showing\`.
 		`.trim(),
 	},
+	ifttt_trigger: {
+		request: z
+			.strictObject({
+				event: z
+					.string()
+					.min(1)
+					.max(80)
+					.regex(/^[A-Za-z0-9_-]+$/),
+				value1: z.string().max(500).optional(),
+				value2: z.string().max(500).optional(),
+				value3: z.string().max(500).optional(),
+			})
+			.meta({ id: "IftttTriggerRequest" }),
+		answer: z.object({ status: z.number().int(), ok: z.boolean() }).meta({ id: "IftttTriggerAnswer" }),
+		kind: "act",
+		where: "gateway",
+		needs: [],
+		label: "Fire an IFTTT event",
+		describe: `
+# Fire an IFTTT event
+
+Posts the event to the owner's IFTTT Webhooks with the three optional values. The webhook key must be granted on the phone under Integrations. The \`ok\` field means the webhook accepted it.
+		`.trim(),
+	},
 } as const satisfies Record<string, PhoneCapabilityDeclaration>;
 
 export type PhoneCapabilityKey = keyof typeof PHONE_CAPABILITIES;
@@ -368,6 +393,8 @@ export const PHONE_CAPABILITY_KEYS = Object.keys(PHONE_CAPABILITIES) as PhoneCap
 
 export type PhoneRequestOf<K extends PhoneCapabilityKey> = z.infer<(typeof PHONE_CAPABILITIES)[K]["request"]>;
 export type PhoneAnswerOf<K extends PhoneCapabilityKey> = z.infer<(typeof PHONE_CAPABILITIES)[K]["answer"]>;
+export type IftttTriggerRequest = PhoneRequestOf<"ifttt_trigger">;
+export type IftttTriggerAnswer = PhoneAnswerOf<"ifttt_trigger">;
 
 type KeysWhere<Host extends CapabilityHost> = {
 	[K in PhoneCapabilityKey]: (typeof PHONE_CAPABILITIES)[K]["where"] extends Host ? K : never;

@@ -18,7 +18,7 @@ const registry = JSON.parse(fs.readFileSync(FIXTURE, "utf8")) as Array<{
 
 describe("phone capability registry fixture", () => {
 	it("matches the registry in order", () => {
-		const expected = PHONE_CAPABILITY_KEYS.map((key) => {
+		const expected = PHONE_CAPABILITY_KEYS.filter((key) => PHONE_CAPABILITIES[key].where === "phone").map((key) => {
 			const capability = PHONE_CAPABILITIES[key];
 			return {
 				key,
@@ -34,7 +34,9 @@ describe("phone capability registry fixture", () => {
 	});
 
 	it("keeps request roots strict and identified", () => {
-		for (const key of PHONE_CAPABILITY_KEYS) {
+		for (const key of PHONE_CAPABILITY_KEYS.filter(
+			(candidate) => PHONE_CAPABILITIES[candidate].where === "phone",
+		)) {
 			const capability = PHONE_CAPABILITIES[key];
 			const requestId = capability.request.meta()?.id;
 			const jsonSchema = capability.request.toJSONSchema() as { $defs?: Record<string, unknown> };

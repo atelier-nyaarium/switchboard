@@ -1,4 +1,4 @@
-import type { Ambient } from "../../shared/ambient.js";
+import { type Ambient, withinMs } from "../../shared/ambient.js";
 import { type HoldAnswer, holdDenial } from "../../shared/assistant-hold.js";
 import { createOpDedupe } from "../../shared/op-dedupe.js";
 import type { RecordThread } from "../../shared/schemasAssistantRecord.js";
@@ -13,7 +13,9 @@ import type {
 import { PHONE_CAPABILITIES } from "../../shared/schemasPhoneCapabilities.js";
 import type { ActGuard } from "./actGuard.js";
 import type { ActionRecord } from "./actionDispatch.js";
+import { GatewayCapabilityRefusal } from "./gatewayCapabilityRefusal.js";
 import type { PhoneRequestAnswer, PhoneRequests } from "./phoneRequests.js";
+import { ASSISTANT_WAITS } from "./waits.js";
 
 const CALL_HOLD_MS = 10 * 60_000;
 type CapabilityGuard = PhoneCapabilityRow["guard"];
@@ -86,16 +88,22 @@ export function createPhoneDispatch(
 			const run = gatewayRun(deps.gateways, request.key);
 			if (!run) return finish(request.callId, request.key, { kind: "unavailable", reason: "not_supported" });
 			try {
-				const answer = declaration.answer.parse(await run(params));
+				const result = await withinMs(deps.ambient, run(params), ASSISTANT_WAITS.action);
+				if (result === null)
+					return finish(request.callId, request.key, { kind: "unavailable", reason: "timeout" });
+				const answer = declaration.answer.parse(result);
 				return finish(request.callId, request.key, { kind: "ok", answer });
 			} catch (error) {
+				if (error instanceof GatewayCapabilityRefusal)
+					return finish(request.callId, request.key, { kind: "unavailable", reason: error.reason });
 				return finish(request.callId, request.key, {
 					kind: "refused",
-					reason: (error instanceof Error ? error.message : String(error)).slice(0, 400),
+					reason: "Gateway capability failed",
 				});
 			}
 		}
 
+		// The hold is the phone's road.
 		const denied = holdRefusal(deps.hold);
 		if (denied) return finish(request.callId, request.key, denied);
 

@@ -145,7 +145,7 @@ internal fun AssistantPageHost(
 		AssistantPage.Features -> AssistantFeaturesPage(repo, onBack)
 		AssistantPage.Safety -> AssistantSafetyPage(repo, state, home, onBack)
 		AssistantPage.Watchers ->
-			AssistantWatchersPage(state, home, onWatcher = { g, w -> onPage(AssistantPage.Watcher(g, w)) }, onBack)
+			AssistantWatchersPage(repo, state, home, onWatcher = { g, w -> onPage(AssistantPage.Watcher(g, w)) }, onBack)
 		is AssistantPage.Watcher -> {
 			val watcher = watcherIn(state.gateways.assistantOn(page.gatewayId), page.watcherId)
 			if (watcher == null) {
@@ -427,8 +427,21 @@ private fun AssistantSafetyPage(repo: ChatRepository, state: ChatState, home: St
 }
 
 @Composable
-private fun AssistantWatchersPage(state: ChatState, home: String?, onWatcher: (String, String) -> Unit, onBack: () -> Unit) {
+private fun AssistantWatchersPage(
+	repo: ChatRepository,
+	state: ChatState,
+	home: String?,
+	onWatcher: (String, String) -> Unit,
+	onBack: () -> Unit,
+) {
 	val holding = home?.let { state.gateways.assistantOn(it) }
+	val vaultRevision by repo.vault.revision
+	val entries = remember(vaultRevision) { repo.vaultOps.views() }
+	val integrations = remember(holding?.integrations, entries, home) {
+		integrationRows(holding?.integrations, entries, home)
+	}
+	val works by repo.assistantOps.work.collectAsState()
+	var granting by rememberSaveable(home) { mutableStateOf<String?>(null) }
 	var showDisabled by rememberSaveable { mutableStateOf(false) }
 	AssistantPageScaffold("Watchers", onBack) {
 		if (home != null && holding != null) {
@@ -442,7 +455,49 @@ private fun AssistantWatchersPage(state: ChatState, home: String?, onWatcher: (S
 					for (watcher in off) WatcherRow(watcher.label, null, false) { onWatcher(home, watcher.id) }
 				}
 			}
+			if (integrations.isNotEmpty()) {
+				HorizontalDivider()
+				Text("Integrations", style = MaterialTheme.typography.labelLarge)
+				for (row in integrations) {
+					val key = WorkKey.Watcher(home, row.integration.id)
+					val work = works[key] ?: PageWork()
+					work.said?.let {
+						Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+					}
+					Row(
+						verticalAlignment = Alignment.CenterVertically,
+						horizontalArrangement = Arrangement.spacedBy(8.dp),
+						modifier = Modifier.fillMaxWidth(),
+					) {
+						Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+							Text(row.integration.label, style = MaterialTheme.typography.bodyLarge)
+							Text(row.grantedLine, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+						}
+						OutlinedButton(
+							onClick = hapticClick { granting = row.integration.id },
+							enabled = !work.busy,
+						) { Text("Assign secret") }
+					}
+				}
+			}
 		}
+	}
+	val integration = integrationRowForGrant(integrations, granting)
+	if (home != null && integration != null) {
+		val key = WorkKey.Watcher(home, integration.integration.id)
+		GrantSecretsSheet(
+			entries = integration.offered,
+			granted = integration.integration.grants,
+			onDone = { picks ->
+				granting = null
+				repo.command {
+					assistantOps.runWork(key) {
+						answerText(setGrants(home, integration.integration.id, picks))
+					}
+				}
+			},
+			onDismiss = { granting = null },
+		)
 	}
 }
 

@@ -1,6 +1,7 @@
 // Where the assistant lives: one Router-held record per Domain owner.
 
 import { z } from "zod";
+import { INTEGRATION_IDS } from "./schemasAssistant.js";
 import { AssistantWatcherRulesSchema } from "./schemasAssistantRules.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
 
@@ -22,11 +23,20 @@ export const AssistantHomeCarriedWatcherSchema = z
 	})
 	.meta({ id: "AssistantHomeCarriedWatcher" });
 
+export const AssistantHomeCarriedIntegrationSchema = z
+	.object({
+		id: z.enum(INTEGRATION_IDS),
+		grant: z.string().min(1).max(64).nullable(),
+	})
+	.meta({ id: "AssistantHomeCarriedIntegration" });
+
 /** What a move carries from the old home; null starts fresh. */
 export const AssistantHomeCarriedSchema = z
 	.object({
 		approveEverySend: z.boolean(),
 		watchers: z.array(AssistantHomeCarriedWatcherSchema).max(WATCHERS_MAX),
+		// Required starting 2026-11-15.
+		integrations: z.array(AssistantHomeCarriedIntegrationSchema).optional(),
 	})
 	.meta({ id: "AssistantHomeCarried" });
 

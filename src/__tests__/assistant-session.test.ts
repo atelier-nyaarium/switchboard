@@ -431,6 +431,32 @@ describe("the assistant's session", () => {
 		expect(test.assistant.console.state().watchers[0]?.grants).toEqual([]);
 	});
 
+	it("accepts IFTTT grants and carries them across a home move", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const test = stage({ ambient });
+		test.assistant.start();
+		await test.followHome();
+		await test.assistant.console.setWatcherGrants("ifttt", ["hook-key"]);
+		const granted = test.assistant.console.state().integrations;
+
+		await test.followHome(2, LOCAL_GATEWAY, {
+			kind: "ok",
+			sealed: sealedHome(NOTES, {
+				approveEverySend: true,
+				watchers: [{ id: "github", rules: rules(), grant: null }],
+				integrations: [{ id: "ifttt", grant: "hook-key" }],
+			}),
+		});
+		const carried = test.assistant.console.state().integrations;
+		await test.followHome(3, OTHER_GATEWAY);
+		const released = test.assistant.console.state().integrations;
+		await stopped(test.assistant, ambient);
+
+		expect(granted).toEqual([{ id: "ifttt", label: "IFTTT webhook", grants: ["hook-key"] }]);
+		expect(carried).toEqual(granted);
+		expect(released).toEqual([{ id: "ifttt", label: "IFTTT webhook", grants: [] }]);
+	});
+
 	it("asks GitHub only after a secret is granted", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		const asked: string[] = [];

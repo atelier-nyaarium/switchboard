@@ -16,7 +16,11 @@ import { createFifo } from "../../shared/keyed-fifo.js";
 import { MIGRATING } from "../../shared/migration-fence.js";
 import type { PendingDelivery } from "../../shared/pending-delivery-store.js";
 import { actionListings } from "../../shared/schemasActionFront.js";
-import type { AssistantWatcher, ConsoleAssistantStateResult } from "../../shared/schemasAssistant.js";
+import {
+	type AssistantWatcher,
+	type ConsoleAssistantStateResult,
+	INTEGRATION_IDS,
+} from "../../shared/schemasAssistant.js";
 import { actionsOf, GITHUB_WATCHER_ID } from "../../shared/schemasAssistantActions.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../../shared/schemasAssistantHome.js";
 import { eventLines } from "../../shared/schemasAssistantInbox.js";
@@ -42,6 +46,7 @@ import { GithubDone } from "../assistant/githubDone.js";
 import { createGithubWatcher } from "../assistant/githubWatcher.js";
 import { createHomeFollow, type HomeFollowEffects } from "../assistant/homeFollow.js";
 import { createHomeMarkStore } from "../assistant/homeMark.js";
+import { createIftttClient } from "../assistant/iftttClient.js";
 import { createInboxListing } from "../assistant/inboxListing.js";
 import { createPhoneDispatch, holdRefusal } from "../assistant/phoneDispatch.js";
 import { createPhoneRequests, type PhoneRequest, type PhoneRequestDelivery } from "../assistant/phoneRequests.js";
@@ -291,6 +296,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		const held = deps.vault.watcherGrants(watcherId);
 		return held.length === entryIds.length && entryIds.every((entryId) => held.includes(entryId));
 	};
+	const grantTargets = [...watchers.map((watcher) => watcher.id), ...INTEGRATION_IDS];
 
 	const watcherOf = (watcher: Watcher): AssistantWatcher => {
 		const state = watcherState.get(watcher.id);
@@ -489,7 +495,15 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			},
 		}),
 	);
-	const gatewayRuns: GatewayCapabilityRuns = {};
+	const ifttt = createIftttClient({
+		fetch: deps.fetch,
+		vault: {
+			entryId: () => deps.vault.watcherGrants(INTEGRATION_IDS[0])[0],
+			readForWatcher: (watcherId, entryId) => deps.vault.readForWatcher(watcherId, entryId),
+		},
+		ambient,
+	});
+	const gatewayRuns: GatewayCapabilityRuns = { ifttt_trigger: (params) => ifttt.trigger(params) };
 	const statusMemo = createStatusMemo(phoneHold.answer);
 	const phoneDispatch = createPhoneDispatch({
 		ambient,
@@ -533,6 +547,11 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			workdir: record?.workdirPath ?? null,
 			team: record ? ASSISTANT_TEAM : null,
 			watchers: watchers.map(watcherOf),
+			integrations: INTEGRATION_IDS.map((id) => ({
+				id,
+				label: "IFTTT webhook",
+				grants: deps.vault.watcherGrants(id),
+			})),
 			approveEverySend: safety.approveEverySend(),
 			checkIns: true,
 		};
@@ -555,8 +574,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		const refused = placeRefusal(workdirPath, sessions);
 		if (refused) return refused;
 		marker.ended();
-		for (const watcher of watchers) deps.vault.setWatcherGrants(watcher.id, []);
-		if (!watchers.every((watcher) => grantsLanded(watcher.id, [])))
+		for (const id of grantTargets) deps.vault.setWatcherGrants(id, []);
+		if (!grantTargets.every((id) => grantsLanded(id, [])))
 			return "a grant left from an earlier placement could not be dropped";
 		// First poll primes again.
 		if (!watchers.every((watcher) => watcherState.put(watcher.id, FRESH_STATE)))
@@ -584,6 +603,13 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			const grant = byId.get(watcher.id)?.grant;
 			if (grant && (await deps.vault.usableHere(grant))) deps.vault.setWatcherGrants(watcher.id, [grant]);
 		}
+		const carriedIntegrations = new Map(
+			(carried?.integrations ?? []).map((integration) => [integration.id, integration.grant]),
+		);
+		for (const id of INTEGRATION_IDS) {
+			const grant = carriedIntegrations.get(id);
+			if (grant && (await deps.vault.usableHere(grant))) deps.vault.setWatcherGrants(id, [grant]);
+		}
 		return null;
 	};
 
@@ -602,10 +628,10 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			if (held()) return false;
 		}
 		marker.ended();
-		for (const watcher of watchers) {
-			if (deps.vault.watcherGrants(watcher.id).length > 0) deps.vault.setWatcherGrants(watcher.id, []);
+		for (const id of grantTargets) {
+			if (deps.vault.watcherGrants(id).length > 0) deps.vault.setWatcherGrants(id, []);
 		}
-		if (!watchers.every((watcher) => grantsLanded(watcher.id, []))) return false;
+		if (!grantTargets.every((id) => grantsLanded(id, []))) return false;
 		const ids = watchers.map((watcher) => watcher.id);
 		const residue = ids.some((watcherId) => {
 			const held = rules.get(watcherId);
@@ -676,14 +702,17 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			/** Also the retry: the same set polls a stopped watcher again. */
 			setWatcherGrants: (watcherId, entryIds) =>
 				settled(() => {
-					if (!watchers.some((watcher) => watcher.id === watcherId))
-						throw new Error(`no watcher "${watcherId}"`);
+					const watcher = watchers.find((candidate) => candidate.id === watcherId);
+					const integration = INTEGRATION_IDS.find((id) => id === watcherId);
+					if (!watcher && !integration) throw new Error(`no watcher "${watcherId}"`);
 					if (entryIds.length > 1) throw new Error("a watcher takes one secret");
 					if (!held()) throw new Error(NOT_HERE);
 					deps.vault.setWatcherGrants(watcherId, entryIds);
 					if (!grantsLanded(watcherId, entryIds)) throw new Error("the grant could not be saved");
-					if (lanes) lanes.poke(watcherId);
-					else startLanes();
+					if (watcher) {
+						if (lanes) lanes.poke(watcherId);
+						else startLanes();
+					}
 					return state();
 				}),
 			// Only owner ops reach these, so no event text can rewrite what sorts later events.

@@ -78,6 +78,8 @@ export const ActionListingSchema = z.object({
 	/** Null until reported. */
 	available: z.boolean().nullable(),
 	reason: z.string().max(64).optional(),
+	/** The host of a phone id. */
+	where: z.string().max(16).optional(),
 	/** JSON Schema of `params`. */
 	params: z.record(z.string(), z.unknown()),
 });
@@ -123,7 +125,7 @@ export function actionListings(status: ReadonlyMap<string, KeyAvailability> | nu
 		}
 		const declaration = PHONE_CAPABILITIES[ref.key];
 		const where = declaration.where as CapabilityHost;
-		const known = where === "gateway" ? { available: true } : status?.get(ref.key);
+		const known = where === "gateway" ? undefined : status?.get(ref.key);
 		return {
 			id,
 			family: "phone",
@@ -133,6 +135,7 @@ export function actionListings(status: ReadonlyMap<string, KeyAvailability> | nu
 			needs: [...declaration.needs],
 			available: known?.available ?? null,
 			...(known?.reason ? { reason: known.reason } : {}),
+			where,
 			params,
 		};
 	});

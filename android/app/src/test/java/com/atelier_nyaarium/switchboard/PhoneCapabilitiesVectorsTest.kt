@@ -10,7 +10,9 @@ import org.junit.Test
 class PhoneCapabilitiesVectorsTest {
 	private val registryKeys = Json.parseToJsonElement(
 		javaClass.classLoader!!.getResourceAsStream("phone-capabilities/registry.json")!!.bufferedReader().readText(),
-	).jsonArray.map { row -> row.jsonObject["key"]!!.jsonPrimitive.content }
+	).jsonArray
+		.filter { row -> row.jsonObject["where"]!!.jsonPrimitive.content != "gateway" }
+		.map { row -> row.jsonObject["key"]!!.jsonPrimitive.content }
 
 	@Test
 	fun bindingOrderMatchesTheFixture() {

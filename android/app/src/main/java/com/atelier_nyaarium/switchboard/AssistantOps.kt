@@ -10,6 +10,7 @@ import com.atelier_nyaarium.switchboard.assistant.label
 import com.atelier_nyaarium.switchboard.assistant.outcomeOf
 import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarried
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarriedIntegration
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarriedWatcher
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
@@ -63,6 +64,9 @@ internal fun carriedOf(state: ConsoleAssistantStateResult): AssistantHomeCarried
 		watcher.rules?.let {
 			AssistantHomeCarriedWatcher(id = watcher.id, rules = it, grant = watcher.grants.firstOrNull(), enabled = watcherOn(watcher))
 		}
+	},
+	integrations = state.integrations?.map { integration ->
+		AssistantHomeCarriedIntegration(id = integration.id, grant = integration.grants.firstOrNull())
 	},
 )
 

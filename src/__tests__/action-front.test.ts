@@ -29,6 +29,13 @@ describe("action listings", () => {
 			type: "object",
 			required: ["ids"],
 		});
+		expect(actions.find(({ id }) => id === "phone/ifttt_trigger")).toMatchObject({
+			available: null,
+			where: "gateway",
+			label: "Fire an IFTTT event",
+			needs: [],
+		});
+		expect(actions.find(({ id }) => id === "phone/ifttt_trigger")?.usage).toContain("Runs on the Gateway.");
 
 		const status = new Map([
 			["torch", { available: false, reason: "not_supported" as const }],

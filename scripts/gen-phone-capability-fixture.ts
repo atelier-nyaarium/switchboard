@@ -4,7 +4,7 @@ import path from "node:path";
 import { PHONE_CAPABILITIES, PHONE_CAPABILITY_KEYS } from "../src/shared/schemasPhoneCapabilities.js";
 
 const output = path.resolve(import.meta.dirname, "../tests/fixtures/phone-capabilities/registry.json");
-const rows = PHONE_CAPABILITY_KEYS.map((key) => {
+const rows = PHONE_CAPABILITY_KEYS.filter((key) => PHONE_CAPABILITIES[key].where === "phone").map((key) => {
 	const capability = PHONE_CAPABILITIES[key];
 	const requestId = capability.request.meta()?.id;
 	const answerId = capability.answer.meta()?.id;

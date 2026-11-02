@@ -13,6 +13,18 @@ const AssistantWatcherBackoffSchema = z
 	.object({ until: z.number().int(), reason: z.string() })
 	.meta({ id: "AssistantWatcherBackoff" });
 
+export const INTEGRATION_IDS = ["ifttt"] as const;
+
+export const IntegrationSchema = z
+	.object({
+		id: z.string(),
+		label: z.string(),
+		grants: z.array(z.string()),
+	})
+	.meta({ id: "AssistantIntegration" });
+
+export type Integration = z.infer<typeof IntegrationSchema>;
+
 export const AssistantWatcherSchema = z
 	.object({
 		id: z.string(),
@@ -61,6 +73,8 @@ export const ConsoleAssistantStateResultSchema = z
 		approveEverySend: z.boolean().optional(),
 		/** Omitted by a Gateway that cannot hold a check-in. */
 		checkIns: z.boolean().optional(),
+		// Required starting 2026-11-15.
+		integrations: z.array(IntegrationSchema).optional(),
 	})
 	.meta({ id: "ConsoleAssistantStateResult" });
 

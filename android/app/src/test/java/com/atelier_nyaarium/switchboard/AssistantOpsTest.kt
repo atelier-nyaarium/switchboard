@@ -9,12 +9,14 @@ import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldValue
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarried
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarriedIntegration
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarriedWatcher
 import com.atelier_nyaarium.switchboard.proto.AssistantHomePutResult
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReadResult
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
+import com.atelier_nyaarium.switchboard.proto.AssistantIntegration
 import com.atelier_nyaarium.switchboard.proto.AssistantRule
 import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantUnexpectedValues
@@ -183,7 +185,13 @@ class AssistantOpsTest {
 		workdir: String? = null,
 		approveEverySend: Boolean? = null,
 		watchers: List<AssistantWatcher> = emptyList(),
-	) = ConsoleAssistantStateResult(workdir = workdir, watchers = watchers, approveEverySend = approveEverySend)
+		integrations: List<AssistantIntegration>? = null,
+	) = ConsoleAssistantStateResult(
+		workdir = workdir,
+		watchers = watchers,
+		approveEverySend = approveEverySend,
+		integrations = integrations,
+	)
 
 	private fun stateWithHome(
 		fake: FakeGateway,
@@ -584,7 +592,7 @@ class AssistantOpsTest {
 	}
 
 	@Test
-	fun carriedOfKeepsSafetyRulesOneGrantAndEnabledPerConfiguredWatcher() {
+	fun carriedOfKeepsSafetyRulesAndStandingGrants() {
 		val rules = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise("inbox", 1L), 2L)
 		val state = assistantState(
 			approveEverySend = false,
@@ -592,6 +600,9 @@ class AssistantOpsTest {
 				watcher(grants = listOf("first-grant", "second-grant")).copy(rules = rules),
 				watcher().copy(id = "off", rules = rules, enabled = false),
 				watcher().copy(id = "unconfigured", rules = null),
+			),
+			integrations = listOf(
+				AssistantIntegration(id = "ifttt", label = "IFTTT webhook", grants = listOf("hook-key")),
 			),
 		)
 
@@ -602,6 +613,7 @@ class AssistantOpsTest {
 					AssistantHomeCarriedWatcher("github", rules, "first-grant", enabled = true),
 					AssistantHomeCarriedWatcher("off", rules, "gh-token", enabled = false),
 				),
+				integrations = listOf(AssistantHomeCarriedIntegration("ifttt", "hook-key")),
 			),
 			carriedOf(state),
 		)

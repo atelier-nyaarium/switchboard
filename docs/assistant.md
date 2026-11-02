@@ -52,9 +52,10 @@ Router's record names. That Gateway feeds it events. The session decides what to
     status line per page (`AssistantSettingsLines.kt`), refreshed on open. Session data location (the
     Gateway, the folder, Move here or Set up here), Features (below), Safety (Approve every send),
     Watchers (one row per enabled watcher with its health line, `WatcherStatus`, red when it needs a
-    secret or stopped, and a collapsible Disabled group), Remove assistant. A watcher row opens its
-    page: Enabled, its health, secret, grants, actions, a Rules page with its count, and Retry when
-    stopped. Rules opens a rule's Editor page. Each page shows its own failure under its `WorkKey`.
+    secret or stopped, and a collapsible Disabled group), Integrations, Remove assistant. A watcher
+    row opens its page: Enabled, its health, secret, grants, actions, a Rules page with its count,
+    and Retry when stopped. Rules opens a rule's Editor page. Each page shows its own failure under
+    its `WorkKey`.
     `docs/console.md` holds how the pages route.
   - **Writes** (`AssistantOps`): Set up and Move are one sealed put. A placed, reachable home carries
     its fresh `assistant_state`; an unplaced one carries what the record sealed; a placed home that
@@ -232,9 +233,10 @@ permission, so an action runs at once. `list_actions` discovers phone capabiliti
 actions; `run_action` runs a listed id.
 
 - **Discovery:** `list_actions` returns each id (`phone/<key>` or `watcher/<key>`), its kind, needs,
-  usage and parameter JSON Schema. For a phone id, `available` and `reason` reflect the holder's
-  last `status` answer during the hold window; availability is `null` until that answer, and
-  `statusMemo.ts` clears it on `no_holder`. Watcher availability is `null`.
+  usage and parameter JSON Schema. For a phone id hosted on the phone, `available` and `reason`
+  reflect the holder's last `status` answer during the hold window; availability is `null` until
+  that answer, and `statusMemo.ts` clears it on `no_holder`. A phone id hosted on the Gateway
+  (`ifttt_trigger`) and a watcher id have no availability.
 - **One params schema:** `actionParamsSchema` in `src/shared/schemasActionFront.ts` selects the Zod
   params object for each id. The listing renders that object as JSON Schema, and the Gateway parses
   `run_action` params with it.
@@ -274,6 +276,9 @@ actions; `run_action` runs a listed id.
   record row by it.
 - **One GitHub client:** `githubClient.ts` owns the token read, the headers, the refusals and the
   shared rate limit, so polls, listings and actions cannot disagree.
+- **Gateway-side capability:** `iftttClient.ts` reads the webhook key at each post through the fixed
+  `ifttt` standing grant. The phone manages that grant under Integrations. The key appears only in
+  the URL passed to fetch and never in logs or answers.
 - **The action tools are fixed:** `ASSISTANT_SWITCHBOARD_TOOLS` names `list_actions` and `run_action`
   for actions. A new key needs a registry entry and handler, with no allowlist change.
 - **`watcher/github_done` params (`{ ids, summary? }`):** up to 50 unique digit-string thread ids,
