@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard.assistant
 
 import androidx.fragment.app.FragmentActivity
+import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.ClearsOnReprovision
 import com.atelier_nyaarium.switchboard.ConsoleClient
 import com.atelier_nyaarium.switchboard.DebugLog
@@ -11,6 +12,7 @@ import com.atelier_nyaarium.switchboard.proto.AssistantActRequest
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
@@ -102,6 +104,7 @@ internal class AssistantActManager(private val store: AssistantActStore) : Clear
 }
 
 internal class AssistantActOps(
+	private val state: MutableStateFlow<ChatState>,
 	private val manager: AssistantActManager,
 	private val ownerPresent: suspend (FragmentActivity?) -> Boolean,
 	private val send: suspend (String, ConsoleOp.AssistantActAnswer, String) -> ConsoleClient.ValueAnswer,
@@ -156,13 +159,19 @@ internal class AssistantActOps(
 		return when (answer) {
 			is ConsoleClient.ValueAnswer.Answered -> {
 				val result = runIsolated { answer.result.jsonObject }.getOrNull()
-					?: return AssistantActAnswer.Refused("The answer could not be read")
+					?: return refused("The answer could not be read")
 				val accepted = result["ok"]?.jsonPrimitive?.booleanOrNull ?: false
 				if (accepted) AssistantActAnswer.Answered
-				else AssistantActAnswer.Refused(result["reason"]?.jsonPrimitive?.content ?: "The answer was refused")
+				else refused(result["reason"]?.jsonPrimitive?.content ?: "The answer was refused")
 			}
-			is ConsoleClient.ValueAnswer.Refused -> AssistantActAnswer.Refused(answer.reason)
+			is ConsoleClient.ValueAnswer.Refused -> refused(answer.reason)
 			is ConsoleClient.ValueAnswer.Undelivered, ConsoleClient.ValueAnswer.Unreachable -> AssistantActAnswer.Unreachable
 		}
+	}
+
+	/** Error outlives the settled card. */
+	private fun refused(reason: String): AssistantActAnswer.Refused {
+		state.update { it.copy(error = "Assistant: $reason") }
+		return AssistantActAnswer.Refused(reason)
 	}
 }

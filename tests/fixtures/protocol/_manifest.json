@@ -36,6 +36,7 @@
 		{ "file": "console-op-vault-answer.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "console-op-phone-capability-answer-ok.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "console-op-phone-capability-answer-unavailable.json", "schema": "ConsoleOp", "expect": "pass" },
+		{ "file": "console-op-phone-capability-answer-disabled.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "console-op-assistant-act-answer.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "invalid-vault-answer-missing-decision.json", "schema": "ConsoleOp", "expect": "fail" },
 		{ "file": "owner-row-vault-request.json", "schema": "MailboxEntry", "expect": "pass" },

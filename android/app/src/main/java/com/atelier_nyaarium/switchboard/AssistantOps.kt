@@ -222,15 +222,17 @@ internal fun rulesCountText(rules: Int, invalid: Int): String {
 	return if (invalid == 0) count else "$count · $invalid invalid"
 }
 
-/** Lives on comes first. */
-internal enum class AssistantSection { LIVES_ON, SAFETY, WATCHERS }
+/** Location comes first. */
+internal enum class AssistantSection { LOCATION, FEATURES, SAFETY, WATCHERS, REMOVE }
 
-/** Safety and watchers are the home's. */
+/** Safety, watchers and remove are the home's. */
 internal fun assistantSections(home: String?, placed: ConsoleAssistantStateResult?): List<AssistantSection> =
 	listOfNotNull(
-		AssistantSection.LIVES_ON,
+		AssistantSection.LOCATION,
+		AssistantSection.FEATURES,
 		AssistantSection.SAFETY.takeIf { home != null && placed?.approveEverySend != null },
 		AssistantSection.WATCHERS.takeIf { home != null && placed != null },
+		AssistantSection.REMOVE.takeIf { home != null },
 	)
 
 /** Page operation and result. */
@@ -239,6 +241,10 @@ internal data class PageWork(val busy: Boolean = false, val said: String? = null
 /** Whose op it is. */
 internal sealed interface WorkKey {
 	data object Settings : WorkKey
+
+	data object Location : WorkKey
+
+	data object Safety : WorkKey
 
 	data class Watcher(val gatewayId: String, val watcherId: String) : WorkKey
 

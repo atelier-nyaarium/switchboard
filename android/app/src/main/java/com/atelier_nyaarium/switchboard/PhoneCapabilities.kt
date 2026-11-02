@@ -28,6 +28,7 @@ data class CapabilityAvailability(
 	val available: Boolean,
 	val reason: String? = null,
 	val needs: List<String>,
+	val missing: List<String> = emptyList(),
 )
 
 internal fun permissionState(
@@ -38,8 +39,15 @@ internal fun permissionState(
 	return if (missing.isEmpty()) {
 		CapabilityAvailability(true, needs = needs)
 	} else {
-		CapabilityAvailability(false, "not_granted", needs)
+		CapabilityAvailability(false, "not_granted", needs, missing)
 	}
+}
+
+/** The torch's camera, if any. */
+internal fun backFlashCameraId(manager: CameraManager): String? = manager.cameraIdList.firstOrNull { cameraId ->
+	val camera = manager.getCameraCharacteristics(cameraId)
+	camera.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK &&
+		camera.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
 }
 
 class PhoneCapabilityContext(
@@ -230,11 +238,7 @@ private fun isBirthday(value: String): Boolean =
 private suspend fun torch(context: PhoneCapabilityContext, request: TorchRequest): TorchAnswer {
 	val manager = context.applicationContext.getSystemService(CameraManager::class.java)
 		?: throw UnsupportedOperationException()
-	val id = manager.cameraIdList.firstOrNull { cameraId ->
-		val camera = manager.getCameraCharacteristics(cameraId)
-		camera.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK &&
-			camera.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-	} ?: throw UnsupportedOperationException()
+	val id = backFlashCameraId(manager) ?: throw UnsupportedOperationException()
 	val characteristics = manager.getCameraCharacteristics(id)
 	val maximum = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
 		characteristics.get(CameraCharacteristics.FLASH_INFO_STRENGTH_MAXIMUM_LEVEL) ?: 1

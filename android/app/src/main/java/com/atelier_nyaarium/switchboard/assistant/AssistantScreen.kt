@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -14,9 +15,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -30,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,10 +62,11 @@ import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.ConfirmDialog
 import com.atelier_nyaarium.switchboard.DirListing
 import com.atelier_nyaarium.switchboard.DirectoryField
+import com.atelier_nyaarium.switchboard.PhoneCapabilities
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.answerText
 import com.atelier_nyaarium.switchboard.assistantRoleHeld
-import com.atelier_nyaarium.switchboard.assistantSetupLine
+import com.atelier_nyaarium.switchboard.assistantScreenDataEnabled
 import com.atelier_nyaarium.switchboard.openAssistantPicker
 import com.atelier_nyaarium.switchboard.assistantSections
 import com.atelier_nyaarium.switchboard.canRetry
@@ -135,8 +140,12 @@ internal fun AssistantPageHost(
 	onBack: () -> Unit,
 ) {
 	when (page) {
-		AssistantPage.Settings ->
-			AssistantSettingsPage(repo, state, home, onListDirs, onWatcher = { g, w -> onPage(AssistantPage.Watcher(g, w)) }, onBack)
+		AssistantPage.Settings -> AssistantSettingsIndex(repo, state, home, onPage, onBack)
+		AssistantPage.Location -> AssistantLocationPage(repo, state, home, onListDirs, onBack)
+		AssistantPage.Features -> AssistantFeaturesPage(repo, onBack)
+		AssistantPage.Safety -> AssistantSafetyPage(repo, state, home, onBack)
+		AssistantPage.Watchers ->
+			AssistantWatchersPage(state, home, onWatcher = { g, w -> onPage(AssistantPage.Watcher(g, w)) }, onBack)
 		is AssistantPage.Watcher -> {
 			val watcher = watcherIn(state.gateways.assistantOn(page.gatewayId), page.watcherId)
 			if (watcher == null) {
@@ -203,17 +212,16 @@ internal fun AssistantPageScaffold(title: String, onBack: () -> Unit, content: @
 }
 
 @Composable
-private fun AssistantSettingsPage(
+private fun AssistantLocationPage(
 	repo: ChatRepository,
 	state: ChatState,
 	home: String?,
 	onListDirs: suspend (String, String, String) -> DirListing,
-	onWatcher: (String, String) -> Unit,
 	onBack: () -> Unit,
 ) {
 	val ops = repo.assistantOps
 	val works by ops.work.collectAsState()
-	val work = works[WorkKey.Settings] ?: PageWork()
+	val work = works[WorkKey.Location] ?: PageWork()
 	val busy = work.busy
 	val gateways = state.gateways.ids()
 	// Its answer, not proof of placement.
@@ -224,36 +232,14 @@ private fun AssistantSettingsPage(
 	var folder by rememberSaveable(home, homeState?.workdir, stateSaver = TextFieldValue.Saver) {
 		mutableStateOf(TextFieldValue(folderText, TextRange(folderText.length)))
 	}
-	// Leaving closes the dialogs.
-	var removing by remember { mutableStateOf(false) }
+	// Leaving closes the dialog.
 	var abandoning by remember { mutableStateOf<LocationAction.Move?>(null) }
-	var showDisabled by rememberSaveable { mutableStateOf(false) }
-	val settings ={ op: suspend AssistantOps.() -> String? ->
-		repo.command { assistantOps.runWork(WorkKey.Settings, op) }
-	}
+	val settings = settingsRunner(repo, WorkKey.Location)
 
-	val context = androidx.compose.ui.platform.LocalContext.current
-	var setupLine by remember { mutableStateOf<String?>(null) }
-	// Picker may change role.
-	androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
-		setupLine = assistantSetupLine(assistantRoleHeld(context), assistantSessionAdopted(context))
-		onPauseOrDispose {}
-	}
-
-	AssistantPageScaffold("Assistant settings", onBack) {
+	AssistantPageScaffold("Session data location", onBack) {
 		(work.said ?: state.homeFailure?.let(::moveErrorText))?.let {
 			Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		}
-		setupLine?.let { line ->
-			Text("Digital assistant", style = MaterialTheme.typography.labelLarge)
-			Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			OutlinedButton(onClick = hapticClick { openAssistantPicker(context) }) { Text("Choose assistant") }
-			HorizontalDivider()
-		}
-		for (section in assistantSections(home, homeState)) {
-			when (section) {
-				AssistantSection.LIVES_ON -> {
-					Text("Assistant location", style = MaterialTheme.typography.labelLarge)
 					PickMenu(
 						label = "Gateway",
 						choices = gateways,
@@ -316,52 +302,7 @@ private fun AssistantSettingsPage(
 							},
 							enabled = !busy && action is LocationAction.Move,
 						) { Text(if (home == null) "Set up here" else "Move here") }
-						if (home != null) {
-							Button(
-								onClick = hapticClick { removing = true },
-								enabled = !busy,
-								colors = ButtonDefaults.buttonColors(
-									containerColor = MaterialTheme.colorScheme.error,
-									contentColor = MaterialTheme.colorScheme.onError,
-								),
-							) { Text("Remove assistant") }
-						}
 					}
-				}
-				AssistantSection.SAFETY -> {
-					val gatewayId = home ?: continue
-					val approveEverySend = homeState?.approveEverySend ?: continue
-					HorizontalDivider()
-					Text("Safety", style = MaterialTheme.typography.labelLarge)
-					Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-						Text("Approve every send", modifier = Modifier.weight(1f))
-						Switch(
-							checked = approveEverySend,
-							onCheckedChange = { enabled -> settings { answerText(setSafety(gatewayId, enabled)) } },
-							enabled = !busy,
-						)
-					}
-				}
-				AssistantSection.WATCHERS -> {
-					val at = home ?: continue
-					val holding = homeState ?: continue
-					val (on, off) = holding.watchers.partition(::watcherOn)
-					HorizontalDivider()
-					Text("Watchers", style = MaterialTheme.typography.labelLarge)
-					for (watcher in on) {
-						WatcherRow(watcher.label, watcherHealth(watcher, ::agoText), watcherTroubled(watcher)) {
-							onWatcher(at, watcher.id)
-						}
-					}
-					if (off.isNotEmpty()) {
-						FoldRow("Disabled", showDisabled) { showDisabled = !showDisabled }
-						if (showDisabled) {
-							for (watcher in off) WatcherRow(watcher.label, null, false) { onWatcher(at, watcher.id) }
-						}
-					}
-				}
-			}
-		}
 	}
 
 	abandoning?.let { pending ->
@@ -378,16 +319,248 @@ private fun AssistantSettingsPage(
 		)
 	}
 
+}
+
+private fun settingsRunner(repo: ChatRepository, key: WorkKey = WorkKey.Settings): (suspend AssistantOps.() -> String?) -> Unit = { op ->
+	repo.command { assistantOps.runWork(key, op) }
+}
+
+@Composable
+private fun AssistantSettingsIndex(
+	repo: ChatRepository,
+	state: ChatState,
+	home: String?,
+	onPage: (AssistantPage) -> Unit,
+	onBack: () -> Unit,
+) {
+	val works by repo.assistantOps.work.collectAsState()
+	val work = works[WorkKey.Settings] ?: PageWork()
+	val homeState = home?.let { state.gateways.assistantOn(it) }
+	val context = androidx.compose.ui.platform.LocalContext.current
+	val wanted by repo.phoneCapabilityOps.features.wanted.collectAsState()
+	var tick by remember { mutableStateOf(0) }
+	// Grants change while away.
+	androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+		tick++
+		onPauseOrDispose {}
+	}
+	val features = remember(tick, wanted) {
+		featureViews(featureRows(PhoneCapabilities.bindings.values), wanted, repo.phoneCapabilityOps::grants)
+	}
+	val required = remember(tick) { requiredFacts(context) }
+	var removing by remember { mutableStateOf(false) }
+	val settings = settingsRunner(repo)
+	// Refresh on open.
+	LaunchedEffect(home) { home?.let { gatewayId -> repo.command { assistantOps.refresh(gatewayId) } } }
+
+	AssistantPageScaffold("Assistant settings", onBack) {
+		(work.said ?: state.homeFailure?.let(::moveErrorText))?.let {
+			Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+		}
+		for (section in assistantSections(home, homeState)) {
+			when (section) {
+				AssistantSection.LOCATION ->
+					SettingsRow("Session data location", locationLines(home, homeState?.workdir)) { onPage(AssistantPage.Location) }
+				AssistantSection.FEATURES ->
+					SettingsRow("Features", featureLines(required.assistantOn, required.screenData, features)) { onPage(AssistantPage.Features) }
+				AssistantSection.SAFETY ->
+					SettingsRow("Safety", safetyLines(homeState?.approveEverySend)) { onPage(AssistantPage.Safety) }
+				AssistantSection.WATCHERS ->
+					SettingsRow("Watchers", watcherLines(homeState?.watchers.orEmpty())) { onPage(AssistantPage.Watchers) }
+				AssistantSection.REMOVE -> SettingsRow("Remove assistant", SettingsLines(line = REMOVE_LINE)) { removing = true }
+			}
+		}
+	}
+
 	if (removing) {
 		ConfirmDialog(
 			title = "Remove assistant",
-			body = "This will remove the assistant configuration from your phone and gateway (if reachable).",
+			body = REMOVE_LINE,
 			confirmText = "Remove",
 			onConfirm = {
 				removing = false
 				settings { removeAssistant(); null }
 			},
 			onDismiss = { removing = false },
+		)
+	}
+}
+
+@Composable
+private fun SettingsRow(title: String, lines: SettingsLines, onOpen: () -> Unit) {
+	Row(
+		Modifier.fillMaxWidth().clickable(onClick = hapticClick(onOpen)).padding(vertical = 10.dp),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(8.dp),
+	) {
+		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+			Text(title, style = MaterialTheme.typography.bodyLarge)
+			lines.warning?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+			lines.line?.let {
+				Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+			}
+		}
+		Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+	}
+}
+
+@Composable
+private fun AssistantSafetyPage(repo: ChatRepository, state: ChatState, home: String?, onBack: () -> Unit) {
+	val works by repo.assistantOps.work.collectAsState()
+	val work = works[WorkKey.Safety] ?: PageWork()
+	val busy = work.busy
+	val approveEverySend = home?.let { state.gateways.assistantOn(it) }?.approveEverySend
+	val settings = settingsRunner(repo, WorkKey.Safety)
+	AssistantPageScaffold("Safety", onBack) {
+		work.said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+		if (home != null && approveEverySend != null) {
+			Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+				Text("Approve every send", modifier = Modifier.weight(1f))
+				Switch(
+					checked = approveEverySend,
+					onCheckedChange = { enabled -> settings { answerText(setSafety(home, enabled)) } },
+					enabled = !busy,
+				)
+			}
+		}
+	}
+}
+
+@Composable
+private fun AssistantWatchersPage(state: ChatState, home: String?, onWatcher: (String, String) -> Unit, onBack: () -> Unit) {
+	val holding = home?.let { state.gateways.assistantOn(it) }
+	var showDisabled by rememberSaveable { mutableStateOf(false) }
+	AssistantPageScaffold("Watchers", onBack) {
+		if (home != null && holding != null) {
+			val (on, off) = holding.watchers.partition(::watcherOn)
+			for (watcher in on) {
+				WatcherRow(watcher.label, watcherHealth(watcher, ::agoText), watcherTroubled(watcher)) { onWatcher(home, watcher.id) }
+			}
+			if (off.isNotEmpty()) {
+				FoldRow("Disabled", showDisabled) { showDisabled = !showDisabled }
+				if (showDisabled) {
+					for (watcher in off) WatcherRow(watcher.label, null, false) { onWatcher(home, watcher.id) }
+				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun AssistantFeaturesPage(repo: ChatRepository, onBack: () -> Unit) {
+	val context = androidx.compose.ui.platform.LocalContext.current
+	val toggles = repo.phoneCapabilityOps.features
+	val wanted by toggles.wanted.collectAsState()
+	var tick by remember { mutableStateOf(0) }
+	// Grants change while away.
+	androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+		tick++
+		onPauseOrDispose {}
+	}
+	var asking by remember { mutableStateOf<String?>(null) }
+	var denied by remember { mutableStateOf(setOf<String>()) }
+	val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+		if (!granted) asking?.let { denied = denied + it }
+		asking = null
+		tick++
+	}
+	val views = remember(tick, wanted) {
+		featureViews(featureRows(PhoneCapabilities.bindings.values), wanted, repo.phoneCapabilityOps::grants)
+	}
+	val required = remember(tick) { requiredFacts(context) }
+	val open = { need: String ->
+		val manifest = manifestPermissionOf(need)
+		val rationale = manifest != null && (context as? android.app.Activity)?.shouldShowRequestPermissionRationale(manifest) == true
+		when (permissionDoor(need, askable(need, denied, rationale))) {
+			PermissionDoor.REQUEST -> manifest?.let {
+				asking = need
+				request.launch(it)
+			}
+			PermissionDoor.APP_SETTINGS -> openAppSettings(context)
+		}
+	}
+	AssistantPageScaffold("Features", onBack) {
+		Text("Required", style = MaterialTheme.typography.labelLarge)
+		for (row in requiredRows(required)) {
+			RequiredRowView(row) {
+				when (row.door) {
+					RequiredDoor.PICKER -> openAssistantPicker(context)
+					RequiredDoor.NOTIFICATIONS -> open("notifications")
+				}
+			}
+		}
+		for ((group, inGroup) in views.groupBy { it.row.group }) {
+			HorizontalDivider()
+			Text(group, style = MaterialTheme.typography.labelLarge)
+			for (view in inGroup) {
+				FeatureRowView(
+					view,
+					featureRowModel(view),
+					onToggle = { on -> toggles.setWanted(view.row.key, toggledWanted(view, on)) },
+					onGear = { gear ->
+						when (gear) {
+							is GearTarget.Need -> open(gear.need)
+							GearTarget.AppSettings -> openAppSettings(context)
+						}
+					},
+				)
+			}
+		}
+	}
+}
+
+@Composable
+private fun RequiredRowView(row: RequiredRow, onGear: () -> Unit) {
+	Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+		Column(Modifier.weight(1f)) {
+			Text(row.label, style = MaterialTheme.typography.bodyLarge)
+			Text(
+				if (row.on) "On" else row.offWord,
+				style = MaterialTheme.typography.bodySmall,
+				color = if (row.on) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+			)
+		}
+		IconButton(onClick = hapticClick(onGear)) { Icon(Icons.Default.Settings, contentDescription = "Open setting") }
+	}
+}
+
+@Composable
+private fun FeatureRowView(view: FeatureView, model: FeatureRowModel, onToggle: (Boolean) -> Unit, onGear: (GearTarget) -> Unit) {
+	Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+			Text(if (view.row.guarded) "${view.row.label} · Asks first" else view.row.label, style = MaterialTheme.typography.bodyLarge)
+			needsLine(view)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+		}
+		Switch(checked = view.wanted, onCheckedChange = onToggle, enabled = model.switchEnabled)
+		val gear = model.gear
+		if (gear == null) {
+			Spacer(Modifier.size(48.dp))
+		} else {
+			IconButton(onClick = hapticClick { onGear(gear) }) { Icon(Icons.Default.Settings, contentDescription = "Open permission") }
+		}
+	}
+}
+
+private fun requiredFacts(context: android.content.Context) = RequiredFacts(
+	roleHeld = assistantRoleHeld(context),
+	sessionAdopted = assistantSessionAdopted(context),
+	screenData = assistantScreenDataEnabled(context),
+	notifications = grantedOn(context, "notifications"),
+)
+
+private fun grantedOn(context: android.content.Context, need: String): Boolean {
+	val manifest = manifestPermissionOf(need) ?: return false
+	return runIsolated { context.checkSelfPermission(manifest) == android.content.pm.PackageManager.PERMISSION_GRANTED }
+		.getOrDefault(false)
+}
+
+private fun openAppSettings(context: android.content.Context) {
+	runIsolated {
+		context.startActivity(
+			android.content.Intent(
+				android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+				android.net.Uri.fromParts("package", context.packageName, null),
+			).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
 		)
 	}
 }

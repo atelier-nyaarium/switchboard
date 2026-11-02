@@ -1,8 +1,10 @@
 package com.atelier_nyaarium.switchboard.assistant
 
+import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.ConsoleClient
 import com.atelier_nyaarium.switchboard.proto.AssistantActRequest
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -21,6 +23,7 @@ class AssistantActOpsTest {
 		var answerGateway = ""
 		var answerOpId = ""
 		val ops = AssistantActOps(
+			state = MutableStateFlow(ChatState()),
 			manager = manager,
 			ownerPresent = { true },
 			send = { gateway, op, opId ->
@@ -50,7 +53,7 @@ class AssistantActOpsTest {
 			ConsoleClient.ValueAnswer.Answered(buildJsonObject { put("ok", true) }),
 		)
 		var calls = 0
-		val ops = AssistantActOps(manager, { true }) { _, _, _ -> answers[calls++] }
+		val ops = AssistantActOps(MutableStateFlow(ChatState()), manager, { true }) { _, _, _ -> answers[calls++] }
 		val pending = ops.request("gateway-a", request.requestId)!!
 
 		assertEquals(AssistantActAnswer.Unreachable, ops.answer(pending, "deny"))
@@ -64,11 +67,13 @@ class AssistantActOpsTest {
 		val manager = AssistantActManager(MemoryStore())
 		val request = actRequest()
 		assertTrue(manager.onRequest("gateway-a", "team-a", request))
-		val ops = AssistantActOps(manager, { true }) { _, _, _ -> ConsoleClient.ValueAnswer.Refused("request expired") }
+		val state = MutableStateFlow(ChatState())
+		val ops = AssistantActOps(state, manager, { true }) { _, _, _ -> ConsoleClient.ValueAnswer.Refused("request expired") }
 		val pending = ops.request("gateway-a", request.requestId)!!
 
 		assertEquals(AssistantActAnswer.Refused("request expired"), ops.answer(pending, "deny"))
 		assertTrue(ops.pending.value.isEmpty())
+		assertTrue(state.value.error.orEmpty().contains("request expired"))
 	}
 
 	private fun actRequest() = AssistantActRequest(

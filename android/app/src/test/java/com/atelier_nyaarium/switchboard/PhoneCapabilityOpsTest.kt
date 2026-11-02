@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.crypto.Crypto
 import com.atelier_nyaarium.switchboard.plugins.phone.stampedFor
+import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.PhoneCapabilityAnswer
 import com.atelier_nyaarium.switchboard.proto.PhoneHold
 import com.atelier_nyaarium.switchboard.proto.PhoneCapabilityRow
@@ -12,7 +13,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -27,6 +31,7 @@ class PhoneCapabilityOpsTest {
 		assertFalse(denied.available)
 		assertEquals("not_granted", denied.reason)
 		assertEquals(listOf("contacts"), denied.needs)
+		assertEquals(listOf("contacts"), denied.missing)
 
 		val granted = permissionState(listOf("contacts"), hasPermission = { true })
 		assertTrue(granted.available)
@@ -164,6 +169,55 @@ class PhoneCapabilityOpsTest {
 	}
 
 	@Test
+	fun anUnreadableJournalFileIsReplacedAtLoad() = runBlocking {
+		val store = MemoryStore().apply { raw = "{\"runs\":[{\"requestId\":\"call-1234\"}]}" }
+		val journal = PhoneCapabilityJournal(store, ManualTimer(), now = { 100_000L })
+
+		assertTrue(journal.all().isEmpty())
+		assertFalse(store.raw.orEmpty().contains("call-1234"))
+	}
+
+	@Test
+	fun executeAnswersFromTheFeatureSwitchThenTheGrantThenTheHandler() = runBlocking {
+		val store = MemoryStore()
+		val self = HoldSelf.of(Crypto.Identity(Crypto.KeyPairRaw("phone-a", ""), Crypto.KeyPairRaw("", "")))
+		val state = ChatState(phoneHold = PhoneHold("phone-a", "Phone A", 100_000L, 1L))
+		val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+		val platform = FakePlatform()
+		val sent = Channel<ConsoleOp.PhoneCapabilityAnswer>(Channel.UNLIMITED)
+		val ops = PhoneCapabilityOps(
+			platform = platform,
+			state = { state },
+			self = { self },
+			scope = scope,
+			store = store,
+			send = { _, op, _ ->
+				sent.send(op)
+				ConsoleClient.ValueAnswer.Answered(JsonObject(emptyMap()))
+			},
+			now = { 100_000L },
+			timer = ManualTimer(),
+		)
+		fun row(requestId: String, key: String) = PhoneCapabilityRow(requestId, key, JsonObject(emptyMap()), "none", 200_000L)
+
+		try {
+			ops.features.setWanted(Protocol.Wire.PhoneCapabilityKey.STATUS, true)
+			ops.features.setWanted(Protocol.Wire.PhoneCapabilityKey.CONTACTS_SEARCH, true)
+			ops.enqueue("gateway-a", "team-a", row("call-0001", Protocol.Wire.PhoneCapabilityKey.STATUS))
+			ops.enqueue("gateway-a", "team-a", row("call-0002", Protocol.Wire.PhoneCapabilityKey.TORCH))
+			ops.enqueue("gateway-a", "team-a", row("call-0003", Protocol.Wire.PhoneCapabilityKey.CONTACTS_SEARCH))
+			val answers = withTimeout(5_000L) { List(3) { sent.receive() } }.associate { it.requestId to it.answer }
+
+			assertEquals(PhoneCapabilityAnswer.Ok(JsonObject(emptyMap())), answers["call-0001"])
+			assertEquals(PhoneCapabilityAnswer.Unavailable("disabled", emptyList()), answers["call-0002"])
+			assertEquals(PhoneCapabilityAnswer.Unavailable("not_granted", listOf("contacts")), answers["call-0003"])
+			assertEquals(listOf(Protocol.Wire.PhoneCapabilityKey.STATUS), platform.runs)
+		} finally {
+			scope.cancel()
+		}
+	}
+
+	@Test
 	fun onlyThisPhonesStampRunsARow() {
 		val self = HoldSelf.of(Crypto.Identity(Crypto.KeyPairRaw("phone-a", ""), Crypto.KeyPairRaw("", "")))
 		assertTrue(stampedFor(RowStamp("phone-a"), self))
@@ -201,11 +255,33 @@ class PhoneCapabilityOpsTest {
 		}
 	}
 
+	/** Nothing granted; torch present. */
+	private class FakePlatform : PhoneCapabilityPlatform {
+		val runs = java.util.concurrent.CopyOnWriteArrayList<String>()
+		override fun granted(manifestPermission: String): Boolean = false
+		override fun hasTorch(): Boolean = true
+		override suspend fun run(
+			binding: PhoneCapabilityBinding,
+			params: JsonElement,
+			permissionState: (String) -> CapabilityAvailability,
+		): PhoneCapabilityAnswer {
+			runs += binding.key
+			return PhoneCapabilityAnswer.Ok(JsonObject(emptyMap()))
+		}
+		override fun trace(label: String, requestId: String) = Unit
+	}
+
 	private class MemoryStore : PhoneCapabilityStore {
 		var raw: String? = null
+		var features: String? = null
 		override fun loadPhoneCapabilityRuns(): String? = raw
 		override fun savePhoneCapabilityRuns(json: String): Boolean {
 			raw = json
+			return true
+		}
+		override fun loadAssistantFeatures(): String? = features
+		override fun saveAssistantFeatures(json: String): Boolean {
+			features = json
 			return true
 		}
 	}

@@ -185,6 +185,13 @@ internal fun assistantSetupLine(roleHeld: Boolean, sessionAdopted: Boolean): Str
 	else -> null
 }
 
+private val ASSIST_DATA_SETTINGS = listOf("assist_structure_enabled", "assist_screenshot_enabled")
+
+/** Screen and app data switch. */
+internal fun assistantScreenDataEnabled(context: Context): Boolean = ASSIST_DATA_SETTINGS.all { key ->
+	runIsolated { Settings.Secure.getInt(context.contentResolver, key, 1) != 0 }.getOrDefault(true)
+}
+
 private val ASSISTANT_PICKERS = listOf(Settings.ACTION_VOICE_INPUT_SETTINGS, Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
 
 /** Role grants require system settings. */

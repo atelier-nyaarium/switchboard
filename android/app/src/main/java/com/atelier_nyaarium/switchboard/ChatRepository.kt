@@ -381,12 +381,14 @@ class ChatRepository(
 		clearSpeech = { playback.clearForOtherHolder() },
 	)
 	internal val phoneCapabilityOps = PhoneCapabilityOps(
-		context = applicationContext,
+		platform = AndroidPhoneCapabilityPlatform(applicationContext) { _state.value },
 		state = { _state.value },
 		self = ::holdSelf,
 		scope = repoScope,
 		store = store,
-		client = ::clientOrNull,
+		send = { gatewayId, op, opId ->
+			clientOrNull()?.sendValueAnswer(gatewayId, op, opId) ?: ConsoleClient.ValueAnswer.Unreachable
+		},
 	)
 	internal val boardOps = BoardOps(
 		state = _state,
@@ -407,6 +409,7 @@ class ChatRepository(
 		clientOrNull()?.sendValueAnswer(gatewayId, op) ?: ConsoleClient.ValueAnswer.Unreachable
 	}
 	internal val assistantActOps = com.atelier_nyaarium.switchboard.assistant.AssistantActOps(
+		state = _state,
 		manager = assistantActs,
 		ownerPresent = vaultOps::ownerPresent,
 		send = { gatewayId, op, opId ->

@@ -3,7 +3,9 @@ package com.atelier_nyaarium.switchboard
 import androidx.compose.runtime.saveable.SaverScope
 import com.atelier_nyaarium.switchboard.assistant.RuleSlot
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ShellNavTest {
@@ -33,7 +35,7 @@ class ShellNavTest {
 	}
 
 	@Test
-	fun `the Assistant pages draw over the conversation, Back walks Editor, Rules, Watcher, Settings, then beneath, and an arrival clears them`() {
+	fun `the Assistant pages draw over the conversation, Back walks Editor, Rules, Watcher, Watchers, Settings, then beneath, and an arrival clears them`() {
 		val editor = AssistantPage.Editor("sakura", "github", RuleSlot.Held("reviews"))
 		val open = ShellNav().arrive(a, Arrival.OUTSIDE, facts).openAssistantPage(editor)
 		val walked = generateSequence(open) { nav ->
@@ -41,16 +43,29 @@ class ShellNavTest {
 		}.map { it.assistantPage }.toList()
 
 		assertEquals(ShellScreen.ASSISTANT_PAGE, shellScreen(open, locked = false, overlayOpen = false, booted = true))
-		val pages = listOf(editor, AssistantPage.Rules("sakura", "github"), AssistantPage.Watcher("sakura", "github"), AssistantPage.Settings)
+		val pages = listOf(
+			editor,
+			AssistantPage.Rules("sakura", "github"),
+			AssistantPage.Watcher("sakura", "github"),
+			AssistantPage.Watchers,
+			AssistantPage.Settings,
+		)
 		assertEquals(pages + null, walked)
-		assertEquals(List(4) { BackLayer.ASSISTANT_PAGE } + BackLayer.CONVERSATION, backAll(open))
-		assertNull(open.arrive(b, Arrival.OUTSIDE, facts).assistantPage)
+		assertEquals(List(5) { BackLayer.ASSISTANT_PAGE } + BackLayer.CONVERSATION, backAll(open))
+		assertTrue(open.showsAssistant(assistantOpen = false))
+		val left = open.arrive(b, Arrival.OUTSIDE, facts)
+		assertNull(left.assistantPage)
+		assertFalse(left.showsAssistant(assistantOpen = false))
 	}
 
 	@Test
 	fun `every Assistant page survives recreation`() {
 		val pages = listOf(
 			AssistantPage.Settings,
+			AssistantPage.Location,
+			AssistantPage.Features,
+			AssistantPage.Safety,
+			AssistantPage.Watchers,
 			AssistantPage.Watcher("sakura", "github"),
 			AssistantPage.Rules("sakura", "github"),
 			AssistantPage.Editor("sakura", "github", RuleSlot.Held("reviews")),

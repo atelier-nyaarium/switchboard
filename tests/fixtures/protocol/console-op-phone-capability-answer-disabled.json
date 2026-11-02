@@ -1,0 +1,5 @@
+{
+	"kind": "phone_capability_answer",
+	"requestId": "phone-request-disabled",
+	"answer": { "kind": "unavailable", "reason": "disabled", "needs": [] }
+}

@@ -110,10 +110,7 @@ android {
 
 	testOptions {
 		unitTests {
-			// Without this, any pure-JVM test that touches a ConsoleClient path throws on the
-			// first DebugLog.log call: android.util.Log.d is an unmocked Android stub that throws
-			// RuntimeException("Stub!") by default. Existing tests never exercised that call path,
-			// so this only affects the new postEvieDirect MockWebServer tests.
+			// Android stubs throw otherwise.
 			isReturnDefaultValues = true
 		}
 	}

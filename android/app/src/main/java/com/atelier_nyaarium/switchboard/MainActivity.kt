@@ -357,7 +357,7 @@ fun App(
 		if (landing == SummonLanding.Configure) SummonBus.step(held.id, Summon::focusSpent)
 		SummonBus.step(held.id, Summon::routedNow)
 	}
-	val assistantShown = nav.root == RootView.ASSISTANT || assistantOpen
+	val assistantShown = nav.showsAssistant(assistantOpen)
 	LaunchedEffect(assistantShown) {
 		if (assistantShown) repo.phoneHoldOps.onAssistantShown()
 	}
@@ -517,6 +517,8 @@ fun App(
 				onManage = { openOverlay(Overlay.Manage) },
 				onYourDevices = { openOverlay(Overlay.YourDevices) },
 				onFederation = { openOverlay(Overlay.Users) },
+				// Close Settings first.
+				onAssistant = { nav = nav.closeSettings().openAssistantPage(AssistantPage.Settings) },
 				onClear = {
 					// Wipe plugins and notifications after local wipe.
 					pluginManager.host.accountWipeHandlers.forEachCaught(onError = ::logPluginThrow) { it.onWipe(context) }

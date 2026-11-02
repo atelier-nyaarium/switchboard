@@ -39,6 +39,7 @@ export interface PhoneCapabilityDeclaration<
 
 export const UNAVAILABLE_REASONS = [
 	"not_granted",
+	"disabled",
 	"not_showing",
 	"app_missing",
 	"not_supported",

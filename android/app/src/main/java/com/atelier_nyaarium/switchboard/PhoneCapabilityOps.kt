@@ -1,6 +1,8 @@
 package com.atelier_nyaarium.switchboard
 
-import android.Manifest
+import com.atelier_nyaarium.switchboard.assistant.FeatureToggleStore
+import com.atelier_nyaarium.switchboard.assistant.FeatureToggles
+import com.atelier_nyaarium.switchboard.assistant.manifestPermissionOf
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.core.app.NotificationCompat
@@ -25,8 +27,9 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 
-interface PhoneCapabilityStore {
+interface PhoneCapabilityStore : FeatureToggleStore {
 	fun loadPhoneCapabilityRuns(): String?
 	fun savePhoneCapabilityRuns(json: String): Boolean
 }
@@ -94,18 +97,17 @@ internal class PhoneCapabilityJournal(
 		armPruneTimer(blob, now())
 	}
 
+	/** An unreadable file is replaced. */
 	private fun load(): PhoneCapabilityRunBlob {
 		val raw = store.loadPhoneCapabilityRuns() ?: return PhoneCapabilityRunBlob()
-		val loaded = runIsolated { json.decodeFromString<PhoneCapabilityRunBlob>(raw) }.getOrDefault(PhoneCapabilityRunBlob())
-		val at = now()
-		val live = prune(loaded, at)
-		if (live != loaded) {
-			val saved = runIsolated {
-				store.savePhoneCapabilityRuns(json.encodeToString(PhoneCapabilityRunBlob.serializer(), live))
-			}.getOrDefault(false)
-			if (saved) return live
-		}
-		return loaded
+		val decoded = runIsolated { json.decodeFromString<PhoneCapabilityRunBlob>(raw) }.getOrNull()
+		val loaded = decoded ?: PhoneCapabilityRunBlob()
+		val live = prune(loaded, now())
+		if (decoded != null && live == loaded) return loaded
+		val saved = runIsolated {
+			store.savePhoneCapabilityRuns(json.encodeToString(PhoneCapabilityRunBlob.serializer(), live))
+		}.getOrDefault(false)
+		return if (saved) live else loaded
 	}
 
 	private fun persist(next: PhoneCapabilityRunBlob, at: Long): Boolean {
@@ -275,35 +277,93 @@ internal fun interface PhoneCapabilityJournalTimer {
 	fun schedule(delayMs: Long, task: suspend () -> Unit): Job
 }
 
-internal class PhoneCapabilityOps(
+/** Android seam. */
+internal interface PhoneCapabilityPlatform {
+	fun granted(manifestPermission: String): Boolean
+
+	fun hasTorch(): Boolean
+
+	suspend fun run(
+		binding: PhoneCapabilityBinding,
+		params: JsonElement,
+		permissionState: (String) -> CapabilityAvailability,
+	): PhoneCapabilityAnswer
+
+	/** Private act notification. */
+	fun trace(label: String, requestId: String)
+}
+
+internal class AndroidPhoneCapabilityPlatform(
 	private val context: Context,
+	private val state: () -> ChatState,
+) : PhoneCapabilityPlatform {
+	override fun granted(manifestPermission: String): Boolean =
+		runIsolated { context.checkSelfPermission(manifestPermission) == PackageManager.PERMISSION_GRANTED }.getOrDefault(false)
+
+	override fun hasTorch(): Boolean = runIsolated {
+		context.getSystemService(android.hardware.camera2.CameraManager::class.java)?.let(::backFlashCameraId) != null
+	}.getOrDefault(false)
+
+	override suspend fun run(
+		binding: PhoneCapabilityBinding,
+		params: JsonElement,
+		permissionState: (String) -> CapabilityAvailability,
+	): PhoneCapabilityAnswer = binding.run(PhoneCapabilityContext(context.applicationContext, state, permissionState), params)
+
+	override fun trace(label: String, requestId: String) {
+		runIsolated {
+			val manager = context.getSystemService(NotificationManager::class.java)
+				?: return@runIsolated
+			manager.createNotificationChannel(
+				NotificationChannel(TRACE_CHANNEL, "Assistant acts", NotificationManager.IMPORTANCE_DEFAULT).apply {
+					lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+				},
+			)
+			val public = NotificationCompat.Builder(context, TRACE_CHANNEL)
+				.setSmallIcon(android.R.drawable.stat_notify_chat)
+				.setContentTitle(ASSISTANT_GENERIC_LINE)
+				.build()
+			val note = NotificationCompat.Builder(context, TRACE_CHANNEL)
+				.setSmallIcon(android.R.drawable.stat_notify_chat)
+				.setContentTitle(label)
+				.setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+				.setPublicVersion(public)
+				.setAutoCancel(true)
+				.build()
+			NotificationManagerCompat.from(context).notify(traceId(requestId), note)
+		}.onFailure { CapabilityLog.record("trace", CapabilityLogEvent.FAILED, accepted = false) }
+	}
+
+	private companion object {
+		const val TRACE_CHANNEL = "assistant_acts"
+		const val TRACE_ID_BASE = 6_000_000
+
+		fun traceId(requestId: String): Int = TRACE_ID_BASE + (requestId.hashCode() and 0x000FFFFF)
+	}
+}
+
+internal class PhoneCapabilityOps(
+	private val platform: PhoneCapabilityPlatform,
 	private val state: () -> ChatState,
 	private val self: () -> HoldSelf?,
 	private val scope: CoroutineScope,
 	private val store: PhoneCapabilityStore,
-	private val client: () -> ConsoleClient?,
+	private val send: suspend (String, ConsoleOp.PhoneCapabilityAnswer, String) -> ConsoleClient.ValueAnswer,
 	private val now: () -> Long = System::currentTimeMillis,
+	timer: PhoneCapabilityJournalTimer = PhoneCapabilityJournalTimer { delayMs, task ->
+		scope.launch(Dispatchers.IO) {
+			delay(delayMs)
+			task()
+		}
+	},
 ) : ClearsOnReprovision {
 	private data class Action(val gatewayId: String, val team: String, val row: PhoneCapabilityRow)
 
-	private val journal = PhoneCapabilityJournal(
-		store = store,
-		timer = PhoneCapabilityJournalTimer { delayMs, task ->
-			scope.launch(Dispatchers.IO) {
-				delay(delayMs)
-				task()
-			}
-		},
-		now = now,
-	)
+	private val journal = PhoneCapabilityJournal(store = store, timer = timer, now = now)
+	val features = FeatureToggles(store)
 	private val events = Channel<Action>(Channel.UNLIMITED)
 	private val deliveryJobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
 	@Volatile private var worker: kotlinx.coroutines.Job? = null
-	private val permissionContext = PhoneCapabilityContext(
-		applicationContext = context.applicationContext,
-		state = state,
-		permissionState = ::permissionState,
-	)
 
 	@Synchronized
 	fun start() {
@@ -332,39 +392,28 @@ internal class PhoneCapabilityOps(
 		start()
 	}
 
+	/** The dispatch rule: the switch, then `grants`. */
 	fun permissionState(key: String): CapabilityAvailability {
-		val binding = PhoneCapabilities.bindings[key]
-			?: return CapabilityAvailability(false, "not_supported", emptyList())
-		val availability = permissionState(binding.needs) { permission ->
-			val manifestPermission = when (permission) {
-				"contacts" -> Manifest.permission.READ_CONTACTS
-				"calendar" -> Manifest.permission.READ_CALENDAR
-				"send_sms" -> Manifest.permission.SEND_SMS
-				"call_phone" -> Manifest.permission.CALL_PHONE
-				"notifications" -> Manifest.permission.POST_NOTIFICATIONS
-				else -> return@permissionState false
-			}
-			runIsolated { context.checkSelfPermission(manifestPermission) == PackageManager.PERMISSION_GRANTED }.getOrDefault(false)
-		}
-		if (!availability.available || key != Protocol.Wire.PhoneCapabilityKey.TORCH) return availability
-		return if (hasTorch()) availability else CapabilityAvailability(false, "not_supported", binding.needs)
+		if (PhoneCapabilities.bindings[key] == null) return UNSUPPORTED
+		return if (features.isWanted(key)) grants(key) else CapabilityAvailability(false, "disabled", emptyList())
 	}
 
-	private fun hasTorch(): Boolean = runIsolated {
-		val manager = context.getSystemService(android.hardware.camera2.CameraManager::class.java)
-			?: return@runIsolated false
-		manager.cameraIdList.any { cameraId ->
-			val camera = manager.getCameraCharacteristics(cameraId)
-			camera.get(android.hardware.camera2.CameraCharacteristics.LENS_FACING) == android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK &&
-				camera.get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+	/** Needs and hardware, the switch aside. */
+	fun grants(key: String): CapabilityAvailability {
+		val binding = PhoneCapabilities.bindings[key] ?: return UNSUPPORTED
+		val availability = permissionState(binding.needs) { permission ->
+			manifestPermissionOf(permission)?.let(platform::granted) ?: false
 		}
-	}.getOrDefault(false)
+		if (!availability.available || key != Protocol.Wire.PhoneCapabilityKey.TORCH) return availability
+		return if (platform.hasTorch()) availability else CapabilityAvailability(false, "not_supported", binding.needs)
+	}
 
 	override suspend fun clearInMemory() {
 		deliveryJobs.values.forEach { it.cancel() }
 		deliveryJobs.clear()
 		while (events.tryReceive().isSuccess) Unit
 		journal.clear()
+		features.clear()
 	}
 
 	private suspend fun resumePending() {
@@ -406,7 +455,7 @@ internal class PhoneCapabilityOps(
 					val result = journal.runUnlessRetracted(run.requestId) {
 						runBinding(binding, row, run.deadlineAt)
 					} ?: return
-					if (binding.kind == "act" && result is PhoneCapabilityAnswer.Ok) postTrace(binding.label, run.requestId)
+					if (binding.kind == "act" && result is PhoneCapabilityAnswer.Ok) platform.trace(binding.label, run.requestId)
 					result
 				}
 			}
@@ -422,7 +471,7 @@ internal class PhoneCapabilityOps(
 
 	private suspend fun runBinding(binding: PhoneCapabilityBinding, row: PhoneCapabilityRow, deadlineAt: Long): PhoneCapabilityAnswer =
 		try {
-			withTimeout((deadlineAt - now()).coerceAtLeast(1L)) { binding.run(permissionContext, row.params) }
+			withTimeout((deadlineAt - now()).coerceAtLeast(1L)) { platform.run(binding, row.params, ::permissionState) }
 		} catch (_: TimeoutCancellationException) {
 			PhoneCapabilityAnswer.Unavailable("timeout")
 		}
@@ -434,13 +483,7 @@ internal class PhoneCapabilityOps(
 			while (now() <= run.deadlineAt) {
 				val answer = run.answer ?: return@launch
 				val sent = runCatchingCancellable {
-					val console = client() ?: return@runCatchingCancellable false
-					val result = console.sendValueAnswer(
-						run.gatewayId,
-						ConsoleOp.PhoneCapabilityAnswer(run.requestId, answer),
-						run.requestId,
-					)
-					answerDeliverySettled(result)
+					answerDeliverySettled(send(run.gatewayId, ConsoleOp.PhoneCapabilityAnswer(run.requestId, answer), run.requestId))
 				}.getOrDefault(false)
 				if (sent) {
 					journal.markDelivered(run.requestId)
@@ -453,35 +496,8 @@ internal class PhoneCapabilityOps(
 		job.invokeOnCompletion { deliveryJobs.remove(run.requestId, job) }
 	}
 
-	private fun postTrace(label: String, requestId: String) {
-		runIsolated {
-			val manager = context.getSystemService(NotificationManager::class.java)
-				?: return@runIsolated
-			manager.createNotificationChannel(
-				NotificationChannel(TRACE_CHANNEL, "Assistant acts", NotificationManager.IMPORTANCE_DEFAULT).apply {
-					lockscreenVisibility = Notification.VISIBILITY_PRIVATE
-				},
-			)
-			val public = NotificationCompat.Builder(context, TRACE_CHANNEL)
-				.setSmallIcon(android.R.drawable.stat_notify_chat)
-				.setContentTitle(ASSISTANT_GENERIC_LINE)
-				.build()
-			val note = NotificationCompat.Builder(context, TRACE_CHANNEL)
-				.setSmallIcon(android.R.drawable.stat_notify_chat)
-				.setContentTitle(label)
-				.setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-				.setPublicVersion(public)
-				.setAutoCancel(true)
-				.build()
-			NotificationManagerCompat.from(context).notify(traceId(requestId), note)
-		}.onFailure { CapabilityLog.record("trace", CapabilityLogEvent.FAILED, accepted = false) }
-	}
-
 	private companion object {
 		const val ANSWER_RETRY_MS = 1_000L
-		const val TRACE_CHANNEL = "assistant_acts"
-		const val TRACE_ID_BASE = 6_000_000
-
-		fun traceId(requestId: String): Int = TRACE_ID_BASE + (requestId.hashCode() and 0x000FFFFF)
+		val UNSUPPORTED = CapabilityAvailability(false, "not_supported", emptyList())
 	}
 }

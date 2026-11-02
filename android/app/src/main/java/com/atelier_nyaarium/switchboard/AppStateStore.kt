@@ -326,6 +326,11 @@ class AppStateStore internal constructor(
 
 	override fun loadPhoneCapabilityRuns(): String? = prefs.getString(KEY_PHONE_CAPABILITY_RUNS, null)
 
+	override fun saveAssistantFeatures(json: String): Boolean =
+		prefs.edit().putString(KEY_ASSISTANT_FEATURES, json).commit()
+
+	override fun loadAssistantFeatures(): String? = prefs.getString(KEY_ASSISTANT_FEATURES, null)
+
 	override fun saveRunbooks(json: String) = check(prefs.edit().putString(KEY_RUNBOOKS, json).commit())
 
 	override fun loadRunbooks(): String? = prefs.getString(KEY_RUNBOOKS, null)
@@ -537,6 +542,7 @@ class AppStateStore internal constructor(
 		const val KEY_ASSISTANT_SENDS = "assistant_sends"
 		const val KEY_ASSISTANT_ACTS = "assistant_acts"
 		const val KEY_PHONE_CAPABILITY_RUNS = "phone_capability_runs"
+		const val KEY_ASSISTANT_FEATURES = "assistant_features"
 		const val KEY_RUNBOOKS = "runbooks"
 		const val KEY_VAULT_UNLOCK = "vault_unlock"
 		const val KEY_AUTO_TTS = "auto_tts"
@@ -570,6 +576,7 @@ class AppStateStore internal constructor(
 		val SCHEMA_WIPE_KEYS = listOf(
 			KEY_THREADS, KEY_READ_ANCHORS, KEY_LABELS, KEY_DRAFTS, KEY_SCHEDULED_SENDS, KEY_GOALS, KEY_ABSENCE_STREAKS,
 			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_TASK_BOARD, KEY_VAULT, KEY_ASSISTANT_SENDS, KEY_ASSISTANT_ACTS, KEY_PHONE_CAPABILITY_RUNS,
+			KEY_ASSISTANT_FEATURES,
 			KEY_RUNBOOKS, KEY_ROLES,
 			KEY_ASSISTANT_HOME,
 		)
@@ -585,7 +592,7 @@ class AppStateStore internal constructor(
 			KEY_THREADS, KEY_READ_ANCHORS, KEY_LABELS, KEY_DRAFTS, KEY_SCHEDULED_SENDS, KEY_GOALS,
 			KEY_CONVERSATION_ID,
 			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_ABSENCE_STREAKS, KEY_TASK_BOARD, KEY_VAULT, KEY_ASSISTANT_SENDS, KEY_ASSISTANT_ACTS,
-			KEY_PHONE_CAPABILITY_RUNS,
+			KEY_PHONE_CAPABILITY_RUNS, KEY_ASSISTANT_FEATURES,
 			KEY_RUNBOOKS, KEY_LAST_PROJECT, KEY_ROLES, KEY_ASSISTANT_HOME,
 		)
 	}

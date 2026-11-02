@@ -111,6 +111,14 @@ internal fun ShellNav.enterAssistant(root: AssistantRoot, facts: (String) -> Arr
 internal sealed interface AssistantPage {
 	data object Settings : AssistantPage
 
+	data object Location : AssistantPage
+
+	data object Features : AssistantPage
+
+	data object Safety : AssistantPage
+
+	data object Watchers : AssistantPage
+
 	data class Watcher(val gatewayId: String, val watcherId: String) : AssistantPage
 
 	data class Rules(val gatewayId: String, val watcherId: String) : AssistantPage
@@ -118,10 +126,11 @@ internal sealed interface AssistantPage {
 	data class Editor(val gatewayId: String, val watcherId: String, val slot: RuleSlot) : AssistantPage
 }
 
-/** Back: Editor, Rules, Watcher, Settings. */
+/** Back: Editor, Rules, Watcher, Watchers, Settings. */
 internal fun assistantPageBack(page: AssistantPage): AssistantPage? = when (page) {
 	AssistantPage.Settings -> null
-	is AssistantPage.Watcher -> AssistantPage.Settings
+	AssistantPage.Location, AssistantPage.Features, AssistantPage.Safety, AssistantPage.Watchers -> AssistantPage.Settings
+	is AssistantPage.Watcher -> AssistantPage.Watchers
 	is AssistantPage.Rules -> AssistantPage.Watcher(page.gatewayId, page.watcherId)
 	is AssistantPage.Editor -> AssistantPage.Rules(page.gatewayId, page.watcherId)
 }
@@ -129,7 +138,7 @@ internal fun assistantPageBack(page: AssistantPage): AssistantPage? = when (page
 /** Only answers unwind pages. */
 internal fun AssistantPage.resolved(state: ChatState): AssistantPage {
 	val (gatewayId, watcherId) = when (this) {
-		AssistantPage.Settings -> return this
+		AssistantPage.Settings, AssistantPage.Location, AssistantPage.Features, AssistantPage.Safety, AssistantPage.Watchers -> return this
 		is AssistantPage.Watcher -> gatewayId to watcherId
 		is AssistantPage.Rules -> gatewayId to watcherId
 		is AssistantPage.Editor -> gatewayId to watcherId
@@ -148,6 +157,10 @@ internal fun ShellNav.resolvePage(state: ChatState): ShellNav {
 
 internal fun pageWords(page: AssistantPage): List<String> = when (page) {
 	AssistantPage.Settings -> listOf(PAGE_SETTINGS)
+	AssistantPage.Location -> listOf(PAGE_LOCATION)
+	AssistantPage.Features -> listOf(PAGE_FEATURES)
+	AssistantPage.Safety -> listOf(PAGE_SAFETY)
+	AssistantPage.Watchers -> listOf(PAGE_WATCHERS)
 	is AssistantPage.Watcher -> listOf(PAGE_WATCHER, page.gatewayId, page.watcherId)
 	is AssistantPage.Rules -> listOf(PAGE_RULES, page.gatewayId, page.watcherId)
 	is AssistantPage.Editor -> listOf(PAGE_EDITOR, page.gatewayId, page.watcherId) + slotWords(page.slot)
@@ -158,6 +171,10 @@ internal fun pageOf(words: List<String>): AssistantPage? {
 	val watcherId = words.getOrNull(2)
 	return when (words.firstOrNull()) {
 		PAGE_SETTINGS -> AssistantPage.Settings
+		PAGE_LOCATION -> AssistantPage.Location
+		PAGE_FEATURES -> AssistantPage.Features
+		PAGE_SAFETY -> AssistantPage.Safety
+		PAGE_WATCHERS -> AssistantPage.Watchers
 		PAGE_WATCHER -> if (gatewayId != null && watcherId != null) AssistantPage.Watcher(gatewayId, watcherId) else null
 		PAGE_RULES -> if (gatewayId != null && watcherId != null) AssistantPage.Rules(gatewayId, watcherId) else null
 		PAGE_EDITOR -> {
@@ -185,6 +202,10 @@ private fun slotOf(words: List<String>): RuleSlot? = when (words.firstOrNull()) 
 }
 
 private const val PAGE_SETTINGS = "settings"
+private const val PAGE_LOCATION = "location"
+private const val PAGE_FEATURES = "features"
+private const val PAGE_SAFETY = "safety"
+private const val PAGE_WATCHERS = "watchers"
 private const val PAGE_WATCHER = "watcher"
 private const val PAGE_RULES = "rules"
 private const val PAGE_EDITOR = "editor"

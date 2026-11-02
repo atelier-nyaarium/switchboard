@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.RecordVoiceOver
@@ -64,6 +65,7 @@ fun SettingsScreen(
 	onManage: () -> Unit,
 	onYourDevices: () -> Unit,
 	onFederation: () -> Unit,
+	onAssistant: () -> Unit,
 	onClear: () -> Unit,
 	onCloseSettings: () -> Unit,
 	drawerSide: DrawerSide,
@@ -91,6 +93,7 @@ fun SettingsScreen(
 				SettingsRoute.HUB -> {
 					if (provisioned) {
 						SettingsRow(Icons.Default.Person, "Profile") { onRoute(SettingsRoute.PROFILE) }
+						SettingsRow(Icons.Default.SmartToy, "Assistant", onAssistant)
 						SettingsRow(Icons.Default.RecordVoiceOver, "Voice & TTS") { onRoute(SettingsRoute.VOICE) }
 						SettingsRow(Icons.Default.Hub, "Domain & Trust") { onRoute(SettingsRoute.NETWORKS) }
 						SettingsRow(Icons.Default.Lock, "Security") { onRoute(SettingsRoute.SECURITY) }
