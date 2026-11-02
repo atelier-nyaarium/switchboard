@@ -347,7 +347,7 @@ private fun AssistantSettingsIndex(
 	val features = remember(tick, wanted) {
 		featureViews(featureRows(PhoneCapabilities.bindings.values), wanted, repo.phoneCapabilityOps::grants)
 	}
-	val required = remember(tick) { requiredFacts(context) }
+	val phoneSettings = remember(tick) { phoneSettingFacts(context) }
 	var removing by remember { mutableStateOf(false) }
 	val settings = settingsRunner(repo)
 	// Refresh on open.
@@ -362,7 +362,7 @@ private fun AssistantSettingsIndex(
 				AssistantSection.LOCATION ->
 					SettingsRow("Session data location", locationLines(home, homeState?.workdir)) { onPage(AssistantPage.Location) }
 				AssistantSection.FEATURES ->
-					SettingsRow("Features", featureLines(required.assistantOn, required.screenData, features)) { onPage(AssistantPage.Features) }
+					SettingsRow("Features", featureLines(phoneSettings.assistantOn, phoneSettings.screenData, features)) { onPage(AssistantPage.Features) }
 				AssistantSection.SAFETY ->
 					SettingsRow("Safety", safetyLines(homeState?.approveEverySend)) { onPage(AssistantPage.Safety) }
 				AssistantSection.WATCHERS ->
@@ -468,7 +468,7 @@ private fun AssistantFeaturesPage(repo: ChatRepository, onBack: () -> Unit) {
 	val views = remember(tick, wanted) {
 		featureViews(featureRows(PhoneCapabilities.bindings.values), wanted, repo.phoneCapabilityOps::grants)
 	}
-	val required = remember(tick) { requiredFacts(context) }
+	val phoneSettings = remember(tick) { phoneSettingFacts(context) }
 	val open = { need: String ->
 		val manifest = manifestPermissionOf(need)
 		val rationale = manifest != null && (context as? android.app.Activity)?.shouldShowRequestPermissionRationale(manifest) == true
@@ -482,38 +482,36 @@ private fun AssistantFeaturesPage(repo: ChatRepository, onBack: () -> Unit) {
 	}
 	AssistantPageScaffold("Features", onBack) {
 		if (saveFailed) Text("Could not save", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-		Text("Required", style = MaterialTheme.typography.labelLarge)
-		for (row in requiredRows(required)) {
-			RequiredRowView(row) {
+		Text("Phone settings", style = MaterialTheme.typography.labelLarge)
+		for (row in phoneSettingRows(phoneSettings)) {
+			PhoneSettingRowView(row) {
 				when (row.door) {
-					RequiredDoor.PICKER -> openAssistantPicker(context)
-					RequiredDoor.NOTIFICATIONS -> open("notifications")
-					RequiredDoor.NOTIFICATION_PAGE -> openNotificationSettings(context)
+					PhoneSettingDoor.PICKER -> openAssistantPicker(context)
+					PhoneSettingDoor.NOTIFICATIONS -> open("notifications")
+					PhoneSettingDoor.NOTIFICATION_PAGE -> openNotificationSettings(context)
 				}
 			}
 		}
-		for ((group, inGroup) in views.groupBy { it.row.group }) {
-			HorizontalDivider()
-			Text(group, style = MaterialTheme.typography.labelLarge)
-			for (view in inGroup) {
-				FeatureRowView(
-					view,
-					featureRowModel(view),
-					onToggle = { on -> saveFailed = !toggles.setWanted(view.row.key, toggledWanted(view, on)) },
-					onGear = { gear ->
-						when (gear) {
-							is GearTarget.Need -> open(gear.need)
-							GearTarget.AppSettings -> openAppSettings(context)
-						}
-					},
-				)
-			}
+		HorizontalDivider()
+		Text("The assistant may", style = MaterialTheme.typography.labelLarge)
+		for (view in views) {
+			FeatureRowView(
+				view,
+				featureRowModel(view),
+				onToggle = { on -> saveFailed = !toggles.setWanted(view.row.key, toggledWanted(view, on)) },
+				onGear = { gear ->
+					when (gear) {
+						is GearTarget.Need -> open(gear.need)
+						GearTarget.AppSettings -> openAppSettings(context)
+					}
+				},
+			)
 		}
 	}
 }
 
 @Composable
-private fun RequiredRowView(row: RequiredRow, onGear: () -> Unit) {
+private fun PhoneSettingRowView(row: PhoneSettingRow, onGear: () -> Unit) {
 	Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 		Column(Modifier.weight(1f)) {
 			Text(row.label, style = MaterialTheme.typography.bodyLarge)
@@ -544,7 +542,7 @@ private fun FeatureRowView(view: FeatureView, model: FeatureRowModel, onToggle: 
 	}
 }
 
-private fun requiredFacts(context: android.content.Context) = RequiredFacts(
+private fun phoneSettingFacts(context: android.content.Context) = PhoneSettingFacts(
 	roleHeld = assistantRoleHeld(context),
 	sessionAdopted = assistantSessionAdopted(context),
 	screenData = assistantScreenDataEnabled(context),

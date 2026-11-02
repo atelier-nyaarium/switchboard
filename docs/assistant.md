@@ -531,10 +531,10 @@ microphone; Gboard's mic key dictates. `summon-residue.test.ts` refuses `showWhe
 - **The app lock:** a summon whose keyguard asked for a credential also stands for the app's own
   lock, once; a Smart Lock dismissal does not. No API proves a credential was entered, so a trust
   agent granting trust while the system prompt shows reads as a challenge.
-- **Setup:** the role cannot be requested by an app. The Features page's Required rows read the role
+- **Setup:** the role cannot be requested by an app. The Features page's Phone settings rows read the role
   (`assistantRoleHeld`, `assistantSessionAdopted`), the picker's screen and app data switch
   (`assistantScreenDataEnabled`, the two `assist_*` secure settings) and the notification grant, each
-  On or its off word with a gear to the system page (`requiredRows`). `assistantSetupLine` tells the
+  On or its off word with a gear to the system page (`phoneSettingRows`). `assistantSetupLine` tells the
   role's two faults apart: an unheld role names the Press and hold power setting; a held role whose
   session is not adopted says to pick None, then Switchboard again.
   A role picked before the session shipped recorded the app's activity and no voice interaction
@@ -550,8 +550,9 @@ as `phone/<key>` ids by `list_actions`. A `run_action` call with a phone id land
 stamped row, runs through `PhoneCapabilityOps` and answers through the journal, at most once per
 request id.
 
-- **Off until ticked on:** the Features page lists one row per key, grouped by its first need (the
-  act trace aside). The owner's wanted set is `FeatureToggles`, persisted before it shows. A key the
+- **Off until ticked on:** the Features page has two sections. `Phone settings` gives each row a
+  gear. `The assistant may` lists every capability as a toggle in registry order. The owner's
+  wanted set is `FeatureToggles`, persisted before it shows. A key the
   owner has not switched on answers `disabled` with no needs and a detail naming the page, and the
   assistant is told to say so once and stop.
 - **One availability rule:** `PhoneCapabilityOps.grants` reads the key's needs through the manifest

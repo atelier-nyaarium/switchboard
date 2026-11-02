@@ -10,10 +10,10 @@ import com.atelier_nyaarium.switchboard.assistantSetupLine
 
 internal enum class PermissionDoor { REQUEST, APP_SETTINGS }
 
-/** The request while a grant is missing, the app's notification page once held. */
-internal enum class RequiredDoor { PICKER, NOTIFICATIONS, NOTIFICATION_PAGE }
+/** Row destinations. */
+internal enum class PhoneSettingDoor { PICKER, NOTIFICATIONS, NOTIFICATION_PAGE }
 
-internal data class RequiredFacts(
+internal data class PhoneSettingFacts(
 	val roleHeld: Boolean,
 	val sessionAdopted: Boolean,
 	val screenData: Boolean,
@@ -22,9 +22,9 @@ internal data class RequiredFacts(
 	val assistantOn: Boolean get() = roleHeld && sessionAdopted
 }
 
-internal data class RequiredRow(val label: String, val on: Boolean, val offWord: String, val door: RequiredDoor)
+internal data class PhoneSettingRow(val label: String, val on: Boolean, val offWord: String, val door: PhoneSettingDoor)
 
-internal data class FeatureRow(val key: String, val label: String, val group: String, val guarded: Boolean, val needs: List<String>)
+internal data class FeatureRow(val key: String, val label: String, val guarded: Boolean, val needs: List<String>)
 
 /** `wanted` survives a revoke. */
 internal data class FeatureView(
@@ -43,12 +43,10 @@ internal sealed interface GearTarget {
 	data object AppSettings : GearTarget
 }
 
-/** Null gear: nothing to open. */
+/** Optional settings gear. */
 internal data class FeatureRowModel(val switchEnabled: Boolean, val gear: GearTarget?)
 
 private const val NOTIFICATIONS_NEED = "notifications"
-
-private const val PHONE_GROUP = "Phone"
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -71,35 +69,34 @@ internal fun needLabel(need: String): String = when (need) {
 	else -> need
 }
 
-internal fun requiredRows(facts: RequiredFacts): List<RequiredRow> = listOf(
-	RequiredRow(
+internal fun phoneSettingRows(facts: PhoneSettingFacts): List<PhoneSettingRow> = listOf(
+	PhoneSettingRow(
 		"Default assistant",
 		facts.assistantOn,
 		assistantSetupLine(facts.roleHeld, facts.sessionAdopted) ?: "Off",
-		RequiredDoor.PICKER,
+		PhoneSettingDoor.PICKER,
 	),
-	RequiredRow("Screen and app data", facts.screenData, "Off", RequiredDoor.PICKER),
-	RequiredRow(
+	PhoneSettingRow("Screen and app data", facts.screenData, "Off", PhoneSettingDoor.PICKER),
+	PhoneSettingRow(
 		"Notifications",
 		facts.notifications,
 		"Not granted",
-		if (facts.notifications) RequiredDoor.NOTIFICATION_PAGE else RequiredDoor.NOTIFICATIONS,
+		if (facts.notifications) PhoneSettingDoor.NOTIFICATION_PAGE else PhoneSettingDoor.NOTIFICATIONS,
 	),
 )
 
-/** Grouped by first need, the act trace aside; registry order kept. */
+/** Registry order. */
 internal fun featureRows(bindings: Collection<PhoneCapabilityBinding>): List<FeatureRow> =
 	bindings.map { binding ->
 		FeatureRow(
 			key = binding.key,
 			label = binding.label,
-			group = binding.needs.firstOrNull { it != NOTIFICATIONS_NEED }?.let(::needLabel) ?: PHONE_GROUP,
 			guarded = binding.kind == "guarded",
 			needs = binding.needs,
 		)
 	}
 
-/** `grants` is the dispatch rule, wanted aside. */
+/** Row availability. */
 internal fun featureViews(
 	rows: List<FeatureRow>,
 	wanted: Set<String>,
@@ -116,7 +113,7 @@ internal fun enabledLine(assistantRole: Boolean, screenData: Boolean, views: Lis
 	return "Enabled: ${names.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "none"}"
 }
 
-/** Null unless a grant was lost. */
+/** Lost-grant warning. */
 internal fun lostLine(views: List<FeatureView>): String? {
 	val needs = views.filter { it.lost }.flatMap { it.missing }.distinct().map(::needLabel)
 	return needs.takeIf { it.isNotEmpty() }?.let { "Permission missing for: ${it.joinToString(", ")}" }
@@ -129,7 +126,7 @@ internal fun needsLine(view: FeatureView): String? = when {
 	else -> "Not supported"
 }
 
-/** On needs the grant; off always lands. */
+/** Require grants to enable. */
 internal fun toggledWanted(view: FeatureView, on: Boolean): Boolean = on && view.granted
 
 internal fun featureRowModel(view: FeatureView): FeatureRowModel = FeatureRowModel(
@@ -140,7 +137,7 @@ internal fun featureRowModel(view: FeatureView): FeatureRowModel = FeatureRowMod
 	},
 )
 
-/** Android shows no dialog after a final denial. */
+/** Final denial opens settings. */
 internal fun askable(need: String, denied: Set<String>, rationale: Boolean): Boolean = need !in denied || rationale
 
 internal fun permissionDoor(need: String, askable: Boolean): PermissionDoor =

@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.PhoneCapabilities
+import com.atelier_nyaarium.switchboard.assistantSetupLine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -9,6 +10,11 @@ import org.junit.Test
 class AssistantPermissionsTest {
 	private val rows = featureRows(PhoneCapabilities.bindings.values)
 	private fun row(key: String) = rows.single { it.key == key }
+
+	@Test
+	fun featureRowsKeepRegistryOrder() {
+		assertEquals(listOf("status", "contacts_search", "calendar_events", "torch"), rows.map { it.key })
+	}
 
 	@Test
 	fun theIndexLineNamesTheRoleAndEveryFeatureThatIsOnAndGranted() {
@@ -29,6 +35,7 @@ class AssistantPermissionsTest {
 		val granted = lost.copy(granted = true, missing = emptyList())
 
 		assertEquals("Permission missing for: Contacts", lostLine(listOf(lost)))
+		assertEquals("Needs: Contacts", needsLine(lost))
 		assertNull(lostLine(listOf(neverOn)))
 		assertNotNull(needsLine(neverOn))
 		assertNull(needsLine(FeatureView(row("torch"), wanted = false, granted = true)))
@@ -39,7 +46,6 @@ class AssistantPermissionsTest {
 		assertEquals(FeatureRowModel(switchEnabled = false, gear = GearTarget.Need("contacts")), featureRowModel(neverOn))
 		assertEquals(FeatureRowModel(switchEnabled = true, gear = GearTarget.AppSettings), featureRowModel(granted))
 		assertNull(featureRowModel(FeatureView(row("status"), wanted = false, granted = true)).gear)
-		assertEquals("Phone", row("torch").group)
 		assertEquals(PermissionDoor.APP_SETTINGS, permissionDoor("mystery", askable = true))
 		assertEquals(PermissionDoor.APP_SETTINGS, permissionDoor("contacts", askable("contacts", setOf("contacts"), rationale = false)))
 		assertEquals(PermissionDoor.REQUEST, permissionDoor("contacts", askable("contacts", setOf("contacts"), rationale = true)))
@@ -49,23 +55,24 @@ class AssistantPermissionsTest {
 	fun aFeatureWithoutItsHardwareReadsUnsupportedAndCannotSwitchOn() {
 		val unsupported = FeatureView(row("torch"), wanted = false, granted = false)
 
-		assertNotNull(needsLine(unsupported))
+		assertEquals("Not supported", needsLine(unsupported))
 		assertNull(lostLine(listOf(unsupported.copy(wanted = true))))
 		assertEquals(false, toggledWanted(unsupported, on = true))
 		assertEquals(false, featureRowModel(unsupported).switchEnabled)
 	}
 
 	@Test
-	fun theRequiredRowsReadOffWithTheSetupStepUntilEveryFactHolds() {
-		val held = RequiredFacts(roleHeld = true, sessionAdopted = true, screenData = true, notifications = true)
+	fun phoneSettingRowsReadTheirCurrentStatusAndDestinations() {
+		val held = PhoneSettingFacts(roleHeld = true, sessionAdopted = true, screenData = true, notifications = true)
 		val unheld = held.copy(roleHeld = false)
 		val unadopted = held.copy(sessionAdopted = false)
 
-		assertEquals(listOf(true, true, true), requiredRows(held).map { it.on })
-		assertEquals(false, requiredRows(unadopted).first().on)
-		assertNotNull(requiredRows(unheld).first().offWord)
-		assertEquals(false, requiredRows(held.copy(notifications = false)).last().on)
-		assertEquals(RequiredDoor.NOTIFICATIONS, requiredRows(held.copy(notifications = false)).last().door)
-		assertEquals(RequiredDoor.NOTIFICATION_PAGE, requiredRows(held).last().door)
+		assertEquals(listOf("Default assistant", "Screen and app data", "Notifications"), phoneSettingRows(held).map { it.label })
+		assertEquals(listOf(true, true, true), phoneSettingRows(held).map { it.on })
+		assertEquals(false, phoneSettingRows(unadopted).first().on)
+		assertEquals(assistantSetupLine(false, true), phoneSettingRows(unheld).first().offWord)
+		assertEquals(false, phoneSettingRows(held.copy(notifications = false)).last().on)
+		assertEquals(PhoneSettingDoor.NOTIFICATIONS, phoneSettingRows(held.copy(notifications = false)).last().door)
+		assertEquals(PhoneSettingDoor.NOTIFICATION_PAGE, phoneSettingRows(held).last().door)
 	}
 }
