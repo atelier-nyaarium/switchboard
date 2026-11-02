@@ -138,6 +138,13 @@ Luna's map, verified where it changes the design:
 
 # Plan
 
+## Question 10 - What does securely local mean for a plug?
+
+Q: The HS103's local protocol is obfuscated, not authenticated. Isolate the plugs on a network segment only Sakura reaches, or settle for cutting the plug off its cloud?
+A: Cut it off the cloud; no network isolation.
+
+> ok we won't worry about vlan. but having the disconnect from cloud is enough
+
 ## Refinements found while mapping the seams
 
 - **Sealed payloads refine question 6.** An owner row's payload and a value op are sealed; the Router reads only a row's clear envelope and cannot open an answer. The envelope is Gateway-signed (`rowEnvelopeSigningBytes`), so the Router cannot rewrite it either. So: `recipient: holder` is the Gateway's signed selector inside the envelope; the Router resolves it on the `inbox_append` frame path (`InboxFrames.appendRow`, before `InboxService.appendRow`; `OwnerOpIntake` sees console-origin ops only) and writes the device as Router-owned row metadata beside the envelope, as it stamps `seq` and `at`, refusing a producer-supplied stamp. The Gateway keeps the stamp on the request entry and refuses an answer whose signed device differs, since it is the only party that can open one. The Router stays the authority on who holds; the enforcement sits where the answer is readable. Deploy the Router first: an older Router strips the unknown envelope field before verifying the signature and refuses the row.
@@ -337,6 +344,12 @@ Two facts told back: the local protocol can unbind the plug from its account and
 - Discovery from Sakura (python-kasa 0.11.0.1 in `~/.venvs/kasa`, outside the project): one plug answered, alias `Light`, HS103(US) hardware 3.0, firmware 1.0.3, at 192.168.1.151 on the same /24 as Sakura's `wlo1`, relay off, signal -44 dBm, cloud-connected, clock in PST. It speaks the plain local protocol on TCP 9999 with no credentials. Flickered on and off from Sakura; the owner saw it. The second plug was not plugged in.
 - What the local protocol offers this hardware: state, on-since, signal, the status LED, the clock and zone, cloud state; switch, rename, LED, clock, reboot, countdown, weekly schedules stored on the plug, factory reset and WiFi provisioning. No energy metering on HS103.
 - The on-device schedule means the owner's daily on and off can live in the plug, written once by Switchboard; Gateway routines stay for what a plug cannot hold.
+
+### Research (three Luna angles)
+
+- Protocol: JSON over TCP 9999 behind a four-byte length and an XOR autokey from 0xAB, the commands `get_sysinfo`, `set_relay_state`, `set_dev_alias`; about eighty lines of TypeScript. Discovery is a UDP broadcast on 9999 (legacy) and 20002 (newer). An HS103 on newer hardware or firmware can speak KLAP with the TP-Link login instead, and a firmware update through the Kasa app can move a plug there; this unit is legacy. The npm `tplink-smarthome-api` is Node-only with a 2023 release; `bun-kasa` is three commits under GPL. Neither is worth taking for two commands.
+- Topology: the Gateway sits on two Docker bridge networks, reaches a LAN address by unicast TCP, and cannot broadcast. The host daemon runs on Sakura's own stack and already answers typed `HostOp` requests through `relayToHost` with a 20-second bound; a scan op is one more entry. The phone (target SDK 36) may use the local network without a runtime permission and could scan over WiFi. Host networking for the Gateway would drop the loopback-only bind of 20000 and both Docker networks: no.
+- Settings: an Integrations peer page is an `assistantSections` row, an `AssistantPage` destination and the existing integration rows and grant sheet moved out of the Watchers page. A device list needs a Gateway store of `{ id, name, address, revision }` with runtime state kept apart from the record, console ops for add, rename and remove, and a device read separate from `assistant_state` so a slow plug cannot stall settings. The list belongs to one Gateway; it does not travel with the home.
 
 ## Phase 3 - Acceptance and docs ✅ (owner's QA pending)
 
