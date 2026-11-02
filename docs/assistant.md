@@ -48,11 +48,13 @@ Router's record names. That Gateway feeds it events. The session decides what to
     while an enabled watcher has a problem or new items (`inboxRows`). A problem row shows Settings,
     which opens that watcher's page, where the problem is named. A row with new items shows the
     count as a badge ("4 new") and Check now.
-  - The gear opens the Settings page: Assistant location (the Gateway, the folder, Move here or Set
-    up here, Remove assistant), the home's Safety, then one row per enabled watcher with its health
-    line (`WatcherStatus`), red when it needs a secret or stopped, and a collapsible Disabled group
-    after them. A row opens the watcher's page: Enabled, its health, secret, grants, actions, a
-    Rules page with its count, and Retry when stopped. Rules opens a rule's Editor page.
+  - The gear opens Assistant settings, also reachable from the app's Settings page: an index with a
+    status line per page (`AssistantSettingsLines.kt`), refreshed on open. Session data location (the
+    Gateway, the folder, Move here or Set up here), Features (below), Safety (Approve every send),
+    Watchers (one row per enabled watcher with its health line, `WatcherStatus`, red when it needs a
+    secret or stopped, and a collapsible Disabled group), Remove assistant. A watcher row opens its
+    page: Enabled, its health, secret, grants, actions, a Rules page with its count, and Retry when
+    stopped. Rules opens a rule's Editor page. Each page shows its own failure under its `WorkKey`.
     `docs/console.md` holds how the pages route.
   - **Writes** (`AssistantOps`): Set up and Move are one sealed put. A placed, reachable home carries
     its fresh `assistant_state`; an unplaced one carries what the record sealed; a placed home that
@@ -512,13 +514,44 @@ microphone; Gboard's mic key dictates. `summon-residue.test.ts` refuses `showWhe
 - **The app lock:** a summon whose keyguard asked for a credential also stands for the app's own
   lock, once; a Smart Lock dismissal does not. No API proves a credential was entered, so a trust
   agent granting trust while the system prompt shows reads as a challenge.
-- **Setup:** the role cannot be requested by an app. Assistant settings shows a Digital assistant row
-  while the role is not held or its session is not adopted (`assistantSessionAdopted`), opening the
-  system's picker. `assistantSetupLine` tells the two apart: an unheld role names the Press and hold
-  power setting; a held role whose session is not adopted says to pick None, then Switchboard again.
+- **Setup:** the role cannot be requested by an app. The Features page's Required rows read the role
+  (`assistantRoleHeld`, `assistantSessionAdopted`), the picker's screen and app data switch
+  (`assistantScreenDataEnabled`, the two `assist_*` secure settings) and the notification grant, each
+  On or its off word with a gear to the system page (`requiredRows`). `assistantSetupLine` tells the
+  role's two faults apart: an unheld role names the Press and hold power setting; a held role whose
+  session is not adopted says to pick None, then Switchboard again.
   A role picked before the session shipped recorded the app's activity and no voice interaction
   service, so long-press power opened the app; a re-pick, or `cmd role remove-role-holder` then
   `add-role-holder` over adb, records the service.
+
+## Phone features
+
+The assistant reaches the holding phone through the capability registry (`PHONE_CAPABILITIES` in
+`src/shared/schemasPhoneCapabilities.ts`, pinned to the Kotlin bindings by
+`tests/fixtures/phone-capabilities/registry.json`): `status`, `contacts_search` and `torch`, each a
+tool of its own with the registry's needs in its description. A request lands on the phone as a
+stamped row, runs through `PhoneCapabilityOps` and answers through the journal, at most once per
+request id.
+
+- **Off until ticked on:** the Features page lists one row per key, grouped by its first need (the
+  act trace aside). The owner's wanted set is `FeatureToggles`, persisted before it shows. A key the
+  owner has not switched on answers `disabled` with no needs and a detail naming the page, and the
+  assistant is told to say so once and stop.
+- **One availability rule:** `PhoneCapabilityOps.grants` reads the key's needs through the manifest
+  permissions and the torch's back flash. The page's switch, gear and lines (`featureViews`,
+  `featureRowModel`, `needsLine`) and the dispatch (`permissionState`, the switch in front of
+  `grants`) read the same answer, so a need with no mapping is ungranted everywhere and a phone
+  without a flash reads Not supported everywhere.
+- **A lost grant:** the switch stays drawn and only goes On to Off until the grant is back; the
+  index warns "Permission missing for" only for a feature that was on. The gear opens the request
+  while Android still shows one, else the app's settings page (`permissionDoor`, `askable`).
+- **An act leaves a trace:** every act binding needs `notifications`, so a denied grant refuses the
+  act as `not_granted` instead of running it with its notification dropped. The trace has its own
+  notification id band (`assistantTraceNotificationId`).
+- **The Android reads** sit behind `PhoneCapabilityPlatform`; `PhoneCapabilityOpsTest` drives
+  `enqueue` through `execute` to delivery with a fake.
+- **Deploying a new reason:** `AGENTS.md` "Deploying". Every reader of `UNAVAILABLE_REASONS` ships
+  before the app that answers it.
 
 ## The panel
 
