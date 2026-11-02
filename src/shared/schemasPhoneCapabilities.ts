@@ -203,7 +203,7 @@ Lists the last 100 notifications the listener has seen, newest first, showing or
 		describe: `
 # Reply to a notification
 
-Sends the text through the notification's own inline reply. The owner approves it first. Sent is false when the notification is gone or has no reply.
+Sends the text through the notification's own inline reply. Sent is false when the notification is gone or has no reply.
 		`.trim(),
 	},
 	// An act leaves a trace notification.

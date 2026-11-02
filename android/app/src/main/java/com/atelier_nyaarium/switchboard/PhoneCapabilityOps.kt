@@ -467,7 +467,7 @@ internal class PhoneCapabilityOps(
 				if (!permission.available) {
 					CapabilityLog.record(run.key, CapabilityLogEvent.DENIED, permission.needs.size, false)
 					val reason = permission.reason ?: "not_granted"
-					PhoneCapabilityAnswer.Unavailable(reason, permission.needs, DISABLED_DETAIL.takeIf { reason == "disabled" })
+					PhoneCapabilityAnswer.Unavailable(reason, permission.missing, DISABLED_DETAIL.takeIf { reason == "disabled" })
 				} else {
 					val binding = PhoneCapabilities.bindings.getValue(run.key)
 					val result = journal.runUnlessRetracted(run.requestId) {

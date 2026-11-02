@@ -291,7 +291,9 @@ no TTL.
   `failCount` backs off.
 - **Non-authoritative presence:** probe once per terminal mount. Polling is not evidence.
 - **Working and needs-login** (`ChatState.working`): presence first, local peek only as fallback.
-  Every live session is peeked every `PRESENCE_PEEK_MS`, with two-peek hysteresis.
+  Every live session is peeked every `PRESENCE_PEEK_MS`, with two-peek hysteresis. The composer
+  the panel and the thread share (`ComposerField.kt`) dims its border and runs a comet along it
+  while the session's word is busy.
 - **Session card rungs** (`SessionCardPreview.kt`): the session's own reply supplies the headline;
   the owner's row never does. Each rung carries its own row time; ordering uses `lastActivity`.
 - **Card board branch** (`cardBranchOf`): retain the root and a window around the current entry;

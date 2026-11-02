@@ -563,6 +563,10 @@ the recipient or number prepared. Set `send` or `place` true only for a direct r
 call through; when unclear, ask the owner out loud. A sideloaded build may not hold `SEND_SMS`
 without installer allowlisting; `status` reports `sms` as `not_granted`.
 
+A guarded act (`notification_reply`, a `send`, a `place`) opens an owner card on the holder's phone
+first, through the guard a send takes, unless Approve every send is off, when it runs unasked. An
+`unavailable` answer names only the needs still missing.
+
 Notification access is the Android listener grant. `AssistantNotificationListener` seeds and updates
 a process-wide ring capped at 100 entries, evicting a dismissed row before a showing one. A dismissed
 notification stays listed without its reply action; a reply goes only to one the ring holds as showing
