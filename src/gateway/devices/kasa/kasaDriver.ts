@@ -9,7 +9,6 @@ import {
 	type DeviceSchedule,
 	type DeviceSetting,
 	type DeviceSettings,
-	knownOutcome,
 } from "../driver.js";
 import { cloudBound, disconnectCloud, getCloudInfo } from "./cloud.js";
 import { deviceSchedule, putSchedule, rulesFromAnswer } from "./schedule.js";
@@ -297,14 +296,19 @@ export function createKasaDriver(options: { transport?: KasaTransport; port?: nu
 		build: (identity: JsonRecord) => { args: JsonRecord; value: T },
 		ctx: DeviceOperationContext,
 	): Promise<{ response: JsonRecord; value: T }> => {
-		let identity: JsonRecord;
-		try {
-			identity = await identifyInfo(record, ctx);
-		} catch (error) {
-			throw knownOutcome(error);
-		}
+		const identity = await identifyInfo(record, ctx);
 		const mutation = build(identity);
-		const response = await command(record.address, module, name, mutation.args, ctx.signal);
+		ctx.effect.mark();
+		let response: JsonRecord;
+		try {
+			response = await command(record.address, module, name, mutation.args, ctx.signal);
+		} catch (error) {
+			if (error instanceof DeviceDriverFailure) {
+				const failure = error.failure;
+				if (failure.kind === "refused" || failure.sent === false) ctx.effect.none();
+			}
+			throw error;
+		}
 		return { response, value: mutation.value };
 	};
 

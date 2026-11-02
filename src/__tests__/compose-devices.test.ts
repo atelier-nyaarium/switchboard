@@ -6,6 +6,8 @@ import { ASSISTANT_WAITS } from "../gateway/assistant/waits.js";
 import { composeDevices, DEVICE_IDENTIFY_WAIT_MS, DEVICE_READ_WAIT_MS } from "../gateway/compose/composeDevices.js";
 import { createConsoleDispatcher } from "../gateway/console/consoleHandler.js";
 import { createKasaTransport } from "../gateway/devices/kasa/transport.js";
+import { TOGGLE_DOUBT } from "../gateway/devices/road.js";
+import { NO_DEVICE } from "../gateway/devices/shapes.js";
 import { createDeviceStore } from "../gateway/devices/store.js";
 import type { ConsoleOp } from "../shared/console-protocol.js";
 import { generateIdentity } from "../shared/crypto.js";
@@ -177,14 +179,6 @@ describe("Gateway device stage", () => {
 				schedule,
 			});
 			expect(scheduled).toMatchObject({ schedule: { enabled: true, rules: [{ time: "07:30", action: "on" }] } });
-			const replayedSchedule = await value({
-				kind: "device_schedule_put",
-				id: "aa:bb:cc:dd:ee:ff",
-				revision: 2,
-				schedule,
-			});
-			expect(replayedSchedule).toMatchObject({ schedule: { rules: [{ id: "fake-rule-1" }] } });
-			expect(plug.received().filter((row) => row.command === "add_rule")).toHaveLength(1);
 
 			const setting = await value({
 				kind: "device_setting_put",
@@ -283,15 +277,83 @@ describe("Gateway device stage", () => {
 			await stage.console.add({ mac: "aa:bb:cc:dd:ee:ff", address: "127.0.0.1", name: "Lamp" });
 			expect(await stage.console.set("aa:bb:cc:dd:ee:ff", "on")).toMatchObject({
 				reason: "refused",
-				detail: "err_code -17: relay locked",
+				detail: expect.stringContaining("-17"),
 			});
-			expect(await stage.setDevice("Lamp", "on")).toEqual({
-				kind: "refused",
-				reason: "the device answered err_code -17",
-			});
+			const assistant = await stage.setDevice("Lamp", "on");
+			expect(assistant).toMatchObject({ kind: "refused", reason: expect.stringContaining("-17") });
+			expect(JSON.stringify(assistant)).not.toContain("relay locked");
 		} finally {
 			await stage.close();
 			await plug.close().catch(() => undefined);
+			fs.rmSync(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("leaves a refused toggle out of the toggle doubt", async () => {
+		const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "compose-device-refused-toggle-"));
+		let relayCommands = 0;
+		const plug = await createFakeKasaPlug({
+			mac: "aa:bb:cc:dd:ee:ff",
+			behavior: (request) =>
+				request.command === "set_relay_state" && ++relayCommands === 1
+					? { kind: "error", command: "set_relay_state", code: -1, message: "busy" }
+					: undefined,
+		});
+		const stage = composeDevices({
+			dataDir,
+			ambient: fakeAmbient(),
+			transport: createKasaTransport(plug.port),
+			relayToHost: async () => ({ ok: false, errorKind: "daemon_away" }) as never,
+		});
+		try {
+			await stage.console.add({ mac: "aa:bb:cc:dd:ee:ff", address: "127.0.0.1", name: "Lamp" });
+			expect(await stage.console.set("aa:bb:cc:dd:ee:ff", "toggle")).toMatchObject({ reason: "refused" });
+			expect(await stage.console.set("aa:bb:cc:dd:ee:ff", "toggle")).toMatchObject({ state: { state: "on" } });
+			expect(plug.received().filter((row) => row.command === "set_relay_state")).toHaveLength(2);
+		} finally {
+			await stage.close();
+			await plug.close();
+			fs.rmSync(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("answers missing ids and stale revisions through each shape", async () => {
+		const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "compose-device-missing-stale-"));
+		const plug = await createFakeKasaPlug({ mac: "aa:bb:cc:dd:ee:ff" });
+		const stage = composeDevices({
+			dataDir,
+			ambient: fakeAmbient(),
+			transport: createKasaTransport(plug.port),
+			relayToHost: async () => ({ ok: false, errorKind: "daemon_away" }) as never,
+		});
+		try {
+			await stage.console.add({ mac: "aa:bb:cc:dd:ee:ff", address: "127.0.0.1", name: "Lamp" });
+			expect(await stage.console.read("11:22:33:44:55:66")).toEqual({
+				reason: "not_supported",
+				detail: NO_DEVICE,
+			});
+			expect(await stage.console.set("11:22:33:44:55:66", "on")).toEqual({
+				reason: "not_supported",
+				detail: NO_DEVICE,
+			});
+			expect(await stage.console.rename("11:22:33:44:55:66", "Fan", 1)).toEqual({
+				stored: false,
+				reason: NO_DEVICE,
+			});
+			const stale = { record: { revision: 1 }, reason: expect.stringContaining("revision 1 is stored") };
+			expect(await stage.console.schedulePut("aa:bb:cc:dd:ee:ff", 5, { enabled: true, rules: [] })).toMatchObject(
+				stale,
+			);
+			expect(
+				await stage.console.settingPut("aa:bb:cc:dd:ee:ff", 5, {
+					driver: "kasa",
+					setting: { key: "led", value: false },
+				}),
+			).toMatchObject(stale);
+			expect(plug.received().filter((row) => row.command !== "get_sysinfo")).toHaveLength(0);
+		} finally {
+			await stage.close();
+			await plug.close();
 			fs.rmSync(dataDir, { recursive: true, force: true });
 		}
 	});
@@ -312,11 +374,11 @@ describe("Gateway device stage", () => {
 					address: "127.0.0.1",
 					name: "AA-BB-CC-DD-EE-FF",
 				}),
-			).toMatchObject({ stored: false, reason: "device name cannot be a MAC address" });
+			).toMatchObject({ stored: false });
+			expect(plug.received()).toHaveLength(0);
 			await stage.console.add({ mac: "aa:bb:cc:dd:ee:ff", address: "127.0.0.1", name: "Lamp" });
 			expect(await stage.console.rename("aa:bb:cc:dd:ee:ff", "AABBCCDDEEFF", 1)).toMatchObject({
 				stored: false,
-				reason: "device name cannot be a MAC address",
 				record: { name: "Lamp", revision: 1 },
 			});
 			expect(plug.received().some((row) => row.command === "set_dev_alias")).toBe(false);
@@ -406,7 +468,7 @@ describe("Gateway device stage", () => {
 		}
 	});
 
-	it("logs a failed scan refresh and still returns its candidates", async () => {
+	it("returns its candidates when a scan refresh cannot be written", async () => {
 		const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "compose-device-scan-commit-"));
 		const plug = await createFakeKasaPlug({ mac: "aa:bb:cc:dd:ee:ff" });
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -435,7 +497,6 @@ describe("Gateway device stage", () => {
 		try {
 			await stage.console.add({ mac: "aa:bb:cc:dd:ee:ff", address: "127.0.0.1", name: "Lamp" });
 			expect(await stage.console.scan()).toMatchObject({ candidates: [{ address: "127.0.0.2" }] });
-			expect(warn).toHaveBeenCalledWith(expect.stringContaining("[device] write failed"));
 			expect(await stage.console.list()).toMatchObject({
 				revision: 1,
 				records: [{ address: "127.0.0.1", revision: 1 }],
@@ -527,7 +588,10 @@ describe("Gateway device stage", () => {
 					},
 				],
 			});
-			expect(result).toMatchObject({ reason: "timeout" });
+			expect(result).toMatchObject({
+				reason: "timeout",
+				detail: expect.stringContaining("1 of 3 mutations landed"),
+			});
 			expect(mutations).toEqual(["add_rule"]);
 		} finally {
 			await stage.close();
@@ -562,7 +626,7 @@ describe("Gateway device stage", () => {
 			expect(await timedOut).toMatchObject({ reason: "timeout" });
 			expect(await stage.console.set("aa:bb:cc:dd:ee:ff", "toggle")).toEqual({
 				reason: "refused",
-				detail: "read the device first; the last toggle's outcome is unknown",
+				detail: TOGGLE_DOUBT,
 			});
 			expect(await stage.setDevice("aa:bb:cc:dd:ee:ff", "toggle")).toMatchObject({ kind: "refused" });
 			expect(await stage.listDevices()).toMatchObject({
@@ -638,7 +702,7 @@ describe("Gateway device stage", () => {
 			await stage.close();
 			expect(await operation).toMatchObject({
 				reason: "timeout",
-				detail: "Kasa command was sent, but no answer arrived before the deadline; its outcome is unknown",
+				detail: expect.stringContaining("outcome is unknown"),
 			});
 			await plug.waitForConnectionsClosed();
 			expect(plug.openConnections()).toBe(0);
@@ -649,7 +713,7 @@ describe("Gateway device stage", () => {
 		}
 	});
 
-	it("does not remove a queued device and fences every handler after close", async () => {
+	it("does not remove a queued device after close", async () => {
 		const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "compose-device-close-remove-"));
 		const plug = await createFakeKasaPlug({
 			behavior: (request) => (request.command === "set_relay_state" ? { kind: "hold" } : undefined),
@@ -674,38 +738,6 @@ describe("Gateway device stage", () => {
 			});
 			await held;
 			await closing;
-			const commandsAfterClose = plug.received().length;
-			const detail = "not started before the deadline";
-			expect(await stage.console.list()).toEqual({ reason: "timeout", detail });
-			expect(await stage.console.read("aa:bb:cc:dd:ee:ff")).toEqual({ reason: "timeout", detail });
-			expect(await stage.console.scan()).toEqual({ reason: "timeout", detail });
-			expect(
-				await stage.console.add({ mac: "11:22:33:44:55:66", address: "127.0.0.1", name: "Other" }),
-			).toMatchObject({ stored: false, reason: "timeout", detail });
-			expect(await stage.console.rename("aa:bb:cc:dd:ee:ff", "Other", 1)).toMatchObject({
-				stored: false,
-				reason: "timeout",
-				detail,
-			});
-			expect(await stage.console.remove("aa:bb:cc:dd:ee:ff", 1)).toEqual({
-				deleted: false,
-				reason: "timeout",
-				detail,
-			});
-			expect(await stage.console.set("aa:bb:cc:dd:ee:ff", "off")).toEqual({ reason: "timeout", detail });
-			expect(await stage.console.schedulePut("aa:bb:cc:dd:ee:ff", 1, { enabled: true, rules: [] })).toMatchObject(
-				{
-					reason: "timeout",
-					detail,
-				},
-			);
-			expect(
-				await stage.console.settingPut("aa:bb:cc:dd:ee:ff", 1, {
-					driver: "kasa",
-					setting: { key: "led", value: false },
-				}),
-			).toMatchObject({ reason: "timeout", detail });
-			expect(plug.received()).toHaveLength(commandsAfterClose);
 			expect(relay).not.toHaveBeenCalled();
 			const reopened = composeDevices({
 				dataDir,

@@ -10,15 +10,35 @@ import type {
 
 export type DeviceVerb = z.infer<typeof DeviceVerbSchema>;
 
+/** Marked before a write; none once denied. */
+export interface EffectLatch {
+	readonly marked: boolean;
+	mark(): void;
+	none(): void;
+}
+
+export function effectLatch(): EffectLatch {
+	return {
+		marked: false,
+		mark() {
+			(this as { marked: boolean }).marked = true;
+		},
+		none() {
+			(this as { marked: boolean }).marked = false;
+		},
+	};
+}
+
 export interface DeviceOperationContext {
 	ambient: Ambient;
 	signal: AbortSignal;
+	effect: EffectLatch;
 }
 
-// Sent means unconfirmed outcome.
+// Sent means command written.
 export type DeviceDriverError =
 	| { kind: "unreachable"; detail: string; sent?: boolean }
-	| { kind: "refused"; code: number; message: string }
+	| { kind: "refused"; code: number; message: string; note?: string }
 	| { kind: "timeout"; detail: string; sent?: boolean };
 
 export class DeviceDriverFailure extends Error {
@@ -28,30 +48,14 @@ export class DeviceDriverFailure extends Error {
 	}
 }
 
-export function sentOf(failure: DeviceDriverError): boolean {
-	return failure.kind !== "refused" && failure.sent === true;
-}
-
-/** Drops a sent mark from a pre-mutation failure. */
-export function knownOutcome(error: unknown): unknown {
-	if (!(error instanceof DeviceDriverFailure) || !sentOf(error.failure)) return error;
-	const { sent: _sent, ...rest } = error.failure as Extract<DeviceDriverError, { detail: string }>;
-	return new DeviceDriverFailure(rest);
-}
-
-/** Appends what landed before the failure. */
+/** Appends a landing note. */
 export function noteLanding(error: unknown, note: string): unknown {
 	if (!(error instanceof DeviceDriverFailure)) return error;
 	const failure = error.failure;
 	if (failure.kind === "refused") {
-		return new DeviceDriverFailure({ ...failure, message: `${failure.message}; ${note}` });
+		return new DeviceDriverFailure({ ...failure, note: failure.note ? `${failure.note}; ${note}` : note });
 	}
-	const { sent, ...rest } = failure;
-	return new DeviceDriverFailure({
-		...rest,
-		detail: `${failure.detail}; ${note}`,
-		...(sent === true ? { sent } : {}),
-	});
+	return new DeviceDriverFailure({ ...failure, detail: `${failure.detail}; ${note}` });
 }
 
 export type DeviceConfirmedState = {

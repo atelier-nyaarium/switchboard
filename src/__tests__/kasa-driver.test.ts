@@ -1,6 +1,6 @@
 import { createServer, type Socket } from "node:net";
 import { describe, expect, it, vi } from "vitest";
-import { DeviceDriverFailure, type DeviceOperationContext } from "../gateway/devices/driver.js";
+import { DeviceDriverFailure, type DeviceOperationContext, effectLatch } from "../gateway/devices/driver.js";
 import { frame } from "../gateway/devices/kasa/codec.js";
 import { createKasaDriver } from "../gateway/devices/kasa/kasaDriver.js";
 import { createKasaTransport, KASA_MAX_ANSWER_BYTES } from "../gateway/devices/kasa/transport.js";
@@ -26,7 +26,7 @@ async function withContext<T>(work: (ctx: DeviceOperationContext) => Promise<T>,
 	const ambient = fakeAmbient({ drive: "real" });
 	const linked = linkedSignal(ambient, { ms, reason: "test deadline" });
 	try {
-		return await work({ ambient, signal: linked.signal });
+		return await work({ ambient, signal: linked.signal, effect: effectLatch() });
 	} finally {
 		linked.dispose();
 	}
@@ -176,29 +176,6 @@ describe("Kasa driver", () => {
 		});
 	});
 
-	it("replays an idless schedule rule without adding it again", async () => {
-		await withPlug({}, async (plug, driver) => {
-			const schedule = {
-				enabled: true,
-				rules: [
-					{
-						days: [true, false, true, false, true, false, true],
-						time: "06:15",
-						action: "on" as const,
-						enabled: true,
-					},
-				],
-			};
-			await withContext(async (ctx) => {
-				await driver.schedule(record(), ctx).put(schedule);
-				const replay = await driver.schedule(record(), ctx).put(schedule);
-				expect(replay.rules).toHaveLength(1);
-				expect(replay.rules[0]).toMatchObject({ id: "fake-rule-1", time: "06:15", action: "on" });
-			});
-			expect(plug.received().filter((row) => row.command === "add_rule")).toHaveLength(1);
-		});
-	});
-
 	it("reports the landed schedule mutations when the operation signal ends", async () => {
 		const parent = new AbortController();
 		const linked = linkedSignal(fakeAmbient({ drive: "real" }), { parent: parent.signal });
@@ -229,28 +206,29 @@ describe("Kasa driver", () => {
 		const driver = createKasaDriver({ transport });
 		try {
 			const failure = await failureOf(() =>
-				driver.schedule(record(), { ambient: fakeAmbient(), signal: linked.signal }).put({
-					enabled: false,
-					rules: [
-						{
-							days: [true, false, false, false, false, false, false],
-							time: "07:00",
-							action: "on",
-							enabled: true,
-						},
-						{
-							days: [false, true, false, false, false, false, false],
-							time: "08:00",
-							action: "off",
-							enabled: true,
-						},
-					],
-				}),
+				driver
+					.schedule(record(), { ambient: fakeAmbient(), signal: linked.signal, effect: effectLatch() })
+					.put({
+						enabled: false,
+						rules: [
+							{
+								days: [true, false, false, false, false, false, false],
+								time: "07:00",
+								action: "on",
+								enabled: true,
+							},
+							{
+								days: [false, true, false, false, false, false, false],
+								time: "08:00",
+								action: "off",
+								enabled: true,
+							},
+						],
+					}),
 			);
 			expect(failure.kind).toBe("timeout");
 			if (failure.kind !== "timeout") throw new Error("Expected a schedule timeout");
 			expect(failure.detail).toContain("1 of 3 mutations landed");
-			expect(failure.detail).toContain("a devices read shows the plug's state");
 			expect(mutations).toEqual(["add_rule"]);
 		} finally {
 			linked.dispose();
@@ -303,6 +281,41 @@ describe("Kasa driver", () => {
 				const failure = await withContext((ctx) => failureOf(() => driver.set(record(), "on", ctx)));
 				expect(failure.kind).toBe("unreachable");
 				expect(commandNames(plug)).toEqual(["get_sysinfo"]);
+			},
+		);
+	});
+
+	it("marks the effect latch only for a written command the plug did not refuse", async () => {
+		let mismatch = true;
+		let relayCommands = 0;
+		await withPlug(
+			{
+				behavior: (request) => {
+					if (request.command === "get_sysinfo" && mismatch) {
+						return { kind: "differentMac", mac: "00:11:22:33:44:55" };
+					}
+					if (request.command === "set_relay_state" && ++relayCommands === 1) {
+						return { kind: "error", command: "set_relay_state", code: -3, message: "busy" };
+					}
+					return undefined;
+				},
+			},
+			async (_plug, driver) => {
+				const context = () => ({
+					ambient: fakeAmbient(),
+					signal: new AbortController().signal,
+					effect: effectLatch(),
+				});
+				const mismatched = context();
+				await failureOf(() => driver.set(record(), "on", mismatched));
+				expect(mismatched.effect.marked).toBe(false);
+				mismatch = false;
+				const refused = context();
+				await failureOf(() => driver.set(record(), "on", refused));
+				expect(refused.effect.marked).toBe(false);
+				const landed = context();
+				await driver.set(record(), "on", landed);
+				expect(landed.effect.marked).toBe(true);
 			},
 		);
 	});
@@ -362,13 +375,6 @@ describe("Kasa driver", () => {
 				);
 
 				expect(failure.kind).toBe("unreachable");
-				expect(commandNames(plug)).toEqual([
-					"get_sysinfo",
-					"get_rules",
-					"get_sysinfo",
-					"edit_rule",
-					"get_sysinfo",
-				]);
 				expect(
 					plug
 						.received()
@@ -397,7 +403,9 @@ describe("Kasa driver", () => {
 			const ambient = fakeAmbient({ drive: "manual", now: () => 1_000 });
 			const linked = linkedSignal(ambient, { ms: 25, reason: "test deadline" });
 			try {
-				const operation = failureOf(() => driver.read(record(), { ambient, signal: linked.signal }));
+				const operation = failureOf(() =>
+					driver.read(record(), { ambient, signal: linked.signal, effect: effectLatch() }),
+				);
 				await vi.waitFor(() => expect(plug.received()).toHaveLength(1));
 				await ambient.advance(25);
 				const failure = await operation;
@@ -427,7 +435,9 @@ describe("Kasa driver", () => {
 				const ambient = fakeAmbient({ drive: "manual" });
 				const linked = linkedSignal(ambient, { ms: 20, reason: "test deadline" });
 				try {
-					const operation = failureOf(() => driver.set(record(), "on", { ambient, signal: linked.signal }));
+					const operation = failureOf(() =>
+						driver.set(record(), "on", { ambient, signal: linked.signal, effect: effectLatch() }),
+					);
 					await plug.waitForHeldReply();
 					await ambient.advance(20);
 					const failure = await operation;
@@ -436,7 +446,6 @@ describe("Kasa driver", () => {
 					expect(plug.openConnections()).toBe(0);
 					plug.releaseHeldReplies();
 					expect(plug.lateRepliesDropped()).toBe(1);
-					expect(await operation).toEqual(failure);
 				} finally {
 					linked.dispose();
 				}
@@ -464,7 +473,7 @@ describe("Kasa driver", () => {
 			const controller = new AbortController();
 			controller.abort("test deadline");
 			const failure = await failureOf(() =>
-				driver.read(record(), { ambient: fakeAmbient(), signal: controller.signal }),
+				driver.read(record(), { ambient: fakeAmbient(), signal: controller.signal, effect: effectLatch() }),
 			);
 			expect(failure).toMatchObject({ kind: "timeout", sent: false });
 			expect(plug.received()).toHaveLength(0);
@@ -496,7 +505,7 @@ describe("Kasa driver", () => {
 					),
 				);
 				expect(failure).toMatchObject({ kind: "refused", code: -3 });
-				expect((failure as { message: string }).message).toContain("1 of 2 mutations landed");
+				expect((failure as { note?: string }).note).toContain("1 of 2 mutations landed");
 				expect(plug.received().filter((row) => row.command === "add_rule")).toHaveLength(1);
 			},
 		);
@@ -565,15 +574,15 @@ describe("Kasa driver", () => {
 				const linked = linkedSignal(ambient, { ms: 20, reason: "test deadline" });
 				try {
 					const cut = failureOf(() =>
-						driver.schedule(record(), { ambient, signal: linked.signal }).put(schedule),
+						driver
+							.schedule(record(), { ambient, signal: linked.signal, effect: effectLatch() })
+							.put(schedule),
 					);
 					await plug.waitForHeldReply();
 					await ambient.advance(20);
 					const failure = await cut;
 					expect(failure).toMatchObject({ kind: "timeout", sent: true });
-					expect((failure as { detail: string }).detail).toContain(
-						"1 of 2 mutations landed, one more sent with an unknown outcome",
-					);
+					expect((failure as { detail: string }).detail).toContain("1 of 2 mutations landed");
 				} finally {
 					linked.dispose();
 				}

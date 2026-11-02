@@ -33,6 +33,7 @@ import type {
 	ConsoleDeviceSetResultSchema,
 	ConsoleDeviceSettingPutResultSchema,
 	DeviceAddRequestSchema,
+	DeviceVerbSchema,
 } from "../../shared/schemasDevices.js";
 import type { PhoneCapabilityAnswer } from "../../shared/schemasPhoneCapabilities.js";
 import type { HolderKey } from "../../shared/schemasPhoneHold.js";
@@ -158,7 +159,7 @@ export interface DeviceConsoleHandlers {
 	add: (request: z.infer<typeof DeviceAddRequestSchema>) => Promise<z.infer<typeof ConsoleDeviceAddResultSchema>>;
 	rename: (id: string, name: string, revision: number) => Promise<z.infer<typeof ConsoleDeviceRenameResultSchema>>;
 	remove: (id: string, revision: number) => Promise<z.infer<typeof ConsoleDeviceRemoveResultSchema>>;
-	set: (id: string, verb: "on" | "off" | "toggle") => Promise<z.infer<typeof ConsoleDeviceSetResultSchema>>;
+	set: (id: string, verb: z.infer<typeof DeviceVerbSchema>) => Promise<z.infer<typeof ConsoleDeviceSetResultSchema>>;
 	schedulePut: (
 		id: string,
 		revision: number,
@@ -218,7 +219,6 @@ export interface RunbookConsoleHandlers {
 	remove: (runbookId: string) => { deleted: boolean };
 }
 
-/** The runner behind these arrives in a later phase; the wire is settled first. */
 export interface RoutineConsoleHandlers {
 	list: () => ConsoleRoutineListResult;
 	/** `base` is the revision the editor was opened at, absent on a first save. */

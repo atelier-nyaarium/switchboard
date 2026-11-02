@@ -167,6 +167,7 @@ export async function createFakeKasaPlug(options: FakeKasaPlugOptions = {}): Pro
 				return;
 			}
 			if (behavior?.kind === "hold") {
+				// Applies, withholds the reply.
 				heldReplies.set(connection, { socket, answer: answerFor(request) });
 				holds += 1;
 				heldReplyWaiters.shift()?.();

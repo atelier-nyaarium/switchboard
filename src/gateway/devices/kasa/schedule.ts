@@ -1,5 +1,5 @@
 import { DeviceScheduleSchema } from "../../../shared/schemasDevices.js";
-import { DeviceDriverFailure, type DeviceSchedule, noteLanding, sentOf } from "../driver.js";
+import { DeviceDriverFailure, type DeviceSchedule, noteLanding } from "../driver.js";
 
 type JsonRecord = Record<string, unknown>;
 type KasaRule = JsonRecord;
@@ -33,8 +33,8 @@ function timeText(minutes: number): string {
 	return `${padded(Math.floor(minutes / 60))}:${padded(minutes % 60)}`;
 }
 
-/** Editable means representable. */
-export function isEditableRule(rule: KasaRule): boolean {
+/** Unrepresentable rules stay untouched. */
+function representableRule(rule: KasaRule): boolean {
 	return scheduleRule(rule) !== null;
 }
 
@@ -120,7 +120,7 @@ export type ScheduleMutation = {
 };
 
 export function reconcileSchedule(schedule: DeviceSchedule, current: KasaRule[]): ScheduleMutation[] {
-	const editable = current.filter(isEditableRule);
+	const editable = current.filter(representableRule);
 	const existing = new Map(
 		editable.flatMap((rule) => (typeof rule.id === "string" ? [[rule.id, rule] as const] : [])),
 	);
@@ -215,11 +215,5 @@ export async function putSchedule(
 }
 
 function withLanding(error: unknown, landed: number, total: number): unknown {
-	const sent = error instanceof DeviceDriverFailure && sentOf(error.failure);
-	if (landed === 0 && !sent) return error;
-	const unknown = sent ? ", one more sent with an unknown outcome" : "";
-	return noteLanding(
-		error,
-		`${landed} of ${total} mutations landed${unknown}; a devices read shows the plug's state`,
-	);
+	return noteLanding(error, `${landed} of ${total} mutations landed; a devices read shows the plug's state`);
 }
