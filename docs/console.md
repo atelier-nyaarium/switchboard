@@ -155,6 +155,14 @@ pending until the next welcome retries.
 A Gateway below protocol 3 is refused at registration, so the roster shows it offline until it is
 restarted on a current build.
 
+### The phone hold
+
+The summon panel and the Assistant tab claim the phone hold (`PhoneHold` in `ChatState`, signed by
+`HoldSelf`); the Gateway reads it on the Router's clock and a claim older than ten minutes refuses
+the assistant's writes and its phone actions. A capability row names the holder it was stamped for,
+and `PhoneCapabilityOps` answers only while this phone is that holder. What a locked phone shows or
+speaks of an assistant row is in `docs/assistant.md`, The locked phone.
+
 ## Add Device
 
 The device signs `approvalId`, `nonce`, `newSignPub`, and `newBoxPub`. The held device refuses an unsigned or mis-signed join before admission or key sealing.

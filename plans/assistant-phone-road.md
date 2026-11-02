@@ -328,6 +328,12 @@ Also in this phase, the working indicator: the send button is a locked spinner w
 
 The owner's three sentences on the Pixel through the summon panel, with the second phone showing the hold change, and a launch failing out as `not_showing` on a pocketed holder, relayed by the assistant. `docs/assistant.md` (the phone road, the registry, the card), `docs/console.md` (the hold, speak and alert), `docs/federation.md` (the plane and the stamp), `docs/testing.md` (the harness's second console; the emulator sandbox stays outside this feature's verification), AGENTS.md map lines. Painpoints to the board.
 
+### Progress
+
+- Pocketed holder (8.14.22): a maps request sent from the panel with the phone put to sleep right after the tap answered `not_showing`, and the assistant relayed it as locked or screen off, unlock and ask again. A first try with the power key did not sleep the screen in time and Maps opened; the sleep key did.
+- Docs checked against what shipped: `docs/assistant.md` already held the hold, the registry and the card; `docs/console.md` gained a phone hold subsection pointing at the locked-phone rules; `docs/federation.md` gained the capability row's stamp and the answer op; `docs/testing.md` lists the phone harness and its two drivers. The map lines landed per slice.
+- Owner's own QA, pending: a real text send, a placed call, a notification reply, an alarm, and a live IFTTT event once the key is assigned; the shortcuts and App Actions decision; the second phone's hold change when a phone exists.
+
 ## Painpoints
 
 - **Four components, no version handshake.** The Router ran `0b8cea42`, the Gateway a tree from before `2f2bc843`, the phone and the plugin HEAD, and the only symptom was `no_holder` from a tool. `setup.sh --verify` compares package versions, which every commit between releases shares, and `registerGateway` reads nothing of the Router's protocol version. Boarded: a Gateway-side Router minimum at register, a build sha in `/health`.
