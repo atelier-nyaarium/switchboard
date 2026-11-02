@@ -272,8 +272,8 @@ actions; `run_action` runs a listed id.
   sent, so it answers `not_attempted`, and the note names the wait.
 - **A call id makes a retry safe:** `run_action` mints one per call and repeats it on a retried post.
   Each family dispatcher joins a repeated id to the first call's answer through `createOpDedupe`,
-  holding a settled answer ten minutes, so neither the requests nor the record repeat, and keys the
-  record row by it.
+  holding a settled answer ten minutes, so the request does not repeat. A watcher action keys its
+  record row by the id too; a phone action records nothing.
 - **One GitHub client:** `githubClient.ts` owns the token read, the headers, the refusals and the
   shared rate limit, so polls, listings and actions cannot disagree.
 - **Gateway-side capability:** `iftttClient.ts` reads the webhook key at each post through the fixed
@@ -569,7 +569,7 @@ false. `sent` means handed to the SMS service; no sent intents are registered. A
 at most `CALENDAR_SCAN_CAP` rows, so a selective query cannot spend the deadline on a crowded window.
 
 A guarded act (`notification_reply`, a `send`, a `place`) opens an owner card on the holder's phone
-first, through the send guard; with Approve every send off it runs unasked. An
+first, through the act guard (`actGuard.ts`); with Approve every send off it runs unasked. An
 `unavailable` answer names only the needs still missing.
 
 Notification access is the Android listener grant. `AssistantNotificationListener` seeds and updates

@@ -39,8 +39,9 @@ checks; each reader scans its frame for undeclared envelopes.
 `src/testing/federationHarness.ts` composes a real `RouterServer` on port 0 and a real gateway
 graph through `composeGateway`, joined by the real pinned client over loopback. The host daemon
 and the sessions are fake sockets at the gateway's own WebSocket handlers (`fakeHost.ts`,
-`fakeSession.ts`); the phone is a TypeScript driver on `RouterServer.handle` (`phoneDriver.ts`)
-plus a console socket against the Router's TLS listener (`consoleSocket.ts`).
+`fakeSession.ts`); two phones, `phone` and `phone2`, are TypeScript drivers on `RouterServer.handle`
+(`phoneDriver.ts`), and `consoleSocket.ts` opens a console socket against the Router's TLS listener
+when a test needs one.
 `restartGateway` recomposes over the retained directories. `restartHost`
 reconnects the daemon, and with `newDaemon` as a fresh process. The harness reaches no network:
 `assistantWatchers` replaces the built-in watchers with a scenario's own.

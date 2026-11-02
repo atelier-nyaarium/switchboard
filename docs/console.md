@@ -157,11 +157,13 @@ restarted on a current build.
 
 ### The phone hold
 
-The summon panel and the Assistant tab claim the phone hold (`PhoneHold` in `ChatState`, signed by
-`HoldSelf`); the Gateway reads it on the Router's clock and a claim older than ten minutes refuses
-the assistant's writes and its phone actions. A capability row names the holder it was stamped for,
-and `PhoneCapabilityOps` answers only while this phone is that holder. What a locked phone shows or
-speaks of an assistant row is in `docs/assistant.md`, The locked phone.
+The summon panel and the Assistant tab claim the phone hold with a signed owner op; the Router
+records the signer and the claim time (`PhoneHold` in `ChatState`), and `HoldSelf` is how this phone
+knows a holder value as itself. The Gateway and the phone each compare that claim time with their
+own clock against the ten-minute window, so an older claim refuses the assistant's writes and its
+phone actions. The Router stamps each capability row with the holder its record names, and
+`PhoneCapabilityOps` answers only while this phone is that holder, else `no_holder`. What a locked
+phone shows or speaks of an assistant row is in `docs/assistant.md`, The locked phone.
 
 ## Add Device
 
