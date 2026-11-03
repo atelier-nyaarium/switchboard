@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.PhoneCapabilities
+import com.atelier_nyaarium.switchboard.PhoneLocation
 import com.atelier_nyaarium.switchboard.assistantSetupLine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -37,7 +38,7 @@ class AssistantPermissionsTest {
 	}
 
 	@Test
-	fun aLostGrantWarnsAndSwitchesOffButNotBackOnUntilGranted() {
+	fun aLostGrantWarnsAndSwitchesOffAndTurningOnAsksBeforeItLands() {
 		val lost = FeatureView(row("contacts_search"), wanted = true, granted = false, missing = listOf("contacts"))
 		val neverOn = lost.copy(wanted = false)
 		val granted = lost.copy(granted = true, missing = emptyList())
@@ -47,13 +48,12 @@ class AssistantPermissionsTest {
 		assertNull(lostLine(listOf(neverOn)))
 		assertNotNull(needsLine(neverOn))
 		assertNull(needsLine(FeatureView(row("torch"), wanted = false, granted = true)))
-		assertEquals(false, toggledWanted(lost, on = false))
-		assertEquals(false, toggledWanted(neverOn, on = true))
-		assertEquals(true, toggledWanted(granted, on = true))
-		assertEquals(FeatureRowModel(switchEnabled = true, gear = GearTarget.Need("contacts")), featureRowModel(lost))
-		assertEquals(FeatureRowModel(switchEnabled = false, gear = GearTarget.Need("contacts")), featureRowModel(neverOn))
-		assertEquals(FeatureRowModel(switchEnabled = true, gear = GearTarget.AppSettings), featureRowModel(granted))
-		assertNull(featureRowModel(FeatureView(row("status"), wanted = false, granted = true)).gear)
+		assertEquals(FeatureToggle.Want(false), featureToggle(lost, on = false))
+		assertEquals(FeatureToggle.Ask("contacts"), featureToggle(neverOn, on = true))
+		assertEquals(FeatureToggle.Want(true), featureToggle(granted, on = true))
+		assertEquals(listOf(true, true, true), listOf(lost, neverOn, granted).map(::switchEnabled))
+		assertEquals(false, grantedAfterAsk(listOf(neverOn), neverOn.row.key))
+		assertEquals(true, grantedAfterAsk(listOf(granted), granted.row.key))
 		assertEquals(PermissionDoor.APP_SETTINGS, permissionDoor("mystery", askable = true))
 		assertEquals(PermissionDoor.APP_SETTINGS, permissionDoor("contacts", askable("contacts", setOf("contacts"), rationale = false)))
 		assertEquals(PermissionDoor.REQUEST, permissionDoor("contacts", askable("contacts", setOf("contacts"), rationale = true)))
@@ -69,7 +69,7 @@ class AssistantPermissionsTest {
 		)
 
 		assertNull(manifestPermissionOf("notification_access"))
-		assertEquals(GearTarget.Need("notification_access"), featureRowModel(recent).gear)
+		assertEquals(FeatureToggle.Ask("notification_access"), featureToggle(recent.copy(wanted = false), on = true))
 		assertEquals(PermissionDoor.LISTENER_SETTINGS, permissionDoor("notification_access", askable = false))
 	}
 
@@ -79,22 +79,49 @@ class AssistantPermissionsTest {
 
 		assertEquals("Not supported", needsLine(unsupported))
 		assertNull(lostLine(listOf(unsupported.copy(wanted = true))))
-		assertEquals(false, toggledWanted(unsupported, on = true))
-		assertEquals(false, featureRowModel(unsupported).switchEnabled)
+		assertEquals(FeatureToggle.Want(false), featureToggle(unsupported, on = true))
+		assertEquals(false, switchEnabled(unsupported))
 	}
 
 	@Test
 	fun phoneSettingRowsReadTheirCurrentStatusAndDestinations() {
-		val held = PhoneSettingFacts(roleHeld = true, sessionAdopted = true, screenData = true, notifications = true)
+		val held = PhoneSettingFacts(
+			roleHeld = true,
+			sessionAdopted = true,
+			screenData = true,
+			notifications = true,
+			location = PhoneLocation.ON,
+		)
 		val unheld = held.copy(roleHeld = false)
 		val unadopted = held.copy(sessionAdopted = false)
+		fun setting(facts: PhoneSettingFacts, label: String) = phoneSettingRows(facts).single { it.label == label }
 
-		assertEquals(listOf("Default assistant", "Screen and app data", "Notifications"), phoneSettingRows(held).map { it.label })
-		assertEquals(listOf(true, true, true), phoneSettingRows(held).map { it.on })
+		assertEquals(listOf("Default assistant", "Screen and app data", "Notifications", "Location"), phoneSettingRows(held).map { it.label })
+		assertEquals(listOf(true, true, true, true), phoneSettingRows(held).map { it.on })
 		assertEquals(false, phoneSettingRows(unadopted).first().on)
 		assertEquals(assistantSetupLine(false, true), phoneSettingRows(unheld).first().offWord)
-		assertEquals(false, phoneSettingRows(held.copy(notifications = false)).last().on)
-		assertEquals(PhoneSettingDoor.NOTIFICATIONS, phoneSettingRows(held.copy(notifications = false)).last().door)
-		assertEquals(PhoneSettingDoor.NOTIFICATION_PAGE, phoneSettingRows(held).last().door)
+		assertEquals(false, setting(held.copy(notifications = false), "Notifications").on)
+		assertEquals(PhoneSettingDoor.NOTIFICATIONS, setting(held.copy(notifications = false), "Notifications").door)
+		assertEquals(PhoneSettingDoor.NOTIFICATION_PAGE, setting(held, "Notifications").door)
+		val location = mapOf(
+			PhoneLocation.NOT_GRANTED to (false to PhoneSettingDoor.LOCATION),
+			PhoneLocation.OFF to (false to PhoneSettingDoor.LOCATION_SETTINGS),
+			PhoneLocation.ON to (true to PhoneSettingDoor.APP_SETTINGS),
+		)
+		for ((state, expected) in location) {
+			val row = setting(held.copy(location = state), "Location")
+			assertEquals(expected, row.on to row.door)
+		}
+	}
+
+	@Test
+	fun locationAsksForPreciseWithApproximateBeside() {
+		assertEquals(PermissionDoor.REQUEST, permissionDoor(LOCATION_NEED, askable = true))
+		assertEquals(
+			setOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION),
+			requestedPermissionsOf(LOCATION_NEED).toSet(),
+		)
+		assertEquals(listOf(manifestPermissionOf("contacts")), requestedPermissionsOf("contacts").toList())
+		assertEquals(0, requestedPermissionsOf("notification_access").size)
 	}
 }

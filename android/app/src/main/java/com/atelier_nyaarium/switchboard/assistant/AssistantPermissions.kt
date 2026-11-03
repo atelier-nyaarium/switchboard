@@ -3,6 +3,8 @@ package com.atelier_nyaarium.switchboard.assistant
 import android.Manifest
 import com.atelier_nyaarium.switchboard.CapabilityAvailability
 import com.atelier_nyaarium.switchboard.PhoneCapabilityBinding
+import com.atelier_nyaarium.switchboard.PRECISE_LOCATION
+import com.atelier_nyaarium.switchboard.PhoneLocation
 import com.atelier_nyaarium.switchboard.assistantSetupLine
 
 ////////////////////////////////
@@ -11,13 +13,14 @@ import com.atelier_nyaarium.switchboard.assistantSetupLine
 internal enum class PermissionDoor { REQUEST, APP_SETTINGS, LISTENER_SETTINGS }
 
 /** Row destinations. */
-internal enum class PhoneSettingDoor { PICKER, NOTIFICATIONS, NOTIFICATION_PAGE }
+internal enum class PhoneSettingDoor { PICKER, NOTIFICATIONS, NOTIFICATION_PAGE, LOCATION, LOCATION_SETTINGS, APP_SETTINGS }
 
 internal data class PhoneSettingFacts(
 	val roleHeld: Boolean,
 	val sessionAdopted: Boolean,
 	val screenData: Boolean,
 	val notifications: Boolean,
+	val location: PhoneLocation,
 ) {
 	val assistantOn: Boolean get() = roleHeld && sessionAdopted
 }
@@ -37,16 +40,16 @@ internal data class FeatureView(
 	val lost: Boolean get() = wanted && !granted
 }
 
-internal sealed interface GearTarget {
-	data class Need(val need: String) : GearTarget
+internal sealed interface FeatureToggle {
+	data class Want(val on: Boolean) : FeatureToggle
 
-	data object AppSettings : GearTarget
+	/** Ask first; on once granted. */
+	data class Ask(val need: String) : FeatureToggle
 }
 
-/** Optional settings gear. */
-internal data class FeatureRowModel(val switchEnabled: Boolean, val gear: GearTarget?)
-
 private const val NOTIFICATIONS_NEED = "notifications"
+
+internal const val LOCATION_NEED = "location"
 
 ////////////////////////////////
 //  Functions & Helpers
@@ -57,8 +60,15 @@ internal fun manifestPermissionOf(need: String): String? = when (need) {
 	"send_sms" -> Manifest.permission.SEND_SMS
 	"call_phone" -> Manifest.permission.CALL_PHONE
 	NOTIFICATIONS_NEED -> Manifest.permission.POST_NOTIFICATIONS
+	LOCATION_NEED -> PRECISE_LOCATION
 	"notification_access" -> null
 	else -> null
+}
+
+/** Fine needs coarse beside it. */
+internal fun requestedPermissionsOf(need: String): Array<String> {
+	val permission = manifestPermissionOf(need) ?: return emptyArray()
+	return if (permission == PRECISE_LOCATION) arrayOf(permission, Manifest.permission.ACCESS_COARSE_LOCATION) else arrayOf(permission)
 }
 
 internal fun needLabel(need: String): String = when (need) {
@@ -84,6 +94,16 @@ internal fun phoneSettingRows(facts: PhoneSettingFacts): List<PhoneSettingRow> =
 		facts.notifications,
 		"Not granted",
 		if (facts.notifications) PhoneSettingDoor.NOTIFICATION_PAGE else PhoneSettingDoor.NOTIFICATIONS,
+	),
+	PhoneSettingRow(
+		"Location",
+		facts.location == PhoneLocation.ON,
+		if (facts.location == PhoneLocation.OFF) "Off" else "Not granted",
+		when (facts.location) {
+			PhoneLocation.NOT_GRANTED -> PhoneSettingDoor.LOCATION
+			PhoneLocation.OFF -> PhoneSettingDoor.LOCATION_SETTINGS
+			PhoneLocation.ON -> PhoneSettingDoor.APP_SETTINGS
+		},
 	),
 )
 
@@ -127,16 +147,17 @@ internal fun needsLine(view: FeatureView): String? = when {
 	else -> "Not supported"
 }
 
-/** Require grants to enable. */
-internal fun toggledWanted(view: FeatureView, on: Boolean): Boolean = on && view.granted
+/** A missing grant is asked for before the row turns on. */
+internal fun featureToggle(view: FeatureView, on: Boolean): FeatureToggle = when {
+	!on || view.granted -> FeatureToggle.Want(on)
+	else -> view.missing.firstOrNull()?.let(FeatureToggle::Ask) ?: FeatureToggle.Want(false)
+}
 
-internal fun featureRowModel(view: FeatureView): FeatureRowModel = FeatureRowModel(
-	switchEnabled = view.granted || view.wanted,
-	gear = when {
-		view.row.needs.isEmpty() -> null
-		else -> view.missing.firstOrNull()?.let(GearTarget::Need) ?: GearTarget.AppSettings
-	},
-)
+/** Unsupported rows stay off. */
+internal fun switchEnabled(view: FeatureView): Boolean = view.granted || view.wanted || view.missing.isNotEmpty()
+
+/** The asked row turns on only once granted. */
+internal fun grantedAfterAsk(views: List<FeatureView>, key: String): Boolean = views.any { it.row.key == key && it.granted }
 
 /** Final denial opens settings. */
 internal fun askable(need: String, denied: Set<String>, rationale: Boolean): Boolean = need !in denied || rationale

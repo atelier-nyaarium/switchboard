@@ -16,7 +16,9 @@ class PlugSetupOpsTest {
 		var declines = false
 		var stored = SetupMemory(ssid = "Home", wifiEntry = "wifi-key")
 		var onNetwork = false
-		var onboarding = false
+
+		/** The phone's scan; null without location. */
+		var scan: List<HeardNetwork>? = null
 
 		override suspend fun join(networkPrefix: String): PlugLink? {
 			joins += 1
@@ -27,12 +29,6 @@ class PlugSetupOpsTest {
 					return when {
 						json.contains("get_sysinfo") ->
 							"""{"system":{"get_sysinfo":{"mac":"$mac","model":"HS103(US)","alias":"","err_code":0}}}"""
-						json.contains("softaponboarding") ->
-							if (onboarding) {
-								"""{"smartlife.iot.common.softaponboarding":{"get_scaninfo":{"ap_list":[{"ssid":"Far","key_type":3,"rssi":-85},{"ssid":"Home","key_type":3,"rssi":-50}],"err_code":0}}}"""
-							} else {
-								"""{"smartlife.iot.common.softaponboarding":{"err_code":-1,"err_msg":"module not support"}}"""
-							}
 						json.contains("get_scaninfo") ->
 							"""{"netif":{"get_scaninfo":{"ap_list":[{"ssid":"Far","key_type":3},{"ssid":"Home","key_type":3},{"ssid":"","key_type":0}],"err_code":0}}}"""
 						json.contains("set_stainfo") -> {
@@ -52,6 +48,8 @@ class PlugSetupOpsTest {
 		override fun remember(memory: SetupMemory) {
 			stored = memory
 		}
+
+		override fun heard() = scan
 	}
 
 	private class FakeGateway(private val plug: FakePlug, private var paired: Boolean = false) : SetupGateway {
@@ -96,7 +94,7 @@ class PlugSetupOpsTest {
 		assertEquals(SetupStage.READY, ready.stage)
 		assertEquals("84:d8:1b:00:2b:0b", ready.plug?.mac)
 		assertEquals(listOf("Far", "Home"), ready.homes.map { it.ssid })
-		assertEquals(listOf(null, null), ready.homes.map { it.signal })
+		assertNull(ready.signals)
 		assertEquals("Home", ready.home?.ssid)
 		assertEquals("", ready.name)
 		assertEquals(SetupStage.DONE, done.stage)
@@ -156,14 +154,28 @@ class PlugSetupOpsTest {
 	}
 
 	@Test
-	fun `a plug that reports signal lists its networks strongest first, in three bars`() = runBlocking {
-		val plug = FakePlug().apply { onboarding = true }
+	fun `with location, the plug's networks list strongest first by the phone's own signal, in three bars`() = runBlocking {
+		val plug = FakePlug().apply {
+			scan = listOf(
+				HeardNetwork("Home", 2437, -50, ageMs = 1_000),
+				HeardNetwork("Home", 5180, -30, ageMs = 1_000),
+				HeardNetwork("Far", 2412, -85, ageMs = 1_000),
+				HeardNetwork("Far", 2462, -75, ageMs = 1_000),
+				HeardNetwork("Far", 2437, -40, ageMs = 600_000),
+				HeardNetwork("Elsewhere", 2412, -40, ageMs = 1_000),
+			)
+		}
 		val setup = ops(plug, FakeGateway(plug))
 
 		setup.start("sakura", prefix)
-		val homes = setup.view.value!!.homes
+		val ready = setup.view.value!!
 
-		assertEquals(listOf("Home" to 3, "Far" to 1), homes.map { it.ssid to signalBars(it.signal) })
+		assertEquals(mapOf("Home" to -50, "Far" to -75), ready.signals)
+		assertEquals(
+			listOf(HomeRow(HomeNetwork("Home", 3), picked = true, bars = 3), HomeRow(HomeNetwork("Far", 3), picked = false, bars = 1)),
+			homeRows(ready),
+		)
+		assertEquals(listOf(true, false), homeRows(ready).map { it.highlighted })
 		assertEquals(listOf(3, 2, 1, null), listOf(-55, -70, -90, null).map(::signalBars))
 		assertEquals("", setupName(PlugFacts("aa", "HS103(US)", "TP-LINK_Smart Plug_2B0B"), null, prefix))
 		assertEquals("Lamp", setupName(PlugFacts("aa", "HS103(US)", "Lamp"), null, prefix))
@@ -194,7 +206,13 @@ class PlugSetupOpsTest {
 		assertEquals("vault", setupPassword("wifi-key") { "vault" })
 		assertNull(setupPassword("wifi-key") { null })
 		assertNull(setupPassword(null) { "unused" })
-		val homes = listOf(HomeNetwork("Home", 3, -40), HomeNetwork("Far", 3, -80))
+		val homes = listOf(HomeNetwork("Home", 3), HomeNetwork("Far", 3))
+		assertNull(phoneSignals(homes, emptyList()))
+		assertNull(phoneSignals(homes, listOf(HeardNetwork("Elsewhere", 2412, -40, ageMs = 0))))
+		assertEquals(
+			listOf(null, null),
+			homeRows(SetupRun("sakura", prefix, SetupStage.READY, homes = homes, home = homes[0])).map { it.bars },
+		)
 		assertNull(preferredHome(homes, "Gone"))
 		assertNull(preferredHome(homes, null))
 		assertEquals(WifiSight.Seen(homes[0]), wifiSight(homes, "Home"))

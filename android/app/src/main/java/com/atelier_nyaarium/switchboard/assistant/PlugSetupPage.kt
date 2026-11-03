@@ -1,6 +1,6 @@
 package com.atelier_nyaarium.switchboard.assistant
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -28,7 +30,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
@@ -38,9 +42,10 @@ import com.atelier_nyaarium.switchboard.SetupStage
 import com.atelier_nyaarium.switchboard.SignalBars
 import com.atelier_nyaarium.switchboard.WifiSight
 import com.atelier_nyaarium.switchboard.hapticClick
-import com.atelier_nyaarium.switchboard.signalBars
+import com.atelier_nyaarium.switchboard.homeRows
 import com.atelier_nyaarium.switchboard.nameReady
 import com.atelier_nyaarium.switchboard.routines.GrantSecretsSheet
+import com.atelier_nyaarium.switchboard.scrollThumb
 import com.atelier_nyaarium.switchboard.setupPassword
 import com.atelier_nyaarium.switchboard.vault.grantableOn
 import com.atelier_nyaarium.switchboard.wifiSight
@@ -119,15 +124,31 @@ private fun ReadyStep(repo: ChatRepository, run: SetupRun) {
 		if (sight != WifiSight.Unknown && !listing) TextButton(onClick = hapticClick { listing = true }) { Text("Change") }
 	}
 	if (sight == WifiSight.Unknown || listing) {
-		Column(Modifier.fillMaxWidth().heightIn(max = WIFI_LIST_HEIGHT).verticalScroll(rememberScrollState())) {
-			for (home in run.homes) {
+		val scroll = rememberScrollState()
+		Column(
+			Modifier.fillMaxWidth().heightIn(max = WIFI_LIST_HEIGHT)
+				.scrollThumb(scroll, MaterialTheme.colorScheme.outline)
+				.verticalScroll(scroll),
+		) {
+			for (row in homeRows(run)) {
 				Row(
-					Modifier.fillMaxWidth().clickable(onClick = hapticClick { repo.plugSetupOps.pickHome(home) }),
+					Modifier.fillMaxWidth()
+						.background(
+							if (row.highlighted) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+							RoundedCornerShape(8.dp),
+						)
+						.selectable(row.picked, role = Role.RadioButton, onClick = hapticClick { repo.plugSetupOps.pickHome(row.home) })
+						.padding(horizontal = 12.dp, vertical = 12.dp),
 					verticalAlignment = Alignment.CenterVertically,
+					horizontalArrangement = Arrangement.spacedBy(16.dp),
 				) {
-					RadioButton(selected = run.home == home, onClick = hapticClick { repo.plugSetupOps.pickHome(home) })
-					Text(home.ssid, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-					signalBars(home.signal)?.let { SignalBars(it, Modifier.padding(end = 8.dp)) }
+					val bars = row.bars
+					if (bars == null) RadioButton(selected = row.picked, onClick = null) else SignalBars(bars)
+					Text(
+						row.home.ssid,
+						style = MaterialTheme.typography.bodyLarge,
+						color = if (row.highlighted) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+					)
 				}
 			}
 		}

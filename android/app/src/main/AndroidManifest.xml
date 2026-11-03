@@ -34,6 +34,11 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- Plug setup joins a device's setup network through the system picker. -->
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <!-- Setup's signal bars. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!-- Package visibility for the launch acts and the probe. -->
     <queries>

@@ -9,12 +9,15 @@ import kotlinx.coroutines.sync.withLock
 
 /** The phone's reach to a device's own setup network. */
 internal interface PlugSetupPlatform {
-	/** The system picker lists matching networks; null when the owner declined or none came up. */
+	/** The system picker lists matching networks; null when the owner declined or none came up. Refreshes `heard`. */
 	suspend fun join(networkPrefix: String): PlugLink?
 
 	fun memory(): SetupMemory
 
 	fun remember(memory: SetupMemory)
+
+	/** Null without location. */
+	fun heard(): List<HeardNetwork>?
 }
 
 /** One plug's setup network, held until closed. */
@@ -92,7 +95,9 @@ internal class PlugSetupOps(
 		link = joined
 		val plug = runCatchingCancellable { joined.request(KasaSetupCommands.SYSINFO) }.getOrNull()?.let(::plugFactsOf)
 		if (plug == null) return@withLock settle(began) { it.copy(stage = SetupStage.FAILED, said = NOT_READ) }
-		val homes = scanHomes(joined)
+		val listed = runCatchingCancellable { joined.request(KasaSetupCommands.SCAN) }.getOrNull()?.let(::homeNetworksOf).orEmpty()
+		val signals = phoneSignals(listed, platform.heard())
+		val homes = strongestFirst(listed, signals)
 		settle(began) {
 			it.copy(
 				stage = SetupStage.READY,
@@ -101,16 +106,9 @@ internal class PlugSetupOps(
 				home = preferredHome(homes, yours),
 				name = setupName(plug, gateway.pairedName(gatewayId, plug.mac), networkPrefix),
 				yours = yours,
+				signals = signals,
 			)
 		}
-	}
-
-	/** The onboarding scan carries signal; the netif one is the fallback. */
-	private suspend fun scanHomes(joined: PlugLink): List<HomeNetwork> {
-		val onboarding = runCatchingCancellable { joined.request(KasaSetupCommands.ONBOARDING_SCAN) }.getOrNull()
-			?.let { homeNetworksOf(it, KasaSetupCommands.ONBOARDING) }.orEmpty()
-		if (onboarding.isNotEmpty()) return onboarding
-		return runCatchingCancellable { joined.request(KasaSetupCommands.SCAN) }.getOrNull()?.let(::homeNetworksOf).orEmpty()
 	}
 
 	fun pickHome(home: HomeNetwork) = state.update { it?.copy(home = home) }

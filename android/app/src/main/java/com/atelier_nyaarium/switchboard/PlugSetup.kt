@@ -11,8 +11,36 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 
-/** A network the plug can see, for it to join; signal is null when the plug does not report it. */
-internal data class HomeNetwork(val ssid: String, val keyType: Int, val signal: Int?)
+/** A network the plug sees. */
+internal data class HomeNetwork(val ssid: String, val keyType: Int)
+
+/** A phone scan result. */
+internal data class HeardNetwork(val ssid: String, val frequencyMhz: Int, val rssi: Int, val ageMs: Long)
+
+private const val FRESH_SCAN_MS = 120_000L
+
+/** Fresh 2.4 GHz signal per listed network; null when none heard. */
+internal fun phoneSignals(homes: List<HomeNetwork>, heard: List<HeardNetwork>?): Map<String, Int>? {
+	val listed = homes.mapTo(HashSet()) { it.ssid }
+	return heard.orEmpty()
+		.filter { it.ssid in listed && it.frequencyMhz in 2400..2500 && it.ageMs <= FRESH_SCAN_MS }
+		.groupBy { it.ssid }
+		.mapValues { (_, same) -> same.maxOf { it.rssi } }
+		.takeIf { it.isNotEmpty() }
+}
+
+/** Strongest first, else the plug's order. */
+internal fun strongestFirst(homes: List<HomeNetwork>, signals: Map<String, Int>?): List<HomeNetwork> =
+	if (signals == null) homes else homes.sortedByDescending { signals[it.ssid] ?: Int.MIN_VALUE }
+
+/** Bars null draws a radio. */
+internal data class HomeRow(val home: HomeNetwork, val picked: Boolean, val bars: Int?) {
+	val highlighted: Boolean get() = picked && bars != null
+}
+
+internal fun homeRows(run: SetupRun): List<HomeRow> = run.homes.map { home ->
+	HomeRow(home, picked = run.home == home, bars = run.signals?.let { signalBars(it[home.ssid]) ?: 0 })
+}
 
 /** Out of three; null when unknown. */
 internal fun signalBars(rssi: Int?): Int? = when {
@@ -43,6 +71,8 @@ internal data class SetupRun(
 	val deviceId: String? = null,
 	/** Your WiFi, when known. */
 	val yours: String? = null,
+	/** From `phoneSignals`. */
+	val signals: Map<String, Int>? = null,
 )
 
 /** The Gateway's own network, else the one the last setup used. */
@@ -70,11 +100,6 @@ internal fun canonicalMac(value: String): String = value.trim().lowercase().repl
 internal object KasaSetupCommands {
 	const val SYSINFO = """{"system":{"get_sysinfo":{}}}"""
 	const val SCAN = """{"netif":{"get_scaninfo":{"refresh":1}}}"""
-
-	const val ONBOARDING = "smartlife.iot.common.softaponboarding"
-
-	/** Reports signal where netif does not. */
-	const val ONBOARDING_SCAN = """{"$ONBOARDING":{"get_scaninfo":{"refresh":1}}}"""
 
 	fun alias(name: String): String = buildJsonObject {
 		putJsonObject("system") { putJsonObject("set_dev_alias") { put("alias", name) } }
@@ -107,16 +132,14 @@ internal fun plugFactsOf(json: String): PlugFacts? = runIsolated {
 	)
 }.getOrNull()
 
-/** Networks the plug sees, hidden ones dropped, strongest first, unreported signal last in the plug's order. */
-internal fun homeNetworksOf(json: String, module: String = "netif"): List<HomeNetwork> = runIsolated {
-	val list = moduleAnswer(json, module, "get_scaninfo")?.get("ap_list")?.jsonArray ?: return@runIsolated emptyList()
+/** Named networks, once each. */
+internal fun homeNetworksOf(json: String): List<HomeNetwork> = runIsolated {
+	val list = moduleAnswer(json, "netif", "get_scaninfo")?.get("ap_list")?.jsonArray ?: return@runIsolated emptyList()
 	list.mapNotNull { element ->
 		val ap = element.jsonObject
 		val ssid = ap["ssid"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-		HomeNetwork(ssid, ap["key_type"]?.jsonPrimitive?.int ?: 0, ap["rssi"]?.jsonPrimitive?.intOrNull)
-	}.groupBy { it.ssid }
-		.map { (_, same) -> same.maxBy { it.signal ?: Int.MIN_VALUE } }
-		.sortedByDescending { it.signal ?: Int.MIN_VALUE }
+		HomeNetwork(ssid, ap["key_type"]?.jsonPrimitive?.int ?: 0)
+	}.distinctBy { it.ssid }
 }.getOrNull() ?: emptyList()
 
 /** The vault's value, or null to ask the owner. */

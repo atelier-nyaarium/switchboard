@@ -592,18 +592,22 @@ Capability logging uses `CapabilityLog` with a key, count, boolean or event enum
 notification content or app names.
 
 - **Off until ticked on:** the Features page has two sections. `Phone settings` gives each row a
-  gear. `The assistant may` lists every capability as a toggle in registry order. The owner's
+  gear, Location included (`phoneLocation`, which plug setup's signal bars read too).
+  `Assistant permissions` lists every capability as a toggle in registry order, with one gear on
+  its title for the app's settings page. The owner's
   wanted set is `FeatureToggles`, persisted before it shows. A key the
   owner has not switched on answers `disabled` with no needs and a detail naming the page, and the
   assistant is told to say so once and stop.
 - **One availability rule:** `PhoneCapabilityOps.grants` reads the key's needs through the manifest
-  permissions and the torch's back flash. The page's switch, gear and lines (`featureViews`,
-  `featureRowModel`, `needsLine`) and the dispatch (`permissionState`, the switch in front of
+  permissions and the torch's back flash. The page's switch and lines (`featureViews`,
+  `switchEnabled`, `needsLine`) and the dispatch (`permissionState`, the switch in front of
   `grants`) read the same answer, so a need with no mapping is ungranted everywhere and a phone
   without a flash reads Not supported everywhere.
-- **A lost grant:** the switch stays drawn and only goes On to Off until the grant is back; the
-  index warns "Permission missing for" only for a feature that was on. The gear opens the request
-  while Android still shows one, else the app's settings page (`permissionDoor`, `askable`).
+- **A missing grant is asked for by the switch:** turning on a row that lacks one opens its request
+  while Android still shows one, else the app's settings page (`featureToggle`, `permissionDoor`,
+  `askable`), and the row turns on only once the next read finds it granted (`grantedAfterAsk`). A
+  lost grant keeps the switch on; the index warns "Permission missing for" only for a feature that
+  was on.
 - **An act leaves a trace:** every act and guarded binding needs `notifications`, so a denied grant
   refuses the act as `not_granted` instead of running it with its notification dropped. The trace has its own
   notification id band (`assistantTraceNotificationId`).

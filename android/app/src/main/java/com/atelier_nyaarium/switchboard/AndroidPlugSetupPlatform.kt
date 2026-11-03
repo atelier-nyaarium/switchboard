@@ -5,8 +5,10 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.wifi.WifiManager
 import android.net.wifi.WifiNetworkSpecifier
 import android.os.PatternMatcher
+import android.os.SystemClock
 import java.io.DataInputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -19,8 +21,14 @@ import kotlinx.coroutines.withContext
 internal class AndroidPlugSetupPlatform(private val context: Context) : PlugSetupPlatform {
 	private val connectivity get() = context.getSystemService(ConnectivityManager::class.java)
 	private val prefs get() = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+	private val wifi get() = context.getSystemService(WifiManager::class.java)
 
-	override suspend fun join(networkPrefix: String): PlugLink? = suspendCancellableCoroutine { waiting ->
+	override suspend fun join(networkPrefix: String): PlugLink? {
+		refreshScan()
+		return requestJoin(networkPrefix)
+	}
+
+	private suspend fun requestJoin(networkPrefix: String): PlugLink? = suspendCancellableCoroutine { waiting ->
 		val specifier = WifiNetworkSpecifier.Builder()
 			.setSsidPattern(PatternMatcher(networkPrefix, PatternMatcher.PATTERN_PREFIX))
 			.build()
@@ -47,6 +55,22 @@ internal class AndroidPlugSetupPlatform(private val context: Context) : PlugSetu
 
 	override fun remember(memory: SetupMemory) {
 		prefs.edit().putString(KEY_SSID, memory.ssid).putString(KEY_ENTRY, memory.wifiEntry).apply()
+	}
+
+	override fun heard(): List<HeardNetwork>? {
+		if (phoneLocation(context) != PhoneLocation.ON) return null
+		val now = SystemClock.elapsedRealtime()
+		return runIsolated {
+			wifi.scanResults.mapNotNull { result ->
+				val ssid = result.wifiSsid?.bytes?.decodeToString() ?: return@mapNotNull null
+				HeardNetwork(ssid, result.frequency, result.level, ageMs = now - result.timestamp / 1_000)
+			}
+		}.getOrNull()
+	}
+
+	@Suppress("DEPRECATION")
+	private fun refreshScan() {
+		if (phoneLocation(context) == PhoneLocation.ON) runIsolated { wifi.startScan() }
 	}
 
 	private companion object {

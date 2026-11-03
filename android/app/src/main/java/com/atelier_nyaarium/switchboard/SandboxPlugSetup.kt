@@ -30,7 +30,7 @@ internal class SandboxPlugSetup : PlugSetupPlatform {
 					json.contains("get_sysinfo") ->
 						"""{"system":{"get_sysinfo":{"mac":"AA:BB:CC:DD:EE:20","model":"HS103(US)","alias":"","err_code":0}}}"""
 					json.contains("get_scaninfo") ->
-						"""{"netif":{"get_scaninfo":{"ap_list":[{"ssid":"Sandbox Home","key_type":3,"rssi":-40},{"ssid":"Neighbor","key_type":3,"rssi":-80}],"err_code":0}}}"""
+						"""{"netif":{"get_scaninfo":{"ap_list":[{"ssid":"Neighbor","key_type":3},{"ssid":"Sandbox Home","key_type":3}],"err_code":0}}}"""
 					json.contains("set_stainfo") -> {
 						handed += 1
 						// The first hand-off does not take.
@@ -53,6 +53,12 @@ internal class SandboxPlugSetup : PlugSetupPlatform {
 	override fun remember(memory: SetupMemory) {
 		this.memory = memory
 	}
+
+	override fun heard(): List<HeardNetwork> = listOf(
+		HeardNetwork("Sandbox Home", 2437, -48, ageMs = 2_000),
+		HeardNetwork("Sandbox Home", 5180, -40, ageMs = 2_000),
+		HeardNetwork("Neighbor", 2412, -78, ageMs = 2_000),
+	)
 
 	companion object {
 		const val SETUP_MAC = "aa:bb:cc:dd:ee:20"
