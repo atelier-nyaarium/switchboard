@@ -23,10 +23,22 @@ export type DeviceCapability = (typeof DEVICE_CAPABILITIES)[number];
 export const ACT_TIERS = ["act", "danger"] as const;
 export type ActTier = (typeof ACT_TIERS)[number];
 
+/** How a fresh device is put on the network. */
+export const INTEGRATION_SETUP_KINDS = ["access_point"] as const;
+export type IntegrationSetupKind = (typeof INTEGRATION_SETUP_KINDS)[number];
+
 export interface IntegrationNeed {
 	readonly key: string;
 	readonly kind: IntegrationNeedKind;
 	readonly label: string;
+}
+
+/** Done by the phone, which is near the device. */
+export interface IntegrationSetup {
+	readonly kind: IntegrationSetupKind;
+	/** What a setup network's name starts with; the phone's picker matches it. */
+	readonly networkPrefix: string;
+	readonly needs: readonly IntegrationNeed[];
 }
 
 /** A danger act confirms with its own words. */
@@ -43,6 +55,7 @@ export interface IntegrationDeclaration {
 	readonly yields: IntegrationYield;
 	readonly capabilities: readonly DeviceCapability[];
 	readonly acts: readonly IntegrationAct[];
+	readonly setup?: IntegrationSetup;
 }
 
 export const INTEGRATIONS = {
@@ -63,6 +76,11 @@ export const INTEGRATIONS = {
 					"The Kasa app, Alexa and Google lose access. Switchboard keeps local control. To undo, set the plug up again in the Kasa app.",
 			},
 		],
+		setup: {
+			kind: "access_point",
+			networkPrefix: "TP-LINK_Smart Plug_",
+			needs: [{ key: "wifi", kind: "secret", label: "Home WiFi password" }],
+		},
 	},
 	ifttt: {
 		group: "service",

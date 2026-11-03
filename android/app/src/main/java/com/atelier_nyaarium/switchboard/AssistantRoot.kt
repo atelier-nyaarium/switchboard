@@ -127,6 +127,9 @@ internal sealed interface AssistantPage {
 	/** One catalogue entry on one Gateway. */
 	data class Entry(val gatewayId: String, val integrationId: String) : AssistantPage
 
+	/** A fresh device's setup, run by the phone. */
+	data class Setup(val gatewayId: String, val integrationId: String) : AssistantPage
+
 	data class Device(val gatewayId: String, val deviceId: String) : AssistantPage
 
 	data class Watcher(val gatewayId: String, val watcherId: String) : AssistantPage
@@ -142,6 +145,7 @@ internal fun assistantPageBack(page: AssistantPage): AssistantPage? = when (page
 		AssistantPage.Settings
 	AssistantPage.Add -> AssistantPage.Integrations
 	is AssistantPage.Entry -> AssistantPage.Add
+	is AssistantPage.Setup -> AssistantPage.Entry(page.gatewayId, page.integrationId)
 	is AssistantPage.Device -> AssistantPage.Integrations
 	is AssistantPage.Watcher -> AssistantPage.Watchers
 	is AssistantPage.Rules -> AssistantPage.Watcher(page.gatewayId, page.watcherId)
@@ -157,6 +161,11 @@ internal fun AssistantPage.resolved(state: ChatState, devices: (String) -> Devic
 			assistantLeft(state, gatewayId) -> AssistantPage.Integrations
 			catalogued(integrationId) == null -> AssistantPage.Add
 			state.gateways.assistantOn(gatewayId)?.offered?.let { integrationId !in it } == true -> AssistantPage.Add
+			else -> this
+		}
+		is AssistantPage.Setup -> return when {
+			assistantLeft(state, gatewayId) -> AssistantPage.Integrations
+			catalogued(integrationId)?.setup == null -> AssistantPage.Add
 			else -> this
 		}
 		is AssistantPage.Device -> return deviceResolved(state, devices(gatewayId))
@@ -191,6 +200,7 @@ internal fun pageWords(page: AssistantPage): List<String> = when (page) {
 	AssistantPage.Integrations -> listOf(PAGE_INTEGRATIONS)
 	AssistantPage.Add -> listOf(PAGE_ADD)
 	is AssistantPage.Entry -> listOf(PAGE_ENTRY, page.gatewayId, page.integrationId)
+	is AssistantPage.Setup -> listOf(PAGE_SETUP, page.gatewayId, page.integrationId)
 	is AssistantPage.Device -> listOf(PAGE_DEVICE, page.gatewayId, page.deviceId)
 	is AssistantPage.Watcher -> listOf(PAGE_WATCHER, page.gatewayId, page.watcherId)
 	is AssistantPage.Rules -> listOf(PAGE_RULES, page.gatewayId, page.watcherId)
@@ -209,6 +219,7 @@ internal fun pageOf(words: List<String>): AssistantPage? {
 		PAGE_INTEGRATIONS -> AssistantPage.Integrations
 		PAGE_ADD -> AssistantPage.Add
 		PAGE_ENTRY -> if (gatewayId != null && watcherId != null) AssistantPage.Entry(gatewayId, watcherId) else null
+		PAGE_SETUP -> if (gatewayId != null && watcherId != null) AssistantPage.Setup(gatewayId, watcherId) else null
 		PAGE_DEVICE -> if (gatewayId != null && watcherId != null) AssistantPage.Device(gatewayId, watcherId) else null
 		PAGE_WATCHER -> if (gatewayId != null && watcherId != null) AssistantPage.Watcher(gatewayId, watcherId) else null
 		PAGE_RULES -> if (gatewayId != null && watcherId != null) AssistantPage.Rules(gatewayId, watcherId) else null
@@ -244,6 +255,7 @@ private const val PAGE_WATCHERS = "watchers"
 private const val PAGE_INTEGRATIONS = "integrations"
 private const val PAGE_ADD = "add"
 private const val PAGE_ENTRY = "entry"
+private const val PAGE_SETUP = "setup"
 private const val PAGE_DEVICE = "device"
 private const val PAGE_WATCHER = "watcher"
 private const val PAGE_RULES = "rules"

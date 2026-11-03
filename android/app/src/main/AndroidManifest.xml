@@ -32,6 +32,8 @@
          app still installs on camera-less devices; enrollment is gated at runtime. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Plug setup joins a device's setup network through the system picker. -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 
     <!-- Package visibility for the launch acts and the probe. -->
     <queries>

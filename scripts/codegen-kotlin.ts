@@ -206,8 +206,11 @@ import {
 	INTEGRATION_GROUPS,
 	INTEGRATION_KEYS,
 	INTEGRATION_NEED_KINDS,
+	INTEGRATION_SETUP_KINDS,
 	INTEGRATION_YIELDS,
 	INTEGRATIONS,
+	type IntegrationDeclaration,
+	type IntegrationNeed,
 } from "../src/shared/schemasIntegrations.js";
 import {
 	AssistantActRequestSchema,
@@ -1154,14 +1157,19 @@ function emitWireEnum(name: string, values: readonly string[]): string {
 
 function emitIntegrationRegistry(): string {
 	const enumOf = (name: string, value: string) => `${name}.${kotlinConstName(value)}`;
-	const entries = INTEGRATION_KEYS.map((key) => {
-		const entry = INTEGRATIONS[key];
-		const needs = entry.needs
+	const needsOf = (needs: readonly IntegrationNeed[]) =>
+		needs
 			.map(
 				(need) =>
 					`IntegrationNeed(${kotlinString(need.key)}, ${enumOf("IntegrationNeedKind", need.kind)}, ${kotlinString(need.label)})`,
 			)
 			.join(", ");
+	const entries = INTEGRATION_KEYS.map((key) => {
+		const entry: IntegrationDeclaration = INTEGRATIONS[key];
+		const needs = needsOf(entry.needs);
+		const setup = entry.setup
+			? `IntegrationSetup(${enumOf("IntegrationSetupKind", entry.setup.kind)}, ${kotlinString(entry.setup.networkPrefix)}, listOf(${needsOf(entry.setup.needs)}))`
+			: "null";
 		const acts = entry.acts
 			.map(
 				(act) =>
@@ -1180,6 +1188,7 @@ function emitIntegrationRegistry(): string {
 			`${INDENT}${INDENT}${INDENT}yields = ${enumOf("IntegrationYield", entry.yields)},`,
 			`${INDENT}${INDENT}${INDENT}capabilities = listOf(${capabilities}),`,
 			`${INDENT}${INDENT}${INDENT}acts = listOf(${acts}),`,
+			`${INDENT}${INDENT}${INDENT}setup = ${setup},`,
 			`${INDENT}${INDENT}),`,
 		].join("\n");
 	}).join("\n");
@@ -1199,9 +1208,17 @@ ${emitWireEnum("DeviceCapability", DEVICE_CAPABILITIES)}
 
 ${emitWireEnum("ActTier", ACT_TIERS)}
 
+${emitWireEnum("IntegrationSetupKind", INTEGRATION_SETUP_KINDS)}
+
 internal data class IntegrationNeed(val key: String, val kind: IntegrationNeedKind, val label: String)
 
 internal data class IntegrationAct(val key: String, val label: String, val tier: ActTier, val confirm: String?)
+
+internal data class IntegrationSetup(
+${INDENT}val kind: IntegrationSetupKind,
+${INDENT}val networkPrefix: String,
+${INDENT}val needs: List<IntegrationNeed>,
+)
 
 internal data class Integration(
 ${INDENT}val id: String,
@@ -1213,6 +1230,7 @@ ${INDENT}val needs: List<IntegrationNeed>,
 ${INDENT}val yields: IntegrationYield,
 ${INDENT}val capabilities: List<DeviceCapability>,
 ${INDENT}val acts: List<IntegrationAct>,
+${INDENT}val setup: IntegrationSetup?,
 )
 
 internal val INTEGRATIONS: List<Integration> =

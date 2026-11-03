@@ -396,6 +396,13 @@ class ChatRepository(
 	internal val policyOps = PolicyOps(state = _state, host = ChatRepositoryPolicyHost(this))
 	private val workspaceHost = ChatRepositoryWorkspaceHost(this)
 	internal val deviceOps = DeviceOps(host = ChatRepositoryDeviceHost(this, workspaceHost.generation))
+
+	internal val sandboxPlugSetup by lazy { SandboxPlugSetup() }
+
+	internal val plugSetupOps = PlugSetupOps(
+		platform = if (isSandbox) sandboxPlugSetup else AndroidPlugSetupPlatform(applicationContext),
+		gateway = DeviceSetupGateway(deviceOps),
+	)
 	internal val assistantOps = AssistantOps(state = _state, host = ChatRepositoryAssistantHost(this))
 	internal val assistantSendOps = com.atelier_nyaarium.switchboard.assistant.AssistantSendOps(_state, assistantSends) { gatewayId, op ->
 		clientOrNull()?.sendValueAnswer(gatewayId, op) ?: ConsoleClient.ValueAnswer.Unreachable

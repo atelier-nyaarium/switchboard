@@ -37,9 +37,19 @@ internal enum class ActTier(val wire: String) {
 	DANGER("danger"),
 }
 
+internal enum class IntegrationSetupKind(val wire: String) {
+	ACCESS_POINT("access_point"),
+}
+
 internal data class IntegrationNeed(val key: String, val kind: IntegrationNeedKind, val label: String)
 
 internal data class IntegrationAct(val key: String, val label: String, val tier: ActTier, val confirm: String?)
+
+internal data class IntegrationSetup(
+	val kind: IntegrationSetupKind,
+	val networkPrefix: String,
+	val needs: List<IntegrationNeed>,
+)
 
 internal data class Integration(
 	val id: String,
@@ -51,6 +61,7 @@ internal data class Integration(
 	val yields: IntegrationYield,
 	val capabilities: List<DeviceCapability>,
 	val acts: List<IntegrationAct>,
+	val setup: IntegrationSetup?,
 )
 
 internal val INTEGRATIONS: List<Integration> =
@@ -65,6 +76,7 @@ internal val INTEGRATIONS: List<Integration> =
 			yields = IntegrationYield.DEVICES,
 			capabilities = listOf(DeviceCapability.SWITCH, DeviceCapability.SCHEDULE, DeviceCapability.LED, DeviceCapability.CLOCK, DeviceCapability.CLOUD),
 			acts = listOf(IntegrationAct("cloud_disconnect", "Disconnect from the cloud", ActTier.DANGER, "The Kasa app, Alexa and Google lose access. Switchboard keeps local control. To undo, set the plug up again in the Kasa app.")),
+			setup = IntegrationSetup(IntegrationSetupKind.ACCESS_POINT, "TP-LINK_Smart Plug_", listOf(IntegrationNeed("wifi", IntegrationNeedKind.SECRET, "Home WiFi password"))),
 		),
 		Integration(
 			id = "ifttt",
@@ -76,5 +88,6 @@ internal val INTEGRATIONS: List<Integration> =
 			yields = IntegrationYield.ACTIONS,
 			capabilities = listOf(),
 			acts = listOf(),
+			setup = null,
 		),
 	)

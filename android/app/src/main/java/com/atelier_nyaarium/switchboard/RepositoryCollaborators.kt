@@ -199,7 +199,7 @@ internal class ChatRepositoryDeviceHost(
 	private val repo: ChatRepository,
 	override val generation: WorkspaceGeneration,
 ) : DeviceHost {
-	private val sandbox by lazy { SandboxDeviceGateway() }
+	private val sandbox by lazy { SandboxDeviceGateway(setUp = { repo.sandboxPlugSetup.joined() }) }
 
 	override val gateway: DeviceGateway? get() =
 		if (isSandbox) sandbox else repo.clientOrNull()?.let(::ConsoleDeviceGateway)

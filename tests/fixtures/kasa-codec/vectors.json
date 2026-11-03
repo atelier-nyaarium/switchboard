@@ -1,0 +1,24 @@
+{
+	"vectors": [
+		{
+			"plaintext": "{\"system\":{\"get_sysinfo\":{}}}",
+			"frame": "0000001dd0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf08bf68bf6"
+		},
+		{
+			"plaintext": "{\"netif\":{\"get_scaninfo\":{\"refresh\":1}}}",
+			"frame": "00000028d0f29cf98de482a09ae1c3a4c1b5ea99fa9bf59cf294fbd9e398bac8adcbb9dcafc7e5dfee93ee93"
+		},
+		{
+			"plaintext": "{\"netif\":{\"set_stainfo\":{\"ssid\":\"Home Net\",\"password\":\"p@ss \\\"q\\\" é 🌙\",\"key_type\":3}}}",
+			"frame": "0000005ad0f29cf98de482a09ae1c3b0d5a1fe8df998f19ff996b48ef5d7a4d7bedaf8c2e0a8c7aacfefa1c4b092be9cec8dfe8dfa95e783a19bb9c989fa89a9f5d7a6fad8f83b92b242dd51c8eac6e48fea93ccb8c1b1d4f6ccff82ff82"
+		},
+		{
+			"plaintext": "{\"system\":{\"set_dev_alias\":{\"alias\":\"Sign\"}}}",
+			"frame": "0000002dd0f281f88bff9af7d5ef94b6c5a0d48bef8afca3c2aec7a6d5f7cdb694f599f091e2c0fad88be285ebc9b4c9b4"
+		},
+		{
+			"plaintext": "",
+			"frame": "00000000"
+		}
+	]
+}

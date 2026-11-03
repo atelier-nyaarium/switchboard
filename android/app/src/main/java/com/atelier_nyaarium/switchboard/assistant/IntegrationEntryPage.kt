@@ -49,6 +49,7 @@ import com.atelier_nyaarium.switchboard.proto.DeviceCandidate
 import com.atelier_nyaarium.switchboard.proto.Integration
 import com.atelier_nyaarium.switchboard.proto.IntegrationDiscovery
 import com.atelier_nyaarium.switchboard.proto.IntegrationNeedKind
+import com.atelier_nyaarium.switchboard.proto.IntegrationSetup
 import com.atelier_nyaarium.switchboard.routines.GrantSecretsSheet
 import com.atelier_nyaarium.switchboard.saidOf
 import com.atelier_nyaarium.switchboard.serviceEntry
@@ -61,6 +62,7 @@ internal fun IntegrationEntryPage(
 	gatewayId: String,
 	integrationId: String,
 	onDevice: (String) -> Unit,
+	onSetup: () -> Unit,
 	onAdded: () -> Unit,
 	onBack: () -> Unit,
 ) {
@@ -70,7 +72,7 @@ internal fun IntegrationEntryPage(
 		return
 	}
 	when (integration.discovery) {
-		IntegrationDiscovery.SCAN -> ScanEntryPage(repo, state, gatewayId, integration, onDevice, onBack)
+		IntegrationDiscovery.SCAN -> ScanEntryPage(repo, state, gatewayId, integration, onDevice, onSetup, onBack)
 		IntegrationDiscovery.LISTEN -> AssistantPageScaffold(integration.label, onBack) {
 			Text("Waits for devices to announce themselves", style = MaterialTheme.typography.bodyMedium)
 		}
@@ -85,6 +87,7 @@ private fun ScanEntryPage(
 	gatewayId: String,
 	integration: Integration,
 	onDevice: (String) -> Unit,
+	onSetup: () -> Unit,
 	onBack: () -> Unit,
 ) {
 	val views by repo.deviceOps.views.collectAsState()
@@ -121,9 +124,13 @@ private fun ScanEntryPage(
 				}
 			}
 		}
+		integration.setup?.let { setup ->
+			if (fresh != null) HorizontalDivider()
+			NewDeviceRow(repo, gatewayId, setup, onSetup)
+		}
 		val paired = (devices.list as? DeviceListView.Listed)?.records.orEmpty().filter { it.driver == integration.id }
 		if (paired.isNotEmpty()) {
-			if (fresh != null) HorizontalDivider()
+			if (fresh != null || integration.setup != null) HorizontalDivider()
 			Text("Paired", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			for (record in paired) {
 				Row(
@@ -154,6 +161,25 @@ private fun ScanEntryPage(
 				onDismiss = { adding = null },
 			)
 		}
+	}
+}
+
+/** A fresh device in setup mode; the phone's picker finds it. */
+@Composable
+private fun NewDeviceRow(repo: ChatRepository, gatewayId: String, setup: IntegrationSetup, onSetup: () -> Unit) {
+	Row(
+		Modifier.fillMaxWidth().padding(vertical = 6.dp),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(8.dp),
+	) {
+		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+			Text("New device", style = MaterialTheme.typography.bodyLarge)
+			Text("Fresh or reset, blinking", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		}
+		OutlinedButton(onClick = hapticClick {
+			repo.command { plugSetupOps.start(gatewayId, setup.networkPrefix) }
+			onSetup()
+		}) { Text("Set up") }
 	}
 }
 

@@ -148,9 +148,12 @@ internal fun AssistantPageHost(
 				page.gatewayId,
 				page.integrationId,
 				onDevice = { onPage(AssistantPage.Device(page.gatewayId, it)) },
+				onSetup = { onPage(AssistantPage.Setup(page.gatewayId, page.integrationId)) },
 				onAdded = { onPage(AssistantPage.Integrations) },
 				onBack,
 			)
+		is AssistantPage.Setup ->
+			PlugSetupPage(repo, page.gatewayId, onDevice = { onPage(AssistantPage.Device(page.gatewayId, it)) }, onBack)
 		is AssistantPage.Device -> AssistantDevicePage(repo, page.gatewayId, page.deviceId, onBack)
 		is AssistantPage.Watcher -> {
 			val watcher = watcherIn(state.gateways.assistantOn(page.gatewayId), page.watcherId)

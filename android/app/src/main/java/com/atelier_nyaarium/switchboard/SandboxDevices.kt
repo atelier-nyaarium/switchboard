@@ -59,7 +59,10 @@ private class SandboxPlugs(seeded: Boolean) {
 }
 
 /** Canned plugs; mutations persist. */
-internal class SandboxDeviceGateway(private val pause: suspend (Long) -> Unit = { delay(it) }) : DeviceGateway {
+internal class SandboxDeviceGateway(
+	private val pause: suspend (Long) -> Unit = { delay(it) },
+	private val setUp: () -> DeviceCandidate? = { null },
+) : DeviceGateway {
 	private val gateways = mutableMapOf<String, SandboxPlugs>()
 
 	private val found = listOf(
@@ -121,7 +124,7 @@ internal class SandboxDeviceGateway(private val pause: suspend (Long) -> Unit = 
 		if (plugs.scans % 2 == 0) {
 			return answered(ConsoleDeviceScanResult.Refused(refusal(Protocol.Wire.DeviceRefusalCode.DAEMON_AWAY)))
 		}
-		return answered(ConsoleDeviceScanResult.Ok(found))
+		return answered(ConsoleDeviceScanResult.Ok(found + listOfNotNull(setUp())))
 	}
 
 	override suspend fun add(gatewayId: String, mac: String, address: String, name: String): DeviceAnswer<ConsoleDeviceAddResult> {
