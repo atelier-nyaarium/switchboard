@@ -279,8 +279,11 @@ describe("Gateway device stage", () => {
 			expect(await stage.console({ kind: "device_set", id: LAMP, verb: "on" })).toMatchObject(
 				refused("device_error", { effect: "none", detail: expect.stringContaining("-17") }),
 			);
-			const assistant = await stage.setDevice("Lamp", "on");
-			expect(assistant).toMatchObject({ kind: "refused", reason: expect.stringContaining("-17") });
+			const assistant = await stage.assistant({ kind: "device_set", id: LAMP, verb: "on" });
+			expect(assistant).toMatchObject({
+				kind: "refused",
+				refusal: { code: "device_error", detail: expect.stringContaining("-17") },
+			});
 			expect(JSON.stringify(assistant)).not.toContain("relay locked");
 		} finally {
 			await stage.close();
@@ -725,15 +728,21 @@ describe("Gateway device stage", () => {
 			await ambient.advance(ASSISTANT_WAITS.action);
 			expect(await timedOut).toMatchObject(refused("timeout", { effect: "unknown" }));
 			expect(await stage.console(toggle)).toMatchObject(refused("toggle_unknown", { effect: "none" }));
-			expect(await stage.setDevice("aa:bb:cc:dd:ee:ff", "toggle")).toMatchObject({ kind: "refused" });
-			expect(await stage.listDevices()).toMatchObject({
-				kind: "ok",
-				answer: { devices: [{ id: "aa:bb:cc:dd:ee:ff", state: "on" }] },
+			expect(await stage.assistant(toggle)).toMatchObject({
+				kind: "refused",
+				refusal: { code: "toggle_unknown" },
 			});
-			const secondTimeout = stage.setDevice("aa:bb:cc:dd:ee:ff", "toggle");
+			expect(await stage.assistant({ kind: "device_list" })).toMatchObject({
+				kind: "ok",
+				devices: [{ id: "aa:bb:cc:dd:ee:ff", state: "on" }],
+			});
+			const secondTimeout = stage.assistant(toggle);
 			await plug.waitForHeldReply();
 			await ambient.advance(ASSISTANT_WAITS.action);
-			expect(await secondTimeout).toMatchObject({ kind: "unavailable", reason: "timeout" });
+			expect(await secondTimeout).toMatchObject({
+				kind: "refused",
+				refusal: { code: "timeout", effect: "unknown" },
+			});
 			expect(await stage.console({ kind: "device_read", id: LAMP })).toMatchObject({ state: { state: "off" } });
 			expect(await stage.console(toggle)).toMatchObject({ kind: "ok", state: { state: "on" } });
 			expect(plug.received().filter((row) => row.command === "set_relay_state")).toHaveLength(3);
@@ -774,7 +783,9 @@ describe("Gateway device stage", () => {
 				kind: "ok",
 				state: { state: "on" },
 			});
-			expect(await stage.setDevice("aa:bb:cc:dd:ee:ff", "toggle")).toMatchObject({ kind: "ok" });
+			expect(await stage.assistant({ kind: "device_set", id: LAMP, verb: "toggle" })).toMatchObject({
+				kind: "ok",
+			});
 		} finally {
 			await stage.close();
 			await plug.close();
@@ -867,8 +878,8 @@ describe("Gateway device stage", () => {
 		});
 		try {
 			await stage.console(addLamp);
-			const answer = await stage.setDevice("Lamp", "on");
-			expect(answer).toMatchObject({ kind: "unavailable", reason: "unreachable" });
+			const answer = await stage.assistant({ kind: "device_set", id: LAMP, verb: "on" });
+			expect(answer).toMatchObject({ kind: "refused", refusal: { code: "unreachable" } });
 			expect(JSON.stringify(answer)).not.toContain("IGNORE");
 		} finally {
 			await stage.close();
@@ -955,9 +966,9 @@ describe("Gateway device stage", () => {
 		});
 		try {
 			await stage.console(addLamp);
-			expect(await stage.setDevice("AA-BB-CC-DD-EE-FF", "on")).toEqual({
+			expect(await stage.assistant({ kind: "device_set", id: LAMP, verb: "on" })).toMatchObject({
 				kind: "ok",
-				answer: { id: "aa:bb:cc:dd:ee:ff", state: "on" },
+				state: { state: "on" },
 			});
 		} finally {
 			await stage.close();
@@ -984,21 +995,23 @@ describe("Gateway device stage", () => {
 		try {
 			await stage.console({ kind: "device_add", mac: "aa:bb:cc:dd:ee:01", address: "10.0.0.1", name: "Lamp" });
 			await stage.console({ kind: "device_add", mac: "aa:bb:cc:dd:ee:02", address: "10.0.0.2", name: "Fan" });
-			const listing = stage.listDevices();
+			const listing = stage.assistant({ kind: "device_list" });
 			await fan.waitForHeldReply();
 			await until(
 				() => lamp.received().some((row) => row.command === "get_rules") && lamp.openConnections() === 0,
 			);
 			await ambient.advance(DEVICE_READ_WAIT_MS);
-			expect(await listing).toEqual({
+			const listed = await listing;
+			expect(listed).toMatchObject({
 				kind: "ok",
-				answer: {
-					devices: [
-						{ id: "aa:bb:cc:dd:ee:02", name: "Fan", kind: "switch", state: "unknown" },
-						{ id: "aa:bb:cc:dd:ee:01", name: "Lamp", kind: "switch", state: "on" },
-					],
-				},
+				devices: [
+					{ id: "aa:bb:cc:dd:ee:02", name: "Fan", kind: "switch", driver: "kasa", state: "unknown" },
+					{ id: "aa:bb:cc:dd:ee:01", name: "Lamp", kind: "switch", driver: "kasa", state: "on" },
+				],
 			});
+			if (listed.kind !== "ok") throw new Error("expected a listing");
+			expect(listed.devices[0]?.capabilities).toContain("cloud");
+			expect(JSON.stringify(listed)).not.toContain("10.0.0.");
 		} finally {
 			await stage.close();
 			await lamp.close();

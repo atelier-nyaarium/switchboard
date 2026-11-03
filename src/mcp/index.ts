@@ -20,6 +20,7 @@ import { REMINDER_RULE } from "../shared/system-reminder.js";
 import { ASKPASS_BUNDLE, installAskpassWrapper } from "../shared/vault-askpass-wrapper.js";
 import type { AgentDispatch } from "./agentDispatch.js";
 import { registerActionFront } from "./assistant/actionFront.js";
+import { registerDeviceTool } from "./assistant/deviceTool.js";
 import { registerInboxTool } from "./assistant/inboxTool.js";
 import { ASSISTANT_INSTRUCTIONS, scopeTools } from "./assistant/instructions.js";
 import { registerAssistantSendTools } from "./assistant/sendTools.js";
@@ -195,6 +196,7 @@ export async function startMcp(): Promise<void> {
 	if (isAssistant) {
 		registerInboxTool(mcpServer);
 		registerActionFront(mcpServer);
+		registerDeviceTool(mcpServer);
 		registerAssistantSendTools(mcpServer);
 	}
 	// Not a tool of its own: it rides the reply path, so it is switched on rather than registered.

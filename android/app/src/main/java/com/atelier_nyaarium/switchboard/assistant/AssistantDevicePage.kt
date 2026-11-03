@@ -46,7 +46,6 @@ import com.atelier_nyaarium.switchboard.DeviceListView
 import com.atelier_nyaarium.switchboard.DevicesView
 import com.atelier_nyaarium.switchboard.ScheduleDraft
 import com.atelier_nyaarium.switchboard.actOffered
-import com.atelier_nyaarium.switchboard.actPut
 import com.atelier_nyaarium.switchboard.alert
 import com.atelier_nyaarium.switchboard.brandLine
 import com.atelier_nyaarium.switchboard.busy
@@ -123,7 +122,7 @@ private fun DeviceBody(repo: ChatRepository, gatewayId: String, record: DeviceRe
 	var removing by remember { mutableStateOf(false) }
 	val draftEdit = { draft: ScheduleDraft -> repo.deviceOps.editDraft(gatewayId, record.id, draft) }
 	val runAct = { act: IntegrationAct ->
-		actPut(act.key)?.let { put -> repo.command { deviceOps.putSetting(gatewayId, record, put) } }
+		repo.command { deviceOps.putSetting(gatewayId, record, act.put) }
 	}
 
 	view.alert(record.id)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }

@@ -3,6 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerActionFront } from "../mcp/assistant/actionFront.js";
+import { registerDeviceTool } from "../mcp/assistant/deviceTool.js";
 import { registerInboxTool } from "../mcp/assistant/inboxTool.js";
 import { ASSISTANT_CAPABILITIES, ASSISTANT_INSTRUCTIONS, scopeTools } from "../mcp/assistant/instructions.js";
 import { sendGuarded } from "../mcp/assistant/sendTools.js";
@@ -19,6 +20,7 @@ import { ACTION_FRONT_TOOLS } from "../shared/schemasActionFront.js";
 import { ASSISTANT_ACTION_KEYS } from "../shared/schemasAssistantActions.js";
 import type { InboxItem } from "../shared/schemasAssistantInbox.js";
 import { ASSISTANT_SEND_ROUTES, SEND_ROUTE_WAIT_CAP_MS } from "../shared/schemasAssistantSend.js";
+import { DEVICE_TOOL } from "../shared/schemasDeviceTool.js";
 import { PHONE_CAPABILITY_KEYS } from "../shared/schemasPhoneCapabilities.js";
 import { ASSISTANT_COMMANDS } from "../shared/session-commands.js";
 
@@ -72,14 +74,24 @@ describe("the assistant's tool scope", () => {
 				.update({ callback: noop });
 			registerInboxTool(server);
 			registerActionFront(server);
+			registerDeviceTool(server);
 		});
 
 		const { tools } = await client.listTools();
 		const names = tools.map((tool) => tool.name);
 
 		expect(names.sort()).toEqual(
-			["channel_reply", "inbox", "switchboard_capabilities", ...Object.values(ACTION_FRONT_TOOLS)].sort(),
+			[
+				"channel_reply",
+				"inbox",
+				"switchboard_capabilities",
+				DEVICE_TOOL,
+				...Object.values(ACTION_FRONT_TOOLS),
+			].sort(),
 		);
+		const device = tools.find((tool) => tool.name === DEVICE_TOOL);
+		expect(JSON.stringify(device?.inputSchema)).toContain('"device_set"');
+		expect(JSON.stringify(device?.inputSchema)).not.toContain('"device_scan"');
 		for (const key of [...ASSISTANT_ACTION_KEYS, ...PHONE_CAPABILITY_KEYS]) expect(names).not.toContain(key);
 	});
 
@@ -87,6 +99,7 @@ describe("the assistant's tool scope", () => {
 		const taught = [
 			...Object.values(ASSISTANT_COMMANDS).map(({ tool }) => tool),
 			...Object.values(ACTION_FRONT_TOOLS),
+			DEVICE_TOOL,
 			...Object.values(ASSISTANT_CROSSTALK_TOOLS),
 			...Object.values(ASSISTANT_ROUTINE_TOOLS),
 		];

@@ -10,7 +10,7 @@ import {
 	actionListings,
 } from "../shared/schemasActionFront.js";
 import { ASSISTANT_ACTION_KEYS } from "../shared/schemasAssistantActions.js";
-import { PHONE_CAPABILITY_KEYS } from "../shared/schemasPhoneCapabilities.js";
+import { PHONE_CAPABILITIES, PHONE_CAPABILITY_KEYS } from "../shared/schemasPhoneCapabilities.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 
 describe("action listings", () => {
@@ -18,9 +18,10 @@ describe("action listings", () => {
 		const actions = actionListings(null);
 
 		expect(actions.map(({ id }) => id)).toEqual([
-			...PHONE_CAPABILITY_KEYS.map((key) => `phone/${key}`),
+			...PHONE_CAPABILITY_KEYS.map((key) => `${PHONE_CAPABILITIES[key].where}/${key}`),
 			...ASSISTANT_ACTION_KEYS.map((key) => `watcher/${key}`),
 		]);
+		expect(actions.map(({ id }) => id)).not.toContain("phone/ifttt_trigger");
 		for (const action of actions) {
 			expect(action.params).toMatchObject({ type: "object" });
 			expect(action.params.$ref).toBeUndefined();
@@ -29,13 +30,14 @@ describe("action listings", () => {
 			type: "object",
 			required: ["ids"],
 		});
-		expect(actions.find(({ id }) => id === "phone/ifttt_trigger")).toMatchObject({
+		expect(actions.find(({ id }) => id === "gateway/ifttt_trigger")).toMatchObject({
+			family: "gateway",
 			available: null,
 			where: "gateway",
 			label: "Fire an IFTTT event",
 			needs: [],
 		});
-		expect(actions.find(({ id }) => id === "phone/ifttt_trigger")?.usage).toContain("Runs on the Gateway.");
+		expect(actions.find(({ id }) => id === "gateway/ifttt_trigger")?.usage).toContain("Runs on the Gateway.");
 
 		const status = new Map([
 			["torch", { available: false, reason: "not_supported" as const }],
@@ -56,9 +58,10 @@ describe("action listings", () => {
 });
 
 describe("action routes", () => {
-	it("lists for the assistant and routes watcher and phone ids", async () => {
+	it("lists for the assistant and routes watcher, phone and device bodies", async () => {
 		const dispatched: unknown[] = [];
 		const phoneCalls: unknown[] = [];
+		const deviceCalls: unknown[] = [];
 		let listed = 0;
 		const actions = actionListings(null);
 		const routes = createAssistantRoutes({
@@ -75,6 +78,10 @@ describe("action routes", () => {
 			phone: async (request) => {
 				phoneCalls.push(request);
 				return { kind: "ok", answer: { on: true, levels: 1 } };
+			},
+			device: async (request) => {
+				deviceCalls.push(request);
+				return { kind: "ok", answer: { kind: "ok", devices: [] } };
 			},
 			sender: () => null,
 			guard: {} as never,
@@ -105,6 +112,15 @@ describe("action routes", () => {
 			answer: { on: true, levels: 1 },
 		});
 		expect(phoneCalls).toEqual([{ key: "torch", callId: "phone-call-1", params: { on: true } }]);
+
+		const device = await invoke(ACTION_FRONT_ROUTES.run, {
+			device: { kind: "device_list" },
+			callId: "device-call-1",
+		});
+		expect(await device.json()).toEqual({ kind: "ok", answer: { kind: "ok", devices: [] } });
+		expect(deviceCalls).toEqual([{ device: { kind: "device_list" }, callId: "device-call-1" }]);
+		const bare = await invoke(ACTION_FRONT_ROUTES.run, { device: "device_list", callId: "device-call-2" });
+		expect(bare.status).toBe(400);
 
 		const unknown = await invoke(ACTION_FRONT_ROUTES.run, {
 			id: "phone/missing",

@@ -13,8 +13,8 @@ import { createOwnerRequests, type OpenStub } from "../ownerRequests.js";
 import type { PhoneRequestAnswer } from "./phoneRequests.js";
 import { ASSISTANT_WAITS } from "./waits.js";
 
-type ActRequest = AssistantActRequest & { sessionTarget: string; key: PhoneCapabilityKey };
-type ActPayload = { key: PhoneCapabilityKey; params: unknown };
+type ActRequest = AssistantActRequest & { sessionTarget: string };
+type ActPayload = { key: PhoneCapabilityKey; params: unknown } | { device: unknown };
 type ActAnswer = PhoneRequestAnswer;
 
 export interface ActGuardDeps {
@@ -27,6 +27,7 @@ export interface ActGuardDeps {
 		params: PhoneRequestOf<K>;
 		guard: "approved";
 	}) => Promise<ActAnswer>;
+	runDevice: (callId: string, op: unknown) => Promise<ActAnswer>;
 	ledger?: Pick<DurableStore, "load" | "save">;
 }
 
@@ -42,30 +43,65 @@ export function createActGuard(deps: ActGuardDeps) {
 		collectUntil: ({ cause, at, deadlineAt }) => (cause === "answered" ? deadlineAt : at),
 	});
 
+	const open = (input: {
+		callId: string;
+		key: string;
+		label: string;
+		summary: string;
+		payload: ActPayload;
+	}): Promise<ActAnswer> => {
+		const opened = core.open({
+			sessionTarget: ASSISTANT_TEAM,
+			requestId: input.callId,
+			payload: input.payload,
+			build: (requestId, deadlineAt) => ({
+				...AssistantActRequestSchema.parse({
+					requestId,
+					key: input.key,
+					label: input.label,
+					summary: input.summary.slice(0, 400),
+					deadlineAt,
+				}),
+				sessionTarget: ASSISTANT_TEAM,
+			}),
+		});
+		if (opened.kind === "opened") return opened.answer;
+		return Promise.resolve({ kind: "refused", reason: `the approval card could not be opened: ${opened.reason}` });
+	};
+
 	const run = <K extends PhoneCapabilityKey>(input: {
 		callId: string;
 		key: K;
 		params: PhoneRequestOf<K>;
 	}): Promise<ActAnswer> => {
-		const declaration = PHONE_CAPABILITIES[input.key];
-		const opened = core.open({
-			sessionTarget: ASSISTANT_TEAM,
-			requestId: input.callId,
+		const { label } = PHONE_CAPABILITIES[input.key];
+		return open({
+			callId: input.callId,
+			key: input.key,
+			label,
+			summary: `${label}: ${JSON.stringify(input.params)}`,
 			payload: { key: input.key, params: input.params },
-			build: (requestId, deadlineAt) => ({
-				...AssistantActRequestSchema.parse({
-					requestId,
-					key: input.key,
-					label: declaration.label,
-					summary: `${declaration.label}: ${JSON.stringify(input.params)}`.slice(0, 400),
-					deadlineAt,
-				}),
-				sessionTarget: ASSISTANT_TEAM,
-				key: input.key,
-			}),
 		});
-		if (opened.kind === "opened") return opened.answer;
-		return Promise.resolve({ kind: "refused", reason: `the approval card could not be opened: ${opened.reason}` });
+	};
+
+	const runDevice = (input: { callId: string; kind: string; op: unknown; label: string; summary: string }) =>
+		open({
+			callId: input.callId,
+			key: `device/${input.kind}`,
+			label: input.label,
+			summary: input.summary,
+			payload: { device: input.op },
+		});
+
+	const approved = (requestId: string, payload: ActPayload): Promise<ActAnswer> => {
+		if ("device" in payload) return deps.runDevice(requestId, payload.device);
+		const runPhone = deps.runPhone as (input: {
+			callId: string;
+			key: PhoneCapabilityKey;
+			params: unknown;
+			guard: "approved";
+		}) => Promise<ActAnswer>;
+		return runPhone({ callId: requestId, key: payload.key, params: payload.params, guard: "approved" });
 	};
 
 	const answer = (
@@ -87,18 +123,7 @@ export function createActGuard(deps: ActGuardDeps) {
 		}
 		const claimed = core.claim(requestId);
 		if (!claimed) return gone();
-		const runPhone = deps.runPhone as (input: {
-			callId: string;
-			key: PhoneCapabilityKey;
-			params: unknown;
-			guard: "approved";
-		}) => Promise<ActAnswer>;
-		void runPhone({
-			callId: requestId,
-			key: claimed.payload.key,
-			params: claimed.payload.params,
-			guard: "approved",
-		}).then(
+		void approved(requestId, claimed.payload).then(
 			(answer) => core.settle(requestId, answer),
 			(error) => core.settle(requestId, { kind: "refused", reason: String(error).slice(0, 400) }),
 		);
@@ -107,6 +132,7 @@ export function createActGuard(deps: ActGuardDeps) {
 
 	return {
 		run,
+		runDevice,
 		answer,
 		sessionEnded: core.sessionEnded,
 		retractStale: (retract: (stub: OpenStub) => boolean) => core.retractStale(retract),

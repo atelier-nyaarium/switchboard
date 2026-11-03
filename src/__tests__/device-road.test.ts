@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { composeDevices, DEVICE_IDENTIFY_WAIT_MS, DEVICE_READ_WAIT_MS } from "../gateway/compose/composeDevices.js";
 import { createKasaTransport, type KasaTransport } from "../gateway/devices/kasa/transport.js";
 import { createDeviceRoad, Decline, type Shape, unwrap } from "../gateway/devices/road.js";
-import { consoleShape, NOT_STARTED } from "../gateway/devices/shapes.js";
+import { consoleShape } from "../gateway/devices/shapes.js";
 import { CONSOLE_ANSWER_WAIT_MS, CONSOLE_HOP_MARGIN_MS } from "../shared/console-protocol.js";
 import type { DeviceConsoleOp, DeviceConsoleOpKind } from "../shared/schemasDevices.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
@@ -156,11 +156,11 @@ describe("device road", () => {
 				setSettled = true;
 			});
 			await plug.waitForHeldReply();
-			const listing = stage.listDevices();
+			const listing = stage.assistant({ kind: "device_list" });
 			await ambient.advance(DEVICE_READ_WAIT_MS);
-			expect(await listing).toEqual({
+			expect(await listing).toMatchObject({
 				kind: "ok",
-				answer: { devices: [{ id: MAC, name: "Lamp", kind: "switch", state: "unknown" }] },
+				devices: [{ id: MAC, name: "Lamp", kind: "switch", state: "unknown" }],
 			});
 			expect(setSettled).toBe(false);
 			await ambient.advance(CONSOLE_BOUND_MS);
@@ -231,9 +231,8 @@ describe("device road", () => {
 					answer: NOT_STARTED_ANSWER,
 				});
 			}
-			expect(await stage.listDevices()).toMatchObject({ kind: "unavailable", detail: NOT_STARTED });
-			expect(await stage.setDevice(MAC, "on")).toMatchObject({ kind: "unavailable", detail: NOT_STARTED });
-			expect(await stage.setDevice("Nope", "on")).toMatchObject({ kind: "unavailable", detail: NOT_STARTED });
+			expect(await stage.assistant({ kind: "device_list" })).toEqual(NOT_STARTED_ANSWER);
+			expect(await stage.assistant({ kind: "device_set", id: MAC, verb: "on" })).toEqual(NOT_STARTED_ANSWER);
 			expect(plug.received()).toHaveLength(commandsAfterClose);
 			expect(relay).not.toHaveBeenCalled();
 		} finally {

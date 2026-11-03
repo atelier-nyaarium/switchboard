@@ -241,8 +241,6 @@ object Protocol {
 			const val SMS: String = "sms"
 			const val CALL: String = "call"
 			const val IFTTT_TRIGGER: String = "ifttt_trigger"
-			const val DEVICES: String = "devices"
-			const val DEVICE_SET: String = "device_set"
 		}
 
 		object PhoneUnavailableReason {
@@ -559,26 +557,6 @@ data class IftttTriggerRequest(
 data class IftttTriggerAnswer(
 	val status: Long,
 	val ok: Boolean,
-)
-
-@Serializable
-class DevicesRequest
-
-@Serializable
-data class DevicesAnswer(
-	val devices: List<DeviceCapabilitySummary>,
-)
-
-@Serializable
-data class DeviceActionSetRequest(
-	val target: String,
-	val verb: String,
-)
-
-@Serializable
-data class DeviceActionSetAnswer(
-	val id: String,
-	val state: String,
 )
 
 @Serializable
@@ -3643,14 +3621,6 @@ data class PhoneNotification(
 data class LaunchableApp(
 	val label: String,
 	val `package`: String,
-)
-
-@Serializable
-data class DeviceCapabilitySummary(
-	val id: String,
-	val name: String,
-	val kind: String,
-	val state: String,
 )
 
 @Serializable

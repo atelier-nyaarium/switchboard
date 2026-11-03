@@ -939,6 +939,42 @@ function emitParams(node: Json, defs: Map<string, Json>, omit: Set<string>): str
 	return lines;
 }
 
+/** Kotlin constructor for a value. */
+function kotlinValue(typeName: string, value: unknown, node: Json = { $ref: `#/$defs/${typeName}` }): string {
+	const ref = node.$ref as string | undefined;
+	if (ref) {
+		const name = ref.replace("#/$defs/", "");
+		const target = defs.get(name);
+		if (!target) throw new Error(`unresolved $ref ${ref}`);
+		return kotlinValue(name, value, target);
+	}
+	const members = (node.oneOf ?? node.anyOf) as Json[] | undefined;
+	if (members) {
+		const schema = ROOTS.find((root) => idOf(root) === typeName);
+		if (!schema) throw new Error(`${typeName} is not a sealed root`);
+		const discriminator = discriminatorOf(schema);
+		const record = value as Record<string, unknown>;
+		const member = members.find((option) => {
+			const props = (option.properties ?? {}) as Record<string, Json>;
+			return props[discriminator]?.const === record[discriminator];
+		});
+		if (!member) throw new Error(`${typeName} has no member ${String(record[discriminator])}`);
+		return `${typeName}.${pascal(record[discriminator] as string)}(${kotlinArgs(member, record, new Set([discriminator]))})`;
+	}
+	if (node.properties) return `${typeName}(${kotlinArgs(node, value as Record<string, unknown>, new Set())})`;
+	if (typeof value === "string") return kotlinString(value);
+	if (typeof value === "boolean") return String(value);
+	throw new Error(`no Kotlin value for ${typeName}: ${JSON.stringify(value)}`);
+}
+
+function kotlinArgs(node: Json, record: Record<string, unknown>, omit: Set<string>): string {
+	const props = (node.properties ?? {}) as Record<string, Json>;
+	return Object.entries(props)
+		.filter(([name]) => !omit.has(name) && record[name] !== undefined)
+		.map(([name, prop]) => `${kotlinIdentifier(name)} = ${kotlinValue(name, record[name], prop)}`)
+		.join(", ");
+}
+
 function emitDataClass(name: string, node: Json, defs: Map<string, Json>): string {
 	const params = emitParams(node, defs, new Set());
 	// Data classes require parameters.
@@ -1173,7 +1209,7 @@ function emitIntegrationRegistry(): string {
 		const acts = entry.acts
 			.map(
 				(act) =>
-					`IntegrationAct(${kotlinString(act.key)}, ${kotlinString(act.label)}, ${enumOf("ActTier", act.tier)}, ${act.confirm === undefined ? "null" : kotlinString(act.confirm)})`,
+					`IntegrationAct(${kotlinString(act.key)}, ${kotlinString(act.label)}, ${enumOf("ActTier", act.tier)}, ${act.confirm === undefined ? "null" : kotlinString(act.confirm)}, ${kotlinValue("DeviceSettingPut", act.put)})`,
 			)
 			.join(", ");
 		const capabilities = entry.capabilities.map((capability) => enumOf("DeviceCapability", capability)).join(", ");
@@ -1211,7 +1247,7 @@ ${emitWireEnum("IntegrationSetupKind", INTEGRATION_SETUP_KINDS)}
 
 internal data class IntegrationNeed(val key: String, val kind: IntegrationNeedKind, val label: String)
 
-internal data class IntegrationAct(val key: String, val label: String, val tier: ActTier, val confirm: String?)
+internal data class IntegrationAct(val key: String, val label: String, val tier: ActTier, val confirm: String?, val put: DeviceSettingPut)
 
 internal data class IntegrationSetup(
 ${INDENT}val kind: IntegrationSetupKind,

@@ -148,13 +148,22 @@ describe("phone capabilities through the federation harness", () => {
 		const set = await h.phone.value({ kind: "device_set", id: "aa:bb:cc:dd:ee:ff", verb: "on" });
 		expect(set.result).toMatchObject({ kind: "ok", state: { state: "on" } });
 
-		const action = await (await postPhone("devices", "assistant-device-list-01")).json();
-		expect(action).toEqual({
+		const listed = await assistant.post(ACTION_FRONT_ROUTES.run, {
+			device: { kind: "device_list" },
+			callId: "assistant-device-list-01",
+		});
+		expect(await listed.json()).toMatchObject({
 			kind: "ok",
 			answer: {
-				devices: [{ id: "aa:bb:cc:dd:ee:ff", name: "Hall lamp", kind: "switch", state: "on" }],
+				kind: "ok",
+				devices: [{ id: "aa:bb:cc:dd:ee:ff", name: "Hall lamp", kind: "switch", driver: "kasa", state: "on" }],
 			},
 		});
+		const toggled = await assistant.post(ACTION_FRONT_ROUTES.run, {
+			device: { kind: "device_set", id: "aa:bb:cc:dd:ee:ff", verb: "off" },
+			callId: "assistant-device-set-01",
+		});
+		expect(await toggled.json()).toMatchObject({ kind: "ok", answer: { kind: "ok", state: { state: "off" } } });
 	});
 
 	it("replays a call id without appending a second phone row", async () => {

@@ -11,10 +11,12 @@ import {
 import {
 	type CapabilityHost,
 	capabilityNeedsLine,
+	type GatewayCapabilityKey,
 	PHONE_CAPABILITIES,
 	PHONE_CAPABILITY_KEYS,
 	type PhoneCapabilityKey,
 	PhonePermissionSchema,
+	type PhoneSideCapabilityKey,
 	type UnavailableReason,
 	UnavailableReasonSchema,
 } from "./schemasPhoneCapabilities.js";
@@ -26,27 +28,34 @@ export const ACTION_FRONT_LEGACY_ROUTES = { action: "/assistant/action", phone: 
 
 export const ACTION_FRONT_TOOLS = { list: "list_actions", run: "run_action" } as const;
 
-export const ACTION_FAMILIES = ["phone", "watcher"] as const;
+/** Where it runs. */
+export const ACTION_FAMILIES = ["phone", "gateway", "watcher"] as const;
 
 export type ActionFamily = (typeof ACTION_FAMILIES)[number];
 
-export type PhoneActionId = `phone/${PhoneCapabilityKey}`;
+export type PhoneActionId = `phone/${PhoneSideCapabilityKey}`;
+export type GatewayActionId = `gateway/${GatewayCapabilityKey}`;
 export type WatcherActionId = `watcher/${AssistantActionKey}`;
-export type ActionId = PhoneActionId | WatcherActionId;
+export type ActionId = PhoneActionId | GatewayActionId | WatcherActionId;
 
 export const ACTION_IDS: readonly ActionId[] = [
-	...PHONE_CAPABILITY_KEYS.map((key): PhoneActionId => `phone/${key}`),
+	...PHONE_CAPABILITY_KEYS.map((key) => `${PHONE_CAPABILITIES[key].where}/${key}` as PhoneActionId | GatewayActionId),
 	...ASSISTANT_ACTION_KEYS.map((key): WatcherActionId => `watcher/${key}`),
 ];
 
 export const ActionIdSchema = z.enum(ACTION_IDS as [ActionId, ...ActionId[]]);
 
-export type ActionRef = { family: "phone"; key: PhoneCapabilityKey } | { family: "watcher"; key: AssistantActionKey };
+export type ActionRef =
+	| { family: "phone" | "gateway"; key: PhoneCapabilityKey }
+	| { family: "watcher"; key: AssistantActionKey };
 
 export function actionRef(id: ActionId): ActionRef {
-	return id.startsWith("phone/")
-		? { family: "phone", key: id.slice("phone/".length) as PhoneCapabilityKey }
-		: { family: "watcher", key: id.slice("watcher/".length) as AssistantActionKey };
+	const slash = id.indexOf("/");
+	const family = id.slice(0, slash) as ActionFamily;
+	const key = id.slice(slash + 1);
+	return family === "watcher"
+		? { family, key: key as AssistantActionKey }
+		: { family, key: key as PhoneCapabilityKey };
 }
 
 /** Null for an id this build does not know. */
@@ -58,7 +67,7 @@ export function actionRefOf(id: string): ActionRef | null {
 /** Shared parse and listing schema. */
 export function actionParamsSchema(id: ActionId): z.ZodType {
 	const ref = actionRef(id);
-	return ref.family === "phone" ? PHONE_CAPABILITIES[ref.key].request : watcherParamsSchema(ref.key);
+	return ref.family === "watcher" ? watcherParamsSchema(ref.key) : PHONE_CAPABILITIES[ref.key].request;
 }
 
 /** Last status, per key. */
@@ -128,7 +137,7 @@ export function actionListings(status: ReadonlyMap<string, KeyAvailability> | nu
 		const known = where === "gateway" ? undefined : status?.get(ref.key);
 		return {
 			id,
-			family: "phone",
+			family: ref.family,
 			label: declaration.label,
 			usage: `${declaration.describe}\n\n${capabilityNeedsLine(ref.key)}`,
 			kind: declaration.kind,
@@ -141,14 +150,18 @@ export function actionListings(status: ReadonlyMap<string, KeyAvailability> | nu
 	});
 }
 
-export const ActionRunRequestSchema = z.strictObject({
-	id: ActionIdSchema,
-	/** Retries reuse call ids. */
-	callId: z.string().regex(/^[A-Za-z0-9-]{8,64}$/),
-	params: z.unknown(),
-});
+/** Retries reuse call ids. */
+const CallIdSchema = z.string().regex(/^[A-Za-z0-9-]{8,64}$/);
 
-export type ActionRunRequest = z.infer<typeof ActionRunRequestSchema>;
+export const ActionRunBodySchema = z.strictObject({ id: ActionIdSchema, callId: CallIdSchema, params: z.unknown() });
+
+/** Device tool body. */
+export const DeviceRunBodySchema = z.strictObject({ device: z.record(z.string(), z.unknown()), callId: CallIdSchema });
+
+export const ActionRunRequestSchema = z.union([ActionRunBodySchema, DeviceRunBodySchema]);
+
+export type ActionRunRequest = z.infer<typeof ActionRunBodySchema>;
+export type DeviceRunRequest = z.infer<typeof DeviceRunBodySchema>;
 
 export const ActionRunResultSchema = z.discriminatedUnion("kind", [
 	z.strictObject({ kind: z.literal("not_assistant") }),

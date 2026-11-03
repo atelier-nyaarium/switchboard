@@ -1,19 +1,20 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createActGuard } from "../gateway/assistant/actGuard.js";
-import { GatewayCapabilityRefusal, GatewayCapabilityRejected } from "../gateway/assistant/gatewayCapabilityRefusal.js";
+import { approvedDeviceRun, createDeviceDispatch } from "../gateway/assistant/deviceDispatch.js";
 import { createPhoneDispatch } from "../gateway/assistant/phoneDispatch.js";
 import { createPhoneRequests } from "../gateway/assistant/phoneRequests.js";
 import { composeDevices } from "../gateway/compose/composeDevices.js";
 import { createConsolePushOps } from "../gateway/consolePushOps.js";
-import type { KasaTransport } from "../gateway/devices/kasa/transport.js";
+import { createKasaTransport } from "../gateway/devices/kasa/transport.js";
 import { generateIdentity } from "../shared/crypto.js";
-import type { GatewayCapabilityRuns } from "../shared/schemasPhoneCapabilities.js";
+import type { DeviceToolOp } from "../shared/schemasDeviceTool.js";
 import { HolderKeySchema } from "../shared/schemasPhoneHold.js";
 import { Address } from "../shared/session-id.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
+import { createFakeKasaPlug } from "../testing/fakeKasaPlug.js";
 
 const HOLDER_KEY = HolderKeySchema.parse(generateIdentity().sign.pub);
 
@@ -220,6 +221,7 @@ describe("phone request append completion", () => {
 			},
 			retract: () => true,
 			runPhone: async () => ({ kind: "ok", answer: { sent: true, parts: 1 } }),
+			runDevice: async () => ({ kind: "refused", reason: "unused" }),
 		});
 		const dispatch = createPhoneDispatch({
 			ambient,
@@ -322,6 +324,7 @@ describe("phone request append completion", () => {
 				calls.push(input as (typeof calls)[number]);
 				return { kind: "ok", answer: { on: true, levels: 5 } };
 			},
+			runDevice: async () => ({ kind: "refused", reason: "unused" }),
 		});
 
 		const approved = guard.run({ callId: "act-00001", key: "torch", params: { on: true } });
@@ -342,150 +345,135 @@ describe("phone request append completion", () => {
 	});
 });
 
-describe("Gateway device actions", () => {
-	it("lists live devices and resolves ids or exact names", async () => {
-		const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "assistant-device-actions-"));
-		const macs = new Map([
-			["127.0.0.2", "aa:bb:cc:dd:ee:ff"],
-			["127.0.0.3", "aa:bb:cc:dd:ee:ee"],
-		]);
-		const states = new Map<string, 0 | 1>();
-		const requests: string[] = [];
+describe("Gateway device ops", () => {
+	it("lists live devices, hides a plug's text and address, and holds a danger act on the owner's card", async () => {
+		const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "assistant-device-ops-"));
+		const ambient = fakeAmbient({ now: () => 1_000 });
+		const MAC = "aa:bb:cc:dd:ee:ff";
 		let refuseRelay = false;
-		const transport: KasaTransport = {
-			request: async (address, command) => {
-				requests.push(address);
-				const modules = command as Record<string, Record<string, Record<string, unknown>>>;
-				const [module] = Object.keys(modules);
-				const commands = modules[module ?? ""];
-				const [name] = Object.keys(commands ?? {});
-				const args = commands?.[name ?? ""] ?? {};
-				if (module === "system" && name === "get_sysinfo") {
-					return {
-						system: {
-							get_sysinfo: {
-								err_code: 0,
-								mac: macs.get(address),
-								relay_state: states.get(address) ?? 0,
-								led_off: 0,
-							},
-						},
-					};
-				}
-				if (module === "system" && name === "set_relay_state") {
-					if (refuseRelay) {
-						return { system: { set_relay_state: { err_code: -17, err_msg: "private plug text" } } };
-					}
-					states.set(address, args.state === 1 ? 1 : 0);
-					return { system: { set_relay_state: { err_code: 0 } } };
-				}
-				if (module === "schedule" && name === "get_rules") {
-					return { schedule: { get_rules: { err_code: 0, rule_list: [], enable: 1 } } };
-				}
-				return { [module ?? ""]: { [name ?? ""]: { err_code: 0 } } };
-			},
-		};
+		const plug = await createFakeKasaPlug({
+			mac: MAC,
+			behavior: (request) =>
+				request.command === "set_relay_state" && refuseRelay
+					? { kind: "error", command: "set_relay_state", code: -17, message: "private plug text" }
+					: undefined,
+		});
 		const devices = composeDevices({
 			dataDir,
-			ambient: fakeAmbient({ now: () => 1_000 }),
-			transport,
+			ambient,
+			transport: createKasaTransport(plug.port),
 			relayToHost: async () => ({ ok: false, error: "unused" }),
 		});
-		const runs: GatewayCapabilityRuns = {
-			ifttt_trigger: async () => ({ status: 200, ok: true }),
-			devices: async () => {
-				const result = await devices.listDevices();
-				if (result.kind === "ok") return result.answer;
-				throw new GatewayCapabilityRefusal(result.reason, result.detail);
+		const cards: Array<{ requestId: string; key: string; label: string; summary: string }> = [];
+		const guard = createActGuard({
+			ambient,
+			deliver: (request) => {
+				cards.push(request);
+				return true;
 			},
-			device_set: async ({ target, verb }) => {
-				const result = await devices.setDevice(target, verb);
-				if (result.kind === "ok") return result.answer;
-				if (result.kind === "unavailable") throw new GatewayCapabilityRefusal(result.reason, result.detail);
-				throw new GatewayCapabilityRejected(result.reason);
-			},
-		};
-		const dispatch = createPhoneDispatch({
-			ambient: fakeAmbient({ now: () => 1_000 }),
-			approveEverySend: () => true,
-			hold: () => ({ kind: "none" }),
-			phone: { open: () => ({ kind: "refused" }) } as never,
-			act: { run: async () => ({ kind: "refused", reason: "unused" }) } as never,
-			gateways: runs,
+			retract: () => true,
+			runPhone: async () => ({ kind: "refused", reason: "unused" }),
+			runDevice: approvedDeviceRun(devices),
 		});
+		const dispatch = createDeviceDispatch({ ambient, devices, act: guard });
+		const run = (device: DeviceToolOp, callId: string) => dispatch({ device, callId });
+		const unbinds = () => plug.received().filter((row) => row.command === "unbind").length;
 
 		try {
 			expect(
-				await devices.console({
-					kind: "device_add",
-					mac: "aa:bb:cc:dd:ee:ff",
-					address: "127.0.0.2",
-					name: "Lamp",
-				}),
+				await devices.console({ kind: "device_add", mac: MAC, address: "127.0.0.1", name: "Lamp" }),
 			).toMatchObject({ kind: "ok" });
-			const listed = await dispatch({ key: "devices", callId: "device-list-0001", params: {} });
-			expect(listed).toMatchObject({
+			expect(await run({ kind: "device_list" }, "device-list-0001")).toMatchObject({
 				kind: "ok",
-				answer: { devices: [{ id: "aa:bb:cc:dd:ee:ff", name: "Lamp", kind: "switch", state: "off" }] },
+				answer: {
+					kind: "ok",
+					devices: [
+						{
+							id: MAC,
+							name: "Lamp",
+							kind: "switch",
+							driver: "kasa",
+							state: "off",
+							capabilities: expect.arrayContaining(["switch", "cloud"]),
+						},
+					],
+				},
 			});
-
-			const byName = await dispatch({
-				key: "device_set",
-				callId: "device-name-0001",
-				params: { target: "lAmP", verb: "on" },
+			expect(await run({ kind: "device_set", id: MAC, verb: "on" }, "device-set-000001")).toMatchObject({
+				kind: "ok",
+				answer: { kind: "ok", state: { state: "on" } },
 			});
-			expect(byName).toEqual({ kind: "ok", answer: { id: "aa:bb:cc:dd:ee:ff", state: "on" } });
-
-			const byId = await dispatch({
-				key: "device_set",
-				callId: "device-id-000001",
-				params: { target: "aa:bb:cc:dd:ee:ff", verb: "off" },
-			});
-			expect(byId).toEqual({ kind: "ok", answer: { id: "aa:bb:cc:dd:ee:ff", state: "off" } });
-
-			expect(
-				await devices.console({
-					kind: "device_add",
-					mac: "aa:bb:cc:dd:ee:ee",
-					address: "127.0.0.3",
-					name: "Lamp",
-				}),
-			).toMatchObject({ kind: "ok" });
-			const beforeRefusals = requests.length;
-			const ambiguous = await dispatch({
-				key: "device_set",
-				callId: "device-ambiguous-01",
-				params: { target: "Lamp", verb: "on" },
-			});
-			expect(ambiguous).toMatchObject({ kind: "refused" });
-			expect((ambiguous as { reason: string }).reason).toContain("aa:bb:cc:dd:ee:ff");
-			expect((ambiguous as { reason: string }).reason).toContain("aa:bb:cc:dd:ee:ee");
-
-			const unknown = await dispatch({
-				key: "device_set",
-				callId: "device-unknown-001",
-				params: { target: "Missing", verb: "on" },
-			});
-			expect(unknown).toMatchObject({ kind: "refused" });
-			expect((unknown as { reason: string }).reason).toContain("Lamp");
-			expect(requests.length).toBe(beforeRefusals);
-
-			const secondById = await dispatch({
-				key: "device_set",
-				callId: "device-id-000002",
-				params: { target: "aa:bb:cc:dd:ee:ee", verb: "on" },
-			});
-			expect(secondById).toEqual({ kind: "ok", answer: { id: "aa:bb:cc:dd:ee:ee", state: "on" } });
 
 			refuseRelay = true;
-			const refused = await dispatch({
-				key: "device_set",
-				callId: "device-error-0001",
-				params: { target: "aa:bb:cc:dd:ee:ff", verb: "on" },
+			const refused = await run({ kind: "device_set", id: MAC, verb: "off" }, "device-error-0001");
+			expect(refused).toMatchObject({
+				kind: "ok",
+				answer: {
+					kind: "refused",
+					refusal: { code: "device_error", detail: "the device answered err_code -17" },
+				},
 			});
-			expect(refused).toEqual({ kind: "refused", reason: "the device answered err_code -17" });
 			expect(JSON.stringify(refused)).not.toContain("private plug text");
+			expect(JSON.stringify(refused)).not.toContain("127.0.0.1");
+
+			const disconnect: DeviceToolOp = {
+				kind: "device_setting_put",
+				id: MAC,
+				revision: devices.record(MAC)?.revision ?? 0,
+				setting: { driver: "kasa", setting: { key: "cloud", value: "disconnected" } },
+			};
+			expect(await devices.assistant(disconnect)).toMatchObject({
+				kind: "refused",
+				refusal: { code: "invalid" },
+			});
+			expect(unbinds()).toBe(0);
+
+			const read = await run({ kind: "device_read", id: MAC }, "device-read-00001");
+			expect(read).toMatchObject({ kind: "ok", answer: { kind: "ok", settings: { driver: "kasa" } } });
+			const renamed = await run(
+				{ kind: "device_rename", id: MAC, name: "Hall lamp", revision: devices.record(MAC)?.revision ?? 0 },
+				"device-rename-001",
+			);
+			expect(renamed).toMatchObject({ kind: "ok", answer: { kind: "ok", record: { name: "Hall lamp" } } });
+			const schedule = { enabled: true, rules: [] };
+			const put = await run(
+				{
+					kind: "device_schedule_put",
+					id: MAC,
+					revision: devices.record(MAC)?.revision ?? 0,
+					base: schedule,
+					schedule,
+				},
+				"device-schedule-01",
+			);
+			expect(put).toMatchObject({ kind: "ok", answer: { kind: "ok", schedule } });
+			for (const answer of [read, renamed, put]) expect(JSON.stringify(answer)).not.toContain("127.0.0.1");
+			disconnect.revision = devices.record(MAC)?.revision ?? 0;
+
+			const pending = run(disconnect, "device-danger-0001");
+			await vi.waitFor(() => expect(cards).toHaveLength(1));
+			expect(cards[0]).toMatchObject({
+				requestId: "device-danger-0001",
+				key: "device/device_setting_put",
+				label: "Disconnect from the cloud",
+				summary: expect.stringMatching(/^Disconnect from the cloud: Hall lamp\. The Kasa app/),
+			});
+			expect(unbinds()).toBe(0);
+			expect(guard.answer("device-danger-0001", "approve")).toEqual({ ok: true });
+			expect(await pending).toMatchObject({
+				kind: "ok",
+				answer: { kind: "ok", settings: { driver: "kasa", cloud: "disconnected" } },
+			});
+			expect(unbinds()).toBe(1);
+
+			const denied = run(disconnect, "device-danger-0002");
+			await vi.waitFor(() => expect(cards).toHaveLength(2));
+			expect(guard.answer("device-danger-0002", "deny", "keep the cloud")).toEqual({ ok: true });
+			expect(await denied).toEqual({ kind: "refused", reason: "keep the cloud" });
+			expect(unbinds()).toBe(1);
 		} finally {
+			await devices.close();
+			await plug.close();
 			fs.rmSync(dataDir, { recursive: true, force: true });
 		}
 	});

@@ -10,11 +10,8 @@ import {
 } from "../../shared/schemasAssistantActions.js";
 import type { RecordThread } from "../../shared/schemasAssistantRecord.js";
 import type { SourceLanes } from "./sourceLane.js";
-import { ASSISTANT_WAITS } from "./waits.js";
+import { ASSISTANT_WAITS, CALL_HOLD_MS } from "./waits.js";
 import type { WatcherActions } from "./watcherAction.js";
-
-/** Retry hold, milliseconds. */
-const CALL_HOLD_MS = 10 * 60_000;
 
 export interface ActionRecord {
 	notify: boolean;

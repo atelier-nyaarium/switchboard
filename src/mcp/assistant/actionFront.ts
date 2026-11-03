@@ -32,9 +32,9 @@ const SETTLED = new Set(["done", "not_found"]);
 /** Pre-dispatch refusals. */
 const refusedOutright = (status: number) => status < 500 || status === 503;
 
-type ToolText = { content: Array<{ type: "text"; text: string }>; isError?: true };
+export type ToolText = { content: Array<{ type: "text"; text: string }>; isError?: true };
 
-const text = (body: string, failed = false): ToolText => ({
+export const text = (body: string, failed = false): ToolText => ({
 	content: [{ type: "text" as const, text: body }],
 	...(failed ? { isError: true as const } : {}),
 });
@@ -45,8 +45,8 @@ const SESSION_TEXT: Record<"not_assistant" | "unauthenticated", string> = {
 };
 
 function availabilityText(action: ActionListing): string {
-	if (action.family !== "phone") return "";
-	if (action.where === "gateway") return "; runs on the Gateway";
+	if (action.family === "watcher") return "";
+	if (action.family === "gateway" || action.where === "gateway") return "; runs on the Gateway";
 	if (action.available === null) return `; availability unknown, ${STATUS_ID} learns it`;
 	return action.available
 		? "; available on the holding phone"
@@ -166,7 +166,7 @@ Read it before a \`${RUN}\`. \`${STATUS_ID}\` refreshes what the holding phone s
 
 Run one action by \`id\` from \`${LIST}\`, with \`params\` in its schema.
 
-A \`phone/\` id runs on the holding phone unless listed for the Gateway; a \`watcher/\` id runs on the Gateway. Only this tool's transport retries share a call.
+A \`phone/\` id runs on the holding phone; a \`gateway/\` or \`watcher/\` id runs on the Gateway. Only this tool's transport retries share a call.
 			`.trim(),
 			inputSchema: {
 				id: z.string().describe(`An id from \`${LIST}\`, such as \`${STATUS_ID}\`.`),

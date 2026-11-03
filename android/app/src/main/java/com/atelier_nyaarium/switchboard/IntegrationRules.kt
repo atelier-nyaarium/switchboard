@@ -3,14 +3,12 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.AssistantIntegration
 import com.atelier_nyaarium.switchboard.proto.DeviceCapability
 import com.atelier_nyaarium.switchboard.proto.DeviceRecord
-import com.atelier_nyaarium.switchboard.proto.DeviceSettingPut
 import com.atelier_nyaarium.switchboard.proto.DeviceSettings
 import com.atelier_nyaarium.switchboard.proto.INTEGRATIONS
 import com.atelier_nyaarium.switchboard.proto.Integration
 import com.atelier_nyaarium.switchboard.proto.IntegrationAct
 import com.atelier_nyaarium.switchboard.proto.IntegrationGroup
 import com.atelier_nyaarium.switchboard.proto.IntegrationYield
-import com.atelier_nyaarium.switchboard.proto.KasaSettingPut
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.routines.grantedLine
 import com.atelier_nyaarium.switchboard.vault.VaultEntryView
@@ -97,12 +95,6 @@ internal fun capabilitiesOf(record: DeviceRecord): List<DeviceCapability> =
 internal fun providerActs(record: DeviceRecord): List<IntegrationAct> = catalogued(record.driver)?.acts.orEmpty()
 
 internal const val ACT_CLOUD_DISCONNECT = "cloud_disconnect"
-
-/** The write a declared act sends; null is an act nothing runs, which the gate refuses. */
-internal fun actPut(key: String): DeviceSettingPut? = when (key) {
-	ACT_CLOUD_DISCONNECT -> DeviceSettingPut.Kasa(KasaSettingPut.Cloud(Protocol.Wire.DeviceCloudState.DISCONNECTED))
-	else -> null
-}
 
 /** Whether the settings read leave the act meaningful. */
 internal fun actOffered(key: String, settings: DeviceSettings?): Boolean = when (key) {

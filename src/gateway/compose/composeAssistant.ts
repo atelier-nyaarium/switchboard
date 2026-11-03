@@ -42,7 +42,7 @@ import { neutralizeMarkup } from "../../shared/system-reminder.js";
 import { createActGuard } from "../assistant/actGuard.js";
 import { type ActionRecord, createActionDispatch } from "../assistant/actionDispatch.js";
 import { createAssistantRoutes, type Handler } from "../assistant/assistantRoutes.js";
-import { GatewayCapabilityRefusal, GatewayCapabilityRejected } from "../assistant/gatewayCapabilityRefusal.js";
+import { approvedDeviceRun, createDeviceDispatch } from "../assistant/deviceDispatch.js";
 import { createGithubClient, type GithubClientDeps, type TokenRead } from "../assistant/githubClient.js";
 import { GithubDone } from "../assistant/githubDone.js";
 import { createGithubWatcher } from "../assistant/githubWatcher.js";
@@ -123,7 +123,7 @@ export interface AssistantStageDeps {
 	/** A checked save of the session records, which hold where it lives; throws when it did not land. */
 	saveSessions: () => void;
 	vault: AssistantVault;
-	devices?: Pick<DeviceStage, "listDevices" | "setDevice">;
+	devices?: Pick<DeviceStage, "assistant" | "record">;
 	/** Resolve after Domain activation. */
 	routes: () => Pick<GatewayRoutes, "deliverToOwner" | "ownerSessionKey" | "bindTarget" | "sendFromAssistant">;
 	/** Null unless fully staged. */
@@ -509,6 +509,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					return false;
 				}
 			},
+			runDevice: approvedDeviceRun(deps.devices ?? null),
 			runPhone: (input) => {
 				const denied = holdRefusal(phoneHold.answer);
 				if (denied) return Promise.resolve(denied);
@@ -532,21 +533,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	});
 	const gatewayRuns: GatewayCapabilityRuns = {
 		ifttt_trigger: (params) => ifttt.trigger(params),
-		devices: () => {
-			if (!deps.devices) throw new GatewayCapabilityRefusal("not_supported");
-			return deps.devices.listDevices().then((result) => {
-				if (result.kind === "ok") return result.answer;
-				throw new GatewayCapabilityRefusal(result.reason, result.detail);
-			});
-		},
-		device_set: async ({ target, verb }) => {
-			if (!deps.devices) throw new GatewayCapabilityRefusal("not_supported");
-			const result = await deps.devices.setDevice(target, verb);
-			if (result.kind === "ok") return result.answer;
-			if (result.kind === "unavailable") throw new GatewayCapabilityRefusal(result.reason, result.detail);
-			throw new GatewayCapabilityRejected(result.reason);
-		},
 	};
+	const deviceDispatch = createDeviceDispatch({ ambient, devices: deps.devices ?? null, act: actGuard });
 	const statusMemo = createStatusMemo(phoneHold.answer);
 	const phoneDispatch = createPhoneDispatch({
 		ambient,
@@ -573,6 +561,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		},
 		list: (scope, page) => inbox.list(scope, page),
 		listActions: () => actionListings(statusMemo.read()),
+		device: deviceDispatch,
 		dispatch,
 		phone: async (request) => {
 			const result = await phoneDispatch(request);

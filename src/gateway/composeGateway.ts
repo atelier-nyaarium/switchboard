@@ -135,8 +135,8 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			usableHere: async (entryId) => (vault ? vault.usableHere(entryId) : false),
 		},
 		devices: {
-			listDevices: () => requireDevices().listDevices(),
-			setDevice: (target, verb) => requireDevices().setDevice(target, verb),
+			assistant: (op) => requireDevices().assistant(op),
+			record: (id) => requireDevices().record(id),
 		},
 		routes: requireRoutes,
 		blobSize: (blobId) => {

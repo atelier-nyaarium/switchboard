@@ -53,8 +53,6 @@ function dispatchFor(
 		} as never,
 		gateways: {
 			ifttt_trigger: trigger,
-			devices: async () => ({ devices: [] }),
-			device_set: async () => ({ id: "device", state: "off" }),
 		},
 	});
 }
@@ -169,8 +167,6 @@ describe("IFTTT trigger client", () => {
 			} as never,
 			gateways: {
 				ifttt_trigger: (request) => trigger.trigger(request),
-				devices: async () => ({ devices: [] }),
-				device_set: async () => ({ id: "device", state: "off" }),
 			},
 		});
 

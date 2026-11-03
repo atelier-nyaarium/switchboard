@@ -1,6 +1,6 @@
 // The integrations catalogue: every brand, service and protocol Switchboard knows, declared once.
 
-import type { DeviceRecord } from "./schemasDevices.js";
+import type { DeviceRecord, DeviceSettingPut } from "./schemasDevices.js";
 
 /** Add page order. */
 export const INTEGRATION_GROUPS = ["protocol", "service", "brand"] as const;
@@ -43,8 +43,20 @@ export interface IntegrationSetup {
 
 /** A danger act confirms with its own words. */
 export type IntegrationAct =
-	| { readonly key: string; readonly label: string; readonly tier: "act"; readonly confirm?: undefined }
-	| { readonly key: string; readonly label: string; readonly tier: "danger"; readonly confirm: string };
+	| {
+			readonly key: string;
+			readonly label: string;
+			readonly tier: "act";
+			readonly confirm?: undefined;
+			readonly put: DeviceSettingPut;
+	  }
+	| {
+			readonly key: string;
+			readonly label: string;
+			readonly tier: "danger";
+			readonly confirm: string;
+			readonly put: DeviceSettingPut;
+	  };
 
 export interface IntegrationDeclaration {
 	readonly group: IntegrationGroup;
@@ -72,6 +84,7 @@ export const INTEGRATIONS = {
 				tier: "danger",
 				confirm:
 					"The Kasa app, Alexa and Google lose access. Switchboard keeps local control. To undo, set the plug up again in the Kasa app.",
+				put: { driver: "kasa", setting: { key: "cloud", value: "disconnected" } },
 			},
 		],
 		setup: {
@@ -110,6 +123,10 @@ export const SERVICE_KEYS = INTEGRATION_KEYS.filter(
 
 export function integrationLabel(id: IntegrationKey): string {
 	return INTEGRATIONS[id].label;
+}
+
+export function deviceCapabilitiesOf(driver: DeviceRecord["driver"]): readonly DeviceCapability[] {
+	return INTEGRATIONS[driver].capabilities;
 }
 
 /** The webhook client's own entry. */

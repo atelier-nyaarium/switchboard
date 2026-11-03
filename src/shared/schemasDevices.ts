@@ -180,6 +180,8 @@ export const DeviceSettingPutSchema = z
 	.discriminatedUnion("driver", [z.object({ driver: z.literal("kasa"), setting: KasaSettingPutSchema })])
 	.meta({ id: "DeviceSettingPut" });
 
+export type DeviceSettingPut = z.infer<typeof DeviceSettingPutSchema>;
+
 export const DeviceCandidateSchema = z
 	.object({
 		mac: DeviceIdSchema,

@@ -14,6 +14,7 @@ import {
 	type ActionRunResult,
 	ActionRunResultSchema,
 	actionRef,
+	type DeviceRunRequest,
 	runResultOfWatcher,
 } from "../../shared/schemasActionFront.js";
 import {
@@ -50,6 +51,7 @@ export interface AssistantRoutesDeps {
 	listActions: () => ActionListing[];
 	dispatch: (request: AssistantActionRequest) => Promise<AssistantActionResult>;
 	phone: (request: PhoneCapabilityRequest) => Promise<PhoneCapabilityResult>;
+	device: (request: DeviceRunRequest) => Promise<ActionRunResult>;
 	/** The assistant holding that conversation. */
 	sender: (req: Request, conversationId: string) => SendCaller | null;
 	guard: Pick<SendGuard, "send" | "collect" | "withdraw">;
@@ -81,10 +83,16 @@ export function createAssistantRoutes(deps: AssistantRoutesDeps): Map<string, Ha
 		if (!parsed.success) return json({ error: "not an action run" }, 400);
 		const caller = deps.caller(req);
 		if (caller !== "assistant") return json({ kind: caller } satisfies ActionRunResult, 200);
+		if ("device" in parsed.data) return json(await runDevice(parsed.data), 200);
 		const { callId, params } = parsed.data;
 		const ref = actionRef(parsed.data.id);
 		if (ref.family === "watcher") return json(await runWatcher({ action: ref.key, callId, params }), 200);
 		return json(await runPhone({ key: ref.key, callId, params }), 200);
+	};
+
+	const runDevice = async (request: DeviceRunRequest): Promise<ActionRunResult> => {
+		const result = await withinMs(deps.ambient, deps.device(request), PHONE_ROUTE_WAIT_MS);
+		return result ?? { kind: "unavailable", reason: "timeout" };
 	};
 
 	const runWatcher = async (request: AssistantActionRequest): Promise<ActionRunResult> => {

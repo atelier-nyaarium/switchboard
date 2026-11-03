@@ -90,16 +90,13 @@ class IntegrationRulesTest {
 	}
 
 	@Test
-	fun `every declared act has a write to send, and the cloud act is offered only while the plug is bound`() {
-		val declared = INTEGRATIONS.flatMap { it.acts }
+	fun `the cloud act carries its write and is offered only while the plug is bound`() {
+		val cloud = INTEGRATIONS.flatMap { it.acts }.single { it.key == ACT_CLOUD_DISCONNECT }
 		val bound = DeviceSettings.Kasa(led = true, clock = KasaClock(time = "2026-11-02T18:00:00-08:00", zone = "PST8PDT"), cloud = "bound")
 
-		assertTrue(declared.isNotEmpty())
-		for (act in declared) assertTrue(act.key, actPut(act.key) != null)
-		assertNull(actPut("not-an-act"))
+		assertEquals(DeviceSettingPut.Kasa(KasaSettingPut.Cloud("disconnected")), cloud.put)
 		assertTrue(actOffered(ACT_CLOUD_DISCONNECT, bound))
 		assertEquals(false, actOffered(ACT_CLOUD_DISCONNECT, bound.copy(cloud = "disconnected")))
 		assertEquals(false, actOffered(ACT_CLOUD_DISCONNECT, null))
-		assertEquals(DeviceSettingPut.Kasa(KasaSettingPut.Cloud("disconnected")), actPut(ACT_CLOUD_DISCONNECT))
 	}
 }

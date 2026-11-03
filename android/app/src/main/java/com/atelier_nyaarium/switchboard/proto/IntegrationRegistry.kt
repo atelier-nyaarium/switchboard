@@ -43,7 +43,7 @@ internal enum class IntegrationSetupKind(val wire: String) {
 
 internal data class IntegrationNeed(val key: String, val kind: IntegrationNeedKind, val label: String)
 
-internal data class IntegrationAct(val key: String, val label: String, val tier: ActTier, val confirm: String?)
+internal data class IntegrationAct(val key: String, val label: String, val tier: ActTier, val confirm: String?, val put: DeviceSettingPut)
 
 internal data class IntegrationSetup(
 	val kind: IntegrationSetupKind,
@@ -73,7 +73,7 @@ internal val INTEGRATIONS: List<Integration> =
 			needs = listOf(),
 			yields = IntegrationYield.DEVICES,
 			capabilities = listOf(DeviceCapability.SWITCH, DeviceCapability.SCHEDULE, DeviceCapability.LED, DeviceCapability.CLOCK, DeviceCapability.CLOUD),
-			acts = listOf(IntegrationAct("cloud_disconnect", "Disconnect from the cloud", ActTier.DANGER, "The Kasa app, Alexa and Google lose access. Switchboard keeps local control. To undo, set the plug up again in the Kasa app.")),
+			acts = listOf(IntegrationAct("cloud_disconnect", "Disconnect from the cloud", ActTier.DANGER, "The Kasa app, Alexa and Google lose access. Switchboard keeps local control. To undo, set the plug up again in the Kasa app.", DeviceSettingPut.Kasa(setting = KasaSettingPut.Cloud(value = "disconnected")))),
 			setup = IntegrationSetup(IntegrationSetupKind.ACCESS_POINT, "TP-LINK_Smart Plug_", listOf(IntegrationNeed("wifi", IntegrationNeedKind.SECRET, "Home WiFi password"))),
 		),
 		Integration(

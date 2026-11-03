@@ -13,9 +13,8 @@ import { PHONE_CAPABILITIES } from "../../shared/schemasPhoneCapabilities.js";
 import type { ActGuard } from "./actGuard.js";
 import { GatewayCapabilityRefusal, GatewayCapabilityRejected } from "./gatewayCapabilityRefusal.js";
 import type { PhoneRequestAnswer, PhoneRequests } from "./phoneRequests.js";
-import { ASSISTANT_WAITS } from "./waits.js";
+import { ASSISTANT_WAITS, CALL_HOLD_MS } from "./waits.js";
 
-const CALL_HOLD_MS = 10 * 60_000;
 type CapabilityGuard = PhoneCapabilityRow["guard"];
 
 export interface PhoneDispatchDeps {
@@ -41,7 +40,7 @@ function refusal(opened: Exclude<Awaited<ReturnType<PhoneRequests["open"]>>, { k
 	};
 }
 
-function resultOf(answer: PhoneAnswer): PhoneCapabilityResult {
+export function runResultOf(answer: PhoneAnswer): PhoneCapabilityResult {
 	if (answer.kind === "ok") return { kind: "ok", answer: answer.answer };
 	if (answer.kind === "unavailable") {
 		return {
@@ -75,7 +74,7 @@ export function createPhoneDispatch(
 		const parsed = parseParams(request.key, request.params);
 		if (!parsed.success) {
 			const issue = parsed.error.issues[0];
-			return resultOf({
+			return runResultOf({
 				kind: "refused",
 				reason: `${issue?.path.join(".") || "params"}: ${issue?.message}`.slice(0, 400),
 			});
@@ -83,22 +82,22 @@ export function createPhoneDispatch(
 		const params = parsed.data;
 		if (declaration.where === "gateway") {
 			const run = gatewayRun(deps.gateways, request.key);
-			if (!run) return resultOf({ kind: "unavailable", reason: "not_supported" });
+			if (!run) return runResultOf({ kind: "unavailable", reason: "not_supported" });
 			try {
 				const result = await withinMs(deps.ambient, run(params), ASSISTANT_WAITS.action);
-				if (result === null) return resultOf({ kind: "unavailable", reason: "timeout" });
+				if (result === null) return runResultOf({ kind: "unavailable", reason: "timeout" });
 				const answer = declaration.answer.parse(result);
-				return resultOf({ kind: "ok", answer });
+				return runResultOf({ kind: "ok", answer });
 			} catch (error) {
 				if (error instanceof GatewayCapabilityRefusal)
-					return resultOf({
+					return runResultOf({
 						kind: "unavailable",
 						reason: error.reason,
 						...(error.detail ? { detail: error.detail.slice(0, 400) } : {}),
 					});
 				if (error instanceof GatewayCapabilityRejected)
-					return resultOf({ kind: "refused", reason: error.reason.slice(0, 400) });
-				return resultOf({
+					return runResultOf({ kind: "refused", reason: error.reason.slice(0, 400) });
+				return runResultOf({
 					kind: "refused",
 					reason: "Gateway capability failed",
 				});
@@ -107,7 +106,7 @@ export function createPhoneDispatch(
 
 		// Phone road requires hold.
 		const denied = holdRefusal(deps.hold);
-		if (denied) return resultOf(denied);
+		if (denied) return runResultOf(denied);
 
 		let answer: PhoneAnswer;
 		const guarded = declaration.kind === "guarded" && (declaration.guardedWhen?.(params) ?? true);
@@ -123,7 +122,7 @@ export function createPhoneDispatch(
 			});
 			answer = opened.kind === "opened" ? await opened.answer : refusal(opened);
 		}
-		return resultOf(answer);
+		return runResultOf(answer);
 	};
 
 	return (request) => calls.once(request.callId, () => runOne(request));

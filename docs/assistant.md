@@ -125,7 +125,7 @@ Safety and Enabled on its own disk.
   the session cannot write `.claude/`, so only the owner could add one.
 - **Its Switchboard server:** takes no capabilities and lists only `channel_reply`,
   `channel_reply_structured`, `switchboard_capabilities`, `notify_human`, `inbox`, `list_actions`,
-  `run_action` and the crosstalk tools (`ASSISTANT_SWITCHBOARD_TOOLS`, through `scopeTools`), so
+  `run_action`, `device` and the crosstalk tools (`ASSISTANT_SWITCHBOARD_TOOLS`, through `scopeTools`), so
   no guidance names a tool it lacks and no reply snapshots a ref. `ASSISTANT_ONLY_TOOLS` are
   registered for it alone, which `check:boot` proves against a bound session and a tokenless one. Its instructions carry the assistant's standing rules
   (`ASSISTANT_INSTRUCTIONS`), so a release updates them in every folder.
@@ -145,7 +145,7 @@ fails to run exits 2, which blocks the tool. `gateVerdict` is a closed allowlist
   any depth, an `AGENTS.md` below the root, or `.mcp.json`. A write that passes then asks the write
   lock.
 - **Allowed:** `channel_reply`, `channel_reply_structured`, `switchboard_capabilities`,
-  `notify_human`, `inbox`, `list_actions`, `run_action`, the crosstalk tools and `ToolSearch`. The
+  `notify_human`, `inbox`, `list_actions`, `run_action`, `device`, the crosstalk tools and `ToolSearch`. The
   reply route already refuses a conversation not addressed to the caller. The attachments of
   `channel_reply`, `notify_human` and `crosstalk_send` take the read rule, and a `ref://` to `/`, `~`
   or `..` in the field each uploads (`full`, or a send's `body`) is refused. A field that is not
@@ -236,12 +236,12 @@ A watcher declares what the assistant may do with its source. Setting the watche
 permission, so an action runs at once. `list_actions` discovers phone capabilities and watcher
 actions; `run_action` runs a listed id.
 
-- **Discovery:** `list_actions` returns each id (`phone/<key>` or `watcher/<key>`), its kind, needs,
-  usage and parameter JSON Schema. For a phone id hosted on the phone, `available` and `reason`
-  reflect the holder's last `status` answer, and any later result for that key, during the hold
-  window; availability is `null` until
-  that answer, and `statusMemo.ts` clears it on `no_holder`. A phone id hosted on the Gateway
-  (`ifttt_trigger`) and a watcher id have no availability.
+- **Discovery:** `list_actions` returns each id (`phone/<key>`, `gateway/<key>` or `watcher/<key>`),
+  its kind, needs, usage and parameter JSON Schema. The family names where it runs: a capability
+  declared `where: "gateway"` (`ifttt_trigger`) lists as `gateway/`. For a phone id, `available` and
+  `reason` reflect the holder's last `status` answer, and any later result for that key, during the
+  hold window; availability is `null` until that answer, and `statusMemo.ts` clears it on
+  `no_holder`. A gateway id and a watcher id have no availability.
 - **One params schema:** `actionParamsSchema` in `src/shared/schemasActionFront.ts` selects the Zod
   params object for each id. The listing renders that object as JSON Schema, and the Gateway parses
   `run_action` params with it.
@@ -256,7 +256,8 @@ actions; `run_action` runs a listed id.
 - **Two routes:** `POST /assistant/actions` lists the actions for the assistant's own token.
   `POST /assistant/run` takes `{ id, callId, params }`, validates the params and hands the call to
   the matching family dispatcher (`assistantRoutes.ts`). Watcher ids run in their watcher's lane;
-  phone ids wait on the holder.
+  phone ids wait on the holder. The `device` tool posts `{ device, callId }` to the same route, and
+  `deviceDispatch.ts` parses the op; `docs/devices.md` holds that tool.
 - **Run answers:** `ok` returns the family's answer and a `recorded` flag. `refused` means the
   Gateway or dispatcher rejects the call and gives a reason. `unavailable` means current conditions
   prevent the action from running; it gives a reason and optional needs or detail. `not_assistant`
@@ -286,7 +287,8 @@ actions; `run_action` runs a listed id.
   the URL passed to fetch and never in logs or answers. A `status` of 0 means no response reached
   the Gateway, so the event may have fired.
 - **The action tools are fixed:** `ASSISTANT_SWITCHBOARD_TOOLS` names `list_actions` and `run_action`
-  for actions. A new key needs a registry entry and handler, with no allowlist change.
+  for actions and `device` for devices. A new key, or a new device op, needs a registry entry and
+  handler, with no allowlist change.
 - **`watcher/github_done` params (`{ ids, summary? }`):** up to 50 unique digit-string thread ids,
   and an optional summary of up to 300 characters. Per id it reads the thread for its title and link,
   marks it done (`DELETE`, 204), then read (`PATCH`, 205, which a done thread also takes). Unread is
@@ -300,7 +302,7 @@ actions; `run_action` runs a listed id.
 - **The record:** an action that reached the source is recorded in the assistant's conversation
   (Delivery). One where every id answered `not_attempted` posts nothing.
 
-The device actions, `devices` and `device_set`, are answered on the Gateway by the device road; `docs/devices.md` holds that layer.
+Devices are not actions: the `device` tool's ops are the device op table, answered on the Gateway by the device road; `docs/devices.md` holds that layer.
 
 ## Events
 
@@ -677,7 +679,8 @@ than reserving one. `docs/routines.md` holds the routine side; this is the assis
   `AGENTS.md`, which the assistant keeps.
 - **Its capabilities are its own:** `switchboard_capabilities` serves both kinds of session. The
   assistant's answer lists the `ASSISTANT_CAPABILITIES` groups `replies`, `inbox`, `actions`,
-  `guarded-sends` and `check-ins`. Its single `actions` entry names `list_actions` and `run_action`.
+  `devices`, `guarded-sends` and `check-ins`. Its `actions` entry names `list_actions` and
+  `run_action`, and `devices` names `device`.
   Claude Code's own file tools are not Switchboard's and are left out. The answer repeats the
   standing rules after a compaction. What the Gateway enables is named as other sessions', never as
   something a restart would add.

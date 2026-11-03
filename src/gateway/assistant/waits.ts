@@ -1,5 +1,8 @@
 import { PHONE_CAPABILITY_WAIT_MS } from "../../shared/schemasPhoneCapabilities.js";
 
+/** A settled call's retry hold. */
+export const CALL_HOLD_MS = 10 * 60_000;
+
 /** Order pinned by `gateway-serve-limits.test.ts`. */
 export const ASSISTANT_WAITS = {
 	/** Counts the queue. */

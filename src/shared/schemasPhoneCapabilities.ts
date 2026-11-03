@@ -2,13 +2,6 @@
 
 import { z } from "zod";
 import type { AssistantActionKey } from "./schemasAssistantActions.js";
-import {
-	DeviceIdSchema,
-	DeviceKindSchema,
-	DeviceNameSchema,
-	DeviceStateSchema,
-	DeviceVerbSchema,
-} from "./schemasDevices.js";
 
 export const PHONE_CAPABILITY_WAIT_MS = 120_000;
 
@@ -117,15 +110,6 @@ export const PhoneNotificationSchema = z
 export const LaunchableAppSchema = z
 	.object({ label: z.string().max(80), package: z.string().max(120) })
 	.meta({ id: "LaunchableApp" });
-
-const DeviceCapabilitySummarySchema = z
-	.strictObject({
-		id: DeviceIdSchema,
-		name: DeviceNameSchema,
-		kind: DeviceKindSchema,
-		state: DeviceStateSchema,
-	})
-	.meta({ id: "DeviceCapabilitySummary" });
 
 export const PHONE_CAPABILITIES = {
 	status: {
@@ -399,36 +383,6 @@ place that call, and \`calling\` is then false.
 # Fire an IFTTT event
 
 Posts the event to the owner's IFTTT Webhooks with the three optional values. The webhook key must be granted on the phone under Integrations. The \`ok\` field means the webhook accepted it. A \`status\` of 0 means no response reached the Gateway, so the event may or may not have fired; do not fire it again without asking.
-		`.trim(),
-	},
-	devices: {
-		request: z.strictObject({}).meta({ id: "DevicesRequest" }),
-		answer: z
-			.strictObject({ devices: z.array(DeviceCapabilitySummarySchema).max(64) })
-			.meta({ id: "DevicesAnswer" }),
-		kind: "read",
-		where: "gateway",
-		needs: [],
-		label: "Paired devices",
-		describe: `
-# Paired devices
-
-The authoritative inventory on this Gateway, with live state. Read it before a set.
-		`.trim(),
-	},
-	device_set: {
-		request: z
-			.strictObject({ target: z.string().min(1).max(64), verb: DeviceVerbSchema })
-			.meta({ id: "DeviceActionSetRequest" }),
-		answer: z.strictObject({ id: DeviceIdSchema, state: DeviceStateSchema }).meta({ id: "DeviceActionSetAnswer" }),
-		kind: "act",
-		where: "gateway",
-		needs: [],
-		label: "Set a device",
-		describe: `
-# Set a device
-
-Use the id from \`devices\` or one paired device's exact name, case-insensitively. If a name is unknown or ambiguous, send nothing, show candidates, and ask the owner which device. If a \`toggle\` times out, read \`devices\` before repeating it. An unreachable plug answers \`unreachable\`.
 		`.trim(),
 	},
 } as const satisfies Record<string, PhoneCapabilityDeclaration>;
