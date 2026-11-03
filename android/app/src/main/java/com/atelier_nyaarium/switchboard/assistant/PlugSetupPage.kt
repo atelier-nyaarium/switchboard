@@ -56,7 +56,7 @@ internal fun PlugSetupPage(repo: ChatRepository, gatewayId: String, onDevice: (S
 	AssistantPageScaffold(run?.plug?.model ?: "New device", onBack) {
 		when (run?.stage) {
 			null -> Unit
-			SetupStage.JOINING -> Waiting("Select your new device.")
+			SetupStage.JOINING -> Text("Select your new device.", style = MaterialTheme.typography.bodyMedium)
 			SetupStage.READY -> ReadyStep(repo, run)
 			SetupStage.HANDING -> Waiting("Sending your WiFi to ${run.name}")
 			SetupStage.WAITING -> Waiting("Waiting for ${run.name} to join ${run.home?.ssid}")
