@@ -175,7 +175,7 @@ class PlugSetupOpsTest {
 			listOf(HomeRow(HomeNetwork("Home", 3), picked = true, bars = 3), HomeRow(HomeNetwork("Far", 3), picked = false, bars = 1)),
 			homeRows(ready),
 		)
-		assertEquals(listOf(true, false), homeRows(ready).map { it.highlighted })
+		assertEquals(WifiLine.Picked("Home", 3), wifiLine(ready, open = false))
 		assertEquals(listOf(3, 2, 1, null), listOf(-55, -70, -90, null).map(::signalBars))
 		assertEquals("", setupName(PlugFacts("aa", "HS103(US)", "TP-LINK_Smart Plug_2B0B"), null, prefix))
 		assertEquals("Lamp", setupName(PlugFacts("aa", "HS103(US)", "Lamp"), null, prefix))
@@ -215,9 +215,6 @@ class PlugSetupOpsTest {
 		)
 		assertNull(preferredHome(homes, "Gone"))
 		assertNull(preferredHome(homes, null))
-		assertEquals(WifiSight.Seen(homes[0]), wifiSight(homes, "Home"))
-		assertEquals(WifiSight.NotSeen("Gone"), wifiSight(homes, "Gone"))
-		assertEquals(WifiSight.Unknown, wifiSight(homes, null))
 		assertEquals("Gateway", yourWifi("Gateway", SetupMemory(ssid = "Last")))
 		assertEquals("Last", yourWifi(null, SetupMemory(ssid = "Last")))
 	}
@@ -251,5 +248,28 @@ class PlugSetupOpsTest {
 		assertEquals(SetupStage.READY, unpicked.stage)
 		assertEquals(SetupStage.DONE, setup.view.value?.stage)
 		assertEquals("Home", plug.stored.ssid)
+	}
+
+	@Test
+	fun `the list stays open until a pick, and Set up waits for a name, a network and a password or vault entry`() = runBlocking {
+		val plug = FakePlug().apply { stored = SetupMemory(ssid = "Gone") }
+		val setup = ops(plug, FakeGateway(plug))
+
+		setup.start("sakura", prefix)
+		val unpicked = setup.view.value!!
+		setup.pickHome(unpicked.homes.first { it.ssid == "Far" })
+		val picked = setup.view.value!!
+
+		assertEquals(true to WifiLine.Unseen("Gone"), wifiListOpen(unpicked, changing = false) to wifiLine(unpicked, open = true))
+		assertEquals(false to WifiLine.Picked("Far", null), wifiListOpen(picked, changing = false) to wifiLine(picked, open = false))
+		assertEquals(WifiLine.Blank, wifiLine(picked, open = wifiListOpen(picked, changing = true)))
+		assertEquals(false, setupReady(unpicked, "Sign", PasswordSource.TYPED, "pw", null))
+		assertEquals(false, setupReady(picked, " ", PasswordSource.TYPED, "pw", null))
+		assertEquals(false, setupReady(picked, "Sign", PasswordSource.TYPED, "", "wifi-key"))
+		assertEquals(false, setupReady(picked, "Sign", PasswordSource.VAULT, "pw", null))
+		assertEquals(true, setupReady(picked, "Sign", PasswordSource.TYPED, "pw", null))
+		assertEquals(true, setupReady(picked, "Sign", PasswordSource.VAULT, "", "wifi-key"))
+		assertEquals(PasswordSource.VAULT, defaultSource(SetupMemory(wifiEntry = "wifi-key")))
+		assertEquals(PasswordSource.TYPED, defaultSource(SetupMemory()))
 	}
 }

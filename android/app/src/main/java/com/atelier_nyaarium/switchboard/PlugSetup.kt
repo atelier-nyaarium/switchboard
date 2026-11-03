@@ -34,13 +34,49 @@ internal fun strongestFirst(homes: List<HomeNetwork>, signals: Map<String, Int>?
 	if (signals == null) homes else homes.sortedByDescending { signals[it.ssid] ?: Int.MIN_VALUE }
 
 /** Bars null draws a radio. */
-internal data class HomeRow(val home: HomeNetwork, val picked: Boolean, val bars: Int?) {
-	val highlighted: Boolean get() = picked && bars != null
-}
+internal data class HomeRow(val home: HomeNetwork, val picked: Boolean, val bars: Int?)
 
 internal fun homeRows(run: SetupRun): List<HomeRow> = run.homes.map { home ->
-	HomeRow(home, picked = run.home == home, bars = run.signals?.let { signalBars(it[home.ssid]) ?: 0 })
+	HomeRow(home, picked = run.home == home, bars = barsOf(run, home))
 }
+
+private fun barsOf(run: SetupRun, home: HomeNetwork): Int? = run.signals?.let { signalBars(it[home.ssid]) ?: 0 }
+
+/** The WiFi line above the list. */
+internal sealed interface WifiLine {
+	data class Picked(val ssid: String, val bars: Int?) : WifiLine
+
+	/** Your WiFi, out of the plug's reach. */
+	data class Unseen(val ssid: String) : WifiLine
+
+	data object Blank : WifiLine
+}
+
+/** An open list shows the pick itself. */
+internal fun wifiLine(run: SetupRun, open: Boolean): WifiLine {
+	val home = run.home
+	val yours = run.yours
+	return when {
+		home != null -> if (open) WifiLine.Blank else WifiLine.Picked(home.ssid, barsOf(run, home))
+		yours != null -> WifiLine.Unseen(yours)
+		else -> WifiLine.Blank
+	}
+}
+
+/** Open until a network is picked. */
+internal fun wifiListOpen(run: SetupRun, changing: Boolean): Boolean = changing || run.home == null
+
+internal enum class PasswordSource { TYPED, VAULT }
+
+internal fun defaultSource(memory: SetupMemory): PasswordSource =
+	if (memory.wifiEntry != null) PasswordSource.VAULT else PasswordSource.TYPED
+
+/** Set up waits for every value. */
+internal fun setupReady(run: SetupRun, name: String, source: PasswordSource, typed: String, entry: String?): Boolean =
+	run.home != null && nameReady(name) && when (source) {
+		PasswordSource.TYPED -> typed.isNotEmpty()
+		PasswordSource.VAULT -> entry != null
+	}
 
 /** Out of three; null when unknown. */
 internal fun signalBars(rssi: Int?): Int? = when {
@@ -80,20 +116,6 @@ internal fun yourWifi(gateway: String?, memory: SetupMemory): String? = gateway 
 
 /** Your WiFi when the plug sees it; with none known, the owner picks. */
 internal fun preferredHome(homes: List<HomeNetwork>, yours: String?): HomeNetwork? = homes.find { it.ssid == yours }
-
-internal sealed interface WifiSight {
-	/** Neither the Gateway nor a past setup named your WiFi. */
-	data object Unknown : WifiSight
-
-	data class Seen(val home: HomeNetwork) : WifiSight
-
-	data class NotSeen(val ssid: String) : WifiSight
-}
-
-internal fun wifiSight(homes: List<HomeNetwork>, yours: String?): WifiSight {
-	val ssid = yours ?: return WifiSight.Unknown
-	return homes.find { it.ssid == ssid }?.let { WifiSight.Seen(it) } ?: WifiSight.NotSeen(ssid)
-}
 
 internal fun canonicalMac(value: String): String = value.trim().lowercase().replace('-', ':')
 

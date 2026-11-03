@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard.assistant
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,15 +8,22 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,25 +36,28 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import com.atelier_nyaarium.switchboard.ChatRepository
+import com.atelier_nyaarium.switchboard.PasswordSource
 import com.atelier_nyaarium.switchboard.SetupRun
 import com.atelier_nyaarium.switchboard.SetupStage
 import com.atelier_nyaarium.switchboard.SignalBars
-import com.atelier_nyaarium.switchboard.WifiSight
+import com.atelier_nyaarium.switchboard.WifiLine
+import com.atelier_nyaarium.switchboard.defaultSource
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.homeRows
-import com.atelier_nyaarium.switchboard.nameReady
 import com.atelier_nyaarium.switchboard.routines.GrantSecretsSheet
 import com.atelier_nyaarium.switchboard.scrollThumb
 import com.atelier_nyaarium.switchboard.setupPassword
+import com.atelier_nyaarium.switchboard.setupReady
 import com.atelier_nyaarium.switchboard.vault.grantableOn
-import com.atelier_nyaarium.switchboard.wifiSight
+import com.atelier_nyaarium.switchboard.wifiLine
+import com.atelier_nyaarium.switchboard.wifiListOpen
 import kotlinx.coroutines.launch
 
 private val WIFI_LIST_HEIGHT = 240.dp
@@ -102,28 +111,26 @@ private fun ReadyStep(repo: ChatRepository, run: SetupRun) {
 	val activity = LocalContext.current as? FragmentActivity
 	val scope = rememberCoroutineScope()
 	var name by rememberSaveable(plug.mac) { mutableStateOf(run.name.orEmpty()) }
-	var entry by remember { mutableStateOf(repo.plugSetupOps.memory().wifiEntry) }
+	val memory = remember { repo.plugSetupOps.memory() }
+	var entry by remember { mutableStateOf(memory.wifiEntry) }
+	var source by rememberSaveable(plug.mac) { mutableStateOf(defaultSource(memory)) }
+	var typed by remember { mutableStateOf("") }
 	var choosing by remember { mutableStateOf(false) }
-	var asking by remember { mutableStateOf(false) }
-	val sight = remember(run.homes, run.yours) { wifiSight(run.homes, run.yours) }
-	var listing by rememberSaveable(plug.mac) { mutableStateOf(false) }
+	var changing by rememberSaveable(plug.mac) { mutableStateOf(false) }
 	val entries = remember { repo.vaultOps.views() }
 	val offered = remember(entries) { entries.grantableOn(run.gatewayId) }
 
 	Text("${plug.model} · ${plug.mac}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 	OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+	val open = wifiListOpen(run, changing)
 	Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
 		Column(Modifier.weight(1f)) {
 			Text("Your WiFi", style = MaterialTheme.typography.bodyLarge)
-			when (sight) {
-				WifiSight.Unknown -> Unit
-				is WifiSight.Seen -> Text(sight.home.ssid, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-				is WifiSight.NotSeen -> Text("Can't see ${sight.ssid}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-			}
+			WifiLineView(wifiLine(run, open))
 		}
-		if (sight != WifiSight.Unknown && !listing) TextButton(onClick = hapticClick { listing = true }) { Text("Change") }
+		if (!open) TextButton(onClick = hapticClick { changing = true }) { Text("Change") }
 	}
-	if (sight == WifiSight.Unknown || listing) {
+	if (open) {
 		val scroll = rememberScrollState()
 		Column(
 			Modifier.fillMaxWidth().heightIn(max = WIFI_LIST_HEIGHT)
@@ -133,43 +140,51 @@ private fun ReadyStep(repo: ChatRepository, run: SetupRun) {
 			for (row in homeRows(run)) {
 				Row(
 					Modifier.fillMaxWidth()
-						.background(
-							if (row.highlighted) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-							RoundedCornerShape(8.dp),
-						)
-						.selectable(row.picked, role = Role.RadioButton, onClick = hapticClick { repo.plugSetupOps.pickHome(row.home) })
+						.selectable(row.picked, role = Role.RadioButton, onClick = hapticClick {
+							repo.plugSetupOps.pickHome(row.home)
+							changing = false
+						})
 						.padding(horizontal = 12.dp, vertical = 12.dp),
 					verticalAlignment = Alignment.CenterVertically,
 					horizontalArrangement = Arrangement.spacedBy(16.dp),
 				) {
 					val bars = row.bars
 					if (bars == null) RadioButton(selected = row.picked, onClick = null) else SignalBars(bars)
-					Text(
-						row.home.ssid,
-						style = MaterialTheme.typography.bodyLarge,
-						color = if (row.highlighted) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-					)
+					Text(row.home.ssid, style = MaterialTheme.typography.bodyLarge)
 				}
 			}
 		}
 	}
-	Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-		Column(Modifier.weight(1f)) {
-			Text("Password from the vault", style = MaterialTheme.typography.bodyLarge)
-			entries.find { it.id == entry }?.title?.let {
-				Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			}
+	SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+		PasswordSource.entries.forEachIndexed { at, option ->
+			SegmentedButton(
+				selected = source == option,
+				onClick = hapticClick { source = option },
+				shape = SegmentedButtonDefaults.itemShape(index = at, count = PasswordSource.entries.size),
+			) { Text(if (option == PasswordSource.TYPED) "Type password" else "Vault") }
 		}
-		TextButton(onClick = hapticClick { choosing = true }) { Text("Choose") }
+	}
+	when (source) {
+		PasswordSource.TYPED -> PasswordField(typed, onChange = { typed = it })
+		PasswordSource.VAULT -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+			val title = entries.find { it.id == entry }?.title
+			Text(title.orEmpty(), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+			TextButton(onClick = hapticClick { choosing = true }) { Text(if (title == null) "Choose" else "Change") }
+		}
 	}
 	Button(
 		onClick = hapticClick {
 			scope.launch {
-				val password = setupPassword(entry) { id -> if (repo.vaultOps.ownerPresent(activity)) repo.vaultOps.reveal(id) else null }
-				if (password == null) asking = true else repo.command { plugSetupOps.hand(name.trim(), password, entry) }
+				when (source) {
+					PasswordSource.TYPED -> repo.command { plugSetupOps.hand(name.trim(), typed, null) }
+					PasswordSource.VAULT -> {
+						val password = setupPassword(entry) { id -> if (repo.vaultOps.ownerPresent(activity)) repo.vaultOps.reveal(id) else null }
+						if (password == null) source = PasswordSource.TYPED else repo.command { plugSetupOps.hand(name.trim(), password, entry) }
+					}
+				}
 			}
 		},
-		enabled = run.home != null && nameReady(name),
+		enabled = setupReady(run, name, source, typed, entry),
 	) { Text("Set up") }
 
 	if (choosing) {
@@ -183,15 +198,39 @@ private fun ReadyStep(repo: ChatRepository, run: SetupRun) {
 			onDismiss = { choosing = false },
 		)
 	}
-	if (asking) {
-		PasswordDialog(
-			onDone = { typed ->
-				asking = false
-				repo.command { plugSetupOps.hand(name.trim(), typed, entry) }
-			},
-			onDismiss = { asking = false },
-		)
+}
+
+@Composable
+private fun WifiLineView(line: WifiLine) {
+	when (line) {
+		WifiLine.Blank -> Unit
+		is WifiLine.Picked -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+			line.bars?.let { SignalBars(it) }
+			Text(line.ssid, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		}
+		is WifiLine.Unseen -> Text("Can't see ${line.ssid}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 	}
+}
+
+@Composable
+private fun PasswordField(value: String, onChange: (String) -> Unit) {
+	var shown by remember { mutableStateOf(false) }
+	OutlinedTextField(
+		value = value,
+		onValueChange = onChange,
+		label = { Text("Password") },
+		singleLine = true,
+		visualTransformation = if (shown) VisualTransformation.None else PasswordVisualTransformation(),
+		trailingIcon = {
+			IconButton(onClick = hapticClick { shown = !shown }) {
+				Icon(
+					if (shown) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+					contentDescription = if (shown) "Hide password" else "Show password",
+				)
+			}
+		},
+		modifier = Modifier.fillMaxWidth(),
+	)
 }
 
 @Composable
@@ -199,36 +238,9 @@ private fun AskPasswordStep(repo: ChatRepository, run: SetupRun) {
 	var typed by remember { mutableStateOf("") }
 	run.said?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
 	Text("Password for ${run.home?.ssid}. You'll pick the plug's network again.", style = MaterialTheme.typography.labelLarge)
-	OutlinedTextField(
-		value = typed,
-		onValueChange = { typed = it },
-		label = { Text("Password") },
-		singleLine = true,
-		visualTransformation = PasswordVisualTransformation(),
-		modifier = Modifier.fillMaxWidth(),
-	)
+	PasswordField(typed, onChange = { typed = it })
 	Button(
 		onClick = hapticClick { repo.command { plugSetupOps.hand(run.name.orEmpty(), typed, null) } },
 		enabled = typed.isNotEmpty(),
 	) { Text("Try again") }
-}
-
-@Composable
-private fun PasswordDialog(onDone: (String) -> Unit, onDismiss: () -> Unit) {
-	var typed by remember { mutableStateOf("") }
-	androidx.compose.material3.AlertDialog(
-		onDismissRequest = onDismiss,
-		title = { Text("WiFi password") },
-		text = {
-			OutlinedTextField(
-				value = typed,
-				onValueChange = { typed = it },
-				label = { Text("Password") },
-				singleLine = true,
-				visualTransformation = PasswordVisualTransformation(),
-			)
-		},
-		confirmButton = { TextButton(onClick = hapticClick { onDone(typed) }, enabled = typed.isNotEmpty()) { Text("Use") } },
-		dismissButton = { TextButton(onClick = hapticClick(onDismiss)) { Text("Cancel") } },
-	)
 }
