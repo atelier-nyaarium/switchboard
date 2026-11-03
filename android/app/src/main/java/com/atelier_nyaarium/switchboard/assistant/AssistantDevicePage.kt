@@ -131,7 +131,7 @@ private fun DeviceBody(repo: ChatRepository, gatewayId: String, record: DeviceRe
 		Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
 			Column(Modifier.weight(1f)) {
 				Text("Power", style = MaterialTheme.typography.bodyLarge)
-				Text(liveLine(live), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+				liveLine(live)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 			}
 			PowerControl(live, busy) { on -> repo.command { deviceOps.set(gatewayId, record.id, on) } }
 		}

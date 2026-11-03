@@ -48,15 +48,15 @@ internal fun daysText(days: List<Boolean>): String {
 	}
 }
 
-internal fun liveLine(live: DeviceLive?): String {
-	val state = when (live?.state) {
+/** Null while reading; the spinner says it. */
+internal fun liveLine(live: DeviceLive?): String? {
+	val state = when (live?.state ?: return null) {
 		Protocol.Wire.DeviceState.ON -> "On"
 		Protocol.Wire.DeviceState.OFF -> "Off"
 		Protocol.Wire.DeviceState.UNREACHABLE -> "Not answering"
-		null -> "Reading"
 		else -> "Unknown"
 	}
-	return if (live?.stale == true) "$state · last known" else state
+	return if (live.stale) "$state · last known" else state
 }
 
 internal fun clockLine(clock: KasaClock, readAt: Long): String {
@@ -104,6 +104,18 @@ internal fun DeviceLive?.knownOn(): Boolean? = this?.pending ?: when (this?.stat
 	Protocol.Wire.DeviceState.OFF -> false
 	else -> null
 }
+
+internal sealed interface PowerSlot {
+	data class Switch(val on: Boolean) : PowerSlot
+
+	data object Reading : PowerSlot
+
+	/** The state is unknown. */
+	data object Hidden : PowerSlot
+}
+
+internal fun powerSlot(live: DeviceLive?): PowerSlot =
+	live.knownOn()?.let(PowerSlot::Switch) ?: if (live == null) PowerSlot.Reading else PowerSlot.Hidden
 
 internal fun DevicesView.alert(id: String): String? =
 	saidOf(id) ?: liveOf(id)?.failed ?: plugs[id]?.schedule?.failed?.takeIf { detailOf(id) == null }

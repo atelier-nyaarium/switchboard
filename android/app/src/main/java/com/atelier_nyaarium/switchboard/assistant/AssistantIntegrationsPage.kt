@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard.assistant
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,9 +17,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,8 +40,9 @@ import com.atelier_nyaarium.switchboard.capabilitiesOf
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.kindGroups
 import com.atelier_nyaarium.switchboard.kindTitle
-import com.atelier_nyaarium.switchboard.knownOn
+import com.atelier_nyaarium.switchboard.PowerSlot
 import com.atelier_nyaarium.switchboard.liveOf
+import com.atelier_nyaarium.switchboard.powerSlot
 import com.atelier_nyaarium.switchboard.proto.DeviceCapability
 import com.atelier_nyaarium.switchboard.proto.DeviceRecord
 import com.atelier_nyaarium.switchboard.retryable
@@ -152,23 +151,13 @@ private fun ServiceRowView(service: ServiceRow, onOpen: () -> Unit) {
 	}
 }
 
-/** Unknown state offers choices. */
 @Composable
 internal fun PowerControl(live: DeviceLive?, busy: Boolean, onSet: (Boolean) -> Unit) {
-	val known = live.knownOn()
-	if (known != null) {
-		Switch(checked = known, onCheckedChange = onSet, enabled = !busy)
-		return
-	}
-	SingleChoiceSegmentedButtonRow(Modifier.width(128.dp)) {
-		listOf(true to "On", false to "Off").forEachIndexed { at, (on, label) ->
-			SegmentedButton(
-				selected = false,
-				onClick = hapticClick { onSet(on) },
-				shape = SegmentedButtonDefaults.itemShape(index = at, count = 2),
-				enabled = !busy,
-				icon = {},
-			) { Text(label) }
+	when (val slot = powerSlot(live)) {
+		is PowerSlot.Switch -> Switch(checked = slot.on, onCheckedChange = onSet, enabled = !busy)
+		PowerSlot.Reading -> Box(Modifier.width(52.dp), contentAlignment = Alignment.Center) {
+			CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
 		}
+		PowerSlot.Hidden -> Unit
 	}
 }

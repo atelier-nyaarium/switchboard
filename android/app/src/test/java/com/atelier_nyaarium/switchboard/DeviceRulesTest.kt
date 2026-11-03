@@ -63,17 +63,22 @@ class DeviceRulesTest {
 
 	@Test
 	fun `the switch line says when it shows the last known state`() {
-		assertEquals("Reading", liveLine(null))
+		assertNull(liveLine(null))
 		assertEquals("On", liveLine(DeviceLive("on")))
 		assertEquals("Off · last known", liveLine(DeviceLive("off", stale = true)))
 	}
 
 	@Test
-	fun `power is known once confirmed or flipped, and never guessed`() {
+	fun `power is known once confirmed or flipped, never guessed, and the switch hides while it is not`() {
 		assertNull(null.knownOn())
 		assertNull(DeviceLive("unknown", failed = "The plug did not answer").knownOn())
 		assertEquals(false, DeviceLive("off", stale = true).knownOn())
 		assertEquals(true, DeviceLive("unknown", pending = true).knownOn())
+		assertEquals(PowerSlot.Reading, powerSlot(null))
+		assertEquals(PowerSlot.Hidden, powerSlot(DeviceLive("unreachable")))
+		assertEquals(PowerSlot.Hidden, powerSlot(DeviceLive("unknown", failed = "The plug did not answer")))
+		assertEquals(PowerSlot.Switch(false), powerSlot(DeviceLive("off", stale = true)))
+		assertEquals(PowerSlot.Switch(true), powerSlot(DeviceLive("unknown", pending = true)))
 	}
 
 	@Test

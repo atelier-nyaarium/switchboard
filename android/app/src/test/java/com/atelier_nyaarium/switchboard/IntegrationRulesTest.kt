@@ -73,7 +73,7 @@ class IntegrationRulesTest {
 		assertNull(troubleLine(DeviceLive("on")))
 		assertEquals("On · last known", troubleLine(DeviceLive("on", stale = true)))
 		assertEquals("Not answering", troubleLine(DeviceLive("unreachable")))
-		assertEquals("Reading", troubleLine(null))
+		assertNull(troubleLine(null))
 		assertEquals(listOf(DeviceCapability.SWITCH), capabilitiesOf(record.copy(driver = "acme")))
 		assertTrue(DeviceCapability.CLOUD in capabilitiesOf(record))
 	}
