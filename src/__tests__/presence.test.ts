@@ -111,6 +111,15 @@ describe("PresenceFacade working/needsLogin", () => {
 		expect(facade.promptOf("proj.main")).toBeUndefined();
 	});
 
+	it("projects a running workflow, and drops it when it ends", () => {
+		const { facade } = makeFacade();
+		facade.adoptById("main", { spawn: "proj" });
+		facade.setWorking("proj.main", { working: true, workflow: true });
+		expect(facade.snapshot().find((r) => r.team === "proj.main")?.workflow).toBe(true);
+		facade.setWorking("proj.main", { working: true });
+		expect(facade.snapshot().find((r) => r.team === "proj.main")?.workflow).toBeUndefined();
+	});
+
 	it("clearWorkingFor clears only that session, not others", () => {
 		const { facade } = makeFacade();
 		facade.adoptById("a", { spawn: "proj" });

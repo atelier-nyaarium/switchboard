@@ -98,6 +98,8 @@ private constructor(
 	val limitDetail: String?,
 	/** A waiting permission prompt. */
 	val promptId: String?,
+	/** A workflow runs. */
+	val workflow: Boolean?,
 ) {
 	/** A live socket serves this session: confirmed online, or verifying its handshake (connected but
 	 * the LLM has not re-answered, e.g. across a gateway restart). Both count as awake. */
@@ -154,7 +156,7 @@ private constructor(
 	fun withReceipt(r: ActionReceipt?): Presence = rebuild(r = r)
 
 	private fun rebuild(a: Authority = authority, r: ActionReceipt? = receipt): Presence =
-		Presence(status, a, r, mode, queueDepth, version, working, needsLogin, limitBlocked, limitDetail, promptId)
+		Presence(status, a, r, mode, queueDepth, version, working, needsLogin, limitBlocked, limitDetail, promptId, workflow)
 
 	override fun equals(other: Any?): Boolean =
 		other is Presence &&
@@ -168,7 +170,8 @@ private constructor(
 			needsLogin == other.needsLogin &&
 			limitBlocked == other.limitBlocked &&
 			limitDetail == other.limitDetail &&
-			promptId == other.promptId
+			promptId == other.promptId &&
+			workflow == other.workflow
 
 	override fun hashCode(): Int {
 		var h = status.hashCode()
@@ -182,6 +185,7 @@ private constructor(
 		h = 31 * h + (limitBlocked?.hashCode() ?: 0)
 		h = 31 * h + (limitDetail?.hashCode() ?: 0)
 		h = 31 * h + (promptId?.hashCode() ?: 0)
+		h = 31 * h + (workflow?.hashCode() ?: 0)
 		return h
 	}
 
@@ -222,6 +226,7 @@ private constructor(
 			limitBlocked: Boolean? = null,
 			limitDetail: String? = null,
 			promptId: String? = null,
+			workflow: Boolean? = null,
 		): Presence =
 			Presence(
 				status,
@@ -235,9 +240,10 @@ private constructor(
 				limitBlocked,
 				limitDetail,
 				promptId,
+				workflow,
 			)
 
 		/** A thread whose session has left the bridge. No Gateway speaks for it, hence NONE. */
-		fun ended(): Presence = Presence(ENDED, Authority.NONE, null, "", 0, null, null, null, null, null, null)
+		fun ended(): Presence = Presence(ENDED, Authority.NONE, null, "", 0, null, null, null, null, null, null, null)
 	}
 }

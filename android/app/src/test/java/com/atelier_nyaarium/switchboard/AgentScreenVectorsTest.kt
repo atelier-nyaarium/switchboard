@@ -45,6 +45,7 @@ class AgentScreenVectorsTest {
 			val screen = v["screen"]!!.jsonPrimitive.content
 			val expectReady = v["expectReady"]!!.jsonPrimitive.boolean
 			val expectWorking = v["expectWorking"]!!.jsonPrimitive.boolean
+			val expectWorkflow = v["expectWorkflow"]?.jsonPrimitive?.boolean ?: false
 			when (v["platform"]!!.jsonPrimitive.content) {
 				"linux" -> linux++
 				"windows" -> windows++
@@ -54,6 +55,7 @@ class AgentScreenVectorsTest {
 			assertTrue("$name: frame should carry ANSI escapes", screen.contains("["))
 			assertEquals("$name: isReady", expectReady, AgentScreen.isReady(screen))
 			assertEquals("$name: isWorking", expectWorking, AgentScreen.isWorking(screen))
+			assertEquals("$name: hasWorkflow", expectWorkflow, AgentScreen.hasWorkflow(screen))
 		}
 		assertTrue("corpus should carry Linux frames", linux > 0)
 		assertTrue("corpus should carry Windows frames", windows > 0)

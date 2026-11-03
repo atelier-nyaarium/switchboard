@@ -651,6 +651,7 @@ fun App(
 				label = tabLabelFor(state, openTeam!!),
 				chrome = chrome,
 				presence = presence,
+				comet = cometOf(state, openTeam!!, System.currentTimeMillis()),
 				tabs = state.openTabs,
 				tabLabel = { tabLabelFor(state, it) },
 				onReorderTabs = repo::reorderTabs,

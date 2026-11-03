@@ -633,6 +633,7 @@ data class TeamInfo(
 	val limitBlocked: Boolean? = null,
 	val limitDetail: String? = null,
 	val promptId: String? = null,
+	val workflow: Boolean? = null,
 	val presenceFresh: String? = null,
 )
 

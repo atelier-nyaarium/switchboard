@@ -1,4 +1,4 @@
-import { isAgentWorking, isLoggedOut, limitNotice } from "../../shared/agent-screen.js";
+import { hasWorkflow, isAgentWorking, isLoggedOut, limitNotice } from "../../shared/agent-screen.js";
 import { type HostPeekResult, paneKey, type TmuxTarget } from "../../shared/host-op.js";
 import { PromptOccurrences, type SeenPrompt, seePrompt } from "./permissionPrompt.js";
 import type { PromptSight } from "./promptAnswer.js";
@@ -14,6 +14,8 @@ export interface DerivedState {
 	/** Text after the limit headline's middle dot. */
 	limitDetail?: string;
 	prompt?: SeenPrompt;
+	/** Set only when a workflow runs. */
+	workflow?: true;
 }
 
 export interface WatchEntry {
@@ -69,7 +71,8 @@ function sameValue(a: DerivedState, b: DerivedState | undefined): boolean {
 		a.limitBlocked === b.limitBlocked &&
 		a.limitDetail === b.limitDetail &&
 		a.prompt?.id === b.prompt?.id &&
-		a.prompt?.autoDeny === b.prompt?.autoDeny
+		a.prompt?.autoDeny === b.prompt?.autoDeny &&
+		a.workflow === b.workflow
 	);
 }
 
@@ -87,6 +90,7 @@ export function deriveFromPeek(
 		limitBlocked: limit !== null,
 		...(limit?.detail ? { limitDetail: limit.detail } : {}),
 		...(prompt ? { prompt } : {}),
+		...(hasWorkflow(peek.ansi) ? { workflow: true as const } : {}),
 	};
 }
 

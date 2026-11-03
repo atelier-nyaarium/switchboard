@@ -147,8 +147,11 @@ object AgentScreen {
 		// Not one alternation over both slices: each marker is only safe in its own.
 		return paneHas(screen, workingHintRe, PaneRegion.TOOLBAR) ||
 			paneHas(screen, workingStatusRe, PaneRegion.STATUS) ||
-			paneHas(screen, workflowBarRe, PaneRegion.TOOLBAR)
+			hasWorkflow(screen)
 	}
+
+	/** An unfinished workflow row below the last rule. */
+	fun hasWorkflow(screen: String): Boolean = paneHas(screen, workflowBarRe, PaneRegion.TOOLBAR)
 
 	/**
 	 * The bounded rows just above the composer's TOP rule, where a running turn draws its status line.

@@ -77,6 +77,7 @@ internal fun ThreadScreen(
 	label: String,
 	chrome: ThreadChrome,
 	presence: SessionWord?,
+	comet: Comet?,
 	tabs: List<String>,
 	tabLabel: (String) -> String,
 	// Hold-to-drag reorder in the tab row (ReorderableTabRow); the committed order replaces
@@ -603,7 +604,7 @@ internal fun ThreadScreen(
 				ComposerField(
 					value = composer.draft.text,
 					onValueChange = composer.onTextChange,
-					working = presence?.busy == true,
+					comet = comet,
 					label = { Text("Message") },
 					minLines = 2,
 					// Collapsed pins it at its minimum and scrolls inside; otherwise it grows freely.

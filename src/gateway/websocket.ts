@@ -366,10 +366,11 @@ export function createWebSocketHandlers({
 			const limitBlocked = typeof msg.limitBlocked === "boolean" ? msg.limitBlocked : undefined;
 			const limitDetail = typeof msg.limitDetail === "string" ? msg.limitDetail : undefined;
 			const prompt = SessionPromptSchema.safeParse(msg.prompt).data;
+			const workflow = msg.workflow === true ? true : undefined;
 			const cleared = working === undefined && needsLogin === undefined && limitBlocked === undefined;
 			onPresenceDerive?.(
 				msg.team,
-				cleared ? undefined : { working, needsLogin, limitBlocked, limitDetail, prompt },
+				cleared ? undefined : { working, needsLogin, limitBlocked, limitDetail, prompt, workflow },
 			);
 		}
 

@@ -197,8 +197,13 @@ export function isAgentWorking(screen: string): boolean {
 	return (
 		paneHas(screen, WORKING_HINT_RE, "toolbar") ||
 		paneHas(screen, WORKING_STATUS_RE, "status") ||
-		paneHas(screen, WORKFLOW_BAR_RE, "toolbar")
+		hasWorkflow(screen)
 	);
+}
+
+/** An unfinished workflow row below the last rule. Twin: AgentScreen.hasWorkflow. */
+export function hasWorkflow(screen: string): boolean {
+	return paneHas(screen, WORKFLOW_BAR_RE, "toolbar");
 }
 
 /**

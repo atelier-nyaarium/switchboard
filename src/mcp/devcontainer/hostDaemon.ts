@@ -570,6 +570,7 @@ const presenceScheduler = new PresenceScheduler({
 				...(value.prompt
 					? { prompt: { id: value.prompt.id, title: value.prompt.title, body: value.prompt.body } }
 					: {}),
+				...(value.workflow ? { workflow: true } : {}),
 			});
 		else safeSend({ type: "presence_derive", team });
 	},

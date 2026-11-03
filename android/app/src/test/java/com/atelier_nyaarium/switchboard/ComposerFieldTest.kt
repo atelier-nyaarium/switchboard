@@ -56,4 +56,25 @@ class ComposerFieldTest {
 		assertEquals(length, wrapped[1].end, 0f)
 		assertEquals(tail / parts, wrapped.covered(), 0.0001f)
 	}
+
+	@Test
+	fun aBusySessionRunsOneCometAndAWorkflowRunsThree() {
+		assertEquals(null, cometFor(SessionWord.LIVE, workflow = true))
+		assertEquals(null, cometFor(null, workflow = false))
+		assertEquals(Comet.TURN, cometFor(SessionWord.WORKING, workflow = false))
+		assertEquals(Comet.WORKFLOW, cometFor(SessionWord.WORKING, workflow = true))
+		val state = ChatState(teams = listOf(testTeam("a", working = true, workflow = true)))
+		assertEquals(Comet.WORKFLOW, cometOf(state, "a", 0L))
+		assertEquals(null, cometOf(state, "missing", 0L))
+	}
+
+	@Test
+	fun cometsSpreadEvenlyAndTheGlowSitsBehindEachHead() {
+		val heads = cometHeads(0.9f, 3)
+		assertEquals(listOf(0.9f, 0.2333f, 0.5667f), heads.map { Math.round(it * 10_000f) / 10_000f })
+
+		val glow = glowSpans(0.5f, length, Comet.TURN)
+		assertEquals(50f, glow.single().end, 0.0001f)
+		assertEquals(length * Comet.TURN.tail * 3f / Comet.TURN.parts, glow.covered(), 0.0001f)
+	}
 }

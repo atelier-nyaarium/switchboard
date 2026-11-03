@@ -16,6 +16,7 @@ export interface WorkingState {
 	limitDetail?: string;
 	/** Projected as its id alone. */
 	prompt?: SessionPrompt;
+	workflow?: boolean;
 }
 
 export type { PresenceRow } from "../shared/presence-identity.js";
@@ -197,7 +198,8 @@ export class PresenceFacade {
 			prev?.needsLogin === state.needsLogin &&
 			prev?.limitBlocked === state.limitBlocked &&
 			prev?.limitDetail === state.limitDetail &&
-			prev?.prompt?.id === state.prompt?.id
+			prev?.prompt?.id === state.prompt?.id &&
+			prev?.workflow === state.workflow
 		)
 			return;
 		this.working.set(team, state);
@@ -254,6 +256,7 @@ export class PresenceFacade {
 				...(w?.limitBlocked !== undefined ? { limitBlocked: w.limitBlocked } : {}),
 				...(w?.limitDetail !== undefined ? { limitDetail: w.limitDetail } : {}),
 				...(w?.prompt ? { promptId: w.prompt.id } : {}),
+				...(w?.workflow ? { workflow: true } : {}),
 				queue_depth: 0,
 			});
 		}
