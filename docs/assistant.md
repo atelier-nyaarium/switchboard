@@ -47,7 +47,9 @@ Router's record names. That Gateway feeds it events. The session decides what to
   - **The inbox strip** (`InboxStrip.kt`) docks under the top bar on Chat, collapsible, and draws only
     while an enabled watcher has a problem or new items (`inboxRows`). A problem row shows Settings,
     which opens that watcher's page, where the problem is named. A row with new items shows the
-    count as a badge ("4 new") and Check now.
+    count as a badge ("4 new") and Check now. When a landed poll moves the count or the health the
+    phone draws, the Gateway sends a quiet `plugin_action` row, `assistant` `watchers-changed`, and a
+    shown Assistant re-reads its state. A poll that moved only its timestamps sends nothing.
   - The gear opens Assistant settings, also reachable from the app's Settings page: an index with a
     status line per page (`AssistantSettingsLines.kt`), refreshed on open. Session data location (the
     Gateway, the folder, Move here or Set up here), Features (below), Safety (Approve every send),

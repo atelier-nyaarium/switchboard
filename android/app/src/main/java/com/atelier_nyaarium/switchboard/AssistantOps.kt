@@ -26,6 +26,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
@@ -293,6 +294,16 @@ internal class AssistantOps(
 
 	/** Landed opening per key. */
 	val ruleLanded = MutableStateFlow<Map<RuleDraftKey, Long>>(emptyMap())
+
+	private val watchersMovedFlow = MutableStateFlow(0L)
+
+	/** A shown Assistant re-reads on each bump. */
+	val watchersMoved: StateFlow<Long> = watchersMovedFlow
+
+	/** The Gateway's quiet row. */
+	fun watchersChanged() {
+		watchersMovedFlow.update { it + 1 }
+	}
 
 	/** Per-key busy calls drop. */
 	suspend fun runWork(key: WorkKey, op: suspend AssistantOps.() -> String?) {

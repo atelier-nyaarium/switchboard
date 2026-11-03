@@ -267,7 +267,20 @@ describe("a watcher event reaching the assistant", () => {
 		await poke();
 		await h.waitFor(() => polls > settled, "a poll after the wake landed");
 		const state = (await h.phone.value({ kind: "assistant_state" })).result as ConsoleAssistantStateResult;
+		const signaled = await h.waitFor(
+			async () =>
+				h.phone
+					.entries(await h.phone.inboxRead())
+					.find(
+						(entry) =>
+							entry.kind === "plugin_action" &&
+							entry.pluginId === "assistant" &&
+							entry.actionType === "watchers-changed",
+					),
+			"the quiet row a moved count sends",
+		);
 
+		expect(signaled.payload).toEqual({ watcherId: "fake" });
 		expect(woken).toMatchObject({ from: "", session_id: "" });
 		expect(woken.body).toContain("id: e1");
 		expect(woken.body).toContain("Fake source");

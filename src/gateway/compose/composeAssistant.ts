@@ -216,6 +216,28 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	let active = false;
 	let ownerOpsClosed = false;
 
+	/** A quiet row; the phone re-reads. */
+	const watchersChanged = (watcherId: string) => {
+		try {
+			const routes = deps.routes();
+			const sessionId = routes.ownerSessionKey(ASSISTANT_TEAM);
+			if (!sessionId) return;
+			routes.deliverToOwner({
+				entry: {
+					kind: "plugin_action",
+					session_id: sessionId,
+					pluginId: "assistant",
+					actionType: "watchers-changed",
+					payload: { watcherId },
+				},
+				dedupeKey: `assistant-watchers:${ambient.newId()}`,
+				label: "assistant",
+				volatile: true,
+			});
+		} catch (error) {
+			console.warn(`[assistant] watcher change signal not sent: ${(error as Error).message}`);
+		}
+	};
 	const startLanes = () => {
 		if (!active || lanes || !held() || !home.allowsLanes()) return;
 		lanes = createSourceLanes({
@@ -228,6 +250,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			to: ASSISTANT_TEAM,
 			holdLine: () => renderPhoneHold(phoneHold.answer()).line,
 			render,
+			changed: watchersChanged,
 		});
 		lanes.start();
 	};

@@ -14,7 +14,7 @@ import com.atelier_nyaarium.switchboard.runIsolated
 import com.atelier_nyaarium.switchboard.wireJson
 import kotlinx.serialization.json.decodeFromJsonElement
 
-/** Built-in send approval handler. */
+/** Built-in assistant row handlers. */
 class AssistantPlugin : PluginEntry {
 	override fun register(host: PluginHost) {
 		val repo = Repo.get(host.applicationContext)
@@ -49,6 +49,9 @@ class AssistantPlugin : PluginEntry {
 			}.getOrNull() ?: return@PluginActionHandler
 			val gatewayId = runIsolated { gatewayOf(action.team) }.getOrNull() ?: return@PluginActionHandler
 			repo.assistantActOps.onRetract(gatewayId, retract.requestId)
+		})
+		host.pluginActions.claim("assistant:watchers-changed", PluginActionHandler {
+			repo.assistantOps.watchersChanged()
 		})
 		host.threadForgetHandlers.claim("assistant:send-forget", ThreadForgetHandler { _, team ->
 			repo.assistantSendOps.forgetTeam(team)

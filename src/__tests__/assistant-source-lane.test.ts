@@ -156,6 +156,7 @@ function lanes(
 	sort: (event: WatcherEvent) => RuleAction = () => "wake",
 	enabled: () => boolean = () => true,
 	holdLine: () => string = () => "",
+	changed: (watcherId: string) => void = () => undefined,
 ): SourceLanes {
 	return createSourceLanes({
 		ambient,
@@ -167,6 +168,7 @@ function lanes(
 		to: "host.assistant",
 		holdLine,
 		render: (_watcher, event) => event.id,
+		changed,
 	});
 }
 
@@ -205,6 +207,41 @@ describe("a watcher's source lane", () => {
 		await stopped(lane, ambient);
 
 		expect(text).toBe(`${line}\nwake`);
+	});
+
+	it("signals once the count or health the phone draws has landed, never for a poll that only moved the clock", async () => {
+		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
+		const source = scripted();
+		const signals: string[] = [];
+		const state = flaky(stateIn(stateDir()), [5]);
+		const lane = lanes(
+			ambient,
+			state,
+			source.watcher,
+			wakes().wake,
+			() => "wake",
+			() => true,
+			() => "",
+			(watcherId) => signals.push(watcherId),
+		);
+		const poll = async (answer: PollAnswer, wait: number) => {
+			await ambient.advance(wait);
+			source.answer(answer);
+			await ambient.advance(0);
+			return signals.length;
+		};
+
+		lane.start();
+		const counted = await poll(unread("c1", [thread("a", 1), thread("b", 2)], 10_000), 0);
+		const clockOnly = await poll({ kind: "unchanged", nextPollMs: 10_000 }, 10_000);
+		const sameCount = await poll(unread("c2", [thread("a", 1), thread("b", 3)], 10_000), 10_000);
+		const backedOff = await poll({ kind: "backoff", retryMs: 10_000, reason: "rate limited" }, 10_000);
+		const unlanded = await poll(unread("c3", [thread("a", 1)], 10_000), 10_000);
+		const recovered = await poll(unread("c3", [thread("a", 1)], 10_000), RETRY_MS);
+		await stopped(lane, ambient);
+
+		expect([counted, clockOnly, sameCount, backedOff, unlanded, recovered]).toEqual([1, 1, 1, 2, 2, 3]);
+		expect(new Set(signals)).toEqual(new Set(["github"]));
 	});
 
 	it("refuses a watcher with no label, so none shows by its id", () => {

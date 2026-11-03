@@ -68,6 +68,7 @@ function github(ambient: FakeAmbient, replies: Reply[], token: TokenRead = TOKEN
 		to: "host.assistant",
 		holdLine: () => "",
 		render: () => "",
+		changed: () => undefined,
 	});
 	const run = async (ids: string[], deadlineMs = 60_000) => {
 		const answer = await lane.write("github", deadlineMs, (signal) => done.run({ ids }, { signal, ambient }));

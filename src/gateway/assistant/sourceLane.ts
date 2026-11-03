@@ -6,7 +6,13 @@ import type { EventMember } from "../../shared/pending-delivery-store.js";
 import type { RuleAction } from "../../shared/schemasAssistantRules.js";
 import { fireAndForget } from "../fireAndForget.js";
 import { type PollAnswer, PollAnswerSchema, WATCHER_ID_RE, type Watcher, type WatcherEvent } from "./watcher.js";
-import { unexpectedAfter, unexpectedNow, type WatcherState, type WatcherStateStore } from "./watcherState.js";
+import {
+	shownChanged,
+	unexpectedAfter,
+	unexpectedNow,
+	type WatcherState,
+	type WatcherStateStore,
+} from "./watcherState.js";
 
 /** Bounds a hung source. */
 export const POLL_TIMEOUT_MS = 60_000;
@@ -39,6 +45,8 @@ export interface SourceLanesDeps {
 	to: string;
 	holdLine: () => string;
 	render: (watcher: Watcher, event: WatcherEvent) => string;
+	/** After a landed settle the phone would draw differently. */
+	changed: (watcherId: string) => void;
 }
 
 export type LaneEnd = "past_deadline" | "stopping";
@@ -203,8 +211,10 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 	/** Fenced by stop; true once landed. */
 	const settle = (watcher: Watcher, next: WatcherState, at: number | undefined): boolean => {
 		if (phase !== "running") return false;
+		const before = state.get(watcher.id);
 		if (state.put(watcher.id, next)) {
 			if (at !== undefined) arm(watcher, at);
+			if (shownChanged(before, next)) deps.changed(watcher.id);
 			return true;
 		}
 		arm(watcher, Math.max(at ?? 0, ambient.now() + RETRY_MS));

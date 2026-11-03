@@ -249,6 +249,7 @@ describe("an assistant action", () => {
 			to: "host.assistant",
 			holdLine: () => "",
 			render: () => "",
+			changed: () => undefined,
 		});
 		const dispatch = createActionDispatch({
 			actions: { github_done: new GithubDone(client) },

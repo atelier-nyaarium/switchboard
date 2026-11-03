@@ -94,6 +94,18 @@ export function unexpectedAfter(
 export const unexpectedNow = (state: WatcherState, specs: readonly AssistantFieldSpec[]) =>
 	unexpectedAfter(state.unexpected, [], specs);
 
+/** Drawn counts and health; poll ages excluded. */
+const shownOf = (state: WatcherState) =>
+	JSON.stringify([
+		state.unread,
+		state.capped,
+		state.stopped ?? null,
+		state.backoff?.reason ?? null,
+		state.unexpected ?? null,
+	]);
+
+export const shownChanged = (before: WatcherState, after: WatcherState): boolean => shownOf(before) !== shownOf(after);
+
 export interface WatcherStateStore {
 	get(watcherId: string): WatcherState;
 	/** Checked; false keeps memory. */

@@ -445,7 +445,8 @@ fun App(
 	LaunchedEffect(assistantShown) {
 		if (assistantShown) repo.phoneHoldOps.onAssistantShown()
 	}
-	LaunchedEffect(homeVersions(state), state.gateways.incarnations(), state.gateways.reachableIds(), state.connected, assistantShown) {
+	val watchersMoved by repo.assistantOps.watchersMoved.collectAsState()
+	LaunchedEffect(homeVersions(state), state.gateways.incarnations(), state.gateways.reachableIds(), state.connected, assistantShown, watchersMoved) {
 		if (!assistantShown) return@LaunchedEffect
 		// Covers a screen before the first drain.
 		repo.assistantOps.refreshShown()
