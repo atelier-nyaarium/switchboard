@@ -164,9 +164,29 @@ class PlugSetupOpsTest {
 		assertEquals("vault", setupPassword("wifi-key") { "vault" })
 		assertNull(setupPassword("wifi-key") { null })
 		assertNull(setupPassword(null) { "unused" })
-		assertEquals(
-			HomeNetwork("Home", 3, -40),
-			preferredHome(listOf(HomeNetwork("Home", 3, -40), HomeNetwork("Far", 3, -80)), SetupMemory(ssid = "Gone")),
-		)
+		val homes = listOf(HomeNetwork("Home", 3, -40), HomeNetwork("Far", 3, -80))
+		assertNull(preferredHome(homes, SetupMemory(ssid = "Gone")))
+		assertNull(preferredHome(homes, SetupMemory()))
+		assertEquals(WifiSight.Seen(homes[0]), wifiSight(homes, SetupMemory(ssid = "Home")))
+		assertEquals(WifiSight.NotSeen("Gone"), wifiSight(homes, SetupMemory(ssid = "Gone")))
+		assertEquals(WifiSight.Unknown, wifiSight(homes, SetupMemory()))
+	}
+
+	@Test
+	fun `a first setup offers no WiFi until the owner picks one`() = runBlocking {
+		val plug = FakePlug().apply { stored = SetupMemory() }
+		val setup = ops(plug, FakeGateway(plug))
+
+		setup.start("sakura", prefix)
+		val ready = setup.view.value!!
+		setup.hand("Sign", "right", null)
+		val unpicked = setup.view.value!!
+		setup.pickHome(ready.homes.first { it.ssid == "Home" })
+		setup.hand("Sign", "right", null)
+
+		assertNull(ready.home)
+		assertEquals(SetupStage.READY, unpicked.stage)
+		assertEquals(SetupStage.DONE, setup.view.value?.stage)
+		assertEquals("Home", plug.stored.ssid)
 	}
 }

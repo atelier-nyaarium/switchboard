@@ -2,7 +2,6 @@ package com.atelier_nyaarium.switchboard.assistant
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -44,13 +43,6 @@ internal fun IntegrationAddPage(state: ChatState, home: String, onEntry: (String
 			singleLine = true,
 			modifier = Modifier.fillMaxWidth(),
 		)
-		if (groups.isEmpty()) {
-			Text(
-				if (offered == null) "This Gateway offers nothing to add" else "Nothing matches",
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-			)
-		}
 		groups.forEachIndexed { at, group ->
 			if (at > 0) HorizontalDivider()
 			Text(groupTitle(group.group), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -66,10 +58,7 @@ private fun EntryRow(entry: Integration, onOpen: () -> Unit) {
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(8.dp),
 	) {
-		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-			Text(entry.label, style = MaterialTheme.typography.bodyLarge)
-			Text(entry.blurb, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-		}
+		Text(entry.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
 		Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
 	}
 }

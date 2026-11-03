@@ -73,9 +73,7 @@ internal fun IntegrationEntryPage(
 	}
 	when (integration.discovery) {
 		IntegrationDiscovery.SCAN -> ScanEntryPage(repo, state, gatewayId, integration, onDevice, onSetup, onBack)
-		IntegrationDiscovery.LISTEN -> AssistantPageScaffold(integration.label, onBack) {
-			Text("Waits for devices to announce themselves", style = MaterialTheme.typography.bodyMedium)
-		}
+		IntegrationDiscovery.LISTEN -> AssistantPageScaffold(integration.label, onBack) {}
 		IntegrationDiscovery.NONE -> NeedsEntryPage(repo, state, gatewayId, integration, onAdded, onBack)
 	}
 }
@@ -111,12 +109,9 @@ private fun ScanEntryPage(
 		if (scan is ScanView.Failed) {
 			Text(scan.line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		}
-		val fresh = devices.addable()
+		val fresh = devices.addable()?.takeIf { it.isNotEmpty() }
 		if (fresh != null) {
 			Text("Found", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			if (fresh.isEmpty()) {
-				Text("No new devices found", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			}
 			for (candidate in fresh) {
 				CandidateRow(candidate, busy = devices.busy(candidate.mac), said = devices.saidOf(candidate.mac)) {
 					repo.deviceOps.forget(gatewayId, candidate.mac)
@@ -172,10 +167,7 @@ private fun NewDeviceRow(repo: ChatRepository, gatewayId: String, setup: Integra
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(8.dp),
 	) {
-		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-			Text("New device", style = MaterialTheme.typography.bodyLarge)
-			Text("Fresh or reset, blinking", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-		}
+		Text("New device", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
 		OutlinedButton(onClick = hapticClick {
 			repo.command { plugSetupOps.start(gatewayId, setup.networkPrefix) }
 			onSetup()
@@ -256,12 +248,8 @@ private fun NeedsEntryPage(
 	}
 
 	AssistantPageScaffold(integration.label, onBack) {
-		Text(integration.blurb, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		work.said?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-		if (service == null) {
-			Text("This entry needs nothing", style = MaterialTheme.typography.bodyMedium)
-			return@AssistantPageScaffold
-		}
+		if (service == null) return@AssistantPageScaffold
 		for (need in integration.needs) {
 			when (need.kind) {
 				IntegrationNeedKind.SECRET -> Row(
@@ -303,7 +291,7 @@ private fun NeedsEntryPage(
 	if (removing) {
 		ConfirmDialog(
 			title = "Remove ${integration.label}?",
-			body = "The assistant can no longer use it. The key stays in the vault.",
+			body = null,
 			confirmText = "Remove",
 			onConfirm = {
 				removing = false

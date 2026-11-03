@@ -110,9 +110,6 @@ internal fun AssistantIntegrationsPage(
 			Text("Services", style = MaterialTheme.typography.labelLarge)
 			for (service in services) ServiceRowView(service) { onService(home, service.id) }
 		}
-		if (list is DeviceListView.Listed && listed.isEmpty() && services.isEmpty()) {
-			Text("Nothing added yet", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-		}
 	}
 }
 

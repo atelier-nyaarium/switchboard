@@ -41,7 +41,7 @@ class IntegrationRulesTest {
 		assertEquals(listOf(IntegrationGroup.SERVICE, IntegrationGroup.BRAND), all.map { it.group })
 		assertEquals(listOf("kasa"), addGroups(listOf("kasa", "unknown"), "").flatMap { group -> group.entries.map { it.id } })
 		assertTrue(addGroups(null, "").isEmpty())
-		assertEquals(listOf("ifttt"), addGroups(INTEGRATIONS.map { it.id }, "applet").flatMap { group -> group.entries.map { it.id } })
+		assertEquals(listOf("ifttt"), addGroups(INTEGRATIONS.map { it.id }, "ift").flatMap { group -> group.entries.map { it.id } })
 		assertTrue(addGroups(INTEGRATIONS.map { it.id }, "zigbee").isEmpty())
 	}
 
@@ -85,7 +85,7 @@ class IntegrationRulesTest {
 
 		assertEquals("2 plugs · 1 service", integrationCountLine(plugs, services))
 		assertEquals("1 plug", integrationCountLine(plugs.take(1), listOf(AssistantIntegration("ifttt", "IFTTT", emptyList()))))
-		assertEquals("Nothing added", integrationCountLine(emptyList(), null))
+		assertNull(integrationCountLine(emptyList(), null))
 		assertEquals(listOf("Plugs"), kindGroups(plugs).map { kindTitle(it.kind) })
 	}
 

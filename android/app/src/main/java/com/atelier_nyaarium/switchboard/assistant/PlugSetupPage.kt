@@ -32,11 +32,13 @@ import androidx.fragment.app.FragmentActivity
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.SetupRun
 import com.atelier_nyaarium.switchboard.SetupStage
+import com.atelier_nyaarium.switchboard.WifiSight
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.nameReady
 import com.atelier_nyaarium.switchboard.routines.GrantSecretsSheet
 import com.atelier_nyaarium.switchboard.setupPassword
 import com.atelier_nyaarium.switchboard.vault.grantableOn
+import com.atelier_nyaarium.switchboard.wifiSight
 import kotlinx.coroutines.launch
 
 /** Hands a fresh plug the home WiFi, then waits for it there. */
@@ -46,8 +48,8 @@ internal fun PlugSetupPage(repo: ChatRepository, gatewayId: String, onDevice: (S
 	val run = held?.takeIf { it.gatewayId == gatewayId }
 	AssistantPageScaffold(run?.plug?.model ?: "New device", onBack) {
 		when (run?.stage) {
-			null -> Text("Nothing is being set up", style = MaterialTheme.typography.bodyMedium)
-			SetupStage.JOINING -> Waiting("Pick the plug's network in the prompt")
+			null -> Unit
+			SetupStage.JOINING -> Waiting("Select your new device.")
 			SetupStage.READY -> ReadyStep(repo, run)
 			SetupStage.HANDING -> Waiting("Sending your WiFi to ${run.name}")
 			SetupStage.WAITING -> Waiting("Waiting for ${run.name} to join ${run.home?.ssid}")
@@ -91,32 +93,41 @@ private fun ReadyStep(repo: ChatRepository, run: SetupRun) {
 	var entry by remember { mutableStateOf(repo.plugSetupOps.memory().wifiEntry) }
 	var choosing by remember { mutableStateOf(false) }
 	var asking by remember { mutableStateOf(false) }
+	val sight = remember(run.homes) { wifiSight(run.homes, repo.plugSetupOps.memory()) }
+	var listing by rememberSaveable(plug.mac) { mutableStateOf(false) }
 	val entries = remember { repo.vaultOps.views() }
 	val offered = remember(entries) { entries.grantableOn(run.gatewayId) }
 
 	Text("${plug.model} · ${plug.mac}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 	OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-	Text("Your WiFi", style = MaterialTheme.typography.labelLarge)
-	if (run.homes.isEmpty()) {
-		Text("The plug sees no networks", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+	Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+		Column(Modifier.weight(1f)) {
+			Text("Your WiFi", style = MaterialTheme.typography.bodyLarge)
+			when (sight) {
+				WifiSight.Unknown -> Unit
+				is WifiSight.Seen -> Text(sight.home.ssid, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+				is WifiSight.NotSeen -> Text("Can't see ${sight.ssid}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+			}
+		}
+		if (sight != WifiSight.Unknown && !listing) TextButton(onClick = hapticClick { listing = true }) { Text("Change") }
 	}
-	for (home in run.homes) {
-		Row(
-			Modifier.fillMaxWidth().clickable(onClick = hapticClick { repo.plugSetupOps.pickHome(home) }).padding(vertical = 2.dp),
-			verticalAlignment = Alignment.CenterVertically,
-		) {
-			RadioButton(selected = run.home == home, onClick = hapticClick { repo.plugSetupOps.pickHome(home) })
-			Text(home.ssid, style = MaterialTheme.typography.bodyLarge)
+	if (sight == WifiSight.Unknown || listing) {
+		for (home in run.homes) {
+			Row(
+				Modifier.fillMaxWidth().clickable(onClick = hapticClick { repo.plugSetupOps.pickHome(home) }).padding(vertical = 2.dp),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				RadioButton(selected = run.home == home, onClick = hapticClick { repo.plugSetupOps.pickHome(home) })
+				Text(home.ssid, style = MaterialTheme.typography.bodyLarge)
+			}
 		}
 	}
 	Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
 		Column(Modifier.weight(1f)) {
 			Text("Password from the vault", style = MaterialTheme.typography.bodyLarge)
-			Text(
-				entries.find { it.id == entry }?.title ?: "None chosen",
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-			)
+			entries.find { it.id == entry }?.title?.let {
+				Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+			}
 		}
 		TextButton(onClick = hapticClick { choosing = true }) { Text("Choose") }
 	}

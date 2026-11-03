@@ -563,7 +563,7 @@ fun SessionActionsDialog(
 @Composable
 fun ConfirmDialog(
 	title: String,
-	body: String,
+	body: String?,
 	confirmText: String,
 	onConfirm: () -> Unit,
 	onDismiss: () -> Unit,
@@ -572,7 +572,7 @@ fun ConfirmDialog(
 	AlertDialog(
 		onDismissRequest = onDismiss,
 		title = { Text(title) },
-		text = { Text(body) },
+		text = body?.let { { Text(it) } },
 		confirmButton = { TextButton(onClick = hapticClick(onConfirm), enabled = confirmEnabled) { Text(confirmText) } },
 		dismissButton = { TextButton(onClick = hapticClick(onDismiss)) { Text("Cancel") } },
 	)

@@ -49,7 +49,6 @@ export type IntegrationAct =
 export interface IntegrationDeclaration {
 	readonly group: IntegrationGroup;
 	readonly label: string;
-	readonly blurb: string;
 	readonly discovery: IntegrationDiscovery;
 	readonly needs: readonly IntegrationNeed[];
 	readonly yields: IntegrationYield;
@@ -62,7 +61,6 @@ export const INTEGRATIONS = {
 	kasa: {
 		group: "brand",
 		label: "Kasa",
-		blurb: "Plugs on your network",
 		discovery: "scan",
 		needs: [],
 		yields: "devices",
@@ -85,7 +83,6 @@ export const INTEGRATIONS = {
 	ifttt: {
 		group: "service",
 		label: "IFTTT",
-		blurb: "Fire your applets by webhook",
 		discovery: "none",
 		needs: [{ key: "key", kind: "secret", label: "Webhooks key" }],
 		yields: "actions",

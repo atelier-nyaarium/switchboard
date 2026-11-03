@@ -29,7 +29,7 @@ internal data class AddGroup(val group: IntegrationGroup, val entries: List<Inte
 internal fun addGroups(offered: List<String>?, query: String): List<AddGroup> {
 	val wanted = query.trim()
 	val matching = offeredEntries(offered).filter { entry ->
-		wanted.isEmpty() || entry.label.contains(wanted, ignoreCase = true) || entry.blurb.contains(wanted, ignoreCase = true)
+		wanted.isEmpty() || entry.label.contains(wanted, ignoreCase = true)
 	}
 	return IntegrationGroup.entries.mapNotNull { group ->
 		matching.filter { it.group == group }.takeIf { it.isNotEmpty() }?.let { AddGroup(group, it) }
@@ -114,10 +114,10 @@ internal fun actOffered(key: String, settings: DeviceSettings?): Boolean = when 
 internal fun troubleLine(live: DeviceLive?): String? =
 	if (live != null && live.confirmed && !live.stale) null else liveLine(live)
 
-/** Counts per type; a service counts once it is added. */
-internal fun integrationCountLine(records: List<DeviceRecord>, services: List<AssistantIntegration>?): String {
+/** Counts per type; a service counts once it is added. Null when nothing is. */
+internal fun integrationCountLine(records: List<DeviceRecord>, services: List<AssistantIntegration>?): String? {
 	val devices = kindGroups(records).map { "${it.records.size} ${deviceNoun(it.kind, it.records.size)}" }
 	val added = services.orEmpty().count(::serviceAdded)
 	val parts = devices + listOfNotNull("$added ${if (added == 1) "service" else "services"}".takeIf { added > 0 })
-	return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ") ?: "Nothing added"
+	return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }

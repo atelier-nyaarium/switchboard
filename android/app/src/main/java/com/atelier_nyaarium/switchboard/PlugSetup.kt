@@ -35,9 +35,23 @@ internal data class SetupRun(
 	val deviceId: String? = null,
 )
 
-/** The home network to offer first: the last one used if the plug sees it, else the strongest. */
+/** Your WiFi is the one the last setup used; with none yet, the owner picks. */
 internal fun preferredHome(homes: List<HomeNetwork>, memory: SetupMemory): HomeNetwork? =
-	homes.find { it.ssid == memory.ssid } ?: homes.maxByOrNull { it.signal }
+	homes.find { it.ssid == memory.ssid }
+
+internal sealed interface WifiSight {
+	/** No setup has named your WiFi yet. */
+	data object Unknown : WifiSight
+
+	data class Seen(val home: HomeNetwork) : WifiSight
+
+	data class NotSeen(val ssid: String) : WifiSight
+}
+
+internal fun wifiSight(homes: List<HomeNetwork>, memory: SetupMemory): WifiSight {
+	val ssid = memory.ssid ?: return WifiSight.Unknown
+	return homes.find { it.ssid == ssid }?.let { WifiSight.Seen(it) } ?: WifiSight.NotSeen(ssid)
+}
 
 internal fun canonicalMac(value: String): String = value.trim().lowercase().replace('-', ':')
 
