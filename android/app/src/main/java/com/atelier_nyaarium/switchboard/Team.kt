@@ -121,6 +121,7 @@ internal fun teamInfoToTeam(it: TeamInfo): Team {
 			needsLogin = it.needsLogin,
 			limitBlocked = it.limitBlocked,
 			limitDetail = it.limitDetail,
+			promptId = it.promptId,
 		),
 		kind = it.kind,
 		sessionLabel = it.sessionLabel,

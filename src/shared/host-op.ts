@@ -79,6 +79,14 @@ export type HostOp =
 	| { kind: "sendText"; target: TmuxTarget; text: string; submit?: boolean; dedupKey?: string }
 	| { kind: "sendKey"; target: TmuxTarget; key: string; dedupKey?: string }
 	| {
+			kind: "answerPrompt";
+			target: TmuxTarget;
+			promptId: string;
+			decision: PromptDecision;
+			reason?: string;
+			dedupKey?: string;
+	  }
+	| {
 			kind: "createSession";
 			target: TmuxTarget;
 			workdirHint?: string;
@@ -115,6 +123,14 @@ export interface TmuxPeek {
 	ansi: string;
 	hash: string;
 }
+
+/** One string per pane. */
+export const paneKey = (t: TmuxTarget): string => `${t.kind}:${t.name}:${t.sessionName}`;
+
+export type PromptDecision = "approve" | "deny";
+
+/** Stale: the pane holds another prompt, or none. */
+export type PromptOutcome = "answered" | "stale";
 
 export type HostPeekResult =
 	| { kind: "tmux"; ansi: string; hash: string }

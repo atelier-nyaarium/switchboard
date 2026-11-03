@@ -7,14 +7,17 @@ import org.junit.Test
 class SessionWordTest {
 	private val now = 1_000_000L
 
-	private fun row(status: String, limitBlocked: Boolean? = null) =
-		Presence.reported(status = status, authority = Authority.LIVE, limitBlocked = limitBlocked)
+	private fun row(status: String, limitBlocked: Boolean? = null, promptId: String? = null) =
+		Presence.reported(status = status, authority = Authority.LIVE, limitBlocked = limitBlocked, promptId = promptId)
 
 	private fun word(presence: Presence, working: Boolean = false, needsLogin: Boolean = false) =
 		sessionWord(presence, working = working, needsLogin = needsLogin, now = now)
 
 	@Test
-	fun `an online session reads limit, then login, then working, then live`() {
+	fun `an online session reads approval, then limit, then login, then working, then live`() {
+		val approval = word(row(Presence.ONLINE, limitBlocked = true, promptId = "p1"), working = true)
+		assertEquals(SessionWord.NEEDS_APPROVAL, approval)
+		assertTrue(approval.blocked)
 		assertEquals(SessionWord.LIMIT_HIT, word(row(Presence.ONLINE, limitBlocked = true), working = true, needsLogin = true))
 		assertEquals(SessionWord.CHECK_TERMINAL, word(row(Presence.ONLINE), working = true, needsLogin = true))
 		assertEquals(SessionWord.WORKING, word(row(Presence.ONLINE), working = true))

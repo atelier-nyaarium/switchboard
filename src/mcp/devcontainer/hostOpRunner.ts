@@ -1,10 +1,13 @@
-import type {
-	HostKasaScanResult,
-	HostListDirsResult,
-	HostOp,
-	HostPeekResult,
-	HostWifiNetworkResult,
-	TmuxTarget,
+import {
+	type HostKasaScanResult,
+	type HostListDirsResult,
+	type HostOp,
+	type HostPeekResult,
+	type HostWifiNetworkResult,
+	type PromptDecision,
+	type PromptOutcome,
+	paneKey,
+	type TmuxTarget,
 } from "../../shared/host-op.js";
 import { createOpDedupe } from "../../shared/op-dedupe.js";
 import { createSingleFlight } from "../../shared/single-flight.js";
@@ -13,6 +16,12 @@ export interface TmuxOps {
 	peekPane: (target: TmuxTarget, resize?: boolean) => Promise<HostPeekResult>;
 	sendText: (target: TmuxTarget, text: string, submit?: boolean) => Promise<void>;
 	sendKey: (target: TmuxTarget, key: string) => Promise<void>;
+	answerPrompt: (
+		target: TmuxTarget,
+		promptId: string,
+		decision: PromptDecision,
+		reason?: string,
+	) => Promise<PromptOutcome>;
 	createSession: (
 		target: TmuxTarget,
 		workdirHint?: string,
@@ -32,7 +41,7 @@ const MIN_PEEK_INTERVAL_MS = 300;
 const MAX_CONCURRENT_PEEKS = 6;
 const SEND_DEDUP_TTL_MS = 60_000;
 
-const targetKey = (t: TmuxTarget): string => `${t.kind}:${t.name}:${t.sessionName}`;
+const targetKey = paneKey;
 
 export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: number; now?: () => number } = {}) {
 	const minPeekIntervalMs = opts.minPeekIntervalMs ?? MIN_PEEK_INTERVAL_MS;
@@ -100,6 +109,12 @@ export function createHostOpRunner(ops: TmuxOps, opts: { minPeekIntervalMs?: num
 		if (op.kind === "kasaScan") return ops.kasaScan();
 		if (op.kind === "wifiNetwork") return ops.wifiNetwork();
 		if (op.kind === "sendText" || op.kind === "sendKey") return runSend(op);
+		if (op.kind === "answerPrompt")
+			return runDeduped(
+				op.dedupKey,
+				async () => ({ outcome: await ops.answerPrompt(op.target, op.promptId, op.decision, op.reason) }),
+				null,
+			);
 		if (op.kind === "listDirs") return ops.listDirs(op.path, op.spawn);
 		if (op.kind === "createSession")
 			return runDeduped(

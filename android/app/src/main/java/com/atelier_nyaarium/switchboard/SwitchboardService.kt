@@ -309,6 +309,17 @@ class SwitchboardService : Service(), DeepIdleScheduler {
 					notifications.reconcileTeamNotifications(repo, repo.state.value.unread)
 				}
 		}
+		// One notice per prompt id.
+		scope.launch {
+			var posted = emptyMap<String, String>()
+			repo.state.map { Triple(waitingPrompts(it), it.phoneHold, it.foreground) }.distinctUntilChanged().collect { (waiting) ->
+				repo.sessionPromptOps.retain(waiting.values)
+				val notices = promptNotices(posted, waiting, repo.phoneHoldOps.alerts(true, repo.isVisible))
+				notices.cancel.forEach { notifications.cancelSessionPrompt(it) }
+				val sent = notices.post.filter { notifications.notifySessionPrompt(repo, it) }
+				posted = postedAfter(posted, waiting, notices, sent)
+			}
+		}
 		// Level-based like the team reconcile: a request shows while it is pending and goes when it settles.
 		scope.launch {
 			val posted = mutableSetOf<String>()

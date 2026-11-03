@@ -407,6 +407,9 @@ class ChatRepository(
 	internal val assistantSendOps = com.atelier_nyaarium.switchboard.assistant.AssistantSendOps(_state, assistantSends) { gatewayId, op ->
 		clientOrNull()?.sendValueAnswer(gatewayId, op) ?: ConsoleClient.ValueAnswer.Unreachable
 	}
+	internal val sessionPromptOps = SessionPromptOps { gatewayId, op ->
+		clientOrNull()?.sendValueAnswer(gatewayId, op) ?: ConsoleClient.ValueAnswer.Unreachable
+	}
 	internal val assistantActOps = com.atelier_nyaarium.switchboard.assistant.AssistantActOps(
 		state = _state,
 		manager = assistantActs,

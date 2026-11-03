@@ -95,6 +95,12 @@ internal class ServiceNotifications(private val context: Context) {
 				description = "A routine did not run"
 			},
 		)
+		nm.createNotificationChannel(
+			NotificationChannel(CHANNEL_APPROVAL, "Approvals", NotificationManager.IMPORTANCE_HIGH).apply {
+				description = "A session waits on a permission prompt"
+				enableVibration(true)
+			},
+		)
 	}
 
 	/**
@@ -474,6 +480,24 @@ internal class ServiceNotifications(private val context: Context) {
 		NotificationManagerCompat.from(context).cancel(vaultNotificationId(requestId))
 	}
 
+	/** Names the session only; the prompt's text stays in the app. */
+	internal fun notifySessionPrompt(repo: ChatRepository, team: String): Boolean {
+		if (!canNotify()) return false
+		val builder = NotificationCompat.Builder(context, CHANNEL_APPROVAL)
+			.setSmallIcon(android.R.drawable.stat_sys_warning)
+			.setContentTitle("Needs approval")
+			.setContentText(repo.state.value.label(team))
+			.setOnlyAlertOnce(true)
+			.setAutoCancel(true)
+			.setContentIntent(contentIntent(team))
+		NotificationManagerCompat.from(context).notify(sessionPromptNotificationId(team), builder.build())
+		return true
+	}
+
+	internal fun cancelSessionPrompt(team: String) {
+		NotificationManagerCompat.from(context).cancel(sessionPromptNotificationId(team))
+	}
+
 	internal fun reconcileAssistantSendRequests(repo: ChatRepository, requests: List<PendingAssistantSend>) {
 		val manager = context.getSystemService(NotificationManager::class.java) ?: return
 		val nmc = NotificationManagerCompat.from(context)
@@ -579,6 +603,7 @@ internal class ServiceNotifications(private val context: Context) {
 		const val CHANNEL_ASSISTANT = "assistant"
 		const val VAULT_PUBLIC_TITLE = "A session asks for a secret"
 		const val CHANNEL_ROUTINE = "routine_missed"
+		const val CHANNEL_APPROVAL = "session_approvals"
 
 		private const val TEAM_ID_RANGE_START = 1000
 		private const val TEAM_ID_RANGE_SIZE = 1_000_000
@@ -625,6 +650,12 @@ internal class ServiceNotifications(private val context: Context) {
 		internal fun assistantActNotificationId(gatewayId: String, requestId: String): Int =
 			ASSISTANT_ACT_ID_RANGE_START + ("$gatewayId/$requestId".hashCode() and 0x7FFFFFFF) % ASSISTANT_ACT_ID_RANGE_SIZE
 
+		internal const val SESSION_PROMPT_ID_RANGE_START = 8_000_000
+		internal const val SESSION_PROMPT_ID_RANGE_SIZE = 1_000_000
+
+		internal fun sessionPromptNotificationId(team: String): Int =
+			SESSION_PROMPT_ID_RANGE_START + (team.hashCode() and 0x7FFFFFFF) % SESSION_PROMPT_ID_RANGE_SIZE
+
 		// Own id range, like the others.
 		internal const val ROUTINE_ID_RANGE_START = 4_000_000
 		internal const val ROUTINE_ID_RANGE_SIZE = 1_000_000
@@ -634,6 +665,9 @@ internal class ServiceNotifications(private val context: Context) {
 			ROUTINE_ID_RANGE_START + ("$gatewayId/$routineId".hashCode() and 0x7FFFFFFF) % ROUTINE_ID_RANGE_SIZE
 
 		init {
+			require(SESSION_PROMPT_ID_RANGE_START >= ASSISTANT_ACT_ID_RANGE_START + ASSISTANT_ACT_ID_RANGE_SIZE) {
+				"SESSION_PROMPT_ID_RANGE must fall outside the assistant act id range"
+			}
 			require(ASSISTANT_SEND_ID_RANGE_START >= ROUTINE_ID_RANGE_START + ROUTINE_ID_RANGE_SIZE) {
 				"ASSISTANT_SEND_ID_RANGE must fall outside the routine id range"
 			}

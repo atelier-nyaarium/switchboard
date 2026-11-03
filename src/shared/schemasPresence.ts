@@ -58,6 +58,8 @@ export const TeamInfoSchema = z
 		// session with no reset text still has to render as blocked.
 		limitBlocked: z.boolean().optional(),
 		limitDetail: z.string().optional(),
+		// A waiting permission prompt. The id only; its text is sealed.
+		promptId: z.string().max(64).optional(),
 		// Same-Domain federation freshness for a PEER-gateway-sourced row (this gateway's own local
 		// rows never carry it - absent, not a fourth "local" value). "unreachable" is the honest
 		// stale-mark Q4 requires; "quiet" is healthy idle, not stale.

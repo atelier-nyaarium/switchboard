@@ -619,6 +619,13 @@ fun App(
 			val assistantActTileFor = remember(openTeam, assistantOpen, assistantActs) {
 				if (assistantOpen) com.atelier_nyaarium.switchboard.assistant.assistantActTile(assistantActs, gatewayOf(openTeam!!)) else null
 			}
+			val sessionPrompts by repo.sessionPromptOps.prompts.collectAsState()
+			val promptAnswers by repo.sessionPromptOps.answers.collectAsState()
+			val waitingPrompt = waitingPromptOf(state, team)
+			LaunchedEffect(team, waitingPrompt) {
+				waitingPrompt?.let { repo.sessionPromptOps.keepLoaded(gatewayOf(team), team, it) }
+			}
+			val approvalFor = approvalView(waitingPrompt, sessionPrompts, promptAnswers)
 			val chrome = threadChrome(
 				assistant = assistantOpen,
 				label = tabLabelFor(state, team),
@@ -668,6 +675,17 @@ fun App(
 				onOpenAssistantSend = { requestId -> assistantSendModal = gatewayOf(team) to requestId },
 				assistantActTile = assistantActTileFor,
 				onOpenAssistantAct = { requestId -> assistantActModal = gatewayOf(team) to requestId },
+				approval = approvalFor,
+				onApprove = { promptId ->
+					shellScope.launch {
+						repo.sessionPromptOps.answer(gatewayOf(team), team, promptId, PromptDecision.APPROVE, null)
+					}
+				},
+				onDeny = { promptId, reason ->
+					shellScope.launch {
+						repo.sessionPromptOps.answer(gatewayOf(team), team, promptId, PromptDecision.DENY, reason)
+					}
+				},
 				revealAt = revealAt,
 				onRevealed = { revealAt = null },
 				unreadBoundary = repo::unreadBoundary,

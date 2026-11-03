@@ -121,6 +121,7 @@ export function composeRouterFrames(deps: RouterFramesStageDeps): RouterFramesSt
 			isTrustedCatalogProject: sessions.isTrustedCatalogProject,
 			dropSessionResume,
 			sessionStore: sessions.presence,
+			promptOf: (team) => sessions.presence.promptOf(team),
 			domain: () => {
 				const snapshot = slice.allowlist.getSnapshot() ?? null;
 				return snapshot ? { version: slice.allowlist.version() ?? "", snapshot } : null;

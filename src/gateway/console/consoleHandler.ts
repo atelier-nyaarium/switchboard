@@ -44,6 +44,7 @@ export function createConsoleDispatcher({
 	isTrustedCatalogProject,
 	dropSessionResume,
 	sessionStore,
+	promptOf,
 	domain,
 	relayToHost,
 	tryWakeTeam,
@@ -76,7 +77,7 @@ export function createConsoleDispatcher({
 		);
 	}
 
-	const terminalOps = createTerminalHandlers({ targets, relayToHost, sessionStore });
+	const terminalOps = createTerminalHandlers({ targets, relayToHost, sessionStore, promptOf });
 	const sessionLifecycle = createSessionLifecycleHandlers({
 		targets,
 		createSessionBoundMs,
@@ -303,6 +304,12 @@ export function createConsoleDispatcher({
 
 			case "reload_plugins":
 				return terminalOps.reloadPlugins(op, conversationId, opId);
+
+			case "session_prompt":
+				return terminalOps.sessionPrompt(op);
+
+			case "session_prompt_answer":
+				return terminalOps.answerPrompt(op, conversationId, opId);
 
 			case "forget":
 				return sessionLifecycle.forget(op, conversationId, opId);

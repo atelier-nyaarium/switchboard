@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { deriveFromPeek, PresenceScheduler } from "../mcp/devcontainer/presenceScheduler.js";
 import type { HostPeekResult, TmuxTarget } from "../shared/host-op.js";
@@ -382,5 +384,38 @@ describe("PresenceScheduler watch lifecycle", () => {
 		// setWatches push.
 		await scheduler.tick("proj.main");
 		expect(peek).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("PresenceScheduler permission prompts", () => {
+	const fixtures = path.join(import.meta.dirname, "..", "..", "tests", "fixtures", "permission-prompt", "panes.json");
+	const { vectors } = JSON.parse(fs.readFileSync(fixtures, "utf8")) as {
+		vectors: { name: string; screen: string }[];
+	};
+	const screen = (name: string) => vectors.find((v) => v.name === name)?.screen ?? "";
+
+	it("reports a confirmed prompt and asks once to stop its countdown", async () => {
+		const frames = [
+			tmuxFrame(IDLE, "h1"),
+			tmuxFrame(screen("workflow-countdown"), "h2"),
+			tmuxFrame(screen("workflow-countdown"), "h3"),
+			tmuxFrame(screen("workflow-held"), "h4"),
+			tmuxFrame(screen("workflow-held"), "h5"),
+		];
+		let i = 0;
+		const reports: Array<string | undefined> = [];
+		const stops: Array<{ target: TmuxTarget; promptId: string }> = [];
+		const scheduler = new PresenceScheduler({
+			peek: async () => frames[Math.min(i++, frames.length - 1)],
+			report: (_team, value) => reports.push(value?.prompt?.id),
+			onAutoDeny: (target, promptId) => stops.push({ target, promptId }),
+		});
+		await scheduler.setWatches([{ team: "proj.main", target: T, cadenceMs: 60_000 }]);
+		for (let n = 0; n < 4; n++) await scheduler.tick("proj.main");
+
+		const id = reports[0];
+		expect(id?.startsWith(deriveFromPeek(frames[1])?.prompt?.contentId ?? "none")).toBe(true);
+		expect(reports).toEqual([id, id]);
+		expect(stops).toEqual([{ target: T, promptId: id }]);
 	});
 });

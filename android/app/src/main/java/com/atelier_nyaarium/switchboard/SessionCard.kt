@@ -142,7 +142,7 @@ fun SessionCard(
 					overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
 					modifier = Modifier.weight(1f).clearAndSetSemantics { contentDescription = "$display, $presenceDescription" },
 				)
-				if (word == SessionWord.LIMIT_HIT || word == SessionWord.CHECK_TERMINAL) StatusChip(word.text, presenceColor(word))
+				if (word.blocked) StatusChip(word.text, presenceColor(word))
 				// A whole-session vault grant is the loud one; a window shows quietly.
 				when (vaultTier) {
 					"session" -> StatusChip("YOLO", MaterialTheme.colorScheme.error)

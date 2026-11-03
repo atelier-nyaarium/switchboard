@@ -132,6 +132,8 @@ object Protocol {
 			const val TMUX_SEND: String = "tmux_send"
 			const val CREATE_SESSION: String = "create_session"
 			const val RELOAD_PLUGINS: String = "reload_plugins"
+			const val SESSION_PROMPT: String = "session_prompt"
+			const val SESSION_PROMPT_ANSWER: String = "session_prompt_answer"
 			const val FORGET: String = "forget"
 			const val CLOSE_SESSION: String = "close_session"
 			const val RENAME_SESSION: String = "rename_session"
@@ -630,6 +632,7 @@ data class TeamInfo(
 	val needsLogin: Boolean? = null,
 	val limitBlocked: Boolean? = null,
 	val limitDetail: String? = null,
+	val promptId: String? = null,
 	val presenceFresh: String? = null,
 )
 
@@ -724,6 +727,21 @@ sealed class ConsoleOp {
 	@SerialName("reload_plugins")
 	data class ReloadPlugins(
 		val target: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("session_prompt")
+	data class SessionPrompt(
+		val target: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("session_prompt_answer")
+	data class SessionPromptAnswer(
+		val target: String,
+		val promptId: String,
+		val decision: String,
+		val reason: String? = null,
 	) : ConsoleOp()
 
 	@Serializable
@@ -1328,6 +1346,16 @@ data class ConsoleCreateSessionResult(
 @Serializable
 data class ConsoleReloadPluginsResult(
 	val initiated: Boolean,
+)
+
+@Serializable
+data class ConsoleSessionPromptResult(
+	val prompt: SessionPrompt? = null,
+)
+
+@Serializable
+data class ConsoleSessionPromptAnswerResult(
+	val outcome: String,
 )
 
 @Serializable
@@ -3781,6 +3809,13 @@ data class CrossDomainPresenceSession(
 	val queueDepth: Long,
 	val working: Boolean? = null,
 	val needsLogin: Boolean? = null,
+)
+
+@Serializable
+data class SessionPrompt(
+	val id: String,
+	val title: String,
+	val body: List<String>,
 )
 
 @Serializable

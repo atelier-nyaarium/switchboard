@@ -66,6 +66,7 @@ describe("Gateway device scan", () => {
 			peekPane: async () => ({ kind: "tmux", ansi: "", hash: "" }),
 			sendText: async () => {},
 			sendKey: async () => {},
+			answerPrompt: async () => "stale" as const,
 			createSession: async () => {},
 			reloadPlugins: async () => {},
 			killSession: async () => {},

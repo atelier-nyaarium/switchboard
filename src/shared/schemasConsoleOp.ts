@@ -72,6 +72,18 @@ export const ConsoleOpSchema = z
 			target: z.string().min(1).max(128),
 		}),
 		z.object({
+			kind: z.literal("session_prompt"),
+			target: z.string().min(1).max(128),
+		}),
+		z.object({
+			kind: z.literal("session_prompt_answer"),
+			target: z.string().min(1).max(128),
+			promptId: z.string().min(1).max(64),
+			decision: z.enum(["approve", "deny"]),
+			// Steers the session on a deny.
+			reason: z.string().max(2000).optional(),
+		}),
+		z.object({
 			kind: z.literal("forget"),
 			target: z.string().min(1).max(128),
 			boardDisposition: z.enum(["release", "cancel"]).optional(),
@@ -379,6 +391,8 @@ export const VALUE_OP_KINDS = new Set([
 	"workspace_paint_text",
 	"create_session",
 	"reload_plugins",
+	"session_prompt",
+	"session_prompt_answer",
 	"cross_domain_listen",
 	"cross_domain_request",
 	"cross_domain_confirm",

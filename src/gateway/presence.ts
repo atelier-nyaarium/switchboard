@@ -3,6 +3,7 @@ import { isAssistantRecord } from "../shared/assistant-session.js";
 import type { PlanePersistedState, PlaneRegistry } from "../shared/plane-registry.js";
 import type { PresenceRow } from "../shared/presence-identity.js";
 import { presenceIdentityOf } from "../shared/presence-identity.js";
+import type { SessionPrompt } from "../shared/schemasConsoleResults.js";
 import { isComposite, isSlug, parseSessionName } from "../shared/session-id.js";
 import type { SessionRecord, SessionStore } from "../shared/session-store.js";
 import { ASSISTANT_ROLE } from "../shared/wire-vocabulary.js";
@@ -13,6 +14,8 @@ export interface WorkingState {
 	needsLogin?: boolean;
 	limitBlocked?: boolean;
 	limitDetail?: string;
+	/** Projected as its id alone. */
+	prompt?: SessionPrompt;
 }
 
 export type { PresenceRow } from "../shared/presence-identity.js";
@@ -193,11 +196,16 @@ export class PresenceFacade {
 			prev?.working === state.working &&
 			prev?.needsLogin === state.needsLogin &&
 			prev?.limitBlocked === state.limitBlocked &&
-			prev?.limitDetail === state.limitDetail
+			prev?.limitDetail === state.limitDetail &&
+			prev?.prompt?.id === state.prompt?.id
 		)
 			return;
 		this.working.set(team, state);
 		this.markDirty();
+	}
+
+	promptOf(team: string): SessionPrompt | undefined {
+		return this.working.get(team)?.prompt;
 	}
 
 	clearWorkingFor(team: string): void {
@@ -245,6 +253,7 @@ export class PresenceFacade {
 				...(w?.needsLogin !== undefined ? { needsLogin: w.needsLogin } : {}),
 				...(w?.limitBlocked !== undefined ? { limitBlocked: w.limitBlocked } : {}),
 				...(w?.limitDetail !== undefined ? { limitDetail: w.limitDetail } : {}),
+				...(w?.prompt ? { promptId: w.prompt.id } : {}),
 				queue_depth: 0,
 			});
 		}

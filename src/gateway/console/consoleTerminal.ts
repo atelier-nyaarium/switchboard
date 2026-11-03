@@ -6,8 +6,10 @@ import {
 	type HostOpResult,
 	type HostPeekResult,
 	isSpawnWorkdirPath,
+	type PromptOutcome,
 	type TmuxTarget,
 } from "../../shared/host-op.js";
+import type { SessionPrompt } from "../../shared/schemasConsoleResults.js";
 import { composeSessionName } from "../../shared/session-id.js";
 import type { SessionStore } from "../../shared/session-store.js";
 import type { ConsoleTargets } from "./consoleTargets.js";
@@ -17,9 +19,10 @@ export interface TerminalOpsDeps {
 	targets: ConsoleTargets;
 	relayToHost?: (op: HostOp) => Promise<HostOpResult>;
 	sessionStore?: Pick<SessionStore, "getByTeam" | "teamOf">;
+	promptOf?: (team: string) => SessionPrompt | undefined;
 }
 
-export function createTerminalHandlers({ targets, relayToHost, sessionStore }: TerminalOpsDeps) {
+export function createTerminalHandlers({ targets, relayToHost, sessionStore, promptOf }: TerminalOpsDeps) {
 	function assertDaemonDrivable(target: TmuxTarget): void {
 		const record = sessionStore?.getByTeam(composeSessionName(target.name, target.sessionName));
 		if (record?.liveTeam && record.liveTeam.team !== sessionStore!.teamOf(record)) {
@@ -90,5 +93,30 @@ export function createTerminalHandlers({ targets, relayToHost, sessionStore }: T
 		return { initiated: true };
 	}
 
-	return { peek, tmuxSend, listDirs, reloadPlugins };
+	function sessionPrompt(op: Extract<ConsoleOp, { kind: "session_prompt" }>) {
+		const target = targets.tmuxTarget(op.target);
+		return { prompt: promptOf?.(composeSessionName(target.name, target.sessionName)) ?? null };
+	}
+
+	async function answerPrompt(
+		op: Extract<ConsoleOp, { kind: "session_prompt_answer" }>,
+		conversationId: string,
+		opId: string,
+	) {
+		if (!relayToHost) throw new Error("terminal view unavailable on this Gateway");
+		const target = targets.tmuxTarget(op.target);
+		assertDaemonDrivable(target);
+		const r = await relayToHost({
+			kind: "answerPrompt",
+			target,
+			promptId: op.promptId,
+			decision: op.decision,
+			...(op.reason ? { reason: op.reason } : {}),
+			dedupKey: `${conversationId}:${opId}`,
+		});
+		if (!r.ok) throw new Error(r.error ?? "answer failed");
+		return r.result as { outcome: PromptOutcome };
+	}
+
+	return { peek, tmuxSend, listDirs, reloadPlugins, sessionPrompt, answerPrompt };
 }

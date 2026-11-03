@@ -20,6 +20,7 @@ import type {
 	ConsoleAssistantRulesResult,
 } from "../../shared/schemasAssistantRules.js";
 import type { ConsoleAssistantSendAnswerResult } from "../../shared/schemasAssistantSend.js";
+import type { SessionPrompt } from "../../shared/schemasConsoleResults.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
 import type { DeviceConsoleOp, DeviceConsoleResult } from "../../shared/schemasDevices.js";
 import type { PhoneCapabilityAnswer } from "../../shared/schemasPhoneCapabilities.js";
@@ -110,6 +111,7 @@ export interface ConsoleHandlerDeps {
 	// Keyring snapshots send only when the version changes.
 	domain?: () => { version: string; snapshot: DomainSnapshot } | null;
 	relayToHost?: (op: HostOp) => Promise<HostOpResult>;
+	promptOf?: (team: string) => SessionPrompt | undefined;
 	// Devcontainer creation wakes before host relay.
 	tryWakeTeam?: (team: string) => Promise<WakeResult>;
 	// Closing a team during wake must refuse.

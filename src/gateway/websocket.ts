@@ -2,6 +2,7 @@ import type { ServerWebSocket } from "bun";
 import { agentInboundFrameTypes } from "../shared/agent-backend.js";
 import { isHostSpawnSession } from "../shared/host-spawn.js";
 import { OP_LEDGER_PROTOCOL, WsRegisterSchema } from "../shared/schemas.js";
+import { SessionPromptSchema } from "../shared/schemasConsoleResults.js";
 import { isComposite } from "../shared/session-id.js";
 import type { ConnectionMode } from "../shared/types.js";
 import { WORKSPACE_OP_REPLY_FRAME, type WorkspaceOpResult } from "../shared/workspace-op.js";
@@ -364,8 +365,12 @@ export function createWebSocketHandlers({
 			const needsLogin = typeof msg.needsLogin === "boolean" ? msg.needsLogin : undefined;
 			const limitBlocked = typeof msg.limitBlocked === "boolean" ? msg.limitBlocked : undefined;
 			const limitDetail = typeof msg.limitDetail === "string" ? msg.limitDetail : undefined;
+			const prompt = SessionPromptSchema.safeParse(msg.prompt).data;
 			const cleared = working === undefined && needsLogin === undefined && limitBlocked === undefined;
-			onPresenceDerive?.(msg.team, cleared ? undefined : { working, needsLogin, limitBlocked, limitDetail });
+			onPresenceDerive?.(
+				msg.team,
+				cleared ? undefined : { working, needsLogin, limitBlocked, limitDetail, prompt },
+			);
 		}
 
 		ws.data.missedPings = 0;

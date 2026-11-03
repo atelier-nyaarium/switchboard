@@ -14,6 +14,7 @@ import {
 	type HostOp,
 	isReservedHostSession,
 	isTmuxName,
+	paneKey,
 	type TmuxTarget,
 } from "../../shared/host-op.js";
 import { isHostSpawn, WINDOWS_SPAWN } from "../../shared/host-spawn.js";
@@ -40,7 +41,9 @@ import {
 	shouldGreetLaunch,
 } from "./hostResolve.js";
 import { createKasaScanner } from "./kasaScan.js";
+import { PromptOccurrences, seePrompt } from "./permissionPrompt.js";
 import { PresenceScheduler, type WatchEntry } from "./presenceScheduler.js";
+import { answerPrompt, type PromptSight, stopAutoDeny } from "./promptAnswer.js";
 import { spawnReloadPlugins } from "./reloadPlugins.js";
 import {
 	awaitReady,
@@ -54,6 +57,7 @@ import {
 	reattachStep,
 	sendKey,
 	sendText,
+	withPane,
 } from "./tmuxCore.js";
 import { createWifiNetworkReader } from "./wifiNetwork.js";
 import {
@@ -497,6 +501,13 @@ async function handleWake(msg: WakeMessage): Promise<void> {
 ////////////////////////////////
 //  Host op handler (console terminal view)
 
+// One count per pane, read by presence and the answer alike.
+const promptOccurrences = new PromptOccurrences();
+const sightOf =
+	(target: TmuxTarget): PromptSight =>
+	(screen) =>
+		seePrompt(promptOccurrences, paneKey(target), screen);
+
 // The runner owns single-flight and the cadence floor.
 const hostOpRunner = createHostOpRunner({
 	kasaScan: createKasaScanner(),
@@ -505,6 +516,8 @@ const hostOpRunner = createHostOpRunner({
 	peekPane: peekWithFallback,
 	sendText,
 	sendKey,
+	answerPrompt: (target, promptId, decision, reason) =>
+		withPane(target, (hands) => answerPrompt(hands, sightOf(target), promptId, decision, reason)),
 	createSession: async (target, workdirHint, resumeSessionId, sessionToken) => {
 		let workdir: string | undefined;
 		if (target.kind === "host") {
@@ -544,6 +557,7 @@ const hostOpRunner = createHostOpRunner({
 // resize=false and priority="derive": never disturb an actively-viewed terminal.
 const presenceScheduler = new PresenceScheduler({
 	peek: (target) => hostOpRunner.peek(target, { resize: false, priority: "derive" }),
+	occurrences: promptOccurrences,
 	report: (team, value) => {
 		if (value)
 			safeSend({
@@ -553,8 +567,16 @@ const presenceScheduler = new PresenceScheduler({
 				needsLogin: value.needsLogin,
 				limitBlocked: value.limitBlocked,
 				...(value.limitDetail ? { limitDetail: value.limitDetail } : {}),
+				...(value.prompt
+					? { prompt: { id: value.prompt.id, title: value.prompt.title, body: value.prompt.body } }
+					: {}),
 			});
 		else safeSend({ type: "presence_derive", team });
+	},
+	onAutoDeny: (target, promptId) => {
+		void withPane(target, (hands) => stopAutoDeny(hands, sightOf(target), promptId)).catch((e) =>
+			console.error("[presence] auto-deny stop failed:", e),
+		);
 	},
 });
 

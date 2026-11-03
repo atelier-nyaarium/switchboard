@@ -103,7 +103,7 @@ describe("presence authority: the status string has one owner", () => {
 	it("keeps the presence fields off Team, where a caller could read them unqualified", () => {
 		const team = code(path.join(ANDROID_SRC, "Team.kt"));
 		expect(team).toMatch(/val presence: Presence/);
-		for (const field of ["status", "working", "needsLogin", "limitBlocked", "limitDetail"]) {
+		for (const field of ["status", "working", "needsLogin", "limitBlocked", "limitDetail", "promptId"]) {
 			expect(team, `Team must not declare its own ${field}`).not.toMatch(
 				new RegExp(`val\\s+${field}\\s*:\\s*(String|Boolean)`),
 			);

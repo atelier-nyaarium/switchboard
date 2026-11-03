@@ -97,6 +97,20 @@ describe("PresenceFacade working/needsLogin", () => {
 		expect(row?.working).toBe(true);
 	});
 
+	it("projects a held prompt as its id, and serves the prompt itself only by promptOf", () => {
+		const { facade } = makeFacade();
+		facade.adoptById("main", { spawn: "proj" });
+		const prompt = { id: "p1", title: "Bash command", body: ["rm -f out/x"] };
+		facade.setWorking("proj.main", { working: false, prompt });
+		const row = facade.snapshot().find((r) => r.team === "proj.main");
+		expect(row?.promptId).toBe("p1");
+		expect(JSON.stringify(row)).not.toContain("rm -f");
+		expect(facade.promptOf("proj.main")).toEqual(prompt);
+		facade.setWorking("proj.main", { working: false });
+		expect(facade.snapshot().find((r) => r.team === "proj.main")?.promptId).toBeUndefined();
+		expect(facade.promptOf("proj.main")).toBeUndefined();
+	});
+
 	it("clearWorkingFor clears only that session, not others", () => {
 		const { facade } = makeFacade();
 		facade.adoptById("a", { spawn: "proj" });

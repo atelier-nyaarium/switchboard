@@ -230,13 +230,16 @@ function statusRegion(lines: string[]): string[] {
 }
 
 /** Where a marker may appear. No value spans both, so a "/login" typed in the composer stays inert. */
-type PaneRegion = "toolbar" | "status";
+export type PaneRegion = "toolbar" | "status";
 
-/** The one place a pane is sliced. A marker names its region and never slices its own. */
-function paneHas(screen: string, marker: RegExp, where: PaneRegion): boolean {
+/** The one place a pane is sliced. Stripped rows of one region. */
+export function paneRegion(screen: string, where: PaneRegion): string[] {
 	const lines = stripAnsi(screen).split("\n");
-	const region = where === "toolbar" ? footerRegion(lines) : statusRegion(lines);
-	return marker.test(region.join("\n"));
+	return where === "toolbar" ? footerRegion(lines) : statusRegion(lines);
+}
+
+function paneHas(screen: string, marker: RegExp, where: PaneRegion): boolean {
+	return marker.test(paneRegion(screen, where).join("\n"));
 }
 
 /** Whether the captured pane shows claude logged out: it prints "Not logged in" / "Run /login" in its

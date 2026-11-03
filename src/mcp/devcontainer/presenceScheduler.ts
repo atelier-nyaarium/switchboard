@@ -1,16 +1,19 @@
 import { isAgentWorking, isLoggedOut, limitNotice } from "../../shared/agent-screen.js";
-import type { HostPeekResult, TmuxTarget } from "../../shared/host-op.js";
+import { type HostPeekResult, paneKey, type TmuxTarget } from "../../shared/host-op.js";
+import { PromptOccurrences, type SeenPrompt, seePrompt } from "./permissionPrompt.js";
+import type { PromptSight } from "./promptAnswer.js";
 
 ////////////////////////////////
 //  Interfaces & Types
 
 export interface DerivedState {
 	working: boolean;
-	/** Holding an unanswered usage-limit dialog. */
 	needsLogin: boolean;
+	/** Holding an unanswered usage-limit dialog. */
 	limitBlocked: boolean;
 	/** Text after the limit headline's middle dot. */
 	limitDetail?: string;
+	prompt?: SeenPrompt;
 }
 
 export interface WatchEntry {
@@ -64,19 +67,26 @@ function sameValue(a: DerivedState, b: DerivedState | undefined): boolean {
 		a.working === b.working &&
 		a.needsLogin === b.needsLogin &&
 		a.limitBlocked === b.limitBlocked &&
-		a.limitDetail === b.limitDetail
+		a.limitDetail === b.limitDetail &&
+		a.prompt?.id === b.prompt?.id &&
+		a.prompt?.autoDeny === b.prompt?.autoDeny
 	);
 }
 
 /** Tmux frames only: boot text in container logs would false-positive. */
-export function deriveFromPeek(peek: HostPeekResult): DerivedState | undefined {
+export function deriveFromPeek(
+	peek: HostPeekResult,
+	sight: PromptSight = (screen) => seePrompt(new PromptOccurrences(), "", screen),
+): DerivedState | undefined {
 	if (peek.kind !== "tmux") return undefined;
 	const limit = limitNotice(peek.ansi);
+	const prompt = sight(peek.ansi);
 	return {
 		working: isAgentWorking(peek.ansi),
 		needsLogin: isLoggedOut(peek.ansi),
 		limitBlocked: limit !== null,
 		...(limit?.detail ? { limitDetail: limit.detail } : {}),
+		...(prompt ? { prompt } : {}),
 	};
 }
 
@@ -84,6 +94,8 @@ export function deriveFromPeek(peek: HostPeekResult): DerivedState | undefined {
 export class PresenceScheduler {
 	private readonly peek: NoResizePeek;
 	private readonly report: (team: string, value: DerivedState | undefined) => void;
+	private readonly onAutoDeny: (target: TmuxTarget, promptId: string) => void;
+	private readonly occurrences: PromptOccurrences;
 	private readonly now: () => number;
 	private readonly watches = new Map<string, WatchEntry>();
 	private readonly watchTokens = new Map<string, symbol>();
@@ -97,10 +109,16 @@ export class PresenceScheduler {
 		peek: NoResizePeek;
 		/** `undefined` means derivation became impossible, not a pending observation. */
 		report: (team: string, value: DerivedState | undefined) => void;
+		/** A confirmed prompt is counting down to a deny. */
+		onAutoDeny?: (target: TmuxTarget, promptId: string) => void;
+		/** Shared with the answer, so both name a prompt alike. */
+		occurrences?: PromptOccurrences;
 		now?: () => number;
 	}) {
 		this.peek = opts.peek;
 		this.report = opts.report;
+		this.onAutoDeny = opts.onAutoDeny ?? (() => {});
+		this.occurrences = opts.occurrences ?? new PromptOccurrences();
 		this.now = opts.now ?? (() => Date.now());
 	}
 
@@ -178,10 +196,14 @@ export class PresenceScheduler {
 			this.consecutiveFailures.set(team, 0);
 			if (this.observedFrames.get(team) === peek) return;
 			this.observedFrames.set(team, peek);
-			const derived = deriveFromPeek(peek);
+			const derived = deriveFromPeek(peek, (screen) =>
+				seePrompt(this.occurrences, paneKey(entry.target), screen),
+			);
 			if (!derived) return; // Logs derive no state.
 			const confirmed = tracker.observe(derived);
-			if (confirmed) this.report(team, confirmed);
+			if (!confirmed) return;
+			this.report(team, confirmed);
+			if (confirmed.prompt?.autoDeny) this.onAutoDeny(entry.target, confirmed.prompt.id);
 		} catch {
 			if (!this.isCurrentWatch(team, token)) return;
 			// One blip retains frame.

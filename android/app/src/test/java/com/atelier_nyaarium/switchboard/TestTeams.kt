@@ -16,6 +16,7 @@ internal fun testTeam(
 	needsLogin: Boolean? = null,
 	limitBlocked: Boolean? = null,
 	limitDetail: String? = null,
+	promptId: String? = null,
 	kind: String = "loose",
 	sessionLabel: String? = null,
 ): Team = Team(
@@ -30,6 +31,7 @@ internal fun testTeam(
 		needsLogin = needsLogin,
 		limitBlocked = limitBlocked,
 		limitDetail = limitDetail,
+		promptId = promptId,
 	),
 	kind = kind,
 	sessionLabel = sessionLabel,

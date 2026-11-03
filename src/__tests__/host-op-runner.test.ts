@@ -13,6 +13,7 @@ function makeOps(): { ops: TmuxOps } {
 		}),
 		sendText: vi.fn(async () => {}),
 		sendKey: vi.fn(async () => {}),
+		answerPrompt: vi.fn(async () => "answered" as const),
 		createSession: vi.fn(async () => {}),
 		reloadPlugins: vi.fn(async () => {}),
 		killSession: vi.fn(async () => {}),
@@ -87,6 +88,23 @@ describe("createHostOpRunner", () => {
 		const op = { kind: "sendKey", target: T, key: "Enter", dedupKey: "conv:op2" } as const;
 		await Promise.all([runner.run(op), runner.run(op)]);
 		expect(h.ops.sendKey).toHaveBeenCalledTimes(1);
+	});
+
+	it("answers a prompt once per dedupKey and replays its outcome", async () => {
+		const h = makeOps();
+		const runner = createHostOpRunner(h.ops);
+		const op = {
+			kind: "answerPrompt",
+			target: T,
+			promptId: "p1",
+			decision: "deny",
+			reason: "no",
+			dedupKey: "c:1",
+		} as const;
+		expect(await runner.run(op)).toEqual({ outcome: "answered" });
+		expect(await runner.run(op)).toEqual({ outcome: "answered" });
+		expect(h.ops.answerPrompt).toHaveBeenCalledTimes(1);
+		expect(h.ops.answerPrompt).toHaveBeenCalledWith(T, "p1", "deny", "no");
 	});
 
 	it("does not dedup sends with different dedupKeys", async () => {
@@ -165,6 +183,7 @@ describe("createHostOpRunner", () => {
 			},
 			sendText: async () => {},
 			sendKey: async () => {},
+			answerPrompt: async () => "stale" as const,
 			createSession: async () => {},
 			reloadPlugins: async () => {},
 			killSession: async () => {},
@@ -197,6 +216,7 @@ describe("createHostOpRunner", () => {
 			},
 			sendText: async () => {},
 			sendKey: async () => {},
+			answerPrompt: async () => "stale" as const,
 			createSession: async () => {},
 			reloadPlugins: async () => {},
 			killSession: async () => {},
@@ -242,6 +262,7 @@ describe("createHostOpRunner peek priority lanes", () => {
 			},
 			sendText: async () => {},
 			sendKey: async () => {},
+			answerPrompt: async () => "stale" as const,
 			createSession: async () => {},
 			reloadPlugins: async () => {},
 			killSession: async () => {},

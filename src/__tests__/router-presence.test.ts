@@ -811,6 +811,7 @@ describe("what the Router states about the owner", () => {
 			needsLogin: false,
 			limitBlocked: true,
 			limitDetail: "resets 5pm",
+			promptId: "d19b7498a40f6baa",
 		};
 		registry.for("domain").put("presence.row", "presence.row:gw/kept.main", null, { clear: kept });
 		const served = service.ownerProjection("domain", projectionDeps).rows;

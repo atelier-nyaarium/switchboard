@@ -7,6 +7,7 @@ import {
 	classifyPeekError,
 	type HostPeekResult,
 	isReservedHostSession,
+	paneKey,
 	type TmuxPeek,
 	type TmuxTarget,
 } from "../../shared/host-op.js";
@@ -145,7 +146,7 @@ function run(argv: string[], timeoutMs = EXEC_TIMEOUT_MS, opts: { mergeStderr?: 
 
 // Keeps text and Enter atomic.
 const sends = createKeyedFifo<string>();
-const targetKey = (t: TmuxTarget): string => `${t.kind}:${t.name}:${t.sessionName}`;
+const targetKey = paneKey;
 
 /** Capture the visible pane with ANSI colors. Derive-only callers pass `resize: false` so they do
  * not fight the terminal view's geometry. */
@@ -234,6 +235,29 @@ export function sendKey(target: TmuxTarget, key: string): Promise<void> {
 		assertNotReservedHostSink(target);
 		if (!ALLOWED_KEYS.has(key)) throw new Error(`disallowed key "${key}"`);
 		await sendKeyRaw(target, key);
+	});
+}
+
+export interface PaneHands {
+	/** The pane, never resized. */
+	read: () => Promise<string>;
+	press: (key: "Up" | "Down" | "Tab" | "Enter") => Promise<void>;
+	type: (text: string) => Promise<void>;
+}
+
+/** Runs `work` holding the pane's send lock, so no other send interleaves. */
+export function withPane<T>(target: TmuxTarget, work: (hands: PaneHands) => Promise<T>): Promise<T> {
+	return sends.run(targetKey(target), async () => {
+		assertNotReservedHostSink(target);
+		return work({
+			read: async () => (await peekPane(target, false)).ansi,
+			press: async (key) => {
+				await sendKeyRaw(target, key);
+			},
+			type: async (text) => {
+				await run(tmuxArgv(target, ["send-keys", "-t", paneTarget(target), "-l", "--", text]));
+			},
+		});
 	});
 }
 

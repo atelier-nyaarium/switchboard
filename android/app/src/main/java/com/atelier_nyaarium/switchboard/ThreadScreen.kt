@@ -111,6 +111,10 @@ internal fun ThreadScreen(
 	onOpenAssistantSend: (String) -> Unit = {},
 	assistantActTile: com.atelier_nyaarium.switchboard.vault.VaultTile? = null,
 	onOpenAssistantAct: (String) -> Unit = {},
+	/** A waiting permission prompt. Holds the tile slot ahead of every tile. */
+	approval: ApprovalView? = null,
+	onApprove: (promptId: String) -> Unit = {},
+	onDeny: (promptId: String, reason: String) -> Unit = { _, _ -> },
 	// (team, at) a queue tile asked to land on, or null. Passed straight through to ThreadWebView.
 	revealAt: Pair<String, Long>?,
 	// Cleared once the reveal has been handed to the renderer. Without it the request stays set and
@@ -426,14 +430,26 @@ internal fun ThreadScreen(
 				)
 			}
 			if (view == ConversationView.CHAT || terminalMode) {
-				vaultTile?.let { tile ->
-					com.atelier_nyaarium.switchboard.vault.VaultRequestTile(tile) { onOpenVaultRequest(tile.requestId) }
-				}
-				assistantSendTile?.let { tile ->
-					com.atelier_nyaarium.switchboard.vault.VaultRequestTile(tile) { onOpenAssistantSend(tile.requestId) }
-				}
-				assistantActTile?.let { tile ->
-					com.atelier_nyaarium.switchboard.vault.VaultRequestTile(tile) { onOpenAssistantAct(tile.requestId) }
+				androidx.compose.animation.AnimatedContent(
+					targetState = approval,
+					contentKey = { it?.promptId },
+					label = "tile slot",
+				) { shown ->
+					if (shown != null) {
+						SessionApprovalPanel(shown, onApprove, onDeny)
+					} else {
+						Column(Modifier.fillMaxWidth()) {
+							vaultTile?.let { tile ->
+								com.atelier_nyaarium.switchboard.vault.VaultRequestTile(tile) { onOpenVaultRequest(tile.requestId) }
+							}
+							assistantSendTile?.let { tile ->
+								com.atelier_nyaarium.switchboard.vault.VaultRequestTile(tile) { onOpenAssistantSend(tile.requestId) }
+							}
+							assistantActTile?.let { tile ->
+								com.atelier_nyaarium.switchboard.vault.VaultRequestTile(tile) { onOpenAssistantAct(tile.requestId) }
+							}
+						}
+					}
 				}
 			}
 			if (view != ConversationView.CHAT && !terminalMode) {
@@ -469,7 +485,8 @@ internal fun ThreadScreen(
 							SessionWord.LIVE, SessionWord.WORKING -> "No messages yet. $label is live."
 							SessionWord.VERIFYING -> "No messages yet. $label is connecting."
 							SessionWord.ENDED -> "This session has ended."
-							SessionWord.LIMIT_HIT, SessionWord.CHECK_TERMINAL, null -> "No messages yet."
+							SessionWord.NEEDS_APPROVAL, SessionWord.LIMIT_HIT, SessionWord.CHECK_TERMINAL, null ->
+								"No messages yet."
 						},
 						style = MaterialTheme.typography.bodyMedium,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,

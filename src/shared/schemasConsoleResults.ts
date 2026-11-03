@@ -219,6 +219,31 @@ export const ConsoleReloadPluginsResultSchema = z
 	})
 	.meta({ id: "ConsoleReloadPluginsResult" });
 
+/** A permission prompt a session is holding. */
+export const SessionPromptSchema = z
+	.object({
+		id: z.string().min(1).max(64),
+		title: z.string().max(512),
+		body: z.array(z.string().max(512)).max(80),
+	})
+	.meta({ id: "SessionPrompt" });
+
+export type SessionPrompt = z.infer<typeof SessionPromptSchema>;
+
+export const ConsoleSessionPromptResultSchema = z
+	.object({
+		// Null when none waits.
+		prompt: SessionPromptSchema.nullable(),
+	})
+	.meta({ id: "ConsoleSessionPromptResult" });
+
+export const ConsoleSessionPromptAnswerResultSchema = z
+	.object({
+		// Stale: another prompt, or none.
+		outcome: z.enum(["answered", "stale"]),
+	})
+	.meta({ id: "ConsoleSessionPromptAnswerResult" });
+
 export const ConsoleForgetResultSchema = z
 	.object({
 		// The session's tmux was torn down and its resume record dropped (idempotent: also true
@@ -417,6 +442,8 @@ export const ConsoleOpResultSchema = z.union([
 	ConsoleTmuxSendResultSchema,
 	ConsoleCreateSessionResultSchema,
 	ConsoleReloadPluginsResultSchema,
+	ConsoleSessionPromptResultSchema,
+	ConsoleSessionPromptAnswerResultSchema,
 	ConsoleForgetResultSchema,
 	ConsoleCloseSessionResultSchema,
 	ConsoleRenameSessionResultSchema,
