@@ -4,12 +4,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -49,7 +52,6 @@ import com.atelier_nyaarium.switchboard.proto.DeviceCandidate
 import com.atelier_nyaarium.switchboard.proto.Integration
 import com.atelier_nyaarium.switchboard.proto.IntegrationDiscovery
 import com.atelier_nyaarium.switchboard.proto.IntegrationNeedKind
-import com.atelier_nyaarium.switchboard.proto.IntegrationSetup
 import com.atelier_nyaarium.switchboard.routines.GrantSecretsSheet
 import com.atelier_nyaarium.switchboard.saidOf
 import com.atelier_nyaarium.switchboard.serviceEntry
@@ -95,50 +97,52 @@ private fun ScanEntryPage(
 	LaunchedEffect(gatewayId, reach) { repo.command { deviceOps.relist(gatewayId) } }
 	val scan = devices.scan
 
-	AssistantPageScaffold(
-		integration.label,
-		onBack,
-		actions = {
-			if (scan == ScanView.Scanning) {
-				CircularProgressIndicator(Modifier.padding(horizontal = 14.dp).size(24.dp))
-			} else {
-				OutlinedButton(onClick = hapticClick { repo.command { deviceOps.scan(gatewayId) } }) { Text("Scan") }
+	AssistantPageScaffold(integration.label, onBack) {
+		Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+			integration.setup?.let { setup ->
+				Button(
+					onClick = hapticClick {
+						repo.command { plugSetupOps.start(gatewayId, setup.networkPrefix) }
+						onSetup()
+					},
+					modifier = Modifier.weight(1f),
+				) {
+					Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+					Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+					Text("New device")
+				}
 			}
-		},
-	) {
+			OutlinedButton(
+				onClick = hapticClick { repo.command { deviceOps.scan(gatewayId) } },
+				enabled = scan != ScanView.Scanning,
+				modifier = Modifier.weight(1f),
+			) {
+				if (scan == ScanView.Scanning) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Scan")
+			}
+		}
 		if (scan is ScanView.Failed) {
 			Text(scan.line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		}
-		val fresh = devices.addable()?.takeIf { it.isNotEmpty() }
-		if (fresh != null) {
-			Text("Found", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			for (candidate in fresh) {
-				CandidateRow(candidate, busy = devices.busy(candidate.mac), said = devices.saidOf(candidate.mac)) {
-					repo.deviceOps.forget(gatewayId, candidate.mac)
-					adding = candidate
-				}
+		val fresh = devices.addable().orEmpty()
+		val paired = (devices.list as? DeviceListView.Listed)?.records.orEmpty().filter { it.driver == integration.id }
+		if (fresh.isNotEmpty() || paired.isNotEmpty()) HorizontalDivider()
+		for (candidate in fresh) {
+			CandidateRow(candidate, busy = devices.busy(candidate.mac), said = devices.saidOf(candidate.mac)) {
+				repo.deviceOps.forget(gatewayId, candidate.mac)
+				adding = candidate
 			}
 		}
-		integration.setup?.let { setup ->
-			if (fresh != null) HorizontalDivider()
-			NewDeviceRow(repo, gatewayId, setup, onSetup)
-		}
-		val paired = (devices.list as? DeviceListView.Listed)?.records.orEmpty().filter { it.driver == integration.id }
-		if (paired.isNotEmpty()) {
-			if (fresh != null || integration.setup != null) HorizontalDivider()
-			Text("Paired", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-			for (record in paired) {
-				Row(
-					Modifier.fillMaxWidth().clickable(onClick = hapticClick { onDevice(record.id) }).padding(vertical = 6.dp),
-					verticalAlignment = Alignment.CenterVertically,
-					horizontalArrangement = Arrangement.spacedBy(8.dp),
-				) {
-					Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-						Text(record.name, style = MaterialTheme.typography.bodyLarge)
-						Text(record.address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-					}
-					Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+		for (record in paired) {
+			Row(
+				Modifier.fillMaxWidth().clickable(onClick = hapticClick { onDevice(record.id) }).padding(vertical = 6.dp),
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.spacedBy(8.dp),
+			) {
+				Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+					Text(record.name, style = MaterialTheme.typography.bodyLarge)
+					Text(record.address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				}
+				Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
 			}
 		}
 	}
@@ -156,22 +160,6 @@ private fun ScanEntryPage(
 				onDismiss = { adding = null },
 			)
 		}
-	}
-}
-
-/** A fresh device in setup mode; the phone's picker finds it. */
-@Composable
-private fun NewDeviceRow(repo: ChatRepository, gatewayId: String, setup: IntegrationSetup, onSetup: () -> Unit) {
-	Row(
-		Modifier.fillMaxWidth().padding(vertical = 6.dp),
-		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
-	) {
-		Text("New device", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-		OutlinedButton(onClick = hapticClick {
-			repo.command { plugSetupOps.start(gatewayId, setup.networkPrefix) }
-			onSetup()
-		}) { Text("Set up") }
 	}
 }
 
