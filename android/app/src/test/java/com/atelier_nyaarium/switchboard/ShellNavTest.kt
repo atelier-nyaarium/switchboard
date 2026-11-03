@@ -73,6 +73,8 @@ class ShellNavTest {
 			AssistantPage.Editor("sakura", "github", RuleSlot.New),
 			AssistantPage.Editor("sakura", "github", RuleSlot.Otherwise),
 			AssistantPage.Integrations,
+			AssistantPage.Add,
+			AssistantPage.Entry("sakura", "kasa"),
 			AssistantPage.Device("sakura", "aa:bb:cc:dd:ee:01"),
 		)
 

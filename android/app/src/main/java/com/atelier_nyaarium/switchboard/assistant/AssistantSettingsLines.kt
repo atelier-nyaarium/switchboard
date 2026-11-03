@@ -1,6 +1,8 @@
 package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.DeviceListView
+import com.atelier_nyaarium.switchboard.integrationCountLine
+import com.atelier_nyaarium.switchboard.proto.AssistantIntegration
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.watcherOn
 import com.atelier_nyaarium.switchboard.watcherTroubled
@@ -24,10 +26,10 @@ internal fun safetyLines(approveEverySend: Boolean?): SettingsLines =
 
 internal const val PLACE_FIRST = "Place the assistant first"
 
-internal fun integrationLines(home: String?, devices: DeviceListView?): SettingsLines = when {
+/** Counts per type; a list that cannot be read is the warning. */
+internal fun integrationLines(home: String?, devices: DeviceListView?, services: List<AssistantIntegration>?): SettingsLines = when {
 	home == null -> SettingsLines(line = PLACE_FIRST)
-	devices is DeviceListView.Listed ->
-		SettingsLines(line = "Plugs: ${devices.records.map { it.name }.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "none"}")
+	devices is DeviceListView.Listed -> SettingsLines(line = integrationCountLine(devices.records, services))
 	devices is DeviceListView.Unavailable -> SettingsLines(warning = devices.line)
 	else -> SettingsLines()
 }

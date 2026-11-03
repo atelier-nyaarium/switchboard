@@ -14,8 +14,6 @@ import kotlin.math.roundToLong
 internal val DAY_INITIALS = listOf("S", "M", "T", "W", "T", "F", "S")
 private val DAY_NAMES = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
 
-internal const val LEGACY_KASA_LINE = "Finds legacy Kasa plugs only"
-
 internal data class ScheduleDraft(val enabled: Boolean, val rules: List<DeviceScheduleRule>) {
 	fun toSchedule() = DeviceSchedule(enabled = enabled, rules = rules)
 
@@ -65,7 +63,7 @@ internal fun clockLine(clock: KasaClock, readAt: Long): String {
 	val plugAt = try {
 		OffsetDateTime.parse(clock.time).toInstant().toEpochMilli()
 	} catch (_: DateTimeParseException) {
-		return "Plug clock: ${clock.time} (${clock.zone})"
+		return "Clock: ${clock.time} (${clock.zone})"
 	}
 	val minutes = ((plugAt - readAt) / 60_000.0).roundToLong()
 	val drift = when {
@@ -73,19 +71,12 @@ internal fun clockLine(clock: KasaClock, readAt: Long): String {
 		abs(minutes) < 120 -> "${abs(minutes)} min ${if (minutes > 0) "ahead" else "behind"}"
 		else -> "${abs(minutes) / 60} h ${if (minutes > 0) "ahead" else "behind"}"
 	}
-	return "Plug clock: $drift (${clock.zone})"
+	return "Clock: $drift (${clock.zone})"
 }
 
 internal fun nameReady(name: String): Boolean = name.trim().let { it.isNotEmpty() && it.length <= 64 }
 
 internal fun renameReady(name: String, record: DeviceRecord): Boolean = nameReady(name) && name.trim() != record.name
-
-internal fun scanButtonText(scan: ScanView): String = when (scan) {
-	ScanView.Idle -> "Scan"
-	ScanView.Scanning -> "Scanning"
-	is ScanView.Failed -> "Retry scan"
-	is ScanView.Found -> "Scan again"
-}
 
 internal fun DeviceListView.retryable(): Boolean = this is DeviceListView.Unavailable
 

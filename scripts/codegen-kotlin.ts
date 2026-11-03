@@ -200,6 +200,16 @@ import {
 } from "../src/shared/schemasDevices.js";
 import { RowRecipientSchema, RowStampSchema } from "../src/shared/schemasInbox.js";
 import {
+	ACT_TIERS,
+	DEVICE_CAPABILITIES,
+	INTEGRATION_DISCOVERIES,
+	INTEGRATION_GROUPS,
+	INTEGRATION_KEYS,
+	INTEGRATION_NEED_KINDS,
+	INTEGRATION_YIELDS,
+	INTEGRATIONS,
+} from "../src/shared/schemasIntegrations.js";
+import {
 	AssistantActRequestSchema,
 	CapabilityGuardSchema,
 	PHONE_CAPABILITIES,
@@ -371,6 +381,9 @@ const PHONE_CAPABILITY_REGISTRY_OUT_PATH =
 		import.meta.dir,
 		"../android/app/src/main/java/com/atelier_nyaarium/switchboard/proto/PhoneCapabilityRegistry.kt",
 	);
+const INTEGRATION_REGISTRY_OUT_PATH =
+	process.env.KOTLIN_INTEGRATION_REGISTRY_OUT ??
+	join(import.meta.dir, "../android/app/src/main/java/com/atelier_nyaarium/switchboard/proto/IntegrationRegistry.kt");
 
 const ROOTS: z.ZodType[] = [
 	RowRecipientSchema,
@@ -1133,6 +1146,82 @@ ${bindings}
 `;
 }
 
+/** An enum in the catalogue's own order. */
+function emitWireEnum(name: string, values: readonly string[]): string {
+	const entries = values.map((value) => `${INDENT}${kotlinConstName(value)}(${kotlinString(value)}),`).join("\n");
+	return `internal enum class ${name}(val wire: String) {\n${entries}\n}`;
+}
+
+function emitIntegrationRegistry(): string {
+	const enumOf = (name: string, value: string) => `${name}.${kotlinConstName(value)}`;
+	const entries = INTEGRATION_KEYS.map((key) => {
+		const entry = INTEGRATIONS[key];
+		const needs = entry.needs
+			.map(
+				(need) =>
+					`IntegrationNeed(${kotlinString(need.key)}, ${enumOf("IntegrationNeedKind", need.kind)}, ${kotlinString(need.label)})`,
+			)
+			.join(", ");
+		const acts = entry.acts
+			.map(
+				(act) =>
+					`IntegrationAct(${kotlinString(act.key)}, ${kotlinString(act.label)}, ${enumOf("ActTier", act.tier)}, ${act.confirm === undefined ? "null" : kotlinString(act.confirm)})`,
+			)
+			.join(", ");
+		const capabilities = entry.capabilities.map((capability) => enumOf("DeviceCapability", capability)).join(", ");
+		return [
+			`${INDENT}${INDENT}Integration(`,
+			`${INDENT}${INDENT}${INDENT}id = ${kotlinString(key)},`,
+			`${INDENT}${INDENT}${INDENT}group = ${enumOf("IntegrationGroup", entry.group)},`,
+			`${INDENT}${INDENT}${INDENT}label = ${kotlinString(entry.label)},`,
+			`${INDENT}${INDENT}${INDENT}blurb = ${kotlinString(entry.blurb)},`,
+			`${INDENT}${INDENT}${INDENT}discovery = ${enumOf("IntegrationDiscovery", entry.discovery)},`,
+			`${INDENT}${INDENT}${INDENT}needs = listOf(${needs}),`,
+			`${INDENT}${INDENT}${INDENT}yields = ${enumOf("IntegrationYield", entry.yields)},`,
+			`${INDENT}${INDENT}${INDENT}capabilities = listOf(${capabilities}),`,
+			`${INDENT}${INDENT}${INDENT}acts = listOf(${acts}),`,
+			`${INDENT}${INDENT}),`,
+		].join("\n");
+	}).join("\n");
+	return `${GENERATED_HEADER}
+
+package com.atelier_nyaarium.switchboard.proto
+
+${emitWireEnum("IntegrationGroup", INTEGRATION_GROUPS)}
+
+${emitWireEnum("IntegrationDiscovery", INTEGRATION_DISCOVERIES)}
+
+${emitWireEnum("IntegrationYield", INTEGRATION_YIELDS)}
+
+${emitWireEnum("IntegrationNeedKind", INTEGRATION_NEED_KINDS)}
+
+${emitWireEnum("DeviceCapability", DEVICE_CAPABILITIES)}
+
+${emitWireEnum("ActTier", ACT_TIERS)}
+
+internal data class IntegrationNeed(val key: String, val kind: IntegrationNeedKind, val label: String)
+
+internal data class IntegrationAct(val key: String, val label: String, val tier: ActTier, val confirm: String?)
+
+internal data class Integration(
+${INDENT}val id: String,
+${INDENT}val group: IntegrationGroup,
+${INDENT}val label: String,
+${INDENT}val blurb: String,
+${INDENT}val discovery: IntegrationDiscovery,
+${INDENT}val needs: List<IntegrationNeed>,
+${INDENT}val yields: IntegrationYield,
+${INDENT}val capabilities: List<DeviceCapability>,
+${INDENT}val acts: List<IntegrationAct>,
+)
+
+internal val INTEGRATIONS: List<Integration> =
+${INDENT}listOf(
+${entries}
+${INDENT})
+`;
+}
+
 const blocks: string[] = [];
 const declared = new Set<string>();
 for (const name of order) {
@@ -1255,10 +1344,14 @@ ${INDENT}const val BOARD_ATTACHMENTS_MAX: Int = ${BOARD_ATTACHMENTS_MAX}
 
 const output = `${[header, ...blocks].join("\n\n")}\n`;
 const phoneCapabilityRegistryOutput = emitPhoneCapabilityRegistry();
+const integrationRegistryOutput = emitIntegrationRegistry();
 
 mkdirSync(dirname(OUT_PATH), { recursive: true });
 writeFileSync(OUT_PATH, output);
 mkdirSync(dirname(PHONE_CAPABILITY_REGISTRY_OUT_PATH), { recursive: true });
 writeFileSync(PHONE_CAPABILITY_REGISTRY_OUT_PATH, phoneCapabilityRegistryOutput);
+mkdirSync(dirname(INTEGRATION_REGISTRY_OUT_PATH), { recursive: true });
+writeFileSync(INTEGRATION_REGISTRY_OUT_PATH, integrationRegistryOutput);
 console.log(`Wrote ${OUT_PATH} (${blocks.length} types + constants).`);
 console.log(`Wrote ${PHONE_CAPABILITY_REGISTRY_OUT_PATH} (phone capability registry).`);
+console.log(`Wrote ${INTEGRATION_REGISTRY_OUT_PATH} (integration registry).`);

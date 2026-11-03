@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -43,27 +44,35 @@ import com.atelier_nyaarium.switchboard.ConfirmDialog
 import com.atelier_nyaarium.switchboard.DAY_INITIALS
 import com.atelier_nyaarium.switchboard.DeviceListView
 import com.atelier_nyaarium.switchboard.DevicesView
-import com.atelier_nyaarium.switchboard.alert
-import com.atelier_nyaarium.switchboard.busy
-import com.atelier_nyaarium.switchboard.detailOf
-import com.atelier_nyaarium.switchboard.detailRetry
-import com.atelier_nyaarium.switchboard.editOf
-import com.atelier_nyaarium.switchboard.liveOf
 import com.atelier_nyaarium.switchboard.ScheduleDraft
+import com.atelier_nyaarium.switchboard.actOffered
+import com.atelier_nyaarium.switchboard.actPut
+import com.atelier_nyaarium.switchboard.alert
+import com.atelier_nyaarium.switchboard.brandLine
+import com.atelier_nyaarium.switchboard.busy
+import com.atelier_nyaarium.switchboard.capabilitiesOf
 import com.atelier_nyaarium.switchboard.clockLine
 import com.atelier_nyaarium.switchboard.daysText
+import com.atelier_nyaarium.switchboard.detailOf
+import com.atelier_nyaarium.switchboard.detailRetry
 import com.atelier_nyaarium.switchboard.deviceRecord
+import com.atelier_nyaarium.switchboard.editOf
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.liveLine
+import com.atelier_nyaarium.switchboard.liveOf
+import com.atelier_nyaarium.switchboard.providerActs
+import com.atelier_nyaarium.switchboard.proto.ActTier
+import com.atelier_nyaarium.switchboard.proto.DeviceCapability
 import com.atelier_nyaarium.switchboard.proto.DeviceRecord
 import com.atelier_nyaarium.switchboard.proto.DeviceSettingPut
 import com.atelier_nyaarium.switchboard.proto.DeviceSettings
+import com.atelier_nyaarium.switchboard.proto.IntegrationAct
 import com.atelier_nyaarium.switchboard.proto.KasaSettingPut
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.renameReady
 import com.atelier_nyaarium.switchboard.retryable
-import com.atelier_nyaarium.switchboard.scheduleDraft
 import com.atelier_nyaarium.switchboard.scheduleBase
+import com.atelier_nyaarium.switchboard.scheduleDraft
 import com.atelier_nyaarium.switchboard.scheduleSavable
 
 private val SCHEDULE_ACTIONS = listOf(
@@ -71,11 +80,7 @@ private val SCHEDULE_ACTIONS = listOf(
 	Protocol.Wire.DeviceScheduleAction.OFF to "Off",
 )
 
-internal const val CLOUD_DISCONNECT_BODY =
-	"The Kasa app, Alexa and Google lose access. Switchboard keeps local control. " +
-		"To undo, set the plug up again in the Kasa app."
-
-/** One plug's controls. */
+/** One device: the generic top, then its brand's section. */
 @Composable
 internal fun AssistantDevicePage(repo: ChatRepository, gatewayId: String, deviceId: String, onBack: () -> Unit) {
 	val views by repo.deviceOps.views.collectAsState()
@@ -87,7 +92,7 @@ internal fun AssistantDevicePage(repo: ChatRepository, gatewayId: String, device
 	LaunchedEffect(gatewayId, deviceId, reach) { open() }
 
 	AssistantPageScaffold(
-		record?.name ?: "Plug",
+		record?.name ?: "Device",
 		onBack,
 		actions = {
 			IconButton(onClick = hapticClick { open() }) { Icon(Icons.Default.Refresh, contentDescription = "Refresh") }
@@ -110,23 +115,29 @@ private fun DeviceBody(repo: ChatRepository, gatewayId: String, record: DeviceRe
 	val live = view.liveOf(record.id)
 	val detail = view.detailOf(record.id)
 	val busy = view.busy(record.id)
+	val capabilities = capabilitiesOf(record)
 	var name by rememberSaveable(record.id) { mutableStateOf(record.name) }
 	val held = view.scheduleDraft(record.id)
 	var picking by remember { mutableStateOf<Int?>(null) }
-	var disconnecting by remember { mutableStateOf(false) }
+	var confirming by remember { mutableStateOf<IntegrationAct?>(null) }
 	var removing by remember { mutableStateOf(false) }
 	val draftEdit = { draft: ScheduleDraft -> repo.deviceOps.editDraft(gatewayId, record.id, draft) }
-
-	view.alert(record.id)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-	Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-		Column(Modifier.weight(1f)) {
-			Text("Power", style = MaterialTheme.typography.bodyLarge)
-			Text(liveLine(live), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-		}
-		PowerControl(live, busy) { on -> repo.command { deviceOps.set(gatewayId, record.id, on) } }
+	val runAct = { act: IntegrationAct ->
+		actPut(act.key)?.let { put -> repo.command { deviceOps.putSetting(gatewayId, record, put) } }
 	}
 
-	HorizontalDivider()
+	view.alert(record.id)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+	if (DeviceCapability.SWITCH in capabilities) {
+		Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+			Column(Modifier.weight(1f)) {
+				Text("Power", style = MaterialTheme.typography.bodyLarge)
+				Text(liveLine(live), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+			}
+			PowerControl(live, busy) { on -> repo.command { deviceOps.set(gatewayId, record.id, on) } }
+		}
+		HorizontalDivider()
+	}
+
 	OutlinedTextField(
 		value = name,
 		onValueChange = { name = it },
@@ -147,39 +158,41 @@ private fun DeviceBody(repo: ChatRepository, gatewayId: String, record: DeviceRe
 			CircularProgressIndicator()
 		}
 	} else {
-		ScheduleSection(
-			held,
-			zone = (detail.settings as? DeviceSettings.Kasa)?.clock?.zone,
-			busy = busy,
-			savable = view.scheduleSavable(record.id),
-			onDiscard = { repo.deviceOps.discardDraft(gatewayId, record.id) }.takeIf { view.editOf(record.id) != null },
-			onChange = draftEdit,
-			onPick = { picking = it },
-			onSave = {
-				val base = view.scheduleBase(record.id) ?: detail.schedule
-				repo.command { deviceOps.putSchedule(gatewayId, record, base, held.toSchedule()) }
-			},
-		)
-		HorizontalDivider()
-		when (val settings = detail.settings) {
-			null -> {
-				Text("Plug settings could not be read", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-				OutlinedButton(onClick = hapticClick(onRetry), enabled = !busy) { Text("Retry") }
-			}
-			is DeviceSettings.Kasa -> KasaSettings(
-				settings,
-				readAt = detail.readAt,
+		if (DeviceCapability.SCHEDULE in capabilities) {
+			ScheduleSection(
+				held,
+				zone = (detail.settings as? DeviceSettings.Kasa)?.clock?.zone,
 				busy = busy,
-				onLed = { on ->
-					repo.command { deviceOps.putSetting(gatewayId, record, DeviceSettingPut.Kasa(KasaSettingPut.Led(on))) }
+				savable = view.scheduleSavable(record.id),
+				onDiscard = { repo.deviceOps.discardDraft(gatewayId, record.id) }.takeIf { view.editOf(record.id) != null },
+				onChange = draftEdit,
+				onPick = { picking = it },
+				onSave = {
+					val base = view.scheduleBase(record.id) ?: detail.schedule
+					repo.command { deviceOps.putSchedule(gatewayId, record, base, held.toSchedule()) }
 				},
-				onDisconnect = { disconnecting = true },
 			)
+			HorizontalDivider()
 		}
+		ProviderSection(
+			title = brandLine(record),
+			capabilities = capabilities,
+			acts = providerActs(record),
+			settings = detail.settings,
+			readAt = detail.readAt,
+			busy = busy,
+			onRetry = onRetry,
+			onLed = { on -> repo.command { deviceOps.putSetting(gatewayId, record, DeviceSettingPut.Kasa(KasaSettingPut.Led(on))) } },
+			onAct = { act -> if (act.tier == ActTier.DANGER) confirming = act else runAct(act) },
+		)
 	}
 
 	HorizontalDivider()
-	TextButton(onClick = hapticClick { removing = true }, enabled = !busy) { Text("Remove plug") }
+	OutlinedButton(
+		onClick = hapticClick { removing = true },
+		enabled = !busy,
+		colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+	) { Text("Remove device") }
 
 	picking?.let { index ->
 		val rule = held?.rules?.getOrNull(index)
@@ -194,23 +207,22 @@ private fun DeviceBody(repo: ChatRepository, gatewayId: String, record: DeviceRe
 			)
 		}
 	}
-	if (disconnecting) {
+	confirming?.let { act ->
 		ConfirmDialog(
-			title = "Disconnect from the Kasa cloud?",
-			body = CLOUD_DISCONNECT_BODY,
-			confirmText = "Disconnect",
+			title = "${act.label}?",
+			body = act.confirm ?: "",
+			confirmText = act.label.substringBefore(' '),
 			onConfirm = {
-				disconnecting = false
-				val put = DeviceSettingPut.Kasa(KasaSettingPut.Cloud(Protocol.Wire.DeviceCloudState.DISCONNECTED))
-				repo.command { deviceOps.putSetting(gatewayId, record, put) }
+				confirming = null
+				runAct(act)
 			},
-			onDismiss = { disconnecting = false },
+			onDismiss = { confirming = null },
 		)
 	}
 	if (removing) {
 		ConfirmDialog(
 			title = "Remove ${record.name}?",
-			body = "Switchboard stops controlling this plug. Its own schedule stays on the plug.",
+			body = "Switchboard stops controlling it. Its own schedule stays on the device.",
 			confirmText = "Remove",
 			onConfirm = {
 				removing = false
@@ -289,28 +301,54 @@ private fun ScheduleSection(
 	}
 }
 
+/** The brand's section: one renderer per declared capability. */
 @Composable
-private fun KasaSettings(
-	settings: DeviceSettings.Kasa,
+private fun ProviderSection(
+	title: String,
+	capabilities: List<DeviceCapability>,
+	acts: List<IntegrationAct>,
+	settings: DeviceSettings?,
 	readAt: Long,
 	busy: Boolean,
+	onRetry: () -> Unit,
 	onLed: (Boolean) -> Unit,
-	onDisconnect: () -> Unit,
+	onAct: (IntegrationAct) -> Unit,
 ) {
-	Text("Plug settings", style = MaterialTheme.typography.labelLarge)
-	Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-		Text("Status light", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-		Switch(checked = settings.led, onCheckedChange = onLed, enabled = !busy)
+	val drawn = capabilities.filter { it != DeviceCapability.SWITCH && it != DeviceCapability.SCHEDULE }
+	if (drawn.isEmpty()) return
+	Text(title, style = MaterialTheme.typography.labelLarge)
+	val kasa = settings as? DeviceSettings.Kasa
+	if (kasa == null) {
+		Text("Settings could not be read", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+		OutlinedButton(onClick = hapticClick(onRetry), enabled = !busy) { Text("Retry") }
+		return
 	}
-	Text(
-		clockLine(settings.clock, readAt),
-		style = MaterialTheme.typography.bodySmall,
-		color = MaterialTheme.colorScheme.onSurfaceVariant,
-	)
-	if (settings.cloud == Protocol.Wire.DeviceCloudState.BOUND) {
-		Text("Kasa cloud: connected", style = MaterialTheme.typography.bodyMedium)
-		OutlinedButton(onClick = hapticClick(onDisconnect), enabled = !busy) { Text("Disconnect from the cloud") }
-	} else {
-		Text("Kasa cloud: disconnected; local only", style = MaterialTheme.typography.bodyMedium)
+	for (capability in drawn) {
+		when (capability) {
+			DeviceCapability.SWITCH, DeviceCapability.SCHEDULE -> Unit
+			DeviceCapability.LED -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+				Text("Status light", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+				Switch(checked = kasa.led, onCheckedChange = onLed, enabled = !busy)
+			}
+			DeviceCapability.CLOCK -> Text(
+				clockLine(kasa.clock, readAt),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			DeviceCapability.CLOUD -> {
+				val bound = kasa.cloud == Protocol.Wire.DeviceCloudState.BOUND
+				Text(if (bound) "Cloud: connected" else "Cloud: disconnected; local only", style = MaterialTheme.typography.bodyMedium)
+			}
+		}
 	}
+	for (act in acts.filter { actOffered(it.key, settings) }) ActButton(act, busy) { onAct(act) }
+}
+
+@Composable
+private fun ActButton(act: IntegrationAct, busy: Boolean, onClick: () -> Unit) {
+	val colors = when (act.tier) {
+		ActTier.ACT -> ButtonDefaults.outlinedButtonColors()
+		ActTier.DANGER -> ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+	}
+	OutlinedButton(onClick = hapticClick(onClick), enabled = !busy, colors = colors) { Text(act.label) }
 }

@@ -10,6 +10,8 @@ import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldValue
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReadResult
+import com.atelier_nyaarium.switchboard.proto.AssistantIntegration
+import com.atelier_nyaarium.switchboard.proto.INTEGRATIONS
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
@@ -430,6 +432,8 @@ internal class SandboxAssistantGateway : AssistantGateway {
 		watchers = watchers(),
 		approveEverySend = approveEverySend,
 		checkIns = true,
+		integrations = listOf(AssistantIntegration(id = "ifttt", label = "IFTTT", grants = grants["ifttt"].orEmpty())),
+		offered = INTEGRATIONS.map { it.id },
 	)
 
 	override suspend fun call(gatewayId: String, op: ConsoleOp): AssistantAnswer {

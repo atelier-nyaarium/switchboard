@@ -452,9 +452,9 @@ describe("the assistant's session", () => {
 		const released = test.assistant.console.state().integrations;
 		await stopped(test.assistant, ambient);
 
-		expect(granted).toEqual([{ id: "ifttt", label: "IFTTT webhook", grants: ["hook-key"] }]);
+		expect(granted).toEqual([{ id: "ifttt", label: "IFTTT", grants: ["hook-key"] }]);
 		expect(carried).toEqual(granted);
-		expect(released).toEqual([{ id: "ifttt", label: "IFTTT webhook", grants: [] }]);
+		expect(released).toEqual([{ id: "ifttt", label: "IFTTT", grants: [] }]);
 	});
 
 	it("asks GitHub only after a secret is granted", async () => {

@@ -47,10 +47,10 @@ class DeviceRulesTest {
 	fun `the plug clock reads as drift from the read instant`() {
 		val readAt = OffsetDateTime.parse("2026-11-02T18:00:00-08:00").toInstant().toEpochMilli()
 		fun line(time: String) = clockLine(KasaClock(time = time, zone = "PST8PDT"), readAt)
-		assertEquals("Plug clock: in sync (PST8PDT)", line("2026-11-02T18:00:20-08:00"))
-		assertEquals("Plug clock: 4 min ahead (PST8PDT)", line("2026-11-02T18:03:59-08:00"))
-		assertEquals("Plug clock: 3 h behind (PST8PDT)", line("2026-11-02T15:00:00-08:00"))
-		assertEquals("Plug clock: in sync (PST8PDT)", line("2026-11-03T02:00:00Z"))
+		assertEquals("Clock: in sync (PST8PDT)", line("2026-11-02T18:00:20-08:00"))
+		assertEquals("Clock: 4 min ahead (PST8PDT)", line("2026-11-02T18:03:59-08:00"))
+		assertEquals("Clock: 3 h behind (PST8PDT)", line("2026-11-02T15:00:00-08:00"))
+		assertEquals("Clock: in sync (PST8PDT)", line("2026-11-03T02:00:00Z"))
 	}
 
 	@Test

@@ -8,12 +8,14 @@ import {
 	AssistantUnexpectedValuesSchema,
 	AssistantWatcherRulesSchema,
 } from "./schemasAssistantRules.js";
+import { SERVICE_KEYS } from "./schemasIntegrations.js";
 
 const AssistantWatcherBackoffSchema = z
 	.object({ until: z.number().int(), reason: z.string() })
 	.meta({ id: "AssistantWatcherBackoff" });
 
-export const INTEGRATION_IDS = ["ifttt"] as const;
+/** Grant-bearing services. */
+export const INTEGRATION_IDS = SERVICE_KEYS;
 
 export const IntegrationSchema = z
 	.object({
@@ -75,6 +77,9 @@ export const ConsoleAssistantStateResultSchema = z
 		checkIns: z.boolean().optional(),
 		// Required starting 2026-11-15.
 		integrations: z.array(IntegrationSchema).optional(),
+		/** Catalogue ids this Gateway serves. */
+		// Required starting 2026-11-20.
+		offered: z.array(z.string().min(1).max(64)).max(64).optional(),
 	})
 	.meta({ id: "ConsoleAssistantStateResult" });
 

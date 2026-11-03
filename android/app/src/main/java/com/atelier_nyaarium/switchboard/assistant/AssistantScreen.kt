@@ -126,7 +126,31 @@ internal fun AssistantPageHost(
 		AssistantPage.Watchers ->
 			AssistantWatchersPage(state, home, onWatcher = { g, w -> onPage(AssistantPage.Watcher(g, w)) }, onBack)
 		AssistantPage.Integrations ->
-			AssistantIntegrationsPage(repo, state, home, onDevice = { g, d -> onPage(AssistantPage.Device(g, d)) }, onBack)
+			AssistantIntegrationsPage(
+				repo,
+				state,
+				home,
+				onAdd = { onPage(AssistantPage.Add) },
+				onDevice = { g, d -> onPage(AssistantPage.Device(g, d)) },
+				onService = { g, s -> onPage(AssistantPage.Entry(g, s)) },
+				onBack,
+			)
+		AssistantPage.Add ->
+			if (home == null) {
+				AssistantPageScaffold("Add", onBack) { Text(PLACE_FIRST, style = MaterialTheme.typography.bodyLarge) }
+			} else {
+				IntegrationAddPage(state, home, onEntry = { g, id -> onPage(AssistantPage.Entry(g, id)) }, onBack)
+			}
+		is AssistantPage.Entry ->
+			IntegrationEntryPage(
+				repo,
+				state,
+				page.gatewayId,
+				page.integrationId,
+				onDevice = { onPage(AssistantPage.Device(page.gatewayId, it)) },
+				onAdded = { onPage(AssistantPage.Integrations) },
+				onBack,
+			)
 		is AssistantPage.Device -> AssistantDevicePage(repo, page.gatewayId, page.deviceId, onBack)
 		is AssistantPage.Watcher -> {
 			val watcher = watcherIn(state.gateways.assistantOn(page.gatewayId), page.watcherId)
@@ -364,7 +388,7 @@ private fun AssistantSettingsIndex(
 				AssistantSection.WATCHERS ->
 					SettingsRow("Watchers", watcherLines(homeState?.watchers.orEmpty())) { onPage(AssistantPage.Watchers) }
 				AssistantSection.INTEGRATIONS ->
-					SettingsRow("Integrations", integrationLines(home, home?.let { deviceViews[it]?.list })) {
+					SettingsRow("Integrations", integrationLines(home, home?.let { deviceViews[it]?.list }, homeState?.integrations)) {
 						onPage(AssistantPage.Integrations)
 					}
 				AssistantSection.REMOVE -> SettingsRow("Remove assistant", SettingsLines(line = REMOVE_LINE)) { removing = true }

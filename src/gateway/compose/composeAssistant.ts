@@ -33,6 +33,7 @@ import {
 	ruleMatches,
 } from "../../shared/schemasAssistantRules.js";
 import type { AssistantSendRequest } from "../../shared/schemasAssistantSend.js";
+import { IFTTT_INTEGRATION_ID, INTEGRATION_KEYS, integrationLabel } from "../../shared/schemasIntegrations.js";
 import type { GatewayCapabilityRuns } from "../../shared/schemasPhoneCapabilities.js";
 import type { PhoneHoldPlane } from "../../shared/schemasPhoneHold.js";
 import { type BaselineHold, holdLine, type SessionBaseline } from "../../shared/session-baseline.js";
@@ -524,7 +525,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	const ifttt = createIftttClient({
 		fetch: deps.fetch,
 		vault: {
-			entryId: () => deps.vault.watcherGrants(INTEGRATION_IDS[0])[0],
+			entryId: () => deps.vault.watcherGrants(IFTTT_INTEGRATION_ID)[0],
 			readForWatcher: (watcherId, entryId) => deps.vault.readForWatcher(watcherId, entryId),
 		},
 		ambient,
@@ -590,9 +591,10 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			watchers: watchers.map(watcherOf),
 			integrations: INTEGRATION_IDS.map((id) => ({
 				id,
-				label: "IFTTT webhook",
+				label: integrationLabel(id),
 				grants: deps.vault.watcherGrants(id),
 			})),
+			offered: INTEGRATION_KEYS,
 			approveEverySend: safety.approveEverySend(),
 			checkIns: true,
 		};

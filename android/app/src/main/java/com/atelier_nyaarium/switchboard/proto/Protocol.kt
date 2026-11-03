@@ -1861,6 +1861,7 @@ data class ConsoleAssistantStateResult(
 	val approveEverySend: Boolean? = null,
 	val checkIns: Boolean? = null,
 	val integrations: List<AssistantIntegration>? = null,
+	val offered: List<String>? = null,
 )
 
 @Serializable

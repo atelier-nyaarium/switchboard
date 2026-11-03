@@ -1,11 +1,11 @@
 import { type Ambient, type Linked, linkedSignal } from "../../shared/ambient.js";
-import { INTEGRATION_IDS } from "../../shared/schemasAssistant.js";
+import { IFTTT_INTEGRATION_ID } from "../../shared/schemasIntegrations.js";
 import type { IftttTriggerAnswer, IftttTriggerRequest } from "../../shared/schemasPhoneCapabilities.js";
 import type { VaultRelease } from "../vault/vaultUse.js";
 import { GatewayCapabilityRefusal } from "./gatewayCapabilityRefusal.js";
 import { ASSISTANT_WAITS } from "./waits.js";
 
-const INTEGRATION_ID = INTEGRATION_IDS[0];
+const INTEGRATION_ID = IFTTT_INTEGRATION_ID;
 const TIMEOUT = "ifttt request timed out";
 
 interface IftttClientDeps {

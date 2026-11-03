@@ -457,13 +457,31 @@ Two facts told back: the local protocol can unbind the plug from its account and
 - ✅ Light switched off and on by the assistant: `devices`, then `device_set` off and on by id, each answer typed.
 - ✅ A daily 18:00 on rule saved from the device page, read back on the plug and on the page after a refresh, then deleted and the empty list read back.
 - ✅ Docs: `docs/devices.md`, the scan op in `docs/architecture.md`, the fake plug in `docs/testing.md`, the map lines in AGENTS.md.
-- Owner: the second plug plugged in and scanned; DHCP reservations; Light moved to its reserved address and re-matched by a scan; the cloud disconnect on Light, confirmed lost in the Kasa app, then the recovery text tried.
+- ✅ On-Air Sign scanned and paired: HS103(US), hardware 3.0, firmware 1.0.3 Build 200804, legacy XOR on TCP 9999; live state matches the plug.
+- Owner: DHCP reservations; Light moved to its reserved address and re-matched by a scan; the cloud disconnect on Light, confirmed lost in the Kasa app, then the recovery text tried.
 
 **Rollout order,** reader first: the host daemon restarts with the scan op; the plugin updates and the assistant's MCP restarts on it, so its parser knows `unreachable` before any Gateway emits it; then the Gateway deploys, and only then the phone, since Phase 2.5b ships the device reader and sender in one APK and no older phone sends a device op. The Router needs nothing: a device op rides `gateway_value` sealed. Part 1 ships dormant: the listing shows `devices` and `device_set`, and `devices` answers an empty inventory until a plug is paired. No instructions release follows, since the listing carries the rules.
 
 ### Audit (six Luna angles, lap 1)
 
 Folded in above: the rollout order, the operation context and the unknown-outcome timeout, the revision contract and address refresh, the separate `device_read`, the MAC check before every command, the Kasa schedule mapping and the clock and cloud settings, the typed target and the name rule for `device_set`, the read and act split, the authoritative `devices` and its instructions, the closed scan op and its failure states, the restore rules, the page lifecycle and the switch's pending states, the picker extraction and the plug's zone, the sandbox fake, the recovery text, the fake plug's cases and the gate lessons, and the dormant backend. Not taken: a KLAP driver, until a real plug needs one; scanning 20002, since the driver could not serve what it finds; an ACL on the plug's LAN side, which Question 10 settled.
+
+## Phase 2.5d - The catalogue
+
+The owner's UX critique of 2.5b on the Pixel, mocked in the Designer dock and settled there:
+
+- Integrations is two sections, Devices then Services, each drawn only once it has a member, and an Add button in the bar. The loose Scan, "No plugs paired" and "Finds legacy Kasa plugs only" go.
+- Add is a full page: a search field, then the catalogue in groups, Protocols, Services, Brands, in that order. Tapping an entry opens its page.
+- An entry's page is decided by how it is discovered. A scan entry (Kasa) has Scan in the bar, a spinner while it runs, Found with Add per row, and Paired rows that open the device page. A service entry (IFTTT) is a form of what it needs, one secret from the vault; granting it adds the service, and the same page serves the added service with Remove.
+- A device row is its name, the brand on the line under, and a trouble line below that only when there is trouble; the switch alone says the state. Tapping the row opens the device page.
+- The device page: Power, Name with Rename, the plug's Schedule, then a section titled by the brand (status light, clock, cloud), then Remove device. The cloud disconnect and Remove device are red buttons behind a confirmation.
+- The settings index line counts per type, trouble first: "2 plugs · 1 service".
+
+### Progress
+
+- Foundations cut in one pass: the catalogue, its codegen and gate, `offered`, the phone's rules and pages, the device page's brand section, counts per type, docs. All gates green. Pending: the Luna audit, the commit, and the Pixel walk when the owner is back (no phone pushes tonight).
+
+The structure, from the NyaaDot and evie-bot reads: declare each integration once in TS (`src/shared/schemasIntegrations.ts`: group, label, blurb, discovery, needs, yields, capabilities, acts with a tier), generate the phone's `IntegrationRegistry.kt` from it as Kotlin enums and a list, so a group, a discovery mode, a need kind or a capability the phone cannot draw fails to compile. The Gateway answers the catalogue ids it serves (`offered` on the assistant state), so an older Gateway hides an entry rather than showing a dead page. Per-capability sections stay hand-written, one `when` branch each over the generated enum. A generic schema-to-form renderer is deferred until a provider arrives with a real settings surface. Device drivers and service ids derive from the catalogue, not from hand lists.
 
 ## Phase 3 - Acceptance and docs ✅ (owner's QA pending)
 

@@ -257,6 +257,24 @@ class AssistantRootTest {
 	}
 
 	@Test
+	fun anEntryPageStaysWhileUnansweredAndUnwindsToAddOnceTheGatewayStopsOfferingIt() {
+		val entry = AssistantPage.Entry("sakura", "kasa")
+		val placed = placedOn("sakura")
+		val offersIfttt = placed.withWord(
+			"sakura",
+			AssistantWord.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = emptyList(), offered = listOf("ifttt"))),
+		)
+
+		assertEquals(entry, entry.resolved(placed))
+		assertEquals(entry, entry.resolved(placed.withWord("sakura", null)))
+		assertEquals(AssistantPage.Add, entry.resolved(offersIfttt))
+		assertEquals(AssistantPage.Add, AssistantPage.Entry("sakura", "zigbee").resolved(placed))
+		assertEquals(AssistantPage.Integrations, entry.resolved(placedOn("mikan", "sakura")))
+		assertEquals(AssistantPage.Add, assistantPageBack(entry))
+		assertEquals(AssistantPage.Integrations, assistantPageBack(AssistantPage.Add))
+	}
+
+	@Test
 	fun aWatcherPageStaysWhileItsGatewayIsUnansweredAndUnwindsWhenTheWatcherIsGone() {
 		val rules = AssistantPage.Rules("sakura", "github")
 		val placed = placedOn("sakura")
