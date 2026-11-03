@@ -56,6 +56,8 @@ const WORKING_HINT_RE = /· esc/u;
  * looser rule would read them as this session working.
  */
 const WORKING_STATUS_RE = /\(\d+[hms][^()]*tokens\)/u;
+// Unfinished workflow row.
+const WORKFLOW_BAR_RE = /◯[^\n]*?(?=[▰▱]{3,})[▰▱]*▱/u;
 
 /**
  * How far above the composer's top rule the status line may sit.
@@ -187,17 +189,16 @@ export function isAgentReady(screen: string): boolean {
 		});
 }
 
-/** Whether a captured pane shows claude actively working a turn: either the "esc to interrupt" hint
- * or a task-bullet ("◯ <name>", a queued/in-progress plan or task item) sits in the bottom status
- * line. The footer's height is dynamic (terminal width/wrapping), so a fixed line count is wrong in
- * general - bound the search by the actual rule instead, same as isLoggedOut. Falls back to the last
- * two lines only when no rule is present at all (a malformed/partial capture): with no boundary to
- * anchor on, that stays the safer guess over treating the whole screen as fair game, which risks
- * matching a stray "esc" sitting in scrollback/transcript text above. The Kotlin twin lives in
- * AgentScreen.kt. */
+/** Whether a captured pane shows claude working: the "esc to interrupt" hint or an unfinished
+ * workflow row below the last rule, or a running turn's status line above the composer. The Kotlin
+ * twin lives in AgentScreen.kt. */
 export function isAgentWorking(screen: string): boolean {
 	// Not one alternation over both slices: each marker is only safe in its own.
-	return paneHas(screen, WORKING_HINT_RE, "toolbar") || paneHas(screen, WORKING_STATUS_RE, "status");
+	return (
+		paneHas(screen, WORKING_HINT_RE, "toolbar") ||
+		paneHas(screen, WORKING_STATUS_RE, "status") ||
+		paneHas(screen, WORKFLOW_BAR_RE, "toolbar")
+	);
 }
 
 /**

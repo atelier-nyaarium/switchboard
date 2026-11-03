@@ -528,6 +528,17 @@ describe("tmuxCore isAgentWorking", () => {
 		expect(isAgentWorking(`❯ \n${rule}\n  ◯ phase2-chain  Repo… 8m 18s · ↓ 244.9k tokens`)).toBe(false);
 	});
 
+	it("reads only an unfinished workflow row below the toolbar as working", () => {
+		const rule = "─".repeat(40);
+		const pane = (row: string) => `❯ \n${rule}\n  ⏵⏵ bypass permissions on\n\n${row}`;
+		expect(isAgentWorking(pane("  ◯ red-team  ▰▰▰▱▱▱  3/6 · 9s"))).toBe(true);
+		expect(isAgentWorking(pane("  ◯ red-team  ▱▱▱▱▱▱  0/6 · 0s"))).toBe(true);
+		expect(isAgentWorking(pane("  ◯ red-team  ▰▰▰▰▰▰  6/6"))).toBe(false);
+		// A meter that is not a workflow row.
+		expect(isAgentWorking(pane("  ctx ▰▰▱▱▱▱ 31%"))).toBe(false);
+		expect(isAgentWorking(`  ◯ red-team  ▱▱▱▱▱▱\n${rule}\n❯ `)).toBe(false);
+	});
+
 	/**
 	 * The status line a running turn draws ABOVE the composer, which is where the CLI puts it now.
 	 *

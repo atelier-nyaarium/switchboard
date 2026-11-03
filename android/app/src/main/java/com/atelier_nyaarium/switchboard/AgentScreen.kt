@@ -6,10 +6,8 @@ package com.atelier_nyaarium.switchboard
  * which is where the constants to compare against live.
  * isReady: the REPL composer prompt (U+276F) sits at column 0; the dev-channels / folder-trust /
  * resume-picker menus show an indented cursor, so the line-start anchor matches only the real
- * composer. isWorking: either the "esc to interrupt" hint or a U+25EF task-bullet ("◯ <name>", a
- * queued/in-progress plan or task item) sits in the bottom status line, bounded by searching
- * everything below the last U+2500 rule line rather than a fixed line count, since the footer's
- * height is dynamic (terminal width/wrapping).
+ * composer. isWorking: the "esc to interrupt" hint or an unfinished workflow bar below the last
+ * U+2500 rule, or a running turn's status line above the composer.
  * isLoggedOut: the bottom toolbar (below the composer's lower
  * rule of U+2500 dashes) prints "Not
  * logged in" / "Run /login"; checked separately since a logged-out session still shows a composer,
@@ -33,6 +31,9 @@ object AgentScreen {
 	// load-bearing - a sub-agent list draws rows with the same duration-and-token run WITHOUT the
 	// parentheses, below the toolbar, and a looser rule reads those as this session working.
 	private val workingStatusRe = Regex("""\(\d+[hms][^()]*tokens\)""")
+
+	// Unfinished workflow row.
+	private val workflowBarRe = Regex("\\u25EF[^\\n]*?(?=[\\u25B0\\u25B1]{3,})[\\u25B0\\u25B1]*\\u25B1")
 
 	// How far above the composer's top rule that status line may sit. Observed immediately above it;
 	// the extra slack is deliberate, against a layout that shifts again. Bounded because unbounded
@@ -145,7 +146,8 @@ object AgentScreen {
 	fun isWorking(screen: String): Boolean {
 		// Not one alternation over both slices: each marker is only safe in its own.
 		return paneHas(screen, workingHintRe, PaneRegion.TOOLBAR) ||
-			paneHas(screen, workingStatusRe, PaneRegion.STATUS)
+			paneHas(screen, workingStatusRe, PaneRegion.STATUS) ||
+			paneHas(screen, workflowBarRe, PaneRegion.TOOLBAR)
 	}
 
 	/**
