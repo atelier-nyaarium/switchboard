@@ -16,6 +16,7 @@ class PlugSetupOpsTest {
 		var declines = false
 		var stored = SetupMemory(ssid = "Home", wifiEntry = "wifi-key")
 		var onNetwork = false
+		var onboarding = false
 
 		override suspend fun join(networkPrefix: String): PlugLink? {
 			joins += 1
@@ -26,8 +27,14 @@ class PlugSetupOpsTest {
 					return when {
 						json.contains("get_sysinfo") ->
 							"""{"system":{"get_sysinfo":{"mac":"$mac","model":"HS103(US)","alias":"","err_code":0}}}"""
+						json.contains("softaponboarding") ->
+							if (onboarding) {
+								"""{"smartlife.iot.common.softaponboarding":{"get_scaninfo":{"ap_list":[{"ssid":"Far","key_type":3,"rssi":-85},{"ssid":"Home","key_type":3,"rssi":-50}],"err_code":0}}}"""
+							} else {
+								"""{"smartlife.iot.common.softaponboarding":{"err_code":-1,"err_msg":"module not support"}}"""
+							}
 						json.contains("get_scaninfo") ->
-							"""{"netif":{"get_scaninfo":{"ap_list":[{"ssid":"Far","key_type":3,"rssi":-85},{"ssid":"Home","key_type":3,"rssi":-50},{"ssid":"","key_type":0,"rssi":-30}],"err_code":0}}}"""
+							"""{"netif":{"get_scaninfo":{"ap_list":[{"ssid":"Far","key_type":3},{"ssid":"Home","key_type":3},{"ssid":"","key_type":0}],"err_code":0}}}"""
 						json.contains("set_stainfo") -> {
 							onNetwork = json.contains("\"password\":\"$goodPassword\"")
 							"""{"netif":{"set_stainfo":{"err_code":0}}}"""
@@ -65,6 +72,8 @@ class PlugSetupOpsTest {
 			paired = true
 			return true
 		}
+
+		override fun pairedName(gatewayId: String, mac: String): String? = "On-Air Sign".takeIf { paired }
 	}
 
 	private fun ops(plug: FakePlug, gateway: SetupGateway) = PlugSetupOps(plug, gateway, waitMs = 5L, gatewayEveryMs = 1L)
@@ -82,9 +91,10 @@ class PlugSetupOpsTest {
 
 		assertEquals(SetupStage.READY, ready.stage)
 		assertEquals("84:d8:1b:00:2b:0b", ready.plug?.mac)
-		assertEquals(listOf("Home", "Far"), ready.homes.map { it.ssid })
+		assertEquals(listOf("Far", "Home"), ready.homes.map { it.ssid })
+		assertEquals(listOf(null, null), ready.homes.map { it.signal })
 		assertEquals("Home", ready.home?.ssid)
-		assertEquals("HS103(US)", ready.name)
+		assertEquals("", ready.name)
 		assertEquals(SetupStage.DONE, done.stage)
 		assertEquals("84:d8:1b:00:2b:0b", done.deviceId)
 		assertEquals(listOf("84:d8:1b:00:2b:0b" to "On-Air Sign"), gateway.added)
@@ -127,16 +137,32 @@ class PlugSetupOpsTest {
 	}
 
 	@Test
-	fun `a plug already paired is re-matched rather than added again`() = runBlocking {
+	fun `a plug already paired keeps its paired name and is re-matched rather than added again`() = runBlocking {
 		val plug = FakePlug()
 		val gateway = FakeGateway(plug, paired = true)
 		val setup = ops(plug, gateway)
 
 		setup.start("sakura", prefix)
+		val ready = setup.view.value!!
 		setup.hand("Sign", "right", null)
 
+		assertEquals("On-Air Sign", ready.name)
 		assertEquals(SetupStage.DONE, setup.view.value?.stage)
 		assertTrue(gateway.added.isEmpty())
+	}
+
+	@Test
+	fun `a plug that reports signal lists its networks strongest first, in three bars`() = runBlocking {
+		val plug = FakePlug().apply { onboarding = true }
+		val setup = ops(plug, FakeGateway(plug))
+
+		setup.start("sakura", prefix)
+		val homes = setup.view.value!!.homes
+
+		assertEquals(listOf("Home" to 3, "Far" to 1), homes.map { it.ssid to signalBars(it.signal) })
+		assertEquals(listOf(3, 2, 1, null), listOf(-55, -70, -90, null).map(::signalBars))
+		assertEquals("", setupName(PlugFacts("aa", "HS103(US)", "TP-LINK_Smart Plug_2B0B"), null, prefix))
+		assertEquals("Lamp", setupName(PlugFacts("aa", "HS103(US)", "Lamp"), null, prefix))
 	}
 
 	@Test

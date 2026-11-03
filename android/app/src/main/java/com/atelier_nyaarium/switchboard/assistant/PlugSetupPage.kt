@@ -5,7 +5,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -32,14 +35,18 @@ import androidx.fragment.app.FragmentActivity
 import com.atelier_nyaarium.switchboard.ChatRepository
 import com.atelier_nyaarium.switchboard.SetupRun
 import com.atelier_nyaarium.switchboard.SetupStage
+import com.atelier_nyaarium.switchboard.SignalBars
 import com.atelier_nyaarium.switchboard.WifiSight
 import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.signalBars
 import com.atelier_nyaarium.switchboard.nameReady
 import com.atelier_nyaarium.switchboard.routines.GrantSecretsSheet
 import com.atelier_nyaarium.switchboard.setupPassword
 import com.atelier_nyaarium.switchboard.vault.grantableOn
 import com.atelier_nyaarium.switchboard.wifiSight
 import kotlinx.coroutines.launch
+
+private val WIFI_LIST_HEIGHT = 240.dp
 
 /** Hands a fresh plug the home WiFi, then waits for it there. */
 @Composable
@@ -112,13 +119,16 @@ private fun ReadyStep(repo: ChatRepository, run: SetupRun) {
 		if (sight != WifiSight.Unknown && !listing) TextButton(onClick = hapticClick { listing = true }) { Text("Change") }
 	}
 	if (sight == WifiSight.Unknown || listing) {
-		for (home in run.homes) {
-			Row(
-				Modifier.fillMaxWidth().clickable(onClick = hapticClick { repo.plugSetupOps.pickHome(home) }).padding(vertical = 2.dp),
-				verticalAlignment = Alignment.CenterVertically,
-			) {
-				RadioButton(selected = run.home == home, onClick = hapticClick { repo.plugSetupOps.pickHome(home) })
-				Text(home.ssid, style = MaterialTheme.typography.bodyLarge)
+		Column(Modifier.fillMaxWidth().heightIn(max = WIFI_LIST_HEIGHT).verticalScroll(rememberScrollState())) {
+			for (home in run.homes) {
+				Row(
+					Modifier.fillMaxWidth().clickable(onClick = hapticClick { repo.plugSetupOps.pickHome(home) }),
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					RadioButton(selected = run.home == home, onClick = hapticClick { repo.plugSetupOps.pickHome(home) })
+					Text(home.ssid, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+					signalBars(home.signal)?.let { SignalBars(it, Modifier.padding(end = 8.dp)) }
+				}
 			}
 		}
 	}

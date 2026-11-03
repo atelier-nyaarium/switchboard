@@ -11,8 +11,16 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 
-/** A network the plug can see, for it to join. */
-internal data class HomeNetwork(val ssid: String, val keyType: Int, val signal: Int)
+/** A network the plug can see, for it to join; signal is null when the plug does not report it. */
+internal data class HomeNetwork(val ssid: String, val keyType: Int, val signal: Int?)
+
+/** Out of three; null when unknown. */
+internal fun signalBars(rssi: Int?): Int? = when {
+	rssi == null -> null
+	rssi >= -60 -> 3
+	rssi >= -72 -> 2
+	else -> 1
+}
 
 internal data class PlugFacts(val mac: String, val model: String, val alias: String)
 
@@ -59,6 +67,11 @@ internal object KasaSetupCommands {
 	const val SYSINFO = """{"system":{"get_sysinfo":{}}}"""
 	const val SCAN = """{"netif":{"get_scaninfo":{"refresh":1}}}"""
 
+	const val ONBOARDING = "smartlife.iot.common.softaponboarding"
+
+	/** Reports signal where netif does not. */
+	const val ONBOARDING_SCAN = """{"$ONBOARDING":{"get_scaninfo":{"refresh":1}}}"""
+
 	fun alias(name: String): String = buildJsonObject {
 		putJsonObject("system") { putJsonObject("set_dev_alias") { put("alias", name) } }
 	}.toString()
@@ -90,19 +103,22 @@ internal fun plugFactsOf(json: String): PlugFacts? = runIsolated {
 	)
 }.getOrNull()
 
-/** Networks the plug sees, hidden ones dropped, strongest first. */
-internal fun homeNetworksOf(json: String): List<HomeNetwork> = runIsolated {
-	val list = moduleAnswer(json, "netif", "get_scaninfo")?.get("ap_list")?.jsonArray ?: return@runIsolated emptyList()
+/** Networks the plug sees, hidden ones dropped, strongest first, unreported signal last in the plug's order. */
+internal fun homeNetworksOf(json: String, module: String = "netif"): List<HomeNetwork> = runIsolated {
+	val list = moduleAnswer(json, module, "get_scaninfo")?.get("ap_list")?.jsonArray ?: return@runIsolated emptyList()
 	list.mapNotNull { element ->
 		val ap = element.jsonObject
 		val ssid = ap["ssid"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-		HomeNetwork(ssid, ap["key_type"]?.jsonPrimitive?.int ?: 0, ap["rssi"]?.jsonPrimitive?.intOrNull ?: -100)
-	}.groupBy { it.ssid }.map { (_, same) -> same.maxBy { it.signal } }.sortedByDescending { it.signal }
+		HomeNetwork(ssid, ap["key_type"]?.jsonPrimitive?.int ?: 0, ap["rssi"]?.jsonPrimitive?.intOrNull)
+	}.groupBy { it.ssid }
+		.map { (_, same) -> same.maxBy { it.signal ?: Int.MIN_VALUE } }
+		.sortedByDescending { it.signal ?: Int.MIN_VALUE }
 }.getOrNull() ?: emptyList()
 
 /** The vault's value, or null to ask the owner. */
 internal suspend fun setupPassword(entry: String?, reveal: suspend (String) -> String?): String? =
 	entry?.let { reveal(it) }?.takeIf { it.isNotEmpty() }
 
-/** A setup name falls back to the model. */
-internal fun setupName(plug: PlugFacts): String = plug.alias.ifBlank { plug.model }
+/** The paired name, else the plug's own unless it is its setup network's, else blank for the owner. */
+internal fun setupName(plug: PlugFacts, paired: String?, networkPrefix: String): String =
+	paired ?: plug.alias.takeUnless { it.isBlank() || it.startsWith(networkPrefix) }.orEmpty()

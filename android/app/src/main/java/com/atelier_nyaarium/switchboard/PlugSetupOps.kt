@@ -32,6 +32,8 @@ internal interface SetupGateway {
 	fun found(gatewayId: String, mac: String): FoundPlug?
 
 	suspend fun add(gatewayId: String, mac: String, name: String): Boolean
+
+	fun pairedName(gatewayId: String, mac: String): String?
 }
 
 internal enum class FoundPlug { PAIRED, CANDIDATE }
@@ -50,6 +52,8 @@ internal class DeviceSetupGateway(private val devices: DeviceOps) : SetupGateway
 		val candidate = (devices.view(gatewayId).scan as? ScanView.Found)?.candidates?.find { it.mac == mac } ?: return false
 		return devices.add(gatewayId, candidate, name) is DeviceSaved.Stored
 	}
+
+	override fun pairedName(gatewayId: String, mac: String): String? = deviceRecord(devices.view(gatewayId), mac)?.name
 }
 
 internal class PlugSetupOps(
@@ -81,16 +85,24 @@ internal class PlugSetupOps(
 		link = joined
 		val plug = runCatchingCancellable { joined.request(KasaSetupCommands.SYSINFO) }.getOrNull()?.let(::plugFactsOf)
 		if (plug == null) return@withLock settle(began) { it.copy(stage = SetupStage.FAILED, said = NOT_READ) }
-		val homes = runCatchingCancellable { joined.request(KasaSetupCommands.SCAN) }.getOrNull()?.let(::homeNetworksOf).orEmpty()
+		val homes = scanHomes(joined)
 		settle(began) {
 			it.copy(
 				stage = SetupStage.READY,
 				plug = plug,
 				homes = homes,
 				home = preferredHome(homes, platform.memory()),
-				name = setupName(plug),
+				name = setupName(plug, gateway.pairedName(gatewayId, plug.mac), networkPrefix),
 			)
 		}
+	}
+
+	/** The onboarding scan carries signal; the netif one is the fallback. */
+	private suspend fun scanHomes(joined: PlugLink): List<HomeNetwork> {
+		val onboarding = runCatchingCancellable { joined.request(KasaSetupCommands.ONBOARDING_SCAN) }.getOrNull()
+			?.let { homeNetworksOf(it, KasaSetupCommands.ONBOARDING) }.orEmpty()
+		if (onboarding.isNotEmpty()) return onboarding
+		return runCatchingCancellable { joined.request(KasaSetupCommands.SCAN) }.getOrNull()?.let(::homeNetworksOf).orEmpty()
 	}
 
 	fun pickHome(home: HomeNetwork) = state.update { it?.copy(home = home) }
