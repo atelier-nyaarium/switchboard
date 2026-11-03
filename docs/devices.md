@@ -40,7 +40,7 @@ Every result is `{ kind: "ok", ... }` or `{ kind: "refused", refusal }`, generat
 
 ## The assistant
 
-`devices` is a `read` and `device_set` an `act`, both answered on the Gateway behind `list_actions` and `run_action`. `devices` answers the inventory with live state, reading each plug under its own bound so one silent plug cannot time out the answer. `device_set` takes the record id or a name that matches one paired device exactly, the id in any MAC spelling, else refuses with the candidates and sends nothing. The assistant sees a plug's `err_code` and never its text, nor a reused address. A failure after a step landed tells it how many landed and that the last command's outcome is unknown. `docs/assistant.md` holds the action road.
+`devices` is a `read` and `device_set` an `act`, both answered on the Gateway behind `list_actions` and `run_action`. `devices` answers the inventory with live state, reading each plug under its own bound so one silent plug cannot time out the answer. `device_set` takes the record id or a name that matches one paired device exactly, the id in any MAC spelling, else refuses with the candidates and sends nothing. The assistant sees a plug's `err_code` and never its text, nor a reused address. A failure after a step landed tells it how many landed and that the last command's outcome is unknown. The rules for both live in their listing descriptions; the instructions name no action's rules. `docs/assistant.md` holds the action road.
 
 ## Deploying
 
